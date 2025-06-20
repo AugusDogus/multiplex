@@ -1,29 +1,43 @@
-# Create T3 App
+# Multiplex
 
-This is a [T3 Stack](https://create.t3.gg/) project bootstrapped with `create-t3-app`.
+A 3rd party Plex client that allows you to watch TV shows and movies with your friends in perfect synchronization across all clients.
 
-## What's next? How do I make an app with this?
+## About
 
-We try to keep this project as simple as possible, so you can start with just the scaffolding we set up for you, and add additional things later when they become necessary.
+Multiplex was created as a response to Plex's announcement of the deprecation of their Watch Together feature. Inspired by SyncLounge, this application ensures that you and your friends can continue to enjoy synchronized viewing experiences of your favorite content from your Plex server.
 
-If you are not familiar with the different technologies used in this project, please refer to the respective docs. If you still are in the wind, please join our [Discord](https://t3.gg/discord) and ask for help.
+## Features
 
-- [Next.js](https://nextjs.org)
-- [NextAuth.js](https://next-auth.js.org)
-- [Prisma](https://prisma.io)
-- [Drizzle](https://orm.drizzle.team)
-- [Tailwind CSS](https://tailwindcss.com)
-- [tRPC](https://trpc.io)
+- **Synchronized Playback**: Watch content in perfect sync with friends across multiple devices
+- **Real-time Controls**: Play, pause, seek, and navigate together
+- **Cross-platform**: Works on any device with a web browser
+- **Plex Integration**: Seamlessly connects to your existing Plex server
+- **User-friendly Interface**: Clean, modern UI built with shadcn/ui components
 
-## Learn More
+## Tech Stack
 
-To learn more about the [T3 Stack](https://create.t3.gg/), take a look at the following resources:
+This project is built with the following technologies:
 
-- [Documentation](https://create.t3.gg/)
-- [Learn the T3 Stack](https://create.t3.gg/en/faq#what-learning-resources-are-currently-available) — Check out these awesome tutorials
+- [Next.js](https://nextjs.org) - React framework
+- [BetterAuth](https://www.better-auth.com) - Authentication
+- [Drizzle](https://orm.drizzle.team) - Database ORM
+- [Tailwind CSS](https://tailwindcss.com) - Styling
+- [shadcn/ui](https://ui.shadcn.com) - UI components
+- [tRPC](https://trpc.io) - Type-safe APIs
 
-You can check out the [create-t3-app GitHub repository](https://github.com/t3-oss/create-t3-app) — your feedback and contributions are welcome!
+*This project was initially scaffolded using [create-t3-app](https://create.t3.gg/).*
 
-## How do I deploy this?
+## Getting Started
 
-Follow our deployment guides for [Vercel](https://create.t3.gg/en/deployment/vercel), [Netlify](https://create.t3.gg/en/deployment/netlify) and [Docker](https://create.t3.gg/en/deployment/docker) for more information.
+1. Clone the repository
+2. Install dependencies: `bun install`
+3. Set up your environment variables: `cp .env.example .env`
+4. Run the development server: `bun dev`
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit issues and pull requests to help improve Multiplex.
+
+## License
+
+This project is open source and available under the [MIT License](LICENSE).
