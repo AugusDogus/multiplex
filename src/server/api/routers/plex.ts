@@ -1,9 +1,13 @@
 import { z } from "zod";
 
-import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
+import {
+  createTRPCRouter,
+  protectedProcedure,
+  publicProcedure,
+} from "~/server/api/trpc";
 import { posts } from "~/server/db/schema";
 
-export const postRouter = createTRPCRouter({
+export const plexRouter = createTRPCRouter({
   hello: publicProcedure
     .input(z.object({ text: z.string() }))
     .query(({ input }) => {
@@ -26,5 +30,10 @@ export const postRouter = createTRPCRouter({
     });
 
     return post ?? null;
+  }),
+
+  getServers: protectedProcedure.query(async ({ ctx }) => {
+    const servers = await ctx.plex.getServers();
+    return servers;
   }),
 });

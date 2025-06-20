@@ -6,9 +6,9 @@ import { auth } from "~/lib/auth/server";
 import { api, HydrateClient } from "~/trpc/server";
 
 export default async function Home() {
-  const hello = await api.post.hello({ text: "from tRPC" });
+  const hello = await api.plex.hello({ text: "from tRPC" });
 
-  void api.post.getLatest.prefetch();
+  void api.plex.getLatest.prefetch();
 
   const session = await auth.api.getSession({
     headers: await headers(),

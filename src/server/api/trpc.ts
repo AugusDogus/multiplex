@@ -6,9 +6,11 @@
  * TL;DR - This is where all the tRPC server stuff is created and plugged in. The pieces you will
  * need to use are documented accordingly near the end.
  */
-import { initTRPC } from "@trpc/server";
+import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
+import { auth } from "~/lib/auth/server";
+import { PlexTvClient } from "~/lib/plex.tv/client";
 
 import { db } from "~/server/db";
 
@@ -25,8 +27,25 @@ import { db } from "~/server/db";
  * @see https://trpc.io/docs/server/context
  */
 export const createTRPCContext = async (opts: { headers: Headers }) => {
+  const authSession = await auth.api.getSession({
+    headers: opts.headers,
+  });
+
+  const token = authSession?.user?.plexAuthToken;
+
+  const plex = token
+    ? new PlexTvClient(token, {
+        product: "Multiplex",
+        clientIdentifier: "multiplex",
+        version: "1.0.0",
+        platform: "Web",
+      })
+    : null;
+
   return {
     db,
+    authSession,
+    plex,
     ...opts,
   };
 };
@@ -96,6 +115,25 @@ const timingMiddleware = t.middleware(async ({ next, path }) => {
   return result;
 });
 
+/** Reusable middleware that enforces users are logged in before running the procedure. */
+const enforceUserIsAuthed = t.middleware(({ ctx, next }) => {
+  if (!ctx.authSession) {
+    throw new TRPCError({ code: "UNAUTHORIZED" });
+  }
+
+  if (!ctx.plex) {
+    throw new TRPCError({ code: "CONFLICT", message: "Plex client not found" });
+  }
+
+  return next({
+    ctx: {
+      // infers the `authSession` as non-nullable
+      authSession: ctx.authSession,
+      plex: ctx.plex,
+    },
+  });
+});
+
 /**
  * Public (unauthenticated) procedure
  *
@@ -104,3 +142,13 @@ const timingMiddleware = t.middleware(async ({ next, path }) => {
  * are logged in.
  */
 export const publicProcedure = t.procedure.use(timingMiddleware);
+
+/**
+ * Protected (authenticated) procedure
+ *
+ * If you want a query or mutation to ONLY be accessible to logged in users, use this. It verifies
+ * the session is valid and guarantees `ctx.session.user` is not null.
+ *
+ * @see https://trpc.io/docs/procedures
+ */
+export const protectedProcedure = t.procedure.use(enforceUserIsAuthed);

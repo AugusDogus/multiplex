@@ -49,12 +49,18 @@ export function LoginForm({
       </div>
 
       <div className="text-muted-foreground text-center text-xs text-balance">
-        By continuing, you agree to our{" "}
-        <a href="#" className="hover:text-primary underline underline-offset-4">
+        By continuing, you agree to the{" "}
+        <a
+          href="https://www.plex.tv/about/privacy-legal/plex-terms-of-service/"
+          className="hover:text-primary underline underline-offset-4"
+        >
           Terms of Service
         </a>{" "}
         and{" "}
-        <a href="#" className="hover:text-primary underline underline-offset-4">
+        <a
+          href="https://www.plex.tv/about/privacy-legal/"
+          className="hover:text-primary underline underline-offset-4"
+        >
           Privacy Policy
         </a>
         .

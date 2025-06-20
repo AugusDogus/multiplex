@@ -245,11 +245,11 @@ const getUserInfo = async (token: string) => {
     throw new Error(`Failed to fetch Plex user info: ${response.statusText}`);
   }
 
-  const data = (await response.json()) as unknown;
+  const data = await response.json();
   return await userInfoSchema.parseAsync(data);
 };
 
-const schema = {
+const authPluginSchema = {
   user: {
     fields: {
       plexId: {
@@ -272,7 +272,7 @@ const schema = {
       plexAuthToken: {
         type: "string",
         required: false,
-        returned: false, // Don't return auth token to client
+        returned: true, // Return auth token to client
       } as const,
     },
   },
@@ -287,6 +287,7 @@ export const plex = () => {
 
   return {
     id: "plex-auth",
+
     endpoints: {
       // Initialize Plex auth flow - returns redirect URL
       initiatePlexAuth: createAuthEndpoint(
@@ -519,7 +520,7 @@ export const plex = () => {
         },
       ),
     },
-    schema: mergeSchema(schema),
+    schema: mergeSchema(authPluginSchema),
     $ERROR_CODES: ERROR_CODES,
   } satisfies BetterAuthPlugin;
 };
