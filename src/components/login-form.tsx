@@ -1,7 +1,6 @@
 "use client";
 
-import { GalleryVerticalEnd } from "lucide-react";
-
+import { Command } from "lucide-react";
 import { Button } from "~/components/ui/button";
 import { authClient } from "~/lib/auth/client";
 import { cn } from "~/lib/utils";
@@ -24,7 +23,7 @@ export function LoginForm({
         <div className="flex flex-col items-center gap-2">
           <a href="#" className="flex flex-col items-center gap-2 font-medium">
             <div className="flex size-8 items-center justify-center rounded-md">
-              <GalleryVerticalEnd className="size-6" />
+              <Command className="size-6 dark:text-white" />
             </div>
             <span className="sr-only">Multiplex</span>
           </a>
