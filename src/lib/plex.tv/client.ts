@@ -1,11 +1,36 @@
 import { type z } from "zod";
-import { sessionsSchema, type PlexDevice } from "./schemas";
+import {
+  rawUserInfoSchema,
+  sessionsSchema,
+  userInfoSchema,
+  type PlexDevice,
+  type PlexUserInfo,
+} from "./schemas";
 
 export interface PlexConfig {
   product: string;
   clientIdentifier: string;
   version: string;
   platform: string;
+}
+
+interface GetRequestOptions<T> {
+  endpoint: string;
+  params?: Record<string, string | number | boolean>;
+  schema?: z.ZodType<T>;
+  baseUrl?: string;
+  xPlexOverrides?: Partial<{
+    product: string;
+    version: string;
+    clientIdentifier: string;
+    platform: string;
+    platformVersion: string;
+    features: string;
+    model: string;
+    device: string;
+    deviceName: string;
+    language: string;
+  }>;
 }
 
 export class PlexAPIError extends Error {
@@ -41,7 +66,11 @@ export class PlexTvClient {
    * @returns Array of Plex Media Server devices
    */
   async getServers(): Promise<PlexDevice[]> {
-    const data = await this.get("resources", {}, sessionsSchema);
+    const data = await this.get({
+      endpoint: "resources",
+      params: {},
+      schema: sessionsSchema,
+    });
 
     const servers = data.filter(
       (device) => device.product === "Plex Media Server",
@@ -52,10 +81,26 @@ export class PlexTvClient {
 
   /**
    * Get user information
-   * @todo Implement user info retrieval
+   * @returns User information including subscriptions, providers, and settings
    */
-  async getUserInfo() {
-    throw new Error("Not implemented yet");
+  async getUserInfo(): Promise<PlexUserInfo> {
+    const rawData = await this.get({
+      endpoint: "user",
+      params: {
+        includeSubscriptions: 1,
+        includeProviders: 1,
+        includeSettings: 1,
+        includeSharedSettings: 1,
+      },
+      schema: rawUserInfoSchema,
+      baseUrl: "https://clients.plex.tv/api/v2/",
+      xPlexOverrides: {
+        product: "Plex Web",
+      },
+    });
+
+    // Transform the raw data to get parsed settings
+    return userInfoSchema.parse(rawData);
   }
 
   /**
@@ -76,22 +121,51 @@ export class PlexTvClient {
 
   /**
    * Make a GET request to the Plex.tv API
-   * @param endpoint - API endpoint path
-   * @param params - Optional query parameters
-   * @param schema - Optional Zod schema for response validation
+   * @param options - Request options including endpoint, params, schema, and baseUrl
    * @returns Parsed and validated response data
    */
-  private async get<T>(
-    endpoint: string,
-    params?: Record<string, string | number | boolean>,
-    schema?: z.ZodType<T>,
-  ): Promise<T> {
-    const url = new URL(endpoint, this.baseUrl);
+  private async get<T>(options: GetRequestOptions<T>): Promise<T> {
+    const { endpoint, params, schema, baseUrl, xPlexOverrides = {} } = options;
+    const url = new URL(endpoint, baseUrl ?? this.baseUrl);
 
+    // Add all X-Plex parameters as query parameters, with overrides
+    url.searchParams.append(
+      "X-Plex-Product",
+      xPlexOverrides.product ?? this.config.product,
+    );
+    url.searchParams.append(
+      "X-Plex-Version",
+      xPlexOverrides.version ?? this.config.version,
+    );
     url.searchParams.append(
       "X-Plex-Client-Identifier",
-      this.config.clientIdentifier,
+      xPlexOverrides.clientIdentifier ?? this.config.clientIdentifier,
     );
+    url.searchParams.append(
+      "X-Plex-Platform",
+      xPlexOverrides.platform ?? this.config.platform,
+    );
+    url.searchParams.append(
+      "X-Plex-Platform-Version",
+      xPlexOverrides.platformVersion ?? "137.0",
+    );
+    url.searchParams.append(
+      "X-Plex-Features",
+      xPlexOverrides.features ?? "external-media,indirect-media,hub-style-list",
+    );
+    url.searchParams.append(
+      "X-Plex-Model",
+      xPlexOverrides.model ?? "standalone",
+    );
+    url.searchParams.append(
+      "X-Plex-Device",
+      xPlexOverrides.device ?? "Windows",
+    );
+    url.searchParams.append(
+      "X-Plex-Device-Name",
+      xPlexOverrides.deviceName ?? this.config.platform,
+    );
+    url.searchParams.append("X-Plex-Language", xPlexOverrides.language ?? "en");
     url.searchParams.append("X-Plex-Token", this.token);
 
     if (params) {

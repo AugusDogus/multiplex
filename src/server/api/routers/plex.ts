@@ -36,4 +36,9 @@ export const plexRouter = createTRPCRouter({
     const servers = await ctx.plex.getServers();
     return servers;
   }),
+
+  getUserInfo: protectedProcedure.query(async ({ ctx }) => {
+    const userInfo = await ctx.plex.getUserInfo();
+    return userInfo;
+  }),
 });

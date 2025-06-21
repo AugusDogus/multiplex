@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppSidebar } from "~/components/app-sidebar";
+import { SearchForm } from "~/components/search-form";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -27,16 +28,20 @@ export default async function Page() {
     redirect("/login");
   }
 
-  const servers = await api.plex.getServers();
-  console.log(servers);
+  const promises = [api.plex.getServers(), api.plex.getUserInfo()] as const;
+  const [servers, userInfo] = await Promise.all(promises);
+
+  if (!servers || !userInfo) {
+    return null;
+  }
 
   return (
     <HydrateClient>
       <SidebarProvider>
-        <AppSidebar session={session} />
+        <AppSidebar session={session} servers={servers} userInfo={userInfo} />
         <SidebarInset>
           <header className="flex h-16 shrink-0 items-center gap-2">
-            <div className="flex items-center gap-2 px-4">
+            <div className="flex w-full items-center gap-2 px-4">
               <SidebarTrigger className="-ml-1" />
               <Separator
                 orientation="vertical"
@@ -55,6 +60,7 @@ export default async function Page() {
                   </BreadcrumbItem>
                 </BreadcrumbList>
               </Breadcrumb>
+              <SearchForm className="w-full sm:ml-auto sm:w-auto" />
             </div>
           </header>
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">

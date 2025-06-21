@@ -2,156 +2,30 @@
 import * as packageJson from "~/../package.json";
 
 import {
-  BookOpen,
-  Bot,
+  ArrowLeft,
   Command,
-  Frame,
-  LifeBuoy,
-  Map,
-  PieChart,
-  Send,
-  Settings2,
-  SquareTerminal,
+  Film,
+  Home,
+  MoreHorizontal,
+  Music,
+  Play,
+  Tv,
 } from "lucide-react";
 import * as React from "react";
 
-import { NavMain } from "~/components/nav-main";
-import { NavProjects } from "~/components/nav-projects";
-import { NavSecondary } from "~/components/nav-secondary";
 import { NavUser } from "~/components/nav-user";
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
+  SidebarGroup,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "~/components/ui/sidebar";
-
-const data = {
-  user: {
-    name: "shadcn",
-    email: "m@example.com",
-    avatar: "/avatars/shadcn.jpg",
-  },
-  navMain: [
-    {
-      title: "Playground",
-      url: "#",
-      icon: SquareTerminal,
-      isActive: true,
-      items: [
-        {
-          title: "History",
-          url: "#",
-        },
-        {
-          title: "Starred",
-          url: "#",
-        },
-        {
-          title: "Settings",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Models",
-      url: "#",
-      icon: Bot,
-      items: [
-        {
-          title: "Genesis",
-          url: "#",
-        },
-        {
-          title: "Explorer",
-          url: "#",
-        },
-        {
-          title: "Quantum",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Documentation",
-      url: "#",
-      icon: BookOpen,
-      items: [
-        {
-          title: "Introduction",
-          url: "#",
-        },
-        {
-          title: "Get Started",
-          url: "#",
-        },
-        {
-          title: "Tutorials",
-          url: "#",
-        },
-        {
-          title: "Changelog",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Settings",
-      url: "#",
-      icon: Settings2,
-      items: [
-        {
-          title: "General",
-          url: "#",
-        },
-        {
-          title: "Team",
-          url: "#",
-        },
-        {
-          title: "Billing",
-          url: "#",
-        },
-        {
-          title: "Limits",
-          url: "#",
-        },
-      ],
-    },
-  ],
-  navSecondary: [
-    {
-      title: "Support",
-      url: "#",
-      icon: LifeBuoy,
-    },
-    {
-      title: "Feedback",
-      url: "#",
-      icon: Send,
-    },
-  ],
-  projects: [
-    {
-      name: "Design Engineering",
-      url: "#",
-      icon: Frame,
-    },
-    {
-      name: "Sales & Marketing",
-      url: "#",
-      icon: PieChart,
-    },
-    {
-      name: "Travel",
-      url: "#",
-      icon: Map,
-    },
-  ],
-};
+import type { PlexDevice, PlexUserInfo } from "~/lib/plex.tv/schemas";
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   session: {
@@ -161,9 +35,32 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
       image?: string | null;
     };
   } | null;
+  servers: PlexDevice[];
+  userInfo: PlexUserInfo;
 }
 
-export function AppSidebar({ session, ...props }: AppSidebarProps) {
+// Helper function to get the appropriate icon for a source type
+function getSourceIcon(sourceType: string) {
+  switch (sourceType) {
+    case "movies":
+      return Film;
+    case "tv":
+      return Tv;
+    case "music":
+      return Music;
+    default:
+      return Play;
+  }
+}
+
+export function AppSidebar({
+  session,
+  servers,
+  userInfo,
+  ...props
+}: AppSidebarProps) {
+  const [currentPage, setCurrentPage] = React.useState<"main" | "all">("main");
+
   if (!session) {
     return null;
   }
@@ -174,13 +71,15 @@ export function AppSidebar({ session, ...props }: AppSidebarProps) {
     avatar: session.user.image ?? "",
   };
 
+  const pinnedSources = userInfo.settings?.sidebarSettings?.pinnedSources ?? [];
+
   return (
     <Sidebar variant="inset" {...props}>
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <a href="#">
+              <a href="/dashboard">
                 <div className="text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
                   <Command className="size-fit dark:text-white" />
                 </div>
@@ -195,11 +94,99 @@ export function AppSidebar({ session, ...props }: AppSidebarProps) {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
+
       <SidebarContent>
-        <NavMain items={data.navMain} />
-        <NavProjects projects={data.projects} />
-        <NavSecondary items={data.navSecondary} className="mt-auto" />
+        {currentPage === "main" ? (
+          <SidebarGroup>
+            <SidebarMenu>
+              {/* Home Item */}
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild>
+                  <a href="/dashboard">
+                    <Home />
+                    <span>Home</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              {/* Pinned Sources */}
+              {pinnedSources.map((source) => {
+                const Icon = getSourceIcon(source.sourceType);
+                return (
+                  <SidebarMenuItem key={source.key}>
+                    <SidebarMenuButton asChild>
+                      <a
+                        href={`/server/${source.machineIdentifier}/library/${source.directoryID}`}
+                      >
+                        <Icon />
+                        <span>{source.title}</span>
+                      </a>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+
+              {/* More Button */}
+              <SidebarMenuItem>
+                <SidebarMenuButton onClick={() => setCurrentPage("all")}>
+                  <MoreHorizontal />
+                  <span>More</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroup>
+        ) : (
+          <>
+            {/* Back Button */}
+            <SidebarGroup>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton onClick={() => setCurrentPage("main")}>
+                    <ArrowLeft />
+                    <span>Back</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroup>
+
+            {/* All Sources Grouped by Server */}
+            {servers.map((server) => {
+              // Filter to get only library sections for this server
+              const serverSources = pinnedSources.filter(
+                (source) =>
+                  source.machineIdentifier === server.clientIdentifier,
+              );
+
+              // For now, we'll show the pinned sources. In a real implementation,
+              // you'd want to fetch all library sections from the server
+              // This is a placeholder structure
+              return (
+                <SidebarGroup key={server.clientIdentifier}>
+                  <SidebarGroupLabel>{server.name}</SidebarGroupLabel>
+                  <SidebarMenu>
+                    {serverSources.map((source) => {
+                      const Icon = getSourceIcon(source.sourceType);
+                      return (
+                        <SidebarMenuItem key={source.key}>
+                          <SidebarMenuButton asChild>
+                            <a
+                              href={`/server/${source.machineIdentifier}/library/${source.directoryID}`}
+                            >
+                              <Icon />
+                              <span>{source.title}</span>
+                            </a>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    })}
+                  </SidebarMenu>
+                </SidebarGroup>
+              );
+            })}
+          </>
+        )}
       </SidebarContent>
+
       <SidebarFooter>
         <NavUser user={user} />
       </SidebarFooter>
