@@ -81,7 +81,7 @@ export class PlexServerClient {
   ): Promise<boolean> {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 10 second timeout (increased from 5)
+      const timeoutId = setTimeout(() => controller.abort(), 250);
 
       const testUrl = `${connection.uri}/identity`;
 
@@ -470,6 +470,14 @@ export class PlexTvClient {
 
     // Transform the raw data to get parsed settings
     return userInfoSchema.parse(rawData);
+  }
+
+  /**
+   * Get the authentication token
+   * @returns The Plex authentication token
+   */
+  getToken(): string {
+    return this.token;
   }
 
   /**

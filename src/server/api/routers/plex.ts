@@ -57,21 +57,14 @@ export const plexRouter = createTRPCRouter({
         throw new Error(`Server not found: ${input.serverId}`);
       }
 
-      // Create server client and get media providers
-      const serverClient = ctx.plex.createServerClient(server);
-      const mediaProviders = await serverClient.getMediaProviders();
+      console.log(`📡 Connecting to ${server.name}...`);
 
-      return mediaProviders;
-    }),
-
-  getAllServerLibraries: protectedProcedure.query(async ({ ctx }) => {
-    const servers = await ctx.plex.getServers();
-
-    // Fetch library data for all servers in parallel
-    const serverLibrariesPromises = servers.map(async (server) => {
       try {
+        // Create server client and get media providers
         const serverClient = ctx.plex.createServerClient(server);
         const mediaProviders = await serverClient.getMediaProviders();
+
+        console.log(`✅ ${server.name}: Successfully loaded libraries`);
 
         return {
           serverId: server.clientIdentifier,
@@ -80,6 +73,43 @@ export const plexRouter = createTRPCRouter({
           error: undefined,
         };
       } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Unknown error";
+        console.log(`❌ ${server.name}: ${errorMessage}`);
+
+        return {
+          serverId: server.clientIdentifier,
+          serverName: server.name,
+          mediaProviders: undefined,
+          error: errorMessage,
+        };
+      }
+    }),
+
+  // Legacy endpoint - kept for backward compatibility but not used in new implementation
+  getAllServerLibraries: protectedProcedure.query(async ({ ctx }) => {
+    const servers = await ctx.plex.getServers();
+
+    console.log(`🔄 Fetching libraries for ${servers.length} servers...`);
+
+    // Fetch library data for all servers in parallel
+    const serverLibrariesPromises = servers.map(async (server) => {
+      try {
+        console.log(`📡 Connecting to ${server.name}...`);
+        const serverClient = ctx.plex.createServerClient(server);
+        const mediaProviders = await serverClient.getMediaProviders();
+        console.log(`✅ ${server.name}: Successfully loaded libraries`);
+
+        return {
+          serverId: server.clientIdentifier,
+          serverName: server.name,
+          mediaProviders,
+          error: undefined,
+        };
+      } catch (error) {
+        console.log(
+          `❌ ${server.name}: ${error instanceof Error ? error.message : "Unknown error"}`,
+        );
         return {
           serverId: server.clientIdentifier,
           serverName: server.name,

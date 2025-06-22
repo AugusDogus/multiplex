@@ -29,14 +29,11 @@ export default async function Page() {
     redirect("/login");
   }
 
-  const promises = [
-    api.plex.getServers(),
-    api.plex.getUserInfo(),
-    api.plex.getAllServerLibraries(),
-  ] as const;
-  const [servers, userInfo, serverLibraries] = await Promise.all(promises);
+  // Fetch basic server and user info first
+  const promises = [api.plex.getServers(), api.plex.getUserInfo()] as const;
+  const [servers, userInfo] = await Promise.all(promises);
 
-  if (!servers || !userInfo || !serverLibraries) {
+  if (!servers || !userInfo) {
     return null;
   }
 
@@ -44,12 +41,7 @@ export default async function Page() {
     <HydrateClient>
       <SidebarProvider>
         <PlexErrorWrapper>
-          <AppSidebar
-            session={session}
-            servers={servers}
-            userInfo={userInfo}
-            serverLibraries={serverLibraries}
-          />
+          <AppSidebar session={session} servers={servers} userInfo={userInfo} />
         </PlexErrorWrapper>
         <SidebarInset>
           <header className="flex h-16 shrink-0 items-center gap-2">
