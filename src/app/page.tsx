@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppSidebar } from "~/components/app-sidebar";
+import { PlexErrorWrapper } from "~/components/plex-error-wrapper";
 import { SearchForm } from "~/components/search-form";
 import {
   Breadcrumb,
@@ -42,12 +43,14 @@ export default async function Page() {
   return (
     <HydrateClient>
       <SidebarProvider>
-        <AppSidebar
-          session={session}
-          servers={servers}
-          userInfo={userInfo}
-          serverLibraries={serverLibraries}
-        />
+        <PlexErrorWrapper>
+          <AppSidebar
+            session={session}
+            servers={servers}
+            userInfo={userInfo}
+            serverLibraries={serverLibraries}
+          />
+        </PlexErrorWrapper>
         <SidebarInset>
           <header className="flex h-16 shrink-0 items-center gap-2">
             <div className="flex w-full items-center gap-2 px-4">

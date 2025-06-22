@@ -89,7 +89,28 @@ export const plexRouter = createTRPCRouter({
       }
     });
 
-    const results = await Promise.all(serverLibrariesPromises);
+    // Use Promise.allSettled to handle failures gracefully
+    const settledResults = await Promise.allSettled(serverLibrariesPromises);
+
+    // Extract results, handling both fulfilled and rejected promises
+    const results = settledResults.map((result, index) => {
+      if (result.status === "fulfilled") {
+        return result.value;
+      } else {
+        // Handle rejected promises (network errors, timeouts, etc.)
+        const server = servers[index]!;
+        return {
+          serverId: server.clientIdentifier,
+          serverName: server.name,
+          mediaProviders: undefined,
+          error:
+            result.reason instanceof Error
+              ? result.reason.message
+              : "Server connection failed",
+        };
+      }
+    });
+
     return results;
   }),
 });

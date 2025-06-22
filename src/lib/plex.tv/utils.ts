@@ -1,18 +1,29 @@
 import type { Directory, MediaContainer } from "./schemas";
+import {
+  isHomeDirectory,
+  isLibrarySection,
+  isLiveTVDirectory,
+  isPlaylistDirectory,
+} from "./schemas";
+
+// Better typed extracted source
+export interface ExtractedSource {
+  id: string;
+  title: string;
+  type?: string;
+  provider: string;
+  providerIdentifier: string;
+  isLibrarySection: boolean;
+}
 
 /**
  * Extract all sources from MediaContainer response
  * Maps over all MediaProviders and their Directory arrays to find sources
  */
-export function extractAllSources(mediaContainer: MediaContainer) {
-  const sources: Array<{
-    id: string;
-    title: string;
-    type?: string;
-    provider: string;
-    providerIdentifier: string;
-    isLibrarySection: boolean;
-  }> = [];
+export function extractAllSources(
+  mediaContainer: MediaContainer,
+): ExtractedSource[] {
+  const sources: ExtractedSource[] = [];
 
   // Map over all MediaProviders
   for (const provider of mediaContainer.MediaContainer.MediaProvider) {
@@ -46,31 +57,24 @@ export function extractAllSources(mediaContainer: MediaContainer) {
 }
 
 /**
- * Extract a source from a Directory object
+ * Extract a source from a Directory object using type guards
  */
 function extractSourceFromDirectory(
   directory: Directory,
   providerName: string,
   providerIdentifier?: string,
-) {
+): ExtractedSource | null {
   // Skip Home directory
-  if ("hubKey" in directory && directory.hubKey === "/hubs") {
+  if (isHomeDirectory(directory)) {
     return null;
   }
 
   // Handle library sections (Movies, TV Shows, etc.)
-  if (
-    "id" in directory &&
-    "type" in directory &&
-    directory.type !== "playlist"
-  ) {
+  if (isLibrarySection(directory)) {
     let sourceId = directory.id;
 
     // For hubKey-based sections, extract numeric ID
-    if (
-      "hubKey" in directory &&
-      directory.hubKey?.includes("/hubs/sections/")
-    ) {
+    if (directory.hubKey.includes("/hubs/sections/")) {
       const match = /\/hubs\/sections\/(\d+)/.exec(directory.hubKey);
       sourceId = match ? match[1]! : directory.id;
     }
@@ -85,12 +89,39 @@ function extractSourceFromDirectory(
     };
   }
 
-  // Handle special sections (Playlists, Live TV & DVR main entry, etc.)
-  if ("id" in directory) {
+  // Handle playlists
+  if (isPlaylistDirectory(directory)) {
     return {
       id: directory.id,
       title: directory.title,
-      type: "type" in directory ? directory.type : undefined,
+      type: directory.type,
+      provider: providerName,
+      providerIdentifier: providerIdentifier ?? "",
+      isLibrarySection: false,
+    };
+  }
+
+  // Handle Live TV & DVR
+  if (isLiveTVDirectory(directory)) {
+    return {
+      id: directory.id,
+      title: directory.title,
+      type: undefined, // Live TV doesn't have a standard type
+      provider: providerName,
+      providerIdentifier: providerIdentifier ?? "",
+      isLibrarySection: false,
+    };
+  }
+
+  // Handle other directories with id
+  if ("id" in directory && typeof directory.id === "string") {
+    return {
+      id: directory.id,
+      title: directory.title,
+      type:
+        "type" in directory && typeof directory.type === "string"
+          ? directory.type
+          : undefined,
       provider: providerName,
       providerIdentifier: providerIdentifier ?? "",
       isLibrarySection: false,
@@ -129,7 +160,7 @@ export function getSourceTypeFromPlexType(
  * Create a source object compatible with the existing sidebar structure
  */
 export function createSourceFromExtractedSource(
-  extractedSource: ReturnType<typeof extractAllSources>[0],
+  extractedSource: ExtractedSource,
   serverId: string,
   serverName: string,
 ) {

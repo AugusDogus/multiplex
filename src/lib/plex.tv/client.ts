@@ -65,7 +65,8 @@ export class PlexServerClient {
    * @param config - Client configuration
    */
   constructor(server: PlexDevice, token: string, config: PlexConfig) {
-    this.token = token;
+    // Use server's specific access token if available, otherwise fall back to user token
+    this.token = server.accessToken ?? token;
     this.config = config;
     this.server = server;
   }
@@ -80,9 +81,11 @@ export class PlexServerClient {
   ): Promise<boolean> {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 10 second timeout (increased from 5)
 
-      const response = await fetch(`${connection.uri}/identity`, {
+      const testUrl = `${connection.uri}/identity`;
+
+      const response = await fetch(testUrl, {
         method: "GET",
         headers: {
           "X-Plex-Token": this.token,
@@ -131,13 +134,25 @@ export class PlexServerClient {
   private async testConnections(): Promise<PlexDevice["connections"][0]> {
     const connections = [...this.server.connections];
 
-    // Sort connections by priority: local first, then by whether they're secure
-    connections.sort((a, b) => {
-      // Local connections first
-      if (a.local && !b.local) return -1;
-      if (!a.local && b.local) return 1;
+    console.log(
+      `Testing connections for server: ${this.server.name} (${connections.length} available)`,
+    );
 
-      // Among same locality, prefer HTTPS
+    // Sort connections by priority
+    connections.sort((a, b) => {
+      // For shared servers (not owned), prefer relay connections first
+      if (!this.server.owned) {
+        if (a.relay && !b.relay) return -1;
+        if (!a.relay && b.relay) return 1;
+      }
+
+      // For owned servers, local connections first
+      if (this.server.owned) {
+        if (a.local && !b.local) return -1;
+        if (!a.local && b.local) return 1;
+      }
+
+      // Among same type, prefer HTTPS
       if (a.protocol === "https" && b.protocol === "http") return -1;
       if (a.protocol === "http" && b.protocol === "https") return 1;
 
@@ -164,6 +179,9 @@ export class PlexServerClient {
       // Return the first working connection from this batch
       for (const result of results) {
         if (result.status === "fulfilled" && result.value.works) {
+          console.log(
+            `✅ ${this.server.name}: Connected via ${result.value.connection.uri}`,
+          );
           return result.value.connection;
         }
       }
@@ -174,6 +192,7 @@ export class PlexServerClient {
       }
     }
 
+    console.log(`❌ ${this.server.name}: No working connections found`);
     throw new Error(
       `No working connections found for server ${this.server.name}`,
     );
@@ -300,12 +319,31 @@ export class PlexServerClient {
           }
         }
 
+        const headers = this.getHeaders();
+
+        console.log(`Making request to ${this.server.name}:`);
+        console.log(`URL: ${url.toString()}`);
+        console.log(`Headers:`, headers);
+        console.log(
+          `Token (first 10 chars): ${this.token.substring(0, 10)}...`,
+        );
+
         const response = await fetch(url.toString(), {
           method: "GET",
-          headers: this.getHeaders(),
+          headers,
         });
 
+        console.log(
+          `Response from ${this.server.name}: ${response.status} ${response.statusText}`,
+        );
+
         if (!response.ok) {
+          // Log response headers for debugging
+          console.log(
+            `Response headers:`,
+            Object.fromEntries(response.headers.entries()),
+          );
+
           throw new PlexAPIError(
             `Plex Server API request failed: ${response.statusText}`,
             response.status,
@@ -330,6 +368,11 @@ export class PlexServerClient {
         const currentError =
           error instanceof Error ? error : new Error(String(error));
         errors.push(currentError);
+
+        console.log(
+          `Request to ${this.server.name} failed (attempt ${attempt + 1}):`,
+          currentError.message,
+        );
 
         // If this is the last attempt, throw the error
         if (attempt === maxRetries) {

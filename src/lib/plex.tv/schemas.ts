@@ -346,7 +346,7 @@ const GenericDirectorySchema = BaseDirectorySchema.extend({
   updatedAt: z.number().optional(),
 });
 
-// Union of all directory types
+// Simple union of all directory types
 const DirectorySchema = z.union([
   LibrarySectionSchema,
   PlaylistDirectorySchema,
@@ -354,6 +354,37 @@ const DirectorySchema = z.union([
   HomeDirectorySchema,
   GenericDirectorySchema,
 ]);
+
+// Type guards for runtime type checking
+export function isLibrarySection(
+  dir: Directory,
+): dir is z.infer<typeof LibrarySectionSchema> {
+  return (
+    "id" in dir && "type" in dir && "hubKey" in dir && dir.type !== "playlist"
+  );
+}
+
+export function isPlaylistDirectory(
+  dir: Directory,
+): dir is z.infer<typeof PlaylistDirectorySchema> {
+  return "id" in dir && dir.id === "playlists";
+}
+
+export function isLiveTVDirectory(
+  dir: Directory,
+): dir is z.infer<typeof LiveTVDirectorySchema> {
+  return (
+    "id" in dir &&
+    typeof dir.id === "string" &&
+    dir.id.includes("tv.plex.providers")
+  );
+}
+
+export function isHomeDirectory(
+  dir: Directory,
+): dir is z.infer<typeof HomeDirectorySchema> {
+  return "hubKey" in dir && dir.hubKey === "/hubs";
+}
 
 // Simplified Feature schema
 const FeatureSchema = z.object({
