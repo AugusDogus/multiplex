@@ -6,13 +6,16 @@ import {
   Command,
   Film,
   Home,
+  ListVideo,
   MoreHorizontal,
   Music,
   Play,
   Tv,
+  TvMinimal,
 } from "lucide-react";
 import * as React from "react";
 
+import Link from "next/link";
 import { NavUser } from "~/components/nav-user";
 import {
   Sidebar,
@@ -26,6 +29,11 @@ import {
   SidebarMenuItem,
 } from "~/components/ui/sidebar";
 import type { PlexDevice, PlexUserInfo } from "~/lib/plex.tv/schemas";
+import {
+  createSourceFromExtractedSource,
+  extractAllSources,
+} from "~/lib/plex.tv/utils";
+import type { plexRouterOutputs } from "~/server/api/routers/plex";
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   session: {
@@ -37,6 +45,7 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   } | null;
   servers: PlexDevice[];
   userInfo: PlexUserInfo;
+  serverLibraries: plexRouterOutputs["getAllServerLibraries"];
 }
 
 // Helper function to get the appropriate icon for a source type
@@ -45,9 +54,13 @@ function getSourceIcon(sourceType: string) {
     case "movies":
       return Film;
     case "tv":
-      return Tv;
+      return TvMinimal;
     case "music":
       return Music;
+    case "playlist":
+      return ListVideo;
+    case "Live TV & DVR":
+      return Tv;
     default:
       return Play;
   }
@@ -57,9 +70,80 @@ export function AppSidebar({
   session,
   servers,
   userInfo,
+  serverLibraries,
   ...props
 }: AppSidebarProps) {
   const [currentPage, setCurrentPage] = React.useState<"main" | "all">("main");
+
+  const pinnedSources = userInfo.settings?.sidebarSettings?.pinnedSources ?? [];
+
+  // Extract all sources from server libraries
+  const allLibrarySources = React.useMemo(() => {
+    const sources: ReturnType<typeof createSourceFromExtractedSource>[] = [];
+
+    for (const serverLib of serverLibraries) {
+      if (serverLib.mediaProviders && !serverLib.error) {
+        try {
+          const extractedSources = extractAllSources(serverLib.mediaProviders);
+
+          for (const extractedSource of extractedSources) {
+            const source = createSourceFromExtractedSource(
+              extractedSource,
+              serverLib.serverId,
+              serverLib.serverName,
+            );
+            sources.push(source);
+          }
+        } catch (error) {
+          console.error(
+            `Error processing server ${serverLib.serverName}:`,
+            error,
+          );
+        }
+      }
+    }
+
+    return sources;
+  }, [serverLibraries]);
+
+  // Match pinned sources with real library sources
+  const matchedPinnedSources = React.useMemo(() => {
+    const matched = pinnedSources.map((pinnedSource) => {
+      // Try to find a matching library source
+      const matchingLibrarySource = allLibrarySources.find(
+        (libSource) =>
+          libSource.machineIdentifier === pinnedSource.machineIdentifier &&
+          libSource.directoryID === pinnedSource.directoryID,
+      );
+
+      // Use the library source if found, otherwise fall back to pinned source
+      return (
+        matchingLibrarySource ?? {
+          key: pinnedSource.key,
+          sourceType: pinnedSource.sourceType,
+          machineIdentifier: pinnedSource.machineIdentifier,
+          directoryID: pinnedSource.directoryID,
+          title: pinnedSource.title,
+          serverFriendlyName: pinnedSource.serverFriendlyName,
+          isLibrarySection: false,
+        }
+      );
+    });
+
+    return matched;
+  }, [pinnedSources, allLibrarySources]);
+
+  // Group all library sources by server for the "More" page
+  const librarySourcesByServer = React.useMemo(() => {
+    const grouped: Record<string, typeof allLibrarySources> = {};
+
+    for (const source of allLibrarySources) {
+      grouped[source.machineIdentifier] ??= [];
+      grouped[source.machineIdentifier]!.push(source);
+    }
+
+    return grouped;
+  }, [allLibrarySources]);
 
   if (!session) {
     return null;
@@ -71,15 +155,13 @@ export function AppSidebar({
     avatar: session.user.image ?? "",
   };
 
-  const pinnedSources = userInfo.settings?.sidebarSettings?.pinnedSources ?? [];
-
   return (
     <Sidebar variant="inset" {...props}>
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <a href="/dashboard">
+              <Link href="/">
                 <div className="text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
                   <Command className="size-fit dark:text-white" />
                 </div>
@@ -89,7 +171,7 @@ export function AppSidebar({
                     v{packageJson.version}
                   </span>
                 </div>
-              </a>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -102,25 +184,29 @@ export function AppSidebar({
               {/* Home Item */}
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
-                  <a href="/dashboard">
+                  <Link href="/">
                     <Home />
                     <span>Home</span>
-                  </a>
+                  </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
-              {/* Pinned Sources */}
-              {pinnedSources.map((source) => {
+              {/* Pinned Sources (now using real library data) */}
+              {matchedPinnedSources.map((source) => {
                 const Icon = getSourceIcon(source.sourceType);
+                // Generate href for pinned sources that might not have it
+                const href =
+                  "href" in source && source.href
+                    ? source.href
+                    : `/media/${source.machineIdentifier}/com.plexapp.plugins.library?source=${source.directoryID}`;
+
                 return (
                   <SidebarMenuItem key={source.key}>
                     <SidebarMenuButton asChild>
-                      <a
-                        href={`/server/${source.machineIdentifier}/library/${source.directoryID}`}
-                      >
+                      <Link href={href}>
                         <Icon />
                         <span>{source.title}</span>
-                      </a>
+                      </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );
@@ -149,36 +235,65 @@ export function AppSidebar({
               </SidebarMenu>
             </SidebarGroup>
 
-            {/* All Sources Grouped by Server */}
+            {/* All Sources Grouped by Server (now using real library data) */}
             {servers.map((server) => {
-              // Filter to get only library sections for this server
-              const serverSources = pinnedSources.filter(
-                (source) =>
-                  source.machineIdentifier === server.clientIdentifier,
+              const serverSources =
+                librarySourcesByServer[server.clientIdentifier] ?? [];
+              const serverLib = serverLibraries.find(
+                (lib) => lib.serverId === server.clientIdentifier,
               );
 
-              // For now, we'll show the pinned sources. In a real implementation,
-              // you'd want to fetch all library sections from the server
-              // This is a placeholder structure
+              // Show error state if server couldn't be reached
+              if (serverLib?.error) {
+                return (
+                  <SidebarGroup key={server.clientIdentifier}>
+                    <SidebarGroupLabel>{server.name}</SidebarGroupLabel>
+                    <SidebarMenu>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton disabled>
+                          <span className="text-muted-foreground text-sm">
+                            Error: {serverLib.error}
+                          </span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    </SidebarMenu>
+                  </SidebarGroup>
+                );
+              }
+
+              // Show library sections for this server
               return (
                 <SidebarGroup key={server.clientIdentifier}>
                   <SidebarGroupLabel>{server.name}</SidebarGroupLabel>
                   <SidebarMenu>
-                    {serverSources.map((source) => {
-                      const Icon = getSourceIcon(source.sourceType);
-                      return (
-                        <SidebarMenuItem key={source.key}>
-                          <SidebarMenuButton asChild>
-                            <a
-                              href={`/server/${source.machineIdentifier}/library/${source.directoryID}`}
-                            >
-                              <Icon />
-                              <span>{source.title}</span>
-                            </a>
-                          </SidebarMenuButton>
-                        </SidebarMenuItem>
-                      );
-                    })}
+                    {serverSources.length === 0 ? (
+                      <SidebarMenuItem>
+                        <SidebarMenuButton disabled>
+                          <span className="text-muted-foreground text-sm">
+                            No libraries found
+                          </span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ) : (
+                      serverSources.map((source) => {
+                        const Icon = getSourceIcon(source.sourceType);
+                        const href =
+                          "href" in source && source.href
+                            ? source.href
+                            : `/media/${source.machineIdentifier}/com.plexapp.plugins.library?source=${source.directoryID}`;
+
+                        return (
+                          <SidebarMenuItem key={source.key}>
+                            <SidebarMenuButton asChild>
+                              <Link href={href}>
+                                <Icon />
+                                <span>{source.title}</span>
+                              </Link>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        );
+                      })
+                    )}
                   </SidebarMenu>
                 </SidebarGroup>
               );

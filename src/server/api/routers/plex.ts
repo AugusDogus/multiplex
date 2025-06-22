@@ -1,3 +1,4 @@
+import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import { z } from "zod";
 
 import {
@@ -6,6 +7,9 @@ import {
   publicProcedure,
 } from "~/server/api/trpc";
 import { posts } from "~/server/db/schema";
+
+export type plexRouterInputs = inferRouterInputs<typeof plexRouter>;
+export type plexRouterOutputs = inferRouterOutputs<typeof plexRouter>;
 
 export const plexRouter = createTRPCRouter({
   hello: publicProcedure
@@ -40,5 +44,52 @@ export const plexRouter = createTRPCRouter({
   getUserInfo: protectedProcedure.query(async ({ ctx }) => {
     const userInfo = await ctx.plex.getUserInfo();
     return userInfo;
+  }),
+
+  getServerLibraries: protectedProcedure
+    .input(z.object({ serverId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // Get servers and find the one we want
+      const servers = await ctx.plex.getServers();
+      const server = servers.find((s) => s.clientIdentifier === input.serverId);
+
+      if (!server) {
+        throw new Error(`Server not found: ${input.serverId}`);
+      }
+
+      // Create server client and get media providers
+      const serverClient = ctx.plex.createServerClient(server);
+      const mediaProviders = await serverClient.getMediaProviders();
+
+      return mediaProviders;
+    }),
+
+  getAllServerLibraries: protectedProcedure.query(async ({ ctx }) => {
+    const servers = await ctx.plex.getServers();
+
+    // Fetch library data for all servers in parallel
+    const serverLibrariesPromises = servers.map(async (server) => {
+      try {
+        const serverClient = ctx.plex.createServerClient(server);
+        const mediaProviders = await serverClient.getMediaProviders();
+
+        return {
+          serverId: server.clientIdentifier,
+          serverName: server.name,
+          mediaProviders,
+          error: undefined,
+        };
+      } catch (error) {
+        return {
+          serverId: server.clientIdentifier,
+          serverName: server.name,
+          mediaProviders: undefined,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    });
+
+    const results = await Promise.all(serverLibrariesPromises);
+    return results;
   }),
 });

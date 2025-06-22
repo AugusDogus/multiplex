@@ -1,15 +1,25 @@
-import { redirect } from "next/navigation";
-
 import { headers } from "next/headers";
-import { LatestPost } from "~/app/_components/post";
+import { redirect } from "next/navigation";
+import { AppSidebar } from "~/components/app-sidebar";
+import { SearchForm } from "~/components/search-form";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "~/components/ui/breadcrumb";
+import { Separator } from "~/components/ui/separator";
+import {
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+} from "~/components/ui/sidebar";
 import { auth } from "~/lib/auth/server";
 import { api, HydrateClient } from "~/trpc/server";
 
-export default async function Home() {
-  const hello = await api.plex.hello({ text: "from tRPC" });
-
-  void api.plex.getLatest.prefetch();
-
+export default async function Page() {
   const session = await auth.api.getSession({
     headers: await headers(),
   });
@@ -18,42 +28,60 @@ export default async function Home() {
     redirect("/login");
   }
 
+  const promises = [
+    api.plex.getServers(),
+    api.plex.getUserInfo(),
+    api.plex.getAllServerLibraries(),
+  ] as const;
+  const [servers, userInfo, serverLibraries] = await Promise.all(promises);
+
+  if (!servers || !userInfo || !serverLibraries) {
+    return null;
+  }
+
   return (
     <HydrateClient>
-      <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-[#2e026d] to-[#15162c] text-white">
-        <div className="container flex flex-col items-center justify-center gap-12 px-4 py-16">
-          <h1 className="text-5xl font-extrabold tracking-tight sm:text-[5rem]">
-            <span className="text-[hsl(280,100%,70%)]">Multiplex</span>
-          </h1>
-          <p className="max-w-2xl text-center text-xl">
-            Watch your favorite movies and TV shows with friends in perfect
-            synchronization across all devices
-          </p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:gap-8">
-            <div className="flex max-w-xs flex-col gap-4 rounded-xl bg-white/10 p-4">
-              <h3 className="text-2xl font-bold">🎬 Synchronized Playback</h3>
-              <div className="text-lg">
-                Watch together in real-time with automatic sync across all
-                connected devices.
-              </div>
+      <SidebarProvider>
+        <AppSidebar
+          session={session}
+          servers={servers}
+          userInfo={userInfo}
+          serverLibraries={serverLibraries}
+        />
+        <SidebarInset>
+          <header className="flex h-16 shrink-0 items-center gap-2">
+            <div className="flex w-full items-center gap-2 px-4">
+              <SidebarTrigger className="-ml-1" />
+              <Separator
+                orientation="vertical"
+                className="mr-2 data-[orientation=vertical]:h-4"
+              />
+              <Breadcrumb>
+                <BreadcrumbList>
+                  <BreadcrumbItem className="hidden md:block">
+                    <BreadcrumbLink href="#">
+                      Building Your Application
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator className="hidden md:block" />
+                  <BreadcrumbItem>
+                    <BreadcrumbPage>Data Fetching</BreadcrumbPage>
+                  </BreadcrumbItem>
+                </BreadcrumbList>
+              </Breadcrumb>
+              <SearchForm className="w-full sm:ml-auto sm:w-auto" />
             </div>
-            <div className="flex max-w-xs flex-col gap-4 rounded-xl bg-white/10 p-4">
-              <h3 className="text-2xl font-bold">🎮 Real-time Controls</h3>
-              <div className="text-lg">
-                Play, pause, seek, and navigate together with your friends
-                seamlessly.
-              </div>
+          </header>
+          <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
+            <div className="grid auto-rows-min gap-4 md:grid-cols-3">
+              <div className="bg-muted/50 aspect-video rounded-xl" />
+              <div className="bg-muted/50 aspect-video rounded-xl" />
+              <div className="bg-muted/50 aspect-video rounded-xl" />
             </div>
+            <div className="bg-muted/50 min-h-[100vh] flex-1 rounded-xl md:min-h-min" />
           </div>
-          <div className="flex flex-col items-center gap-2">
-            <p className="text-2xl text-white">
-              {hello ? hello.greeting : "Loading tRPC query..."}
-            </p>
-          </div>
-
-          <LatestPost />
-        </div>
-      </main>
+        </SidebarInset>
+      </SidebarProvider>
     </HydrateClient>
   );
 }

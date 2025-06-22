@@ -1,8 +1,10 @@
 import { type z } from "zod";
 import {
+  MediaContainerSchema,
   rawUserInfoSchema,
   sessionsSchema,
   userInfoSchema,
+  type MediaContainer,
   type PlexDevice,
   type PlexUserInfo,
 } from "./schemas";
@@ -30,6 +32,8 @@ interface GetRequestOptions<T> {
     device: string;
     deviceName: string;
     language: string;
+    sessionId: string;
+    deviceScreenResolution: string;
   }>;
 }
 
@@ -41,6 +45,328 @@ export class PlexAPIError extends Error {
   ) {
     super(message);
     this.name = "PlexAPIError";
+  }
+}
+
+/**
+ * Client for interacting with individual Plex Media Server instances
+ */
+export class PlexServerClient {
+  private readonly token: string;
+  private readonly config: PlexConfig;
+  private readonly server: PlexDevice;
+  private workingConnection: PlexDevice["connections"][0] | null = null;
+  private connectionTestPromise: Promise<PlexDevice["connections"][0]> | null =
+    null;
+
+  /**
+   * @param server - Plex Media Server device information
+   * @param token - Plex authentication token
+   * @param config - Client configuration
+   */
+  constructor(server: PlexDevice, token: string, config: PlexConfig) {
+    this.token = token;
+    this.config = config;
+    this.server = server;
+  }
+
+  /**
+   * Test a connection to see if it's working
+   * @param connection - Connection to test
+   * @returns Promise that resolves if connection works, rejects if not
+   */
+  private async testConnection(
+    connection: PlexDevice["connections"][0],
+  ): Promise<boolean> {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+      const response = await fetch(`${connection.uri}/identity`, {
+        method: "GET",
+        headers: {
+          "X-Plex-Token": this.token,
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Find the best working connection by testing them in priority order
+   * @returns Promise that resolves to a working connection
+   */
+  private async findWorkingConnection(): Promise<PlexDevice["connections"][0]> {
+    // If we already have a cached working connection, return it
+    if (this.workingConnection) {
+      return this.workingConnection;
+    }
+
+    // If we're already testing connections, return that promise
+    if (this.connectionTestPromise) {
+      return this.connectionTestPromise;
+    }
+
+    // Start testing connections
+    this.connectionTestPromise = this.testConnections();
+
+    try {
+      const connection = await this.connectionTestPromise;
+      this.workingConnection = connection;
+      return connection;
+    } finally {
+      // Clear the promise so we can retry if needed
+      this.connectionTestPromise = null;
+    }
+  }
+
+  /**
+   * Test all connections in priority order until we find one that works
+   */
+  private async testConnections(): Promise<PlexDevice["connections"][0]> {
+    const connections = [...this.server.connections];
+
+    // Sort connections by priority: local first, then by whether they're secure
+    connections.sort((a, b) => {
+      // Local connections first
+      if (a.local && !b.local) return -1;
+      if (!a.local && b.local) return 1;
+
+      // Among same locality, prefer HTTPS
+      if (a.protocol === "https" && b.protocol === "http") return -1;
+      if (a.protocol === "http" && b.protocol === "https") return 1;
+
+      return 0;
+    });
+
+    // Test connections in parallel with a slight delay between batches
+    // to avoid overwhelming the server
+    const batchSize = 3;
+    const batchCount = Math.ceil(connections.length / batchSize);
+
+    for (const batchIndex of Array.from({ length: batchCount }, (_, i) => i)) {
+      const startIndex = batchIndex * batchSize;
+      const batch = connections.slice(startIndex, startIndex + batchSize);
+
+      // Test this batch in parallel
+      const results = await Promise.allSettled(
+        batch.map(async (connection) => {
+          const works = await this.testConnection(connection);
+          return { connection, works };
+        }),
+      );
+
+      // Return the first working connection from this batch
+      for (const result of results) {
+        if (result.status === "fulfilled" && result.value.works) {
+          return result.value.connection;
+        }
+      }
+
+      // Small delay before trying the next batch
+      if (startIndex + batchSize < connections.length) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+
+    throw new Error(
+      `No working connections found for server ${this.server.name}`,
+    );
+  }
+
+  /**
+   * Reset the cached connection (useful when current connection stops working)
+   */
+  private resetConnection(): void {
+    this.workingConnection = null;
+    this.connectionTestPromise = null;
+  }
+
+  /**
+   * Get media providers for this server
+   * @returns Media providers information with proper typing
+   */
+  async getMediaProviders(): Promise<MediaContainer> {
+    return await this.get({
+      endpoint: "media/providers",
+      schema: MediaContainerSchema,
+    });
+  }
+
+  /**
+   * Get library sections (libraries) for this server
+   * @returns Library sections information
+   */
+  async getLibrarySections<T = unknown>(): Promise<T> {
+    return await this.get({
+      endpoint: "library/sections",
+    });
+  }
+
+  /**
+   * Get library content by section ID
+   * @param sectionId - The library section ID
+   * @returns Library content
+   */
+  async getLibraryContent<T = unknown>(sectionId: string): Promise<T> {
+    return await this.get({
+      endpoint: `library/sections/${sectionId}/all`,
+    });
+  }
+
+  /**
+   * Make a GET request to the Plex Media Server
+   * @param options - Request options including endpoint, params, schema
+   * @returns Parsed and validated response data
+   */
+  private async get<T>(options: GetRequestOptions<T>): Promise<T> {
+    const { endpoint, params, schema, xPlexOverrides = {} } = options;
+    const maxRetries = 2;
+    const errors: Error[] = [];
+
+    for (const attempt of Array.from({ length: maxRetries + 1 }, (_, i) => i)) {
+      try {
+        const connection = await this.findWorkingConnection();
+        const url = new URL(endpoint, connection.uri);
+
+        // Add all X-Plex parameters as query parameters, with overrides
+        url.searchParams.append(
+          "X-Plex-Product",
+          xPlexOverrides.product ?? this.config.product,
+        );
+        url.searchParams.append(
+          "X-Plex-Version",
+          xPlexOverrides.version ?? this.config.version,
+        );
+        url.searchParams.append(
+          "X-Plex-Client-Identifier",
+          xPlexOverrides.clientIdentifier ?? this.config.clientIdentifier,
+        );
+        url.searchParams.append(
+          "X-Plex-Platform",
+          xPlexOverrides.platform ?? this.config.platform,
+        );
+        url.searchParams.append(
+          "X-Plex-Platform-Version",
+          xPlexOverrides.platformVersion ?? "137.0",
+        );
+        url.searchParams.append(
+          "X-Plex-Features",
+          xPlexOverrides.features ??
+            "external-media,indirect-media,hub-style-list",
+        );
+        url.searchParams.append(
+          "X-Plex-Model",
+          xPlexOverrides.model ?? "bundled",
+        );
+        url.searchParams.append(
+          "X-Plex-Device",
+          xPlexOverrides.device ?? "Windows",
+        );
+        url.searchParams.append(
+          "X-Plex-Device-Name",
+          xPlexOverrides.deviceName ?? this.config.platform,
+        );
+        url.searchParams.append(
+          "X-Plex-Language",
+          xPlexOverrides.language ?? "en",
+        );
+        url.searchParams.append("X-Plex-Token", this.token);
+
+        // Optional parameters that can be overridden
+        if (xPlexOverrides.sessionId) {
+          url.searchParams.append(
+            "X-Plex-Session-Id",
+            xPlexOverrides.sessionId,
+          );
+        }
+        if (xPlexOverrides.deviceScreenResolution) {
+          url.searchParams.append(
+            "X-Plex-Device-Screen-Resolution",
+            xPlexOverrides.deviceScreenResolution,
+          );
+        }
+
+        if (params) {
+          for (const key in params) {
+            if (params.hasOwnProperty(key)) {
+              url.searchParams.append(key, String(params[key]));
+            }
+          }
+        }
+
+        const response = await fetch(url.toString(), {
+          method: "GET",
+          headers: this.getHeaders(),
+        });
+
+        if (!response.ok) {
+          throw new PlexAPIError(
+            `Plex Server API request failed: ${response.statusText}`,
+            response.status,
+            response,
+          );
+        }
+
+        const data = await response.json();
+
+        if (schema) {
+          try {
+            return schema.parse(data);
+          } catch (error) {
+            throw new PlexAPIError(
+              `Invalid response format from Plex Server API: ${error instanceof Error ? error.message : "Unknown error"}`,
+            );
+          }
+        }
+
+        return data as T;
+      } catch (error) {
+        const currentError =
+          error instanceof Error ? error : new Error(String(error));
+        errors.push(currentError);
+
+        // If this is the last attempt, throw the error
+        if (attempt === maxRetries) {
+          throw currentError;
+        }
+
+        // If this was a connection-related error, reset our cached connection
+        // and try again with a different connection
+        if (
+          error instanceof PlexAPIError &&
+          error.status &&
+          error.status >= 500
+        ) {
+          this.resetConnection();
+          continue;
+        }
+
+        // For network errors, also try to reset and retry
+        if (error instanceof TypeError && error.message.includes("fetch")) {
+          this.resetConnection();
+          continue;
+        }
+
+        // For other errors, don't retry
+        throw currentError;
+      }
+    }
+
+    throw (
+      errors[errors.length - 1] ?? new Error("Request failed after retries")
+    );
+  }
+
+  private getHeaders(): Record<string, string> {
+    return {
+      accept: "application/json",
+    };
   }
 }
 
@@ -101,6 +427,15 @@ export class PlexTvClient {
 
     // Transform the raw data to get parsed settings
     return userInfoSchema.parse(rawData);
+  }
+
+  /**
+   * Create a server client for a specific Plex Media Server
+   * @param server - The server device to create a client for
+   * @returns PlexServerClient instance
+   */
+  createServerClient(server: PlexDevice): PlexServerClient {
+    return new PlexServerClient(server, this.token, this.config);
   }
 
   /**
