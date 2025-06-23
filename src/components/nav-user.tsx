@@ -26,21 +26,32 @@ import {
   useSidebar,
 } from "~/components/ui/sidebar";
 import { signOut } from "~/lib/auth/client";
+import type { PlexUserInfo } from "~/lib/plex.tv/schemas";
 
 export function NavUser({
   user,
+  userInfo,
 }: {
   user: {
     name: string;
     email: string;
     avatar: string;
   };
+  userInfo: PlexUserInfo;
 }) {
   const { isMobile } = useSidebar();
   const initials = user.name
     .split(" ")
     .map((name) => name[0])
     .join("");
+
+  const hasPlexPass = userInfo.subscription?.active ?? false;
+  const subscriptionText = hasPlexPass
+    ? userInfo.subscriptionDescription
+    : "Upgrade to Pro";
+  const subscriptionUrl = hasPlexPass
+    ? "https://clients.plex.tv/subscription"
+    : "https://www.plex.tv/plans/";
 
   return (
     <SidebarMenu>
@@ -86,20 +97,38 @@ export function NavUser({
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <Sparkles />
-                Upgrade to Pro
+              <DropdownMenuItem asChild>
+                <a
+                  href={subscriptionUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Sparkles />
+                  {subscriptionText}
+                </a>
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <BadgeCheck />
-                Account
+              <DropdownMenuItem asChild>
+                <a
+                  href="https://app.plex.tv/desktop/#!/settings/account"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <BadgeCheck />
+                  Account
+                </a>
               </DropdownMenuItem>
-              <DropdownMenuItem>
-                <CreditCard />
-                Billing
+              <DropdownMenuItem asChild>
+                <a
+                  href="https://clients.plex.tv/users/payments"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <CreditCard />
+                  Billing
+                </a>
               </DropdownMenuItem>
               <DropdownMenuItem>
                 <Bell />
@@ -107,7 +136,12 @@ export function NavUser({
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => signOut()}>
+            <DropdownMenuItem
+              onClick={async () => {
+                await signOut();
+                window.location.href = "/login";
+              }}
+            >
               <LogOut />
               Log out
             </DropdownMenuItem>

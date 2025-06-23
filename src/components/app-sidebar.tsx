@@ -96,7 +96,7 @@ export function AppSidebar({
         </SidebarContent>
 
         <SidebarFooter>
-          <NavUser user={user} />
+          <NavUser user={user} userInfo={userInfo} />
         </SidebarFooter>
       </Sidebar>
     </TooltipProvider>
