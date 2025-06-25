@@ -143,4 +143,52 @@ export const plexRouter = createTRPCRouter({
 
     return results;
   }),
+
+  getContinueWatching: protectedProcedure
+    .input(
+      z.object({
+        serverId: z.string(),
+        contentDirectoryIds: z.array(z.string()),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      // Get servers and find the one we want
+      const servers = await ctx.plex.getServers();
+      const server = servers.find((s) => s.clientIdentifier === input.serverId);
+
+      if (!server) {
+        throw new Error(`Server not found: ${input.serverId}`);
+      }
+
+      console.log(
+        `📺 Fetching Continue Watching from ${server.name} for directories: ${input.contentDirectoryIds.join(", ")}`,
+      );
+
+      try {
+        // Create server client and get Continue Watching data
+        const serverClient = ctx.plex.createServerClient(server);
+        const continueWatchingData = await serverClient.getContinueWatching(
+          input.contentDirectoryIds,
+        );
+
+        console.log(
+          `✅ ${server.name}: Successfully loaded Continue Watching (${continueWatchingData.items.length} items)`,
+        );
+
+        return continueWatchingData;
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Unknown error";
+        console.log(`❌ ${server.name}: ${errorMessage}`);
+
+        // Return empty response instead of throwing to allow other servers to succeed
+        return {
+          serverId: server.clientIdentifier,
+          totalSize: 0,
+          allowSync: false,
+          hubs: [],
+          items: [],
+        };
+      }
+    }),
 });

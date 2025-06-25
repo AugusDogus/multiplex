@@ -1,5 +1,9 @@
 import { type z } from "zod";
 import {
+  continueWatchingResponseSchema,
+  type ContinueWatchingResponse,
+} from "./continue-watching-schemas";
+import {
   MediaContainerSchema,
   rawUserInfoSchema,
   sessionsSchema,
@@ -236,6 +240,93 @@ export class PlexServerClient {
     return await this.get({
       endpoint: `library/sections/${sectionId}/all`,
     });
+  }
+
+  /**
+   * Get Continue Watching data for specific library directories
+   * @param contentDirectoryIds - Array of library section IDs to include
+   * @returns Continue Watching response with progress and metadata
+   */
+  async getContinueWatching(
+    contentDirectoryIds: string[],
+  ): Promise<ContinueWatchingResponse> {
+    if (contentDirectoryIds.length === 0) {
+      // Return empty response if no directories specified
+      return {
+        serverId: this.server.clientIdentifier,
+        totalSize: 0,
+        allowSync: false,
+        hubs: [],
+        items: [],
+      };
+    }
+
+    // Get raw response from Plex API (without schema validation to avoid date transformation issues)
+    const rawResponse = await this.get({
+      endpoint: "hubs/continueWatching",
+      params: {
+        contentDirectoryID: contentDirectoryIds.join(","),
+      },
+    });
+
+    // Transform to our processed response format and ensure correct serverId
+    const parsedResponse = continueWatchingResponseSchema.parse(rawResponse);
+
+    // Override serverId to ensure it matches our server's clientIdentifier
+    return {
+      ...parsedResponse,
+      serverId: this.server.clientIdentifier,
+      items: parsedResponse.items.map((item) => ({
+        ...item,
+        serverId: this.server.clientIdentifier,
+      })),
+    };
+  }
+
+  /**
+   * Get Continue Watching data for all libraries on this server
+   * @returns Continue Watching response for all available libraries
+   */
+  async getAllContinueWatching(): Promise<ContinueWatchingResponse> {
+    try {
+      // First get all library sections to build the directory list
+      const mediaProviders = await this.getMediaProviders();
+
+      // Extract library directory IDs from the MediaProvider structure
+      const libraryDirectoryIds: string[] = [];
+
+      for (const provider of mediaProviders.MediaContainer.MediaProvider) {
+        for (const feature of provider.Feature) {
+          if (feature.Directory) {
+            for (const directory of feature.Directory) {
+              // Look for library sections (directories with numeric IDs)
+              if (
+                "id" in directory &&
+                directory.id &&
+                !isNaN(Number(directory.id))
+              ) {
+                libraryDirectoryIds.push(directory.id);
+              }
+            }
+          }
+        }
+      }
+
+      return await this.getContinueWatching(libraryDirectoryIds);
+    } catch (error) {
+      console.warn(
+        `Failed to get all Continue Watching for ${this.server.name}:`,
+        error,
+      );
+      // Return empty response on error
+      return {
+        serverId: this.server.clientIdentifier,
+        totalSize: 0,
+        allowSync: false,
+        hubs: [],
+        items: [],
+      };
+    }
   }
 
   /**
