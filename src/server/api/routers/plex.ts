@@ -7,6 +7,12 @@ import {
   publicProcedure,
 } from "~/server/api/trpc";
 import { posts } from "~/server/db/schema";
+import { getAllContinueWatchingQuery } from "~/server/queries/get-all-continue-watching";
+import { getAllServerLibrariesQuery } from "~/server/queries/get-all-server-libraries";
+import { getContinueWatchingQuery } from "~/server/queries/get-continue-watching";
+import { getServerLibrariesQuery } from "~/server/queries/get-server-libraries";
+import { getServersQuery } from "~/server/queries/get-servers";
+import { getUserInfoQuery } from "~/server/queries/get-user-info";
 
 export type plexRouterInputs = inferRouterInputs<typeof plexRouter>;
 export type plexRouterOutputs = inferRouterOutputs<typeof plexRouter>;
@@ -37,111 +43,25 @@ export const plexRouter = createTRPCRouter({
   }),
 
   getServers: protectedProcedure.query(async ({ ctx }) => {
-    const servers = await ctx.plex.getServers();
-    return servers;
+    return getServersQuery(ctx.plex);
   }),
 
   getUserInfo: protectedProcedure.query(async ({ ctx }) => {
-    const userInfo = await ctx.plex.getUserInfo();
-    return userInfo;
+    return getUserInfoQuery(ctx.plex);
   }),
 
   getServerLibraries: protectedProcedure
     .input(z.object({ serverId: z.string() }))
     .query(async ({ ctx, input }) => {
-      // Get servers and find the one we want
-      const servers = await ctx.plex.getServers();
-      const server = servers.find((s) => s.clientIdentifier === input.serverId);
-
-      if (!server) {
-        throw new Error(`Server not found: ${input.serverId}`);
-      }
-
-      console.log(`📡 Connecting to ${server.name}...`);
-
-      try {
-        // Create server client and get media providers
-        const serverClient = ctx.plex.createServerClient(server);
-        const mediaProviders = await serverClient.getMediaProviders();
-
-        console.log(`✅ ${server.name}: Successfully loaded libraries`);
-
-        return {
-          serverId: server.clientIdentifier,
-          serverName: server.name,
-          mediaProviders,
-          error: undefined,
-        };
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : "Unknown error";
-        console.log(`❌ ${server.name}: ${errorMessage}`);
-
-        return {
-          serverId: server.clientIdentifier,
-          serverName: server.name,
-          mediaProviders: undefined,
-          error: errorMessage,
-        };
-      }
+      return getServerLibrariesQuery(ctx.plex, input.serverId);
     }),
 
-  // Legacy endpoint - kept for backward compatibility but not used in new implementation
   getAllServerLibraries: protectedProcedure.query(async ({ ctx }) => {
-    const servers = await ctx.plex.getServers();
+    return getAllServerLibrariesQuery(ctx.plex);
+  }),
 
-    console.log(`🔄 Fetching libraries for ${servers.length} servers...`);
-
-    // Fetch library data for all servers in parallel
-    const serverLibrariesPromises = servers.map(async (server) => {
-      try {
-        console.log(`📡 Connecting to ${server.name}...`);
-        const serverClient = ctx.plex.createServerClient(server);
-        const mediaProviders = await serverClient.getMediaProviders();
-        console.log(`✅ ${server.name}: Successfully loaded libraries`);
-
-        return {
-          serverId: server.clientIdentifier,
-          serverName: server.name,
-          mediaProviders,
-          error: undefined,
-        };
-      } catch (error) {
-        console.log(
-          `❌ ${server.name}: ${error instanceof Error ? error.message : "Unknown error"}`,
-        );
-        return {
-          serverId: server.clientIdentifier,
-          serverName: server.name,
-          mediaProviders: undefined,
-          error: error instanceof Error ? error.message : "Unknown error",
-        };
-      }
-    });
-
-    // Use Promise.allSettled to handle failures gracefully
-    const settledResults = await Promise.allSettled(serverLibrariesPromises);
-
-    // Extract results, handling both fulfilled and rejected promises
-    const results = settledResults.map((result, index) => {
-      if (result.status === "fulfilled") {
-        return result.value;
-      } else {
-        // Handle rejected promises (network errors, timeouts, etc.)
-        const server = servers[index]!;
-        return {
-          serverId: server.clientIdentifier,
-          serverName: server.name,
-          mediaProviders: undefined,
-          error:
-            result.reason instanceof Error
-              ? result.reason.message
-              : "Server connection failed",
-        };
-      }
-    });
-
-    return results;
+  getAllContinueWatching: protectedProcedure.query(async ({ ctx }) => {
+    return getAllContinueWatchingQuery(ctx.plex);
   }),
 
   getContinueWatching: protectedProcedure
@@ -152,43 +72,10 @@ export const plexRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      // Get servers and find the one we want
-      const servers = await ctx.plex.getServers();
-      const server = servers.find((s) => s.clientIdentifier === input.serverId);
-
-      if (!server) {
-        throw new Error(`Server not found: ${input.serverId}`);
-      }
-
-      console.log(
-        `📺 Fetching Continue Watching from ${server.name} for directories: ${input.contentDirectoryIds.join(", ")}`,
+      return getContinueWatchingQuery(
+        ctx.plex,
+        input.serverId,
+        input.contentDirectoryIds,
       );
-
-      try {
-        // Create server client and get Continue Watching data
-        const serverClient = ctx.plex.createServerClient(server);
-        const continueWatchingData = await serverClient.getContinueWatching(
-          input.contentDirectoryIds,
-        );
-
-        console.log(
-          `✅ ${server.name}: Successfully loaded Continue Watching (${continueWatchingData.items.length} items)`,
-        );
-
-        return continueWatchingData;
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : "Unknown error";
-        console.log(`❌ ${server.name}: ${errorMessage}`);
-
-        // Return empty response instead of throwing to allow other servers to succeed
-        return {
-          serverId: server.clientIdentifier,
-          totalSize: 0,
-          allowSync: false,
-          hubs: [],
-          items: [],
-        };
-      }
     }),
 });
