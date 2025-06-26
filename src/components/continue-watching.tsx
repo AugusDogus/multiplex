@@ -146,7 +146,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
       {/* Poster Container */}
       <div className="relative">
         {/* Poster Image */}
-        <div className="bg-muted group relative h-[240px] w-[160px] overflow-hidden rounded-lg shadow-lg transition-all duration-200 group-hover:shadow-xl">
+        <div className="bg-muted group relative h-[240px] w-[160px] overflow-hidden rounded-md shadow-lg transition-all duration-200 group-hover:shadow-xl">
           {thumbnailUrl ? (
             <Image
               src={thumbnailUrl}
