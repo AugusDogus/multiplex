@@ -1,5 +1,5 @@
 "use client";
-import * as packageJson from "~/../package.json";
+import packageJson from "~/../package.json";
 
 import { Command } from "lucide-react";
 import * as React from "react";
