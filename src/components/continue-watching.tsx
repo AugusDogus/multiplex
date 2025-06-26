@@ -1,6 +1,7 @@
 "use client";
 
 import { CirclePlay, Play } from "lucide-react";
+import Image from "next/image";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 import type { ContinueWatchingItem } from "~/lib/plex.tv/continue-watching-schemas";
@@ -135,13 +136,15 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
       {/* Poster Container */}
       <div className="relative">
         {/* Poster Image */}
-        <div className="bg-muted group relative h-[300px] w-[200px] overflow-hidden rounded-lg shadow-lg transition-all duration-200 group-hover:shadow-xl">
+        <div className="bg-muted group relative h-[240px] w-[160px] overflow-hidden rounded-lg shadow-lg transition-all duration-200 group-hover:shadow-xl">
           {thumbnailUrl ? (
-            <img
+            <Image
               src={thumbnailUrl}
               alt={mainTitle}
               className="h-full w-full object-cover"
               loading="lazy"
+              width={160}
+              height={240}
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center">
@@ -182,15 +185,17 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
       </div>
 
       {/* Metadata */}
-      <div className="w-[200px] space-y-1">
-        <h3 className="line-clamp-2 text-sm leading-tight font-medium">
+      <div className="w-[160px] space-y-1">
+        <h3 className="truncate text-sm leading-tight font-medium">
           {mainTitle}
         </h3>
 
         {subtitle && (
           <div className="text-muted-foreground text-xs leading-tight">
             {subtitle.split("\n").map((line, index) => (
-              <div key={index}>{line}</div>
+              <div key={index} className="truncate">
+                {line}
+              </div>
             ))}
           </div>
         )}
