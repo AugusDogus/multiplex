@@ -1,7 +1,9 @@
 "use client";
 
+import { useAtom } from "jotai";
 import { CirclePlay, Play } from "lucide-react";
 import Image from "next/image";
+import { openMediaPlayerAtom } from "~/atoms/media-player";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 import type { ContinueWatchingItem } from "~/lib/plex.tv/continue-watching-schemas";
@@ -11,6 +13,7 @@ import {
   getThumbnailUrl,
   isCompleted,
 } from "~/lib/plex.tv/continue-watching-utils";
+import { isMediaPlayerItem } from "~/types/media-player";
 
 /* ────────────────────────────────────────────────────────────
    Continue Watching Component
@@ -118,6 +121,7 @@ interface ContinueWatchingItemProps {
 }
 
 function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
+  const [, openPlayer] = useAtom(openMediaPlayerAtom);
   const mainTitle = getMainTitle(item);
   const subtitle = getSubtitle(item);
   const progressPercent = item.progressPercent ?? 0;
@@ -127,8 +131,14 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
   const thumbnailUrl = getThumbnailUrl(item, item.serverUrl, item.authToken);
 
   const handlePlay = () => {
-    // TODO: Implement play functionality
-    console.log("Play item:", item);
+    // Check if item has required fields for media playback
+    if (!isMediaPlayerItem(item)) {
+      console.error("Missing server URL or auth token for media playback");
+      return;
+    }
+
+    // Open the media player with this item
+    openPlayer(item);
   };
 
   return (

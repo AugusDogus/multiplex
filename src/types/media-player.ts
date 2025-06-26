@@ -1,0 +1,94 @@
+import type { ContinueWatchingItem } from "~/lib/plex.tv/continue-watching-schemas";
+
+/* ────────────────────────────────────────────────────────────
+   Media Player Types
+   Type definitions for the modal-based media player
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * Enhanced ContinueWatchingItem with server connection details
+ * for media playback
+ */
+export type MediaPlayerItem = ContinueWatchingItem & {
+  serverUrl: string;
+  authToken: string;
+};
+
+/**
+ * Complete state interface for the media player
+ */
+export interface MediaPlayerState {
+  // Modal state
+  isOpen: boolean;
+  currentItem: MediaPlayerItem | null;
+
+  // Playback state
+  isPlaying: boolean;
+  currentTime: number;
+  duration: number;
+  bufferedTime: number;
+
+  // Audio state
+  volume: number;
+  isMuted: boolean;
+
+  // UI state
+  isFullscreen: boolean;
+  showControls: boolean;
+  controlsTimeout: NodeJS.Timeout | null;
+
+  // Loading/Error state
+  isLoading: boolean;
+  error: string | null;
+
+  // Video element state
+  canPlay: boolean;
+  isBuffering: boolean;
+}
+
+/**
+ * Action interface for media player controls
+ */
+export interface MediaPlayerActions {
+  // Playback controls
+  play: () => void;
+  pause: () => void;
+  togglePlay: () => void;
+  seek: (time: number) => void;
+
+  // Audio controls
+  setVolume: (volume: number) => void;
+  toggleMute: () => void;
+
+  // UI controls
+  toggleFullscreen: () => void;
+  showControlsTemporarily: () => void;
+
+  // Modal controls
+  openPlayer: (item: MediaPlayerItem) => void;
+  closePlayer: () => void;
+
+  // Extended playback controls (optional)
+  skipForward?: (seconds?: number) => void;
+  skipBackward?: (seconds?: number) => void;
+  jumpToStart?: () => void;
+  jumpToEnd?: () => void;
+}
+
+/**
+ * Type guard to check if an item has the required fields for media playback
+ */
+export function isMediaPlayerItem(
+  item: ContinueWatchingItem & { serverUrl?: string; authToken?: string },
+): item is MediaPlayerItem {
+  return Boolean(item.serverUrl && item.authToken);
+}
+
+/**
+ * Type guard to check if playback state is ready
+ */
+export function isPlaybackReady(state: MediaPlayerState): boolean {
+  return Boolean(
+    state.currentItem && state.canPlay && !state.isLoading && !state.error,
+  );
+}

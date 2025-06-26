@@ -3,6 +3,7 @@ import "~/styles/globals.css";
 import { type Metadata } from "next";
 import { Geist } from "next/font/google";
 
+import { MediaPlayerModal } from "~/components/media-player";
 import { ThemeProvider } from "~/components/theme-provider";
 import { TRPCReactProvider } from "~/trpc/react";
 
@@ -31,6 +32,7 @@ export default function RootLayout({
             disableTransitionOnChange
           >
             {children}
+            <MediaPlayerModal />
           </ThemeProvider>
         </TRPCReactProvider>
       </body>
