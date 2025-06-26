@@ -4,7 +4,7 @@ import type { plexRouterOutputs } from "~/server/api/routers/plex";
 import { api } from "~/trpc/react";
 
 export interface ServerLibraryState {
-  data: plexRouterOutputs["getServerLibraries"] | null;
+  data: plexRouterOutputs["getAllServerLibraries"][number] | null;
   error: string | null;
   isLoading: boolean;
   isRetrying: boolean;
@@ -25,43 +25,55 @@ export function useServerLibraries(
   );
   const utils = api.useUtils();
 
-  // Create queries for all servers
-  const serverQueries = servers.map((server) => ({
-    serverId: server.clientIdentifier,
-    query: api.plex.getServerLibraries.useQuery(
-      { serverId: server.clientIdentifier },
-      {
-        staleTime: 5 * 60 * 1000,
-        retry: 1,
-        retryDelay: 1000,
-      },
-    ),
-  }));
+  // Use the consolidated getAllServerLibraries query
+  const allServerLibrariesQuery = api.plex.getAllServerLibraries.useQuery(
+    undefined,
+    {
+      staleTime: 5 * 60 * 1000,
+      retry: 1,
+      retryDelay: 1000,
+    },
+  );
 
-  // Transform query results into server states
+  // Transform the consolidated results into individual server states
   const serverStates = useMemo(() => {
     const states = new Map<string, ServerLibraryState>();
 
-    serverQueries.forEach(({ serverId, query }) => {
+    // Initialize states for all servers
+    servers.forEach((server) => {
+      const serverId = server.clientIdentifier;
       const isRetrying = retryingServers.has(serverId);
 
+      // Find this server's data in the consolidated response
+      const serverData = allServerLibrariesQuery.data?.find(
+        (result) => result.serverId === serverId,
+      );
+
       states.set(serverId, {
-        data: query.data ?? null,
-        error: query.error?.message ?? null,
-        isLoading: query.isLoading && !isRetrying,
+        data: serverData ?? null,
+        error:
+          serverData?.error ?? allServerLibrariesQuery.error?.message ?? null,
+        isLoading: allServerLibrariesQuery.isLoading && !isRetrying,
         isRetrying,
       });
     });
 
     return states;
-  }, [serverQueries, retryingServers]);
+  }, [
+    servers,
+    allServerLibrariesQuery.data,
+    allServerLibrariesQuery.error,
+    allServerLibrariesQuery.isLoading,
+    retryingServers,
+  ]);
 
   const retryServer = useCallback(
     (serverId: string) => {
       setRetryingServers((prev) => new Set([...prev, serverId]));
 
-      utils.plex.getServerLibraries
-        .fetch({ serverId })
+      // Retry the entire query since we can't retry individual servers
+      utils.plex.getAllServerLibraries
+        .fetch()
         .then(() => {
           setRetryingServers((prev) => {
             const newSet = new Set(prev);
@@ -78,7 +90,7 @@ export function useServerLibraries(
           });
         });
     },
-    [utils.plex.getServerLibraries],
+    [utils.plex.getAllServerLibraries],
   );
 
   const isAnyLoading = useMemo(
