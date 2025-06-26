@@ -31,7 +31,7 @@ export function useSidebarSources(
   const allLibrarySources = useMemo(() => {
     const sources: SidebarSource[] = [];
 
-    for (const [serverId, state] of serverStates) {
+    for (const [, state] of serverStates) {
       if (state.data?.mediaProviders && !state.error) {
         try {
           const extractedSources = extractAllSources(state.data.mediaProviders);

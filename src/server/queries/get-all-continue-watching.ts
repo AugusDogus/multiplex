@@ -53,7 +53,7 @@ export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
           const response = await serverClient.getContinueWatching(directoryIds);
 
           return { response, server };
-        } catch (error) {
+        } catch {
           return null;
         }
       },
@@ -126,7 +126,7 @@ export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
     );
 
     return sortedItems;
-  } catch (error) {
+  } catch {
     return [];
   }
 }

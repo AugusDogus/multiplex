@@ -683,17 +683,10 @@ export class PlexTvClient {
 
   /**
    * Make a POST request to the Plex.tv API
-   * @param endpoint - API endpoint path
-   * @param body - Optional request body
-   * @param schema - Optional Zod schema for response validation
    * @returns Parsed and validated response data
    * @todo Implement POST functionality
    */
-  private async post<T>(
-    endpoint: string,
-    body?: Record<string, unknown>,
-    schema?: z.ZodType<T>,
-  ): Promise<T> {
+  private async post<T>(): Promise<T> {
     throw new Error("POST method not implemented yet");
   }
 

@@ -5,7 +5,7 @@ export const plex = () => {
   return {
     id: "plex-auth",
     $InferServerPlugin: {} as ReturnType<typeof serverPlugin>,
-    getActions: ($fetch) => ({
+    getActions: () => ({
       plex: {
         signIn: async (options?: { callbackUrl?: string }) => {
           const callbackUrl =

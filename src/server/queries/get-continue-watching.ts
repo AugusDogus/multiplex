@@ -20,7 +20,7 @@ export async function getContinueWatchingQuery(
       await serverClient.getContinueWatching(contentDirectoryIds);
 
     return continueWatchingData;
-  } catch (error) {
+  } catch {
     // Return empty response instead of throwing to allow other servers to succeed
     return {
       serverId: server.clientIdentifier,
