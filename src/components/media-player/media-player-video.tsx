@@ -34,6 +34,10 @@ interface MediaPlayerVideoProps {
    */
   onVideoDoubleClick?: () => void;
   /**
+   * Callback fired when user scrolls on the video (for volume control)
+   */
+  onVolumeScroll?: (delta: number) => void;
+  /**
    * Callback fired when video ends
    */
   onVideoEnded?: () => void;
@@ -44,7 +48,14 @@ export const MediaPlayerVideo = forwardRef<
   MediaPlayerVideoProps
 >(
   (
-    { item, className = "", onVideoClick, onVideoDoubleClick, onVideoEnded },
+    {
+      item,
+      className = "",
+      onVideoClick,
+      onVideoDoubleClick,
+      onVolumeScroll,
+      onVideoEnded,
+    },
     ref,
   ) => {
     const [playerStatus] = useAtom(playerStatusAtom);
@@ -103,6 +114,18 @@ export const MediaPlayerVideo = forwardRef<
     }, [onVideoDoubleClick]);
 
     /**
+     * Handle video wheel scroll for volume control
+     */
+    const handleVideoWheel = useCallback(
+      (e: React.WheelEvent) => {
+        e.preventDefault(); // Prevent page scrolling
+        const delta = -e.deltaY; // Invert delta so scroll up increases volume
+        onVolumeScroll?.(delta);
+      },
+      [onVolumeScroll],
+    );
+
+    /**
      * Handle video load error
      */
     const handleVideoError = useCallback(() => {
@@ -140,6 +163,7 @@ export const MediaPlayerVideo = forwardRef<
           className="h-full w-full cursor-pointer object-contain"
           onClick={handleVideoClick}
           onDoubleClick={handleVideoDoubleClick}
+          onWheel={handleVideoWheel}
           onError={handleVideoError}
           preload="metadata"
           playsInline

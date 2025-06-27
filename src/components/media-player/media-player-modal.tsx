@@ -93,6 +93,22 @@ export function MediaPlayerModal() {
   }, [actions]);
 
   /**
+   * Handle volume scroll on video
+   */
+  const handleVolumeScroll = useCallback(
+    (delta: number) => {
+      const volumeStep = 0.1; // 10% volume change per scroll step (matches keyboard shortcuts)
+      const currentVolume = state.volume;
+      const newVolume = Math.max(
+        0,
+        Math.min(1, currentVolume + (delta > 0 ? volumeStep : -volumeStep)),
+      );
+      actions.setVolume(newVolume);
+    },
+    [actions, state.volume],
+  );
+
+  /**
    * Handle video ended
    */
   const handleVideoEnded = useCallback(() => {
@@ -188,6 +204,7 @@ export function MediaPlayerModal() {
             className="h-full w-full"
             onVideoClick={handleVideoClick}
             onVideoDoubleClick={handleVideoDoubleClick}
+            onVolumeScroll={handleVolumeScroll}
             onVideoEnded={handleVideoEnded}
           />
 
