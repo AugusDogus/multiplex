@@ -86,6 +86,13 @@ export function MediaPlayerModal() {
   }, [actions]);
 
   /**
+   * Handle video double-click for fullscreen toggle
+   */
+  const handleVideoDoubleClick = useCallback(() => {
+    actions.toggleFullscreen();
+  }, [actions]);
+
+  /**
    * Handle video ended
    */
   const handleVideoEnded = useCallback(() => {
@@ -180,6 +187,7 @@ export function MediaPlayerModal() {
             item={state.currentItem}
             className="h-full w-full"
             onVideoClick={handleVideoClick}
+            onVideoDoubleClick={handleVideoDoubleClick}
             onVideoEnded={handleVideoEnded}
           />
 
