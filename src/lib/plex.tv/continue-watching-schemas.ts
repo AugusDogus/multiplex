@@ -90,7 +90,7 @@ const BaseStream = z.object({
 
 const VideoStream = BaseStream.extend({
   streamType: z.literal(1),
-  default: z.boolean(),
+  default: z.boolean().optional(),
   bitDepth: z.number(),
   chromaLocation: z.string().optional(),
   chromaSubsampling: z.string().optional(),
@@ -113,7 +113,7 @@ const VideoStream = BaseStream.extend({
 const AudioStream = BaseStream.extend({
   streamType: z.literal(2),
   selected: z.boolean().optional(),
-  default: z.boolean(),
+  default: z.boolean().optional(),
   channels: z.number(),
   audioChannelLayout: z.string().optional(),
   profile: z.string().optional(),
