@@ -34,12 +34,14 @@ export function useMediaPlayer(): {
    * Start video playback
    */
   const play = useCallback(async () => {
+    console.log("🎬 Player: play() called");
     if (videoRef.current) {
       try {
         await videoRef.current.play();
+        console.log("🎬 Player: video.play() succeeded");
         updateState({ isPlaying: true });
       } catch (error) {
-        console.error("Failed to play video:", error);
+        console.error("🎬 Player: video.play() failed:", error);
         updateState({
           error: "Failed to start video playback",
           isPlaying: false,
@@ -52,6 +54,7 @@ export function useMediaPlayer(): {
    * Pause video playback
    */
   const pause = useCallback(() => {
+    console.log("🎬 Player: pause() called");
     if (videoRef.current) {
       videoRef.current.pause();
       updateState({ isPlaying: false });

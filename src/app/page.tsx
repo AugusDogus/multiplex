@@ -41,6 +41,20 @@ export default async function Page() {
     return null;
   }
 
+  // If no servers are configured, show setup message
+  if (servers.length === 0) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold">Welcome to Multiplex</h1>
+          <p className="text-muted-foreground mt-2">
+            No Plex servers found. Please configure your Plex account.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <HydrateClient>
       <div className="max-w-screen overflow-hidden">

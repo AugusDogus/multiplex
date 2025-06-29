@@ -44,13 +44,23 @@ export const mediaPlayerStateAtom = atom<MediaPlayerState>({
 export const openMediaPlayerAtom = atom(
   null,
   (get, set, item: MediaPlayerItem) => {
+    // Check if we have updated progress for this item
+    const updatedProgress = get(updatedItemsProgressAtom);
+    const updatedProgressPercent = updatedProgress[item.ratingKey];
+
+    // Calculate initial currentTime using updated progress if available
+    const initialCurrentTime =
+      updatedProgressPercent !== undefined && item.duration
+        ? (updatedProgressPercent / 100) * (item.duration / 1000)
+        : Math.floor(item.viewOffset ?? 0) / 1000;
+
     set(mediaPlayerStateAtom, (prev) => ({
       ...prev,
       isOpen: true,
       currentItem: item,
       isLoading: true,
       error: null,
-      currentTime: item.viewOffset ? Math.floor(item.viewOffset / 1000) : 0,
+      currentTime: initialCurrentTime,
       // Reset playback state
       isPlaying: false,
       duration: 0,
@@ -100,6 +110,24 @@ export const updatePlaybackStateAtom = atom(
     set(mediaPlayerStateAtom, (prev) => ({
       ...prev,
       ...updates,
+    }));
+  },
+);
+
+/**
+ * Atom to track progress updates for items that have been played this session
+ */
+export const updatedItemsProgressAtom = atom<Record<string, number>>({});
+
+/**
+ * Write-only atom to update an item's progress
+ */
+export const updateItemProgressAtom = atom(
+  null,
+  (get, set, update: { ratingKey: string; progressPercent: number }) => {
+    set(updatedItemsProgressAtom, (prev) => ({
+      ...prev,
+      [update.ratingKey]: update.progressPercent,
     }));
   },
 );

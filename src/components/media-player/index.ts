@@ -16,7 +16,7 @@ export {
   useKeyboardShortcuts,
 } from "./hooks/use-keyboard-shortcuts";
 export { useMediaPlayer } from "./hooks/use-media-player";
-export { useVideoElement } from "./hooks/use-video-element";
+export { useTimelineUpdates } from "./hooks/use-timeline-updates";
 
 // Utilities
 export * from "./utils/media-player-utils";

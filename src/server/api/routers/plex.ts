@@ -42,4 +42,44 @@ export const plexRouter = createTRPCRouter({
         input.contentDirectoryIds,
       );
     }),
+
+  sendTimeline: protectedProcedure
+    .input(
+      z.object({
+        serverId: z.string(),
+        ratingKey: z.string(),
+        key: z.string(),
+        playQueueItemID: z.string().optional(),
+        playbackTime: z.number(),
+        time: z.number(),
+        duration: z.number(),
+        state: z.enum(["playing", "paused", "buffering", "stopped"]),
+        hasMDE: z.number().optional(),
+        context: z.string().optional(),
+        sessionId: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const servers = await getServersQuery(ctx.plex);
+      const server = servers.find((s) => s.clientIdentifier === input.serverId);
+
+      if (!server) {
+        throw new Error(`Server with ID ${input.serverId} not found`);
+      }
+
+      const serverClient = ctx.plex.createServerClient(server);
+
+      await serverClient.sendTimeline({
+        ratingKey: input.ratingKey,
+        key: input.key,
+        playQueueItemID: input.playQueueItemID,
+        playbackTime: input.playbackTime,
+        time: input.time,
+        duration: input.duration,
+        state: input.state,
+        hasMDE: input.hasMDE,
+        context: input.context,
+        sessionId: input.sessionId,
+      });
+    }),
 });

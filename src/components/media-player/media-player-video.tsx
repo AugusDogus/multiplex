@@ -1,11 +1,14 @@
 "use client";
 
-import { useAtom } from "jotai";
-import React, { forwardRef, useCallback, useEffect, useState } from "react";
-import { playerStatusAtom } from "~/atoms/media-player";
+import { useAtom, useAtomValue } from "jotai";
+import { forwardRef, useCallback, useMemo } from "react";
+import {
+  mediaPlayerStateAtom,
+  playerStatusAtom,
+  updatePlaybackStateAtom,
+} from "~/atoms/media-player";
 import type { MediaPlayerItem } from "~/types/media-player";
-import { useVideoElement } from "./hooks/use-video-element";
-import { getStartTime } from "./utils/media-player-utils";
+import { getVideoElementError } from "./utils/media-player-utils";
 import {
   generatePlexStreamUrl,
   hasValidStreamingData,
@@ -41,6 +44,22 @@ interface MediaPlayerVideoProps {
    * Callback fired when video ends
    */
   onVideoEnded?: () => void;
+  /**
+   * Callback fired when video starts playing
+   */
+  onVideoPlay?: () => void;
+  /**
+   * Callback fired when video is paused
+   */
+  onVideoPause?: () => void;
+  /**
+   * Callback fired when video time updates
+   */
+  onVideoTimeUpdate?: (currentTime: number) => void;
+  /**
+   * Callback fired when video seeking is complete
+   */
+  onVideoSeeked?: (currentTime: number) => void;
 }
 
 export const MediaPlayerVideo = forwardRef<
@@ -55,34 +74,21 @@ export const MediaPlayerVideo = forwardRef<
       onVideoDoubleClick,
       onVolumeScroll,
       onVideoEnded,
+      onVideoPlay,
+      onVideoPause,
+      onVideoTimeUpdate,
+      onVideoSeeked,
     },
     ref,
   ) => {
     const [playerStatus] = useAtom(playerStatusAtom);
-    const [videoSrc, setVideoSrc] = useState<string>("");
-    const [hasError, setHasError] = useState(false);
+    const [, updateState] = useAtom(updatePlaybackStateAtom);
+    const state = useAtomValue(mediaPlayerStateAtom);
 
-    // Use the video element hook for event handling
-    useVideoElement(ref as React.RefObject<HTMLVideoElement>, {
-      onEnded: onVideoEnded,
-      onLoadedMetadata: () => {
-        // Set the initial playback position when video loads
-        if (ref && "current" in ref && ref.current) {
-          const startTime = getStartTime(item);
-          if (startTime > 0) {
-            ref.current.currentTime = startTime;
-          }
-        }
-      },
-    });
-
-    /**
-     * Generate the video source URL
-     */
-    useEffect(() => {
+    // Derive video source URL and error state from item
+    const { videoSrc, hasError } = useMemo(() => {
       if (!hasValidStreamingData(item)) {
-        setHasError(true);
-        return;
+        return { videoSrc: "", hasError: true };
       }
 
       try {
@@ -91,13 +97,154 @@ export const MediaPlayerVideo = forwardRef<
           item.serverUrl,
           item.authToken,
         );
-        setVideoSrc(streamUrl);
-        setHasError(false);
+        return { videoSrc: streamUrl, hasError: false };
       } catch (error) {
-        console.error("Failed to generate stream URL:", error);
-        setHasError(true);
+        console.error(
+          "Failed to generate stream URL:",
+          error instanceof Error ? error.message : error,
+        );
+        return { videoSrc: "", hasError: true };
       }
     }, [item]);
+
+    // Handle video metadata loaded
+    const handleLoadedMetadata = useCallback(() => {
+      console.log("🎬 Video: Metadata loaded, setting start time");
+
+      if (ref && "current" in ref && ref.current) {
+        // Update state with duration and ready status
+        updateState({
+          duration: ref.current.duration,
+          canPlay: true,
+          isLoading: false,
+        });
+
+        // Set initial playback position from atom state
+        const startTime = state.currentTime;
+        if (startTime > 0) {
+          console.log(`🎬 Video: Setting start time to ${startTime}s`);
+          ref.current.currentTime = startTime;
+        }
+      }
+    }, [ref, updateState, state.currentTime]);
+
+    // Handle video play event
+    const handlePlay = useCallback(() => {
+      updateState({ isPlaying: true });
+      onVideoPlay?.();
+    }, [updateState, onVideoPlay]);
+
+    // Handle video pause event
+    const handlePause = useCallback(() => {
+      updateState({ isPlaying: false });
+      onVideoPause?.();
+    }, [updateState, onVideoPause]);
+
+    // Handle video ended event
+    const handleEnded = useCallback(() => {
+      updateState({ isPlaying: false });
+      onVideoEnded?.();
+    }, [updateState, onVideoEnded]);
+
+    // Handle time update events
+    const handleTimeUpdate = useCallback(() => {
+      if (ref && "current" in ref && ref.current) {
+        const currentTime = ref.current.currentTime;
+        updateState({ currentTime });
+        onVideoTimeUpdate?.(currentTime);
+      }
+    }, [ref, updateState, onVideoTimeUpdate]);
+
+    // Handle seeked events
+    const handleSeeked = useCallback(() => {
+      if (ref && "current" in ref && ref.current) {
+        updateState({ isBuffering: false });
+        onVideoSeeked?.(ref.current.currentTime);
+      }
+    }, [ref, updateState, onVideoSeeked]);
+
+    // Handle seeking event
+    const handleSeeking = useCallback(() => {
+      updateState({ isBuffering: true });
+    }, [updateState]);
+
+    // Handle waiting event (buffering starts)
+    const handleWaiting = useCallback(() => {
+      updateState({ isBuffering: true });
+    }, [updateState]);
+
+    // Handle can play event (buffering ends)
+    const handleCanPlay = useCallback(() => {
+      updateState({ isBuffering: false, canPlay: true });
+    }, [updateState]);
+
+    // Handle can play through event
+    const handleCanPlayThrough = useCallback(() => {
+      updateState({
+        isBuffering: false,
+        canPlay: true,
+        isLoading: false,
+      });
+    }, [updateState]);
+
+    // Handle load start event
+    const handleLoadStart = useCallback(() => {
+      updateState({
+        isLoading: true,
+        error: null,
+        canPlay: false,
+      });
+    }, [updateState]);
+
+    // Handle loaded data event
+    const handleLoadedData = useCallback(() => {
+      updateState({
+        isLoading: false,
+        canPlay: true,
+      });
+    }, [updateState]);
+
+    // Handle progress event (buffering progress)
+    const handleProgress = useCallback(() => {
+      if (
+        ref &&
+        "current" in ref &&
+        ref.current &&
+        ref.current.buffered.length > 0
+      ) {
+        const bufferedTime = ref.current.buffered.end(
+          ref.current.buffered.length - 1,
+        );
+        updateState({ bufferedTime });
+      }
+    }, [ref, updateState]);
+
+    // Handle duration change event
+    const handleDurationChange = useCallback(() => {
+      if (ref && "current" in ref && ref.current) {
+        updateState({ duration: ref.current.duration });
+      }
+    }, [ref, updateState]);
+
+    // Handle volume change event
+    const handleVolumeChange = useCallback(() => {
+      if (ref && "current" in ref && ref.current) {
+        updateState({
+          volume: ref.current.volume,
+          isMuted: ref.current.muted,
+        });
+      }
+    }, [ref, updateState]);
+
+    // Handle stalled event
+    const handleStalled = useCallback(() => {
+      updateState({ isBuffering: true });
+    }, [updateState]);
+
+    // Handle suspend event
+    const handleSuspend = useCallback(() => {
+      updateState({ isBuffering: false });
+    }, [updateState]);
 
     /**
      * Handle video click for play/pause toggle
@@ -129,8 +276,15 @@ export const MediaPlayerVideo = forwardRef<
      * Handle video load error
      */
     const handleVideoError = useCallback(() => {
-      setHasError(true);
-    }, []);
+      if (ref && "current" in ref && ref.current?.error) {
+        const errorMessage = getVideoElementError(ref.current.error);
+        updateState({
+          error: errorMessage,
+          isLoading: false,
+          isBuffering: false,
+        });
+      }
+    }, [ref, updateState]);
 
     if (hasError || !videoSrc) {
       return (
@@ -165,6 +319,23 @@ export const MediaPlayerVideo = forwardRef<
           onDoubleClick={handleVideoDoubleClick}
           onWheel={handleVideoWheel}
           onError={handleVideoError}
+          onLoadStart={handleLoadStart}
+          onLoadedData={handleLoadedData}
+          onLoadedMetadata={handleLoadedMetadata}
+          onCanPlay={handleCanPlay}
+          onCanPlayThrough={handleCanPlayThrough}
+          onPlay={handlePlay}
+          onPause={handlePause}
+          onEnded={handleEnded}
+          onTimeUpdate={handleTimeUpdate}
+          onSeeking={handleSeeking}
+          onSeeked={handleSeeked}
+          onWaiting={handleWaiting}
+          onStalled={handleStalled}
+          onSuspend={handleSuspend}
+          onProgress={handleProgress}
+          onDurationChange={handleDurationChange}
+          onVolumeChange={handleVolumeChange}
           preload="metadata"
           playsInline
           crossOrigin="anonymous"

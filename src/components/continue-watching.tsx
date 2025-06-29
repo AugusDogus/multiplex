@@ -1,9 +1,12 @@
 "use client";
 
-import { useAtom } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { CirclePlay, Play } from "lucide-react";
 import Image from "next/image";
-import { openMediaPlayerAtom } from "~/atoms/media-player";
+import {
+  openMediaPlayerAtom,
+  updatedItemsProgressAtom,
+} from "~/atoms/media-player";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 import type { ContinueWatchingItem } from "~/lib/plex.tv/continue-watching-schemas";
@@ -122,9 +125,13 @@ interface ContinueWatchingItemProps {
 
 function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
   const [, openPlayer] = useAtom(openMediaPlayerAtom);
+  const updatedProgress = useAtomValue(updatedItemsProgressAtom);
   const mainTitle = getMainTitle(item);
   const subtitle = getSubtitle(item);
-  const progressPercent = item.progressPercent ?? 0;
+
+  // Use updated progress if available, otherwise use server data
+  const progressPercent: number =
+    updatedProgress[item.ratingKey] ?? item.progressPercent ?? 0;
   const isItemCompleted = isCompleted(item);
 
   // Generate thumbnail URL using Plex photo transcoding service

@@ -37,6 +37,7 @@ interface GetRequestOptions<T> {
     deviceName: string;
     language: string;
     sessionId: string;
+    playbackSessionId: string;
     deviceScreenResolution: string;
   }>;
 }
@@ -208,6 +209,46 @@ export class PlexServerClient {
   private resetConnection(): void {
     this.workingConnection = null;
     this.connectionTestPromise = null;
+  }
+
+  /**
+   * Send timeline update to the server
+   * @param params - Timeline parameters including ratingKey, state, playbackTime, etc.
+   * @returns Promise that resolves when timeline is sent
+   */
+  async sendTimeline(params: {
+    ratingKey: string;
+    key: string;
+    playQueueItemID?: string;
+    playbackTime: number;
+    time: number;
+    duration: number;
+    state: "playing" | "paused" | "buffering" | "stopped";
+    hasMDE?: number;
+    context?: string;
+    sessionId: string;
+  }): Promise<void> {
+    const timelineParams = {
+      ratingKey: params.ratingKey,
+      key: params.key,
+      playbackTime: params.playbackTime.toString(),
+      time: params.time.toString(),
+      duration: params.duration.toString(),
+      state: params.state,
+      ...(params.playQueueItemID && {
+        playQueueItemID: params.playQueueItemID,
+      }),
+      ...(params.hasMDE && { hasMDE: params.hasMDE.toString() }),
+      ...(params.context && { context: params.context }),
+    };
+
+    await this.get({
+      endpoint: ":/timeline",
+      params: timelineParams,
+      xPlexOverrides: {
+        playbackSessionId: params.sessionId,
+      },
+    });
   }
 
   /**
@@ -393,6 +434,12 @@ export class PlexServerClient {
           url.searchParams.append(
             "X-Plex-Session-Id",
             xPlexOverrides.sessionId,
+          );
+        }
+        if (xPlexOverrides.playbackSessionId) {
+          url.searchParams.append(
+            "X-Plex-Playback-Session-Id",
+            xPlexOverrides.playbackSessionId,
           );
         }
         if (xPlexOverrides.deviceScreenResolution) {

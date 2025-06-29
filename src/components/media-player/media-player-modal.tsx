@@ -2,7 +2,7 @@
 
 import { useAtom } from "jotai";
 import { X } from "lucide-react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useRef } from "react";
 import {
   closeMediaPlayerAtom,
   mediaPlayerStateAtom,
@@ -16,6 +16,7 @@ import {
 } from "~/components/ui/dialog";
 import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
 import { useMediaPlayer } from "./hooks/use-media-player";
+import { useTimelineUpdates } from "./hooks/use-timeline-updates";
 import { MediaPlayerControls } from "./media-player-controls";
 import { MediaPlayerOverlay } from "./media-player-overlay";
 import { MediaPlayerVideo } from "./media-player-video";
@@ -30,6 +31,17 @@ export function MediaPlayerModal() {
   const [, closePlayer] = useAtom(closeMediaPlayerAtom);
   const [, updateState] = useAtom(updatePlaybackStateAtom);
   const { actions, videoRef } = useMediaPlayer();
+
+  // Timeline updates hook - sends progress updates to Plex server
+  const {
+    onPlay,
+    onPause,
+    onTimeUpdate,
+    onSeeked,
+    onEnded,
+    onStop,
+    clearSession,
+  } = useTimelineUpdates();
 
   // Use refs to track timeouts and avoid race conditions
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -74,9 +86,12 @@ export function MediaPlayerModal() {
    * Handle modal close
    */
   const handleClose = useCallback(() => {
+    // Send stop update with current time (not duration) before closing
+    onStop();
+    clearSession();
     clearAllTimeouts();
     closePlayer();
-  }, [clearAllTimeouts, closePlayer]);
+  }, [onStop, clearSession, clearAllTimeouts, closePlayer]);
 
   /**
    * Handle video click for play/pause toggle
@@ -112,6 +127,7 @@ export function MediaPlayerModal() {
    * Handle video ended
    */
   const handleVideoEnded = useCallback(() => {
+    // Timeline update is handled by onEnded callback
     // Could implement auto-next episode or other logic here
     console.log("Video ended");
   }, []);
@@ -144,13 +160,6 @@ export function MediaPlayerModal() {
       hideControlsDelayed(0); // Hide immediately when timeout fires
     }, 3000);
   }, [showControls, hideControlsDelayed]);
-
-  // Cleanup timeouts on unmount
-  useEffect(() => {
-    return () => {
-      clearAllTimeouts();
-    };
-  }, [clearAllTimeouts]);
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
@@ -205,7 +214,11 @@ export function MediaPlayerModal() {
             onVideoClick={handleVideoClick}
             onVideoDoubleClick={handleVideoDoubleClick}
             onVolumeScroll={handleVolumeScroll}
-            onVideoEnded={handleVideoEnded}
+            onVideoEnded={onEnded}
+            onVideoPlay={onPlay}
+            onVideoPause={onPause}
+            onVideoTimeUpdate={onTimeUpdate}
+            onVideoSeeked={onSeeked}
           />
 
           {/* Title and Metadata Overlay - Top of video */}
