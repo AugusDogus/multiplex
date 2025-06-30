@@ -173,7 +173,11 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
           {progressPercent > 0 && (
             <div className="absolute right-0 bottom-0 left-0 h-1 bg-black/30">
               <div
-                className="bg-primary h-full transition-all duration-300"
+                className={`dark:bg-primary h-full transition-all duration-300 ${
+                  item.progressColor === "dark"
+                    ? "bg-dark-primary"
+                    : "bg-light-primary"
+                }`}
                 style={{ width: `${Math.min(progressPercent, 100)}%` }}
               />
             </div>
@@ -195,7 +199,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
               onClick={handlePlay}
               aria-label="Play"
             >
-              <Play className="fill-white/60 stroke-white/60 transition-all duration-200 group-hover/button:fill-white/20 group-hover/button:stroke-white/20" />
+              <Play className="fill-black/60 stroke-black/60 transition-all duration-200 group-hover/button:fill-black/20 group-hover/button:stroke-black/20 dark:fill-white/60 dark:stroke-white/60 group-hover/button:dark:fill-white/20 group-hover/button:dark:stroke-white/20" />
             </Button>
           </div>
         </div>

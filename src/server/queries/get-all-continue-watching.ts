@@ -1,6 +1,8 @@
 import type { PlexTvClient } from "~/lib/plex.tv/client";
 import type { ContinueWatchingResponse } from "~/lib/plex.tv/continue-watching-schemas";
+import { getThumbnailUrl } from "~/lib/plex.tv/continue-watching-utils";
 import type { PinnedSource, PlexDevice } from "~/lib/plex.tv/schemas";
+import { analyzeImageProgressColor } from "~/server/utils/image-analysis";
 
 export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
   try {
@@ -114,10 +116,33 @@ export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
       }));
     });
 
-    // Sort by most recently watched using functional approach
-    type ItemWithServer = (typeof allItems)[number];
+    // Process images for progress color analysis
+    const itemsWithProgressColor = await Promise.all(
+      allItems.map(async (item) => {
+        try {
+          const thumbnailUrl = getThumbnailUrl(
+            item,
+            item.serverUrl,
+            item.authToken,
+          );
+          if (thumbnailUrl) {
+            const progressColor = await analyzeImageProgressColor(thumbnailUrl);
+            return { ...item, progressColor };
+          }
+        } catch (error) {
+          console.warn(
+            `Failed to analyze progress color for item ${item.ratingKey}:`,
+            error,
+          );
+        }
+        return { ...item, progressColor: "light" as const };
+      }),
+    );
 
-    const sortedItems = [...allItems].sort(
+    // Sort by most recently watched using functional approach
+    type ItemWithServer = (typeof itemsWithProgressColor)[number];
+
+    const sortedItems = [...itemsWithProgressColor].sort(
       (a: ItemWithServer, b: ItemWithServer) => {
         const aTime = a.lastViewedAt?.getTime() ?? 0;
         const bTime = b.lastViewedAt?.getTime() ?? 0;
