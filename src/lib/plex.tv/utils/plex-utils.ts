@@ -1,10 +1,10 @@
-import type { Directory, MediaContainer } from "./schemas";
+import type { Directory, MediaContainer } from "../schemas/plex-server-schemas";
 import {
   isHomeDirectory,
   isLibrarySection,
   isLiveTVDirectory,
   isPlaylistDirectory,
-} from "./schemas";
+} from "../schemas/plex-server-schemas";
 
 // Better typed extracted source
 export interface ExtractedSource {

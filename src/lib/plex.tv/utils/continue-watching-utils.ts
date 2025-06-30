@@ -1,4 +1,4 @@
-import type { ContinueWatchingItem } from "./continue-watching-schemas";
+import type { ContinueWatchingItem } from "../schemas/continue-watching-schemas";
 
 /* ────────────────────────────────────────────────────────────
    Continue Watching Item Utilities

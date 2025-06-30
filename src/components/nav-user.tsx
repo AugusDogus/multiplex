@@ -26,7 +26,7 @@ import {
   useSidebar,
 } from "~/components/ui/sidebar";
 import { signOut } from "~/lib/auth/client";
-import type { PlexUserInfo } from "~/lib/plex.tv/schemas";
+import type { PlexUserInfo } from "~/lib/plex.tv/schemas/plex-tv-schemas";
 
 export function NavUser({
   user,

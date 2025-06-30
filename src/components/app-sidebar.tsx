@@ -20,7 +20,10 @@ import {
 import { TooltipProvider } from "~/components/ui/tooltip";
 import { useServerLibraries } from "~/hooks/use-server-libraries";
 import { useSidebarSources } from "~/hooks/use-sidebar-sources";
-import type { PlexDevice, PlexUserInfo } from "~/lib/plex.tv/schemas";
+import type {
+  PlexDevice,
+  PlexUserInfo,
+} from "~/lib/plex.tv/schemas/plex-tv-schemas";
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   session: {

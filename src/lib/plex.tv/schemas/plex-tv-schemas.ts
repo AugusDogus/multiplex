@@ -1,6 +1,62 @@
 import { z } from "zod";
 
-// Plex Settings Schemas
+/* ────────────────────────────────────────────────────────────
+   Plex.tv API Schemas
+   Schemas for PlexTvClient - user info, devices, sessions
+   ──────────────────────────────────────────────────────────── */
+
+/* ────────────────────────────────────────────────────────────
+   Device & Session Schemas
+   ──────────────────────────────────────────────────────────── */
+
+export const deviceSchema = z.object({
+  name: z.string(),
+  product: z.string(),
+  productVersion: z.string(),
+  platform: z.string(),
+  platformVersion: z.string(),
+  device: z.string(),
+  clientIdentifier: z.string(),
+  createdAt: z.string(),
+  lastSeenAt: z.string(),
+  provides: z.string(),
+  ownerId: z.number().nullable(),
+  sourceTitle: z.string().nullable(),
+  publicAddress: z.string(),
+  accessToken: z.string().nullable(),
+  owned: z.boolean(),
+  home: z.boolean(),
+  synced: z.boolean(),
+  relay: z.boolean(),
+  presence: z.boolean(),
+  httpsRequired: z.boolean(),
+  publicAddressMatches: z.boolean(),
+  dnsRebindingProtection: z.boolean().nullish(),
+  natLoopbackSupported: z.boolean().nullish(),
+  connections: z.array(
+    z.object({
+      protocol: z.string(),
+      address: z.string(),
+      port: z.number(),
+      uri: z.string(),
+      local: z.boolean(),
+      relay: z.boolean(),
+      IPv6: z.boolean(),
+    }),
+  ),
+});
+
+export const authCallbackSchema = z.object({
+  id: z.preprocess((value) => parseInt(z.string().parse(value)), z.number()),
+  code: z.string(),
+});
+
+export const sessionsSchema = z.array(deviceSchema);
+
+/* ────────────────────────────────────────────────────────────
+   User Settings Schemas
+   ──────────────────────────────────────────────────────────── */
+
 export const recentSearchSchema = z.object({
   query: z.string(),
   pivot: z.string(),
@@ -97,50 +153,9 @@ export const plexSettingsSchema = z
     return result as ExperienceSettings & Record<string, unknown>;
   });
 
-// Plex.tv API Schemas
-export const deviceSchema = z.object({
-  name: z.string(),
-  product: z.string(),
-  productVersion: z.string(),
-  platform: z.string(),
-  platformVersion: z.string(),
-  device: z.string(),
-  clientIdentifier: z.string(),
-  createdAt: z.string(),
-  lastSeenAt: z.string(),
-  provides: z.string(),
-  ownerId: z.number().nullable(),
-  sourceTitle: z.string().nullable(),
-  publicAddress: z.string(),
-  accessToken: z.string().nullable(),
-  owned: z.boolean(),
-  home: z.boolean(),
-  synced: z.boolean(),
-  relay: z.boolean(),
-  presence: z.boolean(),
-  httpsRequired: z.boolean(),
-  publicAddressMatches: z.boolean(),
-  dnsRebindingProtection: z.boolean().nullish(),
-  natLoopbackSupported: z.boolean().nullish(),
-  connections: z.array(
-    z.object({
-      protocol: z.string(),
-      address: z.string(),
-      port: z.number(),
-      uri: z.string(),
-      local: z.boolean(),
-      relay: z.boolean(),
-      IPv6: z.boolean(),
-    }),
-  ),
-});
-
-export const authCallbackSchema = z.object({
-  id: z.preprocess((value) => parseInt(z.string().parse(value)), z.number()),
-  code: z.string(),
-});
-
-export const sessionsSchema = z.array(deviceSchema);
+/* ────────────────────────────────────────────────────────────
+   User Info Schemas
+   ──────────────────────────────────────────────────────────── */
 
 // Raw user info schema that matches the API response exactly
 export const rawUserInfoSchema = z.object({
@@ -271,174 +286,10 @@ export const userInfoSchema = rawUserInfoSchema.transform((data) => {
   };
 });
 
-// Simplified directory schemas - break these out instead of complex unions
-const BaseDirectorySchema = z.object({
-  title: z.string(),
-});
+/* ────────────────────────────────────────────────────────────
+   Type Exports
+   ──────────────────────────────────────────────────────────── */
 
-const LibrarySectionSchema = BaseDirectorySchema.extend({
-  id: z.string(),
-  key: z.string(),
-  hubKey: z.string(),
-  type: z.string(), // movie, show, artist, etc.
-  agent: z.string(),
-  language: z.string(),
-  refreshing: z.boolean(),
-  scanner: z.string(),
-  uuid: z.string(),
-  updatedAt: z.number(),
-  scannedAt: z.number(),
-  Pivot: z
-    .array(
-      z.object({
-        id: z.string(),
-        key: z.string(),
-        type: z.string(),
-        title: z.string(),
-        context: z.string(),
-        symbol: z.string(),
-      }),
-    )
-    .optional(),
-});
-
-const PlaylistDirectorySchema = BaseDirectorySchema.extend({
-  id: z.literal("playlists"),
-  key: z.string(),
-  type: z.literal("playlist"),
-  Pivot: z.array(
-    z.object({
-      id: z.string(),
-      key: z.string(),
-      type: z.string(),
-      title: z.string(),
-      context: z.string(),
-      symbol: z.string(),
-    }),
-  ),
-});
-
-const LiveTVDirectorySchema = BaseDirectorySchema.extend({
-  id: z.string(),
-  hubKey: z.string().optional(),
-  Pivot: z
-    .array(
-      z.object({
-        id: z.string(),
-        key: z.string(),
-        type: z.string(),
-        title: z.string(),
-        context: z.string(),
-        symbol: z.string(),
-      }),
-    )
-    .optional(),
-});
-
-const HomeDirectorySchema = BaseDirectorySchema.extend({
-  hubKey: z.literal("/hubs"),
-});
-
-const GenericDirectorySchema = BaseDirectorySchema.extend({
-  type: z.string().optional(),
-  key: z.string().optional(),
-  icon: z.string().optional(),
-  updatedAt: z.number().optional(),
-});
-
-// Simple union of all directory types
-const DirectorySchema = z.union([
-  LibrarySectionSchema,
-  PlaylistDirectorySchema,
-  LiveTVDirectorySchema,
-  HomeDirectorySchema,
-  GenericDirectorySchema,
-]);
-
-// Type guards for runtime type checking
-export function isLibrarySection(
-  dir: Directory,
-): dir is z.infer<typeof LibrarySectionSchema> {
-  return (
-    "id" in dir && "type" in dir && "hubKey" in dir && dir.type !== "playlist"
-  );
-}
-
-export function isPlaylistDirectory(
-  dir: Directory,
-): dir is z.infer<typeof PlaylistDirectorySchema> {
-  return "id" in dir && dir.id === "playlists";
-}
-
-export function isLiveTVDirectory(
-  dir: Directory,
-): dir is z.infer<typeof LiveTVDirectorySchema> {
-  return (
-    "id" in dir &&
-    typeof dir.id === "string" &&
-    dir.id.includes("tv.plex.providers")
-  );
-}
-
-export function isHomeDirectory(
-  dir: Directory,
-): dir is z.infer<typeof HomeDirectorySchema> {
-  return "hubKey" in dir && dir.hubKey === "/hubs";
-}
-
-// Simplified Feature schema
-const FeatureSchema = z.object({
-  key: z.string().optional(),
-  type: z.string(),
-  Directory: z.array(DirectorySchema).optional(),
-  Action: z
-    .array(
-      z.object({
-        id: z.string(),
-        key: z.string(),
-      }),
-    )
-    .optional(),
-  flavor: z.string().optional(),
-  scrobbleKey: z.string().optional(),
-  unscrobbleKey: z.string().optional(),
-});
-
-// Simplified MediaProvider schema
-const MediaProviderSchema = z.object({
-  identifier: z.string().optional(),
-  title: z.string(),
-  types: z.string().optional(),
-  protocols: z.string().optional(),
-  Feature: z.array(FeatureSchema),
-  // LiveTV specific fields
-  id: z.number().optional(),
-  parentID: z.number().optional(),
-  providerIdentifier: z.string().optional(),
-  epgSource: z.string().optional(),
-  friendlyName: z.string().optional(),
-});
-
-// Clean MediaContainer schema
-export const MediaContainerSchema = z.object({
-  MediaContainer: z
-    .object({
-      size: z.number(),
-      allowCameraUpload: z.boolean().optional(),
-      allowChannelAccess: z.boolean().optional(),
-      allowMediaDeletion: z.boolean().optional(),
-      allowSharing: z.boolean().optional(),
-      allowSync: z.boolean().optional(),
-      allowTuners: z.boolean().optional(),
-      friendlyName: z.string(),
-      machineIdentifier: z.string(),
-      MediaProvider: z.array(MediaProviderSchema),
-      // ... other MediaContainer properties can be added as needed
-    })
-    .passthrough(), // Allow other properties we don't care about
-});
-
-// Type exports
 export type PlexDevice = z.infer<typeof deviceSchema>;
 export type PlexAuthCallback = z.infer<typeof authCallbackSchema>;
 export type RawPlexUserInfo = z.infer<typeof rawUserInfoSchema>;
@@ -447,7 +298,3 @@ export type PlexSettings = z.infer<typeof plexSettingsSchema>;
 export type ExperienceSettings = z.infer<typeof experienceSettingsSchema>;
 export type RecentSearch = z.infer<typeof recentSearchSchema>;
 export type PinnedSource = z.infer<typeof pinnedSourceSchema>;
-export type MediaContainer = z.infer<typeof MediaContainerSchema>;
-export type MediaProvider = z.infer<typeof MediaProviderSchema>;
-export type Directory = z.infer<typeof DirectorySchema>;
-export type LibrarySection = z.infer<typeof LibrarySectionSchema>;

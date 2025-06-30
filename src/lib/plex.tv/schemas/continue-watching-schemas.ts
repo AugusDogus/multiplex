@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /* ────────────────────────────────────────────────────────────
    Continue Watching Schemas
-   Separate from main schemas due to different structure/purpose
+   Schemas specific to Continue Watching functionality
    ──────────────────────────────────────────────────────────── */
 
 /* ────────────────────────────────────────────────────────────

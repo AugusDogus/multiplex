@@ -1,7 +1,10 @@
-import type { PlexTvClient } from "~/lib/plex.tv/client";
-import type { ContinueWatchingResponse } from "~/lib/plex.tv/continue-watching-schemas";
-import { getThumbnailUrl } from "~/lib/plex.tv/continue-watching-utils";
-import type { PinnedSource, PlexDevice } from "~/lib/plex.tv/schemas";
+import type { PlexTvClient } from "~/lib/plex.tv/clients/plex-tv-client";
+import type { ContinueWatchingResponse } from "~/lib/plex.tv/schemas/continue-watching-schemas";
+import type {
+  PinnedSource,
+  PlexDevice,
+} from "~/lib/plex.tv/schemas/plex-tv-schemas";
+import { getThumbnailUrl } from "~/lib/plex.tv/utils/continue-watching-utils";
 import { analyzeImageProgressColor } from "~/server/utils/image-analysis";
 
 export async function getAllContinueWatchingQuery(plex: PlexTvClient) {

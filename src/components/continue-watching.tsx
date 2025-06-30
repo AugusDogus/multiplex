@@ -9,13 +9,13 @@ import {
 } from "~/atoms/media-player";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
-import type { ContinueWatchingItem } from "~/lib/plex.tv/continue-watching-schemas";
+import type { ContinueWatchingItem } from "~/lib/plex.tv/schemas/continue-watching-schemas";
 import {
   getMainTitle,
   getSubtitle,
   getThumbnailUrl,
   isCompleted,
-} from "~/lib/plex.tv/continue-watching-utils";
+} from "~/lib/plex.tv/utils/continue-watching-utils";
 import { isMediaPlayerItem } from "~/types/media-player";
 
 /* ────────────────────────────────────────────────────────────

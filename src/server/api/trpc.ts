@@ -10,7 +10,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
 import { auth } from "~/lib/auth/server";
-import { PlexTvClient } from "~/lib/plex.tv/client";
+import { PlexTvClient } from "~/lib/plex.tv/clients/plex-tv-client";
 
 import { db } from "~/server/db";
 

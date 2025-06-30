@@ -1,4 +1,4 @@
-import type { ContinueWatchingItem } from "~/lib/plex.tv/continue-watching-schemas";
+import type { ContinueWatchingItem } from "~/lib/plex.tv/schemas/continue-watching-schemas";
 
 /* ────────────────────────────────────────────────────────────
    Media Player Types

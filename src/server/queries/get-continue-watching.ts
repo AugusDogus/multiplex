@@ -1,4 +1,4 @@
-import type { PlexTvClient } from "~/lib/plex.tv/client";
+import type { PlexTvClient } from "~/lib/plex.tv/clients/plex-tv-client";
 
 export async function getContinueWatchingQuery(
   plex: PlexTvClient,

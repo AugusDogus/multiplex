@@ -1,7 +1,7 @@
 import {
   getMainTitle,
   getSubtitle,
-} from "~/lib/plex.tv/continue-watching-utils";
+} from "~/lib/plex.tv/utils/continue-watching-utils";
 import type { MediaPlayerItem } from "~/types/media-player";
 
 /* ────────────────────────────────────────────────────────────
