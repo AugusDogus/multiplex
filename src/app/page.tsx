@@ -4,6 +4,7 @@ import { AppSidebar } from "~/components/app-sidebar";
 import { ContinueWatching } from "~/components/continue-watching";
 import { PlexErrorWrapper } from "~/components/plex-error-wrapper";
 import { SearchForm } from "~/components/search-form";
+import { ThemeToggle } from "~/components/theme-toggle";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -85,7 +86,10 @@ export default async function Page() {
                     </BreadcrumbItem>
                   </BreadcrumbList>
                 </Breadcrumb>
-                <SearchForm className="w-full sm:ml-auto sm:w-auto" />
+                <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
+                  <ThemeToggle />
+                  <SearchForm className="w-full sm:ml-auto sm:w-auto" />
+                </div>
               </div>
             </header>
             <div className="flex min-w-0 flex-1 flex-col gap-6">
