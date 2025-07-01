@@ -1,14 +1,22 @@
 "use client";
 
 import { useAtom, useAtomValue } from "jotai";
-import { CirclePlay, Play } from "lucide-react";
+import { CirclePlay, Play, MoreHorizontal } from "lucide-react";
 import Image from "next/image";
+import { useState } from "react";
 import {
   openMediaPlayerAtom,
   updatedItemsProgressAtom,
 } from "~/atoms/media-player";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from "~/components/ui/drawer";
+import { useIsMobile } from "~/hooks/use-mobile";
 import type { ContinueWatchingItem } from "~/lib/plex.tv/schemas/continue-watching-schemas";
 import {
   getMainTitle,
@@ -126,6 +134,9 @@ interface ContinueWatchingItemProps {
 function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
   const [, openPlayer] = useAtom(openMediaPlayerAtom);
   const updatedProgress = useAtomValue(updatedItemsProgressAtom);
+  const isMobile = useIsMobile();
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
   const mainTitle = getMainTitle(item);
   const subtitle = getSubtitle(item);
 
@@ -148,80 +159,178 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
     openPlayer(item);
   };
 
+  const handleMobileTap = () => {
+    if (isMobile) {
+      setIsDrawerOpen(true);
+    }
+  };
+
+  const handlePlayFromDrawer = () => {
+    setIsDrawerOpen(false);
+    handlePlay();
+  };
+
   return (
-    <div className="flex-shrink-0 space-y-2">
-      {/* Poster Container */}
-      <div className="relative">
-        {/* Poster Image */}
-        <div className="bg-muted group relative h-[240px] w-[160px] overflow-hidden rounded-md shadow-lg transition-all duration-200 group-hover:shadow-xl">
-          {thumbnailUrl ? (
-            <Image
-              src={thumbnailUrl}
-              alt={mainTitle}
-              className="h-full w-full object-cover"
-              loading="lazy"
-              width={160}
-              height={240}
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center">
-              <CirclePlay className="text-muted-foreground h-12 w-12" />
-            </div>
-          )}
-
-          {/* Progress Bar */}
-          {progressPercent > 0 && (
-            <div className="absolute right-0 bottom-0 left-0 h-1 bg-black/30">
-              <div
-                className={`dark:bg-primary h-full transition-all duration-300 ${
-                  item.progressColor === "dark"
-                    ? "bg-dark-primary"
-                    : "bg-light-primary"
-                }`}
-                style={{ width: `${Math.min(progressPercent, 100)}%` }}
+    <>
+      <div className="flex-shrink-0 space-y-2">
+        {/* Poster Container */}
+        <div className="relative">
+          {/* Poster Image */}
+          <div
+            className={`bg-muted group relative h-[240px] w-[160px] overflow-hidden rounded-md shadow-lg transition-all duration-200 group-hover:shadow-xl ${
+              isMobile ? "cursor-pointer" : ""
+            }`}
+            onClick={handleMobileTap}
+          >
+            {thumbnailUrl ? (
+              <Image
+                src={thumbnailUrl}
+                alt={mainTitle}
+                className="h-full w-full object-cover"
+                loading="lazy"
+                width={160}
+                height={240}
               />
-            </div>
-          )}
+            ) : (
+              <div className="flex h-full w-full items-center justify-center">
+                <CirclePlay className="text-muted-foreground h-12 w-12" />
+              </div>
+            )}
 
-          {/* Completion Badge */}
-          {isItemCompleted && (
-            <div className="absolute top-2 right-2 rounded bg-green-600 px-2 py-1 text-xs text-white shadow-sm">
-              Watched
-            </div>
-          )}
+            {/* Progress Bar */}
+            {progressPercent > 0 && (
+              <div className="absolute right-0 bottom-0 left-0 h-1 bg-black/30">
+                <div
+                  className={`dark:bg-primary h-full transition-all duration-300 ${
+                    item.progressColor === "dark"
+                      ? "bg-dark-primary"
+                      : "bg-light-primary"
+                  }`}
+                  style={{ width: `${Math.min(progressPercent, 100)}%` }}
+                />
+              </div>
+            )}
 
-          {/* Hover Overlay with Play Button */}
-          <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-            <Button
-              variant="secondary"
-              size="icon"
-              className="group/button h-12 w-12 cursor-pointer rounded-full"
-              onClick={handlePlay}
-              aria-label="Play"
-            >
-              <Play className="fill-black/60 stroke-black/60 transition-all duration-200 group-hover/button:fill-black/20 group-hover/button:stroke-black/20 dark:fill-white/60 dark:stroke-white/60 group-hover/button:dark:fill-white/20 group-hover/button:dark:stroke-white/20" />
-            </Button>
+            {/* Completion Badge */}
+            {isItemCompleted && (
+              <div className="absolute top-2 right-2 rounded bg-green-600 px-2 py-1 text-xs text-white shadow-sm">
+                Watched
+              </div>
+            )}
+
+            {/* Hover Overlay with Play Button - Hidden on mobile */}
+            <div className="absolute inset-0 hidden items-center justify-center bg-black/60 opacity-0 transition-opacity duration-200 group-hover:opacity-100 md:flex">
+              <Button
+                variant="secondary"
+                size="icon"
+                className="group/button h-12 w-12 cursor-pointer rounded-full"
+                onClick={handlePlay}
+                aria-label="Play"
+              >
+                <Play className="fill-black/60 stroke-black/60 transition-all duration-200 group-hover/button:fill-black/20 group-hover/button:stroke-black/20 dark:fill-white/60 dark:stroke-white/60 group-hover/button:dark:fill-white/20 group-hover/button:dark:stroke-white/20" />
+              </Button>
+            </div>
+
+            {/* Mobile Options Indicator - Only visible on mobile */}
+            {isMobile && (
+              <div className="absolute top-2 left-2 rounded bg-black/60 p-1">
+                <MoreHorizontal className="h-4 w-4 text-white" />
+              </div>
+            )}
           </div>
+        </div>
+
+        {/* Metadata */}
+        <div className="w-[160px] space-y-1">
+          <h3 className="truncate text-sm leading-tight font-medium">
+            {mainTitle}
+          </h3>
+
+          {subtitle && (
+            <div className="text-muted-foreground text-xs leading-tight">
+              {subtitle.split("\n").map((line, index) => (
+                <div key={index} className="truncate">
+                  {line}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Metadata */}
-      <div className="w-[160px] space-y-1">
-        <h3 className="truncate text-sm leading-tight font-medium">
-          {mainTitle}
-        </h3>
+      {/* Mobile Drawer */}
+      <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>{mainTitle}</DrawerTitle>
+            {subtitle && (
+              <p className="text-muted-foreground text-sm">{subtitle}</p>
+            )}
+          </DrawerHeader>
 
-        {subtitle && (
-          <div className="text-muted-foreground text-xs leading-tight">
-            {subtitle.split("\n").map((line, index) => (
-              <div key={index} className="truncate">
-                {line}
+          <div className="space-y-4 p-4">
+            {/* Progress Info */}
+            {progressPercent > 0 && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Progress</span>
+                  <span>{Math.round(progressPercent)}%</span>
+                </div>
+                <div className="bg-muted h-2 overflow-hidden rounded-full">
+                  <div
+                    className={`h-full transition-all duration-300 ${
+                      item.progressColor === "dark"
+                        ? "bg-dark-primary"
+                        : "bg-light-primary"
+                    }`}
+                    style={{ width: `${Math.min(progressPercent, 100)}%` }}
+                  />
+                </div>
               </div>
-            ))}
+            )}
+
+            {/* Action Buttons */}
+            <div className="space-y-2">
+              <Button
+                onClick={handlePlayFromDrawer}
+                className="w-full"
+                disabled={!isMediaPlayerItem(item)}
+              >
+                <Play className="mr-2 h-4 w-4" />
+                {progressPercent > 0 ? "Continue Watching" : "Play"}
+              </Button>
+
+              {progressPercent > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    // TODO: Implement restart from beginning
+                    setIsDrawerOpen(false);
+                  }}
+                  className="w-full"
+                >
+                  Restart from Beginning
+                </Button>
+              )}
+            </div>
+
+            {/* Additional Info */}
+            <div className="text-muted-foreground space-y-2 text-sm">
+              {item.year && <div>Year: {item.year}</div>}
+              {item.contentRating && <div>Rating: {item.contentRating}</div>}
+              {item.duration && (
+                <div>
+                  Duration: {Math.floor(item.duration / 1000 / 60)} minutes
+                </div>
+              )}
+              {item.librarySectionTitle && (
+                <div>Library: {item.librarySectionTitle}</div>
+              )}
+            </div>
           </div>
-        )}
-      </div>
-    </div>
+        </DrawerContent>
+      </Drawer>
+    </>
   );
 }
 
