@@ -194,7 +194,7 @@ export function MediaPlayerModal() {
         <div
           className={`group relative cursor-none overflow-hidden hover:cursor-default ${
             isMobile 
-              ? "flex flex-1 items-center justify-center h-screen w-screen" 
+              ? "fixed inset-0 flex items-center justify-center" 
               : "h-full w-full"
           }`}
           onMouseEnter={handleMouseEnter}
