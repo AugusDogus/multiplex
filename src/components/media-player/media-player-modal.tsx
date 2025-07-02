@@ -201,23 +201,39 @@ export function MediaPlayerModal() {
           onMouseLeave={handleMouseLeave}
           onMouseMove={handleMouseMove}
         >
-          {/* Close Button - Top right corner */}
-          <div
-            className={`absolute top-4 right-4 z-20 transition-opacity duration-300 group-hover:opacity-100 ${
-              state.showControls
-                ? "opacity-100"
-                : "pointer-events-none opacity-0 group-hover:pointer-events-auto"
-            }`}
-          >
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleClose}
-              className="text-white hover:bg-white/20"
+          {/* Close Button - Outside rotation on mobile, inside on desktop */}
+          {!isMobile && (
+            <div
+              className={`absolute top-4 right-4 z-20 transition-opacity duration-300 group-hover:opacity-100 ${
+                state.showControls
+                  ? "opacity-100"
+                  : "pointer-events-none opacity-0 group-hover:pointer-events-auto"
+              }`}
             >
-              <X className="h-6 w-6" />
-            </Button>
-          </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleClose}
+                className="text-white hover:bg-white/20"
+              >
+                <X className="h-6 w-6" />
+              </Button>
+            </div>
+          )}
+
+          {/* Mobile Close Button - Outside rotated container */}
+          {isMobile && (
+            <div className="absolute top-4 right-4 z-30">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleClose}
+                className="text-white hover:bg-white/20"
+              >
+                <X className="h-6 w-6" />
+              </Button>
+            </div>
+          )}
 
           {/* Video Player Container - Rotated on mobile */}
           <div
