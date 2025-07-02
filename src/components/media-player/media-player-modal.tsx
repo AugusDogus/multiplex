@@ -11,6 +11,7 @@ import {
 import { Button } from "~/components/ui/button";
 import {
   Dialog,
+  DialogDescription,
   DialogTitle,
   MediaPlayerDialogContent,
 } from "~/components/ui/dialog";
@@ -180,6 +181,12 @@ export function MediaPlayerModal() {
         <DialogTitle className="sr-only">
           Media Player - {state.currentItem.title}
         </DialogTitle>
+
+        {/* Visually hidden description for accessibility */}
+        <DialogDescription className="sr-only">
+          Playing {state.currentItem.title}. Use spacebar to play/pause, arrow
+          keys to seek, and escape to close.
+        </DialogDescription>
 
         {/* Video Player Container - Full screen with overlaid controls */}
         <div
