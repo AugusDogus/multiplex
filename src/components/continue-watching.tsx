@@ -90,7 +90,7 @@ export function ContinueWatching({
   const items = continueWatchingData ?? initialItems;
 
   // Only show error for initial load failures, not background refresh failures
-  if (error && isLoading && !continueWatchingData) {
+  if (error && !continueWatchingData && initialItems.length === 0) {
     return (
       <div className="my-6 space-y-4">
         {showTitle && (
