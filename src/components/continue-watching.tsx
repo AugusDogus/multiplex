@@ -142,12 +142,6 @@ export function ContinueWatching({
       {showTitle && (
         <div className="flex items-center justify-between px-8">
           <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
-          {/* Subtle refresh indicator - only show during background refresh */}
-          {isRefetching && (
-            <div className="text-muted-foreground text-xs">
-              Updating...
-            </div>
-          )}
         </div>
       )}
 
