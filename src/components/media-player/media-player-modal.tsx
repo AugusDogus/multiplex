@@ -21,6 +21,7 @@ import { useTimelineUpdates } from "./hooks/use-timeline-updates";
 import { MediaPlayerControls } from "./media-player-controls";
 import { MediaPlayerOverlay } from "./media-player-overlay";
 import { MediaPlayerVideo } from "./media-player-video";
+import { useIsMobile } from "~/hooks/use-mobile";
 
 /* ────────────────────────────────────────────────────────────
    Media Player Modal
@@ -32,6 +33,7 @@ export function MediaPlayerModal() {
   const [, closePlayer] = useAtom(closeMediaPlayerAtom);
   const [, updateState] = useAtom(updatePlaybackStateAtom);
   const { actions, videoRef } = useMediaPlayer();
+  const isMobile = useIsMobile();
 
   // Timeline updates hook - sends progress updates to Plex server
   const {
@@ -190,7 +192,11 @@ export function MediaPlayerModal() {
 
         {/* Video Player Container - Full screen with overlaid controls */}
         <div
-          className="group relative h-full w-full cursor-none overflow-hidden hover:cursor-default"
+          className={`group relative cursor-none overflow-hidden hover:cursor-default ${
+            isMobile 
+              ? "h-screen w-screen flex items-center justify-center" 
+              : "h-full w-full"
+          }`}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
           onMouseMove={handleMouseMove}
@@ -213,41 +219,50 @@ export function MediaPlayerModal() {
             </Button>
           </div>
 
-          {/* Video Player - Takes up full space */}
-          <MediaPlayerVideo
-            ref={videoRef}
-            item={state.currentItem}
-            className="h-full w-full"
-            onVideoClick={handleVideoClick}
-            onVideoDoubleClick={handleVideoDoubleClick}
-            onVolumeScroll={handleVolumeScroll}
-            onVideoEnded={onEnded}
-            onVideoPlay={onPlay}
-            onVideoPause={onPause}
-            onVideoTimeUpdate={onTimeUpdate}
-            onVideoSeeked={onSeeked}
-          />
-
-          {/* Title and Metadata Overlay - Top of video */}
-          <MediaPlayerOverlay
-            item={state.currentItem}
-            isVisible={state.showControls}
-            isLoading={state.isLoading}
-            error={state.error}
-          />
-
-          {/* Media Controls - Bottom overlay with fade transition */}
+          {/* Video Player Container - Rotated on mobile */}
           <div
-            className={`absolute right-0 bottom-0 left-0 transition-opacity duration-300 group-hover:opacity-100 ${
-              state.showControls
-                ? "opacity-100"
-                : "pointer-events-none opacity-0 group-hover:pointer-events-auto"
-            }`}
+            className={
+              isMobile
+                ? "relative h-screen w-screen origin-center rotate-90"
+                : "relative h-full w-full"
+            }
           >
-            <MediaPlayerControls
-              isVisible={true} // Always render, just control opacity
-              actions={actions}
+            {/* Video Player - Takes up full space */}
+            <MediaPlayerVideo
+              ref={videoRef}
+              item={state.currentItem}
+              className="h-full w-full"
+              onVideoClick={handleVideoClick}
+              onVideoDoubleClick={handleVideoDoubleClick}
+              onVolumeScroll={handleVolumeScroll}
+              onVideoEnded={onEnded}
+              onVideoPlay={onPlay}
+              onVideoPause={onPause}
+              onVideoTimeUpdate={onTimeUpdate}
+              onVideoSeeked={onSeeked}
             />
+
+            {/* Title and Metadata Overlay - Top of video */}
+            <MediaPlayerOverlay
+              item={state.currentItem}
+              isVisible={state.showControls}
+              isLoading={state.isLoading}
+              error={state.error}
+            />
+
+            {/* Media Controls - Bottom overlay with fade transition */}
+            <div
+              className={`absolute right-0 bottom-0 left-0 transition-opacity duration-300 group-hover:opacity-100 ${
+                state.showControls
+                  ? "opacity-100"
+                  : "pointer-events-none opacity-0 group-hover:pointer-events-auto"
+              }`}
+            >
+              <MediaPlayerControls
+                isVisible={true} // Always render, just control opacity
+                actions={actions}
+              />
+            </div>
           </div>
         </div>
       </MediaPlayerDialogContent>
