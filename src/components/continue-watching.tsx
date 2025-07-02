@@ -3,7 +3,7 @@
 import { useAtom, useAtomValue } from "jotai";
 import { CirclePlay, Play, MoreHorizontal } from "lucide-react";
 import Image from "next/image";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   openMediaPlayerAtom,
   updatedItemsProgressAtom,
@@ -25,6 +25,7 @@ import {
   isCompleted,
 } from "~/lib/plex.tv/utils/continue-watching-utils";
 import { isMediaPlayerItem } from "~/types/media-player";
+import { api } from "~/trpc/react";
 
 /* ────────────────────────────────────────────────────────────
    Continue Watching Component
@@ -32,25 +33,71 @@ import { isMediaPlayerItem } from "~/types/media-player";
    ──────────────────────────────────────────────────────────── */
 
 export interface ContinueWatchingProps {
-  /** Continue Watching items to display */
+  /** Initial Continue Watching items from server-side rendering */
   items: (ContinueWatchingItem & { serverUrl?: string; authToken?: string })[];
   /** Whether to show the section title */
   showTitle?: boolean;
   /** Custom title for the section */
   title?: string;
-  /** Whether to show loading skeletons */
-  isLoading?: boolean;
-  /** Error message to display */
-  error?: string;
+  /** Auto-refresh interval in milliseconds (default: 5000ms) */
+  refreshInterval?: number;
+  /** Whether to enable auto-refresh (default: true) */
+  enableAutoRefresh?: boolean;
 }
 
 export function ContinueWatching({
-  items,
+  items: initialItems,
   showTitle = true,
   title = "Continue Watching",
-  isLoading = false,
-  error,
+  refreshInterval = 5000,
+  enableAutoRefresh = true,
 }: ContinueWatchingProps) {
+  const [isPageVisible, setIsPageVisible] = useState(true);
+
+  // Set up Page Visibility API to pause refresh when page is not visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      setIsPageVisible(!document.hidden);
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  // Use tRPC query for auto-refresh - fetch fresh data immediately for type safety
+  const {
+    data: continueWatchingData,
+    error,
+    isLoading,
+    isRefetching,
+  } = api.plex.getAllContinueWatching.useQuery(
+    undefined,
+    {
+      // Only refetch when page is visible and auto-refresh is enabled
+      refetchInterval: enableAutoRefresh && isPageVisible ? refreshInterval : false,
+      // Don't refetch on window focus to avoid excessive requests
+      refetchOnWindowFocus: false,
+      // Keep data fresh but don't show loading state during background refresh
+      staleTime: refreshInterval / 2, // Consider data stale after half the refresh interval
+      // Keep data in cache for longer than stale time
+      gcTime: refreshInterval * 4, // Keep in cache for 4x the refresh interval
+      // Retry failed requests with exponential backoff
+      retry: (failureCount: number, error: any) => {
+        // Don't retry more than 3 times
+        if (failureCount >= 3) return false;
+        // Don't retry on auth errors (401, 403)
+        if (error?.message?.includes('401') || error?.message?.includes('403')) return false;
+        return true;
+      },
+      retryDelay: (attemptIndex: number) => Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff, max 30s
+    }
+  );
+
+  // Use fresh data from query, fallback to initial items only during initial load
+  const items = continueWatchingData ?? (isLoading ? initialItems : []);
+
   if (error) {
     return (
       <div className="my-6 space-y-4">
@@ -60,13 +107,14 @@ export function ContinueWatching({
           </h2>
         )}
         <div className="text-muted-foreground px-8 text-sm">
-          Failed to load Continue Watching data: {error}
+          Failed to load Continue Watching data: {error.message}
         </div>
       </div>
     );
   }
 
-  if (isLoading) {
+  // Only show loading state for initial load, not for background refresh
+  if (isLoading && !continueWatchingData) {
     return (
       <div className="my-6 space-y-4">
         {showTitle && (
@@ -105,6 +153,12 @@ export function ContinueWatching({
       {showTitle && (
         <div className="flex items-center justify-between px-8">
           <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
+          {/* Subtle refresh indicator - only show during background refresh */}
+          {isRefetching && (
+            <div className="text-muted-foreground text-xs">
+              Updating...
+            </div>
+          )}
         </div>
       )}
 
@@ -335,16 +389,18 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
 }
 
 /* ────────────────────────────────────────────────────────────
-   Loading Skeleton
+   Loading Skeleton - Updated to match actual poster dimensions
    ──────────────────────────────────────────────────────────── */
 
 function ContinueWatchingItemSkeleton() {
   return (
     <div className="flex-shrink-0 space-y-2">
-      <div className="h-[300px] w-[200px] rounded-lg shadow-lg">
-        <Skeleton className="h-full w-full rounded-lg" />
+      {/* Updated skeleton to match actual poster dimensions: 160x240px */}
+      <div className="h-[240px] w-[160px] rounded-md shadow-lg">
+        <Skeleton className="h-full w-full rounded-md" />
       </div>
-      <div className="w-[200px] space-y-2">
+      {/* Updated metadata skeleton to match actual width */}
+      <div className="w-[160px] space-y-1">
         <Skeleton className="h-4 w-full" />
         <Skeleton className="h-3 w-3/4" />
         <Skeleton className="h-3 w-1/2" />
