@@ -1,7 +1,7 @@
 "use client";
 
 import { useAtom, useAtomValue } from "jotai";
-import { CirclePlay, Play, MoreHorizontal } from "lucide-react";
+import { CirclePlay, MoreHorizontal, Play } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
 import {
@@ -9,13 +9,13 @@ import {
   updatedItemsProgressAtom,
 } from "~/atoms/media-player";
 import { Button } from "~/components/ui/button";
-import { Skeleton } from "~/components/ui/skeleton";
 import {
   Drawer,
   DrawerContent,
   DrawerHeader,
   DrawerTitle,
 } from "~/components/ui/drawer";
+import { Skeleton } from "~/components/ui/skeleton";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { useVisibilityChange } from "~/hooks/use-visibility-change";
 import type { ContinueWatchingItem } from "~/lib/plex.tv/schemas/continue-watching-schemas";
@@ -25,8 +25,8 @@ import {
   getThumbnailUrl,
   isCompleted,
 } from "~/lib/plex.tv/utils/continue-watching-utils";
-import { isMediaPlayerItem } from "~/types/media-player";
 import { api } from "~/trpc/react";
+import { isMediaPlayerItem } from "~/types/media-player";
 
 /* ────────────────────────────────────────────────────────────
    Continue Watching Component
@@ -61,33 +61,36 @@ export function ContinueWatching({
     error,
     isLoading,
     isRefetching,
-  } = api.plex.getAllContinueWatching.useQuery(
-    undefined,
-    {
-      // Only refetch when page is visible and auto-refresh is enabled
-      refetchInterval: enableAutoRefresh && isPageVisible ? refreshInterval : false,
-      // Don't refetch on window focus to avoid excessive requests
-      refetchOnWindowFocus: false,
-      // Keep data fresh but don't show loading state during background refresh
-      staleTime: refreshInterval / 2, // Consider data stale after half the refresh interval
-      // Keep data in cache for longer than stale time
-      gcTime: refreshInterval * 4, // Keep in cache for 4x the refresh interval
-      // Retry failed requests with exponential backoff
-      retry: (failureCount: number, error: any) => {
-        // Don't retry more than 3 times
-        if (failureCount >= 3) return false;
-        // Don't retry on auth errors (401, 403)
-        if (error?.message?.includes('401') || error?.message?.includes('403')) return false;
-        return true;
-      },
-      retryDelay: (attemptIndex: number) => Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff, max 30s
-    }
-  );
+  } = api.plex.getAllContinueWatching.useQuery(undefined, {
+    // Only refetch when page is visible and auto-refresh is enabled
+    refetchInterval:
+      enableAutoRefresh && isPageVisible ? refreshInterval : false,
+    // Don't refetch on window focus to avoid excessive requests
+    refetchOnWindowFocus: false,
+    // Keep data fresh but don't show loading state during background refresh
+    staleTime: refreshInterval / 2, // Consider data stale after half the refresh interval
+    // Keep data in cache for longer than stale time
+    gcTime: refreshInterval * 4, // Keep in cache for 4x the refresh interval
+    // Retry failed requests with exponential backoff
+    retry: (failureCount: number, error: unknown) => {
+      // Don't retry more than 3 times
+      if (failureCount >= 3) return false;
+      // Don't retry on auth errors (401, 403)
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes("401") || errorMessage.includes("403"))
+        return false;
+      return true;
+    },
+    retryDelay: (attemptIndex: number) =>
+      Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff, max 30s
+  });
 
-  // Use fresh data from query, fallback to initial items only during initial load
-  const items = continueWatchingData ?? (isLoading ? initialItems : []);
+  // Use fresh data from query, fallback to initial items
+  const items = continueWatchingData ?? initialItems;
 
-  if (error) {
+  // Only show error for initial load failures, not background refresh failures
+  if (error && isLoading && !continueWatchingData) {
     return (
       <div className="my-6 space-y-4">
         {showTitle && (
@@ -96,7 +99,7 @@ export function ContinueWatching({
           </h2>
         )}
         <div className="text-muted-foreground px-8 text-sm">
-          Failed to load Continue Watching data: {error.message}
+          Failed to load Continue Watching data
         </div>
       </div>
     );
