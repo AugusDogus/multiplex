@@ -3,7 +3,7 @@
 import { useAtom, useAtomValue } from "jotai";
 import { CirclePlay, Play, MoreHorizontal } from "lucide-react";
 import Image from "next/image";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   openMediaPlayerAtom,
   updatedItemsProgressAtom,
@@ -17,6 +17,7 @@ import {
   DrawerTitle,
 } from "~/components/ui/drawer";
 import { useIsMobile } from "~/hooks/use-mobile";
+import { useVisibilityChange } from "~/hooks/use-visibility-change";
 import type { ContinueWatchingItem } from "~/lib/plex.tv/schemas/continue-watching-schemas";
 import {
   getMainTitle,
@@ -52,19 +53,7 @@ export function ContinueWatching({
   refreshInterval = 5000,
   enableAutoRefresh = true,
 }: ContinueWatchingProps) {
-  const [isPageVisible, setIsPageVisible] = useState(true);
-
-  // Set up Page Visibility API to pause refresh when page is not visible
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      setIsPageVisible(!document.hidden);
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, []);
+  const isPageVisible = useVisibilityChange();
 
   // Use tRPC query for auto-refresh - fetch fresh data immediately for type safety
   const {
