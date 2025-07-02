@@ -29,6 +29,10 @@ interface MediaPlayerVideoProps {
    */
   className?: string;
   /**
+   * Object fit mode for the video element
+   */
+  objectFit?: "contain" | "cover";
+  /**
    * Callback fired when user clicks the video (for play/pause toggle)
    */
   onVideoClick?: () => void;
@@ -70,6 +74,7 @@ export const MediaPlayerVideo = forwardRef<
     {
       item,
       className = "",
+      objectFit = "contain",
       onVideoClick,
       onVideoDoubleClick,
       onVolumeScroll,
@@ -314,7 +319,7 @@ export const MediaPlayerVideo = forwardRef<
           ref={ref}
           autoPlay
           src={videoSrc}
-          className="h-full w-full cursor-pointer object-contain"
+          className={`h-full w-full cursor-pointer ${objectFit === "cover" ? "object-cover" : "object-contain"}`}
           onClick={handleVideoClick}
           onDoubleClick={handleVideoDoubleClick}
           onWheel={handleVideoWheel}

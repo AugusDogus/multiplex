@@ -192,10 +192,10 @@ export function MediaPlayerModal() {
 
         {/* Video Player Container - Full screen with overlaid controls */}
         <div
-          className={`group relative h-full w-full cursor-none overflow-hidden hover:cursor-default ${
+          className={`group relative cursor-none overflow-hidden hover:cursor-default ${
             isMobile 
-              ? "flex items-center justify-center" 
-              : ""
+              ? "flex flex-1 items-center justify-center h-screen w-screen" 
+              : "h-full w-full"
           }`}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
@@ -248,6 +248,7 @@ export function MediaPlayerModal() {
               ref={videoRef}
               item={state.currentItem}
               className="h-full w-full"
+              objectFit={isMobile ? "cover" : "contain"}
               onVideoClick={handleVideoClick}
               onVideoDoubleClick={handleVideoDoubleClick}
               onVolumeScroll={handleVolumeScroll}
