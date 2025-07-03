@@ -214,7 +214,7 @@ export function MediaPlayerModal() {
               minHeight: '100svw'
             } : {}}
           >
-                      {/* Close Button - Top right corner */}
+            {/* Close Button - Top right corner */}
             <div
               className={`absolute top-4 right-4 z-20 transition-opacity duration-300 group-hover:opacity-100 ${
                 state.showControls
@@ -222,55 +222,55 @@ export function MediaPlayerModal() {
                   : "pointer-events-none opacity-0 group-hover:pointer-events-auto"
               }`}
             >
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleClose}
-              className="text-white hover:bg-white/20"
-            >
-              <X className="h-6 w-6" />
-            </Button>
-          </div>
-
-          {/* Video Player Container */}
-          <div className="relative h-full w-full">
-            {/* Video Player - Takes up full space */}
-            <MediaPlayerVideo
-              ref={videoRef}
-              item={state.currentItem}
-              className="h-full w-full"
-              onVideoClick={handleVideoClick}
-              onVideoDoubleClick={handleVideoDoubleClick}
-              onVolumeScroll={handleVolumeScroll}
-              onVideoEnded={onEnded}
-              onVideoPlay={onPlay}
-              onVideoPause={onPause}
-              onVideoTimeUpdate={onTimeUpdate}
-              onVideoSeeked={onSeeked}
-            />
-
-            {/* Title and Metadata Overlay - Top of video */}
-            <MediaPlayerOverlay
-              item={state.currentItem}
-              isVisible={state.showControls}
-              isLoading={state.isLoading}
-              error={state.error}
-            />
-
-            {/* Media Controls - Bottom overlay with fade transition */}
-            <div
-              className={`absolute right-0 bottom-0 left-0 transition-opacity duration-300 group-hover:opacity-100 ${
-                state.showControls
-                  ? "opacity-100"
-                  : "pointer-events-none opacity-0 group-hover:pointer-events-auto"
-              }`}
-            >
-              <MediaPlayerControls
-                isVisible={true} // Always render, just control opacity
-                actions={actions}
-              />
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleClose}
+                className="text-white hover:bg-white/20"
+              >
+                <X className="h-6 w-6" />
+              </Button>
             </div>
-          </div>
+
+            {/* Video Player Container */}
+            <div className="relative h-full w-full">
+              {/* Video Player - Takes up full space */}
+              <MediaPlayerVideo
+                ref={videoRef}
+                item={state.currentItem}
+                className="h-full w-full"
+                onVideoClick={handleVideoClick}
+                onVideoDoubleClick={handleVideoDoubleClick}
+                onVolumeScroll={handleVolumeScroll}
+                onVideoEnded={onEnded}
+                onVideoPlay={onPlay}
+                onVideoPause={onPause}
+                onVideoTimeUpdate={onTimeUpdate}
+                onVideoSeeked={onSeeked}
+              />
+
+              {/* Title and Metadata Overlay - Top of video */}
+              <MediaPlayerOverlay
+                item={state.currentItem}
+                isVisible={state.showControls}
+                isLoading={state.isLoading}
+                error={state.error}
+              />
+
+              {/* Media Controls - Bottom overlay with fade transition */}
+              <div
+                className={`absolute right-0 bottom-0 left-0 transition-opacity duration-300 group-hover:opacity-100 ${
+                  state.showControls
+                    ? "opacity-100"
+                    : "pointer-events-none opacity-0 group-hover:pointer-events-auto"
+                }`}
+              >
+                <MediaPlayerControls
+                  isVisible={true} // Always render, just control opacity
+                  actions={actions}
+                />
+              </div>
+            </div>
           </div>
         </div>
       </MediaPlayerDialogContent>
