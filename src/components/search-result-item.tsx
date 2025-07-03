@@ -4,7 +4,7 @@ import * as React from "react";
 import { Badge } from "~/components/ui/badge";
 import { Calendar, Clock, Star, Server } from "lucide-react";
 import type { ProcessedSearchResult } from "~/lib/plex.tv/schemas/search-schemas";
-import { getThumbnailUrl } from "~/lib/plex.tv/utils/continue-watching-utils";
+import { getUniversalThumbnailUrl } from "~/lib/plex.tv/utils/image-utils";
 
 interface SearchResultItemProps {
   result: ProcessedSearchResult;
@@ -64,14 +64,7 @@ export function SearchResultItem({ result }: SearchResultItemProps) {
     return null;
   };
 
-  // Create a minimal object compatible with getThumbnailUrl
-  const continueWatchingItem = {
-    type: result.type,
-    thumb: result.thumb,
-    grandparentThumb: undefined, // Not available in search results
-  } as any; // Type assertion to bypass strict type checking
-  
-  const thumbnailUrl = getThumbnailUrl(continueWatchingItem, result.serverUrl, result.authToken);
+  const thumbnailUrl = getUniversalThumbnailUrl(result, result.serverUrl, result.authToken);
   
   // Debug logging to check server URL
   React.useEffect(() => {
