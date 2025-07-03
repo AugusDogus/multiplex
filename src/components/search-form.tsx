@@ -5,35 +5,28 @@ import { Search } from "lucide-react";
 import { Label } from "~/components/ui/label";
 import { Button } from "~/components/ui/button";
 import { SidebarInput } from "~/components/ui/sidebar";
-import { useIsMobile } from "~/hooks/use-mobile";
 
 interface SearchFormProps extends React.ComponentProps<"div"> {
   onSearchClick: () => void;
 }
 
 export function SearchForm({ onSearchClick, ...props }: SearchFormProps) {
-  const isMobile = useIsMobile();
-
-  if (isMobile) {
-    return (
-      <div {...props}>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onSearchClick}
-          className="h-8 w-8 p-0"
-        >
-          <Search className="h-4 w-4" />
-          <span className="sr-only">Search</span>
-        </Button>
-      </div>
-    );
-  }
-
   return (
     <div {...props}>
+      {/* Mobile: Show search button */}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onSearchClick}
+        className="h-8 w-8 p-0 md:hidden"
+      >
+        <Search className="h-4 w-4" />
+        <span className="sr-only">Search</span>
+      </Button>
+
+      {/* Desktop: Show search input */}
       <div 
-        className="relative cursor-pointer"
+        className="relative cursor-pointer hidden md:block"
         onClick={onSearchClick}
       >
         <Label htmlFor="search" className="sr-only">

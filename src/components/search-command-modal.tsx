@@ -111,7 +111,7 @@ export function SearchCommandModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="overflow-hidden p-0">
+      <DialogContent className="overflow-hidden p-0 max-h-[80vh] max-h-[80dvh] top-[20%] translate-y-0 md:top-[50%] md:translate-y-[-50%]">
         <DialogTitle className="sr-only">Search Plex Media</DialogTitle>
         <Command shouldFilter={false}>
           <CommandInput
