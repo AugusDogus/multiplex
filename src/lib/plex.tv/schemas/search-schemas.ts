@@ -43,27 +43,29 @@ export const searchResultSchema = z.object({
   Metadata: searchResultMetadataSchema,
 });
 
-const rawSearchResponseSchema = z.object({
-  MediaContainer: z.object({
-    size: z.number(),
-    allowSync: z.boolean().optional(),
-    identifier: z.string().optional(),
-    librarySectionID: z.number().optional(),
-    librarySectionTitle: z.string().optional(),
-    librarySectionUUID: z.string().optional(),
-    mediaTagPrefix: z.string().optional(),
-    mediaTagVersion: z.number().optional(),
-    nocache: z.boolean().optional(),
-    SearchResult: z.array(searchResultSchema).optional(),
-  }),
-});
-
-export const searchResponseSchema = rawSearchResponseSchema.transform((data: z.infer<typeof rawSearchResponseSchema>) => ({
-  MediaContainer: {
-    ...data.MediaContainer,
-    SearchResult: data.MediaContainer.SearchResult ?? [],
+export const searchResponseSchema = z.preprocess(
+  (data: any) => {
+    // Ensure SearchResult is always an array
+    if (data && data.MediaContainer && !data.MediaContainer.SearchResult) {
+      data.MediaContainer.SearchResult = [];
+    }
+    return data;
   },
-}));
+  z.object({
+    MediaContainer: z.object({
+      size: z.number(),
+      allowSync: z.boolean().optional(),
+      identifier: z.string().optional(),
+      librarySectionID: z.number().optional(),
+      librarySectionTitle: z.string().optional(),
+      librarySectionUUID: z.string().optional(),
+      mediaTagPrefix: z.string().optional(),
+      mediaTagVersion: z.number().optional(),
+      nocache: z.boolean().optional(),
+      SearchResult: z.array(searchResultSchema),
+    }),
+  })
+);
 
 // Processed search result type for frontend use
 export const processedSearchResultSchema = z.object({

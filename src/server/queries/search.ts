@@ -31,61 +31,66 @@ export async function searchQuery(
       };
     }
 
-    // Search all servers in parallel
+    // Search all servers in parallel using Promise.allSettled to handle individual server failures
     const searchPromises = servers.map(async (server) => {
-      try {
-        const serverClient = plexClient.createServerClient(server);
-        const response = await serverClient.search(params);
-        
-        // Process and transform results
-        const processedResults: ProcessedSearchResult[] = [];
-        
-        const searchResults = response.MediaContainer.SearchResult ?? [];
-        if (searchResults.length > 0) {
-          for (const result of searchResults) {
-            const metadata = result.Metadata;
-            
-            const processedResult: ProcessedSearchResult = {
-              ratingKey: metadata.ratingKey,
-              key: metadata.key,
-              guid: metadata.guid,
-              type: metadata.type,
-              title: metadata.title,
-              summary: metadata.summary,
-              year: metadata.year,
-              thumb: metadata.thumb,
-              art: metadata.art,
-              duration: metadata.duration,
-              studio: metadata.studio,
-              contentRating: metadata.contentRating,
-              rating: metadata.rating,
-              score: result.score,
-              serverId: server.clientIdentifier,
-              serverName: server.name,
-              librarySection: metadata.librarySectionTitle,
-              // TV Show specific fields
-              parentTitle: metadata.parentTitle,
-              grandparentTitle: metadata.grandparentTitle,
-              seasonNumber: metadata.parentIndex,
-              episodeNumber: metadata.index,
-              // Music specific fields
-              artistName: metadata.grandparentTitle, // For music, grandparent is typically the artist
-              albumName: metadata.parentTitle, // For music, parent is typically the album
-            };
-            
-            processedResults.push(processedResult);
-          }
+      const serverClient = plexClient.createServerClient(server);
+      const response = await serverClient.search(params);
+      
+      // Process and transform results
+      const processedResults: ProcessedSearchResult[] = [];
+      
+      const searchResults = response.MediaContainer.SearchResult ?? [];
+      if (searchResults.length > 0) {
+        for (const result of searchResults) {
+          const metadata = result.Metadata;
+          
+          const processedResult: ProcessedSearchResult = {
+            ratingKey: metadata.ratingKey,
+            key: metadata.key,
+            guid: metadata.guid,
+            type: metadata.type,
+            title: metadata.title,
+            summary: metadata.summary,
+            year: metadata.year,
+            thumb: metadata.thumb,
+            art: metadata.art,
+            duration: metadata.duration,
+            studio: metadata.studio,
+            contentRating: metadata.contentRating,
+            rating: metadata.rating,
+            score: result.score,
+            serverId: server.clientIdentifier,
+            serverName: server.name,
+            librarySection: metadata.librarySectionTitle,
+            // TV Show specific fields
+            parentTitle: metadata.parentTitle,
+            grandparentTitle: metadata.grandparentTitle,
+            seasonNumber: metadata.parentIndex,
+            episodeNumber: metadata.index,
+            // Music specific fields
+            artistName: metadata.grandparentTitle, // For music, grandparent is typically the artist
+            albumName: metadata.parentTitle, // For music, parent is typically the album
+          };
+          
+          processedResults.push(processedResult);
         }
-        
-        return processedResults;
-      } catch (error) {
-        console.warn(`Search failed for server ${server.name}:`, error);
-        return [];
       }
+      
+      return processedResults;
     });
 
-    // Wait for all searches to complete
-    const allResults = await Promise.all(searchPromises);
+    // Wait for all searches to complete, handling individual server failures gracefully
+    const searchResults = await Promise.allSettled(searchPromises);
+    
+    // Extract successful results and log failures
+    const allResults: ProcessedSearchResult[][] = [];
+    for (const result of searchResults) {
+      if (result.status === 'fulfilled') {
+        allResults.push(result.value);
+      } else {
+        console.warn('Server search failed:', result.reason);
+      }
+    }
     
     // Flatten and combine results from all servers
     const combinedResults = allResults.flat();

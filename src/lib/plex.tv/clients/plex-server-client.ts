@@ -346,7 +346,7 @@ export class PlexServerClient {
    * @returns Search response with results and metadata
    */
   async search(params: SearchParams): Promise<SearchResponse> {
-    const searchParams = {
+    const searchParams: Record<string, string> = {
       query: params.query,
       limit: params.limit.toString(),
       searchTypes: params.searchTypes.join(','),
@@ -355,17 +355,18 @@ export class PlexServerClient {
     };
 
     try {
-      return await this.get({
+      const response = await this.get({
         endpoint: '/library/search',
         params: searchParams,
         schema: searchResponseSchema,
       });
+      return response as SearchResponse;
     } catch (error) {
       console.warn(
         `Search failed for server ${this.server.name}:`,
         error,
       );
-      // Return empty response on error
+      // Return type-safe empty response on error
       const emptyResponse: SearchResponse = {
         MediaContainer: {
           size: 0,
