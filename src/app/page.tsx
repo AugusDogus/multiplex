@@ -80,7 +80,7 @@ export default async function Page() {
                     </BreadcrumbItem>
                   </BreadcrumbList>
                 </Breadcrumb>
-                <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
+                <div className="ml-auto flex w-auto items-center gap-2">
                   <SearchWrapper className="w-fit sm:ml-auto sm:w-auto md:w-full" />
                   <ThemeToggle />
                 </div>
