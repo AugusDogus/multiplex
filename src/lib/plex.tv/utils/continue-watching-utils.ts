@@ -106,14 +106,8 @@ export function getThumbnailUrl(
   // Build the transcoded thumbnail URL with 2:3 aspect ratio (200x300)
   let baseUrl = serverUrl.replace(/\/$/, ""); // Remove trailing slash
 
-  // If the current page is HTTPS but server URL is HTTP, upgrade to HTTPS to avoid mixed content issues
-  if (
-    typeof window !== "undefined" &&
-    window.location.protocol === "https:" &&
-    baseUrl.startsWith("http:")
-  ) {
-    baseUrl = baseUrl.replace("http:", "https:");
-  }
+  // Skip HTTPS upgrade to avoid SSL certificate issues
+  // Let the browser handle mixed content warnings instead of forcing invalid certificates
 
   const encodedThumbUrl = encodeURIComponent(
     `${thumbnailPath}?X-Plex-Token=${authToken}`,
