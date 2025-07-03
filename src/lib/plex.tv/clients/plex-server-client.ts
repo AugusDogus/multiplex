@@ -354,11 +354,24 @@ export class PlexServerClient {
       includeExternalMedia: params.includeExternalMedia ? '1' : '0',
     };
 
-    return await this.get({
+    console.log(`🔍 [PlexServerClient] Searching server: ${this.server.name}`);
+    console.log(`🔍 [PlexServerClient] Search params:`, params);
+    console.log(`🔍 [PlexServerClient] URL params:`, searchParams);
+
+    const response: SearchResponse = await this.get({
       endpoint: '/library/search',
       params: searchParams,
       schema: searchResponseSchema,
     });
+
+    console.log(`🔍 [PlexServerClient] Raw response from ${this.server.name}:`, JSON.stringify(response, null, 2));
+    console.log(`🔍 [PlexServerClient] Search results count: ${response.MediaContainer.SearchResult?.length || 0}`);
+    
+    if (response.MediaContainer.SearchResult && response.MediaContainer.SearchResult.length > 0) {
+      console.log(`🔍 [PlexServerClient] First result sample:`, JSON.stringify(response.MediaContainer.SearchResult[0], null, 2));
+    }
+
+    return response;
   }
 
   /**
