@@ -1,70 +1,6 @@
 import { z } from "zod";
 
-export const searchResultMetadataSchema = z.object({
-  librarySectionTitle: z.string(),
-  ratingKey: z.string(),
-  key: z.string(),
-  guid: z.string(),
-  type: z.enum(['movie', 'show', 'episode', 'artist', 'album', 'track', 'person', 'collection']),
-  title: z.string(),
-  titleSort: z.string().optional(),
-  summary: z.string().optional(),
-  year: z.number().optional(),
-  thumb: z.string().optional(),
-  art: z.string().optional(),
-  duration: z.number().optional(),
-  addedAt: z.number().optional(),
-  updatedAt: z.number().optional(),
-  leafCount: z.number().optional(),
-  viewedLeafCount: z.number().optional(),
-  childCount: z.number().optional(),
-  studio: z.string().optional(),
-  contentRating: z.string().optional(),
-  rating: z.number().optional(),
-  audienceRating: z.number().optional(),
-  // TV Show specific fields
-  parentRatingKey: z.string().optional(),
-  grandparentRatingKey: z.string().optional(),
-  parentTitle: z.string().optional(),
-  grandparentTitle: z.string().optional(),
-  index: z.number().optional(),
-  parentIndex: z.number().optional(),
-  // Music specific fields
-  parentThumb: z.string().optional(),
-  grandparentThumb: z.string().optional(),
-  grandparentArt: z.string().optional(),
-  // Collection specific fields
-  collectionMode: z.string().optional(),
-  collectionSort: z.string().optional(),
-}).passthrough();
-
-// Directory schema for people/actor results
-export const searchResultDirectorySchema = z.object({
-  key: z.string(),
-  librarySectionID: z.number().optional(),
-  librarySectionKey: z.string().optional(),
-  librarySectionTitle: z.string().optional(),
-  librarySectionType: z.number().optional(),
-  type: z.string(),
-  id: z.number().optional(),
-  filter: z.string().optional(),
-  tag: z.string(),
-  tagType: z.number().optional(),
-  tagKey: z.string().optional(),
-  thumb: z.string().optional(),
-  count: z.number().optional(),
-}).passthrough();
-
-// Union type for search results that can be either Metadata or Directory
-export const searchResultSchema = z.object({
-  score: z.number(),
-}).and(
-  z.union([
-    z.object({ Metadata: searchResultMetadataSchema }),
-    z.object({ Directory: searchResultDirectorySchema }),
-  ])
-);
-
+// Simple schema that matches the raw Plex API response
 export const searchResponseSchema = z.object({
   MediaContainer: z.object({
     size: z.number(),
@@ -76,8 +12,17 @@ export const searchResponseSchema = z.object({
     mediaTagPrefix: z.string().optional(),
     mediaTagVersion: z.number().optional(),
     nocache: z.boolean().optional(),
-    SearchResult: z.array(searchResultSchema).optional(),
+    SearchResult: z.array(z.any()).optional(),
   }),
+});
+
+// Search parameters schema
+export const searchParamsSchema = z.object({
+  query: z.string().min(1),
+  limit: z.number().default(100),
+  searchTypes: z.array(z.enum(['movies', 'tv', 'music', 'people'])).default(['movies', 'music', 'people', 'tv']),
+  includeCollections: z.boolean().default(true),
+  includeExternalMedia: z.boolean().default(true),
 });
 
 // Processed search result type for frontend use
@@ -119,19 +64,7 @@ export const groupedSearchResultsSchema = z.object({
 });
 
 // Export types
-export type SearchResultMetadata = z.infer<typeof searchResultMetadataSchema>;
-export type SearchResult = z.infer<typeof searchResultSchema>;
 export type SearchResponse = z.infer<typeof searchResponseSchema>;
+export type SearchParams = z.infer<typeof searchParamsSchema>;
 export type ProcessedSearchResult = z.infer<typeof processedSearchResultSchema>;
 export type GroupedSearchResults = z.infer<typeof groupedSearchResultsSchema>;
-
-// Search parameters schema
-export const searchParamsSchema = z.object({
-  query: z.string().min(1),
-  limit: z.number().default(100),
-  searchTypes: z.array(z.enum(['movies', 'tv', 'music', 'people'])).default(['movies', 'music', 'people', 'tv']),
-  includeCollections: z.boolean().default(true),
-  includeExternalMedia: z.boolean().default(true),
-});
-
-export type SearchParams = z.infer<typeof searchParamsSchema>;

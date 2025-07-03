@@ -354,34 +354,11 @@ export class PlexServerClient {
       includeExternalMedia: params.includeExternalMedia ? '1' : '0',
     };
 
-    console.log(`🔍 Search params for ${this.server.name}:`, {
-      query: params.query,
-      searchTypes: params.searchTypes,
-      searchTypesString: searchParams.searchTypes,
-      includeCollections: params.includeCollections,
-      includeExternalMedia: params.includeExternalMedia,
+    return await this.get({
+      endpoint: '/library/search',
+      params: searchParams,
+      schema: searchResponseSchema,
     });
-
-    try {
-      return await this.get({
-        endpoint: '/library/search',
-        params: searchParams,
-        schema: searchResponseSchema,
-      });
-    } catch (error) {
-      console.warn(
-        `Search failed for server ${this.server.name}:`,
-        error,
-      );
-      // Return type-safe empty response on error
-      const emptyResponse: SearchResponse = {
-        MediaContainer: {
-          size: 0,
-          SearchResult: [],
-        },
-      };
-      return emptyResponse;
-    }
   }
 
   /**
