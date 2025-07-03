@@ -216,7 +216,7 @@ export function MediaPlayerModal() {
           >
                       {/* Close Button - Top right corner */}
             <div
-              className={`absolute ${isMobile ? "bottom-4 right-4" : "top-4 right-4"} z-20 transition-opacity duration-300 group-hover:opacity-100 ${
+              className={`absolute ${isMobile ? "bottom-4 left-4" : "top-4 right-4"} z-20 transition-opacity duration-300 group-hover:opacity-100 ${
                 state.showControls
                   ? "opacity-100"
                   : "pointer-events-none opacity-0 group-hover:pointer-events-auto"
