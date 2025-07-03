@@ -33,7 +33,7 @@ export function SearchCommandModal({
   onResultSelect 
 }: SearchCommandModalProps) {
   const [searchQuery, setSearchQuery] = React.useState('');
-  const [debouncedQuery] = useDebounce(searchQuery, 300);
+  const debouncedQuery = useDebounce(searchQuery, 300);
   
   const { data: searchResults, isLoading, error } = api.plex.search.useQuery(
     { query: debouncedQuery || '' },
