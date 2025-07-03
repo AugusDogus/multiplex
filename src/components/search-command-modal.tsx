@@ -43,25 +43,7 @@ export function SearchCommandModal({
     }
   );
 
-  // Debug logging
-  React.useEffect(() => {
-    console.log('🔍 [SearchModal] State:', {
-      searchQuery,
-      debouncedQuery,
-      queryEnabled: Boolean(debouncedQuery && debouncedQuery.length > 0),
-      isLoading,
-      error: error?.message,
-      hasResults: !!searchResults,
-      resultCounts: searchResults ? {
-        movies: searchResults.movies.length,
-        tv: searchResults.tv.length,
-        music: searchResults.music.length,
-        people: searchResults.people.length,
-        collections: searchResults.collections.length,
-        total: searchResults.totalResults
-      } : null
-    });
-  }, [searchQuery, debouncedQuery, isLoading, error, searchResults]);
+
 
   // Reset search query when modal is closed
   React.useEffect(() => {
@@ -79,66 +61,50 @@ export function SearchCommandModal({
 
   // Group results by type for display
   const searchGroups: SearchGroup[] = React.useMemo(() => {
-    console.log('🔍 [SearchModal] Processing search results:', searchResults);
-    
-    if (!searchResults) {
-      console.log('🔍 [SearchModal] No search results available');
-      return [];
-    }
+    if (!searchResults) return [];
 
     const groups: SearchGroup[] = [];
 
     if (searchResults.movies.length > 0) {
-      const movieGroup = {
+      groups.push({
         type: 'movies',
         label: 'Movies',
         results: searchResults.movies.slice(0, 10), // Limit to top 10 per category
-      };
-      groups.push(movieGroup);
-      console.log('🔍 [SearchModal] Added movies group:', movieGroup.results.length, 'items');
+      });
     }
 
     if (searchResults.tv.length > 0) {
-      const tvGroup = {
+      groups.push({
         type: 'tv',
         label: 'TV Shows & Episodes',
         results: searchResults.tv.slice(0, 10),
-      };
-      groups.push(tvGroup);
-      console.log('🔍 [SearchModal] Added TV group:', tvGroup.results.length, 'items');
+      });
     }
 
     if (searchResults.music.length > 0) {
-      const musicGroup = {
+      groups.push({
         type: 'music',
         label: 'Music',
         results: searchResults.music.slice(0, 10),
-      };
-      groups.push(musicGroup);
-      console.log('🔍 [SearchModal] Added music group:', musicGroup.results.length, 'items');
+      });
     }
 
     if (searchResults.people.length > 0) {
-      const peopleGroup = {
+      groups.push({
         type: 'people',
         label: 'People',
         results: searchResults.people.slice(0, 5), // Fewer people results
-      };
-      groups.push(peopleGroup);
-      console.log('🔍 [SearchModal] Added people group:', peopleGroup.results.length, 'items');
+      });
     }
 
     if (searchResults.collections.length > 0) {
-      const collectionsGroup = {
+      groups.push({
         type: 'collections',
         label: 'Collections',
         results: searchResults.collections.slice(0, 5),
-      };
-      groups.push(collectionsGroup);
-      console.log('🔍 [SearchModal] Added collections group:', collectionsGroup.results.length, 'items');
+      });
     }
 
-    console.log('🔍 [SearchModal] Final groups:', groups.length, 'total groups');
     return groups;
   }, [searchResults]);
 
@@ -146,6 +112,7 @@ export function SearchCommandModal({
     <CommandDialog 
       open={open} 
       onOpenChange={onOpenChange}
+      shouldFilter={false}
     >
       <CommandInput
         placeholder="Search for movies, TV shows, music..."
@@ -196,25 +163,19 @@ export function SearchCommandModal({
           </CommandEmpty>
         )}
 
-        {searchGroups.map((group) => {
-          console.log(`🔍 [SearchModal] Rendering group: ${group.type} with ${group.results.length} items`);
-          return (
-            <CommandGroup key={group.type} heading={group.label}>
-              {group.results.map((result) => {
-                console.log(`🔍 [SearchModal] Rendering item: ${result.title} (${result.type})`);
-                return (
-                  <CommandItem 
-                    key={`${result.serverId}-${result.ratingKey}`}
-                    onSelect={() => handleResultSelect(result)}
-                    className="cursor-pointer"
-                  >
-                    <SearchResultItem result={result} />
-                  </CommandItem>
-                );
-              })}
-            </CommandGroup>
-          );
-        })}
+        {searchGroups.map((group) => (
+          <CommandGroup key={group.type} heading={group.label}>
+            {group.results.map((result) => (
+              <CommandItem 
+                key={`${result.serverId}-${result.ratingKey}`}
+                onSelect={() => handleResultSelect(result)}
+                className="cursor-pointer"
+              >
+                <SearchResultItem result={result} />
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        ))}
       </CommandList>
     </CommandDialog>
   );
