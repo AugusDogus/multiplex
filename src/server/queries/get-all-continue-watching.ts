@@ -82,7 +82,9 @@ export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
         
         const pick = (pred: (c: typeof connections[0]) => boolean) => connections.find(pred);
 
-        const direct = pick(c => c?.uri?.startsWith("https://") && c.uri.includes(".plex.direct"));
+        // Prefer non-local plex.direct connections (public IPs work better through relay)
+        const directNonLocal = pick(c => c?.uri?.startsWith("https://") && c.uri.includes(".plex.direct") && !c.local);
+        const directLocal = pick(c => c?.uri?.startsWith("https://") && c.uri.includes(".plex.direct") && c.local);
         const customNP = pick(c => {
           const u = c?.uri;
           return u?.startsWith("https://") && !u.includes(".plex.direct") && !PORT_REGEX.test(u);
@@ -90,14 +92,15 @@ export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
         const httpsAny = pick(c => c?.uri?.startsWith("https://"));
         const anyConnection = pick(c => Boolean(c?.uri));
 
-        const selected = direct?.uri ?? customNP?.uri ?? httpsAny?.uri ?? anyConnection?.uri;
+        const selected = directNonLocal?.uri ?? directLocal?.uri ?? customNP?.uri ?? httpsAny?.uri ?? anyConnection?.uri;
         if (!selected) return undefined;
         
         // Debug logging for problematic server
-        if (selected.includes("192.168.1.69")) {
+        if (selected.includes("192.168.1.69") || selected.includes(".plex.direct")) {
           console.log(`🔧 [ServerURL Debug] Continue watching server connections for ${server.name}:`, {
             allConnections: connections.map((c: PlexDevice['connections'][0]) => ({ uri: c?.uri, local: c?.local, relay: c?.relay })),
-            direct: direct?.uri,
+            directNonLocal: directNonLocal?.uri,
+            directLocal: directLocal?.uri,
             customNP: customNP?.uri,
             httpsAny: httpsAny?.uri,
             anyConnection: anyConnection?.uri,

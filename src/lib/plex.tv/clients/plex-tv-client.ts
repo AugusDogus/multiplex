@@ -53,8 +53,6 @@ export class PlexTvClient {
       (device) => device.product === "Plex Media Server",
     );
 
-    console.log('🔧 [PlexTvClient] Raw servers response:', JSON.stringify(servers, null, 2));
-
     return servers;
   }
 
