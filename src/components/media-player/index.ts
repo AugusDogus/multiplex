@@ -8,6 +8,7 @@ export { MediaPlayerControls } from "./media-player-controls";
 export { MediaPlayerModal } from "./media-player-modal";
 export { FadeOverlay, MediaPlayerOverlay } from "./media-player-overlay";
 export { MediaPlayerProgress } from "./media-player-progress";
+export { MediaPlayerSkipOverlay } from "./media-player-skip-overlay";
 export { MediaPlayerVideo } from "./media-player-video";
 
 // Hooks

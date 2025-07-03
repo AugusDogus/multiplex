@@ -8,6 +8,7 @@ import {
   updatePlaybackStateAtom,
 } from "~/atoms/media-player";
 import type { MediaPlayerActions } from "~/types/media-player";
+import type { Marker } from "~/lib/plex.tv/schemas/play-queue-schemas";
 import { clamp, supportsFullscreen } from "../utils/media-player-utils";
 
 /* ────────────────────────────────────────────────────────────
@@ -192,6 +193,18 @@ export function useMediaPlayer(): {
     seek(state.duration);
   }, [state.duration, seek]);
 
+  /**
+   * Seek to the end of a marker (for skip intro/credits functionality)
+   * @param marker - The marker to skip to the end of
+   */
+  const seekToMarkerEnd = useCallback(
+    (marker: Marker) => {
+      const seekTime = marker.endTimeOffset / 1000; // Convert ms to seconds
+      seek(seekTime);
+    },
+    [seek],
+  );
+
   // Placeholder for openPlayer - this is handled by the atom directly
   const openPlayer = useCallback(() => {
     console.warn("openPlayer should be called via openMediaPlayerAtom");
@@ -219,6 +232,7 @@ export function useMediaPlayer(): {
     skipBackward,
     jumpToStart,
     jumpToEnd,
+    seekToMarkerEnd,
   };
 
   return {

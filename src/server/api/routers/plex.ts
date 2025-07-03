@@ -97,4 +97,57 @@ export const plexRouter = createTRPCRouter({
         sessionId: input.sessionId,
       });
     }),
+
+  createPlayQueue: protectedProcedure
+    .input(
+      z.object({
+        serverId: z.string(),
+        type: z.enum(['video', 'audio']),
+        uri: z.string(),
+        continuous: z.boolean().default(true),
+        includeMarkers: z.boolean().default(true),
+        includeChapters: z.boolean().default(true),
+        shuffle: z.boolean().default(false),
+        repeat: z.number().default(0),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const servers = await getServersQuery(ctx.plex);
+      const server = servers.find((s) => s.clientIdentifier === input.serverId);
+
+      if (!server) {
+        throw new Error(`Server with ID ${input.serverId} not found`);
+      }
+
+      const serverClient = ctx.plex.createServerClient(server);
+      return await serverClient.createPlayQueue({
+        type: input.type,
+        uri: input.uri,
+        continuous: input.continuous,
+        includeMarkers: input.includeMarkers,
+        includeChapters: input.includeChapters,
+        shuffle: input.shuffle,
+        repeat: input.repeat,
+      });
+    }),
+
+  getPlayQueue: protectedProcedure
+    .input(
+      z.object({
+        serverId: z.string(),
+        playQueueId: z.string(),
+        includeMarkers: z.boolean().default(true),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const servers = await getServersQuery(ctx.plex);
+      const server = servers.find((s) => s.clientIdentifier === input.serverId);
+
+      if (!server) {
+        throw new Error(`Server with ID ${input.serverId} not found`);
+      }
+
+      const serverClient = ctx.plex.createServerClient(server);
+      return await serverClient.getPlayQueue(input.playQueueId, input.includeMarkers);
+    }),
 });

@@ -41,6 +41,31 @@ export interface GetRequestOptions<T> {
 }
 
 /**
+ * Options for POST requests to Plex APIs
+ */
+export interface PostRequestOptions<T> {
+  endpoint: string;
+  params?: Record<string, string | number | boolean>;
+  schema?: z.ZodType<T>;
+  baseUrl?: string;
+  xPlexOverrides?: Partial<{
+    product: string;
+    version: string;
+    clientIdentifier: string;
+    platform: string;
+    platformVersion: string;
+    features: string;
+    model: string;
+    device: string;
+    deviceName: string;
+    language: string;
+    sessionId: string;
+    playbackSessionId: string;
+    deviceScreenResolution: string;
+  }>;
+}
+
+/**
  * Custom error class for Plex API errors
  */
 export class PlexAPIError extends Error {
