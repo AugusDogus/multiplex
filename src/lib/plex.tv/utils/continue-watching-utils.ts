@@ -104,7 +104,7 @@ export function getThumbnailUrl(
   }
 
   // Build the transcoded thumbnail URL with 2:3 aspect ratio (200x300)
-  let baseUrl = serverUrl.replace(/\/$/, ""); // Remove trailing slash
+  const baseUrl = serverUrl.replace(/\/$/, ""); // Remove trailing slash
 
   // Skip HTTPS upgrade to avoid SSL certificate issues
   // Let the browser handle mixed content warnings instead of forcing invalid certificates

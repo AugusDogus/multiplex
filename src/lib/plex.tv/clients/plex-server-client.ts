@@ -354,9 +354,7 @@ export class PlexServerClient {
       includeExternalMedia: params.includeExternalMedia ? '1' : '0',
     };
 
-    console.log(`🔍 [PlexServerClient] Searching server: ${this.server.name}`);
-    console.log(`🔍 [PlexServerClient] Search params:`, params);
-    console.log(`🔍 [PlexServerClient] URL params:`, searchParams);
+
 
     // Get raw response first to debug schema issues
     const rawResponse = await this.get({
@@ -364,22 +362,11 @@ export class PlexServerClient {
       params: searchParams,
     });
 
-    console.log(`🔍 [PlexServerClient] Raw response from ${this.server.name}:`, JSON.stringify(rawResponse, null, 2));
-    console.log(`🔍 [PlexServerClient] Raw search results count: ${(rawResponse as any)?.MediaContainer?.SearchResult?.length ?? 0}`);
-    
-    // Try to parse with schema
+    // Parse with schema
     try {
-      const response = searchResponseSchema.parse(rawResponse);
-      console.log(`🔍 [PlexServerClient] Schema parsed successfully - ${response.MediaContainer.SearchResult?.length ?? 0} results`);
-      
-      if (response.MediaContainer.SearchResult && response.MediaContainer.SearchResult.length > 0) {
-        console.log(`🔍 [PlexServerClient] First parsed result sample:`, JSON.stringify(response.MediaContainer.SearchResult[0], null, 2));
-      }
-      
-      return response;
+      return searchResponseSchema.parse(rawResponse);
     } catch (error) {
-      console.error(`🔍 [PlexServerClient] Schema validation failed for ${this.server.name}:`, error);
-      console.error(`🔍 [PlexServerClient] Raw response that failed:`, JSON.stringify(rawResponse, null, 2));
+      console.error(`Search schema validation failed for ${this.server.name}:`, error);
       throw error;
     }
   }

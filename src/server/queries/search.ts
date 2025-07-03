@@ -50,21 +50,7 @@ export async function searchQuery(
       const selected = directNonLocal?.uri ?? directLocal?.uri ?? customNP?.uri ?? httpsAny?.uri ?? anyConnection?.uri;
       if (!selected) return undefined;
       
-      // Debug logging for problematic server
-              if (selected.includes("192.168.1.69") || selected.includes(".plex.direct")) {
-          console.log(`🔧 [ServerURL Debug] Server connections for ${server.name}:`, {
-            allConnections: connections.map((c: PlexDevice['connections'][0]) => ({ uri: c?.uri, local: c?.local, relay: c?.relay })),
-            directNonLocal: directNonLocal?.uri,
-            directLocal: directLocal?.uri,
-            customNP: customNP?.uri,
-            httpsAny: httpsAny?.uri,
-            anyConnection: anyConnection?.uri,
-            selected,
-            finalUrl: !selected.includes(".plex.direct") && PORT_REGEX.test(selected)
-              ? selected.replace(PORT_REGEX, "")
-              : selected
-          });
-        }
+      
       
       return !selected.includes(".plex.direct") && PORT_REGEX.test(selected)
         ? selected.replace(PORT_REGEX, "")
@@ -81,11 +67,7 @@ export async function searchQuery(
         const serverUrl = getServerUrl(server);
         const authToken = server.accessToken ?? userInfo?.authToken;
         
-        console.log(`🔍 [SearchQuery] Server ${server.name} connection info:`, {
-          serverUrl,
-          authToken: authToken ? `${authToken.substring(0, 10)}...` : 'none',
-          connections: server.connections.map((conn: PlexDevice['connections'][0]) => ({ uri: conn.uri, local: conn.local, relay: conn.relay }))
-        });
+
         
         const results: ProcessedSearchResult[] = [];
         const searchResults = Array.isArray(response.MediaContainer.SearchResult) 

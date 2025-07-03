@@ -10,7 +10,7 @@ import {
   CommandGroup,
   CommandItem,
 } from "~/components/ui/command";
-import { Dialog, DialogContent } from "~/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "~/components/ui/dialog";
 import { SearchResultItem } from "~/components/search-result-item";
 import { useDebounce } from "~/hooks/use-debounce";
 import { api } from "~/trpc/react";
@@ -112,6 +112,7 @@ export function SearchCommandModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="overflow-hidden p-0">
+        <DialogTitle className="sr-only">Search Plex Media</DialogTitle>
         <Command shouldFilter={false}>
           <CommandInput
             placeholder="Search for movies, TV shows, music..."
@@ -145,7 +146,7 @@ export function SearchCommandModal({
             <div className="flex flex-col items-center justify-center py-6 text-center">
               <Search className="h-8 w-8 text-muted-foreground mb-2" />
               <p className="text-sm text-muted-foreground">
-                No results found for "{searchQuery}"
+                No results found for &quot;{searchQuery}&quot;
               </p>
             </div>
           </CommandEmpty>

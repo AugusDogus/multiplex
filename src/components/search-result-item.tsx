@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Image from "next/image";
 import { Badge } from "~/components/ui/badge";
 import { Calendar, Clock, Star, Server } from "lucide-react";
 import type { ProcessedSearchResult } from "~/lib/plex.tv/schemas/search-schemas";
@@ -67,34 +68,38 @@ export function SearchResultItem({ result }: SearchResultItemProps) {
   // Create a compatible object for getThumbnailUrl (same as continue watching uses)
   const thumbnailUrl = getThumbnailUrl(
     {
-      ...result,
+      type: result.type,
+      thumb: result.thumb,
       grandparentThumb: undefined, // Not available in search results
-    } as any,
+      // Required fields for ContinueWatchingItem that we don't use in thumbnail generation
+      ratingKey: result.ratingKey,
+      key: result.key,
+      guid: result.guid,
+      title: result.title,
+      librarySectionTitle: result.librarySection ?? '',
+      librarySectionID: 1,
+      librarySectionKey: '',
+      serverId: result.serverId,
+      // Additional required fields for ContinueWatchingItem
+      hubTitle: '',
+      hubType: '',
+    },
     result.serverUrl,
     result.authToken,
   );
-  
-  // Debug logging to check server URL
-  React.useEffect(() => {
-    console.log('🖼️ [SearchResultItem] Image debug:', {
-      title: result.title,
-      serverUrl: result.serverUrl,
-      authToken: result.authToken ? `${result.authToken.substring(0, 10)}...` : 'none',
-      thumb: result.thumb,
-      thumbnailUrl
-    });
-  }, [result, thumbnailUrl]);
+
 
   return (
     <div className="flex items-center gap-3 p-2 w-full">
       {/* Thumbnail placeholder */}
-      <div className="flex-shrink-0 w-12 h-12 bg-muted rounded-md flex items-center justify-center">
+      <div className="flex-shrink-0 w-12 h-12 bg-muted rounded-md flex items-center justify-center relative overflow-hidden">
         {thumbnailUrl ? (
-          <img 
+          <Image 
             src={thumbnailUrl} 
             alt={result.title}
             className="w-full h-full object-cover rounded-md"
-            loading="lazy"
+            fill
+            sizes="48px"
           />
         ) : (
           <div className="text-muted-foreground text-xs font-medium">

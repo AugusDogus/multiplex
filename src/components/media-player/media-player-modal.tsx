@@ -126,14 +126,8 @@ export function MediaPlayerModal() {
     [actions, state.volume],
   );
 
-  /**
-   * Handle video ended
-   */
-  const handleVideoEnded = useCallback(() => {
-    // Timeline update is handled by onEnded callback
-    // Could implement auto-next episode or other logic here
-    console.log("Video ended");
-  }, []);
+  // Note: Video ended is handled by onEnded callback passed to MediaPlayerVideo
+  // Could implement auto-next episode or other logic here in the future
 
   /**
    * Handle mouse enter - show controls
