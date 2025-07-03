@@ -14,6 +14,12 @@ export async function searchQuery(
   try {
     console.log(`🔍 [SearchQuery] Starting search with params:`, params);
     
+    // Debug: test with a known good search term if query is very short
+    const debugParams = params.query.length < 3 ? { ...params, query: 'House' } : params;
+    if (params.query !== debugParams.query) {
+      console.log(`🔍 [SearchQuery] DEBUG: Using test query "${debugParams.query}" instead of "${params.query}"`);
+    }
+    
     // Get servers
     const servers = await plex.getServers();
     console.log(`🔍 [SearchQuery] Found ${servers?.length || 0} servers`);
@@ -34,7 +40,7 @@ export async function searchQuery(
       try {
         console.log(`🔍 [SearchQuery] Starting search on server: ${server.name}`);
         const serverClient = plex.createServerClient(server);
-        const response = await serverClient.search(params);
+        const response = await serverClient.search(debugParams);
         
         console.log(`🔍 [SearchQuery] Server ${server.name} responded with ${response.MediaContainer.SearchResult?.length || 0} raw results`);
         

@@ -357,6 +357,19 @@ export class PlexServerClient {
     console.log(`🔍 [PlexServerClient] Searching server: ${this.server.name}`);
     console.log(`🔍 [PlexServerClient] Search params:`, params);
     console.log(`🔍 [PlexServerClient] URL params:`, searchParams);
+    
+    // DEBUG: Try a direct fetch test to compare with working curl
+    const connection = await this.findWorkingConnection();
+    const testUrl = `${connection.uri}/library/search?query=${encodeURIComponent(params.query)}&limit=${params.limit}&searchTypes=${params.searchTypes.join(',')}&includeCollections=${params.includeCollections ? '1' : '0'}&includeExternalMedia=${params.includeExternalMedia ? '1' : '0'}&X-Plex-Token=${this.token}`;
+    console.log(`🔍 [PlexServerClient] DEBUG: Testing direct URL:`, testUrl);
+    
+    try {
+      const directResponse = await fetch(testUrl);
+      const directData = await directResponse.json();
+      console.log(`🔍 [PlexServerClient] DEBUG: Direct fetch response:`, JSON.stringify(directData, null, 2));
+    } catch (error) {
+      console.log(`🔍 [PlexServerClient] DEBUG: Direct fetch failed:`, error);
+    }
 
     const response: SearchResponse = await this.get({
       endpoint: '/library/search',
