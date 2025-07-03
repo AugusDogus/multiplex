@@ -1,5 +1,4 @@
 import type { ContinueWatchingItem } from "../schemas/continue-watching-schemas";
-import { getUniversalThumbnailUrl } from "./image-utils";
 
 /* ────────────────────────────────────────────────────────────
    Continue Watching Item Utilities
@@ -79,12 +78,40 @@ export function getSubtitle(item: ContinueWatchingItem): string {
 /**
  * Get the best thumbnail URL for an item using Plex photo transcoding
  * Returns a 2:3 aspect ratio (200x300) thumbnail URL
- * @deprecated Use getUniversalThumbnailUrl from image-utils instead
  */
 export function getThumbnailUrl(
   item: ContinueWatchingItem,
   serverUrl?: string,
   authToken?: string,
 ): string | undefined {
-  return getUniversalThumbnailUrl(item, serverUrl, authToken);
+  if (!serverUrl || !authToken) {
+    return undefined;
+  }
+
+  // Get the best thumbnail path for the item type
+  let thumbnailPath: string | undefined;
+
+  if (item.type === "episode") {
+    // For episodes in Continue Watching, prefer show poster (grandparentThumb) for consistency
+    thumbnailPath = item.grandparentThumb ?? item.thumb;
+  } else {
+    // For movies and other content, use the main thumbnail
+    thumbnailPath = item.thumb;
+  }
+
+  if (!thumbnailPath) {
+    return undefined;
+  }
+
+  // Build the transcoded thumbnail URL with 2:3 aspect ratio (200x300)
+  let baseUrl = serverUrl.replace(/\/$/, ""); // Remove trailing slash
+
+  // Skip HTTPS upgrade to avoid SSL certificate issues
+  // Let the browser handle mixed content warnings instead of forcing invalid certificates
+
+  const encodedThumbUrl = encodeURIComponent(
+    `${thumbnailPath}?X-Plex-Token=${authToken}`,
+  );
+
+  return `${baseUrl}/photo/:/transcode?width=200&height=300&minSize=1&upscale=1&url=${encodedThumbUrl}&X-Plex-Token=${authToken}`;
 }
