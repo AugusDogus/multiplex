@@ -93,6 +93,21 @@ export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
         const selected = direct?.uri ?? customNP?.uri ?? httpsAny?.uri ?? anyConnection?.uri;
         if (!selected) return undefined;
         
+        // Debug logging for problematic server
+        if (selected.includes("192.168.1.69")) {
+          console.log(`🔧 [ServerURL Debug] Continue watching server connections for ${server.name}:`, {
+            allConnections: connections.map((c: PlexDevice['connections'][0]) => ({ uri: c?.uri, local: c?.local, relay: c?.relay })),
+            direct: direct?.uri,
+            customNP: customNP?.uri,
+            httpsAny: httpsAny?.uri,
+            anyConnection: anyConnection?.uri,
+            selected,
+            finalUrl: !selected.includes(".plex.direct") && PORT_REGEX.test(selected)
+              ? selected.replace(PORT_REGEX, "")
+              : selected
+          });
+        }
+        
         return !selected.includes(".plex.direct") && PORT_REGEX.test(selected)
           ? selected.replace(PORT_REGEX, "")
           : selected;
