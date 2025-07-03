@@ -49,7 +49,7 @@ export const plexRouter = createTRPCRouter({
       z.object({
         query: z.string().min(1),
         limit: z.number().default(100),
-        searchTypes: z.array(z.enum(['movies', 'tv', 'music', 'people'])).default(['movies', 'tv', 'music']),
+        searchTypes: z.array(z.enum(['movies', 'tv', 'music', 'people'])).default(['movies', 'music', 'people', 'tv']),
         includeCollections: z.boolean().default(true),
         includeExternalMedia: z.boolean().default(true),
       })

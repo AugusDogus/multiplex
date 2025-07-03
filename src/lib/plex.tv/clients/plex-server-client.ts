@@ -354,6 +354,14 @@ export class PlexServerClient {
       includeExternalMedia: params.includeExternalMedia ? '1' : '0',
     };
 
+    console.log(`🔍 Search params for ${this.server.name}:`, {
+      query: params.query,
+      searchTypes: params.searchTypes,
+      searchTypesString: searchParams.searchTypes,
+      includeCollections: params.includeCollections,
+      includeExternalMedia: params.includeExternalMedia,
+    });
+
     try {
       return await this.get({
         endpoint: '/library/search',

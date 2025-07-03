@@ -40,8 +40,15 @@ export async function searchQuery(
       console.log(`📡 Search response from ${server.name}:`, {
         size: response.MediaContainer.size,
         resultCount: response.MediaContainer.SearchResult?.length || 0,
-        hasSearchResults: !!response.MediaContainer.SearchResult
+        hasSearchResults: !!response.MediaContainer.SearchResult,
+        searchResultExists: 'SearchResult' in response.MediaContainer,
+        responseKeys: Object.keys(response.MediaContainer),
       });
+      
+      // Log first few characters of the raw response for debugging
+      if (response.MediaContainer.size === 0) {
+        console.log(`⚠️ Empty response from ${server.name}. MediaContainer keys:`, Object.keys(response.MediaContainer));
+      }
       
       // Process and transform results
                     const processedResults: ProcessedSearchResult[] = [];
