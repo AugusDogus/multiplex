@@ -7,6 +7,7 @@ import {
   type ProcessedSearchResult,
   type GroupedSearchResults,
 } from "~/lib/plex.tv/schemas/search-schemas";
+import { getBestImageServerUrl } from "~/lib/plex.tv/utils/image-utils";
 
 export async function searchQuery(
   plex: PlexTvClient,
@@ -29,40 +30,6 @@ export async function searchQuery(
 
     // Get user info for auth token fallback
     const userInfo = await plex.getUserInfo();
-    
-    // Helper function to get the best server URL
-    const getServerUrl = (server: PlexDevice): string | undefined => {
-      const connections = server.connections;
-
-      const plexDirectConnection = connections.find(
-        (conn: PlexDevice['connections'][0]) =>
-          conn.uri.includes(".plex.direct") && conn.uri.startsWith("https:"),
-      );
-
-      const customDomainNoPortConnection = connections.find(
-        (conn: PlexDevice['connections'][0]) =>
-          conn.uri.startsWith("https:") &&
-          !conn.uri.includes(".plex.direct") &&
-          !/:\d+$/.exec(conn.uri),
-      );
-
-      const httpsConnection = connections.find((conn: PlexDevice['connections'][0]) =>
-        conn.uri.startsWith("https:"),
-      );
-
-      const selectedUrl =
-        plexDirectConnection?.uri ??
-        customDomainNoPortConnection?.uri ??
-        httpsConnection?.uri ??
-        connections[0]?.uri;
-
-      // Remove port from custom domains if present
-      return selectedUrl &&
-        !selectedUrl.includes(".plex.direct") &&
-        !/:\d+$/.exec(selectedUrl)
-        ? selectedUrl.replace(/:\d+$/, "")
-        : selectedUrl;
-    };
 
     // Search all servers in parallel
     const serverPromises = servers.map(async (server) => {
@@ -70,8 +37,8 @@ export async function searchQuery(
         const serverClient = plex.createServerClient(server);
         const response = await serverClient.search(params);
         
-        // Get server connection info for images
-        const serverUrl = getServerUrl(server);
+        // Get server connection info for images using optimized selection
+        const serverUrl = getBestImageServerUrl(server.connections);
         const authToken = server.accessToken ?? userInfo?.authToken;
         
         console.log(`🔍 [SearchQuery] Server ${server.name} connection info:`, {

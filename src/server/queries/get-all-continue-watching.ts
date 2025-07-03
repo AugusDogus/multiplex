@@ -5,6 +5,7 @@ import type {
   PlexDevice,
 } from "~/lib/plex.tv/schemas/plex-tv-schemas";
 import { getThumbnailUrl } from "~/lib/plex.tv/utils/continue-watching-utils";
+import { getBestImageServerUrl } from "~/lib/plex.tv/utils/image-utils";
 import { analyzeImageProgressColor } from "~/server/utils/image-analysis";
 
 export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
@@ -75,47 +76,16 @@ export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
 
     // Combine all items from all servers with server connection info
     const allItems = serverResults.flatMap(({ response, server }) => {
-      // Find the best server URL using functional approach
-      const getServerUrl = (server: PlexDevice): string | undefined => {
-        const connections = server.connections;
-
-        const plexDirectConnection = connections.find(
-          (conn) =>
-            conn.uri.includes(".plex.direct") && conn.uri.startsWith("https:"),
-        );
-
-        const customDomainNoPortConnection = connections.find(
-          (conn) =>
-            conn.uri.startsWith("https:") &&
-            !conn.uri.includes(".plex.direct") &&
-            !/:\d+$/.exec(conn.uri),
-        );
-
-        const httpsConnection = connections.find((conn) =>
-          conn.uri.startsWith("https:"),
-        );
-
-        const selectedUrl =
-          plexDirectConnection?.uri ??
-          customDomainNoPortConnection?.uri ??
-          httpsConnection?.uri ??
-          connections[0]?.uri;
-
-        // Remove port from custom domains if present
-        return selectedUrl &&
-          !selectedUrl.includes(".plex.direct") &&
-          /:\d+$/.exec(selectedUrl)
-          ? selectedUrl.replace(/:\d+$/, "")
-          : selectedUrl;
-      };
-
-      const serverUrl = getServerUrl(server);
+      // Use the new image-optimized server URL selection
+      const serverUrl = getBestImageServerUrl(server.connections);
       const authToken = server.accessToken ?? userInfo.authToken;
 
       return response.items.map((item) => ({
         ...item,
         serverUrl,
         authToken,
+        // Pass connections for potential future use
+        serverConnections: server.connections,
       }));
     });
 

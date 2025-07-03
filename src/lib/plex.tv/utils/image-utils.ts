@@ -4,8 +4,58 @@
  */
 
 /**
+ * Get the best server URL for image requests from available connections
+ * Prioritizes URLs that will work for images without SSL certificate issues
+ */
+export function getBestImageServerUrl(connections: Array<{ uri: string; local?: boolean; relay?: boolean }>): string | undefined {
+  // 1. Prefer plex.direct HTTPS (has valid certs, can keep ports)
+  const plexDirectConnection = connections.find(
+    (conn) => conn.uri.includes(".plex.direct") && conn.uri.startsWith("https:")
+  );
+  if (plexDirectConnection) {
+    return plexDirectConnection.uri.replace(/\/$/, "");
+  }
+
+  // 2. Prefer custom domain HTTPS WITHOUT port (works on port 443)
+  const customDomainNoPortConnection = connections.find(
+    (conn) =>
+      conn.uri.startsWith("https:") &&
+      !conn.uri.includes(".plex.direct") &&
+      !/:\d+$/.test(conn.uri)
+  );
+  if (customDomainNoPortConnection) {
+    return customDomainNoPortConnection.uri.replace(/\/$/, "");
+  }
+
+  // 3. Prefer HTTP connections (work with mixed content warnings)
+  const httpConnection = connections.find((conn) => conn.uri.startsWith("http:"));
+  if (httpConnection) {
+    return httpConnection.uri.replace(/\/$/, "");
+  }
+
+  // 4. Fall back to any HTTPS connection, but strip port from custom domains
+  const httpsConnection = connections.find((conn) => conn.uri.startsWith("https:"));
+  if (httpsConnection) {
+    let baseUrl = httpsConnection.uri.replace(/\/$/, "");
+    // Strip port from custom domains to avoid cert issues
+    if (!baseUrl.includes(".plex.direct") && /:\d+$/.test(baseUrl)) {
+      baseUrl = baseUrl.replace(/:\d+$/, "");
+    }
+    return baseUrl;
+  }
+
+  // 5. Last resort - use first available connection
+  if (connections.length > 0) {
+    return connections[0]!.uri.replace(/\/$/, "");
+  }
+
+  return undefined;
+}
+
+/**
  * Get the best server URL for image requests, with proper port filtering
  * This handles SSL certificate issues by removing ports from custom domains
+ * @deprecated Use getBestImageServerUrl with connections array instead
  */
 export function getImageServerUrl(serverUrl: string): string {
   if (!serverUrl) return serverUrl;
