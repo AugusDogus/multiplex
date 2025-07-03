@@ -41,13 +41,19 @@ export class PlexTvClient {
   async getServers(): Promise<PlexDevice[]> {
     const data = await this.get({
       endpoint: "resources",
-      params: {},
+      params: {
+        includeHttps: 1,
+        includeRelay: 1,
+        includeIPv6: 1,
+      },
       schema: sessionsSchema,
     });
 
     const servers = data.filter(
       (device) => device.product === "Plex Media Server",
     );
+
+    console.log('🔧 [PlexTvClient] Raw servers response:', JSON.stringify(servers, null, 2));
 
     return servers;
   }
