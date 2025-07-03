@@ -208,10 +208,10 @@ export function MediaPlayerModal() {
                 : "h-full w-full"
             }`}
             style={isMobile ? {
-              width: '100vh',
-              height: '100vw',
-              minWidth: '100vh',
-              minHeight: '100vw'
+              width: '100svh',
+              height: '100svw',
+              minWidth: '100svh',
+              minHeight: '100svw'
             } : {}}
           >
           {/* Close Button - Top right corner */}
