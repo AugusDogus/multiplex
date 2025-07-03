@@ -1,8 +1,10 @@
 import type { PlexTvClient } from "~/lib/plex.tv/clients/plex-tv-client";
-import type {
-  SearchParams,
-  ProcessedSearchResult,
-  GroupedSearchResults,
+import {
+  isMetadataResult,
+  isDirectoryResult,
+  type SearchParams,
+  type ProcessedSearchResult,
+  type GroupedSearchResults,
 } from "~/lib/plex.tv/schemas/search-schemas";
 
 export async function searchQuery(
@@ -35,13 +37,13 @@ export async function searchQuery(
         
         for (const rawResult of searchResults) {
           try {
-            // Handle media results (movies, TV shows, music, etc.)
-            if (rawResult.Metadata) {
+            // Use proper type guards for union types
+            if (isMetadataResult(rawResult)) {
               const metadata = rawResult.Metadata;
               results.push({
                 ratingKey: metadata.ratingKey,
                 key: metadata.key,
-                guid: metadata.guid || metadata.ratingKey,
+                guid: metadata.guid,
                 type: metadata.type,
                 title: metadata.title,
                 summary: metadata.summary,
@@ -55,7 +57,7 @@ export async function searchQuery(
                 score: rawResult.score,
                 serverId: server.clientIdentifier,
                 serverName: server.name,
-                librarySection: metadata.librarySectionTitle || '',
+                librarySection: metadata.librarySectionTitle,
                 // TV Show specific fields
                 parentTitle: metadata.parentTitle,
                 grandparentTitle: metadata.grandparentTitle,
@@ -65,9 +67,7 @@ export async function searchQuery(
                 artistName: metadata.grandparentTitle,
                 albumName: metadata.parentTitle,
               });
-            }
-            // Handle people/actor results
-            else if (rawResult.Directory) {
+            } else if (isDirectoryResult(rawResult)) {
               const directory = rawResult.Directory;
               results.push({
                 ratingKey: directory.id?.toString() || directory.tagKey || directory.key,
