@@ -112,10 +112,10 @@ export function SearchCommandModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="overflow-hidden p-0">
-        <Command filter={() => 1}>
+        <Command shouldFilter={false}>
           <CommandInput
             placeholder="Search for movies, TV shows, music..."
-            value=""
+            value={searchQuery}
             onValueChange={setSearchQuery}
           />
           <CommandList>

@@ -65,6 +65,17 @@ export function SearchResultItem({ result }: SearchResultItemProps) {
   };
 
   const thumbnailUrl = getSearchResultThumbnailUrl(result);
+  
+  // Debug logging to check server URL
+  React.useEffect(() => {
+    console.log('🖼️ [SearchResultItem] Image debug:', {
+      title: result.title,
+      serverUrl: result.serverUrl,
+      authToken: result.authToken ? `${result.authToken.substring(0, 10)}...` : 'none',
+      thumb: result.thumb,
+      thumbnailUrl
+    });
+  }, [result, thumbnailUrl]);
 
   return (
     <div className="flex items-center gap-3 p-2 w-full">

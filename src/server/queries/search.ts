@@ -74,6 +74,12 @@ export async function searchQuery(
         const serverUrl = getServerUrl(server);
         const authToken = server.accessToken ?? userInfo?.authToken;
         
+        console.log(`🔍 [SearchQuery] Server ${server.name} connection info:`, {
+          serverUrl,
+          authToken: authToken ? `${authToken.substring(0, 10)}...` : 'none',
+          connections: server.connections.map((conn: PlexDevice['connections'][0]) => ({ uri: conn.uri, local: conn.local, relay: conn.relay }))
+        });
+        
         const results: ProcessedSearchResult[] = [];
         const searchResults = response.MediaContainer.SearchResult ?? [];
         
