@@ -348,8 +348,8 @@ export class PlexServerClient {
   async search(params: SearchParams): Promise<SearchResponse> {
     const searchParams: Record<string, string> = {
       query: params.query,
-      limit: params.limit.toString(),
-      searchTypes: params.searchTypes.join(','),
+      limit: params.limit?.toString() ?? '50',
+      searchTypes: params.searchTypes?.join(',') ?? 'movies,music,people,tv',
       includeCollections: params.includeCollections ? '1' : '0',
       includeExternalMedia: params.includeExternalMedia ? '1' : '0',
     };
@@ -357,34 +357,31 @@ export class PlexServerClient {
     console.log(`🔍 [PlexServerClient] Searching server: ${this.server.name}`);
     console.log(`🔍 [PlexServerClient] Search params:`, params);
     console.log(`🔍 [PlexServerClient] URL params:`, searchParams);
-    
-    // DEBUG: Try a direct fetch test to compare with working curl
-    const connection = await this.findWorkingConnection();
-    const testUrl = `${connection.uri}/library/search?query=${encodeURIComponent(params.query)}&limit=${params.limit}&searchTypes=${params.searchTypes.join(',')}&includeCollections=${params.includeCollections ? '1' : '0'}&includeExternalMedia=${params.includeExternalMedia ? '1' : '0'}&X-Plex-Token=${this.token}`;
-    console.log(`🔍 [PlexServerClient] DEBUG: Testing direct URL:`, testUrl);
-    
-    try {
-      const directResponse = await fetch(testUrl);
-      const directData = await directResponse.json();
-      console.log(`🔍 [PlexServerClient] DEBUG: Direct fetch response:`, JSON.stringify(directData, null, 2));
-    } catch (error) {
-      console.log(`🔍 [PlexServerClient] DEBUG: Direct fetch failed:`, error);
-    }
 
-    const response: SearchResponse = await this.get({
+    // Get raw response first to debug schema issues
+    const rawResponse = await this.get({
       endpoint: '/library/search',
       params: searchParams,
-      schema: searchResponseSchema,
     });
 
-    console.log(`🔍 [PlexServerClient] Raw response from ${this.server.name}:`, JSON.stringify(response, null, 2));
-    console.log(`🔍 [PlexServerClient] Search results count: ${response.MediaContainer.SearchResult?.length || 0}`);
+    console.log(`🔍 [PlexServerClient] Raw response from ${this.server.name}:`, JSON.stringify(rawResponse, null, 2));
+    console.log(`🔍 [PlexServerClient] Raw search results count: ${(rawResponse as any)?.MediaContainer?.SearchResult?.length ?? 0}`);
     
-    if (response.MediaContainer.SearchResult && response.MediaContainer.SearchResult.length > 0) {
-      console.log(`🔍 [PlexServerClient] First result sample:`, JSON.stringify(response.MediaContainer.SearchResult[0], null, 2));
+    // Try to parse with schema
+    try {
+      const response = searchResponseSchema.parse(rawResponse);
+      console.log(`🔍 [PlexServerClient] Schema parsed successfully - ${response.MediaContainer.SearchResult?.length ?? 0} results`);
+      
+      if (response.MediaContainer.SearchResult && response.MediaContainer.SearchResult.length > 0) {
+        console.log(`🔍 [PlexServerClient] First parsed result sample:`, JSON.stringify(response.MediaContainer.SearchResult[0], null, 2));
+      }
+      
+      return response;
+    } catch (error) {
+      console.error(`🔍 [PlexServerClient] Schema validation failed for ${this.server.name}:`, error);
+      console.error(`🔍 [PlexServerClient] Raw response that failed:`, JSON.stringify(rawResponse, null, 2));
+      throw error;
     }
-
-    return response;
   }
 
   /**

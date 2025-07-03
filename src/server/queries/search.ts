@@ -22,7 +22,7 @@ export async function searchQuery(
     
     // Get servers
     const servers = await plex.getServers();
-    console.log(`🔍 [SearchQuery] Found ${servers?.length || 0} servers`);
+    console.log(`🔍 [SearchQuery] Found ${servers?.length ?? 0} servers`);
     
     if (!servers || servers.length === 0) {
       return {
@@ -42,15 +42,28 @@ export async function searchQuery(
         const serverClient = plex.createServerClient(server);
         const response = await serverClient.search(debugParams);
         
-        console.log(`🔍 [SearchQuery] Server ${server.name} responded with ${response.MediaContainer.SearchResult?.length || 0} raw results`);
+        console.log(`🔍 [SearchQuery] Server ${server.name} responded with ${response.MediaContainer.SearchResult?.length ?? 0} raw results`);
         
         const results: ProcessedSearchResult[] = [];
-        const searchResults = response.MediaContainer.SearchResult || [];
+        const searchResults = response.MediaContainer.SearchResult ?? [];
+        
+        console.log(`🔍 [SearchQuery] About to process ${searchResults.length} raw results from ${server.name}`);
+        if (searchResults.length > 0) {
+          console.log(`🔍 [SearchQuery] First raw result sample from ${server.name}:`, JSON.stringify(searchResults[0], null, 2));
+        }
         
         for (const rawResult of searchResults) {
           try {
+            console.log(`🔍 [SearchQuery] Processing result:`, { 
+              hasMetadata: 'Metadata' in rawResult, 
+              hasDirectory: 'Directory' in rawResult,
+              score: rawResult.score,
+              keys: Object.keys(rawResult)
+            });
+            
             // Use proper type guards for union types
             if (isMetadataResult(rawResult)) {
+              console.log(`🔍 [SearchQuery] Processing metadata result...`);
               const metadata = rawResult.Metadata;
               results.push({
                 ratingKey: metadata.ratingKey,
@@ -79,7 +92,9 @@ export async function searchQuery(
                 artistName: metadata.grandparentTitle,
                 albumName: metadata.parentTitle,
               });
+              console.log(`🔍 [SearchQuery] Added metadata result: ${metadata.type} - ${metadata.title}`);
             } else if (isDirectoryResult(rawResult)) {
+              console.log(`🔍 [SearchQuery] Processing directory result...`);
               const directory = rawResult.Directory;
               results.push({
                 ratingKey: directory.id?.toString() || directory.tagKey || directory.key,
@@ -92,11 +107,14 @@ export async function searchQuery(
                 score: rawResult.score,
                 serverId: server.clientIdentifier,
                 serverName: server.name,
-                librarySection: directory.librarySectionTitle || 'People',
+                librarySection: directory.librarySectionTitle ?? 'People',
               });
+              console.log(`🔍 [SearchQuery] Added directory result: ${directory.tag}`);
+            } else {
+              console.warn(`🔍 [SearchQuery] Unhandled result type from ${server.name}:`, Object.keys(rawResult));
             }
           } catch (error) {
-            console.warn(`Failed to process search result from ${server.name}:`, error);
+            console.warn(`🔍 [SearchQuery] Failed to process search result from ${server.name}:`, error);
           }
         }
         
@@ -110,12 +128,23 @@ export async function searchQuery(
 
     const serverResults = await Promise.allSettled(serverPromises);
     
+    console.log(`🔍 [SearchQuery] Promise results:`, serverResults.map(result => ({
+      status: result.status,
+      resultCount: result.status === 'fulfilled' ? result.value.length : 0,
+      error: result.status === 'rejected' ? result.reason?.message : undefined
+    })));
+    
     // Extract successful results
     const allResults = serverResults
       .filter((result): result is PromiseFulfilledResult<ProcessedSearchResult[]> => 
         result.status === 'fulfilled'
       )
       .flatMap(result => result.value);
+      
+    console.log(`🔍 [SearchQuery] Combined results before sorting: ${allResults.length}`);
+    if (allResults.length > 0) {
+      console.log(`🔍 [SearchQuery] Sample result:`, allResults[0]);
+    }
 
     // Sort by relevance score
     allResults.sort((a, b) => b.score - a.score);
