@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { AppSidebar } from "~/components/app-sidebar";
 import { ContinueWatching } from "~/components/continue-watching";
 import { PlexErrorWrapper } from "~/components/plex-error-wrapper";
-import { SearchForm } from "~/components/search-form";
+import { SearchWrapper } from "~/components/search-wrapper";
 import { ThemeToggle } from "~/components/theme-toggle";
 import {
   Breadcrumb,
@@ -81,7 +81,7 @@ export default async function Page() {
                   </BreadcrumbList>
                 </Breadcrumb>
                 <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
-                  <SearchForm className="w-fit sm:ml-auto sm:w-auto md:w-full" />
+                  <SearchWrapper className="w-fit sm:ml-auto sm:w-auto md:w-full" />
                   <ThemeToggle />
                 </div>
               </div>

@@ -8,6 +8,11 @@ import {
 } from "../schemas/plex-server-schemas";
 import type { PlexDevice } from "../schemas/plex-tv-schemas";
 import {
+  searchResponseSchema,
+  type SearchResponse,
+  type SearchParams,
+} from "../schemas/search-schemas";
+import {
   PlexAPIError,
   type GetRequestOptions,
   type PlexConfig,
@@ -332,6 +337,42 @@ export class PlexServerClient {
         hubs: [],
         items: [],
       };
+    }
+  }
+
+  /**
+   * Search media across this server's libraries
+   * @param params - Search parameters including query, limit, searchTypes, etc.
+   * @returns Search response with results and metadata
+   */
+  async search(params: SearchParams): Promise<SearchResponse> {
+    const searchParams = {
+      query: params.query,
+      limit: params.limit.toString(),
+      searchTypes: params.searchTypes.join(','),
+      includeCollections: params.includeCollections ? '1' : '0',
+      includeExternalMedia: params.includeExternalMedia ? '1' : '0',
+    };
+
+    try {
+      return await this.get({
+        endpoint: '/library/search',
+        params: searchParams,
+        schema: searchResponseSchema,
+      });
+    } catch (error) {
+      console.warn(
+        `Search failed for server ${this.server.name}:`,
+        error,
+      );
+      // Return empty response on error
+      const emptyResponse: SearchResponse = {
+        MediaContainer: {
+          size: 0,
+          SearchResult: [],
+        },
+      };
+      return emptyResponse;
     }
   }
 

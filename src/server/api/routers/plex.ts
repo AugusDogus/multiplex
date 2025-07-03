@@ -7,6 +7,7 @@ import { getAllServerLibrariesQuery } from "~/server/queries/get-all-server-libr
 import { getContinueWatchingQuery } from "~/server/queries/get-continue-watching";
 import { getServersQuery } from "~/server/queries/get-servers";
 import { getUserInfoQuery } from "~/server/queries/get-user-info";
+import { searchQuery } from "~/server/queries/search";
 
 export type plexRouterInputs = inferRouterInputs<typeof plexRouter>;
 export type plexRouterOutputs = inferRouterOutputs<typeof plexRouter>;
@@ -41,6 +42,20 @@ export const plexRouter = createTRPCRouter({
         input.serverId,
         input.contentDirectoryIds,
       );
+    }),
+
+  search: protectedProcedure
+    .input(
+      z.object({
+        query: z.string().min(1),
+        limit: z.number().default(100),
+        searchTypes: z.array(z.enum(['movies', 'tv', 'music', 'people'])).default(['movies', 'tv', 'music']),
+        includeCollections: z.boolean().default(true),
+        includeExternalMedia: z.boolean().default(true),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      return searchQuery(ctx.plex, input);
     }),
 
   sendTimeline: protectedProcedure
