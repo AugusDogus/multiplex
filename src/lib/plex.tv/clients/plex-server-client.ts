@@ -355,12 +355,11 @@ export class PlexServerClient {
     };
 
     try {
-      const response = await this.get({
+      return await this.get({
         endpoint: '/library/search',
         params: searchParams,
         schema: searchResponseSchema,
       });
-      return response as SearchResponse;
     } catch (error) {
       console.warn(
         `Search failed for server ${this.server.name}:`,

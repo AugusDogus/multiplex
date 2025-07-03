@@ -38,34 +38,47 @@ export const searchResultMetadataSchema = z.object({
   collectionSort: z.string().optional(),
 }).passthrough();
 
+// Directory schema for people/actor results
+export const searchResultDirectorySchema = z.object({
+  key: z.string(),
+  librarySectionID: z.number().optional(),
+  librarySectionKey: z.string().optional(),
+  librarySectionTitle: z.string().optional(),
+  librarySectionType: z.number().optional(),
+  type: z.string(),
+  id: z.number().optional(),
+  filter: z.string().optional(),
+  tag: z.string(),
+  tagType: z.number().optional(),
+  tagKey: z.string().optional(),
+  thumb: z.string().optional(),
+  count: z.number().optional(),
+}).passthrough();
+
+// Union type for search results that can be either Metadata or Directory
 export const searchResultSchema = z.object({
   score: z.number(),
-  Metadata: searchResultMetadataSchema,
-});
-
-export const searchResponseSchema = z.preprocess(
-  (data: any) => {
-    // Ensure SearchResult is always an array
-    if (data && data.MediaContainer && !data.MediaContainer.SearchResult) {
-      data.MediaContainer.SearchResult = [];
-    }
-    return data;
-  },
-  z.object({
-    MediaContainer: z.object({
-      size: z.number(),
-      allowSync: z.boolean().optional(),
-      identifier: z.string().optional(),
-      librarySectionID: z.number().optional(),
-      librarySectionTitle: z.string().optional(),
-      librarySectionUUID: z.string().optional(),
-      mediaTagPrefix: z.string().optional(),
-      mediaTagVersion: z.number().optional(),
-      nocache: z.boolean().optional(),
-      SearchResult: z.array(searchResultSchema),
-    }),
-  })
+}).and(
+  z.union([
+    z.object({ Metadata: searchResultMetadataSchema }),
+    z.object({ Directory: searchResultDirectorySchema }),
+  ])
 );
+
+export const searchResponseSchema = z.object({
+  MediaContainer: z.object({
+    size: z.number(),
+    allowSync: z.boolean().optional(),
+    identifier: z.string().optional(),
+    librarySectionID: z.number().optional(),
+    librarySectionTitle: z.string().optional(),
+    librarySectionUUID: z.string().optional(),
+    mediaTagPrefix: z.string().optional(),
+    mediaTagVersion: z.number().optional(),
+    nocache: z.boolean().optional(),
+    SearchResult: z.array(searchResultSchema).optional(),
+  }),
+});
 
 // Processed search result type for frontend use
 export const processedSearchResultSchema = z.object({
