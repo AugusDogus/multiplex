@@ -192,76 +192,84 @@ export function MediaPlayerModal() {
 
         {/* Video Player Container - Full screen with overlaid controls */}
         <div
-          className={`group relative cursor-none overflow-hidden hover:cursor-default ${
+          className={`group cursor-none overflow-visible hover:cursor-default ${
             isMobile 
-              ? "h-screen w-screen flex items-center justify-center" 
-              : "h-full w-full"
+              ? "fixed inset-0 flex items-center justify-center" 
+              : "relative h-full w-full overflow-hidden"
           }`}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
           onMouseMove={handleMouseMove}
         >
-          {/* Close Button - Top right corner */}
           <div
-            className={`absolute top-4 right-4 z-20 transition-opacity duration-300 group-hover:opacity-100 ${
-              state.showControls
-                ? "opacity-100"
-                : "pointer-events-none opacity-0 group-hover:pointer-events-auto"
+            className={`group relative cursor-none overflow-hidden hover:cursor-default ${
+              isMobile 
+                ? "rotate-90 origin-center" 
+                : "h-full w-full"
             }`}
+            style={isMobile ? {
+              width: '100svh',
+              height: '100svw',
+              minWidth: '100svh',
+              minHeight: '100svw'
+            } : {}}
           >
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleClose}
-              className="text-white hover:bg-white/20"
-            >
-              <X className="h-6 w-6" />
-            </Button>
-          </div>
-
-          {/* Video Player Container - Rotated on mobile */}
-          <div
-            className={
-              isMobile
-                ? "relative h-screen w-screen origin-center rotate-90"
-                : "relative h-full w-full"
-            }
-          >
-            {/* Video Player - Takes up full space */}
-            <MediaPlayerVideo
-              ref={videoRef}
-              item={state.currentItem}
-              className="h-full w-full"
-              onVideoClick={handleVideoClick}
-              onVideoDoubleClick={handleVideoDoubleClick}
-              onVolumeScroll={handleVolumeScroll}
-              onVideoEnded={onEnded}
-              onVideoPlay={onPlay}
-              onVideoPause={onPause}
-              onVideoTimeUpdate={onTimeUpdate}
-              onVideoSeeked={onSeeked}
-            />
-
-            {/* Title and Metadata Overlay - Top of video */}
-            <MediaPlayerOverlay
-              item={state.currentItem}
-              isVisible={state.showControls}
-              isLoading={state.isLoading}
-              error={state.error}
-            />
-
-            {/* Media Controls - Bottom overlay with fade transition */}
+            {/* Close Button - Top right corner */}
             <div
-              className={`absolute right-0 bottom-0 left-0 transition-opacity duration-300 group-hover:opacity-100 ${
+              className={`absolute top-4 right-4 z-20 transition-opacity duration-300 group-hover:opacity-100 ${
                 state.showControls
                   ? "opacity-100"
                   : "pointer-events-none opacity-0 group-hover:pointer-events-auto"
               }`}
             >
-              <MediaPlayerControls
-                isVisible={true} // Always render, just control opacity
-                actions={actions}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleClose}
+                className="text-white hover:bg-white/20"
+              >
+                <X className="h-6 w-6" />
+              </Button>
+            </div>
+
+            {/* Video Player Container */}
+            <div className="relative h-full w-full">
+              {/* Video Player - Takes up full space */}
+              <MediaPlayerVideo
+                ref={videoRef}
+                item={state.currentItem}
+                className="h-full w-full"
+                onVideoClick={handleVideoClick}
+                onVideoDoubleClick={handleVideoDoubleClick}
+                onVolumeScroll={handleVolumeScroll}
+                onVideoEnded={onEnded}
+                onVideoPlay={onPlay}
+                onVideoPause={onPause}
+                onVideoTimeUpdate={onTimeUpdate}
+                onVideoSeeked={onSeeked}
               />
+
+              {/* Title and Metadata Overlay - Top of video */}
+              <MediaPlayerOverlay
+                item={state.currentItem}
+                isVisible={state.showControls}
+                isLoading={state.isLoading}
+                error={state.error}
+              />
+
+              {/* Media Controls - Bottom overlay with fade transition */}
+              <div
+                className={`absolute right-0 bottom-0 left-0 transition-opacity duration-300 group-hover:opacity-100 ${
+                  state.showControls
+                    ? "opacity-100"
+                    : "pointer-events-none opacity-0 group-hover:pointer-events-auto"
+                }`}
+              >
+                <MediaPlayerControls
+                  isVisible={true} // Always render, just control opacity
+                  actions={actions}
+                />
+              </div>
             </div>
           </div>
         </div>
