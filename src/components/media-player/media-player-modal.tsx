@@ -239,7 +239,7 @@ export function MediaPlayerModal() {
           <div
             className={
               isMobile
-                ? "relative h-[100vw] w-[100vh] origin-center rotate-90"
+                ? "h-[100vw] w-[100vh] origin-center rotate-90"
                 : "relative h-full w-full"
             }
           >
