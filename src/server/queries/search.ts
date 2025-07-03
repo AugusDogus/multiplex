@@ -30,38 +30,27 @@ export async function searchQuery(
     // Get user info for auth token fallback
     const userInfo = await plex.getUserInfo();
     
-    // Helper function to get the best server URL (same as continue watching)
+    // Helper function to get the best server URL (improved version)
     const getServerUrl = (server: PlexDevice): string | undefined => {
-      const connections = server.connections;
+      const connections = Array.isArray(server.connections) ? server.connections : [];
+      const PORT_REGEX = /:\d+(?=\/|$)/;
+      
+      const pick = (pred: (c: typeof connections[0]) => boolean) => connections.find(pred);
 
-      const plexDirectConnection = connections.find(
-        (conn: PlexDevice['connections'][0]) =>
-          conn.uri.includes(".plex.direct") && conn.uri.startsWith("https:"),
-      );
+      const direct = pick(c => c?.uri?.startsWith("https://") && c.uri.includes(".plex.direct"));
+      const customNP = pick(c => {
+        const u = c?.uri;
+        return u?.startsWith("https://") && !u.includes(".plex.direct") && !PORT_REGEX.test(u);
+      });
+      const httpsAny = pick(c => c?.uri?.startsWith("https://"));
+      const anyConnection = pick(c => Boolean(c?.uri));
 
-      const customDomainNoPortConnection = connections.find(
-        (conn: PlexDevice['connections'][0]) =>
-          conn.uri.startsWith("https:") &&
-          !conn.uri.includes(".plex.direct") &&
-          !/:\d+$/.exec(conn.uri),
-      );
-
-      const httpsConnection = connections.find((conn: PlexDevice['connections'][0]) =>
-        conn.uri.startsWith("https:"),
-      );
-
-      const selectedUrl =
-        plexDirectConnection?.uri ??
-        customDomainNoPortConnection?.uri ??
-        httpsConnection?.uri ??
-        connections[0]?.uri;
-
-      // Remove port from custom domains if present
-      return selectedUrl &&
-        !selectedUrl.includes(".plex.direct") &&
-        /:\d+$/.exec(selectedUrl)
-        ? selectedUrl.replace(/:\d+$/, "")
-        : selectedUrl;
+      const selected = direct?.uri ?? customNP?.uri ?? httpsAny?.uri ?? anyConnection?.uri;
+      if (!selected) return undefined;
+      
+      return !selected.includes(".plex.direct") && PORT_REGEX.test(selected)
+        ? selected.replace(PORT_REGEX, "")
+        : selected;
     };
 
     // Search all servers in parallel
@@ -81,7 +70,9 @@ export async function searchQuery(
         });
         
         const results: ProcessedSearchResult[] = [];
-        const searchResults = response.MediaContainer.SearchResult ?? [];
+        const searchResults = Array.isArray(response.MediaContainer.SearchResult) 
+          ? response.MediaContainer.SearchResult 
+          : [];
         
         for (const rawResult of searchResults) {
           try {

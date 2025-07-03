@@ -75,44 +75,34 @@ export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
 
     // Combine all items from all servers with server connection info
     const allItems = serverResults.flatMap(({ response, server }) => {
-      // Find the best server URL using functional approach
+      // Find the best server URL using improved functional approach
       const getServerUrl = (server: PlexDevice): string | undefined => {
-        const connections = server.connections;
+        const connections = Array.isArray(server.connections) ? server.connections : [];
+        const PORT_REGEX = /:\d+(?=\/|$)/;
+        
+        const pick = (pred: (c: typeof connections[0]) => boolean) => connections.find(pred);
 
-        const plexDirectConnection = connections.find(
-          (conn: PlexDevice['connections'][0]) =>
-            conn.uri.includes(".plex.direct") && conn.uri.startsWith("https:"),
-        );
+        const direct = pick(c => c?.uri?.startsWith("https://") && c.uri.includes(".plex.direct"));
+        const customNP = pick(c => {
+          const u = c?.uri;
+          return u?.startsWith("https://") && !u.includes(".plex.direct") && !PORT_REGEX.test(u);
+        });
+        const httpsAny = pick(c => c?.uri?.startsWith("https://"));
+        const anyConnection = pick(c => Boolean(c?.uri));
 
-        const customDomainNoPortConnection = connections.find(
-          (conn: PlexDevice['connections'][0]) =>
-            conn.uri.startsWith("https:") &&
-            !conn.uri.includes(".plex.direct") &&
-            !/:\d+$/.exec(conn.uri),
-        );
-
-        const httpsConnection = connections.find((conn: PlexDevice['connections'][0]) =>
-          conn.uri.startsWith("https:"),
-        );
-
-        const selectedUrl =
-          plexDirectConnection?.uri ??
-          customDomainNoPortConnection?.uri ??
-          httpsConnection?.uri ??
-          connections[0]?.uri;
-
-        // Remove port from custom domains if present
-        return selectedUrl &&
-          !selectedUrl.includes(".plex.direct") &&
-          /:\d+$/.exec(selectedUrl)
-          ? selectedUrl.replace(/:\d+$/, "")
-          : selectedUrl;
+        const selected = direct?.uri ?? customNP?.uri ?? httpsAny?.uri ?? anyConnection?.uri;
+        if (!selected) return undefined;
+        
+        return !selected.includes(".plex.direct") && PORT_REGEX.test(selected)
+          ? selected.replace(PORT_REGEX, "")
+          : selected;
       };
 
       const serverUrl = getServerUrl(server);
       const authToken = server.accessToken ?? userInfo.authToken;
 
-      return response.items.map((item) => ({
+      const items = Array.isArray(response.items) ? response.items : [];
+      return items.map((item: ContinueWatchingResponse['items'][0]) => ({
         ...item,
         serverUrl,
         authToken,
