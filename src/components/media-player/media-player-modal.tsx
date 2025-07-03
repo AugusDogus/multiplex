@@ -192,13 +192,26 @@ export function MediaPlayerModal() {
 
         {/* Video Player Container - Full screen with overlaid controls */}
         <div
-          className={`group relative h-full w-full cursor-none overflow-hidden hover:cursor-default ${
-            isMobile ? "rotate-90" : ""
+          className={`group cursor-none overflow-hidden hover:cursor-default ${
+            isMobile 
+              ? "fixed inset-0 flex items-center justify-center" 
+              : "relative h-full w-full"
           }`}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
           onMouseMove={handleMouseMove}
         >
+          <div
+            className={`group relative cursor-none overflow-hidden hover:cursor-default ${
+              isMobile 
+                ? "rotate-90 origin-center" 
+                : "h-full w-full"
+            }`}
+            style={isMobile ? {
+              height: '100vw',
+              width: '100vh', 
+            } : {}}
+          >
           {/* Close Button - Top right corner */}
           <div
             className={`absolute ${isMobile ? "top-4 left-4" : "top-4 right-4"} z-20 transition-opacity duration-300 group-hover:opacity-100 ${
@@ -255,6 +268,7 @@ export function MediaPlayerModal() {
                 actions={actions}
               />
             </div>
+          </div>
           </div>
         </div>
       </MediaPlayerDialogContent>
