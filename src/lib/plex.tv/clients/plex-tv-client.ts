@@ -41,7 +41,11 @@ export class PlexTvClient {
   async getServers(): Promise<PlexDevice[]> {
     const data = await this.get({
       endpoint: "resources",
-      params: {},
+      params: {
+        includeHttps: 1,
+        includeRelay: 1,
+        includeIPv6: 1,
+      },
       schema: sessionsSchema,
     });
 

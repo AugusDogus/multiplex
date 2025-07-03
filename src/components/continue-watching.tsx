@@ -60,7 +60,6 @@ export function ContinueWatching({
     data: continueWatchingData,
     error,
     isLoading,
-    isRefetching,
   } = api.plex.getAllContinueWatching.useQuery(undefined, {
     // Only refetch when page is visible and auto-refresh is enabled
     refetchInterval:

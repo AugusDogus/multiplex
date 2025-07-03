@@ -8,6 +8,11 @@ import {
 } from "../schemas/plex-server-schemas";
 import type { PlexDevice } from "../schemas/plex-tv-schemas";
 import {
+  searchResponseSchema,
+  type SearchResponse,
+  type SearchParams,
+} from "../schemas/search-schemas";
+import {
   PlexAPIError,
   type GetRequestOptions,
   type PlexConfig,
@@ -332,6 +337,37 @@ export class PlexServerClient {
         hubs: [],
         items: [],
       };
+    }
+  }
+
+  /**
+   * Search media across this server's libraries
+   * @param params - Search parameters including query, limit, searchTypes, etc.
+   * @returns Search response with results and metadata
+   */
+  async search(params: SearchParams): Promise<SearchResponse> {
+    const searchParams: Record<string, string> = {
+      query: params.query,
+      limit: params.limit?.toString() ?? '50',
+      searchTypes: params.searchTypes?.join(',') ?? 'movies,music,people,tv',
+      includeCollections: params.includeCollections ? '1' : '0',
+      includeExternalMedia: params.includeExternalMedia ? '1' : '0',
+    };
+
+
+
+    // Get raw response first to debug schema issues
+    const rawResponse = await this.get({
+      endpoint: '/library/search',
+      params: searchParams,
+    });
+
+    // Parse with schema
+    try {
+      return searchResponseSchema.parse(rawResponse);
+    } catch (error) {
+      console.error(`Search schema validation failed for ${this.server.name}:`, error);
+      throw error;
     }
   }
 
