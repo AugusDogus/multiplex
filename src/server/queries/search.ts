@@ -1,4 +1,5 @@
 import type { PlexTvClient } from "~/lib/plex.tv/clients/plex-tv-client";
+import type { PlexDevice } from "~/lib/plex.tv/schemas/plex-tv-schemas";
 import {
   isMetadataResult,
   isDirectoryResult,
@@ -12,11 +13,8 @@ export async function searchQuery(
   params: SearchParams,
 ): Promise<GroupedSearchResults> {
   try {
-    console.log(`🔍 [SearchQuery] Starting search with params:`, params);
-    
     // Get servers
     const servers = await plex.getServers();
-    console.log(`🔍 [SearchQuery] Found ${servers?.length ?? 0} servers`);
     
     if (!servers || servers.length === 0) {
       return {
@@ -29,35 +27,60 @@ export async function searchQuery(
       };
     }
 
+    // Get user info for auth token fallback
+    const userInfo = await plex.getUserInfo();
+    
+    // Helper function to get the best server URL
+    const getServerUrl = (server: PlexDevice): string | undefined => {
+      const connections = server.connections;
+
+      const plexDirectConnection = connections.find(
+        (conn: PlexDevice['connections'][0]) =>
+          conn.uri.includes(".plex.direct") && conn.uri.startsWith("https:"),
+      );
+
+      const customDomainNoPortConnection = connections.find(
+        (conn: PlexDevice['connections'][0]) =>
+          conn.uri.startsWith("https:") &&
+          !conn.uri.includes(".plex.direct") &&
+          !/:\d+$/.exec(conn.uri),
+      );
+
+      const httpsConnection = connections.find((conn: PlexDevice['connections'][0]) =>
+        conn.uri.startsWith("https:"),
+      );
+
+      const selectedUrl =
+        plexDirectConnection?.uri ??
+        customDomainNoPortConnection?.uri ??
+        httpsConnection?.uri ??
+        connections[0]?.uri;
+
+      // Remove port from custom domains if present
+      return selectedUrl &&
+        !selectedUrl.includes(".plex.direct") &&
+        !/:\d+$/.exec(selectedUrl)
+        ? selectedUrl.replace(/:\d+$/, "")
+        : selectedUrl;
+    };
+
     // Search all servers in parallel
     const serverPromises = servers.map(async (server) => {
       try {
-        console.log(`🔍 [SearchQuery] Starting search on server: ${server.name}`);
         const serverClient = plex.createServerClient(server);
         const response = await serverClient.search(params);
         
-        console.log(`🔍 [SearchQuery] Server ${server.name} responded with ${response.MediaContainer.SearchResult?.length ?? 0} raw results`);
+        // Get server connection info for images
+        const serverUrl = getServerUrl(server);
+        const authToken = server.accessToken ?? userInfo?.authToken;
         
         const results: ProcessedSearchResult[] = [];
         const searchResults = response.MediaContainer.SearchResult ?? [];
         
-        console.log(`🔍 [SearchQuery] About to process ${searchResults.length} raw results from ${server.name}`);
-        if (searchResults.length > 0) {
-          console.log(`🔍 [SearchQuery] First raw result sample from ${server.name}:`, JSON.stringify(searchResults[0], null, 2));
-        }
-        
         for (const rawResult of searchResults) {
           try {
-            console.log(`🔍 [SearchQuery] Processing result:`, { 
-              hasMetadata: 'Metadata' in rawResult, 
-              hasDirectory: 'Directory' in rawResult,
-              score: rawResult.score,
-              keys: Object.keys(rawResult)
-            });
-            
             // Use proper type guards for union types
             if (isMetadataResult(rawResult)) {
-              console.log(`🔍 [SearchQuery] Processing metadata result...`);
               const metadata = rawResult.Metadata;
               results.push({
                 ratingKey: metadata.ratingKey,
@@ -76,6 +99,8 @@ export async function searchQuery(
                 score: rawResult.score,
                 serverId: server.clientIdentifier,
                 serverName: server.name,
+                serverUrl,
+                authToken,
                 librarySection: metadata.librarySectionTitle,
                 // TV Show specific fields
                 parentTitle: metadata.parentTitle,
@@ -86,24 +111,23 @@ export async function searchQuery(
                 artistName: metadata.grandparentTitle,
                 albumName: metadata.parentTitle,
               });
-              console.log(`🔍 [SearchQuery] Added metadata result: ${metadata.type} - ${metadata.title}`);
             } else if (isDirectoryResult(rawResult)) {
-              console.log(`🔍 [SearchQuery] Processing directory result...`);
               const directory = rawResult.Directory;
               results.push({
-                ratingKey: directory.id?.toString() || directory.tagKey || directory.key,
+                ratingKey: directory.id?.toString() ?? directory.tagKey ?? directory.key,
                 key: directory.key,
-                guid: directory.tagKey || directory.key,
+                guid: directory.tagKey ?? directory.key,
                 type: 'person',
                 title: directory.tag,
-                summary: `${directory.count || 0} appearances`,
+                summary: `${directory.count ?? 0} appearances`,
                 thumb: directory.thumb,
                 score: rawResult.score,
                 serverId: server.clientIdentifier,
                 serverName: server.name,
+                serverUrl,
+                authToken,
                 librarySection: directory.librarySectionTitle ?? 'People',
               });
-              console.log(`🔍 [SearchQuery] Added directory result: ${directory.tag}`);
             } else {
               console.warn(`🔍 [SearchQuery] Unhandled result type from ${server.name}:`, Object.keys(rawResult));
             }
@@ -112,7 +136,6 @@ export async function searchQuery(
           }
         }
         
-        console.log(`🔍 [SearchQuery] Server ${server.name} processed ${results.length} results after filtering`);
         return results;
       } catch (error) {
         console.warn(`🔍 [SearchQuery] Search failed for server ${server.name}:`, error);
@@ -122,35 +145,18 @@ export async function searchQuery(
 
     const serverResults = await Promise.allSettled(serverPromises);
     
-    console.log(`🔍 [SearchQuery] Promise results:`, serverResults.map(result => ({
-      status: result.status,
-      resultCount: result.status === 'fulfilled' ? result.value.length : 0,
-      error: result.status === 'rejected' ? result.reason?.message : undefined
-    })));
-    
     // Extract successful results
     const allResults = serverResults
       .filter((result): result is PromiseFulfilledResult<ProcessedSearchResult[]> => 
         result.status === 'fulfilled'
       )
       .flatMap(result => result.value);
-      
-    console.log(`🔍 [SearchQuery] Combined results before sorting: ${allResults.length}`);
-    if (allResults.length > 0) {
-      console.log(`🔍 [SearchQuery] Sample result:`, allResults[0]);
-    }
 
     // Sort by relevance score
     allResults.sort((a, b) => b.score - a.score);
     
-    console.log(`🔍 [SearchQuery] Total combined results: ${allResults.length}`);
-    console.log(`🔍 [SearchQuery] Result types breakdown:`, allResults.reduce((acc, result) => {
-      acc[result.type] = (acc[result.type] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>));
-    
     // Group by media type
-    const groupedResults = {
+    return {
       movies: allResults.filter(result => result.type === 'movie'),
       tv: allResults.filter(result => 
         result.type === 'show' || result.type === 'episode'
@@ -162,17 +168,6 @@ export async function searchQuery(
       collections: allResults.filter(result => result.type === 'collection'),
       totalResults: allResults.length,
     };
-    
-    console.log(`🔍 [SearchQuery] Final grouped results:`, {
-      movies: groupedResults.movies.length,
-      tv: groupedResults.tv.length,
-      music: groupedResults.music.length,
-      people: groupedResults.people.length,
-      collections: groupedResults.collections.length,
-      total: groupedResults.totalResults,
-    });
-    
-    return groupedResults;
   } catch (error) {
     console.error('Search query failed:', error);
     return {

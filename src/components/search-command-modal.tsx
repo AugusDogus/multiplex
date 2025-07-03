@@ -3,13 +3,14 @@
 import * as React from "react";
 import { Search } from "lucide-react";
 import {
-  CommandDialog,
+  Command,
   CommandInput,
   CommandList,
   CommandEmpty,
   CommandGroup,
   CommandItem,
 } from "~/components/ui/command";
+import { Dialog, DialogContent } from "~/components/ui/dialog";
 import { SearchResultItem } from "~/components/search-result-item";
 import { useDebounce } from "~/hooks/use-debounce";
 import { api } from "~/trpc/react";
@@ -109,17 +110,15 @@ export function SearchCommandModal({
   }, [searchResults]);
 
   return (
-    <CommandDialog 
-      open={open} 
-      onOpenChange={onOpenChange}
-      filter={() => 1}
-    >
-      <CommandInput
-        placeholder="Search for movies, TV shows, music..."
-        value=""
-        onValueChange={setSearchQuery}
-      />
-      <CommandList>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="overflow-hidden p-0">
+        <Command filter={() => 1}>
+          <CommandInput
+            placeholder="Search for movies, TV shows, music..."
+            value=""
+            onValueChange={setSearchQuery}
+          />
+          <CommandList>
         {isLoading && searchQuery.length > 0 && (
           <CommandEmpty>
             <div className="flex items-center justify-center py-6">
@@ -177,7 +176,9 @@ export function SearchCommandModal({
             ))}
           </CommandGroup>
         ))}
-      </CommandList>
-    </CommandDialog>
+          </CommandList>
+        </Command>
+      </DialogContent>
+    </Dialog>
   );
 }

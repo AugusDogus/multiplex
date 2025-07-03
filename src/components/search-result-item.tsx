@@ -4,6 +4,7 @@ import * as React from "react";
 import { Badge } from "~/components/ui/badge";
 import { Calendar, Clock, Star, Server } from "lucide-react";
 import type { ProcessedSearchResult } from "~/lib/plex.tv/schemas/search-schemas";
+import { getSearchResultThumbnailUrl } from "~/lib/plex.tv/utils/search-utils";
 
 interface SearchResultItemProps {
   result: ProcessedSearchResult;
@@ -63,13 +64,15 @@ export function SearchResultItem({ result }: SearchResultItemProps) {
     return null;
   };
 
+  const thumbnailUrl = getSearchResultThumbnailUrl(result);
+
   return (
     <div className="flex items-center gap-3 p-2 w-full">
       {/* Thumbnail placeholder */}
       <div className="flex-shrink-0 w-12 h-12 bg-muted rounded-md flex items-center justify-center">
-        {result.thumb ? (
+        {thumbnailUrl ? (
           <img 
-            src={result.thumb} 
+            src={thumbnailUrl} 
             alt={result.title}
             className="w-full h-full object-cover rounded-md"
             loading="lazy"

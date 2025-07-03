@@ -119,6 +119,8 @@ export const processedSearchResultSchema = z.object({
   score: z.number(),
   serverId: z.string(),
   serverName: z.string(),
+  serverUrl: z.string().optional(),
+  authToken: z.string().optional(),
   librarySection: z.string(),
   // TV Show specific fields
   parentTitle: z.string().optional(),
