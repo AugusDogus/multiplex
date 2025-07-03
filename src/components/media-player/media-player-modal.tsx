@@ -192,63 +192,38 @@ export function MediaPlayerModal() {
 
         {/* Video Player Container - Full screen with overlaid controls */}
         <div
-          className={`group relative cursor-none overflow-hidden hover:cursor-default ${
-            isMobile 
-              ? "fixed inset-0 flex items-center justify-center" 
-              : "h-full w-full"
+          className={`group relative h-full w-full cursor-none overflow-hidden hover:cursor-default ${
+            isMobile ? "rotate-90" : ""
           }`}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
           onMouseMove={handleMouseMove}
         >
-          {/* Close Button - Outside rotation on mobile, inside on desktop */}
-          {!isMobile && (
-            <div
-              className={`absolute top-4 right-4 z-20 transition-opacity duration-300 group-hover:opacity-100 ${
-                state.showControls
-                  ? "opacity-100"
-                  : "pointer-events-none opacity-0 group-hover:pointer-events-auto"
-              }`}
-            >
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleClose}
-                className="text-white hover:bg-white/20"
-              >
-                <X className="h-6 w-6" />
-              </Button>
-            </div>
-          )}
-
-          {/* Mobile Close Button - Outside rotated container */}
-          {isMobile && (
-            <div className="absolute top-4 right-4 z-30">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleClose}
-                className="text-white hover:bg-white/20"
-              >
-                <X className="h-6 w-6" />
-              </Button>
-            </div>
-          )}
-
-          {/* Video Player Container - Rotated on mobile */}
+          {/* Close Button - Top right corner */}
           <div
-            className={
-              isMobile
-                ? "h-[100vw] w-[100vh] origin-center rotate-90"
-                : "relative h-full w-full"
-            }
+            className={`absolute ${isMobile ? "top-4 left-4" : "top-4 right-4"} z-20 transition-opacity duration-300 group-hover:opacity-100 ${
+              state.showControls
+                ? "opacity-100"
+                : "pointer-events-none opacity-0 group-hover:pointer-events-auto"
+            }`}
           >
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleClose}
+              className="text-white hover:bg-white/20"
+            >
+              <X className="h-6 w-6" />
+            </Button>
+          </div>
+
+          {/* Video Player Container */}
+          <div className="relative h-full w-full">
             {/* Video Player - Takes up full space */}
             <MediaPlayerVideo
               ref={videoRef}
               item={state.currentItem}
               className="h-full w-full"
-              objectFit={isMobile ? "cover" : "contain"}
               onVideoClick={handleVideoClick}
               onVideoDoubleClick={handleVideoDoubleClick}
               onVolumeScroll={handleVolumeScroll}

@@ -140,7 +140,7 @@ function MediaPlayerDialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "fixed inset-0 z-50 overflow-hidden bg-black focus:outline-none",
+          "fixed inset-0 z-50 flex max-h-screen flex-col overflow-hidden bg-black focus:outline-none",
           className,
         )}
         {...props}
