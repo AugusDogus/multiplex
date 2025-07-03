@@ -112,11 +112,11 @@ export function SearchCommandModal({
     <CommandDialog 
       open={open} 
       onOpenChange={onOpenChange}
-      shouldFilter={false}
+      filter={() => 1}
     >
       <CommandInput
         placeholder="Search for movies, TV shows, music..."
-        value={searchQuery}
+        value=""
         onValueChange={setSearchQuery}
       />
       <CommandList>
@@ -168,6 +168,7 @@ export function SearchCommandModal({
             {group.results.map((result) => (
               <CommandItem 
                 key={`${result.serverId}-${result.ratingKey}`}
+                value={`${result.title} ${result.type} ${result.serverName}`}
                 onSelect={() => handleResultSelect(result)}
                 className="cursor-pointer"
               >
