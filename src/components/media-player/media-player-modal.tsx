@@ -192,10 +192,10 @@ export function MediaPlayerModal() {
 
         {/* Video Player Container - Full screen with overlaid controls */}
         <div
-          className={`group cursor-none overflow-hidden hover:cursor-default ${
+          className={`group cursor-none overflow-visible hover:cursor-default ${
             isMobile 
               ? "fixed inset-0 flex items-center justify-center" 
-              : "relative h-full w-full"
+              : "relative h-full w-full overflow-hidden"
           }`}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
@@ -208,8 +208,10 @@ export function MediaPlayerModal() {
                 : "h-full w-full"
             }`}
             style={isMobile ? {
+              width: '100vh',
               height: '100vw',
-              width: '100vh', 
+              minWidth: '100vh',
+              minHeight: '100vw'
             } : {}}
           >
           {/* Close Button - Top right corner */}
