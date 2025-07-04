@@ -109,8 +109,18 @@ export function useAutoPlayNextEpisode() {
       return;
     }
 
+    // Guard against invalid duration or very early in playback
+    if (duration <= 0 || currentTime < 5) {
+      return;
+    }
+
     // Calculate time remaining
     const timeRemaining = duration - currentTime;
+    
+    // Additional safety check - don't trigger if timeRemaining doesn't make sense
+    if (timeRemaining < 0 || timeRemaining > duration) {
+      return;
+    }
     
     // Check if we're at the very end (within 0.5 seconds) - handles skip credits to end
     const isAtVeryEnd = timeRemaining <= 0.5 && timeRemaining >= 0;
