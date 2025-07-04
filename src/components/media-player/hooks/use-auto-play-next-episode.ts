@@ -31,8 +31,8 @@ export function useAutoPlayNextEpisode() {
   // Poll for play queue updates when we have a play queue ID
   const { data: updatedPlayQueue } = api.plex.getPlayQueue.useQuery(
     {
-      serverId: currentItem?.serverId || "",
-      playQueueId: playQueueId || "",
+      serverId: currentItem?.serverId ?? "",
+      playQueueId: playQueueId ?? "",
       includeMarkers: true,
     },
     {
@@ -60,7 +60,7 @@ export function useAutoPlayNextEpisode() {
   }, [updatedPlayQueue, playQueueId, currentItem?.ratingKey, updateState]);
 
   // Use the most recent play queue data (either from state or polling)
-  const activePlayQueue = updatedPlayQueue || playQueue;
+  const activePlayQueue = updatedPlayQueue ?? playQueue;
 
   // Find next episode from play queue
   const nextEpisode = useMemo((): NextEpisodeInfo | null => {
@@ -89,13 +89,13 @@ export function useAutoPlayNextEpisode() {
       ratingKey: nextEpisodeData.ratingKey,
       key: nextEpisodeData.key,
       title: nextEpisodeData.title,
-      index: nextEpisodeData.index || 0,
-      parentIndex: nextEpisodeData.parentIndex || 0,
+      index: nextEpisodeData.index ?? 0,
+      parentIndex: nextEpisodeData.parentIndex ?? 0,
       thumb: nextEpisodeData.thumb,
       art: nextEpisodeData.art,
-      duration: nextEpisodeData.duration || 0,
-      grandparentTitle: nextEpisodeData.grandparentTitle || "",
-      parentTitle: nextEpisodeData.parentTitle || "",
+      duration: nextEpisodeData.duration ?? 0,
+      grandparentTitle: nextEpisodeData.grandparentTitle ?? "",
+      parentTitle: nextEpisodeData.parentTitle ?? "",
     };
   }, [currentItem, activePlayQueue]);
 

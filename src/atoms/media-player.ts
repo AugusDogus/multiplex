@@ -1,6 +1,5 @@
 import { atom } from "jotai";
 import type { MediaPlayerItem, MediaPlayerState, NextEpisodeInfo } from "~/types/media-player";
-import type { PlayQueueResponse, Marker } from "~/lib/plex.tv/schemas/play-queue-schemas";
 
 /* ────────────────────────────────────────────────────────────
    Media Player Jotai Atoms
