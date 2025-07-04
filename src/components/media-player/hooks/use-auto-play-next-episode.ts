@@ -3,6 +3,7 @@ import { useEffect, useMemo } from "react";
 import { 
   mediaPlayerStateAtom, 
   startAutoPlayCountdownAtom,
+  triggerAutoPlayAtom,
   updatePlaybackStateAtom
 } from "~/atoms/media-player";
 import type { NextEpisodeInfo } from "~/types/media-player";
@@ -22,6 +23,7 @@ import { api } from "~/trpc/react";
 export function useAutoPlayNextEpisode() {
   const [mediaPlayerState] = useAtom(mediaPlayerStateAtom);
   const [, startAutoPlayCountdown] = useAtom(startAutoPlayCountdownAtom);
+  const [, triggerAutoPlay] = useAtom(triggerAutoPlayAtom);
   const [, updateState] = useAtom(updatePlaybackStateAtom);
 
   const { currentItem, currentTime, duration, isPlaying, playQueue, playQueueId } = mediaPlayerState;
@@ -129,8 +131,8 @@ export function useAutoPlayNextEpisode() {
     const isNearEndAndPlaying = isPlaying && timeRemaining <= 30 && timeRemaining > 0.5;
 
     if (isAtVeryEnd) {
-      // At the very end - start immediate countdown (1 second minimum for user to react)
-      startAutoPlayCountdown({ nextEpisode, countdownSeconds: 1 });
+      // At the very end - immediately play next episode (no countdown for skip/seek to end)
+      triggerAutoPlay(nextEpisode);
     } else if (isNearEndAndPlaying) {
       // Normal case - start countdown when we're in the last 5 seconds while playing
       if (timeRemaining <= 5) {
@@ -146,6 +148,7 @@ export function useAutoPlayNextEpisode() {
     nextEpisode,
     mediaPlayerState.autoPlay.isCountingDown,
     startAutoPlayCountdown,
+    triggerAutoPlay,
   ]);
 
   return {
