@@ -99,8 +99,8 @@ export function useAutoPlayNextEpisode() {
 
   // Auto-play logic
   useEffect(() => {
-    // Don't trigger if not playing or no next episode found
-    if (!isPlaying || !nextEpisode) {
+    // Don't trigger if no next episode found
+    if (!nextEpisode) {
       return;
     }
 
@@ -109,12 +109,20 @@ export function useAutoPlayNextEpisode() {
       return;
     }
 
-    // Check if we're near the end (last 30 seconds)
+    // Calculate time remaining
     const timeRemaining = duration - currentTime;
-    const isNearEnd = timeRemaining <= 30 && timeRemaining > 0;
+    
+    // Check if we're at the very end (within 0.5 seconds) - handles skip credits to end
+    const isAtVeryEnd = timeRemaining <= 0.5 && timeRemaining >= 0;
+    
+    // Check if we're near the end (last 30 seconds) and actively playing
+    const isNearEndAndPlaying = isPlaying && timeRemaining <= 30 && timeRemaining > 0.5;
 
-    if (isNearEnd) {
-      // Start countdown when we're in the last 5 seconds OR if manually seeked to the end
+    if (isAtVeryEnd) {
+      // At the very end - start immediate countdown (1 second minimum for user to react)
+      startAutoPlayCountdown({ nextEpisode, countdownSeconds: 1 });
+    } else if (isNearEndAndPlaying) {
+      // Normal case - start countdown when we're in the last 5 seconds while playing
       if (timeRemaining <= 5) {
         // Calculate actual countdown time (max 5 seconds, but could be less if seeked to very end)
         const countdownTime = Math.min(Math.max(Math.floor(timeRemaining), 1), 5);
