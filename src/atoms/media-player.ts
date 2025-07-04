@@ -257,7 +257,7 @@ function formatTime(seconds: number): string {
  */
 export const startAutoPlayCountdownAtom = atom(
   null,
-  (get, set, nextEpisode: NextEpisodeInfo) => {
+  (get, set, params: NextEpisodeInfo | { nextEpisode: NextEpisodeInfo; countdownSeconds: number }) => {
     const state = get(mediaPlayerStateAtom);
     
     // Clear any existing countdown
@@ -265,20 +265,24 @@ export const startAutoPlayCountdownAtom = atom(
       clearTimeout(state.autoPlay.countdownTimeout);
     }
 
+    // Handle both old and new parameter formats
+    const nextEpisode = 'nextEpisode' in params ? params.nextEpisode : params;
+    const initialCountdownSeconds = 'countdownSeconds' in params ? params.countdownSeconds : 5;
+
     set(mediaPlayerStateAtom, (prev) => ({
       ...prev,
       autoPlay: {
         ...prev.autoPlay,
         isEnabled: true,
         isCountingDown: true,
-        countdownSeconds: 5,
+        countdownSeconds: initialCountdownSeconds,
         nextEpisode,
         countdownTimeout: null,
       },
     }));
 
     // Start countdown
-    let seconds = 5;
+    let seconds = initialCountdownSeconds;
     const countdownInterval = setInterval(() => {
       seconds -= 1;
       

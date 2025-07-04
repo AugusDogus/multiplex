@@ -109,14 +109,16 @@ export function useAutoPlayNextEpisode() {
       return;
     }
 
-    // Check if we're in the last 30 seconds
+    // Check if we're near the end (last 30 seconds)
     const timeRemaining = duration - currentTime;
     const isNearEnd = timeRemaining <= 30 && timeRemaining > 0;
 
     if (isNearEnd) {
-      // Start countdown when 5 seconds remaining
+      // Start countdown when we're in the last 5 seconds OR if manually seeked to the end
       if (timeRemaining <= 5) {
-        startAutoPlayCountdown(nextEpisode);
+        // Calculate actual countdown time (max 5 seconds, but could be less if seeked to very end)
+        const countdownTime = Math.min(Math.max(Math.floor(timeRemaining), 1), 5);
+        startAutoPlayCountdown({ nextEpisode, countdownSeconds: countdownTime });
       }
     }
   }, [
