@@ -1,7 +1,7 @@
 "use client";
 
 import { useAtom, useAtomValue } from "jotai";
-import { forwardRef, useCallback, useMemo, useEffect } from "react";
+import { forwardRef, useCallback, useMemo, useRef } from "react";
 import {
   mediaPlayerStateAtom,
   playerStatusAtom,
@@ -261,26 +261,49 @@ export const MediaPlayerVideo = forwardRef<
     }, [onVideoDoubleClick]);
 
     /**
-     * Handle video wheel scroll for volume control
-     * Using manual event listener with { passive: false } to allow preventDefault
+     * Internal ref to manage wheel event listener
      */
-    useEffect(() => {
-      const videoElement = ref && "current" in ref ? ref.current : null;
-      if (!videoElement || !onVolumeScroll) return;
+    const internalRef = useRef<HTMLVideoElement | null>(null);
 
-      const handleWheel = (e: WheelEvent) => {
-        e.preventDefault(); // Prevent page scrolling
-        const delta = -e.deltaY; // Invert delta so scroll up increases volume
-        onVolumeScroll(delta);
-      };
+    /**
+     * Wheel event handler
+     */
+    const handleWheelEvent = useCallback(
+      (e: WheelEvent) => {
+        e.preventDefault();
+        const delta = -e.deltaY;
+        onVolumeScroll?.(delta);
+      },
+      [onVolumeScroll],
+    );
 
-      // Add event listener with passive: false to allow preventDefault
-      videoElement.addEventListener("wheel", handleWheel, { passive: false });
+    /**
+     * Combined ref callback that handles both forwarded ref and wheel events
+     */
+    const combinedRef = useCallback(
+      (element: HTMLVideoElement | null) => {
+        // Clean up previous wheel listener
+        if (internalRef.current) {
+          internalRef.current.removeEventListener("wheel", handleWheelEvent);
+        }
 
-      return () => {
-        videoElement.removeEventListener("wheel", handleWheel);
-      };
-    }, [ref, onVolumeScroll]);
+        // Update internal ref
+        internalRef.current = element;
+
+        // Set forwarded ref
+        if (typeof ref === "function") {
+          ref(element);
+        } else if (ref) {
+          ref.current = element;
+        }
+
+        // Add wheel listener to new element
+        if (element && onVolumeScroll) {
+          element.addEventListener("wheel", handleWheelEvent, { passive: false });
+        }
+      },
+      [ref, onVolumeScroll, handleWheelEvent],
+    );
 
     /**
      * Handle video load error
@@ -321,7 +344,7 @@ export const MediaPlayerVideo = forwardRef<
         className={`relative h-full w-full overflow-hidden bg-black ${className}`}
       >
         <video
-          ref={ref}
+          ref={combinedRef}
           autoPlay
           src={videoSrc}
           className="h-full w-full cursor-pointer object-contain"
