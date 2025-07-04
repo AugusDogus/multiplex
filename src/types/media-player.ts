@@ -74,7 +74,6 @@ export interface MediaPlayerState {
     isCountingDown: boolean;
     countdownSeconds: number;
     nextEpisode: NextEpisodeInfo | null;
-    countdownTimeout: number | null;
   };
 }
 

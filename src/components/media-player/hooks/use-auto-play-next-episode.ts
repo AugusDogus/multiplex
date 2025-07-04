@@ -4,7 +4,8 @@ import {
   mediaPlayerStateAtom, 
   startAutoPlayCountdownAtom,
   triggerAutoPlayAtom,
-  updatePlaybackStateAtom
+  updatePlaybackStateAtom,
+  updateCountdownSecondsAtom
 } from "~/atoms/media-player";
 import type { NextEpisodeInfo } from "~/types/media-player";
 import type { PlayQueueItem } from "~/lib/plex.tv/schemas/play-queue-schemas";
@@ -25,6 +26,7 @@ export function useAutoPlayNextEpisode() {
   const [, startAutoPlayCountdown] = useAtom(startAutoPlayCountdownAtom);
   const [, triggerAutoPlay] = useAtom(triggerAutoPlayAtom);
   const [, updateState] = useAtom(updatePlaybackStateAtom);
+  const [, updateCountdownSeconds] = useAtom(updateCountdownSecondsAtom);
 
   const { currentItem, currentTime, duration, isPlaying, playQueue, playQueueId } = mediaPlayerState;
 
@@ -99,15 +101,10 @@ export function useAutoPlayNextEpisode() {
     };
   }, [currentItem, activePlayQueue]);
 
-  // Auto-play logic
+  // Auto-play logic - event-driven by video time
   useEffect(() => {
     // Don't trigger if no next episode found
     if (!nextEpisode) {
-      return;
-    }
-
-    // Don't trigger if already counting down
-    if (mediaPlayerState.autoPlay.isCountingDown) {
       return;
     }
 
@@ -127,19 +124,19 @@ export function useAutoPlayNextEpisode() {
     // Check if we're at the very end (within 0.5 seconds) - handles skip credits to end
     const isAtVeryEnd = timeRemaining <= 0.5 && timeRemaining >= 0;
     
-    // Check if we're near the end (last 30 seconds) and actively playing
-    const isNearEndAndPlaying = isPlaying && timeRemaining <= 30 && timeRemaining > 0.5;
+    // Check if we're near the end (last 5 seconds) and actively playing
+    const isNearEndAndPlaying = isPlaying && timeRemaining <= 5 && timeRemaining > 0.5;
 
     if (isAtVeryEnd) {
       // At the very end - immediately play next episode (no countdown for skip/seek to end)
       triggerAutoPlay(nextEpisode);
     } else if (isNearEndAndPlaying) {
-      // Normal case - start countdown when we're in the last 5 seconds while playing
-      if (timeRemaining <= 5) {
-        // Calculate actual countdown time (max 5 seconds, but could be less if seeked to very end)
-        const countdownTime = Math.min(Math.max(Math.floor(timeRemaining), 1), 5);
-        startAutoPlayCountdown({ nextEpisode, countdownSeconds: countdownTime });
+      // Start countdown when we're in the last 5 seconds while playing
+      if (!mediaPlayerState.autoPlay.isCountingDown) {
+        startAutoPlayCountdown(nextEpisode);
       }
+      // Update countdown seconds based on actual time remaining
+      updateCountdownSeconds(timeRemaining);
     }
   }, [
     isPlaying,
@@ -149,6 +146,7 @@ export function useAutoPlayNextEpisode() {
     mediaPlayerState.autoPlay.isCountingDown,
     startAutoPlayCountdown,
     triggerAutoPlay,
+    updateCountdownSeconds,
   ]);
 
   return {

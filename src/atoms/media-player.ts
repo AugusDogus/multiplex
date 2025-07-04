@@ -50,7 +50,6 @@ export const mediaPlayerStateAtom = atom<MediaPlayerState>({
     isCountingDown: false,
     countdownSeconds: 0,
     nextEpisode: null,
-    countdownTimeout: null,
   },
 });
 
@@ -97,11 +96,6 @@ export const closeMediaPlayerAtom = atom(null, (get, set) => {
   if (state.controlsTimeout) {
     clearTimeout(state.controlsTimeout);
   }
-  
-  // Clear auto-play interval
-  if (state.autoPlay.countdownTimeout) {
-    clearInterval(state.autoPlay.countdownTimeout);
-  }
 
   set(mediaPlayerStateAtom, (prev) => ({
     ...prev,
@@ -125,7 +119,6 @@ export const closeMediaPlayerAtom = atom(null, (get, set) => {
       isCountingDown: false,
       countdownSeconds: 0,
       nextEpisode: null,
-      countdownTimeout: null,
     },
     // Keep UI preferences
     showControls: true,
@@ -253,59 +246,19 @@ function formatTime(seconds: number): string {
 
 /**
  * Write-only atom to start auto-play countdown
+ * The countdown is driven by the video's currentTime, not by intervals
  */
 export const startAutoPlayCountdownAtom = atom(
   null,
-  (get, set, params: NextEpisodeInfo | { nextEpisode: NextEpisodeInfo; countdownSeconds: number }) => {
-    const state = get(mediaPlayerStateAtom);
-    
-    // Clear any existing countdown interval
-    if (state.autoPlay.countdownTimeout) {
-      clearInterval(state.autoPlay.countdownTimeout);
-    }
-
-    // Handle both old and new parameter formats
-    const nextEpisode = 'nextEpisode' in params ? params.nextEpisode : params;
-    const initialCountdownSeconds = 'countdownSeconds' in params ? params.countdownSeconds : 5;
-
+  (get, set, nextEpisode: NextEpisodeInfo) => {
     set(mediaPlayerStateAtom, (prev) => ({
       ...prev,
       autoPlay: {
         ...prev.autoPlay,
         isEnabled: true,
         isCountingDown: true,
-        countdownSeconds: initialCountdownSeconds,
+        countdownSeconds: 5, // Initial value, will be updated by video time
         nextEpisode,
-        countdownTimeout: null,
-      },
-    }));
-
-    // Start countdown
-    let seconds = initialCountdownSeconds;
-    const countdownInterval = setInterval(() => {
-      seconds -= 1;
-      
-      if (seconds <= 0) {
-        clearInterval(countdownInterval);
-        // Trigger auto-play
-        set(triggerAutoPlayAtom, nextEpisode);
-      } else {
-        set(mediaPlayerStateAtom, (prev) => ({
-          ...prev,
-          autoPlay: {
-            ...prev.autoPlay,
-            countdownSeconds: seconds,
-          },
-        }));
-      }
-    }, 1000);
-
-    // Store the interval ID directly (cross-platform compatible)
-    set(mediaPlayerStateAtom, (prev) => ({
-      ...prev,
-      autoPlay: {
-        ...prev.autoPlay,
-        countdownTimeout: countdownInterval as unknown as number,
       },
     }));
   },
@@ -315,12 +268,6 @@ export const startAutoPlayCountdownAtom = atom(
  * Write-only atom to cancel auto-play countdown
  */
 export const cancelAutoPlayAtom = atom(null, (get, set) => {
-  const state = get(mediaPlayerStateAtom);
-  
-  if (state.autoPlay.countdownTimeout) {
-    clearInterval(state.autoPlay.countdownTimeout);
-  }
-
   set(mediaPlayerStateAtom, (prev) => ({
     ...prev,
     autoPlay: {
@@ -329,7 +276,6 @@ export const cancelAutoPlayAtom = atom(null, (get, set) => {
       isCountingDown: false,
       countdownSeconds: 0,
       nextEpisode: null,
-      countdownTimeout: null,
     },
   }));
 });
@@ -365,5 +311,34 @@ export const triggerAutoPlayAtom = atom(
 
     // Open the next episode
     set(openMediaPlayerAtom, nextEpisodeItem);
+  },
+);
+
+/**
+ * Write-only atom to update countdown seconds based on video time
+ */
+export const updateCountdownSecondsAtom = atom(
+  null,
+  (get, set, timeRemaining: number) => {
+    const state = get(mediaPlayerStateAtom);
+    
+    if (!state.autoPlay.isCountingDown) {
+      return;
+    }
+
+    const countdownSeconds = Math.max(Math.ceil(timeRemaining), 0);
+    
+    set(mediaPlayerStateAtom, (prev) => ({
+      ...prev,
+      autoPlay: {
+        ...prev.autoPlay,
+        countdownSeconds,
+      },
+    }));
+
+    // Trigger auto-play when countdown reaches 0
+    if (countdownSeconds <= 0 && state.autoPlay.nextEpisode) {
+      set(triggerAutoPlayAtom, state.autoPlay.nextEpisode);
+    }
   },
 );
