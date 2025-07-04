@@ -63,10 +63,10 @@ export function usePlayQueue(item: MediaPlayerItem | null) {
     lastItemRef.current = currentItemKey;
 
     if (item && item.serverId && item.librarySectionID && item.ratingKey) {
-      // Generate the library URI for the media item using section ID
-      const uri = `library://${item.librarySectionID}/item/${item.ratingKey}`;
+      // Use the full server URI format for play queues
+      const uri = `server://${item.serverId}/com.plexapp.plugins.library${item.key}`;
       
-      console.log("🎬 Creating play queue for:", item.title);
+      console.log("🎬 Creating play queue for:", item.title, "with URI:", uri);
       
       // Create play queue for marker support using .mutate (not .mutateAsync to avoid promise issues)
       createPlayQueueMutation.mutate({
