@@ -99,9 +99,9 @@ export const closeMediaPlayerAtom = atom(null, (get, set) => {
     clearTimeout(state.controlsTimeout);
   }
   
-  // Clear auto-play timeout
+  // Clear auto-play interval
   if (state.autoPlay.countdownTimeout) {
-    clearTimeout(state.autoPlay.countdownTimeout);
+    clearInterval(state.autoPlay.countdownTimeout);
   }
 
   set(mediaPlayerStateAtom, (prev) => ({
@@ -260,9 +260,9 @@ export const startAutoPlayCountdownAtom = atom(
   (get, set, params: NextEpisodeInfo | { nextEpisode: NextEpisodeInfo; countdownSeconds: number }) => {
     const state = get(mediaPlayerStateAtom);
     
-    // Clear any existing countdown
+    // Clear any existing countdown interval
     if (state.autoPlay.countdownTimeout) {
-      clearTimeout(state.autoPlay.countdownTimeout);
+      clearInterval(state.autoPlay.countdownTimeout);
     }
 
     // Handle both old and new parameter formats
@@ -301,12 +301,12 @@ export const startAutoPlayCountdownAtom = atom(
       }
     }, 1000);
 
-    // Store the interval ID (approximation since we can't store the actual interval)
+    // Store the interval ID directly (cross-platform compatible)
     set(mediaPlayerStateAtom, (prev) => ({
       ...prev,
       autoPlay: {
         ...prev.autoPlay,
-        countdownTimeout: Number(countdownInterval),
+        countdownTimeout: countdownInterval as unknown as number,
       },
     }));
   },
