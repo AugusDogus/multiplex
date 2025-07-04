@@ -127,7 +127,9 @@ export const MediaPlayerVideo = forwardRef<
         }
 
         // Synchronize volume and mute state with atom state
-        console.log(`🎬 Video: Synchronizing volume (${state.volume}) and mute state (${state.isMuted})`);
+        console.log(
+          `🎬 Video: Synchronizing volume (${state.volume}) and mute state (${state.isMuted})`,
+        );
         ref.current.volume = state.volume;
         ref.current.muted = state.isMuted;
       }
@@ -281,7 +283,7 @@ export const MediaPlayerVideo = forwardRef<
      * Internal ref to track the video element for cleanup
      */
     const videoElementRef = useRef<HTMLVideoElement | null>(null);
-    const currentHandlerRef = useRef<(e: WheelEvent) => void>();
+    const currentHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
 
     /**
      * Ref callback that combines forwarded ref with wheel event setup
@@ -291,7 +293,10 @@ export const MediaPlayerVideo = forwardRef<
         if (node == null) {
           if (videoElementRef.current != null && currentHandlerRef.current) {
             // Remove old event listener when component unmounts or ref changes
-            videoElementRef.current.removeEventListener('wheel', currentHandlerRef.current);
+            videoElementRef.current.removeEventListener(
+              "wheel",
+              currentHandlerRef.current,
+            );
           }
           // Also update forwarded ref
           if (typeof ref === "function") {
@@ -300,13 +305,20 @@ export const MediaPlayerVideo = forwardRef<
             ref.current = null;
           }
           videoElementRef.current = null;
-          currentHandlerRef.current = undefined;
+          currentHandlerRef.current = null;
           return;
         }
 
         // Remove old listener if element exists and handler changed
-        if (videoElementRef.current && currentHandlerRef.current && currentHandlerRef.current !== handleVideoWheel) {
-          videoElementRef.current.removeEventListener('wheel', currentHandlerRef.current);
+        if (
+          videoElementRef.current &&
+          currentHandlerRef.current &&
+          currentHandlerRef.current !== handleVideoWheel
+        ) {
+          videoElementRef.current.removeEventListener(
+            "wheel",
+            currentHandlerRef.current,
+          );
         }
 
         // Store references for cleanup
@@ -321,7 +333,7 @@ export const MediaPlayerVideo = forwardRef<
         }
 
         // Add wheel event listener with passive: false
-        node.addEventListener('wheel', handleVideoWheel, { passive: false });
+        node.addEventListener("wheel", handleVideoWheel, { passive: false });
       },
       [ref, handleVideoWheel],
     );
