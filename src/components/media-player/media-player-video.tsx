@@ -125,8 +125,13 @@ export const MediaPlayerVideo = forwardRef<
           console.log(`🎬 Video: Setting start time to ${startTime}s`);
           ref.current.currentTime = startTime;
         }
+
+        // Synchronize volume and mute state with atom state
+        console.log(`🎬 Video: Synchronizing volume (${state.volume}) and mute state (${state.isMuted})`);
+        ref.current.volume = state.volume;
+        ref.current.muted = state.isMuted;
       }
-    }, [ref, updateState, state.currentTime]);
+    }, [ref, updateState, state.currentTime, state.volume, state.isMuted]);
 
     // Handle video play event
     const handlePlay = useCallback(() => {
