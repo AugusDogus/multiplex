@@ -150,4 +150,71 @@ export const plexRouter = createTRPCRouter({
       const serverClient = ctx.plex.createServerClient(server);
       return await serverClient.getPlayQueue(input.playQueueId, input.includeMarkers);
     }),
+
+  getNextEpisode: protectedProcedure
+    .input(
+      z.object({
+        serverId: z.string(),
+        currentEpisodeRatingKey: z.string(),
+        seasonRatingKey: z.string(),
+        currentEpisodeIndex: z.number(),
+        currentSeasonIndex: z.number(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const servers = await getServersQuery(ctx.plex);
+      const server = servers.find((s) => s.clientIdentifier === input.serverId);
+
+      if (!server) {
+        throw new Error(`Server with ID ${input.serverId} not found`);
+      }
+
+      const serverClient = ctx.plex.createServerClient(server);
+
+      try {
+        // Get episodes for the current season
+        const seasonEpisodes = await serverClient.getSeasonEpisodes(input.seasonRatingKey);
+        
+        // Type the response properly (this is a simplified approach)
+        const episodes = (seasonEpisodes as any)?.MediaContainer?.Metadata || [];
+        
+        // Find the next episode in the same season
+        const nextEpisode = episodes.find((episode: any) => 
+          episode.index === input.currentEpisodeIndex + 1
+        );
+
+        if (nextEpisode) {
+          return {
+            found: true,
+            episode: {
+              ratingKey: nextEpisode.ratingKey,
+              key: nextEpisode.key,
+              title: nextEpisode.title,
+              index: nextEpisode.index,
+              parentIndex: nextEpisode.parentIndex,
+              thumb: nextEpisode.thumb,
+              art: nextEpisode.art,
+              duration: nextEpisode.duration,
+              summary: nextEpisode.summary,
+              grandparentTitle: nextEpisode.grandparentTitle,
+              parentTitle: nextEpisode.parentTitle,
+            },
+          };
+        }
+
+        // If no next episode in current season, check for next season
+        // This would require additional API calls to get the show's seasons
+        // For now, we'll return that no next episode was found
+        return {
+          found: false,
+          episode: null,
+        };
+      } catch (error) {
+        console.error('Error getting next episode:', error);
+        return {
+          found: false,
+          episode: null,
+        };
+      }
+    }),
 });

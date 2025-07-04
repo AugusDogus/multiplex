@@ -1,10 +1,13 @@
 import { atom } from "jotai";
-import type { MediaPlayerItem, MediaPlayerState } from "~/types/media-player";
+import type { MediaPlayerItem, MediaPlayerState, NextEpisodeInfo } from "~/types/media-player";
+import type { PlayQueueResponse, Marker } from "~/lib/plex.tv/schemas/play-queue-schemas";
 
 /* ────────────────────────────────────────────────────────────
    Media Player Jotai Atoms
    Atomic state management for the media player
    ──────────────────────────────────────────────────────────── */
+
+
 
 /**
  * Base state atom containing all media player state
@@ -41,6 +44,15 @@ export const mediaPlayerStateAtom = atom<MediaPlayerState>({
   // Video element state
   canPlay: false,
   isBuffering: false,
+
+  // Auto-play next episode state
+  autoPlay: {
+    isEnabled: false,
+    isCountingDown: false,
+    countdownSeconds: 0,
+    nextEpisode: null,
+    countdownTimeout: null,
+  },
 });
 
 /**
@@ -86,6 +98,11 @@ export const closeMediaPlayerAtom = atom(null, (get, set) => {
   if (state.controlsTimeout) {
     clearTimeout(state.controlsTimeout);
   }
+  
+  // Clear auto-play timeout
+  if (state.autoPlay.countdownTimeout) {
+    clearTimeout(state.autoPlay.countdownTimeout);
+  }
 
   set(mediaPlayerStateAtom, (prev) => ({
     ...prev,
@@ -103,6 +120,14 @@ export const closeMediaPlayerAtom = atom(null, (get, set) => {
     canPlay: false,
     isBuffering: false,
     controlsTimeout: null,
+    // Reset auto-play state
+    autoPlay: {
+      isEnabled: false,
+      isCountingDown: false,
+      countdownSeconds: 0,
+      nextEpisode: null,
+      countdownTimeout: null,
+    },
     // Keep UI preferences
     showControls: true,
     isFullscreen: false,
@@ -226,3 +251,117 @@ function formatTime(seconds: number): string {
   }
   return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
 }
+
+/**
+ * Write-only atom to start auto-play countdown
+ */
+export const startAutoPlayCountdownAtom = atom(
+  null,
+  (get, set, nextEpisode: NextEpisodeInfo) => {
+    const state = get(mediaPlayerStateAtom);
+    
+    // Clear any existing countdown
+    if (state.autoPlay.countdownTimeout) {
+      clearTimeout(state.autoPlay.countdownTimeout);
+    }
+
+    set(mediaPlayerStateAtom, (prev) => ({
+      ...prev,
+      autoPlay: {
+        ...prev.autoPlay,
+        isEnabled: true,
+        isCountingDown: true,
+        countdownSeconds: 5,
+        nextEpisode,
+        countdownTimeout: null,
+      },
+    }));
+
+    // Start countdown
+    let seconds = 5;
+    const countdownInterval = setInterval(() => {
+      seconds -= 1;
+      
+      if (seconds <= 0) {
+        clearInterval(countdownInterval);
+        // Trigger auto-play
+        set(triggerAutoPlayAtom, nextEpisode);
+      } else {
+        set(mediaPlayerStateAtom, (prev) => ({
+          ...prev,
+          autoPlay: {
+            ...prev.autoPlay,
+            countdownSeconds: seconds,
+          },
+        }));
+      }
+    }, 1000);
+
+    // Store the interval ID (approximation since we can't store the actual interval)
+    set(mediaPlayerStateAtom, (prev) => ({
+      ...prev,
+      autoPlay: {
+        ...prev.autoPlay,
+        countdownTimeout: countdownInterval as unknown as number,
+      },
+    }));
+  },
+);
+
+/**
+ * Write-only atom to cancel auto-play countdown
+ */
+export const cancelAutoPlayAtom = atom(null, (get, set) => {
+  const state = get(mediaPlayerStateAtom);
+  
+  if (state.autoPlay.countdownTimeout) {
+    clearInterval(state.autoPlay.countdownTimeout);
+  }
+
+  set(mediaPlayerStateAtom, (prev) => ({
+    ...prev,
+    autoPlay: {
+      ...prev.autoPlay,
+      isEnabled: false,
+      isCountingDown: false,
+      countdownSeconds: 0,
+      nextEpisode: null,
+      countdownTimeout: null,
+    },
+  }));
+});
+
+/**
+ * Write-only atom to trigger auto-play of next episode
+ */
+export const triggerAutoPlayAtom = atom(
+  null,
+  (get, set, nextEpisode: NextEpisodeInfo) => {
+    // Cancel countdown
+    set(cancelAutoPlayAtom);
+    
+    // Create a MediaPlayerItem from the next episode info
+    const currentItem = get(mediaPlayerStateAtom).currentItem;
+    if (!currentItem) return;
+
+    const nextEpisodeItem: MediaPlayerItem = {
+      ...currentItem, // Copy server connection details
+      ratingKey: nextEpisode.ratingKey,
+      key: nextEpisode.key,
+      title: nextEpisode.title,
+      type: "episode",
+      index: nextEpisode.index,
+      parentIndex: nextEpisode.parentIndex,
+      thumb: nextEpisode.thumb,
+      art: nextEpisode.art,
+      duration: nextEpisode.duration,
+      summary: nextEpisode.summary,
+      grandparentTitle: nextEpisode.grandparentTitle,
+      parentTitle: nextEpisode.parentTitle,
+      viewOffset: 0, // Start from beginning
+    };
+
+    // Open the next episode
+    set(openMediaPlayerAtom, nextEpisodeItem);
+  },
+);

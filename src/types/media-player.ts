@@ -16,6 +16,23 @@ export type MediaPlayerItem = ContinueWatchingItem & {
 };
 
 /**
+ * Next episode information for auto-play
+ */
+export interface NextEpisodeInfo {
+  ratingKey: string;
+  key: string;
+  title: string;
+  index: number;
+  parentIndex: number;
+  thumb?: string;
+  art?: string;
+  duration?: number;
+  summary?: string;
+  grandparentTitle?: string;
+  parentTitle?: string;
+}
+
+/**
  * Complete state interface for the media player
  */
 export interface MediaPlayerState {
@@ -41,7 +58,7 @@ export interface MediaPlayerState {
   // UI state
   isFullscreen: boolean;
   showControls: boolean;
-  controlsTimeout: NodeJS.Timeout | null;
+  controlsTimeout: number | null;
 
   // Loading/Error state
   isLoading: boolean;
@@ -50,6 +67,15 @@ export interface MediaPlayerState {
   // Video element state
   canPlay: boolean;
   isBuffering: boolean;
+
+  // Auto-play next episode state
+  autoPlay: {
+    isEnabled: boolean;
+    isCountingDown: boolean;
+    countdownSeconds: number;
+    nextEpisode: NextEpisodeInfo | null;
+    countdownTimeout: number | null;
+  };
 }
 
 /**

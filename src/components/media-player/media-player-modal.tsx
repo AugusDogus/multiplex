@@ -19,9 +19,11 @@ import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
 import { useMediaPlayer } from "./hooks/use-media-player";
 import { usePlayQueue } from "./hooks/use-play-queue";
 import { useTimelineUpdates } from "./hooks/use-timeline-updates";
+import { useAutoPlayNextEpisode } from "./hooks/use-auto-play-next-episode";
 import { MediaPlayerControls } from "./media-player-controls";
 import { MediaPlayerOverlay } from "./media-player-overlay";
 import { MediaPlayerSkipOverlay } from "./media-player-skip-overlay";
+import { MediaPlayerAutoPlayOverlay } from "./media-player-autoplay-overlay";
 import { MediaPlayerVideo } from "./media-player-video";
 import { useIsMobile } from "~/hooks/use-mobile";
 
@@ -39,6 +41,9 @@ export function MediaPlayerModal() {
 
   // Initialize play queue for marker support
   usePlayQueue(state.currentItem);
+
+  // Auto-play next episode functionality
+  const { autoPlayState } = useAutoPlayNextEpisode();
 
   // Timeline updates hook - sends progress updates to Plex server
   const {
@@ -261,6 +266,13 @@ export function MediaPlayerModal() {
                 markers={state.markers}
                 currentTime={state.currentTime}
                 onSkip={actions.seekToMarkerEnd}
+              />
+
+              {/* Auto Play Overlay - Always visible when applicable */}
+              <MediaPlayerAutoPlayOverlay
+                isCountingDown={autoPlayState.isCountingDown}
+                countdownSeconds={autoPlayState.countdownSeconds}
+                nextEpisode={autoPlayState.nextEpisode}
               />
 
               {/* Media Controls - Bottom overlay with fade transition */}
