@@ -265,7 +265,6 @@ export const MediaPlayerVideo = forwardRef<
      */
     const handleVideoWheel = useCallback(
       (e: React.WheelEvent) => {
-        // Don't prevent default - let React handle it properly
         const delta = -e.deltaY; // Invert delta so scroll up increases volume
         onVolumeScroll?.(delta);
       },
