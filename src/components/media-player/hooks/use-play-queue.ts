@@ -1,7 +1,7 @@
 "use client";
 
 import { useAtom } from "jotai";
-import { useCallback, useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { updatePlaybackStateAtom } from "~/atoms/media-player";
 import type { MediaPlayerItem } from "~/types/media-player";
 import { api } from "~/trpc/react";
@@ -18,6 +18,7 @@ import { api } from "~/trpc/react";
  */
 export function usePlayQueue(item: MediaPlayerItem | null) {
   const [, updateState] = useAtom(updatePlaybackStateAtom);
+  const lastItemRef = useRef<string | null>(null);
 
   // Create play queue mutation
   const createPlayQueueMutation = api.plex.createPlayQueue.useMutation({
@@ -46,55 +47,49 @@ export function usePlayQueue(item: MediaPlayerItem | null) {
   });
 
   /**
-   * Create a play queue for the given media item
-   */
-  const createPlayQueue = useCallback(
-    async (mediaItem: MediaPlayerItem) => {
-      if (!mediaItem) return;
-
-             try {
-         // Generate the library URI for the media item using section ID
-         const uri = `library://${mediaItem.librarySectionID}/item/${mediaItem.ratingKey}`;
-         
-         console.log("🎬 Creating play queue for:", mediaItem.title);
-        
-        await createPlayQueueMutation.mutateAsync({
-          serverId: mediaItem.serverId,
-          type: "video",
-          uri,
-          continuous: true,
-          includeMarkers: true,
-          includeChapters: true,
-          shuffle: false,
-          repeat: 0,
-        });
-      } catch (error) {
-        console.error("Failed to create play queue:", error);
-        // Don't block playback - just continue without markers
-      }
-    },
-    [createPlayQueueMutation],
-  );
-
-  /**
    * Create play queue when item changes
    */
-     useEffect(() => {
-     if (item && item.serverId && item.librarySectionID && item.ratingKey) {
-       // Create play queue for marker support
-       createPlayQueue(item);
-     } else {
-       // Clear play queue state if no valid item
-       updateState({
-         playQueue: null,
-         playQueueId: null,
-         markers: [],
-       });
-     }
-   }, [item, createPlayQueue, updateState]);
+  useEffect(() => {
+    // Create a unique key for the current item to avoid duplicate requests
+    const currentItemKey = item 
+      ? `${item.serverId}-${item.librarySectionID}-${item.ratingKey}`
+      : null;
+
+    // Only proceed if the item has actually changed
+    if (currentItemKey === lastItemRef.current) {
+      return;
+    }
+
+    lastItemRef.current = currentItemKey;
+
+    if (item && item.serverId && item.librarySectionID && item.ratingKey) {
+      // Generate the library URI for the media item using section ID
+      const uri = `library://${item.librarySectionID}/item/${item.ratingKey}`;
+      
+      console.log("🎬 Creating play queue for:", item.title);
+      
+      // Create play queue for marker support using .mutate (not .mutateAsync to avoid promise issues)
+      createPlayQueueMutation.mutate({
+        serverId: item.serverId,
+        type: "video",
+        uri,
+        continuous: true,
+        includeMarkers: true,
+        includeChapters: true,
+        shuffle: false,
+        repeat: 0,
+      });
+    } else {
+      // Clear play queue state if no valid item
+      updateState({
+        playQueue: null,
+        playQueueId: null,
+        markers: [],
+      });
+    }
+  }, [item]); // Only depend on item - everything else is stable
 
   return {
-    createPlayQueue,
     isCreating: createPlayQueueMutation.isPending,
     error: createPlayQueueMutation.error,
   };
