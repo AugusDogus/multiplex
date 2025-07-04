@@ -2,10 +2,12 @@ import { useAtom } from "jotai";
 import { useEffect, useMemo } from "react";
 import { 
   mediaPlayerStateAtom, 
-  startAutoPlayCountdownAtom 
+  startAutoPlayCountdownAtom,
+  updatePlaybackStateAtom
 } from "~/atoms/media-player";
 import type { NextEpisodeInfo } from "~/types/media-player";
 import type { PlayQueueItem } from "~/lib/plex.tv/schemas/play-queue-schemas";
+import { api } from "~/trpc/react";
 
 /* ────────────────────────────────────────────────────────────
    Auto-Play Next Episode Hook
@@ -15,21 +17,57 @@ import type { PlayQueueItem } from "~/lib/plex.tv/schemas/play-queue-schemas";
 /**
  * Custom hook that manages auto-play next episode functionality
  * Uses the play queue to find the next episode in sequence
+ * Polls for queue updates to handle dynamic changes
  */
 export function useAutoPlayNextEpisode() {
   const [mediaPlayerState] = useAtom(mediaPlayerStateAtom);
   const [, startAutoPlayCountdown] = useAtom(startAutoPlayCountdownAtom);
+  const [, updateState] = useAtom(updatePlaybackStateAtom);
 
-  const { currentItem, currentTime, duration, isPlaying, playQueue } = mediaPlayerState;
+  const { currentItem, currentTime, duration, isPlaying, playQueue, playQueueId } = mediaPlayerState;
+
+  // Poll for play queue updates when we have a play queue ID
+  const { data: updatedPlayQueue } = api.plex.getPlayQueue.useQuery(
+    {
+      serverId: currentItem?.serverId || "",
+      playQueueId: playQueueId || "",
+      includeMarkers: true,
+    },
+    {
+      enabled: Boolean(currentItem?.serverId && playQueueId && currentItem?.type === "episode"),
+      refetchInterval: 30000, // Poll every 30 seconds
+      refetchOnWindowFocus: false,
+      staleTime: 15000, // Consider data stale after 15 seconds
+    }
+  );
+
+  // Update the play queue in state when we get fresh data
+  useEffect(() => {
+    if (updatedPlayQueue && playQueueId) {
+      // Extract markers from the current item in the updated queue
+      const currentItemInQueue = updatedPlayQueue.MediaContainer.Metadata?.find(
+        (item: PlayQueueItem) => item.ratingKey === currentItem?.ratingKey
+      );
+      const markers = currentItemInQueue?.Marker ?? [];
+
+      updateState({
+        playQueue: updatedPlayQueue,
+        markers,
+      });
+    }
+  }, [updatedPlayQueue, playQueueId, currentItem?.ratingKey, updateState]);
+
+  // Use the most recent play queue data (either from state or polling)
+  const activePlayQueue = updatedPlayQueue || playQueue;
 
   // Find next episode from play queue
   const nextEpisode = useMemo((): NextEpisodeInfo | null => {
     // Only work with episodes and when we have a play queue
-    if (currentItem?.type !== "episode" || !playQueue?.MediaContainer?.Metadata) {
+    if (currentItem?.type !== "episode" || !activePlayQueue?.MediaContainer?.Metadata) {
       return null;
     }
 
-    const episodes = playQueue.MediaContainer.Metadata;
+    const episodes = activePlayQueue.MediaContainer.Metadata;
     const currentIndex = episodes.findIndex(
       (episode: PlayQueueItem) => episode.ratingKey === currentItem.ratingKey
     );
@@ -57,7 +95,7 @@ export function useAutoPlayNextEpisode() {
       grandparentTitle: nextEpisodeData.grandparentTitle || "",
       parentTitle: nextEpisodeData.parentTitle || "",
     };
-  }, [currentItem, playQueue]);
+  }, [currentItem, activePlayQueue]);
 
   // Auto-play logic
   useEffect(() => {
@@ -94,5 +132,7 @@ export function useAutoPlayNextEpisode() {
     autoPlayState: mediaPlayerState.autoPlay,
     hasNextEpisode: Boolean(nextEpisode),
     nextEpisode: nextEpisode,
+    // Expose queue polling status for debugging
+    isPollingQueue: Boolean(currentItem?.serverId && playQueueId && currentItem?.type === "episode"),
   };
 }
