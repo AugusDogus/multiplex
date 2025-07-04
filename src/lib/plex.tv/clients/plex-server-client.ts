@@ -421,19 +421,7 @@ export class PlexServerClient {
     });
   }
 
-  /**
-   * Get episodes for a season (used to find next episode)
-   * @param seasonRatingKey - The season rating key
-   * @returns Episodes in the season
-   */
-  async getSeasonEpisodes(seasonRatingKey: string): Promise<unknown> {
-    return await this.get({
-      endpoint: `library/metadata/${seasonRatingKey}/children`,
-      params: {
-        includeGuids: '1',
-      },
-    });
-  }
+
 
   /**
    * Make a GET request to the Plex Media Server

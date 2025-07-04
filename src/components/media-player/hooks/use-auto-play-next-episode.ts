@@ -1,10 +1,11 @@
 import { useAtom } from "jotai";
-import { useEffect } from "react";
-import { api } from "~/trpc/react";
+import { useEffect, useMemo } from "react";
 import { 
   mediaPlayerStateAtom, 
   startAutoPlayCountdownAtom 
 } from "~/atoms/media-player";
+import type { NextEpisodeInfo } from "~/types/media-player";
+import type { PlayQueueItem } from "~/lib/plex.tv/schemas/play-queue-schemas";
 
 /* ────────────────────────────────────────────────────────────
    Auto-Play Next Episode Hook
@@ -13,42 +14,55 @@ import {
 
 /**
  * Custom hook that manages auto-play next episode functionality
- * Detects when current episode is near completion and fetches next episode info
+ * Uses the play queue to find the next episode in sequence
  */
 export function useAutoPlayNextEpisode() {
   const [mediaPlayerState] = useAtom(mediaPlayerStateAtom);
   const [, startAutoPlayCountdown] = useAtom(startAutoPlayCountdownAtom);
 
-  const { currentItem, currentTime, duration, isPlaying } = mediaPlayerState;
+  const { currentItem, currentTime, duration, isPlaying, playQueue } = mediaPlayerState;
 
-  // Only attempt to get next episode for TV episodes
-  const isEpisode = currentItem?.type === "episode";
-  const hasRequiredData = Boolean(
-    currentItem?.parentRatingKey && // season rating key
-    currentItem?.index && // episode index
-    currentItem?.parentIndex // season index
-  );
-
-  // Query for next episode information
-  const { data: nextEpisodeData } = api.plex.getNextEpisode.useQuery(
-    {
-      serverId: currentItem?.serverId || "",
-      currentEpisodeRatingKey: currentItem?.ratingKey || "",
-      seasonRatingKey: currentItem?.parentRatingKey || "",
-      currentEpisodeIndex: currentItem?.index || 0,
-      currentSeasonIndex: currentItem?.parentIndex || 0,
-    },
-    {
-      enabled: isEpisode && hasRequiredData && Boolean(currentItem?.serverId),
-      refetchOnWindowFocus: false,
-      staleTime: 5 * 60 * 1000, // 5 minutes
+  // Find next episode from play queue
+  const nextEpisode = useMemo((): NextEpisodeInfo | null => {
+    // Only work with episodes and when we have a play queue
+    if (currentItem?.type !== "episode" || !playQueue?.MediaContainer?.Metadata) {
+      return null;
     }
-  );
+
+    const episodes = playQueue.MediaContainer.Metadata;
+    const currentIndex = episodes.findIndex(
+      (episode: PlayQueueItem) => episode.ratingKey === currentItem.ratingKey
+    );
+
+    // If current episode not found or is the last episode, no next episode
+    if (currentIndex === -1 || currentIndex >= episodes.length - 1) {
+      return null;
+    }
+
+    const nextEpisodeData = episodes[currentIndex + 1];
+    if (!nextEpisodeData) {
+      return null;
+    }
+
+    // Convert play queue item to NextEpisodeInfo format
+    return {
+      ratingKey: nextEpisodeData.ratingKey,
+      key: nextEpisodeData.key,
+      title: nextEpisodeData.title,
+      index: nextEpisodeData.index || 0,
+      parentIndex: nextEpisodeData.parentIndex || 0,
+      thumb: nextEpisodeData.thumb,
+      art: nextEpisodeData.art,
+      duration: nextEpisodeData.duration || 0,
+      grandparentTitle: nextEpisodeData.grandparentTitle || "",
+      parentTitle: nextEpisodeData.parentTitle || "",
+    };
+  }, [currentItem, playQueue]);
 
   // Auto-play logic
   useEffect(() => {
     // Don't trigger if not playing or no next episode found
-    if (!isPlaying || !nextEpisodeData?.found || !nextEpisodeData.episode) {
+    if (!isPlaying || !nextEpisode) {
       return;
     }
 
@@ -64,21 +78,21 @@ export function useAutoPlayNextEpisode() {
     if (isNearEnd) {
       // Start countdown when 5 seconds remaining
       if (timeRemaining <= 5) {
-        startAutoPlayCountdown(nextEpisodeData.episode);
+        startAutoPlayCountdown(nextEpisode);
       }
     }
   }, [
     isPlaying,
     currentTime,
     duration,
-    nextEpisodeData,
+    nextEpisode,
     mediaPlayerState.autoPlay.isCountingDown,
     startAutoPlayCountdown,
   ]);
 
   return {
     autoPlayState: mediaPlayerState.autoPlay,
-    hasNextEpisode: Boolean(nextEpisodeData?.found),
-    nextEpisode: nextEpisodeData?.episode || null,
+    hasNextEpisode: Boolean(nextEpisode),
+    nextEpisode: nextEpisode,
   };
 }
