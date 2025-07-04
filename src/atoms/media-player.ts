@@ -14,6 +14,11 @@ export const mediaPlayerStateAtom = atom<MediaPlayerState>({
   isOpen: false,
   currentItem: null,
 
+  // Play queue state
+  playQueue: null,
+  playQueueId: null,
+  markers: [],
+
   // Playback state
   isPlaying: false,
   currentTime: 0,
@@ -86,6 +91,9 @@ export const closeMediaPlayerAtom = atom(null, (get, set) => {
     ...prev,
     isOpen: false,
     currentItem: null,
+    playQueue: null,
+    playQueueId: null,
+    markers: [],
     isPlaying: false,
     currentTime: 0,
     duration: 0,

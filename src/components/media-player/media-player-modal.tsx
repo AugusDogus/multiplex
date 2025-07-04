@@ -17,9 +17,11 @@ import {
 } from "~/components/ui/dialog";
 import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
 import { useMediaPlayer } from "./hooks/use-media-player";
+import { usePlayQueue } from "./hooks/use-play-queue";
 import { useTimelineUpdates } from "./hooks/use-timeline-updates";
 import { MediaPlayerControls } from "./media-player-controls";
 import { MediaPlayerOverlay } from "./media-player-overlay";
+import { MediaPlayerSkipOverlay } from "./media-player-skip-overlay";
 import { MediaPlayerVideo } from "./media-player-video";
 import { useIsMobile } from "~/hooks/use-mobile";
 
@@ -34,6 +36,9 @@ export function MediaPlayerModal() {
   const [, updateState] = useAtom(updatePlaybackStateAtom);
   const { actions, videoRef } = useMediaPlayer();
   const isMobile = useIsMobile();
+
+  // Initialize play queue for marker support
+  usePlayQueue(state.currentItem);
 
   // Timeline updates hook - sends progress updates to Plex server
   const {
@@ -249,6 +254,13 @@ export function MediaPlayerModal() {
                 isVisible={state.showControls}
                 isLoading={state.isLoading}
                 error={state.error}
+              />
+
+              {/* Skip Intro/Credits Overlay - Always visible when applicable */}
+              <MediaPlayerSkipOverlay
+                markers={state.markers}
+                currentTime={state.currentTime}
+                onSkip={actions.seekToMarkerEnd}
               />
 
               {/* Media Controls - Bottom overlay with fade transition */}

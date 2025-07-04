@@ -23,6 +23,7 @@ export function useMediaPlayer(): {
     skipBackward: (seconds?: number) => void;
     jumpToStart: () => void;
     jumpToEnd: () => void;
+    seekToMarkerEnd: (marker: Marker) => void;
   };
   videoRef: React.RefObject<HTMLVideoElement | null>;
 } {
