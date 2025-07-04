@@ -302,7 +302,7 @@ export const startAutoPlayCountdownAtom = atom(
       ...prev,
       autoPlay: {
         ...prev.autoPlay,
-        countdownTimeout: countdownInterval as unknown as number,
+        countdownTimeout: Number(countdownInterval),
       },
     }));
   },
@@ -355,7 +355,6 @@ export const triggerAutoPlayAtom = atom(
       thumb: nextEpisode.thumb,
       art: nextEpisode.art,
       duration: nextEpisode.duration,
-      summary: nextEpisode.summary,
       grandparentTitle: nextEpisode.grandparentTitle,
       parentTitle: nextEpisode.parentTitle,
       viewOffset: 0, // Start from beginning

@@ -175,29 +175,37 @@ export const plexRouter = createTRPCRouter({
         // Get episodes for the current season
         const seasonEpisodes = await serverClient.getSeasonEpisodes(input.seasonRatingKey);
         
-        // Type the response properly (this is a simplified approach)
-        const episodes = (seasonEpisodes as any)?.MediaContainer?.Metadata || [];
+        // Safely access the response structure
+        const episodesContainer = seasonEpisodes && typeof seasonEpisodes === 'object' && 'MediaContainer' in seasonEpisodes 
+          ? seasonEpisodes.MediaContainer : null;
+        const episodes = episodesContainer && typeof episodesContainer === 'object' && 'Metadata' in episodesContainer 
+          ? episodesContainer.Metadata : [];
         
         // Find the next episode in the same season
-        const nextEpisode = episodes.find((episode: any) => 
-          episode.index === input.currentEpisodeIndex + 1
-        );
+        const nextEpisode = Array.isArray(episodes) 
+          ? episodes.find((episode) => 
+              episode && 
+              typeof episode === 'object' && 
+              'index' in episode &&
+              episode.index === input.currentEpisodeIndex + 1
+            )
+          : null;
 
-        if (nextEpisode) {
+        if (nextEpisode && typeof nextEpisode === 'object') {
           return {
             found: true,
             episode: {
-              ratingKey: nextEpisode.ratingKey,
-              key: nextEpisode.key,
-              title: nextEpisode.title,
-              index: nextEpisode.index,
-              parentIndex: nextEpisode.parentIndex,
-              thumb: nextEpisode.thumb,
-              art: nextEpisode.art,
-              duration: nextEpisode.duration,
-              summary: nextEpisode.summary,
-              grandparentTitle: nextEpisode.grandparentTitle,
-              parentTitle: nextEpisode.parentTitle,
+              ratingKey: 'ratingKey' in nextEpisode ? String(nextEpisode.ratingKey) : '',
+              key: 'key' in nextEpisode ? String(nextEpisode.key) : '',
+              title: 'title' in nextEpisode ? String(nextEpisode.title) : '',
+              index: 'index' in nextEpisode ? Number(nextEpisode.index) : 0,
+              parentIndex: 'parentIndex' in nextEpisode ? Number(nextEpisode.parentIndex) : 0,
+              thumb: 'thumb' in nextEpisode ? String(nextEpisode.thumb) : undefined,
+              art: 'art' in nextEpisode ? String(nextEpisode.art) : undefined,
+              duration: 'duration' in nextEpisode ? Number(nextEpisode.duration) : undefined,
+              summary: 'summary' in nextEpisode ? String(nextEpisode.summary) : undefined,
+              grandparentTitle: 'grandparentTitle' in nextEpisode ? String(nextEpisode.grandparentTitle) : undefined,
+              parentTitle: 'parentTitle' in nextEpisode ? String(nextEpisode.parentTitle) : undefined,
             },
           };
         }
