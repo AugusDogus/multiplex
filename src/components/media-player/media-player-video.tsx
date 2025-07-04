@@ -1,7 +1,7 @@
 "use client";
 
 import { useAtom, useAtomValue } from "jotai";
-import { forwardRef, useCallback, useMemo, useRef } from "react";
+import { forwardRef, useCallback, useMemo } from "react";
 import {
   mediaPlayerStateAtom,
   playerStatusAtom,
@@ -261,48 +261,15 @@ export const MediaPlayerVideo = forwardRef<
     }, [onVideoDoubleClick]);
 
     /**
-     * Internal ref to manage wheel event listener
+     * Handle video wheel scroll for volume control
      */
-    const internalRef = useRef<HTMLVideoElement | null>(null);
-
-    /**
-     * Wheel event handler
-     */
-    const handleWheelEvent = useCallback(
-      (e: WheelEvent) => {
-        e.preventDefault();
-        const delta = -e.deltaY;
+    const handleVideoWheel = useCallback(
+      (e: React.WheelEvent) => {
+        // Don't prevent default - let React handle it properly
+        const delta = -e.deltaY; // Invert delta so scroll up increases volume
         onVolumeScroll?.(delta);
       },
       [onVolumeScroll],
-    );
-
-    /**
-     * Combined ref callback that handles both forwarded ref and wheel events
-     */
-    const combinedRef = useCallback(
-      (element: HTMLVideoElement | null) => {
-        // Clean up previous wheel listener
-        if (internalRef.current) {
-          internalRef.current.removeEventListener("wheel", handleWheelEvent);
-        }
-
-        // Update internal ref
-        internalRef.current = element;
-
-        // Set forwarded ref
-        if (typeof ref === "function") {
-          ref(element);
-        } else if (ref) {
-          ref.current = element;
-        }
-
-        // Add wheel listener to new element
-        if (element && onVolumeScroll) {
-          element.addEventListener("wheel", handleWheelEvent, { passive: false });
-        }
-      },
-      [ref, onVolumeScroll, handleWheelEvent],
     );
 
     /**
@@ -344,12 +311,13 @@ export const MediaPlayerVideo = forwardRef<
         className={`relative h-full w-full overflow-hidden bg-black ${className}`}
       >
         <video
-          ref={combinedRef}
+          ref={ref}
           autoPlay
           src={videoSrc}
           className="h-full w-full cursor-pointer object-contain"
           onClick={handleVideoClick}
           onDoubleClick={handleVideoDoubleClick}
+          onWheel={handleVideoWheel}
           onError={handleVideoError}
           onLoadStart={handleLoadStart}
           onLoadedData={handleLoadedData}
