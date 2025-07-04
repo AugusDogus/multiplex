@@ -6,6 +6,11 @@ import {
   MediaContainerSchema,
   type MediaContainer,
 } from "../schemas/plex-server-schemas";
+import {
+  playQueueResponseSchema,
+  type PlayQueueResponse,
+  type CreatePlayQueueParams,
+} from "../schemas/play-queue-schemas";
 import type { PlexDevice } from "../schemas/plex-tv-schemas";
 import {
   searchResponseSchema,
@@ -15,6 +20,7 @@ import {
 import {
   PlexAPIError,
   type GetRequestOptions,
+  type PostRequestOptions,
   type PlexConfig,
 } from "../types/client-types";
 
@@ -372,6 +378,50 @@ export class PlexServerClient {
   }
 
   /**
+   * Create a play queue with markers
+   * @param params - Parameters for creating the play queue
+   * @returns Play queue response with markers
+   */
+  async createPlayQueue(params: CreatePlayQueueParams): Promise<PlayQueueResponse> {
+    const queryParams = {
+      type: params.type,
+      uri: params.uri,
+      continuous: params.continuous ? '1' : '0',
+      includeMarkers: params.includeMarkers ? '1' : '0',
+      includeChapters: params.includeChapters ? '1' : '0',
+      shuffle: params.shuffle ? '1' : '0',
+      repeat: params.repeat.toString(),
+      own: '1',
+      includeGeolocation: '1',
+      includeExternalMedia: '1',
+    };
+
+    return await this.post({
+      endpoint: 'playQueues',
+      params: queryParams,
+      schema: playQueueResponseSchema,
+    });
+  }
+
+  /**
+   * Get play queue by ID with markers
+   * @param playQueueId - The play queue ID to retrieve
+   * @param includeMarkers - Whether to include markers in the response
+   * @returns Play queue response with markers
+   */
+  async getPlayQueue(playQueueId: string, includeMarkers = true): Promise<PlayQueueResponse> {
+    return await this.get({
+      endpoint: `playQueues/${playQueueId}`,
+      params: {
+        includeMarkers: includeMarkers ? '1' : '0',
+        includeChapters: '1',
+        own: '1',
+      },
+      schema: playQueueResponseSchema,
+    });
+  }
+
+  /**
    * Make a GET request to the Plex Media Server
    * @param options - Request options including endpoint, params, schema
    * @returns Parsed and validated response data
@@ -542,6 +592,180 @@ export class PlexServerClient {
 
     throw (
       errors[errors.length - 1] ?? new Error("Request failed after retries")
+    );
+  }
+
+  /**
+   * Make a POST request to the Plex Media Server
+   * @param options - Request options including endpoint, params, schema
+   * @returns Parsed and validated response data
+   */
+  private async post<T>(options: PostRequestOptions<T>): Promise<T> {
+    const { endpoint, params, schema, xPlexOverrides = {} } = options;
+    const maxRetries = 2;
+    const errors: Error[] = [];
+
+    for (const attempt of Array.from({ length: maxRetries + 1 }, (_, i) => i)) {
+      try {
+        const connection = await this.findWorkingConnection();
+        const url = new URL(endpoint, connection.uri);
+
+        // Add all X-Plex parameters as query parameters, with overrides
+        url.searchParams.append(
+          "X-Plex-Product",
+          xPlexOverrides.product ?? this.config.product,
+        );
+        url.searchParams.append(
+          "X-Plex-Version",
+          xPlexOverrides.version ?? this.config.version,
+        );
+        url.searchParams.append(
+          "X-Plex-Client-Identifier",
+          xPlexOverrides.clientIdentifier ?? this.config.clientIdentifier,
+        );
+        url.searchParams.append(
+          "X-Plex-Platform",
+          xPlexOverrides.platform ?? this.config.platform,
+        );
+        url.searchParams.append(
+          "X-Plex-Platform-Version",
+          xPlexOverrides.platformVersion ?? "137.0",
+        );
+        url.searchParams.append(
+          "X-Plex-Features",
+          xPlexOverrides.features ??
+            "external-media,indirect-media,hub-style-list",
+        );
+        url.searchParams.append(
+          "X-Plex-Model",
+          xPlexOverrides.model ?? "bundled",
+        );
+        url.searchParams.append(
+          "X-Plex-Device",
+          xPlexOverrides.device ?? "Windows",
+        );
+        url.searchParams.append(
+          "X-Plex-Device-Name",
+          xPlexOverrides.deviceName ?? this.config.platform,
+        );
+        url.searchParams.append(
+          "X-Plex-Language",
+          xPlexOverrides.language ?? "en",
+        );
+        url.searchParams.append("X-Plex-Token", this.token);
+
+        // Optional parameters that can be overridden
+        if (xPlexOverrides.sessionId) {
+          url.searchParams.append(
+            "X-Plex-Session-Id",
+            xPlexOverrides.sessionId,
+          );
+        }
+        if (xPlexOverrides.playbackSessionId) {
+          url.searchParams.append(
+            "X-Plex-Playback-Session-Id",
+            xPlexOverrides.playbackSessionId,
+          );
+        }
+        if (xPlexOverrides.deviceScreenResolution) {
+          url.searchParams.append(
+            "X-Plex-Device-Screen-Resolution",
+            xPlexOverrides.deviceScreenResolution,
+          );
+        }
+
+        if (params) {
+          for (const key in params) {
+            if (params.hasOwnProperty(key)) {
+              url.searchParams.append(key, String(params[key]));
+            }
+          }
+        }
+
+        const headers = this.getHeaders();
+
+        console.log(`Making POST request to ${this.server.name}:`);
+        console.log(`URL: ${url.toString()}`);
+        console.log(`Headers:`, headers);
+        console.log(
+          `Token (first 10 chars): ${this.token.substring(0, 10)}...`,
+        );
+
+        const response = await fetch(url.toString(), {
+          method: "POST",
+          headers,
+        });
+
+        console.log(
+          `Response from ${this.server.name}: ${response.status} ${response.statusText}`,
+        );
+
+        if (!response.ok) {
+          // Log response headers for debugging
+          console.log(
+            `Response headers:`,
+            Object.fromEntries(response.headers.entries()),
+          );
+
+          throw new PlexAPIError(
+            `Plex Server API request failed: ${response.statusText}`,
+            response.status,
+            response,
+          );
+        }
+
+        const data = await response.json();
+
+        if (schema) {
+          try {
+            return schema.parse(data);
+          } catch (error) {
+            throw new PlexAPIError(
+              `Invalid response format from Plex Server API: ${error instanceof Error ? error.message : "Unknown error"}`,
+            );
+          }
+        }
+
+        return data as T;
+      } catch (error) {
+        const currentError =
+          error instanceof Error ? error : new Error(String(error));
+        errors.push(currentError);
+
+        console.log(
+          `POST request to ${this.server.name} failed (attempt ${attempt + 1}):`,
+          currentError.message,
+        );
+
+        // If this is the last attempt, throw the error
+        if (attempt === maxRetries) {
+          throw currentError;
+        }
+
+        // If this was a connection-related error, reset our cached connection
+        // and try again with a different connection
+        if (
+          error instanceof PlexAPIError &&
+          error.status &&
+          error.status >= 500
+        ) {
+          this.resetConnection();
+          continue;
+        }
+
+        // For network errors, also try to reset and retry
+        if (error instanceof TypeError && error.message.includes("fetch")) {
+          this.resetConnection();
+          continue;
+        }
+
+        // For other errors, don't retry
+        throw currentError;
+      }
+    }
+
+    throw (
+      errors[errors.length - 1] ?? new Error("POST request failed after retries")
     );
   }
 

@@ -1,4 +1,5 @@
 import type { ContinueWatchingItem } from "~/lib/plex.tv/schemas/continue-watching-schemas";
+import type { PlayQueueResponse, Marker } from "~/lib/plex.tv/schemas/play-queue-schemas";
 
 /* ────────────────────────────────────────────────────────────
    Media Player Types
@@ -21,6 +22,11 @@ export interface MediaPlayerState {
   // Modal state
   isOpen: boolean;
   currentItem: MediaPlayerItem | null;
+
+  // Play queue state
+  playQueue: PlayQueueResponse | null;
+  playQueueId: string | null;
+  markers: Marker[];
 
   // Playback state
   isPlaying: boolean;
