@@ -38,22 +38,22 @@ export function MediaPlayerSkipOverlay({
   // Determine button text based on marker type
   const getButtonText = (markerType: string) => {
     switch (markerType) {
-      case 'intro':
-        return 'Skip Intro';
-      case 'credits':
-        return 'Skip Credits';
-      case 'commercial':
-        return 'Skip Commercial';
+      case "intro":
+        return "Skip Intro";
+      case "credits":
+        return "Skip Credits";
+      case "commercial":
+        return "Skip Commercial";
       default:
-        return 'Skip';
+        return "Skip";
     }
   };
 
   return (
-    <div className="absolute top-4 right-4 z-50">
+    <div className="absolute right-[calc(var(--spacing)_*_21)] bottom-24 z-50">
       <Button
         onClick={() => onSkip(activeMarker)}
-        className="bg-black/80 text-white hover:bg-black/90 transition-colors"
+        className="bg-black/80 text-white transition-colors hover:bg-black/90"
         size="sm"
       >
         {getButtonText(activeMarker.type)}
