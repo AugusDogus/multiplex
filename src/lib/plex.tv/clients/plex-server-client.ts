@@ -421,6 +421,8 @@ export class PlexServerClient {
     });
   }
 
+
+
   /**
    * Make a GET request to the Plex Media Server
    * @param options - Request options including endpoint, params, schema

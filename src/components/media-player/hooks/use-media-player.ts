@@ -153,7 +153,7 @@ export function useMediaPlayer(): {
       updateState({ showControls: false, controlsTimeout: null });
     }, 3000);
 
-    updateState({ controlsTimeout: timeout });
+    updateState({ controlsTimeout: Number(timeout) });
   }, [state.controlsTimeout, updateState]);
 
   /**

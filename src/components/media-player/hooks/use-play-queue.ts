@@ -35,7 +35,7 @@ export function usePlayQueue(item: MediaPlayerItem | null) {
         markers,
       });
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       console.error("Failed to create play queue:", error);
       // Continue playback without markers on error
       updateState({
@@ -87,7 +87,7 @@ export function usePlayQueue(item: MediaPlayerItem | null) {
         markers: [],
       });
     }
-  }, [item]); // Only depend on item - everything else is stable
+  }, [item, createPlayQueueMutation, updateState]);
 
   return {
     isCreating: createPlayQueueMutation.isPending,
