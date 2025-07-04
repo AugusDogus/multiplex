@@ -1,7 +1,7 @@
 "use client";
 
 import { useAtom, useAtomValue } from "jotai";
-import { forwardRef, useCallback, useMemo } from "react";
+import { forwardRef, useCallback, useMemo, useEffect } from "react";
 import {
   mediaPlayerStateAtom,
   playerStatusAtom,
@@ -262,15 +262,25 @@ export const MediaPlayerVideo = forwardRef<
 
     /**
      * Handle video wheel scroll for volume control
+     * Using manual event listener with { passive: false } to allow preventDefault
      */
-    const handleVideoWheel = useCallback(
-      (e: React.WheelEvent) => {
+    useEffect(() => {
+      const videoElement = ref && "current" in ref ? ref.current : null;
+      if (!videoElement || !onVolumeScroll) return;
+
+      const handleWheel = (e: WheelEvent) => {
         e.preventDefault(); // Prevent page scrolling
         const delta = -e.deltaY; // Invert delta so scroll up increases volume
-        onVolumeScroll?.(delta);
-      },
-      [onVolumeScroll],
-    );
+        onVolumeScroll(delta);
+      };
+
+      // Add event listener with passive: false to allow preventDefault
+      videoElement.addEventListener("wheel", handleWheel, { passive: false });
+
+      return () => {
+        videoElement.removeEventListener("wheel", handleWheel);
+      };
+    }, [ref, onVolumeScroll]);
 
     /**
      * Handle video load error
@@ -317,7 +327,6 @@ export const MediaPlayerVideo = forwardRef<
           className="h-full w-full cursor-pointer object-contain"
           onClick={handleVideoClick}
           onDoubleClick={handleVideoDoubleClick}
-          onWheel={handleVideoWheel}
           onError={handleVideoError}
           onLoadStart={handleLoadStart}
           onLoadedData={handleLoadedData}
