@@ -93,10 +93,10 @@ const userInfoSchema = z
     protected: z.boolean(),
     thumb: z.string(),
     authToken: z.string().nullable(),
-    mailingListStatus: z.string(),
-    mailingListActive: z.boolean(),
-    scrobbleTypes: z.string(),
-    country: z.string(),
+    mailingListStatus: z.string().optional(),
+    mailingListActive: z.boolean().optional(),
+    scrobbleTypes: z.string().optional(),
+    country: z.string().optional(),
     subscription: z
       .object({
         active: z.boolean(),
@@ -120,14 +120,14 @@ const userInfoSchema = z
     profile: z.object({
       autoSelectAudio: z.boolean(),
       autoSelectSubtitle: z.number(),
-      defaultAudioLanguage: z.string(),
-      defaultSubtitleLanguage: z.string(),
+      defaultAudioLanguage: z.string().nullable(),
+      defaultSubtitleLanguage: z.string().nullable(),
       autoSelectSubtitleMode: z.number().optional(),
       defaultSubtitleAccessibility: z.number(),
       defaultSubtitleForced: z.number(),
     }),
-    entitlements: z.array(z.string()),
-    roles: z.array(z.string()),
+    entitlements: z.array(z.string()).optional().default([]),
+    roles: z.array(z.string()).optional().default([]),
     services: z.array(
       z.object({
         identifier: z.string(),
@@ -136,13 +136,13 @@ const userInfoSchema = z
         secret: z.string().nullable(),
         status: z.string(),
       }),
-    ),
+    ).optional().default([]),
     adsConsent: z.boolean().nullable(),
     adsConsentSetAt: z.number().nullable(),
     adsConsentReminderAt: z.number().nullable(),
-    experimentalFeatures: z.boolean(),
-    twoFactorEnabled: z.boolean(),
-    backupCodesCreated: z.boolean(),
+    experimentalFeatures: z.boolean().optional(),
+    twoFactorEnabled: z.boolean().optional(),
+    backupCodesCreated: z.boolean().optional(),
   })
   .passthrough();
 
@@ -207,10 +207,29 @@ const isValid = async (
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to validate Plex PIN: ${response.statusText}`);
+    if (response.status === 404) {
+      throw new Error(
+        "Plex PIN not found or expired. Please restart the authentication process.",
+      );
+    } else if (response.status === 400) {
+      throw new Error(
+        "Invalid Plex PIN. Please restart the authentication process.",
+      );
+    } else {
+      throw new Error(`Failed to validate Plex PIN: ${response.statusText}`);
+    }
   }
 
-  return await authSchema.parseAsync(await response.json());
+  const authData = await authSchema.parseAsync(await response.json());
+
+  // Check if PIN is still waiting for authorization
+  if (!authData.authToken) {
+    throw new Error(
+      "PIN not yet authorized. Please complete the authorization on Plex and try again.",
+    );
+  }
+
+  return authData;
 };
 
 const getServers = async (token: string) => {
@@ -326,16 +345,13 @@ export const plex = () => {
         async (ctx) => {
           try {
             const { id, code } = ctx.query;
+
+            // Validate the PIN and get auth token
             const auth = await isValid({ id, code });
 
-            if (!auth.authToken) {
-              throw new APIError("BAD_REQUEST", {
-                message: ERROR_CODES.PIN_NOT_AUTHORIZED,
-              });
-            }
-
-            // Get user info from Plex
-            const userInfo = await getUserInfo(auth.authToken);
+            // The isValid function now checks for authToken internally
+            // so we can proceed directly to get user info
+            const userInfo = await getUserInfo(auth.authToken!);
 
             // Check if user already exists by Plex UUID
             const existingUser = await ctx.context.adapter.findOne({
@@ -402,6 +418,27 @@ export const plex = () => {
             return ctx.redirect("/");
           } catch (error) {
             console.error("Plex auth error:", error);
+
+            // Provide more specific error messages based on the error type
+            if (error instanceof Error) {
+              if (error.message.includes("PIN not found or expired")) {
+                throw new APIError("BAD_REQUEST", {
+                  message:
+                    "Your Plex authentication session has expired. Please try signing in again.",
+                });
+              } else if (error.message.includes("PIN not yet authorized")) {
+                throw new APIError("BAD_REQUEST", {
+                  message:
+                    "Please complete the authorization on Plex.tv before proceeding.",
+                });
+              } else if (error.message.includes("Invalid Plex PIN")) {
+                throw new APIError("BAD_REQUEST", {
+                  message:
+                    "Invalid authentication request. Please try signing in again.",
+                });
+              }
+            }
+
             throw new APIError("UNAUTHORIZED", {
               message:
                 typeof error === "object" &&
