@@ -1,0 +1,24 @@
+# TypeScript Safety Rules
+
+## Strict Type Safety
+- **NEVER use `any` type** - it's a code smell that signals something is wrong
+- **NEVER use type casting or assertions** unless absolutely necessary and well-documented
+- All function parameters and return types must be explicitly typed
+- Use proper type guards and schema validation with Zod
+- Prefer type inference over explicit typing when TypeScript can infer correctly
+
+## Error Handling
+- Handle all possible error states in API responses
+- Use proper union types for success/error states
+- Never suppress TypeScript errors with ESLint disable comments
+- Fix type errors at their source, not by bypassing them
+
+## Schema Validation
+- All API requests/responses must use Zod schemas for validation
+- **If you don't know what an API response looks like, ADMIT IT** instead of hallucinating schemas
+- Follow existing schema patterns in [src/lib/plex.tv/schemas/](mdc:src/lib/plex.tv/schemas/)
+- Test schemas with real API responses before implementing
+description:
+globs:
+alwaysApply: false
+---

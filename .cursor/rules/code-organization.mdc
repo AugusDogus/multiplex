@@ -1,0 +1,29 @@
+# Code Organization & DRY Principles
+
+## Don't Reinvent the Wheel
+- **Always check for existing helpers, atoms, or utilities first**
+- Look in [src/atoms/](mdc:src/atoms/), [src/hooks/](mdc:src/hooks/), [src/lib/](mdc:src/lib/) before creating new code
+- Refactor existing solutions to include new logic rather than duplicating
+- Study similar implementations in the codebase before starting
+
+## Programming Paradigms
+- **Utilize functional programming** for data transformations and pure functions
+- **Use imperative programming** for step-by-step procedures and algorithms  
+- **Apply declarative programming** for UI components and data flow
+- Choose the right paradigm for the specific problem
+
+## File Organization
+- Follow existing directory structure patterns
+- Group related functionality together
+- Use index files for clean exports
+- Keep components in [src/components/](mdc:src/components/) with proper nesting
+
+## Naming and Structure
+- Use descriptive, intention-revealing names
+- Follow existing naming conventions in the codebase
+- Keep functions small and focused on single responsibilities
+- Use composition to build complex behavior from simple parts
+description:
+globs:
+alwaysApply: false
+---

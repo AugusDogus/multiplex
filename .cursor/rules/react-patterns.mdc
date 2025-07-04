@@ -1,0 +1,31 @@
+# React Development Patterns
+
+## useEffect is a Code Smell
+- **NEVER use `useEffect`** - it's almost never actually needed
+- Use event-driven patterns instead of effect-driven patterns
+- Prefer:
+  - Event handlers for user interactions
+  - tRPC mutations with onSuccess/onError callbacks
+  - Jotai atoms for state management
+  - Custom hooks that return event handlers
+
+## State Management
+- Use Jotai atoms following patterns in [src/atoms/](mdc:src/atoms/)
+- Keep state close to where it's used
+- Use derived state with computed atoms
+- Follow existing patterns in [src/atoms/media-player.ts](mdc:src/atoms/media-player.ts)
+
+## API Integration
+- Use tRPC following patterns in [src/trpc/](mdc:src/trpc/)
+- Handle loading/error states in components, not effects
+- Use mutation callbacks for side effects
+- Follow existing patterns in [src/server/api/routers/](mdc:src/server/api/routers/)
+
+## Component Structure
+- Keep components focused and single-purpose
+- Use composition over complex prop drilling
+- Follow existing component patterns in [src/components/](mdc:src/components/)
+description:
+globs:
+alwaysApply: false
+---

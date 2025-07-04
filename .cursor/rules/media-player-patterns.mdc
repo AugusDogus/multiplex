@@ -1,0 +1,32 @@
+# Media Player Development Patterns
+
+## State Management
+- Use [src/atoms/media-player.ts](mdc:src/atoms/media-player.ts) for all media player state
+- Follow the established atom patterns for playback state
+- Extend existing atoms rather than creating new ones
+- Use the `updatePlaybackStateAtom` for state updates
+
+## Component Structure
+- Follow patterns in [src/components/media-player/](mdc:src/components/media-player/)
+- Keep overlay components focused and composable
+- Use the established hook patterns from [src/components/media-player/hooks/](mdc:src/components/media-player/hooks/)
+- Export components through [src/components/media-player/index.ts](mdc:src/components/media-player/index.ts)
+
+## Video Events
+- Use HTML5 video events instead of useEffect for time updates
+- Handle video state changes through event listeners
+- Follow patterns in [src/components/media-player/media-player-video.tsx](mdc:src/components/media-player/media-player-video.tsx)
+
+## Plex Integration
+- Use existing PlexServerClient methods for media operations
+- Follow timeline update patterns from [src/components/media-player/hooks/use-timeline-updates.ts](mdc:src/components/media-player/hooks/use-timeline-updates.ts)
+- Handle play queue operations through established patterns
+
+## Type Safety
+- Use types from [src/types/media-player.ts](mdc:src/types/media-player.ts)
+- Extend existing interfaces rather than creating new ones
+- Ensure all media player operations are properly typed
+description:
+globs:
+alwaysApply: false
+---
