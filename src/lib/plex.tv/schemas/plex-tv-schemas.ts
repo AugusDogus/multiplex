@@ -73,7 +73,7 @@ export const pinnedSourceSchema = z.object({
   serverFriendlyName: z.string(),
   serverSourceTitle: z.string().nullable(),
   isFullOwnedServer: z.boolean(),
-  hiddenAt: z.string().nullable(),
+  hiddenAt: z.string().nullable().or(z.undefined()).transform(val => val ?? null),
 });
 
 export const reminderSchema = z.object({
