@@ -18,6 +18,13 @@ import {
   type SearchParams,
 } from "../schemas/search-schemas";
 import {
+  gridResponseSchema,
+  channelsResponseSchema,
+  type GridResponse,
+  type GridParams,
+  type ChannelsResponse,
+} from "../schemas/grid-schemas";
+import {
   PlexAPIError,
   type GetRequestOptions,
   type PostRequestOptions,
@@ -375,6 +382,35 @@ export class PlexServerClient {
       console.error(`Search schema validation failed for ${this.server.name}:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Get EPG grid data for a specific channel and date
+   * @param params - Grid parameters including channelGridKey and date
+   * @returns Grid response with program schedule data
+   */
+  async getGrid(params: GridParams): Promise<GridResponse> {
+    const gridParams = {
+      channelGridKey: params.channelGridKey,
+      date: params.date,
+    };
+
+    return await this.get({
+      endpoint: `/tv.plex.providers.epg.xmltv:71/grid`,
+      params: gridParams,
+      schema: gridResponseSchema,
+    });
+  }
+
+  /**
+   * Get available EPG channels from the DVR lineup
+   * @returns Channels response with available channel information
+   */
+  async getChannels(): Promise<ChannelsResponse> {
+    return await this.get({
+      endpoint: `/tv.plex.providers.epg.xmltv:71/lineups/dvr/channels`,
+      schema: channelsResponseSchema,
+    });
   }
 
   /**
