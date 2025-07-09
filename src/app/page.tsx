@@ -31,11 +31,15 @@ export default async function Page() {
   }
 
   // Fetch data using tRPC procedures
-  const [servers, userInfo, continueWatchingItems] = await Promise.all([
-    api.plex.getServers(),
-    api.plex.getUserInfo(),
-    api.plex.getAllContinueWatching(),
-  ]);
+  const [servers, userInfo, continueWatchingItems, channelsProgramming] =
+    await Promise.all([
+      api.plex.getServers(),
+      api.plex.getUserInfo(),
+      api.plex.getAllContinueWatching(),
+      api.plex.getAllChannelsProgramming({
+        date: new Date().toISOString().substring(0, 10),
+      }),
+    ]);
 
   if (!servers || !userInfo) {
     return null;
@@ -89,7 +93,7 @@ export default async function Page() {
             </header>
             <div className="flex min-w-0 flex-1 flex-col gap-6 p-4">
               <ContinueWatching items={continueWatchingItems} />
-              <TvGuideWrapper />
+              <TvGuideWrapper channelsProgramming={channelsProgramming} />
             </div>
           </SidebarInset>
         </SidebarProvider>

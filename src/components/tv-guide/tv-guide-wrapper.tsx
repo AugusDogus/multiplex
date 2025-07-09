@@ -1,16 +1,18 @@
 "use client";
 
 import { useMemo } from "react";
-import { api } from "~/trpc/react";
 import { convertApiDataToTvGuide } from "~/types/tv-guide";
 import { TvGuide } from "./tv-guide";
+import type { AllChannelsProgrammingResult } from "~/server/queries/get-all-channels-programming";
 
 interface TvGuideWrapperProps {
+  channelsProgramming: AllChannelsProgrammingResult;
   date?: string; // YYYY-MM-DD format, defaults to today
   durationHours?: number; // How many hours to show, defaults to 4
 }
 
 export function TvGuideWrapper({
+  channelsProgramming,
   date,
   durationHours = 4,
 }: TvGuideWrapperProps) {
@@ -33,19 +35,8 @@ export function TvGuideWrapper({
     return { startTime: start, endTime: end };
   }, [targetDate, durationHours]);
 
-  // Fetch channel programming data
-  const {
-    data: channelsProgramming,
-    isLoading,
-    error,
-  } = api.plex.getAllChannelsProgramming.useQuery({
-    date: targetDate,
-  });
-
   // Convert API data to TV guide format
   const channelLineups = useMemo(() => {
-    if (!channelsProgramming) return [];
-
     return convertApiDataToTvGuide(channelsProgramming, startTime, endTime);
   }, [channelsProgramming, startTime, endTime]);
 
@@ -55,8 +46,8 @@ export function TvGuideWrapper({
         startTime={startTime}
         endTime={endTime}
         channelLineups={channelLineups}
-        isLoading={isLoading}
-        error={error?.message}
+        isLoading={false}
+        error={undefined}
       />
     </div>
   );
