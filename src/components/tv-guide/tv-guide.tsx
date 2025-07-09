@@ -214,8 +214,8 @@ export function TvGuide({
   }
 
   return (
-    <Card className="w-full overflow-hidden">
-      <CardContent className="p-0">
+    <Card className="w-full">
+      <CardContent className="relative p-0">
         <div className="flex">
           {/* Channel Sidebar */}
           <div
@@ -274,35 +274,39 @@ export function TvGuide({
                   ))}
                 </div>
               )}
-
-              {/* Current Time Indicator */}
-              {currentTimeProgress >= 0 && (
-                <>
-                  {/* Time Label */}
-                  <div
-                    className="absolute top-0 z-20 transition-all duration-500 ease-linear"
-                    style={{ left: `${currentTimeProgress}%` }}
-                    suppressHydrationWarning
-                  >
-                    <div
-                      suppressHydrationWarning
-                      className="bg-primary text-primary-foreground relative min-w-12 -translate-x-1/2 transform rounded px-2 py-1 text-center text-xs"
-                    >
-                      {currentTimeLabel}
-                    </div>
-                  </div>
-
-                  {/* Vertical Line */}
-                  <div
-                    className="bg-primary absolute top-8 bottom-0 z-10 w-0.5 transition-all duration-500 ease-linear"
-                    style={{ left: `${currentTimeProgress}%` }}
-                    suppressHydrationWarning
-                  />
-                </>
-              )}
             </div>
           </div>
         </div>
+
+        {/* Current Time Indicator */}
+        {currentTimeProgress >= 0 && (
+          <>
+            {/* Time Label */}
+            <div
+              className="absolute top-0 z-20 transition-all duration-500 ease-linear"
+              style={{
+                left: `calc(${isCompact ? "5rem" : "12rem"} + ${currentTimeProgress}%)`,
+              }}
+              suppressHydrationWarning
+            >
+              <div
+                suppressHydrationWarning
+                className="bg-primary text-primary-foreground relative min-w-12 -translate-x-1/2 translate-y-1/4 transform rounded px-2 py-1 text-center text-xs"
+              >
+                {currentTimeLabel}
+              </div>
+            </div>
+
+            {/* Vertical Line */}
+            <div
+              className="bg-primary absolute top-9 bottom-0 z-10 w-0.5 transition-all duration-500 ease-linear"
+              style={{
+                left: `calc(${isCompact ? "5rem" : "12rem"} + ${currentTimeProgress}%)`,
+              }}
+              suppressHydrationWarning
+            />
+          </>
+        )}
       </CardContent>
     </Card>
   );
