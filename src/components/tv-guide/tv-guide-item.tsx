@@ -44,14 +44,11 @@ export function TvGuideItem({
   onClick,
   className,
 }: TvGuideItemProps) {
-  const isFlexOrPaused = program.type === "flex" || program.isPaused;
-  const isCurrentlyAiring = program.onAir;
-
   const bgColor = getProgramBackgroundColor(index);
   const hoverColor = getProgramHoverColor(index);
 
   const handleClick = () => {
-    if (onClick && program.type !== "flex") {
+    if (onClick) {
       onClick(program);
     }
   };
@@ -63,10 +60,6 @@ export function TvGuideItem({
         "cursor-pointer overflow-hidden transition-all duration-500 ease-in",
         bgColor,
         hoverColor,
-        isFlexOrPaused &&
-          "animate-pulse bg-gradient-to-br from-gray-400/70 via-gray-500/70 to-gray-400/70 bg-[length:20px_20px]",
-        isCurrentlyAiring && "ring-opacity-60 ring-2 ring-green-400",
-        program.type === "flex" && "cursor-default",
         className,
       )}
       style={{ left, width }}
@@ -83,13 +76,6 @@ export function TvGuideItem({
           {program.parentIndex != null && `S${program.parentIndex}`}
           {program.parentIndex != null && program.index != null && " · "}
           {program.index != null && `E${program.index}`}
-        </div>
-      )}
-
-      {/* Live Indicator */}
-      {isCurrentlyAiring && (
-        <div className="absolute top-1 right-1 rounded bg-red-500 px-1.5 py-0.5 text-xs font-bold text-white">
-          LIVE
         </div>
       )}
     </div>

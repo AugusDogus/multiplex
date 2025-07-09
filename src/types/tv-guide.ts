@@ -7,11 +7,7 @@ import type { AllChannelsProgrammingResult } from "~/server/queries/get-all-chan
 
 // Use types directly from AllChannelsProgrammingResult
 export type TvGuideChannel = AllChannelsProgrammingResult['channels'][0];
-export type TvGuideProgram = AllChannelsProgrammingResult['programming'][0]['data']['programs'][0] & {
-  // Add some additional fields for TV guide functionality
-  isPaused?: boolean;
-  timeRemaining?: number;
-};
+export type TvGuideProgram = AllChannelsProgrammingResult['programming'][0]['data']['programs'][0];
 export type TvGuideProgramming = AllChannelsProgrammingResult['programming'][0];
 
 // Channel lineup with programs - adapts the API structure for UI consumption
@@ -78,12 +74,7 @@ export function convertApiDataToTvGuide(
       return programEnd > startTimeUnix && programStart < endTimeUnix;
     });
 
-    // Add our additional fields
-    const programs: TvGuideProgram[] = filteredPrograms.map(program => ({
-      ...program,
-      isPaused: false,
-      timeRemaining: undefined,
-    }));
+    const programs: TvGuideProgram[] = filteredPrograms;
 
     channelLineups.push({
       channel: channel,
