@@ -5,7 +5,7 @@ import { ContinueWatching } from "~/components/continue-watching";
 import { PlexErrorWrapper } from "~/components/plex-error-wrapper";
 import { SearchWrapper } from "~/components/search-wrapper";
 import { ThemeToggle } from "~/components/theme-toggle";
-import { TvGuideWrapper } from "~/components/tv-guide/tv-guide-wrapper";
+import { TvGuide } from "~/components/tv-guide/tv-guide";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -30,14 +30,29 @@ export default async function Page() {
     redirect("/login");
   }
 
+  // Calculate time range for TV guide
+  const startTime = (() => {
+    const start = new Date();
+    start.setHours(start.getHours(), 0, 0, 0);
+    return start;
+  })();
+
+  const endTime = (() => {
+    const end = new Date(startTime);
+    end.setHours(startTime.getHours() + 4);
+    return end;
+  })();
+
   // Fetch data using tRPC procedures
-  const [servers, userInfo, continueWatchingItems, channelsProgramming] =
+  const [servers, userInfo, continueWatchingItems, channelLineups] =
     await Promise.all([
       api.plex.getServers(),
       api.plex.getUserInfo(),
       api.plex.getAllContinueWatching(),
       api.plex.getAllChannelsProgramming({
         date: new Date().toISOString().substring(0, 10),
+        startTime,
+        endTime,
       }),
     ]);
 
@@ -93,7 +108,11 @@ export default async function Page() {
             </header>
             <div className="flex min-w-0 flex-1 flex-col gap-6 p-4">
               <ContinueWatching items={continueWatchingItems} />
-              <TvGuideWrapper channelsProgramming={channelsProgramming} />
+              <TvGuide
+                startTime={startTime}
+                endTime={endTime}
+                channelLineups={channelLineups}
+              />
             </div>
           </SidebarInset>
         </SidebarProvider>

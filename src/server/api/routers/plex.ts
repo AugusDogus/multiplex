@@ -63,10 +63,12 @@ export const plexRouter = createTRPCRouter({
     .input(
       z.object({
         date: z.string().date(),
+        startTime: z.date().optional(),
+        endTime: z.date().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
-      return getAllChannelsProgrammingQuery(ctx.plex, input.date);
+      return getAllChannelsProgrammingQuery(ctx.plex, input.date, input.startTime, input.endTime);
     }),
 
   sendTimeline: protectedProcedure

@@ -1,40 +1,19 @@
 import { cn } from "~/lib/utils";
 import type { TvGuideItemProps } from "~/types/tv-guide";
 
-// Simple color palette for program backgrounds
+// Simplified color palette using CSS classes with built-in hover states
 const programColors = [
-  "bg-blue-500/70",
-  "bg-green-500/70",
-  "bg-purple-500/70",
-  "bg-orange-500/70",
-  "bg-pink-500/70",
-  "bg-teal-500/70",
-  "bg-red-500/70",
-  "bg-indigo-500/70",
-  "bg-yellow-500/70",
-  "bg-cyan-500/70",
+  "bg-blue-500/70 hover:bg-blue-400/80",
+  "bg-green-500/70 hover:bg-green-400/80",
+  "bg-purple-500/70 hover:bg-purple-400/80",
+  "bg-orange-500/70 hover:bg-orange-400/80",
+  "bg-pink-500/70 hover:bg-pink-400/80",
+  "bg-teal-500/70 hover:bg-teal-400/80",
+  "bg-red-500/70 hover:bg-red-400/80",
+  "bg-indigo-500/70 hover:bg-indigo-400/80",
+  "bg-yellow-500/70 hover:bg-yellow-400/80",
+  "bg-cyan-500/70 hover:bg-cyan-400/80",
 ];
-
-const programHoverColors = [
-  "hover:bg-blue-400/80",
-  "hover:bg-green-400/80",
-  "hover:bg-purple-400/80",
-  "hover:bg-orange-400/80",
-  "hover:bg-pink-400/80",
-  "hover:bg-teal-400/80",
-  "hover:bg-red-400/80",
-  "hover:bg-indigo-400/80",
-  "hover:bg-yellow-400/80",
-  "hover:bg-cyan-400/80",
-];
-
-function getProgramBackgroundColor(index: number): string {
-  return programColors[index % programColors.length]!;
-}
-
-function getProgramHoverColor(index: number): string {
-  return programHoverColors[index % programHoverColors.length]!;
-}
 
 export function TvGuideItem({
   program,
@@ -44,8 +23,7 @@ export function TvGuideItem({
   onClick,
   className,
 }: TvGuideItemProps) {
-  const bgColor = getProgramBackgroundColor(index);
-  const hoverColor = getProgramHoverColor(index);
+  const colorClass = programColors[index % programColors.length];
 
   const handleClick = () => {
     if (onClick) {
@@ -58,8 +36,7 @@ export function TvGuideItem({
       className={cn(
         "border-card absolute m-0.5 flex min-h-16 flex-col items-start justify-start rounded-md border-2 p-2",
         "cursor-pointer overflow-hidden transition-all duration-500 ease-in",
-        bgColor,
-        hoverColor,
+        colorClass,
         className,
       )}
       style={{ left, width }}

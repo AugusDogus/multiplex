@@ -4,14 +4,45 @@ import { useState, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { Card, CardContent } from "~/components/ui/card";
 import { cn } from "~/lib/utils";
-import type {
-  TvGuideProps,
-  TvGuideProgram,
-  TvGuideChannelLineup,
-} from "~/types/tv-guide";
+import type { TvGuideProgram, TvGuideChannelLineup } from "~/types/tv-guide";
 import { TvGuideChannelButton } from "./tv-guide-channel-button";
-import { TvGuideTimeHeader } from "./tv-guide-time-header";
 import { TvGuideItem } from "./tv-guide-item";
+
+function calculateTimeSlots(startTime: Date, endTime: Date) {
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+  const totalMinutes = (end.getTime() - start.getTime()) / (1000 * 60);
+
+  // Use 30-minute increments for shorter durations, 60-minute for longer
+  const increment = totalMinutes < 4 * 60 ? 30 : 60;
+  const slotCount = Math.floor(totalMinutes / increment);
+
+  const slots = [];
+  for (let i = 0; i < slotCount; i++) {
+    const slotTime = new Date(start.getTime() + i * increment * 60 * 1000);
+    slots.push({
+      time: slotTime,
+      increment,
+      index: i,
+    });
+  }
+
+  return { slots, slotCount, increment };
+}
+
+function formatTimeSlot(time: Date, isCompact: boolean): string {
+  if (isCompact) {
+    return time.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+  return time.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
 
 function calculateProgramPosition(
   program: TvGuideProgram,
@@ -108,6 +139,14 @@ function calculateCurrentTimeProgress(startTime: Date, endTime: Date): number {
   return (elapsed / total) * 100;
 }
 
+interface TvGuideProps {
+  startTime: Date;
+  endTime: Date;
+  channelLineups: TvGuideChannelLineup[];
+  isLoading?: boolean;
+  error?: string;
+}
+
 export function TvGuide({
   startTime,
   endTime,
@@ -160,6 +199,10 @@ export function TvGuide({
     console.log("Channel clicked:", channel);
   };
 
+  // Time header component logic
+  const { slots, slotCount } = calculateTimeSlots(startTime, endTime);
+  const slotWidth = `${100 / slotCount}%`;
+
   if (error) {
     return (
       <Card className="w-full">
@@ -199,11 +242,17 @@ export function TvGuide({
           <div className="flex-1 overflow-x-auto">
             <div className="relative min-w-full">
               {/* Time Header */}
-              <TvGuideTimeHeader
-                startTime={startTime}
-                endTime={endTime}
-                isCompact={isCompact}
-              />
+              <div className="flex h-8">
+                {slots.map((slot) => (
+                  <div
+                    key={slot.index}
+                    className="border-card flex items-center justify-center border-l text-center text-sm font-medium last:border-r"
+                    style={{ width: slotWidth }}
+                  >
+                    {formatTimeSlot(slot.time, isCompact)}
+                  </div>
+                ))}
+              </div>
 
               {/* Program Grid */}
               {isLoading ? (
