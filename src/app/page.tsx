@@ -5,6 +5,7 @@ import { ContinueWatching } from "~/components/continue-watching";
 import { PlexErrorWrapper } from "~/components/plex-error-wrapper";
 import { SearchWrapper } from "~/components/search-wrapper";
 import { ThemeToggle } from "~/components/theme-toggle";
+import { TvGuideWrapper } from "~/components/tv-guide/tv-guide-wrapper";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -86,8 +87,9 @@ export default async function Page() {
                 </div>
               </div>
             </header>
-            <div className="flex min-w-0 flex-1 flex-col gap-6">
+            <div className="flex min-w-0 flex-1 flex-col gap-6 p-4">
               <ContinueWatching items={continueWatchingItems} />
+              <TvGuideWrapper />
             </div>
           </SidebarInset>
         </SidebarProvider>
