@@ -56,7 +56,7 @@ export function TvGuideItem({
   return (
     <div
       className={cn(
-        "absolute m-0.5 flex min-h-16 flex-col items-start justify-start rounded border-2 border-transparent p-2",
+        "border-card absolute m-0.5 flex min-h-16 flex-col items-start justify-start rounded-md border-2 p-2",
         "cursor-pointer overflow-hidden transition-all duration-500 ease-in",
         bgColor,
         hoverColor,
@@ -66,13 +66,13 @@ export function TvGuideItem({
       onClick={handleClick}
     >
       {/* Show Title */}
-      <div className="w-full text-sm leading-tight font-semibold text-white drop-shadow-sm">
+      <div className="w-full text-sm leading-tight font-semibold text-nowrap text-white drop-shadow-sm">
         {program.grandparentTitle ?? program.title}
       </div>
 
       {/* Season and Episode */}
       {(program.parentIndex != null || program.index != null) && (
-        <div className="w-full text-xs leading-tight text-white/90 drop-shadow-sm">
+        <div className="w-full text-xs leading-tight text-nowrap text-white/90 drop-shadow-sm">
           {program.parentIndex != null && `S${program.parentIndex}`}
           {program.parentIndex != null && program.index != null && " · "}
           {program.index != null && `E${program.index}`}

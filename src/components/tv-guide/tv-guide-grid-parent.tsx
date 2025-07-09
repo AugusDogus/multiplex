@@ -9,14 +9,5 @@ export function TvGuideGridParent({
   children,
   className,
 }: TvGuideGridParentProps) {
-  return (
-    <div
-      className={cn(
-        "border-t border-l border-solid border-transparent",
-        className,
-      )}
-    >
-      {children}
-    </div>
-  );
+  return <div className={cn("h-8", className)}>{children}</div>;
 }

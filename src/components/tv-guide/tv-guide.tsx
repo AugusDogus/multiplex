@@ -182,7 +182,7 @@ export function TvGuide({
             )}
           >
             {/* Empty space above channels to align with time header */}
-            <div className="h-16"></div>
+            <div className="flex h-8 items-center justify-center">Today</div>
 
             {/* Channel Buttons */}
             {channelLineups.map((lineup) => (
@@ -214,10 +214,7 @@ export function TvGuide({
               ) : (
                 <div className="space-y-0">
                   {channelLineups.map((lineup) => (
-                    <div
-                      key={lineup.channel.id}
-                      className="flex border-b last:border-b-0"
-                    >
+                    <div key={lineup.channel.id} className="flex">
                       {renderChannelPrograms(
                         lineup,
                         startTime,
@@ -238,7 +235,10 @@ export function TvGuide({
                     style={{ left: `${currentTimeProgress}%` }}
                     suppressHydrationWarning
                   >
-                    <div className="bg-primary text-primary-foreground relative min-w-12 -translate-x-1/2 transform rounded px-2 py-1 text-center text-xs">
+                    <div
+                      suppressHydrationWarning
+                      className="bg-primary text-primary-foreground relative min-w-12 -translate-x-1/2 transform rounded px-2 py-1 text-center text-xs"
+                    >
                       {currentTimeLabel}
                     </div>
                   </div>

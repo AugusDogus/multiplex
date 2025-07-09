@@ -55,22 +55,13 @@ export function TvGuideTimeHeader({
 
   return (
     <>
-      {/* Date Header */}
-      <div className="flex h-8 w-full items-center justify-center border-b text-center font-bold">
-        {startTime.toLocaleDateString([], {
-          month: "long",
-          day: "numeric",
-          year: "numeric",
-        })}
-      </div>
-
       {/* Time Slots */}
       <TvGuideGridParent className="flex">
         {slots.map((slot) => (
           <TvGuideGridChild
             key={slot.index}
             width={slotWidth}
-            className="border-border flex h-8 items-center justify-center border-l text-center text-sm font-medium last:border-r"
+            className="border-card flex h-8 items-center justify-center border-l text-center text-sm font-medium last:border-r"
           >
             {formatTimeSlot(slot.time, isCompact)}
           </TvGuideGridChild>
