@@ -239,7 +239,7 @@ export function TvGuide({
           </div>
 
           {/* Main Guide Area */}
-          <div className="flex-1 overflow-x-auto">
+          <div className="flex-1 overflow-x-clip">
             <div className="relative min-w-full">
               {/* Time Header */}
               <div className="flex h-8">
@@ -261,7 +261,7 @@ export function TvGuide({
                   <span>Loading TV guide...</span>
                 </div>
               ) : (
-                <div className="space-y-0">
+                <div className="mb-1 space-y-0">
                   {channelLineups.map((lineup) => (
                     <div key={lineup.channel.id} className="flex">
                       {renderChannelPrograms(
