@@ -36,20 +36,6 @@ function getProgramHoverColor(index: number): string {
   return programHoverColors[index % programHoverColors.length]!;
 }
 
-function formatTime(timestamp: number): string {
-  return new Date(timestamp * 1000).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatRemainingTime(endTime: number): string {
-  const now = Date.now();
-  const remaining = Math.max(0, endTime * 1000 - now);
-  const minutes = Math.floor(remaining / (1000 * 60));
-  return minutes > 0 ? `${minutes}m left` : "";
-}
-
 export function TvGuideItem({
   program,
   width,
@@ -61,10 +47,6 @@ export function TvGuideItem({
   const isFlexOrPaused = program.type === "flex" || program.isPaused;
   const isCurrentlyAiring = program.onAir;
 
-  // Get timing information from Media array
-  const startTime = program.Media[0]?.beginsAt ?? 0;
-  const endTime = program.Media[0]?.endsAt ?? 0;
-
   const bgColor = getProgramBackgroundColor(index);
   const hoverColor = getProgramHoverColor(index);
 
@@ -73,11 +55,6 @@ export function TvGuideItem({
       onClick(program);
     }
   };
-
-  // Calculate percentage width for responsive text display
-  const widthValue = parseFloat(width.replace("%", ""));
-  const showFullInfo = widthValue > 8; // Show full info if width > 8%
-  const showTimeInfo = widthValue > 15; // Show time info if width > 15%
 
   return (
     <div

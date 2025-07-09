@@ -1,4 +1,5 @@
 import { ChevronDown } from "lucide-react";
+import Image from "next/image";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
 import type { TvGuideChannelButtonProps } from "~/types/tv-guide";
@@ -27,9 +28,11 @@ export function TvGuideChannelButton({
         {/* Channel Icon/Logo */}
         <div className="mr-3 h-10 w-10 flex-shrink-0">
           {channel.thumb ? (
-            <img
+            <Image
               src={channel.thumb}
               alt={channel.title}
+              width={40}
+              height={40}
               className="h-full w-full rounded object-contain"
               onError={(e) => {
                 // Fallback to a placeholder if image fails to load

@@ -55,7 +55,7 @@ function renderChannelPrograms(
   endTime: Date,
   onProgramClick?: (program: TvGuideProgram) => void,
 ) {
-  const { channel, programs } = lineup;
+  const { programs } = lineup;
 
   if (programs.length === 0) {
     return (
@@ -115,9 +115,6 @@ export function TvGuide({
   isLoading = false,
   error,
 }: TvGuideProps) {
-  const [selectedProgram, setSelectedProgram] = useState<TvGuideProgram | null>(
-    null,
-  );
   const [isCompact, setIsCompact] = useState(false);
   const [currentTimeProgress, setCurrentTimeProgress] = useState(
     calculateCurrentTimeProgress(startTime, endTime),
@@ -154,7 +151,6 @@ export function TvGuide({
   }, [startTime, endTime]);
 
   const handleProgramClick = (program: TvGuideProgram) => {
-    setSelectedProgram(program);
     // TODO: Open program details modal
     console.log("Program clicked:", program);
   };
