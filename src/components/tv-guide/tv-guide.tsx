@@ -299,7 +299,7 @@ export function TvGuide({
 
             {/* Vertical Line */}
             <div
-              className="bg-primary absolute top-9 bottom-0 z-10 w-0.5 transition-all duration-500 ease-linear"
+              className="bg-primary absolute top-7 bottom-1 z-10 w-0.5 transition-all duration-500 ease-linear"
               style={{
                 left: `calc(${isCompact ? "5rem" : "12rem"} + ${currentTimeProgress}%)`,
               }}
