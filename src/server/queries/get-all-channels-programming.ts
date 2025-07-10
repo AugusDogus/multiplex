@@ -65,6 +65,7 @@ async function getChannelsProgrammingData(
   const processedGridKeys = new Set<string>();
 
   // Convert time filters to Unix timestamps if provided
+  // Note: Date.getTime() already returns UTC milliseconds, so we just divide by 1000
   const startTimeUnix = startTime ? Math.floor(startTime.getTime() / 1000) : undefined;
   const endTimeUnix = endTime ? Math.floor(endTime.getTime() / 1000) : undefined;
 
@@ -177,28 +178,92 @@ async function getChannelsProgrammingData(
   return channelLineups;
 }
 
+function getRequiredDates(date: string, startTime?: Date, endTime?: Date): string[] {
+  const dates = [date];
+
+  if (startTime && endTime) {
+    // Check if the time window crosses into the next day in UTC
+    // Since Date.getTime() returns UTC milliseconds, we can directly create UTC dates
+    const startDateUTC = new Date(startTime.getTime());
+    const endDateUTC = new Date(endTime.getTime());
+    
+    if (endDateUTC.getUTCDate() !== startDateUTC.getUTCDate() || 
+        endDateUTC.getUTCMonth() !== startDateUTC.getUTCMonth() ||
+        endDateUTC.getUTCFullYear() !== startDateUTC.getUTCFullYear()) {
+      
+      // Calculate the next day
+      const nextDay = new Date(date);
+      nextDay.setDate(nextDay.getDate() + 1);
+      const nextDayString = nextDay.toISOString().substring(0, 10);
+      
+      if (!dates.includes(nextDayString)) {
+        dates.push(nextDayString);
+      }
+    }
+  }
+
+  return dates;
+}
+
+async function mergeChannelLineups(lineups: AllChannelsProgrammingResult[]): Promise<AllChannelsProgrammingResult> {
+  const mergedMap = new Map<string, ChannelLineup>();
+
+  for (const lineup of lineups) {
+    for (const channelLineup of lineup) {
+      const existing = mergedMap.get(channelLineup.channel.gridKey);
+      
+      if (existing) {
+        // Merge programs, avoiding duplicates by ratingKey
+        const existingPrograms = new Set(existing.programs.map(p => p.ratingKey));
+        const newPrograms = channelLineup.programs.filter(p => !existingPrograms.has(p.ratingKey));
+        
+        existing.programs = [...existing.programs, ...newPrograms];
+        
+        // Sort programs by start time
+        existing.programs.sort((a, b) => {
+          const aStart = a.Media[0]?.beginsAt ?? 0;
+          const bStart = b.Media[0]?.beginsAt ?? 0;
+          return aStart - bStart;
+        });
+      } else {
+        mergedMap.set(channelLineup.channel.gridKey, {
+          channel: channelLineup.channel,
+          programs: [...channelLineup.programs],
+        });
+      }
+    }
+  }
+
+  return Array.from(mergedMap.values());
+}
+
 export async function getAllChannelsProgrammingQuery(
   plex: PlexTvClient,
   date: string,
   startTime?: Date,
   endTime?: Date,
 ): Promise<AllChannelsProgrammingResult> {
-  // First attempt to get programming data
-  let channelLineups = await getChannelsProgrammingData(plex, date, startTime, endTime);
+  // Determine which dates we need to fetch
+  const requiredDates = getRequiredDates(date, startTime, endTime);
+  
+  // First attempt to get programming data for all required dates
+  const lineupPromises = requiredDates.map(dateStr => 
+    getChannelsProgrammingData(plex, dateStr, startTime, endTime)
+  );
+  
+  let allLineups = await Promise.all(lineupPromises);
+  let channelLineups = await mergeChannelLineups(allLineups);
 
   // Check if we got any programming data
   const hasAnyPrograms = channelLineups.some(lineup => lineup.programs.length > 0);
 
   if (!hasAnyPrograms && channelLineups.length > 0) {
-    console.log('No programming data found, attempting to reload guide...');
-    
     // Try to reload guide on all servers that have EPG capabilities
     const servers = await getServersQuery(plex);
     const reloadPromises = servers.map(async (server) => {
       try {
         const serverClient = plex.createServerClient(server);
         await serverClient.reloadGuide();
-        console.log(`Guide reloaded successfully for server ${server.name}`);
       } catch (error) {
         console.warn(`Failed to reload guide for server ${server.name}:`, error);
       }
@@ -210,9 +275,13 @@ export async function getAllChannelsProgrammingQuery(
     // Give it a moment for the guide to be processed
     await new Promise(resolve => setTimeout(resolve, 2000));
 
-    // Try to get programming data again
-    console.log('Retrying to get programming data after guide reload...');
-    channelLineups = await getChannelsProgrammingData(plex, date, startTime, endTime);
+    // Try to get programming data again for all required dates
+    const retryLineupPromises = requiredDates.map(dateStr => 
+      getChannelsProgrammingData(plex, dateStr, startTime, endTime)
+    );
+    
+    allLineups = await Promise.all(retryLineupPromises);
+    channelLineups = await mergeChannelLineups(allLineups);
   }
 
   return channelLineups;
