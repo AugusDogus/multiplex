@@ -54,7 +54,7 @@ export type ChannelLineup = {
 
 export type AllChannelsProgrammingResult = ChannelLineup[];
 
-export async function getAllChannelsProgrammingQuery(
+async function getChannelsProgrammingData(
   plex: PlexTvClient,
   date: string,
   startTime?: Date,
@@ -89,7 +89,7 @@ export async function getAllChannelsProgrammingQuery(
           });
 
           // Filter programs by time window if specified
-          const allPrograms = gridResponse.MediaContainer.Metadata.map(metadata => ({
+          const allPrograms = (gridResponse.MediaContainer.Metadata ?? []).map(metadata => ({
             ratingKey: metadata.ratingKey,
             key: metadata.key,
             title: metadata.title,
@@ -172,6 +172,47 @@ export async function getAllChannelsProgrammingQuery(
     } catch (error) {
       console.warn(`Failed to get channels from server ${server.name}:`, error);
     }
+  }
+
+  return channelLineups;
+}
+
+export async function getAllChannelsProgrammingQuery(
+  plex: PlexTvClient,
+  date: string,
+  startTime?: Date,
+  endTime?: Date,
+): Promise<AllChannelsProgrammingResult> {
+  // First attempt to get programming data
+  let channelLineups = await getChannelsProgrammingData(plex, date, startTime, endTime);
+
+  // Check if we got any programming data
+  const hasAnyPrograms = channelLineups.some(lineup => lineup.programs.length > 0);
+
+  if (!hasAnyPrograms && channelLineups.length > 0) {
+    console.log('No programming data found, attempting to reload guide...');
+    
+    // Try to reload guide on all servers that have EPG capabilities
+    const servers = await getServersQuery(plex);
+    const reloadPromises = servers.map(async (server) => {
+      try {
+        const serverClient = plex.createServerClient(server);
+        await serverClient.reloadGuide();
+        console.log(`Guide reloaded successfully for server ${server.name}`);
+      } catch (error) {
+        console.warn(`Failed to reload guide for server ${server.name}:`, error);
+      }
+    });
+
+    // Wait for all reload attempts to complete
+    await Promise.allSettled(reloadPromises);
+
+    // Give it a moment for the guide to be processed
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Try to get programming data again
+    console.log('Retrying to get programming data after guide reload...');
+    channelLineups = await getChannelsProgrammingData(plex, date, startTime, endTime);
   }
 
   return channelLineups;

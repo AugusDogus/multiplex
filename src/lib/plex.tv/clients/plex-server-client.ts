@@ -414,6 +414,16 @@ export class PlexServerClient {
   }
 
   /**
+   * Reload the EPG guide data for the DVR
+   * @returns Promise that resolves when guide reload is complete
+   */
+  async reloadGuide(): Promise<void> {
+    await this.post({
+      endpoint: `/livetv/dvrs/71/reloadGuide`,
+    });
+  }
+
+  /**
    * Create a play queue with markers
    * @param params - Parameters for creating the play queue
    * @returns Play queue response with markers
