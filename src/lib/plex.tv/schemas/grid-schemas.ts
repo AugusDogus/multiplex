@@ -64,7 +64,7 @@ const gridMetadataSchema = z.object({
 const gridResponseSchema = z.object({
   MediaContainer: z.object({
     size: z.number(),
-    Metadata: z.array(gridMetadataSchema),
+    Metadata: z.array(gridMetadataSchema).optional(),
   }),
 });
 
