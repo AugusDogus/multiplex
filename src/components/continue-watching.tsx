@@ -7,6 +7,7 @@ import { useState } from "react";
 import {
   openMediaPlayerAtom,
   updatedItemsProgressAtom,
+  updateItemProgressAtom,
 } from "~/atoms/media-player";
 import { Button } from "~/components/ui/button";
 import {
@@ -173,6 +174,7 @@ interface ContinueWatchingItemProps {
 function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
   const [, openPlayer] = useAtom(openMediaPlayerAtom);
   const updatedProgress = useAtomValue(updatedItemsProgressAtom);
+  const [, updateProgress] = useAtom(updateItemProgressAtom);
   const isMobile = useIsMobile();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
@@ -207,6 +209,30 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
   const handlePlayFromDrawer = () => {
     setIsDrawerOpen(false);
     handlePlay();
+  };
+
+  const handleRestartFromBeginning = () => {
+    // Check if item has required fields for media playback
+    if (!isMediaPlayerItem(item)) {
+      console.error("Missing server URL or auth token for media playback");
+      return;
+    }
+
+    // Reset progress to 0% for this item
+    updateProgress({
+      ratingKey: item.ratingKey,
+      progressPercent: 0,
+    });
+
+    // Create a new item with viewOffset set to 0 to start from beginning
+    const restartItem = {
+      ...item,
+      viewOffset: 0,
+    };
+
+    // Close drawer and open media player from beginning
+    setIsDrawerOpen(false);
+    openPlayer(restartItem);
   };
 
   return (
@@ -342,11 +368,9 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
               {progressPercent > 0 && (
                 <Button
                   variant="outline"
-                  onClick={() => {
-                    // TODO: Implement restart from beginning
-                    setIsDrawerOpen(false);
-                  }}
+                  onClick={handleRestartFromBeginning}
                   className="w-full"
+                  disabled={!isMediaPlayerItem(item)}
                 >
                   Restart from Beginning
                 </Button>
