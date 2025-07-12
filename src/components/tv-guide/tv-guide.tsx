@@ -76,7 +76,7 @@ function calculateProgramPosition(
 
   return {
     left: `${Math.max(0, leftOffset)}%`,
-    width: `${Math.max(0.5, width)}%`, // Minimum 0.5% width for very short programs
+    width: `${Math.max(0, width)}%`, // No minimum width - let very short programs be naturally small
   };
 }
 
@@ -108,8 +108,9 @@ function renderChannelPrograms(
         const programStartTime = program.Media[0]?.beginsAt ?? 0;
         const programEndTime = program.Media[0]?.endsAt ?? 0;
 
-        // Skip programs with no visible width
-        if (width === "0%") {
+        // Skip programs that are too small to be meaningful (less than 0.3% width)
+        const widthNumber = parseFloat(width);
+        if (widthNumber < 0.3) {
           return null;
         }
 

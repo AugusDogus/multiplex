@@ -25,6 +25,10 @@ export function TvGuideItem({
 }: TvGuideItemProps) {
   const colorClass = programColors[index % programColors.length];
 
+  // Check if this is a very short program (less than 2% width)
+  const widthNumber = parseFloat(width);
+  const isVeryShort = widthNumber < 2;
+
   const handleClick = () => {
     if (onClick) {
       onClick(program);
@@ -34,9 +38,11 @@ export function TvGuideItem({
   return (
     <div
       className={cn(
-        "border-card absolute m-0.5 flex min-h-16 flex-col items-start justify-start rounded-md border-2 p-2",
+        "border-card absolute flex min-h-16 flex-col items-start justify-start rounded-md border-2",
         "cursor-pointer overflow-hidden transition-all duration-500 ease-in",
         colorClass,
+        // Use minimal spacing for very short programs to prevent overlap
+        isVeryShort ? "m-0 p-1" : "m-0.5 p-2",
         className,
       )}
       style={{ left, width }}
