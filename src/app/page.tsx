@@ -30,10 +30,13 @@ export default async function Page() {
     redirect("/login");
   }
 
-  // Calculate time range for TV guide
+  // Calculate time range for TV guide - start from current time, not rounded hour
   const startTime = (() => {
     const start = new Date();
-    start.setHours(start.getHours(), 0, 0, 0);
+    // Round to nearest 15-minute increment for cleaner timeline
+    const minutes = start.getMinutes();
+    const roundedMinutes = Math.floor(minutes / 15) * 15;
+    start.setMinutes(roundedMinutes, 0, 0);
     return start;
   })();
 
