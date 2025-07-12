@@ -1,4 +1,10 @@
 import { cn } from "~/lib/utils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "~/components/ui/tooltip";
 import type { TvGuideItemProps } from "~/types/tv-guide";
 
 // Simplified color palette using CSS classes with built-in hover states
@@ -35,32 +41,68 @@ export function TvGuideItem({
     }
   };
 
-  return (
-    <div
-      className={cn(
-        "border-card absolute flex min-h-16 flex-col items-start justify-start rounded-md border-2",
-        "cursor-pointer overflow-hidden transition-all duration-500 ease-in",
-        colorClass,
-        // Use minimal spacing for very short programs to prevent overlap
-        isVeryShort ? "m-0 p-1" : "m-0.5 p-2",
-        className,
-      )}
-      style={{ left, width }}
-      onClick={handleClick}
-    >
-      {/* Show Title */}
-      <div className="w-full text-sm leading-tight font-semibold text-nowrap text-white drop-shadow-sm">
-        {program.grandparentTitle ?? program.title}
-      </div>
+  // Create tooltip content with full title and episode info
+  const tooltipContent = () => {
+    const mainTitle = program.grandparentTitle ?? program.title;
+    const episodeTitle = program.title !== mainTitle ? program.title : null;
+    const seasonEpisode =
+      program.parentIndex != null || program.index != null
+        ? `${program.parentIndex != null ? `S${program.parentIndex}` : ""}${program.parentIndex != null && program.index != null ? " · " : ""}${program.index != null ? `E${program.index}` : ""}`
+        : null;
 
-      {/* Season and Episode */}
-      {(program.parentIndex != null || program.index != null) && (
-        <div className="w-full text-xs leading-tight text-nowrap text-white/90 drop-shadow-sm">
-          {program.parentIndex != null && `S${program.parentIndex}`}
-          {program.parentIndex != null && program.index != null && " · "}
-          {program.index != null && `E${program.index}`}
-        </div>
-      )}
-    </div>
+    return (
+      <div className="space-y-1">
+        <div className="font-semibold">{mainTitle}</div>
+        {episodeTitle && <div className="text-sm">{episodeTitle}</div>}
+        {seasonEpisode && (
+          <div className="text-muted-foreground text-xs">{seasonEpisode}</div>
+        )}
+        {program.summary && (
+          <div className="text-muted-foreground max-w-xs text-xs">
+            {program.summary.length > 100
+              ? `${program.summary.substring(0, 100)}...`
+              : program.summary}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div
+            className={cn(
+              "border-card absolute flex min-h-16 flex-col items-start justify-start rounded-md border-2",
+              "cursor-pointer overflow-hidden transition-all duration-500 ease-in",
+              colorClass,
+              // Use minimal spacing for very short programs to prevent overlap
+              isVeryShort ? "m-0 p-1" : "m-0.5 p-2",
+              className,
+            )}
+            style={{ left, width }}
+            onClick={handleClick}
+          >
+            {/* Show Title */}
+            <div className="w-full text-sm leading-tight font-semibold text-nowrap text-white drop-shadow-sm">
+              {program.grandparentTitle ?? program.title}
+            </div>
+
+            {/* Season and Episode */}
+            {(program.parentIndex != null || program.index != null) && (
+              <div className="w-full text-xs leading-tight text-nowrap text-white/90 drop-shadow-sm">
+                {program.parentIndex != null && `S${program.parentIndex}`}
+                {program.parentIndex != null && program.index != null && " · "}
+                {program.index != null && `E${program.index}`}
+              </div>
+            )}
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-sm">
+          {tooltipContent()}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
