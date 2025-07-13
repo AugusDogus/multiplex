@@ -58,7 +58,7 @@ export function ContinueWatching({
 
   // Wrapper component to avoid repeating the same container classes
   const SectionWrapper = ({ children }: { children: React.ReactNode }) => (
-    <div className="my-6 flex flex-col gap-y-4">
+    <div className="flex flex-col gap-y-4">
       {showTitle && (
         <div className="flex items-center justify-between px-8">
           <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
