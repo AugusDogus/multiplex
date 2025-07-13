@@ -68,9 +68,6 @@ export function TvGuideChannelButton({
                   </div>
                 )}
               </div>
-
-              {/* Dropdown Arrow */}
-              <ChevronDown className="text-muted-foreground ml-2 h-4 w-4 flex-shrink-0" />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="right" className="max-w-xs">
