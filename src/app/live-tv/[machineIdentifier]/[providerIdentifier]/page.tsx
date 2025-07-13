@@ -1,10 +1,10 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppSidebar } from "~/components/app-sidebar";
-import { ContinueWatching } from "~/components/continue-watching";
 import { PlexErrorWrapper } from "~/components/plex-error-wrapper";
 import { SearchWrapper } from "~/components/search-wrapper";
 import { ThemeToggle } from "~/components/theme-toggle";
+import { TvGuide } from "~/components/tv-guide/tv-guide";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -20,7 +20,7 @@ import {
 import { auth } from "~/lib/auth/server";
 import { api, HydrateClient } from "~/trpc/server";
 
-export default async function Page() {
+export default async function LiveTvPage() {
   const session = await auth.api.getSession({
     headers: await headers(),
   });
@@ -29,11 +29,31 @@ export default async function Page() {
     redirect("/login");
   }
 
+  // Calculate time range for TV guide - start from current time, not rounded hour
+  const startTime = (() => {
+    const start = new Date();
+    // Round to nearest 15-minute increment for cleaner timeline
+    const minutes = start.getMinutes();
+    const roundedMinutes = Math.floor(minutes / 15) * 15;
+    start.setMinutes(roundedMinutes, 0, 0);
+    return start;
+  })();
+
+  const endTime = (() => {
+    const end = new Date(startTime);
+    end.setHours(startTime.getHours() + 4);
+    return end;
+  })();
+
   // Fetch data using tRPC procedures
-  const [servers, userInfo, continueWatchingItems] = await Promise.all([
+  const [servers, userInfo, channelLineups] = await Promise.all([
     api.plex.getServers(),
     api.plex.getUserInfo(),
-    api.plex.getAllContinueWatching(),
+    api.plex.getAllChannelsProgramming({
+      date: new Date().toISOString().substring(0, 10),
+      startTime,
+      endTime,
+    }),
   ]);
 
   if (!servers || !userInfo) {
@@ -76,7 +96,7 @@ export default async function Page() {
                 <Breadcrumb>
                   <BreadcrumbList>
                     <BreadcrumbItem>
-                      <BreadcrumbPage>Home</BreadcrumbPage>
+                      <BreadcrumbPage>Live TV</BreadcrumbPage>
                     </BreadcrumbItem>
                   </BreadcrumbList>
                 </Breadcrumb>
@@ -87,7 +107,11 @@ export default async function Page() {
               </div>
             </header>
             <div className="flex min-w-0 flex-1 flex-col gap-6 p-4">
-              <ContinueWatching items={continueWatchingItems} />
+              <TvGuide
+                startTime={startTime}
+                endTime={endTime}
+                channelLineups={channelLineups}
+              />
             </div>
           </SidebarInset>
         </SidebarProvider>
