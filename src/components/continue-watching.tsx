@@ -34,6 +34,26 @@ import { isMediaPlayerItem } from "~/types/media-player";
    Horizontal slider of poster items with progress
    ──────────────────────────────────────────────────────────── */
 
+// Wrapper component to avoid repeating the same container classes
+interface SectionWrapperProps {
+  children: React.ReactNode;
+  showTitle?: boolean;
+  title?: string;
+}
+
+function SectionWrapper({ children, showTitle, title }: SectionWrapperProps) {
+  return (
+    <div className="flex flex-col gap-y-4">
+      {showTitle && (
+        <div className="flex items-center justify-between px-8">
+          <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
 export interface ContinueWatchingProps {
   /** Initial Continue Watching items from server-side rendering */
   items: (ContinueWatchingItem & { serverUrl?: string; authToken?: string })[];
@@ -55,18 +75,6 @@ export function ContinueWatching({
   enableAutoRefresh = true,
 }: ContinueWatchingProps) {
   const isPageVisible = useVisibilityChange();
-
-  // Wrapper component to avoid repeating the same container classes
-  const SectionWrapper = ({ children }: { children: React.ReactNode }) => (
-    <div className="flex flex-col gap-y-4">
-      {showTitle && (
-        <div className="flex items-center justify-between px-8">
-          <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
-        </div>
-      )}
-      {children}
-    </div>
-  );
 
   // Use tRPC query for auto-refresh - fetch fresh data immediately for type safety
   const {
@@ -104,7 +112,7 @@ export function ContinueWatching({
   // Only show error for initial load failures, not background refresh failures
   if (error && !continueWatchingData && initialItems.length === 0) {
     return (
-      <SectionWrapper>
+      <SectionWrapper showTitle={showTitle} title={title}>
         <div className="text-muted-foreground px-8 text-sm">
           Failed to load Continue Watching data
         </div>
@@ -115,7 +123,7 @@ export function ContinueWatching({
   // Only show loading state for initial load, not for background refresh
   if (isLoading && !continueWatchingData) {
     return (
-      <SectionWrapper>
+      <SectionWrapper showTitle={showTitle} title={title}>
         <div className="w-full max-w-full overflow-hidden">
           <div className="scrollbar-hide flex gap-4 overflow-x-auto px-8 pb-4">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -129,7 +137,7 @@ export function ContinueWatching({
 
   if (items.length === 0) {
     return (
-      <SectionWrapper>
+      <SectionWrapper showTitle={showTitle} title={title}>
         <div className="text-muted-foreground px-8 text-sm">
           Nothing to continue watching. Start watching something to see it here.
         </div>
@@ -138,7 +146,7 @@ export function ContinueWatching({
   }
 
   return (
-    <SectionWrapper>
+    <SectionWrapper showTitle={showTitle} title={title}>
       <div className="w-full max-w-full overflow-hidden">
         <div className="scrollbar-hide flex gap-4 overflow-x-auto px-8 pb-4">
           {items.map((item) => (
