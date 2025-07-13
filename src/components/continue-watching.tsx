@@ -3,7 +3,7 @@
 import { useAtom, useAtomValue } from "jotai";
 import { CirclePlay, MoreHorizontal, Play } from "lucide-react";
 import Image from "next/image";
-import { useState } from "react";
+import React, { useState } from "react";
 import {
   openMediaPlayerAtom,
   updatedItemsProgressAtom,
@@ -56,6 +56,18 @@ export function ContinueWatching({
 }: ContinueWatchingProps) {
   const isPageVisible = useVisibilityChange();
 
+  // Wrapper component to avoid repeating the same container classes
+  const SectionWrapper = ({ children }: { children: React.ReactNode }) => (
+    <div className="my-6 flex flex-col gap-y-4">
+      {showTitle && (
+        <div className="flex items-center justify-between px-8">
+          <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
+        </div>
+      )}
+      {children}
+    </div>
+  );
+
   // Use tRPC query for auto-refresh - fetch fresh data immediately for type safety
   const {
     data: continueWatchingData,
@@ -92,28 +104,18 @@ export function ContinueWatching({
   // Only show error for initial load failures, not background refresh failures
   if (error && !continueWatchingData && initialItems.length === 0) {
     return (
-      <div className="my-6 space-y-4">
-        {showTitle && (
-          <h2 className="px-8 text-2xl font-semibold tracking-tight">
-            {title}
-          </h2>
-        )}
+      <SectionWrapper>
         <div className="text-muted-foreground px-8 text-sm">
           Failed to load Continue Watching data
         </div>
-      </div>
+      </SectionWrapper>
     );
   }
 
   // Only show loading state for initial load, not for background refresh
   if (isLoading && !continueWatchingData) {
     return (
-      <div className="my-6 space-y-4">
-        {showTitle && (
-          <h2 className="px-8 text-2xl font-semibold tracking-tight">
-            {title}
-          </h2>
-        )}
+      <SectionWrapper>
         <div className="w-full max-w-full overflow-hidden">
           <div className="scrollbar-hide flex gap-4 overflow-x-auto px-8 pb-4">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -121,33 +123,22 @@ export function ContinueWatching({
             ))}
           </div>
         </div>
-      </div>
+      </SectionWrapper>
     );
   }
 
   if (items.length === 0) {
     return (
-      <div className="my-6 space-y-4">
-        {showTitle && (
-          <h2 className="px-8 text-2xl font-semibold tracking-tight">
-            {title}
-          </h2>
-        )}
+      <SectionWrapper>
         <div className="text-muted-foreground px-8 text-sm">
           Nothing to continue watching. Start watching something to see it here.
         </div>
-      </div>
+      </SectionWrapper>
     );
   }
 
   return (
-    <div className="my-6 space-y-4">
-      {showTitle && (
-        <div className="flex items-center justify-between px-8">
-          <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
-        </div>
-      )}
-
+    <SectionWrapper>
       <div className="w-full max-w-full overflow-hidden">
         <div className="scrollbar-hide flex gap-4 overflow-x-auto px-8 pb-4">
           {items.map((item) => (
@@ -158,7 +149,7 @@ export function ContinueWatching({
           ))}
         </div>
       </div>
-    </div>
+    </SectionWrapper>
   );
 }
 
