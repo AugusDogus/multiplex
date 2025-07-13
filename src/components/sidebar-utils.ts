@@ -17,3 +17,28 @@ export function getSourceIcon(sourceType: string) {
       return Play;
   }
 }
+
+// Helper function to check if current URL matches the source href
+export function isUrlActive(pathname: string, searchParams: URLSearchParams, sourceHref: string): boolean {
+  try {
+    const sourceUrl = new URL(sourceHref, window.location.origin);
+    const currentUrl = new URL(pathname + '?' + searchParams.toString(), window.location.origin);
+    
+    // Check if pathname and all source query params match
+    if (sourceUrl.pathname !== currentUrl.pathname) {
+      return false;
+    }
+    
+    // Check if all source search params are present in current URL
+    for (const [key, value] of sourceUrl.searchParams) {
+      if (currentUrl.searchParams.get(key) !== value) {
+        return false;
+      }
+    }
+    
+    return true;
+  } catch {
+    // Fallback to simple pathname check if URL parsing fails
+    return pathname === sourceHref || pathname.startsWith(sourceHref);
+  }
+}

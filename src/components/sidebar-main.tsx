@@ -1,6 +1,6 @@
 import { Home, MoreHorizontal } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   SidebarGroup,
   SidebarMenu,
@@ -8,7 +8,7 @@ import {
   SidebarMenuItem,
 } from "~/components/ui/sidebar";
 import type { SidebarSource } from "~/hooks/use-sidebar-sources";
-import { getSourceIcon } from "./sidebar-utils";
+import { getSourceIcon, isUrlActive } from "./sidebar-utils";
 
 interface SidebarMainProps {
   pinnedSources: SidebarSource[];
@@ -17,6 +17,7 @@ interface SidebarMainProps {
 
 export function SidebarMain({ pinnedSources, onShowMore }: SidebarMainProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   return (
     <SidebarGroup>
@@ -34,8 +35,7 @@ export function SidebarMain({ pinnedSources, onShowMore }: SidebarMainProps) {
         {/* Pinned Sources */}
         {pinnedSources.map((source) => {
           const Icon = getSourceIcon(source.sourceType);
-          const isActive =
-            pathname === source.href || pathname.startsWith(source.href);
+          const isActive = isUrlActive(pathname, searchParams, source.href);
 
           return (
             <SidebarMenuItem key={source.key}>

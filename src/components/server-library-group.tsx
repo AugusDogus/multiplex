@@ -1,6 +1,6 @@
 import { Loader2, RefreshCw, TriangleAlert } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   SidebarGroup,
   SidebarGroupLabel,
@@ -16,7 +16,7 @@ import {
 import type { ServerLibraryState } from "~/hooks/use-server-libraries";
 import type { SidebarSource } from "~/hooks/use-sidebar-sources";
 import type { PlexDevice } from "~/lib/plex.tv/schemas/plex-tv-schemas";
-import { getSourceIcon } from "./sidebar-utils";
+import { getSourceIcon, isUrlActive } from "./sidebar-utils";
 
 interface ServerLibraryGroupProps {
   server: PlexDevice;
@@ -32,6 +32,7 @@ export function ServerLibraryGroup({
   onRetry,
 }: ServerLibraryGroupProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   // Loading state
   if (state.isLoading && !state.isRetrying) {
@@ -122,8 +123,7 @@ export function ServerLibraryGroup({
         ) : (
           sources.map((source) => {
             const Icon = getSourceIcon(source.sourceType);
-            const isActive =
-              pathname === source.href || pathname.startsWith(source.href);
+            const isActive = isUrlActive(pathname, searchParams, source.href);
 
             return (
               <SidebarMenuItem key={source.key}>
