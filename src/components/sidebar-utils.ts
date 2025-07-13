@@ -21,17 +21,17 @@ export function getSourceIcon(sourceType: string) {
 // Helper function to check if current URL matches the source href
 export function isUrlActive(pathname: string, searchParams: URLSearchParams, sourceHref: string): boolean {
   try {
-    const sourceUrl = new URL(sourceHref, window.location.origin);
-    const currentUrl = new URL(pathname + '?' + searchParams.toString(), window.location.origin);
+    // Parse source href manually to avoid using window.location.origin during SSR
+    const sourceUrl = new URL(sourceHref, 'http://localhost');
     
-    // Check if pathname and all source query params match
-    if (sourceUrl.pathname !== currentUrl.pathname) {
+    // Check if pathname matches
+    if (sourceUrl.pathname !== pathname) {
       return false;
     }
     
     // Check if all source search params are present in current URL
     for (const [key, value] of sourceUrl.searchParams) {
-      if (currentUrl.searchParams.get(key) !== value) {
+      if (searchParams.get(key) !== value) {
         return false;
       }
     }
