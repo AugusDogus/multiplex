@@ -5,6 +5,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { getAllContinueWatchingQuery } from "~/server/queries/get-all-continue-watching";
 import { getAllServerLibrariesQuery } from "~/server/queries/get-all-server-libraries";
 import { getAllChannelsProgrammingQuery } from "~/server/queries/get-all-channels-programming";
+import { getServerChannelsProgrammingQuery } from "~/server/queries/get-all-channels-programming";
 import { getContinueWatchingQuery } from "~/server/queries/get-continue-watching";
 import { getServersQuery } from "~/server/queries/get-servers";
 import { getUserInfoQuery } from "~/server/queries/get-user-info";
@@ -69,6 +70,27 @@ export const plexRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       return getAllChannelsProgrammingQuery(ctx.plex, input.date, input.startTime, input.endTime);
+    }),
+
+  getServerChannelsProgramming: protectedProcedure
+    .input(
+      z.object({
+        machineIdentifier: z.string(),
+        providerIdentifier: z.string(),
+        date: z.string().date(),
+        startTime: z.date().optional(),
+        endTime: z.date().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      return getServerChannelsProgrammingQuery(
+        ctx.plex,
+        input.machineIdentifier,
+        input.providerIdentifier,
+        input.date,
+        input.startTime,
+        input.endTime
+      );
     }),
 
   sendTimeline: protectedProcedure

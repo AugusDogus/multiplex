@@ -1,4 +1,5 @@
 import type { PlexTvClient } from "~/lib/plex.tv/clients/plex-tv-client";
+import type { PlexServerClient } from "~/lib/plex.tv/clients/plex-server-client";
 import { getServersQuery } from "./get-servers";
 
 export type ChannelLineup = {
@@ -243,46 +244,194 @@ export async function getAllChannelsProgrammingQuery(
   startTime?: Date,
   endTime?: Date,
 ): Promise<AllChannelsProgrammingResult> {
-  // Determine which dates we need to fetch
-  const requiredDates = getRequiredDates(date, startTime, endTime);
-  
-  // First attempt to get programming data for all required dates
-  const lineupPromises = requiredDates.map(dateStr => 
-    getChannelsProgrammingData(plex, dateStr, startTime, endTime)
-  );
-  
-  let allLineups = await Promise.all(lineupPromises);
-  let channelLineups = await mergeChannelLineups(allLineups);
+  const dates = getRequiredDates(date, startTime, endTime);
 
-  // Check if we got any programming data
-  const hasAnyPrograms = channelLineups.some(lineup => lineup.programs.length > 0);
+  const lineupPromises = dates.map(async (dateStr) => {
+    return await getChannelsProgrammingData(plex, dateStr, startTime, endTime);
+  });
 
-  if (!hasAnyPrograms && channelLineups.length > 0) {
-    // Try to reload guide on all servers that have EPG capabilities
-    const servers = await getServersQuery(plex);
-    const reloadPromises = servers.map(async (server) => {
-      try {
-        const serverClient = plex.createServerClient(server);
-        await serverClient.reloadGuide();
-      } catch (error) {
-        console.warn(`Failed to reload guide for server ${server.name}:`, error);
-      }
-    });
+  const lineupResults = await Promise.all(lineupPromises);
 
-    // Wait for all reload attempts to complete
-    await Promise.allSettled(reloadPromises);
-
-    // Give it a moment for the guide to be processed
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    // Try to get programming data again for all required dates
-    const retryLineupPromises = requiredDates.map(dateStr => 
-      getChannelsProgrammingData(plex, dateStr, startTime, endTime)
-    );
-    
-    allLineups = await Promise.all(retryLineupPromises);
-    channelLineups = await mergeChannelLineups(allLineups);
+  if (lineupResults.length === 1) {
+    return lineupResults[0]!;
   }
+
+  // Merge lineups from multiple dates
+  return await mergeChannelLineups(lineupResults);
+}
+
+/**
+ * Get channels programming for a specific server
+ * More efficient than getAllChannelsProgramming when targeting a single server
+ */
+export async function getServerChannelsProgrammingQuery(
+  plex: PlexTvClient,
+  machineIdentifier: string,
+  providerIdentifier: string,
+  date: string,
+  startTime?: Date,
+  endTime?: Date,
+): Promise<AllChannelsProgrammingResult> {
+  const servers = await getServersQuery(plex);
+  const targetServer = servers.find(server => server.clientIdentifier === machineIdentifier);
+  
+  if (!targetServer) {
+    throw new Error(`Server with machineIdentifier ${machineIdentifier} not found`);
+  }
+
+  const serverClient = plex.createServerClient(targetServer);
+
+  // Determine which dates we need to fetch (same logic as getAllChannelsProgrammingQuery)
+  const requiredDates = getRequiredDates(date, startTime, endTime);
+
+  // Fetch data for all required dates and merge
+  const dateResults: AllChannelsProgrammingResult[] = [];
+  
+  for (const dateStr of requiredDates) {
+    const dayResult = await getServerChannelsProgrammingForDate(
+      serverClient, 
+      providerIdentifier, 
+      dateStr, 
+      startTime, 
+      endTime
+    );
+    dateResults.push(dayResult);
+  }
+
+  // Merge results from multiple dates
+  if (dateResults.length === 1) {
+    return dateResults[0]!;
+  }
+
+  return await mergeChannelLineups(dateResults);
+}
+
+/**
+ * Get channels programming for a specific server and date
+ * Helper function to fetch data for a single date
+ */
+async function getServerChannelsProgrammingForDate(
+  serverClient: PlexServerClient,
+  providerIdentifier: string,
+  date: string,
+  startTime?: Date,
+  endTime?: Date,
+): Promise<AllChannelsProgrammingResult> {
+  const channelLineups: ChannelLineup[] = [];
+  const processedGridKeys = new Set<string>();
+
+  // Convert time filters to Unix timestamps if provided
+  const startTimeUnix = startTime ? Math.floor(startTime.getTime() / 1000) : undefined;
+  const endTimeUnix = endTime ? Math.floor(endTime.getTime() / 1000) : undefined;
+  
+  try {
+    const channelsResponse = await serverClient.getChannels(providerIdentifier);
+    
+    // Process each channel
+    for (const channel of channelsResponse.MediaContainer.Channel) {
+      // Skip if we've already processed this gridKey
+      if (processedGridKeys.has(channel.gridKey)) {
+        continue;
+      }
+
+      try {
+        const gridResponse = await serverClient.getGrid({
+          channelGridKey: channel.gridKey,
+          date: date,
+          providerIdentifier: providerIdentifier,
+        });
+
+        // Filter programs by time window if specified
+        const allPrograms = (gridResponse.MediaContainer.Metadata ?? []).map(metadata => ({
+          ratingKey: metadata.ratingKey,
+          key: metadata.key,
+          title: metadata.title,
+          summary: metadata.summary,
+          duration: metadata.duration,
+          addedAt: metadata.addedAt,
+          onAir: metadata.onAir,
+          type: metadata.type,
+          grandparentTitle: metadata.grandparentTitle,
+          parentTitle: metadata.parentTitle,
+          index: metadata.index,
+          parentIndex: metadata.parentIndex,
+          Media: metadata.Media.map(media => ({
+            id: media.id,
+            duration: media.duration,
+            audioChannels: media.audioChannels,
+            videoResolution: media.videoResolution,
+            channelCallSign: media.channelCallSign,
+            channelIdentifier: media.channelIdentifier,
+            channelThumb: media.channelThumb,
+            channelTitle: media.channelTitle,
+            channelVcn: media.channelVcn,
+            protocol: media.protocol,
+            beginsAt: media.beginsAt,
+            endsAt: media.endsAt,
+            channelID: media.channelID,
+            onAir: media.onAir,
+          })),
+          Image: metadata.Image?.map(image => ({
+            alt: image.alt,
+            type: image.type,
+            url: image.url,
+          })),
+          Channel: metadata.Channel?.map(channel => ({
+            id: channel.id,
+            filter: channel.filter,
+            tag: channel.tag,
+          }))
+        }));
+
+        // Apply time filtering if specified
+        const filteredPrograms = (startTimeUnix && endTimeUnix) ? allPrograms.filter(program => {
+          const programStart = program.Media[0]?.beginsAt ?? 0;
+          const programEnd = program.Media[0]?.endsAt ?? 0;
+          
+          // Include program if it overlaps with our time window
+          return programEnd > startTimeUnix && programStart < endTimeUnix;
+        }) : allPrograms;
+
+        channelLineups.push({
+          channel: {
+            id: channel.id,
+            gridKey: channel.gridKey,
+            vcn: channel.vcn,
+            thumb: channel.thumb,
+            title: channel.title,
+            callSign: channel.callSign,
+          },
+          programs: filteredPrograms,
+        });
+
+        processedGridKeys.add(channel.gridKey);
+      } catch (error) {
+        console.warn(`Failed to get grid data for gridKey ${channel.gridKey} on ${date}:`, error);
+        // Add channel with empty programs if grid data fails
+        channelLineups.push({
+          channel: {
+            id: channel.id,
+            gridKey: channel.gridKey,
+            vcn: channel.vcn,
+            thumb: channel.thumb,
+            title: channel.title,
+            callSign: channel.callSign,
+          },
+          programs: [],
+        });
+        processedGridKeys.add(channel.gridKey);
+      }
+    }
+  } catch (error) {
+    console.warn(`Failed to get channels for ${date}:`, error);
+  }
+
+  // Sort channel lineups by VCN (Virtual Channel Number)
+  channelLineups.sort((a, b) => {
+    const aVcn = parseFloat(a.channel.vcn) || 0;
+    const bVcn = parseFloat(b.channel.vcn) || 0;
+    return aVcn - bVcn;
+  });
 
   return channelLineups;
 } 

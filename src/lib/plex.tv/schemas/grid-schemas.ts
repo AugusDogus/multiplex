@@ -79,6 +79,7 @@ export type GridResponse = z.infer<typeof gridResponseSchema>;
 export type GridParams = {
   channelGridKey: string;
   date: string; // Format: YYYY-MM-DD
+  providerIdentifier?: string;
 };
 
 const channelSchema = z.object({

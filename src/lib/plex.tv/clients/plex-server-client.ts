@@ -395,8 +395,10 @@ export class PlexServerClient {
       date: params.date,
     };
 
+    const providerIdentifier = params.providerIdentifier ?? "tv.plex.providers.epg.xmltv:71";
+
     return await this.get({
-      endpoint: `/tv.plex.providers.epg.xmltv:71/grid`,
+      endpoint: `/${providerIdentifier}/grid`,
       params: gridParams,
       schema: gridResponseSchema,
     });
@@ -404,11 +406,12 @@ export class PlexServerClient {
 
   /**
    * Get available EPG channels from the DVR lineup
+   * @param providerIdentifier - The EPG provider identifier (e.g., "tv.plex.providers.epg.xmltv:71")
    * @returns Channels response with available channel information
    */
-  async getChannels(): Promise<ChannelsResponse> {
+  async getChannels(providerIdentifier = "tv.plex.providers.epg.xmltv:71"): Promise<ChannelsResponse> {
     return await this.get({
-      endpoint: `/tv.plex.providers.epg.xmltv:71/lineups/dvr/channels`,
+      endpoint: `/${providerIdentifier}/lineups/dvr/channels`,
       schema: channelsResponseSchema,
     });
   }
@@ -482,67 +485,73 @@ export class PlexServerClient {
     for (const attempt of Array.from({ length: maxRetries + 1 }, (_, i) => i)) {
       try {
         const connection = await this.findWorkingConnection();
-        const url = new URL(endpoint, connection.uri);
+        
+        // Manually construct URL to avoid encoding colons in provider identifiers
+        const baseUrl = connection.uri.endsWith('/') ? connection.uri.slice(0, -1) : connection.uri;
+        const endpointWithoutLeadingSlash = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
+        
+        // Build query parameters manually
+        const queryParams = new URLSearchParams();
 
         // Add all X-Plex parameters as query parameters, with overrides
-        url.searchParams.append(
+        queryParams.append(
           "X-Plex-Product",
           xPlexOverrides.product ?? this.config.product,
         );
-        url.searchParams.append(
+        queryParams.append(
           "X-Plex-Version",
           xPlexOverrides.version ?? this.config.version,
         );
-        url.searchParams.append(
+        queryParams.append(
           "X-Plex-Client-Identifier",
           xPlexOverrides.clientIdentifier ?? this.config.clientIdentifier,
         );
-        url.searchParams.append(
+        queryParams.append(
           "X-Plex-Platform",
           xPlexOverrides.platform ?? this.config.platform,
         );
-        url.searchParams.append(
+        queryParams.append(
           "X-Plex-Platform-Version",
           xPlexOverrides.platformVersion ?? "137.0",
         );
-        url.searchParams.append(
+        queryParams.append(
           "X-Plex-Features",
           xPlexOverrides.features ??
             "external-media,indirect-media,hub-style-list",
         );
-        url.searchParams.append(
+        queryParams.append(
           "X-Plex-Model",
           xPlexOverrides.model ?? "bundled",
         );
-        url.searchParams.append(
+        queryParams.append(
           "X-Plex-Device",
           xPlexOverrides.device ?? "Windows",
         );
-        url.searchParams.append(
+        queryParams.append(
           "X-Plex-Device-Name",
           xPlexOverrides.deviceName ?? this.config.platform,
         );
-        url.searchParams.append(
+        queryParams.append(
           "X-Plex-Language",
           xPlexOverrides.language ?? "en",
         );
-        url.searchParams.append("X-Plex-Token", this.token);
+        queryParams.append("X-Plex-Token", this.token);
 
         // Optional parameters that can be overridden
         if (xPlexOverrides.sessionId) {
-          url.searchParams.append(
+          queryParams.append(
             "X-Plex-Session-Id",
             xPlexOverrides.sessionId,
           );
         }
         if (xPlexOverrides.playbackSessionId) {
-          url.searchParams.append(
+          queryParams.append(
             "X-Plex-Playback-Session-Id",
             xPlexOverrides.playbackSessionId,
           );
         }
         if (xPlexOverrides.deviceScreenResolution) {
-          url.searchParams.append(
+          queryParams.append(
             "X-Plex-Device-Screen-Resolution",
             xPlexOverrides.deviceScreenResolution,
           );
@@ -551,41 +560,33 @@ export class PlexServerClient {
         if (params) {
           for (const key in params) {
             if (params.hasOwnProperty(key)) {
-              url.searchParams.append(key, String(params[key]));
+              queryParams.append(key, String(params[key]));
             }
           }
         }
 
         const headers = this.getHeaders();
 
-        console.log(`Making request to ${this.server.name}:`);
-        console.log(`URL: ${url.toString()}`);
-        console.log(`Headers:`, headers);
-        console.log(
-          `Token (first 10 chars): ${this.token.substring(0, 10)}...`,
-        );
-
-        const response = await fetch(url.toString(), {
+        const finalUrl = `${baseUrl}/${endpointWithoutLeadingSlash}?${queryParams.toString()}`;
+        const response = await fetch(finalUrl, {
           method: "GET",
           headers,
         });
 
-        console.log(
-          `Response from ${this.server.name}: ${response.status} ${response.statusText}`,
-        );
+        console.log(`Response from ${this.server.name}: ${response.status} ${response.statusText}`);
 
         if (!response.ok) {
-          // Log response headers for debugging
           console.log(
-            `Response headers:`,
-            Object.fromEntries(response.headers.entries()),
+            `Request to ${this.server.name} failed (attempt ${attempt + 1}): ${response.statusText}`,
           );
-
-          throw new PlexAPIError(
+          
+          const currentError = new PlexAPIError(
             `Plex Server API request failed: ${response.statusText}`,
             response.status,
             response,
           );
+
+          throw currentError;
         }
 
         const data = await response.json();
