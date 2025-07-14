@@ -5,6 +5,7 @@ import type {
   MediaPlayerState,
   NextEpisodeInfo,
 } from "~/types/media-player";
+import { useProgressStore } from "./progress-store";
 
 interface MediaPlayerStore extends MediaPlayerState {
   // Actions
@@ -76,9 +77,17 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
 
         // Actions implementation
         openPlayer: (item) => {
-          // For now, use the item's viewOffset as fallback
-          // Progress integration will be handled in components
-          const initialCurrentTime = Math.floor(item.viewOffset ?? 0) / 1000;
+          // Check if we have updated progress for this item from the current session
+          const progressStore = useProgressStore.getState();
+          const updatedProgressPercent = progressStore.getItemProgress(
+            item.ratingKey,
+          );
+
+          // Calculate initial currentTime using updated progress if available
+          const initialCurrentTime =
+            updatedProgressPercent !== undefined && item.duration
+              ? (updatedProgressPercent / 100) * (item.duration / 1000)
+              : Math.floor(item.viewOffset ?? 0) / 1000;
 
           set({
             isOpen: true,
