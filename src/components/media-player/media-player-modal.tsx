@@ -1,13 +1,8 @@
 "use client";
 
-import { useAtom } from "jotai";
 import { X } from "lucide-react";
 import { useCallback, useRef } from "react";
-import {
-  closeMediaPlayerAtom,
-  mediaPlayerStateAtom,
-  updatePlaybackStateAtom,
-} from "~/atoms/media-player";
+import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { Button } from "~/components/ui/button";
 import {
   Dialog,
@@ -33,14 +28,22 @@ import { useIsMobile } from "~/hooks/use-mobile";
    ──────────────────────────────────────────────────────────── */
 
 export function MediaPlayerModal() {
-  const [state] = useAtom(mediaPlayerStateAtom);
-  const [, closePlayer] = useAtom(closeMediaPlayerAtom);
-  const [, updateState] = useAtom(updatePlaybackStateAtom);
+  const isOpen = useMediaPlayerStore((state) => state.isOpen);
+  const currentItem = useMediaPlayerStore((state) => state.currentItem);
+  const showControls = useMediaPlayerStore((state) => state.showControls);
+  const markers = useMediaPlayerStore((state) => state.markers);
+  const isLoading = useMediaPlayerStore((state) => state.isLoading);
+  const error = useMediaPlayerStore((state) => state.error);
+  const currentTime = useMediaPlayerStore((state) => state.currentTime);
+  const duration = useMediaPlayerStore((state) => state.duration);
+  const volume = useMediaPlayerStore((state) => state.volume);
+
+  const { closePlayer, updatePlaybackState } = useMediaPlayerStore();
   const { actions, videoRef } = useMediaPlayer();
   const isMobile = useIsMobile();
 
   // Initialize play queue for marker support
-  usePlayQueue(state.currentItem);
+  usePlayQueue(currentItem);
 
   // Auto-play next episode functionality
   const { autoPlayState } = useAutoPlayNextEpisode();
@@ -77,10 +80,10 @@ export function MediaPlayerModal() {
   /**
    * Show controls immediately
    */
-  const showControls = useCallback(() => {
+  const showControlsImmediate = useCallback(() => {
     clearAllTimeouts();
-    updateState({ showControls: true });
-  }, [clearAllTimeouts, updateState]);
+    updatePlaybackState({ showControls: true });
+  }, [clearAllTimeouts, updatePlaybackState]);
 
   /**
    * Hide controls after delay
@@ -89,10 +92,10 @@ export function MediaPlayerModal() {
     (delay = 3000) => {
       clearAllTimeouts();
       hideTimeoutRef.current = setTimeout(() => {
-        updateState({ showControls: false });
+        updatePlaybackState({ showControls: false });
       }, delay);
     },
-    [clearAllTimeouts, updateState],
+    [clearAllTimeouts, updatePlaybackState],
   );
 
   /**
@@ -126,14 +129,13 @@ export function MediaPlayerModal() {
   const handleVolumeScroll = useCallback(
     (delta: number) => {
       const volumeStep = 0.1; // 10% volume change per scroll step (matches keyboard shortcuts)
-      const currentVolume = state.volume;
       const newVolume = Math.max(
         0,
-        Math.min(1, currentVolume + (delta > 0 ? volumeStep : -volumeStep)),
+        Math.min(1, volume + (delta > 0 ? volumeStep : -volumeStep)),
       );
       actions.setVolume(newVolume);
     },
-    [actions, state.volume],
+    [actions, volume],
   );
 
   // Note: Video ended is handled by onEnded callback passed to MediaPlayerVideo
@@ -143,8 +145,8 @@ export function MediaPlayerModal() {
    * Handle mouse enter - show controls
    */
   const handleMouseEnter = useCallback(() => {
-    showControls();
-  }, [showControls]);
+    showControlsImmediate();
+  }, [showControlsImmediate]);
 
   /**
    * Handle mouse leave - hide controls after short delay
@@ -157,7 +159,7 @@ export function MediaPlayerModal() {
    * Handle mouse move - show controls and reset hide timer
    */
   const handleMouseMove = useCallback(() => {
-    showControls();
+    showControlsImmediate();
     // Clear existing mouse move timeout
     if (mouseMoveTimeoutRef.current) {
       clearTimeout(mouseMoveTimeoutRef.current);
@@ -166,39 +168,39 @@ export function MediaPlayerModal() {
     mouseMoveTimeoutRef.current = setTimeout(() => {
       hideControlsDelayed(0); // Hide immediately when timeout fires
     }, 3000);
-  }, [showControls, hideControlsDelayed]);
+  }, [showControlsImmediate, hideControlsDelayed]);
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
-    isOpen: state.isOpen,
+    isOpen,
     actions,
-    currentTime: state.currentTime,
-    duration: state.duration,
-    volume: state.volume,
+    currentTime,
+    duration,
+    volume,
   });
 
   // Don't render if no current item
-  if (!state.currentItem) return null;
+  if (!currentItem) return null;
 
   return (
-    <Dialog open={state.isOpen} onOpenChange={handleClose}>
+    <Dialog open={isOpen} onOpenChange={handleClose}>
       <MediaPlayerDialogContent>
         {/* Visually hidden title for accessibility */}
         <DialogTitle className="sr-only">
-          Media Player - {state.currentItem.title}
+          Media Player - {currentItem.title}
         </DialogTitle>
 
         {/* Visually hidden description for accessibility */}
         <DialogDescription className="sr-only">
-          Playing {state.currentItem.title}. Use spacebar to play/pause, arrow
-          keys to seek, and escape to close.
+          Playing {currentItem.title}. Use spacebar to play/pause, arrow keys to
+          seek, and escape to close.
         </DialogDescription>
 
         {/* Video Player Container - Full screen with overlaid controls */}
         <div
           className={`group cursor-none overflow-visible hover:cursor-default ${
-            isMobile 
-              ? "fixed inset-0 flex items-center justify-center" 
+            isMobile
+              ? "fixed inset-0 flex items-center justify-center"
               : "relative h-full w-full overflow-hidden"
           }`}
           onMouseEnter={handleMouseEnter}
@@ -207,21 +209,23 @@ export function MediaPlayerModal() {
         >
           <div
             className={`group relative cursor-none overflow-hidden hover:cursor-default ${
-              isMobile 
-                ? "rotate-90 origin-center" 
-                : "h-full w-full"
+              isMobile ? "origin-center rotate-90" : "h-full w-full"
             }`}
-            style={isMobile ? {
-              width: '100svh',
-              height: '100svw',
-              minWidth: '100svh',
-              minHeight: '100svw'
-            } : {}}
+            style={
+              isMobile
+                ? {
+                    width: "100svh",
+                    height: "100svw",
+                    minWidth: "100svh",
+                    minHeight: "100svw",
+                  }
+                : {}
+            }
           >
             {/* Close Button - Top right corner */}
             <div
               className={`absolute top-4 right-4 z-20 transition-opacity duration-300 group-hover:opacity-100 ${
-                state.showControls
+                showControls
                   ? "opacity-100"
                   : "pointer-events-none opacity-0 group-hover:pointer-events-auto"
               }`}
@@ -241,7 +245,7 @@ export function MediaPlayerModal() {
               {/* Video Player - Takes up full space */}
               <MediaPlayerVideo
                 ref={videoRef}
-                item={state.currentItem}
+                item={currentItem}
                 className="h-full w-full"
                 onVideoClick={handleVideoClick}
                 onVideoDoubleClick={handleVideoDoubleClick}
@@ -255,16 +259,16 @@ export function MediaPlayerModal() {
 
               {/* Title and Metadata Overlay - Top of video */}
               <MediaPlayerOverlay
-                item={state.currentItem}
-                isVisible={state.showControls}
-                isLoading={state.isLoading}
-                error={state.error}
+                item={currentItem}
+                isVisible={showControls}
+                isLoading={isLoading}
+                error={error}
               />
 
               {/* Skip Intro/Credits Overlay - Always visible when applicable */}
               <MediaPlayerSkipOverlay
-                markers={state.markers}
-                currentTime={state.currentTime}
+                markers={markers}
+                currentTime={currentTime}
                 onSkip={actions.seekToMarkerEnd}
               />
 
@@ -278,7 +282,7 @@ export function MediaPlayerModal() {
               {/* Media Controls - Bottom overlay with fade transition */}
               <div
                 className={`absolute right-0 bottom-0 left-0 transition-opacity duration-300 group-hover:opacity-100 ${
-                  state.showControls
+                  showControls
                     ? "opacity-100"
                     : "pointer-events-none opacity-0 group-hover:pointer-events-auto"
                 }`}

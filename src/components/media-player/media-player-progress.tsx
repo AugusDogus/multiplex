@@ -1,14 +1,20 @@
 "use client";
 
-import { useAtom } from "jotai";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import {
-  bufferedPercentAtom,
-  formattedCurrentTimeAtom,
-  formattedDurationAtom,
-  progressPercentAtom,
-} from "~/atoms/media-player";
+import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { clamp } from "./utils/media-player-utils";
+
+// Utility function for formatting time
+function formatTime(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = Math.floor(seconds % 60);
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`;
+  }
+  return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
+}
 
 /* ────────────────────────────────────────────────────────────
    Media Player Progress Bar
@@ -45,10 +51,21 @@ export function MediaPlayerProgress({
   disabled = false,
   className = "",
 }: MediaPlayerProgressProps) {
-  const [progressPercent] = useAtom(progressPercentAtom);
-  const [bufferedPercent] = useAtom(bufferedPercentAtom);
-  const [formattedCurrentTime] = useAtom(formattedCurrentTimeAtom);
-  const [formattedDuration] = useAtom(formattedDurationAtom);
+  const currentTimeFromStore = useMediaPlayerStore(
+    (state) => state.currentTime,
+  );
+  const durationFromStore = useMediaPlayerStore((state) => state.duration);
+  const bufferedTime = useMediaPlayerStore((state) => state.bufferedTime);
+
+  // Compute values locally to avoid object reference issues
+  const progressPercent =
+    durationFromStore > 0
+      ? (currentTimeFromStore / durationFromStore) * 100
+      : 0;
+  const bufferedPercent =
+    durationFromStore > 0 ? (bufferedTime / durationFromStore) * 100 : 0;
+  const formattedCurrentTime = formatTime(currentTimeFromStore);
+  const formattedDuration = formatTime(durationFromStore);
 
   const [isDragging, setIsDragging] = useState(false);
   const [hoverTime, setHoverTime] = useState<number | null>(null);

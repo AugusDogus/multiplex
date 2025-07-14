@@ -1,11 +1,8 @@
 "use client";
 
-import { useAtom, useAtomValue } from "jotai";
 import { useCallback, useRef } from "react";
-import {
-  mediaPlayerStateAtom,
-  updateItemProgressAtom,
-} from "~/atoms/media-player";
+import { useMediaPlayerStore } from "~/stores/media-player-store";
+import { useProgressStore } from "~/stores/progress-store";
 import { api } from "~/trpc/react";
 
 /* ────────────────────────────────────────────────────────────
@@ -18,8 +15,11 @@ import { api } from "~/trpc/react";
  * Uses video events directly instead of intervals
  */
 export function useTimelineUpdates() {
-  const state = useAtomValue(mediaPlayerStateAtom);
-  const [, updateItemProgress] = useAtom(updateItemProgressAtom);
+  const currentItem = useMediaPlayerStore((state) => state.currentItem);
+  const currentTime = useMediaPlayerStore((state) => state.currentTime);
+  const duration = useMediaPlayerStore((state) => state.duration);
+  const isPlaying = useMediaPlayerStore((state) => state.isPlaying);
+  const { updateItemProgress } = useProgressStore();
 
   const sessionIdRef = useRef<string | null>(null);
   const lastUpdateRef = useRef<{
@@ -40,12 +40,12 @@ export function useTimelineUpdates() {
   const sendTimelineUpdate = useCallback(
     async (
       playbackState: "playing" | "paused" | "stopped",
-      currentTime?: number,
+      timeOverride?: number,
     ) => {
-      if (!state.currentItem) return;
+      if (!currentItem) return;
 
       const sessionId = getSessionId();
-      const timeToUse = currentTime ?? state.currentTime;
+      const timeToUse = timeOverride ?? currentTime;
 
       // Check if we should send an update
       const lastUpdate = lastUpdateRef.current;
@@ -53,25 +53,25 @@ export function useTimelineUpdates() {
       const hasTimeChanged =
         !lastUpdate || Math.abs(lastUpdate.currentTime - timeToUse) >= 1;
       const hasItemChanged =
-        !lastUpdate || lastUpdate.ratingKey !== state.currentItem.ratingKey;
+        !lastUpdate || lastUpdate.ratingKey !== currentItem.ratingKey;
 
       if (!hasStateChanged && !hasTimeChanged && !hasItemChanged) return;
 
       // Apply Plex safety checks (except for stopped state)
       if (playbackState !== "stopped") {
-        const durationMs = state.duration * 1000;
+        const durationMs = duration * 1000;
         const currentTimeMs = timeToUse * 1000;
         if (durationMs <= 30000 || durationMs - currentTimeMs <= 30000) return;
       }
 
       try {
         await sendTimelineMutation.mutateAsync({
-          serverId: state.currentItem.serverId,
-          ratingKey: state.currentItem.ratingKey,
-          key: `/library/metadata/${state.currentItem.ratingKey}`,
+          serverId: currentItem.serverId,
+          ratingKey: currentItem.ratingKey,
+          key: `/library/metadata/${currentItem.ratingKey}`,
           playbackTime: Math.floor(timeToUse * 1000),
           time: Math.floor(timeToUse * 1000),
-          duration: Math.floor(state.duration * 1000),
+          duration: Math.floor(duration * 1000),
           state: playbackState,
           hasMDE: 1,
           context: "home:hub.continueWatching&row=0&col=0",
@@ -82,19 +82,26 @@ export function useTimelineUpdates() {
         lastUpdateRef.current = {
           currentTime: timeToUse,
           state: playbackState,
-          ratingKey: state.currentItem.ratingKey,
+          ratingKey: currentItem.ratingKey,
         };
 
-        // Update progress atom for real-time UI
+        // Update progress store for real-time UI
         updateItemProgress({
-          ratingKey: state.currentItem.ratingKey,
-          progressPercent: (timeToUse / state.duration) * 100,
+          ratingKey: currentItem.ratingKey,
+          progressPercent: (timeToUse / duration) * 100,
         });
       } catch (error) {
         console.error("Timeline update failed:", error);
       }
     },
-    [state, getSessionId, sendTimelineMutation, updateItemProgress],
+    [
+      currentItem,
+      currentTime,
+      duration,
+      getSessionId,
+      sendTimelineMutation,
+      updateItemProgress,
+    ],
   );
 
   // Event handlers for video events
@@ -115,23 +122,23 @@ export function useTimelineUpdates() {
   );
 
   const onSeeked = useCallback(
-    (currentTime: number) => {
+    (time: number) => {
       // Send update at new position with current playback state
-      const currentState = state.isPlaying ? "playing" : "paused";
-      void sendTimelineUpdate(currentState, currentTime);
+      const currentState = isPlaying ? "playing" : "paused";
+      void sendTimelineUpdate(currentState, time);
     },
-    [sendTimelineUpdate, state.isPlaying],
+    [sendTimelineUpdate, isPlaying],
   );
 
   const onEnded = useCallback(() => {
     // Video actually ended - send stopped with full duration
-    void sendTimelineUpdate("stopped", state.duration);
-  }, [sendTimelineUpdate, state.duration]);
+    void sendTimelineUpdate("stopped", duration);
+  }, [sendTimelineUpdate, duration]);
 
   const onStop = useCallback(() => {
     // User manually stopped/closed - send stopped with current time
-    void sendTimelineUpdate("stopped", state.currentTime);
-  }, [sendTimelineUpdate, state.currentTime]);
+    void sendTimelineUpdate("stopped", currentTime);
+  }, [sendTimelineUpdate, currentTime]);
 
   // Clear session
   const clearSession = useCallback(() => {

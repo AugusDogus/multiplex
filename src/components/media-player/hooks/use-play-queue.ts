@@ -1,8 +1,7 @@
 "use client";
 
-import { useAtom } from "jotai";
 import { useEffect, useRef } from "react";
-import { updatePlaybackStateAtom } from "~/atoms/media-player";
+import { useMediaPlayerStore } from "~/stores/media-player-store";
 import type { MediaPlayerItem } from "~/types/media-player";
 import { api } from "~/trpc/react";
 
@@ -17,19 +16,19 @@ import { api } from "~/trpc/react";
  * @returns Play queue management functions and data
  */
 export function usePlayQueue(item: MediaPlayerItem | null) {
-  const [, updateState] = useAtom(updatePlaybackStateAtom);
+  const { updatePlaybackState } = useMediaPlayerStore();
   const lastItemRef = useRef<string | null>(null);
 
   // Create play queue mutation
   const createPlayQueueMutation = api.plex.createPlayQueue.useMutation({
     onSuccess: (playQueue) => {
       console.log("🎬 Play queue created:", playQueue);
-      
+
       // Extract markers from the first metadata item
       const markers = playQueue.MediaContainer.Metadata?.[0]?.Marker ?? [];
-      
+
       // Update media player state with play queue data
-      updateState({
+      updatePlaybackState({
         playQueue,
         playQueueId: playQueue.MediaContainer.playQueueID.toString(),
         markers,
@@ -38,7 +37,7 @@ export function usePlayQueue(item: MediaPlayerItem | null) {
     onError: (error: unknown) => {
       console.error("Failed to create play queue:", error);
       // Continue playback without markers on error
-      updateState({
+      updatePlaybackState({
         playQueue: null,
         playQueueId: null,
         markers: [],
@@ -51,7 +50,7 @@ export function usePlayQueue(item: MediaPlayerItem | null) {
    */
   useEffect(() => {
     // Create a unique key for the current item to avoid duplicate requests
-    const currentItemKey = item 
+    const currentItemKey = item
       ? `${item.serverId}-${item.librarySectionID}-${item.ratingKey}`
       : null;
 
@@ -65,9 +64,9 @@ export function usePlayQueue(item: MediaPlayerItem | null) {
     if (item && item.serverId && item.librarySectionID && item.ratingKey) {
       // Use the full server URI format for play queues
       const uri = `server://${item.serverId}/com.plexapp.plugins.library${item.key}`;
-      
+
       console.log("🎬 Creating play queue for:", item.title, "with URI:", uri);
-      
+
       // Create play queue for marker support using .mutate (not .mutateAsync to avoid promise issues)
       createPlayQueueMutation.mutate({
         serverId: item.serverId,
@@ -81,13 +80,13 @@ export function usePlayQueue(item: MediaPlayerItem | null) {
       });
     } else {
       // Clear play queue state if no valid item
-      updateState({
+      updatePlaybackState({
         playQueue: null,
         playQueueId: null,
         markers: [],
       });
     }
-  }, [item, createPlayQueueMutation, updateState]);
+  }, [item, createPlayQueueMutation, updatePlaybackState]);
 
   return {
     isCreating: createPlayQueueMutation.isPending,

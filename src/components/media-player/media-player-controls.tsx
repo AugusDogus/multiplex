@@ -1,6 +1,5 @@
 "use client";
 
-import { useAtom } from "jotai";
 import {
   Maximize,
   Minimize,
@@ -12,7 +11,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { mediaPlayerStateAtom } from "~/atoms/media-player";
+import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { Button } from "~/components/ui/button";
 import { type useMediaPlayer } from "./hooks/use-media-player";
 import { MediaPlayerProgress } from "./media-player-progress";
@@ -43,10 +42,16 @@ export function MediaPlayerControls({
   actions,
   className = "",
 }: MediaPlayerControlsProps) {
-  const [state] = useAtom(mediaPlayerStateAtom);
+  const currentTime = useMediaPlayerStore((state) => state.currentTime);
+  const duration = useMediaPlayerStore((state) => state.duration);
+  const isPlaying = useMediaPlayerStore((state) => state.isPlaying);
+  const volume = useMediaPlayerStore((state) => state.volume);
+  const isMuted = useMediaPlayerStore((state) => state.isMuted);
+  const isFullscreen = useMediaPlayerStore((state) => state.isFullscreen);
+  const canPlay = useMediaPlayerStore((state) => state.canPlay);
+
   const [isDraggingVolume, setIsDraggingVolume] = useState(false);
   const volumeRef = useRef<HTMLDivElement>(null);
-
   /**
    * Calculate volume from mouse position
    */
@@ -114,10 +119,10 @@ export function MediaPlayerControls({
       <div className="space-y-3">
         {/* Progress Bar */}
         <MediaPlayerProgress
-          currentTime={state.currentTime}
-          duration={state.duration}
+          currentTime={currentTime}
+          duration={duration}
           onSeek={actions.seek}
-          disabled={!state.canPlay}
+          disabled={!canPlay}
         />
 
         {/* Control Buttons Row */}
@@ -133,7 +138,7 @@ export function MediaPlayerControls({
               size="icon"
               onClick={() => actions.skipBackward?.(10)}
               className="text-white hover:bg-white/20"
-              disabled={!state.canPlay}
+              disabled={!canPlay}
             >
               <SkipBack className="h-6 w-6" />
             </Button>
@@ -144,9 +149,9 @@ export function MediaPlayerControls({
               size="icon"
               onClick={actions.togglePlay}
               className="text-white hover:bg-white/20"
-              disabled={!state.canPlay}
+              disabled={!canPlay}
             >
-              {state.isPlaying ? (
+              {isPlaying ? (
                 <Pause className="h-6 w-6" />
               ) : (
                 <Play className="h-6 w-6" />
@@ -159,7 +164,7 @@ export function MediaPlayerControls({
               size="icon"
               onClick={() => actions.skipForward?.(10)}
               className="text-white hover:bg-white/20"
-              disabled={!state.canPlay}
+              disabled={!canPlay}
             >
               <SkipForward className="h-6 w-6" />
             </Button>
@@ -175,7 +180,7 @@ export function MediaPlayerControls({
                 onClick={actions.toggleMute}
                 className="text-white hover:bg-white/20"
               >
-                {state.isMuted || state.volume === 0 ? (
+                {isMuted || volume === 0 ? (
                   <VolumeX className="h-5 w-5" />
                 ) : (
                   <Volume2 className="h-5 w-5" />
@@ -192,7 +197,7 @@ export function MediaPlayerControls({
                   <div
                     className="h-full rounded-full bg-white transition-all duration-200"
                     style={{
-                      width: `${state.isMuted ? 0 : state.volume * 100}%`,
+                      width: `${isMuted ? 0 : volume * 100}%`,
                     }}
                   />
                 </div>
@@ -206,7 +211,7 @@ export function MediaPlayerControls({
               onClick={actions.toggleFullscreen}
               className="text-white hover:bg-white/20"
             >
-              {state.isFullscreen ? (
+              {isFullscreen ? (
                 <Minimize className="h-5 w-5" />
               ) : (
                 <Maximize className="h-5 w-5" />

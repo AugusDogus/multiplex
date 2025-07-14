@@ -1,14 +1,10 @@
 "use client";
 
-import { useAtom, useAtomValue } from "jotai";
 import { CirclePlay, MoreHorizontal, Play } from "lucide-react";
 import Image from "next/image";
 import React, { useState } from "react";
-import {
-  openMediaPlayerAtom,
-  updatedItemsProgressAtom,
-  updateItemProgressAtom,
-} from "~/atoms/media-player";
+import { useMediaPlayerStore } from "~/stores/media-player-store";
+import { useProgressStore } from "~/stores/progress-store";
 import { Button } from "~/components/ui/button";
 import {
   Drawer,
@@ -171,9 +167,11 @@ interface ContinueWatchingItemProps {
 }
 
 function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
-  const [, openPlayer] = useAtom(openMediaPlayerAtom);
-  const updatedProgress = useAtomValue(updatedItemsProgressAtom);
-  const [, updateProgress] = useAtom(updateItemProgressAtom);
+  const openPlayer = useMediaPlayerStore((state) => state.openPlayer);
+  const getItemProgress = useProgressStore((state) => state.getItemProgress);
+  const updateItemProgress = useProgressStore(
+    (state) => state.updateItemProgress,
+  );
   const isMobile = useIsMobile();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
@@ -182,7 +180,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
 
   // Use updated progress if available, otherwise use server data
   const progressPercent: number =
-    updatedProgress[item.ratingKey] ?? item.progressPercent ?? 0;
+    getItemProgress(item.ratingKey) ?? item.progressPercent ?? 0;
   const isItemCompleted = isCompleted(item);
 
   // Generate thumbnail URL using Plex photo transcoding service
@@ -218,7 +216,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
     }
 
     // Reset progress to 0% for this item
-    updateProgress({
+    updateItemProgress({
       ratingKey: item.ratingKey,
       progressPercent: 0,
     });
