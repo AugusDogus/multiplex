@@ -1,12 +1,7 @@
 "use client";
 
-import { useAtom } from "jotai";
 import { useCallback, useRef } from "react";
-import {
-  closeMediaPlayerAtom,
-  mediaPlayerStateAtom,
-  updatePlaybackStateAtom,
-} from "~/atoms/media-player";
+import { useMediaPlayerStore } from "~/stores/media-player-store";
 import type { MediaPlayerActions } from "~/types/media-player";
 import type { Marker } from "~/lib/plex.tv/schemas/play-queue-schemas";
 import { clamp, supportsFullscreen } from "../utils/media-player-utils";
@@ -17,7 +12,7 @@ import { clamp, supportsFullscreen } from "../utils/media-player-utils";
    ──────────────────────────────────────────────────────────── */
 
 export function useMediaPlayer(): {
-  state: ReturnType<typeof useAtom<typeof mediaPlayerStateAtom>>[0];
+  state: ReturnType<typeof useMediaPlayerStore>;
   actions: MediaPlayerActions & {
     skipForward: (seconds?: number) => void;
     skipBackward: (seconds?: number) => void;
@@ -27,9 +22,7 @@ export function useMediaPlayer(): {
   };
   videoRef: React.RefObject<HTMLVideoElement | null>;
 } {
-  const [state] = useAtom(mediaPlayerStateAtom);
-  const [, updateState] = useAtom(updatePlaybackStateAtom);
-  const [, closePlayer] = useAtom(closeMediaPlayerAtom);
+  const store = useMediaPlayerStore();
   const videoRef = useRef<HTMLVideoElement>(null);
 
   /**
@@ -41,16 +34,16 @@ export function useMediaPlayer(): {
       try {
         await videoRef.current.play();
         console.log("🎬 Player: video.play() succeeded");
-        updateState({ isPlaying: true });
+        store.updatePlaybackState({ isPlaying: true });
       } catch (error) {
         console.error("🎬 Player: video.play() failed:", error);
-        updateState({
+        store.updatePlaybackState({
           error: "Failed to start video playback",
           isPlaying: false,
         });
       }
     }
-  }, [updateState]);
+  }, [store]);
 
   /**
    * Pause video playback
@@ -59,20 +52,20 @@ export function useMediaPlayer(): {
     console.log("🎬 Player: pause() called");
     if (videoRef.current) {
       videoRef.current.pause();
-      updateState({ isPlaying: false });
+      store.updatePlaybackState({ isPlaying: false });
     }
-  }, [updateState]);
+  }, [store]);
 
   /**
    * Toggle play/pause state
    */
   const togglePlay = useCallback(() => {
-    if (state.isPlaying) {
+    if (store.isPlaying) {
       pause();
     } else {
       void play();
     }
-  }, [state.isPlaying, play, pause]);
+  }, [store.isPlaying, play, pause]);
 
   /**
    * Seek to a specific time in the video
@@ -81,12 +74,12 @@ export function useMediaPlayer(): {
   const seek = useCallback(
     (time: number) => {
       if (videoRef.current) {
-        const clampedTime = clamp(time, 0, state.duration);
+        const clampedTime = clamp(time, 0, store.duration);
         videoRef.current.currentTime = clampedTime;
-        updateState({ currentTime: clampedTime });
+        store.updatePlaybackState({ currentTime: clampedTime });
       }
     },
-    [state.duration, updateState],
+    [store],
   );
 
   /**
@@ -98,10 +91,10 @@ export function useMediaPlayer(): {
       if (videoRef.current) {
         const clampedVolume = clamp(volume, 0, 1);
         videoRef.current.volume = clampedVolume;
-        updateState({ volume: clampedVolume });
+        store.setVolume(clampedVolume);
       }
     },
-    [updateState],
+    [store],
   );
 
   /**
@@ -109,11 +102,11 @@ export function useMediaPlayer(): {
    */
   const toggleMute = useCallback(() => {
     if (videoRef.current) {
-      const newMuted = !state.isMuted;
+      const newMuted = !store.isMuted;
       videoRef.current.muted = newMuted;
-      updateState({ isMuted: newMuted });
+      store.toggleMute();
     }
-  }, [state.isMuted, updateState]);
+  }, [store]);
 
   /**
    * Toggle fullscreen mode
@@ -126,35 +119,23 @@ export function useMediaPlayer(): {
 
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().then(
-        () => updateState({ isFullscreen: true }),
+        () => store.updatePlaybackState({ isFullscreen: true }),
         (error) => console.error("Fullscreen request failed:", error),
       );
     } else {
       document.exitFullscreen().then(
-        () => updateState({ isFullscreen: false }),
+        () => store.updatePlaybackState({ isFullscreen: false }),
         (error) => console.error("Exit fullscreen failed:", error),
       );
     }
-  }, [updateState]);
+  }, [store]);
 
   /**
    * Show controls temporarily and set timeout to hide them
    */
   const showControlsTemporarily = useCallback(() => {
-    updateState({ showControls: true });
-
-    // Clear existing timeout
-    if (state.controlsTimeout) {
-      clearTimeout(state.controlsTimeout);
-    }
-
-    // Set new timeout to hide controls
-    const timeout = setTimeout(() => {
-      updateState({ showControls: false, controlsTimeout: null });
-    }, 3000);
-
-    updateState({ controlsTimeout: Number(timeout) });
-  }, [state.controlsTimeout, updateState]);
+    store.showControlsTemporarily();
+  }, [store]);
 
   /**
    * Skip forward by a specified number of seconds
@@ -162,10 +143,10 @@ export function useMediaPlayer(): {
    */
   const skipForward = useCallback(
     (seconds = 10) => {
-      const newTime = Math.min(state.currentTime + seconds, state.duration);
+      const newTime = Math.min(store.currentTime + seconds, store.duration);
       seek(newTime);
     },
-    [state.currentTime, state.duration, seek],
+    [store.currentTime, store.duration, seek],
   );
 
   /**
@@ -174,10 +155,10 @@ export function useMediaPlayer(): {
    */
   const skipBackward = useCallback(
     (seconds = 10) => {
-      const newTime = Math.max(state.currentTime - seconds, 0);
+      const newTime = Math.max(store.currentTime - seconds, 0);
       seek(newTime);
     },
-    [state.currentTime, seek],
+    [store.currentTime, seek],
   );
 
   /**
@@ -191,8 +172,8 @@ export function useMediaPlayer(): {
    * Jump to the end of the video
    */
   const jumpToEnd = useCallback(() => {
-    seek(state.duration);
-  }, [state.duration, seek]);
+    seek(store.duration);
+  }, [store.duration, seek]);
 
   /**
    * Seek to the end of a marker (for skip intro/credits functionality)
@@ -206,9 +187,9 @@ export function useMediaPlayer(): {
     [seek],
   );
 
-  // Placeholder for openPlayer - this is handled by the atom directly
+  // Placeholder for openPlayer - this is handled by the store directly
   const openPlayer = useCallback(() => {
-    console.warn("openPlayer should be called via openMediaPlayerAtom");
+    console.warn("openPlayer should be called via store.openPlayer");
   }, []);
 
   const actions: MediaPlayerActions = {
@@ -223,7 +204,7 @@ export function useMediaPlayer(): {
     toggleFullscreen,
     showControlsTemporarily,
     openPlayer,
-    closePlayer,
+    closePlayer: store.closePlayer,
   };
 
   // Extended actions for internal use
@@ -237,7 +218,7 @@ export function useMediaPlayer(): {
   };
 
   return {
-    state,
+    state: store,
     actions: extendedActions,
     videoRef,
   };

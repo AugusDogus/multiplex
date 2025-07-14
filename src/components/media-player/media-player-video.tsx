@@ -1,12 +1,7 @@
 "use client";
 
-import { useAtom, useAtomValue } from "jotai";
 import { forwardRef, useCallback, useMemo, useRef } from "react";
-import {
-  mediaPlayerStateAtom,
-  playerStatusAtom,
-  updatePlaybackStateAtom,
-} from "~/atoms/media-player";
+import { useMediaPlayerStore } from "~/stores/media-player-store";
 import type { MediaPlayerItem } from "~/types/media-player";
 import { getVideoElementError } from "./utils/media-player-utils";
 import {
@@ -81,9 +76,23 @@ export const MediaPlayerVideo = forwardRef<
     },
     ref,
   ) => {
-    const [playerStatus] = useAtom(playerStatusAtom);
-    const [, updateState] = useAtom(updatePlaybackStateAtom);
-    const state = useAtomValue(mediaPlayerStateAtom);
+    const error = useMediaPlayerStore((state) => state.error);
+    const isLoading = useMediaPlayerStore((state) => state.isLoading);
+    const isBuffering = useMediaPlayerStore((state) => state.isBuffering);
+    const canPlay = useMediaPlayerStore((state) => state.canPlay);
+    const volume = useMediaPlayerStore((state) => state.volume);
+    const isMuted = useMediaPlayerStore((state) => state.isMuted);
+    const currentTime = useMediaPlayerStore((state) => state.currentTime);
+    const { updatePlaybackState } = useMediaPlayerStore();
+
+    // Compute player status locally to avoid object reference issues
+    const playerStatus = useMemo(() => {
+      if (error) return { status: "error", message: error } as const;
+      if (isLoading) return { status: "loading" } as const;
+      if (isBuffering) return { status: "buffering" } as const;
+      if (!canPlay) return { status: "waiting" } as const;
+      return { status: "ready" } as const;
+    }, [error, isLoading, isBuffering, canPlay]);
 
     // Derive video source URL and error state from item
     const { videoSrc, hasError } = useMemo(() => {
@@ -113,103 +122,103 @@ export const MediaPlayerVideo = forwardRef<
 
       if (ref && "current" in ref && ref.current) {
         // Update state with duration and ready status
-        updateState({
+        updatePlaybackState({
           duration: ref.current.duration,
           canPlay: true,
           isLoading: false,
         });
 
-        // Set initial playback position from atom state
-        const startTime = state.currentTime;
+        // Set initial playback position from store state
+        const startTime = currentTime;
         if (startTime > 0) {
           console.log(`🎬 Video: Setting start time to ${startTime}s`);
           ref.current.currentTime = startTime;
         }
 
-        // Synchronize volume and mute state with atom state
+        // Synchronize volume and mute state with store state
         console.log(
-          `🎬 Video: Synchronizing volume (${state.volume}) and mute state (${state.isMuted})`,
+          `🎬 Video: Synchronizing volume (${volume}) and mute state (${isMuted})`,
         );
-        ref.current.volume = state.volume;
-        ref.current.muted = state.isMuted;
+        ref.current.volume = volume;
+        ref.current.muted = isMuted;
       }
-    }, [ref, updateState, state.currentTime, state.volume, state.isMuted]);
+    }, [ref, updatePlaybackState, currentTime, volume, isMuted]);
 
     // Handle video play event
     const handlePlay = useCallback(() => {
-      updateState({ isPlaying: true });
+      updatePlaybackState({ isPlaying: true });
       onVideoPlay?.();
-    }, [updateState, onVideoPlay]);
+    }, [updatePlaybackState, onVideoPlay]);
 
     // Handle video pause event
     const handlePause = useCallback(() => {
-      updateState({ isPlaying: false });
+      updatePlaybackState({ isPlaying: false });
       onVideoPause?.();
-    }, [updateState, onVideoPause]);
+    }, [updatePlaybackState, onVideoPause]);
 
     // Handle video ended event
     const handleEnded = useCallback(() => {
-      updateState({ isPlaying: false });
+      updatePlaybackState({ isPlaying: false });
       onVideoEnded?.();
-    }, [updateState, onVideoEnded]);
+    }, [updatePlaybackState, onVideoEnded]);
 
     // Handle time update events
     const handleTimeUpdate = useCallback(() => {
       if (ref && "current" in ref && ref.current) {
         const currentTime = ref.current.currentTime;
-        updateState({ currentTime });
+        updatePlaybackState({ currentTime });
         onVideoTimeUpdate?.(currentTime);
       }
-    }, [ref, updateState, onVideoTimeUpdate]);
+    }, [ref, updatePlaybackState, onVideoTimeUpdate]);
 
     // Handle seeked events
     const handleSeeked = useCallback(() => {
       if (ref && "current" in ref && ref.current) {
-        updateState({ isBuffering: false });
+        updatePlaybackState({ isBuffering: false });
         onVideoSeeked?.(ref.current.currentTime);
       }
-    }, [ref, updateState, onVideoSeeked]);
+    }, [ref, updatePlaybackState, onVideoSeeked]);
 
     // Handle seeking event
     const handleSeeking = useCallback(() => {
-      updateState({ isBuffering: true });
-    }, [updateState]);
+      updatePlaybackState({ isBuffering: true });
+    }, [updatePlaybackState]);
 
     // Handle waiting event (buffering starts)
     const handleWaiting = useCallback(() => {
-      updateState({ isBuffering: true });
-    }, [updateState]);
+      updatePlaybackState({ isBuffering: true });
+    }, [updatePlaybackState]);
 
     // Handle can play event (buffering ends)
     const handleCanPlay = useCallback(() => {
-      updateState({ isBuffering: false, canPlay: true });
-    }, [updateState]);
+      updatePlaybackState({ isBuffering: false, canPlay: true });
+    }, [updatePlaybackState]);
 
     // Handle can play through event
     const handleCanPlayThrough = useCallback(() => {
-      updateState({
+      updatePlaybackState({
         isBuffering: false,
         canPlay: true,
         isLoading: false,
       });
-    }, [updateState]);
+    }, [updatePlaybackState]);
 
     // Handle load start event
     const handleLoadStart = useCallback(() => {
-      updateState({
+      updatePlaybackState({
         isLoading: true,
         error: null,
         canPlay: false,
       });
-    }, [updateState]);
+    }, [updatePlaybackState]);
 
     // Handle loaded data event
     const handleLoadedData = useCallback(() => {
-      updateState({
+      updatePlaybackState({
         isLoading: false,
         canPlay: true,
       });
-    }, [updateState]);
+    }, [updatePlaybackState]);
 
     // Handle progress event (buffering progress)
     const handleProgress = useCallback(() => {
@@ -222,36 +231,36 @@ export const MediaPlayerVideo = forwardRef<
         const bufferedTime = ref.current.buffered.end(
           ref.current.buffered.length - 1,
         );
-        updateState({ bufferedTime });
+        updatePlaybackState({ bufferedTime });
       }
-    }, [ref, updateState]);
+    }, [ref, updatePlaybackState]);
 
     // Handle duration change event
     const handleDurationChange = useCallback(() => {
       if (ref && "current" in ref && ref.current) {
-        updateState({ duration: ref.current.duration });
+        updatePlaybackState({ duration: ref.current.duration });
       }
-    }, [ref, updateState]);
+    }, [ref, updatePlaybackState]);
 
     // Handle volume change event
     const handleVolumeChange = useCallback(() => {
       if (ref && "current" in ref && ref.current) {
-        updateState({
+        updatePlaybackState({
           volume: ref.current.volume,
           isMuted: ref.current.muted,
         });
       }
-    }, [ref, updateState]);
+    }, [ref, updatePlaybackState]);
 
     // Handle stalled event
     const handleStalled = useCallback(() => {
-      updateState({ isBuffering: true });
-    }, [updateState]);
+      updatePlaybackState({ isBuffering: true });
+    }, [updatePlaybackState]);
 
     // Handle suspend event
     const handleSuspend = useCallback(() => {
-      updateState({ isBuffering: false });
-    }, [updateState]);
+      updatePlaybackState({ isBuffering: false });
+    }, [updatePlaybackState]);
 
     /**
      * Handle video click for play/pause toggle
@@ -344,13 +353,13 @@ export const MediaPlayerVideo = forwardRef<
     const handleVideoError = useCallback(() => {
       if (ref && "current" in ref && ref.current?.error) {
         const errorMessage = getVideoElementError(ref.current.error);
-        updateState({
+        updatePlaybackState({
           error: errorMessage,
           isLoading: false,
           isBuffering: false,
         });
       }
-    }, [ref, updateState]);
+    }, [ref, updatePlaybackState]);
 
     if (hasError || !videoSrc) {
       return (
@@ -434,7 +443,7 @@ export const MediaPlayerVideo = forwardRef<
               <div className="mb-3 text-2xl">⚠️</div>
               <div className="mb-2 text-lg font-semibold">Playback Error</div>
               <div className="text-sm text-white/80">
-                {playerStatus.message ||
+                {playerStatus.message ??
                   "An error occurred during video playback"}
               </div>
             </div>
