@@ -280,27 +280,78 @@ export async function getServerChannelsProgrammingQuery(
   }
 
   const serverClient = plex.createServerClient(targetServer);
-
-  // Determine which dates we need to fetch (same logic as getAllChannelsProgrammingQuery)
   const requiredDates = getRequiredDates(date, startTime, endTime);
 
-  // Fetch data for all required dates and merge
-  const dateResults: AllChannelsProgrammingResult[] = [];
-  
-  for (const dateStr of requiredDates) {
-    const dayResult = await getServerChannelsProgrammingForDate(
-      serverClient, 
-      providerIdentifier, 
-      dateStr, 
-      startTime, 
-      endTime
-    );
-    dateResults.push(dayResult);
+  // First attempt to get programming data
+  const initialChannelLineups = await fetchChannelLineupsForDates(
+    serverClient,
+    providerIdentifier,
+    requiredDates,
+    startTime,
+    endTime
+  );
+
+  // Check if we got any programming data
+  const hasAnyPrograms = initialChannelLineups.some(lineup => lineup.programs.length > 0);
+
+  // If we have programs or no channels, return the initial data
+  if (hasAnyPrograms || initialChannelLineups.length === 0) {
+    return initialChannelLineups;
   }
 
-  // Merge results from multiple dates
+  // No programming data but channels exist - try to reload guide
+  console.log(`No programming data found for server ${targetServer.name}, attempting to reload guide...`);
+  
+  try {
+    await serverClient.reloadGuide();
+    console.log(`Guide reloaded successfully for server ${targetServer.name}`);
+    
+    // Give it a moment for the guide to be processed
+    await new Promise(resolve => setTimeout(resolve, 5000));
+
+    // Try to get programming data again
+    console.log('Retrying to get programming data after guide reload...');
+    return await fetchChannelLineupsForDates(
+      serverClient,
+      providerIdentifier,
+      requiredDates,
+      startTime,
+      endTime
+    );
+  } catch (error) {
+    console.warn(`Failed to reload guide for server ${targetServer.name}:`, error);
+    return initialChannelLineups;
+  }
+}
+
+/**
+ * Helper function to fetch channel lineups for multiple dates
+ */
+async function fetchChannelLineupsForDates(
+  serverClient: PlexServerClient,
+  providerIdentifier: string,
+  dates: string[],
+  startTime?: Date,
+  endTime?: Date,
+): Promise<AllChannelsProgrammingResult> {
+  const dateResults = await Promise.all(
+    dates.map(dateStr => 
+      getServerChannelsProgrammingForDate(
+        serverClient, 
+        providerIdentifier, 
+        dateStr, 
+        startTime, 
+        endTime
+      )
+    )
+  );
+
   if (dateResults.length === 1) {
-    return dateResults[0]!;
+    const singleResult = dateResults.at(0);
+    if (!singleResult) {
+      throw new Error('Expected single result but got undefined');
+    }
+    return singleResult;
   }
 
   return await mergeChannelLineups(dateResults);
