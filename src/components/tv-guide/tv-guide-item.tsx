@@ -1,10 +1,6 @@
+import { useCallback, useEffect, useState } from "react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "~/components/ui/tooltip";
 import type { TvGuideItemProps } from "~/types/tv-guide";
 
 // Simplified color palette using CSS classes with built-in hover states
@@ -21,15 +17,11 @@ const programColors = [
   "bg-cyan-500/70 hover:bg-cyan-400/80",
 ];
 
-export function TvGuideItem({
-  program,
-  width,
-  left,
-  index,
-  channelIndex,
-  onClick,
-  className,
-}: TvGuideItemProps) {
+export function TvGuideItem({ program, width, left, index, channelIndex, onClick, className }: TvGuideItemProps) {
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const [isHovered, setIsHovered] = useState(false);
+  const [windowDimensions, setWindowDimensions] = useState({ width: 0, height: 0 });
+
   // Use both channel index and program index to create color variation
   const colorIndex = (channelIndex + index) % programColors.length;
   const colorClass = programColors[colorIndex];
@@ -38,16 +30,54 @@ export function TvGuideItem({
   const widthNumber = parseFloat(width);
   const isVeryShort = widthNumber < 2;
 
+  // Check if this is a very wide program (more than 50% width) - use cursor-based tooltip
+  const isVeryWide = widthNumber > 50;
+
+  // Initialize window dimensions on mount
+  useEffect(() => {
+    const updateWindowDimensions = () => {
+      setWindowDimensions({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+
+    // Only run on client side
+    if (typeof window !== "undefined") {
+      updateWindowDimensions();
+      window.addEventListener("resize", updateWindowDimensions);
+      return () => window.removeEventListener("resize", updateWindowDimensions);
+    }
+  }, []);
+
   const handleClick = () => {
     if (onClick) {
       onClick(program);
     }
   };
 
+  // Debounced mouse move handler to improve performance
+  const handleMouseMove = useCallback(
+    (event: React.MouseEvent) => {
+      if (isVeryWide) {
+        setMousePosition({ x: event.clientX, y: event.clientY });
+      }
+    },
+    [isVeryWide],
+  );
+
+  const handleMouseEnter = () => {
+    setIsHovered(true);
+  };
+
+  const handleMouseLeave = () => {
+    setIsHovered(false);
+  };
+
   // Create tooltip content with full title and episode info
   const tooltipContent = () => {
-    const mainTitle = program.grandparentTitle ?? program.title;
-    const episodeTitle = program.title !== mainTitle ? program.title : null;
+    const mainTitle = program.grandparentTitle ?? program.title ?? "Unknown Program";
+    const episodeTitle = program.title && program.title !== mainTitle ? program.title : null;
     const seasonEpisode =
       program.parentIndex != null || program.index != null
         ? `${program.parentIndex != null ? `S${program.parentIndex}` : ""}${program.parentIndex != null && program.index != null ? " · " : ""}${program.index != null ? `E${program.index}` : ""}`
@@ -57,55 +87,118 @@ export function TvGuideItem({
       <div className="space-y-1">
         <div className="font-semibold">{mainTitle}</div>
         {episodeTitle && <div className="text-sm">{episodeTitle}</div>}
-        {seasonEpisode && (
-          <div className="text-muted-foreground text-xs">{seasonEpisode}</div>
-        )}
-        {program.summary && (
-          <div className="text-muted-foreground max-w-xs text-xs">
-            {program.summary.length > 100
-              ? `${program.summary.substring(0, 100)}...`
-              : program.summary}
-          </div>
-        )}
+        {seasonEpisode && <div className="text-muted-foreground text-xs">{seasonEpisode}</div>}
+        {program.summary && <div className="text-muted-foreground max-w-xs text-xs">{program.summary.length > 100 ? `${program.summary.substring(0, 100)}...` : program.summary}</div>}
+      </div>
+    );
+  };
+
+  // Custom cursor-based tooltip for wide programs
+  const CursorTooltip = () => {
+    if (!isHovered || !isVeryWide || windowDimensions.width === 0) return null;
+
+    // Calculate position to avoid going off-screen
+    const tooltipWidth = 320; // Approximate max width
+    const tooltipHeight = 120; // Approximate height
+    const offset = 10;
+
+    let left = mousePosition.x + offset;
+    let top = mousePosition.y - offset;
+
+    // Adjust horizontal position if tooltip would go off-screen
+    if (left + tooltipWidth > windowDimensions.width) {
+      left = mousePosition.x - tooltipWidth - offset;
+    }
+
+    // Adjust vertical position if tooltip would go off-screen
+    if (top - tooltipHeight < 0) {
+      top = mousePosition.y + offset;
+    }
+
+    return (
+      <div
+        className="pointer-events-none fixed z-50"
+        style={{
+          left,
+          top,
+          transform: top < mousePosition.y ? "translateY(-100%)" : "none",
+        }}
+      >
+        <div className="bg-popover text-popover-foreground max-w-sm rounded-md border p-3 shadow-md">{tooltipContent()}</div>
       </div>
     );
   };
 
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div
-            className={cn(
-              "border-card absolute flex min-h-16 flex-col items-start justify-start rounded-md border-2",
-              "cursor-pointer overflow-hidden transition-all duration-500 ease-in",
-              colorClass,
-              // Use minimal spacing for very short programs to prevent overlap
-              isVeryShort ? "m-0 p-1" : "m-0.5 p-2",
-              className,
-            )}
-            style={{ left, width }}
-            onClick={handleClick}
-          >
-            {/* Show Title */}
-            <div className="w-full text-sm leading-tight font-semibold text-nowrap text-white drop-shadow-sm">
-              {program.grandparentTitle ?? program.title}
-            </div>
+    <>
+      {isVeryWide ? (
+        // Use custom cursor-based tooltip for wide programs
+        <div
+          className={cn(
+            "border-card absolute flex min-h-16 flex-col items-start justify-start rounded-md border-2",
+            "cursor-pointer overflow-hidden transition-all duration-500 ease-in",
+            colorClass,
+            // Use minimal spacing for very short programs to prevent overlap
+            isVeryShort ? "m-0 p-1" : "m-0.5 p-2",
+            className,
+          )}
+          style={{ left, width }}
+          onClick={handleClick}
+          onMouseMove={handleMouseMove}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+        >
+          {/* Show Title */}
+          <div className="w-full text-sm leading-tight font-semibold text-nowrap text-white drop-shadow-sm">{program.grandparentTitle ?? program.title ?? "Unknown Program"}</div>
 
-            {/* Season and Episode */}
-            {(program.parentIndex != null || program.index != null) && (
-              <div className="w-full text-xs leading-tight text-nowrap text-white/90 drop-shadow-sm">
-                {program.parentIndex != null && `S${program.parentIndex}`}
-                {program.parentIndex != null && program.index != null && " · "}
-                {program.index != null && `E${program.index}`}
+          {/* Season and Episode */}
+          {(program.parentIndex != null || program.index != null) && (
+            <div className="w-full text-xs leading-tight text-nowrap text-white/90 drop-shadow-sm">
+              {program.parentIndex != null && `S${program.parentIndex}`}
+              {program.parentIndex != null && program.index != null && " · "}
+              {program.index != null && `E${program.index}`}
+            </div>
+          )}
+        </div>
+      ) : (
+        // Use standard tooltip for normal-width programs
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div
+                className={cn(
+                  "border-card absolute flex min-h-16 flex-col items-start justify-start rounded-md border-2",
+                  "cursor-pointer overflow-hidden transition-all duration-500 ease-in",
+                  colorClass,
+                  // Use minimal spacing for very short programs to prevent overlap
+                  isVeryShort ? "m-0 p-1" : "m-0.5 p-2",
+                  className,
+                )}
+                style={{ left, width }}
+                onClick={handleClick}
+              >
+                {/* Show Title */}
+                <div className="w-full text-sm leading-tight font-semibold text-nowrap text-white drop-shadow-sm">{program.grandparentTitle ?? program.title ?? "Unknown Program"}</div>
+
+                {/* Season and Episode */}
+                {(program.parentIndex != null || program.index != null) && (
+                  <div className="w-full text-xs leading-tight text-nowrap text-white/90 drop-shadow-sm">
+                    {program.parentIndex != null && `S${program.parentIndex}`}
+                    {program.parentIndex != null && program.index != null && " · "}
+                    {program.index != null && `E${program.index}`}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-sm">
-          {tooltipContent()}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-sm">
+              {tooltipContent()}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
+
+      {/* Render cursor tooltip for wide programs */}
+      <CursorTooltip />
+    </>
   );
 }
