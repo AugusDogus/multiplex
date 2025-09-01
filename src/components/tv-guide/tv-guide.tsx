@@ -84,6 +84,7 @@ function renderChannelPrograms(
   lineup: TvGuideChannelLineup,
   startTime: Date,
   endTime: Date,
+  channelIndex: number,
   onProgramClick?: (program: TvGuideProgram) => void,
 ) {
   const { programs } = lineup;
@@ -121,6 +122,7 @@ function renderChannelPrograms(
             width={width}
             left={left}
             index={index}
+            channelIndex={channelIndex}
             onClick={onProgramClick}
           />
         );
@@ -263,12 +265,13 @@ export function TvGuide({
                 </div>
               ) : (
                 <div className="mb-1 space-y-0">
-                  {channelLineups.map((lineup) => (
+                  {channelLineups.map((lineup, channelIndex) => (
                     <div key={lineup.channel.id} className="flex">
                       {renderChannelPrograms(
                         lineup,
                         startTime,
                         endTime,
+                        channelIndex,
                         handleProgramClick,
                       )}
                     </div>

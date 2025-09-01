@@ -16,6 +16,7 @@ export interface TvGuideItemProps {
   width: string;
   left: string;
   index: number;
+  channelIndex: number;
   onClick?: (program: TvGuideProgram) => void;
   className?: string;
 }

@@ -26,10 +26,13 @@ export function TvGuideItem({
   width,
   left,
   index,
+  channelIndex,
   onClick,
   className,
 }: TvGuideItemProps) {
-  const colorClass = programColors[index % programColors.length];
+  // Use both channel index and program index to create color variation
+  const colorIndex = (channelIndex + index) % programColors.length;
+  const colorClass = programColors[colorIndex];
 
   // Check if this is a very short program (less than 2% width)
   const widthNumber = parseFloat(width);
