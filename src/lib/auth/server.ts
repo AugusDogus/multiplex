@@ -7,5 +7,11 @@ export const auth = betterAuth({
   database: drizzleAdapter(db, {
     provider: "sqlite",
   }),
+  session: {
+    cookieCache: {
+      enabled: true,
+      maxAge: 5 * 60, // Cache for 5 minutes
+    },
+  },
   plugins: [plex()],
 });
