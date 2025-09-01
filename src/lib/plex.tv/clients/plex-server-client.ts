@@ -2,33 +2,34 @@ import {
   continueWatchingResponseSchema,
   type ContinueWatchingResponse,
 } from "../schemas/continue-watching-schemas";
+import { dvrsResponseSchema, type DVRsResponse } from "../schemas/dvr-schemas";
+import {
+  channelsResponseSchema,
+  gridResponseSchema,
+  type ChannelsResponse,
+  type GridParams,
+  type GridResponse,
+} from "../schemas/grid-schemas";
+import {
+  playQueueResponseSchema,
+  type CreatePlayQueueParams,
+  type PlayQueueResponse,
+} from "../schemas/play-queue-schemas";
 import {
   MediaContainerSchema,
   type MediaContainer,
 } from "../schemas/plex-server-schemas";
-import {
-  playQueueResponseSchema,
-  type PlayQueueResponse,
-  type CreatePlayQueueParams,
-} from "../schemas/play-queue-schemas";
 import type { PlexDevice } from "../schemas/plex-tv-schemas";
 import {
   searchResponseSchema,
-  type SearchResponse,
   type SearchParams,
+  type SearchResponse,
 } from "../schemas/search-schemas";
-import {
-  gridResponseSchema,
-  channelsResponseSchema,
-  type GridResponse,
-  type GridParams,
-  type ChannelsResponse,
-} from "../schemas/grid-schemas";
 import {
   PlexAPIError,
   type GetRequestOptions,
-  type PostRequestOptions,
   type PlexConfig,
+  type PostRequestOptions,
 } from "../types/client-types";
 
 /* ────────────────────────────────────────────────────────────
@@ -361,17 +362,15 @@ export class PlexServerClient {
   async search(params: SearchParams): Promise<SearchResponse> {
     const searchParams: Record<string, string> = {
       query: params.query,
-      limit: params.limit?.toString() ?? '50',
-      searchTypes: params.searchTypes?.join(',') ?? 'movies,music,people,tv',
-      includeCollections: params.includeCollections ? '1' : '0',
-      includeExternalMedia: params.includeExternalMedia ? '1' : '0',
+      limit: params.limit?.toString() ?? "50",
+      searchTypes: params.searchTypes?.join(",") ?? "movies,music,people,tv",
+      includeCollections: params.includeCollections ? "1" : "0",
+      includeExternalMedia: params.includeExternalMedia ? "1" : "0",
     };
-
-
 
     // Get raw response first to debug schema issues
     const rawResponse = await this.get({
-      endpoint: '/library/search',
+      endpoint: "/library/search",
       params: searchParams,
     });
 
@@ -379,7 +378,10 @@ export class PlexServerClient {
     try {
       return searchResponseSchema.parse(rawResponse);
     } catch (error) {
-      console.error(`Search schema validation failed for ${this.server.name}:`, error);
+      console.error(
+        `Search schema validation failed for ${this.server.name}:`,
+        error,
+      );
       throw error;
     }
   }
@@ -395,7 +397,8 @@ export class PlexServerClient {
       date: params.date,
     };
 
-    const providerIdentifier = params.providerIdentifier ?? "tv.plex.providers.epg.xmltv:71";
+    const providerIdentifier =
+      params.providerIdentifier ?? "tv.plex.providers.epg.xmltv:71";
 
     return await this.get({
       endpoint: `/${providerIdentifier}/grid`,
@@ -409,7 +412,9 @@ export class PlexServerClient {
    * @param providerIdentifier - The EPG provider identifier (e.g., "tv.plex.providers.epg.xmltv:71")
    * @returns Channels response with available channel information
    */
-  async getChannels(providerIdentifier = "tv.plex.providers.epg.xmltv:71"): Promise<ChannelsResponse> {
+  async getChannels(
+    providerIdentifier = "tv.plex.providers.epg.xmltv:71",
+  ): Promise<ChannelsResponse> {
     return await this.get({
       endpoint: `/${providerIdentifier}/lineups/dvr/channels`,
       schema: channelsResponseSchema,
@@ -417,13 +422,38 @@ export class PlexServerClient {
   }
 
   /**
-   * Reload the EPG guide data for the DVR
+   * Get all DVRs from the server
+   * @returns Promise that resolves to DVRs response with all available DVRs
+   */
+  async getDVRs(): Promise<DVRsResponse> {
+    return await this.get({
+      endpoint: `/livetv/dvrs`,
+      schema: dvrsResponseSchema,
+    });
+  }
+
+  /**
+   * Reload the EPG guide data for a specific DVR
+   * @param dvrId - The DVR ID to reload guide for
    * @returns Promise that resolves when guide reload is complete
    */
-  async reloadGuide(): Promise<void> {
+  async reloadGuide(dvrId: string): Promise<void> {
     await this.post({
-      endpoint: `/livetv/dvrs/71/reloadGuide`,
+      endpoint: `/livetv/dvrs/${dvrId}/reloadGuide`,
+      expectEmptyResponse: true,
     });
+  }
+
+  /**
+   * Reload the EPG guide data for all DVRs
+   * @returns Promise that resolves when all guide reloads are complete
+   */
+  async reloadAllGuides(): Promise<void> {
+    const dvrsResponse = await this.getDVRs();
+    const reloadPromises = dvrsResponse.MediaContainer.Dvr.map((dvr) =>
+      this.reloadGuide(dvr.key),
+    );
+    await Promise.all(reloadPromises);
   }
 
   /**
@@ -431,22 +461,24 @@ export class PlexServerClient {
    * @param params - Parameters for creating the play queue
    * @returns Play queue response with markers
    */
-  async createPlayQueue(params: CreatePlayQueueParams): Promise<PlayQueueResponse> {
+  async createPlayQueue(
+    params: CreatePlayQueueParams,
+  ): Promise<PlayQueueResponse> {
     const queryParams = {
       type: params.type,
       uri: params.uri,
-      continuous: params.continuous ? '1' : '0',
-      includeMarkers: params.includeMarkers ? '1' : '0',
-      includeChapters: params.includeChapters ? '1' : '0',
-      shuffle: params.shuffle ? '1' : '0',
+      continuous: params.continuous ? "1" : "0",
+      includeMarkers: params.includeMarkers ? "1" : "0",
+      includeChapters: params.includeChapters ? "1" : "0",
+      shuffle: params.shuffle ? "1" : "0",
       repeat: params.repeat.toString(),
-      own: '1',
-      includeGeolocation: '1',
-      includeExternalMedia: '1',
+      own: "1",
+      includeGeolocation: "1",
+      includeExternalMedia: "1",
     };
 
     return await this.post({
-      endpoint: 'playQueues',
+      endpoint: "playQueues",
       params: queryParams,
       schema: playQueueResponseSchema,
     });
@@ -458,19 +490,20 @@ export class PlexServerClient {
    * @param includeMarkers - Whether to include markers in the response
    * @returns Play queue response with markers
    */
-  async getPlayQueue(playQueueId: string, includeMarkers = true): Promise<PlayQueueResponse> {
+  async getPlayQueue(
+    playQueueId: string,
+    includeMarkers = true,
+  ): Promise<PlayQueueResponse> {
     return await this.get({
       endpoint: `playQueues/${playQueueId}`,
       params: {
-        includeMarkers: includeMarkers ? '1' : '0',
-        includeChapters: '1',
-        own: '1',
+        includeMarkers: includeMarkers ? "1" : "0",
+        includeChapters: "1",
+        own: "1",
       },
       schema: playQueueResponseSchema,
     });
   }
-
-
 
   /**
    * Make a GET request to the Plex Media Server
@@ -485,11 +518,15 @@ export class PlexServerClient {
     for (const attempt of Array.from({ length: maxRetries + 1 }, (_, i) => i)) {
       try {
         const connection = await this.findWorkingConnection();
-        
+
         // Manually construct URL to avoid encoding colons in provider identifiers
-        const baseUrl = connection.uri.endsWith('/') ? connection.uri.slice(0, -1) : connection.uri;
-        const endpointWithoutLeadingSlash = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
-        
+        const baseUrl = connection.uri.endsWith("/")
+          ? connection.uri.slice(0, -1)
+          : connection.uri;
+        const endpointWithoutLeadingSlash = endpoint.startsWith("/")
+          ? endpoint.slice(1)
+          : endpoint;
+
         // Build query parameters manually
         const queryParams = new URLSearchParams();
 
@@ -519,30 +556,18 @@ export class PlexServerClient {
           xPlexOverrides.features ??
             "external-media,indirect-media,hub-style-list",
         );
-        queryParams.append(
-          "X-Plex-Model",
-          xPlexOverrides.model ?? "bundled",
-        );
-        queryParams.append(
-          "X-Plex-Device",
-          xPlexOverrides.device ?? "Windows",
-        );
+        queryParams.append("X-Plex-Model", xPlexOverrides.model ?? "bundled");
+        queryParams.append("X-Plex-Device", xPlexOverrides.device ?? "Windows");
         queryParams.append(
           "X-Plex-Device-Name",
           xPlexOverrides.deviceName ?? this.config.platform,
         );
-        queryParams.append(
-          "X-Plex-Language",
-          xPlexOverrides.language ?? "en",
-        );
+        queryParams.append("X-Plex-Language", xPlexOverrides.language ?? "en");
         queryParams.append("X-Plex-Token", this.token);
 
         // Optional parameters that can be overridden
         if (xPlexOverrides.sessionId) {
-          queryParams.append(
-            "X-Plex-Session-Id",
-            xPlexOverrides.sessionId,
-          );
+          queryParams.append("X-Plex-Session-Id", xPlexOverrides.sessionId);
         }
         if (xPlexOverrides.playbackSessionId) {
           queryParams.append(
@@ -573,13 +598,15 @@ export class PlexServerClient {
           headers,
         });
 
-        console.log(`Response from ${this.server.name}: ${response.status} ${response.statusText}`);
+        console.log(
+          `Response from ${this.server.name}: ${response.status} ${response.statusText}`,
+        );
 
         if (!response.ok) {
           console.log(
             `Request to ${this.server.name} failed (attempt ${attempt + 1}): ${response.statusText}`,
           );
-          
+
           const currentError = new PlexAPIError(
             `Plex Server API request failed: ${response.statusText}`,
             response.status,
@@ -650,7 +677,13 @@ export class PlexServerClient {
    * @returns Parsed and validated response data
    */
   private async post<T>(options: PostRequestOptions<T>): Promise<T> {
-    const { endpoint, params, schema, xPlexOverrides = {} } = options;
+    const {
+      endpoint,
+      params,
+      schema,
+      expectEmptyResponse = false,
+      xPlexOverrides = {},
+    } = options;
     const maxRetries = 2;
     const errors: Error[] = [];
 
@@ -763,19 +796,40 @@ export class PlexServerClient {
           );
         }
 
-        const data = await response.json();
+        let data: T;
 
-        if (schema) {
+        if (expectEmptyResponse) {
+          // For endpoints that return empty responses, just return undefined or empty object
+          data = {} as T;
+        } else {
+          // Try to parse JSON response
           try {
-            return schema.parse(data);
-          } catch (error) {
-            throw new PlexAPIError(
-              `Invalid response format from Plex Server API: ${error instanceof Error ? error.message : "Unknown error"}`,
-            );
+            const jsonData = await response.json();
+
+            if (schema) {
+              try {
+                data = schema.parse(jsonData);
+              } catch (error) {
+                throw new PlexAPIError(
+                  `Invalid response format from Plex Server API: ${error instanceof Error ? error.message : "Unknown error"}`,
+                );
+              }
+            } else {
+              data = jsonData as T;
+            }
+          } catch (jsonError) {
+            // If JSON parsing fails, it might be an empty response
+            if (expectEmptyResponse) {
+              data = {} as T;
+            } else {
+              throw new PlexAPIError(
+                `Failed to parse JSON response from Plex Server API: ${jsonError instanceof Error ? jsonError.message : "Unknown error"}`,
+              );
+            }
           }
         }
 
-        return data as T;
+        return data;
       } catch (error) {
         const currentError =
           error instanceof Error ? error : new Error(String(error));
@@ -814,7 +868,8 @@ export class PlexServerClient {
     }
 
     throw (
-      errors[errors.length - 1] ?? new Error("POST request failed after retries")
+      errors[errors.length - 1] ??
+      new Error("POST request failed after retries")
     );
   }
 

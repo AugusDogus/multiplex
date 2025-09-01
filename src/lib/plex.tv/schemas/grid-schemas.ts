@@ -7,7 +7,7 @@ import { z } from "zod";
 
 const gridMediaSchema = z.object({
   id: z.number(),
-  duration: z.number(),
+  duration: z.number().optional(),
   audioChannels: z.number(),
   videoResolution: z.string(),
   channelCallSign: z.string(),
@@ -53,7 +53,7 @@ const gridMetadataSchema = z.object({
   index: z.number().optional(),
   parentIndex: z.number().optional(),
   grandparentThumb: z.string().optional(),
-  duration: z.number(),
+  duration: z.number().optional(),
   addedAt: z.number(),
   onAir: z.boolean().optional(),
   Media: z.array(gridMediaSchema),
@@ -103,4 +103,4 @@ export type Channel = z.infer<typeof channelSchema>;
 export type ChannelsResponse = z.infer<typeof channelsResponseSchema>;
 
 // Export the schemas for use in client
-export { gridResponseSchema, channelsResponseSchema }; 
+export { channelsResponseSchema, gridResponseSchema };

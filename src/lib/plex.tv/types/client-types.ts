@@ -48,6 +48,7 @@ export interface PostRequestOptions<T> {
   params?: Record<string, string | number | boolean>;
   schema?: z.ZodType<T>;
   baseUrl?: string;
+  expectEmptyResponse?: boolean;
   xPlexOverrides?: Partial<{
     product: string;
     version: string;
