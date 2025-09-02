@@ -77,7 +77,7 @@ export default async function LiveTvPage({ params }: PageProps) {
         );
         return []; // Return empty array on error
       }),
-  ]);
+  ] as const);
 
   if (!servers || !userInfo) {
     return null;
@@ -113,6 +113,9 @@ export default async function LiveTvPage({ params }: PageProps) {
       </div>
     );
   }
+
+  // Ensure channelLineups is an array (handle potential error cases)
+  const safeChannelLineups = Array.isArray(channelLineups) ? channelLineups : [];
 
   return (
     <HydrateClient>
@@ -152,7 +155,7 @@ export default async function LiveTvPage({ params }: PageProps) {
               <TvGuide
                 startTime={startTime}
                 endTime={endTime}
-                channelLineups={channelLineups}
+                channelLineups={safeChannelLineups}
               />
             </div>
           </SidebarInset>

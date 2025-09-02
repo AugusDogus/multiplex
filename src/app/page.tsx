@@ -34,7 +34,7 @@ export default async function Page() {
     api.plex.getServers(),
     api.plex.getUserInfo(),
     api.plex.getAllContinueWatching(),
-  ]);
+  ] as const);
 
   if (!servers || !userInfo) {
     return null;

@@ -48,7 +48,7 @@ export default async function MediaLibraryPage({
   const [servers, userInfo] = await Promise.all([
     api.plex.getServers(),
     api.plex.getUserInfo(),
-  ]);
+  ] as const);
 
   if (!servers || !userInfo) {
     return null;
