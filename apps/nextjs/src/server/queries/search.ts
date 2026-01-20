@@ -15,7 +15,7 @@ export async function searchQuery(
   try {
     // Get servers
     const servers = await plex.getServers();
-    
+
     if (!servers || servers.length === 0) {
       return {
         movies: [],
@@ -29,29 +29,49 @@ export async function searchQuery(
 
     // Get user info for auth token fallback
     const userInfo = await plex.getUserInfo();
-    
+
     // Helper function to get the best server URL (improved version)
     const getServerUrl = (server: PlexDevice): string | undefined => {
-      const connections = Array.isArray(server.connections) ? server.connections : [];
+      const connections = Array.isArray(server.connections)
+        ? server.connections
+        : [];
       const PORT_REGEX = /:\d+(?=\/|$)/;
-      
-      const pick = (pred: (c: typeof connections[0]) => boolean) => connections.find(pred);
+
+      const pick = (pred: (c: (typeof connections)[0]) => boolean) =>
+        connections.find(pred);
 
       // Prefer non-local plex.direct connections (public IPs work better through relay)
-      const directNonLocal = pick(c => c?.uri?.startsWith("https://") && c.uri.includes(".plex.direct") && !c.local);
-      const directLocal = pick(c => c?.uri?.startsWith("https://") && c.uri.includes(".plex.direct") && c.local);
-      const customNP = pick(c => {
+      const directNonLocal = pick(
+        (c) =>
+          c?.uri?.startsWith("https://") &&
+          c.uri.includes(".plex.direct") &&
+          !c.local,
+      );
+      const directLocal = pick(
+        (c) =>
+          c?.uri?.startsWith("https://") &&
+          c.uri.includes(".plex.direct") &&
+          c.local,
+      );
+      const customNP = pick((c) => {
         const u = c?.uri;
-        return u?.startsWith("https://") && !u.includes(".plex.direct") && !PORT_REGEX.test(u);
+        return (
+          u?.startsWith("https://") &&
+          !u.includes(".plex.direct") &&
+          !PORT_REGEX.test(u)
+        );
       });
-      const httpsAny = pick(c => c?.uri?.startsWith("https://"));
-      const anyConnection = pick(c => Boolean(c?.uri));
+      const httpsAny = pick((c) => c?.uri?.startsWith("https://"));
+      const anyConnection = pick((c) => Boolean(c?.uri));
 
-      const selected = directNonLocal?.uri ?? directLocal?.uri ?? customNP?.uri ?? httpsAny?.uri ?? anyConnection?.uri;
+      const selected =
+        directNonLocal?.uri ??
+        directLocal?.uri ??
+        customNP?.uri ??
+        httpsAny?.uri ??
+        anyConnection?.uri;
       if (!selected) return undefined;
-      
-      
-      
+
       return !selected.includes(".plex.direct") && PORT_REGEX.test(selected)
         ? selected.replace(PORT_REGEX, "")
         : selected;
@@ -62,18 +82,18 @@ export async function searchQuery(
       try {
         const serverClient = plex.createServerClient(server);
         const response = await serverClient.search(params);
-        
+
         // Get server connection info for images
         const serverUrl = getServerUrl(server);
         const authToken = server.accessToken ?? userInfo?.authToken;
-        
 
-        
         const results: ProcessedSearchResult[] = [];
-        const searchResults = Array.isArray(response.MediaContainer.SearchResult) 
-          ? response.MediaContainer.SearchResult 
+        const searchResults = Array.isArray(
+          response.MediaContainer.SearchResult,
+        )
+          ? response.MediaContainer.SearchResult
           : [];
-        
+
         for (const rawResult of searchResults) {
           try {
             // Use proper type guards for union types
@@ -111,10 +131,11 @@ export async function searchQuery(
             } else if (isDirectoryResult(rawResult)) {
               const directory = rawResult.Directory;
               results.push({
-                ratingKey: directory.id?.toString() ?? directory.tagKey ?? directory.key,
+                ratingKey:
+                  directory.id?.toString() ?? directory.tagKey ?? directory.key,
                 key: directory.key,
                 guid: directory.tagKey ?? directory.key,
-                type: 'person',
+                type: "person",
                 title: directory.tag,
                 summary: `${directory.count ?? 0} appearances`,
                 thumb: directory.thumb,
@@ -123,50 +144,63 @@ export async function searchQuery(
                 serverName: server.name,
                 serverUrl,
                 authToken,
-                librarySection: directory.librarySectionTitle ?? 'People',
+                librarySection: directory.librarySectionTitle ?? "People",
               });
             } else {
-              console.warn(`🔍 [SearchQuery] Unhandled result type from ${server.name}:`, Object.keys(rawResult));
+              console.warn(
+                `🔍 [SearchQuery] Unhandled result type from ${server.name}:`,
+                Object.keys(rawResult),
+              );
             }
           } catch (error) {
-            console.warn(`🔍 [SearchQuery] Failed to process search result from ${server.name}:`, error);
+            console.warn(
+              `🔍 [SearchQuery] Failed to process search result from ${server.name}:`,
+              error,
+            );
           }
         }
-        
+
         return results;
       } catch (error) {
-        console.warn(`🔍 [SearchQuery] Search failed for server ${server.name}:`, error);
+        console.warn(
+          `🔍 [SearchQuery] Search failed for server ${server.name}:`,
+          error,
+        );
         return [];
       }
     });
 
     const serverResults = await Promise.allSettled(serverPromises);
-    
+
     // Extract successful results
     const allResults = serverResults
-      .filter((result): result is PromiseFulfilledResult<ProcessedSearchResult[]> => 
-        result.status === 'fulfilled'
+      .filter(
+        (result): result is PromiseFulfilledResult<ProcessedSearchResult[]> =>
+          result.status === "fulfilled",
       )
-      .flatMap(result => result.value);
+      .flatMap((result) => result.value);
 
     // Sort by relevance score
     allResults.sort((a, b) => b.score - a.score);
-    
+
     // Group by media type
     return {
-      movies: allResults.filter(result => result.type === 'movie'),
-      tv: allResults.filter(result => 
-        result.type === 'show' || result.type === 'episode'
+      movies: allResults.filter((result) => result.type === "movie"),
+      tv: allResults.filter(
+        (result) => result.type === "show" || result.type === "episode",
       ),
-      music: allResults.filter(result => 
-        result.type === 'artist' || result.type === 'album' || result.type === 'track'
+      music: allResults.filter(
+        (result) =>
+          result.type === "artist" ||
+          result.type === "album" ||
+          result.type === "track",
       ),
-      people: allResults.filter(result => result.type === 'person'),
-      collections: allResults.filter(result => result.type === 'collection'),
+      people: allResults.filter((result) => result.type === "person"),
+      collections: allResults.filter((result) => result.type === "collection"),
       totalResults: allResults.length,
     };
   } catch (error) {
-    console.error('Search query failed:', error);
+    console.error("Search query failed:", error);
     return {
       movies: [],
       tv: [],

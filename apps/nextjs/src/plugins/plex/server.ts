@@ -128,15 +128,18 @@ const userInfoSchema = z
     }),
     entitlements: z.array(z.string()).optional().default([]),
     roles: z.array(z.string()).optional().default([]),
-    services: z.array(
-      z.object({
-        identifier: z.string(),
-        endpoint: z.string(),
-        token: z.string().nullable(),
-        secret: z.string().nullable(),
-        status: z.string(),
-      }),
-    ).optional().default([]),
+    services: z
+      .array(
+        z.object({
+          identifier: z.string(),
+          endpoint: z.string(),
+          token: z.string().nullable(),
+          secret: z.string().nullable(),
+          status: z.string(),
+        }),
+      )
+      .optional()
+      .default([]),
     adsConsent: z.boolean().nullable(),
     adsConsentSetAt: z.number().nullable(),
     adsConsentReminderAt: z.number().nullable(),
@@ -404,7 +407,7 @@ export const plex = () => {
                 existingUser.id,
                 {
                   plexAuthToken: auth.authToken!,
-                }
+                },
               )) as UserWithPlex | null;
 
               if (!updatedUser) {
@@ -427,7 +430,7 @@ export const plex = () => {
                       value: user.id,
                     },
                     {
-                      field: "providerId", 
+                      field: "providerId",
                       value: "plex",
                     },
                   ],

@@ -25,7 +25,7 @@ This project is built with the following technologies:
 - [shadcn/ui](https://ui.shadcn.com) - UI components
 - [tRPC](https://trpc.io) - Type-safe APIs
 
-*This project was initially scaffolded using [create-t3-app](https://create.t3.gg/).*
+_This project was initially scaffolded using [create-t3-app](https://create.t3.gg/)._
 
 ## Getting Started
 

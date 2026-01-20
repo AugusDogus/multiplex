@@ -25,8 +25,8 @@ export function SearchForm({ onSearchClick, ...props }: SearchFormProps) {
       </Button>
 
       {/* Desktop: Show search input */}
-      <div 
-        className="relative cursor-pointer hidden md:block"
+      <div
+        className="relative hidden cursor-pointer md:block"
         onClick={onSearchClick}
       >
         <Label htmlFor="search" className="sr-only">
@@ -35,7 +35,7 @@ export function SearchForm({ onSearchClick, ...props }: SearchFormProps) {
         <SidebarInput
           id="search"
           placeholder="Search media..."
-          className="h-8 pl-7 cursor-pointer"
+          className="h-8 cursor-pointer pl-7"
           readOnly
         />
         <Search className="pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 opacity-50 select-none" />

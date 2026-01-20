@@ -73,7 +73,11 @@ export const pinnedSourceSchema = z.object({
   serverFriendlyName: z.string(),
   serverSourceTitle: z.string().nullable(),
   isFullOwnedServer: z.boolean(),
-  hiddenAt: z.string().nullable().or(z.undefined()).transform(val => val ?? null),
+  hiddenAt: z
+    .string()
+    .nullable()
+    .or(z.undefined())
+    .transform((val) => val ?? null),
 });
 
 export const reminderSchema = z.object({
@@ -215,27 +219,30 @@ export const rawUserInfoSchema = z.object({
   entitlements: z.array(z.string()).optional().default([]),
   roles: z.array(z.string()).optional().default([]),
   settings: z.array(plexSettingSchema).optional(),
-  subscriptions: z.array(
-    z.object({
-      id: z.number(),
-      mode: z.string(),
-      renewsAt: z.null(),
-      endsAt: z.null(),
-      billing: z.object({
-        paymentMethodId: z.null(),
-        internalPaymentMethod: z.object({}),
+  subscriptions: z
+    .array(
+      z.object({
+        id: z.number(),
+        mode: z.string(),
+        renewsAt: z.null(),
+        endsAt: z.null(),
+        billing: z.object({
+          paymentMethodId: z.null(),
+          internalPaymentMethod: z.object({}),
+        }),
+        canceled: z.boolean(),
+        gracePeriod: z.boolean(),
+        onHold: z.boolean(),
+        canReactivate: z.boolean(),
+        canUpgrade: z.boolean(),
+        canDowngrade: z.boolean(),
+        canConvert: z.boolean(),
+        type: z.string(),
+        state: z.string(),
       }),
-      canceled: z.boolean(),
-      gracePeriod: z.boolean(),
-      onHold: z.boolean(),
-      canReactivate: z.boolean(),
-      canUpgrade: z.boolean(),
-      canDowngrade: z.boolean(),
-      canConvert: z.boolean(),
-      type: z.string(),
-      state: z.string(),
-    }),
-  ).optional().default([]),
+    )
+    .optional()
+    .default([]),
   pastSubscriptions: z.array(z.unknown()).optional().default([]),
   trials: z.array(z.unknown()).optional().default([]),
   services: z

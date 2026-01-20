@@ -115,7 +115,9 @@ export default async function LiveTvPage({ params }: PageProps) {
   }
 
   // Ensure channelLineups is an array (handle potential error cases)
-  const safeChannelLineups = Array.isArray(channelLineups) ? channelLineups : [];
+  const safeChannelLineups = Array.isArray(channelLineups)
+    ? channelLineups
+    : [];
 
   return (
     <HydrateClient>

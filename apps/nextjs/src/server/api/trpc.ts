@@ -122,9 +122,9 @@ const enforceUserIsAuthed = t.middleware(({ ctx, next }) => {
   }
 
   if (!ctx.plex) {
-    throw new TRPCError({ 
-      code: "UNAUTHORIZED", 
-      message: "Plex authentication required. Please sign in with Plex again." 
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "Plex authentication required. Please sign in with Plex again.",
     });
   }
 

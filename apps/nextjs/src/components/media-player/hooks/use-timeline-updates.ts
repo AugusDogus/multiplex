@@ -49,11 +49,10 @@ export function useTimelineUpdates() {
 
       // Check if we should send an update
       const lastUpdate = lastUpdateRef.current;
-      const hasStateChanged = !lastUpdate || lastUpdate.state !== playbackState;
+      const hasStateChanged = lastUpdate?.state !== playbackState;
       const hasTimeChanged =
         !lastUpdate || Math.abs(lastUpdate.currentTime - timeToUse) >= 1;
-      const hasItemChanged =
-        !lastUpdate || lastUpdate.ratingKey !== currentItem.ratingKey;
+      const hasItemChanged = lastUpdate?.ratingKey !== currentItem.ratingKey;
 
       if (!hasStateChanged && !hasTimeChanged && !hasItemChanged) return;
 

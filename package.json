@@ -1,25 +1,33 @@
 {
   "name": "multiplex",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "lint": "bun --filter @multiplex/nextjs lint && oxlint --ignore-pattern 'apps/nextjs/**' .",
+    "lint:fix": "bun --filter @multiplex/nextjs lint:fix && oxlint --fix --ignore-pattern 'apps/nextjs/**' .",
+    "format": "bun --filter @multiplex/nextjs format:write && oxfmt --write . '!apps/nextjs/**'",
+    "format:check": "bun --filter @multiplex/nextjs format:check && oxfmt --check . '!apps/nextjs/**'",
+    "typecheck": "bun --filter '*' typecheck",
+    "check": "bun run lint && bun run format:check && bun run typecheck",
+    "dev": "bun --filter @multiplex/nextjs dev",
+    "build": "bun --filter @multiplex/nextjs build",
+    "start": "bun --filter @multiplex/nextjs start",
+    "db:generate": "bun --filter @multiplex/nextjs db:generate",
+    "db:migrate": "bun --filter @multiplex/nextjs db:migrate",
+    "db:push": "bun --filter @multiplex/nextjs db:push",
+    "db:studio": "bun --filter @multiplex/nextjs db:studio"
+  },
+  "devDependencies": {
+    "oxfmt": "^0.26.0",
+    "oxlint": "^1.41.0"
+  },
   "catalog": {
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0"
-  },
-  "scripts": {
-    "dev": "bun --filter @multiplex/nextjs dev",
-    "build": "bun --filter @multiplex/nextjs build",
-    "start": "bun --filter @multiplex/nextjs start",
-    "check": "bun --filter @multiplex/nextjs check",
-    "lint": "bun --filter @multiplex/nextjs lint",
-    "typecheck": "bun --filter @multiplex/nextjs typecheck",
-    "format:check": "bun --filter @multiplex/nextjs format:check",
-    "format:write": "bun --filter @multiplex/nextjs format:write",
-    "db:generate": "bun --filter @multiplex/nextjs db:generate",
-    "db:migrate": "bun --filter @multiplex/nextjs db:migrate",
-    "db:push": "bun --filter @multiplex/nextjs db:push",
-    "db:studio": "bun --filter @multiplex/nextjs db:studio"
   }
 }

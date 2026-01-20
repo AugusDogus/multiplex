@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "~/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 import type { TvGuideItemProps } from "~/types/tv-guide";
 
@@ -17,10 +22,21 @@ const programColors = [
   "bg-cyan-500/70 hover:bg-cyan-400/80",
 ];
 
-export function TvGuideItem({ program, width, left, index, channelIndex, onClick, className }: TvGuideItemProps) {
+export function TvGuideItem({
+  program,
+  width,
+  left,
+  index,
+  channelIndex,
+  onClick,
+  className,
+}: TvGuideItemProps) {
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const [isHovered, setIsHovered] = useState(false);
-  const [windowDimensions, setWindowDimensions] = useState({ width: 0, height: 0 });
+  const [windowDimensions, setWindowDimensions] = useState({
+    width: 0,
+    height: 0,
+  });
 
   // Use both channel index and program index to create color variation
   const colorIndex = (channelIndex + index) % programColors.length;
@@ -76,8 +92,10 @@ export function TvGuideItem({ program, width, left, index, channelIndex, onClick
 
   // Create tooltip content with full title and episode info
   const tooltipContent = () => {
-    const mainTitle = program.grandparentTitle ?? program.title ?? "Unknown Program";
-    const episodeTitle = program.title && program.title !== mainTitle ? program.title : null;
+    const mainTitle =
+      program.grandparentTitle ?? program.title ?? "Unknown Program";
+    const episodeTitle =
+      program.title && program.title !== mainTitle ? program.title : null;
     const seasonEpisode =
       program.parentIndex != null || program.index != null
         ? `${program.parentIndex != null ? `S${program.parentIndex}` : ""}${program.parentIndex != null && program.index != null ? " · " : ""}${program.index != null ? `E${program.index}` : ""}`
@@ -87,8 +105,16 @@ export function TvGuideItem({ program, width, left, index, channelIndex, onClick
       <div className="space-y-1">
         <div className="font-semibold">{mainTitle}</div>
         {episodeTitle && <div className="text-sm">{episodeTitle}</div>}
-        {seasonEpisode && <div className="text-muted-foreground text-xs">{seasonEpisode}</div>}
-        {program.summary && <div className="text-muted-foreground max-w-xs text-xs">{program.summary.length > 100 ? `${program.summary.substring(0, 100)}...` : program.summary}</div>}
+        {seasonEpisode && (
+          <div className="text-muted-foreground text-xs">{seasonEpisode}</div>
+        )}
+        {program.summary && (
+          <div className="text-muted-foreground max-w-xs text-xs">
+            {program.summary.length > 100
+              ? `${program.summary.substring(0, 100)}...`
+              : program.summary}
+          </div>
+        )}
       </div>
     );
   };
@@ -124,7 +150,9 @@ export function TvGuideItem({ program, width, left, index, channelIndex, onClick
           transform: top < mousePosition.y ? "translateY(-100%)" : "none",
         }}
       >
-        <div className="bg-popover text-popover-foreground max-w-sm rounded-md border p-3 shadow-md">{tooltipContent()}</div>
+        <div className="bg-popover text-popover-foreground max-w-sm rounded-md border p-3 shadow-md">
+          {tooltipContent()}
+        </div>
       </div>
     );
   };
@@ -149,7 +177,9 @@ export function TvGuideItem({ program, width, left, index, channelIndex, onClick
           onMouseLeave={handleMouseLeave}
         >
           {/* Show Title */}
-          <div className="w-full text-sm leading-tight font-semibold text-nowrap text-white drop-shadow-sm">{program.grandparentTitle ?? program.title ?? "Unknown Program"}</div>
+          <div className="w-full text-sm leading-tight font-semibold text-nowrap text-white drop-shadow-sm">
+            {program.grandparentTitle ?? program.title ?? "Unknown Program"}
+          </div>
 
           {/* Season and Episode */}
           {(program.parentIndex != null || program.index != null) && (
@@ -178,13 +208,19 @@ export function TvGuideItem({ program, width, left, index, channelIndex, onClick
                 onClick={handleClick}
               >
                 {/* Show Title */}
-                <div className="w-full text-sm leading-tight font-semibold text-nowrap text-white drop-shadow-sm">{program.grandparentTitle ?? program.title ?? "Unknown Program"}</div>
+                <div className="w-full text-sm leading-tight font-semibold text-nowrap text-white drop-shadow-sm">
+                  {program.grandparentTitle ??
+                    program.title ??
+                    "Unknown Program"}
+                </div>
 
                 {/* Season and Episode */}
                 {(program.parentIndex != null || program.index != null) && (
                   <div className="w-full text-xs leading-tight text-nowrap text-white/90 drop-shadow-sm">
                     {program.parentIndex != null && `S${program.parentIndex}`}
-                    {program.parentIndex != null && program.index != null && " · "}
+                    {program.parentIndex != null &&
+                      program.index != null &&
+                      " · "}
                     {program.index != null && `E${program.index}`}
                   </div>
                 )}

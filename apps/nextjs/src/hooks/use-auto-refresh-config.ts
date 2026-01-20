@@ -18,7 +18,7 @@ const DEFAULT_CONFIG: AutoRefreshConfig = {
 
 /**
  * Hook to manage auto-refresh configuration
- * 
+ *
  * In the future, this could be extended to:
  * - Store user preferences in localStorage using useSyncExternalStore
  * - Provide different refresh rates based on user activity
@@ -36,8 +36,8 @@ export function useAutoRefreshConfig(): AutoRefreshConfig {
  */
 export const REFRESH_INTERVALS = {
   DISABLED: 0,
-  FAST: 2000,      // 2 seconds - for development/testing
-  NORMAL: 5000,    // 5 seconds - default
-  SLOW: 10000,     // 10 seconds
+  FAST: 2000, // 2 seconds - for development/testing
+  NORMAL: 5000, // 5 seconds - default
+  SLOW: 10000, // 10 seconds
   VERY_SLOW: 30000, // 30 seconds
 } as const;

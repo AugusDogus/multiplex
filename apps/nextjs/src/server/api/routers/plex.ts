@@ -51,10 +51,12 @@ export const plexRouter = createTRPCRouter({
       z.object({
         query: z.string().min(1),
         limit: z.number().default(100),
-        searchTypes: z.array(z.enum(['movies', 'tv', 'music', 'people'])).default(['movies', 'music', 'people', 'tv']),
+        searchTypes: z
+          .array(z.enum(["movies", "tv", "music", "people"]))
+          .default(["movies", "music", "people", "tv"]),
         includeCollections: z.boolean().default(true),
         includeExternalMedia: z.boolean().default(true),
-      })
+      }),
     )
     .query(async ({ ctx, input }) => {
       return searchQuery(ctx.plex, input);
@@ -66,10 +68,15 @@ export const plexRouter = createTRPCRouter({
         date: z.string().date(),
         startTime: z.date().optional(),
         endTime: z.date().optional(),
-      })
+      }),
     )
     .query(async ({ ctx, input }) => {
-      return getAllChannelsProgrammingQuery(ctx.plex, input.date, input.startTime, input.endTime);
+      return getAllChannelsProgrammingQuery(
+        ctx.plex,
+        input.date,
+        input.startTime,
+        input.endTime,
+      );
     }),
 
   getServerChannelsProgramming: protectedProcedure
@@ -80,7 +87,7 @@ export const plexRouter = createTRPCRouter({
         date: z.string().date(),
         startTime: z.date().optional(),
         endTime: z.date().optional(),
-      })
+      }),
     )
     .query(async ({ ctx, input }) => {
       return getServerChannelsProgrammingQuery(
@@ -89,7 +96,7 @@ export const plexRouter = createTRPCRouter({
         input.providerIdentifier,
         input.date,
         input.startTime,
-        input.endTime
+        input.endTime,
       );
     }),
 
@@ -137,14 +144,14 @@ export const plexRouter = createTRPCRouter({
     .input(
       z.object({
         serverId: z.string(),
-        type: z.enum(['video', 'audio']),
+        type: z.enum(["video", "audio"]),
         uri: z.string(),
         continuous: z.boolean().default(true),
         includeMarkers: z.boolean().default(true),
         includeChapters: z.boolean().default(true),
         shuffle: z.boolean().default(false),
         repeat: z.number().default(0),
-      })
+      }),
     )
     .mutation(async ({ ctx, input }) => {
       const servers = await getServersQuery(ctx.plex);
@@ -172,7 +179,7 @@ export const plexRouter = createTRPCRouter({
         serverId: z.string(),
         playQueueId: z.string(),
         includeMarkers: z.boolean().default(true),
-      })
+      }),
     )
     .query(async ({ ctx, input }) => {
       const servers = await getServersQuery(ctx.plex);
@@ -183,8 +190,9 @@ export const plexRouter = createTRPCRouter({
       }
 
       const serverClient = ctx.plex.createServerClient(server);
-      return await serverClient.getPlayQueue(input.playQueueId, input.includeMarkers);
+      return await serverClient.getPlayQueue(
+        input.playQueueId,
+        input.includeMarkers,
+      );
     }),
-
-
 });
