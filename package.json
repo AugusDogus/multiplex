@@ -2,6 +2,12 @@
   "name": "multiplex",
   "private": true,
   "workspaces": ["apps/*", "packages/*"],
+  "catalog": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0"
+  },
   "scripts": {
     "dev": "bun --filter @multiplex/nextjs dev",
     "build": "bun --filter @multiplex/nextjs build",
