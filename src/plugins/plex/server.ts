@@ -354,7 +354,10 @@ export const plex = () => {
             const userInfo = await getUserInfo(auth.authToken!);
 
             // Check if user already exists by Plex UUID
-            const existingUser = await ctx.context.adapter.findOne({
+            const existingUser = await ctx.context.adapter.findOne<{
+              id: string;
+              plexUuid: string;
+            }>({
               model: "user",
               where: [
                 {
@@ -395,8 +398,65 @@ export const plex = () => {
                 accessToken: auth.authToken,
               });
             } else {
-              // User already exists, just use them
-              user = existingUser as UserWithPlex;
+              // User already exists, update their auth token
+              // auth.authToken is guaranteed non-null here since isValid() throws if missing
+              const updatedUser = (await ctx.context.internalAdapter.updateUser(
+                existingUser.id,
+                {
+                  plexAuthToken: auth.authToken!,
+                }
+              )) as UserWithPlex | null;
+
+              if (!updatedUser) {
+                throw new APIError("INTERNAL_SERVER_ERROR", {
+                  message: "Failed to update user token",
+                });
+              }
+
+              user = updatedUser;
+
+              // Update or create the account record with the new token
+              try {
+                const existingAccount = await ctx.context.adapter.findOne<{
+                  id: string;
+                }>({
+                  model: "account",
+                  where: [
+                    {
+                      field: "userId",
+                      value: user.id,
+                    },
+                    {
+                      field: "providerId", 
+                      value: "plex",
+                    },
+                  ],
+                });
+
+                if (existingAccount) {
+                  // For existing accounts, we'll delete and recreate since update might not work reliably
+                  await ctx.context.adapter.delete({
+                    model: "account",
+                    where: [
+                      {
+                        field: "id",
+                        value: existingAccount.id,
+                      },
+                    ],
+                  });
+                }
+
+                // Create new account record (either first time or replacement)
+                await ctx.context.internalAdapter.createAccount({
+                  userId: user.id,
+                  accountId: userInfo.uuid,
+                  providerId: "plex",
+                  accessToken: auth.authToken,
+                });
+              } catch (accountError) {
+                // If account operations fail, log but don't fail the auth
+                console.warn("Failed to update account record:", accountError);
+              }
             }
 
             // Create BetterAuth session

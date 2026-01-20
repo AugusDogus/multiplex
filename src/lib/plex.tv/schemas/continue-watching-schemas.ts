@@ -79,7 +79,7 @@ const BaseStream = z.object({
   streamType: StreamType,
   codec: z.string(),
   index: z.number(),
-  bitrate: z.number(),
+  bitrate: z.number().optional(),
   displayTitle: z.string(),
   extendedDisplayTitle: z.string(),
   language: z.string().optional(),
@@ -123,7 +123,7 @@ const AudioStream = BaseStream.extend({
 
 const SubtitleStream = BaseStream.extend({
   streamType: z.literal(3),
-  canAutoSync: z.boolean(),
+  canAutoSync: z.boolean().optional(),
   default: z.boolean().optional(),
   hearingImpaired: z.boolean().optional(),
   title: z.string().optional(),

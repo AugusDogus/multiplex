@@ -176,6 +176,15 @@ export class PlexTvClient {
     });
 
     if (!response.ok) {
+      // Add more specific error handling for common cases
+      if (response.status === 401) {
+        throw new PlexAPIError(
+          `Plex authentication failed. Your token may have expired or been revoked. Please sign in again.`,
+          response.status,
+          response,
+        );
+      }
+
       throw new PlexAPIError(
         `Plex API request failed: ${response.statusText}`,
         response.status,
