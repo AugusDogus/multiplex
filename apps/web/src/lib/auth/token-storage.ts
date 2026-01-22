@@ -167,8 +167,10 @@ function getTokenSnapshot(): string | null {
   return getStoredToken();
 }
 
+// For SPA mode, server snapshot should match client snapshot
+// since there's no actual server rendering
 function getServerTokenSnapshot(): string | null {
-  return null; // SSR always returns null
+  return getStoredToken();
 }
 
 /**
