@@ -86,10 +86,21 @@ export const reminderSchema = z.object({
   times: z.number(),
 });
 
+// Hub configuration for home screen
+export const hubConfigSchema = z.object({
+  id: z.string().optional(),
+  type: z.string().optional(),
+  title: z.string().optional(),
+  hubKey: z.string().optional(),
+  context: z.string().optional(),
+  visible: z.boolean().optional(),
+  pinned: z.boolean().optional(),
+});
+
 export const homeSettingsSchema = z.object({
   settingsKey: z.string(),
   preferredServerID: z.string(),
-  hubs: z.array(z.unknown()), // Can be more specific if needed
+  hubs: z.array(hubConfigSchema),
 });
 
 export const sidebarSettingsSchema = z.object({
@@ -102,15 +113,15 @@ export const experienceSettingsSchema = z.object({
   autoHomeHubsEnabled: z.boolean().optional(),
   shouldSaveLastSourcePivots: z.boolean().optional(),
   autoPinnedProviders: z.array(z.string()).optional(),
-  dismissedWhatsNewFeatures: z.record(z.boolean()).optional(),
+  dismissedWhatsNewFeatures: z.record(z.string(), z.boolean()).optional(),
   dismissProfileGetStartedCard: z.boolean().optional(),
   remoteQuality: z.number().optional(),
   audioBoost: z.number().optional(),
   forceTranscodeProtocolHLS: z.boolean().optional(),
   columnWidthMultiplier: z.number().optional(),
   dashboardNowPlayingShowDetails: z.boolean().optional(),
-  directoryListStyles: z.record(z.string()).optional(),
-  savedDirectoryListKeys: z.record(z.string()).optional(),
+  directoryListStyles: z.record(z.string(), z.string()).optional(),
+  savedDirectoryListKeys: z.record(z.string(), z.string()).optional(),
   showAdvancedSettings: z.boolean().optional(),
   showPrePlayArtwork: z.boolean().optional(),
   recentSearches: z.array(recentSearchSchema).optional(),
@@ -120,7 +131,15 @@ export const experienceSettingsSchema = z.object({
   reminders: z.array(reminderSchema).optional(),
 });
 
-// Base setting schema
+// Schema for other (non-experience) settings stored individually
+export const otherSettingSchema = z.object({
+  type: z.string(),
+  value: z.string(),
+  hidden: z.boolean(),
+  updatedAt: z.number(),
+});
+
+// Base setting schema from API
 export const plexSettingSchema = z.object({
   id: z.string(),
   type: z.string(),
@@ -129,23 +148,24 @@ export const plexSettingSchema = z.object({
   updatedAt: z.number(),
 });
 
-// Simplified settings schema that just returns the parsed experience settings merged with other settings
+// Combined settings schema with proper typing (no Record<string, unknown> intersection)
 export const plexSettingsSchema = z
   .array(plexSettingSchema)
-  .transform((settingsArray): ExperienceSettings & Record<string, unknown> => {
-    const result: Record<string, unknown> = {};
+  .transform((settingsArray) => {
+    // Start with default experience settings
+    let experienceSettings: ExperienceSettings = {};
+    const otherSettings: Record<string, OtherSetting> = {};
 
     for (const setting of settingsArray) {
       if (setting.id === "experience" && setting.type === "json") {
         try {
           const parsedValue = JSON.parse(setting.value);
-          const validatedValue = experienceSettingsSchema.parse(parsedValue);
-          Object.assign(result, validatedValue);
+          experienceSettings = experienceSettingsSchema.parse(parsedValue);
         } catch (error) {
           console.warn("Failed to parse experience settings:", error);
         }
       } else {
-        result[setting.id] = {
+        otherSettings[setting.id] = {
           type: setting.type,
           value: setting.value,
           hidden: setting.hidden,
@@ -154,8 +174,14 @@ export const plexSettingsSchema = z
       }
     }
 
-    return result as ExperienceSettings & Record<string, unknown>;
+    return {
+      ...experienceSettings,
+      otherSettings,
+    };
   });
+
+// Type for other settings
+export type OtherSetting = z.infer<typeof otherSettingSchema>;
 
 /* ────────────────────────────────────────────────────────────
    User Info Schemas
@@ -243,8 +269,44 @@ export const rawUserInfoSchema = z.object({
     )
     .optional()
     .default([]),
-  pastSubscriptions: z.array(z.unknown()).optional().default([]),
-  trials: z.array(z.unknown()).optional().default([]),
+  // Past subscriptions - similar structure to subscriptions but may have additional fields
+  pastSubscriptions: z
+    .array(
+      z.object({
+        id: z.number(),
+        mode: z.string(),
+        renewsAt: z.string().nullable(),
+        endsAt: z.string().nullable(),
+        billing: z.object({
+          paymentMethodId: z.string().nullable(),
+          internalPaymentMethod: z.object({}).optional(),
+        }).optional(),
+        canceled: z.boolean().optional(),
+        gracePeriod: z.boolean().optional(),
+        onHold: z.boolean().optional(),
+        canReactivate: z.boolean().optional(),
+        canUpgrade: z.boolean().optional(),
+        canDowngrade: z.boolean().optional(),
+        canConvert: z.boolean().optional(),
+        type: z.string(),
+        state: z.string(),
+      })
+    )
+    .optional()
+    .default([]),
+  // Trials - promotional trial periods
+  trials: z
+    .array(
+      z.object({
+        id: z.number().optional(),
+        type: z.string(),
+        status: z.string().optional(),
+        startedAt: z.string().optional(),
+        endsAt: z.string().optional(),
+      })
+    )
+    .optional()
+    .default([]),
   services: z
     .array(
       z.union([
@@ -285,7 +347,7 @@ export const rawUserInfoSchema = z.object({
 // Transformed user info schema with parsed settings
 export const userInfoSchema = rawUserInfoSchema.transform((data) => {
   // Transform settings array if it exists
-  let transformedSettings: (ExperienceSettings & Record<string, unknown>) | undefined;
+  let transformedSettings: PlexSettings | undefined;
 
   if (data.settings) {
     transformedSettings = plexSettingsSchema.parse(data.settings);

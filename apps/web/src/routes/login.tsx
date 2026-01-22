@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
-import { Command, Loader2, CheckCircle, AlertCircle } from "lucide-react";
+import { useCallback, useState } from "react";
+import { Command, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
 import {
@@ -13,26 +13,20 @@ import {
 } from "../lib/auth/plex-auth";
 import { useAuth, type StoredUser } from "../lib/auth/token-storage";
 
-export const Route = createFileRoute("/login")({ component: LoginPage });
+export const Route = createFileRoute("/login")({
+  component: LoginPage,
+});
 
 type AuthState =
   | { status: "idle" }
   | { status: "authenticating"; pin: PlexPin }
-  | { status: "success"; user: StoredUser }
   | { status: "error"; message: string };
 
 function LoginPage() {
   const navigate = useNavigate();
-  const { isAuthenticated, login } = useAuth();
+  const { login } = useAuth();
   const [authState, setAuthState] = useState<AuthState>({ status: "idle" });
   const [abortController, setAbortController] = useState<AbortController | null>(null);
-
-  // Redirect if already authenticated
-  useEffect(() => {
-    if (isAuthenticated) {
-      void navigate({ to: "/" });
-    }
-  }, [isAuthenticated, navigate]);
 
   const handlePlexLogin = useCallback(async () => {
     // Cancel any existing polling
@@ -74,14 +68,9 @@ function LoginPage() {
         thumb: plexUser.thumb,
       };
 
-      // Store credentials and show success
+      // Store credentials and navigate
       login(authenticatedPin.authToken, user);
-      setAuthState({ status: "success", user });
-
-      // Navigate after showing success state
-      setTimeout(() => {
-        void navigate({ to: "/" });
-      }, 1500);
+      void navigate({ to: "/" });
     } catch (error) {
       if (error instanceof PlexAuthError && error.code === "AUTH_CANCELLED") {
         setAuthState({ status: "idle" });
@@ -135,7 +124,6 @@ function LoginForm({
           <div className="text-muted-foreground text-center text-sm">
             {authState.status === "idle" && "Sign in with your Plex account to continue"}
             {authState.status === "authenticating" && "Complete sign in on Plex.tv..."}
-            {authState.status === "success" && `Welcome back, ${authState.user.friendlyName}!`}
             {authState.status === "error" && "Authentication failed"}
           </div>
         </div>
@@ -153,13 +141,6 @@ function LoginForm({
               <Loader2 className="mr-2 h-5 w-5 animate-spin" />
               Waiting for authorization...
             </Button>
-          )}
-
-          {authState.status === "success" && (
-            <div className="flex flex-col items-center gap-2 py-4">
-              <CheckCircle className="h-12 w-12 text-green-500" />
-              <p className="text-muted-foreground text-sm">Redirecting...</p>
-            </div>
           )}
 
           {authState.status === "error" && (
