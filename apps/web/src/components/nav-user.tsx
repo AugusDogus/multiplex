@@ -48,9 +48,9 @@ export function NavUser({
     ? "https://clients.plex.tv/subscription"
     : "https://www.plex.tv/plans/";
 
-  const handleLogout = async () => {
-    await navigate({ to: "/login" });
+  const handleLogout = () => {
     logout();
+    void navigate({ to: "/login" });
   };
 
   return (

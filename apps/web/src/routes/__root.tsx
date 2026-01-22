@@ -81,11 +81,9 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 
 function PendingComponent() {
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-      <div className="flex h-screen w-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-      </div>
-    </ThemeProvider>
+    <div className="flex h-screen w-screen items-center justify-center">
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+    </div>
   );
 }
 
@@ -96,11 +94,7 @@ function RootComponent() {
 
   // Login page gets minimal layout
   if (isLoginPage) {
-    return (
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-        <Outlet />
-      </ThemeProvider>
-    );
+    return <Outlet />;
   }
 
   // Not authenticated - redirect to login
@@ -110,11 +104,9 @@ function RootComponent() {
 
   // Authenticated - render the full layout
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-      <LayoutDataProvider token={token}>
-        <AuthenticatedLayout user={user} />
-      </LayoutDataProvider>
-    </ThemeProvider>
+    <LayoutDataProvider token={token}>
+      <AuthenticatedLayout user={user} />
+    </LayoutDataProvider>
   );
 }
 
@@ -170,14 +162,31 @@ function AuthenticatedLayout({
   );
 }
 
+// Inline script to apply theme class immediately and hide body until styles load
+const themeScript = `
+(function() {
+  var d = document.documentElement;
+  var t = localStorage.getItem('theme');
+  var s = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  if (t === 'dark' || (!t || t === 'system') && s) d.classList.add('dark');
+  else d.classList.remove('dark');
+})();
+`;
+
 function RootDocument({ children }: { children: React.ReactNode }) {
+  // visibility:hidden on <body> prevents FOUC - TanStack Start's SSR can cause full re-renders
+  // during navigation (e.g. logout) where HTML renders before CSS loads.
+  // styles.css sets visibility:visible once loaded.
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <HeadContent />
       </head>
-      <body>
-        {children}
+      <body style={{ visibility: "hidden" }} className="bg-background text-foreground">
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          {children}
+        </ThemeProvider>
         <TanStackDevtools
           config={{
             position: "bottom-right",
