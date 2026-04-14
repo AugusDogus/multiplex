@@ -12,6 +12,7 @@ import {
   type SearchResponse,
   type CreatePlayQueueParams,
   type PlayQueueResponse,
+  getServerUrl,
 } from "./plex";
 import type { ContinueWatchingItem } from "./plex/schemas/continue-watching-schemas";
 
@@ -35,43 +36,6 @@ interface ContinueWatchingItemWithServer extends ContinueWatchingItem {
 /* ────────────────────────────────────────────────────────────
    Helper Functions
    ──────────────────────────────────────────────────────────── */
-
-/**
- * Get the best server URL from a PlexDevice
- */
-function getServerUrl(server: PlexDevice): string | undefined {
-  const connections = Array.isArray(server.connections) ? server.connections : [];
-  const PORT_REGEX = /:\d+(?=\/|$)/;
-
-  const pick = (pred: (c: (typeof connections)[0]) => boolean) => connections.find(pred);
-
-  // Prefer non-local plex.direct connections
-  const directNonLocal = pick(
-    (c) => c?.uri?.startsWith("https://") && c.uri.includes(".plex.direct") && !c.local
-  );
-  const directLocal = pick(
-    (c) => c?.uri?.startsWith("https://") && c.uri.includes(".plex.direct") && c.local
-  );
-  const customNP = pick((c) => {
-    const u = c?.uri;
-    return u?.startsWith("https://") && !u.includes(".plex.direct") && !PORT_REGEX.test(u);
-  });
-  const httpsAny = pick((c) => c?.uri?.startsWith("https://"));
-  const anyConnection = pick((c) => Boolean(c?.uri));
-
-  const selected =
-    directNonLocal?.uri ??
-    directLocal?.uri ??
-    customNP?.uri ??
-    httpsAny?.uri ??
-    anyConnection?.uri;
-
-  if (!selected) return undefined;
-
-  return !selected.includes(".plex.direct") && PORT_REGEX.test(selected)
-    ? selected.replace(PORT_REGEX, "")
-    : selected;
-}
 
 /* ────────────────────────────────────────────────────────────
    Plex.tv API Queries

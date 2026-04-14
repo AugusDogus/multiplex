@@ -1,10 +1,11 @@
-import type { PlexTvClient } from "~/lib/plex.tv/clients/plex-tv-client";
-import type { ContinueWatchingResponse } from "~/lib/plex.tv/schemas/continue-watching-schemas";
-import type {
-  PinnedSource,
-  PlexDevice,
-} from "~/lib/plex.tv/schemas/plex-tv-schemas";
-import { getThumbnailUrl } from "~/lib/plex.tv/utils/continue-watching-utils";
+import {
+  getServerUrl,
+  getThumbnailUrl,
+  type ContinueWatchingResponse,
+  type PinnedSource,
+  type PlexDevice,
+  type PlexTvClient,
+} from "@multiplex/plex-query";
 import { analyzeImageProgressColor } from "~/server/utils/image-analysis";
 
 export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
@@ -75,53 +76,6 @@ export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
 
     // Combine all items from all servers with server connection info
     const allItems = serverResults.flatMap(({ response, server }) => {
-      // Find the best server URL using improved functional approach
-      const getServerUrl = (server: PlexDevice): string | undefined => {
-        const connections = Array.isArray(server.connections)
-          ? server.connections
-          : [];
-        const PORT_REGEX = /:\d+(?=\/|$)/;
-
-        const pick = (pred: (c: (typeof connections)[0]) => boolean) =>
-          connections.find(pred);
-
-        // Prefer non-local plex.direct connections (public IPs work better through relay)
-        const directNonLocal = pick(
-          (c) =>
-            c?.uri?.startsWith("https://") &&
-            c.uri.includes(".plex.direct") &&
-            !c.local,
-        );
-        const directLocal = pick(
-          (c) =>
-            c?.uri?.startsWith("https://") &&
-            c.uri.includes(".plex.direct") &&
-            c.local,
-        );
-        const customNP = pick((c) => {
-          const u = c?.uri;
-          return (
-            u?.startsWith("https://") &&
-            !u.includes(".plex.direct") &&
-            !PORT_REGEX.test(u)
-          );
-        });
-        const httpsAny = pick((c) => c?.uri?.startsWith("https://"));
-        const anyConnection = pick((c) => Boolean(c?.uri));
-
-        const selected =
-          directNonLocal?.uri ??
-          directLocal?.uri ??
-          customNP?.uri ??
-          httpsAny?.uri ??
-          anyConnection?.uri;
-        if (!selected) return undefined;
-
-        return !selected.includes(".plex.direct") && PORT_REGEX.test(selected)
-          ? selected.replace(PORT_REGEX, "")
-          : selected;
-      };
-
       const serverUrl = getServerUrl(server);
       const authToken = server.accessToken ?? userInfo.authToken;
 

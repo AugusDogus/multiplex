@@ -1,8 +1,8 @@
-import type { ContinueWatchingItem } from "~/lib/plex.tv/schemas/continue-watching-schemas";
 import type {
-  PlayQueueResponse,
+  ContinueWatchingItem,
   Marker,
-} from "~/lib/plex.tv/schemas/play-queue-schemas";
+  PlayQueueResponse,
+} from "@multiplex/plex-query";
 
 /* ────────────────────────────────────────────────────────────
    Media Player Types

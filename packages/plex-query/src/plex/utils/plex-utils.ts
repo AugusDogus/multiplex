@@ -5,6 +5,7 @@ import {
   isLiveTVDirectory,
   isPlaylistDirectory,
 } from "../schemas/plex-server-schemas";
+import type { PlexDevice } from "../schemas/plex-tv-schemas";
 
 // Better typed extracted source
 export interface ExtractedSource {
@@ -14,6 +15,55 @@ export interface ExtractedSource {
   provider: string;
   providerIdentifier: string;
   isLibrarySection: boolean;
+}
+
+/**
+ * Get the best server URL from a Plex device connection list.
+ */
+export function getServerUrl(server: PlexDevice): string | undefined {
+  const connections = Array.isArray(server.connections) ? server.connections : [];
+  const PORT_REGEX = /:\d+(?=\/|$)/;
+
+  const pick = (pred: (connection: (typeof connections)[0]) => boolean) =>
+    connections.find(pred);
+
+  const directNonLocal = pick(
+    (connection) =>
+      connection?.uri?.startsWith("https://") &&
+      connection.uri.includes(".plex.direct") &&
+      !connection.local,
+  );
+  const directLocal = pick(
+    (connection) =>
+      connection?.uri?.startsWith("https://") &&
+      connection.uri.includes(".plex.direct") &&
+      connection.local,
+  );
+  const customNonPlexDirect = pick((connection) => {
+    const uri = connection?.uri;
+    return (
+      uri?.startsWith("https://") &&
+      !uri.includes(".plex.direct") &&
+      !PORT_REGEX.test(uri)
+    );
+  });
+  const httpsAny = pick((connection) => connection?.uri?.startsWith("https://"));
+  const anyConnection = pick((connection) => Boolean(connection?.uri));
+
+  const selected =
+    directNonLocal?.uri ??
+    directLocal?.uri ??
+    customNonPlexDirect?.uri ??
+    httpsAny?.uri ??
+    anyConnection?.uri;
+
+  if (!selected) {
+    return undefined;
+  }
+
+  return !selected.includes(".plex.direct") && PORT_REGEX.test(selected)
+    ? selected.replace(PORT_REGEX, "")
+    : selected;
 }
 
 /**

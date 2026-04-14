@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
+import type { PlayQueueItem } from "@multiplex/plex-query";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import type { NextEpisodeInfo } from "~/types/media-player";
-import type { PlayQueueItem } from "~/lib/plex.tv/schemas/play-queue-schemas";
 import { api } from "~/trpc/react";
 
 /* ────────────────────────────────────────────────────────────

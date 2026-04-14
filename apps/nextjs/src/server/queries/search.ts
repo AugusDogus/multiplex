@@ -1,12 +1,12 @@
-import type { PlexTvClient } from "~/lib/plex.tv/clients/plex-tv-client";
-import type { PlexDevice } from "~/lib/plex.tv/schemas/plex-tv-schemas";
 import {
+  type GroupedSearchResults,
   isMetadataResult,
   isDirectoryResult,
-  type SearchParams,
+  type PlexTvClient,
   type ProcessedSearchResult,
-  type GroupedSearchResults,
-} from "~/lib/plex.tv/schemas/search-schemas";
+  type SearchParams,
+  getServerUrl,
+} from "@multiplex/plex-query";
 
 export async function searchQuery(
   plex: PlexTvClient,
@@ -29,53 +29,6 @@ export async function searchQuery(
 
     // Get user info for auth token fallback
     const userInfo = await plex.getUserInfo();
-
-    // Helper function to get the best server URL (improved version)
-    const getServerUrl = (server: PlexDevice): string | undefined => {
-      const connections = Array.isArray(server.connections)
-        ? server.connections
-        : [];
-      const PORT_REGEX = /:\d+(?=\/|$)/;
-
-      const pick = (pred: (c: (typeof connections)[0]) => boolean) =>
-        connections.find(pred);
-
-      // Prefer non-local plex.direct connections (public IPs work better through relay)
-      const directNonLocal = pick(
-        (c) =>
-          c?.uri?.startsWith("https://") &&
-          c.uri.includes(".plex.direct") &&
-          !c.local,
-      );
-      const directLocal = pick(
-        (c) =>
-          c?.uri?.startsWith("https://") &&
-          c.uri.includes(".plex.direct") &&
-          c.local,
-      );
-      const customNP = pick((c) => {
-        const u = c?.uri;
-        return (
-          u?.startsWith("https://") &&
-          !u.includes(".plex.direct") &&
-          !PORT_REGEX.test(u)
-        );
-      });
-      const httpsAny = pick((c) => c?.uri?.startsWith("https://"));
-      const anyConnection = pick((c) => Boolean(c?.uri));
-
-      const selected =
-        directNonLocal?.uri ??
-        directLocal?.uri ??
-        customNP?.uri ??
-        httpsAny?.uri ??
-        anyConnection?.uri;
-      if (!selected) return undefined;
-
-      return !selected.includes(".plex.direct") && PORT_REGEX.test(selected)
-        ? selected.replace(PORT_REGEX, "")
-        : selected;
-    };
 
     // Search all servers in parallel
     const serverPromises = servers.map(async (server) => {

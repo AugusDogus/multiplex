@@ -3,6 +3,13 @@
 import { CirclePlay, MoreHorizontal, Play } from "lucide-react";
 import Image from "next/image";
 import React, { useState } from "react";
+import {
+  getMainTitle,
+  getSubtitle,
+  getThumbnailUrl,
+  isCompleted,
+  type ContinueWatchingItem,
+} from "@multiplex/plex-query";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { useProgressStore } from "~/stores/progress-store";
 import { Button } from "~/components/ui/button";
@@ -15,13 +22,6 @@ import {
 import { Skeleton } from "~/components/ui/skeleton";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { useVisibilityChange } from "~/hooks/use-visibility-change";
-import type { ContinueWatchingItem } from "~/lib/plex.tv/schemas/continue-watching-schemas";
-import {
-  getMainTitle,
-  getSubtitle,
-  getThumbnailUrl,
-  isCompleted,
-} from "~/lib/plex.tv/utils/continue-watching-utils";
 import { api } from "~/trpc/react";
 import { isMediaPlayerItem } from "~/types/media-player";
 

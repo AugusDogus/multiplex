@@ -7,10 +7,11 @@
  * need to use are documented accordingly near the end.
  */
 import { initTRPC, TRPCError } from "@trpc/server";
+import { PlexTvClient } from "@multiplex/plex-query";
 import superjson from "superjson";
 import { ZodError } from "zod";
 import { auth } from "~/lib/auth/server";
-import { PlexTvClient } from "~/lib/plex.tv/clients/plex-tv-client";
+import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
 
 import { db } from "~/server/db";
 
@@ -33,14 +34,7 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
 
   const token = authSession?.user?.plexAuthToken;
 
-  const plex = token
-    ? new PlexTvClient(token, {
-        product: "Multiplex",
-        clientIdentifier: "multiplex",
-        version: "1.0.0",
-        platform: "Web",
-      })
-    : null;
+  const plex = token ? new PlexTvClient(token, NEXTJS_PLEX_CONFIG) : null;
 
   return {
     db,

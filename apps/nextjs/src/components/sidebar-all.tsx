@@ -7,7 +7,7 @@ import {
 } from "~/components/ui/sidebar";
 import type { UseServerLibrariesReturn } from "~/hooks/use-server-libraries";
 import type { UseSidebarSourcesReturn } from "~/hooks/use-sidebar-sources";
-import type { PlexDevice } from "~/lib/plex.tv/schemas/plex-tv-schemas";
+import type { PlexDevice } from "@multiplex/plex-query";
 import { ServerLibraryGroup } from "./server-library-group";
 
 interface SidebarAllProps {

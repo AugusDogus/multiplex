@@ -25,8 +25,8 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "~/components/ui/sidebar";
+import type { PlexUserInfo } from "@multiplex/plex-query";
 import { signOut } from "~/lib/auth/client";
-import type { PlexUserInfo } from "~/lib/plex.tv/schemas/plex-tv-schemas";
 
 export function NavUser({
   user,

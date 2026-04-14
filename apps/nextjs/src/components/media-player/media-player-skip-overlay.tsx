@@ -1,7 +1,7 @@
 "use client";
 
+import type { Marker } from "@multiplex/plex-query";
 import { Button } from "~/components/ui/button";
-import type { Marker } from "~/lib/plex.tv/schemas/play-queue-schemas";
 
 /* ────────────────────────────────────────────────────────────
    Skip Overlay Component

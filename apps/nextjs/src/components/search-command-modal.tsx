@@ -11,10 +11,10 @@ import {
   CommandItem,
 } from "~/components/ui/command";
 import { Dialog, DialogContent, DialogTitle } from "~/components/ui/dialog";
+import type { ProcessedSearchResult } from "@multiplex/plex-query";
 import { SearchResultItem } from "~/components/search-result-item";
 import { useDebounce } from "~/hooks/use-debounce";
 import { api } from "~/trpc/react";
-import type { ProcessedSearchResult } from "~/lib/plex.tv/schemas/search-schemas";
 
 interface SearchCommandModalProps {
   open: boolean;

@@ -1,9 +1,9 @@
 import { useMemo } from "react";
-import type { PlexUserInfo } from "~/lib/plex.tv/schemas/plex-tv-schemas";
 import {
   createSourceFromExtractedSource,
   extractAllSources,
-} from "~/lib/plex.tv/utils/plex-utils";
+  type PlexUserInfo,
+} from "@multiplex/plex-query";
 import type { UseServerLibrariesReturn } from "./use-server-libraries";
 
 export interface SidebarSource {

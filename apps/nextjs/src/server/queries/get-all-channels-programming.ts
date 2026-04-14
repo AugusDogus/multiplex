@@ -1,5 +1,4 @@
-import type { PlexServerClient } from "~/lib/plex.tv/clients/plex-server-client";
-import type { PlexTvClient } from "~/lib/plex.tv/clients/plex-tv-client";
+import type { PlexServerClient, PlexTvClient } from "@multiplex/plex-query";
 import { getServersQuery } from "./get-servers";
 
 /**

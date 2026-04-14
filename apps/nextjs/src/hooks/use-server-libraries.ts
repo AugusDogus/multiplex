@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import type { PlexDevice } from "~/lib/plex.tv/schemas/plex-tv-schemas";
+import type { PlexDevice } from "@multiplex/plex-query";
 import type { plexRouterOutputs } from "~/server/api/routers/plex";
 import { api } from "~/trpc/react";
 

@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useRef } from "react";
+import type { Marker } from "@multiplex/plex-query";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import type { MediaPlayerActions } from "~/types/media-player";
-import type { Marker } from "~/lib/plex.tv/schemas/play-queue-schemas";
 import { clamp, supportsFullscreen } from "../utils/media-player-utils";
 
 /* ────────────────────────────────────────────────────────────

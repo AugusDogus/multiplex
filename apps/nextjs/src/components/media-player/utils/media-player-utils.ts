@@ -1,7 +1,4 @@
-import {
-  getMainTitle,
-  getSubtitle,
-} from "~/lib/plex.tv/utils/continue-watching-utils";
+import { getMainTitle, getSubtitle } from "@multiplex/plex-query";
 import type { MediaPlayerItem } from "~/types/media-player";
 
 /* ────────────────────────────────────────────────────────────

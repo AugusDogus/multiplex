@@ -1,4 +1,4 @@
-import type { PlexTvClient } from "~/lib/plex.tv/clients/plex-tv-client";
+import type { PlexTvClient } from "@multiplex/plex-query";
 
 export async function getUserInfoQuery(plex: PlexTvClient) {
   return await plex.getUserInfo();

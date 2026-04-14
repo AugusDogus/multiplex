@@ -2,10 +2,9 @@
 
 import * as React from "react";
 import Image from "next/image";
+import { getThumbnailUrl, type ProcessedSearchResult } from "@multiplex/plex-query";
 import { Badge } from "~/components/ui/badge";
 import { Calendar, Clock, Star, Server } from "lucide-react";
-import type { ProcessedSearchResult } from "~/lib/plex.tv/schemas/search-schemas";
-import { getThumbnailUrl } from "~/lib/plex.tv/utils/continue-watching-utils";
 
 interface SearchResultItemProps {
   result: ProcessedSearchResult;

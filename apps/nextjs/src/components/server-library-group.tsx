@@ -13,9 +13,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "~/components/ui/tooltip";
+import type { PlexDevice } from "@multiplex/plex-query";
 import type { ServerLibraryState } from "~/hooks/use-server-libraries";
 import type { SidebarSource } from "~/hooks/use-sidebar-sources";
-import type { PlexDevice } from "~/lib/plex.tv/schemas/plex-tv-schemas";
 import { getSourceIcon, isUrlActive } from "./sidebar-utils";
 
 interface ServerLibraryGroupProps {

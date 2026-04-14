@@ -1,9 +1,9 @@
 "use client";
 
 import * as React from "react";
+import type { ProcessedSearchResult } from "@multiplex/plex-query";
 import { SearchForm } from "~/components/search-form";
 import { SearchCommandModal } from "~/components/search-command-modal";
-import type { ProcessedSearchResult } from "~/lib/plex.tv/schemas/search-schemas";
 
 interface SearchWrapperProps {
   className?: string;
