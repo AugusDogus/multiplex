@@ -1,5 +1,19 @@
 import { z } from "zod";
 
+export const knownSearchResultTypes = [
+  "movie",
+  "show",
+  "episode",
+  "artist",
+  "album",
+  "track",
+  "person",
+  "collection",
+] as const;
+
+export type KnownSearchResultType = (typeof knownSearchResultTypes)[number];
+export type SearchResultType = KnownSearchResultType | (string & {});
+
 // Metadata schema for media results (movies, TV shows, music, etc.)
 const SearchResultMetadata = z
   .object({
@@ -7,7 +21,7 @@ const SearchResultMetadata = z
     ratingKey: z.string(),
     key: z.string(),
     guid: z.string(),
-    type: z.enum(["movie", "show", "episode", "artist", "album", "track", "person", "collection"]),
+    type: z.string() as z.ZodType<SearchResultType>,
     title: z.string(),
     titleSort: z.string().optional(),
     summary: z.string().optional(),
@@ -116,7 +130,7 @@ export const processedSearchResultSchema = z.object({
   ratingKey: z.string(),
   key: z.string(),
   guid: z.string(),
-  type: z.enum(["movie", "show", "episode", "artist", "album", "track", "person", "collection"]),
+  type: z.string() as z.ZodType<SearchResultType>,
   title: z.string(),
   summary: z.string().optional(),
   year: z.number().optional(),

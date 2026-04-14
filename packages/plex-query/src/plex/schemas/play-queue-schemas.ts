@@ -8,11 +8,18 @@ import { z } from "zod";
 /**
  * Schema for individual markers (intro, credits, commercial)
  */
-export const markerSchema = z.object({
-  type: z.enum(["intro", "credits", "commercial"]),
-  startTimeOffset: z.number(),
-  endTimeOffset: z.number(),
-});
+export const knownMarkerTypes = ["intro", "credits", "commercial"] as const;
+
+export type KnownMarkerType = (typeof knownMarkerTypes)[number];
+export type MarkerType = KnownMarkerType | (string & {});
+
+export const markerSchema = z
+  .object({
+    type: z.string() as z.ZodType<MarkerType>,
+    startTimeOffset: z.number(),
+    endTimeOffset: z.number(),
+  })
+  .passthrough();
 
 /**
  * Schema for play queue items with optional markers

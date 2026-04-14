@@ -17,24 +17,30 @@ const UnixSeconds = z
 
 const StreamType = z.number(); // 1 = video, 2 = audio, 3 = subtitle
 
-const ImageType = z.enum([
+export const knownImageTypes = [
   "coverPoster",
   "snapshot",
   "background",
+  "backgroundSquare",
   "clearLogo",
   "banner",
   "keyart",
-]);
+] as const;
+
+export type KnownImageType = (typeof knownImageTypes)[number];
+export type ImageType = KnownImageType | (string & {});
 
 /* ────────────────────────────────────────────────────────────
    2. Building blocks
    ──────────────────────────────────────────────────────────── */
 
-const Image = z.object({
-  alt: z.string(),
-  type: ImageType,
-  url: z.string(),
-});
+const Image = z
+  .object({
+    alt: z.string(),
+    type: z.string() as z.ZodType<ImageType>,
+    url: z.string(),
+  })
+  .passthrough();
 
 const UltraBlurColors = z.object({
   topLeft: z.string(),
