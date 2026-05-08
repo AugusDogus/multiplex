@@ -1,7 +1,15 @@
 "use client";
 
-import { forwardRef, useCallback, useMemo, useRef } from "react";
-import type { PointerEvent } from "react";
+import { ChevronsLeft, ChevronsRight } from "lucide-react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { MouseEvent, PointerEvent } from "react";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import type { MediaPlayerItem } from "~/types/media-player";
 import { getVideoElementError } from "./utils/media-player-utils";
@@ -17,6 +25,22 @@ import {
 
 const HOLD_PLAYBACK_RATE = 2;
 const HOLD_CLICK_SUPPRESSION_MS = 200;
+const SINGLE_CLICK_DELAY_MS = 250;
+const DOUBLE_CLICK_SEEK_WINDOW_MS = 700;
+const DOUBLE_CLICK_SEEK_SECONDS = 10;
+
+type DoubleClickSeekDirection = "backward" | "forward";
+
+interface DoubleClickSeekSequence {
+  direction: DoubleClickSeekDirection;
+  clickCount: number;
+}
+
+interface DoubleClickSeekOverlay {
+  direction: DoubleClickSeekDirection;
+  seconds: number;
+  nonce: number;
+}
 
 interface MediaPlayerVideoProps {
   /**
@@ -31,10 +55,6 @@ interface MediaPlayerVideoProps {
    * Callback fired when user clicks the video (for play/pause toggle)
    */
   onVideoClick?: () => void;
-  /**
-   * Callback fired when user double-clicks the video (for fullscreen toggle)
-   */
-  onVideoDoubleClick?: () => void;
   /**
    * Callback fired when user scrolls on the video (for volume control)
    */
@@ -70,7 +90,6 @@ export const MediaPlayerVideo = forwardRef<
       item,
       className = "",
       onVideoClick,
-      onVideoDoubleClick,
       onVolumeScroll,
       onVideoEnded,
       onVideoPlay,
@@ -94,6 +113,18 @@ export const MediaPlayerVideo = forwardRef<
     const shouldSuppressClickRef = useRef(false);
     const videoElementRef = useRef<HTMLVideoElement | null>(null);
     const currentHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
+    const singleClickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+      null,
+    );
+    const seekSequenceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+      null,
+    );
+    const seekOverlayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+      null,
+    );
+    const seekSequenceRef = useRef<DoubleClickSeekSequence | null>(null);
+    const [seekOverlay, setSeekOverlay] =
+      useState<DoubleClickSeekOverlay | null>(null);
 
     // Compute player status locally to avoid object reference issues
     const playerStatus = useMemo(() => {
@@ -272,24 +303,135 @@ export const MediaPlayerVideo = forwardRef<
       updatePlaybackState({ isBuffering: false });
     }, [updatePlaybackState]);
 
-    /**
-     * Handle video click for play/pause toggle
-     */
-    const handleVideoClick = useCallback(() => {
-      if (shouldSuppressClickRef.current) {
-        shouldSuppressClickRef.current = false;
-        return;
+    const clearSingleClickTimeout = useCallback(() => {
+      if (singleClickTimeoutRef.current) {
+        clearTimeout(singleClickTimeoutRef.current);
+        singleClickTimeoutRef.current = null;
       }
+    }, []);
 
-      onVideoClick?.();
-    }, [onVideoClick]);
+    const clearSeekSequenceTimeout = useCallback(() => {
+      if (seekSequenceTimeoutRef.current) {
+        clearTimeout(seekSequenceTimeoutRef.current);
+        seekSequenceTimeoutRef.current = null;
+      }
+    }, []);
+
+    const clearSeekOverlayTimeout = useCallback(() => {
+      if (seekOverlayTimeoutRef.current) {
+        clearTimeout(seekOverlayTimeoutRef.current);
+        seekOverlayTimeoutRef.current = null;
+      }
+    }, []);
+
+    const resetSeekSequenceDelayed = useCallback(() => {
+      clearSeekSequenceTimeout();
+      seekSequenceTimeoutRef.current = setTimeout(() => {
+        seekSequenceRef.current = null;
+        seekSequenceTimeoutRef.current = null;
+      }, DOUBLE_CLICK_SEEK_WINDOW_MS);
+    }, [clearSeekSequenceTimeout]);
+
+    const hideSeekOverlayDelayed = useCallback(() => {
+      clearSeekOverlayTimeout();
+      seekOverlayTimeoutRef.current = setTimeout(() => {
+        setSeekOverlay(null);
+        seekOverlayTimeoutRef.current = null;
+      }, DOUBLE_CLICK_SEEK_WINDOW_MS);
+    }, [clearSeekOverlayTimeout]);
+
+    const seekByDoubleClickOffset = useCallback(
+      (direction: DoubleClickSeekDirection) => {
+        const video = videoElementRef.current;
+        if (!video) return;
+
+        const duration = Number.isFinite(video.duration)
+          ? video.duration
+          : Number.POSITIVE_INFINITY;
+        const offset =
+          direction === "forward"
+            ? DOUBLE_CLICK_SEEK_SECONDS
+            : -DOUBLE_CLICK_SEEK_SECONDS;
+        const nextTime = Math.min(
+          Math.max(video.currentTime + offset, 0),
+          duration,
+        );
+
+        video.currentTime = nextTime;
+        updatePlaybackState({ currentTime: nextTime });
+      },
+      [updatePlaybackState],
+    );
+
+    const handleDoubleClickSeek = useCallback(
+      (direction: DoubleClickSeekDirection, clickCount: number) => {
+        seekByDoubleClickOffset(direction);
+        setSeekOverlay({
+          direction,
+          seconds: (clickCount - 1) * DOUBLE_CLICK_SEEK_SECONDS,
+          nonce: Date.now(),
+        });
+        hideSeekOverlayDelayed();
+        resetSeekSequenceDelayed();
+      },
+      [
+        hideSeekOverlayDelayed,
+        resetSeekSequenceDelayed,
+        seekByDoubleClickOffset,
+      ],
+    );
 
     /**
-     * Handle video double-click for fullscreen toggle
+     * Handle video clicks for play/pause or YouTube-style double-click seeking.
      */
-    const handleVideoDoubleClick = useCallback(() => {
-      onVideoDoubleClick?.();
-    }, [onVideoDoubleClick]);
+    const handleVideoClick = useCallback(
+      (event: MouseEvent<HTMLVideoElement>) => {
+        clearSingleClickTimeout();
+
+        if (shouldSuppressClickRef.current) {
+          shouldSuppressClickRef.current = false;
+          seekSequenceRef.current = null;
+          clearSeekSequenceTimeout();
+          return;
+        }
+
+        const { left, width } = event.currentTarget.getBoundingClientRect();
+        const direction =
+          event.clientX < left + width / 2 ? "backward" : "forward";
+        const currentSequence = seekSequenceRef.current;
+
+        if (currentSequence?.direction === direction) {
+          const clickCount = currentSequence.clickCount + 1;
+          seekSequenceRef.current = { direction, clickCount };
+          handleDoubleClickSeek(direction, clickCount);
+          return;
+        }
+
+        seekSequenceRef.current = { direction, clickCount: 1 };
+        resetSeekSequenceDelayed();
+
+        singleClickTimeoutRef.current = setTimeout(() => {
+          onVideoClick?.();
+          seekSequenceRef.current = null;
+          singleClickTimeoutRef.current = null;
+          clearSeekSequenceTimeout();
+        }, SINGLE_CLICK_DELAY_MS);
+      },
+      [
+        clearSeekSequenceTimeout,
+        clearSingleClickTimeout,
+        handleDoubleClickSeek,
+        onVideoClick,
+        resetSeekSequenceDelayed,
+      ],
+    );
+
+    const handleVideoDoubleClick = useCallback(
+      (event: MouseEvent<HTMLVideoElement>) => {
+        event.preventDefault();
+      },
+      [],
+    );
 
     /**
      * Handle video wheel scroll for volume control
@@ -406,6 +548,18 @@ export const MediaPlayerVideo = forwardRef<
       [ref, handleVideoWheel],
     );
 
+    useEffect(() => {
+      return () => {
+        clearSingleClickTimeout();
+        clearSeekSequenceTimeout();
+        clearSeekOverlayTimeout();
+      };
+    }, [
+      clearSeekOverlayTimeout,
+      clearSeekSequenceTimeout,
+      clearSingleClickTimeout,
+    ]);
+
     /**
      * Handle video load error
      */
@@ -479,6 +633,35 @@ export const MediaPlayerVideo = forwardRef<
           crossOrigin="anonymous"
           disableRemotePlayback
         />
+
+        {seekOverlay && (
+          <div
+            key={seekOverlay.nonce}
+            className={`pointer-events-none absolute top-0 bottom-0 z-40 flex w-1/2 items-center ${
+              seekOverlay.direction === "forward"
+                ? "right-0 justify-end bg-gradient-to-l from-white/10 to-transparent pr-16"
+                : "left-0 justify-start bg-gradient-to-r from-white/10 to-transparent pl-16"
+            }`}
+            role="status"
+            aria-live="polite"
+          >
+            <div
+              className={`absolute top-1/2 h-72 w-72 -translate-y-1/2 animate-ping rounded-full bg-white/10 ${
+                seekOverlay.direction === "forward" ? "-right-36" : "-left-36"
+              }`}
+            />
+            <div className="relative flex flex-col items-center gap-2 text-white drop-shadow-lg">
+              {seekOverlay.direction === "forward" ? (
+                <ChevronsRight className="h-12 w-12" strokeWidth={2.5} />
+              ) : (
+                <ChevronsLeft className="h-12 w-12" strokeWidth={2.5} />
+              )}
+              <div className="text-2xl font-semibold">
+                {seekOverlay.seconds} seconds
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Loading Overlay */}
         {playerStatus.status === "loading" && (
