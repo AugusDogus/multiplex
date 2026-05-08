@@ -476,6 +476,8 @@ export const MediaPlayerVideo = forwardRef<
 
     const handleVideoPointerDown = useCallback(
       (event: PointerEvent<HTMLElement>) => {
+        clearSingleClickTimeout();
+
         if (event.pointerType === "mouse" && event.button !== 0) return;
         if (holdPointerIdRef.current != null) return;
 
@@ -488,7 +490,7 @@ export const MediaPlayerVideo = forwardRef<
         video.playbackRate = HOLD_PLAYBACK_RATE;
         event.currentTarget.setPointerCapture(event.pointerId);
       },
-      [],
+      [clearSingleClickTimeout],
     );
 
     const handleVideoPointerEnd = useCallback(
