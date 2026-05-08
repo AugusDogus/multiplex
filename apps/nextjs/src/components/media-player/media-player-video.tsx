@@ -27,6 +27,7 @@ const HOLD_PLAYBACK_RATE = 2;
 const HOLD_CLICK_SUPPRESSION_MS = 200;
 const SINGLE_CLICK_DELAY_MS = 400;
 const DOUBLE_CLICK_SEEK_WINDOW_MS = 900;
+const DOUBLE_CLICK_SEEK_OVERLAY_MS = 1400;
 const DOUBLE_CLICK_SEEK_SECONDS = 10;
 
 type DoubleClickSeekDirection = "backward" | "forward";
@@ -337,7 +338,7 @@ export const MediaPlayerVideo = forwardRef<
       seekOverlayTimeoutRef.current = setTimeout(() => {
         setSeekOverlay(null);
         seekOverlayTimeoutRef.current = null;
-      }, DOUBLE_CLICK_SEEK_WINDOW_MS);
+      }, DOUBLE_CLICK_SEEK_OVERLAY_MS);
     }, [clearSeekOverlayTimeout]);
 
     const seekByDoubleClickOffset = useCallback(
@@ -359,8 +360,9 @@ export const MediaPlayerVideo = forwardRef<
 
         video.currentTime = nextTime;
         updatePlaybackState({ currentTime: nextTime });
+        onVideoTimeUpdate?.(nextTime);
       },
-      [updatePlaybackState],
+      [onVideoTimeUpdate, updatePlaybackState],
     );
 
     const handleDoubleClickSeek = useCallback(
@@ -651,20 +653,20 @@ export const MediaPlayerVideo = forwardRef<
         {seekOverlay && (
           <div
             key={seekOverlay.nonce}
-            className={`pointer-events-none absolute top-0 bottom-0 z-40 flex w-1/2 items-center ${
+            className={`pointer-events-none absolute top-0 bottom-0 z-50 flex w-1/2 items-center bg-black/20 ${
               seekOverlay.direction === "forward"
-                ? "right-0 justify-end bg-gradient-to-l from-white/10 to-transparent pr-16"
-                : "left-0 justify-start bg-gradient-to-r from-white/10 to-transparent pl-16"
+                ? "right-0 justify-end pr-16"
+                : "left-0 justify-start pl-16"
             }`}
             role="status"
             aria-live="polite"
           >
             <div
-              className={`absolute top-1/2 h-72 w-72 -translate-y-1/2 animate-ping rounded-full bg-white/10 ${
+              className={`absolute top-1/2 h-72 w-72 -translate-y-1/2 animate-ping rounded-full bg-white/20 ${
                 seekOverlay.direction === "forward" ? "-right-36" : "-left-36"
               }`}
             />
-            <div className="relative flex flex-col items-center gap-2 text-white drop-shadow-lg">
+            <div className="relative flex flex-col items-center gap-2 rounded-full bg-black/70 px-7 py-5 text-white shadow-2xl ring-1 ring-white/20">
               {seekOverlay.direction === "forward" ? (
                 <ChevronsRight className="h-12 w-12" strokeWidth={2.5} />
               ) : (
