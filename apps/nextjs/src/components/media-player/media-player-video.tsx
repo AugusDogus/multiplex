@@ -1,6 +1,7 @@
 "use client";
 
 import { forwardRef, useCallback, useMemo, useRef } from "react";
+import type { PointerEvent } from "react";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import type { MediaPlayerItem } from "~/types/media-player";
 import { getVideoElementError } from "./utils/media-player-utils";
@@ -13,6 +14,9 @@ import {
    Media Player Video Component
    HTML5 video element with Plex streaming integration
    ──────────────────────────────────────────────────────────── */
+
+const HOLD_PLAYBACK_RATE = 2;
+const HOLD_CLICK_SUPPRESSION_MS = 200;
 
 interface MediaPlayerVideoProps {
   /**
@@ -84,6 +88,10 @@ export const MediaPlayerVideo = forwardRef<
     const isMuted = useMediaPlayerStore((state) => state.isMuted);
     const currentTime = useMediaPlayerStore((state) => state.currentTime);
     const { updatePlaybackState } = useMediaPlayerStore();
+    const holdPlaybackRateRef = useRef<number | null>(null);
+    const holdPointerIdRef = useRef<number | null>(null);
+    const holdStartedAtRef = useRef<number | null>(null);
+    const shouldSuppressClickRef = useRef(false);
 
     // Compute player status locally to avoid object reference issues
     const playerStatus = useMemo(() => {
@@ -266,6 +274,11 @@ export const MediaPlayerVideo = forwardRef<
      * Handle video click for play/pause toggle
      */
     const handleVideoClick = useCallback(() => {
+      if (shouldSuppressClickRef.current) {
+        shouldSuppressClickRef.current = false;
+        return;
+      }
+
       onVideoClick?.();
     }, [onVideoClick]);
 
@@ -286,6 +299,56 @@ export const MediaPlayerVideo = forwardRef<
         onVolumeScroll?.(delta);
       },
       [onVolumeScroll],
+    );
+
+    const restoreHoldPlaybackRate = useCallback(
+      (video: HTMLVideoElement, pointerId: number) => {
+        if (holdPointerIdRef.current !== pointerId) return;
+
+        if (holdPlaybackRateRef.current != null) {
+          video.playbackRate = holdPlaybackRateRef.current;
+        }
+
+        holdPlaybackRateRef.current = null;
+        holdPointerIdRef.current = null;
+        holdStartedAtRef.current = null;
+      },
+      [],
+    );
+
+    const handleVideoPointerDown = useCallback(
+      (event: PointerEvent<HTMLVideoElement>) => {
+        if (event.pointerType === "mouse" && event.button !== 0) return;
+        if (holdPointerIdRef.current != null) return;
+
+        const video = event.currentTarget;
+        holdPlaybackRateRef.current = video.playbackRate;
+        holdPointerIdRef.current = event.pointerId;
+        holdStartedAtRef.current = Date.now();
+        video.playbackRate = HOLD_PLAYBACK_RATE;
+        video.setPointerCapture(event.pointerId);
+      },
+      [],
+    );
+
+    const handleVideoPointerEnd = useCallback(
+      (event: PointerEvent<HTMLVideoElement>) => {
+        if (holdPointerIdRef.current !== event.pointerId) return;
+
+        const holdStartedAt = holdStartedAtRef.current;
+        if (
+          holdStartedAt != null &&
+          Date.now() - holdStartedAt >= HOLD_CLICK_SUPPRESSION_MS
+        ) {
+          shouldSuppressClickRef.current = true;
+        }
+
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+        restoreHoldPlaybackRate(event.currentTarget, event.pointerId);
+      },
+      [restoreHoldPlaybackRate],
     );
 
     /**
@@ -392,6 +455,11 @@ export const MediaPlayerVideo = forwardRef<
           className="h-full w-full cursor-pointer object-contain"
           onClick={handleVideoClick}
           onDoubleClick={handleVideoDoubleClick}
+          onPointerDown={handleVideoPointerDown}
+          onPointerUp={handleVideoPointerEnd}
+          onPointerCancel={handleVideoPointerEnd}
+          onPointerLeave={handleVideoPointerEnd}
+          onLostPointerCapture={handleVideoPointerEnd}
           onError={handleVideoError}
           onLoadStart={handleLoadStart}
           onLoadedData={handleLoadedData}
