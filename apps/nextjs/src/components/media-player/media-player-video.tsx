@@ -385,7 +385,7 @@ export const MediaPlayerVideo = forwardRef<
      * Handle video clicks for play/pause or YouTube-style double-click seeking.
      */
     const handleVideoClick = useCallback(
-      (event: MouseEvent<HTMLVideoElement>) => {
+      (event: MouseEvent<HTMLElement>) => {
         clearSingleClickTimeout();
 
         if (shouldSuppressClickRef.current) {
@@ -427,7 +427,7 @@ export const MediaPlayerVideo = forwardRef<
     );
 
     const handleVideoDoubleClick = useCallback(
-      (event: MouseEvent<HTMLVideoElement>) => {
+      (event: MouseEvent<HTMLElement>) => {
         event.preventDefault();
       },
       [],
@@ -602,14 +602,14 @@ export const MediaPlayerVideo = forwardRef<
         onPointerCancel={handleVideoPointerEnd}
         onPointerLeave={handleVideoPointerEnd}
         onLostPointerCapture={handleVideoPointerEnd}
+        onClick={handleVideoClick}
+        onDoubleClick={handleVideoDoubleClick}
       >
         <video
           ref={videoRefCallback}
           autoPlay
           src={videoSrc}
           className="h-full w-full cursor-pointer object-contain"
-          onClick={handleVideoClick}
-          onDoubleClick={handleVideoDoubleClick}
           onError={handleVideoError}
           onLoadStart={handleLoadStart}
           onLoadedData={handleLoadedData}
