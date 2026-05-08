@@ -25,8 +25,8 @@ import {
 
 const HOLD_PLAYBACK_RATE = 2;
 const HOLD_CLICK_SUPPRESSION_MS = 200;
-const SINGLE_CLICK_DELAY_MS = 250;
-const DOUBLE_CLICK_SEEK_WINDOW_MS = 700;
+const SINGLE_CLICK_DELAY_MS = 400;
+const DOUBLE_CLICK_SEEK_WINDOW_MS = 900;
 const DOUBLE_CLICK_SEEK_SECONDS = 10;
 
 type DoubleClickSeekDirection = "backward" | "forward";
@@ -399,8 +399,22 @@ export const MediaPlayerVideo = forwardRef<
         const direction =
           event.clientX < left + width / 2 ? "backward" : "forward";
         const currentSequence = seekSequenceRef.current;
+        const nativeClickCount = event.detail;
 
-        if (currentSequence?.direction === direction) {
+        if (currentSequence?.direction === direction && nativeClickCount > 1) {
+          const clickCount = Math.max(
+            currentSequence.clickCount + 1,
+            nativeClickCount,
+          );
+          seekSequenceRef.current = { direction, clickCount };
+          handleDoubleClickSeek(direction, clickCount);
+          return;
+        }
+
+        if (
+          currentSequence?.direction === direction &&
+          currentSequence.clickCount > 1
+        ) {
           const clickCount = currentSequence.clickCount + 1;
           seekSequenceRef.current = { direction, clickCount };
           handleDoubleClickSeek(direction, clickCount);
