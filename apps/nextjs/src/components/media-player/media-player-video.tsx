@@ -303,21 +303,18 @@ export const MediaPlayerVideo = forwardRef<
       [onVolumeScroll],
     );
 
-    const restoreHoldPlaybackRate = useCallback(
-      (pointerId: number) => {
-        if (holdPointerIdRef.current !== pointerId) return;
+    const restoreHoldPlaybackRate = useCallback((pointerId: number) => {
+      if (holdPointerIdRef.current !== pointerId) return;
 
-        const video = videoElementRef.current;
-        if (video && holdPlaybackRateRef.current != null) {
-          video.playbackRate = holdPlaybackRateRef.current;
-        }
+      const video = videoElementRef.current;
+      if (video && holdPlaybackRateRef.current != null) {
+        video.playbackRate = holdPlaybackRateRef.current;
+      }
 
-        holdPlaybackRateRef.current = null;
-        holdPointerIdRef.current = null;
-        holdStartedAtRef.current = null;
-      },
-      [],
-    );
+      holdPlaybackRateRef.current = null;
+      holdPointerIdRef.current = null;
+      holdStartedAtRef.current = null;
+    }, []);
 
     const handleVideoPointerDown = useCallback(
       (event: PointerEvent<HTMLElement>) => {
