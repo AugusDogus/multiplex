@@ -354,10 +354,6 @@ export const MediaPlayerVideo = forwardRef<
     );
 
     /**
-     * Internal ref to track the video element for cleanup
-     */
-
-    /**
      * Ref callback that combines forwarded ref with wheel event setup
      */
     const videoRefCallback = useCallback(
