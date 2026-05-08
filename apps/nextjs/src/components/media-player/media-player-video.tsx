@@ -92,6 +92,8 @@ export const MediaPlayerVideo = forwardRef<
     const holdPointerIdRef = useRef<number | null>(null);
     const holdStartedAtRef = useRef<number | null>(null);
     const shouldSuppressClickRef = useRef(false);
+    const videoElementRef = useRef<HTMLVideoElement | null>(null);
+    const currentHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
 
     // Compute player status locally to avoid object reference issues
     const playerStatus = useMemo(() => {
@@ -302,10 +304,11 @@ export const MediaPlayerVideo = forwardRef<
     );
 
     const restoreHoldPlaybackRate = useCallback(
-      (video: HTMLVideoElement, pointerId: number) => {
+      (pointerId: number) => {
         if (holdPointerIdRef.current !== pointerId) return;
 
-        if (holdPlaybackRateRef.current != null) {
+        const video = videoElementRef.current;
+        if (video && holdPlaybackRateRef.current != null) {
           video.playbackRate = holdPlaybackRateRef.current;
         }
 
@@ -317,22 +320,24 @@ export const MediaPlayerVideo = forwardRef<
     );
 
     const handleVideoPointerDown = useCallback(
-      (event: PointerEvent<HTMLVideoElement>) => {
+      (event: PointerEvent<HTMLElement>) => {
         if (event.pointerType === "mouse" && event.button !== 0) return;
         if (holdPointerIdRef.current != null) return;
 
-        const video = event.currentTarget;
+        const video = videoElementRef.current;
+        if (!video) return;
+
         holdPlaybackRateRef.current = video.playbackRate;
         holdPointerIdRef.current = event.pointerId;
         holdStartedAtRef.current = Date.now();
         video.playbackRate = HOLD_PLAYBACK_RATE;
-        video.setPointerCapture(event.pointerId);
+        event.currentTarget.setPointerCapture(event.pointerId);
       },
       [],
     );
 
     const handleVideoPointerEnd = useCallback(
-      (event: PointerEvent<HTMLVideoElement>) => {
+      (event: PointerEvent<HTMLElement>) => {
         if (holdPointerIdRef.current !== event.pointerId) return;
 
         const holdStartedAt = holdStartedAtRef.current;
@@ -346,7 +351,7 @@ export const MediaPlayerVideo = forwardRef<
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
           event.currentTarget.releasePointerCapture(event.pointerId);
         }
-        restoreHoldPlaybackRate(event.currentTarget, event.pointerId);
+        restoreHoldPlaybackRate(event.pointerId);
       },
       [restoreHoldPlaybackRate],
     );
@@ -354,8 +359,6 @@ export const MediaPlayerVideo = forwardRef<
     /**
      * Internal ref to track the video element for cleanup
      */
-    const videoElementRef = useRef<HTMLVideoElement | null>(null);
-    const currentHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
 
     /**
      * Ref callback that combines forwarded ref with wheel event setup
@@ -447,6 +450,11 @@ export const MediaPlayerVideo = forwardRef<
     return (
       <div
         className={`relative h-full w-full overflow-hidden bg-black ${className}`}
+        onPointerDown={handleVideoPointerDown}
+        onPointerUp={handleVideoPointerEnd}
+        onPointerCancel={handleVideoPointerEnd}
+        onPointerLeave={handleVideoPointerEnd}
+        onLostPointerCapture={handleVideoPointerEnd}
       >
         <video
           ref={videoRefCallback}
@@ -455,11 +463,6 @@ export const MediaPlayerVideo = forwardRef<
           className="h-full w-full cursor-pointer object-contain"
           onClick={handleVideoClick}
           onDoubleClick={handleVideoDoubleClick}
-          onPointerDown={handleVideoPointerDown}
-          onPointerUp={handleVideoPointerEnd}
-          onPointerCancel={handleVideoPointerEnd}
-          onPointerLeave={handleVideoPointerEnd}
-          onLostPointerCapture={handleVideoPointerEnd}
           onError={handleVideoError}
           onLoadStart={handleLoadStart}
           onLoadedData={handleLoadedData}
