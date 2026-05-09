@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronsLeft, ChevronsRight } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, FastForward } from "lucide-react";
 import {
   forwardRef,
   useCallback,
@@ -111,6 +111,9 @@ export const MediaPlayerVideo = forwardRef<
     const holdPlaybackRateRef = useRef<number | null>(null);
     const holdPointerIdRef = useRef<number | null>(null);
     const holdStartedAtRef = useRef<number | null>(null);
+    const holdIndicatorTimeoutRef = useRef<ReturnType<
+      typeof setTimeout
+    > | null>(null);
     const shouldSuppressClickRef = useRef(false);
     const videoElementRef = useRef<HTMLVideoElement | null>(null);
     const currentHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
@@ -126,6 +129,7 @@ export const MediaPlayerVideo = forwardRef<
     const seekSequenceRef = useRef<DoubleClickSeekSequence | null>(null);
     const [seekOverlay, setSeekOverlay] =
       useState<DoubleClickSeekOverlay | null>(null);
+    const [isHoldingFastForward, setIsHoldingFastForward] = useState(false);
 
     // Compute player status locally to avoid object reference issues
     const playerStatus = useMemo(() => {
@@ -461,18 +465,30 @@ export const MediaPlayerVideo = forwardRef<
       [onVolumeScroll],
     );
 
-    const restoreHoldPlaybackRate = useCallback((pointerId: number) => {
-      if (holdPointerIdRef.current !== pointerId) return;
-
-      const video = videoElementRef.current;
-      if (video && holdPlaybackRateRef.current != null) {
-        video.playbackRate = holdPlaybackRateRef.current;
+    const clearHoldIndicatorTimeout = useCallback(() => {
+      if (holdIndicatorTimeoutRef.current) {
+        clearTimeout(holdIndicatorTimeoutRef.current);
+        holdIndicatorTimeoutRef.current = null;
       }
-
-      holdPlaybackRateRef.current = null;
-      holdPointerIdRef.current = null;
-      holdStartedAtRef.current = null;
     }, []);
+
+    const restoreHoldPlaybackRate = useCallback(
+      (pointerId: number) => {
+        if (holdPointerIdRef.current !== pointerId) return;
+
+        const video = videoElementRef.current;
+        if (video && holdPlaybackRateRef.current != null) {
+          video.playbackRate = holdPlaybackRateRef.current;
+        }
+
+        holdPlaybackRateRef.current = null;
+        holdPointerIdRef.current = null;
+        holdStartedAtRef.current = null;
+        clearHoldIndicatorTimeout();
+        setIsHoldingFastForward(false);
+      },
+      [clearHoldIndicatorTimeout],
+    );
 
     const handleVideoPointerDown = useCallback(
       (event: PointerEvent<HTMLElement>) => {
@@ -489,8 +505,19 @@ export const MediaPlayerVideo = forwardRef<
         holdStartedAtRef.current = Date.now();
         video.playbackRate = HOLD_PLAYBACK_RATE;
         event.currentTarget.setPointerCapture(event.pointerId);
+
+        // Only reveal the 2x indicator once the press has lasted long enough
+        // to qualify as a hold (matching the click suppression threshold), so
+        // a quick tap that toggles play/pause doesn't flash the indicator.
+        clearHoldIndicatorTimeout();
+        holdIndicatorTimeoutRef.current = setTimeout(() => {
+          holdIndicatorTimeoutRef.current = null;
+          if (holdPointerIdRef.current != null) {
+            setIsHoldingFastForward(true);
+          }
+        }, HOLD_CLICK_SUPPRESSION_MS);
       },
-      [clearSingleClickTimeout],
+      [clearHoldIndicatorTimeout, clearSingleClickTimeout],
     );
 
     const handleVideoPointerEnd = useCallback(
@@ -571,8 +598,10 @@ export const MediaPlayerVideo = forwardRef<
         clearSingleClickTimeout();
         clearSeekSequenceTimeout();
         clearSeekOverlayTimeout();
+        clearHoldIndicatorTimeout();
       };
     }, [
+      clearHoldIndicatorTimeout,
       clearSeekOverlayTimeout,
       clearSeekSequenceTimeout,
       clearSingleClickTimeout,
@@ -651,6 +680,25 @@ export const MediaPlayerVideo = forwardRef<
           crossOrigin="anonymous"
           disableRemotePlayback
         />
+
+        {isHoldingFastForward && (
+          <div
+            className="pointer-events-none absolute top-6 left-1/2 z-50 -translate-x-1/2"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="flex items-center gap-2 rounded-full bg-black/70 px-4 py-2 text-white shadow-lg ring-1 ring-white/20">
+              <span className="text-sm font-semibold">
+                {HOLD_PLAYBACK_RATE}x
+              </span>
+              <FastForward
+                className="h-4 w-4 fill-white"
+                strokeWidth={0}
+                aria-hidden="true"
+              />
+            </div>
+          </div>
+        )}
 
         {seekOverlay && (
           <div
