@@ -6,12 +6,152 @@ import type { MediaPlayerItem } from "~/types/media-player";
    ──────────────────────────────────────────────────────────── */
 
 /**
- * Generate a Plex streaming URL for a media item
- * @param item - The media player item to generate URL for
- * @param serverUrl - The Plex server URL
- * @param authToken - The authentication token
- * @returns The streaming URL for the media item
- * @throws Error if no media part key is found
+ * Audio codecs Chromium-based browsers can decode in a video container.
+ * EAC3, AC3, DTS, TrueHD, and FLAC variants commonly used in MKV releases
+ * are NOT in this set — Chrome will silently drop the audio track.
+ */
+const BROWSER_DECODABLE_AUDIO_CODECS = new Set([
+  "aac",
+  "mp3",
+  "mpeg",
+  "opus",
+  "vorbis",
+]);
+
+/**
+ * Video codecs commonly playable via a plain `<video src>` in Chrome.
+ * (HEVC requires hardware support; we still allow direct-play and let the
+ * transcoder fallback path handle environments that can't decode it.)
+ */
+const BROWSER_DECODABLE_VIDEO_CODECS = new Set(["h264", "vp8", "vp9", "av1"]);
+
+interface ClientProfile {
+  platform: string;
+  product: string;
+  version: string;
+  clientIdentifier: string;
+  device: string;
+  deviceName: string;
+}
+
+const CLIENT_PROFILE: ClientProfile = {
+  platform: "Chrome",
+  product: "Multiplex",
+  version: "1.0",
+  clientIdentifier: "multiplex-web",
+  device: "Chrome",
+  deviceName: "Multiplex Web",
+};
+
+function applyClientHeaders(url: URL, authToken: string): void {
+  url.searchParams.set("X-Plex-Token", authToken);
+  url.searchParams.set("X-Plex-Platform", CLIENT_PROFILE.platform);
+  url.searchParams.set("X-Plex-Platform-Version", "1.0");
+  url.searchParams.set("X-Plex-Product", CLIENT_PROFILE.product);
+  url.searchParams.set("X-Plex-Version", CLIENT_PROFILE.version);
+  url.searchParams.set(
+    "X-Plex-Client-Identifier",
+    CLIENT_PROFILE.clientIdentifier,
+  );
+  url.searchParams.set("X-Plex-Device", CLIENT_PROFILE.device);
+  url.searchParams.set("X-Plex-Device-Name", CLIENT_PROFILE.deviceName);
+}
+
+type StreamDecision = "direct-play" | "direct-stream";
+
+/**
+ * Decide whether the browser can direct-play the file or whether we need to
+ * route through Plex's universal transcoder. When the audio codec isn't
+ * browser-decodable but the video codec is, Plex direct-streams the video
+ * (no re-encode) and transcodes only the audio to AAC.
+ */
+function decideStreamMode(item: MediaPlayerItem): StreamDecision {
+  const media = item.Media?.[0];
+  const audioCodec = media?.audioCodec?.toLowerCase();
+  const videoCodec = media?.videoCodec?.toLowerCase();
+
+  const audioOk =
+    !!audioCodec && BROWSER_DECODABLE_AUDIO_CODECS.has(audioCodec);
+  const videoOk =
+    !!videoCodec && BROWSER_DECODABLE_VIDEO_CODECS.has(videoCodec);
+
+  return audioOk && videoOk ? "direct-play" : "direct-stream";
+}
+
+function buildDirectPlayUrl(
+  item: MediaPlayerItem,
+  serverUrl: string,
+  authToken: string,
+): string {
+  const partKey = item.Media?.[0]?.Part?.[0]?.key;
+  if (!partKey) throw new Error("No media part key found for item");
+
+  const baseUrl = serverUrl.replace(/\/$/, "");
+  const streamUrl = new URL(`${baseUrl}${partKey}`);
+  applyClientHeaders(streamUrl, authToken);
+  streamUrl.searchParams.set("X-Plex-Protocol", "1.0");
+  streamUrl.searchParams.set(
+    "X-Plex-Session-Identifier",
+    `multiplex-${Date.now()}`,
+  );
+  return streamUrl.toString();
+}
+
+/**
+ * Build a Plex universal transcoder URL that direct-streams the video track
+ * (no re-encode) and transcodes only the audio to a browser-friendly codec.
+ * Output container is fragmented MP4, which Chrome plays natively.
+ */
+function buildDirectStreamUrl(
+  item: MediaPlayerItem,
+  serverUrl: string,
+  authToken: string,
+): string {
+  if (!item.key) throw new Error("No metadata key found for item");
+
+  const baseUrl = serverUrl.replace(/\/$/, "");
+  const streamUrl = new URL(
+    `${baseUrl}/video/:/transcode/universal/start.mp4`,
+  );
+
+  applyClientHeaders(streamUrl, authToken);
+  streamUrl.searchParams.set("path", item.key);
+  streamUrl.searchParams.set("mediaIndex", "0");
+  streamUrl.searchParams.set("partIndex", "0");
+  streamUrl.searchParams.set("protocol", "http");
+  streamUrl.searchParams.set("fastSeek", "1");
+  streamUrl.searchParams.set("directPlay", "0");
+  streamUrl.searchParams.set("directStream", "1");
+  streamUrl.searchParams.set("directStreamAudio", "0");
+  streamUrl.searchParams.set("audioBoost", "100");
+  streamUrl.searchParams.set("subtitleSize", "100");
+  streamUrl.searchParams.set("location", "lan");
+  streamUrl.searchParams.set("session", `multiplex-${Date.now()}`);
+  // Tell Plex our capabilities: we can take MP4+h264 with AAC audio direct,
+  // and we want any other audio re-encoded to AAC.
+  streamUrl.searchParams.set(
+    "X-Plex-Client-Profile-Extra",
+    [
+      "add-direct-play(type=videoProfile&container=mp4&videoCodec=h264&audioCodec=aac)",
+      "add-direct-play(type=videoProfile&container=mp4&videoCodec=h264&audioCodec=mp3)",
+      "add-transcode-target(type=videoProfile&context=streaming&protocol=http&container=mp4&videoCodec=h264&audioCodec=aac)",
+      "add-direct-stream-audio-codec(type=videoProfile&audioCodec=aac)",
+      "add-direct-stream-audio-codec(type=videoProfile&audioCodec=mp3)",
+    ].join("+"),
+  );
+
+  return streamUrl.toString();
+}
+
+/**
+ * Generate a Plex streaming URL for a media item.
+ *
+ * Chooses direct-play when the file's container/codecs are browser-friendly
+ * (e.g. MP4/MKV with h264 + AAC). Falls back to Plex's universal transcoder
+ * with `directStream=1` for files whose audio codec the browser can't decode
+ * (e.g. EAC3/AC3/DTS/TrueHD/FLAC). In that mode the video track is remuxed
+ * untouched and only the audio is transcoded — cheap on the Plex server and
+ * preserves video quality.
  */
 export function generatePlexStreamUrl(
   item: MediaPlayerItem,
@@ -22,31 +162,10 @@ export function generatePlexStreamUrl(
     throw new Error("No media part key found for item");
   }
 
-  const partKey = item.Media[0].Part[0].key;
-  const baseUrl = serverUrl.replace(/\/$/, "");
-
-  const streamUrl = new URL(`${baseUrl}${partKey}`);
-  streamUrl.searchParams.set("X-Plex-Token", authToken);
-
-  // Add transcoding parameters for web playback
-  streamUrl.searchParams.set("X-Plex-Platform", "Chrome");
-  streamUrl.searchParams.set("X-Plex-Platform-Version", "1.0");
-  streamUrl.searchParams.set("X-Plex-Product", "Multiplex");
-  streamUrl.searchParams.set("X-Plex-Version", "1.0");
-  streamUrl.searchParams.set("X-Plex-Client-Identifier", "multiplex-web");
-
-  // Add additional parameters that might help with CORS
-  streamUrl.searchParams.set("X-Plex-Protocol", "1.0");
-  streamUrl.searchParams.set("X-Plex-Device", "Chrome");
-  streamUrl.searchParams.set("X-Plex-Device-Name", "Multiplex Web");
-
-  // Add session identifier to help with CORS caching
-  streamUrl.searchParams.set(
-    "X-Plex-Session-Identifier",
-    `multiplex-${Date.now()}`,
-  );
-
-  return streamUrl.toString();
+  const decision = decideStreamMode(item);
+  return decision === "direct-play"
+    ? buildDirectPlayUrl(item, serverUrl, authToken)
+    : buildDirectStreamUrl(item, serverUrl, authToken);
 }
 
 /**
