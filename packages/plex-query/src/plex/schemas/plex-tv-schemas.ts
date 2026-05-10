@@ -149,36 +149,34 @@ export const plexSettingSchema = z.object({
 });
 
 // Combined settings schema with proper typing (no Record<string, unknown> intersection)
-export const plexSettingsSchema = z
-  .array(plexSettingSchema)
-  .transform((settingsArray) => {
-    // Start with default experience settings
-    let experienceSettings: ExperienceSettings = {};
-    const otherSettings: Record<string, OtherSetting> = {};
+export const plexSettingsSchema = z.array(plexSettingSchema).transform((settingsArray) => {
+  // Start with default experience settings
+  let experienceSettings: ExperienceSettings = {};
+  const otherSettings: Record<string, OtherSetting> = {};
 
-    for (const setting of settingsArray) {
-      if (setting.id === "experience" && setting.type === "json") {
-        try {
-          const parsedValue = JSON.parse(setting.value);
-          experienceSettings = experienceSettingsSchema.parse(parsedValue);
-        } catch (error) {
-          console.warn("Failed to parse experience settings:", error);
-        }
-      } else {
-        otherSettings[setting.id] = {
-          type: setting.type,
-          value: setting.value,
-          hidden: setting.hidden,
-          updatedAt: setting.updatedAt,
-        };
+  for (const setting of settingsArray) {
+    if (setting.id === "experience" && setting.type === "json") {
+      try {
+        const parsedValue = JSON.parse(setting.value);
+        experienceSettings = experienceSettingsSchema.parse(parsedValue);
+      } catch (error) {
+        console.warn("Failed to parse experience settings:", error);
       }
+    } else {
+      otherSettings[setting.id] = {
+        type: setting.type,
+        value: setting.value,
+        hidden: setting.hidden,
+        updatedAt: setting.updatedAt,
+      };
     }
+  }
 
-    return {
-      ...experienceSettings,
-      otherSettings,
-    };
-  });
+  return {
+    ...experienceSettings,
+    otherSettings,
+  };
+});
 
 // Type for other settings
 export type OtherSetting = z.infer<typeof otherSettingSchema>;
@@ -277,10 +275,12 @@ export const rawUserInfoSchema = z.object({
         mode: z.string(),
         renewsAt: z.string().nullable(),
         endsAt: z.string().nullable(),
-        billing: z.object({
-          paymentMethodId: z.string().nullable(),
-          internalPaymentMethod: z.object({}).optional(),
-        }).optional(),
+        billing: z
+          .object({
+            paymentMethodId: z.string().nullable(),
+            internalPaymentMethod: z.object({}).optional(),
+          })
+          .optional(),
         canceled: z.boolean().optional(),
         gracePeriod: z.boolean().optional(),
         onHold: z.boolean().optional(),
@@ -290,7 +290,7 @@ export const rawUserInfoSchema = z.object({
         canConvert: z.boolean().optional(),
         type: z.string(),
         state: z.string(),
-      })
+      }),
     )
     .optional()
     .default([]),
@@ -303,7 +303,7 @@ export const rawUserInfoSchema = z.object({
         status: z.string().optional(),
         startedAt: z.string().optional(),
         endsAt: z.string().optional(),
-      })
+      }),
     )
     .optional()
     .default([]),

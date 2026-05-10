@@ -67,9 +67,7 @@ export function ServerLibraryGroup({ server, state, sources, onRetry }: ServerLi
                 onClick={() => onRetry(server.clientIdentifier)}
                 disabled={state.isRetrying}
                 className="text-muted-foreground hover:bg-accent hover:text-foreground flex h-6 w-6 items-center justify-center rounded-md disabled:opacity-50"
-                aria-label={
-                  state.isRetrying ? "Reconnecting to server" : "Retry server connection"
-                }
+                aria-label={state.isRetrying ? "Reconnecting to server" : "Retry server connection"}
               >
                 {state.isRetrying ? (
                   <RefreshCw className="h-4 w-4 animate-spin" />

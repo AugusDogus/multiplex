@@ -1,5 +1,10 @@
 import { createContext, useContext, type ReactNode } from "react";
-import { api, type PlexDevice, type PlexUserInfo, type ContinueWatchingItemWithServer } from "@multiplex/plex-query";
+import {
+  api,
+  type PlexDevice,
+  type PlexUserInfo,
+  type ContinueWatchingItemWithServer,
+} from "@multiplex/plex-query";
 
 /* ────────────────────────────────────────────────────────────
    Layout Data Context
@@ -11,16 +16,16 @@ interface LayoutDataContextValue {
   // Servers data
   servers: PlexDevice[];
   serversLoading: boolean;
-  
+
   // User info data
   userInfo: PlexUserInfo | undefined;
   userInfoLoading: boolean;
-  
+
   // Continue watching data
   continueWatchingItems: ContinueWatchingItemWithServer[];
   continueWatchingLoading: boolean;
   continueWatchingError: Error | null;
-  
+
   // Combined loading states
   isLayoutLoading: boolean; // servers + userInfo loading
   isAllDataLoading: boolean; // all data loading
@@ -35,11 +40,19 @@ interface LayoutDataProviderProps {
 
 export function LayoutDataProvider({ token, children }: LayoutDataProviderProps) {
   // Fetch servers and userInfo in parallel
-  const { data: servers = [], isLoading: serversLoading, isFetched: serversFetched } = api.plex.getServers.useQuery(token, {
+  const {
+    data: servers = [],
+    isLoading: serversLoading,
+    isFetched: serversFetched,
+  } = api.plex.getServers.useQuery(token, {
     enabled: !!token,
   });
-  
-  const { data: userInfo, isLoading: userInfoLoading, isFetched: userInfoFetched } = api.plex.getUserInfo.useQuery(token, {
+
+  const {
+    data: userInfo,
+    isLoading: userInfoLoading,
+    isFetched: userInfoFetched,
+  } = api.plex.getUserInfo.useQuery(token, {
     enabled: !!token,
   });
 
@@ -47,8 +60,8 @@ export function LayoutDataProvider({ token, children }: LayoutDataProviderProps)
   const canFetchContinueWatching = !!token && servers.length > 0 && !!userInfo;
 
   // Fetch continue watching - starts as soon as dependencies are ready
-  const { 
-    data: continueWatchingItems = [], 
+  const {
+    data: continueWatchingItems = [],
     isLoading: continueWatchingLoading,
     isFetched: continueWatchingFetched,
     error: continueWatchingError,
@@ -56,20 +69,22 @@ export function LayoutDataProvider({ token, children }: LayoutDataProviderProps)
     { token: token!, servers, userInfo: userInfo! },
     {
       enabled: canFetchContinueWatching,
-    }
+    },
   );
 
   // Loading states that account for:
   // 1. No token yet (pre-hydration or not authenticated) - show skeletons
   // 2. Query is actively loading
   // 3. Query hasn't been fetched yet (waiting for dependencies)
-  const isLayoutLoading = !token || serversLoading || userInfoLoading || !serversFetched || !userInfoFetched;
-  
+  const isLayoutLoading =
+    !token || serversLoading || userInfoLoading || !serversFetched || !userInfoFetched;
+
   // continueWatching is "loading" if:
   // 1. Layout is still loading (dependencies not ready)
   // 2. The query is actually loading
   // 3. Query hasn't been fetched yet
-  const isContinueWatchingPending = isLayoutLoading || continueWatchingLoading || !continueWatchingFetched;
+  const isContinueWatchingPending =
+    isLayoutLoading || continueWatchingLoading || !continueWatchingFetched;
   const isAllDataLoading = isContinueWatchingPending;
 
   const value: LayoutDataContextValue = {
@@ -84,11 +99,7 @@ export function LayoutDataProvider({ token, children }: LayoutDataProviderProps)
     isAllDataLoading,
   };
 
-  return (
-    <LayoutDataContext.Provider value={value}>
-      {children}
-    </LayoutDataContext.Provider>
-  );
+  return <LayoutDataContext.Provider value={value}>{children}</LayoutDataContext.Provider>;
 }
 
 export function useLayoutData(): LayoutDataContextValue {

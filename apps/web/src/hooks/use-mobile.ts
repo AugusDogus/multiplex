@@ -11,7 +11,7 @@ export function useIsMobile() {
     // Check immediately on mount
     const checkMobile = () => window.innerWidth < MOBILE_BREAKPOINT;
     setIsMobile(checkMobile());
-    
+
     const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
     const onChange = () => setIsMobile(checkMobile());
     mql.addEventListener("change", onChange);

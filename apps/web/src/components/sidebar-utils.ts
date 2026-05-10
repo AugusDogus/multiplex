@@ -22,7 +22,7 @@ export function getSourceIcon(sourceType: string) {
 export function isUrlActive(
   pathname: string,
   searchParams: URLSearchParams,
-  sourceHref: string
+  sourceHref: string,
 ): boolean {
   try {
     // Parse source href manually to avoid using window.location.origin during SSR

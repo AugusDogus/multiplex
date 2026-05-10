@@ -78,7 +78,7 @@ const getUserInfo = createQuery<PlexUserInfo, TokenParam>({
 async function fetchContinueWatchingItems(
   token: string,
   servers: PlexDevice[],
-  userInfo: PlexUserInfo
+  userInfo: PlexUserInfo,
 ): Promise<ContinueWatchingItemWithServer[]> {
   const config = getPlexConfig();
 
@@ -96,7 +96,7 @@ async function fetchContinueWatchingItems(
       acc[source.machineIdentifier]!.push(source);
       return acc;
     },
-    {} as Record<string, typeof pinnedSources>
+    {} as Record<string, typeof pinnedSources>,
   );
 
   // Fetch Continue Watching from each server that has pinned sources
@@ -114,12 +114,12 @@ async function fetchContinueWatchingItems(
       } catch {
         return null;
       }
-    }
+    },
   );
 
   const serverResults = (await Promise.all(serverPromises)).filter(
     (result): result is { response: ContinueWatchingResponse; server: PlexDevice } =>
-      result !== null
+      result !== null,
   );
 
   // Combine all items from all servers with server connection info
@@ -134,7 +134,7 @@ async function fetchContinueWatchingItems(
         serverUrl,
         authToken,
         serverId: server.clientIdentifier,
-      })
+      }),
     );
   });
 
@@ -161,10 +161,7 @@ const getContinueWatching = createQuery<ContinueWatchingItemWithServer[], TokenP
     const tvClient = new PlexTvClient(token, config);
 
     // Fetch servers and userInfo in parallel
-    const [servers, userInfo] = await Promise.all([
-      tvClient.getServers(),
-      tvClient.getUserInfo(),
-    ]);
+    const [servers, userInfo] = await Promise.all([tvClient.getServers(), tvClient.getUserInfo()]);
 
     return fetchContinueWatchingItems(token, servers, userInfo);
   },

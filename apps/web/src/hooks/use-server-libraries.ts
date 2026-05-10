@@ -31,7 +31,7 @@ export interface UseServerLibrariesReturn {
 
 export function useServerLibraries(
   servers: PlexDevice[],
-  token: string | null
+  token: string | null,
 ): UseServerLibrariesReturn {
   const [retryingServers, setRetryingServers] = useState<Set<string>>(new Set());
   const queryClient = useQueryClient();
@@ -115,17 +115,17 @@ export function useServerLibraries(
           });
       }
     },
-    [servers, queryClient]
+    [servers, queryClient],
   );
 
   const isAnyLoading = useMemo(
     () => Array.from(serverStates.values()).some((state) => state.isLoading),
-    [serverStates]
+    [serverStates],
   );
 
   const hasAnyData = useMemo(
     () => Array.from(serverStates.values()).some((state) => state.data && !state.error),
-    [serverStates]
+    [serverStates],
   );
 
   return {

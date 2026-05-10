@@ -47,7 +47,14 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   isLoading?: boolean;
 }
 
-export function AppSidebar({ user, servers, userInfo, token, isLoading, ...props }: AppSidebarProps) {
+export function AppSidebar({
+  user,
+  servers,
+  userInfo,
+  token,
+  isLoading,
+  ...props
+}: AppSidebarProps) {
   const [currentPage, setCurrentPage] = React.useState<"main" | "all">("main");
 
   // Use custom hooks for data management

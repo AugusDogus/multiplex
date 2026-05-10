@@ -110,9 +110,7 @@ function buildDirectStreamUrl(
   if (!item.key) throw new Error("No metadata key found for item");
 
   const baseUrl = serverUrl.replace(/\/$/, "");
-  const streamUrl = new URL(
-    `${baseUrl}/video/:/transcode/universal/start.mp4`,
-  );
+  const streamUrl = new URL(`${baseUrl}/video/:/transcode/universal/start.mp4`);
 
   applyClientHeaders(streamUrl, authToken);
   streamUrl.searchParams.set("path", item.key);

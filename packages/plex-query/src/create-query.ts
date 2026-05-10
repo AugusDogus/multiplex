@@ -30,7 +30,7 @@ type MutationConfig<TData, TParams, TError = Error> = {
 type CreatedQuery<TData, TParams, TError = Error> = {
   useQuery: (
     params: TParams,
-    options?: Omit<UseQueryOptions<TData, TError>, "queryKey" | "queryFn">
+    options?: Omit<UseQueryOptions<TData, TError>, "queryKey" | "queryFn">,
   ) => ReturnType<typeof useQuery<TData, TError>>;
   queryKey: (params: TParams) => QueryKey;
   queryFn: (params: TParams) => Promise<TData>;
@@ -43,7 +43,7 @@ type CreatedQuery<TData, TParams, TError = Error> = {
  */
 type CreatedMutation<TData, TParams, TError = Error> = {
   useMutation: (
-    options?: Omit<UseMutationOptions<TData, TError, TParams>, "mutationFn">
+    options?: Omit<UseMutationOptions<TData, TError, TParams>, "mutationFn">,
   ) => ReturnType<typeof useMutation<TData, TError, TParams>>;
 };
 
@@ -66,7 +66,7 @@ type CreatedMutation<TData, TParams, TError = Error> = {
  * ```
  */
 export function createQuery<TData, TParams, TError = Error>(
-  config: QueryConfig<TData, TParams, TError>
+  config: QueryConfig<TData, TParams, TError>,
 ): CreatedQuery<TData, TParams, TError> {
   return {
     useQuery: (params, options) => {
@@ -109,7 +109,7 @@ export function createQuery<TData, TParams, TError = Error>(
  * ```
  */
 export function createMutation<TData, TParams, TError = Error>(
-  config: MutationConfig<TData, TParams, TError>
+  config: MutationConfig<TData, TParams, TError>,
 ): CreatedMutation<TData, TParams, TError> {
   return {
     useMutation: (options) => {
@@ -129,7 +129,7 @@ export function createMutation<TData, TParams, TError = Error>(
 export function createDependentQuery<TData, TParams, TError = Error>(
   config: QueryConfig<TData, TParams, TError> & {
     enabled?: (params: TParams) => boolean;
-  }
+  },
 ): CreatedQuery<TData, TParams, TError> {
   return {
     useQuery: (params, options) => {

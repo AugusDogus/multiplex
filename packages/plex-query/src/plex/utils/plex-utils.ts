@@ -24,8 +24,7 @@ export function getServerUrl(server: PlexDevice): string | undefined {
   const connections = Array.isArray(server.connections) ? server.connections : [];
   const PORT_REGEX = /:\d+(?=\/|$)/;
 
-  const pick = (pred: (connection: (typeof connections)[0]) => boolean) =>
-    connections.find(pred);
+  const pick = (pred: (connection: (typeof connections)[0]) => boolean) => connections.find(pred);
 
   const directNonLocal = pick(
     (connection) =>
@@ -41,11 +40,7 @@ export function getServerUrl(server: PlexDevice): string | undefined {
   );
   const customNonPlexDirect = pick((connection) => {
     const uri = connection?.uri;
-    return (
-      uri?.startsWith("https://") &&
-      !uri.includes(".plex.direct") &&
-      !PORT_REGEX.test(uri)
-    );
+    return uri?.startsWith("https://") && !uri.includes(".plex.direct") && !PORT_REGEX.test(uri);
   });
   const httpsAny = pick((connection) => connection?.uri?.startsWith("https://"));
   const anyConnection = pick((connection) => Boolean(connection?.uri));

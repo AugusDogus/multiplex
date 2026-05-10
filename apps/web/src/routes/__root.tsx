@@ -82,7 +82,7 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 function PendingComponent() {
   return (
     <div className="flex h-screen w-screen items-center justify-center">
-      <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      <div className="border-primary h-8 w-8 animate-spin rounded-full border-4 border-t-transparent" />
     </div>
   );
 }
@@ -110,10 +110,17 @@ function RootComponent() {
   );
 }
 
-function AuthenticatedLayout({ 
-  user 
-}: { 
-  user: { id: number; uuid: string; username: string; friendlyName: string; email: string; thumb: string } | null;
+function AuthenticatedLayout({
+  user,
+}: {
+  user: {
+    id: number;
+    uuid: string;
+    username: string;
+    friendlyName: string;
+    email: string;
+    thumb: string;
+  } | null;
 }) {
   const { servers, userInfo, isAllDataLoading } = useLayoutData();
   const { token } = useAuth();

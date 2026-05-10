@@ -2,7 +2,10 @@
 
 import * as React from "react";
 import Image from "next/image";
-import { getThumbnailUrl, type ProcessedSearchResult } from "@multiplex/plex-query";
+import {
+  getThumbnailUrl,
+  type ProcessedSearchResult,
+} from "@multiplex/plex-query";
 import { Badge } from "~/components/ui/badge";
 import { Calendar, Clock, Star, Server } from "lucide-react";
 

@@ -23,7 +23,7 @@ export function useVisibilityChange() {
   const visibilityState = React.useSyncExternalStore(
     useVisibilityChangeSubscribe,
     getVisibilityChangeSnapshot,
-    getVisibilityChangeServerSnapshot
+    getVisibilityChangeServerSnapshot,
   );
 
   return visibilityState === "visible";

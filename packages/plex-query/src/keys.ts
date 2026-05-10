@@ -18,10 +18,8 @@ export const plexKeys = {
   allContinueWatching: () => [...plexKeys.all, "allContinueWatching"] as const,
 
   // Media providers and libraries
-  mediaProviders: (serverId: string) =>
-    [...plexKeys.server(serverId), "mediaProviders"] as const,
-  librarySections: (serverId: string) =>
-    [...plexKeys.server(serverId), "librarySections"] as const,
+  mediaProviders: (serverId: string) => [...plexKeys.server(serverId), "mediaProviders"] as const,
+  librarySections: (serverId: string) => [...plexKeys.server(serverId), "librarySections"] as const,
   libraryContent: (serverId: string, sectionId: string) =>
     [...plexKeys.server(serverId), "library", sectionId] as const,
 
@@ -35,11 +33,6 @@ export const plexKeys = {
 };
 
 // Helper type to extract return types from query key functions
-type QueryKeyFunctions = Exclude<
-  (typeof plexKeys)[keyof typeof plexKeys],
-  readonly string[]
->;
+type QueryKeyFunctions = Exclude<(typeof plexKeys)[keyof typeof plexKeys], readonly string[]>;
 
-export type PlexQueryKey =
-  | (typeof plexKeys)["all"]
-  | ReturnType<QueryKeyFunctions>;
+export type PlexQueryKey = (typeof plexKeys)["all"] | ReturnType<QueryKeyFunctions>;

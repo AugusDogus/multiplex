@@ -218,7 +218,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
 
         {/* Metadata */}
         <div className="w-[160px] space-y-1">
-          <h3 className="truncate text-sm font-medium leading-tight">{mainTitle}</h3>
+          <h3 className="truncate text-sm leading-tight font-medium">{mainTitle}</h3>
 
           {subtitle && (
             <div className="text-muted-foreground text-xs leading-tight">
@@ -275,7 +275,9 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
             <div className="text-muted-foreground space-y-2 text-sm">
               {item.year && <div>Year: {item.year}</div>}
               {item.contentRating && <div>Rating: {item.contentRating}</div>}
-              {item.duration && <div>Duration: {Math.floor(item.duration / 1000 / 60)} minutes</div>}
+              {item.duration && (
+                <div>Duration: {Math.floor(item.duration / 1000 / 60)} minutes</div>
+              )}
               {item.librarySectionTitle && <div>Library: {item.librarySectionTitle}</div>}
             </div>
           </div>

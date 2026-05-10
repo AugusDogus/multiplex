@@ -47,20 +47,20 @@ export function SidebarMain({ pinnedSources, onShowMore, isLoading }: SidebarMai
         ) : (
           /* Pinned Sources - only show when not loading */
           pinnedSources.map((source) => {
-          const Icon = getSourceIcon(source.sourceType);
-          const isActive = isUrlActive(pathname, searchParams, source.href);
+            const Icon = getSourceIcon(source.sourceType);
+            const isActive = isUrlActive(pathname, searchParams, source.href);
 
-          return (
-            <SidebarMenuItem key={source.key}>
-              <SidebarMenuButton asChild data-active={isActive}>
-                <a href={source.href}>
-                  <Icon />
-                  <span>{source.title}</span>
-                </a>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          );
-        })
+            return (
+              <SidebarMenuItem key={source.key}>
+                <SidebarMenuButton asChild data-active={isActive}>
+                  <a href={source.href}>
+                    <Icon />
+                    <span>{source.title}</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            );
+          })
         )}
 
         {/* More Button */}

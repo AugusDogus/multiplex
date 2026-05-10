@@ -25,7 +25,7 @@ export interface UseSidebarSourcesReturn {
 
 export function useSidebarSources(
   userInfo: PlexUserInfo | undefined,
-  { serverStates }: UseServerLibrariesReturn
+  { serverStates }: UseServerLibrariesReturn,
 ): UseSidebarSourcesReturn {
   // Extract all library sources from successful server queries
   const allLibrarySources = useMemo(() => {
@@ -40,7 +40,7 @@ export function useSidebarSources(
             const source = createSourceFromExtractedSource(
               extractedSource,
               state.data.serverId,
-              state.data.serverName
+              state.data.serverName,
             );
             sources.push(source);
           }
@@ -62,7 +62,7 @@ export function useSidebarSources(
       const matchingLibrarySource = allLibrarySources.find(
         (libSource) =>
           libSource.machineIdentifier === pinnedSource.machineIdentifier &&
-          libSource.directoryID === pinnedSource.directoryID
+          libSource.directoryID === pinnedSource.directoryID,
       );
 
       // Use the library source if found, otherwise fall back to pinned source

@@ -89,11 +89,7 @@ function LoginPage() {
   return (
     <div className="bg-background flex min-h-svh flex-col items-center justify-center gap-6 p-6 md:p-10">
       <div className="w-full max-w-sm">
-        <LoginForm
-          authState={authState}
-          onLogin={handlePlexLogin}
-          onRetry={retry}
-        />
+        <LoginForm authState={authState} onLogin={handlePlexLogin} onRetry={retry} />
       </div>
     </div>
   );
@@ -146,7 +142,7 @@ function LoginForm({
           {authState.status === "error" && (
             <div className="flex flex-col gap-4">
               <div className="flex flex-col items-center gap-2 py-2">
-                <AlertCircle className="h-8 w-8 text-destructive" />
+                <AlertCircle className="text-destructive h-8 w-8" />
                 <p className="text-muted-foreground text-center text-sm">{authState.message}</p>
               </div>
               <Button onClick={onRetry} variant="outline" className="w-full" size="lg">
