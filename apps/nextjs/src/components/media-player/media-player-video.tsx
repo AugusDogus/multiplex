@@ -671,7 +671,7 @@ export const MediaPlayerVideo = forwardRef<
         onPointerLeave={handleVideoPointerEnd}
         onLostPointerCapture={handleVideoPointerEnd}
         onClick={handleVideoClick}
-        onDoubleClick={handleVideoDoubleClick}
+        onDoubleClickCapture={handleVideoDoubleClick}
       >
         <video
           ref={videoRefCallback}
