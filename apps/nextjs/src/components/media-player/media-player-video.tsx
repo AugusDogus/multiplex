@@ -57,6 +57,14 @@ interface MediaPlayerVideoProps {
    */
   onVideoClick?: () => void;
   /**
+   * Callback fired when user double-clicks the video (for fullscreen toggle)
+   */
+  onVideoDoubleClick?: () => void;
+  /**
+   * Enables mobile double-tap seeking.
+   */
+  enableDoubleClickSeek?: boolean;
+  /**
    * Callback fired when user scrolls on the video (for volume control)
    */
   onVolumeScroll?: (delta: number) => void;
@@ -91,6 +99,8 @@ export const MediaPlayerVideo = forwardRef<
       item,
       className = "",
       onVideoClick,
+      onVideoDoubleClick,
+      enableDoubleClickSeek = false,
       onVolumeScroll,
       onVideoEnded,
       onVideoPlay,
@@ -388,7 +398,7 @@ export const MediaPlayerVideo = forwardRef<
     );
 
     /**
-     * Handle video clicks for play/pause or YouTube-style double-click seeking.
+     * Handle video clicks for play/pause or mobile double-tap seeking.
      */
     const handleVideoClick = useCallback(
       (event: MouseEvent<HTMLElement>) => {
@@ -398,6 +408,13 @@ export const MediaPlayerVideo = forwardRef<
           shouldSuppressClickRef.current = false;
           seekSequenceRef.current = null;
           clearSeekSequenceTimeout();
+          return;
+        }
+
+        if (!enableDoubleClickSeek) {
+          seekSequenceRef.current = null;
+          clearSeekSequenceTimeout();
+          onVideoClick?.();
           return;
         }
 
@@ -440,6 +457,7 @@ export const MediaPlayerVideo = forwardRef<
       [
         clearSeekSequenceTimeout,
         clearSingleClickTimeout,
+        enableDoubleClickSeek,
         handleDoubleClickSeek,
         onVideoClick,
         resetSeekSequenceDelayed,
@@ -449,8 +467,11 @@ export const MediaPlayerVideo = forwardRef<
     const handleVideoDoubleClick = useCallback(
       (event: MouseEvent<HTMLElement>) => {
         event.preventDefault();
+        if (enableDoubleClickSeek) return;
+
+        onVideoDoubleClick?.();
       },
-      [],
+      [enableDoubleClickSeek, onVideoDoubleClick],
     );
 
     /**
