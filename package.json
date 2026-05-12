@@ -6,19 +6,19 @@
     "packages/*"
   ],
   "scripts": {
-    "lint": "bun --filter @multiplex/nextjs lint && oxlint --ignore-pattern 'apps/nextjs/**' .",
-    "lint:fix": "bun --filter @multiplex/nextjs lint:fix && oxlint --fix --ignore-pattern 'apps/nextjs/**' .",
-    "format": "bun --filter @multiplex/nextjs format:write && oxfmt --write . '!apps/nextjs/**'",
-    "format:check": "bun --filter @multiplex/nextjs format:check && oxfmt --check . '!apps/nextjs/**'",
+    "lint": "bun --filter @multiplex/web lint && oxlint --ignore-pattern 'apps/web/**' .",
+    "lint:fix": "bun --filter @multiplex/web lint:fix && oxlint --fix --ignore-pattern 'apps/web/**' .",
+    "format": "bun --filter @multiplex/web format:write && oxfmt --write . '!apps/web/**'",
+    "format:check": "bun --filter @multiplex/web format:check && oxfmt --check . '!apps/web/**'",
     "typecheck": "bun --filter '*' typecheck",
     "check": "bun run lint && bun run format:check && bun run typecheck",
-    "dev": "bun --filter @multiplex/nextjs dev",
-    "build": "bun --filter @multiplex/nextjs build",
-    "start": "bun --filter @multiplex/nextjs start",
-    "db:generate": "bun --filter @multiplex/nextjs db:generate",
-    "db:migrate": "bun --filter @multiplex/nextjs db:migrate",
-    "db:push": "bun --filter @multiplex/nextjs db:push",
-    "db:studio": "bun --filter @multiplex/nextjs db:studio"
+    "dev": "bun --filter @multiplex/web dev",
+    "build": "bun --filter @multiplex/web build",
+    "start": "bun --filter @multiplex/web start",
+    "db:generate": "bun --filter @multiplex/web db:generate",
+    "db:migrate": "bun --filter @multiplex/web db:migrate",
+    "db:push": "bun --filter @multiplex/web db:push",
+    "db:studio": "bun --filter @multiplex/web db:studio"
   },
   "devDependencies": {
     "oxfmt": "^0.26.0",

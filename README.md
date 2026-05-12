@@ -31,7 +31,7 @@ _This project was initially scaffolded using [create-t3-app](https://create.t3.g
 
 1. Clone the repository
 2. Install dependencies: `bun install`
-3. Set up your environment variables: `cp .env.example .env`
+3. Set up your environment variables: `cp apps/web/.env.example apps/web/.env`
 4. Run the development server: `bun dev`
 
 ## Contributing
