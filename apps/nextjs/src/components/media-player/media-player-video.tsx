@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import type { MouseEvent, PointerEvent } from "react";
+import { cn } from "~/lib/utils";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import type { MediaPlayerItem } from "~/types/media-player";
 import { getVideoElementError } from "./utils/media-player-utils";
@@ -771,28 +772,31 @@ export const MediaPlayerVideo = forwardRef<
         {seekPulses.map((pulse) => (
           <div
             key={pulse.id}
-            className={`pointer-events-none absolute top-0 bottom-0 z-50 flex w-1/2 items-center ${
+            className={cn(
+              "pointer-events-none absolute top-0 bottom-0 z-50 flex w-1/2 items-center",
               pulse.direction === "forward"
                 ? "right-0 justify-end pr-16"
-                : "left-0 justify-start pl-16"
-            }`}
+                : "left-0 justify-start pl-16",
+            )}
             aria-hidden="true"
           >
             <div
-              className={`absolute top-1/2 h-72 w-72 -translate-y-1/2 animate-ping [animation-fill-mode:forwards] [animation-iteration-count:1] rounded-full bg-white/20 ${
-                pulse.direction === "forward" ? "-right-36" : "-left-36"
-              }`}
+              className={cn(
+                "absolute top-1/2 h-72 w-72 -translate-y-1/2 animate-ping [animation-fill-mode:forwards] [animation-iteration-count:1] rounded-full bg-white/20",
+                pulse.direction === "forward" ? "-right-36" : "-left-36",
+              )}
             />
           </div>
         ))}
 
         {seekOverlay && (
           <div
-            className={`pointer-events-none absolute top-0 bottom-0 z-50 flex w-1/2 items-center bg-black/20 ${
+            className={cn(
+              "pointer-events-none absolute top-0 bottom-0 z-50 flex w-1/2 items-center bg-black/20",
               seekOverlay.direction === "forward"
                 ? "right-0 justify-end pr-16"
-                : "left-0 justify-start pl-16"
-            }`}
+                : "left-0 justify-start pl-16",
+            )}
             role="status"
             aria-live="polite"
           >
