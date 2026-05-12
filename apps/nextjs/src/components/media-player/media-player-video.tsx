@@ -418,9 +418,15 @@ export const MediaPlayerVideo = forwardRef<
           return;
         }
 
-        const { left, width } = event.currentTarget.getBoundingClientRect();
+        // The mobile modal applies `rotate(90deg)` (clockwise) to the player
+        // container so the video appears in landscape on a portrait device.
+        // When the user rotates the phone counter-clockwise to view it
+        // upright, the user-perceived horizontal axis of the video maps to
+        // the viewport's vertical axis. Compare clientY in that case so the
+        // tap maps to the correct half of the visible video.
+        const rect = event.currentTarget.getBoundingClientRect();
         const direction =
-          event.clientX < left + width / 2 ? "backward" : "forward";
+          event.clientY < rect.top + rect.height / 2 ? "backward" : "forward";
         const currentSequence = seekSequenceRef.current;
         const nativeClickCount = event.detail;
 
