@@ -29,6 +29,8 @@ const SINGLE_CLICK_DELAY_MS = 400;
 const DOUBLE_CLICK_SEEK_WINDOW_MS = 1400;
 const DOUBLE_CLICK_SEEK_OVERLAY_MS = 2200;
 const DOUBLE_CLICK_SEEK_SECONDS = 10;
+// Matches Tailwind's `animate-ping` duration (1s).
+const DOUBLE_CLICK_SEEK_PULSE_MS = 1000;
 
 type DoubleClickSeekDirection = "backward" | "forward";
 
@@ -40,7 +42,11 @@ interface DoubleClickSeekSequence {
 interface DoubleClickSeekOverlay {
   direction: DoubleClickSeekDirection;
   seconds: number;
-  nonce: number;
+}
+
+interface DoubleClickSeekPulse {
+  direction: DoubleClickSeekDirection;
+  id: number;
 }
 
 interface MediaPlayerVideoProps {
@@ -139,6 +145,11 @@ export const MediaPlayerVideo = forwardRef<
     const seekSequenceRef = useRef<DoubleClickSeekSequence | null>(null);
     const [seekOverlay, setSeekOverlay] =
       useState<DoubleClickSeekOverlay | null>(null);
+    const [seekPulses, setSeekPulses] = useState<DoubleClickSeekPulse[]>([]);
+    const seekPulseIdRef = useRef(0);
+    const seekPulseTimeoutsRef = useRef(
+      new Map<number, ReturnType<typeof setTimeout>>(),
+    );
     const [isHoldingFastForward, setIsHoldingFastForward] = useState(false);
 
     // Compute player status locally to avoid object reference issues
@@ -355,6 +366,28 @@ export const MediaPlayerVideo = forwardRef<
       }, DOUBLE_CLICK_SEEK_OVERLAY_MS);
     }, [clearSeekOverlayTimeout]);
 
+    const spawnSeekPulse = useCallback(
+      (direction: DoubleClickSeekDirection) => {
+        seekPulseIdRef.current += 1;
+        const id = seekPulseIdRef.current;
+        setSeekPulses((prev) => [...prev, { direction, id }]);
+        const timeout = setTimeout(() => {
+          setSeekPulses((prev) => prev.filter((p) => p.id !== id));
+          seekPulseTimeoutsRef.current.delete(id);
+        }, DOUBLE_CLICK_SEEK_PULSE_MS);
+        seekPulseTimeoutsRef.current.set(id, timeout);
+      },
+      [],
+    );
+
+    const clearSeekPulses = useCallback(() => {
+      for (const timeout of seekPulseTimeoutsRef.current.values()) {
+        clearTimeout(timeout);
+      }
+      seekPulseTimeoutsRef.current.clear();
+      setSeekPulses([]);
+    }, []);
+
     const seekByDoubleClickOffset = useCallback(
       (direction: DoubleClickSeekDirection) => {
         const video = videoElementRef.current;
@@ -385,15 +418,21 @@ export const MediaPlayerVideo = forwardRef<
         setSeekOverlay({
           direction,
           seconds: (clickCount - 1) * DOUBLE_CLICK_SEEK_SECONDS,
-          nonce: Date.now(),
         });
         hideSeekOverlayDelayed();
         resetSeekSequenceDelayed();
+        // Layer a new pulse on every other tap (the initial double-tap, then
+        // every second additional tap), so quick taps stack rather than
+        // restarting the previous animation.
+        if (clickCount % 2 === 0) {
+          spawnSeekPulse(direction);
+        }
       },
       [
         hideSeekOverlayDelayed,
         resetSeekSequenceDelayed,
         seekByDoubleClickOffset,
+        spawnSeekPulse,
       ],
     );
 
@@ -625,11 +664,13 @@ export const MediaPlayerVideo = forwardRef<
         clearSingleClickTimeout();
         clearSeekSequenceTimeout();
         clearSeekOverlayTimeout();
+        clearSeekPulses();
         clearHoldIndicatorTimeout();
       };
     }, [
       clearHoldIndicatorTimeout,
       clearSeekOverlayTimeout,
+      clearSeekPulses,
       clearSeekSequenceTimeout,
       clearSingleClickTimeout,
     ]);
@@ -727,9 +768,26 @@ export const MediaPlayerVideo = forwardRef<
           </div>
         )}
 
+        {seekPulses.map((pulse) => (
+          <div
+            key={pulse.id}
+            className={`pointer-events-none absolute top-0 bottom-0 z-50 flex w-1/2 items-center ${
+              pulse.direction === "forward"
+                ? "right-0 justify-end pr-16"
+                : "left-0 justify-start pl-16"
+            }`}
+            aria-hidden="true"
+          >
+            <div
+              className={`absolute top-1/2 h-72 w-72 -translate-y-1/2 animate-ping [animation-fill-mode:forwards] [animation-iteration-count:1] rounded-full bg-white/20 ${
+                pulse.direction === "forward" ? "-right-36" : "-left-36"
+              }`}
+            />
+          </div>
+        ))}
+
         {seekOverlay && (
           <div
-            key={seekOverlay.nonce}
             className={`pointer-events-none absolute top-0 bottom-0 z-50 flex w-1/2 items-center bg-black/20 ${
               seekOverlay.direction === "forward"
                 ? "right-0 justify-end pr-16"
@@ -738,11 +796,6 @@ export const MediaPlayerVideo = forwardRef<
             role="status"
             aria-live="polite"
           >
-            <div
-              className={`absolute top-1/2 h-72 w-72 -translate-y-1/2 animate-ping [animation-fill-mode:forwards] [animation-iteration-count:1] rounded-full bg-white/20 ${
-                seekOverlay.direction === "forward" ? "-right-36" : "-left-36"
-              }`}
-            />
             <div className="relative flex flex-col items-center gap-2 rounded-full bg-black/70 px-7 py-5 text-white shadow-2xl ring-1 ring-white/20">
               {seekOverlay.direction === "forward" ? (
                 <ChevronsRight className="h-12 w-12" strokeWidth={2.5} />
