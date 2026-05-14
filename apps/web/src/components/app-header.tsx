@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { SearchWrapper } from "~/components/search-wrapper";
-import { ThemeToggle } from "~/components/theme-toggle";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -32,7 +31,6 @@ export function AppHeader({ children }: AppHeaderProps) {
         </Breadcrumb>
         <div className="ml-auto flex w-auto items-center gap-2">
           <SearchWrapper className="w-fit sm:ml-auto sm:w-auto md:w-full" />
-          <ThemeToggle />
         </div>
       </div>
     </header>
