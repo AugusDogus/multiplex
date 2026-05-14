@@ -1,22 +1,10 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { AppHeader } from "~/components/app-header";
 import { AppSidebar } from "~/components/app-sidebar";
 import { PlexErrorWrapper } from "~/components/plex-error-wrapper";
-import { SearchWrapper } from "~/components/search-wrapper";
-import { ThemeToggle } from "~/components/theme-toggle";
 import { TvGuide } from "~/components/tv-guide/tv-guide";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage,
-} from "~/components/ui/breadcrumb";
-import { Separator } from "~/components/ui/separator";
-import {
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger,
-} from "~/components/ui/sidebar";
+import { SidebarInset, SidebarProvider } from "~/components/ui/sidebar";
 import { auth } from "~/lib/auth/server";
 import { api, HydrateClient } from "~/trpc/server";
 
@@ -131,28 +119,7 @@ export default async function LiveTvPage({ params }: PageProps) {
             />
           </PlexErrorWrapper>
           <SidebarInset className="w-0 max-w-full min-w-0 flex-1">
-            <header className="flex h-16 shrink-0 items-center gap-2">
-              <div className="flex w-full items-center gap-2 px-4">
-                <SidebarTrigger className="-ml-1" />
-                <Separator
-                  orientation="vertical"
-                  className="mr-2 data-[orientation=vertical]:h-4"
-                />
-                <Breadcrumb>
-                  <BreadcrumbList>
-                    <BreadcrumbItem>
-                      <BreadcrumbPage>
-                        Live TV · {targetServer.name}
-                      </BreadcrumbPage>
-                    </BreadcrumbItem>
-                  </BreadcrumbList>
-                </Breadcrumb>
-                <div className="ml-auto flex w-auto items-center gap-2">
-                  <SearchWrapper className="w-fit sm:ml-auto sm:w-auto md:w-full" />
-                  <ThemeToggle />
-                </div>
-              </div>
-            </header>
+            <AppHeader>Live TV · {targetServer.name}</AppHeader>
             <div className="flex min-w-0 flex-1 flex-col gap-6 p-4">
               <TvGuide
                 startTime={startTime}
