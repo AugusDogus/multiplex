@@ -114,7 +114,7 @@ export function MediaPlayerControls({
 
   return (
     <div
-      className={`relative w-full bg-gradient-to-t from-black/90 via-black/60 to-transparent px-6 py-4 transition-all duration-300 ${className}`}
+      className={`relative w-full bg-linear-to-t from-black/90 via-black/60 to-transparent px-6 py-4 transition-all duration-300 ${className}`}
     >
       <div className="space-y-3">
         {/* Progress Bar */}
@@ -173,7 +173,7 @@ export function MediaPlayerControls({
           {/* Right Side - Volume and Fullscreen */}
           <div className="flex flex-1 items-center justify-end gap-4">
             {/* Volume Control */}
-            <div className="flex items-center gap-2">
+            <div className="hidden items-center gap-2 sm:flex">
               <Button
                 variant="ghost"
                 size="icon"
