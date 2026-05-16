@@ -1,5 +1,5 @@
 import {
-  PlexTvClient,
+  PlexTvAuthService,
   authCallbackSchema,
   type PlexConfig,
   type PlexDevice,
@@ -47,6 +47,8 @@ const config: PlexConfig = {
   version: "1.0.0",
   platform: "Web",
 };
+
+const plexTv = new PlexTvAuthService(config);
 
 export interface UserWithPlex extends User {
   plexId?: number;
@@ -125,11 +127,11 @@ const isValid = async (auth: Pick<z.infer<typeof authSchema>, "id" | "code">) =>
 };
 
 const getServers = async (token: string): Promise<PlexDevice[]> => {
-  return await new PlexTvClient(token, config).getServers();
+  return await plexTv.getServers(token);
 };
 
 const getUserInfo = async (token: string): Promise<PlexUserInfo> => {
-  return await new PlexTvClient(token, config).getUserInfo();
+  return await plexTv.getUserInfo(token);
 };
 
 const authPluginSchema = {
