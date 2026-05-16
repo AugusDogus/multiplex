@@ -13,11 +13,11 @@
   },
   "dependencies": {
     "@multiplex/plex-query": "workspace:*",
-    "better-auth": "^1.2.9",
+    "better-auth": "catalog:",
     "better-call": "^1.0.9",
-    "zod": "^3.24.2"
+    "zod": "catalog:"
   },
   "devDependencies": {
-    "typescript": "^5.8.3"
+    "typescript": "catalog:"
   }
 }
