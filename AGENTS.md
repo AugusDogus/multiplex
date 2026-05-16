@@ -5,8 +5,7 @@ A 3rd-party Plex client web app for synchronized watching with friends.
 ## Project structure
 
 - **Monorepo** with Bun workspaces: `apps/web` (Next.js 15 app) and `packages/plex-query` (Plex API client library)
-- Package manager: **Bun** (lockfile: `bun.lock`)
-- Runtime: Node.js 22+
+- Package manager & runtime: **Bun** (lockfile: `bun.lock`)
 
 ## Commands
 
@@ -35,6 +34,10 @@ All commands are run from the workspace root via `bun run <script>`:
 
 - `bun dev` starts Next.js 15 with Turbopack on `http://localhost:3000`.
 - The app redirects unauthenticated users to `/login`. The login flow uses Plex OAuth (PIN-based), requiring internet access to `plex.tv`.
+
+### Testing with Plex account
+
+- Secrets `MULTIPLEX_ACCOUNT_EMAIL` and `MULTIPLEX_ACCOUNT_PASSWORD` provide Plex credentials for end-to-end login testing via the Plex OAuth flow.
 
 ### Gotchas
 
