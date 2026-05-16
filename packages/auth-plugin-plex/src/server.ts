@@ -1,3 +1,10 @@
+import {
+  PlexTvClient,
+  authCallbackSchema,
+  type PlexAuthUserInfo,
+  type PlexConfig,
+  type PlexDevice,
+} from "@multiplex/plex-query";
 import type { AuthPluginSchema, BetterAuthPlugin } from "better-auth";
 import { createAuthEndpoint } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
@@ -6,8 +13,7 @@ import type { User } from "better-auth/types";
 import { APIError } from "better-call";
 import { z } from "zod";
 
-// Plex auth schemas
-const authSchema = z.object({
+const pinAuthSchema = z.object({
   id: z.number(),
   code: z.string(),
   product: z.string(),
@@ -33,244 +39,6 @@ const authSchema = z.object({
   newRegistration: z.boolean().nullable(),
 });
 
-const authCallbackSchema = z.object({
-  id: z.preprocess((value) => parseInt(z.string().parse(value)), z.number()),
-  code: z.string(),
-});
-
-const deviceSchema = z.object({
-  name: z.string(),
-  product: z.string(),
-  productVersion: z.string(),
-  platform: z.string(),
-  platformVersion: z.string(),
-  device: z.string(),
-  clientIdentifier: z.string(),
-  createdAt: z.string(),
-  lastSeenAt: z.string(),
-  provides: z.string(),
-  ownerId: z.number().nullable(),
-  sourceTitle: z.string().nullable(),
-  publicAddress: z.string(),
-  accessToken: z.string().nullable(),
-  owned: z.boolean(),
-  home: z.boolean(),
-  synced: z.boolean(),
-  relay: z.boolean(),
-  presence: z.boolean(),
-  httpsRequired: z.boolean(),
-  publicAddressMatches: z.boolean(),
-  dnsRebindingProtection: z.boolean().nullish(),
-  natLoopbackSupported: z.boolean().nullish(),
-  connections: z.array(
-    z.object({
-      protocol: z.string(),
-      address: z.string(),
-      port: z.number(),
-      uri: z.string(),
-      local: z.boolean(),
-      relay: z.boolean(),
-      IPv6: z.boolean(),
-    }),
-  ),
-});
-
-const sessionsSchema = z.array(deviceSchema);
-
-const userInfoSchema = z
-  .object({
-    id: z.number(),
-    uuid: z.string(),
-    username: z.string(),
-    title: z.string(),
-    email: z.string(),
-    friendlyName: z.string(),
-    locale: z.string().nullable(),
-    confirmed: z.boolean(),
-    joinedAt: z.number(),
-    emailOnlyAuth: z.boolean(),
-    hasPassword: z.boolean(),
-    protected: z.boolean(),
-    thumb: z.string(),
-    authToken: z.string().nullable(),
-    mailingListStatus: z.string().optional(),
-    mailingListActive: z.boolean().optional(),
-    scrobbleTypes: z.string().optional(),
-    country: z.string().optional(),
-    subscription: z
-      .object({
-        active: z.boolean(),
-        subscribedAt: z.string().nullable(),
-        status: z.string(),
-        paymentService: z.string().nullable(),
-        plan: z.string().nullable(),
-        features: z.array(z.string()),
-      })
-      .nullable(),
-    subscriptionDescription: z.string().nullish(),
-    restricted: z.boolean(),
-    anonymous: z.boolean(),
-    home: z.boolean(),
-    guest: z.boolean(),
-    homeSize: z.number(),
-    homeAdmin: z.boolean(),
-    maxHomeSize: z.number(),
-    certificateVersion: z.number().optional(),
-    rememberExpiresAt: z.number(),
-    profile: z.object({
-      autoSelectAudio: z.boolean(),
-      autoSelectSubtitle: z.number(),
-      defaultAudioLanguage: z.string().nullable(),
-      defaultSubtitleLanguage: z.string().nullable(),
-      autoSelectSubtitleMode: z.number().optional(),
-      defaultSubtitleAccessibility: z.number(),
-      defaultSubtitleForced: z.number(),
-    }),
-    entitlements: z.array(z.string()).optional().default([]),
-    roles: z.array(z.string()).optional().default([]),
-    services: z
-      .array(
-        z.object({
-          identifier: z.string(),
-          endpoint: z.string(),
-          token: z.string().nullable(),
-          secret: z.string().nullable(),
-          status: z.string(),
-        }),
-      )
-      .optional()
-      .default([]),
-    adsConsent: z.boolean().nullable(),
-    adsConsentSetAt: z.number().nullable(),
-    adsConsentReminderAt: z.number().nullable(),
-    experimentalFeatures: z.boolean().optional(),
-    twoFactorEnabled: z.boolean().optional(),
-    backupCodesCreated: z.boolean().optional(),
-  })
-  .passthrough();
-
-export interface UserWithPlex extends User {
-  plexId?: number;
-  plexUuid?: string;
-  plexUsername?: string;
-  plexAuthToken?: string;
-}
-
-// Plex configuration
-const config = {
-  product: "Multiplex",
-  clientIdentifier: "multiplex-app",
-};
-
-// Utility functions
-const getAuth = async () => {
-  const url = new URL("https://plex.tv/api/v2/pins");
-  url.searchParams.append("strong", "true");
-  url.searchParams.append("X-Plex-Product", config.product);
-  url.searchParams.append("X-Plex-Client-Identifier", config.clientIdentifier);
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { accept: "application/json" },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to create Plex PIN: ${response.statusText}`);
-  }
-
-  const auth = await authSchema.parseAsync(await response.json());
-  return auth;
-};
-
-const getUrl = (auth: z.infer<typeof authSchema>, callbackUrl: string) => {
-  const url = new URL("https://app.plex.tv/auth");
-  const forwardUrl = new URL(callbackUrl);
-
-  forwardUrl.searchParams.set("code", auth.code);
-  forwardUrl.searchParams.set("id", String(auth.id));
-
-  url.searchParams.set("forwardUrl", forwardUrl.toString());
-  url.searchParams.set("clientID", config.clientIdentifier);
-  url.searchParams.set("code", auth.code);
-  url.searchParams.set("context[device][product]", config.product);
-
-  return url.href.replace("auth", "auth#!").toString();
-};
-
-const isValid = async (
-  auth: Pick<z.infer<typeof authSchema>, "id" | "code">,
-) => {
-  const url = new URL(`https://plex.tv/api/v2/pins/${auth.id}`);
-  url.searchParams.append("code", auth.code);
-  url.searchParams.append("X-Plex-Client-Identifier", config.clientIdentifier);
-
-  const response = await fetch(url, {
-    method: "GET",
-    headers: { accept: "application/json" },
-  });
-
-  if (!response.ok) {
-    if (response.status === 404) {
-      throw new Error(
-        "Plex PIN not found or expired. Please restart the authentication process.",
-      );
-    } else if (response.status === 400) {
-      throw new Error(
-        "Invalid Plex PIN. Please restart the authentication process.",
-      );
-    } else {
-      throw new Error(`Failed to validate Plex PIN: ${response.statusText}`);
-    }
-  }
-
-  const authData = await authSchema.parseAsync(await response.json());
-
-  // Check if PIN is still waiting for authorization
-  if (!authData.authToken) {
-    throw new Error(
-      "PIN not yet authorized. Please complete the authorization on Plex and try again.",
-    );
-  }
-
-  return authData;
-};
-
-const getServers = async (token: string) => {
-  const url = new URL("https://plex.tv/api/v2/resources");
-  url.searchParams.append("X-Plex-Client-Identifier", config.clientIdentifier);
-  url.searchParams.append("X-Plex-Token", token);
-
-  const response = await fetch(url, {
-    method: "GET",
-    headers: { accept: "application/json" },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch Plex servers: ${response.statusText}`);
-  }
-
-  const data = await sessionsSchema.parseAsync(await response.json());
-  return data.filter((device) => device.product === "Plex Media Server");
-};
-
-const getUserInfo = async (token: string) => {
-  const url = new URL("https://plex.tv/api/v2/user");
-  url.searchParams.append("X-Plex-Client-Identifier", config.clientIdentifier);
-  url.searchParams.append("X-Plex-Token", token);
-
-  const response = await fetch(url, {
-    method: "GET",
-    headers: { accept: "application/json" },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch Plex user info: ${response.statusText}`);
-  }
-
-  const data = await response.json();
-  return await userInfoSchema.parseAsync(data);
-};
-
 const authPluginSchema = {
   user: {
     fields: {
@@ -294,13 +62,119 @@ const authPluginSchema = {
       plexAuthToken: {
         type: "string",
         required: false,
-        returned: true, // Return auth token to client
+        returned: true,
       } as const,
     },
   },
 } satisfies AuthPluginSchema;
 
-export const plex = () => {
+const DEFAULT_CONFIG: PlexConfig = {
+  product: "Multiplex",
+  clientIdentifier: "multiplex-app",
+  version: "1.0.0",
+  platform: "Web",
+};
+
+export type PlexAuthPluginOptions = Partial<PlexConfig>;
+
+export interface UserWithPlex extends User {
+  plexId?: number;
+  plexUuid?: string;
+  plexUsername?: string;
+  plexAuthToken?: string;
+}
+
+type PinAuth = z.infer<typeof pinAuthSchema>;
+type AuthorizedPinAuth = PinAuth & { authToken: string };
+
+const resolveConfig = (options: PlexAuthPluginOptions = {}): PlexConfig => ({
+  product: options.product ?? DEFAULT_CONFIG.product,
+  clientIdentifier: options.clientIdentifier ?? DEFAULT_CONFIG.clientIdentifier,
+  version: options.version ?? DEFAULT_CONFIG.version,
+  platform: options.platform ?? DEFAULT_CONFIG.platform,
+});
+
+const createPlexClient = (token: string, config: PlexConfig) => new PlexTvClient(token, config);
+
+const getAuth = async (config: PlexConfig) => {
+  const url = new URL("https://plex.tv/api/v2/pins");
+  url.searchParams.append("strong", "true");
+  url.searchParams.append("X-Plex-Product", config.product);
+  url.searchParams.append("X-Plex-Client-Identifier", config.clientIdentifier);
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { accept: "application/json" },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to create Plex PIN: ${response.statusText}`);
+  }
+
+  return await pinAuthSchema.parseAsync(await response.json());
+};
+
+const getUrl = (auth: PinAuth, callbackUrl: string, config: PlexConfig) => {
+  const url = new URL("https://app.plex.tv/auth");
+  const forwardUrl = new URL(callbackUrl);
+
+  forwardUrl.searchParams.set("code", auth.code);
+  forwardUrl.searchParams.set("id", String(auth.id));
+
+  url.searchParams.set("forwardUrl", forwardUrl.toString());
+  url.searchParams.set("clientID", config.clientIdentifier);
+  url.searchParams.set("code", auth.code);
+  url.searchParams.set("context[device][product]", config.product);
+
+  return url.href.replace("auth", "auth#!").toString();
+};
+
+const isValid = async (
+  auth: Pick<PinAuth, "id" | "code">,
+  config: PlexConfig,
+): Promise<AuthorizedPinAuth> => {
+  const url = new URL(`https://plex.tv/api/v2/pins/${auth.id}`);
+  url.searchParams.append("code", auth.code);
+  url.searchParams.append("X-Plex-Client-Identifier", config.clientIdentifier);
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: { accept: "application/json" },
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error("Plex PIN not found or expired. Please restart the authentication process.");
+    }
+
+    if (response.status === 400) {
+      throw new Error("Invalid Plex PIN. Please restart the authentication process.");
+    }
+
+    throw new Error(`Failed to validate Plex PIN: ${response.statusText}`);
+  }
+
+  const authData = await pinAuthSchema.parseAsync(await response.json());
+
+  if (!authData.authToken) {
+    throw new Error(
+      "PIN not yet authorized. Please complete the authorization on Plex and try again.",
+    );
+  }
+
+  return { ...authData, authToken: authData.authToken };
+};
+
+const getServers = async (token: string, config: PlexConfig): Promise<PlexDevice[]> => {
+  return await createPlexClient(token, config).getServers();
+};
+
+const getUserInfo = async (token: string, config: PlexConfig): Promise<PlexAuthUserInfo> => {
+  return await createPlexClient(token, config).getAuthUserInfo();
+};
+
+export const plex = (options?: PlexAuthPluginOptions) => {
+  const config = resolveConfig(options);
   const ERROR_CODES = {
     INVALID_PLEX_AUTH: "Invalid Plex authentication",
     PIN_NOT_AUTHORIZED: "PIN not yet authorized by user",
@@ -311,7 +185,6 @@ export const plex = () => {
     id: "plex-auth",
 
     endpoints: {
-      // Initialize Plex auth flow - returns redirect URL
       initiatePlexAuth: createAuthEndpoint(
         "/plex/auth/initiate",
         {
@@ -323,22 +196,18 @@ export const plex = () => {
         async (ctx) => {
           try {
             const { callbackUrl } = ctx.query;
-            const auth = await getAuth();
-            const authUrl = getUrl(auth, callbackUrl);
+            const auth = await getAuth(config);
+            const authUrl = getUrl(auth, callbackUrl, config);
 
             return ctx.redirect(authUrl);
           } catch (error) {
             throw new APIError("INTERNAL_SERVER_ERROR", {
-              message:
-                error instanceof Error
-                  ? error.message
-                  : ERROR_CODES.UNEXPECTED_ERROR,
+              message: error instanceof Error ? error.message : ERROR_CODES.UNEXPECTED_ERROR,
             });
           }
         },
       ),
 
-      // Handle Plex callback and complete authentication
       plexCallback: createAuthEndpoint(
         "/plex/auth/callback",
         {
@@ -348,15 +217,9 @@ export const plex = () => {
         async (ctx) => {
           try {
             const { id, code } = ctx.query;
+            const auth = await isValid({ id, code }, config);
+            const userInfo = await getUserInfo(auth.authToken, config);
 
-            // Validate the PIN and get auth token
-            const auth = await isValid({ id, code });
-
-            // The isValid function now checks for authToken internally
-            // so we can proceed directly to get user info
-            const userInfo = await getUserInfo(auth.authToken!);
-
-            // Check if user already exists by Plex UUID
             const existingUser = await ctx.context.adapter.findOne<{
               id: string;
               plexUuid: string;
@@ -373,7 +236,6 @@ export const plex = () => {
             let user: UserWithPlex;
 
             if (!existingUser) {
-              // Create new user with Plex data
               const newUser = await ctx.context.internalAdapter.createUser({
                 email: userInfo.email,
                 name: userInfo.friendlyName,
@@ -393,22 +255,16 @@ export const plex = () => {
 
               user = newUser as UserWithPlex;
 
-              // Create account record linking user to Plex provider
               await ctx.context.internalAdapter.createAccount({
                 userId: user.id,
-                accountId: userInfo.uuid, // Use Plex UUID as account ID
+                accountId: userInfo.uuid,
                 providerId: "plex",
                 accessToken: auth.authToken,
               });
             } else {
-              // User already exists, update their auth token
-              // auth.authToken is guaranteed non-null here since isValid() throws if missing
-              const updatedUser = (await ctx.context.internalAdapter.updateUser(
-                existingUser.id,
-                {
-                  plexAuthToken: auth.authToken!,
-                },
-              )) as UserWithPlex | null;
+              const updatedUser = (await ctx.context.internalAdapter.updateUser(existingUser.id, {
+                plexAuthToken: auth.authToken,
+              })) as UserWithPlex | null;
 
               if (!updatedUser) {
                 throw new APIError("INTERNAL_SERVER_ERROR", {
@@ -418,7 +274,6 @@ export const plex = () => {
 
               user = updatedUser;
 
-              // Update or create the account record with the new token
               try {
                 const existingAccount = await ctx.context.adapter.findOne<{
                   id: string;
@@ -437,7 +292,6 @@ export const plex = () => {
                 });
 
                 if (existingAccount) {
-                  // For existing accounts, we'll delete and recreate since update might not work reliably
                   await ctx.context.adapter.delete({
                     model: "account",
                     where: [
@@ -449,7 +303,6 @@ export const plex = () => {
                   });
                 }
 
-                // Create new account record (either first time or replacement)
                 await ctx.context.internalAdapter.createAccount({
                   userId: user.id,
                   accountId: userInfo.uuid,
@@ -457,16 +310,11 @@ export const plex = () => {
                   accessToken: auth.authToken,
                 });
               } catch (accountError) {
-                // If account operations fail, log but don't fail the auth
                 console.warn("Failed to update account record:", accountError);
               }
             }
 
-            // Create BetterAuth session
-            const session = await ctx.context.internalAdapter.createSession(
-              user.id,
-              ctx,
-            );
+            const session = await ctx.context.internalAdapter.createSession(user.id, ctx);
 
             if (!session) {
               throw new APIError("INTERNAL_SERVER_ERROR", {
@@ -474,39 +322,36 @@ export const plex = () => {
               });
             }
 
-            // Set session cookie using BetterAuth helper
             await setSessionCookie(ctx, { session, user });
 
-            // Redirect to success page or dashboard
             return ctx.redirect("/");
           } catch (error) {
             console.error("Plex auth error:", error);
 
-            // Provide more specific error messages based on the error type
             if (error instanceof Error) {
               if (error.message.includes("PIN not found or expired")) {
                 throw new APIError("BAD_REQUEST", {
                   message:
                     "Your Plex authentication session has expired. Please try signing in again.",
                 });
-              } else if (error.message.includes("PIN not yet authorized")) {
+              }
+
+              if (error.message.includes("PIN not yet authorized")) {
                 throw new APIError("BAD_REQUEST", {
-                  message:
-                    "Please complete the authorization on Plex.tv before proceeding.",
+                  message: "Please complete the authorization on Plex.tv before proceeding.",
                 });
-              } else if (error.message.includes("Invalid Plex PIN")) {
+              }
+
+              if (error.message.includes("Invalid Plex PIN")) {
                 throw new APIError("BAD_REQUEST", {
-                  message:
-                    "Invalid authentication request. Please try signing in again.",
+                  message: "Invalid authentication request. Please try signing in again.",
                 });
               }
             }
 
             throw new APIError("UNAUTHORIZED", {
               message:
-                typeof error === "object" &&
-                error !== null &&
-                "message" in error
+                typeof error === "object" && error !== null && "message" in error
                   ? String(error.message)
                   : ERROR_CODES.INVALID_PLEX_AUTH,
             });
@@ -514,7 +359,6 @@ export const plex = () => {
         },
       ),
 
-      // Get user's Plex servers
       getPlexServers: createAuthEndpoint(
         "/plex/servers",
         {
@@ -537,7 +381,7 @@ export const plex = () => {
               );
             }
 
-            const servers = await getServers(token);
+            const servers = await getServers(token, config);
 
             return ctx.json({
               success: true,
@@ -547,10 +391,7 @@ export const plex = () => {
             return ctx.json(
               {
                 success: false,
-                error:
-                  error instanceof Error
-                    ? error.message
-                    : "Failed to fetch servers",
+                error: error instanceof Error ? error.message : "Failed to fetch servers",
               },
               { status: 500 },
             );
@@ -558,7 +399,6 @@ export const plex = () => {
         },
       ),
 
-      // Get user info
       getPlexUser: createAuthEndpoint(
         "/plex/user",
         {
@@ -581,7 +421,7 @@ export const plex = () => {
               );
             }
 
-            const userInfo = await getUserInfo(token);
+            const userInfo = await getUserInfo(token, config);
 
             return ctx.json({
               success: true,
@@ -591,10 +431,7 @@ export const plex = () => {
             return ctx.json(
               {
                 success: false,
-                error:
-                  error instanceof Error
-                    ? error.message
-                    : "Failed to fetch user info",
+                error: error instanceof Error ? error.message : "Failed to fetch user info",
               },
               { status: 500 },
             );
@@ -602,7 +439,6 @@ export const plex = () => {
         },
       ),
 
-      // Health check endpoint
       plexHealthCheck: createAuthEndpoint(
         "/plex/health",
         {

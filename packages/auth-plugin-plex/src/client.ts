@@ -9,10 +9,8 @@ export const plex = () => {
       plex: {
         signIn: async (options?: { callbackUrl?: string }) => {
           const callbackUrl =
-            options?.callbackUrl ??
-            window.location.origin + "/api/auth/plex/auth/callback";
+            options?.callbackUrl ?? window.location.origin + "/api/auth/plex/auth/callback";
 
-          // Redirect to the server endpoint which will handle the Plex OAuth flow
           window.location.href = `/api/auth/plex/auth/initiate?callbackUrl=${encodeURIComponent(callbackUrl)}`;
         },
       },

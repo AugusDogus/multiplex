@@ -1,5 +1,5 @@
 import { createAuthClient } from "better-auth/react";
-import { plex } from "~/plugins/plex/client";
+import { plex } from "@multiplex/auth-plugin-plex/client";
 
 export const authClient = createAuthClient({
   plugins: [plex()],

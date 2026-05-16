@@ -14,6 +14,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@libsql/client": "^0.14.0",
+        "@multiplex/auth-plugin-plex": "workspace:*",
         "@multiplex/plex-query": "workspace:*",
         "@radix-ui/react-dialog": "^1.1.14",
         "@t3-oss/env-nextjs": "^0.12.0",
@@ -60,6 +61,19 @@
         "tw-animate-css": "^1.3.4",
         "typescript": "^5.8.2",
         "typescript-eslint": "^8.27.0",
+      },
+    },
+    "packages/auth-plugin-plex": {
+      "name": "@multiplex/auth-plugin-plex",
+      "version": "0.1.0",
+      "dependencies": {
+        "@multiplex/plex-query": "workspace:*",
+        "better-auth": "^1.2.9",
+        "better-call": "^1.0.9",
+        "zod": "^3.24.2",
+      },
+      "devDependencies": {
+        "typescript": "^5.8.3",
       },
     },
     "packages/plex-query": {
@@ -268,6 +282,8 @@
     "@libsql/linux-x64-musl": ["@libsql/linux-x64-musl@0.4.7", "", { "os": "linux", "cpu": "x64" }, "sha512-nI6tpS1t6WzGAt1Kx1n1HsvtBbZ+jHn0m7ogNNT6pQHZQj7AFFTIMeDQw/i/Nt5H38np1GVRNsFe99eSIMs9XA=="],
 
     "@libsql/win32-x64-msvc": ["@libsql/win32-x64-msvc@0.4.7", "", { "os": "win32", "cpu": "x64" }, "sha512-7pJzOWzPm6oJUxml+PCDRzYQ4A1hTMHAciTAHfFK4fkbDZX33nWPVG7Y3vqdKtslcwAzwmrNDc6sXy2nwWnbiw=="],
+
+    "@multiplex/auth-plugin-plex": ["@multiplex/auth-plugin-plex@workspace:packages/auth-plugin-plex"],
 
     "@multiplex/plex-query": ["@multiplex/plex-query@workspace:packages/plex-query"],
 

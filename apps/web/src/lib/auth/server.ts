@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { plex } from "~/plugins/plex/server";
+import { plex } from "@multiplex/auth-plugin-plex/server";
 import { db } from "~/server/db"; // your drizzle instance
 
 export const auth = betterAuth({
