@@ -1,5 +1,4 @@
-// Export all clients, schemas, types, and utilities
-export * from "./clients";
+// Export schemas, types, and utilities
 export * from "./schemas";
 export * from "./types";
 export * from "./utils";
