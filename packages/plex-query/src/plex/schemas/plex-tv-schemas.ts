@@ -217,7 +217,7 @@ export const rawUserInfoSchema = z.object({
     plan: z.string().nullable(),
     features: z.array(z.string()),
   }),
-  subscriptionDescription: z.string().nullable(),
+  subscriptionDescription: z.string().nullish(),
   restricted: z.boolean(),
   anonymous: z.boolean(),
   home: z.boolean(),

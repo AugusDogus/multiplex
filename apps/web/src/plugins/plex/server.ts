@@ -107,7 +107,7 @@ const userInfoSchema = z
         features: z.array(z.string()),
       })
       .nullable(),
-    subscriptionDescription: z.string().nullable(),
+    subscriptionDescription: z.string().nullish(),
     restricted: z.boolean(),
     anonymous: z.boolean(),
     home: z.boolean(),
