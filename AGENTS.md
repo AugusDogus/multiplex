@@ -11,16 +11,16 @@ A 3rd-party Plex client web app for synchronized watching with friends.
 
 All commands are run from the workspace root via `bun run <script>`:
 
-| Task | Command |
-|------|---------|
-| Install deps | `bun install` |
-| Dev server | `bun dev` (starts Next.js with Turbopack on port 3000) |
-| Lint | `bun run lint` (ESLint + oxlint) |
-| Format check | `bun run format:check` (Prettier + oxfmt) |
-| Type check | `bun run typecheck` (runs tsc across all workspaces) |
-| All checks | `bun run check` (lint + format + typecheck) |
-| DB push | `bun db:push` (syncs Drizzle schema to SQLite) |
-| DB studio | `bun db:studio` (opens Drizzle Studio) |
+| Task         | Command                                                |
+| ------------ | ------------------------------------------------------ |
+| Install deps | `bun install`                                          |
+| Dev server   | `bun dev` (starts Next.js with Turbopack on port 3000) |
+| Lint         | `bun run lint` (ESLint + oxlint)                       |
+| Format check | `bun run format:check` (Prettier + oxfmt)              |
+| Type check   | `bun run typecheck` (runs tsc across all workspaces)   |
+| All checks   | `bun run check` (lint + format + typecheck)            |
+| DB push      | `bun db:push` (syncs Drizzle schema to SQLite)         |
+| DB studio    | `bun db:studio` (opens Drizzle Studio)                 |
 
 ## Cursor Cloud specific instructions
 
@@ -38,7 +38,3 @@ All commands are run from the workspace root via `bun run <script>`:
 ### Testing with Plex account
 
 - Secrets `MULTIPLEX_ACCOUNT_EMAIL` and `MULTIPLEX_ACCOUNT_PASSWORD` provide Plex credentials for end-to-end login testing via the Plex OAuth flow.
-
-### Gotchas
-
-- `bun run format:check` will report warnings on `.next/` cache files if the dev server has been running. This is a pre-existing issue (no `.prettierignore` excludes `.next`). The source code itself is clean except for one pre-existing formatting issue in `src/components/media-player/media-player-video.tsx`.
