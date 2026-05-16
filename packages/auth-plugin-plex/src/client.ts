@@ -11,7 +11,7 @@ export const plex = () => {
           const callbackUrl =
             options?.callbackUrl ?? window.location.origin + "/api/auth/plex/auth/callback";
 
-          // Redirect to the server endpoint which starts the Plex PIN auth flow.
+          // Redirect to the server endpoint which will handle the Plex OAuth flow
           window.location.href = `/api/auth/plex/auth/initiate?callbackUrl=${encodeURIComponent(callbackUrl)}`;
         },
       },
