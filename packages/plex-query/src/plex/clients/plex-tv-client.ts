@@ -1,9 +1,7 @@
 import {
-  authUserInfoSchema,
   rawUserInfoSchema,
   sessionsSchema,
   userInfoSchema,
-  type PlexAuthUserInfo,
   type PlexDevice,
   type PlexUserInfo,
 } from "../schemas/plex-tv-schemas";
@@ -74,18 +72,6 @@ export class PlexTvClient {
 
     // Transform the raw data to get parsed settings
     return userInfoSchema.parse(rawData);
-  }
-
-  /**
-   * Get user information from the Plex auth endpoint.
-   * This matches the login flow response shape, which differs from the
-   * clients.plex.tv user endpoint used by the main app experience.
-   */
-  async getAuthUserInfo(): Promise<PlexAuthUserInfo> {
-    return await this.get({
-      endpoint: "user",
-      schema: authUserInfoSchema,
-    });
   }
 
   /**

@@ -1,9 +1,9 @@
 import {
   PlexTvClient,
   authCallbackSchema,
-  type PlexAuthUserInfo,
   type PlexConfig,
   type PlexDevice,
+  type PlexUserInfo,
 } from "@multiplex/plex-query";
 import type { AuthPluginSchema, BetterAuthPlugin } from "better-auth";
 import { createAuthEndpoint } from "better-auth/api";
@@ -169,8 +169,8 @@ const getServers = async (token: string, config: PlexConfig): Promise<PlexDevice
   return await createPlexClient(token, config).getServers();
 };
 
-const getUserInfo = async (token: string, config: PlexConfig): Promise<PlexAuthUserInfo> => {
-  return await createPlexClient(token, config).getAuthUserInfo();
+const getUserInfo = async (token: string, config: PlexConfig): Promise<PlexUserInfo> => {
+  return await createPlexClient(token, config).getUserInfo();
 };
 
 export const plex = (options?: PlexAuthPluginOptions) => {
