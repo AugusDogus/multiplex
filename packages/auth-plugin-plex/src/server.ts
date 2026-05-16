@@ -156,6 +156,7 @@ const isValid = async (
 
   const authData = await pinAuthSchema.parseAsync(await response.json());
 
+  // The PIN can exist before the user has approved it in Plex.
   if (!authData.authToken) {
     throw new Error(
       "PIN not yet authorized. Please complete the authorization on Plex and try again.",
@@ -217,9 +218,12 @@ export const plex = (options?: PlexAuthPluginOptions) => {
         async (ctx) => {
           try {
             const { id, code } = ctx.query;
+
+            // Validate the PIN and exchange it for the Plex token used below.
             const auth = await isValid({ id, code }, config);
             const userInfo = await getUserInfo(auth.authToken, config);
 
+            // Match by Plex UUID so repeat sign-ins update the same local user.
             const existingUser = await ctx.context.adapter.findOne<{
               id: string;
               plexUuid: string;
@@ -236,6 +240,7 @@ export const plex = (options?: PlexAuthPluginOptions) => {
             let user: UserWithPlex;
 
             if (!existingUser) {
+              // First Plex sign-in creates the local Better Auth user.
               const newUser = await ctx.context.internalAdapter.createUser({
                 email: userInfo.email,
                 name: userInfo.friendlyName,
@@ -255,6 +260,7 @@ export const plex = (options?: PlexAuthPluginOptions) => {
 
               user = newUser as UserWithPlex;
 
+              // Link the Better Auth account to Plex using the stable Plex UUID.
               await ctx.context.internalAdapter.createAccount({
                 userId: user.id,
                 accountId: userInfo.uuid,
@@ -262,6 +268,7 @@ export const plex = (options?: PlexAuthPluginOptions) => {
                 accessToken: auth.authToken,
               });
             } else {
+              // Existing users keep their local account, but refresh the Plex token.
               const updatedUser = (await ctx.context.internalAdapter.updateUser(existingUser.id, {
                 plexAuthToken: auth.authToken,
               })) as UserWithPlex | null;
@@ -275,6 +282,8 @@ export const plex = (options?: PlexAuthPluginOptions) => {
               user = updatedUser;
 
               try {
+                // Recreate the account record with the latest token; account updates
+                // have been unreliable through the Better Auth adapter.
                 const existingAccount = await ctx.context.adapter.findOne<{
                   id: string;
                 }>({
@@ -310,10 +319,13 @@ export const plex = (options?: PlexAuthPluginOptions) => {
                   accessToken: auth.authToken,
                 });
               } catch (accountError) {
+                // The user/session token is the source of truth, so don't fail auth
+                // if the secondary account record cannot be refreshed.
                 console.warn("Failed to update account record:", accountError);
               }
             }
 
+            // Create a Better Auth session and set the framework-managed cookie.
             const session = await ctx.context.internalAdapter.createSession(user.id, ctx);
 
             if (!session) {
@@ -328,6 +340,7 @@ export const plex = (options?: PlexAuthPluginOptions) => {
           } catch (error) {
             console.error("Plex auth error:", error);
 
+            // Map expected PIN failures to friendlier auth errors.
             if (error instanceof Error) {
               if (error.message.includes("PIN not found or expired")) {
                 throw new APIError("BAD_REQUEST", {
