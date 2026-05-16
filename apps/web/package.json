@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",
+    "@multiplex/auth-plugin-plex": "workspace:*",
     "@multiplex/plex-query": "workspace:*",
     "@radix-ui/react-dialog": "^1.1.14",
     "@t3-oss/env-nextjs": "^0.12.0",

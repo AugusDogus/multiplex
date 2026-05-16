@@ -21,7 +21,7 @@ export interface PlexConfig {
 export interface GetRequestOptions<T> {
   endpoint: string;
   params?: Record<string, string | number | boolean>;
-  schema?: z.ZodType<T>;
+  schema?: z.ZodType<T, z.ZodTypeDef, unknown>;
   baseUrl?: string;
   xPlexOverrides?: Partial<{
     product: string;
@@ -46,7 +46,7 @@ export interface GetRequestOptions<T> {
 export interface PostRequestOptions<T> {
   endpoint: string;
   params?: Record<string, string | number | boolean>;
-  schema?: z.ZodType<T>;
+  schema?: z.ZodType<T, z.ZodTypeDef, unknown>;
   baseUrl?: string;
   expectEmptyResponse?: boolean;
   xPlexOverrides?: Partial<{

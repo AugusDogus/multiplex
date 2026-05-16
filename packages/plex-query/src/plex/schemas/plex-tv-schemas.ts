@@ -344,6 +344,78 @@ export const rawUserInfoSchema = z.object({
   attributionPartner: z.null(),
 });
 
+export const authUserInfoSchema = z
+  .object({
+    id: z.number(),
+    uuid: z.string(),
+    username: z.string(),
+    title: z.string(),
+    email: z.string(),
+    friendlyName: z.string(),
+    locale: z.string().nullable(),
+    confirmed: z.boolean(),
+    joinedAt: z.number(),
+    emailOnlyAuth: z.boolean(),
+    hasPassword: z.boolean(),
+    protected: z.boolean(),
+    thumb: z.string(),
+    authToken: z.string().nullable(),
+    mailingListStatus: z.string().optional(),
+    mailingListActive: z.boolean().optional(),
+    scrobbleTypes: z.string().optional(),
+    country: z.string().optional(),
+    subscription: z
+      .object({
+        active: z.boolean(),
+        subscribedAt: z.string().nullable(),
+        status: z.string(),
+        paymentService: z.string().nullable(),
+        plan: z.string().nullable(),
+        features: z.array(z.string()),
+      })
+      .nullable(),
+    subscriptionDescription: z.string().nullish(),
+    restricted: z.boolean(),
+    anonymous: z.boolean(),
+    home: z.boolean(),
+    guest: z.boolean(),
+    homeSize: z.number(),
+    homeAdmin: z.boolean(),
+    maxHomeSize: z.number(),
+    certificateVersion: z.number().optional(),
+    rememberExpiresAt: z.number(),
+    profile: z.object({
+      autoSelectAudio: z.boolean(),
+      autoSelectSubtitle: z.number(),
+      defaultAudioLanguage: z.string().nullable(),
+      defaultSubtitleLanguage: z.string().nullable(),
+      autoSelectSubtitleMode: z.number().optional(),
+      defaultSubtitleAccessibility: z.number(),
+      defaultSubtitleForced: z.number(),
+    }),
+    entitlements: z.array(z.string()).optional().default([]),
+    roles: z.array(z.string()).optional().default([]),
+    services: z
+      .array(
+        z.object({
+          identifier: z.string(),
+          endpoint: z.string(),
+          token: z.string().nullable(),
+          secret: z.string().nullable(),
+          status: z.string(),
+        }),
+      )
+      .optional()
+      .default([]),
+    adsConsent: z.boolean().nullable(),
+    adsConsentSetAt: z.number().nullable(),
+    adsConsentReminderAt: z.number().nullable(),
+    experimentalFeatures: z.boolean().optional(),
+    twoFactorEnabled: z.boolean().optional(),
+    backupCodesCreated: z.boolean().optional(),
+  })
+  .passthrough();
+
 // Transformed user info schema with parsed settings
 export const userInfoSchema = rawUserInfoSchema.transform((data) => {
   // Transform settings array if it exists
@@ -366,6 +438,7 @@ export const userInfoSchema = rawUserInfoSchema.transform((data) => {
 export type PlexDevice = z.infer<typeof deviceSchema>;
 export type PlexAuthCallback = z.infer<typeof authCallbackSchema>;
 export type RawPlexUserInfo = z.infer<typeof rawUserInfoSchema>;
+export type PlexAuthUserInfo = z.infer<typeof authUserInfoSchema>;
 export type PlexUserInfo = z.infer<typeof userInfoSchema>;
 export type PlexSettings = z.infer<typeof plexSettingsSchema>;
 export type ExperienceSettings = z.infer<typeof experienceSettingsSchema>;
