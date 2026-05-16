@@ -782,7 +782,7 @@ export const MediaPlayerVideo = forwardRef<
           >
             <div
               className={cn(
-                "absolute top-1/2 h-72 w-72 -translate-y-1/2 animate-ping [animation-fill-mode:forwards] [animation-iteration-count:1] rounded-full bg-white/20",
+                "fill-mode-[forwards] repeat-[1] absolute top-1/2 h-72 w-72 -translate-y-1/2 animate-ping rounded-full bg-white/20",
                 pulse.direction === "forward" ? "-right-36" : "-left-36",
               )}
             />
