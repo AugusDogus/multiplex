@@ -42,5 +42,3 @@ All commands are run from the workspace root via `bun run <script>`:
 ### Gotchas
 
 - `bun run format:check` will report warnings on `.next/` cache files if the dev server has been running. This is a pre-existing issue (no `.prettierignore` excludes `.next`). The source code itself is clean except for one pre-existing formatting issue in `src/components/media-player/media-player-video.tsx`.
-- The `DATABASE_URL` uses `file:./db.sqlite` which is relative to the `apps/web` directory (where Next.js runs). The SQLite file is gitignored.
-- No Docker or external database services are needed — everything runs locally with SQLite.
