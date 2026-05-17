@@ -1,10 +1,11 @@
-import { Loader2, RefreshCw, TriangleAlert } from "lucide-react";
+import { Loader2, Pin, PinOff, RefreshCw, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   SidebarGroup,
   SidebarGroupLabel,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "~/components/ui/sidebar";
@@ -13,7 +14,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "~/components/ui/tooltip";
-import type { PlexDevice } from "@multiplex/plex-query";
+import {
+  getPinnedSourceIdentity,
+  type PlexDevice,
+} from "@multiplex/plex-query";
 import type { ServerLibraryState } from "~/hooks/use-server-libraries";
 import type { SidebarSource } from "~/hooks/use-sidebar-sources";
 import { getSourceIcon, isUrlActive } from "./sidebar-utils";
@@ -22,6 +26,12 @@ interface ServerLibraryGroupProps {
   server: PlexDevice;
   state: ServerLibraryState;
   sources: SidebarSource[];
+  pinnedSourceIdentities: Set<string>;
+  pendingSourceIdentity: string | null;
+  onTogglePinnedSource: (
+    source: SidebarSource,
+    action: "pin" | "unpin",
+  ) => void;
   onRetry: (serverId: string) => void;
 }
 
@@ -29,6 +39,9 @@ export function ServerLibraryGroup({
   server,
   state,
   sources,
+  pinnedSourceIdentities,
+  pendingSourceIdentity,
+  onTogglePinnedSource,
   onRetry,
 }: ServerLibraryGroupProps) {
   const pathname = usePathname();
@@ -124,6 +137,9 @@ export function ServerLibraryGroup({
           sources.map((source) => {
             const Icon = getSourceIcon(source.sourceType);
             const isActive = isUrlActive(pathname, searchParams, source.href);
+            const sourceIdentity = getPinnedSourceIdentity(source);
+            const isPinned = pinnedSourceIdentities.has(sourceIdentity);
+            const isPending = pendingSourceIdentity === sourceIdentity;
 
             return (
               <SidebarMenuItem key={source.key}>
@@ -133,6 +149,24 @@ export function ServerLibraryGroup({
                     <span>{source.title}</span>
                   </Link>
                 </SidebarMenuButton>
+                <SidebarMenuAction
+                  showOnHover
+                  disabled={isPending}
+                  aria-label={`${isPinned ? "Unpin" : "Pin"} ${source.title}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onTogglePinnedSource(source, isPinned ? "unpin" : "pin");
+                  }}
+                >
+                  {isPending ? (
+                    <Loader2 className="animate-spin" />
+                  ) : isPinned ? (
+                    <PinOff />
+                  ) : (
+                    <Pin />
+                  )}
+                </SidebarMenuAction>
               </SidebarMenuItem>
             );
           })

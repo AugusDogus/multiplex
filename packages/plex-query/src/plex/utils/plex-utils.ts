@@ -5,7 +5,7 @@ import {
   isLiveTVDirectory,
   isPlaylistDirectory,
 } from "../schemas/plex-server-schemas";
-import type { PlexDevice } from "../schemas/plex-tv-schemas";
+import type { PinnedSource, PlexDevice } from "../schemas/plex-tv-schemas";
 
 // Better typed extracted source
 export interface ExtractedSource {
@@ -15,6 +15,14 @@ export interface ExtractedSource {
   provider: string;
   providerIdentifier: string;
   isLibrarySection: boolean;
+}
+
+export function getPinnedSourceIdentity(source: {
+  machineIdentifier: string;
+  providerIdentifier: string;
+  directoryID: string;
+}): string {
+  return [source.machineIdentifier, source.providerIdentifier, source.directoryID].join("::");
 }
 
 /**
@@ -189,6 +197,30 @@ export function getSourceTypeFromPlexType(plexType: string, title?: string): str
   }
 }
 
+export function createPinnedSourceFromExtractedSource(
+  extractedSource: ExtractedSource,
+  serverId: string,
+  serverName: string,
+  isFullOwnedServer = false,
+): PinnedSource {
+  const sourceType = getSourceTypeFromPlexType(
+    extractedSource.type ?? "unknown",
+    extractedSource.title,
+  );
+
+  return {
+    key: `source--${sourceType}--${serverId}--${extractedSource.providerIdentifier}--${extractedSource.id}`,
+    sourceType,
+    machineIdentifier: serverId,
+    providerIdentifier: extractedSource.providerIdentifier,
+    directoryID: extractedSource.id,
+    title: extractedSource.title,
+    serverFriendlyName: serverName,
+    serverSourceTitle: extractedSource.provider,
+    isFullOwnedServer,
+  };
+}
+
 /**
  * Create a source object compatible with the existing sidebar structure
  */
@@ -196,7 +228,15 @@ export function createSourceFromExtractedSource(
   extractedSource: ExtractedSource,
   serverId: string,
   serverName: string,
+  isFullOwnedServer = false,
 ) {
+  const pinnedSource = createPinnedSourceFromExtractedSource(
+    extractedSource,
+    serverId,
+    serverName,
+    isFullOwnedServer,
+  );
+
   // Generate the correct URL based on provider type
   let href: string;
 
@@ -209,13 +249,8 @@ export function createSourceFromExtractedSource(
   }
 
   return {
-    key: `server-${serverId}-section-${extractedSource.id}`,
-    sourceType: getSourceTypeFromPlexType(extractedSource.type ?? "unknown", extractedSource.title),
-    machineIdentifier: serverId,
-    directoryID: extractedSource.id,
-    title: extractedSource.title,
-    serverFriendlyName: serverName,
+    ...pinnedSource,
     isLibrarySection: extractedSource.isLibrarySection,
-    href: href,
+    href,
   };
 }

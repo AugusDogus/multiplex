@@ -1,14 +1,20 @@
-import { PlexAPIError, type GetRequestOptions, type PlexConfig } from "../types/client-types";
+import {
+  PlexAPIError,
+  type GetRequestOptions,
+  type PlexConfig,
+  type PostRequestOptions,
+} from "../types/client-types";
 
 export class PlexTvBaseClient {
   private readonly baseUrl = "https://plex.tv/api/v2/";
 
   constructor(protected readonly config: PlexConfig) {}
 
-  protected async get<T>(token: string, options: GetRequestOptions<T>): Promise<T> {
-    const { endpoint, params, schema, baseUrl, xPlexOverrides = {} } = options;
-    const url = new URL(endpoint, baseUrl ?? this.baseUrl);
-
+  private appendXPlexParams(
+    url: URL,
+    token: string,
+    xPlexOverrides: NonNullable<GetRequestOptions<unknown>["xPlexOverrides"]> = {},
+  ): void {
     url.searchParams.append("X-Plex-Product", xPlexOverrides.product ?? this.config.product);
     url.searchParams.append("X-Plex-Version", xPlexOverrides.version ?? this.config.version);
     url.searchParams.append(
@@ -30,6 +36,32 @@ export class PlexTvBaseClient {
     url.searchParams.append("X-Plex-Language", xPlexOverrides.language ?? "en");
     url.searchParams.append("X-Plex-Token", token);
 
+    if (xPlexOverrides.sessionId) {
+      url.searchParams.append("X-Plex-Session-Id", xPlexOverrides.sessionId);
+    }
+
+    if (xPlexOverrides.playbackSessionId) {
+      url.searchParams.append("X-Plex-Playback-Session-Id", xPlexOverrides.playbackSessionId);
+    }
+
+    if (xPlexOverrides.deviceScreenResolution) {
+      url.searchParams.append(
+        "X-Plex-Device-Screen-Resolution",
+        xPlexOverrides.deviceScreenResolution,
+      );
+    }
+  }
+
+  private async request<T>(
+    method: "GET" | "POST",
+    token: string,
+    options: GetRequestOptions<T> | PostRequestOptions<T>,
+  ): Promise<T> {
+    const { endpoint, params, schema, baseUrl, xPlexOverrides = {} } = options;
+    const url = new URL(endpoint, baseUrl ?? this.baseUrl);
+
+    this.appendXPlexParams(url, token, xPlexOverrides);
+
     if (params) {
       for (const key in params) {
         if (params.hasOwnProperty(key)) {
@@ -39,10 +71,16 @@ export class PlexTvBaseClient {
     }
 
     const response = await fetch(url.toString(), {
-      method: "GET",
+      method,
       headers: {
         accept: "application/json",
+        ...("contentType" in options && options.contentType
+          ? {
+              "content-type": options.contentType,
+            }
+          : {}),
       },
+      ...("body" in options && options.body ? { body: options.body } : {}),
     });
 
     if (!response.ok) {
@@ -61,7 +99,18 @@ export class PlexTvBaseClient {
       );
     }
 
-    const data = await response.json();
+    if ("expectEmptyResponse" in options && options.expectEmptyResponse) {
+      return undefined as T;
+    }
+
+    const responseText = await response.text();
+
+    if (!responseText) {
+      return undefined as T;
+    }
+
+    const contentType = response.headers.get("content-type") ?? "";
+    const data = contentType.includes("application/json") ? JSON.parse(responseText) : responseText;
 
     if (schema) {
       try {
@@ -74,5 +123,13 @@ export class PlexTvBaseClient {
     }
 
     return data as T;
+  }
+
+  protected async get<T>(token: string, options: GetRequestOptions<T>): Promise<T> {
+    return this.request("GET", token, options);
+  }
+
+  protected async post<T>(token: string, options: PostRequestOptions<T>): Promise<T> {
+    return this.request("POST", token, options);
   }
 }

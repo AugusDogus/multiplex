@@ -1,4 +1,8 @@
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
+import {
+  getPinnedSourceIdentity,
+  pinnedSourceSchema,
+} from "@multiplex/plex-query";
 import { z } from "zod";
 
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
@@ -26,6 +30,31 @@ export const plexRouter = createTRPCRouter({
   getAllServerLibraries: protectedProcedure.query(async ({ ctx }) => {
     return getAllServerLibrariesQuery(ctx.plex);
   }),
+
+  togglePinnedSource: protectedProcedure
+    .input(
+      z.object({
+        action: z.enum(["pin", "unpin"]),
+        source: pinnedSourceSchema,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userInfo = await getUserInfoQuery(ctx.plex);
+      const currentPinnedSources =
+        userInfo.settings?.sidebarSettings?.pinnedSources ?? [];
+      const sourceIdentity = getPinnedSourceIdentity(input.source);
+      const filteredPinnedSources = currentPinnedSources.filter(
+        (source) => getPinnedSourceIdentity(source) !== sourceIdentity,
+      );
+      const nextPinnedSources =
+        input.action === "pin"
+          ? [...filteredPinnedSources, input.source]
+          : filteredPinnedSources;
+
+      await ctx.plex.updateSidebarPinnedSources(nextPinnedSources);
+
+      return getUserInfoQuery(ctx.plex);
+    }),
 
   getAllContinueWatching: protectedProcedure.query(async ({ ctx }) => {
     return getAllContinueWatchingQuery(ctx.plex);

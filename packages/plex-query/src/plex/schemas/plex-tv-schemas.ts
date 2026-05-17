@@ -63,22 +63,23 @@ export const recentSearchSchema = z.object({
   searchType: z.number().optional(),
 });
 
-export const pinnedSourceSchema = z.object({
-  key: z.string(),
-  sourceType: z.string(),
-  machineIdentifier: z.string(),
-  providerIdentifier: z.string(),
-  directoryID: z.string(),
-  title: z.string(),
-  serverFriendlyName: z.string(),
-  serverSourceTitle: z.string().nullable(),
-  isFullOwnedServer: z.boolean(),
-  hiddenAt: z
-    .string()
-    .nullable()
-    .or(z.undefined())
-    .transform((val) => val ?? null),
-});
+export const pinnedSourceSchema = z
+  .object({
+    key: z.string(),
+    sourceType: z.string(),
+    machineIdentifier: z.string(),
+    providerIdentifier: z.string(),
+    directoryID: z.string(),
+    title: z.string(),
+    serverFriendlyName: z.string(),
+    serverSourceTitle: z.string().nullable().optional(),
+    providerSourceTitle: z.string().nullable().optional(),
+    directoryIcon: z.string().optional(),
+    isCloud: z.boolean().optional(),
+    isFullOwnedServer: z.boolean(),
+    hiddenAt: z.string().nullable().optional(),
+  })
+  .passthrough();
 
 export const reminderSchema = z.object({
   id: z.string(),
@@ -97,39 +98,46 @@ export const hubConfigSchema = z.object({
   pinned: z.boolean().optional(),
 });
 
-export const homeSettingsSchema = z.object({
-  settingsKey: z.string(),
-  preferredServerID: z.string(),
-  hubs: z.array(hubConfigSchema),
-});
+export const homeSettingsSchema = z
+  .object({
+    settingsKey: z.string(),
+    preferredServerID: z.string().optional(),
+    hubs: z.array(hubConfigSchema),
+  })
+  .passthrough();
 
-export const sidebarSettingsSchema = z.object({
-  hasCompletedSetup: z.boolean(),
-  pinnedSources: z.array(pinnedSourceSchema),
-});
+export const sidebarSettingsSchema = z
+  .object({
+    hasCompletedSetup: z.boolean(),
+    pinnedSources: z.array(pinnedSourceSchema),
+  })
+  .passthrough();
 
 // Main experience settings schema - this will be flattened into the main settings object
-export const experienceSettingsSchema = z.object({
-  autoHomeHubsEnabled: z.boolean().optional(),
-  shouldSaveLastSourcePivots: z.boolean().optional(),
-  autoPinnedProviders: z.array(z.string()).optional(),
-  dismissedWhatsNewFeatures: z.record(z.string(), z.boolean()).optional(),
-  dismissProfileGetStartedCard: z.boolean().optional(),
-  remoteQuality: z.number().optional(),
-  audioBoost: z.number().optional(),
-  forceTranscodeProtocolHLS: z.boolean().optional(),
-  columnWidthMultiplier: z.number().optional(),
-  dashboardNowPlayingShowDetails: z.boolean().optional(),
-  directoryListStyles: z.record(z.string(), z.string()).optional(),
-  savedDirectoryListKeys: z.record(z.string(), z.string()).optional(),
-  showAdvancedSettings: z.boolean().optional(),
-  showPrePlayArtwork: z.boolean().optional(),
-  recentSearches: z.array(recentSearchSchema).optional(),
-  schemaVersion: z.number().optional(),
-  homeSettings: homeSettingsSchema.optional(),
-  sidebarSettings: sidebarSettingsSchema.optional(),
-  reminders: z.array(reminderSchema).optional(),
-});
+export const experienceSettingsSchema = z
+  .object({
+    autoHomeHubsEnabled: z.boolean().optional(),
+    shouldSaveLastSourcePivots: z.boolean().optional(),
+    lastSourcePivots: z.record(z.string(), z.string()).optional(),
+    autoPinnedProviders: z.array(z.string()).optional(),
+    dismissedWhatsNewFeatures: z.record(z.string(), z.boolean()).optional(),
+    dismissProfileGetStartedCard: z.boolean().optional(),
+    remoteQuality: z.number().optional(),
+    audioBoost: z.number().optional(),
+    forceTranscodeProtocolHLS: z.boolean().optional(),
+    columnWidthMultiplier: z.number().optional(),
+    dashboardNowPlayingShowDetails: z.boolean().optional(),
+    directoryListStyles: z.record(z.string(), z.string()).optional(),
+    savedDirectoryListKeys: z.record(z.string(), z.string()).optional(),
+    showAdvancedSettings: z.boolean().optional(),
+    showPrePlayArtwork: z.boolean().optional(),
+    recentSearches: z.array(recentSearchSchema).optional(),
+    schemaVersion: z.number().optional(),
+    homeSettings: homeSettingsSchema.optional(),
+    sidebarSettings: sidebarSettingsSchema.optional(),
+    reminders: z.array(reminderSchema).optional(),
+  })
+  .passthrough();
 
 // Schema for other (non-experience) settings stored individually
 export const otherSettingSchema = z.object({

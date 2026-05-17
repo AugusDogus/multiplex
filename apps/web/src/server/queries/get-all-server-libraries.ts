@@ -12,6 +12,7 @@ export async function getAllServerLibrariesQuery(plex: PlexTvClient) {
       return {
         serverId: server.clientIdentifier,
         serverName: server.name,
+        serverOwned: server.owned,
         mediaProviders,
         error: undefined,
       };
@@ -19,6 +20,7 @@ export async function getAllServerLibrariesQuery(plex: PlexTvClient) {
       return {
         serverId: server.clientIdentifier,
         serverName: server.name,
+        serverOwned: server.owned,
         mediaProviders: undefined,
         error: error instanceof Error ? error.message : "Unknown error",
       };
@@ -38,6 +40,7 @@ export async function getAllServerLibrariesQuery(plex: PlexTvClient) {
       return {
         serverId: server.clientIdentifier,
         serverName: server.name,
+        serverOwned: server.owned,
         mediaProviders: undefined,
         error:
           result.reason instanceof Error
