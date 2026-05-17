@@ -110,7 +110,21 @@ export class PlexTvBaseClient {
     }
 
     const contentType = response.headers.get("content-type") ?? "";
-    const data = contentType.includes("application/json") ? JSON.parse(responseText) : responseText;
+
+    let data: unknown;
+    if (contentType.includes("application/json")) {
+      try {
+        data = JSON.parse(responseText);
+      } catch (error) {
+        throw new PlexAPIError(
+          `Invalid JSON from Plex API: ${error instanceof Error ? error.message : "Unknown error"}`,
+          response.status,
+          response,
+        );
+      }
+    } else {
+      data = responseText;
+    }
 
     if (schema) {
       try {
