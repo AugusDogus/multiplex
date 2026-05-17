@@ -17,20 +17,14 @@ import {
   SidebarMenuItem,
 } from "~/components/ui/sidebar";
 import { TooltipProvider } from "~/components/ui/tooltip";
+import { useSidebarPinning } from "~/hooks/use-sidebar-pinning";
 import { useServerLibraries } from "~/hooks/use-server-libraries";
+import { getSidebarSources } from "~/hooks/use-sidebar-sources";
 import {
-  getSidebarSources,
-  type SidebarSource,
-} from "~/hooks/use-sidebar-sources";
-import {
-  getNextPinnedSources,
   getPinnedSourceIdentity,
   type PlexDevice,
-  type PinnedSource,
   type PlexUserInfo,
-  toPinnedSource,
 } from "@multiplex/plex-query";
-import { api } from "~/trpc/react";
 
 interface AppSidebarProps extends ComponentProps<typeof Sidebar> {
   session: {
@@ -44,31 +38,6 @@ interface AppSidebarProps extends ComponentProps<typeof Sidebar> {
   userInfo: PlexUserInfo;
 }
 
-function applyPinnedSourceUpdate(
-  userInfo: PlexUserInfo,
-  source: PinnedSource,
-  action: "pin" | "unpin",
-): PlexUserInfo {
-  const currentSettings = userInfo.settings ?? { otherSettings: {} };
-
-  return {
-    ...userInfo,
-    settings: {
-      ...currentSettings,
-      sidebarSettings: {
-        ...currentSettings.sidebarSettings,
-        hasCompletedSetup:
-          currentSettings.sidebarSettings?.hasCompletedSetup ?? true,
-        pinnedSources: getNextPinnedSources(
-          currentSettings.sidebarSettings?.pinnedSources ?? [],
-          source,
-          action,
-        ),
-      },
-    },
-  };
-}
-
 export function AppSidebar({
   session,
   servers,
@@ -76,11 +45,8 @@ export function AppSidebar({
   ...props
 }: AppSidebarProps) {
   const [currentPage, setCurrentPage] = useState<"main" | "all">("main");
-  const [userInfoOverride, setUserInfoOverride] = useState<PlexUserInfo | null>(
-    null,
-  );
-  const utils = api.useUtils();
-  const currentUserInfo = userInfoOverride ?? userInfo;
+  const { currentUserInfo, pendingSourceIdentity, handleTogglePinnedSource } =
+    useSidebarPinning(userInfo);
 
   // Use custom hooks for data management
   const serverLibraries = useServerLibraries(servers);
@@ -90,43 +56,6 @@ export function AppSidebar({
       getPinnedSourceIdentity(source),
     ),
   );
-  const togglePinnedSourceMutation = api.plex.togglePinnedSource.useMutation({
-    onMutate: (variables) => {
-      const previousUserInfo = userInfoOverride;
-
-      setUserInfoOverride(
-        applyPinnedSourceUpdate(
-          currentUserInfo,
-          variables.source,
-          variables.action,
-        ),
-      );
-
-      return { previousUserInfo };
-    },
-    onError: (_error, _variables, context) => {
-      setUserInfoOverride(context?.previousUserInfo ?? null);
-    },
-    onSuccess: async (updatedUserInfo) => {
-      setUserInfoOverride(updatedUserInfo);
-      await utils.plex.getAllContinueWatching.invalidate();
-    },
-  });
-
-  const pendingSourceIdentity =
-    togglePinnedSourceMutation.isPending && togglePinnedSourceMutation.variables
-      ? getPinnedSourceIdentity(togglePinnedSourceMutation.variables.source)
-      : null;
-
-  function handleTogglePinnedSource(
-    source: SidebarSource,
-    action: "pin" | "unpin",
-  ) {
-    togglePinnedSourceMutation.mutate({
-      action,
-      source: toPinnedSource(source),
-    });
-  }
 
   if (!session) {
     return null;
