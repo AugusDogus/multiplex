@@ -94,21 +94,7 @@ export class PlexTvBaseClient {
       );
     }
 
-    try {
-      const data = await response.json();
-
-      if (schema) {
-        try {
-          return schema.parse(data);
-        } catch (error) {
-          throw new PlexAPIError(
-            `Invalid response format from Plex API: ${error instanceof Error ? error.message : "Unknown error"}`,
-          );
-        }
-      }
-
-      return data as T;
-    } catch (error) {
+    const data = await response.json().catch((error: unknown) => {
       if (expectEmptyResponse) {
         return undefined as T;
       }
@@ -117,6 +103,22 @@ export class PlexTvBaseClient {
         `Invalid JSON from Plex API: ${error instanceof Error ? error.message : "Unknown error"}`,
         response.status,
         response,
+      );
+    });
+
+    if (data === undefined) {
+      return undefined as T;
+    }
+
+    if (!schema) {
+      return data as T;
+    }
+
+    try {
+      return schema.parse(data);
+    } catch (error) {
+      throw new PlexAPIError(
+        `Invalid response format from Plex API: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
     }
   }
