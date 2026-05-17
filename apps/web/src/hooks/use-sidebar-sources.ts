@@ -2,17 +2,13 @@ import { useMemo } from "react";
 import {
   createSourceFromExtractedSource,
   extractAllSources,
+  getPinnedSourceIdentity,
+  type PinnedSource,
   type PlexUserInfo,
 } from "@multiplex/plex-query";
 import type { UseServerLibrariesReturn } from "./use-server-libraries";
 
-export interface SidebarSource {
-  key: string;
-  sourceType: string;
-  machineIdentifier: string;
-  directoryID: string;
-  title: string;
-  serverFriendlyName: string;
+export interface SidebarSource extends PinnedSource {
   isLibrarySection: boolean;
   href: string;
 }
@@ -41,6 +37,7 @@ export function useSidebarSources(
               extractedSource,
               state.data.serverId,
               state.data.serverName,
+              state.data.serverOwned,
             );
             sources.push(source);
           }
@@ -65,21 +62,16 @@ export function useSidebarSources(
       // Try to find a matching library source (if it has loaded)
       const matchingLibrarySource = allLibrarySources.find(
         (libSource) =>
-          libSource.machineIdentifier === pinnedSource.machineIdentifier &&
-          libSource.directoryID === pinnedSource.directoryID,
+          getPinnedSourceIdentity(libSource) ===
+          getPinnedSourceIdentity(pinnedSource),
       );
 
       // Use the library source if found, otherwise fall back to pinned source
       return (
         matchingLibrarySource ?? {
-          key: pinnedSource.key,
-          sourceType: pinnedSource.sourceType,
-          machineIdentifier: pinnedSource.machineIdentifier,
-          directoryID: pinnedSource.directoryID,
-          title: pinnedSource.title,
-          serverFriendlyName: pinnedSource.serverFriendlyName,
+          ...pinnedSource,
           isLibrarySection: false,
-          href: `/media/${pinnedSource.machineIdentifier}/com.plexapp.plugins.library?source=${pinnedSource.directoryID}`,
+          href: `/media/${pinnedSource.machineIdentifier}/${pinnedSource.providerIdentifier}?source=${pinnedSource.directoryID}`,
         }
       );
     });

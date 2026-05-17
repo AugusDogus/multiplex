@@ -6,7 +6,10 @@ import {
   SidebarMenuItem,
 } from "~/components/ui/sidebar";
 import type { UseServerLibrariesReturn } from "~/hooks/use-server-libraries";
-import type { UseSidebarSourcesReturn } from "~/hooks/use-sidebar-sources";
+import type {
+  SidebarSource,
+  UseSidebarSourcesReturn,
+} from "~/hooks/use-sidebar-sources";
 import type { PlexDevice } from "@multiplex/plex-query";
 import { ServerLibraryGroup } from "./server-library-group";
 
@@ -14,6 +17,12 @@ interface SidebarAllProps {
   servers: PlexDevice[];
   serverLibraries: UseServerLibrariesReturn;
   sidebarSources: UseSidebarSourcesReturn;
+  pinnedSourceIdentities: Set<string>;
+  pendingSourceIdentity: string | null;
+  onTogglePinnedSource: (
+    source: SidebarSource,
+    action: "pin" | "unpin",
+  ) => void;
   onBack: () => void;
 }
 
@@ -21,6 +30,9 @@ export function SidebarAll({
   servers,
   serverLibraries,
   sidebarSources,
+  pinnedSourceIdentities,
+  pendingSourceIdentity,
+  onTogglePinnedSource,
   onBack,
 }: SidebarAllProps) {
   return (
@@ -51,6 +63,9 @@ export function SidebarAll({
             server={server}
             state={state}
             sources={sources}
+            pendingSourceIdentity={pendingSourceIdentity}
+            pinnedSourceIdentities={pinnedSourceIdentities}
+            onTogglePinnedSource={onTogglePinnedSource}
             onRetry={serverLibraries.retryServer}
           />
         );

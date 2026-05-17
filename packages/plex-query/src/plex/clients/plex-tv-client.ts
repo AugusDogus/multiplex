@@ -3,6 +3,7 @@ import {
   sessionsSchema,
   userInfoSchema,
   type PlexDevice,
+  type PinnedSource,
   type PlexUserInfo,
 } from "../schemas/plex-tv-schemas";
 import type { PlexConfig } from "../types/client-types";
@@ -19,6 +20,26 @@ import { PlexServerClient } from "./plex-server-client";
  */
 export class PlexTvClient extends PlexTvBaseClient {
   private readonly token: string;
+
+  private buildExperienceSettingValue(
+    settings: PlexUserInfo["settings"] | undefined,
+    pinnedSources: PinnedSource[],
+  ): string {
+    const experienceSettings: Partial<NonNullable<PlexUserInfo["settings"]>> = settings
+      ? { ...settings }
+      : {};
+
+    delete experienceSettings.otherSettings;
+
+    return JSON.stringify({
+      ...experienceSettings,
+      sidebarSettings: {
+        ...experienceSettings.sidebarSettings,
+        hasCompletedSetup: experienceSettings.sidebarSettings?.hasCompletedSetup ?? true,
+        pinnedSources,
+      },
+    });
+  }
 
   /**
    * @param token - Plex authentication token
@@ -71,6 +92,35 @@ export class PlexTvClient extends PlexTvBaseClient {
 
     // Transform the raw data to get parsed settings
     return userInfoSchema.parse(rawData);
+  }
+
+  async updateSidebarPinnedSources(pinnedSources: PinnedSource[]): Promise<void> {
+    const userInfo = await this.getUserInfo();
+    const experienceValue = this.buildExperienceSettingValue(userInfo.settings, pinnedSources);
+    const body = JSON.stringify({
+      value: JSON.stringify([
+        {
+          id: "experience",
+          type: "json",
+          value: experienceValue,
+          hidden: true,
+        },
+      ]),
+    });
+
+    await this.post(this.token, {
+      endpoint: "settings",
+      params: {
+        sharedSettings: 1,
+      },
+      baseUrl: "https://clients.plex.tv/api/v2/user/",
+      contentType: "application/json",
+      body,
+      xPlexOverrides: {
+        product: "Plex Web",
+        sessionId: crypto.randomUUID(),
+      },
+    });
   }
 
   /**
