@@ -6,7 +6,7 @@ import {
   type PlexUserInfo,
 } from "../schemas/plex-tv-schemas";
 import type { PlexConfig } from "../types/client-types";
-import { PlexTvBaseClient } from "./plex-tv-base-client";
+import { PLEX_CLIENTS_API_BASE_URL, PlexTvBaseClient } from "./plex-tv-base-client";
 
 /**
  * Stateless Plex.tv helper for auth flows.
@@ -41,7 +41,7 @@ export class PlexTvAuthService extends PlexTvBaseClient {
         includeSharedSettings: 1,
       },
       schema: rawUserInfoSchema,
-      baseUrl: "https://clients.plex.tv/api/v2/",
+      baseUrl: PLEX_CLIENTS_API_BASE_URL,
       xPlexOverrides: {
         product: "Plex Web",
       },

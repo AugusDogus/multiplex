@@ -2,10 +2,9 @@
 import packageJson from "~/../package.json";
 
 import { Command } from "lucide-react";
-import * as React from "react";
-
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { type ComponentProps, useState } from "react";
 import { NavUser } from "~/components/nav-user";
 import { SidebarAll } from "~/components/sidebar-all";
 import { SidebarMain } from "~/components/sidebar-main";
@@ -21,20 +20,18 @@ import {
 import { TooltipProvider } from "~/components/ui/tooltip";
 import { useServerLibraries } from "~/hooks/use-server-libraries";
 import {
-  useSidebarSources,
+  getSidebarSources,
   type SidebarSource,
 } from "~/hooks/use-sidebar-sources";
 import {
-  getNextPinnedSources,
   getPinnedSourceIdentity,
-  type PinnedSource,
   type PlexDevice,
   type PlexUserInfo,
   toPinnedSource,
 } from "@multiplex/plex-query";
 import { api } from "~/trpc/react";
 
-interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
+interface AppSidebarProps extends ComponentProps<typeof Sidebar> {
   session: {
     user: {
       name: string;
@@ -46,84 +43,27 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   userInfo: PlexUserInfo;
 }
 
-function applyPinnedSourceUpdate(
-  userInfo: PlexUserInfo,
-  source: PinnedSource,
-  action: "pin" | "unpin",
-): PlexUserInfo {
-  const currentSettings = userInfo.settings ?? { otherSettings: {} };
-  const nextPinnedSources = getNextPinnedSources(
-    currentSettings.sidebarSettings?.pinnedSources ?? [],
-    source,
-    action,
-  );
-
-  return {
-    ...userInfo,
-    settings: {
-      ...currentSettings,
-      sidebarSettings: {
-        ...currentSettings.sidebarSettings,
-        hasCompletedSetup:
-          currentSettings.sidebarSettings?.hasCompletedSetup ?? true,
-        pinnedSources: nextPinnedSources,
-      },
-    },
-  };
-}
-
 export function AppSidebar({
   session,
   servers,
   userInfo,
   ...props
 }: AppSidebarProps) {
-  const [currentPage, setCurrentPage] = React.useState<"main" | "all">("main");
+  const [currentPage, setCurrentPage] = useState<"main" | "all">("main");
   const router = useRouter();
   const utils = api.useUtils();
-  const userInfoQuery = api.plex.getUserInfo.useQuery(undefined, {
-    initialData: userInfo,
-    staleTime: 5 * 60 * 1000,
-  });
-  const currentUserInfo = userInfoQuery.data ?? userInfo;
 
   // Use custom hooks for data management
   const serverLibraries = useServerLibraries(servers);
-  const sidebarSources = useSidebarSources(currentUserInfo, serverLibraries);
-  const pinnedSourceIdentities = React.useMemo(
-    () =>
-      new Set(
-        sidebarSources.pinnedSources.map((source) =>
-          getPinnedSourceIdentity(source),
-        ),
-      ),
-    [sidebarSources.pinnedSources],
+  const sidebarSources = getSidebarSources(userInfo, serverLibraries);
+  const pinnedSourceIdentities = new Set(
+    sidebarSources.pinnedSources.map((source) =>
+      getPinnedSourceIdentity(source),
+    ),
   );
   const togglePinnedSourceMutation = api.plex.togglePinnedSource.useMutation({
-    onMutate: async (variables) => {
-      const previousUserInfo = utils.plex.getUserInfo.getData();
-
-      utils.plex.getUserInfo.setData(undefined, (existingUserInfo) =>
-        applyPinnedSourceUpdate(
-          existingUserInfo ?? userInfo,
-          variables.source,
-          variables.action,
-        ),
-      );
-
-      return { previousUserInfo };
-    },
-    onError: (_error, _variables, context) => {
-      if (context?.previousUserInfo) {
-        utils.plex.getUserInfo.setData(undefined, context.previousUserInfo);
-      }
-    },
-    onSuccess: async (updatedUserInfo) => {
-      utils.plex.getUserInfo.setData(undefined, updatedUserInfo);
-      await Promise.all([
-        utils.plex.getUserInfo.invalidate(),
-        utils.plex.getAllContinueWatching.invalidate(),
-      ]);
+    onSuccess: async () => {
+      await utils.plex.getAllContinueWatching.invalidate();
       router.refresh();
     },
   });
@@ -133,15 +73,15 @@ export function AppSidebar({
       ? getPinnedSourceIdentity(togglePinnedSourceMutation.variables.source)
       : null;
 
-  const handleTogglePinnedSource = React.useCallback(
-    (source: SidebarSource, action: "pin" | "unpin") => {
-      togglePinnedSourceMutation.mutate({
-        action,
-        source: toPinnedSource(source),
-      });
-    },
-    [togglePinnedSourceMutation],
-  );
+  function handleTogglePinnedSource(
+    source: SidebarSource,
+    action: "pin" | "unpin",
+  ) {
+    togglePinnedSourceMutation.mutate({
+      action,
+      source: toPinnedSource(source),
+    });
+  }
 
   if (!session) {
     return null;
@@ -198,7 +138,7 @@ export function AppSidebar({
         </SidebarContent>
 
         <SidebarFooter>
-          <NavUser user={user} userInfo={currentUserInfo} />
+          <NavUser user={user} userInfo={userInfo} />
         </SidebarFooter>
       </Sidebar>
     </TooltipProvider>

@@ -7,7 +7,11 @@ import {
   type PlexUserInfo,
 } from "../schemas/plex-tv-schemas";
 import type { PlexConfig } from "../types/client-types";
-import { PlexTvBaseClient } from "./plex-tv-base-client";
+import {
+  PLEX_CLIENTS_API_BASE_URL,
+  PLEX_CLIENTS_USER_API_BASE_URL,
+  PlexTvBaseClient,
+} from "./plex-tv-base-client";
 import { PlexServerClient } from "./plex-server-client";
 
 /* ────────────────────────────────────────────────────────────
@@ -84,7 +88,7 @@ export class PlexTvClient extends PlexTvBaseClient {
         includeSharedSettings: 1,
       },
       schema: rawUserInfoSchema,
-      baseUrl: "https://clients.plex.tv/api/v2/",
+      baseUrl: PLEX_CLIENTS_API_BASE_URL,
       xPlexOverrides: {
         product: "Plex Web",
       },
@@ -113,7 +117,7 @@ export class PlexTvClient extends PlexTvBaseClient {
       params: {
         sharedSettings: 1,
       },
-      baseUrl: "https://clients.plex.tv/api/v2/user/",
+      baseUrl: PLEX_CLIENTS_USER_API_BASE_URL,
       contentType: "application/json",
       body,
       xPlexOverrides: {
