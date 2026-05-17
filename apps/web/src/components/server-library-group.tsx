@@ -1,12 +1,10 @@
-import { Loader2, Pin, PinOff, RefreshCw, TriangleAlert } from "lucide-react";
+import { Loader2, RefreshCw, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import type { MouseEvent } from "react";
 import {
   SidebarGroup,
   SidebarGroupLabel,
   SidebarMenu,
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "~/components/ui/sidebar";
@@ -21,6 +19,7 @@ import {
 } from "@multiplex/plex-query";
 import type { ServerLibraryState } from "~/hooks/use-server-libraries";
 import type { SidebarSource } from "~/hooks/use-sidebar-sources";
+import { SidebarSourceActionsMenu } from "./sidebar-source-actions-menu";
 import { getSourceIcon, isUrlActive } from "./sidebar-utils";
 
 interface ServerLibraryGroupProps {
@@ -47,16 +46,6 @@ export function ServerLibraryGroup({
 }: ServerLibraryGroupProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-
-  function handleToggleClick(
-    event: MouseEvent<HTMLButtonElement>,
-    source: SidebarSource,
-    action: "pin" | "unpin",
-  ) {
-    event.preventDefault();
-    event.stopPropagation();
-    onTogglePinnedSource(source, action);
-  }
 
   // Loading state
   if (state.isLoading && !state.isRetrying) {
@@ -160,22 +149,12 @@ export function ServerLibraryGroup({
                     <span>{source.title}</span>
                   </Link>
                 </SidebarMenuButton>
-                <SidebarMenuAction
-                  showOnHover
-                  disabled={isPending}
-                  aria-label={`${isPinned ? "Unpin" : "Pin"} ${source.title}`}
-                  onClick={(event) =>
-                    handleToggleClick(event, source, isPinned ? "unpin" : "pin")
-                  }
-                >
-                  {isPending ? (
-                    <Loader2 className="animate-spin" />
-                  ) : isPinned ? (
-                    <PinOff />
-                  ) : (
-                    <Pin />
-                  )}
-                </SidebarMenuAction>
+                <SidebarSourceActionsMenu
+                  source={source}
+                  isPinned={isPinned}
+                  isPending={isPending}
+                  onTogglePinnedSource={onTogglePinnedSource}
+                />
               </SidebarMenuItem>
             );
           })

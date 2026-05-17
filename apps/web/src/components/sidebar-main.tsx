@@ -1,16 +1,15 @@
-import { Home, Loader2, MoreHorizontal, PinOff } from "lucide-react";
+import { Home, MoreHorizontal } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import type { MouseEvent } from "react";
 import {
   SidebarGroup,
   SidebarMenu,
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "~/components/ui/sidebar";
 import { getPinnedSourceIdentity } from "@multiplex/plex-query";
 import type { SidebarSource } from "~/hooks/use-sidebar-sources";
+import { SidebarSourceActionsMenu } from "./sidebar-source-actions-menu";
 import { getSourceIcon, isUrlActive } from "./sidebar-utils";
 
 interface SidebarMainProps {
@@ -31,15 +30,6 @@ export function SidebarMain({
 }: SidebarMainProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-
-  function handleUnpinClick(
-    event: MouseEvent<HTMLButtonElement>,
-    source: SidebarSource,
-  ) {
-    event.preventDefault();
-    event.stopPropagation();
-    onTogglePinnedSource(source, "unpin");
-  }
 
   return (
     <SidebarGroup>
@@ -69,14 +59,12 @@ export function SidebarMain({
                   <span>{source.title}</span>
                 </Link>
               </SidebarMenuButton>
-              <SidebarMenuAction
-                showOnHover
-                disabled={isPending}
-                aria-label={`Unpin ${source.title}`}
-                onClick={(event) => handleUnpinClick(event, source)}
-              >
-                {isPending ? <Loader2 className="animate-spin" /> : <PinOff />}
-              </SidebarMenuAction>
+              <SidebarSourceActionsMenu
+                source={source}
+                isPinned
+                isPending={isPending}
+                onTogglePinnedSource={onTogglePinnedSource}
+              />
             </SidebarMenuItem>
           );
         })}
