@@ -44,6 +44,38 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   userInfo: PlexUserInfo;
 }
 
+function applyPinnedSourceUpdate(
+  userInfo: PlexUserInfo,
+  source: PinnedSource,
+  action: "pin" | "unpin",
+): PlexUserInfo {
+  const currentSettings = userInfo.settings ?? { otherSettings: {} };
+  const sourceIdentity = getPinnedSourceIdentity(source);
+  const currentPinnedSources =
+    currentSettings.sidebarSettings?.pinnedSources ?? [];
+  const filteredPinnedSources = currentPinnedSources.filter(
+    (currentSource) =>
+      getPinnedSourceIdentity(currentSource) !== sourceIdentity,
+  );
+  const nextPinnedSources =
+    action === "pin"
+      ? [...filteredPinnedSources, source]
+      : filteredPinnedSources;
+
+  return {
+    ...userInfo,
+    settings: {
+      ...currentSettings,
+      sidebarSettings: {
+        ...currentSettings.sidebarSettings,
+        hasCompletedSetup:
+          currentSettings.sidebarSettings?.hasCompletedSetup ?? true,
+        pinnedSources: nextPinnedSources,
+      },
+    },
+  };
+}
+
 export function AppSidebar({
   session,
   servers,
@@ -51,13 +83,13 @@ export function AppSidebar({
   ...props
 }: AppSidebarProps) {
   const [currentPage, setCurrentPage] = React.useState<"main" | "all">("main");
-  const [currentUserInfo, setCurrentUserInfo] = React.useState(userInfo);
   const router = useRouter();
   const utils = api.useUtils();
-
-  React.useEffect(() => {
-    setCurrentUserInfo(userInfo);
-  }, [userInfo]);
+  const userInfoQuery = api.plex.getUserInfo.useQuery(undefined, {
+    initialData: userInfo,
+    staleTime: 5 * 60 * 1000,
+  });
+  const currentUserInfo = userInfoQuery.data ?? userInfo;
 
   // Use custom hooks for data management
   const serverLibraries = useServerLibraries(servers);
@@ -72,8 +104,26 @@ export function AppSidebar({
     [sidebarSources.pinnedSources],
   );
   const togglePinnedSourceMutation = api.plex.togglePinnedSource.useMutation({
+    onMutate: async (variables) => {
+      const previousUserInfo = utils.plex.getUserInfo.getData();
+
+      utils.plex.getUserInfo.setData(undefined, (existingUserInfo) =>
+        applyPinnedSourceUpdate(
+          existingUserInfo ?? userInfo,
+          variables.source,
+          variables.action,
+        ),
+      );
+
+      return { previousUserInfo };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previousUserInfo) {
+        utils.plex.getUserInfo.setData(undefined, context.previousUserInfo);
+      }
+    },
     onSuccess: async (updatedUserInfo) => {
-      setCurrentUserInfo(updatedUserInfo);
+      utils.plex.getUserInfo.setData(undefined, updatedUserInfo);
       await Promise.all([
         utils.plex.getUserInfo.invalidate(),
         utils.plex.getAllContinueWatching.invalidate(),
