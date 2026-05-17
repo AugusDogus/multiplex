@@ -99,31 +99,20 @@ export class PlexTvBaseClient {
       );
     }
 
-    if ("expectEmptyResponse" in options && options.expectEmptyResponse) {
-      return undefined as T;
-    }
-
-    const responseText = await response.text();
-
-    if (!responseText) {
-      return undefined as T;
-    }
-
-    const contentType = response.headers.get("content-type") ?? "";
-
     let data: unknown;
-    if (contentType.includes("application/json")) {
-      try {
-        data = JSON.parse(responseText);
-      } catch (error) {
-        throw new PlexAPIError(
-          `Invalid JSON from Plex API: ${error instanceof Error ? error.message : "Unknown error"}`,
-          response.status,
-          response,
-        );
+
+    try {
+      data = await response.json();
+    } catch (error) {
+      if ("expectEmptyResponse" in options && options.expectEmptyResponse) {
+        return undefined as T;
       }
-    } else {
-      data = responseText;
+
+      throw new PlexAPIError(
+        `Invalid JSON from Plex API: ${error instanceof Error ? error.message : "Unknown error"}`,
+        response.status,
+        response,
+      );
     }
 
     if (schema) {
