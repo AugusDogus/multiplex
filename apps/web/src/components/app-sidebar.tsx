@@ -25,10 +25,12 @@ import {
   type SidebarSource,
 } from "~/hooks/use-sidebar-sources";
 import {
+  getNextPinnedSources,
   getPinnedSourceIdentity,
   type PinnedSource,
   type PlexDevice,
   type PlexUserInfo,
+  toPinnedSource,
 } from "@multiplex/plex-query";
 import { api } from "~/trpc/react";
 
@@ -50,17 +52,11 @@ function applyPinnedSourceUpdate(
   action: "pin" | "unpin",
 ): PlexUserInfo {
   const currentSettings = userInfo.settings ?? { otherSettings: {} };
-  const sourceIdentity = getPinnedSourceIdentity(source);
-  const currentPinnedSources =
-    currentSettings.sidebarSettings?.pinnedSources ?? [];
-  const filteredPinnedSources = currentPinnedSources.filter(
-    (currentSource) =>
-      getPinnedSourceIdentity(currentSource) !== sourceIdentity,
+  const nextPinnedSources = getNextPinnedSources(
+    currentSettings.sidebarSettings?.pinnedSources ?? [],
+    source,
+    action,
   );
-  const nextPinnedSources =
-    action === "pin"
-      ? [...filteredPinnedSources, source]
-      : filteredPinnedSources;
 
   return {
     ...userInfo,
@@ -139,31 +135,9 @@ export function AppSidebar({
 
   const handleTogglePinnedSource = React.useCallback(
     (source: SidebarSource, action: "pin" | "unpin") => {
-      const pinnedSource: PinnedSource = {
-        key: source.key,
-        sourceType: source.sourceType,
-        machineIdentifier: source.machineIdentifier,
-        providerIdentifier: source.providerIdentifier,
-        directoryID: source.directoryID,
-        title: source.title,
-        serverFriendlyName: source.serverFriendlyName,
-        ...(source.serverSourceTitle !== undefined
-          ? { serverSourceTitle: source.serverSourceTitle }
-          : {}),
-        ...(source.providerSourceTitle !== undefined
-          ? { providerSourceTitle: source.providerSourceTitle }
-          : {}),
-        ...(source.directoryIcon !== undefined
-          ? { directoryIcon: source.directoryIcon }
-          : {}),
-        ...(source.isCloud !== undefined ? { isCloud: source.isCloud } : {}),
-        ...(source.hiddenAt !== undefined ? { hiddenAt: source.hiddenAt } : {}),
-        isFullOwnedServer: source.isFullOwnedServer,
-      };
-
       togglePinnedSourceMutation.mutate({
         action,
-        source: pinnedSource,
+        source: toPinnedSource(source),
       });
     },
     [togglePinnedSourceMutation],
