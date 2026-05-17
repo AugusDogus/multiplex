@@ -63,6 +63,7 @@ export function SidebarMain({
                 source={source}
                 isPinned
                 isPending={isPending}
+                showOnHover
                 onTogglePinnedSource={onTogglePinnedSource}
               />
             </SidebarMenuItem>
