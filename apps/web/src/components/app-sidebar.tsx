@@ -3,7 +3,6 @@ import packageJson from "~/../package.json";
 
 import { Command } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { type ComponentProps, useState } from "react";
 import { NavUser } from "~/components/nav-user";
 import { SidebarAll } from "~/components/sidebar-all";
@@ -24,8 +23,10 @@ import {
   type SidebarSource,
 } from "~/hooks/use-sidebar-sources";
 import {
+  getNextPinnedSources,
   getPinnedSourceIdentity,
   type PlexDevice,
+  type PinnedSource,
   type PlexUserInfo,
   toPinnedSource,
 } from "@multiplex/plex-query";
@@ -43,6 +44,31 @@ interface AppSidebarProps extends ComponentProps<typeof Sidebar> {
   userInfo: PlexUserInfo;
 }
 
+function applyPinnedSourceUpdate(
+  userInfo: PlexUserInfo,
+  source: PinnedSource,
+  action: "pin" | "unpin",
+): PlexUserInfo {
+  const currentSettings = userInfo.settings ?? { otherSettings: {} };
+
+  return {
+    ...userInfo,
+    settings: {
+      ...currentSettings,
+      sidebarSettings: {
+        ...currentSettings.sidebarSettings,
+        hasCompletedSetup:
+          currentSettings.sidebarSettings?.hasCompletedSetup ?? true,
+        pinnedSources: getNextPinnedSources(
+          currentSettings.sidebarSettings?.pinnedSources ?? [],
+          source,
+          action,
+        ),
+      },
+    },
+  };
+}
+
 export function AppSidebar({
   session,
   servers,
@@ -50,21 +76,40 @@ export function AppSidebar({
   ...props
 }: AppSidebarProps) {
   const [currentPage, setCurrentPage] = useState<"main" | "all">("main");
-  const router = useRouter();
+  const [userInfoOverride, setUserInfoOverride] = useState<PlexUserInfo | null>(
+    null,
+  );
   const utils = api.useUtils();
+  const currentUserInfo = userInfoOverride ?? userInfo;
 
   // Use custom hooks for data management
   const serverLibraries = useServerLibraries(servers);
-  const sidebarSources = getSidebarSources(userInfo, serverLibraries);
+  const sidebarSources = getSidebarSources(currentUserInfo, serverLibraries);
   const pinnedSourceIdentities = new Set(
     sidebarSources.pinnedSources.map((source) =>
       getPinnedSourceIdentity(source),
     ),
   );
   const togglePinnedSourceMutation = api.plex.togglePinnedSource.useMutation({
-    onSuccess: async () => {
+    onMutate: (variables) => {
+      const previousUserInfo = userInfoOverride;
+
+      setUserInfoOverride(
+        applyPinnedSourceUpdate(
+          currentUserInfo,
+          variables.source,
+          variables.action,
+        ),
+      );
+
+      return { previousUserInfo };
+    },
+    onError: (_error, _variables, context) => {
+      setUserInfoOverride(context?.previousUserInfo ?? null);
+    },
+    onSuccess: async (updatedUserInfo) => {
+      setUserInfoOverride(updatedUserInfo);
       await utils.plex.getAllContinueWatching.invalidate();
-      router.refresh();
     },
   });
 
@@ -138,7 +183,7 @@ export function AppSidebar({
         </SidebarContent>
 
         <SidebarFooter>
-          <NavUser user={user} userInfo={userInfo} />
+          <NavUser user={user} userInfo={currentUserInfo} />
         </SidebarFooter>
       </Sidebar>
     </TooltipProvider>
