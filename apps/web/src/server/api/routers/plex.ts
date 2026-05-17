@@ -1,6 +1,6 @@
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import {
-  getPinnedSourceIdentity,
+  getNextPinnedSources,
   pinnedSourceSchema,
 } from "@multiplex/plex-query";
 import { z } from "zod";
@@ -42,14 +42,11 @@ export const plexRouter = createTRPCRouter({
       const userInfo = await getUserInfoQuery(ctx.plex);
       const currentPinnedSources =
         userInfo.settings?.sidebarSettings?.pinnedSources ?? [];
-      const sourceIdentity = getPinnedSourceIdentity(input.source);
-      const filteredPinnedSources = currentPinnedSources.filter(
-        (source) => getPinnedSourceIdentity(source) !== sourceIdentity,
+      const nextPinnedSources = getNextPinnedSources(
+        currentPinnedSources,
+        input.source,
+        input.action,
       );
-      const nextPinnedSources =
-        input.action === "pin"
-          ? [...filteredPinnedSources, input.source]
-          : filteredPinnedSources;
 
       await ctx.plex.updateSidebarPinnedSources(nextPinnedSources);
 

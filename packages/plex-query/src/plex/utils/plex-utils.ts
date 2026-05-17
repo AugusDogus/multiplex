@@ -25,6 +25,42 @@ export function getPinnedSourceIdentity(source: {
   return [source.machineIdentifier, source.providerIdentifier, source.directoryID].join("::");
 }
 
+export function toPinnedSource(source: PinnedSource): PinnedSource {
+  return {
+    key: source.key,
+    sourceType: source.sourceType,
+    machineIdentifier: source.machineIdentifier,
+    providerIdentifier: source.providerIdentifier,
+    directoryID: source.directoryID,
+    title: source.title,
+    serverFriendlyName: source.serverFriendlyName,
+    ...(source.serverSourceTitle !== undefined
+      ? { serverSourceTitle: source.serverSourceTitle }
+      : {}),
+    ...(source.providerSourceTitle !== undefined
+      ? { providerSourceTitle: source.providerSourceTitle }
+      : {}),
+    ...(source.directoryIcon !== undefined ? { directoryIcon: source.directoryIcon } : {}),
+    ...(source.isCloud !== undefined ? { isCloud: source.isCloud } : {}),
+    ...(source.hiddenAt !== undefined ? { hiddenAt: source.hiddenAt } : {}),
+    isFullOwnedServer: source.isFullOwnedServer,
+  };
+}
+
+export function getNextPinnedSources(
+  pinnedSources: PinnedSource[],
+  source: PinnedSource,
+  action: "pin" | "unpin",
+): PinnedSource[] {
+  const nextSource = toPinnedSource(source);
+  const sourceIdentity = getPinnedSourceIdentity(nextSource);
+  const filteredPinnedSources = pinnedSources.filter(
+    (currentSource) => getPinnedSourceIdentity(currentSource) !== sourceIdentity,
+  );
+
+  return action === "pin" ? [...filteredPinnedSources, nextSource] : filteredPinnedSources;
+}
+
 /**
  * Get the best server URL from a Plex device connection list.
  */
