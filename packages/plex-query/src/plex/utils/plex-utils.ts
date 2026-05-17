@@ -25,6 +25,17 @@ export function getPinnedSourceIdentity(source: {
   return [source.machineIdentifier, source.providerIdentifier, source.directoryID].join("::");
 }
 
+export function isPinnedSource(
+  pinnedSources: Pick<PinnedSource, "machineIdentifier" | "providerIdentifier" | "directoryID">[],
+  source: Pick<PinnedSource, "machineIdentifier" | "providerIdentifier" | "directoryID">,
+): boolean {
+  const sourceIdentity = getPinnedSourceIdentity(source);
+
+  return pinnedSources.some(
+    (pinnedSource) => getPinnedSourceIdentity(pinnedSource) === sourceIdentity,
+  );
+}
+
 export function toPinnedSource(source: PinnedSource): PinnedSource {
   return {
     key: source.key,

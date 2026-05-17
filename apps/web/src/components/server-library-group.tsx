@@ -15,6 +15,7 @@ import {
 } from "~/components/ui/tooltip";
 import {
   getPinnedSourceIdentity,
+  isPinnedSource,
   type PlexDevice,
 } from "@multiplex/plex-query";
 import type { ServerLibraryState } from "~/hooks/use-server-libraries";
@@ -25,8 +26,8 @@ import { getSourceIcon, isUrlActive } from "./sidebar-utils";
 interface ServerLibraryGroupProps {
   server: PlexDevice;
   state: ServerLibraryState;
+  pinnedSources: SidebarSource[];
   sources: SidebarSource[];
-  pinnedSourceIdentities: Set<string>;
   pendingSourceIdentity: string | null;
   onTogglePinnedSource: (
     source: SidebarSource,
@@ -38,8 +39,8 @@ interface ServerLibraryGroupProps {
 export function ServerLibraryGroup({
   server,
   state,
+  pinnedSources,
   sources,
-  pinnedSourceIdentities,
   pendingSourceIdentity,
   onTogglePinnedSource,
   onRetry,
@@ -138,7 +139,7 @@ export function ServerLibraryGroup({
             const Icon = getSourceIcon(source.sourceType);
             const isActive = isUrlActive(pathname, searchParams, source.href);
             const sourceIdentity = getPinnedSourceIdentity(source);
-            const isPinned = pinnedSourceIdentities.has(sourceIdentity);
+            const isPinned = isPinnedSource(pinnedSources, source);
             const isPending = pendingSourceIdentity === sourceIdentity;
 
             return (

@@ -20,11 +20,7 @@ import { TooltipProvider } from "~/components/ui/tooltip";
 import { useSidebarPinning } from "~/hooks/use-sidebar-pinning";
 import { useServerLibraries } from "~/hooks/use-server-libraries";
 import { getSidebarSources } from "~/hooks/use-sidebar-sources";
-import {
-  getPinnedSourceIdentity,
-  type PlexDevice,
-  type PlexUserInfo,
-} from "@multiplex/plex-query";
+import type { PlexDevice, PlexUserInfo } from "@multiplex/plex-query";
 
 interface AppSidebarProps extends ComponentProps<typeof Sidebar> {
   session: {
@@ -51,11 +47,6 @@ export function AppSidebar({
   // Use custom hooks for data management
   const serverLibraries = useServerLibraries(servers);
   const sidebarSources = getSidebarSources(currentUserInfo, serverLibraries);
-  const pinnedSourceIdentities = new Set(
-    sidebarSources.pinnedSources.map((source) =>
-      getPinnedSourceIdentity(source),
-    ),
-  );
 
   if (!session) {
     return null;
@@ -104,7 +95,6 @@ export function AppSidebar({
               serverLibraries={serverLibraries}
               sidebarSources={sidebarSources}
               pendingSourceIdentity={pendingSourceIdentity}
-              pinnedSourceIdentities={pinnedSourceIdentities}
               onTogglePinnedSource={handleTogglePinnedSource}
               onBack={() => setCurrentPage("main")}
             />
