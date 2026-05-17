@@ -82,9 +82,10 @@ export function AppSidebar({
     },
   });
 
-  const pendingSourceIdentity = togglePinnedSourceMutation.variables
-    ? getPinnedSourceIdentity(togglePinnedSourceMutation.variables.source)
-    : null;
+  const pendingSourceIdentity =
+    togglePinnedSourceMutation.isPending && togglePinnedSourceMutation.variables
+      ? getPinnedSourceIdentity(togglePinnedSourceMutation.variables.source)
+      : null;
 
   const handleTogglePinnedSource = React.useCallback(
     (source: SidebarSource, action: "pin" | "unpin") => {
