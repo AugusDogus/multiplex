@@ -1,6 +1,7 @@
 import { Loader2, Pin, PinOff, RefreshCw, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import type { MouseEvent } from "react";
 import {
   SidebarGroup,
   SidebarGroupLabel,
@@ -46,6 +47,16 @@ export function ServerLibraryGroup({
 }: ServerLibraryGroupProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+
+  function handleToggleClick(
+    event: MouseEvent<HTMLButtonElement>,
+    source: SidebarSource,
+    action: "pin" | "unpin",
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    onTogglePinnedSource(source, action);
+  }
 
   // Loading state
   if (state.isLoading && !state.isRetrying) {
@@ -153,11 +164,9 @@ export function ServerLibraryGroup({
                   showOnHover
                   disabled={isPending}
                   aria-label={`${isPinned ? "Unpin" : "Pin"} ${source.title}`}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onTogglePinnedSource(source, isPinned ? "unpin" : "pin");
-                  }}
+                  onClick={(event) =>
+                    handleToggleClick(event, source, isPinned ? "unpin" : "pin")
+                  }
                 >
                   {isPending ? (
                     <Loader2 className="animate-spin" />

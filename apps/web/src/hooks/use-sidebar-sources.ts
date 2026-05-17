@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import {
   createSourceFromExtractedSource,
   extractAllSources,
@@ -19,75 +18,60 @@ export interface UseSidebarSourcesReturn {
   allLibrarySources: SidebarSource[];
 }
 
-export function useSidebarSources(
+export function getSidebarSources(
   userInfo: PlexUserInfo,
   { serverStates }: UseServerLibrariesReturn,
 ): UseSidebarSourcesReturn {
-  // Extract all library sources from successful server queries
-  const allLibrarySources = useMemo(() => {
-    const sources: SidebarSource[] = [];
+  const allLibrarySources: SidebarSource[] = [];
 
-    for (const [, state] of serverStates) {
-      if (state.data?.mediaProviders && !state.error) {
-        try {
-          const extractedSources = extractAllSources(state.data.mediaProviders);
+  for (const [, state] of serverStates) {
+    if (state.data?.mediaProviders && !state.error) {
+      try {
+        const extractedSources = extractAllSources(state.data.mediaProviders);
 
-          for (const extractedSource of extractedSources) {
-            const source = createSourceFromExtractedSource(
+        for (const extractedSource of extractedSources) {
+          allLibrarySources.push(
+            createSourceFromExtractedSource(
               extractedSource,
               state.data.serverId,
               state.data.serverName,
               state.data.serverOwned,
-            );
-            sources.push(source);
-          }
-        } catch (error) {
-          console.error(
-            `Error processing server ${state.data?.serverName}:`,
-            error,
+            ),
           );
         }
+      } catch (error) {
+        console.error(
+          `Error processing server ${state.data?.serverName}:`,
+          error,
+        );
       }
     }
+  }
 
-    return sources;
-  }, [serverStates]);
+  const userPinnedSources =
+    userInfo.settings?.sidebarSettings?.pinnedSources ?? [];
+  const pinnedSources = userPinnedSources.map((pinnedSource) => {
+    const matchingLibrarySource = allLibrarySources.find(
+      (libSource) =>
+        getPinnedSourceIdentity(libSource) ===
+        getPinnedSourceIdentity(pinnedSource),
+    );
 
-  // Match pinned sources with real library sources
-  const pinnedSources = useMemo(() => {
-    const userPinnedSources =
-      userInfo.settings?.sidebarSettings?.pinnedSources ?? [];
+    return (
+      matchingLibrarySource ?? {
+        ...pinnedSource,
+        isLibrarySection: false,
+        href: `/media/${pinnedSource.machineIdentifier}/${pinnedSource.providerIdentifier}?source=${pinnedSource.directoryID}`,
+      }
+    );
+  });
 
-    return userPinnedSources.map((pinnedSource) => {
-      // Try to find a matching library source (if it has loaded)
-      const matchingLibrarySource = allLibrarySources.find(
-        (libSource) =>
-          getPinnedSourceIdentity(libSource) ===
-          getPinnedSourceIdentity(pinnedSource),
-      );
+  const librarySourcesByServer: Record<string, SidebarSource[]> = {};
 
-      // Use the library source if found, otherwise fall back to pinned source
-      return (
-        matchingLibrarySource ?? {
-          ...pinnedSource,
-          isLibrarySection: false,
-          href: `/media/${pinnedSource.machineIdentifier}/${pinnedSource.providerIdentifier}?source=${pinnedSource.directoryID}`,
-        }
-      );
-    });
-  }, [userInfo.settings?.sidebarSettings?.pinnedSources, allLibrarySources]);
-
-  // Group library sources by server
-  const librarySourcesByServer = useMemo(() => {
-    const grouped: Record<string, SidebarSource[]> = {};
-
-    for (const source of allLibrarySources) {
-      grouped[source.machineIdentifier] ??= [];
-      grouped[source.machineIdentifier]!.push(source);
-    }
-
-    return grouped;
-  }, [allLibrarySources]);
+  for (const source of allLibrarySources) {
+    librarySourcesByServer[source.machineIdentifier] ??= [];
+    librarySourcesByServer[source.machineIdentifier]!.push(source);
+  }
 
   return {
     pinnedSources,

@@ -1,6 +1,7 @@
 import { Home, Loader2, MoreHorizontal, PinOff } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import type { MouseEvent } from "react";
 import {
   SidebarGroup,
   SidebarMenu,
@@ -30,6 +31,15 @@ export function SidebarMain({
 }: SidebarMainProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+
+  function handleUnpinClick(
+    event: MouseEvent<HTMLButtonElement>,
+    source: SidebarSource,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    onTogglePinnedSource(source, "unpin");
+  }
 
   return (
     <SidebarGroup>
@@ -63,11 +73,7 @@ export function SidebarMain({
                 showOnHover
                 disabled={isPending}
                 aria-label={`Unpin ${source.title}`}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onTogglePinnedSource(source, "unpin");
-                }}
+                onClick={(event) => handleUnpinClick(event, source)}
               >
                 {isPending ? <Loader2 className="animate-spin" /> : <PinOff />}
               </SidebarMenuAction>

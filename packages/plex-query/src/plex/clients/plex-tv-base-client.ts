@@ -5,8 +5,12 @@ import {
   type PostRequestOptions,
 } from "../types/client-types";
 
+export const PLEX_TV_API_BASE_URL = "https://plex.tv/api/v2/";
+export const PLEX_CLIENTS_API_BASE_URL = "https://clients.plex.tv/api/v2/";
+export const PLEX_CLIENTS_USER_API_BASE_URL = `${PLEX_CLIENTS_API_BASE_URL}user/`;
+
 export class PlexTvBaseClient {
-  private readonly baseUrl = "https://plex.tv/api/v2/";
+  private readonly baseUrl = PLEX_TV_API_BASE_URL;
 
   constructor(protected readonly config: PlexConfig) {}
 
@@ -52,12 +56,8 @@ export class PlexTvBaseClient {
     }
   }
 
-  private async request<T>(
-    method: "GET" | "POST",
-    token: string,
-    options: GetRequestOptions<T> | PostRequestOptions<T>,
-  ): Promise<T> {
-    const { endpoint, params, schema, baseUrl, xPlexOverrides = {} } = options;
+  private buildUrl<T>(token: string, options: GetRequestOptions<T> | PostRequestOptions<T>): URL {
+    const { endpoint, params, baseUrl, xPlexOverrides = {} } = options;
     const url = new URL(endpoint, baseUrl ?? this.baseUrl);
 
     this.appendXPlexParams(url, token, xPlexOverrides);
@@ -70,19 +70,14 @@ export class PlexTvBaseClient {
       }
     }
 
-    const response = await fetch(url.toString(), {
-      method,
-      headers: {
-        accept: "application/json",
-        ...("contentType" in options && options.contentType
-          ? {
-              "content-type": options.contentType,
-            }
-          : {}),
-      },
-      ...("body" in options && options.body ? { body: options.body } : {}),
-    });
+    return url;
+  }
 
+  private async parseResponse<T>(
+    response: Response,
+    schema: GetRequestOptions<T>["schema"] | PostRequestOptions<T>["schema"],
+    expectEmptyResponse = false,
+  ): Promise<T> {
     if (!response.ok) {
       if (response.status === 401) {
         throw new PlexAPIError(
@@ -99,12 +94,22 @@ export class PlexTvBaseClient {
       );
     }
 
-    let data: unknown;
-
     try {
-      data = await response.json();
+      const data = await response.json();
+
+      if (schema) {
+        try {
+          return schema.parse(data);
+        } catch (error) {
+          throw new PlexAPIError(
+            `Invalid response format from Plex API: ${error instanceof Error ? error.message : "Unknown error"}`,
+          );
+        }
+      }
+
+      return data as T;
     } catch (error) {
-      if ("expectEmptyResponse" in options && options.expectEmptyResponse) {
+      if (expectEmptyResponse) {
         return undefined as T;
       }
 
@@ -114,25 +119,36 @@ export class PlexTvBaseClient {
         response,
       );
     }
-
-    if (schema) {
-      try {
-        return schema.parse(data);
-      } catch (error) {
-        throw new PlexAPIError(
-          `Invalid response format from Plex API: ${error instanceof Error ? error.message : "Unknown error"}`,
-        );
-      }
-    }
-
-    return data as T;
   }
 
   protected async get<T>(token: string, options: GetRequestOptions<T>): Promise<T> {
-    return this.request("GET", token, options);
+    const url = this.buildUrl(token, options);
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+      },
+    });
+
+    return this.parseResponse(response, options.schema);
   }
 
   protected async post<T>(token: string, options: PostRequestOptions<T>): Promise<T> {
-    return this.request("POST", token, options);
+    const url = this.buildUrl(token, options);
+    const headers: HeadersInit = {
+      accept: "application/json",
+    };
+
+    if (options.contentType) {
+      headers["content-type"] = options.contentType;
+    }
+
+    const response = await fetch(url.toString(), {
+      method: "POST",
+      headers,
+      body: options.body,
+    });
+
+    return this.parseResponse(response, options.schema, options.expectEmptyResponse ?? false);
   }
 }
