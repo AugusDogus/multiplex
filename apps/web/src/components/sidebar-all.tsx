@@ -17,7 +17,6 @@ interface SidebarAllProps {
   servers: PlexDevice[];
   serverLibraries: UseServerLibrariesReturn;
   sidebarSources: UseSidebarSourcesReturn;
-  pinnedSourceIdentities: Set<string>;
   pendingSourceIdentity: string | null;
   onTogglePinnedSource: (
     source: SidebarSource,
@@ -30,7 +29,6 @@ export function SidebarAll({
   servers,
   serverLibraries,
   sidebarSources,
-  pinnedSourceIdentities,
   pendingSourceIdentity,
   onTogglePinnedSource,
   onBack,
@@ -63,8 +61,8 @@ export function SidebarAll({
             server={server}
             state={state}
             sources={sources}
+            pinnedSources={sidebarSources.pinnedSources}
             pendingSourceIdentity={pendingSourceIdentity}
-            pinnedSourceIdentities={pinnedSourceIdentities}
             onTogglePinnedSource={onTogglePinnedSource}
             onRetry={serverLibraries.retryServer}
           />
