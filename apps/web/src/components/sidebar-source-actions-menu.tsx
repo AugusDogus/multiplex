@@ -14,6 +14,7 @@ interface SidebarSourceActionsMenuProps {
   source: SidebarSource;
   isPinned: boolean;
   isPending: boolean;
+  showOnHover?: boolean;
   onTogglePinnedSource: (
     source: SidebarSource,
     action: "pin" | "unpin",
@@ -24,6 +25,7 @@ export function SidebarSourceActionsMenu({
   source,
   isPinned,
   isPending,
+  showOnHover = false,
   onTogglePinnedSource,
 }: SidebarSourceActionsMenuProps) {
   function handleTogglePinnedSource() {
@@ -34,7 +36,7 @@ export function SidebarSourceActionsMenu({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <SidebarMenuAction
-          showOnHover
+          showOnHover={showOnHover}
           disabled={isPending}
           aria-label={`${source.title} options`}
         >

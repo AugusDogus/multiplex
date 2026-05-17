@@ -153,6 +153,7 @@ export function ServerLibraryGroup({
                   source={source}
                   isPinned={isPinned}
                   isPending={isPending}
+                  showOnHover
                   onTogglePinnedSource={onTogglePinnedSource}
                 />
               </SidebarMenuItem>
