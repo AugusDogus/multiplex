@@ -167,4 +167,50 @@
   .bg-light-primary {
     background-color: oklch(0.922 0 0);
   }
+
+  @keyframes seek-label-in {
+    from {
+      transform: scale(0.55);
+      opacity: 0.5;
+    }
+    to {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+
+  @keyframes seek-chevron-forward {
+    from {
+      transform: translateX(-1.25rem);
+      opacity: 0.35;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes seek-chevron-backward {
+    from {
+      transform: translateX(1.25rem);
+      opacity: 0.35;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+
+  .animate-seek-label-in {
+    animation: seek-label-in 0.28s cubic-bezier(0, 0, 0.2, 1) forwards;
+    transform-origin: center center;
+  }
+
+  .animate-seek-chevron-forward {
+    animation: seek-chevron-forward 0.28s cubic-bezier(0, 0, 0.2, 1) forwards;
+  }
+
+  .animate-seek-chevron-backward {
+    animation: seek-chevron-backward 0.28s cubic-bezier(0, 0, 0.2, 1) forwards;
+  }
 }

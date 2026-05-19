@@ -1,15 +1,16 @@
 "use client";
 
-import { ChevronsLeft, ChevronsRight, FastForward } from "lucide-react";
+import { FastForward } from "lucide-react";
 import {
   forwardRef,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
 } from "react";
-import type { MouseEvent, PointerEvent } from "react";
+import type { MouseEvent, PointerEvent, RefObject } from "react";
 import { cn } from "~/lib/utils";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import type { MediaPlayerItem } from "~/types/media-player";
@@ -18,6 +19,8 @@ import {
   generatePlexStreamUrl,
   hasValidStreamingData,
 } from "./utils/plex-stream-utils";
+import { useSeekOverlay } from "./hooks/use-seek-overlay";
+import { MediaPlayerSeekOverlay } from "./media-player-seek-overlay";
 
 /* ────────────────────────────────────────────────────────────
    Media Player Video Component
@@ -40,9 +43,12 @@ interface DoubleClickSeekSequence {
   clickCount: number;
 }
 
-interface DoubleClickSeekOverlay {
-  direction: DoubleClickSeekDirection;
-  seconds: number;
+export interface MediaPlayerSeekFeedbackHandle {
+  show: (
+    direction: DoubleClickSeekDirection,
+    seconds: number,
+    accumulate?: boolean,
+  ) => void;
 }
 
 interface DoubleClickSeekPulse {
@@ -71,6 +77,10 @@ interface MediaPlayerVideoProps {
    * Enables mobile double-tap seeking.
    */
   enableDoubleClickSeek?: boolean;
+  /**
+   * Imperative handle for showing seek feedback (e.g. keyboard shortcuts).
+   */
+  seekFeedbackRef?: RefObject<MediaPlayerSeekFeedbackHandle | null>;
   /**
    * Callback fired when user scrolls on the video (for volume control)
    */
@@ -108,6 +118,7 @@ export const MediaPlayerVideo = forwardRef<
       onVideoClick,
       onVideoDoubleClick,
       enableDoubleClickSeek = false,
+      seekFeedbackRef,
       onVolumeScroll,
       onVideoEnded,
       onVideoPlay,
@@ -140,12 +151,9 @@ export const MediaPlayerVideo = forwardRef<
     const seekSequenceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
       null,
     );
-    const seekOverlayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-      null,
-    );
     const seekSequenceRef = useRef<DoubleClickSeekSequence | null>(null);
-    const [seekOverlay, setSeekOverlay] =
-      useState<DoubleClickSeekOverlay | null>(null);
+    const { overlay: seekOverlay, showOverlay: showSeekOverlay, clearOverlayTimeout: clearSeekOverlayTimeout } =
+      useSeekOverlay(DOUBLE_CLICK_SEEK_OVERLAY_MS);
     const [seekPulses, setSeekPulses] = useState<DoubleClickSeekPulse[]>([]);
     const seekPulseIdRef = useRef(0);
     const seekPulseTimeoutsRef = useRef(
@@ -344,13 +352,6 @@ export const MediaPlayerVideo = forwardRef<
       }
     }, []);
 
-    const clearSeekOverlayTimeout = useCallback(() => {
-      if (seekOverlayTimeoutRef.current) {
-        clearTimeout(seekOverlayTimeoutRef.current);
-        seekOverlayTimeoutRef.current = null;
-      }
-    }, []);
-
     const resetSeekSequenceDelayed = useCallback(() => {
       clearSeekSequenceTimeout();
       seekSequenceTimeoutRef.current = setTimeout(() => {
@@ -358,14 +359,6 @@ export const MediaPlayerVideo = forwardRef<
         seekSequenceTimeoutRef.current = null;
       }, DOUBLE_CLICK_SEEK_WINDOW_MS);
     }, [clearSeekSequenceTimeout]);
-
-    const hideSeekOverlayDelayed = useCallback(() => {
-      clearSeekOverlayTimeout();
-      seekOverlayTimeoutRef.current = setTimeout(() => {
-        setSeekOverlay(null);
-        seekOverlayTimeoutRef.current = null;
-      }, DOUBLE_CLICK_SEEK_OVERLAY_MS);
-    }, [clearSeekOverlayTimeout]);
 
     const spawnSeekPulse = useCallback(
       (direction: DoubleClickSeekDirection) => {
@@ -415,12 +408,18 @@ export const MediaPlayerVideo = forwardRef<
 
     const handleDoubleClickSeek = useCallback(
       (direction: DoubleClickSeekDirection, clickCount: number) => {
+        const video = videoElementRef.current;
+        const before = video?.currentTime ?? 0;
+        const duration = Number.isFinite(video?.duration)
+          ? (video?.duration ?? Number.POSITIVE_INFINITY)
+          : Number.POSITIVE_INFINITY;
+        const canAccumulate =
+          direction === "forward"
+            ? duration - before > DOUBLE_CLICK_SEEK_SECONDS
+            : before > DOUBLE_CLICK_SEEK_SECONDS;
+
         seekByDoubleClickOffset(direction);
-        setSeekOverlay({
-          direction,
-          seconds: (clickCount - 1) * DOUBLE_CLICK_SEEK_SECONDS,
-        });
-        hideSeekOverlayDelayed();
+        showSeekOverlay(direction, DOUBLE_CLICK_SEEK_SECONDS, canAccumulate);
         resetSeekSequenceDelayed();
         // Layer a new pulse on every other tap (the initial double-tap, then
         // every second additional tap), so quick taps stack rather than
@@ -430,11 +429,19 @@ export const MediaPlayerVideo = forwardRef<
         }
       },
       [
-        hideSeekOverlayDelayed,
         resetSeekSequenceDelayed,
         seekByDoubleClickOffset,
+        showSeekOverlay,
         spawnSeekPulse,
       ],
+    );
+
+    useImperativeHandle(
+      seekFeedbackRef,
+      () => ({
+        show: showSeekOverlay,
+      }),
+      [showSeekOverlay],
     );
 
     /**
@@ -789,29 +796,7 @@ export const MediaPlayerVideo = forwardRef<
           </div>
         ))}
 
-        {seekOverlay && (
-          <div
-            className={cn(
-              "pointer-events-none absolute top-0 bottom-0 z-50 flex w-1/2 items-center bg-black/20",
-              seekOverlay.direction === "forward"
-                ? "right-0 justify-end pr-16"
-                : "left-0 justify-start pl-16",
-            )}
-            role="status"
-            aria-live="polite"
-          >
-            <div className="relative flex flex-col items-center gap-2 rounded-full bg-black/70 px-7 py-5 text-white shadow-2xl ring-1 ring-white/20">
-              {seekOverlay.direction === "forward" ? (
-                <ChevronsRight className="h-12 w-12" strokeWidth={2.5} />
-              ) : (
-                <ChevronsLeft className="h-12 w-12" strokeWidth={2.5} />
-              )}
-              <div className="text-2xl font-semibold">
-                {seekOverlay.seconds} seconds
-              </div>
-            </div>
-          </div>
-        )}
+        <MediaPlayerSeekOverlay overlay={seekOverlay} />
 
         {/* Loading Overlay */}
         {playerStatus.status === "loading" && (

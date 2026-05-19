@@ -1,7 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useCallback, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { Button } from "~/components/ui/button";
 import {
@@ -20,6 +20,7 @@ import { MediaPlayerOverlay } from "./media-player-overlay";
 import { MediaPlayerSkipOverlay } from "./media-player-skip-overlay";
 import { MediaPlayerAutoPlayOverlay } from "./media-player-autoplay-overlay";
 import { MediaPlayerVideo } from "./media-player-video";
+import type { MediaPlayerSeekFeedbackHandle } from "./media-player-video";
 import { useIsMobile } from "~/hooks/use-mobile";
 
 /* ────────────────────────────────────────────────────────────
@@ -40,7 +41,34 @@ export function MediaPlayerModal() {
 
   const { closePlayer, updatePlaybackState } = useMediaPlayerStore();
   const { actions, videoRef } = useMediaPlayer();
+  const seekFeedbackRef = useRef<MediaPlayerSeekFeedbackHandle>(null);
   const isMobile = useIsMobile();
+
+  const actionsWithSeekFeedback = useMemo(() => {
+    const showSeekFeedback = (
+      direction: "backward" | "forward",
+      seconds: number,
+      accumulate = true,
+    ) => {
+      if (!isMobile) {
+        seekFeedbackRef.current?.show(direction, seconds, accumulate);
+      }
+    };
+
+    return {
+      ...actions,
+      skipForward: (seconds = 10) => {
+        const canAccumulate = duration - currentTime > seconds;
+        actions.skipForward(seconds);
+        showSeekFeedback("forward", seconds, canAccumulate);
+      },
+      skipBackward: (seconds = 10) => {
+        const canAccumulate = currentTime > seconds;
+        actions.skipBackward(seconds);
+        showSeekFeedback("backward", seconds, canAccumulate);
+      },
+    };
+  }, [actions, currentTime, duration, isMobile]);
 
   // Initialize play queue for marker support
   usePlayQueue(currentItem);
@@ -173,7 +201,7 @@ export function MediaPlayerModal() {
   // Keyboard shortcuts
   useKeyboardShortcuts({
     isOpen,
-    actions,
+    actions: actionsWithSeekFeedback,
     currentTime,
     duration,
     volume,
@@ -245,6 +273,7 @@ export function MediaPlayerModal() {
               {/* Video Player - Takes up full space */}
               <MediaPlayerVideo
                 ref={videoRef}
+                seekFeedbackRef={seekFeedbackRef}
                 item={currentItem}
                 className="h-full w-full"
                 onVideoClick={handleVideoClick}
