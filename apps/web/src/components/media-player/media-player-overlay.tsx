@@ -1,7 +1,11 @@
 "use client";
 
 import React from "react";
+import { cn } from "~/lib/utils";
 import type { MediaPlayerItem } from "~/types/media-player";
+import { MediaPlayerChromeFade } from "./media-player-chrome-fade";
+
+export { MediaPlayerChromeFade } from "./media-player-chrome-fade";
 import {
   formatEpisodeInfo,
   getMediaSubtitle,
@@ -13,6 +17,85 @@ import {
    Media Player Overlay
    Title, metadata, and status overlays for the media player
    ──────────────────────────────────────────────────────────── */
+
+/** Strong ease-out — enter slightly slower than exit (asymmetric). */
+export const mediaPlayerControlsTransition = {
+  base: "transition-opacity ease-[cubic-bezier(0.23,1,0.32,1)]",
+  visible: "opacity-100 duration-200",
+  hidden:
+    "pointer-events-none opacity-0 duration-150 [&_*]:pointer-events-none",
+} as const;
+
+export function mediaPlayerChromeClassName(
+  isVisible: boolean,
+  className?: string,
+) {
+  return cn(
+    mediaPlayerControlsTransition.base,
+    isVisible
+      ? cn(mediaPlayerControlsTransition.visible, "pointer-events-none")
+      : mediaPlayerControlsTransition.hidden,
+    className,
+  );
+}
+
+interface MediaPlayerTitleChromeProps {
+  item: MediaPlayerItem;
+  className?: string;
+}
+
+export function MediaPlayerTitleChrome({
+  item,
+  className = "",
+}: MediaPlayerTitleChromeProps) {
+  const title = getMediaTitle(item);
+  const subtitle = getMediaSubtitle(item);
+  const episodeInfo = isEpisode(item) ? formatEpisodeInfo(item) : null;
+
+  return (
+    <div
+      className={cn(
+        "bg-gradient-to-b from-black/80 via-black/40 to-transparent p-6 pb-12",
+        className,
+      )}
+    >
+      <div className="max-w-4xl">
+        <h1 className="mb-2 line-clamp-2 text-2xl font-bold text-white md:text-3xl">
+          {title}
+        </h1>
+
+        {subtitle && (
+          <div className="mb-2 flex items-center gap-2 text-white/90">
+            {episodeInfo && (
+              <span className="rounded bg-white/20 px-2 py-1 text-sm font-medium">
+                {episodeInfo}
+              </span>
+            )}
+            <p className="line-clamp-1 text-lg">{subtitle}</p>
+          </div>
+        )}
+
+        <div className="flex items-center gap-4 text-sm text-white/70">
+          {item.year && <span>{item.year}</span>}
+
+          {item.contentRating && (
+            <span className="rounded border border-white/30 px-1 text-xs">
+              {item.contentRating}
+            </span>
+          )}
+
+          {item.duration && (
+            <span>{Math.floor(item.duration / 1000 / 60)}min</span>
+          )}
+
+          {item.librarySectionTitle && (
+            <span>{item.librarySectionTitle}</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface MediaPlayerOverlayProps {
   /**
@@ -32,6 +115,10 @@ interface MediaPlayerOverlayProps {
    */
   error: string | null;
   /**
+   * When false, title is rendered elsewhere (e.g. inside mobile chrome fade).
+   */
+  showTitle?: boolean;
+  /**
    * Additional CSS classes
    */
   className?: string;
@@ -42,55 +129,19 @@ export function MediaPlayerOverlay({
   isVisible,
   isLoading,
   error,
+  showTitle = true,
   className = "",
 }: MediaPlayerOverlayProps) {
-  const title = getMediaTitle(item);
-  const subtitle = getMediaSubtitle(item);
-  const episodeInfo = isEpisode(item) ? formatEpisodeInfo(item) : null;
-
-  if (!isVisible && !isLoading && !error) return null;
-
   return (
     <div className={`pointer-events-none absolute inset-0 ${className}`}>
-      {/* Title and Metadata Overlay */}
-      {isVisible && !isLoading && !error && (
-        <div className="absolute top-0 right-0 left-0 bg-gradient-to-b from-black/80 via-black/40 to-transparent p-6 pb-12">
-          <div className="max-w-4xl">
-            <h1 className="mb-2 line-clamp-2 text-2xl font-bold text-white md:text-3xl">
-              {title}
-            </h1>
-
-            {subtitle && (
-              <div className="mb-2 flex items-center gap-2 text-white/90">
-                {episodeInfo && (
-                  <span className="rounded bg-white/20 px-2 py-1 text-sm font-medium">
-                    {episodeInfo}
-                  </span>
-                )}
-                <p className="line-clamp-1 text-lg">{subtitle}</p>
-              </div>
-            )}
-
-            {/* Additional metadata */}
-            <div className="flex items-center gap-4 text-sm text-white/70">
-              {item.year && <span>{item.year}</span>}
-
-              {item.contentRating && (
-                <span className="rounded border border-white/30 px-1 text-xs">
-                  {item.contentRating}
-                </span>
-              )}
-
-              {item.duration && (
-                <span>{Math.floor(item.duration / 1000 / 60)}min</span>
-              )}
-
-              {item.librarySectionTitle && (
-                <span>{item.librarySectionTitle}</span>
-              )}
-            </div>
-          </div>
-        </div>
+      {/* Title and Metadata Overlay (desktop) */}
+      {showTitle && !isLoading && !error && (
+        <MediaPlayerChromeFade
+          visible={isVisible}
+          className="absolute top-0 right-0 left-0"
+        >
+          <MediaPlayerTitleChrome item={item} />
+        </MediaPlayerChromeFade>
       )}
 
       {/* Loading Overlay */}
@@ -169,17 +220,15 @@ interface FadeOverlayProps {
 /**
  * Reusable fade overlay component for smooth transitions
  */
+/** @deprecated Use MediaPlayerChromeFade — kept as alias for existing imports */
 export function FadeOverlay({
   isVisible,
   children,
   className = "",
-  duration = 300,
 }: FadeOverlayProps) {
   return (
-    <div
-      className={`transition-opacity duration-${duration} ${isVisible ? "opacity-100" : "pointer-events-none opacity-0"} ${className} `}
-    >
+    <MediaPlayerChromeFade visible={isVisible} className={className}>
       {children}
-    </div>
+    </MediaPlayerChromeFade>
   );
 }

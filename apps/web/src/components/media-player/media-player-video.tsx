@@ -29,8 +29,6 @@ import { MediaPlayerSeekOverlay } from "./media-player-seek-overlay";
 
 const HOLD_PLAYBACK_RATE = 2;
 const HOLD_CLICK_SUPPRESSION_MS = 200;
-const SINGLE_CLICK_DELAY_MS = 400;
-const DOUBLE_CLICK_SEEK_WINDOW_MS = 1400;
 const DOUBLE_CLICK_SEEK_OVERLAY_MS = 2200;
 const DOUBLE_CLICK_SEEK_SECONDS = 10;
 // Matches Tailwind's `animate-ping` duration (1s).
@@ -38,17 +36,14 @@ const DOUBLE_CLICK_SEEK_PULSE_MS = 1000;
 
 type DoubleClickSeekDirection = "backward" | "forward";
 
-interface DoubleClickSeekSequence {
-  direction: DoubleClickSeekDirection;
-  clickCount: number;
-}
-
 export interface MediaPlayerSeekFeedbackHandle {
   show: (
     direction: DoubleClickSeekDirection,
     seconds: number,
     accumulate?: boolean,
   ) => void;
+  /** Visual seek feedback (overlay + pulse) without changing playback position. */
+  presentSeek: (direction: DoubleClickSeekDirection) => void;
 }
 
 interface DoubleClickSeekPulse {
@@ -74,9 +69,13 @@ interface MediaPlayerVideoProps {
    */
   onVideoDoubleClick?: () => void;
   /**
-   * Enables mobile double-tap seeking.
+   * Quick tap on the video surface (mobile). Handled via pointerup, not click.
    */
-  enableDoubleClickSeek?: boolean;
+  onMobileSurfaceTap?: (event: PointerEvent<HTMLElement>) => void;
+  /**
+   * Mobile mode: surface taps go to onMobileSurfaceTap; desktop uses onVideoClick.
+   */
+  useMobileSurfaceGestures?: boolean;
   /**
    * Imperative handle for showing seek feedback (e.g. keyboard shortcuts).
    */
@@ -117,7 +116,8 @@ export const MediaPlayerVideo = forwardRef<
       className = "",
       onVideoClick,
       onVideoDoubleClick,
-      enableDoubleClickSeek = false,
+      onMobileSurfaceTap,
+      useMobileSurfaceGestures = false,
       seekFeedbackRef,
       onVolumeScroll,
       onVideoEnded,
@@ -139,19 +139,13 @@ export const MediaPlayerVideo = forwardRef<
     const holdPlaybackRateRef = useRef<number | null>(null);
     const holdPointerIdRef = useRef<number | null>(null);
     const holdStartedAtRef = useRef<number | null>(null);
-    const holdIndicatorTimeoutRef = useRef<ReturnType<
+    const holdPlaybackAppliedRef = useRef(false);
+    const holdActivationTimeoutRef = useRef<ReturnType<
       typeof setTimeout
     > | null>(null);
     const shouldSuppressClickRef = useRef(false);
     const videoElementRef = useRef<HTMLVideoElement | null>(null);
     const currentHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
-    const singleClickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-      null,
-    );
-    const seekSequenceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-      null,
-    );
-    const seekSequenceRef = useRef<DoubleClickSeekSequence | null>(null);
     const { overlay: seekOverlay, showOverlay: showSeekOverlay, clearOverlayTimeout: clearSeekOverlayTimeout } =
       useSeekOverlay(DOUBLE_CLICK_SEEK_OVERLAY_MS);
     const [seekPulses, setSeekPulses] = useState<DoubleClickSeekPulse[]>([]);
@@ -338,28 +332,6 @@ export const MediaPlayerVideo = forwardRef<
       updatePlaybackState({ isBuffering: false });
     }, [updatePlaybackState]);
 
-    const clearSingleClickTimeout = useCallback(() => {
-      if (singleClickTimeoutRef.current) {
-        clearTimeout(singleClickTimeoutRef.current);
-        singleClickTimeoutRef.current = null;
-      }
-    }, []);
-
-    const clearSeekSequenceTimeout = useCallback(() => {
-      if (seekSequenceTimeoutRef.current) {
-        clearTimeout(seekSequenceTimeoutRef.current);
-        seekSequenceTimeoutRef.current = null;
-      }
-    }, []);
-
-    const resetSeekSequenceDelayed = useCallback(() => {
-      clearSeekSequenceTimeout();
-      seekSequenceTimeoutRef.current = setTimeout(() => {
-        seekSequenceRef.current = null;
-        seekSequenceTimeoutRef.current = null;
-      }, DOUBLE_CLICK_SEEK_WINDOW_MS);
-    }, [clearSeekSequenceTimeout]);
-
     const spawnSeekPulse = useCallback(
       (direction: DoubleClickSeekDirection) => {
         seekPulseIdRef.current += 1;
@@ -382,32 +354,8 @@ export const MediaPlayerVideo = forwardRef<
       setSeekPulses([]);
     }, []);
 
-    const seekByDoubleClickOffset = useCallback(
+    const presentSeek = useCallback(
       (direction: DoubleClickSeekDirection) => {
-        const video = videoElementRef.current;
-        if (!video) return;
-
-        const duration = Number.isFinite(video.duration)
-          ? video.duration
-          : Number.POSITIVE_INFINITY;
-        const offset =
-          direction === "forward"
-            ? DOUBLE_CLICK_SEEK_SECONDS
-            : -DOUBLE_CLICK_SEEK_SECONDS;
-        const nextTime = Math.min(
-          Math.max(video.currentTime + offset, 0),
-          duration,
-        );
-
-        video.currentTime = nextTime;
-        updatePlaybackState({ currentTime: nextTime });
-        onVideoTimeUpdate?.(nextTime);
-      },
-      [onVideoTimeUpdate, updatePlaybackState],
-    );
-
-    const handleDoubleClickSeek = useCallback(
-      (direction: DoubleClickSeekDirection, clickCount: number) => {
         const video = videoElementRef.current;
         const before = video?.currentTime ?? 0;
         const duration = Number.isFinite(video?.duration)
@@ -418,113 +366,39 @@ export const MediaPlayerVideo = forwardRef<
             ? duration - before > DOUBLE_CLICK_SEEK_SECONDS
             : before > DOUBLE_CLICK_SEEK_SECONDS;
 
-        seekByDoubleClickOffset(direction);
         showSeekOverlay(direction, DOUBLE_CLICK_SEEK_SECONDS, canAccumulate);
-        resetSeekSequenceDelayed();
-        // Layer a new pulse on every other tap (the initial double-tap, then
-        // every second additional tap), so quick taps stack rather than
-        // restarting the previous animation.
-        if (clickCount % 2 === 0) {
-          spawnSeekPulse(direction);
-        }
+        spawnSeekPulse(direction);
       },
-      [
-        resetSeekSequenceDelayed,
-        seekByDoubleClickOffset,
-        showSeekOverlay,
-        spawnSeekPulse,
-      ],
+      [showSeekOverlay, spawnSeekPulse],
     );
 
     useImperativeHandle(
       seekFeedbackRef,
       () => ({
         show: showSeekOverlay,
+        presentSeek,
       }),
-      [showSeekOverlay],
+      [presentSeek, showSeekOverlay],
     );
 
-    /**
-     * Handle video clicks for play/pause or mobile double-tap seeking.
-     */
-    const handleVideoClick = useCallback(
-      (event: MouseEvent<HTMLElement>) => {
-        clearSingleClickTimeout();
-
+    /** Desktop: click toggles play/pause. */
+    const handleVideoClick = useCallback(() => {
         if (shouldSuppressClickRef.current) {
           shouldSuppressClickRef.current = false;
-          seekSequenceRef.current = null;
-          clearSeekSequenceTimeout();
           return;
         }
-
-        if (!enableDoubleClickSeek) {
-          seekSequenceRef.current = null;
-          clearSeekSequenceTimeout();
-          onVideoClick?.();
-          return;
-        }
-
-        // The mobile modal applies `rotate(90deg)` (clockwise) to the player
-        // container so the video appears in landscape on a portrait device.
-        // When the user rotates the phone counter-clockwise to view it
-        // upright, the user-perceived horizontal axis of the video maps to
-        // the viewport's vertical axis. Compare clientY in that case so the
-        // tap maps to the correct half of the visible video.
-        const rect = event.currentTarget.getBoundingClientRect();
-        const direction =
-          event.clientY < rect.top + rect.height / 2 ? "backward" : "forward";
-        const currentSequence = seekSequenceRef.current;
-        const nativeClickCount = event.detail;
-
-        if (currentSequence?.direction === direction && nativeClickCount > 1) {
-          const clickCount = Math.max(
-            currentSequence.clickCount + 1,
-            nativeClickCount,
-          );
-          seekSequenceRef.current = { direction, clickCount };
-          handleDoubleClickSeek(direction, clickCount);
-          return;
-        }
-
-        if (
-          currentSequence?.direction === direction &&
-          currentSequence.clickCount > 1
-        ) {
-          const clickCount = currentSequence.clickCount + 1;
-          seekSequenceRef.current = { direction, clickCount };
-          handleDoubleClickSeek(direction, clickCount);
-          return;
-        }
-
-        seekSequenceRef.current = { direction, clickCount: 1 };
-        resetSeekSequenceDelayed();
-
-        singleClickTimeoutRef.current = setTimeout(() => {
-          onVideoClick?.();
-          seekSequenceRef.current = null;
-          singleClickTimeoutRef.current = null;
-          clearSeekSequenceTimeout();
-        }, SINGLE_CLICK_DELAY_MS);
+        onVideoClick?.();
       },
-      [
-        clearSeekSequenceTimeout,
-        clearSingleClickTimeout,
-        enableDoubleClickSeek,
-        handleDoubleClickSeek,
-        onVideoClick,
-        resetSeekSequenceDelayed,
-      ],
+      [onVideoClick],
     );
 
     const handleVideoDoubleClick = useCallback(
       (event: MouseEvent<HTMLElement>) => {
         event.preventDefault();
-        if (enableDoubleClickSeek) return;
-
+        if (useMobileSurfaceGestures) return;
         onVideoDoubleClick?.();
       },
-      [enableDoubleClickSeek, onVideoDoubleClick],
+      [onVideoDoubleClick, useMobileSurfaceGestures],
     );
 
     /**
@@ -539,10 +413,10 @@ export const MediaPlayerVideo = forwardRef<
       [onVolumeScroll],
     );
 
-    const clearHoldIndicatorTimeout = useCallback(() => {
-      if (holdIndicatorTimeoutRef.current) {
-        clearTimeout(holdIndicatorTimeoutRef.current);
-        holdIndicatorTimeoutRef.current = null;
+    const clearHoldActivationTimeout = useCallback(() => {
+      if (holdActivationTimeoutRef.current) {
+        clearTimeout(holdActivationTimeoutRef.current);
+        holdActivationTimeoutRef.current = null;
       }
     }, []);
 
@@ -551,58 +425,64 @@ export const MediaPlayerVideo = forwardRef<
         if (holdPointerIdRef.current !== pointerId) return;
 
         const video = videoElementRef.current;
-        if (video && holdPlaybackRateRef.current != null) {
+        if (
+          video &&
+          holdPlaybackRateRef.current != null &&
+          holdPlaybackAppliedRef.current
+        ) {
           video.playbackRate = holdPlaybackRateRef.current;
         }
 
         holdPlaybackRateRef.current = null;
         holdPointerIdRef.current = null;
         holdStartedAtRef.current = null;
-        clearHoldIndicatorTimeout();
+        holdPlaybackAppliedRef.current = false;
+        clearHoldActivationTimeout();
         setIsHoldingFastForward(false);
       },
-      [clearHoldIndicatorTimeout],
+      [clearHoldActivationTimeout],
     );
 
     const handleVideoPointerDown = useCallback(
       (event: PointerEvent<HTMLElement>) => {
-        clearSingleClickTimeout();
-
         if (event.pointerType === "mouse" && event.button !== 0) return;
         if (holdPointerIdRef.current != null) return;
 
         const video = videoElementRef.current;
         if (!video) return;
 
+        const pointerId = event.pointerId;
         holdPlaybackRateRef.current = video.playbackRate;
-        holdPointerIdRef.current = event.pointerId;
+        holdPointerIdRef.current = pointerId;
         holdStartedAtRef.current = Date.now();
-        video.playbackRate = HOLD_PLAYBACK_RATE;
-        event.currentTarget.setPointerCapture(event.pointerId);
+        holdPlaybackAppliedRef.current = false;
+        event.currentTarget.setPointerCapture(pointerId);
 
-        // Only reveal the 2x indicator once the press has lasted long enough
-        // to qualify as a hold (matching the click suppression threshold), so
-        // a quick tap that toggles play/pause doesn't flash the indicator.
-        clearHoldIndicatorTimeout();
-        holdIndicatorTimeoutRef.current = setTimeout(() => {
-          holdIndicatorTimeoutRef.current = null;
-          if (holdPointerIdRef.current != null) {
-            setIsHoldingFastForward(true);
-          }
+        // Defer 2x until the press qualifies as a hold so quick taps don't
+        // briefly change playback rate (which feels like a pause/stutter).
+        clearHoldActivationTimeout();
+        holdActivationTimeoutRef.current = setTimeout(() => {
+          holdActivationTimeoutRef.current = null;
+          if (holdPointerIdRef.current !== pointerId) return;
+
+          const activeVideo = videoElementRef.current;
+          if (!activeVideo) return;
+
+          activeVideo.playbackRate = HOLD_PLAYBACK_RATE;
+          holdPlaybackAppliedRef.current = true;
+          setIsHoldingFastForward(true);
         }, HOLD_CLICK_SUPPRESSION_MS);
       },
-      [clearHoldIndicatorTimeout, clearSingleClickTimeout],
+      [clearHoldActivationTimeout],
     );
 
     const handleVideoPointerEnd = useCallback(
       (event: PointerEvent<HTMLElement>) => {
         if (holdPointerIdRef.current !== event.pointerId) return;
 
-        const holdStartedAt = holdStartedAtRef.current;
-        if (
-          holdStartedAt != null &&
-          Date.now() - holdStartedAt >= HOLD_CLICK_SUPPRESSION_MS
-        ) {
+        const wasHold = holdPlaybackAppliedRef.current;
+
+        if (wasHold) {
           shouldSuppressClickRef.current = true;
         }
 
@@ -610,8 +490,12 @@ export const MediaPlayerVideo = forwardRef<
           event.currentTarget.releasePointerCapture(event.pointerId);
         }
         restoreHoldPlaybackRate(event.pointerId);
+
+        if (!wasHold && useMobileSurfaceGestures && onMobileSurfaceTap) {
+          onMobileSurfaceTap(event);
+        }
       },
-      [restoreHoldPlaybackRate],
+      [onMobileSurfaceTap, restoreHoldPlaybackRate, useMobileSurfaceGestures],
     );
 
     /**
@@ -669,19 +553,11 @@ export const MediaPlayerVideo = forwardRef<
 
     useEffect(() => {
       return () => {
-        clearSingleClickTimeout();
-        clearSeekSequenceTimeout();
         clearSeekOverlayTimeout();
         clearSeekPulses();
-        clearHoldIndicatorTimeout();
+        clearHoldActivationTimeout();
       };
-    }, [
-      clearHoldIndicatorTimeout,
-      clearSeekOverlayTimeout,
-      clearSeekPulses,
-      clearSeekSequenceTimeout,
-      clearSingleClickTimeout,
-    ]);
+    }, [clearHoldActivationTimeout, clearSeekOverlayTimeout, clearSeekPulses]);
 
     /**
      * Handle video load error
@@ -725,7 +601,7 @@ export const MediaPlayerVideo = forwardRef<
         onPointerCancel={handleVideoPointerEnd}
         onPointerLeave={handleVideoPointerEnd}
         onLostPointerCapture={handleVideoPointerEnd}
-        onClick={handleVideoClick}
+        onClick={useMobileSurfaceGestures ? undefined : handleVideoClick}
         onDoubleClick={handleVideoDoubleClick}
       >
         <video

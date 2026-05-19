@@ -32,6 +32,10 @@ interface MediaPlayerControlsProps {
    */
   actions: ReturnType<typeof useMediaPlayer>["actions"];
   /**
+   * When true, only the progress bar is shown (mobile uses center transport controls).
+   */
+  progressOnly?: boolean;
+  /**
    * Additional CSS classes
    */
   className?: string;
@@ -40,6 +44,7 @@ interface MediaPlayerControlsProps {
 export function MediaPlayerControls({
   isVisible,
   actions,
+  progressOnly = false,
   className = "",
 }: MediaPlayerControlsProps) {
   const currentTime = useMediaPlayerStore((state) => state.currentTime);
@@ -125,7 +130,8 @@ export function MediaPlayerControls({
           disabled={!canPlay}
         />
 
-        {/* Control Buttons Row */}
+        {/* Control Buttons Row — desktop only; mobile uses center transport controls */}
+        {!progressOnly && (
         <div className="flex items-center justify-between pb-2">
           {/* Left Side - Empty for spacing */}
           <div className="flex-1"></div>
@@ -219,6 +225,7 @@ export function MediaPlayerControls({
             </Button>
           </div>
         </div>
+        )}
       </div>
     </div>
   );

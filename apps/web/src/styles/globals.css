@@ -213,4 +213,55 @@
   .animate-seek-chevron-backward {
     animation: seek-chevron-backward 0.28s cubic-bezier(0, 0, 0.2, 1) forwards;
   }
+
+  /* Media player chrome — keyframe fades (more reliable than opacity transitions) */
+  @keyframes mp-chrome-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes mp-chrome-fade-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+
+  .mp-chrome-layer {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .mp-chrome-layer[data-state="visible"] {
+    animation: mp-chrome-fade-in 300ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+    pointer-events: none;
+  }
+
+  .mp-chrome-layer[data-state="hiding"] {
+    animation: mp-chrome-fade-out 250ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+    pointer-events: none;
+  }
+
+  .mp-chrome-layer[data-state="hidden"] {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .mp-chrome-layer[data-state="hiding"] *,
+  .mp-chrome-layer[data-state="hidden"] * {
+    pointer-events: none !important;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mp-chrome-layer[data-state="visible"],
+    .mp-chrome-layer[data-state="hiding"] {
+      animation-duration: 0.01ms;
+    }
+  }
 }
