@@ -30,7 +30,7 @@ export function MediaPlayerSeekOverlay({
       >
         {!isForward && (
           <ChevronLeft
-            className="h-7 w-7 shrink-0 animate-seek-chevron-backward"
+            className="animate-seek-chevron-backward h-7 w-7 shrink-0"
             strokeWidth={2.5}
             aria-hidden="true"
           />
@@ -40,7 +40,7 @@ export function MediaPlayerSeekOverlay({
         </span>
         {isForward && (
           <ChevronRight
-            className="h-7 w-7 shrink-0 animate-seek-chevron-forward"
+            className="animate-seek-chevron-forward h-7 w-7 shrink-0"
             strokeWidth={2.5}
             aria-hidden="true"
           />

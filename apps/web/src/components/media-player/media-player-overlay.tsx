@@ -88,9 +88,7 @@ export function MediaPlayerTitleChrome({
             <span>{Math.floor(item.duration / 1000 / 60)}min</span>
           )}
 
-          {item.librarySectionTitle && (
-            <span>{item.librarySectionTitle}</span>
-          )}
+          {item.librarySectionTitle && <span>{item.librarySectionTitle}</span>}
         </div>
       </div>
     </div>

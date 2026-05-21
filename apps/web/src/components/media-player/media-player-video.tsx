@@ -146,8 +146,11 @@ export const MediaPlayerVideo = forwardRef<
     const shouldSuppressClickRef = useRef(false);
     const videoElementRef = useRef<HTMLVideoElement | null>(null);
     const currentHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
-    const { overlay: seekOverlay, showOverlay: showSeekOverlay, clearOverlayTimeout: clearSeekOverlayTimeout } =
-      useSeekOverlay(DOUBLE_CLICK_SEEK_OVERLAY_MS);
+    const {
+      overlay: seekOverlay,
+      showOverlay: showSeekOverlay,
+      clearOverlayTimeout: clearSeekOverlayTimeout,
+    } = useSeekOverlay(DOUBLE_CLICK_SEEK_OVERLAY_MS);
     const [seekPulses, setSeekPulses] = useState<DoubleClickSeekPulse[]>([]);
     const seekPulseIdRef = useRef(0);
     const seekPulseTimeoutsRef = useRef(
@@ -383,14 +386,12 @@ export const MediaPlayerVideo = forwardRef<
 
     /** Desktop: click toggles play/pause. */
     const handleVideoClick = useCallback(() => {
-        if (shouldSuppressClickRef.current) {
-          shouldSuppressClickRef.current = false;
-          return;
-        }
-        onVideoClick?.();
-      },
-      [onVideoClick],
-    );
+      if (shouldSuppressClickRef.current) {
+        shouldSuppressClickRef.current = false;
+        return;
+      }
+      onVideoClick?.();
+    }, [onVideoClick]);
 
     const handleVideoDoubleClick = useCallback(
       (event: MouseEvent<HTMLElement>) => {
