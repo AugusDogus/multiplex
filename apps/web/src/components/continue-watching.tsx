@@ -2,7 +2,7 @@
 
 import { CirclePlay, MoreHorizontal, Play } from "lucide-react";
 import Image from "next/image";
-import React, { useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import {
   getMainTitle,
   getSubtitle,
@@ -24,6 +24,8 @@ import { useIsMobile } from "~/hooks/use-mobile";
 import { useVisibilityChange } from "~/hooks/use-visibility-change";
 import { api } from "~/trpc/react";
 import { isMediaPlayerItem, type MediaPlayerItem } from "~/types/media-player";
+
+const DRAWER_PLAYER_OPEN_DELAY_MS = 550;
 
 /* ────────────────────────────────────────────────────────────
    Continue Watching Component
@@ -174,8 +176,10 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
   );
   const isMobile = useIsMobile();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [queuedPlayerItem, setQueuedPlayerItem] =
-    useState<MediaPlayerItem | null>(null);
+  const queuedPlayerItemRef = useRef<MediaPlayerItem | null>(null);
+  const queuedPlayerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   const mainTitle = getMainTitle(item);
   const subtitle = getSubtitle(item);
@@ -199,6 +203,25 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
     openPlayer(item);
   };
 
+  const clearQueuedPlayerTimeout = useCallback(() => {
+    if (queuedPlayerTimeoutRef.current) {
+      clearTimeout(queuedPlayerTimeoutRef.current);
+      queuedPlayerTimeoutRef.current = null;
+    }
+  }, []);
+
+  const openQueuedPlayerAfterDrawerClose = useCallback(() => {
+    clearQueuedPlayerTimeout();
+    queuedPlayerTimeoutRef.current = setTimeout(() => {
+      const queuedPlayerItem = queuedPlayerItemRef.current;
+      if (!queuedPlayerItem) return;
+
+      queuedPlayerItemRef.current = null;
+      queuedPlayerTimeoutRef.current = null;
+      openPlayer(queuedPlayerItem);
+    }, DRAWER_PLAYER_OPEN_DELAY_MS);
+  }, [clearQueuedPlayerTimeout, openPlayer]);
+
   const handleMobileTap = () => {
     if (isMobile) {
       setIsDrawerOpen(true);
@@ -211,8 +234,9 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
       return;
     }
 
-    setQueuedPlayerItem(item);
+    queuedPlayerItemRef.current = item;
     setIsDrawerOpen(false);
+    openQueuedPlayerAfterDrawerClose();
   };
 
   const handleRestartFromBeginning = () => {
@@ -235,14 +259,9 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
     };
 
     // Close drawer and open media player from beginning
-    setQueuedPlayerItem(restartItem);
+    queuedPlayerItemRef.current = restartItem;
     setIsDrawerOpen(false);
-  };
-
-  const handleDrawerAnimationEnd = (open: boolean) => {
-    if (open || !queuedPlayerItem) return;
-    openPlayer(queuedPlayerItem);
-    setQueuedPlayerItem(null);
+    openQueuedPlayerAfterDrawerClose();
   };
 
   return (
@@ -334,11 +353,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
       </div>
 
       {/* Mobile Drawer */}
-      <Drawer
-        open={isDrawerOpen}
-        onOpenChange={setIsDrawerOpen}
-        onAnimationEnd={handleDrawerAnimationEnd}
-      >
+      <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
         <DrawerContent>
           <DrawerHeader>
             <DrawerTitle>{mainTitle}</DrawerTitle>
