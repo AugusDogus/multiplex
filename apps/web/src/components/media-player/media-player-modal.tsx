@@ -1,7 +1,13 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, type PointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  type PointerEvent,
+} from "react";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { Button } from "~/components/ui/button";
 import {
@@ -105,16 +111,14 @@ export function MediaPlayerModal() {
     [actions],
   );
 
-  const {
-    handleSurfaceTap,
-    resetAutoHide: resetMobileControlsTimer,
-  } = useMobileVideoChrome({
-    showControls,
-    showControlsImmediate,
-    hideControlsImmediate,
-    hideControlsDelayed,
-    onDoubleTapSeek: handleMobileDoubleTapSeek,
-  });
+  const { handleSurfaceTap, resetAutoHide: resetMobileControlsTimer } =
+    useMobileVideoChrome({
+      showControls,
+      showControlsImmediate,
+      hideControlsImmediate,
+      hideControlsDelayed,
+      onDoubleTapSeek: handleMobileDoubleTapSeek,
+    });
 
   const actionsWithSeekFeedback = useMemo(() => {
     const showSeekFeedback = (
@@ -250,7 +254,7 @@ export function MediaPlayerModal() {
   if (!currentItem) return null;
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
+    <Dialog modal={false} open={isOpen} onOpenChange={handleClose}>
       <MediaPlayerDialogContent>
         <DialogTitle className="sr-only">
           Media Player - {currentItem.title}
