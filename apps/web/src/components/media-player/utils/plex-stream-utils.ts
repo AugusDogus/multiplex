@@ -57,7 +57,7 @@ function applyClientHeaders(url: URL, authToken: string): void {
   url.searchParams.set("X-Plex-Device-Name", CLIENT_PROFILE.deviceName);
 }
 
-type StreamDecision = "direct-play" | "direct-stream";
+export type StreamDecision = "direct-play" | "direct-stream";
 
 /**
  * Decide whether the browser can direct-play the file or whether we need to
@@ -65,7 +65,7 @@ type StreamDecision = "direct-play" | "direct-stream";
  * browser-decodable but the video codec is, Plex direct-streams the video
  * (no re-encode) and transcodes only the audio to AAC.
  */
-function decideStreamMode(item: MediaPlayerItem): StreamDecision {
+export function decideStreamMode(item: MediaPlayerItem): StreamDecision {
   const media = item.Media?.[0];
   const audioCodec = media?.audioCodec?.toLowerCase();
   const videoCodec = media?.videoCodec?.toLowerCase();
@@ -106,6 +106,7 @@ function buildDirectStreamUrl(
   item: MediaPlayerItem,
   serverUrl: string,
   authToken: string,
+  offsetSeconds: number,
 ): string {
   if (!item.key) throw new Error("No metadata key found for item");
 
@@ -125,6 +126,13 @@ function buildDirectStreamUrl(
   streamUrl.searchParams.set("subtitleSize", "100");
   streamUrl.searchParams.set("location", "lan");
   streamUrl.searchParams.set("session", `multiplex-${Date.now()}`);
+  // Plex's transcoded MP4 stream advertises an empty seekable range, so the
+  // browser silently rejects any video.currentTime change. To seek, we ask
+  // the transcoder to restart from `offset` seconds; the new stream's t=0
+  // corresponds to `offset` seconds in the original timeline.
+  if (offsetSeconds > 0) {
+    streamUrl.searchParams.set("offset", String(Math.floor(offsetSeconds)));
+  }
   // Tell Plex our capabilities: we can take MP4+h264 with AAC audio direct,
   // and we want any other audio re-encoded to AAC.
   streamUrl.searchParams.set(
@@ -155,6 +163,7 @@ export function generatePlexStreamUrl(
   item: MediaPlayerItem,
   serverUrl: string,
   authToken: string,
+  offsetSeconds = 0,
 ): string {
   if (!item.Media?.[0]?.Part?.[0]?.key) {
     throw new Error("No media part key found for item");
@@ -163,7 +172,7 @@ export function generatePlexStreamUrl(
   const decision = decideStreamMode(item);
   return decision === "direct-play"
     ? buildDirectPlayUrl(item, serverUrl, authToken)
-    : buildDirectStreamUrl(item, serverUrl, authToken);
+    : buildDirectStreamUrl(item, serverUrl, authToken, offsetSeconds);
 }
 
 /**

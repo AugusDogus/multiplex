@@ -75,6 +75,21 @@ export function useMediaPlayer(): {
     (time: number) => {
       if (videoRef.current) {
         const clampedTime = clamp(time, 0, store.duration);
+        // Plex's transcoded MP4 stream advertises an empty seekable range, so
+        // assigning `video.currentTime` is silently rejected. For those we
+        // seek by reloading the stream with a new `offset` instead.
+        const isTranscoded = videoRef.current.currentSrc.includes(
+          "/video/:/transcode/universal/",
+        );
+        if (isTranscoded) {
+          store.updatePlaybackState({
+            streamOffset: clampedTime,
+            currentTime: clampedTime,
+            isLoading: true,
+            canPlay: false,
+          });
+          return;
+        }
         videoRef.current.currentTime = clampedTime;
         store.updatePlaybackState({ currentTime: clampedTime });
       }

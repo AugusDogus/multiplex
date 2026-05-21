@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { devtools, persist } from "zustand/middleware";
+import { decideStreamMode } from "~/components/media-player/utils/plex-stream-utils";
 import type {
   MediaPlayerItem,
   MediaPlayerState,
@@ -59,6 +60,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
         currentTime: 0,
         duration: 0,
         bufferedTime: 0,
+        streamOffset: 0,
         volume: 1,
         isMuted: false,
         isFullscreen: false,
@@ -89,10 +91,19 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
               ? (updatedProgressPercent / 100) * (item.duration / 1000)
               : Math.floor(item.viewOffset ?? 0) / 1000;
 
+          // Plex's transcoded MP4 stream can't be seeked after load, so for
+          // resumed transcoded items we bake the resume position into the
+          // initial stream URL via `offset`.
+          const initialStreamOffset =
+            initialCurrentTime > 0 && decideStreamMode(item) === "direct-stream"
+              ? initialCurrentTime
+              : 0;
+
           set({
             isOpen: true,
             currentItem: item,
             currentTime: initialCurrentTime,
+            streamOffset: initialStreamOffset,
             isLoading: true,
             error: null,
             isPlaying: false,
@@ -119,6 +130,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
             currentTime: 0,
             duration: 0,
             bufferedTime: 0,
+            streamOffset: 0,
             isLoading: false,
             error: null,
             canPlay: false,

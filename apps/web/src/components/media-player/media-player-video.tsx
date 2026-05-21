@@ -135,6 +135,7 @@ export const MediaPlayerVideo = forwardRef<
     const volume = useMediaPlayerStore((state) => state.volume);
     const isMuted = useMediaPlayerStore((state) => state.isMuted);
     const currentTime = useMediaPlayerStore((state) => state.currentTime);
+    const streamOffset = useMediaPlayerStore((state) => state.streamOffset);
     const { updatePlaybackState } = useMediaPlayerStore();
     const holdPlaybackRateRef = useRef<number | null>(null);
     const holdPointerIdRef = useRef<number | null>(null);
@@ -167,7 +168,9 @@ export const MediaPlayerVideo = forwardRef<
       return { status: "ready" } as const;
     }, [error, isLoading, isBuffering, canPlay]);
 
-    // Derive video source URL and error state from item
+    // Derive video source URL and error state from item. `streamOffset` only
+    // affects transcoded streams, where it gets baked into the URL so the
+    // transcoder restarts at the requested position.
     const { videoSrc, hasError } = useMemo(() => {
       if (!hasValidStreamingData(item)) {
         return { videoSrc: "", hasError: true };
@@ -178,6 +181,7 @@ export const MediaPlayerVideo = forwardRef<
           item,
           item.serverUrl,
           item.authToken,
+          streamOffset,
         );
         return { videoSrc: streamUrl, hasError: false };
       } catch (error) {
@@ -187,35 +191,38 @@ export const MediaPlayerVideo = forwardRef<
         );
         return { videoSrc: "", hasError: true };
       }
-    }, [item]);
+    }, [item, streamOffset]);
 
     // Handle video metadata loaded
     const handleLoadedMetadata = useCallback(() => {
       console.log("🎬 Video: Metadata loaded, setting start time");
 
       if (ref && "current" in ref && ref.current) {
-        // Update state with duration and ready status
+        // Plex's transcoded MP4 with `offset` already reports the full
+        // original duration (its `currentTime` advances from 0 up to
+        // `originalDuration - offset`), so we just take the raw duration.
         updatePlaybackState({
           duration: ref.current.duration,
           canPlay: true,
           isLoading: false,
         });
 
-        // Set initial playback position from store state
+        // Only apply the resume position when the stream isn't offset-based.
+        // For transcoded streams the offset is baked into the URL, so the
+        // playhead is already at the right place (and seeking is rejected).
         const startTime = currentTime;
-        if (startTime > 0) {
+        if (streamOffset === 0 && startTime > 0) {
           console.log(`🎬 Video: Setting start time to ${startTime}s`);
           ref.current.currentTime = startTime;
         }
 
-        // Synchronize volume and mute state with store state
         console.log(
           `🎬 Video: Synchronizing volume (${volume}) and mute state (${isMuted})`,
         );
         ref.current.volume = volume;
         ref.current.muted = isMuted;
       }
-    }, [ref, updatePlaybackState, currentTime, volume, isMuted]);
+    }, [ref, updatePlaybackState, currentTime, streamOffset, volume, isMuted]);
 
     // Handle video play event
     const handlePlay = useCallback(() => {
@@ -238,19 +245,22 @@ export const MediaPlayerVideo = forwardRef<
     // Handle time update events
     const handleTimeUpdate = useCallback(() => {
       if (ref && "current" in ref && ref.current) {
-        const currentTime = ref.current.currentTime;
-        updatePlaybackState({ currentTime });
-        onVideoTimeUpdate?.(currentTime);
+        // Map the local stream time back to the original timeline. For
+        // direct-play streamOffset is 0, so this is a no-op.
+        const effectiveTime = streamOffset + ref.current.currentTime;
+        updatePlaybackState({ currentTime: effectiveTime });
+        onVideoTimeUpdate?.(effectiveTime);
       }
-    }, [ref, updatePlaybackState, onVideoTimeUpdate]);
+    }, [ref, streamOffset, updatePlaybackState, onVideoTimeUpdate]);
 
     // Handle seeked events
     const handleSeeked = useCallback(() => {
       if (ref && "current" in ref && ref.current) {
+        const effectiveTime = streamOffset + ref.current.currentTime;
         updatePlaybackState({ isBuffering: false });
-        onVideoSeeked?.(ref.current.currentTime);
+        onVideoSeeked?.(effectiveTime);
       }
-    }, [ref, updatePlaybackState, onVideoSeeked]);
+    }, [ref, streamOffset, updatePlaybackState, onVideoSeeked]);
 
     // Handle seeking event
     const handleSeeking = useCallback(() => {

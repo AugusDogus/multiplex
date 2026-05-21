@@ -53,6 +53,13 @@ export interface MediaPlayerState {
   currentTime: number;
   duration: number;
   bufferedTime: number;
+  /**
+   * Seconds of the original timeline that map to `video.currentTime = 0` for
+   * the currently loaded stream. Only non-zero for Plex transcoded streams,
+   * which we restart at an offset because the transcoder advertises an empty
+   * seekable range.
+   */
+  streamOffset: number;
 
   // Audio state
   volume: number;
