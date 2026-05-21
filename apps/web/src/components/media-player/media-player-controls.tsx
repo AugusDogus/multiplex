@@ -132,99 +132,99 @@ export function MediaPlayerControls({
 
         {/* Control Buttons Row — desktop only; mobile uses center transport controls */}
         {!progressOnly && (
-        <div className="flex items-center justify-between pb-2">
-          {/* Left Side - Empty for spacing */}
-          <div className="flex-1"></div>
+          <div className="flex items-center justify-between pb-2">
+            {/* Left Side - Empty for spacing */}
+            <div className="flex-1"></div>
 
-          {/* Center - Playback Controls */}
-          <div className="flex items-center gap-3">
-            {/* Skip Backward */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => actions.skipBackward?.(10)}
-              className="text-white hover:bg-white/20"
-              disabled={!canPlay}
-            >
-              <SkipBack className="h-6 w-6" />
-            </Button>
-
-            {/* Play/Pause */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={actions.togglePlay}
-              className="text-white hover:bg-white/20"
-              disabled={!canPlay}
-            >
-              {isPlaying ? (
-                <Pause className="h-6 w-6" />
-              ) : (
-                <Play className="h-6 w-6" />
-              )}
-            </Button>
-
-            {/* Skip Forward */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => actions.skipForward?.(10)}
-              className="text-white hover:bg-white/20"
-              disabled={!canPlay}
-            >
-              <SkipForward className="h-6 w-6" />
-            </Button>
-          </div>
-
-          {/* Right Side - Volume and Fullscreen */}
-          <div className="flex flex-1 items-center justify-end gap-4">
-            {/* Volume Control */}
-            <div className="hidden items-center gap-2 sm:flex">
+            {/* Center - Playback Controls */}
+            <div className="flex items-center gap-3">
+              {/* Skip Backward */}
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={actions.toggleMute}
+                onClick={() => actions.skipBackward?.(10)}
                 className="text-white hover:bg-white/20"
+                disabled={!canPlay}
               >
-                {isMuted || volume === 0 ? (
-                  <VolumeX className="h-5 w-5" />
+                <SkipBack className="h-6 w-6" />
+              </Button>
+
+              {/* Play/Pause */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={actions.togglePlay}
+                className="text-white hover:bg-white/20"
+                disabled={!canPlay}
+              >
+                {isPlaying ? (
+                  <Pause className="h-6 w-6" />
                 ) : (
-                  <Volume2 className="h-5 w-5" />
+                  <Play className="h-6 w-6" />
                 )}
               </Button>
 
-              {/* Volume Slider */}
-              <div className="relative h-2 w-20">
-                <div
-                  ref={volumeRef}
-                  className="group h-full cursor-pointer rounded-full bg-white/20"
-                  onMouseDown={handleVolumeMouseDown}
-                >
-                  <div
-                    className="h-full rounded-full bg-white transition-all duration-200"
-                    style={{
-                      width: `${isMuted ? 0 : volume * 100}%`,
-                    }}
-                  />
-                </div>
-              </div>
+              {/* Skip Forward */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => actions.skipForward?.(10)}
+                className="text-white hover:bg-white/20"
+                disabled={!canPlay}
+              >
+                <SkipForward className="h-6 w-6" />
+              </Button>
             </div>
 
-            {/* Fullscreen Toggle */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={actions.toggleFullscreen}
-              className="text-white hover:bg-white/20"
-            >
-              {isFullscreen ? (
-                <Minimize className="h-5 w-5" />
-              ) : (
-                <Maximize className="h-5 w-5" />
-              )}
-            </Button>
+            {/* Right Side - Volume and Fullscreen */}
+            <div className="flex flex-1 items-center justify-end gap-4">
+              {/* Volume Control */}
+              <div className="hidden items-center gap-2 sm:flex">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={actions.toggleMute}
+                  className="text-white hover:bg-white/20"
+                >
+                  {isMuted || volume === 0 ? (
+                    <VolumeX className="h-5 w-5" />
+                  ) : (
+                    <Volume2 className="h-5 w-5" />
+                  )}
+                </Button>
+
+                {/* Volume Slider */}
+                <div className="relative h-2 w-20">
+                  <div
+                    ref={volumeRef}
+                    className="group h-full cursor-pointer rounded-full bg-white/20"
+                    onMouseDown={handleVolumeMouseDown}
+                  >
+                    <div
+                      className="h-full rounded-full bg-white transition-all duration-200"
+                      style={{
+                        width: `${isMuted ? 0 : volume * 100}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Fullscreen Toggle */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={actions.toggleFullscreen}
+                className="text-white hover:bg-white/20"
+              >
+                {isFullscreen ? (
+                  <Minimize className="h-5 w-5" />
+                ) : (
+                  <Maximize className="h-5 w-5" />
+                )}
+              </Button>
+            </div>
           </div>
-        </div>
         )}
       </div>
     </div>

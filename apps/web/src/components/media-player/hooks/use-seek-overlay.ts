@@ -51,11 +51,7 @@ export function useSeekOverlay(displayMs = DEFAULT_SEEK_OVERLAY_MS) {
   }, [clearSequenceTimeout]);
 
   const showOverlay = useCallback(
-    (
-      direction: SeekOverlayDirection,
-      seconds: number,
-      accumulate = true,
-    ) => {
+    (direction: SeekOverlayDirection, seconds: number, accumulate = true) => {
       const previous = sequenceRef.current;
       const totalSeconds =
         accumulate && previous?.direction === direction

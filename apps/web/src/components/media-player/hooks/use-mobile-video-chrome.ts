@@ -53,10 +53,7 @@ export function useMobileVideoChrome({
       const lastTap = lastTapRef.current;
 
       // Second tap within window → seek; hide chrome (seek intent, not pause UI).
-      if (
-        lastTap?.zone === zone &&
-        now - lastTap.at < DOUBLE_TAP_WINDOW_MS
-      ) {
+      if (lastTap?.zone === zone && now - lastTap.at < DOUBLE_TAP_WINDOW_MS) {
         lastTapRef.current = null;
         onDoubleTapSeek(zone);
         hideControlsImmediate();
