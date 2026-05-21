@@ -675,26 +675,6 @@ export const MediaPlayerVideo = forwardRef<
 
         <MediaPlayerSeekOverlay overlay={seekOverlay} />
 
-        {/* Loading Overlay */}
-        {playerStatus.status === "loading" && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-            <div className="text-center text-white">
-              <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-b-2 border-white"></div>
-              <div className="text-lg font-semibold">Loading video...</div>
-            </div>
-          </div>
-        )}
-
-        {/* Buffering Overlay */}
-        {playerStatus.status === "buffering" && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-            <div className="text-center text-white">
-              <div className="mx-auto mb-2 h-8 w-8 animate-spin rounded-full border-b-2 border-white"></div>
-              <div className="text-sm">Buffering...</div>
-            </div>
-          </div>
-        )}
-
         {/* Error Overlay */}
         {playerStatus.status === "error" && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/80">

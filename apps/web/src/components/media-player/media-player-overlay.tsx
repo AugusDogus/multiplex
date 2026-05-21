@@ -2,6 +2,7 @@
 
 import React from "react";
 import { cn } from "~/lib/utils";
+import { useMediaPlayerStore } from "~/stores/media-player-store";
 import type { MediaPlayerItem } from "~/types/media-player";
 import { MediaPlayerChromeFade } from "./media-player-chrome-fade";
 
@@ -130,6 +131,9 @@ export function MediaPlayerOverlay({
   showTitle = true,
   className = "",
 }: MediaPlayerOverlayProps) {
+  const isBuffering = useMediaPlayerStore((state) => state.isBuffering);
+  const showSpinner = !error && (isLoading || isBuffering);
+
   return (
     <div className={`pointer-events-none absolute inset-0 ${className}`}>
       {/* Title and Metadata Overlay (desktop) */}
@@ -140,24 +144,6 @@ export function MediaPlayerOverlay({
         >
           <MediaPlayerTitleChrome item={item} />
         </MediaPlayerChromeFade>
-      )}
-
-      {/* Loading Overlay */}
-      {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="text-center text-white">
-            <div className="relative mb-4">
-              <div className="mx-auto h-16 w-16 animate-spin rounded-full border-4 border-white/20 border-t-white"></div>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="h-8 w-8 animate-pulse rounded-full bg-white/10"></div>
-              </div>
-            </div>
-            <h2 className="mb-2 text-xl font-semibold">Loading Video</h2>
-            <p className="max-w-md text-white/70">
-              Preparing your video for playback...
-            </p>
-          </div>
-        </div>
       )}
 
       {/* Error Overlay */}
@@ -180,14 +166,17 @@ export function MediaPlayerOverlay({
         </div>
       )}
 
-      {/* Buffering Indicator */}
-      {!isLoading && !error && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 transition-opacity duration-300 group-data-[buffering=true]:opacity-100">
-          <div className="flex items-center justify-center">
-            <div className="h-12 w-12 animate-spin rounded-full border-3 border-white/30 border-t-white"></div>
-          </div>
+      {/* Loading / Buffering Indicator */}
+      <div
+        className={cn(
+          "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity duration-300",
+          showSpinner ? "opacity-100" : "opacity-0",
+        )}
+      >
+        <div className="flex items-center justify-center">
+          <div className="h-12 w-12 animate-spin rounded-full border-3 border-white/30 border-t-white"></div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
