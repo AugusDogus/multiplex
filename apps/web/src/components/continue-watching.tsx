@@ -23,7 +23,7 @@ import { Skeleton } from "~/components/ui/skeleton";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { useVisibilityChange } from "~/hooks/use-visibility-change";
 import { api } from "~/trpc/react";
-import { isMediaPlayerItem } from "~/types/media-player";
+import { isMediaPlayerItem, type MediaPlayerItem } from "~/types/media-player";
 
 /* ────────────────────────────────────────────────────────────
    Continue Watching Component
@@ -174,6 +174,8 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
   );
   const isMobile = useIsMobile();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [queuedPlayerItem, setQueuedPlayerItem] =
+    useState<MediaPlayerItem | null>(null);
 
   const mainTitle = getMainTitle(item);
   const subtitle = getSubtitle(item);
@@ -204,8 +206,13 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
   };
 
   const handlePlayFromDrawer = () => {
+    if (!isMediaPlayerItem(item)) {
+      console.error("Missing server URL or auth token for media playback");
+      return;
+    }
+
+    setQueuedPlayerItem(item);
     setIsDrawerOpen(false);
-    handlePlay();
   };
 
   const handleRestartFromBeginning = () => {
@@ -228,8 +235,14 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
     };
 
     // Close drawer and open media player from beginning
+    setQueuedPlayerItem(restartItem);
     setIsDrawerOpen(false);
-    openPlayer(restartItem);
+  };
+
+  const handleDrawerAnimationEnd = (open: boolean) => {
+    if (open || !queuedPlayerItem) return;
+    openPlayer(queuedPlayerItem);
+    setQueuedPlayerItem(null);
   };
 
   return (
@@ -321,7 +334,11 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
       </div>
 
       {/* Mobile Drawer */}
-      <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
+      <Drawer
+        open={isDrawerOpen}
+        onOpenChange={setIsDrawerOpen}
+        onAnimationEnd={handleDrawerAnimationEnd}
+      >
         <DrawerContent>
           <DrawerHeader>
             <DrawerTitle>{mainTitle}</DrawerTitle>
