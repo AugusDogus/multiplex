@@ -128,10 +128,6 @@ export const MediaPlayerVideo = forwardRef<
     },
     ref,
   ) => {
-    const error = useMediaPlayerStore((state) => state.error);
-    const isLoading = useMediaPlayerStore((state) => state.isLoading);
-    const isBuffering = useMediaPlayerStore((state) => state.isBuffering);
-    const canPlay = useMediaPlayerStore((state) => state.canPlay);
     const volume = useMediaPlayerStore((state) => state.volume);
     const isMuted = useMediaPlayerStore((state) => state.isMuted);
     const currentTime = useMediaPlayerStore((state) => state.currentTime);
@@ -158,15 +154,6 @@ export const MediaPlayerVideo = forwardRef<
       new Map<number, ReturnType<typeof setTimeout>>(),
     );
     const [isHoldingFastForward, setIsHoldingFastForward] = useState(false);
-
-    // Compute player status locally to avoid object reference issues
-    const playerStatus = useMemo(() => {
-      if (error) return { status: "error", message: error } as const;
-      if (isLoading) return { status: "loading" } as const;
-      if (isBuffering) return { status: "buffering" } as const;
-      if (!canPlay) return { status: "waiting" } as const;
-      return { status: "ready" } as const;
-    }, [error, isLoading, isBuffering, canPlay]);
 
     // Derive video source URL and error state from item. `streamOffset` only
     // affects transcoded streams, where it gets baked into the URL so the
@@ -684,20 +671,6 @@ export const MediaPlayerVideo = forwardRef<
         ))}
 
         <MediaPlayerSeekOverlay overlay={seekOverlay} />
-
-        {/* Error Overlay */}
-        {playerStatus.status === "error" && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/80">
-            <div className="max-w-md px-4 text-center text-white">
-              <div className="mb-3 text-2xl">⚠️</div>
-              <div className="mb-2 text-lg font-semibold">Playback Error</div>
-              <div className="text-sm text-white/80">
-                {playerStatus.message ??
-                  "An error occurred during video playback"}
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     );
   },
