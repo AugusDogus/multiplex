@@ -1,10 +1,10 @@
 "use client";
 
 import * as React from "react";
+import { Command as CommandPrimitive } from "cmdk";
 import { Search } from "lucide-react";
 import {
   Command,
-  CommandInput,
   CommandList,
   CommandEmpty,
   CommandGroup,
@@ -47,6 +47,12 @@ export function SearchCommandModal({
       staleTime: 30000, // Cache results for 30 seconds
     },
   );
+
+  // Treat the debounce window as part of "searching" so we don't flash
+  // "No results found" while the user is still typing.
+  const isDebouncing = searchQuery !== debouncedQuery;
+  const isSearching =
+    searchQuery.length > 0 && (isDebouncing || isLoading);
 
   // Reset search query when modal is closed
   React.useEffect(() => {
@@ -113,16 +119,29 @@ export function SearchCommandModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="top-[20%] max-h-[80dvh] translate-y-0 overflow-hidden p-0 md:top-[50%] md:translate-y-[-50%]">
+      <DialogContent
+        showCloseButton={false}
+        className="top-[15%] max-h-[80dvh] translate-y-0 overflow-hidden rounded-xl p-0 sm:max-w-[640px]"
+      >
         <DialogTitle className="sr-only">Search Plex Media</DialogTitle>
         <Command shouldFilter={false}>
-          <CommandInput
-            placeholder="Search for movies, TV shows, music..."
-            value={searchQuery}
-            onValueChange={setSearchQuery}
-          />
-          <CommandList>
-            {isLoading && searchQuery.length > 0 && (
+          <div className="flex items-center justify-between gap-3 border-b p-3">
+            <CommandPrimitive.Input
+              placeholder="What are you searching for?"
+              value={searchQuery}
+              onValueChange={setSearchQuery}
+              className="placeholder:text-muted-foreground h-7 flex-1 bg-transparent text-base outline-hidden sm:text-lg"
+            />
+            <button
+              type="button"
+              onClick={() => onOpenChange(false)}
+              className="bg-background ring-border focus-visible:ring-ring hover:bg-muted ml-auto hidden h-5 cursor-pointer items-center rounded-sm px-1.5 text-xs ring-1 transition-colors focus-visible:ring-2 focus-visible:outline-hidden [@media(hover:hover)_and_(pointer:fine)]:flex"
+            >
+              Esc
+            </button>
+          </div>
+          <CommandList className="max-h-[436px] p-2">
+            {isSearching && (
               <CommandEmpty>
                 <div className="flex items-center justify-center py-6">
                   <div className="flex items-center gap-2">
@@ -133,7 +152,7 @@ export function SearchCommandModal({
               </CommandEmpty>
             )}
 
-            {error && (
+            {!isSearching && error && (
               <CommandEmpty>
                 <div className="flex flex-col items-center justify-center py-6 text-center">
                   <p className="text-muted-foreground text-sm">
@@ -143,7 +162,7 @@ export function SearchCommandModal({
               </CommandEmpty>
             )}
 
-            {!isLoading &&
+            {!isSearching &&
               !error &&
               searchQuery.length > 0 &&
               searchGroups.length === 0 && (
@@ -151,7 +170,7 @@ export function SearchCommandModal({
                   <div className="flex flex-col items-center justify-center py-6 text-center">
                     <Search className="text-muted-foreground mb-2 h-8 w-8" />
                     <p className="text-muted-foreground text-sm">
-                      No results found for &quot;{searchQuery}&quot;
+                      No results found for &quot;{debouncedQuery}&quot;
                     </p>
                   </div>
                 </CommandEmpty>
@@ -169,13 +188,17 @@ export function SearchCommandModal({
             )}
 
             {searchGroups.map((group) => (
-              <CommandGroup key={group.type} heading={group.label}>
+              <CommandGroup
+                key={group.type}
+                heading={group.label}
+                className="p-0 **:[[cmdk-group-heading]]:flex **:[[cmdk-group-heading]]:h-10 **:[[cmdk-group-heading]]:items-center **:[[cmdk-group-heading]]:px-2 **:[[cmdk-group-heading]]:text-[13px]"
+              >
                 {group.results.map((result) => (
                   <CommandItem
                     key={`${result.serverId}-${result.ratingKey}`}
                     value={`${result.title} ${result.type} ${result.serverName}`}
                     onSelect={() => handleResultSelect(result)}
-                    className="cursor-pointer"
+                    className="min-h-12 cursor-pointer scroll-my-2 gap-3 rounded-md px-2 py-0 sm:min-h-10"
                   >
                     <SearchResultItem result={result} />
                   </CommandItem>
