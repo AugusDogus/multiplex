@@ -12,6 +12,18 @@ interface SearchWrapperProps {
 export function SearchWrapper({ className }: SearchWrapperProps) {
   const [searchModalOpen, setSearchModalOpen] = React.useState(false);
 
+  React.useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setSearchModalOpen((prev) => !prev);
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   const handleSearchClick = () => {
     setSearchModalOpen(true);
   };
