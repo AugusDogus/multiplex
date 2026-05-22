@@ -41,6 +41,15 @@ export async function searchQuery(
         const authToken = server.accessToken ?? userInfo?.authToken;
 
         const results: ProcessedSearchResult[] = [];
+        // Plex returns the same person once per library on a server (e.g. once
+        // for the Movies library and once for the TV library), each with its
+        // own per-library appearance count. We collapse those into a single
+        // result per (server, person) and sum the counts so the UI doesn't
+        // show duplicates.
+        const personIndexByKey = new Map<
+          string,
+          { resultIdx: number; count: number }
+        >();
         const searchResults = Array.isArray(
           response.MediaContainer.SearchResult,
         )
@@ -83,6 +92,24 @@ export async function searchQuery(
               });
             } else if (isDirectoryResult(rawResult)) {
               const directory = rawResult.Directory;
+              const dedupeKey = directory.tagKey ?? directory.key;
+              const count = directory.count ?? 0;
+
+              const existing = personIndexByKey.get(dedupeKey);
+              if (existing) {
+                existing.count += count;
+                const merged = results[existing.resultIdx]!;
+                merged.summary = `${existing.count} appearances`;
+                if (rawResult.score > merged.score) {
+                  merged.score = rawResult.score;
+                }
+                continue;
+              }
+
+              personIndexByKey.set(dedupeKey, {
+                resultIdx: results.length,
+                count,
+              });
               results.push({
                 ratingKey:
                   directory.id?.toString() ?? directory.tagKey ?? directory.key,
@@ -90,7 +117,7 @@ export async function searchQuery(
                 guid: directory.tagKey ?? directory.key,
                 type: "person",
                 title: directory.tag,
-                summary: `${directory.count ?? 0} appearances`,
+                summary: `${count} appearances`,
                 thumb: directory.thumb,
                 score: rawResult.score,
                 serverId: server.clientIdentifier,

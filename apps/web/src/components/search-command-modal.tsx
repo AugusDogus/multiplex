@@ -195,7 +195,7 @@ export function SearchCommandModal({
               >
                 {group.results.map((result) => (
                   <CommandItem
-                    key={`${result.serverId}-${result.ratingKey}`}
+                    key={`${result.type}-${result.serverId}-${result.ratingKey}`}
                     value={`${result.title} ${result.type} ${result.serverName}`}
                     onSelect={() => handleResultSelect(result)}
                     className="min-h-12 cursor-pointer scroll-my-2 gap-3 rounded-md px-2 py-0 sm:min-h-10"
