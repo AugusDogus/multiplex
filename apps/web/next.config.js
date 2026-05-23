@@ -6,6 +6,9 @@ import "./src/env.js";
 
 /** @type {import("next").NextConfig} */
 const config = {
+  // Hide the floating dev indicator so it doesn't visually collide with the
+  // mobile bottom navigation while developing / recording demos.
+  devIndicators: false,
   images: {
     remotePatterns: [
       {
