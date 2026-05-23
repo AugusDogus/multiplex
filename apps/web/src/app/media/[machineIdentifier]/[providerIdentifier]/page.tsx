@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppHeader } from "~/components/app-header";
 import { AppSidebar } from "~/components/app-sidebar";
+import { MobileNav } from "~/components/mobile-nav";
 import { PlexErrorWrapper } from "~/components/plex-error-wrapper";
 import { SidebarInset, SidebarProvider } from "~/components/ui/sidebar";
 import { auth } from "~/lib/auth/server";
@@ -79,7 +80,7 @@ export default async function MediaLibraryPage({
           </PlexErrorWrapper>
           <SidebarInset className="w-0 max-w-full min-w-0 flex-1">
             <AppHeader>{breadcrumbTitle}</AppHeader>
-            <div className="flex min-w-0 flex-1 flex-col gap-6 p-4">
+            <div className="flex min-w-0 flex-1 flex-col gap-6 p-4 pb-24 md:pb-4">
               <div className="text-center">
                 <h1 className="text-2xl font-bold">Media Library</h1>
                 <p className="text-muted-foreground mt-2">
@@ -94,6 +95,7 @@ export default async function MediaLibraryPage({
               </div>
             </div>
           </SidebarInset>
+          <MobileNav session={session} servers={servers} userInfo={userInfo} />
         </SidebarProvider>
       </div>
     </HydrateClient>
