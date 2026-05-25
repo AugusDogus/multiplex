@@ -41,7 +41,7 @@ function SectionWrapper({ children, showTitle, title }: SectionWrapperProps) {
   return (
     <div className="flex flex-col gap-y-4">
       {showTitle && (
-        <div className="flex items-center justify-between px-8">
+        <div className="flex items-center justify-between md:px-8">
           <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
         </div>
       )}
@@ -109,7 +109,7 @@ export function ContinueWatching({
   if (error && !continueWatchingData && initialItems.length === 0) {
     return (
       <SectionWrapper showTitle={showTitle} title={title}>
-        <div className="text-muted-foreground px-8 text-sm">
+        <div className="text-muted-foreground px-2 text-sm md:px-8">
           Failed to load Continue Watching data
         </div>
       </SectionWrapper>
@@ -121,7 +121,7 @@ export function ContinueWatching({
     return (
       <SectionWrapper showTitle={showTitle} title={title}>
         <div className="w-full max-w-full overflow-hidden">
-          <div className="scrollbar-hide flex gap-4 overflow-x-auto px-8 pb-4">
+          <div className="scrollbar-hide flex gap-4 overflow-x-auto pb-4 md:px-8">
             {Array.from({ length: 8 }).map((_, i) => (
               <ContinueWatchingItemSkeleton key={i} />
             ))}
@@ -134,7 +134,7 @@ export function ContinueWatching({
   if (items.length === 0) {
     return (
       <SectionWrapper showTitle={showTitle} title={title}>
-        <div className="text-muted-foreground px-8 text-sm">
+        <div className="text-muted-foreground px-2 text-sm md:px-8">
           Nothing to continue watching. Start watching something to see it here.
         </div>
       </SectionWrapper>
@@ -144,7 +144,7 @@ export function ContinueWatching({
   return (
     <SectionWrapper showTitle={showTitle} title={title}>
       <div className="w-full max-w-full overflow-hidden">
-        <div className="scrollbar-hide flex gap-4 overflow-x-auto px-8 pb-4">
+        <div className="scrollbar-hide flex gap-4 overflow-x-auto pb-4 md:px-8">
           {items.map((item) => (
             <ContinueWatchingItem
               key={`${item.serverId}-${item.ratingKey}`}
