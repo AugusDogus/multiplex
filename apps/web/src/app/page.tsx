@@ -55,7 +55,8 @@ export default async function Page() {
             />
           </PlexErrorWrapper>
           <SidebarInset className="w-0 max-w-full min-w-0 flex-1">
-            <AppHeader>Home</AppHeader>
+            <AppHeader />
+
             <div className="flex min-w-0 flex-1 flex-col gap-6 p-4 pb-24 md:pb-4">
               <ContinueWatching items={continueWatchingItems} />
             </div>
