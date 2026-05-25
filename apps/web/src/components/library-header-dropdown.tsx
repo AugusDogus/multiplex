@@ -1,9 +1,11 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import type { PlexDevice, PlexUserInfo } from "@multiplex/plex-query";
 import { LibraryPickerDrawer } from "~/components/library-picker-drawer";
+import { useLastLibraryStore } from "~/stores/last-library-store";
 
 interface LibraryHeaderDropdownProps {
   libraryTitle: string;
@@ -19,6 +21,16 @@ export function LibraryHeaderDropdown({
   userInfo,
 }: LibraryHeaderDropdownProps) {
   const [open, setOpen] = useState(false);
+
+  // Remember the library route so the mobile "Libraries" tab can return here
+  // instead of always snapping back to the first pinned library.
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const setLastLibraryHref = useLastLibraryStore((state) => state.setHref);
+  useEffect(() => {
+    const query = searchParams.toString();
+    setLastLibraryHref(query ? `${pathname}?${query}` : pathname);
+  }, [pathname, searchParams, setLastLibraryHref]);
 
   return (
     <>

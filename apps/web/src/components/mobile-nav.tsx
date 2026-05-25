@@ -35,6 +35,7 @@ import { useSidebarPinning } from "~/hooks/use-sidebar-pinning";
 import { getSidebarSources } from "~/hooks/use-sidebar-sources";
 import { signOut } from "~/lib/auth/client";
 import { cn } from "~/lib/utils";
+import { useLastLibraryStore } from "~/stores/last-library-store";
 
 interface MobileNavProps {
   session: {
@@ -58,11 +59,13 @@ export function MobileNav({ session, servers, userInfo }: MobileNavProps) {
 
   // The picker drawer needs the same data as the sidebar so it can show every
   // server's libraries. We compute the pinned set here too so we can route the
-  // tab straight to the first pin when one exists.
+  // tab to the last library the user visited (falling back to the first pin).
   const { currentUserInfo } = useSidebarPinning(userInfo);
   const serverLibraries = useServerLibraries(servers);
   const sidebarSources = getSidebarSources(currentUserInfo, serverLibraries);
-  const firstPinnedHref = sidebarSources.pinnedSources[0]?.href;
+  const lastLibraryHref = useLastLibraryStore((state) => state.href);
+  const librariesHref =
+    lastLibraryHref ?? sidebarSources.pinnedSources[0]?.href;
 
   if (!session) {
     return null;
@@ -110,11 +113,11 @@ export function MobileNav({ session, servers, userInfo }: MobileNavProps) {
           href="/"
           active={activeTab === "home"}
         />
-        {firstPinnedHref ? (
+        {librariesHref ? (
           <TabButton
             icon={Library}
             label="Libraries"
-            href={firstPinnedHref}
+            href={librariesHref}
             active={activeTab === "libraries"}
           />
         ) : (
