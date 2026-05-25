@@ -10,39 +10,56 @@ import {
 } from "~/components/ui/breadcrumb";
 import { Separator } from "~/components/ui/separator";
 import { SidebarTrigger } from "~/components/ui/sidebar";
+import { cn } from "~/lib/utils";
 
 interface AppHeaderProps {
   /**
-   * Breadcrumb / title to display alongside the brand. Omit on the home page
-   * since the bottom mobile nav and sidebar already indicate the active tab.
+   * Desktop breadcrumb. Also rendered on mobile next to the brand when
+   * `mobile` is not provided.
    */
   children?: ReactNode;
+  /**
+   * Replaces the default Multiplex brand + mobile breadcrumb with custom
+   * content on mobile only (e.g. a library picker dropdown).
+   */
+  mobile?: ReactNode;
 }
 
-export function AppHeader({ children }: AppHeaderProps) {
+export function AppHeader({ children, mobile }: AppHeaderProps) {
+  const hasCustomMobile = mobile !== undefined;
+
   return (
     <header className="flex h-16 shrink-0 items-center gap-2">
       <div className="flex w-full items-center gap-2 px-4">
         <SidebarTrigger className="-ml-1 hidden md:inline-flex" />
 
-        <Link
-          href="/"
-          aria-label="Multiplex home"
-          className="flex items-center gap-2 md:hidden"
-        >
-          <MultiplexLogo className="size-6" />
-          <span className="text-base font-semibold tracking-tight">
-            Multiplex
-          </span>
-        </Link>
+        {hasCustomMobile ? (
+          <div className="flex min-w-0 flex-1 items-center md:hidden">
+            {mobile}
+          </div>
+        ) : (
+          <Link
+            href="/"
+            aria-label="Multiplex home"
+            className="flex items-center gap-2 md:hidden"
+          >
+            <MultiplexLogo className="size-6" />
+            <span className="text-base font-semibold tracking-tight">
+              Multiplex
+            </span>
+          </Link>
+        )}
 
         {children && (
           <>
             <Separator
               orientation="vertical"
-              className="data-[orientation=vertical]:h-4 md:mr-2 md:ml-2"
+              className={cn(
+                "data-[orientation=vertical]:h-4 md:mr-2 md:ml-2",
+                hasCustomMobile && "hidden md:block",
+              )}
             />
-            <Breadcrumb>
+            <Breadcrumb className={cn(hasCustomMobile && "hidden md:block")}>
               <BreadcrumbList>
                 <BreadcrumbItem>
                   <BreadcrumbPage>{children}</BreadcrumbPage>
