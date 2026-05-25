@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppHeader } from "~/components/app-header";
 import { AppSidebar } from "~/components/app-sidebar";
+import { LibraryHeaderDropdown } from "~/components/library-header-dropdown";
 import { MobileNav } from "~/components/mobile-nav";
 import { PlexErrorWrapper } from "~/components/plex-error-wrapper";
 import { SidebarInset, SidebarProvider } from "~/components/ui/sidebar";
@@ -66,6 +67,10 @@ export default async function MediaLibraryPage({
   );
 
   const breadcrumbTitle = currentSource?.title ?? "Library";
+  const currentServer = servers.find(
+    (server) => server.clientIdentifier === machineIdentifier,
+  );
+  const serverName = currentServer?.name ?? "Plex server";
 
   return (
     <HydrateClient>
@@ -79,7 +84,18 @@ export default async function MediaLibraryPage({
             />
           </PlexErrorWrapper>
           <SidebarInset className="w-0 max-w-full min-w-0 flex-1">
-            <AppHeader>{breadcrumbTitle}</AppHeader>
+            <AppHeader
+              mobile={
+                <LibraryHeaderDropdown
+                  libraryTitle={breadcrumbTitle}
+                  serverName={serverName}
+                  servers={servers}
+                  userInfo={userInfo}
+                />
+              }
+            >
+              {breadcrumbTitle}
+            </AppHeader>
             <div className="flex min-w-0 flex-1 flex-col gap-6 p-4 pb-24 md:pb-4">
               <div className="text-center">
                 <h1 className="text-2xl font-bold">Media Library</h1>
