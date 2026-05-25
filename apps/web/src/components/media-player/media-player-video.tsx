@@ -9,15 +9,22 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import type { MouseEvent, PointerEvent, RefObject } from "react";
 import { cn } from "~/lib/utils";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import type { MediaPlayerItem } from "~/types/media-player";
 import { useCaptionLines } from "./hooks/use-caption-lines";
+import { useClientRemuxPlayback } from "./hooks/use-client-remux-playback";
 import { usePlexSubtitleTrack } from "./hooks/use-plex-subtitle-track";
 import { useResumePlayback } from "./hooks/use-resume-playback";
 import { useSeekOverlay } from "./hooks/use-seek-overlay";
+import {
+  isClientRemuxPreferred,
+  markClientRemuxFailed,
+  subscribeClientRemuxPreference,
+} from "./utils/client-remux-support";
 import { buildPlexPlaybackPlan } from "./utils/plex-playback-plan";
 import { getVideoElementError } from "./utils/media-player-utils";
 import { generatePlexStreamUrl } from "./utils/plex-stream-urls";
@@ -143,7 +150,28 @@ export const MediaPlayerVideo = forwardRef<
     const streamSessionId = useMediaPlayerStore(
       (state) => state.streamSessionId,
     );
-    const playbackPlan = useMemo(() => buildPlexPlaybackPlan(item), [item]);
+    const clientRemuxPreferred = useSyncExternalStore(
+      subscribeClientRemuxPreference,
+      isClientRemuxPreferred,
+      () => true,
+    );
+    // Set when the remux engine fails for the current item so the plan flips
+    // to the Plex path immediately (the failure is also remembered globally
+    // in client-remux-support for future plays).
+    const [clientRemuxBlockedKey, setClientRemuxBlockedKey] = useState<
+      string | null
+    >(null);
+    const allowClientRemux =
+      clientRemuxPreferred &&
+      clientRemuxBlockedKey !== `${item.serverId}:${item.ratingKey}`;
+    const playbackPlan = useMemo(
+      () =>
+        buildPlexPlaybackPlan(
+          item,
+          allowClientRemux ? undefined : { allowClientRemux: false },
+        ),
+      [item, allowClientRemux],
+    );
     const usesOffsetTimeline = streamOffset > 0;
     const isLoading = useMediaPlayerStore((state) => state.isLoading);
     const showControls = useMediaPlayerStore((state) => state.showControls);
@@ -198,6 +226,7 @@ export const MediaPlayerVideo = forwardRef<
     );
 
     const ratingKey = item.ratingKey;
+    const serverId = item.serverId;
     const metadataKey = item.key;
     const serverUrl = item.serverUrl;
     const authToken = item.authToken;
@@ -206,6 +235,11 @@ export const MediaPlayerVideo = forwardRef<
     const videoCodec = media?.videoCodec;
     const audioCodec = media?.audioCodec;
     const container = media?.container;
+    const usesClientRemux = playbackPlan.videoSource === "client-remux";
+
+    useEffect(() => {
+      setClientRemuxBlockedKey(null);
+    }, [ratingKey, serverId]);
 
     // Derive video source URL and error state from item. `streamOffset` only
     // affects transcoded streams, where it gets baked into the URL so the
@@ -214,6 +248,12 @@ export const MediaPlayerVideo = forwardRef<
     const { videoSrc, hasError } = useMemo(() => {
       if (!partKey || !serverUrl || !authToken) {
         return { videoSrc: "", hasError: true };
+      }
+
+      if (usesClientRemux) {
+        // The client-remux engine owns the element src (a MediaSource URL);
+        // no Plex stream URL is needed until a fallback happens.
+        return { videoSrc: "", hasError: false };
       }
 
       const streamItem = {
@@ -260,7 +300,34 @@ export const MediaPlayerVideo = forwardRef<
       playbackPlan,
       streamOffset,
       streamSessionId,
+      usesClientRemux,
     ]);
+
+    const handleClientRemuxFallback = useCallback(() => {
+      markClientRemuxFailed({ serverId, ratingKey });
+      setClientRemuxBlockedKey(`${serverId}:${ratingKey}`);
+      const currentTime = useMediaPlayerStore.getState().currentTime;
+      // The Plex fallback for remux-eligible media is the transcoder, whose
+      // seeking works by baking an offset into the URL — seed it with the
+      // current position so fallback resumes in place instead of at 0:00.
+      updatePlaybackState({
+        streamOffset: currentTime > 0 ? currentTime : 0,
+        currentTime,
+        isLoading: true,
+        canPlay: false,
+        error: null,
+        isBuffering: false,
+      });
+    }, [ratingKey, serverId, updatePlaybackState]);
+
+    useClientRemuxPlayback({
+      videoRef: videoElementRef,
+      active: usesClientRemux,
+      partKey,
+      serverUrl,
+      authToken,
+      onFallback: handleClientRemuxFallback,
+    });
 
     // Handle video metadata loaded
     const handleLoadedMetadata = useCallback(() => {
@@ -521,6 +588,17 @@ export const MediaPlayerVideo = forwardRef<
      */
     const handleVideoError = useCallback(() => {
       if (ref && "current" in ref && ref.current?.error) {
+        if (usesClientRemux) {
+          // Decode/append failures inside the MediaSource pipeline surface as
+          // element errors; recover by falling back to Plex streaming.
+          console.warn(
+            "Client remux media error; falling back to Plex:",
+            getVideoElementError(ref.current.error),
+          );
+          handleClientRemuxFallback();
+          return;
+        }
+
         if (usesOffsetTimeline) {
           console.warn(
             "Transcoded stream failed at offset; retrying from beginning",
@@ -542,9 +620,15 @@ export const MediaPlayerVideo = forwardRef<
           isBuffering: false,
         });
       }
-    }, [ref, updatePlaybackState, usesOffsetTimeline]);
+    }, [
+      handleClientRemuxFallback,
+      ref,
+      updatePlaybackState,
+      usesClientRemux,
+      usesOffsetTimeline,
+    ]);
 
-    if (hasError || !videoSrc) {
+    if (hasError) {
       return (
         <div
           className={`flex h-full w-full items-center justify-center bg-black ${className}`}
@@ -555,9 +639,7 @@ export const MediaPlayerVideo = forwardRef<
               Unable to load video
             </div>
             <div className="text-sm text-white/70">
-              {hasError
-                ? "There was an error loading the video stream"
-                : "Generating stream URL..."}
+              There was an error loading the video stream
             </div>
           </div>
         </div>
@@ -583,7 +665,8 @@ export const MediaPlayerVideo = forwardRef<
         <video
           ref={videoRefCallback}
           autoPlay
-          src={videoSrc}
+          src={videoSrc || undefined}
+          data-playback-source={playbackPlan.videoSource}
           className="pointer-events-none h-full w-full object-contain"
           onError={handleVideoError}
           onLoadStart={handleLoadStart}

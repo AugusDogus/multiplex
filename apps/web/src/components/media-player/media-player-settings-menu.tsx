@@ -6,14 +6,23 @@ import type {
 } from "@multiplex/plex-query";
 import { Check, ChevronLeft, ChevronRight, Settings } from "lucide-react";
 import { Popover as PopoverPrimitive } from "radix-ui";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { api } from "~/trpc/react";
 import type { MediaPlayerItem, PlaybackRate } from "~/types/media-player";
 import { CAPTION_SIZE_OPTIONS } from "./utils/caption-size";
-import { playbackUsesTranscode } from "./utils/plex-playback-plan";
+import {
+  isClientRemuxCodecSupported,
+  isClientRemuxPreferred,
+  setClientRemuxPreferred,
+  subscribeClientRemuxPreference,
+} from "./utils/client-remux-support";
+import {
+  buildPlexPlaybackPlan,
+  playbackUsesTranscode,
+} from "./utils/plex-playback-plan";
 import { buildPlexSubtitleSelectionUrl } from "./utils/plex-stream-urls";
 
 /* ────────────────────────────────────────────────────────────
@@ -67,6 +76,38 @@ export function MediaPlayerSettingsMenu({
   const [pane, setPane] = useState<Pane>("root");
   const [subtitleError, setSubtitleError] = useState<string | null>(null);
   const [isUpdatingSubtitle, setIsUpdatingSubtitle] = useState(false);
+
+  const clientRemuxPreferred = useSyncExternalStore(
+    subscribeClientRemuxPreference,
+    isClientRemuxPreferred,
+    () => true,
+  );
+  // Only surface the toggle when the current item could actually use the
+  // in-browser remux path; for everything else it would be a no-op.
+  const clientRemuxRelevant =
+    !!currentItem && isClientRemuxCodecSupported(currentItem);
+
+  const handleClientRemuxToggle = (enabled: boolean) => {
+    setClientRemuxPreferred(enabled);
+
+    const state = useMediaPlayerStore.getState();
+    if (!state.currentItem) return;
+    // Flipping the preference swaps the playback pipeline mid-stream. The
+    // Plex transcoder seeks via a URL offset while the remux engine uses the
+    // real timeline, so seed the offset to keep the current position.
+    const nextPlan = buildPlexPlaybackPlan(
+      state.currentItem,
+      enabled ? undefined : { allowClientRemux: false },
+    );
+    useMediaPlayerStore.getState().updatePlaybackState({
+      streamOffset:
+        nextPlan.videoUsesTranscode && state.currentTime > 0
+          ? state.currentTime
+          : 0,
+      isLoading: true,
+      canPlay: false,
+    });
+  };
 
   const handleOpenChange = (next: boolean) => {
     if (!next) {
@@ -208,6 +249,14 @@ export function MediaPlayerSettingsMenu({
                 checked={autoPlayEnabled}
                 onChange={setAutoPlayEnabled}
               />
+
+              {clientRemuxRelevant && (
+                <ToggleRow
+                  label="In-Browser Remux"
+                  checked={clientRemuxPreferred}
+                  onChange={handleClientRemuxToggle}
+                />
+              )}
             </div>
           ) : pane === "speed" ? (
             <Pane title="Playback Speed" onBack={() => setPane("root")}>

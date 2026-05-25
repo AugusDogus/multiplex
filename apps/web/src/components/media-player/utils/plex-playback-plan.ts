@@ -1,4 +1,8 @@
 import type { MediaPlayerItem } from "~/types/media-player";
+import {
+  isClientRemuxCodecSupported,
+  isClientRemuxRuntimeAvailable,
+} from "./client-remux-support";
 
 /**
  * Audio codecs Chromium-based browsers can decode in a video container.
@@ -43,6 +47,18 @@ const SIDECAR_SUBTITLE_CODECS = new Set([
 
 export type StreamDecision = "direct-play" | "direct-stream";
 
+/**
+ * How the video actually reaches the <video> element:
+ * - `direct-play`: plain <video src> pointing at the original file.
+ * - `client-remux`: in-browser remux/audio-transcode via MediaSource
+ *   (no Plex transcode session, original timeline, native seeking).
+ * - `plex-transcode`: Plex's universal transcoder URL (offset-based seeking).
+ */
+export type PlaybackVideoSource =
+  | "direct-play"
+  | "client-remux"
+  | "plex-transcode";
+
 export type SelectedSubtitleStream = {
   id: number;
   index: number | null;
@@ -60,9 +76,19 @@ export type SubtitlePlan =
 
 export type PlexPlaybackPlan = {
   streamDecision: StreamDecision;
+  videoSource: PlaybackVideoSource;
   videoUsesTranscode: boolean;
   burnedSubtitleIndex: number | null;
   subtitle: SubtitlePlan;
+};
+
+export type PlexPlaybackPlanOptions = {
+  /**
+   * Overrides the automatic client-remux availability check (codec support,
+   * browser capability, user preference, prior failures). Pass `false` to
+   * force the Plex path, e.g. right after an engine failure.
+   */
+  allowClientRemux?: boolean;
 };
 
 function isExternalSrtSubtitle(
@@ -129,19 +155,43 @@ function buildSubtitlePlan(
 }
 
 /** Single source of truth for video URL generation and subtitle delivery. */
-export function buildPlexPlaybackPlan(item: MediaPlayerItem): PlexPlaybackPlan {
+export function buildPlexPlaybackPlan(
+  item: MediaPlayerItem,
+  options?: PlexPlaybackPlanOptions,
+): PlexPlaybackPlan {
   const streamDecision = decideStreamMode(item);
-  const subtitle = buildSubtitlePlan(
-    streamDecision,
-    getSelectedSubtitleStream(item),
-  );
+  const selected = getSelectedSubtitleStream(item);
+  // The override only grants/revokes permission; codec support is mandatory.
+  const allowClientRemux =
+    isClientRemuxCodecSupported(item) &&
+    (options?.allowClientRemux ?? isClientRemuxRuntimeAvailable(item));
+
+  if (streamDecision === "direct-stream" && allowClientRemux) {
+    // Client remux keeps the original timeline, so subtitles behave exactly
+    // like direct play: sidecar text tracks work, image subtitles need a
+    // Plex burn-in and therefore force the transcode path below.
+    const subtitle = buildSubtitlePlan("direct-play", selected);
+    if (subtitle.kind !== "burnIn") {
+      return {
+        streamDecision,
+        videoSource: "client-remux",
+        videoUsesTranscode: false,
+        burnedSubtitleIndex: null,
+        subtitle,
+      };
+    }
+  }
+
+  const subtitle = buildSubtitlePlan(streamDecision, selected);
   const burnedSubtitleIndex =
     subtitle.kind === "burnIn" ? subtitle.index : null;
+  const videoUsesTranscode =
+    streamDecision === "direct-stream" || subtitle.kind === "burnIn";
 
   return {
     streamDecision,
-    videoUsesTranscode:
-      streamDecision === "direct-stream" || subtitle.kind === "burnIn",
+    videoSource: videoUsesTranscode ? "plex-transcode" : "direct-play",
+    videoUsesTranscode,
     burnedSubtitleIndex,
     subtitle,
   };
