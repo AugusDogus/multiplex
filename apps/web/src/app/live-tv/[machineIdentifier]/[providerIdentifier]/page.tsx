@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppHeader } from "~/components/app-header";
 import { AppSidebar } from "~/components/app-sidebar";
+import { LibrarySwitcher } from "~/components/library-switcher";
 import { MobileNav } from "~/components/mobile-nav";
 import { PlexErrorWrapper } from "~/components/plex-error-wrapper";
 import { TvGuide } from "~/components/tv-guide/tv-guide";
@@ -120,7 +121,14 @@ export default async function LiveTvPage({ params }: PageProps) {
             />
           </PlexErrorWrapper>
           <SidebarInset className="w-0 max-w-full min-w-0 flex-1">
-            <AppHeader>Live TV · {targetServer.name}</AppHeader>
+            <AppHeader>
+              <LibrarySwitcher
+                title="Live TV"
+                subtitle={targetServer.name}
+                servers={servers}
+                userInfo={userInfo}
+              />
+            </AppHeader>
             <div className="flex min-w-0 flex-1 flex-col gap-6 p-4 pb-24 md:pb-4">
               <TvGuide
                 startTime={startTime}
