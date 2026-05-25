@@ -50,9 +50,9 @@ export function LibrarySwitcher({
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className="hover:bg-accent/60 -ml-2 flex max-w-full min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors"
+        className="hover:bg-accent/60 -ml-2 flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors"
       >
-        <span className="flex min-w-0 flex-col leading-tight">
+        <span className="flex min-w-0 flex-1 flex-col leading-tight">
           <span className="flex min-w-0 items-center gap-1">
             <span className="truncate text-base font-semibold">{title}</span>
             <ChevronDown
@@ -69,7 +69,7 @@ export function LibrarySwitcher({
       </button>
 
       <Drawer open={open} onOpenChange={setOpen}>
-        <DrawerContent className="max-h-[85vh]">
+        <DrawerContent className="flex max-h-[85vh] flex-col">
           <DrawerHeader className="text-center">
             <DrawerTitle>Favorite libraries</DrawerTitle>
             <DrawerDescription className="sr-only">
@@ -77,7 +77,7 @@ export function LibrarySwitcher({
             </DrawerDescription>
           </DrawerHeader>
 
-          <div className="flex flex-col px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+          <div className="flex-1 overflow-y-auto px-4">
             {pinnedSources.length === 0 ? (
               <p className="text-muted-foreground py-4 text-center text-sm">
                 You haven’t favorited any libraries yet.
@@ -129,11 +129,13 @@ export function LibrarySwitcher({
                 })}
               </ul>
             )}
+          </div>
 
+          <div className="border-t px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
             <Link
               href="/libraries"
               onClick={() => setOpen(false)}
-              className="active:bg-accent/40 hover:bg-accent/40 mt-4 flex items-center justify-between gap-2 rounded-md px-2 py-3 text-sm font-medium"
+              className="active:bg-accent/40 hover:bg-accent/40 flex items-center justify-between gap-2 rounded-md px-2 py-3 text-sm font-medium"
             >
               See all libraries
               <ChevronRight className="text-muted-foreground size-4" />
