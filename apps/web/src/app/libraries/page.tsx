@@ -2,14 +2,14 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppHeader } from "~/components/app-header";
 import { AppSidebar } from "~/components/app-sidebar";
-import { ContinueWatching } from "~/components/continue-watching";
+import { LibrariesContent } from "~/components/libraries-content";
 import { MobileNav } from "~/components/mobile-nav";
 import { PlexErrorWrapper } from "~/components/plex-error-wrapper";
 import { SidebarInset, SidebarProvider } from "~/components/ui/sidebar";
 import { auth } from "~/lib/auth/server";
 import { api, HydrateClient } from "~/trpc/server";
 
-export default async function Page() {
+export default async function LibrariesPage() {
   const session = await auth.api.getSession({
     headers: await headers(),
   });
@@ -18,18 +18,15 @@ export default async function Page() {
     redirect("/login");
   }
 
-  // Fetch data using tRPC procedures
-  const [servers, userInfo, continueWatchingItems] = await Promise.all([
+  const [servers, userInfo] = await Promise.all([
     api.plex.getServers(),
     api.plex.getUserInfo(),
-    api.plex.getAllContinueWatching(),
   ] as const);
 
   if (!servers || !userInfo) {
     return null;
   }
 
-  // If no servers are configured, show setup message
   if (servers.length === 0) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -55,9 +52,9 @@ export default async function Page() {
             />
           </PlexErrorWrapper>
           <SidebarInset className="w-0 max-w-full min-w-0 flex-1">
-            <AppHeader>Home</AppHeader>
-            <div className="flex min-w-0 flex-1 flex-col gap-6 p-4 pb-24 md:pb-4">
-              <ContinueWatching items={continueWatchingItems} />
+            <AppHeader>Libraries</AppHeader>
+            <div className="flex min-w-0 flex-1 flex-col gap-6 p-4 pb-24 md:p-6 md:pb-4">
+              <LibrariesContent servers={servers} userInfo={userInfo} />
             </div>
           </SidebarInset>
           <MobileNav session={session} userInfo={userInfo} />

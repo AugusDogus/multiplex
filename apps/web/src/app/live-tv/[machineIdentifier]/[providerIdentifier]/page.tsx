@@ -129,7 +129,7 @@ export default async function LiveTvPage({ params }: PageProps) {
               />
             </div>
           </SidebarInset>
-          <MobileNav session={session} servers={servers} userInfo={userInfo} />
+          <MobileNav session={session} userInfo={userInfo} />
         </SidebarProvider>
       </div>
     </HydrateClient>

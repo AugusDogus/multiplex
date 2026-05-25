@@ -95,7 +95,7 @@ export default async function MediaLibraryPage({
               </div>
             </div>
           </SidebarInset>
-          <MobileNav session={session} servers={servers} userInfo={userInfo} />
+          <MobileNav session={session} userInfo={userInfo} />
         </SidebarProvider>
       </div>
     </HydrateClient>
