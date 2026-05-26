@@ -140,7 +140,7 @@ export const MediaPlayerVideo = forwardRef<
     const streamOffset = useMediaPlayerStore((state) => state.streamOffset);
     const { updatePlaybackState } = useMediaPlayerStore();
     const videoElementRef = useRef<HTMLVideoElement | null>(null);
-    const currentHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
+    const surfaceElementRef = useRef<HTMLDivElement | null>(null);
     const {
       overlay: seekOverlay,
       showOverlay: showSeekOverlay,
@@ -151,7 +151,18 @@ export const MediaPlayerVideo = forwardRef<
     const seekPulseTimeoutsRef = useRef(
       new Map<number, ReturnType<typeof setTimeout>>(),
     );
-    const surfaceRef = useSuppressNativeLongPress(useMobileSurfaceGestures);
+    const longPressRef = useSuppressNativeLongPress(useMobileSurfaceGestures);
+
+    // Combined ref: forwards the surface element to both the long-press
+    // suppression hook and our local ref (used for the non-passive wheel
+    // listener below).
+    const surfaceRef = useCallback(
+      (node: HTMLDivElement | null) => {
+        longPressRef(node);
+        surfaceElementRef.current = node;
+      },
+      [longPressRef],
+    );
 
     // Derive video source URL and error state from item. `streamOffset` only
     // affects transcoded streams, where it gets baked into the URL so the
@@ -388,15 +399,6 @@ export const MediaPlayerVideo = forwardRef<
       [onVideoDoubleClick, useMobileSurfaceGestures],
     );
 
-    const handleVideoWheel = useCallback(
-      (e: WheelEvent) => {
-        e.preventDefault();
-        const delta = -e.deltaY; // Invert delta so scroll up increases volume
-        onVolumeScroll?.(delta);
-      },
-      [onVolumeScroll],
-    );
-
     const {
       pointerHandlers: pressPointerHandlers,
       onClick: handleVideoClick,
@@ -410,52 +412,36 @@ export const MediaPlayerVideo = forwardRef<
       onClick: useMobileSurfaceGestures ? undefined : onVideoClick,
     });
 
-    /**
-     * Ref callback that combines forwarded ref with wheel event setup
-     */
     const videoRefCallback = useCallback(
       (node: HTMLVideoElement | null) => {
-        if (node === null) {
-          if (videoElementRef.current !== null && currentHandlerRef.current) {
-            videoElementRef.current.removeEventListener(
-              "wheel",
-              currentHandlerRef.current,
-            );
-          }
-          if (typeof ref === "function") {
-            ref(null);
-          } else if (ref) {
-            ref.current = null;
-          }
-          videoElementRef.current = null;
-          currentHandlerRef.current = null;
-          return;
-        }
-
-        if (
-          videoElementRef.current &&
-          currentHandlerRef.current &&
-          currentHandlerRef.current !== handleVideoWheel
-        ) {
-          videoElementRef.current.removeEventListener(
-            "wheel",
-            currentHandlerRef.current,
-          );
-        }
-
         videoElementRef.current = node;
-        currentHandlerRef.current = handleVideoWheel;
-
         if (typeof ref === "function") {
           ref(node);
         } else if (ref) {
           ref.current = node;
         }
-
-        node.addEventListener("wheel", handleVideoWheel, { passive: false });
       },
-      [ref, handleVideoWheel],
+      [ref],
     );
+
+    // Wheel-to-volume on desktop. The listener lives on the surface div (not
+    // the <video>, which has `pointer-events: none` to let the surface own
+    // pointer interactions). Attached imperatively because React's onWheel
+    // is passive and we need preventDefault to stop the modal-less Dialog
+    // from scrolling the page underneath.
+    useEffect(() => {
+      const node = surfaceElementRef.current;
+      if (!node || !onVolumeScroll) return;
+
+      const handler = (event: WheelEvent) => {
+        event.preventDefault();
+        // Invert deltaY so scrolling up raises the volume.
+        onVolumeScroll(-event.deltaY);
+      };
+
+      node.addEventListener("wheel", handler, { passive: false });
+      return () => node.removeEventListener("wheel", handler);
+    }, [onVolumeScroll]);
 
     useEffect(() => {
       return () => {
@@ -503,7 +489,14 @@ export const MediaPlayerVideo = forwardRef<
         ref={surfaceRef}
         className={`touch-action-none relative h-full w-full cursor-pointer overflow-hidden bg-black select-none [-webkit-touch-callout:none] ${className}`}
         {...pressPointerHandlers}
-        onContextMenu={(event) => event.preventDefault()}
+        // Only suppress the context menu on mobile, where it's triggered by
+        // the OS long-press during hold-to-fast-forward. Desktop users
+        // should still get a normal right-click menu.
+        onContextMenu={
+          useMobileSurfaceGestures
+            ? (event) => event.preventDefault()
+            : undefined
+        }
         onClick={handleVideoClick}
         onDoubleClick={handleVideoDoubleClick}
       >
