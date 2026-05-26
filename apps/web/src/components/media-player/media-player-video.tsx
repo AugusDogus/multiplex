@@ -21,6 +21,7 @@ import {
 } from "./utils/plex-stream-utils";
 import { useSeekOverlay } from "./hooks/use-seek-overlay";
 import { useSuppressNativeLongPress } from "./hooks/use-suppress-native-long-press";
+import { useVideoPressGesture } from "./hooks/use-video-press-gesture";
 import { MediaPlayerSeekOverlay } from "./media-player-seek-overlay";
 
 /* ────────────────────────────────────────────────────────────
@@ -30,6 +31,10 @@ import { MediaPlayerSeekOverlay } from "./media-player-seek-overlay";
 
 const HOLD_PLAYBACK_RATE = 2;
 const HOLD_CLICK_SUPPRESSION_MS = 200;
+// Pixels of pointer movement after press that disqualify the gesture as a
+// tap or hold. Lets parent surfaces (e.g. drag-to-dismiss) take over without
+// the video first triggering 2x playback or a controls toggle.
+const POINTER_DRAG_TOLERANCE_PX = 10;
 const DOUBLE_CLICK_SEEK_OVERLAY_MS = 2200;
 const DOUBLE_CLICK_SEEK_SECONDS = 10;
 // Matches Tailwind's `animate-ping` duration (1s).
@@ -134,14 +139,6 @@ export const MediaPlayerVideo = forwardRef<
     const currentTime = useMediaPlayerStore((state) => state.currentTime);
     const streamOffset = useMediaPlayerStore((state) => state.streamOffset);
     const { updatePlaybackState } = useMediaPlayerStore();
-    const holdPlaybackRateRef = useRef<number | null>(null);
-    const holdPointerIdRef = useRef<number | null>(null);
-    const holdStartedAtRef = useRef<number | null>(null);
-    const holdPlaybackAppliedRef = useRef(false);
-    const holdActivationTimeoutRef = useRef<ReturnType<
-      typeof setTimeout
-    > | null>(null);
-    const shouldSuppressClickRef = useRef(false);
     const videoElementRef = useRef<HTMLVideoElement | null>(null);
     const currentHandlerRef = useRef<((e: WheelEvent) => void) | null>(null);
     const {
@@ -154,7 +151,6 @@ export const MediaPlayerVideo = forwardRef<
     const seekPulseTimeoutsRef = useRef(
       new Map<number, ReturnType<typeof setTimeout>>(),
     );
-    const [isHoldingFastForward, setIsHoldingFastForward] = useState(false);
     const surfaceRef = useSuppressNativeLongPress(useMobileSurfaceGestures);
 
     // Derive video source URL and error state from item. `streamOffset` only
@@ -383,15 +379,6 @@ export const MediaPlayerVideo = forwardRef<
       [presentSeek, showSeekOverlay],
     );
 
-    /** Desktop: click toggles play/pause. */
-    const handleVideoClick = useCallback(() => {
-      if (shouldSuppressClickRef.current) {
-        shouldSuppressClickRef.current = false;
-        return;
-      }
-      onVideoClick?.();
-    }, [onVideoClick]);
-
     const handleVideoDoubleClick = useCallback(
       (event: MouseEvent<HTMLElement>) => {
         event.preventDefault();
@@ -401,9 +388,6 @@ export const MediaPlayerVideo = forwardRef<
       [onVideoDoubleClick, useMobileSurfaceGestures],
     );
 
-    /**
-     * Handle video wheel scroll for volume control
-     */
     const handleVideoWheel = useCallback(
       (e: WheelEvent) => {
         e.preventDefault();
@@ -413,90 +397,18 @@ export const MediaPlayerVideo = forwardRef<
       [onVolumeScroll],
     );
 
-    const clearHoldActivationTimeout = useCallback(() => {
-      if (holdActivationTimeoutRef.current) {
-        clearTimeout(holdActivationTimeoutRef.current);
-        holdActivationTimeoutRef.current = null;
-      }
-    }, []);
-
-    const restoreHoldPlaybackRate = useCallback(
-      (pointerId: number) => {
-        if (holdPointerIdRef.current !== pointerId) return;
-
-        const video = videoElementRef.current;
-        if (
-          video &&
-          holdPlaybackRateRef.current !== null &&
-          holdPlaybackAppliedRef.current
-        ) {
-          video.playbackRate = holdPlaybackRateRef.current;
-        }
-
-        holdPlaybackRateRef.current = null;
-        holdPointerIdRef.current = null;
-        holdStartedAtRef.current = null;
-        holdPlaybackAppliedRef.current = false;
-        clearHoldActivationTimeout();
-        setIsHoldingFastForward(false);
-      },
-      [clearHoldActivationTimeout],
-    );
-
-    const handleVideoPointerDown = useCallback(
-      (event: PointerEvent<HTMLElement>) => {
-        if (event.pointerType === "mouse" && event.button !== 0) return;
-        if (holdPointerIdRef.current !== null) return;
-
-        const video = videoElementRef.current;
-        if (!video) return;
-
-        const pointerId = event.pointerId;
-        holdPlaybackRateRef.current = video.playbackRate;
-        holdPointerIdRef.current = pointerId;
-        holdStartedAtRef.current = Date.now();
-        holdPlaybackAppliedRef.current = false;
-        event.currentTarget.setPointerCapture(pointerId);
-
-        // Defer 2x until the press qualifies as a hold so quick taps don't
-        // briefly change playback rate (which feels like a pause/stutter).
-        clearHoldActivationTimeout();
-        holdActivationTimeoutRef.current = setTimeout(() => {
-          holdActivationTimeoutRef.current = null;
-          if (holdPointerIdRef.current !== pointerId) return;
-
-          const activeVideo = videoElementRef.current;
-          if (!activeVideo) return;
-
-          activeVideo.playbackRate = HOLD_PLAYBACK_RATE;
-          holdPlaybackAppliedRef.current = true;
-          setIsHoldingFastForward(true);
-        }, HOLD_CLICK_SUPPRESSION_MS);
-      },
-      [clearHoldActivationTimeout],
-    );
-
-    const handleVideoPointerEnd = useCallback(
-      (event: PointerEvent<HTMLElement>) => {
-        if (holdPointerIdRef.current !== event.pointerId) return;
-
-        const wasHold = holdPlaybackAppliedRef.current;
-
-        if (wasHold) {
-          shouldSuppressClickRef.current = true;
-        }
-
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        }
-        restoreHoldPlaybackRate(event.pointerId);
-
-        if (!wasHold && useMobileSurfaceGestures && onMobileSurfaceTap) {
-          onMobileSurfaceTap(event);
-        }
-      },
-      [onMobileSurfaceTap, restoreHoldPlaybackRate, useMobileSurfaceGestures],
-    );
+    const {
+      pointerHandlers: pressPointerHandlers,
+      onClick: handleVideoClick,
+      isHolding: isHoldingFastForward,
+    } = useVideoPressGesture({
+      videoRef: videoElementRef,
+      holdRate: HOLD_PLAYBACK_RATE,
+      holdActivationMs: HOLD_CLICK_SUPPRESSION_MS,
+      dragTolerancePx: POINTER_DRAG_TOLERANCE_PX,
+      onTap: useMobileSurfaceGestures ? onMobileSurfaceTap : undefined,
+      onClick: useMobileSurfaceGestures ? undefined : onVideoClick,
+    });
 
     /**
      * Ref callback that combines forwarded ref with wheel event setup
@@ -505,13 +417,11 @@ export const MediaPlayerVideo = forwardRef<
       (node: HTMLVideoElement | null) => {
         if (node === null) {
           if (videoElementRef.current !== null && currentHandlerRef.current) {
-            // Remove old event listener when component unmounts or ref changes
             videoElementRef.current.removeEventListener(
               "wheel",
               currentHandlerRef.current,
             );
           }
-          // Also update forwarded ref
           if (typeof ref === "function") {
             ref(null);
           } else if (ref) {
@@ -522,7 +432,6 @@ export const MediaPlayerVideo = forwardRef<
           return;
         }
 
-        // Remove old listener if element exists and handler changed
         if (
           videoElementRef.current &&
           currentHandlerRef.current &&
@@ -534,18 +443,15 @@ export const MediaPlayerVideo = forwardRef<
           );
         }
 
-        // Store references for cleanup
         videoElementRef.current = node;
         currentHandlerRef.current = handleVideoWheel;
 
-        // Set forwarded ref
         if (typeof ref === "function") {
           ref(node);
         } else if (ref) {
           ref.current = node;
         }
 
-        // Add wheel event listener with passive: false
         node.addEventListener("wheel", handleVideoWheel, { passive: false });
       },
       [ref, handleVideoWheel],
@@ -555,9 +461,8 @@ export const MediaPlayerVideo = forwardRef<
       return () => {
         clearSeekOverlayTimeout();
         clearSeekPulses();
-        clearHoldActivationTimeout();
       };
-    }, [clearHoldActivationTimeout, clearSeekOverlayTimeout, clearSeekPulses]);
+    }, [clearSeekOverlayTimeout, clearSeekPulses]);
 
     /**
      * Handle video load error
@@ -596,14 +501,10 @@ export const MediaPlayerVideo = forwardRef<
     return (
       <div
         ref={surfaceRef}
-        className={`relative h-full w-full cursor-pointer overflow-hidden bg-black touch-action-none select-none [-webkit-touch-callout:none] ${className}`}
-        onPointerDown={handleVideoPointerDown}
-        onPointerUp={handleVideoPointerEnd}
-        onPointerCancel={handleVideoPointerEnd}
-        onPointerLeave={handleVideoPointerEnd}
-        onLostPointerCapture={handleVideoPointerEnd}
+        className={`touch-action-none relative h-full w-full cursor-pointer overflow-hidden bg-black select-none [-webkit-touch-callout:none] ${className}`}
+        {...pressPointerHandlers}
         onContextMenu={(event) => event.preventDefault()}
-        onClick={useMobileSurfaceGestures ? undefined : handleVideoClick}
+        onClick={handleVideoClick}
         onDoubleClick={handleVideoDoubleClick}
       >
         <video
