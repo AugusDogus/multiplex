@@ -16,6 +16,7 @@ import {
   DialogTitle,
   MediaPlayerDialogContent,
 } from "~/components/ui/dialog";
+import { useDragToDismiss } from "./hooks/use-drag-to-dismiss";
 import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
 import { useMediaPlayer } from "./hooks/use-media-player";
 import { usePlayQueue } from "./hooks/use-play-queue";
@@ -166,6 +167,19 @@ export function MediaPlayerModal() {
     closePlayer();
   }, [onStop, clearSession, clearAllTimeouts, closePlayer]);
 
+  const {
+    ref: dragRef,
+    handlers: dragHandlers,
+    isDragging,
+  } = useDragToDismiss({
+    enabled: isOpen && isMobile,
+    onDismiss: handleClose,
+    // Mobile mode CSS-rotates the player content 90° CW so a portrait phone
+    // shows landscape video. Visual-down therefore lives on the physical
+    // -X axis, and the player must slide off to physical left to dismiss.
+    rotation: isMobile ? 90 : 0,
+  });
+
   const handleVideoClick = useCallback(() => {
     actions.togglePlay();
   }, [actions]);
@@ -251,6 +265,8 @@ export function MediaPlayerModal() {
             ),
       );
 
+  const mobileChromeVisible = isMobile && showControls && !isDragging;
+
   if (!currentItem) return null;
 
   return (
@@ -266,14 +282,20 @@ export function MediaPlayerModal() {
         </DialogDescription>
 
         <div
+          ref={isMobile ? dragRef : undefined}
           className={`group cursor-none overflow-visible hover:cursor-default ${
             isMobile
-              ? "fixed inset-0 flex items-center justify-center"
+              ? "fixed inset-0 flex touch-none items-center justify-center"
               : "relative h-full w-full overflow-hidden"
           }`}
+          style={isMobile ? { willChange: "transform, opacity" } : undefined}
           onMouseEnter={isMobile ? undefined : handleMouseEnter}
           onMouseLeave={isMobile ? undefined : handleMouseLeave}
           onMouseMove={isMobile ? undefined : handleMouseMove}
+          onPointerDown={isMobile ? dragHandlers.onPointerDown : undefined}
+          onPointerMove={isMobile ? dragHandlers.onPointerMove : undefined}
+          onPointerUp={isMobile ? dragHandlers.onPointerUp : undefined}
+          onPointerCancel={isMobile ? dragHandlers.onPointerCancel : undefined}
         >
           <div
             className={`group relative cursor-none overflow-hidden hover:cursor-default ${
@@ -346,7 +368,7 @@ export function MediaPlayerModal() {
 
               {isMobile ? (
                 <MediaPlayerChromeFade
-                  visible={showControls}
+                  visible={mobileChromeVisible}
                   className="absolute inset-0 z-30"
                 >
                   <MediaPlayerTitleChrome item={currentItem} />
