@@ -20,6 +20,7 @@ import {
   hasValidStreamingData,
 } from "./utils/plex-stream-utils";
 import { useSeekOverlay } from "./hooks/use-seek-overlay";
+import { useSuppressNativeLongPress } from "./hooks/use-suppress-native-long-press";
 import { MediaPlayerSeekOverlay } from "./media-player-seek-overlay";
 
 /* ────────────────────────────────────────────────────────────
@@ -154,6 +155,7 @@ export const MediaPlayerVideo = forwardRef<
       new Map<number, ReturnType<typeof setTimeout>>(),
     );
     const [isHoldingFastForward, setIsHoldingFastForward] = useState(false);
+    const surfaceRef = useSuppressNativeLongPress(useMobileSurfaceGestures);
 
     // Derive video source URL and error state from item. `streamOffset` only
     // affects transcoded streams, where it gets baked into the URL so the
@@ -425,7 +427,7 @@ export const MediaPlayerVideo = forwardRef<
         const video = videoElementRef.current;
         if (
           video &&
-          holdPlaybackRateRef.current != null &&
+          holdPlaybackRateRef.current !== null &&
           holdPlaybackAppliedRef.current
         ) {
           video.playbackRate = holdPlaybackRateRef.current;
@@ -444,7 +446,7 @@ export const MediaPlayerVideo = forwardRef<
     const handleVideoPointerDown = useCallback(
       (event: PointerEvent<HTMLElement>) => {
         if (event.pointerType === "mouse" && event.button !== 0) return;
-        if (holdPointerIdRef.current != null) return;
+        if (holdPointerIdRef.current !== null) return;
 
         const video = videoElementRef.current;
         if (!video) return;
@@ -501,8 +503,8 @@ export const MediaPlayerVideo = forwardRef<
      */
     const videoRefCallback = useCallback(
       (node: HTMLVideoElement | null) => {
-        if (node == null) {
-          if (videoElementRef.current != null && currentHandlerRef.current) {
+        if (node === null) {
+          if (videoElementRef.current !== null && currentHandlerRef.current) {
             // Remove old event listener when component unmounts or ref changes
             videoElementRef.current.removeEventListener(
               "wheel",
@@ -593,12 +595,14 @@ export const MediaPlayerVideo = forwardRef<
 
     return (
       <div
-        className={`relative h-full w-full overflow-hidden bg-black ${className}`}
+        ref={surfaceRef}
+        className={`relative h-full w-full cursor-pointer overflow-hidden bg-black touch-action-none select-none [-webkit-touch-callout:none] ${className}`}
         onPointerDown={handleVideoPointerDown}
         onPointerUp={handleVideoPointerEnd}
         onPointerCancel={handleVideoPointerEnd}
         onPointerLeave={handleVideoPointerEnd}
         onLostPointerCapture={handleVideoPointerEnd}
+        onContextMenu={(event) => event.preventDefault()}
         onClick={useMobileSurfaceGestures ? undefined : handleVideoClick}
         onDoubleClick={handleVideoDoubleClick}
       >
@@ -606,7 +610,7 @@ export const MediaPlayerVideo = forwardRef<
           ref={videoRefCallback}
           autoPlay
           src={videoSrc}
-          className="h-full w-full cursor-pointer object-contain"
+          className="pointer-events-none h-full w-full object-contain"
           onError={handleVideoError}
           onLoadStart={handleLoadStart}
           onLoadedData={handleLoadedData}
