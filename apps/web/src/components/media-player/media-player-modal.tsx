@@ -6,6 +6,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   type PointerEvent,
 } from "react";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
@@ -67,6 +68,7 @@ export function MediaPlayerModal() {
 
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const mouseMoveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const clearAllTimeouts = useCallback(() => {
     if (hideTimeoutRef.current) {
@@ -226,18 +228,36 @@ export function MediaPlayerModal() {
   }, [showControlsImmediate]);
 
   const handleMouseLeave = useCallback(() => {
+    if (isSettingsOpen) return;
     hideControlsDelayed(1000);
-  }, [hideControlsDelayed]);
+  }, [hideControlsDelayed, isSettingsOpen]);
 
   const handleMouseMove = useCallback(() => {
     showControlsImmediate();
     if (mouseMoveTimeoutRef.current) {
       clearTimeout(mouseMoveTimeoutRef.current);
     }
+    if (isSettingsOpen) return;
     mouseMoveTimeoutRef.current = setTimeout(() => {
       hideControlsDelayed(0);
     }, 3000);
-  }, [showControlsImmediate, hideControlsDelayed]);
+  }, [showControlsImmediate, hideControlsDelayed, isSettingsOpen]);
+
+  // Keep the controls pinned while the settings popover is open and
+  // restart the auto-hide cycle once it closes.
+  const handleSettingsOpenChange = useCallback(
+    (open: boolean) => {
+      setIsSettingsOpen(open);
+      if (open) {
+        showControlsImmediate();
+      } else if (!isMobile) {
+        handleMouseMove();
+      } else {
+        hideControlsDelayed(MOBILE_CONTROLS_HIDE_DELAY_MS);
+      }
+    },
+    [showControlsImmediate, handleMouseMove, hideControlsDelayed, isMobile],
+  );
 
   useEffect(() => {
     if (!isOpen || !isMobile) return;
@@ -408,6 +428,7 @@ export function MediaPlayerModal() {
                       actions={actions}
                       progressOnly
                       className="px-4 py-2"
+                      onSettingsOpenChange={handleSettingsOpenChange}
                     />
                   </div>
                 </MediaPlayerChromeFade>
@@ -423,6 +444,7 @@ export function MediaPlayerModal() {
                     isVisible
                     actions={actions}
                     progressOnly={false}
+                    onSettingsOpenChange={handleSettingsOpenChange}
                   />
                 </div>
               )}

@@ -15,6 +15,7 @@ import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { Button } from "~/components/ui/button";
 import { type useMediaPlayer } from "./hooks/use-media-player";
 import { MediaPlayerProgress } from "./media-player-progress";
+import { MediaPlayerSettingsMenu } from "./media-player-settings-menu";
 import { clamp } from "./utils/media-player-utils";
 
 /* ────────────────────────────────────────────────────────────
@@ -39,6 +40,10 @@ interface MediaPlayerControlsProps {
    * Additional CSS classes
    */
   className?: string;
+  /**
+   * Notified when the settings popover open state changes.
+   */
+  onSettingsOpenChange?: (open: boolean) => void;
 }
 
 export function MediaPlayerControls({
@@ -46,6 +51,7 @@ export function MediaPlayerControls({
   actions,
   progressOnly = false,
   className = "",
+  onSettingsOpenChange,
 }: MediaPlayerControlsProps) {
   const currentTime = useMediaPlayerStore((state) => state.currentTime);
   const duration = useMediaPlayerStore((state) => state.duration);
@@ -209,6 +215,11 @@ export function MediaPlayerControls({
                   </div>
                 </div>
               </div>
+
+              <MediaPlayerSettingsMenu
+                disabled={!canPlay}
+                onOpenChange={onSettingsOpenChange}
+              />
 
               {/* Fullscreen Toggle */}
               <Button
