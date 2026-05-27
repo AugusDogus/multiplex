@@ -221,4 +221,23 @@ export const plexRouter = createTRPCRouter({
         input.includeMarkers,
       );
     }),
+
+  getItemMetadata: protectedProcedure
+    .input(
+      z.object({
+        serverId: z.string(),
+        ratingKey: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const servers = await getServersQuery(ctx.plex);
+      const server = servers.find((s) => s.clientIdentifier === input.serverId);
+
+      if (!server) {
+        throw new Error(`Server with ID ${input.serverId} not found`);
+      }
+
+      const serverClient = ctx.plex.createServerClient(server);
+      return await serverClient.getItemMetadata(input.ratingKey);
+    }),
 });

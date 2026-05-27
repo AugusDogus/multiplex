@@ -1,6 +1,8 @@
 import {
   continueWatchingResponseSchema,
+  itemMetadataResponseSchema,
   type ContinueWatchingResponse,
+  type ItemMetadata,
 } from "../schemas/continue-watching-schemas";
 import { dvrsResponseSchema, type DVRsResponse } from "../schemas/dvr-schemas";
 import {
@@ -255,6 +257,31 @@ export class PlexServerClient {
     return await this.get({
       endpoint: `library/sections/${sectionId}/all`,
     });
+  }
+
+  /**
+   * Fetch detailed metadata for a single library item. Unlike
+   * `hubs/continueWatching`, this returns expanded `Media[].Part[].Stream[]`
+   * arrays, which the player needs to populate audio and subtitle menus.
+   *
+   * @param ratingKey - Plex `ratingKey` of the item to fetch
+   * @returns Parsed metadata item, or `null` when the response is empty.
+   */
+  async getItemMetadata(ratingKey: string): Promise<ItemMetadata | null> {
+    // Parsed manually because `itemMetadataResponseSchema` uses Zod transforms
+    // (`UnixSeconds` → `Date`) which break the invariant `z.ZodType<T>`
+    // inference used by the `get` helper.
+    const rawResponse = await this.get({
+      endpoint: `library/metadata/${ratingKey}`,
+      params: {
+        includeChapters: "1",
+        includeMarkers: "1",
+        includeExternalMedia: "1",
+      },
+    });
+
+    const parsed = itemMetadataResponseSchema.parse(rawResponse);
+    return parsed.MediaContainer.Metadata?.[0] ?? null;
   }
 
   /**

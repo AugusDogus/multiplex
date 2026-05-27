@@ -283,6 +283,19 @@ export const ContinueWatchingContainer = z.object({
   }),
 });
 
+/**
+ * Response shape for the `/library/metadata/{ratingKey}` endpoint. Returns
+ * a single item's metadata including expanded `Media[].Part[].Stream[]`
+ * data that `hubs/continueWatching` omits.
+ */
+export const itemMetadataResponseSchema = z.object({
+  MediaContainer: z.object({
+    size: z.number().optional(),
+    identifier: z.string().optional(),
+    Metadata: z.array(ContinueWatchingMetadata).optional(),
+  }),
+});
+
 /* ────────────────────────────────────────────────────────────
    7. Transformed types for easier consumption
    ──────────────────────────────────────────────────────────── */
@@ -341,6 +354,10 @@ export type ContinueWatchingResponse = z.infer<typeof continueWatchingResponseSc
 export type ContinueWatchingHubType = z.infer<typeof ContinueWatchingHub>;
 
 export type StreamType = z.infer<typeof Stream>;
+
+export type ItemMetadata = z.infer<typeof ContinueWatchingMetadata>;
+
+export type ItemMetadataResponse = z.infer<typeof itemMetadataResponseSchema>;
 
 /* ────────────────────────────────────────────────────────────
    9. Type guards & utilities
