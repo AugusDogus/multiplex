@@ -40,7 +40,7 @@ export function LibraryHeaderDropdown({
         aria-label={`Switch library — currently ${libraryTitle} on ${serverName}`}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className="text-foreground -m-2 flex min-w-0 max-w-full items-center gap-1.5 rounded-md p-2 text-left active:bg-accent/60"
+        className="text-foreground active:bg-accent/60 -m-2 flex max-w-full min-w-0 items-center gap-1.5 rounded-md p-2 text-left"
       >
         <div className="grid min-w-0 leading-tight">
           <span className="truncate text-base font-semibold tracking-tight">

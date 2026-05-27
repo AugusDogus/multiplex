@@ -170,7 +170,9 @@ function FavoritesView({
         ) : (
           <p className="text-muted-foreground px-3 py-6 text-sm">
             You haven&apos;t pinned any libraries yet. Tap{" "}
-            <span className="text-foreground font-medium">See All Libraries</span>{" "}
+            <span className="text-foreground font-medium">
+              See All Libraries
+            </span>{" "}
             to find something to pin.
           </p>
         )}
@@ -234,7 +236,7 @@ function AllLibrariesView({
         </div>
         {/* Spacer to balance the back button so the title stays centered. */}
         <div className="size-9" />
-        <DrawerDescription className="col-span-3 sr-only">
+        <DrawerDescription className="sr-only col-span-3">
           Browse libraries across every server and pin the ones you use most.
         </DrawerDescription>
       </DrawerHeader>

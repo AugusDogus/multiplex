@@ -51,8 +51,7 @@ export function SearchCommandModal({
   // Treat the debounce window as part of "searching" so we don't flash
   // "No results found" while the user is still typing.
   const isDebouncing = searchQuery !== debouncedQuery;
-  const isSearching =
-    searchQuery.length > 0 && (isDebouncing || isLoading);
+  const isSearching = searchQuery.length > 0 && (isDebouncing || isLoading);
 
   // Reset search query when modal is closed
   React.useEffect(() => {
