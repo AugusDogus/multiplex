@@ -137,6 +137,7 @@ export const MediaPlayerVideo = forwardRef<
     const volume = useMediaPlayerStore((state) => state.volume);
     const isMuted = useMediaPlayerStore((state) => state.isMuted);
     const currentTime = useMediaPlayerStore((state) => state.currentTime);
+    const playbackRate = useMediaPlayerStore((state) => state.playbackRate);
     const streamOffset = useMediaPlayerStore((state) => state.streamOffset);
     const { updatePlaybackState } = useMediaPlayerStore();
     const videoElementRef = useRef<HTMLVideoElement | null>(null);
@@ -217,8 +218,17 @@ export const MediaPlayerVideo = forwardRef<
         );
         ref.current.volume = volume;
         ref.current.muted = isMuted;
+        ref.current.playbackRate = playbackRate;
       }
-    }, [ref, updatePlaybackState, currentTime, streamOffset, volume, isMuted]);
+    }, [
+      ref,
+      updatePlaybackState,
+      currentTime,
+      streamOffset,
+      volume,
+      isMuted,
+      playbackRate,
+    ]);
 
     // Handle video play event
     const handlePlay = useCallback(() => {
@@ -423,6 +433,11 @@ export const MediaPlayerVideo = forwardRef<
       },
       [ref],
     );
+
+    useEffect(() => {
+      if (!videoElementRef.current) return;
+      videoElementRef.current.playbackRate = playbackRate;
+    }, [playbackRate]);
 
     // Wheel-to-volume on desktop. The listener lives on the surface div (not
     // the <video>, which has `pointer-events: none` to let the surface own

@@ -115,6 +115,10 @@ export function useAutoPlayNextEpisode() {
 
   // Auto-play logic - event-driven by video time
   useEffect(() => {
+    if (!autoPlay.isEnabled) {
+      return;
+    }
+
     // Don't trigger if no next episode found
     if (!nextEpisode) {
       return;
@@ -156,6 +160,7 @@ export function useAutoPlayNextEpisode() {
     currentTime,
     duration,
     nextEpisode,
+    autoPlay.isEnabled,
     autoPlay.isCountingDown,
     startAutoPlayCountdown,
     triggerAutoPlay,

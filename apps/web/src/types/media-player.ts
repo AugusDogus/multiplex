@@ -18,6 +18,8 @@ export type MediaPlayerItem = ContinueWatchingItem & {
   authToken: string;
 };
 
+export type PlaybackRate = 0.5 | 0.75 | 1 | 1.25 | 1.5 | 1.75 | 2;
+
 /**
  * Next episode information for auto-play
  */
@@ -53,6 +55,7 @@ export interface MediaPlayerState {
   currentTime: number;
   duration: number;
   bufferedTime: number;
+  playbackRate: PlaybackRate;
   /**
    * Seconds of the original timeline that map to `video.currentTime = 0` for
    * the currently loaded stream. Only non-zero for Plex transcoded streams,

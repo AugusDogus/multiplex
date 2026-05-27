@@ -5,6 +5,7 @@ import type {
   MediaPlayerItem,
   MediaPlayerState,
   NextEpisodeInfo,
+  PlaybackRate,
 } from "~/types/media-player";
 import { useProgressStore } from "./progress-store";
 
@@ -18,6 +19,7 @@ interface MediaPlayerStore extends MediaPlayerState {
   updateCurrentTime: (time: number) => void;
   updateDuration: (duration: number) => void;
   updateBufferedTime: (bufferedTime: number) => void;
+  setPlaybackRate: (playbackRate: PlaybackRate) => void;
 
   // Audio actions
   setVolume: (volume: number) => void;
@@ -30,6 +32,7 @@ interface MediaPlayerStore extends MediaPlayerState {
 
   // Auto-play actions
   startAutoPlayCountdown: (nextEpisode: NextEpisodeInfo) => void;
+  setAutoPlayEnabled: (isEnabled: boolean) => void;
   cancelAutoPlay: () => void;
   triggerAutoPlay: (nextEpisode: NextEpisodeInfo) => void;
   updateCountdownSeconds: (seconds: number) => void;
@@ -60,6 +63,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
         currentTime: 0,
         duration: 0,
         bufferedTime: 0,
+        playbackRate: 1,
         streamOffset: 0,
         volume: 1,
         isMuted: false,
@@ -71,7 +75,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
         canPlay: false,
         isBuffering: false,
         autoPlay: {
-          isEnabled: false,
+          isEnabled: true,
           isCountingDown: false,
           countdownSeconds: 0,
           nextEpisode: null,
@@ -137,7 +141,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
             isBuffering: false,
             controlsTimeout: null,
             autoPlay: {
-              isEnabled: false,
+              isEnabled: state.autoPlay.isEnabled,
               isCountingDown: false,
               countdownSeconds: 0,
               nextEpisode: null,
@@ -152,6 +156,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
         updateCurrentTime: (time) => set({ currentTime: time }),
         updateDuration: (duration) => set({ duration }),
         updateBufferedTime: (bufferedTime) => set({ bufferedTime }),
+        setPlaybackRate: (playbackRate) => set({ playbackRate }),
 
         setVolume: (volume) => set({ volume }),
         toggleMute: () => set((state) => ({ isMuted: !state.isMuted })),
@@ -184,10 +189,21 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
           set((state) => ({
             autoPlay: {
               ...state.autoPlay,
-              isEnabled: true,
               isCountingDown: true,
               countdownSeconds: 5,
               nextEpisode,
+            },
+          }));
+        },
+
+        setAutoPlayEnabled: (isEnabled) => {
+          set((state) => ({
+            autoPlay: {
+              ...state.autoPlay,
+              isEnabled,
+              isCountingDown: isEnabled ? state.autoPlay.isCountingDown : false,
+              countdownSeconds: isEnabled ? state.autoPlay.countdownSeconds : 0,
+              nextEpisode: isEnabled ? state.autoPlay.nextEpisode : null,
             },
           }));
         },
@@ -196,7 +212,6 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
           set((state) => ({
             autoPlay: {
               ...state.autoPlay,
-              isEnabled: false,
               isCountingDown: false,
               countdownSeconds: 0,
               nextEpisode: null,
@@ -296,6 +311,13 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
         partialize: (state) => ({
           volume: state.volume,
           isMuted: state.isMuted,
+          playbackRate: state.playbackRate,
+          autoPlay: {
+            isEnabled: state.autoPlay.isEnabled,
+            isCountingDown: false,
+            countdownSeconds: 0,
+            nextEpisode: null,
+          },
         }),
       },
     ),
