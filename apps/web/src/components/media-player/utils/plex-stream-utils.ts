@@ -153,7 +153,7 @@ function buildDirectStreamUrl(
   serverUrl: string,
   authToken: string,
   offsetSeconds: number,
-  selectedSubtitleStreamId: number | null,
+  selectedSubtitleStreamIndex: number | null,
 ): string {
   const baseUrl = getBaseServerUrl(serverUrl);
   const streamUrl = new URL(`${baseUrl}/video/:/transcode/universal/start.mp4`);
@@ -161,14 +161,14 @@ function buildDirectStreamUrl(
 
   applyClientHeaders(streamUrl, authToken);
   applyUniversalTranscodeParams(streamUrl, item, "http", session);
-  if (selectedSubtitleStreamId === null) {
+  if (selectedSubtitleStreamIndex === null) {
     streamUrl.searchParams.set("subtitles", "none");
   } else {
     streamUrl.searchParams.set("directStream", "0");
     streamUrl.searchParams.set("subtitles", "burn");
     streamUrl.searchParams.set(
       "subtitleStreamID",
-      String(selectedSubtitleStreamId),
+      String(selectedSubtitleStreamIndex),
     );
   }
   // Plex's transcoded MP4 stream advertises an empty seekable range, so the
@@ -220,21 +220,21 @@ export function generatePlexStreamUrl(
   serverUrl: string,
   authToken: string,
   offsetSeconds = 0,
-  selectedSubtitleStreamId: number | null = null,
+  selectedSubtitleStreamIndex: number | null = null,
 ): string {
   if (!item.Media?.[0]?.Part?.[0]?.key) {
     throw new Error("No media part key found for item");
   }
 
   const decision = decideStreamMode(item);
-  return decision === "direct-play" && selectedSubtitleStreamId === null
+  return decision === "direct-play" && selectedSubtitleStreamIndex === null
     ? buildDirectPlayUrl(item, serverUrl, authToken)
     : buildDirectStreamUrl(
         item,
         serverUrl,
         authToken,
         offsetSeconds,
-        selectedSubtitleStreamId,
+        selectedSubtitleStreamIndex,
       );
 }
 

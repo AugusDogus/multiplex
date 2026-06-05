@@ -20,7 +20,10 @@ interface MediaPlayerStore extends MediaPlayerState {
   updateDuration: (duration: number) => void;
   updateBufferedTime: (bufferedTime: number) => void;
   setPlaybackRate: (playbackRate: PlaybackRate) => void;
-  setSelectedSubtitleStreamId: (streamId: number | null) => void;
+  setSelectedSubtitleStreamId: (
+    streamId: number | null,
+    streamIndex?: number | null,
+  ) => void;
 
   // Audio actions
   setVolume: (volume: number) => void;
@@ -66,6 +69,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
         bufferedTime: 0,
         playbackRate: 1,
         selectedSubtitleStreamId: null,
+        selectedSubtitleStreamIndex: null,
         streamOffset: 0,
         volume: 1,
         isMuted: false,
@@ -116,6 +120,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
             duration: 0,
             bufferedTime: 0,
             selectedSubtitleStreamId: null,
+            selectedSubtitleStreamIndex: null,
             canPlay: false,
             isBuffering: false,
           });
@@ -138,6 +143,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
             duration: 0,
             bufferedTime: 0,
             selectedSubtitleStreamId: null,
+            selectedSubtitleStreamIndex: null,
             streamOffset: 0,
             isLoading: false,
             error: null,
@@ -161,8 +167,11 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
         updateDuration: (duration) => set({ duration }),
         updateBufferedTime: (bufferedTime) => set({ bufferedTime }),
         setPlaybackRate: (playbackRate) => set({ playbackRate }),
-        setSelectedSubtitleStreamId: (streamId) =>
-          set({ selectedSubtitleStreamId: streamId }),
+        setSelectedSubtitleStreamId: (streamId, streamIndex = null) =>
+          set({
+            selectedSubtitleStreamId: streamId,
+            selectedSubtitleStreamIndex: streamIndex,
+          }),
 
         setVolume: (volume) => set({ volume }),
         toggleMute: () => set((state) => ({ isMuted: !state.isMuted })),

@@ -57,6 +57,7 @@ export interface MediaPlayerState {
   bufferedTime: number;
   playbackRate: PlaybackRate;
   selectedSubtitleStreamId: number | null;
+  selectedSubtitleStreamIndex: number | null;
   /**
    * Seconds of the original timeline that map to `video.currentTime = 0` for
    * the currently loaded stream. Only non-zero for Plex transcoded streams,

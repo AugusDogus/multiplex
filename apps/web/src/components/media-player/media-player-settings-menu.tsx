@@ -136,7 +136,10 @@ export function MediaPlayerSettingsMenu({
         throw new Error(`Plex returned ${response.status}`);
       }
 
-      setSelectedSubtitleStreamId(streamId);
+      setSelectedSubtitleStreamId(
+        streamId,
+        subtitleStreams.find((stream) => stream.id === streamId)?.index ?? null,
+      );
       updatePlaybackState({
         streamOffset:
           decideStreamMode(currentItem) === "direct-stream" || streamId !== null
