@@ -138,8 +138,8 @@ export const MediaPlayerVideo = forwardRef<
     const isMuted = useMediaPlayerStore((state) => state.isMuted);
     const currentTime = useMediaPlayerStore((state) => state.currentTime);
     const playbackRate = useMediaPlayerStore((state) => state.playbackRate);
-    const selectedSubtitleStreamId = useMediaPlayerStore(
-      (state) => state.selectedSubtitleStreamId,
+    const selectedSubtitleStreamIndex = useMediaPlayerStore(
+      (state) => state.selectedSubtitleStreamIndex,
     );
     const streamOffset = useMediaPlayerStore((state) => state.streamOffset);
     const { updatePlaybackState } = useMediaPlayerStore();
@@ -182,7 +182,7 @@ export const MediaPlayerVideo = forwardRef<
           item.serverUrl,
           item.authToken,
           streamOffset,
-          selectedSubtitleStreamId,
+          selectedSubtitleStreamIndex,
         );
         return { videoSrc: streamUrl, hasError: false };
       } catch (error) {
@@ -192,7 +192,7 @@ export const MediaPlayerVideo = forwardRef<
         );
         return { videoSrc: "", hasError: true };
       }
-    }, [item, selectedSubtitleStreamId, streamOffset]);
+    }, [item, selectedSubtitleStreamIndex, streamOffset]);
 
     // Handle video metadata loaded
     const handleLoadedMetadata = useCallback(() => {
