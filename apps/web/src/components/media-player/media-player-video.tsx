@@ -16,7 +16,6 @@ import { useMediaPlayerStore } from "~/stores/media-player-store";
 import type { MediaPlayerItem } from "~/types/media-player";
 import { getVideoElementError } from "./utils/media-player-utils";
 import {
-  generatePlexSubtitleTrackUrl,
   generatePlexStreamUrl,
   hasValidStreamingData,
 } from "./utils/plex-stream-utils";
@@ -183,6 +182,7 @@ export const MediaPlayerVideo = forwardRef<
           item.serverUrl,
           item.authToken,
           streamOffset,
+          selectedSubtitleStreamId,
         );
         return { videoSrc: streamUrl, hasError: false };
       } catch (error) {
@@ -192,28 +192,7 @@ export const MediaPlayerVideo = forwardRef<
         );
         return { videoSrc: "", hasError: true };
       }
-    }, [item, streamOffset]);
-
-    const subtitleTrackSrc = useMemo(() => {
-      if (!selectedSubtitleStreamId || !hasValidStreamingData(item)) {
-        return null;
-      }
-
-      try {
-        return generatePlexSubtitleTrackUrl(
-          item,
-          item.serverUrl,
-          item.authToken,
-          selectedSubtitleStreamId,
-        );
-      } catch (error) {
-        console.error(
-          "Failed to generate subtitle URL:",
-          error instanceof Error ? error.message : error,
-        );
-        return null;
-      }
-    }, [item, selectedSubtitleStreamId]);
+    }, [item, selectedSubtitleStreamId, streamOffset]);
 
     // Handle video metadata loaded
     const handleLoadedMetadata = useCallback(() => {
@@ -464,19 +443,6 @@ export const MediaPlayerVideo = forwardRef<
       videoElementRef.current.playbackRate = playbackRate;
     }, [playbackRate]);
 
-    const syncSubtitleTrackMode = useCallback(() => {
-      const video = videoElementRef.current;
-      if (!video) return;
-
-      for (const track of video.textTracks) {
-        track.mode = selectedSubtitleStreamId ? "showing" : "disabled";
-      }
-    }, [selectedSubtitleStreamId]);
-
-    useEffect(() => {
-      syncSubtitleTrackMode();
-    }, [syncSubtitleTrackMode, subtitleTrackSrc]);
-
     // Wheel-to-volume on desktop. The listener lives on the surface div (not
     // the <video>, which has `pointer-events: none` to let the surface own
     // pointer interactions). Attached imperatively because React's onWheel
@@ -594,18 +560,7 @@ export const MediaPlayerVideo = forwardRef<
           playsInline
           crossOrigin="anonymous"
           disableRemotePlayback
-        >
-          {subtitleTrackSrc && (
-            <track
-              key={subtitleTrackSrc}
-              kind="subtitles"
-              src={subtitleTrackSrc}
-              label="Subtitles"
-              onLoad={syncSubtitleTrackMode}
-              default
-            />
-          )}
-        </video>
+        />
 
         {isHoldingFastForward && (
           <div
