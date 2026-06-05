@@ -129,6 +129,11 @@ const AudioStream = BaseStream.extend({
 
 const SubtitleStream = BaseStream.extend({
   streamType: z.literal(3),
+  // External subtitle streams from Plex can be selectable by `id` while
+  // omitting `index`; don't reject the full metadata response for those.
+  index: z.number().optional(),
+  key: z.string().optional(),
+  format: z.string().optional(),
   selected: z.boolean().optional(),
   canAutoSync: z.boolean().optional(),
   default: z.boolean().optional(),

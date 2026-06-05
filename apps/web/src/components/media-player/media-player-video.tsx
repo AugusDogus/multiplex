@@ -14,14 +14,15 @@ import type { MouseEvent, PointerEvent, RefObject } from "react";
 import { cn } from "~/lib/utils";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import type { MediaPlayerItem } from "~/types/media-player";
+import { usePlexSubtitleTrack } from "./hooks/use-plex-subtitle-track";
+import { useSeekOverlay } from "./hooks/use-seek-overlay";
 import { getVideoElementError } from "./utils/media-player-utils";
 import {
+  buildPlexPlaybackPlan,
   generatePlexStreamUrl,
-  getSelectedSubtitleStreamIndex,
   hasValidStreamingData,
   transcodeUsesOffsetTimeline,
 } from "./utils/plex-stream-utils";
-import { useSeekOverlay } from "./hooks/use-seek-overlay";
 import { useSuppressNativeLongPress } from "./hooks/use-suppress-native-long-press";
 import { useVideoPressGesture } from "./hooks/use-video-press-gesture";
 import { MediaPlayerSeekOverlay } from "./media-player-seek-overlay";
@@ -141,13 +142,19 @@ export const MediaPlayerVideo = forwardRef<
     const currentTime = useMediaPlayerStore((state) => state.currentTime);
     const playbackRate = useMediaPlayerStore((state) => state.playbackRate);
     const streamOffset = useMediaPlayerStore((state) => state.streamOffset);
-    const selectedSubtitleStreamIndex = getSelectedSubtitleStreamIndex(item);
+    const playbackPlan = useMemo(() => buildPlexPlaybackPlan(item), [item]);
     const usesOffsetTimeline = transcodeUsesOffsetTimeline(item, streamOffset);
     const isLoading = useMediaPlayerStore((state) => state.isLoading);
     const { updatePlaybackState } = useMediaPlayerStore();
     const videoElementRef = useRef<HTMLVideoElement | null>(null);
     const pendingResumeTimeRef = useRef<number | null>(null);
     const surfaceElementRef = useRef<HTMLDivElement | null>(null);
+    const { plexSubtitleTrackSrc, handlePlexTrackLoad } = usePlexSubtitleTrack(
+      videoElementRef,
+      item,
+      playbackPlan,
+      usesOffsetTimeline ? streamOffset : 0,
+    );
     const {
       overlay: seekOverlay,
       showOverlay: showSeekOverlay,
@@ -185,7 +192,7 @@ export const MediaPlayerVideo = forwardRef<
           item.serverUrl,
           item.authToken,
           streamOffset,
-          selectedSubtitleStreamIndex,
+          playbackPlan.burnedSubtitleIndex,
         );
         return { videoSrc: streamUrl, hasError: false };
       } catch (error) {
@@ -195,7 +202,7 @@ export const MediaPlayerVideo = forwardRef<
         );
         return { videoSrc: "", hasError: true };
       }
-    }, [item, streamOffset, selectedSubtitleStreamIndex]);
+    }, [item, playbackPlan.burnedSubtitleIndex, streamOffset]);
 
     // Handle video metadata loaded
     const handleLoadedMetadata = useCallback(() => {
@@ -205,7 +212,7 @@ export const MediaPlayerVideo = forwardRef<
         // Plex's transcoded MP4 with `offset` already reports the full
         // original duration (its `currentTime` advances from 0 up to
         // `originalDuration - offset`), so we just take the raw duration.
-        const startTime = currentTime;
+        const startTime = pendingResumeTimeRef.current ?? currentTime;
         const needsResumeSeek = !usesOffsetTimeline && startTime > 0;
 
         updatePlaybackState({
@@ -297,10 +304,19 @@ export const MediaPlayerVideo = forwardRef<
     // Handle seeked events
     const handleSeeked = useCallback(() => {
       if (ref && "current" in ref && ref.current) {
+        const pendingResumeTime = pendingResumeTimeRef.current;
+        if (
+          pendingResumeTime !== null &&
+          !usesOffsetTimeline &&
+          Math.abs(ref.current.currentTime - pendingResumeTime) >= 0.5
+        ) {
+          return;
+        }
+
         const effectiveTime = usesOffsetTimeline
           ? streamOffset + ref.current.currentTime
           : ref.current.currentTime;
-        if (pendingResumeTimeRef.current !== null) {
+        if (pendingResumeTime !== null) {
           pendingResumeTimeRef.current = null;
         }
         updatePlaybackState({
@@ -340,12 +356,16 @@ export const MediaPlayerVideo = forwardRef<
 
     // Handle load start event
     const handleLoadStart = useCallback(() => {
+      if (!usesOffsetTimeline && currentTime > 0) {
+        pendingResumeTimeRef.current = currentTime;
+      }
+
       updatePlaybackState({
         isLoading: true,
         error: null,
         canPlay: false,
       });
-    }, [updatePlaybackState]);
+    }, [currentTime, updatePlaybackState, usesOffsetTimeline]);
 
     // Handle loaded data event
     const handleLoadedData = useCallback(() => {
@@ -604,7 +624,18 @@ export const MediaPlayerVideo = forwardRef<
           playsInline
           crossOrigin="anonymous"
           disableRemotePlayback
-        />
+        >
+          {plexSubtitleTrackSrc && (
+            <track
+              key={plexSubtitleTrackSrc}
+              kind="subtitles"
+              src={plexSubtitleTrackSrc}
+              label="Multiplex Plex"
+              onLoad={handlePlexTrackLoad}
+              default
+            />
+          )}
+        </video>
 
         {isHoldingFastForward && (
           <div

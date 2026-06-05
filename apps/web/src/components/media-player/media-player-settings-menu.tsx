@@ -57,12 +57,8 @@ export function MediaPlayerSettingsMenu({
   const autoPlayEnabled = useMediaPlayerStore(
     (state) => state.autoPlay.isEnabled,
   );
-  const {
-    setAutoPlayEnabled,
-    setPlaybackRate,
-    hydrateCurrentItemMetadata,
-    updatePlaybackState,
-  } = useMediaPlayerStore();
+  const { setAutoPlayEnabled, setPlaybackRate, applyPlaybackMetadata } =
+    useMediaPlayerStore();
 
   const [open, setOpen] = useState(false);
   const [pane, setPane] = useState<Pane>("root");
@@ -103,8 +99,8 @@ export function MediaPlayerSettingsMenu({
     if (!detailedItem) return;
     const item = useMediaPlayerStore.getState().currentItem;
     if (!item || item.ratingKey !== detailedItem.ratingKey) return;
-    hydrateCurrentItemMetadata(detailedItem);
-  }, [detailedItem, hydrateCurrentItemMetadata]);
+    applyPlaybackMetadata(detailedItem);
+  }, [detailedItem, applyPlaybackMetadata]);
 
   const streamSource: StreamSource = detailedItem ?? currentItem;
   const qualityLabel = getQualityLabel(streamSource);
@@ -122,7 +118,9 @@ export function MediaPlayerSettingsMenu({
     : "Unavailable";
 
   const handleSubtitleSelection = async (streamId: number | null) => {
-    if (!currentItem) return;
+    if (!currentItem) {
+      return;
+    }
 
     if (streamId === selectedSubtitleStreamId) {
       setPane("root");
@@ -145,21 +143,15 @@ export function MediaPlayerSettingsMenu({
         throw new Error(`Plex returned ${response.status}`);
       }
 
+      const previousUsesTranscode = playbackUsesTranscode(currentItem);
       const refreshed = await refetchDetailedItem();
       if (refreshed.data) {
-        hydrateCurrentItemMetadata(refreshed.data);
+        applyPlaybackMetadata(refreshed.data, {
+          preserveCurrentTime: currentTime,
+          reloadVideo: true,
+          previousVideoUsesTranscode: previousUsesTranscode,
+        });
       }
-
-      const hydratedItem = useMediaPlayerStore.getState().currentItem;
-      if (!hydratedItem) return;
-
-      const usesTranscode = playbackUsesTranscode(hydratedItem);
-      updatePlaybackState({
-        currentTime,
-        streamOffset: usesTranscode && currentTime > 0 ? currentTime : 0,
-        isLoading: true,
-        canPlay: false,
-      });
       setPane("root");
     } catch (error) {
       console.error(
