@@ -175,7 +175,10 @@ function buildDirectStreamUrl(
   // browser silently rejects any video.currentTime change. To seek, we ask
   // the transcoder to restart from `offset` seconds; the new stream's t=0
   // corresponds to `offset` seconds in the original timeline.
-  if (offsetSeconds > 0) {
+  // Plex burns text subtitles against the original timeline. Offseted burn-in
+  // streams play video correctly but miss subtitle cues, so selected subtitles
+  // intentionally start the burn-in transcode from the beginning.
+  if (offsetSeconds > 0 && selectedSubtitleStreamIndex === null) {
     streamUrl.searchParams.set("offset", String(Math.floor(offsetSeconds)));
   }
   applyUniversalTranscodeProfile(streamUrl, "http");
