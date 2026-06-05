@@ -141,8 +141,9 @@ export function MediaPlayerSettingsMenu({
         subtitleStreams.find((stream) => stream.id === streamId)?.index ?? null,
       );
       updatePlaybackState({
+        currentTime: streamId === null ? currentTime : 0,
         streamOffset:
-          decideStreamMode(currentItem) === "direct-stream" || streamId !== null
+          streamId === null && decideStreamMode(currentItem) === "direct-stream"
             ? currentTime
             : 0,
       });
