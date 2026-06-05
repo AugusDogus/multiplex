@@ -183,7 +183,6 @@ export const MediaPlayerVideo = forwardRef<
           item.serverUrl,
           item.authToken,
           streamOffset,
-          selectedSubtitleStreamId,
         );
         return { videoSrc: streamUrl, hasError: false };
       } catch (error) {
@@ -193,7 +192,7 @@ export const MediaPlayerVideo = forwardRef<
         );
         return { videoSrc: "", hasError: true };
       }
-    }, [item, selectedSubtitleStreamId, streamOffset]);
+    }, [item, streamOffset]);
 
     const subtitleTrackSrc = useMemo(() => {
       if (!selectedSubtitleStreamId || !hasValidStreamingData(item)) {
@@ -465,14 +464,18 @@ export const MediaPlayerVideo = forwardRef<
       videoElementRef.current.playbackRate = playbackRate;
     }, [playbackRate]);
 
-    useEffect(() => {
+    const syncSubtitleTrackMode = useCallback(() => {
       const video = videoElementRef.current;
       if (!video) return;
 
       for (const track of video.textTracks) {
         track.mode = selectedSubtitleStreamId ? "showing" : "disabled";
       }
-    }, [selectedSubtitleStreamId, subtitleTrackSrc]);
+    }, [selectedSubtitleStreamId]);
+
+    useEffect(() => {
+      syncSubtitleTrackMode();
+    }, [syncSubtitleTrackMode, subtitleTrackSrc]);
 
     // Wheel-to-volume on desktop. The listener lives on the surface div (not
     // the <video>, which has `pointer-events: none` to let the surface own
@@ -584,6 +587,7 @@ export const MediaPlayerVideo = forwardRef<
               kind="subtitles"
               src={subtitleTrackSrc}
               label="Subtitles"
+              onLoad={syncSubtitleTrackMode}
               default
             />
           )}

@@ -91,13 +91,15 @@ function applyUniversalTranscodeProfile(
   // and we want any other audio re-encoded to AAC.
   url.searchParams.set(
     "X-Plex-Client-Profile-Extra",
-    [
-      "add-direct-play(type=videoProfile&container=mp4&videoCodec=h264&audioCodec=aac)",
-      "add-direct-play(type=videoProfile&container=mp4&videoCodec=h264&audioCodec=mp3)",
-      `add-transcode-target(type=videoProfile&context=streaming&protocol=${protocol}&container=mp4&videoCodec=h264&audioCodec=aac)`,
-      "add-direct-stream-audio-codec(type=videoProfile&audioCodec=aac)",
-      "add-direct-stream-audio-codec(type=videoProfile&audioCodec=mp3)",
-    ].join("+"),
+    protocol === "dash"
+      ? "append-transcode-target-codec(type=videoProfile&context=streaming&videoCodec=h264&audioCodec=aac&protocol=dash)"
+      : [
+          "add-direct-play(type=videoProfile&container=mp4&videoCodec=h264&audioCodec=aac)",
+          "add-direct-play(type=videoProfile&container=mp4&videoCodec=h264&audioCodec=mp3)",
+          "add-transcode-target(type=videoProfile&context=streaming&protocol=http&container=mp4&videoCodec=h264&audioCodec=aac)",
+          "add-direct-stream-audio-codec(type=videoProfile&audioCodec=aac)",
+          "add-direct-stream-audio-codec(type=videoProfile&audioCodec=mp3)",
+        ].join("+"),
   );
 }
 
@@ -151,7 +153,6 @@ function buildDirectStreamUrl(
   serverUrl: string,
   authToken: string,
   offsetSeconds: number,
-  selectedSubtitleStreamId: number | null,
 ): string {
   const baseUrl = getBaseServerUrl(serverUrl);
   const streamUrl = new URL(`${baseUrl}/video/:/transcode/universal/start.mp4`);
@@ -159,10 +160,6 @@ function buildDirectStreamUrl(
 
   applyClientHeaders(streamUrl, authToken);
   applyUniversalTranscodeParams(streamUrl, item, "http", session);
-  streamUrl.searchParams.set(
-    "subtitles",
-    selectedSubtitleStreamId === null ? "none" : "auto",
-  );
   // Plex's transcoded MP4 stream advertises an empty seekable range, so the
   // browser silently rejects any video.currentTime change. To seek, we ask
   // the transcoder to restart from `offset` seconds; the new stream's t=0
@@ -233,7 +230,6 @@ export function generatePlexStreamUrl(
   serverUrl: string,
   authToken: string,
   offsetSeconds = 0,
-  selectedSubtitleStreamId: number | null = null,
 ): string {
   if (!item.Media?.[0]?.Part?.[0]?.key) {
     throw new Error("No media part key found for item");
@@ -242,13 +238,7 @@ export function generatePlexStreamUrl(
   const decision = decideStreamMode(item);
   return decision === "direct-play"
     ? buildDirectPlayUrl(item, serverUrl, authToken)
-    : buildDirectStreamUrl(
-        item,
-        serverUrl,
-        authToken,
-        offsetSeconds,
-        selectedSubtitleStreamId,
-      );
+    : buildDirectStreamUrl(item, serverUrl, authToken, offsetSeconds);
 }
 
 /**
