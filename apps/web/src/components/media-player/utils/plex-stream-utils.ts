@@ -160,6 +160,7 @@ function buildDirectStreamUrl(
 
   applyClientHeaders(streamUrl, authToken);
   applyUniversalTranscodeParams(streamUrl, item, "http", session);
+  streamUrl.searchParams.set("subtitles", "none");
   // Plex's transcoded MP4 stream advertises an empty seekable range, so the
   // browser silently rejects any video.currentTime change. To seek, we ask
   // the transcoder to restart from `offset` seconds; the new stream's t=0
