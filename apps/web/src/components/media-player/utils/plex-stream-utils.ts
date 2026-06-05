@@ -106,6 +106,43 @@ function applyUniversalTranscodeProfile(
 export type StreamDecision = "direct-play" | "direct-stream";
 
 /**
+ * Returns the Plex subtitle stream marked `selected` in item metadata, if any.
+ */
+export function getSelectedSubtitleStream(
+  item: MediaPlayerItem,
+): { id: number; index: number } | null {
+  const streams = item.Media?.[0]?.Part?.[0]?.Stream ?? [];
+  const selected = streams.find(
+    (stream) => stream.streamType === 3 && stream.selected,
+  );
+  if (selected?.streamType !== 3) return null;
+  return { id: selected.id, index: selected.index };
+}
+
+/** Plex transcode URLs use `subtitleStreamID` with the stream's `index`. */
+export function getSelectedSubtitleStreamIndex(
+  item: MediaPlayerItem,
+): number | null {
+  return getSelectedSubtitleStream(item)?.index ?? null;
+}
+
+/** Whether the active transcode stream bakes `offset` into the URL. */
+export function transcodeUsesOffsetTimeline(
+  _item: MediaPlayerItem,
+  streamOffset: number,
+): boolean {
+  return streamOffset > 0;
+}
+
+/** True when playback must route through Plex's universal transcoder. */
+export function playbackUsesTranscode(
+  item: MediaPlayerItem,
+  hasSelectedSubtitle = getSelectedSubtitleStreamIndex(item) !== null,
+): boolean {
+  return decideStreamMode(item) === "direct-stream" || hasSelectedSubtitle;
+}
+
+/**
  * Decide whether the browser can direct-play the file or whether we need to
  * route through Plex's universal transcoder. When the audio codec isn't
  * browser-decodable but the video codec is, Plex direct-streams the video
@@ -175,10 +212,7 @@ function buildDirectStreamUrl(
   // browser silently rejects any video.currentTime change. To seek, we ask
   // the transcoder to restart from `offset` seconds; the new stream's t=0
   // corresponds to `offset` seconds in the original timeline.
-  // Plex burns text subtitles against the original timeline. Offseted burn-in
-  // streams play video correctly but miss subtitle cues, so selected subtitles
-  // intentionally start the burn-in transcode from the beginning.
-  if (offsetSeconds > 0 && selectedSubtitleStreamIndex === null) {
+  if (offsetSeconds > 0) {
     streamUrl.searchParams.set("offset", String(Math.floor(offsetSeconds)));
   }
   applyUniversalTranscodeProfile(streamUrl, "http");

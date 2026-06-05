@@ -14,7 +14,7 @@ import { api } from "~/trpc/react";
 import type { MediaPlayerItem, PlaybackRate } from "~/types/media-player";
 import {
   buildPlexSubtitleSelectionUrl,
-  decideStreamMode,
+  playbackUsesTranscode,
 } from "./utils/plex-stream-utils";
 
 /* ────────────────────────────────────────────────────────────
@@ -53,9 +53,6 @@ export function MediaPlayerSettingsMenu({
 }: MediaPlayerSettingsMenuProps) {
   const currentItem = useMediaPlayerStore((state) => state.currentItem);
   const playbackRate = useMediaPlayerStore((state) => state.playbackRate);
-  const selectedSubtitleStreamId = useMediaPlayerStore(
-    (state) => state.selectedSubtitleStreamId,
-  );
   const currentTime = useMediaPlayerStore((state) => state.currentTime);
   const autoPlayEnabled = useMediaPlayerStore(
     (state) => state.autoPlay.isEnabled,
@@ -63,7 +60,7 @@ export function MediaPlayerSettingsMenu({
   const {
     setAutoPlayEnabled,
     setPlaybackRate,
-    setSelectedSubtitleStreamId,
+    hydrateCurrentItemMetadata,
     updatePlaybackState,
   } = useMediaPlayerStore();
 
@@ -98,14 +95,26 @@ export function MediaPlayerSettingsMenu({
       },
     );
 
+  // Keep the store's `currentItem` hydrated with expanded stream metadata so
+  // playback and the settings menu share one canonical subtitle selection.
+  // Read `currentItem` inside the effect so hydrating the store does not
+  // retrigger this effect and cause an update loop.
+  useEffect(() => {
+    if (!detailedItem) return;
+    const item = useMediaPlayerStore.getState().currentItem;
+    if (!item || item.ratingKey !== detailedItem.ratingKey) return;
+    hydrateCurrentItemMetadata(detailedItem);
+  }, [detailedItem, hydrateCurrentItemMetadata]);
+
   const streamSource: StreamSource = detailedItem ?? currentItem;
   const qualityLabel = getQualityLabel(streamSource);
   const audioLabel = getAudioStreamLabel(streamSource);
   const subtitleStreams = getSubtitleStreams(streamSource);
   const hasSubtitles = subtitleStreams.length > 0;
   const selectedSubtitleStream = subtitleStreams.find(
-    (stream) => stream.id === selectedSubtitleStreamId,
+    (stream) => stream.selected,
   );
+  const selectedSubtitleStreamId = selectedSubtitleStream?.id ?? null;
   const subtitleLabel = hasSubtitles
     ? selectedSubtitleStream
       ? getStreamLabel(selectedSubtitleStream, "Subtitle")
@@ -136,18 +145,21 @@ export function MediaPlayerSettingsMenu({
         throw new Error(`Plex returned ${response.status}`);
       }
 
-      setSelectedSubtitleStreamId(
-        streamId,
-        subtitleStreams.find((stream) => stream.id === streamId)?.index ?? null,
-      );
+      const refreshed = await refetchDetailedItem();
+      if (refreshed.data) {
+        hydrateCurrentItemMetadata(refreshed.data);
+      }
+
+      const hydratedItem = useMediaPlayerStore.getState().currentItem;
+      if (!hydratedItem) return;
+
+      const usesTranscode = playbackUsesTranscode(hydratedItem);
       updatePlaybackState({
-        currentTime: streamId === null ? currentTime : 0,
-        streamOffset:
-          streamId === null && decideStreamMode(currentItem) === "direct-stream"
-            ? currentTime
-            : 0,
+        currentTime,
+        streamOffset: usesTranscode && currentTime > 0 ? currentTime : 0,
+        isLoading: true,
+        canPlay: false,
       });
-      void refetchDetailedItem();
       setPane("root");
     } catch (error) {
       console.error(

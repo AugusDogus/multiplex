@@ -17,7 +17,9 @@ import type { MediaPlayerItem } from "~/types/media-player";
 import { getVideoElementError } from "./utils/media-player-utils";
 import {
   generatePlexStreamUrl,
+  getSelectedSubtitleStreamIndex,
   hasValidStreamingData,
+  transcodeUsesOffsetTimeline,
 } from "./utils/plex-stream-utils";
 import { useSeekOverlay } from "./hooks/use-seek-overlay";
 import { useSuppressNativeLongPress } from "./hooks/use-suppress-native-long-press";
@@ -138,12 +140,13 @@ export const MediaPlayerVideo = forwardRef<
     const isMuted = useMediaPlayerStore((state) => state.isMuted);
     const currentTime = useMediaPlayerStore((state) => state.currentTime);
     const playbackRate = useMediaPlayerStore((state) => state.playbackRate);
-    const selectedSubtitleStreamIndex = useMediaPlayerStore(
-      (state) => state.selectedSubtitleStreamIndex,
-    );
     const streamOffset = useMediaPlayerStore((state) => state.streamOffset);
+    const selectedSubtitleStreamIndex = getSelectedSubtitleStreamIndex(item);
+    const usesOffsetTimeline = transcodeUsesOffsetTimeline(item, streamOffset);
+    const isLoading = useMediaPlayerStore((state) => state.isLoading);
     const { updatePlaybackState } = useMediaPlayerStore();
     const videoElementRef = useRef<HTMLVideoElement | null>(null);
+    const pendingResumeTimeRef = useRef<number | null>(null);
     const surfaceElementRef = useRef<HTMLDivElement | null>(null);
     const {
       overlay: seekOverlay,
@@ -192,7 +195,7 @@ export const MediaPlayerVideo = forwardRef<
         );
         return { videoSrc: "", hasError: true };
       }
-    }, [item, selectedSubtitleStreamIndex, streamOffset]);
+    }, [item, streamOffset, selectedSubtitleStreamIndex]);
 
     // Handle video metadata loaded
     const handleLoadedMetadata = useCallback(() => {
@@ -202,18 +205,21 @@ export const MediaPlayerVideo = forwardRef<
         // Plex's transcoded MP4 with `offset` already reports the full
         // original duration (its `currentTime` advances from 0 up to
         // `originalDuration - offset`), so we just take the raw duration.
+        const startTime = currentTime;
+        const needsResumeSeek = !usesOffsetTimeline && startTime > 0;
+
         updatePlaybackState({
           duration: ref.current.duration,
           canPlay: true,
-          isLoading: false,
+          isLoading: needsResumeSeek,
         });
 
         // Only apply the resume position when the stream isn't offset-based.
         // For transcoded streams the offset is baked into the URL, so the
         // playhead is already at the right place (and seeking is rejected).
-        const startTime = currentTime;
-        if (streamOffset === 0 && startTime > 0) {
+        if (needsResumeSeek) {
           console.log(`🎬 Video: Setting start time to ${startTime}s`);
+          pendingResumeTimeRef.current = startTime;
           ref.current.currentTime = startTime;
         }
 
@@ -228,7 +234,7 @@ export const MediaPlayerVideo = forwardRef<
       ref,
       updatePlaybackState,
       currentTime,
-      streamOffset,
+      usesOffsetTimeline,
       volume,
       isMuted,
       playbackRate,
@@ -255,22 +261,56 @@ export const MediaPlayerVideo = forwardRef<
     // Handle time update events
     const handleTimeUpdate = useCallback(() => {
       if (ref && "current" in ref && ref.current) {
+        const pendingResumeTime = pendingResumeTimeRef.current;
+        if (pendingResumeTime !== null) {
+          if (Math.abs(ref.current.currentTime - pendingResumeTime) < 0.5) {
+            pendingResumeTimeRef.current = null;
+            updatePlaybackState({
+              isLoading: false,
+              currentTime: ref.current.currentTime,
+            });
+          }
+          return;
+        }
+      }
+
+      if (isLoading) return;
+
+      if (ref && "current" in ref && ref.current) {
         // Map the local stream time back to the original timeline. For
         // direct-play streamOffset is 0, so this is a no-op.
-        const effectiveTime = streamOffset + ref.current.currentTime;
+        const effectiveTime = usesOffsetTimeline
+          ? streamOffset + ref.current.currentTime
+          : ref.current.currentTime;
         updatePlaybackState({ currentTime: effectiveTime });
         onVideoTimeUpdate?.(effectiveTime);
       }
-    }, [ref, streamOffset, updatePlaybackState, onVideoTimeUpdate]);
+    }, [
+      ref,
+      isLoading,
+      streamOffset,
+      updatePlaybackState,
+      onVideoTimeUpdate,
+      usesOffsetTimeline,
+    ]);
 
     // Handle seeked events
     const handleSeeked = useCallback(() => {
       if (ref && "current" in ref && ref.current) {
-        const effectiveTime = streamOffset + ref.current.currentTime;
-        updatePlaybackState({ isBuffering: false });
+        const effectiveTime = usesOffsetTimeline
+          ? streamOffset + ref.current.currentTime
+          : ref.current.currentTime;
+        if (pendingResumeTimeRef.current !== null) {
+          pendingResumeTimeRef.current = null;
+        }
+        updatePlaybackState({
+          isBuffering: false,
+          isLoading: false,
+          currentTime: effectiveTime,
+        });
         onVideoSeeked?.(effectiveTime);
       }
-    }, [ref, streamOffset, updatePlaybackState, onVideoSeeked]);
+    }, [ref, streamOffset, updatePlaybackState, onVideoSeeked, usesOffsetTimeline]);
 
     // Handle seeking event
     const handleSeeking = useCallback(() => {
@@ -289,6 +329,8 @@ export const MediaPlayerVideo = forwardRef<
 
     // Handle can play through event
     const handleCanPlayThrough = useCallback(() => {
+      if (pendingResumeTimeRef.current !== null) return;
+
       updatePlaybackState({
         isBuffering: false,
         canPlay: true,
@@ -307,6 +349,8 @@ export const MediaPlayerVideo = forwardRef<
 
     // Handle loaded data event
     const handleLoadedData = useCallback(() => {
+      if (pendingResumeTimeRef.current !== null) return;
+
       updatePlaybackState({
         isLoading: false,
         canPlay: true,
@@ -474,7 +518,7 @@ export const MediaPlayerVideo = forwardRef<
      */
     const handleVideoError = useCallback(() => {
       if (ref && "current" in ref && ref.current?.error) {
-        if (streamOffset > 0) {
+        if (usesOffsetTimeline) {
           console.warn(
             "Transcoded stream failed at offset; retrying from beginning",
           );
@@ -495,7 +539,7 @@ export const MediaPlayerVideo = forwardRef<
           isBuffering: false,
         });
       }
-    }, [ref, streamOffset, updatePlaybackState]);
+    }, [ref, updatePlaybackState, usesOffsetTimeline]);
 
     if (hasError || !videoSrc) {
       return (
