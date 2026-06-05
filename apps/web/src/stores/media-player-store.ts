@@ -1,7 +1,10 @@
 import type { ItemMetadata } from "@multiplex/plex-query";
 import { create } from "zustand";
 import { devtools, persist } from "zustand/middleware";
-import { playbackUsesTranscode } from "~/components/media-player/utils/plex-stream-utils";
+import {
+  buildPlexPlaybackPlan,
+  playbackUsesTranscode,
+} from "~/components/media-player/utils/plex-stream-utils";
 import type {
   MediaPlayerItem,
   MediaPlayerState,
@@ -21,7 +24,14 @@ interface MediaPlayerStore extends MediaPlayerState {
   updateDuration: (duration: number) => void;
   updateBufferedTime: (bufferedTime: number) => void;
   setPlaybackRate: (playbackRate: PlaybackRate) => void;
-  hydrateCurrentItemMetadata: (metadata: ItemMetadata) => void;
+  applyPlaybackMetadata: (
+    metadata: ItemMetadata,
+    options?: {
+      preserveCurrentTime?: number;
+      reloadVideo?: boolean;
+      previousVideoUsesTranscode?: boolean;
+    },
+  ) => void;
 
   // Audio actions
   setVolume: (volume: number) => void;
@@ -159,7 +169,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
         updateDuration: (duration) => set({ duration }),
         updateBufferedTime: (bufferedTime) => set({ bufferedTime }),
         setPlaybackRate: (playbackRate) => set({ playbackRate }),
-        hydrateCurrentItemMetadata: (metadata) => {
+        applyPlaybackMetadata: (metadata, options) => {
           const state = get();
           if (
             !state.currentItem ||
@@ -172,6 +182,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
             state.currentItem.Media?.[0]?.Part?.[0]?.Stream;
           const nextStreams = metadata.Media?.[0]?.Part?.[0]?.Stream;
           if (
+            !options?.reloadVideo &&
             currentStreams &&
             nextStreams &&
             JSON.stringify(currentStreams) === JSON.stringify(nextStreams)
@@ -179,14 +190,48 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
             return;
           }
 
+          const hydratedItem: MediaPlayerItem = {
+            ...state.currentItem,
+            ...metadata,
+            serverUrl: state.currentItem.serverUrl,
+            authToken: state.currentItem.authToken,
+            serverId: state.currentItem.serverId,
+          };
+          const plan = buildPlexPlaybackPlan(hydratedItem);
+          const preserveCurrentTime =
+            options?.preserveCurrentTime ?? state.currentTime;
+
+          if (options?.reloadVideo) {
+            const previousUsesTranscode =
+              options.previousVideoUsesTranscode ??
+              playbackUsesTranscode(state.currentItem);
+            const shouldReloadVideo =
+              previousUsesTranscode || plan.videoUsesTranscode;
+
+            set({
+              currentItem: hydratedItem,
+              currentTime: preserveCurrentTime,
+              streamOffset:
+                plan.videoUsesTranscode && preserveCurrentTime > 0
+                  ? preserveCurrentTime
+                  : 0,
+              ...(shouldReloadVideo
+                ? { isLoading: true, canPlay: false }
+                : {}),
+            });
+            return;
+          }
+
+          const shouldSeedStreamOffset =
+            state.streamOffset === 0 &&
+            state.currentTime > 0 &&
+            plan.videoUsesTranscode;
+
           set({
-            currentItem: {
-              ...state.currentItem,
-              ...metadata,
-              serverUrl: state.currentItem.serverUrl,
-              authToken: state.currentItem.authToken,
-              serverId: state.currentItem.serverId,
-            },
+            currentItem: hydratedItem,
+            streamOffset: shouldSeedStreamOffset
+              ? state.currentTime
+              : state.streamOffset,
           });
         },
 

@@ -25,6 +25,27 @@ const BROWSER_DECODABLE_AUDIO_CODECS = new Set([
  */
 const BROWSER_DECODABLE_VIDEO_CODECS = new Set(["h264", "vp8", "vp9", "av1"]);
 
+/**
+ * Containers Chrome can reliably play from a plain `<video src>`. MKV files
+ * can contain browser-decodable codecs, but direct-playing Plex's MKV file
+ * endpoint has proven unreliable, so route them through the remux path.
+ */
+const BROWSER_DIRECT_PLAY_CONTAINERS = new Set(["mp4", "m4v", "webm"]);
+
+/**
+ * Subtitle codecs Plex can expose as text tracks without forcing a video
+ * transcode. Image subtitles still need burn-in.
+ */
+const SIDECAR_SUBTITLE_CODECS = new Set([
+  "srt",
+  "subrip",
+  "webvtt",
+  "vtt",
+  "ass",
+  "ssa",
+  "text",
+]);
+
 interface ClientProfile {
   platform: string;
   product: string;
@@ -105,18 +126,108 @@ function applyUniversalTranscodeProfile(
 
 export type StreamDecision = "direct-play" | "direct-stream";
 
+export type SelectedSubtitleStream = {
+  id: number;
+  index: number | null;
+  codec: string;
+  key: string | null;
+  format: string | null;
+};
+
+export type SubtitlePlan =
+  | { kind: "none" }
+  | { kind: "burnIn"; index: number }
+  | { kind: "plexTrack"; index: number }
+  | { kind: "externalText"; key: string }
+  | { kind: "unsupported" };
+
+export type PlexPlaybackPlan = {
+  streamDecision: StreamDecision;
+  videoUsesTranscode: boolean;
+  burnedSubtitleIndex: number | null;
+  subtitle: SubtitlePlan;
+};
+
+function isExternalSrtSubtitle(
+  codec: string,
+  format: string | null,
+  key: string | null,
+): key is string {
+  if (!key) return false;
+  return codec === "srt" || codec === "subrip" || format === "srt";
+}
+
 /**
  * Returns the Plex subtitle stream marked `selected` in item metadata, if any.
  */
 export function getSelectedSubtitleStream(
   item: MediaPlayerItem,
-): { id: number; index: number } | null {
+): SelectedSubtitleStream | null {
   const streams = item.Media?.[0]?.Part?.[0]?.Stream ?? [];
   const selected = streams.find(
     (stream) => stream.streamType === 3 && stream.selected,
   );
   if (selected?.streamType !== 3) return null;
-  return { id: selected.id, index: selected.index };
+  return {
+    id: selected.id,
+    index: selected.index ?? null,
+    codec: selected.codec.toLowerCase(),
+    key: selected.key ?? null,
+    format: selected.format?.toLowerCase() ?? null,
+  };
+}
+
+function buildSubtitlePlan(
+  streamDecision: StreamDecision,
+  selected: SelectedSubtitleStream | null,
+): SubtitlePlan {
+  if (!selected) return { kind: "none" };
+
+  const canDirectPlay = streamDecision === "direct-play";
+  const isSidecarCodec = SIDECAR_SUBTITLE_CODECS.has(selected.codec);
+
+  // Offset-based transcoded streams start at t=0 on the browser timeline, so
+  // client-side text tracks cannot use the original subtitle timestamps.
+  if (!canDirectPlay && selected.index !== null) {
+    return { kind: "burnIn", index: selected.index };
+  }
+
+  if (isExternalSrtSubtitle(selected.codec, selected.format, selected.key)) {
+    return { kind: "externalText", key: selected.key };
+  }
+
+  if (canDirectPlay && isSidecarCodec && selected.index !== null) {
+    return { kind: "plexTrack", index: selected.index };
+  }
+
+  if (canDirectPlay && isSidecarCodec && selected.key) {
+    return { kind: "externalText", key: selected.key };
+  }
+
+  if (selected.index !== null) {
+    return { kind: "burnIn", index: selected.index };
+  }
+
+  return { kind: "unsupported" };
+}
+
+/** Single source of truth for video URL generation and subtitle delivery. */
+export function buildPlexPlaybackPlan(item: MediaPlayerItem): PlexPlaybackPlan {
+  const streamDecision = decideStreamMode(item);
+  const subtitle = buildSubtitlePlan(
+    streamDecision,
+    getSelectedSubtitleStream(item),
+  );
+  const burnedSubtitleIndex =
+    subtitle.kind === "burnIn" ? subtitle.index : null;
+
+  return {
+    streamDecision,
+    videoUsesTranscode:
+      streamDecision === "direct-stream" || subtitle.kind === "burnIn",
+    burnedSubtitleIndex,
+    subtitle,
+  };
 }
 
 /** Plex transcode URLs use `subtitleStreamID` with the stream's `index`. */
@@ -134,12 +245,9 @@ export function transcodeUsesOffsetTimeline(
   return streamOffset > 0;
 }
 
-/** True when playback must route through Plex's universal transcoder. */
-export function playbackUsesTranscode(
-  item: MediaPlayerItem,
-  hasSelectedSubtitle = getSelectedSubtitleStreamIndex(item) !== null,
-): boolean {
-  return decideStreamMode(item) === "direct-stream" || hasSelectedSubtitle;
+/** True when playback must route through Plex's universal remux/transcode URL. */
+export function playbackUsesTranscode(item: MediaPlayerItem): boolean {
+  return buildPlexPlaybackPlan(item).videoUsesTranscode;
 }
 
 /**
@@ -152,13 +260,16 @@ export function decideStreamMode(item: MediaPlayerItem): StreamDecision {
   const media = item.Media?.[0];
   const audioCodec = media?.audioCodec?.toLowerCase();
   const videoCodec = media?.videoCodec?.toLowerCase();
+  const container = media?.container?.toLowerCase();
 
   const audioOk =
     !!audioCodec && BROWSER_DECODABLE_AUDIO_CODECS.has(audioCodec);
   const videoOk =
     !!videoCodec && BROWSER_DECODABLE_VIDEO_CODECS.has(videoCodec);
+  const containerOk =
+    !!container && BROWSER_DIRECT_PLAY_CONTAINERS.has(container);
 
-  return audioOk && videoOk ? "direct-play" : "direct-stream";
+  return audioOk && videoOk && containerOk ? "direct-play" : "direct-stream";
 }
 
 function buildDirectPlayUrl(
@@ -240,6 +351,51 @@ export function buildPlexSubtitleSelectionUrl(
   selectionUrl.searchParams.set("X-Plex-Text-Format", "plain");
 
   return selectionUrl.toString();
+}
+
+export function generatePlexSubtitleTrackUrl(
+  item: MediaPlayerItem,
+  serverUrl: string,
+  authToken: string,
+  selectedSubtitleStreamIndex: number,
+): string {
+  const baseUrl = getBaseServerUrl(serverUrl);
+  const subtitleUrl = new URL(
+    `${baseUrl}/video/:/transcode/universal/subtitles`,
+  );
+  const session = `multiplex-subtitles-${selectedSubtitleStreamIndex}-${Date.now()}`;
+
+  applyClientHeaders(subtitleUrl, authToken);
+  applyUniversalTranscodeParams(subtitleUrl, item, "dash", session);
+  subtitleUrl.searchParams.set("transcodeSessionId", session);
+  subtitleUrl.searchParams.set("hasMDE", "1");
+  subtitleUrl.searchParams.set("location", "wan");
+  subtitleUrl.searchParams.set("addDebugOverlay", "0");
+  subtitleUrl.searchParams.set("autoAdjustQuality", "0");
+  subtitleUrl.searchParams.set("mediaBufferSize", "102400");
+  subtitleUrl.searchParams.set("subtitles", "sidecar");
+  subtitleUrl.searchParams.set(
+    "subtitleStreamID",
+    String(selectedSubtitleStreamIndex),
+  );
+  subtitleUrl.searchParams.set("Accept-Language", "en");
+  subtitleUrl.searchParams.set("X-Plex-Incomplete-Segments", "1");
+  applyUniversalTranscodeProfile(subtitleUrl, "dash");
+
+  return subtitleUrl.toString();
+}
+
+export function generatePlexExternalSubtitleUrl(
+  serverUrl: string,
+  authToken: string,
+  subtitleStreamKey: string,
+): string {
+  const baseUrl = getBaseServerUrl(serverUrl);
+  const subtitleUrl = new URL(`${baseUrl}${subtitleStreamKey}`);
+
+  applyClientHeaders(subtitleUrl, authToken);
+
+  return subtitleUrl.toString();
 }
 
 /**
