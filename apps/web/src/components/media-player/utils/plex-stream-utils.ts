@@ -153,6 +153,7 @@ function buildDirectStreamUrl(
   serverUrl: string,
   authToken: string,
   offsetSeconds: number,
+  selectedSubtitleStreamId: number | null,
 ): string {
   const baseUrl = getBaseServerUrl(serverUrl);
   const streamUrl = new URL(`${baseUrl}/video/:/transcode/universal/start.mp4`);
@@ -160,7 +161,16 @@ function buildDirectStreamUrl(
 
   applyClientHeaders(streamUrl, authToken);
   applyUniversalTranscodeParams(streamUrl, item, "http", session);
-  streamUrl.searchParams.set("subtitles", "none");
+  if (selectedSubtitleStreamId === null) {
+    streamUrl.searchParams.set("subtitles", "none");
+  } else {
+    streamUrl.searchParams.set("directStream", "0");
+    streamUrl.searchParams.set("subtitles", "burn");
+    streamUrl.searchParams.set(
+      "subtitleStreamID",
+      String(selectedSubtitleStreamId),
+    );
+  }
   // Plex's transcoded MP4 stream advertises an empty seekable range, so the
   // browser silently rejects any video.currentTime change. To seek, we ask
   // the transcoder to restart from `offset` seconds; the new stream's t=0
@@ -171,33 +181,6 @@ function buildDirectStreamUrl(
   applyUniversalTranscodeProfile(streamUrl, "http");
 
   return streamUrl.toString();
-}
-
-export function generatePlexSubtitleTrackUrl(
-  item: MediaPlayerItem,
-  serverUrl: string,
-  authToken: string,
-  selectedSubtitleStreamId: number,
-): string {
-  const baseUrl = getBaseServerUrl(serverUrl);
-  const subtitleUrl = new URL(
-    `${baseUrl}/video/:/transcode/universal/subtitles`,
-  );
-  const session = `multiplex-subtitles-${selectedSubtitleStreamId}-${Date.now()}`;
-
-  applyClientHeaders(subtitleUrl, authToken);
-  applyUniversalTranscodeParams(subtitleUrl, item, "dash", session);
-  subtitleUrl.searchParams.set("hasMDE", "1");
-  subtitleUrl.searchParams.set("location", "wan");
-  subtitleUrl.searchParams.set("addDebugOverlay", "0");
-  subtitleUrl.searchParams.set("autoAdjustQuality", "0");
-  subtitleUrl.searchParams.set("mediaBufferSize", "102400");
-  subtitleUrl.searchParams.set("subtitles", "auto");
-  subtitleUrl.searchParams.set("Accept-Language", "en");
-  subtitleUrl.searchParams.set("X-Plex-Incomplete-Segments", "1");
-  applyUniversalTranscodeProfile(subtitleUrl, "dash");
-
-  return subtitleUrl.toString();
 }
 
 export function buildPlexSubtitleSelectionUrl(
@@ -237,15 +220,22 @@ export function generatePlexStreamUrl(
   serverUrl: string,
   authToken: string,
   offsetSeconds = 0,
+  selectedSubtitleStreamId: number | null = null,
 ): string {
   if (!item.Media?.[0]?.Part?.[0]?.key) {
     throw new Error("No media part key found for item");
   }
 
   const decision = decideStreamMode(item);
-  return decision === "direct-play"
+  return decision === "direct-play" && selectedSubtitleStreamId === null
     ? buildDirectPlayUrl(item, serverUrl, authToken)
-    : buildDirectStreamUrl(item, serverUrl, authToken, offsetSeconds);
+    : buildDirectStreamUrl(
+        item,
+        serverUrl,
+        authToken,
+        offsetSeconds,
+        selectedSubtitleStreamId,
+      );
 }
 
 /**

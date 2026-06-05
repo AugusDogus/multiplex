@@ -12,7 +12,10 @@ import { cn } from "~/lib/utils";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { api } from "~/trpc/react";
 import type { MediaPlayerItem, PlaybackRate } from "~/types/media-player";
-import { buildPlexSubtitleSelectionUrl } from "./utils/plex-stream-utils";
+import {
+  buildPlexSubtitleSelectionUrl,
+  decideStreamMode,
+} from "./utils/plex-stream-utils";
 
 /* ────────────────────────────────────────────────────────────
    Media Player Settings Menu
@@ -53,11 +56,16 @@ export function MediaPlayerSettingsMenu({
   const selectedSubtitleStreamId = useMediaPlayerStore(
     (state) => state.selectedSubtitleStreamId,
   );
+  const currentTime = useMediaPlayerStore((state) => state.currentTime);
   const autoPlayEnabled = useMediaPlayerStore(
     (state) => state.autoPlay.isEnabled,
   );
-  const { setAutoPlayEnabled, setPlaybackRate, setSelectedSubtitleStreamId } =
-    useMediaPlayerStore();
+  const {
+    setAutoPlayEnabled,
+    setPlaybackRate,
+    setSelectedSubtitleStreamId,
+    updatePlaybackState,
+  } = useMediaPlayerStore();
 
   const [open, setOpen] = useState(false);
   const [pane, setPane] = useState<Pane>("root");
@@ -129,6 +137,12 @@ export function MediaPlayerSettingsMenu({
       }
 
       setSelectedSubtitleStreamId(streamId);
+      updatePlaybackState({
+        streamOffset:
+          decideStreamMode(currentItem) === "direct-stream" || streamId !== null
+            ? currentTime
+            : 0,
+      });
       void refetchDetailedItem();
       setPane("root");
     } catch (error) {
