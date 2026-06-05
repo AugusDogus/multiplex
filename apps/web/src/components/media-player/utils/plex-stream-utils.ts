@@ -186,8 +186,14 @@ export function generatePlexSubtitleTrackUrl(
 
   applyClientHeaders(subtitleUrl, authToken);
   applyUniversalTranscodeParams(subtitleUrl, item, "dash", session);
+  subtitleUrl.searchParams.set("hasMDE", "1");
+  subtitleUrl.searchParams.set("location", "wan");
+  subtitleUrl.searchParams.set("addDebugOverlay", "0");
+  subtitleUrl.searchParams.set("autoAdjustQuality", "0");
+  subtitleUrl.searchParams.set("mediaBufferSize", "102400");
   subtitleUrl.searchParams.set("subtitles", "auto");
   subtitleUrl.searchParams.set("Accept-Language", "en");
+  subtitleUrl.searchParams.set("X-Plex-Incomplete-Segments", "1");
   applyUniversalTranscodeProfile(subtitleUrl, "dash");
 
   return subtitleUrl.toString();
