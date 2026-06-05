@@ -302,39 +302,38 @@ export const itemMetadataResponseSchema = z.object({
    ──────────────────────────────────────────────────────────── */
 
 // Transform the raw API response into something easier to work with
-export const continueWatchingResponseSchema =
-  ContinueWatchingContainer.transform((data) => {
-    // Flatten all metadata items from all hubs
-    const items = data.MediaContainer.Hub.flatMap((hub) =>
-      hub.Metadata.map((metadata) => ({
-        ...metadata,
-        hubTitle: hub.title,
-        hubType: hub.type,
-        serverId: data.MediaContainer.identifier,
-        // Computed progress fields
-        progressPercent:
-          metadata.viewOffset && metadata.duration
-            ? Math.round((metadata.viewOffset / metadata.duration) * 100)
-            : undefined,
-        isCompleted:
-          metadata.viewOffset && metadata.duration
-            ? metadata.viewOffset >= metadata.duration * 0.9 // 90% watched = completed
-            : false,
-        timeRemaining:
-          metadata.viewOffset && metadata.duration
-            ? metadata.duration - metadata.viewOffset
-            : undefined,
-      })),
-    );
-
-    return {
+export const continueWatchingResponseSchema = ContinueWatchingContainer.transform((data) => {
+  // Flatten all metadata items from all hubs
+  const items = data.MediaContainer.Hub.flatMap((hub) =>
+    hub.Metadata.map((metadata) => ({
+      ...metadata,
+      hubTitle: hub.title,
+      hubType: hub.type,
       serverId: data.MediaContainer.identifier,
-      totalSize: data.MediaContainer.size,
-      allowSync: data.MediaContainer.allowSync,
-      hubs: data.MediaContainer.Hub,
-      items,
-    };
-  });
+      // Computed progress fields
+      progressPercent:
+        metadata.viewOffset && metadata.duration
+          ? Math.round((metadata.viewOffset / metadata.duration) * 100)
+          : undefined,
+      isCompleted:
+        metadata.viewOffset && metadata.duration
+          ? metadata.viewOffset >= metadata.duration * 0.9 // 90% watched = completed
+          : false,
+      timeRemaining:
+        metadata.viewOffset && metadata.duration
+          ? metadata.duration - metadata.viewOffset
+          : undefined,
+    })),
+  );
+
+  return {
+    serverId: data.MediaContainer.identifier,
+    totalSize: data.MediaContainer.size,
+    allowSync: data.MediaContainer.allowSync,
+    hubs: data.MediaContainer.Hub,
+    items,
+  };
+});
 
 /* ────────────────────────────────────────────────────────────
    8. Export types
@@ -351,9 +350,7 @@ export type ContinueWatchingItem = z.infer<typeof ContinueWatchingMetadata> & {
   progressColor?: "dark" | "light";
 };
 
-export type ContinueWatchingResponse = z.infer<
-  typeof continueWatchingResponseSchema
->;
+export type ContinueWatchingResponse = z.infer<typeof continueWatchingResponseSchema>;
 
 export type ContinueWatchingHubType = z.infer<typeof ContinueWatchingHub>;
 
@@ -367,9 +364,7 @@ export type ItemMetadataResponse = z.infer<typeof itemMetadataResponseSchema>;
    9. Type guards & utilities
    ──────────────────────────────────────────────────────────── */
 
-export function isContinueWatchingResponse(
-  data: unknown,
-): data is ContinueWatchingResponse {
+export function isContinueWatchingResponse(data: unknown): data is ContinueWatchingResponse {
   return continueWatchingResponseSchema.safeParse(data).success;
 }
 
