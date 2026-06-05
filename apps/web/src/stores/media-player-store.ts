@@ -20,6 +20,7 @@ interface MediaPlayerStore extends MediaPlayerState {
   updateDuration: (duration: number) => void;
   updateBufferedTime: (bufferedTime: number) => void;
   setPlaybackRate: (playbackRate: PlaybackRate) => void;
+  setSelectedSubtitleStreamId: (streamId: number | null) => void;
 
   // Audio actions
   setVolume: (volume: number) => void;
@@ -64,6 +65,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
         duration: 0,
         bufferedTime: 0,
         playbackRate: 1,
+        selectedSubtitleStreamId: null,
         streamOffset: 0,
         volume: 1,
         isMuted: false,
@@ -113,6 +115,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
             isPlaying: false,
             duration: 0,
             bufferedTime: 0,
+            selectedSubtitleStreamId: null,
             canPlay: false,
             isBuffering: false,
           });
@@ -134,6 +137,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
             currentTime: 0,
             duration: 0,
             bufferedTime: 0,
+            selectedSubtitleStreamId: null,
             streamOffset: 0,
             isLoading: false,
             error: null,
@@ -157,6 +161,8 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
         updateDuration: (duration) => set({ duration }),
         updateBufferedTime: (bufferedTime) => set({ bufferedTime }),
         setPlaybackRate: (playbackRate) => set({ playbackRate }),
+        setSelectedSubtitleStreamId: (streamId) =>
+          set({ selectedSubtitleStreamId: streamId }),
 
         setVolume: (volume) => set({ volume }),
         toggleMute: () => set((state) => ({ isMuted: !state.isMuted })),

@@ -12,6 +12,7 @@ import { cn } from "~/lib/utils";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { api } from "~/trpc/react";
 import type { MediaPlayerItem, PlaybackRate } from "~/types/media-player";
+import { buildPlexSubtitleSelectionUrl } from "./utils/plex-stream-utils";
 
 /* ────────────────────────────────────────────────────────────
    Media Player Settings Menu
@@ -49,13 +50,19 @@ export function MediaPlayerSettingsMenu({
 }: MediaPlayerSettingsMenuProps) {
   const currentItem = useMediaPlayerStore((state) => state.currentItem);
   const playbackRate = useMediaPlayerStore((state) => state.playbackRate);
+  const selectedSubtitleStreamId = useMediaPlayerStore(
+    (state) => state.selectedSubtitleStreamId,
+  );
   const autoPlayEnabled = useMediaPlayerStore(
     (state) => state.autoPlay.isEnabled,
   );
-  const { setAutoPlayEnabled, setPlaybackRate } = useMediaPlayerStore();
+  const { setAutoPlayEnabled, setPlaybackRate, setSelectedSubtitleStreamId } =
+    useMediaPlayerStore();
 
   const [open, setOpen] = useState(false);
   const [pane, setPane] = useState<Pane>("root");
+  const [subtitleError, setSubtitleError] = useState<string | null>(null);
+  const [isUpdatingSubtitle, setIsUpdatingSubtitle] = useState(false);
 
   // Always start on the root pane the next time the menu opens.
   useEffect(() => {
@@ -71,22 +78,69 @@ export function MediaPlayerSettingsMenu({
   // shallow `currentItem` from the store has no audio or subtitle stream
   // information. Fetch the full metadata once the player has an item so the
   // settings menu can show real stream choices.
-  const { data: detailedItem } = api.plex.getItemMetadata.useQuery(
-    {
-      serverId: currentItem?.serverId ?? "",
-      ratingKey: currentItem?.ratingKey ?? "",
-    },
-    {
-      enabled: Boolean(currentItem?.serverId && currentItem.ratingKey),
-      staleTime: 5 * 60 * 1000,
-    },
-  );
+  const { data: detailedItem, refetch: refetchDetailedItem } =
+    api.plex.getItemMetadata.useQuery(
+      {
+        serverId: currentItem?.serverId ?? "",
+        ratingKey: currentItem?.ratingKey ?? "",
+      },
+      {
+        enabled: Boolean(currentItem?.serverId && currentItem.ratingKey),
+        staleTime: 5 * 60 * 1000,
+      },
+    );
 
   const streamSource: StreamSource = detailedItem ?? currentItem;
   const qualityLabel = getQualityLabel(streamSource);
   const audioLabel = getAudioStreamLabel(streamSource);
   const subtitleStreams = getSubtitleStreams(streamSource);
   const hasSubtitles = subtitleStreams.length > 0;
+  const selectedSubtitleStream = subtitleStreams.find(
+    (stream) => stream.id === selectedSubtitleStreamId,
+  );
+  const subtitleLabel = hasSubtitles
+    ? selectedSubtitleStream
+      ? getStreamLabel(selectedSubtitleStream, "Subtitle")
+      : "None"
+    : "Unavailable";
+
+  const handleSubtitleSelection = async (streamId: number | null) => {
+    if (!currentItem) return;
+
+    if (streamId === selectedSubtitleStreamId) {
+      setPane("root");
+      return;
+    }
+
+    setIsUpdatingSubtitle(true);
+    setSubtitleError(null);
+
+    try {
+      const selectionUrl = buildPlexSubtitleSelectionUrl(
+        currentItem,
+        currentItem.serverUrl,
+        currentItem.authToken,
+        streamId,
+      );
+      const response = await fetch(selectionUrl, { method: "PUT" });
+
+      if (!response.ok) {
+        throw new Error(`Plex returned ${response.status}`);
+      }
+
+      setSelectedSubtitleStreamId(streamId);
+      void refetchDetailedItem();
+      setPane("root");
+    } catch (error) {
+      console.error(
+        "Failed to select subtitle stream:",
+        error instanceof Error ? error.message : error,
+      );
+      setSubtitleError("Unable to update subtitles");
+    } finally {
+      setIsUpdatingSubtitle(false);
+    }
+  };
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={handleOpenChange}>
@@ -120,9 +174,9 @@ export function MediaPlayerSettingsMenu({
               <ReadOnlyRow label="Audio Stream" value={audioLabel} />
               <NavRow
                 label="Subtitles"
-                value={hasSubtitles ? "None" : "Unavailable"}
+                value={subtitleLabel}
                 onClick={() => setPane("subtitles")}
-                disabled={!hasSubtitles}
+                disabled={!hasSubtitles || isUpdatingSubtitle}
               />
 
               <Separator />
@@ -151,17 +205,24 @@ export function MediaPlayerSettingsMenu({
             <Pane title="Subtitles" onBack={() => setPane("root")}>
               <SelectRow
                 label="None"
-                selected
-                onClick={() => setPane("root")}
+                selected={selectedSubtitleStreamId === null}
+                onClick={() => void handleSubtitleSelection(null)}
+                disabled={isUpdatingSubtitle}
               />
               {subtitleStreams.map((stream) => (
                 <SelectRow
                   key={stream.id}
                   label={getStreamLabel(stream, "Subtitle")}
-                  selected={false}
-                  disabled
+                  selected={stream.id === selectedSubtitleStreamId}
+                  onClick={() => void handleSubtitleSelection(stream.id)}
+                  disabled={isUpdatingSubtitle}
                 />
               ))}
+              {subtitleError && (
+                <p className="px-3 py-2 text-xs text-red-300">
+                  {subtitleError}
+                </p>
+              )}
             </Pane>
           )}
         </PopoverPrimitive.Content>
