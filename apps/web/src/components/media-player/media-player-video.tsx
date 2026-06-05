@@ -508,6 +508,20 @@ export const MediaPlayerVideo = forwardRef<
      */
     const handleVideoError = useCallback(() => {
       if (ref && "current" in ref && ref.current?.error) {
+        if (streamOffset > 0) {
+          console.warn(
+            "Transcoded stream failed at offset; retrying from beginning",
+          );
+          updatePlaybackState({
+            streamOffset: 0,
+            currentTime: 0,
+            error: null,
+            isLoading: true,
+            isBuffering: false,
+          });
+          return;
+        }
+
         const errorMessage = getVideoElementError(ref.current.error);
         updatePlaybackState({
           error: errorMessage,
@@ -515,7 +529,7 @@ export const MediaPlayerVideo = forwardRef<
           isBuffering: false,
         });
       }
-    }, [ref, updatePlaybackState]);
+    }, [ref, streamOffset, updatePlaybackState]);
 
     if (hasError || !videoSrc) {
       return (
