@@ -1,6 +1,7 @@
+import type { ItemMetadata } from "@multiplex/plex-query";
 import { create } from "zustand";
 import { devtools, persist } from "zustand/middleware";
-import { decideStreamMode } from "~/components/media-player/utils/plex-stream-utils";
+import { playbackUsesTranscode } from "~/components/media-player/utils/plex-stream-utils";
 import type {
   MediaPlayerItem,
   MediaPlayerState,
@@ -20,10 +21,7 @@ interface MediaPlayerStore extends MediaPlayerState {
   updateDuration: (duration: number) => void;
   updateBufferedTime: (bufferedTime: number) => void;
   setPlaybackRate: (playbackRate: PlaybackRate) => void;
-  setSelectedSubtitleStreamId: (
-    streamId: number | null,
-    streamIndex?: number | null,
-  ) => void;
+  hydrateCurrentItemMetadata: (metadata: ItemMetadata) => void;
 
   // Audio actions
   setVolume: (volume: number) => void;
@@ -68,8 +66,6 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
         duration: 0,
         bufferedTime: 0,
         playbackRate: 1,
-        selectedSubtitleStreamId: null,
-        selectedSubtitleStreamIndex: null,
         streamOffset: 0,
         volume: 1,
         isMuted: false,
@@ -105,7 +101,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
           // resumed transcoded items we bake the resume position into the
           // initial stream URL via `offset`.
           const initialStreamOffset =
-            initialCurrentTime > 0 && decideStreamMode(item) === "direct-stream"
+            initialCurrentTime > 0 && playbackUsesTranscode(item)
               ? initialCurrentTime
               : 0;
 
@@ -119,8 +115,6 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
             isPlaying: false,
             duration: 0,
             bufferedTime: 0,
-            selectedSubtitleStreamId: null,
-            selectedSubtitleStreamIndex: null,
             canPlay: false,
             isBuffering: false,
           });
@@ -142,8 +136,6 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
             currentTime: 0,
             duration: 0,
             bufferedTime: 0,
-            selectedSubtitleStreamId: null,
-            selectedSubtitleStreamIndex: null,
             streamOffset: 0,
             isLoading: false,
             error: null,
@@ -167,11 +159,36 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
         updateDuration: (duration) => set({ duration }),
         updateBufferedTime: (bufferedTime) => set({ bufferedTime }),
         setPlaybackRate: (playbackRate) => set({ playbackRate }),
-        setSelectedSubtitleStreamId: (streamId, streamIndex = null) =>
+        hydrateCurrentItemMetadata: (metadata) => {
+          const state = get();
+          if (
+            !state.currentItem ||
+            state.currentItem.ratingKey !== metadata.ratingKey
+          ) {
+            return;
+          }
+
+          const currentStreams =
+            state.currentItem.Media?.[0]?.Part?.[0]?.Stream;
+          const nextStreams = metadata.Media?.[0]?.Part?.[0]?.Stream;
+          if (
+            currentStreams &&
+            nextStreams &&
+            JSON.stringify(currentStreams) === JSON.stringify(nextStreams)
+          ) {
+            return;
+          }
+
           set({
-            selectedSubtitleStreamId: streamId,
-            selectedSubtitleStreamIndex: streamIndex,
-          }),
+            currentItem: {
+              ...state.currentItem,
+              ...metadata,
+              serverUrl: state.currentItem.serverUrl,
+              authToken: state.currentItem.authToken,
+              serverId: state.currentItem.serverId,
+            },
+          });
+        },
 
         setVolume: (volume) => set({ volume }),
         toggleMute: () => set((state) => ({ isMuted: !state.isMuted })),
@@ -241,9 +258,11 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
           // Cancel countdown first
           get().cancelAutoPlay();
 
-          // Create a MediaPlayerItem from the next episode info
+          // Drop stale Media/Stream metadata from the previous episode while
+          // keeping shared library/server fields needed for playback.
           const nextEpisodeItem: MediaPlayerItem = {
             ...currentItem,
+            Media: undefined,
             ratingKey: nextEpisode.ratingKey,
             key: nextEpisode.key,
             title: nextEpisode.title,
