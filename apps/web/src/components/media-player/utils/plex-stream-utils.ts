@@ -43,6 +43,10 @@ const CLIENT_PROFILE: ClientProfile = {
   deviceName: "Multiplex Web",
 };
 
+function getBaseServerUrl(serverUrl: string): string {
+  return serverUrl.replace(/\/$/, "");
+}
+
 function applyClientHeaders(url: URL, authToken: string): void {
   url.searchParams.set("X-Plex-Token", authToken);
   url.searchParams.set("X-Plex-Platform", CLIENT_PROFILE.platform);
@@ -55,6 +59,46 @@ function applyClientHeaders(url: URL, authToken: string): void {
   );
   url.searchParams.set("X-Plex-Device", CLIENT_PROFILE.device);
   url.searchParams.set("X-Plex-Device-Name", CLIENT_PROFILE.deviceName);
+}
+
+function applyUniversalTranscodeParams(
+  url: URL,
+  item: MediaPlayerItem,
+  protocol: "dash" | "http",
+  session: string,
+): void {
+  if (!item.key) throw new Error("No metadata key found for item");
+
+  url.searchParams.set("path", item.key);
+  url.searchParams.set("mediaIndex", "0");
+  url.searchParams.set("partIndex", "0");
+  url.searchParams.set("protocol", protocol);
+  url.searchParams.set("fastSeek", "1");
+  url.searchParams.set("directPlay", "0");
+  url.searchParams.set("directStream", "1");
+  url.searchParams.set("directStreamAudio", "0");
+  url.searchParams.set("audioBoost", "100");
+  url.searchParams.set("subtitleSize", "100");
+  url.searchParams.set("location", "lan");
+  url.searchParams.set("session", session);
+}
+
+function applyUniversalTranscodeProfile(
+  url: URL,
+  protocol: "dash" | "http",
+): void {
+  // Tell Plex our capabilities: we can take MP4+h264 with AAC audio direct,
+  // and we want any other audio re-encoded to AAC.
+  url.searchParams.set(
+    "X-Plex-Client-Profile-Extra",
+    [
+      "add-direct-play(type=videoProfile&container=mp4&videoCodec=h264&audioCodec=aac)",
+      "add-direct-play(type=videoProfile&container=mp4&videoCodec=h264&audioCodec=mp3)",
+      `add-transcode-target(type=videoProfile&context=streaming&protocol=${protocol}&container=mp4&videoCodec=h264&audioCodec=aac)`,
+      "add-direct-stream-audio-codec(type=videoProfile&audioCodec=aac)",
+      "add-direct-stream-audio-codec(type=videoProfile&audioCodec=mp3)",
+    ].join("+"),
+  );
 }
 
 export type StreamDecision = "direct-play" | "direct-stream";
@@ -86,7 +130,7 @@ function buildDirectPlayUrl(
   const partKey = item.Media?.[0]?.Part?.[0]?.key;
   if (!partKey) throw new Error("No media part key found for item");
 
-  const baseUrl = serverUrl.replace(/\/$/, "");
+  const baseUrl = getBaseServerUrl(serverUrl);
   const streamUrl = new URL(`${baseUrl}${partKey}`);
   applyClientHeaders(streamUrl, authToken);
   streamUrl.searchParams.set("X-Plex-Protocol", "1.0");
@@ -107,25 +151,18 @@ function buildDirectStreamUrl(
   serverUrl: string,
   authToken: string,
   offsetSeconds: number,
+  selectedSubtitleStreamId: number | null,
 ): string {
-  if (!item.key) throw new Error("No metadata key found for item");
-
-  const baseUrl = serverUrl.replace(/\/$/, "");
+  const baseUrl = getBaseServerUrl(serverUrl);
   const streamUrl = new URL(`${baseUrl}/video/:/transcode/universal/start.mp4`);
+  const session = `multiplex-${Date.now()}`;
 
   applyClientHeaders(streamUrl, authToken);
-  streamUrl.searchParams.set("path", item.key);
-  streamUrl.searchParams.set("mediaIndex", "0");
-  streamUrl.searchParams.set("partIndex", "0");
-  streamUrl.searchParams.set("protocol", "http");
-  streamUrl.searchParams.set("fastSeek", "1");
-  streamUrl.searchParams.set("directPlay", "0");
-  streamUrl.searchParams.set("directStream", "1");
-  streamUrl.searchParams.set("directStreamAudio", "0");
-  streamUrl.searchParams.set("audioBoost", "100");
-  streamUrl.searchParams.set("subtitleSize", "100");
-  streamUrl.searchParams.set("location", "lan");
-  streamUrl.searchParams.set("session", `multiplex-${Date.now()}`);
+  applyUniversalTranscodeParams(streamUrl, item, "http", session);
+  streamUrl.searchParams.set(
+    "subtitles",
+    selectedSubtitleStreamId === null ? "none" : "auto",
+  );
   // Plex's transcoded MP4 stream advertises an empty seekable range, so the
   // browser silently rejects any video.currentTime change. To seek, we ask
   // the transcoder to restart from `offset` seconds; the new stream's t=0
@@ -133,20 +170,52 @@ function buildDirectStreamUrl(
   if (offsetSeconds > 0) {
     streamUrl.searchParams.set("offset", String(Math.floor(offsetSeconds)));
   }
-  // Tell Plex our capabilities: we can take MP4+h264 with AAC audio direct,
-  // and we want any other audio re-encoded to AAC.
-  streamUrl.searchParams.set(
-    "X-Plex-Client-Profile-Extra",
-    [
-      "add-direct-play(type=videoProfile&container=mp4&videoCodec=h264&audioCodec=aac)",
-      "add-direct-play(type=videoProfile&container=mp4&videoCodec=h264&audioCodec=mp3)",
-      "add-transcode-target(type=videoProfile&context=streaming&protocol=http&container=mp4&videoCodec=h264&audioCodec=aac)",
-      "add-direct-stream-audio-codec(type=videoProfile&audioCodec=aac)",
-      "add-direct-stream-audio-codec(type=videoProfile&audioCodec=mp3)",
-    ].join("+"),
-  );
+  applyUniversalTranscodeProfile(streamUrl, "http");
 
   return streamUrl.toString();
+}
+
+export function generatePlexSubtitleTrackUrl(
+  item: MediaPlayerItem,
+  serverUrl: string,
+  authToken: string,
+  selectedSubtitleStreamId: number,
+): string {
+  const baseUrl = getBaseServerUrl(serverUrl);
+  const subtitleUrl = new URL(
+    `${baseUrl}/video/:/transcode/universal/subtitles`,
+  );
+  const session = `multiplex-subtitles-${selectedSubtitleStreamId}-${Date.now()}`;
+
+  applyClientHeaders(subtitleUrl, authToken);
+  applyUniversalTranscodeParams(subtitleUrl, item, "dash", session);
+  subtitleUrl.searchParams.set("subtitles", "auto");
+  subtitleUrl.searchParams.set("Accept-Language", "en");
+  applyUniversalTranscodeProfile(subtitleUrl, "dash");
+
+  return subtitleUrl.toString();
+}
+
+export function buildPlexSubtitleSelectionUrl(
+  item: MediaPlayerItem,
+  serverUrl: string,
+  authToken: string,
+  selectedSubtitleStreamId: number | null,
+): string {
+  const partId = item.Media?.[0]?.Part?.[0]?.id;
+  if (!partId) throw new Error("No media part id found for item");
+
+  const baseUrl = getBaseServerUrl(serverUrl);
+  const selectionUrl = new URL(`${baseUrl}/library/parts/${partId}`);
+
+  applyClientHeaders(selectionUrl, authToken);
+  selectionUrl.searchParams.set(
+    "subtitleStreamID",
+    String(selectedSubtitleStreamId ?? 0),
+  );
+  selectionUrl.searchParams.set("X-Plex-Text-Format", "plain");
+
+  return selectionUrl.toString();
 }
 
 /**
@@ -164,6 +233,7 @@ export function generatePlexStreamUrl(
   serverUrl: string,
   authToken: string,
   offsetSeconds = 0,
+  selectedSubtitleStreamId: number | null = null,
 ): string {
   if (!item.Media?.[0]?.Part?.[0]?.key) {
     throw new Error("No media part key found for item");
@@ -172,7 +242,13 @@ export function generatePlexStreamUrl(
   const decision = decideStreamMode(item);
   return decision === "direct-play"
     ? buildDirectPlayUrl(item, serverUrl, authToken)
-    : buildDirectStreamUrl(item, serverUrl, authToken, offsetSeconds);
+    : buildDirectStreamUrl(
+        item,
+        serverUrl,
+        authToken,
+        offsetSeconds,
+        selectedSubtitleStreamId,
+      );
 }
 
 /**
