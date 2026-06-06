@@ -129,11 +129,7 @@ export function usePlexSubtitleTrack(
 
         const track =
           externalTextTrackRef.current ??
-          video.addTextTrack(
-            "subtitles",
-            EXTERNAL_SUBTITLE_TRACK_LABEL,
-            "en",
-          );
+          video.addTextTrack("subtitles", EXTERNAL_SUBTITLE_TRACK_LABEL, "en");
         externalTextTrackRef.current = track;
 
         for (const cue of cueData) {
@@ -177,11 +173,7 @@ export function usePlexSubtitleTrack(
 
     clearExternalTextTrack();
     clearPlexTextTrack();
-  }, [
-    clearExternalTextTrack,
-    clearPlexTextTrack,
-    playbackPlan.subtitle,
-  ]);
+  }, [clearExternalTextTrack, clearPlexTextTrack, playbackPlan.subtitle]);
 
   const handlePlexTrackLoad = useCallback(
     (event: SyntheticEvent<HTMLTrackElement>) => {

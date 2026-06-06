@@ -8,6 +8,7 @@ import {
 import type {
   MediaPlayerItem,
   MediaPlayerState,
+  CaptionSize,
   NextEpisodeInfo,
   PlaybackRate,
 } from "~/types/media-player";
@@ -24,6 +25,7 @@ interface MediaPlayerStore extends MediaPlayerState {
   updateDuration: (duration: number) => void;
   updateBufferedTime: (bufferedTime: number) => void;
   setPlaybackRate: (playbackRate: PlaybackRate) => void;
+  setCaptionSize: (captionSize: CaptionSize) => void;
   applyPlaybackMetadata: (
     metadata: ItemMetadata,
     options?: {
@@ -82,6 +84,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
         isFullscreen: false,
         showControls: true,
         controlsTimeout: null,
+        captionSize: "medium",
         isLoading: false,
         error: null,
         canPlay: false,
@@ -169,6 +172,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
         updateDuration: (duration) => set({ duration }),
         updateBufferedTime: (bufferedTime) => set({ bufferedTime }),
         setPlaybackRate: (playbackRate) => set({ playbackRate }),
+        setCaptionSize: (captionSize) => set({ captionSize }),
         applyPlaybackMetadata: (metadata, options) => {
           const state = get();
           if (
@@ -215,9 +219,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
                 plan.videoUsesTranscode && preserveCurrentTime > 0
                   ? preserveCurrentTime
                   : 0,
-              ...(shouldReloadVideo
-                ? { isLoading: true, canPlay: false }
-                : {}),
+              ...(shouldReloadVideo ? { isLoading: true, canPlay: false } : {}),
             });
             return;
           }
@@ -391,6 +393,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
           volume: state.volume,
           isMuted: state.isMuted,
           playbackRate: state.playbackRate,
+          captionSize: state.captionSize,
           autoPlay: {
             isEnabled: state.autoPlay.isEnabled,
             isCountingDown: false,
