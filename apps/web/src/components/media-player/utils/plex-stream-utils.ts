@@ -286,7 +286,7 @@ function buildDirectPlayUrl(
   streamUrl.searchParams.set("X-Plex-Protocol", "1.0");
   streamUrl.searchParams.set(
     "X-Plex-Session-Identifier",
-    `multiplex-${Date.now()}`,
+    `multiplex-${item.ratingKey}`,
   );
   return streamUrl.toString();
 }
@@ -305,7 +305,7 @@ function buildDirectStreamUrl(
 ): string {
   const baseUrl = getBaseServerUrl(serverUrl);
   const streamUrl = new URL(`${baseUrl}/video/:/transcode/universal/start.mp4`);
-  const session = `multiplex-${Date.now()}`;
+  const session = `multiplex-${item.ratingKey}-${Math.floor(offsetSeconds)}`;
 
   applyClientHeaders(streamUrl, authToken);
   applyUniversalTranscodeParams(streamUrl, item, "http", session);
