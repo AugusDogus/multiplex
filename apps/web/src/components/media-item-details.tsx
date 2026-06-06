@@ -236,12 +236,12 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
                     {imageUrl && <AvatarImage src={imageUrl} alt={role.tag} />}
                     <AvatarFallback>{getInitials(role.tag)}</AvatarFallback>
                   </Avatar>
-                  <div className="flex min-h-14 w-full flex-col gap-1.5">
-                    <p className="line-clamp-2 text-sm leading-snug font-medium">
+                  <div className="flex min-h-20 w-full flex-col gap-2">
+                    <p className="line-clamp-2 text-sm leading-5 font-medium">
                       {role.tag}
                     </p>
                     {role.role && (
-                      <p className="text-muted-foreground line-clamp-2 text-xs leading-snug">
+                      <p className="text-muted-foreground line-clamp-3 text-xs leading-5">
                         {role.role}
                       </p>
                     )}
