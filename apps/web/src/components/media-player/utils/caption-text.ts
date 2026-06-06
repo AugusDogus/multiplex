@@ -1,4 +1,12 @@
-/** Normalize SRT/VTT cue text for plain-text caption rendering. */
+function isVttCue(cue: TextTrackCue): cue is VTTCue {
+  return "text" in cue && typeof (cue as VTTCue).text === "string";
+}
+
+/**
+ * Normalize SRT/VTT cue text for plain-text caption rendering.
+ * Only normalizes common inline tags (br, i, b, u); other VTT markup is left
+ * unchanged and may appear as raw text in the overlay.
+ */
 export function formatCaptionText(text: string): string {
   return text
     .replace(/<br\s*\/?>/gi, "\n")
@@ -16,9 +24,9 @@ export function getActiveCaptionLines(track: TextTrack | null): string[] {
 
   const lines: string[] = [];
   for (const cue of activeCues) {
-    if (!cue || !("text" in cue)) continue;
+    if (!cue || !isVttCue(cue)) continue;
 
-    const formatted = formatCaptionText((cue as VTTCue).text);
+    const formatted = formatCaptionText(cue.text);
     if (formatted) lines.push(formatted);
   }
 

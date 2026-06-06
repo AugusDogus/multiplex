@@ -11,11 +11,8 @@ import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { api } from "~/trpc/react";
-import type {
-  CaptionSize,
-  MediaPlayerItem,
-  PlaybackRate,
-} from "~/types/media-player";
+import type { MediaPlayerItem, PlaybackRate } from "~/types/media-player";
+import { CAPTION_SIZE_OPTIONS } from "./utils/caption-size";
 import {
   buildPlexSubtitleSelectionUrl,
   playbackUsesTranscode,
@@ -36,15 +33,8 @@ const PLAYBACK_RATE_OPTIONS: Array<{ label: string; value: PlaybackRate }> = [
   { label: "2x", value: 2 },
 ];
 
-const CAPTION_SIZE_OPTIONS: Array<{ label: string; value: CaptionSize }> = [
-  { label: "Small", value: "small" },
-  { label: "Medium", value: "medium" },
-  { label: "Large", value: "large" },
-  { label: "Extra Large", value: "extra-large" },
-];
-
 type SubtitleStream = Extract<PlexStream, { streamType: 3 }>;
-type Pane = "root" | "speed" | "subtitles" | "captionSize";
+type Pane = "root" | "speed" | "subtitles";
 
 /**
  * Either the shallow item from the continue-watching hub or the fully
@@ -216,11 +206,6 @@ export function MediaPlayerSettingsMenu({
                 onClick={() => setPane("subtitles")}
                 disabled={!hasSubtitles || isUpdatingSubtitle}
               />
-              <NavRow
-                label="Subtitle Size"
-                value={formatCaptionSize(captionSize)}
-                onClick={() => setPane("captionSize")}
-              />
 
               <Separator />
 
@@ -239,20 +224,6 @@ export function MediaPlayerSettingsMenu({
                   selected={option.value === playbackRate}
                   onClick={() => {
                     setPlaybackRate(option.value);
-                    setPane("root");
-                  }}
-                />
-              ))}
-            </Pane>
-          ) : pane === "captionSize" ? (
-            <Pane title="Subtitle Size" onBack={() => setPane("root")}>
-              {CAPTION_SIZE_OPTIONS.map((option) => (
-                <SelectRow
-                  key={option.value}
-                  label={option.label}
-                  selected={option.value === captionSize}
-                  onClick={() => {
-                    setCaptionSize(option.value);
                     setPane("root");
                   }}
                 />
@@ -280,6 +251,16 @@ export function MediaPlayerSettingsMenu({
                   {subtitleError}
                 </p>
               )}
+              <Separator />
+              <p className="px-3 py-1 text-xs text-white/50">Subtitle Size</p>
+              {CAPTION_SIZE_OPTIONS.map((option) => (
+                <SelectRow
+                  key={option.value}
+                  label={option.label}
+                  selected={option.value === captionSize}
+                  onClick={() => setCaptionSize(option.value)}
+                />
+              ))}
             </Pane>
           )}
         </PopoverPrimitive.Content>
@@ -525,12 +506,5 @@ function formatPlaybackRate(playbackRate: PlaybackRate): string {
   return (
     PLAYBACK_RATE_OPTIONS.find((option) => option.value === playbackRate)
       ?.label ?? "Normal"
-  );
-}
-
-function formatCaptionSize(captionSize: CaptionSize): string {
-  return (
-    CAPTION_SIZE_OPTIONS.find((option) => option.value === captionSize)
-      ?.label ?? "Medium"
   );
 }

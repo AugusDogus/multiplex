@@ -14,6 +14,7 @@ import type { MouseEvent, PointerEvent, RefObject } from "react";
 import { cn } from "~/lib/utils";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import type { MediaPlayerItem } from "~/types/media-player";
+import { useCaptionLines } from "./hooks/use-caption-lines";
 import { usePlexSubtitleTrack } from "./hooks/use-plex-subtitle-track";
 import { useSeekOverlay } from "./hooks/use-seek-overlay";
 import { getVideoElementError } from "./utils/media-player-utils";
@@ -152,13 +153,14 @@ export const MediaPlayerVideo = forwardRef<
     const videoElementRef = useRef<HTMLVideoElement | null>(null);
     const pendingResumeTimeRef = useRef<number | null>(null);
     const surfaceElementRef = useRef<HTMLDivElement | null>(null);
-    const { plexSubtitleTrackSrc, handlePlexTrackLoad, activeCaptions } =
+    const { plexSubtitleTrackSrc, handlePlexTrackLoad, captionTrack } =
       usePlexSubtitleTrack(
         videoElementRef,
         item,
         playbackPlan,
         usesOffsetTimeline ? streamOffset : 0,
       );
+    const activeCaptions = useCaptionLines(captionTrack);
     const {
       overlay: seekOverlay,
       showOverlay: showSeekOverlay,
