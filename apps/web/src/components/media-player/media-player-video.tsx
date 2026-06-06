@@ -16,6 +16,7 @@ import { useMediaPlayerStore } from "~/stores/media-player-store";
 import type { MediaPlayerItem } from "~/types/media-player";
 import { useCaptionLines } from "./hooks/use-caption-lines";
 import { usePlexSubtitleTrack } from "./hooks/use-plex-subtitle-track";
+import { useResumePlayback } from "./hooks/use-resume-playback";
 import { useSeekOverlay } from "./hooks/use-seek-overlay";
 import { getVideoElementError } from "./utils/media-player-utils";
 import {
@@ -141,7 +142,6 @@ export const MediaPlayerVideo = forwardRef<
   ) => {
     const volume = useMediaPlayerStore((state) => state.volume);
     const isMuted = useMediaPlayerStore((state) => state.isMuted);
-    const currentTime = useMediaPlayerStore((state) => state.currentTime);
     const playbackRate = useMediaPlayerStore((state) => state.playbackRate);
     const streamOffset = useMediaPlayerStore((state) => state.streamOffset);
     const playbackPlan = useMemo(() => buildPlexPlaybackPlan(item), [item]);
@@ -151,7 +151,6 @@ export const MediaPlayerVideo = forwardRef<
     const captionSize = useMediaPlayerStore((state) => state.captionSize);
     const { updatePlaybackState } = useMediaPlayerStore();
     const videoElementRef = useRef<HTMLVideoElement | null>(null);
-    const pendingResumeTimeRef = useRef<number | null>(null);
     const surfaceElementRef = useRef<HTMLDivElement | null>(null);
     const { plexSubtitleTrackSrc, handlePlexTrackLoad, captionTrack } =
       usePlexSubtitleTrack(
@@ -161,6 +160,21 @@ export const MediaPlayerVideo = forwardRef<
         usesOffsetTimeline ? streamOffset : 0,
       );
     const activeCaptions = useCaptionLines(captionTrack);
+    const {
+      captureResumeTimeOnLoadStart,
+      applyResumeSeekOnMetadata,
+      handleTimeUpdate: handleResumeTimeUpdate,
+      handleSeeked: handleResumeSeeked,
+      hasPendingResume,
+    } = useResumePlayback({
+      videoRef: videoElementRef,
+      usesOffsetTimeline,
+      streamOffset,
+      isLoading,
+      updatePlaybackState,
+      onVideoTimeUpdate,
+      onVideoSeeked,
+    });
     const {
       overlay: seekOverlay,
       showOverlay: showSeekOverlay,
@@ -184,9 +198,17 @@ export const MediaPlayerVideo = forwardRef<
       [longPressRef],
     );
 
+    const media = item.Media?.[0];
+    const partKey = media?.Part?.[0]?.key;
+    const videoCodec = media?.videoCodec;
+    const audioCodec = media?.audioCodec;
+    const container = media?.container;
+    const burnedSubtitleIndex = playbackPlan.burnedSubtitleIndex;
+
     // Derive video source URL and error state from item. `streamOffset` only
     // affects transcoded streams, where it gets baked into the URL so the
-    // transcoder restarts at the requested position.
+    // transcoder restarts at the requested position. Granular deps avoid
+    // reloading when hydration only expands stream metadata.
     const { videoSrc, hasError } = useMemo(() => {
       if (!hasValidStreamingData(item)) {
         return { videoSrc: "", hasError: true };
@@ -198,7 +220,7 @@ export const MediaPlayerVideo = forwardRef<
           item.serverUrl,
           item.authToken,
           streamOffset,
-          playbackPlan.burnedSubtitleIndex,
+          burnedSubtitleIndex,
         );
         return { videoSrc: streamUrl, hasError: false };
       } catch (error) {
@@ -208,18 +230,27 @@ export const MediaPlayerVideo = forwardRef<
         );
         return { videoSrc: "", hasError: true };
       }
-    }, [item, playbackPlan.burnedSubtitleIndex, streamOffset]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- omit `item`; granular deps prevent reload on stream-only hydration
+    }, [
+      item.ratingKey,
+      item.serverUrl,
+      item.authToken,
+      partKey,
+      videoCodec,
+      audioCodec,
+      container,
+      burnedSubtitleIndex,
+      streamOffset,
+    ]);
 
     // Handle video metadata loaded
     const handleLoadedMetadata = useCallback(() => {
       console.log("🎬 Video: Metadata loaded, setting start time");
 
       if (ref && "current" in ref && ref.current) {
-        // Plex's transcoded MP4 with `offset` already reports the full
-        // original duration (its `currentTime` advances from 0 up to
-        // `originalDuration - offset`), so we just take the raw duration.
-        const startTime = pendingResumeTimeRef.current ?? currentTime;
-        const needsResumeSeek = !usesOffsetTimeline && startTime > 0;
+        const { needsResumeSeek, startTime } = applyResumeSeekOnMetadata(
+          ref.current,
+        );
 
         updatePlaybackState({
           duration: ref.current.duration,
@@ -227,13 +258,8 @@ export const MediaPlayerVideo = forwardRef<
           isLoading: needsResumeSeek,
         });
 
-        // Only apply the resume position when the stream isn't offset-based.
-        // For transcoded streams the offset is baked into the URL, so the
-        // playhead is already at the right place (and seeking is rejected).
         if (needsResumeSeek) {
           console.log(`🎬 Video: Setting start time to ${startTime}s`);
-          pendingResumeTimeRef.current = startTime;
-          ref.current.currentTime = startTime;
         }
 
         console.log(
@@ -244,10 +270,9 @@ export const MediaPlayerVideo = forwardRef<
         ref.current.playbackRate = playbackRate;
       }
     }, [
+      applyResumeSeekOnMetadata,
       ref,
       updatePlaybackState,
-      currentTime,
-      usesOffsetTimeline,
       volume,
       isMuted,
       playbackRate,
@@ -271,75 +296,6 @@ export const MediaPlayerVideo = forwardRef<
       onVideoEnded?.();
     }, [updatePlaybackState, onVideoEnded]);
 
-    // Handle time update events
-    const handleTimeUpdate = useCallback(() => {
-      if (ref && "current" in ref && ref.current) {
-        const pendingResumeTime = pendingResumeTimeRef.current;
-        if (pendingResumeTime !== null) {
-          if (Math.abs(ref.current.currentTime - pendingResumeTime) < 0.5) {
-            pendingResumeTimeRef.current = null;
-            updatePlaybackState({
-              isLoading: false,
-              currentTime: ref.current.currentTime,
-            });
-          }
-          return;
-        }
-      }
-
-      if (isLoading) return;
-
-      if (ref && "current" in ref && ref.current) {
-        // Map the local stream time back to the original timeline. For
-        // direct-play streamOffset is 0, so this is a no-op.
-        const effectiveTime = usesOffsetTimeline
-          ? streamOffset + ref.current.currentTime
-          : ref.current.currentTime;
-        updatePlaybackState({ currentTime: effectiveTime });
-        onVideoTimeUpdate?.(effectiveTime);
-      }
-    }, [
-      ref,
-      isLoading,
-      streamOffset,
-      updatePlaybackState,
-      onVideoTimeUpdate,
-      usesOffsetTimeline,
-    ]);
-
-    // Handle seeked events
-    const handleSeeked = useCallback(() => {
-      if (ref && "current" in ref && ref.current) {
-        const pendingResumeTime = pendingResumeTimeRef.current;
-        if (
-          pendingResumeTime !== null &&
-          !usesOffsetTimeline &&
-          Math.abs(ref.current.currentTime - pendingResumeTime) >= 0.5
-        ) {
-          return;
-        }
-
-        const effectiveTime = usesOffsetTimeline
-          ? streamOffset + ref.current.currentTime
-          : ref.current.currentTime;
-        if (pendingResumeTime !== null) {
-          pendingResumeTimeRef.current = null;
-        }
-        updatePlaybackState({
-          isBuffering: false,
-          isLoading: false,
-          currentTime: effectiveTime,
-        });
-        onVideoSeeked?.(effectiveTime);
-      }
-    }, [
-      ref,
-      streamOffset,
-      updatePlaybackState,
-      onVideoSeeked,
-      usesOffsetTimeline,
-    ]);
-
     // Handle seeking event
     const handleSeeking = useCallback(() => {
       updatePlaybackState({ isBuffering: true });
@@ -357,37 +313,33 @@ export const MediaPlayerVideo = forwardRef<
 
     // Handle can play through event
     const handleCanPlayThrough = useCallback(() => {
-      if (pendingResumeTimeRef.current !== null) return;
+      if (hasPendingResume()) return;
 
       updatePlaybackState({
         isBuffering: false,
         canPlay: true,
         isLoading: false,
       });
-    }, [updatePlaybackState]);
+    }, [hasPendingResume, updatePlaybackState]);
 
-    // Handle load start event
     const handleLoadStart = useCallback(() => {
-      if (!usesOffsetTimeline && currentTime > 0) {
-        pendingResumeTimeRef.current = currentTime;
-      }
+      captureResumeTimeOnLoadStart();
 
       updatePlaybackState({
         isLoading: true,
         error: null,
         canPlay: false,
       });
-    }, [currentTime, updatePlaybackState, usesOffsetTimeline]);
+    }, [captureResumeTimeOnLoadStart, updatePlaybackState]);
 
-    // Handle loaded data event
     const handleLoadedData = useCallback(() => {
-      if (pendingResumeTimeRef.current !== null) return;
+      if (hasPendingResume()) return;
 
       updatePlaybackState({
         isLoading: false,
         canPlay: true,
       });
-    }, [updatePlaybackState]);
+    }, [hasPendingResume, updatePlaybackState]);
 
     // Handle progress event (buffering progress)
     const handleProgress = useCallback(() => {
@@ -623,9 +575,9 @@ export const MediaPlayerVideo = forwardRef<
           onPlay={handlePlay}
           onPause={handlePause}
           onEnded={handleEnded}
-          onTimeUpdate={handleTimeUpdate}
+          onTimeUpdate={handleResumeTimeUpdate}
           onSeeking={handleSeeking}
-          onSeeked={handleSeeked}
+          onSeeked={handleResumeSeeked}
           onWaiting={handleWaiting}
           onStalled={handleStalled}
           onSuspend={handleSuspend}
