@@ -239,7 +239,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
           <Button
             variant="secondary"
             size="icon"
-            className="group/button pointer-events-auto h-12 w-12 cursor-pointer rounded-full"
+            className="group/button pointer-events-auto h-12 w-12 rounded-full"
             onClick={handlePlay}
             aria-label="Play"
           >
