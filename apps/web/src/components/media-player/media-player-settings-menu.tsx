@@ -55,7 +55,6 @@ export function MediaPlayerSettingsMenu({
   const currentItem = useMediaPlayerStore((state) => state.currentItem);
   const playbackRate = useMediaPlayerStore((state) => state.playbackRate);
   const captionSize = useMediaPlayerStore((state) => state.captionSize);
-  const currentTime = useMediaPlayerStore((state) => state.currentTime);
   const autoPlayEnabled = useMediaPlayerStore(
     (state) => state.autoPlay.isEnabled,
   );
@@ -153,7 +152,6 @@ export function MediaPlayerSettingsMenu({
       const refreshed = await refetchDetailedItem();
       if (refreshed.data) {
         applyPlaybackMetadata(refreshed.data, {
-          preserveCurrentTime: currentTime,
           reloadVideo: true,
           previousVideoUsesTranscode: previousUsesTranscode,
         });
