@@ -22,7 +22,6 @@ import { getVideoElementError } from "./utils/media-player-utils";
 import {
   buildPlexPlaybackPlan,
   generatePlexStreamUrl,
-  hasValidStreamingData,
   transcodeUsesOffsetTimeline,
 } from "./utils/plex-stream-utils";
 import { useSuppressNativeLongPress } from "./hooks/use-suppress-native-long-press";
@@ -198,6 +197,10 @@ export const MediaPlayerVideo = forwardRef<
       [longPressRef],
     );
 
+    const ratingKey = item.ratingKey;
+    const metadataKey = item.key;
+    const serverUrl = item.serverUrl;
+    const authToken = item.authToken;
     const media = item.Media?.[0];
     const partKey = media?.Part?.[0]?.key;
     const videoCodec = media?.videoCodec;
@@ -207,18 +210,33 @@ export const MediaPlayerVideo = forwardRef<
 
     // Derive video source URL and error state from item. `streamOffset` only
     // affects transcoded streams, where it gets baked into the URL so the
-    // transcoder restarts at the requested position. Granular deps avoid
-    // reloading when hydration only expands stream metadata.
+    // transcoder restarts at the requested position. URL-affecting fields are
+    // listed explicitly so stream-only metadata hydration does not reload video.
     const { videoSrc, hasError } = useMemo(() => {
-      if (!hasValidStreamingData(item)) {
+      if (!partKey || !serverUrl || !authToken) {
         return { videoSrc: "", hasError: true };
       }
 
+      const streamItem = {
+        ratingKey,
+        key: metadataKey,
+        serverUrl,
+        authToken,
+        Media: [
+          {
+            videoCodec,
+            audioCodec,
+            container,
+            Part: [{ key: partKey }],
+          },
+        ],
+      } as MediaPlayerItem;
+
       try {
         const streamUrl = generatePlexStreamUrl(
-          item,
-          item.serverUrl,
-          item.authToken,
+          streamItem,
+          serverUrl,
+          authToken,
           streamOffset,
           burnedSubtitleIndex,
         );
@@ -230,11 +248,11 @@ export const MediaPlayerVideo = forwardRef<
         );
         return { videoSrc: "", hasError: true };
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps -- omit `item`; granular deps prevent reload on stream-only hydration
     }, [
-      item.ratingKey,
-      item.serverUrl,
-      item.authToken,
+      ratingKey,
+      metadataKey,
+      serverUrl,
+      authToken,
       partKey,
       videoCodec,
       audioCodec,
