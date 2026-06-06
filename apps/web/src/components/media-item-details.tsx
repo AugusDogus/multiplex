@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { Check, Clock, MoreHorizontal, Play, Share2, Star } from "lucide-react";
+import { Check, MoreHorizontal, Play, Share2, Star } from "lucide-react";
 import {
   getPlexImageUrl,
   type ContinueWatchingItem,
