@@ -147,6 +147,7 @@ export const MediaPlayerVideo = forwardRef<
     const usesOffsetTimeline = transcodeUsesOffsetTimeline(item, streamOffset);
     const isLoading = useMediaPlayerStore((state) => state.isLoading);
     const showControls = useMediaPlayerStore((state) => state.showControls);
+    const captionSize = useMediaPlayerStore((state) => state.captionSize);
     const { updatePlaybackState } = useMediaPlayerStore();
     const videoElementRef = useRef<HTMLVideoElement | null>(null);
     const pendingResumeTimeRef = useRef<number | null>(null);
@@ -329,7 +330,13 @@ export const MediaPlayerVideo = forwardRef<
         });
         onVideoSeeked?.(effectiveTime);
       }
-    }, [ref, streamOffset, updatePlaybackState, onVideoSeeked, usesOffsetTimeline]);
+    }, [
+      ref,
+      streamOffset,
+      updatePlaybackState,
+      onVideoSeeked,
+      usesOffsetTimeline,
+    ]);
 
     // Handle seeking event
     const handleSeeking = useCallback(() => {
@@ -683,6 +690,7 @@ export const MediaPlayerVideo = forwardRef<
           lines={activeCaptions}
           controlsVisible={showControls}
           compactControls={useMobileSurfaceGestures}
+          captionSize={captionSize}
         />
 
         <MediaPlayerSeekOverlay overlay={seekOverlay} />

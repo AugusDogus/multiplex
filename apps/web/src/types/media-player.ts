@@ -19,6 +19,7 @@ export type MediaPlayerItem = ContinueWatchingItem & {
 };
 
 export type PlaybackRate = 0.5 | 0.75 | 1 | 1.25 | 1.5 | 1.75 | 2;
+export type CaptionSize = "small" | "medium" | "large" | "extra-large";
 
 /**
  * Next episode information for auto-play
@@ -72,6 +73,7 @@ export interface MediaPlayerState {
   isFullscreen: boolean;
   showControls: boolean;
   controlsTimeout: number | null;
+  captionSize: CaptionSize;
 
   // Loading/Error state
   isLoading: boolean;
