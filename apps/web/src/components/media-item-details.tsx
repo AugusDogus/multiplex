@@ -32,8 +32,10 @@ interface MediaItemDetailsProps {
 export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
   const openPlayer = useMediaPlayerStore((state) => state.openPlayer);
   const { item, serverUrl, authToken, serverName } = details;
-  const posterUrl = getPosterUrl(item, serverUrl, authToken);
-  const backdropUrl = getBackdropUrl(item, serverUrl, authToken);
+  const imageServerUrl = serverUrl ?? undefined;
+  const imageAuthToken = authToken ?? undefined;
+  const posterUrl = getPosterUrl(item, imageServerUrl, imageAuthToken);
+  const backdropUrl = getBackdropUrl(item, imageServerUrl, imageAuthToken);
   const progressPercent = getProgressPercent(item);
   const timeRemaining = formatTimeRemaining(item);
   const directorNames = item.Director?.map((director) => director.tag) ?? [];
@@ -41,11 +43,11 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
   const ratingLabel = getRatingLabel(item);
   const metadata = getMetadataItems(item);
   const technicalRows = getTechnicalRows(item);
-  const canPlay = Boolean(serverUrl && authToken);
+  const canPlay = Boolean(imageServerUrl && imageAuthToken);
   const playLabel = progressPercent > 0 ? "Resume" : "Play";
 
   const handlePlay = () => {
-    if (!serverUrl || !authToken) {
+    if (!imageServerUrl || !imageAuthToken) {
       return;
     }
 
@@ -54,8 +56,8 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
       hubTitle: item.librarySectionTitle,
       hubType: "metadata",
       serverId,
-      serverUrl,
-      authToken,
+      serverUrl: imageServerUrl,
+      authToken: imageAuthToken,
       progressPercent,
       isCompleted: Boolean(item.viewCount),
       timeRemaining:
@@ -113,7 +115,7 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="secondary">{getTypeLabel(item.type)}</Badge>
                 <Badge variant="outline">{item.librarySectionTitle}</Badge>
-                <Badge variant="outline">{serverName}</Badge>
+                <Badge variant="outline">{serverName ?? "Plex server"}</Badge>
               </div>
               <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
                 {getDisplayTitle(item)}
@@ -217,8 +219,8 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
             {item.Role.slice(0, 18).map((role) => {
               const imageUrl = getPlexImageUrl(
                 role.thumb,
-                serverUrl,
-                authToken,
+                imageServerUrl,
+                imageAuthToken,
                 {
                   width: 160,
                   height: 160,
