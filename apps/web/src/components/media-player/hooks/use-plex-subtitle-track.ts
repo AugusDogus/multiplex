@@ -5,9 +5,11 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   type RefObject,
   type SyntheticEvent,
 } from "react";
+import { getActiveCaptionLines } from "../utils/caption-text";
 import type { MediaPlayerItem } from "~/types/media-player";
 import {
   generatePlexExternalSubtitleUrl,
@@ -27,6 +29,8 @@ export function usePlexSubtitleTrack(
 ) {
   const externalTextTrackRef = useRef<TextTrack | null>(null);
   const plexTextTrackRef = useRef<TextTrack | null>(null);
+  const [captionTrack, setCaptionTrack] = useState<TextTrack | null>(null);
+  const [activeCaptions, setActiveCaptions] = useState<string[]>([]);
 
   const plexSubtitleTrackSrc = useMemo(() => {
     if (
@@ -69,12 +73,21 @@ export function usePlexSubtitleTrack(
 
   const clearExternalTextTrack = useCallback(() => {
     disableTextTrack(externalTextTrackRef.current);
+    externalTextTrackRef.current = null;
+    setCaptionTrack(null);
   }, [disableTextTrack]);
 
   const clearPlexTextTrack = useCallback(() => {
     disableTextTrack(plexTextTrackRef.current);
     plexTextTrackRef.current = null;
+    setCaptionTrack(null);
   }, [disableTextTrack]);
+
+  const activateCaptionTrack = useCallback((track: TextTrack) => {
+    track.mode = "hidden";
+    setCaptionTrack(track);
+    setActiveCaptions(getActiveCaptionLines(track));
+  }, []);
 
   useEffect(() => {
     if (
@@ -126,7 +139,7 @@ export function usePlexSubtitleTrack(
         for (const cue of cueData) {
           track.addCue(new VTTCue(cue.startTime, cue.endTime, cue.text));
         }
-        track.mode = "showing";
+        activateCaptionTrack(track);
       } catch (error) {
         console.error(
           "Failed to load external subtitle stream:",
@@ -140,6 +153,7 @@ export function usePlexSubtitleTrack(
       isCancelled = true;
     };
   }, [
+    activateCaptionTrack,
     clearExternalTextTrack,
     clearPlexTextTrack,
     item,
@@ -176,13 +190,32 @@ export function usePlexSubtitleTrack(
 
       clearExternalTextTrack();
       plexTextTrackRef.current = track;
-      track.mode = "showing";
+      activateCaptionTrack(track);
     },
-    [clearExternalTextTrack],
+    [activateCaptionTrack, clearExternalTextTrack],
   );
+
+  useEffect(() => {
+    if (!captionTrack) {
+      setActiveCaptions([]);
+      return;
+    }
+
+    const handleCueChange = () => {
+      setActiveCaptions(getActiveCaptionLines(captionTrack));
+    };
+
+    captionTrack.addEventListener("cuechange", handleCueChange);
+    handleCueChange();
+
+    return () => {
+      captionTrack.removeEventListener("cuechange", handleCueChange);
+    };
+  }, [captionTrack]);
 
   return {
     plexSubtitleTrackSrc,
     handlePlexTrackLoad,
+    activeCaptions,
   };
 }

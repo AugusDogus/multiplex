@@ -25,6 +25,7 @@ import {
 } from "./utils/plex-stream-utils";
 import { useSuppressNativeLongPress } from "./hooks/use-suppress-native-long-press";
 import { useVideoPressGesture } from "./hooks/use-video-press-gesture";
+import { MediaPlayerCaptionsOverlay } from "./media-player-captions-overlay";
 import { MediaPlayerSeekOverlay } from "./media-player-seek-overlay";
 
 /* ────────────────────────────────────────────────────────────
@@ -145,16 +146,18 @@ export const MediaPlayerVideo = forwardRef<
     const playbackPlan = useMemo(() => buildPlexPlaybackPlan(item), [item]);
     const usesOffsetTimeline = transcodeUsesOffsetTimeline(item, streamOffset);
     const isLoading = useMediaPlayerStore((state) => state.isLoading);
+    const showControls = useMediaPlayerStore((state) => state.showControls);
     const { updatePlaybackState } = useMediaPlayerStore();
     const videoElementRef = useRef<HTMLVideoElement | null>(null);
     const pendingResumeTimeRef = useRef<number | null>(null);
     const surfaceElementRef = useRef<HTMLDivElement | null>(null);
-    const { plexSubtitleTrackSrc, handlePlexTrackLoad } = usePlexSubtitleTrack(
-      videoElementRef,
-      item,
-      playbackPlan,
-      usesOffsetTimeline ? streamOffset : 0,
-    );
+    const { plexSubtitleTrackSrc, handlePlexTrackLoad, activeCaptions } =
+      usePlexSubtitleTrack(
+        videoElementRef,
+        item,
+        playbackPlan,
+        usesOffsetTimeline ? streamOffset : 0,
+      );
     const {
       overlay: seekOverlay,
       showOverlay: showSeekOverlay,
@@ -675,6 +678,12 @@ export const MediaPlayerVideo = forwardRef<
             />
           </div>
         ))}
+
+        <MediaPlayerCaptionsOverlay
+          lines={activeCaptions}
+          controlsVisible={showControls}
+          compactControls={useMobileSurfaceGestures}
+        />
 
         <MediaPlayerSeekOverlay overlay={seekOverlay} />
       </div>
