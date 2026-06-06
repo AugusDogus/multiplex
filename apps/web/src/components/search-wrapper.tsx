@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import type { ProcessedSearchResult } from "@multiplex/plex-query";
 import { SearchForm } from "~/components/search-form";
 import { SearchCommandModal } from "~/components/search-command-modal";
@@ -10,6 +11,7 @@ interface SearchWrapperProps {
 }
 
 export function SearchWrapper({ className }: SearchWrapperProps) {
+  const router = useRouter();
   const [searchModalOpen, setSearchModalOpen] = React.useState(false);
 
   React.useEffect(() => {
@@ -29,17 +31,8 @@ export function SearchWrapper({ className }: SearchWrapperProps) {
   };
 
   const handleResultSelect = (result: ProcessedSearchResult) => {
-    // TODO: Implement navigation to media player or details page
-    console.log("Selected search result:", result);
-
-    // For now, we'll just log the result. In the future, this could:
-    // 1. Navigate to a media player page
-    // 2. Open a media details modal
-    // 3. Start playback directly
-    // 4. Add to a playlist/queue
-
-    // Close the modal after selection
     setSearchModalOpen(false);
+    router.push(`/media/${result.serverId}/item/${result.ratingKey}`);
   };
 
   return (

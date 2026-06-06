@@ -1,5 +1,12 @@
 import type { ContinueWatchingItem } from "../schemas/continue-watching-schemas";
 
+interface PlexImageOptions {
+  width: number;
+  height: number;
+  minSize?: boolean;
+  upscale?: boolean;
+}
+
 /* ────────────────────────────────────────────────────────────
    Continue Watching Item Utilities
    Helper functions for working with Continue Watching items
@@ -57,7 +64,9 @@ export function getMainTitle(item: ContinueWatchingItem): string {
 export function getSubtitle(item: ContinueWatchingItem): string {
   if (item.type === "episode") {
     const seasonEpisode =
-      item.parentIndex && item.index ? `S${item.parentIndex} · E${item.index}` : "";
+      item.parentIndex && item.index
+        ? `S${item.parentIndex} · E${item.index}`
+        : "";
 
     if (seasonEpisode && item.title) {
       return `${item.title}\n${seasonEpisode}`;
@@ -101,13 +110,45 @@ export function getThumbnailUrl(
     return undefined;
   }
 
-  // Build the transcoded thumbnail URL with 2:3 aspect ratio (200x300)
-  const baseUrl = serverUrl.replace(/\/$/, ""); // Remove trailing slash
+  return getPlexImageUrl(thumbnailPath, serverUrl, authToken, {
+    width: 200,
+    height: 300,
+    minSize: true,
+    upscale: true,
+  });
+}
 
-  // Skip HTTPS upgrade to avoid SSL certificate issues
-  // Let the browser handle mixed content warnings instead of forcing invalid certificates
+/**
+ * Build a Plex photo transcoder URL for any image path on a server.
+ */
+export function getPlexImageUrl(
+  imagePath: string | undefined,
+  serverUrl: string | undefined,
+  authToken: string | undefined,
+  options: PlexImageOptions,
+): string | undefined {
+  if (!imagePath || !serverUrl || !authToken) {
+    return undefined;
+  }
 
-  const encodedThumbUrl = encodeURIComponent(`${thumbnailPath}?X-Plex-Token=${authToken}`);
+  const baseUrl = serverUrl.replace(/\/$/, "");
+  const imageUrl = imagePath.startsWith("http")
+    ? imagePath
+    : `${imagePath}?X-Plex-Token=${authToken}`;
+  const params = new URLSearchParams({
+    width: options.width.toString(),
+    height: options.height.toString(),
+    url: imageUrl,
+    "X-Plex-Token": authToken,
+  });
 
-  return `${baseUrl}/photo/:/transcode?width=200&height=300&minSize=1&upscale=1&url=${encodedThumbUrl}&X-Plex-Token=${authToken}`;
+  if (options.minSize ?? true) {
+    params.set("minSize", "1");
+  }
+
+  if (options.upscale ?? true) {
+    params.set("upscale", "1");
+  }
+
+  return `${baseUrl}/photo/:/transcode?${params.toString()}`;
 }
