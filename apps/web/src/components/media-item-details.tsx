@@ -71,7 +71,7 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-8 pb-24 md:pb-8">
-      <section className="relative isolate overflow-hidden rounded-2xl">
+      <section className="relative rounded-2xl border-transparent [-webkit-mask:linear-gradient(#000_0_0)] [mask-image:linear-gradient(#000_0_0)]">
         {backdropUrl && (
           <Image
             src={backdropUrl}
@@ -87,7 +87,7 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
 
         <div className="flex flex-col gap-6 p-4 sm:p-6 lg:flex-row lg:p-8">
           <div className="flex w-full flex-col gap-3 sm:w-[220px] lg:shrink-0">
-            <div className="bg-muted ring-border relative aspect-[2/3] overflow-hidden rounded-xl shadow-2xl ring-1">
+            <div className="bg-muted ring-border relative aspect-[2/3] rounded-xl shadow-2xl ring-1 [-webkit-mask:linear-gradient(#000_0_0)] [mask-image:linear-gradient(#000_0_0)]">
               {posterUrl ? (
                 <Image
                   src={posterUrl}
