@@ -1,8 +1,10 @@
 "use client";
 
 import { Button } from "~/components/ui/button";
+import { cn } from "~/lib/utils";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import type { NextEpisodeInfo } from "~/types/media-player";
+import { PLAYER_OVERLAY_BOTTOM_COMPACT_CONTROLS } from "./utils/player-overlay-layout";
 
 /* ────────────────────────────────────────────────────────────
    Auto-Play Overlay Component
@@ -39,7 +41,12 @@ export function MediaPlayerAutoPlayOverlay({
   };
 
   return (
-    <div className="absolute inset-x-4 bottom-20 z-50 flex justify-center">
+    <div
+      className={cn(
+        "absolute inset-x-4 z-50 flex justify-center",
+        PLAYER_OVERLAY_BOTTOM_COMPACT_CONTROLS,
+      )}
+    >
       <div className="w-full max-w-md rounded-lg bg-black/90 p-4 backdrop-blur-sm">
         <div className="mb-3 flex items-center justify-between">
           <div className="flex-1">
