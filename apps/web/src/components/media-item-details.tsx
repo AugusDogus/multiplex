@@ -230,16 +230,18 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
               return (
                 <div
                   key={`${role.tag}-${role.role ?? "role"}`}
-                  className="flex w-28 shrink-0 flex-col items-center gap-2 text-center"
+                  className="flex w-32 shrink-0 flex-col items-center gap-3 text-center"
                 >
                   <Avatar className="size-20">
                     {imageUrl && <AvatarImage src={imageUrl} alt={role.tag} />}
                     <AvatarFallback>{getInitials(role.tag)}</AvatarFallback>
                   </Avatar>
-                  <div className="flex w-full flex-col gap-1">
-                    <p className="truncate text-sm font-medium">{role.tag}</p>
+                  <div className="flex min-h-14 w-full flex-col gap-1.5">
+                    <p className="line-clamp-2 text-sm leading-snug font-medium">
+                      {role.tag}
+                    </p>
                     {role.role && (
-                      <p className="text-muted-foreground line-clamp-2 text-xs">
+                      <p className="text-muted-foreground line-clamp-2 text-xs leading-snug">
                         {role.role}
                       </p>
                     )}
