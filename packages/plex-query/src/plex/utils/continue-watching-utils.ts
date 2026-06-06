@@ -64,9 +64,7 @@ export function getMainTitle(item: ContinueWatchingItem): string {
 export function getSubtitle(item: ContinueWatchingItem): string {
   if (item.type === "episode") {
     const seasonEpisode =
-      item.parentIndex && item.index
-        ? `S${item.parentIndex} · E${item.index}`
-        : "";
+      item.parentIndex && item.index ? `S${item.parentIndex} · E${item.index}` : "";
 
     if (seasonEpisode && item.title) {
       return `${item.title}\n${seasonEpisode}`;
