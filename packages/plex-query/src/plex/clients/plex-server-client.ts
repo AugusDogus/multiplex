@@ -1,8 +1,10 @@
 import {
   continueWatchingResponseSchema,
   itemMetadataResponseSchema,
+  metadataChildrenResponseSchema,
   type ContinueWatchingResponse,
   type ItemMetadata,
+  type ItemMetadataChild,
 } from "../schemas/continue-watching-schemas";
 import { dvrsResponseSchema, type DVRsResponse } from "../schemas/dvr-schemas";
 import {
@@ -282,6 +284,22 @@ export class PlexServerClient {
 
     const parsed = itemMetadataResponseSchema.parse(rawResponse);
     return parsed.MediaContainer.Metadata?.[0] ?? null;
+  }
+
+  /**
+   * Fetch child metadata for container items. Shows return seasons, and
+   * seasons return episodes.
+   *
+   * @param ratingKey - Plex `ratingKey` of the show or season to expand
+   * @returns Parsed child metadata items.
+   */
+  async getMetadataChildren(ratingKey: string): Promise<ItemMetadataChild[]> {
+    const rawResponse = await this.get({
+      endpoint: `library/metadata/${ratingKey}/children`,
+    });
+
+    const parsed = metadataChildrenResponseSchema.parse(rawResponse);
+    return parsed.MediaContainer.Metadata ?? [];
   }
 
   /**
