@@ -1,23 +1,31 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { MultiplexLogo } from "~/components/multiplex-logo";
 import { SearchWrapper } from "~/components/search-wrapper";
 import {
   Breadcrumb,
   BreadcrumbItem,
+  BreadcrumbLink,
   BreadcrumbList,
   BreadcrumbPage,
+  BreadcrumbSeparator,
 } from "~/components/ui/breadcrumb";
 import { Separator } from "~/components/ui/separator";
 import { SidebarTrigger } from "~/components/ui/sidebar";
 import { cn } from "~/lib/utils";
 
+export interface AppHeaderBreadcrumb {
+  label: string;
+  href?: string;
+}
+
 interface AppHeaderProps {
   /**
-   * Desktop breadcrumb. Also rendered on mobile next to the brand when
-   * `mobile` is not provided.
+   * Single-page breadcrumb label. Prefer `breadcrumbs` for multi-step trails.
+   * When both are set, `breadcrumbs` takes precedence.
    */
   children?: ReactNode;
+  breadcrumbs?: AppHeaderBreadcrumb[];
   /**
    * Replaces the default Multiplex brand + mobile breadcrumb with custom
    * content on mobile only (e.g. a library picker dropdown).
@@ -25,8 +33,9 @@ interface AppHeaderProps {
   mobile?: ReactNode;
 }
 
-export function AppHeader({ children, mobile }: AppHeaderProps) {
+export function AppHeader({ children, breadcrumbs, mobile }: AppHeaderProps) {
   const hasCustomMobile = mobile !== undefined;
+  const hasBreadcrumb = breadcrumbs?.length || children;
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-2">
@@ -50,7 +59,7 @@ export function AppHeader({ children, mobile }: AppHeaderProps) {
           </Link>
         )}
 
-        {children && (
+        {hasBreadcrumb && (
           <>
             <Separator
               orientation="vertical"
@@ -61,9 +70,26 @@ export function AppHeader({ children, mobile }: AppHeaderProps) {
             />
             <Breadcrumb className={cn(hasCustomMobile && "hidden md:block")}>
               <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbPage>{children}</BreadcrumbPage>
-                </BreadcrumbItem>
+                {breadcrumbs ? (
+                  breadcrumbs.map((crumb, index) => (
+                    <Fragment key={`${crumb.label}-${index}`}>
+                      {index > 0 && <BreadcrumbSeparator />}
+                      <BreadcrumbItem>
+                        {crumb.href ? (
+                          <BreadcrumbLink asChild>
+                            <Link href={crumb.href}>{crumb.label}</Link>
+                          </BreadcrumbLink>
+                        ) : (
+                          <BreadcrumbPage>{crumb.label}</BreadcrumbPage>
+                        )}
+                      </BreadcrumbItem>
+                    </Fragment>
+                  ))
+                ) : (
+                  <BreadcrumbItem>
+                    <BreadcrumbPage>{children}</BreadcrumbPage>
+                  </BreadcrumbItem>
+                )}
               </BreadcrumbList>
             </Breadcrumb>
           </>

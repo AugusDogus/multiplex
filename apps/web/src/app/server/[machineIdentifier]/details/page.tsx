@@ -8,7 +8,10 @@ import { MobileNav } from "~/components/mobile-nav";
 import { PlexErrorWrapper } from "~/components/plex-error-wrapper";
 import { SidebarInset, SidebarProvider } from "~/components/ui/sidebar";
 import { auth } from "~/lib/auth/server";
-import { parseItemDetailsKey } from "~/lib/plex-routes";
+import {
+  getItemDetailsBreadcrumbs,
+  parseItemDetailsKey,
+} from "~/lib/plex-routes";
 import { api, HydrateClient } from "~/trpc/server";
 
 interface PageProps {
@@ -69,7 +72,12 @@ export default async function MediaItemDetailsPage({
             />
           </PlexErrorWrapper>
           <SidebarInset className="w-0 max-w-full min-w-0 flex-1">
-            <AppHeader>{details.item.title}</AppHeader>
+            <AppHeader
+              breadcrumbs={getItemDetailsBreadcrumbs(
+                details.item,
+                machineIdentifier,
+              )}
+            />
             <main className="flex min-w-0 flex-1 flex-col p-4">
               <MediaItemDetails
                 details={details}

@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { Check, MoreHorizontal, Play, Share2, Star } from "lucide-react";
 import {
   getPlexImageUrl,
@@ -17,6 +18,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
+import { getItemDetailsHref } from "~/lib/plex-routes";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import type { RouterOutputs } from "~/trpc/react";
 import type { MediaPlayerItem } from "~/types/media-player";
@@ -71,7 +73,7 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-8 pb-24 md:pb-8">
-      <section className="relative rounded-2xl border-transparent [-webkit-mask:linear-gradient(#000_0_0)] [mask-image:linear-gradient(#000_0_0)]">
+      <section className="relative rounded-2xl border-transparent [-webkit-mask:linear-gradient(#000_0_0)] mask-[linear-gradient(#000_0_0)]">
         {backdropUrl && (
           <Image
             src={backdropUrl}
@@ -82,12 +84,12 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
             className="-z-20 object-cover"
           />
         )}
-        <div className="from-background via-background/90 to-background/40 absolute inset-0 -z-10 bg-gradient-to-r" />
-        <div className="from-background via-background/30 absolute inset-0 -z-10 bg-gradient-to-t to-transparent" />
+        <div className="from-background via-background/90 to-background/40 absolute inset-0 -z-10 bg-linear-to-r" />
+        <div className="from-background via-background/30 absolute inset-0 -z-10 bg-linear-to-t to-transparent" />
 
         <div className="flex flex-col gap-6 p-4 sm:p-6 lg:flex-row lg:p-8">
           <div className="flex w-full flex-col gap-3 sm:w-[220px] lg:shrink-0">
-            <div className="bg-muted ring-border relative aspect-[2/3] rounded-xl shadow-2xl ring-1 [-webkit-mask:linear-gradient(#000_0_0)] [mask-image:linear-gradient(#000_0_0)]">
+            <div className="bg-muted ring-border relative aspect-2/3 rounded-xl shadow-2xl ring-1 [-webkit-mask:linear-gradient(#000_0_0)] mask-[linear-gradient(#000_0_0)]">
               {posterUrl ? (
                 <Image
                   src={posterUrl}
@@ -110,7 +112,7 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
             )}
           </div>
 
-          <div className="flex min-w-0 flex-1 flex-col justify-end gap-5 lg:max-w-3xl">
+          <div className="flex min-w-0 flex-1 flex-col justify-start gap-5 lg:max-w-3xl">
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="secondary">{getTypeLabel(item.type)}</Badge>
@@ -120,6 +122,11 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
               <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
                 {getDisplayTitle(item)}
               </h1>
+              {item.type === "episode" && (
+                <p className="text-muted-foreground text-xl sm:text-2xl">
+                  {item.title}
+                </p>
+              )}
               {directorNames.length > 0 && (
                 <p className="text-muted-foreground">
                   Directed by {directorNames.join(", ")}
@@ -129,6 +136,24 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
                 {metadata.map((value) => (
                   <span key={value}>{value}</span>
                 ))}
+                {item.type === "episode" && item.parentIndex && item.index && (
+                  <span>
+                    {item.parentRatingKey ? (
+                      <Link
+                        href={getItemDetailsHref(
+                          serverId,
+                          item.parentRatingKey,
+                        )}
+                        className="hover:text-foreground transition-colors"
+                      >
+                        S{item.parentIndex}
+                      </Link>
+                    ) : (
+                      <>S{item.parentIndex}</>
+                    )}{" "}
+                    E{item.index}
+                  </span>
+                )}
               </div>
               {genres.length > 0 && (
                 <p className="text-muted-foreground text-sm">
@@ -308,9 +333,6 @@ function getMetadataItems(item: MetadataItem) {
     item.year?.toString(),
     formatDuration(item.duration),
     item.contentRating,
-    item.type === "episode" && item.parentIndex && item.index
-      ? `S${item.parentIndex} E${item.index}`
-      : undefined,
   ].filter((value): value is string => Boolean(value));
 }
 
