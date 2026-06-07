@@ -8,16 +8,22 @@ import { MobileNav } from "~/components/mobile-nav";
 import { PlexErrorWrapper } from "~/components/plex-error-wrapper";
 import { SidebarInset, SidebarProvider } from "~/components/ui/sidebar";
 import { auth } from "~/lib/auth/server";
+import { parseItemDetailsKey } from "~/lib/plex-routes";
 import { api, HydrateClient } from "~/trpc/server";
 
 interface PageProps {
   params: Promise<{
     machineIdentifier: string;
-    ratingKey: string;
+  }>;
+  searchParams: Promise<{
+    key?: string;
   }>;
 }
 
-export default async function MediaItemPage({ params }: PageProps) {
+export default async function MediaItemDetailsPage({
+  params,
+  searchParams,
+}: PageProps) {
   const session = await auth.api.getSession({
     headers: await headers(),
   });
@@ -26,7 +32,14 @@ export default async function MediaItemPage({ params }: PageProps) {
     redirect("/login");
   }
 
-  const { machineIdentifier, ratingKey } = await params;
+  const { machineIdentifier } = await params;
+  const { key } = await searchParams;
+  const ratingKey = parseItemDetailsKey(key);
+
+  if (!ratingKey) {
+    notFound();
+  }
+
   const [servers, userInfo, details] = await Promise.all([
     api.plex.getServers(),
     api.plex.getUserInfo(),
