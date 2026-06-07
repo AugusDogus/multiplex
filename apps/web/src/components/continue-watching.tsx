@@ -16,6 +16,7 @@ import { useProgressStore } from "~/stores/progress-store";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 import { useVisibilityChange } from "~/hooks/use-visibility-change";
+import { getItemDetailsHref } from "~/lib/plex-routes";
 import { api } from "~/trpc/react";
 import { isMediaPlayerItem } from "~/types/media-player";
 
@@ -166,7 +167,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
 
   const mainTitle = getMainTitle(item);
   const subtitle = getSubtitle(item);
-  const detailsHref = `/media/${item.serverId}/item/${item.ratingKey}`;
+  const detailsHref = getItemDetailsHref(item.serverId, item.ratingKey);
 
   // Use updated progress if available, otherwise use server data
   const progressPercent: number =

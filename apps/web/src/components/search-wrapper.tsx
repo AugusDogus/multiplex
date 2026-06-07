@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { ProcessedSearchResult } from "@multiplex/plex-query";
 import { SearchForm } from "~/components/search-form";
 import { SearchCommandModal } from "~/components/search-command-modal";
+import { getItemDetailsHref } from "~/lib/plex-routes";
 
 interface SearchWrapperProps {
   className?: string;
@@ -32,7 +33,7 @@ export function SearchWrapper({ className }: SearchWrapperProps) {
 
   const handleResultSelect = (result: ProcessedSearchResult) => {
     setSearchModalOpen(false);
-    router.push(`/media/${result.serverId}/item/${result.ratingKey}`);
+    router.push(getItemDetailsHref(result.serverId, result.ratingKey));
   };
 
   return (
