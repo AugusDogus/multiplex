@@ -25,6 +25,7 @@ import type { MediaPlayerItem } from "~/types/media-player";
 
 type ItemDetails = NonNullable<RouterOutputs["plex"]["getItemDetails"]>;
 type MetadataItem = ItemDetails["item"];
+type ChildMetadata = ItemDetails["children"][number];
 
 interface MediaItemDetailsProps {
   details: ItemDetails;
@@ -33,7 +34,7 @@ interface MediaItemDetailsProps {
 
 export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
   const openPlayer = useMediaPlayerStore((state) => state.openPlayer);
-  const { item, serverUrl, authToken, serverName } = details;
+  const { item, children, serverUrl, authToken, serverName } = details;
   const imageServerUrl = serverUrl ?? undefined;
   const imageAuthToken = authToken ?? undefined;
   const posterUrl = getPosterUrl(item, imageServerUrl, imageAuthToken);
@@ -45,35 +46,39 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
   const ratingLabel = getRatingLabel(item);
   const metadata = getMetadataItems(item);
   const technicalRows = getTechnicalRows(item);
-  const canPlay = Boolean(imageServerUrl && imageAuthToken);
-  const playLabel = progressPercent > 0 ? "Resume" : "Play";
+  const firstPlayableChild =
+    item.type === "season" ? children.find(isPlayableMetadata) : undefined;
+  const canPlay = Boolean(
+    imageServerUrl &&
+      imageAuthToken &&
+      (isPlayableMetadata(item) || firstPlayableChild),
+  );
+  const playLabel =
+    isPlayableMetadata(item) && progressPercent > 0 ? "Resume" : "Play";
 
-  const handlePlay = () => {
-    if (!imageServerUrl || !imageAuthToken) {
+  const playItem = (sourceItem: MetadataItem | ChildMetadata | undefined) => {
+    if (!imageServerUrl || !imageAuthToken || !isPlayableMetadata(sourceItem)) {
       return;
     }
 
-    const playableItem: MediaPlayerItem = {
-      ...(item as ContinueWatchingItem),
-      hubTitle: item.librarySectionTitle,
-      hubType: "metadata",
-      serverId,
-      serverUrl: imageServerUrl,
-      authToken: imageAuthToken,
-      progressPercent,
-      isCompleted: Boolean(item.viewCount),
-      timeRemaining:
-        item.duration && item.viewOffset
-          ? item.duration - item.viewOffset
-          : undefined,
-    };
+    openPlayer(
+      buildPlayableItem(
+        sourceItem,
+        item,
+        serverId,
+        imageServerUrl,
+        imageAuthToken,
+      ),
+    );
+  };
 
-    openPlayer(playableItem);
+  const handlePlay = () => {
+    playItem(isPlayableMetadata(item) ? item : firstPlayableChild);
   };
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-8 pb-24 md:pb-8">
-      <section className="relative rounded-2xl border-transparent [-webkit-mask:linear-gradient(#000_0_0)] mask-[linear-gradient(#000_0_0)]">
+      <section className="relative rounded-2xl border-transparent mask-[linear-gradient(#000_0_0)] [-webkit-mask:linear-gradient(#000_0_0)]">
         {backdropUrl && (
           <Image
             src={backdropUrl}
@@ -89,7 +94,7 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
 
         <div className="flex flex-col gap-6 p-4 sm:p-6 lg:flex-row lg:p-8">
           <div className="flex w-full flex-col gap-3 sm:w-[220px] lg:shrink-0">
-            <div className="bg-muted ring-border relative aspect-2/3 rounded-xl shadow-2xl ring-1 [-webkit-mask:linear-gradient(#000_0_0)] mask-[linear-gradient(#000_0_0)]">
+            <div className="bg-muted ring-border relative aspect-2/3 rounded-xl mask-[linear-gradient(#000_0_0)] shadow-2xl ring-1 [-webkit-mask:linear-gradient(#000_0_0)]">
               {posterUrl ? (
                 <Image
                   src={posterUrl}
@@ -122,9 +127,9 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
               <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
                 {getDisplayTitle(item)}
               </h1>
-              {item.type === "episode" && (
+              {getSecondaryTitle(item) && (
                 <p className="text-muted-foreground text-xl sm:text-2xl">
-                  {item.title}
+                  {getSecondaryTitle(item)}
                 </p>
               )}
               {directorNames.length > 0 && (
@@ -233,6 +238,25 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
         </section>
       )}
 
+      {item.type === "show" && children.length > 0 && (
+        <SeasonGrid
+          seasons={children}
+          serverId={serverId}
+          serverUrl={imageServerUrl}
+          authToken={imageAuthToken}
+        />
+      )}
+
+      {item.type === "season" && children.length > 0 && (
+        <EpisodeGrid
+          episodes={children}
+          serverId={serverId}
+          serverUrl={imageServerUrl}
+          authToken={imageAuthToken}
+          onPlay={playItem}
+        />
+      )}
+
       {item.Role && item.Role.length > 0 && (
         <section className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-4">
@@ -281,6 +305,203 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
   );
 }
 
+function SeasonGrid({
+  seasons,
+  serverId,
+  serverUrl,
+  authToken,
+}: {
+  seasons: ChildMetadata[];
+  serverId: string;
+  serverUrl: string | undefined;
+  authToken: string | undefined;
+}) {
+  return (
+    <section className="flex flex-col gap-4">
+      <h2 className="text-2xl font-semibold tracking-tight">Seasons</h2>
+      <div className="scrollbar-hide flex gap-4 overflow-x-auto pb-2">
+        {seasons.map((season) => {
+          const posterUrl = getPlexImageUrl(
+            season.thumb ?? season.parentThumb,
+            serverUrl,
+            authToken,
+            {
+              width: 300,
+              height: 450,
+            },
+          );
+          const watchedPercent = getWatchedPercent(season);
+
+          return (
+            <Link
+              key={season.ratingKey}
+              href={getItemDetailsHref(serverId, season.ratingKey)}
+              className="focus-visible:ring-ring group flex w-40 shrink-0 flex-col gap-3 rounded-xl focus-visible:ring-2 focus-visible:outline-none"
+            >
+              <div className="bg-muted ring-border relative aspect-2/3 overflow-hidden rounded-xl shadow-lg ring-1 transition-shadow group-hover:shadow-xl">
+                {posterUrl ? (
+                  <Image
+                    src={posterUrl}
+                    alt={`${season.title} poster`}
+                    fill
+                    sizes="160px"
+                    className="object-cover transition-transform duration-200 group-hover:scale-105"
+                  />
+                ) : (
+                  <div className="flex size-full items-center justify-center">
+                    <Play className="text-muted-foreground size-10" />
+                  </div>
+                )}
+                {season.leafCount && (
+                  <Badge className="absolute top-2 right-2 shadow-sm">
+                    {season.leafCount}
+                  </Badge>
+                )}
+                {watchedPercent > 0 && (
+                  <div className="absolute right-0 bottom-0 left-0 h-1 bg-black/40">
+                    <div
+                      className="bg-primary h-full"
+                      style={{ width: `${watchedPercent}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col gap-1">
+                <h3 className="line-clamp-2 text-sm leading-5 font-medium">
+                  {season.title}
+                </h3>
+                <p className="text-muted-foreground text-xs">
+                  {formatEpisodeCount(season.leafCount)}
+                </p>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function EpisodeGrid({
+  episodes,
+  serverId,
+  serverUrl,
+  authToken,
+  onPlay,
+}: {
+  episodes: ChildMetadata[];
+  serverId: string;
+  serverUrl: string | undefined;
+  authToken: string | undefined;
+  onPlay: (item: ChildMetadata) => void;
+}) {
+  return (
+    <section className="flex flex-col gap-4">
+      <h2 className="text-2xl font-semibold tracking-tight">
+        {formatEpisodeCount(episodes.length)}
+      </h2>
+      <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+        {episodes.map((episode) => (
+          <EpisodeCard
+            key={episode.ratingKey}
+            episode={episode}
+            serverId={serverId}
+            serverUrl={serverUrl}
+            authToken={authToken}
+            onPlay={onPlay}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function EpisodeCard({
+  episode,
+  serverId,
+  serverUrl,
+  authToken,
+  onPlay,
+}: {
+  episode: ChildMetadata;
+  serverId: string;
+  serverUrl: string | undefined;
+  authToken: string | undefined;
+  onPlay: (item: ChildMetadata) => void;
+}) {
+  const thumbnailUrl = getPlexImageUrl(episode.thumb, serverUrl, authToken, {
+    width: 480,
+    height: 270,
+  });
+  const progressPercent = getProgressPercent(episode);
+  const detailsHref = getItemDetailsHref(serverId, episode.ratingKey);
+  const canPlay = isPlayableMetadata(episode);
+
+  return (
+    <article className="group flex min-w-0 flex-col gap-3">
+      <div className="relative aspect-video overflow-hidden rounded-xl shadow-lg">
+        <Link
+          href={detailsHref}
+          aria-label={`View details for ${episode.title}`}
+          className="bg-muted block size-full"
+        >
+          {thumbnailUrl ? (
+            <Image
+              src={thumbnailUrl}
+              alt={`${episode.title} thumbnail`}
+              fill
+              sizes="(min-width: 1280px) 30vw, (min-width: 640px) 45vw, 90vw"
+              className="object-cover transition-transform duration-200 group-hover:scale-105"
+            />
+          ) : (
+            <div className="flex size-full items-center justify-center">
+              <Play className="text-muted-foreground size-10" />
+            </div>
+          )}
+          <div className="absolute inset-0 bg-linear-to-t from-black/60 via-transparent to-transparent opacity-80" />
+          {progressPercent > 0 && (
+            <div className="absolute right-0 bottom-0 left-0 h-1 bg-black/40">
+              <div
+                className="bg-primary h-full"
+                style={{ width: `${Math.min(progressPercent, 100)}%` }}
+              />
+            </div>
+          )}
+        </Link>
+        {canPlay && (
+          <Button
+            type="button"
+            size="icon"
+            className="absolute top-1/2 left-1/2 size-12 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-0 transition-opacity group-hover:opacity-100"
+            onClick={() => onPlay(episode)}
+            aria-label={`Play ${episode.title}`}
+          >
+            <Play className="fill-current" />
+          </Button>
+        )}
+      </div>
+      <div className="flex min-w-0 flex-col gap-1">
+        <Link
+          href={detailsHref}
+          className="focus-visible:ring-ring rounded-sm focus-visible:ring-2 focus-visible:outline-none"
+        >
+          <h3 className="line-clamp-2 text-sm leading-5 font-medium">
+            {episode.title}
+          </h3>
+        </Link>
+        <p className="text-muted-foreground text-xs">
+          {formatEpisodeLabel(episode)}
+        </p>
+        {episode.summary && (
+          <p className="text-muted-foreground line-clamp-3 text-sm leading-6">
+            {episode.summary}
+          </p>
+        )}
+      </div>
+    </article>
+  );
+}
+
 function getPosterUrl(
   item: MetadataItem,
   serverUrl: string | undefined,
@@ -289,7 +510,9 @@ function getPosterUrl(
   return getPlexImageUrl(
     item.type === "episode"
       ? (item.grandparentThumb ?? item.thumb)
-      : item.thumb,
+      : item.type === "season"
+        ? (item.parentThumb ?? item.thumb)
+        : item.thumb,
     serverUrl,
     authToken,
     { width: 440, height: 660 },
@@ -310,9 +533,21 @@ function getBackdropUrl(
 }
 
 function getDisplayTitle(item: MetadataItem) {
+  if (item.type === "season" && item.parentTitle) {
+    return item.parentTitle;
+  }
+
   return item.type === "episode" && item.grandparentTitle
     ? item.grandparentTitle
     : item.title;
+}
+
+function getSecondaryTitle(item: MetadataItem) {
+  if (item.type === "episode" || item.type === "season") {
+    return item.title;
+  }
+
+  return undefined;
 }
 
 function getTypeLabel(type: string) {
@@ -323,12 +558,29 @@ function getTypeLabel(type: string) {
       return "TV Show";
     case "episode":
       return "Episode";
+    case "season":
+      return "Season";
     default:
       return type;
   }
 }
 
 function getMetadataItems(item: MetadataItem) {
+  if (item.type === "show") {
+    return [
+      item.year?.toString(),
+      formatSeasonCount(item.childCount),
+      formatEpisodeCount(item.leafCount),
+      item.contentRating,
+    ].filter((value): value is string => Boolean(value));
+  }
+
+  if (item.type === "season") {
+    return [formatEpisodeCount(item.leafCount)].filter(
+      (value): value is string => Boolean(value),
+    );
+  }
+
   return [
     item.year?.toString(),
     formatDuration(item.duration),
@@ -352,12 +604,48 @@ function formatDuration(durationMs: number | undefined) {
   return minutes === 0 ? `${hours}hr` : `${hours}hr ${minutes}min`;
 }
 
-function getProgressPercent(item: MetadataItem) {
+function formatSeasonCount(count: number | undefined) {
+  if (!count) {
+    return undefined;
+  }
+
+  return `${count} season${count === 1 ? "" : "s"}`;
+}
+
+function formatEpisodeCount(count: number | undefined) {
+  if (!count) {
+    return undefined;
+  }
+
+  return `${count} episode${count === 1 ? "" : "s"}`;
+}
+
+function formatEpisodeLabel(item: ChildMetadata) {
+  const values = [
+    item.index ? `Episode ${item.index}` : undefined,
+    formatDuration(item.duration),
+  ].filter((value): value is string => Boolean(value));
+
+  return values.join(" • ");
+}
+
+function getProgressPercent(item: MetadataItem | ChildMetadata) {
   if (!item.viewOffset || !item.duration) {
     return 0;
   }
 
   return Math.round((item.viewOffset / item.duration) * 100);
+}
+
+function getWatchedPercent(item: MetadataItem | ChildMetadata) {
+  if (!item.viewedLeafCount || !item.leafCount) {
+    return 0;
+  }
+
+  return Math.min(
+    Math.round((item.viewedLeafCount / item.leafCount) * 100),
+    100,
+  );
 }
 
 function formatTimeRemaining(item: MetadataItem) {
@@ -422,6 +710,42 @@ function getTechnicalRows(item: MetadataItem) {
   ].filter((row): row is { label: string; value: string } =>
     Boolean(row.value),
   );
+}
+
+function isPlayableMetadata(
+  item: MetadataItem | ChildMetadata | undefined,
+): item is MetadataItem | ChildMetadata {
+  return Boolean(
+    item &&
+      (item.type === "movie" || item.type === "episode") &&
+      item.Media?.[0]?.Part?.[0]?.key,
+  );
+}
+
+function buildPlayableItem(
+  item: MetadataItem | ChildMetadata,
+  parent: MetadataItem,
+  serverId: string,
+  serverUrl: string,
+  authToken: string,
+): MediaPlayerItem {
+  return {
+    ...(item as ContinueWatchingItem),
+    librarySectionTitle: item.librarySectionTitle ?? parent.librarySectionTitle,
+    librarySectionID: item.librarySectionID ?? parent.librarySectionID,
+    librarySectionKey: item.librarySectionKey ?? parent.librarySectionKey,
+    hubTitle: item.librarySectionTitle ?? parent.librarySectionTitle,
+    hubType: "metadata",
+    serverId,
+    serverUrl,
+    authToken,
+    progressPercent: getProgressPercent(item),
+    isCompleted: Boolean(item.viewCount),
+    timeRemaining:
+      item.duration && item.viewOffset
+        ? item.duration - item.viewOffset
+        : undefined,
+  };
 }
 
 function formatCodec(codec: string) {

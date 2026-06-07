@@ -16,6 +16,8 @@ type ItemDetailsBreadcrumbInput = Pick<
   | "librarySectionID"
   | "grandparentTitle"
   | "grandparentRatingKey"
+  | "parentTitle"
+  | "parentRatingKey"
 >;
 
 export function getLibraryHref(
@@ -37,7 +39,13 @@ export function getItemDetailsBreadcrumbs(
     },
   ];
 
-  if (
+  if (item.type === "season" && item.parentTitle && item.parentRatingKey) {
+    crumbs.push({
+      label: item.parentTitle,
+      href: getItemDetailsHref(machineIdentifier, item.parentRatingKey),
+    });
+    crumbs.push({ label: item.title });
+  } else if (
     item.type === "episode" &&
     item.grandparentTitle &&
     item.grandparentRatingKey
@@ -46,6 +54,12 @@ export function getItemDetailsBreadcrumbs(
       label: item.grandparentTitle,
       href: getItemDetailsHref(machineIdentifier, item.grandparentRatingKey),
     });
+    if (item.parentTitle && item.parentRatingKey) {
+      crumbs.push({
+        label: item.parentTitle,
+        href: getItemDetailsHref(machineIdentifier, item.parentRatingKey),
+      });
+    }
     crumbs.push({ label: item.title });
   } else {
     crumbs.push({ label: item.title });

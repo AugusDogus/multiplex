@@ -3,6 +3,8 @@ import {
   getServerUrl,
   getNextPinnedSources,
   pinnedSourceSchema,
+  type ItemMetadata,
+  type ItemMetadataChild,
 } from "@multiplex/plex-query";
 import { z } from "zod";
 
@@ -264,11 +266,33 @@ export const plexRouter = createTRPCRouter({
         return null;
       }
 
+      const children =
+        item.type === "show" || item.type === "season"
+          ? inheritChildLibraryMetadata(
+              await serverClient.getMetadataChildren(input.ratingKey),
+              item,
+            )
+          : [];
+
       return {
         item,
+        children,
         serverName: server.name,
         serverUrl: getServerUrl(server),
         authToken: server.accessToken ?? ctx.authSession.user.plexAuthToken,
       };
     }),
 });
+
+function inheritChildLibraryMetadata(
+  children: ItemMetadataChild[],
+  parent: ItemMetadata,
+): ItemMetadataChild[] {
+  return children.map((child) => ({
+    ...child,
+    librarySectionTitle:
+      child.librarySectionTitle ?? parent.librarySectionTitle,
+    librarySectionID: child.librarySectionID ?? parent.librarySectionID,
+    librarySectionKey: child.librarySectionKey ?? parent.librarySectionKey,
+  }));
+}

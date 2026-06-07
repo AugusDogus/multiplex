@@ -223,6 +223,9 @@ export const ContinueWatchingMetadata = z.object({
   contentRating: z.string().optional(),
   index: z.number().optional(), // Episode number
   parentIndex: z.number().optional(), // Season number
+  leafCount: z.number().optional(), // Episodes in a show or season
+  viewedLeafCount: z.number().optional(),
+  childCount: z.number().optional(), // Seasons in a show
   rating: z.number().optional(),
   audienceRating: z.number().optional(),
 
@@ -303,6 +306,30 @@ export const itemMetadataResponseSchema = z.object({
   }),
 });
 
+/**
+ * Response shape for `/library/metadata/{ratingKey}/children`. Plex omits
+ * library-section fields on season/episode children, so callers inherit them
+ * from the parent metadata item before rendering.
+ */
+export const MetadataChild = ContinueWatchingMetadata.extend({
+  librarySectionTitle: z.string().optional(),
+  librarySectionID: z.number().optional(),
+  librarySectionKey: z.string().optional(),
+});
+
+export const metadataChildrenResponseSchema = z.object({
+  MediaContainer: z
+    .object({
+      size: z.number().optional(),
+      title1: z.string().optional(),
+      title2: z.string().optional(),
+      viewGroup: z.string().optional(),
+      viewMode: z.number().optional(),
+      Metadata: z.array(MetadataChild).optional(),
+    })
+    .passthrough(),
+});
+
 /* ────────────────────────────────────────────────────────────
    7. Transformed types for easier consumption
    ──────────────────────────────────────────────────────────── */
@@ -365,6 +392,10 @@ export type StreamType = z.infer<typeof Stream>;
 export type ItemMetadata = z.infer<typeof ContinueWatchingMetadata>;
 
 export type ItemMetadataResponse = z.infer<typeof itemMetadataResponseSchema>;
+
+export type ItemMetadataChild = z.infer<typeof MetadataChild>;
+
+export type MetadataChildrenResponse = z.infer<typeof metadataChildrenResponseSchema>;
 
 /* ────────────────────────────────────────────────────────────
    9. Type guards & utilities
