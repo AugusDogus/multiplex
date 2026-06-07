@@ -35,7 +35,7 @@ interface AppHeaderProps {
 
 export function AppHeader({ children, breadcrumbs, mobile }: AppHeaderProps) {
   const hasCustomMobile = mobile !== undefined;
-  const hasBreadcrumb = breadcrumbs?.length || children;
+  const hasBreadcrumb = (breadcrumbs?.length ?? 0) > 0 || Boolean(children);
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-2">
