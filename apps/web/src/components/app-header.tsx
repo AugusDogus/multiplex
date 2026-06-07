@@ -70,7 +70,7 @@ export function AppHeader({ children, breadcrumbs, mobile }: AppHeaderProps) {
             />
             <Breadcrumb className={cn(hasCustomMobile && "hidden md:block")}>
               <BreadcrumbList>
-                {breadcrumbs ? (
+                {breadcrumbs?.length ? (
                   breadcrumbs.map((crumb, index) => (
                     <Fragment key={`${crumb.label}-${index}`}>
                       {index > 0 && <BreadcrumbSeparator />}
