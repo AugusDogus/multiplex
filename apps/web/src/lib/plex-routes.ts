@@ -4,10 +4,9 @@ export function getItemDetailsHref(
   machineIdentifier: string,
   ratingKey: string,
 ): string {
-  const params = new URLSearchParams({
-    key: `/library/metadata/${ratingKey}`,
-  });
-  return `/server/${machineIdentifier}/details?${params}`;
+  // Plex encodes key (%2F…), but we keep slashes literal for readability.
+  // Safe here: we own the shape and ratingKey is numeric; Next decodes on read.
+  return `/server/${machineIdentifier}/details?key=/library/metadata/${ratingKey}`;
 }
 
 export function parseItemDetailsKey(key: string | undefined): string | null {
