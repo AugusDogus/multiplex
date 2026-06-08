@@ -9,6 +9,7 @@ import {
   getSubtitle,
   getThumbnailUrl,
   isCompleted,
+  toPlayableMetadata,
   type ContinueWatchingItem,
 } from "@multiplex/plex-query";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
@@ -16,9 +17,9 @@ import { useProgressStore } from "~/stores/progress-store";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 import { useVisibilityChange } from "~/hooks/use-visibility-change";
+import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { getItemDetailsHref } from "~/lib/plex-routes";
 import { api } from "~/trpc/react";
-import { isMediaPlayerItem } from "~/types/media-player";
 
 /* ────────────────────────────────────────────────────────────
    Continue Watching Component
@@ -178,14 +179,20 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
   const thumbnailUrl = getThumbnailUrl(item, item.serverUrl, item.authToken);
 
   const handlePlay = () => {
-    // Check if item has required fields for media playback
-    if (!isMediaPlayerItem(item)) {
+    const playable = toPlayableMetadata(item);
+
+    if (!playable || !item.serverUrl || !item.authToken) {
       console.error("Missing server URL or auth token for media playback");
       return;
     }
 
-    // Open the media player with this item
-    openPlayer(item);
+    openPlayer(
+      createMediaPlayerItem(playable, {
+        serverId: item.serverId,
+        serverUrl: item.serverUrl,
+        authToken: item.authToken,
+      }),
+    );
   };
 
   return (
