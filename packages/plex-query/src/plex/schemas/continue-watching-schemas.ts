@@ -397,6 +397,24 @@ export type ItemMetadataChild = z.infer<typeof MetadataChild>;
 
 export type MetadataChildrenResponse = z.infer<typeof metadataChildrenResponseSchema>;
 
+export type LibrarySectionFields = Pick<
+  ItemMetadata,
+  "librarySectionTitle" | "librarySectionID" | "librarySectionKey"
+>;
+
+/** Child metadata with library-section fields inherited from the parent item. */
+export type EnrichedItemMetadataChild = Omit<ItemMetadataChild, keyof LibrarySectionFields> &
+  LibrarySectionFields;
+
+/** Metadata enriched with the Plex part key required to start playback. */
+export type PlayableMetadata = (ItemMetadata | EnrichedItemMetadataChild) & {
+  streamPartKey: string;
+};
+
+export type PlayableEnrichedChild = EnrichedItemMetadataChild & {
+  streamPartKey: string;
+};
+
 /* ────────────────────────────────────────────────────────────
    9. Type guards & utilities
    ──────────────────────────────────────────────────────────── */
