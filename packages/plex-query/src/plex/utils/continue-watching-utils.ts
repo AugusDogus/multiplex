@@ -1,4 +1,9 @@
-import type { ContinueWatchingItem } from "../schemas/continue-watching-schemas";
+import type { ContinueWatchingItem, ItemMetadata } from "../schemas/continue-watching-schemas";
+import {
+  formatRemainingDuration,
+  getPosterImagePath,
+  type MetadataPosterInput,
+} from "./metadata-utils";
 
 interface PlexImageOptions {
   width: number;
@@ -16,21 +21,11 @@ interface PlexImageOptions {
  * Get a formatted time remaining string
  */
 export function formatTimeRemaining(timeRemainingMs?: number): string {
-  if (!timeRemainingMs || timeRemainingMs <= 0) return "";
-
-  const minutes = Math.ceil(timeRemainingMs / 1000 / 60);
-  if (minutes < 60) {
-    return `${minutes}m left`;
+  if (!timeRemainingMs) {
+    return "";
   }
 
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-
-  if (remainingMinutes === 0) {
-    return `${hours}h left`;
-  }
-
-  return `${hours}h ${remainingMinutes}m left`;
+  return formatRemainingDuration(timeRemainingMs, "compact");
 }
 
 /**
@@ -51,17 +46,22 @@ export function isCompleted(item: ContinueWatchingItem): boolean {
 /**
  * Get the main title for an item (show title for episodes, movie title for movies)
  */
-export function getMainTitle(item: ContinueWatchingItem): string {
-  if (item.type === "episode" && item.grandparentTitle) {
-    return item.grandparentTitle; // Show title
+export function getMainTitle(item: ItemMetadata): string {
+  if (item.type === "season" && item.parentTitle) {
+    return item.parentTitle;
   }
-  return item.title; // Movie title or fallback
+
+  if (item.type === "episode" && item.grandparentTitle) {
+    return item.grandparentTitle;
+  }
+
+  return item.title;
 }
 
 /**
  * Get the subtitle for an item (episode info for shows, year for movies)
  */
-export function getSubtitle(item: ContinueWatchingItem): string {
+export function getSubtitle(item: ItemMetadata): string {
   if (item.type === "episode") {
     const seasonEpisode =
       item.parentIndex && item.index ? `S${item.parentIndex} · E${item.index}` : "";
@@ -85,7 +85,7 @@ export function getSubtitle(item: ContinueWatchingItem): string {
  * Returns a 2:3 aspect ratio (200x300) thumbnail URL
  */
 export function getThumbnailUrl(
-  item: ContinueWatchingItem,
+  item: MetadataPosterInput,
   serverUrl?: string,
   authToken?: string,
 ): string | undefined {
@@ -93,16 +93,7 @@ export function getThumbnailUrl(
     return undefined;
   }
 
-  // Get the best thumbnail path for the item type
-  let thumbnailPath: string | undefined;
-
-  if (item.type === "episode") {
-    // For episodes in Continue Watching, prefer show poster (grandparentThumb) for consistency
-    thumbnailPath = item.grandparentThumb ?? item.thumb;
-  } else {
-    // For movies and other content, use the main thumbnail
-    thumbnailPath = item.thumb;
-  }
+  const thumbnailPath = getPosterImagePath(item);
 
   if (!thumbnailPath) {
     return undefined;
