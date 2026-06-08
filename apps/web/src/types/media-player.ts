@@ -1,5 +1,5 @@
 import type {
-  ContinueWatchingItem,
+  ItemMetadata,
   Marker,
   PlayQueueResponse,
 } from "@multiplex/plex-query";
@@ -9,14 +9,25 @@ import type {
    Type definitions for the modal-based media player
    ──────────────────────────────────────────────────────────── */
 
-/**
- * Enhanced ContinueWatchingItem with server connection details
- * for media playback
- */
-export type MediaPlayerItem = ContinueWatchingItem & {
+export type MediaPlayerPlaybackContext = {
+  hubTitle: string;
+  hubType: string;
+  serverId: string;
   serverUrl: string;
   authToken: string;
 };
+
+export type MediaPlayerComputedFields = {
+  progressPercent?: number;
+  isCompleted?: boolean;
+  timeRemaining?: number;
+  progressColor?: "dark" | "light";
+};
+
+/** Plex metadata plus the server and hub context required for playback. */
+export type MediaPlayerItem = ItemMetadata &
+  MediaPlayerPlaybackContext &
+  MediaPlayerComputedFields;
 
 export type PlaybackRate = 0.5 | 0.75 | 1 | 1.25 | 1.5 | 1.75 | 2;
 export type CaptionSize = "small" | "medium" | "large" | "extra-large";
@@ -121,18 +132,7 @@ export interface MediaPlayerActions {
   jumpToEnd?: () => void;
 }
 
-/**
- * Type guard to check if an item has the required fields for media playback
- */
-export function isMediaPlayerItem(
-  item: ContinueWatchingItem & { serverUrl?: string; authToken?: string },
-): item is MediaPlayerItem {
-  return Boolean(item.serverUrl && item.authToken);
-}
-
-/**
- * Type guard to check if playback state is ready
- */
+/** Returns whether the media player is ready to play. */
 export function isPlaybackReady(state: MediaPlayerState): boolean {
   return Boolean(
     state.currentItem && state.canPlay && !state.isLoading && !state.error,
