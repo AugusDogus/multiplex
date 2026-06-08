@@ -27,8 +27,8 @@ interface AppHeaderProps {
   children?: ReactNode;
   breadcrumbs?: AppHeaderBreadcrumb[];
   /**
-   * Replaces the default Multiplex brand + mobile breadcrumb with custom
-   * content on mobile only (e.g. a library picker dropdown).
+   * Replaces the default Multiplex brand on mobile only (e.g. a library picker).
+   * When omitted, breadcrumbs render on mobile when provided.
    */
   mobile?: ReactNode;
 }
@@ -36,21 +36,49 @@ interface AppHeaderProps {
 export function AppHeader({ children, breadcrumbs, mobile }: AppHeaderProps) {
   const hasCustomMobile = mobile !== undefined;
   const hasBreadcrumb = (breadcrumbs?.length ?? 0) > 0 || Boolean(children);
+  const showLogoOnMobile = !hasCustomMobile && !hasBreadcrumb;
+
+  const breadcrumbTrail = breadcrumbs?.length ? (
+    breadcrumbs.map((crumb, index) => (
+      <Fragment key={`${crumb.label}-${index}`}>
+        {index > 0 && <BreadcrumbSeparator />}
+        <BreadcrumbItem className="max-w-[34vw] shrink-0 truncate sm:max-w-none">
+          {crumb.href ? (
+            <BreadcrumbLink asChild>
+              <Link href={crumb.href} className="block truncate">
+                {crumb.label}
+              </Link>
+            </BreadcrumbLink>
+          ) : (
+            <BreadcrumbPage className="block truncate">
+              {crumb.label}
+            </BreadcrumbPage>
+          )}
+        </BreadcrumbItem>
+      </Fragment>
+    ))
+  ) : (
+    <BreadcrumbItem>
+      <BreadcrumbPage>{children}</BreadcrumbPage>
+    </BreadcrumbItem>
+  );
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-2">
-      <div className="flex w-full items-center gap-2 px-4">
+      <div className="flex w-full min-w-0 items-center gap-2 px-4">
         <SidebarTrigger className="-ml-1 hidden md:inline-flex" />
 
-        {hasCustomMobile ? (
+        {hasCustomMobile && (
           <div className="flex min-w-0 flex-1 items-center md:hidden">
             {mobile}
           </div>
-        ) : (
+        )}
+
+        {showLogoOnMobile && (
           <Link
             href="/"
             aria-label="Multiplex home"
-            className="flex items-center gap-2 md:hidden"
+            className="flex shrink-0 items-center gap-2 md:hidden"
           >
             <MultiplexLogo className="size-6" />
             <span className="text-base font-semibold tracking-tight">
@@ -64,39 +92,26 @@ export function AppHeader({ children, breadcrumbs, mobile }: AppHeaderProps) {
             <Separator
               orientation="vertical"
               className={cn(
-                "data-[orientation=vertical]:h-4 md:mr-2 md:ml-2",
-                hasCustomMobile && "hidden md:block",
+                "data-[orientation=vertical]:h-4",
+                hasCustomMobile
+                  ? "hidden md:mr-2 md:ml-2 md:block"
+                  : "mr-2 ml-2 hidden md:block",
               )}
             />
-            <Breadcrumb className={cn(hasCustomMobile && "hidden md:block")}>
-              <BreadcrumbList>
-                {breadcrumbs?.length ? (
-                  breadcrumbs.map((crumb, index) => (
-                    <Fragment key={`${crumb.label}-${index}`}>
-                      {index > 0 && <BreadcrumbSeparator />}
-                      <BreadcrumbItem>
-                        {crumb.href ? (
-                          <BreadcrumbLink asChild>
-                            <Link href={crumb.href}>{crumb.label}</Link>
-                          </BreadcrumbLink>
-                        ) : (
-                          <BreadcrumbPage>{crumb.label}</BreadcrumbPage>
-                        )}
-                      </BreadcrumbItem>
-                    </Fragment>
-                  ))
-                ) : (
-                  <BreadcrumbItem>
-                    <BreadcrumbPage>{children}</BreadcrumbPage>
-                  </BreadcrumbItem>
-                )}
+            <Breadcrumb
+              className={cn(
+                "min-w-0",
+                hasCustomMobile ? "hidden min-w-0 flex-1 md:block" : "flex-1",
+              )}
+            >
+              <BreadcrumbList className="scrollbar-hide flex-nowrap overflow-x-auto md:flex-wrap md:overflow-visible">
+                {breadcrumbTrail}
               </BreadcrumbList>
             </Breadcrumb>
           </>
         )}
 
-        <div className="ml-auto flex w-auto items-center gap-2">
-          {/* Search lives in the bottom nav on mobile. */}
+        <div className="ml-auto flex w-auto shrink-0 items-center gap-2">
           <SearchWrapper className="hidden w-fit sm:ml-auto sm:w-auto md:block md:w-full" />
         </div>
       </div>
