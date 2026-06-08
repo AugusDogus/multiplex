@@ -1,3 +1,5 @@
+import type { ItemMetadata } from "@multiplex/plex-query";
+
 import { EpisodeGrid } from "./episode-grid";
 import { SeasonGrid } from "./season-grid";
 import type {
@@ -7,7 +9,7 @@ import type {
 } from "./types";
 
 interface ItemChildrenProps extends MediaServerContext {
-  itemType: string;
+  itemType: ItemMetadata["type"];
   childItems: EnrichedChildMetadata[];
   playableChildren: PlayableChildMetadata[];
   onPlay: (episode: PlayableChildMetadata) => void;
