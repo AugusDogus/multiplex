@@ -13,8 +13,6 @@ import {
 import { Button } from "~/components/ui/button";
 import { getItemDetailsHref } from "~/lib/plex-routes";
 
-import { DetailsSection } from "./details-section";
-
 import type {
   EnrichedChildMetadata,
   MediaServerContext,
@@ -36,8 +34,12 @@ export function EpisodeGrid({
   onPlay,
 }: EpisodeGridProps) {
   return (
-    <DetailsSection title={formatEpisodeCount(episodes.length) ?? "Episodes"}>
-      <div className="flex flex-col gap-3 md:hidden">
+    <section className="flex flex-col gap-4">
+      <h2 className="text-2xl font-semibold tracking-tight">
+        {formatEpisodeCount(episodes.length)}
+      </h2>
+
+      <div className="flex flex-col gap-3 sm:hidden">
         {episodes.map((episode) => (
           <MobileEpisodeRow
             key={episode.ratingKey}
@@ -51,7 +53,7 @@ export function EpisodeGrid({
         ))}
       </div>
 
-      <div className="hidden gap-4 md:grid md:grid-cols-2 md:gap-5 xl:grid-cols-3">
+      <div className="hidden gap-5 sm:grid sm:grid-cols-2 xl:grid-cols-3">
         {episodes.map((episode) => (
           <EpisodeCard
             key={episode.ratingKey}
@@ -64,7 +66,7 @@ export function EpisodeGrid({
           />
         ))}
       </div>
-    </DetailsSection>
+    </section>
   );
 }
 
@@ -170,20 +172,19 @@ function EpisodeCard({
   });
   const progressPercent = getProgressPercent(episode);
   const detailsHref = getItemDetailsHref(serverId, episode.ratingKey);
-  const displayTitle = getEpisodeDisplayTitle(episode);
 
   return (
     <article className="group flex min-w-0 flex-col gap-3">
       <div className="relative aspect-video overflow-hidden rounded-xl shadow-lg">
         <Link
           href={detailsHref}
-          aria-label={`View details for ${displayTitle}`}
+          aria-label={`View details for ${episode.title}`}
           className="bg-muted block size-full"
         >
           {thumbnailUrl ? (
             <Image
               src={thumbnailUrl}
-              alt={`${displayTitle} thumbnail`}
+              alt={`${episode.title} thumbnail`}
               fill
               sizes="(min-width: 1280px) 30vw, (min-width: 640px) 45vw, 90vw"
               className="object-cover transition-transform duration-200 group-hover:scale-105"
@@ -207,13 +208,9 @@ function EpisodeCard({
           <Button
             type="button"
             size="icon"
-            className="absolute top-1/2 left-1/2 size-12 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-100 shadow-lg transition-opacity md:opacity-0 md:group-hover:opacity-100"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onPlay(playable);
-            }}
-            aria-label={`Play ${displayTitle}`}
+            className="absolute top-1/2 left-1/2 size-12 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-0 transition-opacity group-hover:opacity-100"
+            onClick={() => onPlay(playable)}
+            aria-label={`Play ${episode.title}`}
           >
             <Play className="fill-current" />
           </Button>
@@ -225,7 +222,7 @@ function EpisodeCard({
           className="focus-visible:ring-ring rounded-sm focus-visible:ring-2 focus-visible:outline-none"
         >
           <h3 className="line-clamp-2 text-sm leading-5 font-medium">
-            {displayTitle}
+            {episode.title}
           </h3>
         </Link>
         <p className="text-muted-foreground text-xs">

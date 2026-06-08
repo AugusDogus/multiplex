@@ -69,105 +69,213 @@ export function DetailsHero({
   const playLabel = getPlayButtonLabel(playTarget);
 
   return (
-    <section className="sm:ring-border/50 relative -mx-4 overflow-hidden sm:mx-0 sm:rounded-2xl sm:ring-1">
-      {backdropUrl && (
-        <Image
-          src={backdropUrl}
-          alt=""
-          fill
-          priority
-          sizes="(min-width: 1024px) 1200px, 100vw"
-          className="-z-20 object-cover"
-        />
-      )}
+    <>
+      <section className="relative hidden rounded-2xl border-transparent mask-[linear-gradient(#000_0_0)] [-webkit-mask:linear-gradient(#000_0_0)] lg:block">
+        {backdropUrl && (
+          <Image
+            src={backdropUrl}
+            alt=""
+            fill
+            priority
+            sizes="(min-width: 1024px) 1200px, 100vw"
+            className="-z-20 object-cover"
+          />
+        )}
+        <div className="from-background via-background/90 to-background/40 absolute inset-0 -z-10 bg-linear-to-r" />
+        <div className="from-background via-background/30 absolute inset-0 -z-10 bg-linear-to-t to-transparent" />
 
-      <div className="from-background via-background/96 to-background/75 absolute inset-0 -z-10 bg-linear-to-t" />
-      <div className="from-background/90 via-background/50 absolute inset-0 -z-10 hidden bg-linear-to-r to-transparent lg:block" />
-
-      <div className="relative grid grid-cols-[108px_minmax(0,1fr)] gap-x-4 gap-y-4 px-4 py-5 sm:grid-cols-[160px_minmax(0,1fr)] sm:gap-x-5 sm:px-6 sm:py-6 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-8 lg:px-8 lg:py-8">
-        <div className="flex flex-col gap-2 self-start">
-          <div className="bg-muted ring-border relative aspect-2/3 overflow-hidden rounded-lg shadow-2xl ring-1 sm:rounded-xl">
-            {posterUrl ? (
-              <Image
-                src={posterUrl}
-                alt={`${item.title} poster`}
-                fill
-                priority
-                sizes="(min-width: 1024px) 220px, 108px"
-                className="object-cover"
-              />
-            ) : (
-              <div className="flex size-full items-center justify-center">
-                <Play className="text-muted-foreground size-10" />
+        <div className="flex flex-col gap-6 p-4 sm:p-6 lg:flex-row lg:p-8">
+          <div className="flex w-full flex-col gap-3 sm:w-[220px] lg:shrink-0">
+            <div className="bg-muted ring-border relative aspect-2/3 rounded-xl mask-[linear-gradient(#000_0_0)] shadow-2xl ring-1 [-webkit-mask:linear-gradient(#000_0_0)]">
+              {posterUrl ? (
+                <Image
+                  src={posterUrl}
+                  alt={`${item.title} poster`}
+                  fill
+                  priority
+                  sizes="220px"
+                  className="object-cover"
+                />
+              ) : (
+                <div className="flex size-full items-center justify-center">
+                  <Play className="text-muted-foreground size-12" />
+                </div>
+              )}
+            </div>
+            {timeRemaining && (
+              <div className="bg-muted rounded-md px-3 py-2 text-center text-sm font-medium">
+                {timeRemaining}
               </div>
             )}
           </div>
-          {timeRemaining && (
-            <div className="bg-primary text-primary-foreground rounded-md px-2 py-1.5 text-center text-xs font-semibold shadow-sm sm:text-sm">
-              {timeRemaining}
+
+          <div className="flex min-w-0 flex-1 flex-col justify-start gap-5 lg:max-w-3xl">
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="secondary">
+                  {getMetadataTypeLabel(item.type)}
+                </Badge>
+                <Badge variant="outline">{item.librarySectionTitle}</Badge>
+                <Badge variant="outline">{serverName ?? "Plex server"}</Badge>
+              </div>
+              <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
+                {getMainTitle(item)}
+              </h1>
+              {secondaryTitle && (
+                <p className="text-muted-foreground text-xl sm:text-2xl">
+                  {secondaryTitle}
+                </p>
+              )}
+              <MetadataDirectors item={item} />
+              <MetadataSummaryRow item={item} serverId={serverId} />
+              <MetadataGenres item={item} />
+              <MetadataRating item={item} />
             </div>
-          )}
-        </div>
 
-        <div className="flex min-w-0 flex-col justify-center gap-2 self-center sm:gap-3">
-          <div className="hidden flex-wrap items-center gap-2 sm:flex">
-            <Badge variant="secondary">{getMetadataTypeLabel(item.type)}</Badge>
-            <Badge variant="outline" className="max-w-full truncate">
-              {item.librarySectionTitle}
-            </Badge>
-            <Badge variant="outline" className="max-w-full truncate">
-              {serverName ?? "Plex server"}
-            </Badge>
-          </div>
-          <h1 className="text-foreground text-xl font-semibold tracking-tight sm:text-3xl lg:text-5xl">
-            {getMainTitle(item)}
-          </h1>
-          {secondaryTitle && (
-            <p className="text-foreground/75 text-base sm:text-xl lg:text-2xl">
-              {secondaryTitle}
-            </p>
-          )}
-          <MetadataDirectors item={item} />
-          <MetadataSummaryRow item={item} serverId={serverId} />
-          <MetadataGenres item={item} />
-          <MetadataRating item={item} />
-        </div>
-
-        <div className="col-span-2 flex flex-wrap items-center gap-2 lg:col-span-1 lg:col-start-2">
-          <Button
-            size="lg"
-            className="min-h-11 flex-1 shadow-sm sm:flex-none"
-            onClick={() => playTarget && onPlay(playTarget)}
-            disabled={!canPlay}
-          >
-            <Play data-icon="inline-start" />
-            {playLabel}
-          </Button>
-          <Button variant="outline" size="icon" aria-label="Mark as watched">
-            <Check />
-          </Button>
-          <Button variant="outline" size="icon" aria-label="Share">
-            <Share2 />
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon" aria-label="More actions">
-                <MoreHorizontal />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="lg"
+                onClick={() => playTarget && onPlay(playTarget)}
+                disabled={!canPlay}
+              >
+                <Play data-icon="inline-start" />
+                {playLabel}
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuGroup>
-                <DropdownMenuItem disabled>Watch Together...</DropdownMenuItem>
-                <DropdownMenuItem disabled>Play Next</DropdownMenuItem>
-                <DropdownMenuItem disabled>Add to Queue</DropdownMenuItem>
-                <DropdownMenuItem disabled>Add to...</DropdownMenuItem>
-                <DropdownMenuItem disabled>Report Issue...</DropdownMenuItem>
-                <DropdownMenuItem disabled>Get Info</DropdownMenuItem>
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label="Mark as watched"
+              >
+                <Check />
+              </Button>
+              <Button variant="outline" size="icon" aria-label="Share">
+                <Share2 />
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="More actions"
+                  >
+                    <MoreHorizontal />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem disabled>
+                      Watch Together...
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled>Play Next</DropdownMenuItem>
+                    <DropdownMenuItem disabled>Add to Queue</DropdownMenuItem>
+                    <DropdownMenuItem disabled>Add to...</DropdownMenuItem>
+                    <DropdownMenuItem disabled>
+                      Report Issue...
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled>Get Info</DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
+            {item.summary && (
+              <p className="text-muted-foreground max-w-3xl text-sm leading-6 sm:text-base">
+                {item.summary}
+              </p>
+            )}
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+
+      <section className="relative -mx-4 overflow-hidden lg:hidden">
+        {backdropUrl && (
+          <Image
+            src={backdropUrl}
+            alt=""
+            fill
+            priority
+            sizes="100vw"
+            className="-z-20 object-cover"
+          />
+        )}
+        <div className="from-background via-background/96 to-background/75 absolute inset-0 -z-10 bg-linear-to-t" />
+
+        <div className="relative grid grid-cols-[108px_minmax(0,1fr)] gap-x-4 gap-y-4 px-4 py-5">
+          <div className="flex flex-col gap-2 self-start">
+            <div className="bg-muted ring-border relative aspect-2/3 overflow-hidden rounded-lg shadow-2xl ring-1">
+              {posterUrl ? (
+                <Image
+                  src={posterUrl}
+                  alt={`${item.title} poster`}
+                  fill
+                  priority
+                  sizes="108px"
+                  className="object-cover"
+                />
+              ) : (
+                <div className="flex size-full items-center justify-center">
+                  <Play className="text-muted-foreground size-10" />
+                </div>
+              )}
+            </div>
+            {timeRemaining && (
+              <div className="bg-primary text-primary-foreground rounded-md px-2 py-1.5 text-center text-xs font-semibold shadow-sm">
+                {timeRemaining}
+              </div>
+            )}
+          </div>
+
+          <div className="flex min-w-0 flex-col justify-center gap-2 self-center">
+            <h1 className="text-foreground text-xl font-semibold tracking-tight">
+              {getMainTitle(item)}
+            </h1>
+            {secondaryTitle && (
+              <p className="text-foreground/75 text-base">{secondaryTitle}</p>
+            )}
+            <MetadataDirectors item={item} />
+            <MetadataSummaryRow item={item} serverId={serverId} />
+            <MetadataGenres item={item} />
+            <MetadataRating item={item} />
+          </div>
+
+          <div className="col-span-2 flex flex-wrap items-center gap-2">
+            <Button
+              size="lg"
+              className="min-h-11 flex-1"
+              onClick={() => playTarget && onPlay(playTarget)}
+              disabled={!canPlay}
+            >
+              <Play data-icon="inline-start" />
+              {playLabel}
+            </Button>
+            <Button variant="outline" size="icon" aria-label="Mark as watched">
+              <Check />
+            </Button>
+            <Button variant="outline" size="icon" aria-label="Share">
+              <Share2 />
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" aria-label="More actions">
+                  <MoreHorizontal />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuGroup>
+                  <DropdownMenuItem disabled>
+                    Watch Together...
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled>Play Next</DropdownMenuItem>
+                  <DropdownMenuItem disabled>Add to Queue</DropdownMenuItem>
+                  <DropdownMenuItem disabled>Add to...</DropdownMenuItem>
+                  <DropdownMenuItem disabled>Report Issue...</DropdownMenuItem>
+                  <DropdownMenuItem disabled>Get Info</DropdownMenuItem>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+      </section>
+    </>
   );
 }

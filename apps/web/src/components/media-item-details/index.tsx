@@ -39,7 +39,7 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
   };
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-6 sm:gap-8">
+    <div className="flex min-w-0 flex-1 flex-col gap-6 pb-24 lg:gap-8 lg:pb-8">
       <DetailsHero
         item={item}
         serverId={serverId}
@@ -49,7 +49,11 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
         playTarget={playTarget}
         onPlay={openForPlayback}
       />
-      {item.summary && <DetailsSynopsis summary={item.summary} />}
+      {item.summary && (
+        <div className="lg:hidden">
+          <DetailsSynopsis summary={item.summary} />
+        </div>
+      )}
       <TechnicalDetails item={item} />
       <ItemChildren
         itemType={item.type}

@@ -10,9 +10,5 @@ export function MetadataDirectors({ item }: MetadataDirectorsProps) {
     return null;
   }
 
-  return (
-    <p className="text-foreground/70 text-sm sm:text-base">
-      Directed by {directors}
-    </p>
-  );
+  return <p className="text-muted-foreground">Directed by {directors}</p>;
 }

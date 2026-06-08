@@ -78,7 +78,7 @@ export default async function MediaItemDetailsPage({
                 machineIdentifier,
               )}
             />
-            <main className="flex min-w-0 flex-1 flex-col gap-6 p-4 pb-24 md:pb-4">
+            <main className="flex min-w-0 flex-1 flex-col p-4">
               <MediaItemDetails
                 details={details}
                 serverId={machineIdentifier}
