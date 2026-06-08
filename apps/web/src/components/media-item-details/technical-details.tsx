@@ -11,7 +11,7 @@ export function TechnicalDetails({ item }: TechnicalDetailsProps) {
   }
 
   return (
-    <section className="bg-card grid gap-3 rounded-xl border p-4 text-sm sm:grid-cols-3">
+    <section className="bg-card grid gap-4 rounded-xl border p-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
       {rows.map((row) => (
         <div key={row.label} className="flex flex-col gap-1">
           <span className="text-muted-foreground">{row.label}</span>

@@ -27,8 +27,10 @@ export function SeasonGrid({
 }: SeasonGridProps) {
   return (
     <section className="flex flex-col gap-4">
-      <h2 className="text-2xl font-semibold tracking-tight">Seasons</h2>
-      <div className="scrollbar-hide flex gap-4 overflow-x-auto pb-2">
+      <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
+        Seasons
+      </h2>
+      <div className="scrollbar-hide -mx-4 flex gap-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
         {seasons.map((season) => (
           <SeasonCard
             key={season.ratingKey}

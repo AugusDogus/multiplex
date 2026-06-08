@@ -38,7 +38,7 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
   };
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-8 pb-24 md:pb-8">
+    <div className="flex min-w-0 flex-1 flex-col gap-6 pb-24 sm:gap-8 md:pb-8">
       <DetailsHero
         item={item}
         serverId={serverId}

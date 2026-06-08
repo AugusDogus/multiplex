@@ -83,8 +83,8 @@ export function DetailsHero({
       <div className="from-background via-background/90 to-background/40 absolute inset-0 -z-10 bg-linear-to-r" />
       <div className="from-background via-background/30 absolute inset-0 -z-10 bg-linear-to-t to-transparent" />
 
-      <div className="flex flex-col gap-6 p-4 sm:p-6 lg:flex-row lg:p-8">
-        <div className="flex w-full flex-col gap-3 sm:w-[220px] lg:shrink-0">
+      <div className="flex flex-col gap-5 p-4 sm:gap-6 sm:p-6 lg:flex-row lg:p-8">
+        <div className="mx-auto flex w-[140px] shrink-0 flex-col gap-3 sm:mx-0 sm:w-[180px] lg:w-[220px]">
           <div className="bg-muted ring-border relative aspect-2/3 rounded-xl mask-[linear-gradient(#000_0_0)] shadow-2xl ring-1 [-webkit-mask:linear-gradient(#000_0_0)]">
             {posterUrl ? (
               <Image
@@ -108,20 +108,27 @@ export function DetailsHero({
           )}
         </div>
 
-        <div className="flex min-w-0 flex-1 flex-col justify-start gap-5 lg:max-w-3xl">
-          <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-col justify-start gap-4 sm:gap-5 lg:max-w-3xl">
+          <div className="flex flex-col gap-2 text-center sm:text-left">
+            <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
               <Badge variant="secondary">
                 {getMetadataTypeLabel(item.type)}
               </Badge>
-              <Badge variant="outline">{item.librarySectionTitle}</Badge>
-              <Badge variant="outline">{serverName ?? "Plex server"}</Badge>
+              <Badge variant="outline" className="max-w-full truncate">
+                {item.librarySectionTitle}
+              </Badge>
+              <Badge
+                variant="outline"
+                className="hidden max-w-full truncate sm:inline-flex"
+              >
+                {serverName ?? "Plex server"}
+              </Badge>
             </div>
-            <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
+            <h1 className="text-2xl font-semibold tracking-tight sm:text-4xl lg:text-5xl">
               {getMainTitle(item)}
             </h1>
             {secondaryTitle && (
-              <p className="text-muted-foreground text-xl sm:text-2xl">
+              <p className="text-muted-foreground text-lg sm:text-xl lg:text-2xl">
                 {secondaryTitle}
               </p>
             )}
@@ -131,9 +138,10 @@ export function DetailsHero({
             <MetadataRating item={item} />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
             <Button
               size="lg"
+              className="min-w-[140px] flex-1 sm:flex-none"
               onClick={() => playTarget && onPlay(playTarget)}
               disabled={!canPlay}
             >
@@ -168,7 +176,7 @@ export function DetailsHero({
           </div>
 
           {item.summary && (
-            <p className="text-muted-foreground max-w-3xl text-sm leading-6 sm:text-base">
+            <p className="text-muted-foreground max-w-3xl text-left text-sm leading-6 sm:text-base">
               {item.summary}
             </p>
           )}

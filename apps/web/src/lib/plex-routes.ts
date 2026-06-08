@@ -63,6 +63,34 @@ function getMetadataAncestors(
   return ancestors;
 }
 
+export function getItemDetailsBackHref(
+  item: ItemDetailsBreadcrumbInput,
+  machineIdentifier: string,
+): string {
+  const ancestors = getMetadataAncestors(item);
+  const parent = ancestors.at(-1);
+
+  if (parent) {
+    return getItemDetailsHref(machineIdentifier, parent.ratingKey);
+  }
+
+  return getLibraryHref(machineIdentifier, item.librarySectionID);
+}
+
+export function getItemDetailsMobileSubtitle(
+  item: ItemDetailsBreadcrumbInput,
+): string | undefined {
+  if (item.type === "episode" && item.grandparentTitle) {
+    return item.grandparentTitle;
+  }
+
+  if (item.type === "season" && item.parentTitle) {
+    return item.parentTitle;
+  }
+
+  return item.librarySectionTitle;
+}
+
 export function getItemDetailsBreadcrumbs(
   item: ItemDetailsBreadcrumbInput,
   machineIdentifier: string,

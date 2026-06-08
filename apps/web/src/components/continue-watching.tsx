@@ -1,9 +1,10 @@
 "use client";
 
-import { CirclePlay, Play } from "lucide-react";
+import { CirclePlay, Info, MoreHorizontal, Play } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import React from "react";
+import { useRouter } from "next/navigation";
+import React, { useState } from "react";
 import {
   getMainTitle,
   getSubtitle,
@@ -15,7 +16,14 @@ import {
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { useProgressStore } from "~/stores/progress-store";
 import { Button } from "~/components/ui/button";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from "~/components/ui/drawer";
 import { Skeleton } from "~/components/ui/skeleton";
+import { useIsMobile } from "~/hooks/use-mobile";
 import { useVisibilityChange } from "~/hooks/use-visibility-change";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { getItemDetailsHref } from "~/lib/plex-routes";
@@ -37,7 +45,7 @@ function SectionWrapper({ children, showTitle, title }: SectionWrapperProps) {
   return (
     <div className="flex flex-col gap-y-4">
       {showTitle && (
-        <div className="flex items-center justify-between md:px-8">
+        <div className="flex items-center justify-between px-4 md:px-8">
           <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
         </div>
       )}
@@ -105,7 +113,7 @@ export function ContinueWatching({
   if (error && !continueWatchingData && initialItems.length === 0) {
     return (
       <SectionWrapper showTitle={showTitle} title={title}>
-        <div className="text-muted-foreground px-2 text-sm md:px-8">
+        <div className="text-muted-foreground px-4 text-sm md:px-8">
           Failed to load Continue Watching data
         </div>
       </SectionWrapper>
@@ -117,7 +125,7 @@ export function ContinueWatching({
     return (
       <SectionWrapper showTitle={showTitle} title={title}>
         <div className="w-full max-w-full overflow-hidden">
-          <div className="scrollbar-hide flex gap-4 overflow-x-auto pb-4 md:px-8">
+          <div className="scrollbar-hide flex gap-4 overflow-x-auto px-4 pb-4 md:px-8">
             {Array.from({ length: 8 }).map((_, i) => (
               <ContinueWatchingItemSkeleton key={i} />
             ))}
@@ -130,7 +138,7 @@ export function ContinueWatching({
   if (items.length === 0) {
     return (
       <SectionWrapper showTitle={showTitle} title={title}>
-        <div className="text-muted-foreground px-2 text-sm md:px-8">
+        <div className="text-muted-foreground px-4 text-sm md:px-8">
           Nothing to continue watching. Start watching something to see it here.
         </div>
       </SectionWrapper>
@@ -140,7 +148,7 @@ export function ContinueWatching({
   return (
     <SectionWrapper showTitle={showTitle} title={title}>
       <div className="w-full max-w-full overflow-hidden">
-        <div className="scrollbar-hide flex gap-4 overflow-x-auto pb-4 md:px-8">
+        <div className="scrollbar-hide flex gap-4 overflow-x-auto px-4 pb-4 md:px-8">
           {items.map((item) => (
             <ContinueWatchingItem
               key={`${item.serverId}-${item.ratingKey}`}
@@ -163,8 +171,14 @@ interface ContinueWatchingItemProps {
 }
 
 function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
+  const router = useRouter();
   const openPlayer = useMediaPlayerStore((state) => state.openPlayer);
   const getItemProgress = useProgressStore((state) => state.getItemProgress);
+  const updateItemProgress = useProgressStore(
+    (state) => state.updateItemProgress,
+  );
+  const isMobile = useIsMobile();
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   const mainTitle = getMainTitle(item);
   const subtitle = getSubtitle(item);
@@ -177,6 +191,10 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
 
   // Generate thumbnail URL using Plex photo transcoding service
   const thumbnailUrl = getThumbnailUrl(item, item.serverUrl, item.authToken);
+
+  const canPlay = Boolean(
+    toPlayableMetadata(item) && item.serverUrl && item.authToken,
+  );
 
   const handlePlay = () => {
     const playable = toPlayableMetadata(item);
@@ -195,87 +213,242 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
     );
   };
 
-  return (
-    <div className="flex shrink-0 flex-col gap-2">
-      {/* Poster Container */}
-      <div className="group relative h-[240px] w-[160px]">
-        {/* Poster Image */}
-        <Link
-          href={detailsHref}
-          aria-label={`View details for ${mainTitle}`}
-          className="bg-muted relative block size-full overflow-hidden rounded-md shadow-lg transition-all duration-200 group-hover:shadow-xl"
-        >
-          {thumbnailUrl ? (
-            <Image
-              src={thumbnailUrl}
-              alt={mainTitle}
-              className="h-full w-full object-cover"
-              loading="lazy"
-              width={160}
-              height={240}
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center">
-              <CirclePlay className="text-muted-foreground h-12 w-12" />
-            </div>
-          )}
+  const handlePlayFromDrawer = () => {
+    setIsDrawerOpen(false);
+    handlePlay();
+  };
 
-          {/* Progress Bar */}
-          {progressPercent > 0 && (
-            <div className="absolute right-0 bottom-0 left-0 h-1 bg-black/30">
-              <div
-                className={`dark:bg-primary h-full transition-all duration-300 ${
-                  item.progressColor === "dark"
-                    ? "bg-dark-primary"
-                    : "bg-light-primary"
-                }`}
-                style={{ width: `${Math.min(progressPercent, 100)}%` }}
-              />
-            </div>
-          )}
+  const handleRestartFromBeginning = () => {
+    const playable = toPlayableMetadata(item);
 
-          {/* Completion Badge */}
-          {isItemCompleted && (
-            <div className="absolute top-2 right-2 rounded bg-green-600 px-2 py-1 text-xs text-white shadow-sm">
-              Watched
-            </div>
-          )}
-        </Link>
+    if (!playable || !item.serverUrl || !item.authToken) {
+      console.error("Missing server URL or auth token for media playback");
+      return;
+    }
 
-        {/* Hover Overlay with Play Button - Hidden on mobile */}
-        <div className="pointer-events-none absolute inset-0 hidden items-center justify-center bg-black/60 opacity-0 transition-opacity duration-200 group-hover:opacity-100 md:flex">
-          <Button
-            variant="secondary"
-            size="icon"
-            className="group/button pointer-events-auto h-12 w-12 rounded-full"
-            onClick={handlePlay}
-            aria-label="Play"
-          >
-            <Play className="fill-black/60 stroke-black/60 transition-all duration-200 group-hover/button:fill-black/20 group-hover/button:stroke-black/20 dark:fill-white/60 dark:stroke-white/60 group-hover/button:dark:fill-white/20 group-hover/button:dark:stroke-white/20" />
-          </Button>
+    updateItemProgress({
+      ratingKey: item.ratingKey,
+      progressPercent: 0,
+    });
+
+    setIsDrawerOpen(false);
+    openPlayer(
+      createMediaPlayerItem(
+        { ...playable, viewOffset: 0 },
+        {
+          serverId: item.serverId,
+          serverUrl: item.serverUrl,
+          authToken: item.authToken,
+        },
+      ),
+    );
+  };
+
+  const handleViewDetails = () => {
+    setIsDrawerOpen(false);
+    router.push(detailsHref);
+  };
+
+  const handleMobilePosterTap = () => {
+    if (isMobile) {
+      setIsDrawerOpen(true);
+    }
+  };
+
+  const posterContent = (
+    <>
+      {thumbnailUrl ? (
+        <Image
+          src={thumbnailUrl}
+          alt={mainTitle}
+          className="h-full w-full object-cover"
+          loading="lazy"
+          width={160}
+          height={240}
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center">
+          <CirclePlay className="text-muted-foreground h-12 w-12" />
         </div>
+      )}
+
+      {progressPercent > 0 && (
+        <div className="absolute right-0 bottom-0 left-0 h-1 bg-black/30">
+          <div
+            className={`dark:bg-primary h-full transition-all duration-300 ${
+              item.progressColor === "dark"
+                ? "bg-dark-primary"
+                : "bg-light-primary"
+            }`}
+            style={{ width: `${Math.min(progressPercent, 100)}%` }}
+          />
+        </div>
+      )}
+
+      {isItemCompleted && (
+        <div className="absolute top-2 right-2 rounded bg-green-600 px-2 py-1 text-xs text-white shadow-sm">
+          Watched
+        </div>
+      )}
+    </>
+  );
+
+  return (
+    <>
+      <div className="flex shrink-0 flex-col gap-2">
+        <div className="group relative h-[240px] w-[160px]">
+          {isMobile ? (
+            <button
+              type="button"
+              onClick={handleMobilePosterTap}
+              aria-label={`Open options for ${mainTitle}`}
+              className="bg-muted relative block size-full overflow-hidden rounded-md shadow-lg transition-all duration-200 active:scale-[0.98]"
+            >
+              {posterContent}
+              <div className="absolute top-2 left-2 rounded bg-black/60 p-1">
+                <MoreHorizontal className="h-4 w-4 text-white" />
+              </div>
+            </button>
+          ) : (
+            <Link
+              href={detailsHref}
+              aria-label={`View details for ${mainTitle}`}
+              className="bg-muted relative block size-full overflow-hidden rounded-md shadow-lg transition-all duration-200 group-hover:shadow-xl"
+            >
+              {posterContent}
+            </Link>
+          )}
+
+          {/* Hover Overlay with Play Button - Desktop only */}
+          <div className="pointer-events-none absolute inset-0 hidden items-center justify-center bg-black/60 opacity-0 transition-opacity duration-200 group-hover:opacity-100 md:flex">
+            <Button
+              variant="secondary"
+              size="icon"
+              className="group/button pointer-events-auto h-12 w-12 rounded-full"
+              onClick={handlePlay}
+              aria-label="Play"
+            >
+              <Play className="fill-black/60 stroke-black/60 transition-all duration-200 group-hover/button:fill-black/20 group-hover/button:stroke-black/20 dark:fill-white/60 dark:stroke-white/60 group-hover/button:dark:fill-white/20 group-hover/button:dark:stroke-white/20" />
+            </Button>
+          </div>
+        </div>
+
+        {isMobile ? (
+          <button
+            type="button"
+            onClick={handleMobilePosterTap}
+            className="flex w-[160px] flex-col gap-1 rounded-sm text-left"
+          >
+            <h3 className="truncate text-sm leading-tight font-medium">
+              {mainTitle}
+            </h3>
+            {subtitle && (
+              <div className="text-muted-foreground text-xs leading-tight">
+                {subtitle.split("\n").map((line, index) => (
+                  <div key={index} className="truncate">
+                    {line}
+                  </div>
+                ))}
+              </div>
+            )}
+          </button>
+        ) : (
+          <Link
+            href={detailsHref}
+            className="focus-visible:ring-ring flex w-[160px] flex-col gap-1 rounded-sm focus-visible:ring-2 focus-visible:outline-none"
+          >
+            <h3 className="truncate text-sm leading-tight font-medium">
+              {mainTitle}
+            </h3>
+            {subtitle && (
+              <div className="text-muted-foreground text-xs leading-tight">
+                {subtitle.split("\n").map((line, index) => (
+                  <div key={index} className="truncate">
+                    {line}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Link>
+        )}
       </div>
 
-      {/* Metadata */}
-      <Link
-        href={detailsHref}
-        className="focus-visible:ring-ring flex w-[160px] flex-col gap-1 rounded-sm focus-visible:ring-2 focus-visible:outline-none"
-      >
-        <h3 className="truncate text-sm leading-tight font-medium">
-          {mainTitle}
-        </h3>
+      <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
+        <DrawerContent className="max-h-[85vh]">
+          <DrawerHeader className="text-left">
+            <DrawerTitle>{mainTitle}</DrawerTitle>
+            {subtitle && (
+              <p className="text-muted-foreground text-sm">{subtitle}</p>
+            )}
+          </DrawerHeader>
 
-        {subtitle && (
-          <div className="text-muted-foreground text-xs leading-tight">
-            {subtitle.split("\n").map((line, index) => (
-              <div key={index} className="truncate">
-                {line}
+          <div className="space-y-4 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+            {progressPercent > 0 && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Progress</span>
+                  <span>{Math.round(progressPercent)}%</span>
+                </div>
+                <div className="bg-muted h-2 overflow-hidden rounded-full">
+                  <div
+                    className={`h-full transition-all duration-300 ${
+                      item.progressColor === "dark"
+                        ? "bg-dark-primary"
+                        : "bg-light-primary"
+                    }`}
+                    style={{ width: `${Math.min(progressPercent, 100)}%` }}
+                  />
+                </div>
               </div>
-            ))}
+            )}
+
+            <div className="space-y-2">
+              <Button
+                onClick={handlePlayFromDrawer}
+                className="w-full"
+                disabled={!canPlay}
+              >
+                <Play data-icon="inline-start" />
+                {progressPercent > 0 ? "Continue Watching" : "Play"}
+              </Button>
+
+              {progressPercent > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={handleRestartFromBeginning}
+                  className="w-full"
+                  disabled={!canPlay}
+                >
+                  Restart from Beginning
+                </Button>
+              )}
+
+              <Button
+                variant="outline"
+                onClick={handleViewDetails}
+                className="w-full"
+              >
+                <Info data-icon="inline-start" />
+                View Details
+              </Button>
+            </div>
+
+            <div className="text-muted-foreground space-y-2 text-sm">
+              {item.year && <div>Year: {item.year}</div>}
+              {item.contentRating && <div>Rating: {item.contentRating}</div>}
+              {item.duration && (
+                <div>
+                  Duration: {Math.floor(item.duration / 1000 / 60)} minutes
+                </div>
+              )}
+              {item.librarySectionTitle && (
+                <div>Library: {item.librarySectionTitle}</div>
+              )}
+            </div>
           </div>
-        )}
-      </Link>
-    </div>
+        </DrawerContent>
+      </Drawer>
+    </>
   );
 }
 
@@ -286,11 +459,9 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
 function ContinueWatchingItemSkeleton() {
   return (
     <div className="flex-shrink-0 space-y-2">
-      {/* Updated skeleton to match actual poster dimensions: 160x240px */}
       <div className="h-[240px] w-[160px] rounded-md shadow-lg">
         <Skeleton className="h-full w-full rounded-md" />
       </div>
-      {/* Updated metadata skeleton to match actual width */}
       <div className="w-[160px] space-y-1">
         <Skeleton className="h-4 w-full" />
         <Skeleton className="h-3 w-3/4" />
