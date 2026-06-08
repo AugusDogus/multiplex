@@ -7,6 +7,7 @@ import { useMediaPlayerStore } from "~/stores/media-player-store";
 
 import { CastGrid } from "./cast-grid";
 import { DetailsHero } from "./details-hero";
+import { DetailsSynopsis } from "./details-synopsis";
 import { ItemChildren } from "./item-children";
 import { TechnicalDetails } from "./technical-details";
 import type { MediaItemDetailsProps } from "./types";
@@ -38,7 +39,7 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
   };
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-6 pb-24 sm:gap-8 md:pb-8">
+    <div className="flex min-w-0 flex-1 flex-col gap-6 sm:gap-8">
       <DetailsHero
         item={item}
         serverId={serverId}
@@ -48,6 +49,7 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
         playTarget={playTarget}
         onPlay={openForPlayback}
       />
+      {item.summary && <DetailsSynopsis summary={item.summary} />}
       <TechnicalDetails item={item} />
       <ItemChildren
         itemType={item.type}
