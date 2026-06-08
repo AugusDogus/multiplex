@@ -122,10 +122,50 @@ export function formatEpisodeCount(count: number | undefined) {
   return `${count} episode${count === 1 ? "" : "s"}`;
 }
 
+export function getSeasonEpisodeIndices(
+  parentIndex: number | undefined,
+  index: number | undefined,
+): { season: number; episode: number } | undefined {
+  if (parentIndex === undefined || index === undefined) {
+    return undefined;
+  }
+
+  return { season: parentIndex, episode: index };
+}
+
+export function formatEpisodeLabel(index: number | undefined): string | undefined {
+  if (index === undefined) {
+    return undefined;
+  }
+
+  return `Episode ${index}`;
+}
+
+export function formatSeasonEpisodeLabel(
+  parentIndex: number | undefined,
+  index: number | undefined,
+): string | undefined {
+  const indices = getSeasonEpisodeIndices(parentIndex, index);
+  if (!indices) {
+    return undefined;
+  }
+
+  return `S${indices.season} · E${indices.episode}`;
+}
+
 export function formatEpisodeListLabel(item: Pick<ItemMetadata, "index" | "duration">) {
-  return [item.index ? `Episode ${item.index}` : undefined, formatMetadataDuration(item.duration)]
-    .flatMap((value) => (value ? [value] : []))
-    .join(" • ");
+  const episode = formatEpisodeLabel(item.index);
+  const duration = formatMetadataDuration(item.duration);
+
+  if (episode && duration) {
+    return `${episode} • ${duration}`;
+  }
+
+  if (episode) {
+    return episode;
+  }
+
+  return duration ?? "";
 }
 
 export function getMetadataSummaryLines(item: ItemMetadata): string[] {
@@ -206,6 +246,40 @@ export function getRatingLabel(item: ItemMetadata): string | undefined {
   }
 
   return rating <= 10 ? `${Math.round(rating * 10)}%` : `${Math.round(rating)}%`;
+}
+
+export function formatGenreSummary(genres: ItemMetadata["Genre"], limit = 3): string | undefined {
+  if (!genres?.length) {
+    return undefined;
+  }
+
+  const visibleTags = genres.slice(0, limit).map((genre) => genre.tag);
+  const summary = visibleTags.join(", ");
+
+  if (genres.length > visibleTags.length) {
+    return `${summary}, and more`;
+  }
+
+  return summary;
+}
+
+export function formatDirectorList(directors: ItemMetadata["Director"]): string | undefined {
+  const names = directors?.map((director) => director.tag) ?? [];
+  if (names.length === 0) {
+    return undefined;
+  }
+
+  return names.join(", ");
+}
+
+export function getPlayButtonLabel(
+  playTarget: Pick<ItemMetadata, "viewOffset" | "duration"> | null | undefined,
+): "Play" | "Resume" {
+  if (!playTarget || getProgressPercent(playTarget) === 0) {
+    return "Play";
+  }
+
+  return "Resume";
 }
 
 export type MetadataPosterInput = Pick<
