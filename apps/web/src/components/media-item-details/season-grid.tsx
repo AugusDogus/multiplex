@@ -13,6 +13,7 @@ import {
 import { Badge } from "~/components/ui/badge";
 import { getItemDetailsHref } from "~/lib/plex-routes";
 
+import { DetailsSection } from "./details-section";
 import type { EnrichedChildMetadata, MediaServerContext } from "./types";
 
 interface SeasonGridProps extends MediaServerContext {
@@ -26,22 +27,25 @@ export function SeasonGrid({
   authToken,
 }: SeasonGridProps) {
   return (
-    <section className="flex flex-col gap-4">
-      <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
-        Seasons
-      </h2>
-      <div className="scrollbar-hide -mx-4 flex gap-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
-        {seasons.map((season) => (
-          <SeasonCard
-            key={season.ratingKey}
-            season={season}
-            serverId={serverId}
-            serverUrl={serverUrl}
-            authToken={authToken}
-          />
-        ))}
+    <DetailsSection title="Seasons" bleed>
+      <div className="relative">
+        <div className="scrollbar-hide flex gap-4 overflow-x-auto px-4 pb-2 sm:px-0">
+          {seasons.map((season) => (
+            <SeasonCard
+              key={season.ratingKey}
+              season={season}
+              serverId={serverId}
+              serverUrl={serverUrl}
+              authToken={authToken}
+            />
+          ))}
+        </div>
+        <div
+          aria-hidden
+          className="from-background via-background/80 pointer-events-none absolute inset-y-0 right-0 w-12 bg-linear-to-l to-transparent sm:hidden"
+        />
       </div>
-    </section>
+    </DetailsSection>
   );
 }
 

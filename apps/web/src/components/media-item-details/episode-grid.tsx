@@ -13,6 +13,8 @@ import {
 import { Button } from "~/components/ui/button";
 import { getItemDetailsHref } from "~/lib/plex-routes";
 
+import { DetailsSection } from "./details-section";
+
 import type {
   EnrichedChildMetadata,
   MediaServerContext,
@@ -34,11 +36,7 @@ export function EpisodeGrid({
   onPlay,
 }: EpisodeGridProps) {
   return (
-    <section className="flex flex-col gap-4">
-      <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
-        {formatEpisodeCount(episodes.length)}
-      </h2>
-
+    <DetailsSection title={formatEpisodeCount(episodes.length) ?? "Episodes"}>
       <div className="flex flex-col gap-3 md:hidden">
         {episodes.map((episode) => (
           <MobileEpisodeRow
@@ -66,7 +64,7 @@ export function EpisodeGrid({
           />
         ))}
       </div>
-    </section>
+    </DetailsSection>
   );
 }
 

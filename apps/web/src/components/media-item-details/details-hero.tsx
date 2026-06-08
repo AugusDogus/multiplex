@@ -69,7 +69,7 @@ export function DetailsHero({
   const playLabel = getPlayButtonLabel(playTarget);
 
   return (
-    <section className="relative overflow-hidden rounded-2xl border-transparent mask-[linear-gradient(#000_0_0)] [-webkit-mask:linear-gradient(#000_0_0)]">
+    <section className="sm:ring-border/50 relative -mx-4 overflow-hidden sm:mx-0 sm:rounded-2xl sm:ring-1">
       {backdropUrl && (
         <Image
           src={backdropUrl}
@@ -80,12 +80,13 @@ export function DetailsHero({
           className="-z-20 object-cover"
         />
       )}
-      <div className="from-background via-background/95 to-background/50 absolute inset-0 -z-10 bg-linear-to-b md:bg-linear-to-r" />
-      <div className="from-background/80 absolute inset-x-0 top-0 -z-10 h-24 bg-linear-to-b to-transparent md:hidden" />
 
-      <div className="grid grid-cols-[108px_minmax(0,1fr)] gap-x-4 gap-y-4 p-4 sm:grid-cols-[160px_minmax(0,1fr)] sm:gap-x-5 sm:p-6 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-8 lg:p-8">
+      <div className="from-background via-background/96 to-background/75 absolute inset-0 -z-10 bg-linear-to-t" />
+      <div className="from-background/90 via-background/50 absolute inset-0 -z-10 hidden bg-linear-to-r to-transparent lg:block" />
+
+      <div className="relative grid grid-cols-[108px_minmax(0,1fr)] gap-x-4 gap-y-4 px-4 py-5 sm:grid-cols-[160px_minmax(0,1fr)] sm:gap-x-5 sm:px-6 sm:py-6 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-8 lg:px-8 lg:py-8">
         <div className="flex flex-col gap-2 self-start">
-          <div className="bg-muted ring-border relative aspect-2/3 overflow-hidden rounded-lg shadow-xl ring-1 sm:rounded-xl">
+          <div className="bg-muted ring-border relative aspect-2/3 overflow-hidden rounded-lg shadow-2xl ring-1 sm:rounded-xl">
             {posterUrl ? (
               <Image
                 src={posterUrl}
@@ -102,7 +103,7 @@ export function DetailsHero({
             )}
           </div>
           {timeRemaining && (
-            <div className="bg-primary/10 text-primary rounded-md px-2 py-1.5 text-center text-xs font-semibold sm:text-sm">
+            <div className="bg-primary text-primary-foreground rounded-md px-2 py-1.5 text-center text-xs font-semibold shadow-sm sm:text-sm">
               {timeRemaining}
             </div>
           )}
@@ -118,11 +119,11 @@ export function DetailsHero({
               {serverName ?? "Plex server"}
             </Badge>
           </div>
-          <h1 className="text-xl font-semibold tracking-tight sm:text-3xl lg:text-5xl">
+          <h1 className="text-foreground text-xl font-semibold tracking-tight sm:text-3xl lg:text-5xl">
             {getMainTitle(item)}
           </h1>
           {secondaryTitle && (
-            <p className="text-muted-foreground text-base sm:text-xl lg:text-2xl">
+            <p className="text-foreground/75 text-base sm:text-xl lg:text-2xl">
               {secondaryTitle}
             </p>
           )}
@@ -135,7 +136,7 @@ export function DetailsHero({
         <div className="col-span-2 flex flex-wrap items-center gap-2 lg:col-span-1 lg:col-start-2">
           <Button
             size="lg"
-            className="min-h-11 flex-1 sm:flex-none"
+            className="min-h-11 flex-1 shadow-sm sm:flex-none"
             onClick={() => playTarget && onPlay(playTarget)}
             disabled={!canPlay}
           >
@@ -166,12 +167,6 @@ export function DetailsHero({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-
-        {item.summary && (
-          <p className="text-muted-foreground col-span-2 line-clamp-4 text-sm leading-relaxed sm:line-clamp-none sm:text-base lg:col-span-1 lg:col-start-2">
-            {item.summary}
-          </p>
-        )}
       </div>
     </section>
   );
