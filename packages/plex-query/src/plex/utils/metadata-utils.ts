@@ -61,10 +61,15 @@ export function resolvePlayTarget(
   }
 
   if (item.type === "season") {
-    return playableChildren[0] ?? null;
+    // Plex returns season children in episode order; first playable is the season play target.
+    return getFirstPlayableChild(playableChildren);
   }
 
   return null;
+}
+
+function getFirstPlayableChild(playableChildren: PlayableEnrichedChild[]): PlayableMetadata | null {
+  return playableChildren[0] ?? null;
 }
 
 export function getDetailsSecondaryTitle(item: ItemMetadata): string | undefined {
@@ -85,6 +90,16 @@ export function getMetadataTypeLabel(type: string): string {
       return "Episode";
     case "season":
       return "Season";
+    case "artist":
+      return "Artist";
+    case "album":
+      return "Album";
+    case "track":
+      return "Track";
+    case "person":
+      return "Person";
+    case "collection":
+      return "Collection";
     default:
       return type;
   }
