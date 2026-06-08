@@ -3,6 +3,8 @@
 import * as React from "react";
 import Image from "next/image";
 import {
+  formatMetadataDuration,
+  getMetadataTypeLabel,
   getThumbnailUrl,
   type ProcessedSearchResult,
 } from "@multiplex/plex-query";
@@ -14,38 +16,7 @@ interface SearchResultItemProps {
 }
 
 export function SearchResultItem({ result }: SearchResultItemProps) {
-  const formatDuration = (duration?: number) => {
-    if (!duration) return null;
-    const hours = Math.floor(duration / 3600000);
-    const minutes = Math.floor((duration % 3600000) / 60000);
-    if (hours > 0) {
-      return `${hours}h ${minutes}m`;
-    }
-    return `${minutes}m`;
-  };
-
-  const getMediaTypeLabel = (type: string) => {
-    switch (type) {
-      case "movie":
-        return "Movie";
-      case "show":
-        return "TV Show";
-      case "episode":
-        return "Episode";
-      case "artist":
-        return "Artist";
-      case "album":
-        return "Album";
-      case "track":
-        return "Track";
-      case "person":
-        return "Person";
-      case "collection":
-        return "Collection";
-      default:
-        return type;
-    }
-  };
+  const durationLabel = formatMetadataDuration(result.duration);
 
   const getSecondaryTitle = () => {
     if (
@@ -75,24 +46,10 @@ export function SearchResultItem({ result }: SearchResultItemProps) {
     return null;
   };
 
-  // Create a compatible object for getThumbnailUrl (same as continue watching uses)
   const thumbnailUrl = getThumbnailUrl(
     {
       type: result.type,
       thumb: result.thumb,
-      grandparentThumb: undefined, // Not available in search results
-      // Required fields for ContinueWatchingItem that we don't use in thumbnail generation
-      ratingKey: result.ratingKey,
-      key: result.key,
-      guid: result.guid,
-      title: result.title,
-      librarySectionTitle: result.librarySection ?? "",
-      librarySectionID: 1,
-      librarySectionKey: "",
-      serverId: result.serverId,
-      // Additional required fields for ContinueWatchingItem
-      hubTitle: "",
-      hubType: "",
     },
     result.serverUrl,
     result.authToken,
@@ -112,7 +69,7 @@ export function SearchResultItem({ result }: SearchResultItemProps) {
           />
         ) : (
           <div className="text-muted-foreground text-xs font-medium">
-            {getMediaTypeLabel(result.type).charAt(0)}
+            {getMetadataTypeLabel(result.type).charAt(0)}
           </div>
         )}
       </div>
@@ -131,7 +88,7 @@ export function SearchResultItem({ result }: SearchResultItemProps) {
 
             <div className="mt-1 flex items-center gap-2">
               <Badge variant="secondary" className="text-xs">
-                {getMediaTypeLabel(result.type)}
+                {getMetadataTypeLabel(result.type)}
               </Badge>
 
               {getEpisodeInfo() && (
@@ -150,7 +107,7 @@ export function SearchResultItem({ result }: SearchResultItemProps) {
               {result.duration && (
                 <div className="text-muted-foreground flex items-center gap-1 text-xs">
                   <Clock className="h-3 w-3" />
-                  {formatDuration(result.duration)}
+                  {durationLabel}
                 </div>
               )}
 
