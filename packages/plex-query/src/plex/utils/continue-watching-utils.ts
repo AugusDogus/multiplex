@@ -1,6 +1,7 @@
 import type { ContinueWatchingItem, ItemMetadata } from "../schemas/continue-watching-schemas";
 import {
   formatRemainingDuration,
+  formatSeasonEpisodeLabel,
   getPosterImagePath,
   type MetadataPosterInput,
 } from "./metadata-utils";
@@ -63,17 +64,22 @@ export function getMainTitle(item: ItemMetadata): string {
  */
 export function getSubtitle(item: ItemMetadata): string {
   if (item.type === "episode") {
-    const seasonEpisode =
-      item.parentIndex && item.index ? `S${item.parentIndex} · E${item.index}` : "";
+    const seasonEpisode = formatSeasonEpisodeLabel(item.parentIndex, item.index);
 
-    if (seasonEpisode && item.title) {
+    if (item.title && seasonEpisode) {
       return `${item.title}\n${seasonEpisode}`;
-    } else if (seasonEpisode) {
+    }
+
+    if (seasonEpisode) {
       return seasonEpisode;
-    } else if (item.title) {
+    }
+
+    if (item.title) {
       return item.title;
     }
-  } else if (item.type === "movie" && item.year) {
+  }
+
+  if (item.type === "movie" && item.year) {
     return item.year.toString();
   }
 
