@@ -1,6 +1,6 @@
 "use client";
 
-import { CirclePlay, Info, MoreHorizontal, Play } from "lucide-react";
+import { CirclePlay, MoreHorizontal, Play } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -16,12 +16,7 @@ import {
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { useProgressStore } from "~/stores/progress-store";
 import { Button } from "~/components/ui/button";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-} from "~/components/ui/drawer";
+import { ContinueWatchingDrawer } from "~/components/continue-watching-drawer";
 import { Skeleton } from "~/components/ui/skeleton";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { useVisibilityChange } from "~/hooks/use-visibility-change";
@@ -167,7 +162,11 @@ export function ContinueWatching({
    ──────────────────────────────────────────────────────────── */
 
 interface ContinueWatchingItemProps {
-  item: ContinueWatchingItem & { serverUrl?: string; authToken?: string };
+  item: ContinueWatchingItem & {
+    serverUrl?: string;
+    authToken?: string;
+    serverName?: string;
+  };
 }
 
 function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
@@ -373,81 +372,17 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
         )}
       </div>
 
-      <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen} modal>
-        <DrawerContent className="max-h-[85vh]">
-          <DrawerHeader className="text-left">
-            <DrawerTitle>{mainTitle}</DrawerTitle>
-            {subtitle && (
-              <p className="text-muted-foreground text-sm">{subtitle}</p>
-            )}
-          </DrawerHeader>
-
-          <div className="space-y-4 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
-            {progressPercent > 0 && (
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Progress</span>
-                  <span>{Math.round(progressPercent)}%</span>
-                </div>
-                <div className="bg-muted h-2.5 overflow-hidden rounded-full">
-                  <div
-                    className={`h-full transition-all duration-300 ${
-                      item.progressColor === "dark"
-                        ? "bg-dark-primary"
-                        : "bg-light-primary"
-                    }`}
-                    style={{ width: `${Math.min(progressPercent, 100)}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="flex flex-col gap-3">
-              <Button
-                onClick={handlePlayFromDrawer}
-                className="min-h-11 w-full"
-                disabled={!canPlay}
-              >
-                <Play data-icon="inline-start" />
-                {progressPercent > 0 ? "Continue Watching" : "Play"}
-              </Button>
-
-              {progressPercent > 0 && (
-                <Button
-                  variant="outline"
-                  onClick={handleRestartFromBeginning}
-                  className="min-h-11 w-full"
-                  disabled={!canPlay}
-                >
-                  Restart from Beginning
-                </Button>
-              )}
-
-              <Button
-                variant="outline"
-                onClick={handleViewDetails}
-                className="min-h-11 w-full"
-              >
-                <Info data-icon="inline-start" />
-                View Details
-              </Button>
-            </div>
-
-            <div className="text-muted-foreground space-y-2 text-sm">
-              {item.year && <div>Year: {item.year}</div>}
-              {item.contentRating && <div>Rating: {item.contentRating}</div>}
-              {item.duration && (
-                <div>
-                  Duration: {Math.floor(item.duration / 1000 / 60)} minutes
-                </div>
-              )}
-              {item.librarySectionTitle && (
-                <div>Library: {item.librarySectionTitle}</div>
-              )}
-            </div>
-          </div>
-        </DrawerContent>
-      </Drawer>
+      <ContinueWatchingDrawer
+        item={item}
+        open={isDrawerOpen}
+        onOpenChange={setIsDrawerOpen}
+        progressPercent={progressPercent}
+        thumbnailUrl={thumbnailUrl}
+        canPlay={canPlay}
+        onPlay={handlePlayFromDrawer}
+        onRestart={handleRestartFromBeginning}
+        onViewDetails={handleViewDetails}
+      />
     </>
   );
 }

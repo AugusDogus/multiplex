@@ -31,6 +31,7 @@ interface ContinueWatchingItemWithServer extends ContinueWatchingItem {
   serverUrl?: string;
   authToken?: string;
   serverId: string;
+  serverName?: string;
 }
 
 /* ────────────────────────────────────────────────────────────
@@ -134,6 +135,7 @@ async function fetchContinueWatchingItems(
         serverUrl,
         authToken,
         serverId: server.clientIdentifier,
+        serverName: server.name,
       }),
     );
   });
