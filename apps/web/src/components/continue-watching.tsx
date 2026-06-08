@@ -373,7 +373,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
         )}
       </div>
 
-      <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
+      <Drawer open={isDrawerOpen} onOpenChange={setIsDrawerOpen} modal>
         <DrawerContent className="max-h-[85vh]">
           <DrawerHeader className="text-left">
             <DrawerTitle>{mainTitle}</DrawerTitle>
@@ -389,7 +389,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
                   <span className="text-muted-foreground">Progress</span>
                   <span>{Math.round(progressPercent)}%</span>
                 </div>
-                <div className="bg-muted h-2 overflow-hidden rounded-full">
+                <div className="bg-muted h-2.5 overflow-hidden rounded-full">
                   <div
                     className={`h-full transition-all duration-300 ${
                       item.progressColor === "dark"
@@ -402,10 +402,10 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
               </div>
             )}
 
-            <div className="space-y-2">
+            <div className="flex flex-col gap-3">
               <Button
                 onClick={handlePlayFromDrawer}
-                className="w-full"
+                className="min-h-11 w-full"
                 disabled={!canPlay}
               >
                 <Play data-icon="inline-start" />
@@ -416,7 +416,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
                 <Button
                   variant="outline"
                   onClick={handleRestartFromBeginning}
-                  className="w-full"
+                  className="min-h-11 w-full"
                   disabled={!canPlay}
                 >
                   Restart from Beginning
@@ -426,7 +426,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
               <Button
                 variant="outline"
                 onClick={handleViewDetails}
-                className="w-full"
+                className="min-h-11 w-full"
               >
                 <Info data-icon="inline-start" />
                 View Details

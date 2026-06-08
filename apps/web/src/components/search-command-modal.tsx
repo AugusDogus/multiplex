@@ -197,7 +197,7 @@ export function SearchCommandModal({
                     key={`${result.type}-${result.serverId}-${result.ratingKey}`}
                     value={`${result.title} ${result.type} ${result.serverName}`}
                     onSelect={() => handleResultSelect(result)}
-                    className="min-h-12 cursor-pointer scroll-my-2 gap-3 rounded-md px-2 py-0 sm:min-h-10"
+                    className="min-h-16 cursor-pointer scroll-my-2 gap-3 rounded-md px-2 py-1 sm:min-h-12"
                   >
                     <SearchResultItem result={result} />
                   </CommandItem>

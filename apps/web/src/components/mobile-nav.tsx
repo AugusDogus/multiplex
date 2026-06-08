@@ -12,7 +12,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   type PlexDevice,
@@ -34,6 +34,7 @@ import { useServerLibraries } from "~/hooks/use-server-libraries";
 import { useSidebarPinning } from "~/hooks/use-sidebar-pinning";
 import { getSidebarSources } from "~/hooks/use-sidebar-sources";
 import { signOut } from "~/lib/auth/client";
+import { getItemDetailsHref } from "~/lib/plex-routes";
 import { cn } from "~/lib/utils";
 import { useLastLibraryStore } from "~/stores/last-library-store";
 
@@ -52,6 +53,7 @@ interface MobileNavProps {
 type ActiveTab = "home" | "libraries" | "search" | "you" | null;
 
 export function MobileNav({ session, servers, userInfo }: MobileNavProps) {
+  const router = useRouter();
   const pathname = usePathname();
   const [librariesOpen, setLibrariesOpen] = useState(false);
   const [youOpen, setYouOpen] = useState(false);
@@ -93,8 +95,9 @@ export function MobileNav({ session, servers, userInfo }: MobileNavProps) {
     avatar: session.user.image ?? "",
   };
 
-  function handleResultSelect(_result: ProcessedSearchResult) {
+  function handleResultSelect(result: ProcessedSearchResult) {
     setSearchOpen(false);
+    router.push(getItemDetailsHref(result.serverId, result.ratingKey));
   }
 
   return (

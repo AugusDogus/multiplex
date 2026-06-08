@@ -1,14 +1,28 @@
-import { formatGenreSummary, type ItemMetadata } from "@multiplex/plex-query";
+import { type ItemMetadata } from "@multiplex/plex-query";
+
+import { Badge } from "~/components/ui/badge";
 
 interface MetadataGenresProps {
   item: Pick<ItemMetadata, "Genre">;
 }
 
 export function MetadataGenres({ item }: MetadataGenresProps) {
-  const summary = formatGenreSummary(item.Genre);
-  if (!summary) {
+  const genres = item.Genre;
+  if (!genres?.length) {
     return null;
   }
 
-  return <p className="text-muted-foreground text-sm">{summary}</p>;
+  return (
+    <div className="scrollbar-hide -mx-1 flex gap-2.5 overflow-x-auto px-1 pb-0.5">
+      {genres.map((genre) => (
+        <Badge
+          key={genre.tag}
+          variant="secondary"
+          className="shrink-0 text-xs font-normal"
+        >
+          {genre.tag}
+        </Badge>
+      ))}
+    </div>
+  );
 }

@@ -69,7 +69,7 @@ export function DetailsHero({
   const playLabel = getPlayButtonLabel(playTarget);
 
   return (
-    <section className="relative rounded-2xl border-transparent mask-[linear-gradient(#000_0_0)] [-webkit-mask:linear-gradient(#000_0_0)]">
+    <section className="relative overflow-hidden rounded-2xl border-transparent mask-[linear-gradient(#000_0_0)] [-webkit-mask:linear-gradient(#000_0_0)]">
       {backdropUrl && (
         <Image
           src={backdropUrl}
@@ -80,107 +80,98 @@ export function DetailsHero({
           className="-z-20 object-cover"
         />
       )}
-      <div className="from-background via-background/90 to-background/40 absolute inset-0 -z-10 bg-linear-to-r" />
-      <div className="from-background via-background/30 absolute inset-0 -z-10 bg-linear-to-t to-transparent" />
+      <div className="from-background via-background/95 to-background/50 absolute inset-0 -z-10 bg-linear-to-b md:bg-linear-to-r" />
+      <div className="from-background/80 absolute inset-x-0 top-0 -z-10 h-24 bg-linear-to-b to-transparent md:hidden" />
 
-      <div className="flex flex-col gap-5 p-4 sm:gap-6 sm:p-6 lg:flex-row lg:p-8">
-        <div className="mx-auto flex w-[140px] shrink-0 flex-col gap-3 sm:mx-0 sm:w-[180px] lg:w-[220px]">
-          <div className="bg-muted ring-border relative aspect-2/3 rounded-xl mask-[linear-gradient(#000_0_0)] shadow-2xl ring-1 [-webkit-mask:linear-gradient(#000_0_0)]">
+      <div className="grid grid-cols-[108px_minmax(0,1fr)] gap-x-4 gap-y-4 p-4 sm:grid-cols-[160px_minmax(0,1fr)] sm:gap-x-5 sm:p-6 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-8 lg:p-8">
+        <div className="flex flex-col gap-2 self-start">
+          <div className="bg-muted ring-border relative aspect-2/3 overflow-hidden rounded-lg shadow-xl ring-1 sm:rounded-xl">
             {posterUrl ? (
               <Image
                 src={posterUrl}
                 alt={`${item.title} poster`}
                 fill
                 priority
-                sizes="220px"
+                sizes="(min-width: 1024px) 220px, 108px"
                 className="object-cover"
               />
             ) : (
               <div className="flex size-full items-center justify-center">
-                <Play className="text-muted-foreground size-12" />
+                <Play className="text-muted-foreground size-10" />
               </div>
             )}
           </div>
           {timeRemaining && (
-            <div className="bg-muted rounded-md px-3 py-2 text-center text-sm font-medium">
+            <div className="bg-primary/10 text-primary rounded-md px-2 py-1.5 text-center text-xs font-semibold sm:text-sm">
               {timeRemaining}
             </div>
           )}
         </div>
 
-        <div className="flex min-w-0 flex-1 flex-col justify-start gap-4 sm:gap-5 lg:max-w-3xl">
-          <div className="flex flex-col gap-2 text-center sm:text-left">
-            <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
-              <Badge variant="secondary">
-                {getMetadataTypeLabel(item.type)}
-              </Badge>
-              <Badge variant="outline" className="max-w-full truncate">
-                {item.librarySectionTitle}
-              </Badge>
-              <Badge
-                variant="outline"
-                className="hidden max-w-full truncate sm:inline-flex"
-              >
-                {serverName ?? "Plex server"}
-              </Badge>
-            </div>
-            <h1 className="text-2xl font-semibold tracking-tight sm:text-4xl lg:text-5xl">
-              {getMainTitle(item)}
-            </h1>
-            {secondaryTitle && (
-              <p className="text-muted-foreground text-lg sm:text-xl lg:text-2xl">
-                {secondaryTitle}
-              </p>
-            )}
-            <MetadataDirectors item={item} />
-            <MetadataSummaryRow item={item} serverId={serverId} />
-            <MetadataGenres item={item} />
-            <MetadataRating item={item} />
+        <div className="flex min-w-0 flex-col justify-center gap-2 self-center sm:gap-3">
+          <div className="hidden flex-wrap items-center gap-2 sm:flex">
+            <Badge variant="secondary">{getMetadataTypeLabel(item.type)}</Badge>
+            <Badge variant="outline" className="max-w-full truncate">
+              {item.librarySectionTitle}
+            </Badge>
+            <Badge variant="outline" className="max-w-full truncate">
+              {serverName ?? "Plex server"}
+            </Badge>
           </div>
-
-          <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
-            <Button
-              size="lg"
-              className="min-w-[140px] flex-1 sm:flex-none"
-              onClick={() => playTarget && onPlay(playTarget)}
-              disabled={!canPlay}
-            >
-              <Play data-icon="inline-start" />
-              {playLabel}
-            </Button>
-            <Button variant="outline" size="icon" aria-label="Mark as watched">
-              <Check />
-            </Button>
-            <Button variant="outline" size="icon" aria-label="Share">
-              <Share2 />
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" aria-label="More actions">
-                  <MoreHorizontal />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuGroup>
-                  <DropdownMenuItem disabled>
-                    Watch Together...
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled>Play Next</DropdownMenuItem>
-                  <DropdownMenuItem disabled>Add to Queue</DropdownMenuItem>
-                  <DropdownMenuItem disabled>Add to...</DropdownMenuItem>
-                  <DropdownMenuItem disabled>Report Issue...</DropdownMenuItem>
-                  <DropdownMenuItem disabled>Get Info</DropdownMenuItem>
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-
-          {item.summary && (
-            <p className="text-muted-foreground max-w-3xl text-left text-sm leading-6 sm:text-base">
-              {item.summary}
+          <h1 className="text-xl font-semibold tracking-tight sm:text-3xl lg:text-5xl">
+            {getMainTitle(item)}
+          </h1>
+          {secondaryTitle && (
+            <p className="text-muted-foreground text-base sm:text-xl lg:text-2xl">
+              {secondaryTitle}
             </p>
           )}
+          <MetadataDirectors item={item} />
+          <MetadataSummaryRow item={item} serverId={serverId} />
+          <MetadataGenres item={item} />
+          <MetadataRating item={item} />
         </div>
+
+        <div className="col-span-2 flex flex-wrap items-center gap-2 lg:col-span-1 lg:col-start-2">
+          <Button
+            size="lg"
+            className="min-h-11 flex-1 sm:flex-none"
+            onClick={() => playTarget && onPlay(playTarget)}
+            disabled={!canPlay}
+          >
+            <Play data-icon="inline-start" />
+            {playLabel}
+          </Button>
+          <Button variant="outline" size="icon" aria-label="Mark as watched">
+            <Check />
+          </Button>
+          <Button variant="outline" size="icon" aria-label="Share">
+            <Share2 />
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" aria-label="More actions">
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuGroup>
+                <DropdownMenuItem disabled>Watch Together...</DropdownMenuItem>
+                <DropdownMenuItem disabled>Play Next</DropdownMenuItem>
+                <DropdownMenuItem disabled>Add to Queue</DropdownMenuItem>
+                <DropdownMenuItem disabled>Add to...</DropdownMenuItem>
+                <DropdownMenuItem disabled>Report Issue...</DropdownMenuItem>
+                <DropdownMenuItem disabled>Get Info</DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        {item.summary && (
+          <p className="text-muted-foreground col-span-2 line-clamp-4 text-sm leading-relaxed sm:line-clamp-none sm:text-base lg:col-span-1 lg:col-start-2">
+            {item.summary}
+          </p>
+        )}
       </div>
     </section>
   );

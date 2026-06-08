@@ -12,8 +12,8 @@ export function MetadataRating({ item }: MetadataRatingProps) {
   }
 
   return (
-    <div className="flex items-center justify-center gap-2 text-sm sm:justify-start">
-      <Star className="fill-primary text-primary size-4" />
+    <div className="flex items-center gap-2 text-base font-semibold sm:text-sm sm:font-medium">
+      <Star className="fill-primary text-primary size-5 sm:size-4" />
       <span>{ratingLabel}</span>
     </div>
   );
