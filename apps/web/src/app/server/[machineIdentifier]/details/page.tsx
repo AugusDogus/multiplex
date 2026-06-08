@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 
 import { AppHeader } from "~/components/app-header";
+import { DetailsMobileHeader } from "~/components/details-mobile-header";
 import { AppSidebar } from "~/components/app-sidebar";
 import { MediaItemDetails } from "~/components/media-item-details";
 import { MobileNav } from "~/components/mobile-nav";
@@ -9,7 +10,9 @@ import { PlexErrorWrapper } from "~/components/plex-error-wrapper";
 import { SidebarInset, SidebarProvider } from "~/components/ui/sidebar";
 import { auth } from "~/lib/auth/server";
 import {
+  getItemDetailsBackHref,
   getItemDetailsBreadcrumbs,
+  getItemDetailsMobileSubtitle,
   parseItemDetailsKey,
 } from "~/lib/plex-routes";
 import { api, HydrateClient } from "~/trpc/server";
@@ -73,12 +76,22 @@ export default async function MediaItemDetailsPage({
           </PlexErrorWrapper>
           <SidebarInset className="w-0 max-w-full min-w-0 flex-1">
             <AppHeader
+              mobile={
+                <DetailsMobileHeader
+                  title={details.item.title}
+                  subtitle={getItemDetailsMobileSubtitle(details.item)}
+                  backHref={getItemDetailsBackHref(
+                    details.item,
+                    machineIdentifier,
+                  )}
+                />
+              }
               breadcrumbs={getItemDetailsBreadcrumbs(
                 details.item,
                 machineIdentifier,
               )}
             />
-            <main className="flex min-w-0 flex-1 flex-col p-4">
+            <main className="flex min-w-0 flex-1 flex-col px-4 pt-2 pb-4 sm:p-4">
               <MediaItemDetails
                 details={details}
                 serverId={machineIdentifier}

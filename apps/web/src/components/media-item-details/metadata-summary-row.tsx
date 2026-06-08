@@ -25,7 +25,7 @@ export function MetadataSummaryRow({
   }
 
   return (
-    <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm">
+    <div className="text-muted-foreground flex flex-wrap items-center justify-center gap-2 text-sm sm:justify-start">
       {lines.map((value) => (
         <span key={value}>{value}</span>
       ))}

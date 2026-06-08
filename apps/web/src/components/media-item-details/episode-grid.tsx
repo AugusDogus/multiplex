@@ -35,7 +35,7 @@ export function EpisodeGrid({
 }: EpisodeGridProps) {
   return (
     <section className="flex flex-col gap-4">
-      <h2 className="text-2xl font-semibold tracking-tight">
+      <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
         {formatEpisodeCount(episodes.length)}
       </h2>
       <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
@@ -111,8 +111,12 @@ function EpisodeCard({
           <Button
             type="button"
             size="icon"
-            className="absolute top-1/2 left-1/2 size-12 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-0 transition-opacity group-hover:opacity-100"
-            onClick={() => onPlay(playable)}
+            className="absolute top-1/2 left-1/2 size-12 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-100 shadow-lg transition-opacity md:opacity-0 md:group-hover:opacity-100"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onPlay(playable);
+            }}
             aria-label={`Play ${episode.title}`}
           >
             <Play className="fill-current" />
