@@ -19,17 +19,23 @@ export function CastGrid({ item, serverUrl, authToken }: CastGridProps) {
       <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
         Cast & Crew
       </h2>
-      <div className="scrollbar-hide -mx-4 flex gap-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
-        {roles.slice(0, 18).map((role) => (
-          <CastMember
-            key={`${role.tag}-${role.role ?? "role"}`}
-            name={role.tag}
-            role={role.role}
-            thumb={role.thumb}
-            serverUrl={serverUrl}
-            authToken={authToken}
-          />
-        ))}
+      <div className="relative -mx-4 sm:mx-0">
+        <div className="scrollbar-hide flex gap-4 overflow-x-auto px-4 pb-2 sm:px-0">
+          {roles.slice(0, 18).map((role) => (
+            <CastMember
+              key={`${role.tag}-${role.role ?? "role"}`}
+              name={role.tag}
+              role={role.role}
+              thumb={role.thumb}
+              serverUrl={serverUrl}
+              authToken={authToken}
+            />
+          ))}
+        </div>
+        <div
+          aria-hidden
+          className="from-background pointer-events-none absolute inset-y-0 right-0 w-10 bg-linear-to-l to-transparent sm:hidden"
+        />
       </div>
     </section>
   );
