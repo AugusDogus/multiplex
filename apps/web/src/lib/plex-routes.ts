@@ -20,12 +20,47 @@ type ItemDetailsBreadcrumbInput = Pick<
   | "parentRatingKey"
 >;
 
+interface MetadataAncestor {
+  label: string;
+  ratingKey: string;
+}
+
 export function getLibraryHref(
   machineIdentifier: string,
   librarySectionID: number,
   providerIdentifier = LIBRARY_PROVIDER_IDENTIFIER,
 ): string {
   return `/media/${machineIdentifier}/${providerIdentifier}?source=${librarySectionID}`;
+}
+
+function getMetadataAncestors(
+  item: ItemDetailsBreadcrumbInput,
+): MetadataAncestor[] {
+  const ancestors: MetadataAncestor[] = [];
+
+  if (
+    item.type === "episode" &&
+    item.grandparentTitle &&
+    item.grandparentRatingKey
+  ) {
+    ancestors.push({
+      label: item.grandparentTitle,
+      ratingKey: item.grandparentRatingKey,
+    });
+  }
+
+  if (
+    (item.type === "episode" || item.type === "season") &&
+    item.parentTitle &&
+    item.parentRatingKey
+  ) {
+    ancestors.push({
+      label: item.parentTitle,
+      ratingKey: item.parentRatingKey,
+    });
+  }
+
+  return ancestors;
 }
 
 export function getItemDetailsBreadcrumbs(
@@ -39,31 +74,14 @@ export function getItemDetailsBreadcrumbs(
     },
   ];
 
-  if (item.type === "season" && item.parentTitle && item.parentRatingKey) {
+  for (const ancestor of getMetadataAncestors(item)) {
     crumbs.push({
-      label: item.parentTitle,
-      href: getItemDetailsHref(machineIdentifier, item.parentRatingKey),
+      label: ancestor.label,
+      href: getItemDetailsHref(machineIdentifier, ancestor.ratingKey),
     });
-    crumbs.push({ label: item.title });
-  } else if (
-    item.type === "episode" &&
-    item.grandparentTitle &&
-    item.grandparentRatingKey
-  ) {
-    crumbs.push({
-      label: item.grandparentTitle,
-      href: getItemDetailsHref(machineIdentifier, item.grandparentRatingKey),
-    });
-    if (item.parentTitle && item.parentRatingKey) {
-      crumbs.push({
-        label: item.parentTitle,
-        href: getItemDetailsHref(machineIdentifier, item.parentRatingKey),
-      });
-    }
-    crumbs.push({ label: item.title });
-  } else {
-    crumbs.push({ label: item.title });
   }
+
+  crumbs.push({ label: item.title });
 
   return crumbs;
 }
