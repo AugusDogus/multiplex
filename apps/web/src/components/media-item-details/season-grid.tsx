@@ -13,7 +13,6 @@ import {
 import { Badge } from "~/components/ui/badge";
 import { getItemDetailsHref } from "~/lib/plex-routes";
 
-import { DetailsSection } from "./details-section";
 import type { EnrichedChildMetadata, MediaServerContext } from "./types";
 
 interface SeasonGridProps extends MediaServerContext {
@@ -27,25 +26,20 @@ export function SeasonGrid({
   authToken,
 }: SeasonGridProps) {
   return (
-    <DetailsSection title="Seasons" bleed>
-      <div className="relative">
-        <div className="scrollbar-hide flex gap-4 overflow-x-auto px-4 pb-2 sm:px-0">
-          {seasons.map((season) => (
-            <SeasonCard
-              key={season.ratingKey}
-              season={season}
-              serverId={serverId}
-              serverUrl={serverUrl}
-              authToken={authToken}
-            />
-          ))}
-        </div>
-        <div
-          aria-hidden
-          className="from-background via-background/80 pointer-events-none absolute inset-y-0 right-0 w-12 bg-linear-to-l to-transparent sm:hidden"
-        />
+    <section className="flex flex-col gap-4">
+      <h2 className="text-2xl font-semibold tracking-tight">Seasons</h2>
+      <div className="scrollbar-hide -mx-4 flex gap-4 overflow-x-auto px-4 pb-2 md:mx-0 md:px-0">
+        {seasons.map((season) => (
+          <SeasonCard
+            key={season.ratingKey}
+            season={season}
+            serverId={serverId}
+            serverUrl={serverUrl}
+            authToken={authToken}
+          />
+        ))}
       </div>
-    </DetailsSection>
+    </section>
   );
 }
 
@@ -73,7 +67,7 @@ function SeasonCard({
   return (
     <Link
       href={getItemDetailsHref(serverId, season.ratingKey)}
-      className="focus-visible:ring-ring group flex w-32 shrink-0 flex-col gap-2 rounded-xl focus-visible:ring-2 focus-visible:outline-none sm:w-40 sm:gap-3"
+      className="focus-visible:ring-ring group flex w-40 shrink-0 flex-col gap-3 rounded-xl focus-visible:ring-2 focus-visible:outline-none"
     >
       <div className="bg-muted ring-border relative aspect-2/3 overflow-hidden rounded-xl shadow-lg ring-1 transition-shadow group-hover:shadow-xl">
         {posterUrl ? (
