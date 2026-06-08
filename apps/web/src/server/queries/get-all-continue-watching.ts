@@ -84,6 +84,7 @@ export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
         ...item,
         serverUrl,
         authToken,
+        serverName: server.name,
       }));
     });
 

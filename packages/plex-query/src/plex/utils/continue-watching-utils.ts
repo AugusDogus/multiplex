@@ -1,7 +1,9 @@
 import type { ContinueWatchingItem, ItemMetadata } from "../schemas/continue-watching-schemas";
 import {
+  formatMetadataDuration,
   formatRemainingDuration,
   formatSeasonEpisodeLabel,
+  getMetadataTypeLabel,
   getPosterImagePath,
   type MetadataPosterInput,
 } from "./metadata-utils";
@@ -57,6 +59,71 @@ export function getMainTitle(item: ItemMetadata): string {
   }
 
   return item.title;
+}
+
+export function getContinueWatchingEpisodeTitle(item: ItemMetadata): string | undefined {
+  if (item.type !== "episode") {
+    return undefined;
+  }
+
+  return item.title;
+}
+
+export function formatLastViewedLabel(lastViewedAt: Date | undefined): string | undefined {
+  if (!lastViewedAt) {
+    return undefined;
+  }
+
+  const diffMs = Date.now() - lastViewedAt.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 0) {
+    return "Watched today";
+  }
+
+  if (diffDays === 1) {
+    return "Watched yesterday";
+  }
+
+  if (diffDays < 7) {
+    return `Watched ${diffDays} days ago`;
+  }
+
+  return `Watched ${lastViewedAt.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  })}`;
+}
+
+export function getContinueWatchingDetailChips(item: ItemMetadata): string[] {
+  const chips: string[] = [];
+
+  const typeLabel = getMetadataTypeLabel(item.type);
+  if (typeLabel) {
+    chips.push(typeLabel);
+  }
+
+  if (item.type === "episode") {
+    const seasonEpisode = formatSeasonEpisodeLabel(item.parentIndex, item.index);
+    if (seasonEpisode) {
+      chips.push(seasonEpisode);
+    }
+  }
+
+  if (item.year) {
+    chips.push(item.year.toString());
+  }
+
+  if (item.contentRating) {
+    chips.push(item.contentRating);
+  }
+
+  const duration = formatMetadataDuration(item.duration);
+  if (duration) {
+    chips.push(duration);
+  }
+
+  return chips;
 }
 
 /**
