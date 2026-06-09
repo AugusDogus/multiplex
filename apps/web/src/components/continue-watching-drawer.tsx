@@ -141,9 +141,8 @@ export function ContinueWatchingDrawer({
               </div>
               <MediaProgressBar
                 value={progressPercent}
-                progressColor={item.progressColor}
                 className="bg-background/80 h-2 overflow-hidden rounded-full"
-                fillClassName="transition-all duration-300"
+                fillClassName="bg-primary transition-all duration-300"
               />
             </div>
           )}
