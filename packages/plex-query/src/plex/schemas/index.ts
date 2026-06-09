@@ -6,3 +6,4 @@ export * from "./play-queue-schemas";
 export * from "./plex-server-schemas";
 export * from "./plex-tv-schemas";
 export * from "./search-schemas";
+export * from "./hub-schemas";

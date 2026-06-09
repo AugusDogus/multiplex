@@ -6,6 +6,12 @@ import {
   type ItemMetadata,
   type ItemMetadataChild,
 } from "../schemas/continue-watching-schemas";
+import {
+  hubResponseSchema,
+  libraryContentResponseSchema,
+  type HubResponse,
+  type LibraryContentResponse,
+} from "../schemas/hub-schemas";
 import { dvrsResponseSchema, type DVRsResponse } from "../schemas/dvr-schemas";
 import {
   channelsResponseSchema,
@@ -251,14 +257,89 @@ export class PlexServerClient {
   }
 
   /**
-   * Get library content by section ID
-   * @param sectionId - The library section ID
-   * @returns Library content
+   * Get global hubs (home screen sections like recently added movies/TV)
    */
-  async getLibraryContent<T = unknown>(sectionId: string): Promise<T> {
-    return await this.get({
-      endpoint: `library/sections/${sectionId}/all`,
+  async getHubs(params?: {
+    count?: number;
+    onlyTransient?: boolean;
+    contentDirectoryIds?: string[];
+  }): Promise<HubResponse> {
+    const queryParams: Record<string, string> = {
+      includeMeta: "1",
+      count: (params?.count ?? 12).toString(),
+    };
+
+    if (params?.onlyTransient) {
+      queryParams.onlyTransient = "1";
+    }
+
+    if (params?.contentDirectoryIds?.length) {
+      queryParams.contentDirectoryID = params.contentDirectoryIds.join(",");
+    }
+
+    const rawResponse = await this.get({
+      endpoint: "hubs",
+      params: queryParams,
     });
+
+    const parsed = hubResponseSchema.parse(rawResponse);
+    return {
+      ...parsed,
+      serverId: this.server.clientIdentifier,
+    };
+  }
+
+  /**
+   * Get hubs for a specific library section (recently added, recently released, etc.)
+   */
+  async getSectionHubs(
+    sectionId: string,
+    params?: { count?: number; onlyTransient?: boolean },
+  ): Promise<HubResponse> {
+    const queryParams: Record<string, string> = {
+      includeMeta: "1",
+      count: (params?.count ?? 12).toString(),
+    };
+
+    if (params?.onlyTransient ?? true) {
+      queryParams.onlyTransient = "1";
+    }
+
+    const rawResponse = await this.get({
+      endpoint: `hubs/sections/${sectionId}`,
+      params: queryParams,
+    });
+
+    const parsed = hubResponseSchema.parse(rawResponse);
+    return {
+      ...parsed,
+      serverId: this.server.clientIdentifier,
+    };
+  }
+
+  /**
+   * Get library content by section ID with pagination and sorting
+   */
+  async getLibraryContent(
+    sectionId: string,
+    params?: {
+      sort?: string;
+      start?: number;
+      size?: number;
+    },
+  ): Promise<LibraryContentResponse> {
+    const queryParams: Record<string, string> = {
+      sort: params?.sort ?? "addedAt:desc",
+      "X-Plex-Container-Start": (params?.start ?? 0).toString(),
+      "X-Plex-Container-Size": (params?.size ?? 24).toString(),
+    };
+
+    const rawResponse = await this.get({
+      endpoint: `library/sections/${sectionId}/all`,
+      params: queryParams,
+    });
+
+    return libraryContentResponseSchema.parse(rawResponse);
   }
 
   /**

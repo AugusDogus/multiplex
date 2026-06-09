@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { AppHeader } from "~/components/app-header";
 import { AppSidebar } from "~/components/app-sidebar";
 import { ContinueWatching } from "~/components/continue-watching";
+import { HomeHubs } from "~/components/home-hubs";
 import { MobileNav } from "~/components/mobile-nav";
 import { PlexErrorWrapper } from "~/components/plex-error-wrapper";
 import { SidebarInset, SidebarProvider } from "~/components/ui/sidebar";
@@ -19,11 +20,13 @@ export default async function Page() {
   }
 
   // Fetch data using tRPC procedures
-  const [servers, userInfo, continueWatchingItems] = await Promise.all([
-    api.plex.getServers(),
-    api.plex.getUserInfo(),
-    api.plex.getAllContinueWatching(),
-  ] as const);
+  const [servers, userInfo, continueWatchingItems, homeHubs] =
+    await Promise.all([
+      api.plex.getServers(),
+      api.plex.getUserInfo(),
+      api.plex.getAllContinueWatching(),
+      api.plex.getHomeHubs(),
+    ] as const);
 
   if (!servers || !userInfo) {
     return null;
@@ -57,8 +60,9 @@ export default async function Page() {
           <SidebarInset className="w-0 max-w-full min-w-0 flex-1">
             <AppHeader />
 
-            <div className="flex min-w-0 flex-1 flex-col gap-6 p-4 pb-24 md:pb-4">
+            <div className="flex min-w-0 flex-1 flex-col gap-8 p-4 pb-24 md:gap-10 md:pb-4">
               <ContinueWatching items={continueWatchingItems} />
+              <HomeHubs hubs={homeHubs} />
             </div>
           </SidebarInset>
           <MobileNav session={session} servers={servers} userInfo={userInfo} />
