@@ -15,6 +15,9 @@ import { getAllServerLibrariesQuery } from "~/server/queries/get-all-server-libr
 import { getAllChannelsProgrammingQuery } from "~/server/queries/get-all-channels-programming";
 import { getServerChannelsProgrammingQuery } from "~/server/queries/get-all-channels-programming";
 import { getContinueWatchingQuery } from "~/server/queries/get-continue-watching";
+import { getHomeHubsQuery } from "~/server/queries/get-home-hubs";
+import { getLibraryContentQuery } from "~/server/queries/get-library-content";
+import { getLibraryHubsQuery } from "~/server/queries/get-library-hubs";
 import { getServersQuery } from "~/server/queries/get-servers";
 import { getUserInfoQuery } from "~/server/queries/get-user-info";
 import { searchQuery } from "~/server/queries/search";
@@ -60,6 +63,48 @@ export const plexRouter = createTRPCRouter({
   getAllContinueWatching: protectedProcedure.query(async ({ ctx }) => {
     return getAllContinueWatchingQuery(ctx.plex);
   }),
+
+  getHomeHubs: protectedProcedure.query(async ({ ctx }) => {
+    return getHomeHubsQuery(ctx.plex);
+  }),
+
+  getLibraryHubs: protectedProcedure
+    .input(
+      z.object({
+        machineIdentifier: z.string(),
+        sectionId: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      return getLibraryHubsQuery(
+        ctx.plex,
+        input.machineIdentifier,
+        input.sectionId,
+      );
+    }),
+
+  getLibraryContent: protectedProcedure
+    .input(
+      z.object({
+        machineIdentifier: z.string(),
+        sectionId: z.string(),
+        start: z.number().default(0),
+        size: z.number().default(24),
+        sort: z.string().default("addedAt:desc"),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      return getLibraryContentQuery(
+        ctx.plex,
+        input.machineIdentifier,
+        input.sectionId,
+        {
+          start: input.start,
+          size: input.size,
+          sort: input.sort,
+        },
+      );
+    }),
 
   getContinueWatching: protectedProcedure
     .input(
