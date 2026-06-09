@@ -16,6 +16,7 @@ import { getAllChannelsProgrammingQuery } from "~/server/queries/get-all-channel
 import { getServerChannelsProgrammingQuery } from "~/server/queries/get-all-channels-programming";
 import { getContinueWatchingQuery } from "~/server/queries/get-continue-watching";
 import { getHomeHubsQuery } from "~/server/queries/get-home-hubs";
+import { getHubContentQuery } from "~/server/queries/get-hub-content";
 import { getLibraryContentQuery } from "~/server/queries/get-library-content";
 import { getLibraryHubsQuery } from "~/server/queries/get-library-hubs";
 import { getServersQuery } from "~/server/queries/get-servers";
@@ -80,6 +81,27 @@ export const plexRouter = createTRPCRouter({
         ctx.plex,
         input.machineIdentifier,
         input.sectionId,
+      );
+    }),
+
+  getHubContent: protectedProcedure
+    .input(
+      z.object({
+        machineIdentifier: z.string(),
+        hubKey: z.string().min(1),
+        start: z.number().default(0),
+        size: z.number().default(48),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      return getHubContentQuery(
+        ctx.plex,
+        input.machineIdentifier,
+        input.hubKey,
+        {
+          start: input.start,
+          size: input.size,
+        },
       );
     }),
 

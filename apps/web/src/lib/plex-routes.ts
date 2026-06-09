@@ -95,6 +95,19 @@ export function getItemDetailsHref(
   return `/server/${machineIdentifier}/details?key=/library/metadata/${ratingKey}`;
 }
 
+export function getHubHref(
+  machineIdentifier: string,
+  hubKey: string,
+  title: string,
+): string {
+  const params = new URLSearchParams({
+    key: hubKey,
+    title,
+  });
+
+  return `/server/${machineIdentifier}/hub?${params.toString()}`;
+}
+
 export function parseItemDetailsKey(key: string | undefined): string | null {
   if (!key) {
     return null;

@@ -1,11 +1,22 @@
 "use client";
 
+import { ChevronRight } from "lucide-react";
+import Link from "next/link";
 import type { HubWithServer } from "@multiplex/plex-query";
 import { MediaPosterCard } from "~/components/media-poster-card";
 import { Skeleton } from "~/components/ui/skeleton";
+import { getHubHref } from "~/lib/plex-routes";
 
 interface MediaHubRowProps {
   hub: HubWithServer;
+}
+
+function isHubNavigable(hub: HubWithServer): boolean {
+  return Boolean(
+    hub.key &&
+      hub.items.length > 0 &&
+      (hub.more ?? hub.size > hub.items.length),
+  );
 }
 
 export function MediaHubRow({ hub }: MediaHubRowProps) {
@@ -13,12 +24,29 @@ export function MediaHubRow({ hub }: MediaHubRowProps) {
     return null;
   }
 
+  const navigable = isHubNavigable(hub);
+  const hubHref = navigable
+    ? getHubHref(hub.serverId, hub.key, hub.title)
+    : undefined;
+
   return (
     <section className="flex flex-col gap-y-4">
       <div className="flex items-center justify-between px-4 md:px-8">
-        <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
-          {hub.title}
-        </h2>
+        {hubHref ? (
+          <Link
+            href={hubHref}
+            className="group flex min-w-0 items-center gap-1 rounded-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+          >
+            <h2 className="truncate text-xl font-semibold tracking-tight sm:text-2xl">
+              {hub.title}
+            </h2>
+            <ChevronRight className="text-muted-foreground size-5 shrink-0 transition-transform group-hover:translate-x-0.5 group-active:translate-x-1" />
+          </Link>
+        ) : (
+          <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
+            {hub.title}
+          </h2>
+        )}
       </div>
       <div className="w-full max-w-full overflow-hidden">
         <div className="scrollbar-hide flex gap-3 overflow-x-auto px-4 pb-4 sm:gap-4 md:px-8">
