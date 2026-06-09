@@ -12,6 +12,7 @@ import {
   type HubResponse,
   type LibraryContentResponse,
 } from "../schemas/hub-schemas";
+import { parseHubKey } from "../utils/hub-key-utils";
 import { dvrsResponseSchema, type DVRsResponse } from "../schemas/dvr-schemas";
 import {
   channelsResponseSchema,
@@ -315,6 +316,33 @@ export class PlexServerClient {
       ...parsed,
       serverId: this.server.clientIdentifier,
     };
+  }
+
+  /**
+   * Fetch the full contents of a hub using its Plex `key` (e.g.
+   * `/hubs/home/recentlyAdded?type=1` or `/library/sections/1/all?sort=addedAt:desc`).
+   */
+  async getHubContent(
+    hubKey: string,
+    params?: {
+      start?: number;
+      size?: number;
+    },
+  ): Promise<LibraryContentResponse> {
+    const parsed = parseHubKey(hubKey);
+    const queryParams: Record<string, string> = {
+      includeMeta: "1",
+      ...parsed.params,
+      "X-Plex-Container-Start": (params?.start ?? 0).toString(),
+      "X-Plex-Container-Size": (params?.size ?? 48).toString(),
+    };
+
+    const rawResponse = await this.get({
+      endpoint: parsed.endpoint,
+      params: queryParams,
+    });
+
+    return libraryContentResponseSchema.parse(rawResponse);
   }
 
   /**
