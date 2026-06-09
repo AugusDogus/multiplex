@@ -8,11 +8,12 @@ import {
   getContinueWatchingEpisodeTitle,
   getMainTitle,
   getSubtitle,
-  type ContinueWatchingItem,
+  type ContinueWatchingItemWithServer,
 } from "@multiplex/plex-query";
 import { ChevronRight, CirclePlay, Play, RotateCcw } from "lucide-react";
 import Image from "next/image";
 
+import { MediaProgressBar } from "~/components/media-progress-bar";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import {
@@ -22,14 +23,8 @@ import {
   DrawerTitle,
 } from "~/components/ui/drawer";
 
-type ContinueWatchingDrawerItem = ContinueWatchingItem & {
-  serverUrl?: string;
-  authToken?: string;
-  serverName?: string;
-};
-
 interface ContinueWatchingDrawerProps {
-  item: ContinueWatchingDrawerItem;
+  item: ContinueWatchingItemWithServer;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   progressPercent: number;
@@ -93,16 +88,11 @@ export function ContinueWatchingDrawer({
                 </div>
               )}
               {hasProgress && (
-                <div className="absolute right-0 bottom-0 left-0 h-1 bg-black/40">
-                  <div
-                    className={`h-full ${
-                      item.progressColor === "dark"
-                        ? "bg-dark-primary"
-                        : "bg-light-primary"
-                    }`}
-                    style={{ width: `${Math.min(progressPercent, 100)}%` }}
-                  />
-                </div>
+                <MediaProgressBar
+                  value={progressPercent}
+                  progressColor={item.progressColor}
+                  className="absolute right-0 bottom-0 left-0 h-1 bg-black/40"
+                />
               )}
             </div>
 
@@ -149,16 +139,12 @@ export function ContinueWatchingDrawer({
                   {Math.round(progressPercent)}%
                 </span>
               </div>
-              <div className="bg-background/80 h-2 overflow-hidden rounded-full">
-                <div
-                  className={`h-full transition-all duration-300 ${
-                    item.progressColor === "dark"
-                      ? "bg-dark-primary"
-                      : "bg-light-primary"
-                  }`}
-                  style={{ width: `${Math.min(progressPercent, 100)}%` }}
-                />
-              </div>
+              <MediaProgressBar
+                value={progressPercent}
+                progressColor={item.progressColor}
+                className="bg-background/80 h-2 overflow-hidden rounded-full"
+                fillClassName="transition-all duration-300"
+              />
             </div>
           )}
 

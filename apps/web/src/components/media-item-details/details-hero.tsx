@@ -68,6 +68,15 @@ export function DetailsHero({
   const canPlay = Boolean(imageServerUrl && imageAuthToken && playTarget);
   const playLabel = getPlayButtonLabel(playTarget);
 
+  const actions = (
+    <HeroActions
+      playTarget={playTarget}
+      onPlay={onPlay}
+      canPlay={canPlay}
+      playLabel={playLabel}
+    />
+  );
+
   return (
     <>
       <section className="relative hidden rounded-2xl border-transparent mask-[linear-gradient(#000_0_0)] [-webkit-mask:linear-gradient(#000_0_0)] lg:block">
@@ -86,22 +95,13 @@ export function DetailsHero({
 
         <div className="flex flex-col gap-6 p-4 sm:p-6 lg:flex-row lg:p-8">
           <div className="flex w-full flex-col gap-3 sm:w-[220px] lg:shrink-0">
-            <div className="bg-muted ring-border relative aspect-2/3 rounded-xl mask-[linear-gradient(#000_0_0)] shadow-2xl ring-1 [-webkit-mask:linear-gradient(#000_0_0)]">
-              {posterUrl ? (
-                <Image
-                  src={posterUrl}
-                  alt={`${item.title} poster`}
-                  fill
-                  priority
-                  sizes="220px"
-                  className="object-cover"
-                />
-              ) : (
-                <div className="flex size-full items-center justify-center">
-                  <Play className="text-muted-foreground size-12" />
-                </div>
-              )}
-            </div>
+            <HeroPoster
+              posterUrl={posterUrl}
+              title={item.title}
+              sizes="220px"
+              iconClassName="size-12"
+              className="bg-muted ring-border relative aspect-2/3 rounded-xl mask-[linear-gradient(#000_0_0)] shadow-2xl ring-1 [-webkit-mask:linear-gradient(#000_0_0)]"
+            />
             {timeRemaining && (
               <div className="bg-muted rounded-md px-3 py-2 text-center text-sm font-medium">
                 {timeRemaining}
@@ -132,51 +132,7 @@ export function DetailsHero({
               <MetadataRating item={item} />
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                size="lg"
-                onClick={() => playTarget && onPlay(playTarget)}
-                disabled={!canPlay}
-              >
-                <Play data-icon="inline-start" />
-                {playLabel}
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                aria-label="Mark as watched"
-              >
-                <Check />
-              </Button>
-              <Button variant="outline" size="icon" aria-label="Share">
-                <Share2 />
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    aria-label="More actions"
-                  >
-                    <MoreHorizontal />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuGroup>
-                    <DropdownMenuItem disabled>
-                      Watch Together...
-                    </DropdownMenuItem>
-                    <DropdownMenuItem disabled>Play Next</DropdownMenuItem>
-                    <DropdownMenuItem disabled>Add to Queue</DropdownMenuItem>
-                    <DropdownMenuItem disabled>Add to...</DropdownMenuItem>
-                    <DropdownMenuItem disabled>
-                      Report Issue...
-                    </DropdownMenuItem>
-                    <DropdownMenuItem disabled>Get Info</DropdownMenuItem>
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+            <div className="flex flex-wrap items-center gap-2">{actions}</div>
 
             {item.summary && (
               <p className="text-muted-foreground max-w-3xl text-sm leading-6 sm:text-base">
@@ -202,22 +158,13 @@ export function DetailsHero({
 
         <div className="relative grid grid-cols-[108px_minmax(0,1fr)] gap-x-4 gap-y-4 px-4 py-5">
           <div className="flex flex-col gap-2 self-start">
-            <div className="bg-muted ring-border relative aspect-2/3 overflow-hidden rounded-lg shadow-2xl ring-1">
-              {posterUrl ? (
-                <Image
-                  src={posterUrl}
-                  alt={`${item.title} poster`}
-                  fill
-                  priority
-                  sizes="108px"
-                  className="object-cover"
-                />
-              ) : (
-                <div className="flex size-full items-center justify-center">
-                  <Play className="text-muted-foreground size-10" />
-                </div>
-              )}
-            </div>
+            <HeroPoster
+              posterUrl={posterUrl}
+              title={item.title}
+              sizes="108px"
+              iconClassName="size-10"
+              className="bg-muted ring-border relative aspect-2/3 overflow-hidden rounded-lg shadow-2xl ring-1"
+            />
             {timeRemaining && (
               <div className="bg-primary text-primary-foreground rounded-md px-2 py-1.5 text-center text-xs font-semibold shadow-sm">
                 {timeRemaining}
@@ -239,43 +186,104 @@ export function DetailsHero({
           </div>
 
           <div className="col-span-2 flex flex-wrap items-center gap-2">
-            <Button
-              size="lg"
-              className="min-h-11 flex-1"
-              onClick={() => playTarget && onPlay(playTarget)}
-              disabled={!canPlay}
-            >
-              <Play data-icon="inline-start" />
-              {playLabel}
-            </Button>
-            <Button variant="outline" size="icon" aria-label="Mark as watched">
-              <Check />
-            </Button>
-            <Button variant="outline" size="icon" aria-label="Share">
-              <Share2 />
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" aria-label="More actions">
-                  <MoreHorizontal />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuGroup>
-                  <DropdownMenuItem disabled>
-                    Watch Together...
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled>Play Next</DropdownMenuItem>
-                  <DropdownMenuItem disabled>Add to Queue</DropdownMenuItem>
-                  <DropdownMenuItem disabled>Add to...</DropdownMenuItem>
-                  <DropdownMenuItem disabled>Report Issue...</DropdownMenuItem>
-                  <DropdownMenuItem disabled>Get Info</DropdownMenuItem>
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <HeroActions
+              playTarget={playTarget}
+              onPlay={onPlay}
+              canPlay={canPlay}
+              playLabel={playLabel}
+              playButtonClassName="min-h-11 flex-1"
+            />
           </div>
         </div>
       </section>
+    </>
+  );
+}
+
+interface HeroPosterProps {
+  posterUrl: string | undefined;
+  title: string;
+  sizes: string;
+  iconClassName: string;
+  className: string;
+}
+
+function HeroPoster({
+  posterUrl,
+  title,
+  sizes,
+  iconClassName,
+  className,
+}: HeroPosterProps) {
+  return (
+    <div className={className}>
+      {posterUrl ? (
+        <Image
+          src={posterUrl}
+          alt={`${title} poster`}
+          fill
+          priority
+          sizes={sizes}
+          className="object-cover"
+        />
+      ) : (
+        <div className="flex size-full items-center justify-center">
+          <Play className={`text-muted-foreground ${iconClassName}`} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface HeroActionsProps {
+  playTarget: PlayTarget;
+  onPlay: (source: PlayableMetadata) => void;
+  canPlay: boolean;
+  playLabel: string;
+  playButtonClassName?: string;
+}
+
+function HeroActions({
+  playTarget,
+  onPlay,
+  canPlay,
+  playLabel,
+  playButtonClassName,
+}: HeroActionsProps) {
+  return (
+    <>
+      <Button
+        size="lg"
+        className={playButtonClassName}
+        onClick={() => playTarget && onPlay(playTarget)}
+        disabled={!canPlay}
+      >
+        <Play data-icon="inline-start" />
+        {playLabel}
+      </Button>
+      <Button variant="outline" size="icon" aria-label="Mark as watched">
+        <Check />
+      </Button>
+      <Button variant="outline" size="icon" aria-label="Share">
+        <Share2 />
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="icon" aria-label="More actions">
+            <MoreHorizontal />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuGroup>
+            <DropdownMenuItem disabled>Watch Together...</DropdownMenuItem>
+            <DropdownMenuItem disabled>Play Next</DropdownMenuItem>
+            <DropdownMenuItem disabled>Add to Queue</DropdownMenuItem>
+            <DropdownMenuItem disabled>Add to...</DropdownMenuItem>
+            <DropdownMenuItem disabled>Report Issue...</DropdownMenuItem>
+            <DropdownMenuItem disabled>Get Info</DropdownMenuItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </>
   );
 }

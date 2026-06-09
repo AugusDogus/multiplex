@@ -10,6 +10,7 @@ import {
   getProgressPercent,
 } from "@multiplex/plex-query";
 
+import { MediaProgressBar } from "~/components/media-progress-bar";
 import { Button } from "~/components/ui/button";
 import { getItemDetailsHref } from "~/lib/plex-routes";
 
@@ -90,20 +91,19 @@ function MobileEpisodeRow({
   });
   const progressPercent = getProgressPercent(episode);
   const detailsHref = getItemDetailsHref(serverId, episode.ratingKey);
-  const displayTitle = getEpisodeDisplayTitle(episode);
 
   return (
     <article className="flex gap-3">
       <div className="relative w-[132px] shrink-0">
         <Link
           href={detailsHref}
-          aria-label={`View details for ${displayTitle}`}
+          aria-label={`View details for ${episode.title}`}
           className="bg-muted relative block aspect-video overflow-hidden rounded-lg shadow-md"
         >
           {thumbnailUrl ? (
             <Image
               src={thumbnailUrl}
-              alt={`${displayTitle} thumbnail`}
+              alt={`${episode.title} thumbnail`}
               fill
               sizes="132px"
               className="object-cover"
@@ -115,12 +115,11 @@ function MobileEpisodeRow({
           )}
           <div className="absolute inset-0 bg-linear-to-t from-black/50 via-transparent to-transparent" />
           {progressPercent > 0 && (
-            <div className="absolute right-0 bottom-0 left-0 h-1 bg-black/40">
-              <div
-                className="bg-primary h-full"
-                style={{ width: `${Math.min(progressPercent, 100)}%` }}
-              />
-            </div>
+            <MediaProgressBar
+              value={progressPercent}
+              className="absolute right-0 bottom-0 left-0 h-1 bg-black/40"
+              fillClassName="bg-primary"
+            />
           )}
         </Link>
         {playable && (
@@ -129,7 +128,7 @@ function MobileEpisodeRow({
             size="icon"
             className="absolute top-1/2 left-1/2 size-11 -translate-x-1/2 -translate-y-1/2 rounded-full shadow-lg"
             onClick={() => onPlay(playable)}
-            aria-label={`Play ${displayTitle}`}
+            aria-label={`Play ${episode.title}`}
           >
             <Play className="fill-current" />
           </Button>
@@ -142,7 +141,7 @@ function MobileEpisodeRow({
           className="focus-visible:ring-ring rounded-sm focus-visible:ring-2 focus-visible:outline-none"
         >
           <h3 className="line-clamp-2 text-sm leading-5 font-medium">
-            {displayTitle}
+            {episode.title}
           </h3>
         </Link>
         <p className="text-muted-foreground text-xs">
@@ -196,12 +195,11 @@ function EpisodeCard({
           )}
           <div className="absolute inset-0 bg-linear-to-t from-black/60 via-transparent to-transparent opacity-80" />
           {progressPercent > 0 && (
-            <div className="absolute right-0 bottom-0 left-0 h-1 bg-black/40">
-              <div
-                className="bg-primary h-full"
-                style={{ width: `${Math.min(progressPercent, 100)}%` }}
-              />
-            </div>
+            <MediaProgressBar
+              value={progressPercent}
+              className="absolute right-0 bottom-0 left-0 h-1 bg-black/40"
+              fillClassName="bg-primary"
+            />
           )}
         </Link>
         {playable && (
@@ -236,18 +234,4 @@ function EpisodeCard({
       </div>
     </article>
   );
-}
-
-function getEpisodeDisplayTitle(episode: EnrichedChildMetadata): string {
-  const title = episode.title.trim();
-  const looksLikeFilename =
-    /\.(mkv|mp4|avi|m4v)\b/i.test(title) ||
-    /\b(1080p|720p|2160p|4k)\b/i.test(title) ||
-    /\bS\d{1,2}E\d{1,2}\b/i.test(title);
-
-  if (looksLikeFilename && episode.index) {
-    return `Episode ${episode.index}`;
-  }
-
-  return title;
 }

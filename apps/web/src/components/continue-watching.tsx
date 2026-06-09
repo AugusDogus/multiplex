@@ -11,14 +11,14 @@ import {
   getThumbnailUrl,
   isCompleted,
   toPlayableMetadata,
-  type ContinueWatchingItem,
+  type ContinueWatchingItemWithServer,
 } from "@multiplex/plex-query";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { useProgressStore } from "~/stores/progress-store";
 import { Button } from "~/components/ui/button";
 import { ContinueWatchingDrawer } from "~/components/continue-watching-drawer";
+import { MediaProgressBar } from "~/components/media-progress-bar";
 import { Skeleton } from "~/components/ui/skeleton";
-import { useIsMobile } from "~/hooks/use-mobile";
 import { useVisibilityChange } from "~/hooks/use-visibility-change";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { getItemDetailsHref } from "~/lib/plex-routes";
@@ -51,7 +51,7 @@ function SectionWrapper({ children, showTitle, title }: SectionWrapperProps) {
 
 export interface ContinueWatchingProps {
   /** Initial Continue Watching items from server-side rendering */
-  items: (ContinueWatchingItem & { serverUrl?: string; authToken?: string })[];
+  items: ContinueWatchingItemWithServer[];
   /** Whether to show the section title */
   showTitle?: boolean;
   /** Custom title for the section */
@@ -162,11 +162,7 @@ export function ContinueWatching({
    ──────────────────────────────────────────────────────────── */
 
 interface ContinueWatchingItemProps {
-  item: ContinueWatchingItem & {
-    serverUrl?: string;
-    authToken?: string;
-    serverName?: string;
-  };
+  item: ContinueWatchingItemWithServer;
 }
 
 function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
@@ -176,7 +172,6 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
   const updateItemProgress = useProgressStore(
     (state) => state.updateItemProgress,
   );
-  const isMobile = useIsMobile();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   const mainTitle = getMainTitle(item);
@@ -248,8 +243,12 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
     router.push(detailsHref);
   };
 
-  const handleMobilePosterTap = () => {
-    if (isMobile) {
+  // On mobile, tapping the poster/metadata opens the options drawer instead of
+  // navigating. The decision is made at click time so a single <Link> can serve
+  // both viewports without a hydration flash or a JS breakpoint hook.
+  const handleAnchorClick = (event: React.MouseEvent) => {
+    if (window.matchMedia("(max-width: 767px)").matches) {
+      event.preventDefault();
       setIsDrawerOpen(true);
     }
   };
@@ -272,16 +271,12 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
       )}
 
       {progressPercent > 0 && (
-        <div className="absolute right-0 bottom-0 left-0 h-1 bg-black/30">
-          <div
-            className={`dark:bg-primary h-full transition-all duration-300 ${
-              item.progressColor === "dark"
-                ? "bg-dark-primary"
-                : "bg-light-primary"
-            }`}
-            style={{ width: `${Math.min(progressPercent, 100)}%` }}
-          />
-        </div>
+        <MediaProgressBar
+          value={progressPercent}
+          progressColor={item.progressColor}
+          className="absolute right-0 bottom-0 left-0 h-1 bg-black/30"
+          fillClassName="dark:bg-primary transition-all duration-300"
+        />
       )}
 
       {isItemCompleted && (
@@ -292,31 +287,38 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
     </>
   );
 
+  const metadataContent = (
+    <>
+      <h3 className="truncate text-sm leading-tight font-medium">
+        {mainTitle}
+      </h3>
+      {subtitle && (
+        <div className="text-muted-foreground text-xs leading-tight">
+          {subtitle.split("\n").map((line, index) => (
+            <div key={index} className="truncate">
+              {line}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+
   return (
     <>
       <div className="flex shrink-0 flex-col gap-2">
         <div className="group relative h-[240px] w-[160px]">
-          {isMobile ? (
-            <button
-              type="button"
-              onClick={handleMobilePosterTap}
-              aria-label={`Open options for ${mainTitle}`}
-              className="bg-muted relative block size-full overflow-hidden rounded-md shadow-lg transition-all duration-200 active:scale-[0.98]"
-            >
-              {posterContent}
-              <div className="absolute top-2 left-2 rounded bg-black/60 p-1">
-                <MoreHorizontal className="h-4 w-4 text-white" />
-              </div>
-            </button>
-          ) : (
-            <Link
-              href={detailsHref}
-              aria-label={`View details for ${mainTitle}`}
-              className="bg-muted relative block size-full overflow-hidden rounded-md shadow-lg transition-all duration-200 group-hover:shadow-xl"
-            >
-              {posterContent}
-            </Link>
-          )}
+          <Link
+            href={detailsHref}
+            aria-label={`View details for ${mainTitle}`}
+            onClick={handleAnchorClick}
+            className="bg-muted relative block size-full overflow-hidden rounded-md shadow-lg transition-all duration-200 group-hover:shadow-xl active:scale-[0.98] md:active:scale-100"
+          >
+            {posterContent}
+            <div className="absolute top-2 left-2 rounded bg-black/60 p-1 md:hidden">
+              <MoreHorizontal className="h-4 w-4 text-white" />
+            </div>
+          </Link>
 
           {/* Hover Overlay with Play Button - Desktop only */}
           <div className="pointer-events-none absolute inset-0 hidden items-center justify-center bg-black/60 opacity-0 transition-opacity duration-200 group-hover:opacity-100 md:flex">
@@ -332,44 +334,13 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
           </div>
         </div>
 
-        {isMobile ? (
-          <button
-            type="button"
-            onClick={handleMobilePosterTap}
-            className="flex w-[160px] flex-col gap-1 rounded-sm text-left"
-          >
-            <h3 className="truncate text-sm leading-tight font-medium">
-              {mainTitle}
-            </h3>
-            {subtitle && (
-              <div className="text-muted-foreground text-xs leading-tight">
-                {subtitle.split("\n").map((line, index) => (
-                  <div key={index} className="truncate">
-                    {line}
-                  </div>
-                ))}
-              </div>
-            )}
-          </button>
-        ) : (
-          <Link
-            href={detailsHref}
-            className="focus-visible:ring-ring flex w-[160px] flex-col gap-1 rounded-sm focus-visible:ring-2 focus-visible:outline-none"
-          >
-            <h3 className="truncate text-sm leading-tight font-medium">
-              {mainTitle}
-            </h3>
-            {subtitle && (
-              <div className="text-muted-foreground text-xs leading-tight">
-                {subtitle.split("\n").map((line, index) => (
-                  <div key={index} className="truncate">
-                    {line}
-                  </div>
-                ))}
-              </div>
-            )}
-          </Link>
-        )}
+        <Link
+          href={detailsHref}
+          onClick={handleAnchorClick}
+          className="focus-visible:ring-ring flex w-[160px] flex-col gap-1 rounded-sm text-left focus-visible:ring-2 focus-visible:outline-none"
+        >
+          {metadataContent}
+        </Link>
       </div>
 
       <ContinueWatchingDrawer
