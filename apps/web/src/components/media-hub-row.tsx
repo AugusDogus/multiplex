@@ -35,7 +35,7 @@ export function MediaHubRow({ hub }: MediaHubRowProps) {
         {hubHref ? (
           <Link
             href={hubHref}
-            className="group flex min-w-0 items-center gap-1 rounded-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+            className="group -my-2 flex min-w-0 items-center gap-1 rounded-sm py-2 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
           >
             <h2 className="truncate text-xl font-semibold tracking-tight sm:text-2xl">
               {hub.title}
