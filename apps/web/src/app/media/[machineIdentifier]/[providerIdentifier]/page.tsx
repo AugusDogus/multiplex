@@ -1,18 +1,12 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import {
-  createSourceFromExtractedSource,
-  extractAllSources,
-} from "@multiplex/plex-query";
-import { AppHeader } from "~/components/app-header";
-import { AppSidebar } from "~/components/app-sidebar";
 import { LibraryBrowse } from "~/components/library-browse";
 import { LibraryHeaderDropdown } from "~/components/library-header-dropdown";
-import { MobileNav } from "~/components/mobile-nav";
-import { PlexErrorWrapper } from "~/components/plex-error-wrapper";
-import { SidebarInset, SidebarProvider } from "~/components/ui/sidebar";
+import { LibraryPageShell } from "~/components/library-page-shell";
 import { auth } from "~/lib/auth/server";
-import { api, HydrateClient } from "~/trpc/server";
+import { LIBRARY_PAGE_SIZE } from "~/server/queries/plex-pagination";
+import { resolveLibraryTitle } from "~/server/queries/resolve-library-title";
+import { api } from "~/trpc/server";
 
 interface PageProps {
   params: Promise<{
@@ -66,43 +60,18 @@ export default async function MediaLibraryPage({
   );
   const serverName = currentServer?.name ?? "Plex server";
 
-  const pinnedSources = userInfo.settings?.sidebarSettings?.pinnedSources ?? [];
-  const pinnedSource = pinnedSources.find(
-    (pinned) =>
-      pinned.machineIdentifier === machineIdentifier &&
-      pinned.directoryID === source,
-  );
-
-  let breadcrumbTitle = pinnedSource?.title ?? "Library";
-
   if (!source) {
     return (
-      <HydrateClient>
-        <div className="max-w-screen overflow-hidden">
-          <SidebarProvider>
-            <PlexErrorWrapper>
-              <AppSidebar
-                session={session}
-                servers={servers}
-                userInfo={userInfo}
-              />
-            </PlexErrorWrapper>
-            <SidebarInset className="w-0 max-w-full min-w-0 flex-1">
-              <AppHeader>{breadcrumbTitle}</AppHeader>
-              <div className="flex min-w-0 flex-1 flex-col gap-6 p-4 pb-24 md:pb-4">
-                <p className="text-muted-foreground text-sm">
-                  Select a library from the sidebar to browse your collection.
-                </p>
-              </div>
-            </SidebarInset>
-            <MobileNav
-              session={session}
-              servers={servers}
-              userInfo={userInfo}
-            />
-          </SidebarProvider>
-        </div>
-      </HydrateClient>
+      <LibraryPageShell
+        session={session}
+        servers={servers}
+        userInfo={userInfo}
+        title="Library"
+      >
+        <p className="text-muted-foreground text-sm">
+          Select a library from the sidebar to browse your collection.
+        </p>
+      </LibraryPageShell>
     );
   }
 
@@ -112,76 +81,42 @@ export default async function MediaLibraryPage({
       machineIdentifier,
       sectionId: source,
       start: 0,
-      size: 24,
+      size: LIBRARY_PAGE_SIZE,
     }),
     api.plex.getAllServerLibraries(),
   ]);
 
-  if (!breadcrumbTitle || breadcrumbTitle === "Library") {
-    const serverLibrary = serverLibraries.find(
-      (entry) => entry.serverId === machineIdentifier,
-    );
-    if (serverLibrary?.mediaProviders) {
-      const sources = extractAllSources(serverLibrary.mediaProviders).map(
-        (extracted) =>
-          createSourceFromExtractedSource(
-            extracted,
-            machineIdentifier,
-            serverName,
-            serverLibrary.serverOwned,
-          ),
-      );
-      const matchedSource = sources.find(
-        (entry) =>
-          entry.providerIdentifier === providerIdentifier &&
-          entry.directoryID === source,
-      );
-      if (matchedSource) {
-        breadcrumbTitle = matchedSource.title;
-      }
-    }
-  }
-
-  if (libraryContent.librarySectionTitle) {
-    breadcrumbTitle = libraryContent.librarySectionTitle;
-  }
+  const breadcrumbTitle = resolveLibraryTitle({
+    machineIdentifier,
+    providerIdentifier,
+    sectionId: source,
+    userInfo,
+    serverName,
+    serverLibraries,
+    librarySectionTitle: libraryContent.librarySectionTitle,
+  });
 
   return (
-    <HydrateClient>
-      <div className="max-w-screen overflow-hidden">
-        <SidebarProvider>
-          <PlexErrorWrapper>
-            <AppSidebar
-              session={session}
-              servers={servers}
-              userInfo={userInfo}
-            />
-          </PlexErrorWrapper>
-          <SidebarInset className="w-0 max-w-full min-w-0 flex-1">
-            <AppHeader
-              mobile={
-                <LibraryHeaderDropdown
-                  libraryTitle={breadcrumbTitle}
-                  serverName={serverName}
-                  servers={servers}
-                  userInfo={userInfo}
-                />
-              }
-            >
-              {breadcrumbTitle}
-            </AppHeader>
-            <div className="flex min-w-0 flex-1 flex-col gap-6 p-4 pb-24 md:pb-4">
-              <LibraryBrowse
-                machineIdentifier={machineIdentifier}
-                sectionId={source}
-                initialHubs={libraryHubs}
-                initialContent={libraryContent}
-              />
-            </div>
-          </SidebarInset>
-          <MobileNav session={session} servers={servers} userInfo={userInfo} />
-        </SidebarProvider>
-      </div>
-    </HydrateClient>
+    <LibraryPageShell
+      session={session}
+      servers={servers}
+      userInfo={userInfo}
+      title={breadcrumbTitle}
+      mobileHeader={
+        <LibraryHeaderDropdown
+          libraryTitle={breadcrumbTitle}
+          serverName={serverName}
+          servers={servers}
+          userInfo={userInfo}
+        />
+      }
+    >
+      <LibraryBrowse
+        machineIdentifier={machineIdentifier}
+        sectionId={source}
+        initialHubs={libraryHubs}
+        initialContent={libraryContent}
+      />
+    </LibraryPageShell>
   );
 }

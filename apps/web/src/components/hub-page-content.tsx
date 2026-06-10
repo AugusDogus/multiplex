@@ -2,10 +2,11 @@
 
 import { useCallback } from "react";
 import type { HubItemWithServer } from "@multiplex/plex-query";
-import { MediaPosterGrid } from "~/components/media-poster-grid";
+import { PaginatedPosterGrid } from "~/components/paginated-poster-grid";
+import { HUB_PAGE_SIZE } from "~/server/queries/plex-pagination";
 import { api } from "~/trpc/react";
 
-interface HubBrowseProps {
+interface HubPageContentProps {
   machineIdentifier: string;
   hubKey: string;
   initialContent: {
@@ -15,32 +16,29 @@ interface HubBrowseProps {
   };
 }
 
-const PAGE_SIZE = 48;
-
-export function HubBrowse({
+export function HubPageContent({
   machineIdentifier,
   hubKey,
   initialContent,
-}: HubBrowseProps) {
+}: HubPageContentProps) {
   const utils = api.useUtils();
 
-  const onLoadMore = useCallback(
-    async (start: number) => {
-      return utils.plex.getHubContent.fetch({
+  const onLoadPage = useCallback(
+    (input: { start: number; size: number }) =>
+      utils.plex.getHubContent.fetch({
         machineIdentifier,
         hubKey,
-        start,
-        size: PAGE_SIZE,
-      });
-    },
+        start: input.start,
+        size: input.size,
+      }),
     [utils, machineIdentifier, hubKey],
   );
 
   return (
-    <MediaPosterGrid
-      items={initialContent.items}
-      totalSize={initialContent.totalSize}
-      onLoadMore={onLoadMore}
+    <PaginatedPosterGrid
+      initialContent={initialContent}
+      pageSize={HUB_PAGE_SIZE}
+      onLoadPage={onLoadPage}
       emptyMessage="No items in this collection."
     />
   );

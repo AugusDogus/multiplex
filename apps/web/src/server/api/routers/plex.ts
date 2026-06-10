@@ -15,6 +15,10 @@ import { getAllServerLibrariesQuery } from "~/server/queries/get-all-server-libr
 import { getAllChannelsProgrammingQuery } from "~/server/queries/get-all-channels-programming";
 import { getServerChannelsProgrammingQuery } from "~/server/queries/get-all-channels-programming";
 import { getContinueWatchingQuery } from "~/server/queries/get-continue-watching";
+import {
+  HUB_PAGE_SIZE,
+  LIBRARY_PAGE_SIZE,
+} from "~/server/queries/plex-pagination";
 import { getHomeHubsQuery } from "~/server/queries/get-home-hubs";
 import { getHubContentQuery } from "~/server/queries/get-hub-content";
 import { getLibraryContentQuery } from "~/server/queries/get-library-content";
@@ -90,7 +94,7 @@ export const plexRouter = createTRPCRouter({
         machineIdentifier: z.string(),
         hubKey: z.string().min(1),
         start: z.number().default(0),
-        size: z.number().default(48),
+        size: z.number().default(HUB_PAGE_SIZE),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -111,7 +115,7 @@ export const plexRouter = createTRPCRouter({
         machineIdentifier: z.string(),
         sectionId: z.string(),
         start: z.number().default(0),
-        size: z.number().default(24),
+        size: z.number().default(LIBRARY_PAGE_SIZE),
         sort: z.string().default("addedAt:desc"),
       }),
     )

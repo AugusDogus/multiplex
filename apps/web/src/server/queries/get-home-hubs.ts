@@ -1,9 +1,12 @@
 import {
   filterBrowsableHubs,
-  getServerUrl,
   type HubWithServer,
   type PlexTvClient,
 } from "@multiplex/plex-query";
+import {
+  enrichHubsWithServer,
+  resolvePlexServerContext,
+} from "~/server/queries/plex-server-context";
 
 export async function getHomeHubsQuery(
   plex: PlexTvClient,
@@ -21,10 +24,19 @@ export async function getHomeHubsQuery(
     const preferredServerId =
       userInfo.settings?.homeSettings?.preferredServerID;
     const server =
-      servers.find((s) => s.clientIdentifier === preferredServerId) ??
+      servers.find((entry) => entry.clientIdentifier === preferredServerId) ??
       servers[0];
 
     if (!server) {
+      return [];
+    }
+
+    const context = await resolvePlexServerContext(
+      plex,
+      server.clientIdentifier,
+    );
+
+    if (!context) {
       return [];
     }
 
@@ -34,26 +46,12 @@ export async function getHomeHubsQuery(
       .map((source) => source.directoryID)
       .filter((id) => /^\d+$/.test(id));
 
-    const serverClient = plex.createServerClient(server);
-    const response = await serverClient.getHubs({
+    const response = await context.serverClient.getHubs({
       onlyTransient: true,
       contentDirectoryIds: libraryDirectoryIds,
     });
 
-    const serverUrl = getServerUrl(server);
-    const authToken = server.accessToken ?? userInfo.authToken;
-
-    return filterBrowsableHubs(response.hubs).map((hub) => ({
-      ...hub,
-      serverId: server.clientIdentifier,
-      items: hub.items.map((item) => ({
-        ...item,
-        serverId: server.clientIdentifier,
-        serverUrl,
-        authToken,
-        serverName: server.name,
-      })),
-    }));
+    return enrichHubsWithServer(filterBrowsableHubs(response.hubs), context);
   } catch {
     return [];
   }
