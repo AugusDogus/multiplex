@@ -1,16 +1,30 @@
 import { z } from "zod";
-import { ContinueWatchingHub, ContinueWatchingMetadata } from "./continue-watching-schemas";
+import { ContinueWatchingHub } from "./continue-watching-schemas";
 
 /* ────────────────────────────────────────────────────────────
    Hub & Library Browse Schemas
    ──────────────────────────────────────────────────────────── */
 
-/** Browse/hub metadata omits library section fields that Plex leaves off list responses. */
-export const HubMetadataSchema = ContinueWatchingMetadata.extend({
-  librarySectionTitle: z.string().optional(),
-  librarySectionID: z.number().optional(),
-  librarySectionKey: z.string().optional(),
-}).passthrough();
+/** List/browse metadata is intentionally looser than item-detail metadata. */
+export const HubMetadataSchema = z
+  .object({
+    ratingKey: z.string(),
+    key: z.string(),
+    type: z.string(),
+    title: z.string(),
+    librarySectionTitle: z.string().optional(),
+    librarySectionID: z.number().optional(),
+    librarySectionKey: z.string().optional(),
+    thumb: z.string().optional(),
+    parentThumb: z.string().optional(),
+    grandparentThumb: z.string().optional(),
+    year: z.number().optional(),
+    parentTitle: z.string().optional(),
+    grandparentTitle: z.string().optional(),
+    parentIndex: z.number().optional(),
+    index: z.number().optional(),
+  })
+  .passthrough();
 
 export const HubSchema = ContinueWatchingHub.extend({
   Metadata: z.array(HubMetadataSchema).optional().default([]),
@@ -94,4 +108,11 @@ export type HubItemWithServer = HubItem & {
 export type HubWithServer = Omit<Hub, "items"> & {
   items: HubItemWithServer[];
   serverId: string;
+};
+
+export type PaginatedHubContent = Pick<
+  LibraryContentResponse,
+  "items" | "totalSize" | "offset" | "librarySectionTitle"
+> & {
+  items: HubItemWithServer[];
 };

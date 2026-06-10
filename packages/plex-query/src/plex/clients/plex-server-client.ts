@@ -12,7 +12,8 @@ import {
   type HubResponse,
   type LibraryContentResponse,
 } from "../schemas/hub-schemas";
-import { parseHubKey } from "../utils/hub-key-utils";
+import { assertAllowedHubKey } from "../utils/hub-key-utils";
+import { HUB_PAGE_SIZE, HUB_PREVIEW_SIZE, LIBRARY_PAGE_SIZE } from "../../constants/pagination";
 import { dvrsResponseSchema, type DVRsResponse } from "../schemas/dvr-schemas";
 import {
   channelsResponseSchema,
@@ -257,6 +258,35 @@ export class PlexServerClient {
     });
   }
 
+  private buildHubQueryParams(options?: {
+    count?: number;
+    onlyTransient?: boolean;
+    contentDirectoryIds?: string[];
+  }): Record<string, string> {
+    const queryParams: Record<string, string> = {
+      includeMeta: "1",
+      count: (options?.count ?? HUB_PREVIEW_SIZE).toString(),
+    };
+
+    if (options?.onlyTransient) {
+      queryParams.onlyTransient = "1";
+    }
+
+    if (options?.contentDirectoryIds?.length) {
+      queryParams.contentDirectoryID = options.contentDirectoryIds.join(",");
+    }
+
+    return queryParams;
+  }
+
+  private parseHubResponse(rawResponse: unknown): HubResponse {
+    const parsed = hubResponseSchema.parse(rawResponse);
+    return {
+      ...parsed,
+      serverId: this.server.clientIdentifier,
+    };
+  }
+
   /**
    * Get global hubs (home screen sections like recently added movies/TV)
    */
@@ -265,29 +295,12 @@ export class PlexServerClient {
     onlyTransient?: boolean;
     contentDirectoryIds?: string[];
   }): Promise<HubResponse> {
-    const queryParams: Record<string, string> = {
-      includeMeta: "1",
-      count: (params?.count ?? 12).toString(),
-    };
-
-    if (params?.onlyTransient) {
-      queryParams.onlyTransient = "1";
-    }
-
-    if (params?.contentDirectoryIds?.length) {
-      queryParams.contentDirectoryID = params.contentDirectoryIds.join(",");
-    }
-
     const rawResponse = await this.get({
       endpoint: "hubs",
-      params: queryParams,
+      params: this.buildHubQueryParams(params),
     });
 
-    const parsed = hubResponseSchema.parse(rawResponse);
-    return {
-      ...parsed,
-      serverId: this.server.clientIdentifier,
-    };
+    return this.parseHubResponse(rawResponse);
   }
 
   /**
@@ -297,25 +310,15 @@ export class PlexServerClient {
     sectionId: string,
     params?: { count?: number; onlyTransient?: boolean },
   ): Promise<HubResponse> {
-    const queryParams: Record<string, string> = {
-      includeMeta: "1",
-      count: (params?.count ?? 12).toString(),
-    };
-
-    if (params?.onlyTransient ?? true) {
-      queryParams.onlyTransient = "1";
-    }
-
     const rawResponse = await this.get({
       endpoint: `hubs/sections/${sectionId}`,
-      params: queryParams,
+      params: this.buildHubQueryParams({
+        ...params,
+        onlyTransient: params?.onlyTransient ?? true,
+      }),
     });
 
-    const parsed = hubResponseSchema.parse(rawResponse);
-    return {
-      ...parsed,
-      serverId: this.server.clientIdentifier,
-    };
+    return this.parseHubResponse(rawResponse);
   }
 
   /**
@@ -329,12 +332,12 @@ export class PlexServerClient {
       size?: number;
     },
   ): Promise<LibraryContentResponse> {
-    const parsed = parseHubKey(hubKey);
+    const parsed = assertAllowedHubKey(hubKey);
     const queryParams: Record<string, string> = {
       includeMeta: "1",
       ...parsed.params,
       "X-Plex-Container-Start": (params?.start ?? 0).toString(),
-      "X-Plex-Container-Size": (params?.size ?? 48).toString(),
+      "X-Plex-Container-Size": (params?.size ?? HUB_PAGE_SIZE).toString(),
     };
 
     const rawResponse = await this.get({
@@ -359,7 +362,7 @@ export class PlexServerClient {
     const queryParams: Record<string, string> = {
       sort: params?.sort ?? "addedAt:desc",
       "X-Plex-Container-Start": (params?.start ?? 0).toString(),
-      "X-Plex-Container-Size": (params?.size ?? 24).toString(),
+      "X-Plex-Container-Size": (params?.size ?? LIBRARY_PAGE_SIZE).toString(),
     };
 
     const rawResponse = await this.get({

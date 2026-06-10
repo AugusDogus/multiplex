@@ -1,51 +1,38 @@
+import type { PlexTvClient } from "@multiplex/plex-query";
+import { LIBRARY_PAGE_SIZE } from "~/server/queries/plex-pagination";
 import {
-  getServerUrl,
-  type HubItemWithServer,
-  type PlexTvClient,
-} from "@multiplex/plex-query";
+  EMPTY_PAGINATED_HUB_CONTENT,
+  enrichHubItemsWithServer,
+  resolvePlexServerContext,
+  type PaginatedHubContent,
+} from "~/server/queries/plex-server-context";
 
 export async function getLibraryContentQuery(
   plex: PlexTvClient,
   machineIdentifier: string,
   sectionId: string,
   options?: { start?: number; size?: number; sort?: string },
-) {
-  const [servers, userInfo] = await Promise.all([
-    plex.getServers(),
-    plex.getUserInfo(),
-  ]);
+): Promise<PaginatedHubContent> {
+  try {
+    const context = await resolvePlexServerContext(plex, machineIdentifier);
 
-  const server = servers.find((s) => s.clientIdentifier === machineIdentifier);
+    if (!context) {
+      return EMPTY_PAGINATED_HUB_CONTENT;
+    }
 
-  if (!server || !userInfo) {
+    const response = await context.serverClient.getLibraryContent(sectionId, {
+      start: options?.start ?? 0,
+      size: options?.size ?? LIBRARY_PAGE_SIZE,
+      sort: options?.sort ?? "addedAt:desc",
+    });
+
     return {
-      items: [] as HubItemWithServer[],
-      totalSize: 0,
-      offset: 0,
-      librarySectionTitle: undefined as string | undefined,
+      items: enrichHubItemsWithServer(response.items, context),
+      totalSize: response.totalSize,
+      offset: response.offset,
+      librarySectionTitle: response.librarySectionTitle,
     };
+  } catch {
+    return EMPTY_PAGINATED_HUB_CONTENT;
   }
-
-  const serverClient = plex.createServerClient(server);
-  const response = await serverClient.getLibraryContent(sectionId, {
-    start: options?.start ?? 0,
-    size: options?.size ?? 24,
-    sort: options?.sort ?? "addedAt:desc",
-  });
-
-  const serverUrl = getServerUrl(server);
-  const authToken = server.accessToken ?? userInfo.authToken;
-
-  return {
-    items: response.items.map((item) => ({
-      ...item,
-      serverId: server.clientIdentifier,
-      serverUrl,
-      authToken,
-      serverName: server.name,
-    })),
-    totalSize: response.totalSize,
-    offset: response.offset,
-    librarySectionTitle: response.librarySectionTitle,
-  };
 }

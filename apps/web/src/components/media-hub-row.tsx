@@ -12,11 +12,11 @@ interface MediaHubRowProps {
 }
 
 function isHubNavigable(hub: HubWithServer): boolean {
-  return Boolean(
-    hub.key &&
-      hub.items.length > 0 &&
-      (hub.more ?? hub.size > hub.items.length),
-  );
+  if (!hub.key || hub.items.length === 0) {
+    return false;
+  }
+
+  return hub.more === true || hub.size > hub.items.length;
 }
 
 export function MediaHubRow({ hub }: MediaHubRowProps) {

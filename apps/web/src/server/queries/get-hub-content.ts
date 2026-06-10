@@ -1,48 +1,36 @@
+import type { PlexTvClient } from "@multiplex/plex-query";
+import { HUB_PAGE_SIZE } from "~/server/queries/plex-pagination";
 import {
-  getServerUrl,
-  type HubItemWithServer,
-  type PlexTvClient,
-} from "@multiplex/plex-query";
+  EMPTY_PAGINATED_HUB_CONTENT,
+  enrichHubItemsWithServer,
+  resolvePlexServerContext,
+  type PaginatedHubContent,
+} from "~/server/queries/plex-server-context";
 
 export async function getHubContentQuery(
   plex: PlexTvClient,
   machineIdentifier: string,
   hubKey: string,
   options?: { start?: number; size?: number },
-) {
-  const [servers, userInfo] = await Promise.all([
-    plex.getServers(),
-    plex.getUserInfo(),
-  ]);
+): Promise<PaginatedHubContent> {
+  try {
+    const context = await resolvePlexServerContext(plex, machineIdentifier);
 
-  const server = servers.find((s) => s.clientIdentifier === machineIdentifier);
+    if (!context) {
+      return EMPTY_PAGINATED_HUB_CONTENT;
+    }
 
-  if (!server || !userInfo) {
+    const response = await context.serverClient.getHubContent(hubKey, {
+      start: options?.start ?? 0,
+      size: options?.size ?? HUB_PAGE_SIZE,
+    });
+
     return {
-      items: [] as HubItemWithServer[],
-      totalSize: 0,
-      offset: 0,
+      items: enrichHubItemsWithServer(response.items, context),
+      totalSize: response.totalSize,
+      offset: response.offset,
     };
+  } catch {
+    return EMPTY_PAGINATED_HUB_CONTENT;
   }
-
-  const serverClient = plex.createServerClient(server);
-  const response = await serverClient.getHubContent(hubKey, {
-    start: options?.start ?? 0,
-    size: options?.size ?? 48,
-  });
-
-  const serverUrl = getServerUrl(server);
-  const authToken = server.accessToken ?? userInfo.authToken;
-
-  return {
-    items: response.items.map((item) => ({
-      ...item,
-      serverId: server.clientIdentifier,
-      serverUrl,
-      authToken,
-      serverName: server.name,
-    })),
-    totalSize: response.totalSize,
-    offset: response.offset,
-  };
 }

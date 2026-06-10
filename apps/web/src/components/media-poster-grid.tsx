@@ -5,14 +5,22 @@ import type { HubItemWithServer } from "@multiplex/plex-query";
 import { MediaPosterCard } from "~/components/media-poster-card";
 import { Skeleton } from "~/components/ui/skeleton";
 
+export const POSTER_GRID_CLASSNAME =
+  "grid grid-cols-2 gap-x-3 gap-y-5 px-4 sm:grid-cols-3 sm:gap-x-4 md:grid-cols-4 md:px-8 lg:grid-cols-5 xl:grid-cols-6";
+
+export const POSTER_GRID_LOADING_SKELETON_COUNT = 6;
+export const POSTER_GRID_LOAD_MARGIN = "200px";
+
+export interface PaginatedPosterResult {
+  items: HubItemWithServer[];
+  totalSize: number;
+  offset: number;
+}
+
 interface MediaPosterGridProps {
   items: HubItemWithServer[];
   totalSize: number;
-  onLoadMore?: (start: number) => Promise<{
-    items: HubItemWithServer[];
-    totalSize: number;
-    offset: number;
-  } | null>;
+  onLoadMore?: (start: number) => Promise<PaginatedPosterResult | null>;
   emptyMessage?: string;
 }
 
@@ -71,7 +79,7 @@ export function MediaPosterGrid({
             .finally(() => setIsLoadingMore(false));
         }
       },
-      { rootMargin: "200px" },
+      { rootMargin: POSTER_GRID_LOAD_MARGIN },
     );
 
     observer.observe(target);
@@ -88,7 +96,7 @@ export function MediaPosterGrid({
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-5 px-4 sm:grid-cols-3 sm:gap-x-4 md:grid-cols-4 md:px-8 lg:grid-cols-5 xl:grid-cols-6">
+      <div className={POSTER_GRID_CLASSNAME}>
         {allItems.map((item) => (
           <MediaPosterCard
             key={`${item.serverId}-${item.ratingKey}`}
@@ -100,14 +108,16 @@ export function MediaPosterGrid({
 
       {hasMore && (
         <div ref={loadMoreRef} className="px-4 pb-4 md:px-8">
-          <div className="grid grid-cols-2 gap-x-3 gap-y-5 sm:grid-cols-3 sm:gap-x-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-            {Array.from({ length: 6 }).map((_, index) => (
-              <div key={index} className="flex flex-col gap-2">
-                <Skeleton className="aspect-[2/3] w-full rounded-md" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-3 w-2/3" />
-              </div>
-            ))}
+          <div className={POSTER_GRID_CLASSNAME}>
+            {Array.from({ length: POSTER_GRID_LOADING_SKELETON_COUNT }).map(
+              (_, index) => (
+                <div key={index} className="flex flex-col gap-2">
+                  <Skeleton className="aspect-[2/3] w-full rounded-md" />
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-3 w-2/3" />
+                </div>
+              ),
+            )}
           </div>
         </div>
       )}

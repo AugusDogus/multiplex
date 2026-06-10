@@ -9,6 +9,9 @@ export type { PlexQueryKey } from "./keys";
 // Config
 export { DEFAULT_PLEX_CONFIG, getPlexConfig } from "./config";
 
+// Pagination defaults
+export { HUB_PAGE_SIZE, HUB_PREVIEW_SIZE, LIBRARY_PAGE_SIZE } from "./constants/pagination";
+
 // Query factory utilities (for extending)
 export { createQuery, createMutation, createDependentQuery } from "./create-query";
 
