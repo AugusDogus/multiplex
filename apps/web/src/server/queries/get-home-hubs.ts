@@ -3,9 +3,11 @@ import {
   type HubWithServer,
   type PlexTvClient,
 } from "@multiplex/plex-query";
+import { getServersQuery } from "~/server/queries/get-servers";
+import { getUserInfoQuery } from "~/server/queries/get-user-info";
 import {
+  buildPlexServerContext,
   enrichHubsWithServer,
-  resolvePlexServerContext,
 } from "~/server/queries/plex-server-context";
 
 export async function getHomeHubsQuery(
@@ -13,8 +15,8 @@ export async function getHomeHubsQuery(
 ): Promise<HubWithServer[]> {
   try {
     const [servers, userInfo] = await Promise.all([
-      plex.getServers(),
-      plex.getUserInfo(),
+      getServersQuery(plex),
+      getUserInfoQuery(plex),
     ]);
 
     if (!servers.length || !userInfo) {
@@ -31,14 +33,7 @@ export async function getHomeHubsQuery(
       return [];
     }
 
-    const context = await resolvePlexServerContext(
-      plex,
-      server.clientIdentifier,
-    );
-
-    if (!context) {
-      return [];
-    }
+    const context = buildPlexServerContext(plex, server, userInfo);
 
     const pinnedSources =
       userInfo.settings?.sidebarSettings?.pinnedSources ?? [];
