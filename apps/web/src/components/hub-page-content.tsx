@@ -36,6 +36,7 @@ export function HubPageContent({
 
   return (
     <PaginatedPosterGrid
+      key={`${machineIdentifier}-${hubKey}`}
       initialContent={initialContent}
       pageSize={HUB_PAGE_SIZE}
       onLoadPage={onLoadPage}

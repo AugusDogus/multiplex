@@ -62,7 +62,8 @@ export const plexRouter = createTRPCRouter({
 
       await ctx.plex.updateSidebarPinnedSources(nextPinnedSources);
 
-      return getUserInfoQuery(ctx.plex);
+      // Bypass the request-cached query to return fresh post-mutation settings.
+      return ctx.plex.getUserInfo();
     }),
 
   getAllContinueWatching: protectedProcedure.query(async ({ ctx }) => {
@@ -93,8 +94,8 @@ export const plexRouter = createTRPCRouter({
       z.object({
         machineIdentifier: z.string(),
         hubKey: z.string().min(1),
-        start: z.number().default(0),
-        size: z.number().default(HUB_PAGE_SIZE),
+        start: z.number().int().min(0).default(0),
+        size: z.number().int().min(1).max(HUB_PAGE_SIZE).default(HUB_PAGE_SIZE),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -114,8 +115,13 @@ export const plexRouter = createTRPCRouter({
       z.object({
         machineIdentifier: z.string(),
         sectionId: z.string(),
-        start: z.number().default(0),
-        size: z.number().default(LIBRARY_PAGE_SIZE),
+        start: z.number().int().min(0).default(0),
+        size: z
+          .number()
+          .int()
+          .min(1)
+          .max(LIBRARY_PAGE_SIZE)
+          .default(LIBRARY_PAGE_SIZE),
         sort: z.string().default("addedAt:desc"),
       }),
     )

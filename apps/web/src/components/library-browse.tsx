@@ -69,6 +69,7 @@ export function LibraryBrowse({
         </div>
 
         <PaginatedPosterGrid
+          key={`${machineIdentifier}-${sectionId}`}
           initialContent={initialContent}
           pageSize={LIBRARY_PAGE_SIZE}
           onLoadPage={onLoadPage}

@@ -1,5 +1,13 @@
+import { cache } from "react";
 import type { PlexTvClient } from "@multiplex/plex-query";
 
-export async function getUserInfoQuery(plex: PlexTvClient) {
-  return await plex.getUserInfo();
-}
+/**
+ * Wrapped in React `cache` so repeated calls within a single RSC render
+ * (page-level fetches + per-procedure server context resolution) only hit
+ * plex.tv once per request. Outside of RSC rendering `cache` is a no-op.
+ * Callers that need fresh data after a mutation should use
+ * `plex.getUserInfo()` directly.
+ */
+export const getUserInfoQuery = cache(async (plex: PlexTvClient) => {
+  return plex.getUserInfo();
+});

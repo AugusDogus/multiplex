@@ -30,7 +30,7 @@ export default async function MediaLibraryPage({
     redirect("/login");
   }
 
-  const { machineIdentifier, providerIdentifier } = await params;
+  const { machineIdentifier } = await params;
   const { source } = await searchParams;
 
   const [servers, userInfo] = await Promise.all([
@@ -75,7 +75,7 @@ export default async function MediaLibraryPage({
     );
   }
 
-  const [libraryHubs, libraryContent, serverLibraries] = await Promise.all([
+  const [libraryHubs, libraryContent] = await Promise.all([
     api.plex.getLibraryHubs({ machineIdentifier, sectionId: source }),
     api.plex.getLibraryContent({
       machineIdentifier,
@@ -83,16 +83,12 @@ export default async function MediaLibraryPage({
       start: 0,
       size: LIBRARY_PAGE_SIZE,
     }),
-    api.plex.getAllServerLibraries(),
   ]);
 
   const breadcrumbTitle = resolveLibraryTitle({
     machineIdentifier,
-    providerIdentifier,
     sectionId: source,
     userInfo,
-    serverName,
-    serverLibraries,
     librarySectionTitle: libraryContent.librarySectionTitle,
   });
 

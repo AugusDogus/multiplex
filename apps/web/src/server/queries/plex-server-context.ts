@@ -7,6 +7,8 @@ import {
   type PlexTvClient,
   type PlexUserInfo,
 } from "@multiplex/plex-query";
+import { getServersQuery } from "~/server/queries/get-servers";
+import { getUserInfoQuery } from "~/server/queries/get-user-info";
 
 export interface PlexServerContext {
   server: PlexDevice;
@@ -29,13 +31,27 @@ export const EMPTY_PAGINATED_HUB_CONTENT: PaginatedHubContent = {
   offset: 0,
 };
 
+export function buildPlexServerContext(
+  plex: PlexTvClient,
+  server: PlexDevice,
+  userInfo: PlexUserInfo,
+): PlexServerContext {
+  return {
+    server,
+    userInfo,
+    serverClient: plex.createServerClient(server),
+    serverUrl: getServerUrl(server),
+    authToken: server.accessToken ?? userInfo.authToken,
+  };
+}
+
 export async function resolvePlexServerContext(
   plex: PlexTvClient,
   machineIdentifier: string,
 ): Promise<PlexServerContext | null> {
   const [servers, userInfo] = await Promise.all([
-    plex.getServers(),
-    plex.getUserInfo(),
+    getServersQuery(plex),
+    getUserInfoQuery(plex),
   ]);
 
   const server = servers.find(
@@ -46,13 +62,7 @@ export async function resolvePlexServerContext(
     return null;
   }
 
-  return {
-    server,
-    userInfo,
-    serverClient: plex.createServerClient(server),
-    serverUrl: getServerUrl(server),
-    authToken: server.accessToken ?? userInfo.authToken,
-  };
+  return buildPlexServerContext(plex, server, userInfo);
 }
 
 export function enrichHubItemsWithServer(

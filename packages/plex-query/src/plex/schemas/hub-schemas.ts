@@ -58,9 +58,10 @@ export const LibraryContentContainerSchema = z.object({
 });
 
 export const hubResponseSchema = HubContainerSchema.transform((data) => {
-  const hubs = data.MediaContainer.Hub.map((hub) => ({
+  // Drop the raw `Metadata` array so hub items aren't serialized twice.
+  const hubs = data.MediaContainer.Hub.map(({ Metadata, ...hub }) => ({
     ...hub,
-    items: hub.Metadata ?? [],
+    items: Metadata,
   }));
 
   return {
@@ -94,7 +95,9 @@ export const libraryContentResponseSchema = LibraryContentContainerSchema.transf
 });
 
 export type HubItem = z.infer<typeof HubMetadataSchema>;
-export type Hub = z.infer<typeof HubSchema> & { items: HubItem[] };
+export type Hub = Omit<z.infer<typeof HubSchema>, "Metadata"> & {
+  items: HubItem[];
+};
 export type HubResponse = z.infer<typeof hubResponseSchema>;
 export type LibraryContentResponse = z.infer<typeof libraryContentResponseSchema>;
 

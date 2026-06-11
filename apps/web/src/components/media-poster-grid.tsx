@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { HubItemWithServer } from "@multiplex/plex-query";
 import { MediaPosterCard } from "~/components/media-poster-card";
 import { Skeleton } from "~/components/ui/skeleton";
@@ -24,23 +24,37 @@ interface MediaPosterGridProps {
   emptyMessage?: string;
 }
 
+/**
+ * Render with a `key` derived from the content source (e.g. section or hub
+ * id) so navigating to different content remounts the grid. The remount
+ * resets the loaded pages and makes any in-flight page load from the
+ * previous content a no-op.
+ */
 export function MediaPosterGrid({
-  items: initialItems,
-  totalSize: initialTotalSize,
+  items,
+  totalSize,
   onLoadMore,
   emptyMessage = "No items found.",
 }: MediaPosterGridProps) {
-  const [allItems, setAllItems] = useState(initialItems);
-  const [hasMore, setHasMore] = useState(
-    initialItems.length < initialTotalSize,
-  );
+  const [loadedItems, setLoadedItems] = useState<HubItemWithServer[]>([]);
+  const [reachedEnd, setReachedEnd] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    setAllItems(initialItems);
-    setHasMore(initialItems.length < initialTotalSize);
-  }, [initialItems, initialTotalSize]);
+  const allItems = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: HubItemWithServer[] = [];
+    for (const item of [...items, ...loadedItems]) {
+      if (!seen.has(item.ratingKey)) {
+        seen.add(item.ratingKey);
+        merged.push(item);
+      }
+    }
+    return merged;
+  }, [items, loadedItems]);
+
+  const hasMore =
+    Boolean(onLoadMore) && !reachedEnd && allItems.length < totalSize;
 
   useEffect(() => {
     const target = loadMoreRef.current;
@@ -50,31 +64,31 @@ export function MediaPosterGrid({
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting && !isLoadingMore && hasMore) {
+        if (entries[0]?.isIntersecting && !isLoadingMore) {
           setIsLoadingMore(true);
           void onLoadMore(allItems.length)
             .then((result) => {
-              if (!result) {
-                setHasMore(false);
+              if (!result || result.items.length === 0) {
+                setReachedEnd(true);
                 return;
               }
 
-              const newItems = result.items;
-              if (newItems.length === 0) {
-                setHasMore(false);
+              // A page of only duplicates means the next start offset would
+              // never advance; stop instead of refetching the same page.
+              const existingKeys = new Set(
+                allItems.map((item) => item.ratingKey),
+              );
+              if (
+                result.items.every((item) => existingKeys.has(item.ratingKey))
+              ) {
+                setReachedEnd(true);
                 return;
               }
 
-              setAllItems((current) => {
-                const existingKeys = new Set(
-                  current.map((item) => item.ratingKey),
-                );
-                const uniqueNewItems = newItems.filter(
-                  (item) => !existingKeys.has(item.ratingKey),
-                );
-                return [...current, ...uniqueNewItems];
-              });
-              setHasMore(result.offset + newItems.length < result.totalSize);
+              setLoadedItems((current) => [...current, ...result.items]);
+              if (result.offset + result.items.length >= result.totalSize) {
+                setReachedEnd(true);
+              }
             })
             .finally(() => setIsLoadingMore(false));
         }
@@ -84,7 +98,7 @@ export function MediaPosterGrid({
 
     observer.observe(target);
     return () => observer.disconnect();
-  }, [allItems.length, hasMore, isLoadingMore, onLoadMore]);
+  }, [allItems, hasMore, isLoadingMore, onLoadMore]);
 
   if (allItems.length === 0) {
     return (
