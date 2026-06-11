@@ -3,7 +3,7 @@
 import { useCallback } from "react";
 import type { HubItemWithServer, HubWithServer } from "@multiplex/plex-query";
 import { MediaHubRow, MediaHubRowSkeleton } from "~/components/media-hub-row";
-import { PaginatedPosterGrid } from "~/components/paginated-poster-grid";
+import { MediaPosterGrid } from "~/components/media-poster-grid";
 import { LIBRARY_PAGE_SIZE } from "~/server/queries/plex-pagination";
 import { api } from "~/trpc/react";
 
@@ -37,9 +37,12 @@ export function LibraryBrowse({
       },
     );
 
+  // Plain client call (not `utils.fetch`): the grid caches pages under its
+  // own query key, so going through the query cache here would store every
+  // page twice.
   const onLoadPage = useCallback(
     (input: { start: number; size: number }) =>
-      utils.plex.getLibraryContent.fetch({
+      utils.client.plex.getLibraryContent.query({
         machineIdentifier,
         sectionId,
         start: input.start,
@@ -47,6 +50,8 @@ export function LibraryBrowse({
       }),
     [utils, machineIdentifier, sectionId],
   );
+
+  const contentKey = `${machineIdentifier}-${sectionId}`;
 
   return (
     <div className="flex flex-col gap-8">
@@ -68,9 +73,11 @@ export function LibraryBrowse({
           </h2>
         </div>
 
-        <PaginatedPosterGrid
-          key={`${machineIdentifier}-${sectionId}`}
-          initialContent={initialContent}
+        <MediaPosterGrid
+          key={contentKey}
+          contentKey={contentKey}
+          items={initialContent.items}
+          totalSize={initialContent.totalSize}
           pageSize={LIBRARY_PAGE_SIZE}
           onLoadPage={onLoadPage}
           emptyMessage="No items found in this library."

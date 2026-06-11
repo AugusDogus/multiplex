@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 import type { HubItemWithServer } from "@multiplex/plex-query";
-import { PaginatedPosterGrid } from "~/components/paginated-poster-grid";
+import { MediaPosterGrid } from "~/components/media-poster-grid";
 import { HUB_PAGE_SIZE } from "~/server/queries/plex-pagination";
 import { api } from "~/trpc/react";
 
@@ -23,9 +23,12 @@ export function HubPageContent({
 }: HubPageContentProps) {
   const utils = api.useUtils();
 
+  // Plain client call (not `utils.fetch`): the grid caches pages under its
+  // own query key, so going through the query cache here would store every
+  // page twice.
   const onLoadPage = useCallback(
     (input: { start: number; size: number }) =>
-      utils.plex.getHubContent.fetch({
+      utils.client.plex.getHubContent.query({
         machineIdentifier,
         hubKey,
         start: input.start,
@@ -34,10 +37,14 @@ export function HubPageContent({
     [utils, machineIdentifier, hubKey],
   );
 
+  const contentKey = `${machineIdentifier}-${hubKey}`;
+
   return (
-    <PaginatedPosterGrid
-      key={`${machineIdentifier}-${hubKey}`}
-      initialContent={initialContent}
+    <MediaPosterGrid
+      key={contentKey}
+      contentKey={contentKey}
+      items={initialContent.items}
+      totalSize={initialContent.totalSize}
       pageSize={HUB_PAGE_SIZE}
       onLoadPage={onLoadPage}
       emptyMessage="No items in this collection."
