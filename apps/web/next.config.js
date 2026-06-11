@@ -9,6 +9,7 @@ const config = {
   // Hide the floating dev indicator so it doesn't visually collide with the
   // mobile bottom navigation while developing / recording demos.
   devIndicators: false,
+  reactCompiler: true,
   images: {
     remotePatterns: [
       {
@@ -20,6 +21,9 @@ const config = {
         hostname: "**",
       },
     ],
+    // Plex Media Servers commonly live on LAN/private IPs; the image
+    // optimizer must be allowed to fetch poster art from them.
+    dangerouslyAllowLocalIP: true,
   },
 };
 
