@@ -160,14 +160,6 @@
     display: none; /* Chrome, Safari and Opera */
   }
 
-  .bg-dark-primary {
-    background-color: oklch(0.205 0 0);
-  }
-
-  .bg-light-primary {
-    background-color: oklch(0.922 0 0);
-  }
-
   @keyframes seek-label-in {
     from {
       transform: scale(0.55);

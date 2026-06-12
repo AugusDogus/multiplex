@@ -88,11 +88,14 @@ export function ContinueWatchingDrawer({
                 </div>
               )}
               {hasProgress && (
-                <MediaProgressBar
-                  value={progressPercent}
-                  progressColor={item.progressColor}
-                  className="absolute right-0 bottom-0 left-0 h-1 bg-black/40"
-                />
+                <>
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-linear-to-t from-black/60 to-transparent" />
+                  <MediaProgressBar
+                    value={progressPercent}
+                    className="absolute right-0 bottom-0 left-0 h-1 bg-black/40"
+                    fillClassName="bg-primary"
+                  />
+                </>
               )}
             </div>
 

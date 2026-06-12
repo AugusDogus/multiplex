@@ -21,7 +21,6 @@ export type MediaPlayerComputedFields = {
   progressPercent?: number;
   isCompleted?: boolean;
   timeRemaining?: number;
-  progressColor?: "dark" | "light";
 };
 
 /** Plex metadata plus the server and hub context required for playback. */

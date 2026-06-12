@@ -271,12 +271,14 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
       )}
 
       {progressPercent > 0 && (
-        <MediaProgressBar
-          value={progressPercent}
-          progressColor={item.progressColor}
-          className="absolute right-0 bottom-0 left-0 h-1 bg-black/30"
-          fillClassName="dark:bg-primary transition-all duration-300"
-        />
+        <>
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-t from-black/60 to-transparent" />
+          <MediaProgressBar
+            value={progressPercent}
+            className="absolute right-0 bottom-0 left-0 h-1 bg-black/40"
+            fillClassName="bg-primary transition-all duration-300"
+          />
+        </>
       )}
 
       {isItemCompleted && (

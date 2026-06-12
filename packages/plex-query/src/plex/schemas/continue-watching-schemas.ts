@@ -380,7 +380,6 @@ export type ContinueWatchingItem = z.infer<typeof ContinueWatchingMetadata> & {
   progressPercent?: number;
   isCompleted?: boolean;
   timeRemaining?: number;
-  progressColor?: "dark" | "light";
 };
 
 export type ContinueWatchingResponse = z.infer<typeof continueWatchingResponseSchema>;
