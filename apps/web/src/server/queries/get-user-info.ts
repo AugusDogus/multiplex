@@ -1,13 +1,48 @@
+import { createHash } from "node:crypto";
+import { cacheLife, cacheTag, revalidateTag } from "next/cache";
 import { cache } from "react";
-import type { PlexTvClient } from "@multiplex/plex-query";
+import { PlexTvClient, type PlexUserInfo } from "@multiplex/plex-query";
+import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
 
 /**
- * Wrapped in React `cache` so repeated calls within a single RSC render
- * (page-level fetches + per-procedure server context resolution) only hit
- * plex.tv once per request. Outside of RSC rendering `cache` is a no-op.
- * Callers that need fresh data after a mutation should use
- * `plex.getUserInfo()` directly.
+ * User info (including pinned sources) changes rarely and only through our own
+ * mutations, so cache it per user with stale-while-revalidate semantics.
+ * Mutations that change it must call `invalidateUserInfoCache`.
+ * NOTE: the raw token is part of the cache key (only the tag is digested).
+ * Fine for the default in-memory handler; revisit before configuring a
+ * durable `cacheHandlers` backend (Redis/disk), which would persist it.
+ */
+
+/** Tag entries with a token digest rather than the raw auth token. */
+function userInfoTag(token: string): string {
+  const digest = createHash("sha256").update(token).digest("hex").slice(0, 16);
+  return `user-info-${digest}`;
+}
+
+async function fetchUserInfo(token: string): Promise<PlexUserInfo> {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag(userInfoTag(token));
+
+  const plex = new PlexTvClient(token, NEXTJS_PLEX_CONFIG);
+  return plex.getUserInfo();
+}
+
+/**
+ * React `cache` additionally dedupes calls within a single RSC render.
+ * Callers that need guaranteed-fresh data should use `plex.getUserInfo()`
+ * directly.
  */
 export const getUserInfoQuery = cache(async (plex: PlexTvClient) => {
-  return plex.getUserInfo();
+  return fetchUserInfo(plex.getToken());
 });
+
+/**
+ * Mark the cached user info stale after a mutation. SWR semantics: the next
+ * read may still serve the old entry once while revalidating in the
+ * background, so mutations must NOT read their own writes through
+ * `getUserInfoQuery` — use `plex.getUserInfo()` directly.
+ */
+export function invalidateUserInfoCache(plex: PlexTvClient): void {
+  revalidateTag(userInfoTag(plex.getToken()), "max");
+}

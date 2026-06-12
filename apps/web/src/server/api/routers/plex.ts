@@ -24,7 +24,10 @@ import { getHubContentQuery } from "~/server/queries/get-hub-content";
 import { getLibraryContentQuery } from "~/server/queries/get-library-content";
 import { getLibraryHubsQuery } from "~/server/queries/get-library-hubs";
 import { getServersQuery } from "~/server/queries/get-servers";
-import { getUserInfoQuery } from "~/server/queries/get-user-info";
+import {
+  getUserInfoQuery,
+  invalidateUserInfoCache,
+} from "~/server/queries/get-user-info";
 import { searchQuery } from "~/server/queries/search";
 
 export type plexRouterInputs = inferRouterInputs<typeof plexRouter>;
@@ -51,7 +54,9 @@ export const plexRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const userInfo = await getUserInfoQuery(ctx.plex);
+      // Read-modify-write base must be fresh: the cached query serves stale
+      // data (SWR), which would silently drop pins toggled moments earlier.
+      const userInfo = await ctx.plex.getUserInfo();
       const currentPinnedSources =
         userInfo.settings?.sidebarSettings?.pinnedSources ?? [];
       const nextPinnedSources = getNextPinnedSources(
@@ -62,7 +67,9 @@ export const plexRouter = createTRPCRouter({
 
       await ctx.plex.updateSidebarPinnedSources(nextPinnedSources);
 
-      // Bypass the request-cached query to return fresh post-mutation settings.
+      // Mark the cached user info stale (SWR: one poll may still see the old
+      // sources, the next one is fresh) and return fresh post-mutation settings.
+      invalidateUserInfoCache(ctx.plex);
       return ctx.plex.getUserInfo();
     }),
 

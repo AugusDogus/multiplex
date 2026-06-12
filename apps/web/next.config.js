@@ -10,6 +10,7 @@ const config = {
   // mobile bottom navigation while developing / recording demos.
   devIndicators: false,
   reactCompiler: true,
+  cacheComponents: true,
   images: {
     remotePatterns: [
       {

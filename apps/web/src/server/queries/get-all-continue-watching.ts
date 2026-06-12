@@ -5,13 +5,16 @@ import {
   type PlexDevice,
   type PlexTvClient,
 } from "@multiplex/plex-query";
+import { getServersQuery } from "~/server/queries/get-servers";
+import { getUserInfoQuery } from "~/server/queries/get-user-info";
 
 export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
   try {
-    // Get servers and user info
+    // Get servers and user info (cached, so polling only pays for the
+    // per-server continue-watching requests)
     const [servers, userInfo] = await Promise.all([
-      plex.getServers(),
-      plex.getUserInfo(),
+      getServersQuery(plex),
+      getUserInfoQuery(plex),
     ]);
 
     if (!servers || !userInfo) {

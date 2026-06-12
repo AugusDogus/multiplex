@@ -18,11 +18,10 @@ import { useProgressStore } from "~/stores/progress-store";
 import { Button } from "~/components/ui/button";
 import { ContinueWatchingDrawer } from "~/components/continue-watching-drawer";
 import { MediaProgressBar } from "~/components/media-progress-bar";
-import { Skeleton } from "~/components/ui/skeleton";
 import { useVisibilityChange } from "~/hooks/use-visibility-change";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { getItemDetailsHref } from "~/lib/plex-routes";
-import { api } from "~/trpc/react";
+import { api, type RouterOutputs } from "~/trpc/react";
 
 /* ────────────────────────────────────────────────────────────
    Continue Watching Component
@@ -51,7 +50,7 @@ function SectionWrapper({ children, showTitle, title }: SectionWrapperProps) {
 
 export interface ContinueWatchingProps {
   /** Initial Continue Watching items from server-side rendering */
-  items: ContinueWatchingItemWithServer[];
+  items: RouterOutputs["plex"]["getAllContinueWatching"];
   /** Whether to show the section title */
   showTitle?: boolean;
   /** Custom title for the section */
@@ -71,60 +70,43 @@ export function ContinueWatching({
 }: ContinueWatchingProps) {
   const isPageVisible = useVisibilityChange();
 
-  // Use tRPC query for auto-refresh - fetch fresh data immediately for type safety
-  const {
-    data: continueWatchingData,
-    error,
-    isLoading,
-  } = api.plex.getAllContinueWatching.useQuery(undefined, {
-    // Only refetch when page is visible and auto-refresh is enabled
-    refetchInterval:
-      enableAutoRefresh && isPageVisible ? refreshInterval : false,
-    // Don't refetch on window focus to avoid excessive requests
-    refetchOnWindowFocus: false,
-    // Keep data fresh but don't show loading state during background refresh
-    staleTime: refreshInterval / 2, // Consider data stale after half the refresh interval
-    // Keep data in cache for longer than stale time
-    gcTime: refreshInterval * 4, // Keep in cache for 4x the refresh interval
-    // Retry failed requests with exponential backoff
-    retry: (failureCount: number, error: unknown) => {
-      // Don't retry more than 3 times
-      if (failureCount >= 3) return false;
-      // Don't retry on auth errors (401, 403)
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes("401") || errorMessage.includes("403"))
-        return false;
-      return true;
+  // Use tRPC query for auto-refresh, seeded with the server-rendered items so
+  // the section paints immediately instead of waiting for the first client fetch.
+  const { data: items, error } = api.plex.getAllContinueWatching.useQuery(
+    undefined,
+    {
+      initialData: initialItems,
+      // Only refetch when page is visible and auto-refresh is enabled
+      refetchInterval:
+        enableAutoRefresh && isPageVisible ? refreshInterval : false,
+      // Don't refetch on window focus to avoid excessive requests
+      refetchOnWindowFocus: false,
+      // Keep data fresh but don't show loading state during background refresh
+      staleTime: refreshInterval / 2, // Consider data stale after half the refresh interval
+      // Keep data in cache for longer than stale time
+      gcTime: refreshInterval * 4, // Keep in cache for 4x the refresh interval
+      // Retry failed requests with exponential backoff
+      retry: (failureCount: number, error: unknown) => {
+        // Don't retry more than 3 times
+        if (failureCount >= 3) return false;
+        // Don't retry on auth errors (401, 403)
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes("401") || errorMessage.includes("403"))
+          return false;
+        return true;
+      },
+      retryDelay: (attemptIndex: number) =>
+        Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff, max 30s
     },
-    retryDelay: (attemptIndex: number) =>
-      Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff, max 30s
-  });
+  );
 
-  // Use fresh data from query, fallback to initial items
-  const items = continueWatchingData ?? initialItems;
-
-  // Only show error for initial load failures, not background refresh failures
-  if (error && !continueWatchingData && initialItems.length === 0) {
+  // Only show error when we have nothing to display at all
+  if (error && items.length === 0) {
     return (
       <SectionWrapper showTitle={showTitle} title={title}>
         <div className="text-muted-foreground px-4 text-sm md:px-8">
           Failed to load Continue Watching data
-        </div>
-      </SectionWrapper>
-    );
-  }
-
-  // Only show loading state for initial load, not for background refresh
-  if (isLoading && !continueWatchingData) {
-    return (
-      <SectionWrapper showTitle={showTitle} title={title}>
-        <div className="w-full max-w-full overflow-hidden">
-          <div className="scrollbar-hide flex gap-4 overflow-x-auto px-4 pb-4 md:px-8">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <ContinueWatchingItemSkeleton key={i} />
-            ))}
-          </div>
         </div>
       </SectionWrapper>
     );
@@ -357,24 +339,5 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
         onViewDetails={handleViewDetails}
       />
     </>
-  );
-}
-
-/* ────────────────────────────────────────────────────────────
-   Loading Skeleton - Updated to match actual poster dimensions
-   ──────────────────────────────────────────────────────────── */
-
-function ContinueWatchingItemSkeleton() {
-  return (
-    <div className="flex-shrink-0 space-y-2">
-      <div className="h-[240px] w-[160px] rounded-md shadow-lg">
-        <Skeleton className="h-full w-full rounded-md" />
-      </div>
-      <div className="w-[160px] space-y-1">
-        <Skeleton className="h-4 w-full" />
-        <Skeleton className="h-3 w-3/4" />
-        <Skeleton className="h-3 w-1/2" />
-      </div>
-    </div>
   );
 }
