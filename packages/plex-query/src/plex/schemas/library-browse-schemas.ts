@@ -155,3 +155,9 @@ export interface LibraryPivot {
   symbol?: string;
   context?: string;
 }
+
+export interface LibrarySectionPivots {
+  /** The library section's display title (e.g. "Anime"). */
+  title: string | undefined;
+  pivots: LibraryPivot[];
+}

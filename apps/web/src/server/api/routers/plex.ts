@@ -39,6 +39,11 @@ import { searchQuery } from "~/server/queries/search";
 export type plexRouterInputs = inferRouterInputs<typeof plexRouter>;
 export type plexRouterOutputs = inferRouterOutputs<typeof plexRouter>;
 
+// Plex library section IDs are numeric; constraining them prevents a crafted
+// `source` value from injecting extra path segments or query params into the
+// `library/sections/{id}/...` requests.
+const sectionIdSchema = z.string().regex(/^\d+$/);
+
 export const plexRouter = createTRPCRouter({
   getServers: protectedProcedure.query(async ({ ctx }) => {
     return getServersQuery(ctx.plex);
@@ -91,7 +96,7 @@ export const plexRouter = createTRPCRouter({
     .input(
       z.object({
         machineIdentifier: z.string(),
-        sectionId: z.string(),
+        sectionId: sectionIdSchema,
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -106,7 +111,7 @@ export const plexRouter = createTRPCRouter({
     .input(
       z.object({
         machineIdentifier: z.string(),
-        sectionId: z.string(),
+        sectionId: sectionIdSchema,
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -121,7 +126,7 @@ export const plexRouter = createTRPCRouter({
     .input(
       z.object({
         machineIdentifier: z.string(),
-        sectionId: z.string(),
+        sectionId: sectionIdSchema,
         type: z.string().optional(),
       }),
     )
@@ -138,7 +143,7 @@ export const plexRouter = createTRPCRouter({
     .input(
       z.object({
         machineIdentifier: z.string(),
-        sectionId: z.string(),
+        sectionId: sectionIdSchema,
         start: z.number().int().min(0).default(0),
         size: z
           .number()
@@ -161,7 +166,7 @@ export const plexRouter = createTRPCRouter({
     .input(
       z.object({
         machineIdentifier: z.string(),
-        sectionId: z.string(),
+        sectionId: sectionIdSchema,
         start: z.number().int().min(0).default(0),
         size: z.number().int().min(1).max(500).default(200),
       }),
@@ -179,7 +184,7 @@ export const plexRouter = createTRPCRouter({
     .input(
       z.object({
         machineIdentifier: z.string(),
-        sectionId: z.string(),
+        sectionId: sectionIdSchema,
         start: z.number().int().min(0).default(0),
         size: z
           .number()
@@ -242,7 +247,7 @@ export const plexRouter = createTRPCRouter({
     .input(
       z.object({
         machineIdentifier: z.string(),
-        sectionId: z.string(),
+        sectionId: sectionIdSchema,
         start: z.number().int().min(0).default(0),
         size: z
           .number()

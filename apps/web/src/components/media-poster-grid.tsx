@@ -104,10 +104,17 @@ const GridRow = memo(function GridRow({
     >
       {Array.from({ length: cellCount }, (_, column) => {
         const item = resolvedItems[startIndex + column];
+        // Key by item identity (not column position) so a recycled row cell
+        // remounts for a new item, resetting per-card state like image-error
+        // fallback instead of carrying it over to an unrelated poster.
         return item ? (
-          <MediaPosterCard key={column} item={item} layout="grid" />
+          <MediaPosterCard
+            key={`${item.serverId}-${item.ratingKey}`}
+            item={item}
+            layout="grid"
+          />
         ) : (
-          <PosterSkeleton key={column} />
+          <PosterSkeleton key={`skeleton-${column}`} />
         );
       })}
     </div>

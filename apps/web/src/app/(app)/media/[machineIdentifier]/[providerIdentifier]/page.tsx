@@ -66,10 +66,11 @@ export default async function MediaLibraryPage({
     );
   }
 
-  const pivots = await api.plex.getLibraryPivots({
-    machineIdentifier,
-    sectionId: source,
-  });
+  const { title: librarySectionTitle, pivots } =
+    await api.plex.getLibraryPivots({
+      machineIdentifier,
+      sectionId: source,
+    });
   const supportedPivots = pivots.filter((pivot) =>
     SUPPORTED_PIVOT_IDS.includes(pivot.id),
   );
@@ -86,6 +87,7 @@ export default async function MediaLibraryPage({
     machineIdentifier,
     sectionId: source,
     userInfo,
+    librarySectionTitle,
   });
 
   const content = await renderPivotContent({
