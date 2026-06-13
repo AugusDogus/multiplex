@@ -1,5 +1,5 @@
 import type { LibraryPivot, PlexTvClient } from "@multiplex/plex-query";
-import { resolvePlexServerContext } from "~/server/queries/plex-server-context";
+import { withPlexServerContext } from "~/server/queries/plex-server-context";
 
 /**
  * Pivots (tabs) Plex exposes through `/media/providers` for a section, in
@@ -12,13 +12,7 @@ export async function getLibraryPivotsQuery(
   machineIdentifier: string,
   sectionId: string,
 ): Promise<LibraryPivot[]> {
-  try {
-    const context = await resolvePlexServerContext(plex, machineIdentifier);
-
-    if (!context) {
-      return [];
-    }
-
+  return withPlexServerContext(plex, machineIdentifier, [], async (context) => {
     const [pivots, playlists] = await Promise.all([
       context.serverClient.getLibraryPivots(sectionId),
       context.serverClient
@@ -44,7 +38,5 @@ export async function getLibraryPivotsQuery(
     }
 
     return pivots;
-  } catch {
-    return [];
-  }
+  });
 }

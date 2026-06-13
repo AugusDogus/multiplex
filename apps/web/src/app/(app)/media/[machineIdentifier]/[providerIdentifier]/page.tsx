@@ -1,14 +1,14 @@
+import type { LibraryPivotId } from "@multiplex/plex-query";
 import { AppCenteredMessage } from "~/components/app-centered-message";
 import { AppPageLayout } from "~/components/app-page-layout";
 import { LibraryBrowse } from "~/components/library-browse";
 import { LibraryCategories } from "~/components/library-categories";
-import { LibraryCollections } from "~/components/library-collections";
 import { LibraryControls } from "~/components/library-controls";
 import { LibraryHeaderDropdown } from "~/components/library-header-dropdown";
-import { LibraryPlaylists } from "~/components/library-playlists";
+import { LibraryPosterTab } from "~/components/library-poster-tab";
 import { LibraryRecommended } from "~/components/library-recommended";
 import { LibraryTabs } from "~/components/library-tabs";
-import { SUPPORTED_PIVOT_IDS } from "~/lib/library-constants";
+import { SUPPORTED_PIVOT_IDS, isSupportedPivot } from "~/lib/library-constants";
 import {
   buildLibraryContentKey,
   extractLibraryFilters,
@@ -76,11 +76,11 @@ export default async function MediaLibraryPage({
 
   const requestedPivot =
     firstParam(resolvedSearchParams.pivot) ?? "recommended";
-  const activePivot = supportedPivots.some(
-    (pivot) => pivot.id === requestedPivot,
-  )
-    ? requestedPivot
-    : "recommended";
+  const activePivot: LibraryPivotId =
+    isSupportedPivot(requestedPivot) &&
+    supportedPivots.some((pivot) => pivot.id === requestedPivot)
+      ? requestedPivot
+      : "recommended";
 
   const title = resolveLibraryTitle({
     machineIdentifier,
@@ -113,131 +113,144 @@ export default async function MediaLibraryPage({
   );
 }
 
-async function renderPivotContent({
-  activePivot,
-  machineIdentifier,
-  sectionId,
-  searchParams,
-}: {
-  activePivot: string;
+interface PivotContentProps {
+  activePivot: LibraryPivotId;
   machineIdentifier: string;
   sectionId: string;
   searchParams: Record<string, string | string[] | undefined>;
-}) {
-  if (activePivot === "library") {
-    const requestedType = firstParam(searchParams.type);
-    const requestedSort = firstParam(searchParams.sort);
-    const filters = extractLibraryFilters(searchParams);
+}
 
-    const meta = await api.plex.getLibraryMeta({
-      machineIdentifier,
-      sectionId,
-      type: requestedType,
-    });
-    const { type, typeNumber } = resolveActiveType(meta, requestedType);
-    const sort = resolveSort(type, requestedSort);
+async function renderPivotContent(props: PivotContentProps) {
+  const { activePivot, machineIdentifier, sectionId } = props;
 
-    const libraryContent = await api.plex.getLibraryContent({
-      machineIdentifier,
-      sectionId,
-      start: 0,
-      size: LIBRARY_PAGE_SIZE,
-      sort,
-      type: typeNumber,
-      filters,
-    });
+  switch (activePivot) {
+    case "library":
+      return renderLibraryTab(props);
 
-    const contentKey = buildLibraryContentKey({
-      machineIdentifier,
-      sectionId,
-      typeNumber,
-      sort,
-      filters,
-    });
-
-    return (
-      <div className="flex flex-col gap-4">
-        <LibraryControls
-          machineIdentifier={machineIdentifier}
-          types={getGridTypes(meta)}
-          activeType={type}
-          activeTypeNumber={typeNumber}
-          sort={sort}
-          filters={filters}
-          totalSize={libraryContent.totalSize}
-        />
-        <LibraryBrowse
+    case "collections": {
+      const collections = await api.plex.getLibraryCollections({
+        machineIdentifier,
+        sectionId,
+        start: 0,
+        size: LIBRARY_PAGE_SIZE,
+      });
+      return (
+        <LibraryPosterTab
+          kind="collections"
           machineIdentifier={machineIdentifier}
           sectionId={sectionId}
-          typeNumber={typeNumber}
-          sort={sort}
-          filters={filters}
-          contentKey={contentKey}
-          initialContent={libraryContent}
+          initialContent={collections}
         />
-      </div>
-    );
+      );
+    }
+
+    case "playlists": {
+      const playlists = await api.plex.getLibraryPlaylists({
+        machineIdentifier,
+        sectionId,
+        start: 0,
+        size: LIBRARY_PAGE_SIZE,
+      });
+      return (
+        <LibraryPosterTab
+          kind="playlists"
+          machineIdentifier={machineIdentifier}
+          sectionId={sectionId}
+          initialContent={playlists}
+        />
+      );
+    }
+
+    case "categories": {
+      const { categories } = await api.plex.getLibraryCategories({
+        machineIdentifier,
+        sectionId,
+      });
+      return (
+        <LibraryCategories
+          machineIdentifier={machineIdentifier}
+          sectionId={sectionId}
+          categories={categories}
+        />
+      );
+    }
+
+    case "recommended": {
+      const libraryHubs = await api.plex.getLibraryHubs({
+        machineIdentifier,
+        sectionId,
+      });
+      return (
+        <LibraryRecommended
+          machineIdentifier={machineIdentifier}
+          sectionId={sectionId}
+          initialHubs={libraryHubs}
+        />
+      );
+    }
+
+    default: {
+      const _exhaustive: never = activePivot;
+      return _exhaustive;
+    }
   }
+}
 
-  if (activePivot === "collections") {
-    const collections = await api.plex.getLibraryCollections({
-      machineIdentifier,
-      sectionId,
-      start: 0,
-      size: LIBRARY_PAGE_SIZE,
-    });
+async function renderLibraryTab({
+  machineIdentifier,
+  sectionId,
+  searchParams,
+}: PivotContentProps) {
+  const requestedType = firstParam(searchParams.type);
+  const requestedSort = firstParam(searchParams.sort);
+  const filters = extractLibraryFilters(searchParams);
 
-    return (
-      <LibraryCollections
-        machineIdentifier={machineIdentifier}
-        sectionId={sectionId}
-        initialContent={collections}
-      />
-    );
-  }
-
-  if (activePivot === "categories") {
-    const { categories } = await api.plex.getLibraryCategories({
-      machineIdentifier,
-      sectionId,
-    });
-
-    return (
-      <LibraryCategories
-        machineIdentifier={machineIdentifier}
-        sectionId={sectionId}
-        categories={categories}
-      />
-    );
-  }
-
-  if (activePivot === "playlists") {
-    const playlists = await api.plex.getLibraryPlaylists({
-      machineIdentifier,
-      sectionId,
-      start: 0,
-      size: LIBRARY_PAGE_SIZE,
-    });
-
-    return (
-      <LibraryPlaylists
-        machineIdentifier={machineIdentifier}
-        sectionId={sectionId}
-        initialContent={playlists}
-      />
-    );
-  }
-
-  const libraryHubs = await api.plex.getLibraryHubs({
+  const meta = await api.plex.getLibraryMeta({
     machineIdentifier,
     sectionId,
+    type: requestedType,
+  });
+  const { type, typeNumber } = resolveActiveType(meta, requestedType);
+  const sort = resolveSort(type, requestedSort);
+
+  const libraryContent = await api.plex.getLibraryContent({
+    machineIdentifier,
+    sectionId,
+    start: 0,
+    size: LIBRARY_PAGE_SIZE,
+    sort,
+    type: typeNumber,
+    filters,
+  });
+
+  const contentKey = buildLibraryContentKey({
+    machineIdentifier,
+    sectionId,
+    typeNumber,
+    sort,
+    filters,
   });
 
   return (
-    <LibraryRecommended
-      machineIdentifier={machineIdentifier}
-      sectionId={sectionId}
-      initialHubs={libraryHubs}
-    />
+    <div className="flex flex-col gap-4">
+      <LibraryControls
+        machineIdentifier={machineIdentifier}
+        types={getGridTypes(meta)}
+        activeType={type}
+        activeTypeNumber={typeNumber}
+        sort={sort}
+        filters={filters}
+        totalSize={libraryContent.totalSize}
+      />
+      <LibraryBrowse
+        machineIdentifier={machineIdentifier}
+        sectionId={sectionId}
+        typeNumber={typeNumber}
+        sort={sort}
+        filters={filters}
+        contentKey={contentKey}
+        initialContent={libraryContent}
+      />
+    </div>
   );
 }

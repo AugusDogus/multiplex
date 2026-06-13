@@ -1,5 +1,5 @@
 import type { LibraryMetaResponse, PlexTvClient } from "@multiplex/plex-query";
-import { resolvePlexServerContext } from "~/server/queries/plex-server-context";
+import { withPlexServerContext } from "~/server/queries/plex-server-context";
 
 const EMPTY_LIBRARY_META: LibraryMetaResponse = {
   librarySectionID: undefined,
@@ -17,15 +17,10 @@ export async function getLibraryMetaQuery(
   sectionId: string,
   type?: string,
 ): Promise<LibraryMetaResponse> {
-  try {
-    const context = await resolvePlexServerContext(plex, machineIdentifier);
-
-    if (!context) {
-      return EMPTY_LIBRARY_META;
-    }
-
-    return await context.serverClient.getLibraryMeta(sectionId, type);
-  } catch {
-    return EMPTY_LIBRARY_META;
-  }
+  return withPlexServerContext(
+    plex,
+    machineIdentifier,
+    EMPTY_LIBRARY_META,
+    (context) => context.serverClient.getLibraryMeta(sectionId, type),
+  );
 }

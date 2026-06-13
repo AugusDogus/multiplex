@@ -28,7 +28,6 @@ export function MediaPosterCard({
   const subtitle = getHubItemSubtitle(item);
   const detailsHref = getHubItemHref(item.serverId, item);
   const thumbnailUrl = getThumbnailUrl(item, item.serverUrl, item.authToken);
-  const showThumbnail = Boolean(thumbnailUrl) && !imageFailed;
 
   const posterClassName =
     layout === "grid"
@@ -52,9 +51,9 @@ export function MediaPosterCard({
         aria-label={`View details for ${title}`}
         className={posterClassName}
       >
-        {showThumbnail ? (
+        {thumbnailUrl && !imageFailed ? (
           <Image
-            src={thumbnailUrl!}
+            src={thumbnailUrl}
             alt={title}
             className="h-full w-full object-cover"
             loading="lazy"
