@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  memo,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import type { HubItemWithServer } from "@multiplex/plex-query";
@@ -36,55 +29,31 @@ interface MediaPosterGridProps {
   emptyMessage?: string;
 }
 
-/* Single source of truth for responsive columns: each entry pairs the
-   matchMedia query with its Tailwind class literal (the scanner only
-   needs the literal to appear in source). Ordered widest-first so the
-   first match wins in getColumnsSnapshot. */
-const GRID_COLUMN_BREAKPOINTS = [
-  { query: "(min-width: 1280px)", columns: 6, className: "xl:grid-cols-6" },
-  { query: "(min-width: 1024px)", columns: 5, className: "lg:grid-cols-5" },
-  { query: "(min-width: 768px)", columns: 4, className: "md:grid-cols-4" },
-  { query: "(min-width: 640px)", columns: 3, className: "sm:grid-cols-3" },
-] as const;
+/* Posters are sized to match the fixed-width cards in the horizontal hub
+   rows (Continue Watching, Recently Added), which top out at ~160px wide.
+   Rather than a fixed column count per breakpoint — which makes grid posters
+   balloon on wide screens — the column count is derived from the measured
+   container width so each poster stays ~POSTER_TARGET_WIDTH and additional
+   columns appear as the viewport grows. */
+const POSTER_TARGET_WIDTH = 160;
+const GRID_GAP = 16; // matches sm:gap-x-4
+const MIN_COLUMNS = 2;
+const DEFAULT_COLUMNS = 6;
 
-const DEFAULT_COLUMNS = 2;
+/* Responsive fallback for the static first paint, before the container width
+   has been measured. Mirrors the previous breakpoint columns. */
+const GRID_FALLBACK_CLASSNAME =
+  "grid grid-cols-2 gap-x-3 pb-5 sm:grid-cols-3 sm:gap-x-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6";
 
-const GRID_ROW_CLASSNAME = [
-  "grid grid-cols-2 gap-x-3 pb-5 sm:gap-x-4",
-  ...GRID_COLUMN_BREAKPOINTS.map(({ className }) => className),
-].join(" ");
+const GRID_ROW_CLASSNAME = "grid gap-x-3 pb-5 sm:gap-x-4";
 
 const ESTIMATED_ROW_HEIGHT = 320;
 const OVERSCAN_ROWS = 3;
 
-function subscribeToBreakpoints(onChange: () => void) {
-  const queryLists = GRID_COLUMN_BREAKPOINTS.map(({ query }) =>
-    window.matchMedia(query),
-  );
-  for (const list of queryLists) {
-    list.addEventListener("change", onChange);
-  }
-  return () => {
-    for (const list of queryLists) {
-      list.removeEventListener("change", onChange);
-    }
-  };
-}
-
-function getColumnsSnapshot() {
-  for (const { query, columns } of GRID_COLUMN_BREAKPOINTS) {
-    if (window.matchMedia(query).matches) {
-      return columns;
-    }
-  }
-  return DEFAULT_COLUMNS;
-}
-
-function useGridColumns() {
-  return useSyncExternalStore(
-    subscribeToBreakpoints,
-    getColumnsSnapshot,
-    () => DEFAULT_COLUMNS,
+function getColumnsForWidth(width: number): number {
+  return Math.max(
+    MIN_COLUMNS,
+    Math.round((width + GRID_GAP) / (POSTER_TARGET_WIDTH + GRID_GAP)),
   );
 }
 
@@ -102,6 +71,7 @@ interface GridRowProps {
   rowIndex: number;
   startIndex: number;
   cellCount: number;
+  columns: number;
   translateY: number;
   /** Sparse array of all resolved items; identity changes only when pages load. */
   resolvedItems: (HubItemWithServer | undefined)[];
@@ -115,6 +85,7 @@ const GridRow = memo(function GridRow({
   rowIndex,
   startIndex,
   cellCount,
+  columns,
   translateY,
   resolvedItems,
   measureElement,
@@ -124,7 +95,10 @@ const GridRow = memo(function GridRow({
       data-index={rowIndex}
       ref={measureElement}
       className={`absolute top-0 left-0 w-full ${GRID_ROW_CLASSNAME}`}
-      style={{ transform: `translateY(${translateY}px)` }}
+      style={{
+        transform: `translateY(${translateY}px)`,
+        gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+      }}
     >
       {Array.from({ length: cellCount }, (_, column) => {
         const item = resolvedItems[startIndex + column];
@@ -165,15 +139,16 @@ export function MediaPosterGrid({
   // (https://github.com/TanStack/virtual/issues/736).
   "use no memo";
 
-  const columns = useGridColumns();
   const listRef = useRef<HTMLDivElement>(null);
 
   // Measured in an effect instead of reading offsetTop during render,
   // which would force a synchronous reflow on every scroll-driven
   // re-render. Null doubles as "not yet mounted". Content above the grid
   // (e.g. hub rows) can change height after mount, so re-measure whenever
-  // the page layout shifts.
+  // the page layout shifts. The container width drives the column count so
+  // posters stay a fixed target size instead of stretching to fill.
   const [scrollMargin, setScrollMargin] = useState<number | null>(null);
+  const [containerWidth, setContainerWidth] = useState<number | null>(null);
   useEffect(() => {
     const element = listRef.current;
     if (!element) {
@@ -181,12 +156,18 @@ export function MediaPosterGrid({
     }
     const measure = () => {
       setScrollMargin(element.getBoundingClientRect().top + window.scrollY);
+      setContainerWidth(element.clientWidth);
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(document.body);
+    observer.observe(element);
     return () => observer.disconnect();
   }, []);
+
+  const columns = containerWidth
+    ? getColumnsForWidth(containerWidth)
+    : DEFAULT_COLUMNS;
 
   // Plex reports the live total with every page; adopt it so the grid
   // tracks libraries that grow or shrink between the SSR fetch and later
@@ -304,7 +285,7 @@ export function MediaPosterGrid({
   if (scrollMargin === null) {
     return (
       <div ref={listRef} className="px-4 md:px-8">
-        <div className={GRID_ROW_CLASSNAME}>
+        <div className={GRID_FALLBACK_CLASSNAME}>
           {items.map((item) => (
             <MediaPosterCard
               key={`${item.serverId}-${item.ratingKey}`}
@@ -331,6 +312,7 @@ export function MediaPosterGrid({
               rowIndex={virtualRow.index}
               startIndex={startIndex}
               cellCount={Math.min(columns, itemCount - startIndex)}
+              columns={columns}
               translateY={virtualRow.start - scrollMargin}
               resolvedItems={resolvedItems}
               measureElement={virtualizer.measureElement}
