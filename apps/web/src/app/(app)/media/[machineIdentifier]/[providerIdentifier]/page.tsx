@@ -1,12 +1,14 @@
 import { AppCenteredMessage } from "~/components/app-centered-message";
 import { AppPageLayout } from "~/components/app-page-layout";
 import { LibraryBrowse } from "~/components/library-browse";
+import { LibraryControls } from "~/components/library-controls";
 import { LibraryHeaderDropdown } from "~/components/library-header-dropdown";
 import { LibraryRecommended } from "~/components/library-recommended";
 import { LibraryTabs, SUPPORTED_PIVOT_IDS } from "~/components/library-tabs";
 import {
   buildLibraryContentKey,
   extractLibraryFilters,
+  getGridTypes,
   resolveActiveType,
   resolveSort,
 } from "~/lib/library-browse-params";
@@ -150,15 +152,26 @@ async function renderPivotContent({
     });
 
     return (
-      <LibraryBrowse
-        machineIdentifier={machineIdentifier}
-        sectionId={sectionId}
-        typeNumber={typeNumber}
-        sort={sort}
-        filters={filters}
-        contentKey={contentKey}
-        initialContent={libraryContent}
-      />
+      <div className="flex flex-col gap-4">
+        <LibraryControls
+          machineIdentifier={machineIdentifier}
+          types={getGridTypes(meta)}
+          activeType={type}
+          activeTypeNumber={typeNumber}
+          sort={sort}
+          filters={filters}
+          totalSize={libraryContent.totalSize}
+        />
+        <LibraryBrowse
+          machineIdentifier={machineIdentifier}
+          sectionId={sectionId}
+          typeNumber={typeNumber}
+          sort={sort}
+          filters={filters}
+          contentKey={contentKey}
+          initialContent={libraryContent}
+        />
+      </div>
     );
   }
 
