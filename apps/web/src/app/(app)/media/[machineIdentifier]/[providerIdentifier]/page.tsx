@@ -7,7 +7,8 @@ import { LibraryControls } from "~/components/library-controls";
 import { LibraryHeaderDropdown } from "~/components/library-header-dropdown";
 import { LibraryPlaylists } from "~/components/library-playlists";
 import { LibraryRecommended } from "~/components/library-recommended";
-import { LibraryTabs, SUPPORTED_PIVOT_IDS } from "~/components/library-tabs";
+import { LibraryTabs } from "~/components/library-tabs";
+import { SUPPORTED_PIVOT_IDS } from "~/lib/library-constants";
 import {
   buildLibraryContentKey,
   extractLibraryFilters,
