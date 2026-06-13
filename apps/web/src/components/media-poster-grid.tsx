@@ -40,12 +40,14 @@ const GRID_GAP = 16; // matches sm:gap-x-4
 const MIN_COLUMNS = 2;
 const DEFAULT_COLUMNS = 6;
 
-/* Responsive fallback for the static first paint, before the container width
-   has been measured. Mirrors the previous breakpoint columns. */
-const GRID_FALLBACK_CLASSNAME =
-  "grid grid-cols-2 gap-x-3 pb-5 sm:grid-cols-3 sm:gap-x-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6";
-
 const GRID_ROW_CLASSNAME = "grid gap-x-3 pb-5 sm:gap-x-4";
+
+/* CSS-only column model for the static first paint, before the container
+   width has been measured. `auto-fill` with the same target width keeps it
+   in step with the measured path, avoiding a column jump on hydration. */
+const GRID_AUTOFILL_STYLE = {
+  gridTemplateColumns: `repeat(auto-fill, minmax(${POSTER_TARGET_WIDTH}px, 1fr))`,
+};
 
 const ESTIMATED_ROW_HEIGHT = 320;
 const OVERSCAN_ROWS = 3;
@@ -156,7 +158,12 @@ export function MediaPosterGrid({
     }
     const measure = () => {
       setScrollMargin(element.getBoundingClientRect().top + window.scrollY);
-      setContainerWidth(element.clientWidth);
+      // clientWidth includes the container's horizontal padding, so subtract
+      // it to get the true track width the posters are laid out in.
+      const styles = window.getComputedStyle(element);
+      const horizontalPadding =
+        parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
+      setContainerWidth(element.clientWidth - horizontalPadding);
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -285,7 +292,7 @@ export function MediaPosterGrid({
   if (scrollMargin === null) {
     return (
       <div ref={listRef} className="px-4 md:px-8">
-        <div className={GRID_FALLBACK_CLASSNAME}>
+        <div className={GRID_ROW_CLASSNAME} style={GRID_AUTOFILL_STYLE}>
           {items.map((item) => (
             <MediaPosterCard
               key={`${item.serverId}-${item.ratingKey}`}

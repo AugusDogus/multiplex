@@ -11,7 +11,10 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import type { ComponentType } from "react";
 import type { LibraryPivot } from "@multiplex/plex-query";
-import { SUPPORTED_PIVOT_LABELS } from "~/lib/library-constants";
+import {
+  SUPPORTED_PIVOT_LABELS,
+  isSupportedPivot,
+} from "~/lib/library-constants";
 import { cn } from "~/lib/utils";
 
 const PIVOT_ICONS: Record<string, ComponentType<{ className?: string }>> = {
@@ -32,9 +35,7 @@ export function LibraryTabs({ pivots }: LibraryTabsProps) {
   const source = searchParams.get("source");
   const activePivot = searchParams.get("pivot") ?? "recommended";
 
-  const tabs = pivots.filter((pivot) =>
-    Object.prototype.hasOwnProperty.call(SUPPORTED_PIVOT_LABELS, pivot.id),
-  );
+  const tabs = pivots.filter((pivot) => isSupportedPivot(pivot.id));
 
   if (tabs.length <= 1) {
     return null;
@@ -76,7 +77,9 @@ export function LibraryTabs({ pivots }: LibraryTabsProps) {
                   isActive ? "text-foreground" : "text-muted-foreground",
                 )}
               />
-              {SUPPORTED_PIVOT_LABELS[pivot.id] ?? pivot.title}
+              {isSupportedPivot(pivot.id)
+                ? SUPPORTED_PIVOT_LABELS[pivot.id]
+                : pivot.title}
             </Link>
           );
         })}

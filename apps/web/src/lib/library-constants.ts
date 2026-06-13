@@ -1,9 +1,11 @@
+import type { LibraryPivotId } from "@multiplex/plex-query";
+
 /**
  * Library pivots (tabs) Multiplex renders, in Plex's display order. Kept in a
  * non-client module so both the server page and the client tab bar can import
  * them without dragging a client boundary across the server component.
  */
-export const SUPPORTED_PIVOT_LABELS: Record<string, string> = {
+export const SUPPORTED_PIVOT_LABELS: Record<LibraryPivotId, string> = {
   recommended: "Recommended",
   library: "Library",
   collections: "Collections",
@@ -11,6 +13,10 @@ export const SUPPORTED_PIVOT_LABELS: Record<string, string> = {
   playlists: "Playlists",
 };
 
-export const SUPPORTED_PIVOT_IDS: string[] = Object.keys(
+export const SUPPORTED_PIVOT_IDS = Object.keys(
   SUPPORTED_PIVOT_LABELS,
-);
+) as LibraryPivotId[];
+
+export function isSupportedPivot(id: string): id is LibraryPivotId {
+  return Object.prototype.hasOwnProperty.call(SUPPORTED_PIVOT_LABELS, id);
+}

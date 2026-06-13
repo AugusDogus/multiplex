@@ -65,6 +65,25 @@ export async function resolvePlexServerContext(
   return buildPlexServerContext(plex, server, userInfo);
 }
 
+/**
+ * Resolve the server context and run `run` against it, returning `fallback`
+ * when the server can't be resolved or any request throws. Centralizes the
+ * try/resolve/fallback envelope shared by the library browse queries.
+ */
+export async function withPlexServerContext<T>(
+  plex: PlexTvClient,
+  machineIdentifier: string,
+  fallback: T,
+  run: (context: PlexServerContext) => Promise<T>,
+): Promise<T> {
+  try {
+    const context = await resolvePlexServerContext(plex, machineIdentifier);
+    return context ? await run(context) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function enrichHubItemsWithServer(
   items: HubItem[],
   context: PlexServerContext,

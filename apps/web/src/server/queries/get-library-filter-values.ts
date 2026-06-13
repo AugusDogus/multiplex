@@ -1,5 +1,5 @@
 import type { FilterValue, PlexTvClient } from "@multiplex/plex-query";
-import { resolvePlexServerContext } from "~/server/queries/plex-server-context";
+import { withPlexServerContext } from "~/server/queries/plex-server-context";
 
 /**
  * Possible values for a tag-based library filter (e.g. the genres available
@@ -11,16 +11,8 @@ export async function getLibraryFilterValuesQuery(
   machineIdentifier: string,
   filterPath: string,
 ): Promise<FilterValue[]> {
-  try {
-    const context = await resolvePlexServerContext(plex, machineIdentifier);
-
-    if (!context) {
-      return [];
-    }
-
+  return withPlexServerContext(plex, machineIdentifier, [], async (context) => {
     const response = await context.serverClient.getFilterValues(filterPath);
     return response.values;
-  } catch {
-    return [];
-  }
+  });
 }

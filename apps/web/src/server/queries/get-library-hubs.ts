@@ -5,7 +5,7 @@ import {
 } from "@multiplex/plex-query";
 import {
   enrichHubsWithServer,
-  resolvePlexServerContext,
+  withPlexServerContext,
 } from "~/server/queries/plex-server-context";
 
 export async function getLibraryHubsQuery(
@@ -13,19 +13,11 @@ export async function getLibraryHubsQuery(
   machineIdentifier: string,
   sectionId: string,
 ): Promise<HubWithServer[]> {
-  try {
-    const context = await resolvePlexServerContext(plex, machineIdentifier);
-
-    if (!context) {
-      return [];
-    }
-
+  return withPlexServerContext(plex, machineIdentifier, [], async (context) => {
     const response = await context.serverClient.getSectionHubs(sectionId, {
       onlyTransient: true,
     });
 
     return enrichHubsWithServer(filterNonEmptyHubs(response.hubs), context);
-  } catch {
-    return [];
-  }
+  });
 }
