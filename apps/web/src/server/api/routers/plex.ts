@@ -21,8 +21,14 @@ import {
 } from "~/server/queries/plex-pagination";
 import { getHomeHubsQuery } from "~/server/queries/get-home-hubs";
 import { getHubContentQuery } from "~/server/queries/get-hub-content";
+import { getLibraryCategoriesQuery } from "~/server/queries/get-library-categories";
+import { getLibraryCollectionsQuery } from "~/server/queries/get-library-collections";
 import { getLibraryContentQuery } from "~/server/queries/get-library-content";
+import { getLibraryFilterValuesQuery } from "~/server/queries/get-library-filter-values";
 import { getLibraryHubsQuery } from "~/server/queries/get-library-hubs";
+import { getLibraryMetaQuery } from "~/server/queries/get-library-meta";
+import { getLibraryPivotsQuery } from "~/server/queries/get-library-pivots";
+import { getLibraryPlaylistsQuery } from "~/server/queries/get-library-playlists";
 import { getServersQuery } from "~/server/queries/get-servers";
 import {
   getUserInfoQuery,
@@ -96,6 +102,126 @@ export const plexRouter = createTRPCRouter({
       );
     }),
 
+  getLibraryPivots: protectedProcedure
+    .input(
+      z.object({
+        machineIdentifier: z.string(),
+        sectionId: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      return getLibraryPivotsQuery(
+        ctx.plex,
+        input.machineIdentifier,
+        input.sectionId,
+      );
+    }),
+
+  getLibraryMeta: protectedProcedure
+    .input(
+      z.object({
+        machineIdentifier: z.string(),
+        sectionId: z.string(),
+        type: z.string().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      return getLibraryMetaQuery(
+        ctx.plex,
+        input.machineIdentifier,
+        input.sectionId,
+        input.type,
+      );
+    }),
+
+  getLibraryCollections: protectedProcedure
+    .input(
+      z.object({
+        machineIdentifier: z.string(),
+        sectionId: z.string(),
+        start: z.number().int().min(0).default(0),
+        size: z
+          .number()
+          .int()
+          .min(1)
+          .max(LIBRARY_PAGE_SIZE)
+          .default(LIBRARY_PAGE_SIZE),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      return getLibraryCollectionsQuery(
+        ctx.plex,
+        input.machineIdentifier,
+        input.sectionId,
+        { start: input.start, size: input.size },
+      );
+    }),
+
+  getLibraryCategories: protectedProcedure
+    .input(
+      z.object({
+        machineIdentifier: z.string(),
+        sectionId: z.string(),
+        start: z.number().int().min(0).default(0),
+        size: z
+          .number()
+          .int()
+          .min(1)
+          .max(LIBRARY_PAGE_SIZE)
+          .default(LIBRARY_PAGE_SIZE),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      return getLibraryCategoriesQuery(
+        ctx.plex,
+        input.machineIdentifier,
+        input.sectionId,
+        { start: input.start, size: input.size },
+      );
+    }),
+
+  getLibraryPlaylists: protectedProcedure
+    .input(
+      z.object({
+        machineIdentifier: z.string(),
+        sectionId: z.string(),
+        start: z.number().int().min(0).default(0),
+        size: z
+          .number()
+          .int()
+          .min(1)
+          .max(LIBRARY_PAGE_SIZE)
+          .default(LIBRARY_PAGE_SIZE),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      return getLibraryPlaylistsQuery(
+        ctx.plex,
+        input.machineIdentifier,
+        input.sectionId,
+        { start: input.start, size: input.size },
+      );
+    }),
+
+  getLibraryFilterValues: protectedProcedure
+    .input(
+      z.object({
+        machineIdentifier: z.string(),
+        // The filter's `key` from library metadata, restricted to the
+        // library-section filter endpoints to avoid arbitrary fan-out.
+        filterPath: z
+          .string()
+          .regex(/^\/library\/sections\/\d+\/[A-Za-z]+(\?.*)?$/),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      return getLibraryFilterValuesQuery(
+        ctx.plex,
+        input.machineIdentifier,
+        input.filterPath,
+      );
+    }),
+
   getHubContent: protectedProcedure
     .input(
       z.object({
@@ -130,6 +256,8 @@ export const plexRouter = createTRPCRouter({
           .max(LIBRARY_PAGE_SIZE)
           .default(LIBRARY_PAGE_SIZE),
         sort: z.string().default("addedAt:desc"),
+        type: z.string().optional(),
+        filters: z.record(z.string(), z.string()).optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -141,6 +269,8 @@ export const plexRouter = createTRPCRouter({
           start: input.start,
           size: input.size,
           sort: input.sort,
+          type: input.type,
+          filters: input.filters,
         },
       );
     }),
