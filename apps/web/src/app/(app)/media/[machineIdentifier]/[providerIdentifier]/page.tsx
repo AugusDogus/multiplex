@@ -1,10 +1,9 @@
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { AppCenteredMessage } from "~/components/app-centered-message";
+import { AppPageLayout } from "~/components/app-page-layout";
 import { LibraryBrowse } from "~/components/library-browse";
 import { LibraryHeaderDropdown } from "~/components/library-header-dropdown";
-import { LibraryPageShell } from "~/components/library-page-shell";
-import { auth } from "~/lib/auth/server";
 import { LIBRARY_PAGE_SIZE } from "~/server/queries/plex-pagination";
+import { getAppPlexContext } from "~/server/queries/get-app-plex-context";
 import { resolveLibraryTitle } from "~/server/queries/resolve-library-title";
 import { api } from "~/trpc/server";
 
@@ -22,56 +21,31 @@ export default async function MediaLibraryPage({
   params,
   searchParams,
 }: PageProps) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (!session) {
-    redirect("/login");
-  }
-
   const { machineIdentifier } = await params;
   const { source } = await searchParams;
-
-  const [servers, userInfo] = await Promise.all([
-    api.plex.getServers(),
-    api.plex.getUserInfo(),
-  ] as const);
-
-  if (!servers || !userInfo) {
-    return null;
-  }
-
-  if (servers.length === 0) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold">Welcome to Multiplex</h1>
-          <p className="text-muted-foreground mt-2">
-            No Plex servers found. Please configure your Plex account.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const { servers, userInfo } = await getAppPlexContext();
 
   const currentServer = servers.find(
     (server) => server.clientIdentifier === machineIdentifier,
   );
   const serverName = currentServer?.name ?? "Plex server";
 
+  if (!currentServer) {
+    return (
+      <AppCenteredMessage
+        title="Server Not Found"
+        description="The requested Plex server could not be found or is not accessible."
+      />
+    );
+  }
+
   if (!source) {
     return (
-      <LibraryPageShell
-        session={session}
-        servers={servers}
-        userInfo={userInfo}
-        title="Library"
-      >
+      <AppPageLayout title="Library">
         <p className="text-muted-foreground text-sm">
           Select a library from the sidebar to browse your collection.
         </p>
-      </LibraryPageShell>
+      </AppPageLayout>
     );
   }
 
@@ -93,10 +67,7 @@ export default async function MediaLibraryPage({
   });
 
   return (
-    <LibraryPageShell
-      session={session}
-      servers={servers}
-      userInfo={userInfo}
+    <AppPageLayout
       title={breadcrumbTitle}
       mobileHeader={
         <LibraryHeaderDropdown
@@ -113,6 +84,6 @@ export default async function MediaLibraryPage({
         initialHubs={libraryHubs}
         initialContent={libraryContent}
       />
-    </LibraryPageShell>
+    </AppPageLayout>
   );
 }

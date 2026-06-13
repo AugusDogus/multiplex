@@ -90,8 +90,7 @@ export function getItemDetailsHref(
   machineIdentifier: string,
   ratingKey: string,
 ): string {
-  // Plex encodes key (%2F…), but we keep slashes literal for readability.
-  // Safe here: we own the shape and ratingKey is numeric; Next decodes on read.
+  // Plex uses literal metadata keys in URLs; keep this unencoded for compatibility.
   return `/server/${machineIdentifier}/details?key=/library/metadata/${ratingKey}`;
 }
 
