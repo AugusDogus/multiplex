@@ -25,10 +25,14 @@ export async function getLibraryCollectionsQuery(
       size: options?.size ?? LIBRARY_PAGE_SIZE,
     });
 
-    // Empty collections have no composite poster; drop the thumb so the card
-    // renders its placeholder instead of attempting a broken image request.
+    // A 0-item collection's composite poster (`/library/collections/{id}/
+    // composite/...`) renders nothing, so drop it to show a clean placeholder
+    // instead of a broken image. Smart collections with a real metadata poster
+    // (e.g. AniList tiles) keep their artwork even when currently empty.
     const items = response.items.map((item) =>
-      item.childCount === 0 ? { ...item, thumb: undefined } : item,
+      item.childCount === 0 && item.thumb?.includes("/composite/")
+        ? { ...item, thumb: undefined }
+        : item,
     );
 
     return {
