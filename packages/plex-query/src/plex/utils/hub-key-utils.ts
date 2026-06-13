@@ -3,7 +3,12 @@ export interface ParsedHubKey {
   params: Record<string, string>;
 }
 
-const ALLOWED_HUB_ENDPOINT_PREFIXES = ["hubs/", "library/sections/", "playlists/"] as const;
+const ALLOWED_HUB_ENDPOINT_PREFIXES = [
+  "hubs/",
+  "library/sections/",
+  "library/collections/",
+  "playlists/",
+] as const;
 
 export function parseHubKey(hubKey: string): ParsedHubKey {
   const trimmed = hubKey.startsWith("/") ? hubKey.slice(1) : hubKey;

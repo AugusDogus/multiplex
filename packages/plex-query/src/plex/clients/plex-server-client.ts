@@ -12,6 +12,15 @@ import {
   type HubResponse,
   type LibraryContentResponse,
 } from "../schemas/hub-schemas";
+import {
+  categoriesResponseSchema,
+  filterValuesResponseSchema,
+  libraryMetaResponseSchema,
+  type CategoriesResponse,
+  type FilterValuesResponse,
+  type LibraryMetaResponse,
+  type LibraryPivot,
+} from "../schemas/library-browse-schemas";
 import { assertAllowedHubKey } from "../utils/hub-key-utils";
 import { HUB_PAGE_SIZE, HUB_PREVIEW_SIZE, LIBRARY_PAGE_SIZE } from "../../constants/pagination";
 import { dvrsResponseSchema, type DVRsResponse } from "../schemas/dvr-schemas";
@@ -349,7 +358,9 @@ export class PlexServerClient {
   }
 
   /**
-   * Get library content by section ID with pagination and sorting
+   * Get library content by section ID with pagination, sorting, a content
+   * `type` pivot (movie/show/season/episode), and arbitrary tag/boolean
+   * filters (e.g. `genre`, `year`, `unwatchedLeaves`).
    */
   async getLibraryContent(
     sectionId: string,
@@ -357,6 +368,8 @@ export class PlexServerClient {
       sort?: string;
       start?: number;
       size?: number;
+      type?: string;
+      filters?: Record<string, string>;
     },
   ): Promise<LibraryContentResponse> {
     const queryParams: Record<string, string> = {
@@ -365,12 +378,172 @@ export class PlexServerClient {
       "X-Plex-Container-Size": (params?.size ?? LIBRARY_PAGE_SIZE).toString(),
     };
 
+    if (params?.type) {
+      queryParams.type = params.type;
+    }
+
+    if (params?.filters) {
+      for (const [key, value] of Object.entries(params.filters)) {
+        if (value !== "") {
+          queryParams[key] = value;
+        }
+      }
+    }
+
     const rawResponse = await this.get({
       endpoint: `library/sections/${sectionId}/all`,
       params: queryParams,
     });
 
     return libraryContentResponseSchema.parse(rawResponse);
+  }
+
+  /**
+   * Get the filter/sort metadata for a library section. Drives the Library
+   * tab's type, filter, and sort dropdown menus.
+   */
+  async getLibraryMeta(sectionId: string, type?: string): Promise<LibraryMetaResponse> {
+    const queryParams: Record<string, string> = {
+      includeMeta: "1",
+      "X-Plex-Container-Size": "0",
+    };
+
+    if (type) {
+      queryParams.type = type;
+    }
+
+    const rawResponse = await this.get({
+      endpoint: `library/sections/${sectionId}/all`,
+      params: queryParams,
+    });
+
+    return libraryMetaResponseSchema.parse(rawResponse);
+  }
+
+  /**
+   * Get the collections for a library section (the Collections tab).
+   */
+  async getCollections(
+    sectionId: string,
+    params?: { start?: number; size?: number },
+  ): Promise<LibraryContentResponse> {
+    const queryParams: Record<string, string> = {
+      "X-Plex-Container-Start": (params?.start ?? 0).toString(),
+      "X-Plex-Container-Size": (params?.size ?? LIBRARY_PAGE_SIZE).toString(),
+    };
+
+    const rawResponse = await this.get({
+      endpoint: `library/sections/${sectionId}/collections`,
+      params: queryParams,
+    });
+
+    return libraryContentResponseSchema.parse(rawResponse);
+  }
+
+  /**
+   * Get the categories (genre/tag tiles) for a library section (the
+   * Categories tab).
+   */
+  async getCategories(
+    sectionId: string,
+    params?: { start?: number; size?: number },
+  ): Promise<CategoriesResponse> {
+    const queryParams: Record<string, string> = {
+      "X-Plex-Container-Start": (params?.start ?? 0).toString(),
+      "X-Plex-Container-Size": (params?.size ?? LIBRARY_PAGE_SIZE).toString(),
+    };
+
+    const rawResponse = await this.get({
+      endpoint: `library/sections/${sectionId}/categories`,
+      params: queryParams,
+    });
+
+    return categoriesResponseSchema.parse(rawResponse);
+  }
+
+  /**
+   * Get the playlists associated with a library section (the Playlists tab).
+   */
+  async getPlaylists(
+    sectionId: string,
+    params?: { start?: number; size?: number },
+  ): Promise<LibraryContentResponse> {
+    const queryParams: Record<string, string> = {
+      sectionID: sectionId,
+      "X-Plex-Container-Start": (params?.start ?? 0).toString(),
+      "X-Plex-Container-Size": (params?.size ?? LIBRARY_PAGE_SIZE).toString(),
+    };
+
+    const rawResponse = await this.get({
+      endpoint: "playlists",
+      params: queryParams,
+    });
+
+    return libraryContentResponseSchema.parse(rawResponse);
+  }
+
+  /**
+   * Get the possible values for a tag-based library filter (e.g. the list of
+   * genres for the Genre filter). `filterPath` is the filter's `key` from the
+   * library metadata, e.g. `/library/sections/4/genre?type=2`.
+   */
+  async getFilterValues(
+    filterPath: string,
+    params?: { start?: number; size?: number },
+  ): Promise<FilterValuesResponse> {
+    const questionIndex = filterPath.indexOf("?");
+    const path = questionIndex === -1 ? filterPath : filterPath.slice(0, questionIndex);
+    const query = questionIndex === -1 ? "" : filterPath.slice(questionIndex + 1);
+    const endpoint = path.startsWith("/") ? path.slice(1) : path;
+
+    const queryParams: Record<string, string> = {
+      ...Object.fromEntries(new URLSearchParams(query)),
+      "X-Plex-Container-Start": (params?.start ?? 0).toString(),
+      "X-Plex-Container-Size": (params?.size ?? 200).toString(),
+    };
+
+    const rawResponse = await this.get({
+      endpoint,
+      params: queryParams,
+    });
+
+    return filterValuesResponseSchema.parse(rawResponse);
+  }
+
+  /**
+   * Derive the browsable pivots (tabs) for a library section from the media
+   * providers payload, e.g. Recommended, Library, Collections, Categories.
+   */
+  async getLibraryPivots(sectionId: string): Promise<LibraryPivot[]> {
+    const providers = await this.getMediaProviders();
+
+    for (const provider of providers.MediaContainer.MediaProvider) {
+      for (const feature of provider.Feature) {
+        if (!feature.Directory) {
+          continue;
+        }
+
+        for (const directory of feature.Directory) {
+          if (
+            "id" in directory &&
+            directory.id === sectionId &&
+            "Pivot" in directory &&
+            directory.Pivot
+          ) {
+            return directory.Pivot.map((pivot) => ({
+              id: pivot.id,
+              type: pivot.type,
+              key: pivot.key,
+              title: pivot.title,
+              symbol: pivot.symbol,
+              context: pivot.context,
+            }));
+          }
+        }
+      }
+    }
+
+    return [];
   }
 
   /**

@@ -23,6 +23,13 @@ export const HubMetadataSchema = z
     grandparentTitle: z.string().optional(),
     parentIndex: z.number().optional(),
     index: z.number().optional(),
+    // Collections/playlists carry child counts and a composite poster.
+    childCount: z.number().optional(),
+    leafCount: z.number().optional(),
+    subtype: z.string().optional(),
+    smart: z.union([z.string(), z.boolean()]).optional(),
+    playlistType: z.string().optional(),
+    composite: z.string().optional(),
   })
   .passthrough();
 
