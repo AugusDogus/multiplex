@@ -1,20 +1,18 @@
 import { MediaHubRowSkeleton } from "~/components/media-hub-row";
-import { PosterGridSkeleton } from "~/components/poster-grid-skeleton";
 import { Skeleton } from "~/components/ui/skeleton";
 
 export function LibraryBrowseSkeleton() {
   return (
-    <div className="flex flex-col gap-8">
-      <MediaHubRowSkeleton />
-      <MediaHubRowSkeleton />
-      <section className="flex flex-col gap-y-4">
-        <div className="px-4 md:px-8">
-          <Skeleton className="h-7 w-48" />
-        </div>
-        <div className="px-4 md:px-8">
-          <PosterGridSkeleton rows={2} />
-        </div>
-      </section>
+    <div className="flex flex-col gap-6">
+      <div className="border-border/60 -mx-4 flex gap-6 border-b px-4 pb-3 md:-mx-8 md:px-8">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <Skeleton key={index} className="h-5 w-24" />
+        ))}
+      </div>
+      <div className="flex flex-col gap-8">
+        <MediaHubRowSkeleton />
+        <MediaHubRowSkeleton />
+      </div>
     </div>
   );
 }

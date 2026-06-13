@@ -2,6 +2,14 @@ import { AppCenteredMessage } from "~/components/app-centered-message";
 import { AppPageLayout } from "~/components/app-page-layout";
 import { LibraryBrowse } from "~/components/library-browse";
 import { LibraryHeaderDropdown } from "~/components/library-header-dropdown";
+import { LibraryRecommended } from "~/components/library-recommended";
+import { LibraryTabs, SUPPORTED_PIVOT_IDS } from "~/components/library-tabs";
+import {
+  buildLibraryContentKey,
+  extractLibraryFilters,
+  resolveActiveType,
+  resolveSort,
+} from "~/lib/library-browse-params";
 import { LIBRARY_PAGE_SIZE } from "~/server/queries/plex-pagination";
 import { getAppPlexContext } from "~/server/queries/get-app-plex-context";
 import { resolveLibraryTitle } from "~/server/queries/resolve-library-title";
@@ -12,9 +20,11 @@ interface PageProps {
     machineIdentifier: string;
     providerIdentifier: string;
   }>;
-  searchParams: Promise<{
-    source?: string;
-  }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
+
+function firstParam(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 export default async function MediaLibraryPage({
@@ -22,7 +32,8 @@ export default async function MediaLibraryPage({
   searchParams,
 }: PageProps) {
   const { machineIdentifier } = await params;
-  const { source } = await searchParams;
+  const resolvedSearchParams = await searchParams;
+  const source = firstParam(resolvedSearchParams.source);
   const { servers, userInfo } = await getAppPlexContext();
 
   const currentServer = servers.find(
@@ -49,41 +60,118 @@ export default async function MediaLibraryPage({
     );
   }
 
-  const [libraryHubs, libraryContent] = await Promise.all([
-    api.plex.getLibraryHubs({ machineIdentifier, sectionId: source }),
-    api.plex.getLibraryContent({
-      machineIdentifier,
-      sectionId: source,
-      start: 0,
-      size: LIBRARY_PAGE_SIZE,
-    }),
-  ]);
+  const pivots = await api.plex.getLibraryPivots({
+    machineIdentifier,
+    sectionId: source,
+  });
+  const supportedPivots = pivots.filter((pivot) =>
+    SUPPORTED_PIVOT_IDS.includes(pivot.id),
+  );
 
-  const breadcrumbTitle = resolveLibraryTitle({
+  const requestedPivot =
+    firstParam(resolvedSearchParams.pivot) ?? "recommended";
+  const activePivot = supportedPivots.some(
+    (pivot) => pivot.id === requestedPivot,
+  )
+    ? requestedPivot
+    : "recommended";
+
+  const title = resolveLibraryTitle({
     machineIdentifier,
     sectionId: source,
     userInfo,
-    librarySectionTitle: libraryContent.librarySectionTitle,
+  });
+
+  const content = await renderPivotContent({
+    activePivot,
+    machineIdentifier,
+    sectionId: source,
+    searchParams: resolvedSearchParams,
   });
 
   return (
     <AppPageLayout
-      title={breadcrumbTitle}
+      title={title}
       mobileHeader={
         <LibraryHeaderDropdown
-          libraryTitle={breadcrumbTitle}
+          libraryTitle={title}
           serverName={serverName}
           servers={servers}
           userInfo={userInfo}
         />
       }
     >
+      <LibraryTabs pivots={supportedPivots} />
+      {content}
+    </AppPageLayout>
+  );
+}
+
+async function renderPivotContent({
+  activePivot,
+  machineIdentifier,
+  sectionId,
+  searchParams,
+}: {
+  activePivot: string;
+  machineIdentifier: string;
+  sectionId: string;
+  searchParams: Record<string, string | string[] | undefined>;
+}) {
+  if (activePivot === "library") {
+    const requestedType = firstParam(searchParams.type);
+    const requestedSort = firstParam(searchParams.sort);
+    const filters = extractLibraryFilters(searchParams);
+
+    const meta = await api.plex.getLibraryMeta({
+      machineIdentifier,
+      sectionId,
+      type: requestedType,
+    });
+    const { type, typeNumber } = resolveActiveType(meta, requestedType);
+    const sort = resolveSort(type, requestedSort);
+
+    const libraryContent = await api.plex.getLibraryContent({
+      machineIdentifier,
+      sectionId,
+      start: 0,
+      size: LIBRARY_PAGE_SIZE,
+      sort,
+      type: typeNumber,
+      filters,
+    });
+
+    const contentKey = buildLibraryContentKey({
+      machineIdentifier,
+      sectionId,
+      typeNumber,
+      sort,
+      filters,
+    });
+
+    return (
       <LibraryBrowse
         machineIdentifier={machineIdentifier}
-        sectionId={source}
-        initialHubs={libraryHubs}
+        sectionId={sectionId}
+        typeNumber={typeNumber}
+        sort={sort}
+        filters={filters}
+        contentKey={contentKey}
         initialContent={libraryContent}
       />
-    </AppPageLayout>
+    );
+  }
+
+  const libraryHubs = await api.plex.getLibraryHubs({
+    machineIdentifier,
+    sectionId,
+  });
+
+  return (
+    <LibraryRecommended
+      machineIdentifier={machineIdentifier}
+      sectionId={sectionId}
+      initialHubs={libraryHubs}
+    />
   );
 }

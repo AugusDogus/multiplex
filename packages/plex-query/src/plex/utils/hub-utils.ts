@@ -13,6 +13,15 @@ export function filterBrowsableHubs(hubs: Hub[]): Hub[] {
   );
 }
 
+/**
+ * Like {@link filterBrowsableHubs} but keeps Continue Watching hubs. Used by
+ * the library Recommended tab, which leads with Continue Watching the way the
+ * official Plex client does.
+ */
+export function filterNonEmptyHubs(hubs: Hub[]): Hub[] {
+  return hubs.filter((hub) => hub.size > 0 && hub.items.length > 0);
+}
+
 export function getHubItemTitle(item: HubItem): string {
   if (item.type === "episode" && item.grandparentTitle) {
     return item.grandparentTitle;

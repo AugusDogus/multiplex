@@ -27,10 +27,41 @@ interface MetadataAncestor {
 
 export function getLibraryHref(
   machineIdentifier: string,
-  librarySectionID: number,
+  librarySectionID: number | string,
   providerIdentifier = LIBRARY_PROVIDER_IDENTIFIER,
 ): string {
   return `/media/${machineIdentifier}/${providerIdentifier}?source=${librarySectionID}`;
+}
+
+/**
+ * Build a library URL targeting a specific pivot (tab), optionally carrying
+ * extra params (e.g. a category's filter). The `recommended` pivot is the
+ * default and is left implicit.
+ */
+export function getLibraryPivotHref({
+  machineIdentifier,
+  sectionId,
+  pivot,
+  providerIdentifier = LIBRARY_PROVIDER_IDENTIFIER,
+  params,
+}: {
+  machineIdentifier: string;
+  sectionId: string;
+  pivot: string;
+  providerIdentifier?: string;
+  params?: Record<string, string>;
+}): string {
+  const search = new URLSearchParams({ source: sectionId });
+
+  if (pivot && pivot !== "recommended") {
+    search.set("pivot", pivot);
+  }
+
+  for (const [key, value] of Object.entries(params ?? {})) {
+    search.set(key, value);
+  }
+
+  return `/media/${machineIdentifier}/${providerIdentifier}?${search.toString()}`;
 }
 
 function getMetadataAncestors(

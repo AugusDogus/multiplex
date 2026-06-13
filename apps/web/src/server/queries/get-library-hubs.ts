@@ -1,5 +1,5 @@
 import {
-  filterBrowsableHubs,
+  filterNonEmptyHubs,
   type HubWithServer,
   type PlexTvClient,
 } from "@multiplex/plex-query";
@@ -24,7 +24,7 @@ export async function getLibraryHubsQuery(
       onlyTransient: true,
     });
 
-    return enrichHubsWithServer(filterBrowsableHubs(response.hubs), context);
+    return enrichHubsWithServer(filterNonEmptyHubs(response.hubs), context);
   } catch {
     return [];
   }
