@@ -4,16 +4,10 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import type { LibraryPivot } from "@multiplex/plex-query";
 import { cn } from "~/lib/utils";
-
-const SUPPORTED_PIVOT_LABELS: Record<string, string> = {
-  recommended: "Recommended",
-  library: "Library",
-  collections: "Collections",
-  categories: "Categories",
-  playlists: "Playlists",
-};
-
-export const SUPPORTED_PIVOT_IDS = Object.keys(SUPPORTED_PIVOT_LABELS);
+import {
+  SUPPORTED_PIVOT_IDS,
+  SUPPORTED_PIVOT_LABELS,
+} from "~/lib/library-constants";
 
 interface LibraryTabsProps {
   pivots: LibraryPivot[];
