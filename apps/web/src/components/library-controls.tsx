@@ -46,6 +46,10 @@ export function LibraryControls({
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  // Tracked so the tag-filter submenus can begin loading their values the
+  // moment the filter menu opens, rather than waiting for a submenu hover.
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+
   const [sortKey, sortDirection] = sort.split(":");
 
   const reservedKeep = () => {
@@ -124,7 +128,7 @@ export function LibraryControls({
   return (
     <div className="flex flex-wrap items-center gap-x-1 gap-y-2 text-sm">
       {/* Filter menu */}
-      <DropdownMenu>
+      <DropdownMenu open={filterMenuOpen} onOpenChange={setFilterMenuOpen}>
         <DropdownMenuTrigger className="hover:bg-accent/60 flex items-center gap-1 rounded-md px-2 py-1 font-medium">
           {hasActiveFilters ? "Filtered" : "All"}
           <ChevronDown className="text-muted-foreground size-4" />
@@ -152,6 +156,7 @@ export function LibraryControls({
               machineIdentifier={machineIdentifier}
               filter={filter}
               activeValue={filters[filter.filter]}
+              prefetch={filterMenuOpen}
               onSelectValue={(value) => selectTagFilter(filter.filter, value)}
             />
           ))}
@@ -233,6 +238,8 @@ interface FilterSubmenuProps {
   machineIdentifier: string;
   filter: LibraryFilter;
   activeValue: string | undefined;
+  /** Begin loading values as soon as the parent filter menu opens. */
+  prefetch: boolean;
   onSelectValue: (value: string) => void;
 }
 
@@ -240,17 +247,20 @@ function FilterSubmenu({
   machineIdentifier,
   filter,
   activeValue,
+  prefetch,
   onSelectValue,
 }: FilterSubmenuProps) {
-  const [open, setOpen] = useState(false);
-
   const { data: values, isLoading } = api.plex.getLibraryFilterValues.useQuery(
     { machineIdentifier, filterPath: filter.key },
-    { enabled: open, staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false },
+    {
+      enabled: prefetch,
+      staleTime: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+    },
   );
 
   return (
-    <DropdownMenuSub onOpenChange={setOpen}>
+    <DropdownMenuSub>
       <DropdownMenuSubTrigger>{filter.title}</DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="max-h-[60vh] overflow-y-auto">
         {isLoading && <DropdownMenuItem disabled>Loading…</DropdownMenuItem>}
