@@ -194,9 +194,13 @@ export function getPlexImageUrl(
   }
 
   const baseUrl = serverUrl.replace(/\/$/, "");
+  // Some image paths already carry a query string (e.g. collection composite
+  // posters like `/library/collections/1/composite/2?width=400`), so pick the
+  // correct separator instead of always appending `?`.
+  const tokenSeparator = imagePath.includes("?") ? "&" : "?";
   const imageUrl = imagePath.startsWith("http")
     ? imagePath
-    : `${imagePath}?X-Plex-Token=${authToken}`;
+    : `${imagePath}${tokenSeparator}X-Plex-Token=${authToken}`;
   const params = new URLSearchParams({
     width: options.width.toString(),
     height: options.height.toString(),

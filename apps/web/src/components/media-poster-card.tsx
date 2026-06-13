@@ -3,6 +3,7 @@
 import { CirclePlay } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { useState } from "react";
 import {
   getHubItemSubtitle,
   getHubItemTitle,
@@ -22,10 +23,12 @@ export function MediaPosterCard({
   className,
   layout = "row",
 }: MediaPosterCardProps) {
+  const [imageFailed, setImageFailed] = useState(false);
   const title = getHubItemTitle(item);
   const subtitle = getHubItemSubtitle(item);
   const detailsHref = getHubItemHref(item.serverId, item);
   const thumbnailUrl = getThumbnailUrl(item, item.serverUrl, item.authToken);
+  const showThumbnail = Boolean(thumbnailUrl) && !imageFailed;
 
   const posterClassName =
     layout === "grid"
@@ -49,14 +52,15 @@ export function MediaPosterCard({
         aria-label={`View details for ${title}`}
         className={posterClassName}
       >
-        {thumbnailUrl ? (
+        {showThumbnail ? (
           <Image
-            src={thumbnailUrl}
+            src={thumbnailUrl!}
             alt={title}
             className="h-full w-full object-cover"
             loading="lazy"
             width={160}
             height={240}
+            onError={() => setImageFailed(true)}
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center">
