@@ -7,17 +7,11 @@ import {
   type PaginatedHubContent,
 } from "~/server/queries/plex-server-context";
 
-export async function getLibraryContentQuery(
+export async function getLibraryPlaylistsQuery(
   plex: PlexTvClient,
   machineIdentifier: string,
   sectionId: string,
-  options?: {
-    start?: number;
-    size?: number;
-    sort?: string;
-    type?: string;
-    filters?: Record<string, string>;
-  },
+  options?: { start?: number; size?: number },
 ): Promise<PaginatedHubContent> {
   try {
     const context = await resolvePlexServerContext(plex, machineIdentifier);
@@ -26,16 +20,20 @@ export async function getLibraryContentQuery(
       return EMPTY_PAGINATED_HUB_CONTENT;
     }
 
-    const response = await context.serverClient.getLibraryContent(sectionId, {
+    const response = await context.serverClient.getPlaylists(sectionId, {
       start: options?.start ?? 0,
       size: options?.size ?? LIBRARY_PAGE_SIZE,
-      sort: options?.sort ?? "addedAt:desc",
-      type: options?.type,
-      filters: options?.filters,
     });
 
+    // Playlists expose their poster under `composite`; surface it as `thumb`
+    // so the shared poster card renders an image.
+    const items = response.items.map((item) => ({
+      ...item,
+      thumb: item.thumb ?? item.composite,
+    }));
+
     return {
-      items: enrichHubItemsWithServer(response.items, context),
+      items: enrichHubItemsWithServer(items, context),
       totalSize: response.totalSize,
       offset: response.offset,
       librarySectionTitle: response.librarySectionTitle,

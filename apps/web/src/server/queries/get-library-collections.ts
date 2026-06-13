@@ -7,17 +7,11 @@ import {
   type PaginatedHubContent,
 } from "~/server/queries/plex-server-context";
 
-export async function getLibraryContentQuery(
+export async function getLibraryCollectionsQuery(
   plex: PlexTvClient,
   machineIdentifier: string,
   sectionId: string,
-  options?: {
-    start?: number;
-    size?: number;
-    sort?: string;
-    type?: string;
-    filters?: Record<string, string>;
-  },
+  options?: { start?: number; size?: number },
 ): Promise<PaginatedHubContent> {
   try {
     const context = await resolvePlexServerContext(plex, machineIdentifier);
@@ -26,12 +20,9 @@ export async function getLibraryContentQuery(
       return EMPTY_PAGINATED_HUB_CONTENT;
     }
 
-    const response = await context.serverClient.getLibraryContent(sectionId, {
+    const response = await context.serverClient.getCollections(sectionId, {
       start: options?.start ?? 0,
       size: options?.size ?? LIBRARY_PAGE_SIZE,
-      sort: options?.sort ?? "addedAt:desc",
-      type: options?.type,
-      filters: options?.filters,
     });
 
     return {
