@@ -132,10 +132,7 @@ export function LibraryControls({
         <DropdownMenuContent align="start" className="max-h-[60vh]">
           <DropdownMenuCheckboxItem
             checked={!hasActiveFilters}
-            onSelect={(event) => {
-              event.preventDefault();
-              clearFilters();
-            }}
+            onSelect={() => clearFilters()}
           >
             All
           </DropdownMenuCheckboxItem>
@@ -143,10 +140,7 @@ export function LibraryControls({
             <DropdownMenuCheckboxItem
               key={filter.filter}
               checked={Boolean(filters[filter.filter])}
-              onSelect={(event) => {
-                event.preventDefault();
-                toggleBooleanFilter(filter.filter);
-              }}
+              onSelect={() => toggleBooleanFilter(filter.filter)}
             >
               {filter.title}
             </DropdownMenuCheckboxItem>
@@ -178,8 +172,7 @@ export function LibraryControls({
                 <DropdownMenuCheckboxItem
                   key={type.key}
                   checked={typeNumber === activeTypeNumber}
-                  onSelect={(event) => {
-                    event.preventDefault();
+                  onSelect={() => {
                     if (typeNumber) {
                       selectType(typeNumber);
                     }
@@ -209,10 +202,9 @@ export function LibraryControls({
             return (
               <DropdownMenuItem
                 key={entry.key}
-                onSelect={(event) => {
-                  event.preventDefault();
-                  selectSort(entry.key, entry.defaultDirection ?? "asc");
-                }}
+                onSelect={() =>
+                  selectSort(entry.key, entry.defaultDirection ?? "asc")
+                }
                 className={cn("flex items-center justify-between gap-4")}
               >
                 <span>{entry.title}</span>
@@ -269,10 +261,7 @@ function FilterSubmenu({
           <DropdownMenuCheckboxItem
             key={value.key}
             checked={activeValue === value.key}
-            onSelect={(event) => {
-              event.preventDefault();
-              onSelectValue(value.key);
-            }}
+            onSelect={() => onSelectValue(value.key)}
           >
             {value.title}
           </DropdownMenuCheckboxItem>
