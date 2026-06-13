@@ -79,6 +79,11 @@ export function extractLibraryFilters(
     if (RESERVED_LIBRARY_PARAMS.has(key)) {
       continue;
     }
+    // Never let a URL param masquerade as a Plex control param (e.g.
+    // `X-Plex-Container-Size`) and override pagination/auth downstream.
+    if (key.startsWith("X-Plex-")) {
+      continue;
+    }
     if (typeof value === "string" && value !== "") {
       filters[key] = value;
     }

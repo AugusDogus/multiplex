@@ -19,7 +19,7 @@ import {
   type CategoriesResponse,
   type FilterValuesResponse,
   type LibraryMetaResponse,
-  type LibraryPivot,
+  type LibrarySectionPivots,
 } from "../schemas/library-browse-schemas";
 import { assertAllowedHubKey } from "../utils/hub-key-utils";
 import { HUB_PAGE_SIZE, HUB_PREVIEW_SIZE, LIBRARY_PAGE_SIZE } from "../../constants/pagination";
@@ -384,7 +384,9 @@ export class PlexServerClient {
 
     if (params?.filters) {
       for (const [key, value] of Object.entries(params.filters)) {
-        if (value !== "") {
+        // Guard against callers smuggling Plex control params (pagination,
+        // auth) in through the filter bag.
+        if (value !== "" && !key.startsWith("X-Plex-")) {
           queryParams[key] = value;
         }
       }
@@ -496,8 +498,14 @@ export class PlexServerClient {
     const query = questionIndex === -1 ? "" : filterPath.slice(questionIndex + 1);
     const endpoint = path.startsWith("/") ? path.slice(1) : path;
 
+    // Carry through only the filter's own query params (e.g. `type=2`); drop
+    // any Plex control params so the caller can't override pagination/auth.
+    const passthroughParams = Object.fromEntries(
+      [...new URLSearchParams(query)].filter(([key]) => !key.startsWith("X-Plex-")),
+    );
+
     const queryParams: Record<string, string> = {
-      ...Object.fromEntries(new URLSearchParams(query)),
+      ...passthroughParams,
       "X-Plex-Container-Start": (params?.start ?? 0).toString(),
       "X-Plex-Container-Size": (params?.size ?? 200).toString(),
     };
@@ -513,8 +521,10 @@ export class PlexServerClient {
   /**
    * Derive the browsable pivots (tabs) for a library section from the media
    * providers payload, e.g. Recommended, Library, Collections, Categories.
+   * Also returns the section's display title (the directory carries it, so the
+   * caller avoids a separate request just to label the page).
    */
-  async getLibraryPivots(sectionId: string): Promise<LibraryPivot[]> {
+  async getLibraryPivots(sectionId: string): Promise<LibrarySectionPivots> {
     const providers = await this.getMediaProviders();
 
     for (const provider of providers.MediaContainer.MediaProvider) {
@@ -530,20 +540,23 @@ export class PlexServerClient {
             "Pivot" in directory &&
             directory.Pivot
           ) {
-            return directory.Pivot.map((pivot) => ({
-              id: pivot.id,
-              type: pivot.type,
-              key: pivot.key,
-              title: pivot.title,
-              symbol: pivot.symbol,
-              context: pivot.context,
-            }));
+            return {
+              title: directory.title,
+              pivots: directory.Pivot.map((pivot) => ({
+                id: pivot.id,
+                type: pivot.type,
+                key: pivot.key,
+                title: pivot.title,
+                symbol: pivot.symbol,
+                context: pivot.context,
+              })),
+            };
           }
         }
       }
     }
 
-    return [];
+    return { title: undefined, pivots: [] };
   }
 
   /**

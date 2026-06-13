@@ -33,13 +33,19 @@ export function LibraryTabs({ pivots }: LibraryTabsProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const source = searchParams.get("source");
-  const activePivot = searchParams.get("pivot") ?? "recommended";
 
   const tabs = pivots.filter((pivot) => isSupportedPivot(pivot.id));
 
   if (tabs.length <= 1) {
     return null;
   }
+
+  // Mirror the page's fallback: an unknown/unsupported pivot renders the
+  // Recommended content, so highlight Recommended rather than no tab.
+  const requestedPivot = searchParams.get("pivot") ?? "recommended";
+  const activePivot = tabs.some((pivot) => pivot.id === requestedPivot)
+    ? requestedPivot
+    : "recommended";
 
   return (
     <nav
