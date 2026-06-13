@@ -145,12 +145,7 @@ export type CategoryWithServer = CategoryDirectory & {
    Library pivots (tabs) derived from /media/providers
    ──────────────────────────────────────────────────────────── */
 
-export type LibraryPivotId =
-  | "recommended"
-  | "library"
-  | "collections"
-  | "categories"
-  | "playlists";
+export type LibraryPivotId = "recommended" | "library" | "collections" | "categories" | "playlists";
 
 export interface LibraryPivot {
   id: string;
