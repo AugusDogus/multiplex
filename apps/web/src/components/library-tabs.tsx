@@ -1,13 +1,26 @@
 "use client";
 
+import {
+  Layers,
+  LayoutGrid,
+  LibraryBig,
+  ListVideo,
+  Sparkles,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import type { ComponentType } from "react";
 import type { LibraryPivot } from "@multiplex/plex-query";
+import { SUPPORTED_PIVOT_LABELS } from "~/lib/library-constants";
 import { cn } from "~/lib/utils";
-import {
-  SUPPORTED_PIVOT_IDS,
-  SUPPORTED_PIVOT_LABELS,
-} from "~/lib/library-constants";
+
+const PIVOT_ICONS: Record<string, ComponentType<{ className?: string }>> = {
+  recommended: Sparkles,
+  library: LibraryBig,
+  collections: Layers,
+  categories: LayoutGrid,
+  playlists: ListVideo,
+};
 
 interface LibraryTabsProps {
   pivots: LibraryPivot[];
@@ -28,9 +41,13 @@ export function LibraryTabs({ pivots }: LibraryTabsProps) {
   }
 
   return (
-    <nav className="border-border/60 -mx-4 border-b px-4 md:-mx-8 md:px-8">
-      <div className="scrollbar-hide flex gap-6 overflow-x-auto">
+    <nav
+      aria-label="Library views"
+      className="scrollbar-hide -mx-1 overflow-x-auto px-1 py-0.5"
+    >
+      <div className="bg-muted/70 inline-flex items-center gap-1 rounded-full p-1">
         {tabs.map((pivot) => {
+          const Icon = PIVOT_ICONS[pivot.id] ?? Sparkles;
           const params = new URLSearchParams();
           if (source) {
             params.set("source", source);
@@ -46,12 +63,19 @@ export function LibraryTabs({ pivots }: LibraryTabsProps) {
               href={`${pathname}?${params.toString()}`}
               aria-current={isActive ? "page" : undefined}
               className={cn(
-                "-mb-px shrink-0 border-b-2 py-3 text-sm font-medium tracking-tight whitespace-nowrap transition-colors",
+                "flex shrink-0 items-center gap-2 rounded-full px-4 py-1.5 text-sm font-medium whitespace-nowrap transition-all",
+                "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
                 isActive
-                  ? "border-primary text-primary"
-                  : "text-muted-foreground hover:text-foreground border-transparent",
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
+              <Icon
+                className={cn(
+                  "size-4 shrink-0 transition-colors",
+                  isActive ? "text-foreground" : "text-muted-foreground",
+                )}
+              />
               {SUPPORTED_PIVOT_LABELS[pivot.id] ?? pivot.title}
             </Link>
           );
