@@ -25,8 +25,14 @@ export async function getLibraryCollectionsQuery(
       size: options?.size ?? LIBRARY_PAGE_SIZE,
     });
 
+    // Empty collections have no composite poster; drop the thumb so the card
+    // renders its placeholder instead of attempting a broken image request.
+    const items = response.items.map((item) =>
+      item.childCount === 0 ? { ...item, thumb: undefined } : item,
+    );
+
     return {
-      items: enrichHubItemsWithServer(response.items, context),
+      items: enrichHubItemsWithServer(items, context),
       totalSize: response.totalSize,
       offset: response.offset,
       librarySectionTitle: response.librarySectionTitle,
