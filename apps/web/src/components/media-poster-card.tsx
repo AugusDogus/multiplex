@@ -9,7 +9,7 @@ import {
   getThumbnailUrl,
   type HubItemWithServer,
 } from "@multiplex/plex-query";
-import { getItemDetailsHref } from "~/lib/plex-routes";
+import { getHubItemHref } from "~/lib/plex-routes";
 
 interface MediaPosterCardProps {
   item: HubItemWithServer;
@@ -24,7 +24,7 @@ export function MediaPosterCard({
 }: MediaPosterCardProps) {
   const title = getHubItemTitle(item);
   const subtitle = getHubItemSubtitle(item);
-  const detailsHref = getItemDetailsHref(item.serverId, item.ratingKey);
+  const detailsHref = getHubItemHref(item.serverId, item);
   const thumbnailUrl = getThumbnailUrl(item, item.serverUrl, item.authToken);
 
   const posterClassName =
