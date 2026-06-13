@@ -300,7 +300,11 @@ export function getPlayButtonLabel(
 export type MetadataPosterInput = Pick<
   ItemMetadata,
   "type" | "thumb" | "grandparentThumb" | "parentThumb"
->;
+> & {
+  /** Collections/playlists expose a mosaic poster here instead of `thumb`. */
+  composite?: string;
+  childCount?: number;
+};
 
 export function getPosterImagePath(item: MetadataPosterInput): string | undefined {
   if (item.type === "episode") {
@@ -309,6 +313,19 @@ export function getPosterImagePath(item: MetadataPosterInput): string | undefine
 
   if (item.type === "season") {
     return item.parentThumb ?? item.thumb;
+  }
+
+  if (item.type === "playlist") {
+    return item.composite ?? item.thumb;
+  }
+
+  if (item.type === "collection") {
+    // An empty collection's composite poster renders nothing, so fall back to
+    // the placeholder rather than requesting a broken image.
+    if (item.childCount === 0 && item.thumb?.includes("/composite/")) {
+      return undefined;
+    }
+    return item.thumb;
   }
 
   return item.thumb;
