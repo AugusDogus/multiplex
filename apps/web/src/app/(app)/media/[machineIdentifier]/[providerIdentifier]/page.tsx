@@ -1,8 +1,11 @@
 import { AppCenteredMessage } from "~/components/app-centered-message";
 import { AppPageLayout } from "~/components/app-page-layout";
 import { LibraryBrowse } from "~/components/library-browse";
+import { LibraryCategories } from "~/components/library-categories";
+import { LibraryCollections } from "~/components/library-collections";
 import { LibraryControls } from "~/components/library-controls";
 import { LibraryHeaderDropdown } from "~/components/library-header-dropdown";
+import { LibraryPlaylists } from "~/components/library-playlists";
 import { LibraryRecommended } from "~/components/library-recommended";
 import { LibraryTabs, SUPPORTED_PIVOT_IDS } from "~/components/library-tabs";
 import {
@@ -172,6 +175,55 @@ async function renderPivotContent({
           initialContent={libraryContent}
         />
       </div>
+    );
+  }
+
+  if (activePivot === "collections") {
+    const collections = await api.plex.getLibraryCollections({
+      machineIdentifier,
+      sectionId,
+      start: 0,
+      size: LIBRARY_PAGE_SIZE,
+    });
+
+    return (
+      <LibraryCollections
+        machineIdentifier={machineIdentifier}
+        sectionId={sectionId}
+        initialContent={collections}
+      />
+    );
+  }
+
+  if (activePivot === "categories") {
+    const { categories } = await api.plex.getLibraryCategories({
+      machineIdentifier,
+      sectionId,
+    });
+
+    return (
+      <LibraryCategories
+        machineIdentifier={machineIdentifier}
+        sectionId={sectionId}
+        categories={categories}
+      />
+    );
+  }
+
+  if (activePivot === "playlists") {
+    const playlists = await api.plex.getLibraryPlaylists({
+      machineIdentifier,
+      sectionId,
+      start: 0,
+      size: LIBRARY_PAGE_SIZE,
+    });
+
+    return (
+      <LibraryPlaylists
+        machineIdentifier={machineIdentifier}
+        sectionId={sectionId}
+        initialContent={playlists}
+      />
     );
   }
 

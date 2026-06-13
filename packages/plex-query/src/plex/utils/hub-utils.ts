@@ -30,7 +30,20 @@ export function getHubItemTitle(item: HubItem): string {
   return item.title;
 }
 
+function formatItemCount(count: number | undefined): string {
+  const safeCount = count ?? 0;
+  return `${safeCount} item${safeCount === 1 ? "" : "s"}`;
+}
+
 export function getHubItemSubtitle(item: HubItem): string {
+  if (item.type === "collection") {
+    return formatItemCount(item.childCount);
+  }
+
+  if (item.type === "playlist") {
+    return formatItemCount(item.leafCount);
+  }
+
   if (item.type === "episode") {
     const seasonEpisode = formatSeasonEpisodeLabel(item.parentIndex, item.index);
     const parts = [item.title, seasonEpisode].filter(Boolean);

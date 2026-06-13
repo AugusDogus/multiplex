@@ -163,12 +163,7 @@ export const plexRouter = createTRPCRouter({
         machineIdentifier: z.string(),
         sectionId: z.string(),
         start: z.number().int().min(0).default(0),
-        size: z
-          .number()
-          .int()
-          .min(1)
-          .max(LIBRARY_PAGE_SIZE)
-          .default(LIBRARY_PAGE_SIZE),
+        size: z.number().int().min(1).max(500).default(200),
       }),
     )
     .query(async ({ ctx, input }) => {

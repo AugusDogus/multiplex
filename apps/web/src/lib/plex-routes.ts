@@ -125,6 +125,33 @@ export function getItemDetailsHref(
   return `/server/${machineIdentifier}/details?key=/library/metadata/${ratingKey}`;
 }
 
+/**
+ * Resolve where a hub/grid item links to. Most items open their details page;
+ * collections and playlists open a hub page listing their children/items.
+ */
+export function getHubItemHref(
+  machineIdentifier: string,
+  item: { type: string; ratingKey: string; title: string },
+): string {
+  if (item.type === "collection") {
+    return getHubHref(
+      machineIdentifier,
+      `/library/collections/${item.ratingKey}/children`,
+      item.title,
+    );
+  }
+
+  if (item.type === "playlist") {
+    return getHubHref(
+      machineIdentifier,
+      `/playlists/${item.ratingKey}/items`,
+      item.title,
+    );
+  }
+
+  return getItemDetailsHref(machineIdentifier, item.ratingKey);
+}
+
 export function getHubHref(
   machineIdentifier: string,
   hubKey: string,
