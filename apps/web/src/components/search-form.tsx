@@ -5,12 +5,23 @@ import { Search } from "lucide-react";
 import { Label } from "~/components/ui/label";
 import { Button } from "~/components/ui/button";
 import { SidebarInput } from "~/components/ui/sidebar";
+import { cn } from "~/lib/utils";
 
 interface SearchFormProps extends React.ComponentProps<"div"> {
   onSearchClick: () => void;
+  /**
+   * When true, the full input stays hidden until the app header container is
+   * wide enough (@5xl/appheader); between md and that breakpoint only the icon
+   * shows. Below md, search lives in the mobile bottom nav instead.
+   */
+  collapseAtContainer?: boolean;
 }
 
-export function SearchForm({ onSearchClick, ...props }: SearchFormProps) {
+export function SearchForm({
+  onSearchClick,
+  collapseAtContainer = false,
+  ...props
+}: SearchFormProps) {
   const [isMac, setIsMac] = React.useState(false);
 
   React.useEffect(() => {
@@ -27,7 +38,12 @@ export function SearchForm({ onSearchClick, ...props }: SearchFormProps) {
         variant="ghost"
         size="sm"
         onClick={onSearchClick}
-        className="h-8 w-8 p-0 md:hidden"
+        className={cn(
+          "h-8 w-8 p-0",
+          collapseAtContainer
+            ? "hidden md:inline-flex @5xl/appheader:hidden"
+            : "md:hidden",
+        )}
       >
         <Search className="h-4 w-4" />
         <span className="sr-only">Search</span>
@@ -35,7 +51,10 @@ export function SearchForm({ onSearchClick, ...props }: SearchFormProps) {
 
       {/* Desktop: Show search input */}
       <div
-        className="relative hidden cursor-pointer md:block"
+        className={cn(
+          "relative hidden cursor-pointer",
+          collapseAtContainer ? "@5xl/appheader:block" : "md:block",
+        )}
         onClick={onSearchClick}
       >
         <Label htmlFor="search" className="sr-only">

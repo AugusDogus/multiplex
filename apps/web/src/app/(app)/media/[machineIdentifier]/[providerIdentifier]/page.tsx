@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import type { LibraryPivotId } from "@multiplex/plex-query";
 import { AppCenteredMessage } from "~/components/app-centered-message";
 import { AppPageLayout } from "~/components/app-page-layout";
@@ -5,6 +6,7 @@ import { LibraryBrowse } from "~/components/library-browse";
 import { LibraryCategories } from "~/components/library-categories";
 import { LibraryControls } from "~/components/library-controls";
 import { LibraryHeaderDropdown } from "~/components/library-header-dropdown";
+import { LibraryPivotSkeleton } from "~/components/library-pivot-skeleton";
 import { LibraryPosterTab } from "~/components/library-poster-tab";
 import { LibraryRecommended } from "~/components/library-recommended";
 import { LibraryTabs } from "~/components/library-tabs";
@@ -90,13 +92,6 @@ export default async function MediaLibraryPage({
     librarySectionTitle,
   });
 
-  const content = await renderPivotContent({
-    activePivot,
-    machineIdentifier,
-    sectionId: source,
-    searchParams: resolvedSearchParams,
-  });
-
   return (
     <AppPageLayout
       title={title}
@@ -108,11 +103,25 @@ export default async function MediaLibraryPage({
           userInfo={userInfo}
         />
       }
+      headerCenter={<LibraryTabs pivots={supportedPivots} />}
     >
-      <LibraryTabs pivots={supportedPivots} />
-      {content}
+      <Suspense
+        key={activePivot}
+        fallback={<LibraryPivotSkeleton pivot={activePivot} />}
+      >
+        <LibraryPivotContent
+          activePivot={activePivot}
+          machineIdentifier={machineIdentifier}
+          sectionId={source}
+          searchParams={resolvedSearchParams}
+        />
+      </Suspense>
     </AppPageLayout>
   );
+}
+
+async function LibraryPivotContent(props: PivotContentProps) {
+  return renderPivotContent(props);
 }
 
 interface PivotContentProps {

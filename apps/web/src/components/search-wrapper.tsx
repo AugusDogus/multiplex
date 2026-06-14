@@ -9,9 +9,13 @@ import { getItemDetailsHref } from "~/lib/plex-routes";
 
 interface SearchWrapperProps {
   className?: string;
+  collapseAtContainer?: boolean;
 }
 
-export function SearchWrapper({ className }: SearchWrapperProps) {
+export function SearchWrapper({
+  className,
+  collapseAtContainer = false,
+}: SearchWrapperProps) {
   const router = useRouter();
   const [searchModalOpen, setSearchModalOpen] = React.useState(false);
 
@@ -38,7 +42,11 @@ export function SearchWrapper({ className }: SearchWrapperProps) {
 
   return (
     <>
-      <SearchForm className={className} onSearchClick={handleSearchClick} />
+      <SearchForm
+        className={className}
+        onSearchClick={handleSearchClick}
+        collapseAtContainer={collapseAtContainer}
+      />
       <SearchCommandModal
         open={searchModalOpen}
         onOpenChange={setSearchModalOpen}

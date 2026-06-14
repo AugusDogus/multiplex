@@ -31,18 +31,15 @@ export function MediaPosterCard({
 
   const posterClassName =
     layout === "grid"
-      ? "bg-muted group relative block aspect-[2/3] w-full overflow-hidden rounded-md shadow-lg transition-all duration-200 hover:shadow-xl active:scale-[0.98]"
+      ? "bg-muted group relative block h-[180px] w-[120px] overflow-hidden rounded-md shadow-lg transition-all duration-200 hover:shadow-xl active:scale-[0.98] sm:h-[210px] sm:w-[140px] md:h-[240px] md:w-[160px]"
       : "bg-muted group relative block h-[180px] w-[120px] overflow-hidden rounded-md shadow-lg transition-all duration-200 hover:shadow-xl active:scale-[0.98] sm:h-[210px] sm:w-[140px] md:h-[240px] md:w-[160px]";
 
   const metadataClassName =
     layout === "grid"
-      ? "focus-visible:ring-ring w-full rounded-sm text-left focus-visible:ring-2 focus-visible:outline-none"
+      ? "focus-visible:ring-ring w-[120px] rounded-sm text-left focus-visible:ring-2 focus-visible:outline-none sm:w-[140px] md:w-[160px]"
       : "focus-visible:ring-ring w-[120px] rounded-sm text-left focus-visible:ring-2 focus-visible:outline-none sm:w-[140px] md:w-[160px]";
 
-  const containerClassName =
-    layout === "grid"
-      ? `flex w-full flex-col gap-2 ${className ?? ""}`
-      : `flex shrink-0 flex-col gap-2 ${className ?? ""}`;
+  const containerClassName = `flex shrink-0 flex-col gap-2 ${className ?? ""}`;
 
   return (
     <div className={containerClassName}>

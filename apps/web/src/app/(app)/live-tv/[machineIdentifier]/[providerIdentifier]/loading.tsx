@@ -5,7 +5,7 @@ import { TvGuideSkeleton } from "~/components/tv-guide-skeleton";
 export default function LiveTvLoading() {
   return (
     <>
-      <AppHeaderSkeleton />
+      <AppHeaderSkeleton mobile />
       <AppPageContent>
         <TvGuideSkeleton />
       </AppPageContent>

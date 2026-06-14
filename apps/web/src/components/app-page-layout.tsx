@@ -6,6 +6,7 @@ import { AppPageContent } from "~/components/app-page-content";
 interface AppPageLayoutProps {
   title: ReactNode;
   mobileHeader?: ReactNode;
+  headerCenter?: ReactNode;
   children: ReactNode;
   spacing?: "home" | "default";
 }
@@ -13,12 +14,15 @@ interface AppPageLayoutProps {
 export function AppPageLayout({
   title,
   mobileHeader,
+  headerCenter,
   children,
   spacing = "default",
 }: AppPageLayoutProps) {
   return (
     <>
-      <AppHeader mobile={mobileHeader}>{title}</AppHeader>
+      <AppHeader mobile={mobileHeader} center={headerCenter}>
+        {title}
+      </AppHeader>
       <AppPageContent spacing={spacing}>{children}</AppPageContent>
     </>
   );
