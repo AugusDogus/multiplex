@@ -5,10 +5,8 @@ import type { HubItemWithServer } from "@multiplex/plex-query";
 
 import { MediaPosterCard } from "~/components/media-poster-card";
 import { PosterCardSkeleton } from "~/components/poster-card-skeleton";
-import {
-  getPosterGridColumnsStyle,
-  POSTER_GRID_VIRTUAL_ROW_CLASSNAME,
-} from "~/lib/poster-grid-layout";
+import { getPosterGridTemplateColumns } from "~/lib/poster-grid-layout";
+import { cn } from "~/lib/utils";
 
 function PosterGridCell({ item }: { item?: HubItemWithServer }) {
   if (item) {
@@ -41,14 +39,16 @@ export function PosterGridRow({
   measureElement,
   rowIndex,
 }: PosterGridRowProps) {
-  const columnStyle = getPosterGridColumnsStyle(columnCount, viewportWidth);
   return (
     <div
       data-index={rowIndex}
       ref={measureElement}
-      className={className ?? POSTER_GRID_VIRTUAL_ROW_CLASSNAME}
+      className={cn("grid justify-items-center gap-x-3 sm:gap-x-4", className)}
       style={{
-        ...columnStyle,
+        gridTemplateColumns: getPosterGridTemplateColumns(
+          columnCount,
+          viewportWidth,
+        ),
         ...style,
       }}
     >

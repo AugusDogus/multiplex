@@ -1,38 +1,39 @@
-/** Matches MediaPosterCard row layout: 120 -> 140 (sm) -> 160 (md). */
-export const POSTER_WIDTH_CLASSNAME = "w-[120px] sm:w-[140px] md:w-[160px]";
-
-export const POSTER_HEIGHT_CLASSNAME = "h-[180px] sm:h-[210px] md:h-[240px]";
-
-export const POSTER_METADATA_WIDTH_CLASSNAME =
-  "w-[120px] sm:w-[140px] md:w-[160px]";
-
-export const POSTER_CARD_CONTAINER_CLASSNAME = "flex shrink-0 flex-col gap-2";
-
-export const POSTER_GRID_STATIC_CLASSNAME =
-  "grid grid-cols-[repeat(auto-fill,minmax(min(120px,100%),1fr))] justify-items-center gap-x-3 gap-y-5 sm:grid-cols-[repeat(auto-fill,minmax(140px,1fr))] sm:gap-x-4 md:grid-cols-[repeat(auto-fill,minmax(160px,1fr))]";
-
 /** Vertical spacing between poster rows (matches Tailwind gap-y-5). */
 export const POSTER_GRID_ROW_GAP_PX = 20;
 
-export const POSTER_GRID_VIRTUAL_ROW_CLASSNAME =
-  "grid justify-items-center gap-x-3 sm:gap-x-4";
-
 export const POSTER_GRID_INSET_CLASSNAME = "px-4 md:px-8";
 
-export const POSTER_GRID_CONTAINER_CLASSNAME = `w-full min-w-0 ${POSTER_GRID_INSET_CLASSNAME}`;
+const POSTER_WIDTH_PX = {
+  base: 120,
+  sm: 140,
+  md: 160,
+} as const;
 
-export function getPosterTargetWidth(viewportWidth: number): number {
+const POSTER_HEIGHT_PX = {
+  base: 180,
+  sm: 210,
+  md: 240,
+} as const;
+
+const POSTER_GRID_COLUMN_GAP_PX = {
+  base: 12,
+  sm: 16,
+} as const;
+
+function getPosterWidth(viewportWidth: number): number {
   if (viewportWidth >= 768) {
-    return 160;
+    return POSTER_WIDTH_PX.md;
   }
   if (viewportWidth >= 640) {
-    return 140;
+    return POSTER_WIDTH_PX.sm;
   }
-  return 120;
+  return POSTER_WIDTH_PX.base;
 }
 
-export function getPosterGridGap(viewportWidth: number): number {
-  return viewportWidth >= 640 ? 16 : 12;
+function getPosterGridColumnGap(viewportWidth: number): number {
+  return viewportWidth >= 640
+    ? POSTER_GRID_COLUMN_GAP_PX.sm
+    : POSTER_GRID_COLUMN_GAP_PX.base;
 }
 
 /** Prefer enough columns that fixed-width tracks fit without overflowing. */
@@ -40,31 +41,27 @@ export function getPosterGridColumnsForWidth(
   trackWidth: number,
   viewportWidth: number,
 ): number {
-  const targetWidth = getPosterTargetWidth(viewportWidth);
-  const gap = getPosterGridGap(viewportWidth);
+  const targetWidth = getPosterWidth(viewportWidth);
+  const gap = getPosterGridColumnGap(viewportWidth);
   return Math.max(1, Math.floor((trackWidth + gap) / (targetWidth + gap)));
 }
 
-export function getPosterGridColumnsStyle(
+export function getPosterGridTemplateColumns(
   columnCount: number,
   viewportWidth: number,
-): {
-  gridTemplateColumns: string;
-} {
-  const targetWidth = getPosterTargetWidth(viewportWidth);
-  return {
-    gridTemplateColumns: `repeat(${columnCount}, minmax(${targetWidth}px, 1fr))`,
-  };
+): string {
+  const targetWidth = getPosterWidth(viewportWidth);
+  return `repeat(${columnCount}, minmax(${targetWidth}px, 1fr))`;
 }
 
-export function getPosterHeight(viewportWidth: number): number {
+function getPosterHeight(viewportWidth: number): number {
   if (viewportWidth >= 768) {
-    return 240;
+    return POSTER_HEIGHT_PX.md;
   }
   if (viewportWidth >= 640) {
-    return 210;
+    return POSTER_HEIGHT_PX.sm;
   }
-  return 180;
+  return POSTER_HEIGHT_PX.base;
 }
 
 /** Poster card stack only; excludes inter-row gap. */

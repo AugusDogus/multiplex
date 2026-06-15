@@ -10,12 +10,6 @@ import {
   getThumbnailUrl,
   type HubItemWithServer,
 } from "@multiplex/plex-query";
-import {
-  POSTER_CARD_CONTAINER_CLASSNAME,
-  POSTER_HEIGHT_CLASSNAME,
-  POSTER_METADATA_WIDTH_CLASSNAME,
-  POSTER_WIDTH_CLASSNAME,
-} from "~/lib/poster-grid-layout";
 import { getHubItemHref } from "~/lib/plex-routes";
 import { cn } from "~/lib/utils";
 
@@ -31,19 +25,14 @@ export function MediaPosterCard({ item, className }: MediaPosterCardProps) {
   const detailsHref = getHubItemHref(item.serverId, item);
   const thumbnailUrl = getThumbnailUrl(item, item.serverUrl, item.authToken);
 
-  const posterClassName = cn(
-    "bg-muted group relative block overflow-hidden rounded-md shadow-lg transition-all duration-200 hover:shadow-xl active:scale-[0.98]",
-    POSTER_HEIGHT_CLASSNAME,
-    POSTER_WIDTH_CLASSNAME,
-  );
+  const posterClassName =
+    "bg-muted group relative block h-[180px] w-[120px] overflow-hidden rounded-md shadow-lg transition-all duration-200 hover:shadow-xl active:scale-[0.98] sm:h-[210px] sm:w-[140px] md:h-[240px] md:w-[160px]";
 
-  const metadataClassName = cn(
-    "focus-visible:ring-ring rounded-sm text-left focus-visible:ring-2 focus-visible:outline-none",
-    POSTER_METADATA_WIDTH_CLASSNAME,
-  );
+  const metadataClassName =
+    "focus-visible:ring-ring w-[120px] rounded-sm text-left focus-visible:ring-2 focus-visible:outline-none sm:w-[140px] md:w-[160px]";
 
   return (
-    <div className={cn(POSTER_CARD_CONTAINER_CLASSNAME, className)}>
+    <div className={cn("flex shrink-0 flex-col gap-2", className)}>
       <Link
         href={detailsHref}
         aria-label={`View details for ${title}`}

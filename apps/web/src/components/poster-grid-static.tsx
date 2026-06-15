@@ -3,7 +3,7 @@
 import type { HubItemWithServer } from "@multiplex/plex-query";
 
 import { MediaPosterCard } from "~/components/media-poster-card";
-import { POSTER_GRID_STATIC_CLASSNAME } from "~/lib/poster-grid-layout";
+import { PosterGridStaticLayout } from "~/components/poster-grid-static-layout";
 
 interface PosterGridStaticProps {
   items: HubItemWithServer[];
@@ -11,13 +11,13 @@ interface PosterGridStaticProps {
 
 export function PosterGridStatic({ items }: PosterGridStaticProps) {
   return (
-    <div className={POSTER_GRID_STATIC_CLASSNAME}>
+    <PosterGridStaticLayout>
       {items.map((item) => (
         <MediaPosterCard
           key={`${item.serverId}-${item.ratingKey}`}
           item={item}
         />
       ))}
-    </div>
+    </PosterGridStaticLayout>
   );
 }

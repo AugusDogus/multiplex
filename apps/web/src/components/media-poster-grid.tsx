@@ -16,9 +16,8 @@ import { PosterGridStatic } from "~/components/poster-grid-static";
 import { usePosterGridLayout } from "~/hooks/use-poster-grid-layout";
 import {
   getPosterGridRowContentHeight,
-  POSTER_GRID_CONTAINER_CLASSNAME,
+  POSTER_GRID_INSET_CLASSNAME,
   POSTER_GRID_ROW_GAP_PX,
-  POSTER_GRID_VIRTUAL_ROW_CLASSNAME,
 } from "~/lib/poster-grid-layout";
 
 export interface PaginatedPosterResult {
@@ -73,7 +72,7 @@ const VirtualizedPosterGridRow = memo(function VirtualizedPosterGridRow({
       startIndex={startIndex}
       resolvedItems={resolvedItems}
       measureElement={measureElement}
-      className={`absolute top-0 left-0 w-full ${POSTER_GRID_VIRTUAL_ROW_CLASSNAME}`}
+      className="absolute top-0 left-0 w-full"
       style={{
         transform: `translateY(${translateY}px)`,
       }}
@@ -246,7 +245,10 @@ export function MediaPosterGrid({
   }
 
   return (
-    <div ref={containerRef} className={POSTER_GRID_CONTAINER_CLASSNAME}>
+    <div
+      ref={containerRef}
+      className={`w-full min-w-0 ${POSTER_GRID_INSET_CLASSNAME}`}
+    >
       {!isReady || scrollMargin === null ? (
         <PosterGridStatic items={items} />
       ) : (
