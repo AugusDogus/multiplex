@@ -8,14 +8,6 @@ import { PosterCardSkeleton } from "~/components/poster-card-skeleton";
 import { getPosterGridTemplateColumns } from "~/lib/poster-grid-layout";
 import { cn } from "~/lib/utils";
 
-function PosterGridCell({ item }: { item?: HubItemWithServer }) {
-  if (item) {
-    return <MediaPosterCard item={item} />;
-  }
-
-  return <PosterCardSkeleton />;
-}
-
 export interface PosterGridRowProps {
   columnCount: number;
   viewportWidth: number;
@@ -55,12 +47,12 @@ export function PosterGridRow({
       {Array.from({ length: cellCount }, (_, column) => {
         const item = resolvedItems[startIndex + column];
         return item ? (
-          <PosterGridCell
+          <MediaPosterCard
             key={`${item.serverId}-${item.ratingKey}`}
             item={item}
           />
         ) : (
-          <PosterGridCell key={`skeleton-${startIndex + column}`} />
+          <PosterCardSkeleton key={`skeleton-${startIndex + column}`} />
         );
       })}
     </div>
