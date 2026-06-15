@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
 import { getTypeNumber } from "~/lib/library-browse-params";
+import { POSTER_GRID_INSET_CLASSNAME } from "~/lib/poster-grid-layout";
 import { cn } from "~/lib/utils";
 import { api } from "~/trpc/react";
 
@@ -126,7 +127,9 @@ export function LibraryControls({
   const sortLabel = activeSort?.title ?? "Title";
 
   return (
-    <div className="flex flex-wrap items-center gap-x-1 gap-y-2 text-sm">
+    <div
+      className={`flex flex-wrap items-center gap-x-1 gap-y-2 text-sm ${POSTER_GRID_INSET_CLASSNAME}`}
+    >
       {/* Filter menu */}
       <DropdownMenu open={filterMenuOpen} onOpenChange={setFilterMenuOpen}>
         <DropdownMenuTrigger className="hover:bg-accent/60 flex items-center gap-1 rounded-md px-2 py-1 font-medium">

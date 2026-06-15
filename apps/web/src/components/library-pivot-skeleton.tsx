@@ -3,12 +3,13 @@ import type { LibraryPivotId } from "@multiplex/plex-query";
 import { LibraryBrowseSkeleton } from "~/components/library-browse-skeleton";
 import { PosterGridSkeleton } from "~/components/poster-grid-skeleton";
 import { Skeleton } from "~/components/ui/skeleton";
+import { POSTER_GRID_INSET_CLASSNAME } from "~/lib/poster-grid-layout";
 
 function LibraryControlsSkeleton() {
   return (
     <div
       aria-hidden="true"
-      className="flex flex-wrap items-center gap-x-1 gap-y-2"
+      className={`flex flex-wrap items-center gap-x-1 gap-y-2 ${POSTER_GRID_INSET_CLASSNAME}`}
     >
       <Skeleton className="h-7 w-14 rounded-md" />
       <Skeleton className="h-7 w-20 rounded-md" />

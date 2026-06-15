@@ -17,7 +17,9 @@ export const POSTER_GRID_ROW_GAP_PX = 20;
 export const POSTER_GRID_VIRTUAL_ROW_CLASSNAME =
   "grid justify-items-center gap-x-3 sm:gap-x-4";
 
-export const POSTER_GRID_CONTAINER_CLASSNAME = "w-full min-w-0 px-4 md:px-8";
+export const POSTER_GRID_INSET_CLASSNAME = "px-4 md:px-8";
+
+export const POSTER_GRID_CONTAINER_CLASSNAME = `w-full min-w-0 ${POSTER_GRID_INSET_CLASSNAME}`;
 
 export function getPosterTargetWidth(viewportWidth: number): number {
   if (viewportWidth >= 768) {
