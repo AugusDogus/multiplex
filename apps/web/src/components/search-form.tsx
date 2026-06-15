@@ -5,7 +5,10 @@ import { Search } from "lucide-react";
 import { Label } from "~/components/ui/label";
 import { Button } from "~/components/ui/button";
 import { SidebarInput } from "~/components/ui/sidebar";
-import { cn } from "~/lib/utils";
+import {
+  getAppHeaderSearchIconClassName,
+  getAppHeaderSearchInputClassName,
+} from "~/lib/app-header-search";
 
 interface SearchFormProps extends React.ComponentProps<"div"> {
   onSearchClick: () => void;
@@ -38,12 +41,7 @@ export function SearchForm({
         variant="ghost"
         size="sm"
         onClick={onSearchClick}
-        className={cn(
-          "h-8 w-8 p-0",
-          collapseAtContainer
-            ? "hidden md:inline-flex @5xl/appheader:hidden"
-            : "md:hidden",
-        )}
+        className={getAppHeaderSearchIconClassName(collapseAtContainer)}
       >
         <Search className="h-4 w-4" />
         <span className="sr-only">Search</span>
@@ -51,10 +49,7 @@ export function SearchForm({
 
       {/* Desktop: Show search input */}
       <div
-        className={cn(
-          "relative hidden cursor-pointer",
-          collapseAtContainer ? "@5xl/appheader:block" : "md:block",
-        )}
+        className={getAppHeaderSearchInputClassName(collapseAtContainer)}
         onClick={onSearchClick}
       >
         <Label htmlFor="search" className="sr-only">

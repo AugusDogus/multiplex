@@ -31,6 +31,13 @@ interface PageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
+interface PivotContentProps {
+  activePivot: LibraryPivotId;
+  machineIdentifier: string;
+  sectionId: string;
+  searchParams: Record<string, string | string[] | undefined>;
+}
+
 function firstParam(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -121,17 +128,6 @@ export default async function MediaLibraryPage({
 }
 
 async function LibraryPivotContent(props: PivotContentProps) {
-  return renderPivotContent(props);
-}
-
-interface PivotContentProps {
-  activePivot: LibraryPivotId;
-  machineIdentifier: string;
-  sectionId: string;
-  searchParams: Record<string, string | string[] | undefined>;
-}
-
-async function renderPivotContent(props: PivotContentProps) {
   const { activePivot, machineIdentifier, sectionId } = props;
 
   switch (activePivot) {

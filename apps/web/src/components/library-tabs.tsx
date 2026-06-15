@@ -44,6 +44,7 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
   const [alignTabs, setAlignTabs] = useState<"center" | "start">("center");
 
   const tabs = pivots.filter((pivot) => isSupportedPivot(pivot.id));
+  const tabIds = tabs.map((pivot) => pivot.id).join(",");
 
   const updateAlignment = useCallback(() => {
     const element = scrollRef.current;
@@ -67,8 +68,13 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
     const observer = new ResizeObserver(updateAlignment);
     observer.observe(element);
 
-    return () => observer.disconnect();
-  }, [tabs.length, updateAlignment]);
+    window.addEventListener("resize", updateAlignment);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateAlignment);
+    };
+  }, [tabIds, updateAlignment]);
 
   if (tabs.length <= 1) {
     return null;
