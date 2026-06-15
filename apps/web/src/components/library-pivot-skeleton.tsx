@@ -1,7 +1,7 @@
 import type { LibraryPivotId } from "@multiplex/plex-query";
 
 import { LibraryBrowseSkeleton } from "~/components/library-browse-skeleton";
-import { PosterGridSkeleton } from "~/components/media-poster-grid";
+import { PosterGridSkeleton } from "~/components/poster-grid-skeleton";
 import { Skeleton } from "~/components/ui/skeleton";
 
 function LibraryControlsSkeleton() {
@@ -21,7 +21,7 @@ function LibraryGridSkeleton() {
   return (
     <div className="flex flex-col gap-4">
       <LibraryControlsSkeleton />
-      <PosterGridSkeleton rows={3} />
+      <PosterGridSkeleton />
     </div>
   );
 }
@@ -43,7 +43,7 @@ export function LibraryPivotSkeleton({ pivot }: { pivot: LibraryPivotId }) {
 
     case "collections":
     case "playlists":
-      return <PosterGridSkeleton rows={3} />;
+      return <PosterGridSkeleton />;
 
     case "categories":
       return <LibraryCategoriesSkeleton />;

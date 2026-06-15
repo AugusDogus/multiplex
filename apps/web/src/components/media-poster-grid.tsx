@@ -7,21 +7,18 @@ import {
   useLayoutEffect,
   useMemo,
   useState,
-  useSyncExternalStore,
 } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import type { HubItemWithServer } from "@multiplex/plex-query";
-import { MediaPosterCard } from "~/components/media-poster-card";
-import { Skeleton } from "~/components/ui/skeleton";
+import { PosterGridRow } from "~/components/poster-grid-row";
+import { PosterGridStatic } from "~/components/poster-grid-static";
+import { usePosterGridLayout } from "~/hooks/use-poster-grid-layout";
 import {
-  estimatePosterGridTrackWidth,
-  getPosterGridColumnsForWidth,
-  getPosterGridColumnsStyle,
-  getPosterGridRowHeightEstimate,
-  measurePosterGridTrackWidth,
+  getPosterGridRowContentHeight,
   POSTER_GRID_CONTAINER_CLASSNAME,
-  POSTER_GRID_ROW_CLASSNAME,
+  POSTER_GRID_ROW_GAP_PX,
+  POSTER_GRID_VIRTUAL_ROW_CLASSNAME,
 } from "~/lib/poster-grid-layout";
 
 export interface PaginatedPosterResult {
@@ -44,190 +41,6 @@ interface MediaPosterGridProps {
     size: number;
   }) => Promise<PaginatedPosterResult | null>;
   emptyMessage?: string;
-}
-
-export function PosterCardSkeleton() {
-  return (
-    <div className="flex shrink-0 flex-col gap-2">
-      <Skeleton className="h-[180px] w-[120px] rounded-md sm:h-[210px] sm:w-[140px] md:h-[240px] md:w-[160px]" />
-      <div className="flex w-[120px] flex-col sm:w-[140px] md:w-[160px]">
-        <Skeleton className="h-[18px] w-full rounded-sm" />
-        <Skeleton className="h-[15px] w-2/3 rounded-sm" />
-      </div>
-    </div>
-  );
-}
-
-function PosterGridCell({ item }: { item?: HubItemWithServer }) {
-  if (item) {
-    return <MediaPosterCard item={item} layout="grid" />;
-  }
-
-  return <PosterCardSkeleton />;
-}
-
-interface PosterGridRowProps {
-  columns: number;
-  viewportWidth: number;
-  cellCount: number;
-  startIndex: number;
-  resolvedItems: (HubItemWithServer | undefined)[];
-  className?: string;
-  style?: React.CSSProperties;
-  measureElement?: (element: Element | null) => void;
-  rowIndex?: number;
-}
-
-function PosterGridRow({
-  columns,
-  viewportWidth,
-  cellCount,
-  startIndex,
-  resolvedItems,
-  className,
-  style,
-  measureElement,
-  rowIndex,
-}: PosterGridRowProps) {
-  return (
-    <div
-      data-index={rowIndex}
-      ref={measureElement}
-      className={className ?? POSTER_GRID_ROW_CLASSNAME}
-      style={{
-        ...getPosterGridColumnsStyle(columns, viewportWidth),
-        ...style,
-      }}
-    >
-      {Array.from({ length: cellCount }, (_, column) => {
-        const item = resolvedItems[startIndex + column];
-        return item ? (
-          <PosterGridCell
-            key={`${item.serverId}-${item.ratingKey}`}
-            item={item}
-          />
-        ) : (
-          <PosterGridCell key={`skeleton-${startIndex + column}`} />
-        );
-      })}
-    </div>
-  );
-}
-
-function subscribeViewport(callback: () => void) {
-  window.addEventListener("resize", callback);
-  return () => window.removeEventListener("resize", callback);
-}
-
-function getViewportWidthSnapshot() {
-  return window.innerWidth;
-}
-
-function getViewportWidthServerSnapshot() {
-  return 1920;
-}
-
-function useViewportWidth() {
-  return useSyncExternalStore(
-    subscribeViewport,
-    getViewportWidthSnapshot,
-    getViewportWidthServerSnapshot,
-  );
-}
-
-function usePosterGridLayout(containerEl: HTMLDivElement | null) {
-  const viewportWidth = useViewportWidth();
-  const [measuredTrackWidth, setMeasuredTrackWidth] = useState<number | null>(
-    null,
-  );
-
-  useLayoutEffect(() => {
-    if (!containerEl) {
-      return;
-    }
-
-    const measure = () => {
-      const width = measurePosterGridTrackWidth(containerEl);
-      if (width > 0) {
-        setMeasuredTrackWidth(width);
-      }
-    };
-
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(containerEl);
-    return () => observer.disconnect();
-  }, [containerEl]);
-
-  const syncTrackWidth =
-    containerEl !== null ? measurePosterGridTrackWidth(containerEl) : 0;
-  const trackWidth =
-    measuredTrackWidth ??
-    (syncTrackWidth > 0 ? syncTrackWidth : null) ??
-    estimatePosterGridTrackWidth(viewportWidth);
-
-  const columns = getPosterGridColumnsForWidth(trackWidth, viewportWidth);
-
-  return { columns, viewportWidth };
-}
-
-interface PosterGridStaticProps {
-  columns: number;
-  viewportWidth: number;
-  itemCount: number;
-  resolvedItems: (HubItemWithServer | undefined)[];
-}
-
-function PosterGridStatic({
-  columns,
-  viewportWidth,
-  itemCount,
-  resolvedItems,
-}: PosterGridStaticProps) {
-  const rowCount = Math.ceil(itemCount / columns);
-
-  return (
-    <>
-      {Array.from({ length: rowCount }).map((_, rowIndex) => {
-        const startIndex = rowIndex * columns;
-        return (
-          <PosterGridRow
-            key={rowIndex}
-            rowIndex={rowIndex}
-            columns={columns}
-            viewportWidth={viewportWidth}
-            cellCount={Math.min(columns, itemCount - startIndex)}
-            startIndex={startIndex}
-            resolvedItems={resolvedItems}
-          />
-        );
-      })}
-    </>
-  );
-}
-
-export function PosterGridSkeleton({ rows = 3 }: { rows?: number }) {
-  const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
-  const containerRef = useCallback((node: HTMLDivElement | null) => {
-    setContainerEl(node);
-  }, []);
-  const { columns, viewportWidth } = usePosterGridLayout(containerEl);
-  const itemCount = rows * columns;
-  const resolvedItems = useMemo(
-    () => Array.from({ length: itemCount }, () => undefined),
-    [itemCount],
-  );
-
-  return (
-    <div ref={containerRef} className={POSTER_GRID_CONTAINER_CLASSNAME}>
-      <PosterGridStatic
-        columns={columns}
-        viewportWidth={viewportWidth}
-        itemCount={itemCount}
-        resolvedItems={resolvedItems}
-      />
-    </div>
-  );
 }
 
 const OVERSCAN_ROWS = 3;
@@ -254,13 +67,13 @@ const VirtualizedPosterGridRow = memo(function VirtualizedPosterGridRow({
   return (
     <PosterGridRow
       rowIndex={rowIndex}
-      columns={columns}
+      columnCount={columns}
       viewportWidth={viewportWidth}
       cellCount={cellCount}
       startIndex={startIndex}
       resolvedItems={resolvedItems}
       measureElement={measureElement}
-      className={`absolute top-0 left-0 w-full ${POSTER_GRID_ROW_CLASSNAME}`}
+      className={`absolute top-0 left-0 w-full ${POSTER_GRID_VIRTUAL_ROW_CLASSNAME}`}
       style={{
         transform: `translateY(${translateY}px)`,
       }}
@@ -300,9 +113,9 @@ export function MediaPosterGrid({
     setContainerEl(node);
   }, []);
   const [scrollMargin, setScrollMargin] = useState<number | null>(null);
-  const { columns, viewportWidth } = usePosterGridLayout(containerEl);
+  const { columns, viewportWidth, isReady } = usePosterGridLayout(containerEl);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = containerEl;
     if (!element) {
       return;
@@ -319,19 +132,21 @@ export function MediaPosterGrid({
     return () => observer.disconnect();
   }, [containerEl]);
 
-  const estimatedRowHeight = getPosterGridRowHeightEstimate(viewportWidth);
+  const estimatedRowContentHeight =
+    getPosterGridRowContentHeight(viewportWidth);
 
   const [liveTotalSize, setLiveTotalSize] = useState<number | null>(null);
 
   const itemCount = onLoadPage
     ? (liveTotalSize ?? totalSize)
     : Math.min(totalSize, items.length);
-  const safeColumns = columns;
-  const rowCount = Math.ceil(itemCount / safeColumns);
+  const rowCount = isReady && columns > 0 ? Math.ceil(itemCount / columns) : 0;
 
   const virtualizer = useWindowVirtualizer({
     count: rowCount,
-    estimateSize: () => estimatedRowHeight,
+    estimateSize: () => estimatedRowContentHeight,
+    gap: POSTER_GRID_ROW_GAP_PX,
+    getItemKey: (index) => `${columns}-${index}`,
     overscan: OVERSCAN_ROWS,
     scrollMargin: scrollMargin ?? 0,
   });
@@ -346,8 +161,8 @@ export function MediaPosterGrid({
       pages.add(0);
     }
     for (const row of virtualRows) {
-      const firstIndex = row.index * safeColumns;
-      const lastIndex = Math.min(firstIndex + safeColumns - 1, itemCount - 1);
+      const firstIndex = row.index * columns;
+      const lastIndex = Math.min(firstIndex + columns - 1, itemCount - 1);
       const firstPage = Math.floor(firstIndex / pageSize);
       const lastPage = Math.floor(lastIndex / pageSize);
       for (let pageIndex = firstPage; pageIndex <= lastPage; pageIndex++) {
@@ -357,7 +172,7 @@ export function MediaPosterGrid({
       }
     }
     return [...pages].sort((a, b) => a - b).join(",");
-  }, [onLoadPage, items.length, pageSize, itemCount, virtualRows, safeColumns]);
+  }, [onLoadPage, items.length, pageSize, itemCount, virtualRows, columns]);
 
   const neededPages = useMemo(
     () => (neededPagesKey === "" ? [] : neededPagesKey.split(",").map(Number)),
@@ -411,21 +226,29 @@ export function MediaPosterGrid({
     return resolved;
   }, [items, neededPages, pageResults, pageSize, itemCount]);
 
+  useLayoutEffect(() => {
+    if (scrollMargin === null || !isReady || rowCount === 0) {
+      return;
+    }
+    virtualizer.measure();
+  }, [
+    columns,
+    viewportWidth,
+    estimatedRowContentHeight,
+    scrollMargin,
+    isReady,
+    rowCount,
+    virtualizer,
+  ]);
+
   if (items.length === 0) {
-    return (
-      <p className="text-muted-foreground text-sm">{emptyMessage}</p>
-    );
+    return <p className="text-muted-foreground text-sm">{emptyMessage}</p>;
   }
 
   return (
     <div ref={containerRef} className={POSTER_GRID_CONTAINER_CLASSNAME}>
-      {scrollMargin === null ? (
-        <PosterGridStatic
-          columns={columns}
-          viewportWidth={viewportWidth}
-          itemCount={items.length}
-          resolvedItems={items}
-        />
+      {!isReady || scrollMargin === null ? (
+        <PosterGridStatic items={items} />
       ) : (
         <div
           className="relative w-full"

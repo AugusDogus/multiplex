@@ -4,6 +4,7 @@ import { ChevronRight } from "lucide-react";
 import Link from "next/link";
 import type { HubWithServer } from "@multiplex/plex-query";
 import { MediaPosterCard } from "~/components/media-poster-card";
+import { PosterCardSkeleton } from "~/components/poster-card-skeleton";
 import { Skeleton } from "~/components/ui/skeleton";
 import { getHubHref } from "~/lib/plex-routes";
 
@@ -70,11 +71,7 @@ export function MediaHubRowSkeleton() {
       </div>
       <div className="scrollbar-hide flex gap-3 overflow-x-auto px-4 pb-4 sm:gap-4 md:px-8">
         {Array.from({ length: 6 }).map((_, index) => (
-          <div key={index} className="flex shrink-0 flex-col gap-2">
-            <Skeleton className="h-[180px] w-[120px] rounded-md sm:h-[210px] sm:w-[140px] md:h-[240px] md:w-[160px]" />
-            <Skeleton className="h-4 w-[120px] sm:w-[140px] md:w-[160px]" />
-            <Skeleton className="h-3 w-20" />
-          </div>
+          <PosterCardSkeleton key={index} />
         ))}
       </div>
     </section>
