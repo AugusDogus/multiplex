@@ -3,17 +3,17 @@
 import {
   memo,
   useCallback,
-  useEffect,
   useLayoutEffect,
   useMemo,
   useState,
 } from "react";
 import { useQueries } from "@tanstack/react-query";
-import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import type { HubItemWithServer } from "@multiplex/plex-query";
+import { useAppScrollElement } from "~/components/app-scroll-container";
 import { PosterGridRow } from "~/components/poster-grid-row";
 import { PosterGridStatic } from "~/components/poster-grid-static";
 import { usePosterGridLayout } from "~/hooks/use-poster-grid-layout";
+import { useTanStackVirtualizer } from "~/hooks/use-tanstack-virtualizer";
 import {
   getPosterGridRowContentHeight,
   POSTER_GRID_INSET_CLASSNAME,
@@ -111,41 +111,47 @@ export function MediaPosterGrid({
   const containerRef = useCallback((node: HTMLDivElement | null) => {
     setContainerEl(node);
   }, []);
+  const scrollElement = useAppScrollElement();
   const [scrollMargin, setScrollMargin] = useState<number | null>(null);
   const { columns, viewportWidth, isReady } = usePosterGridLayout(containerEl);
 
   useLayoutEffect(() => {
     const element = containerEl;
-    if (!element) {
+    const scroller = scrollElement;
+    if (!element || !scroller) {
       return;
     }
 
     const measure = () => {
-      setScrollMargin(element.getBoundingClientRect().top + window.scrollY);
+      setScrollMargin(
+        element.getBoundingClientRect().top -
+          scroller.getBoundingClientRect().top +
+          scroller.scrollTop,
+      );
     };
 
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(document.body);
     observer.observe(element);
+    observer.observe(scroller);
     return () => observer.disconnect();
-  }, [containerEl]);
+  }, [containerEl, scrollElement]);
 
   const estimatedRowContentHeight =
     getPosterGridRowContentHeight(viewportWidth);
 
-  const [liveTotalSize, setLiveTotalSize] = useState<number | null>(null);
-
   const itemCount = onLoadPage
-    ? (liveTotalSize ?? totalSize)
+    ? totalSize
     : Math.min(totalSize, items.length);
   const rowCount = isReady && columns > 0 ? Math.ceil(itemCount / columns) : 0;
 
-  const virtualizer = useWindowVirtualizer({
+  const virtualizer = useTanStackVirtualizer({
     count: rowCount,
     estimateSize: () => estimatedRowContentHeight,
     gap: POSTER_GRID_ROW_GAP_PX,
     getItemKey: (index) => `${columns}-${index}`,
+    getScrollElement: () => scrollElement,
     overscan: OVERSCAN_ROWS,
     scrollMargin: scrollMargin ?? 0,
   });
@@ -193,22 +199,11 @@ export function MediaPosterGrid({
     combine: (results) => results.map((result) => result.data),
   });
 
-  useEffect(() => {
-    let latest: number | null = null;
-    for (const result of pageResults) {
-      if (result && result.items.length > 0) {
-        latest = result.totalSize;
-      }
-    }
-    if (latest !== null) {
-      setLiveTotalSize(latest);
-    }
-  }, [pageResults]);
-
   const resolvedItems = useMemo(() => {
-    const resolved: (HubItemWithServer | undefined)[] = new Array(
-      itemCount,
-    ) as (HubItemWithServer | undefined)[];
+    const resolved: (HubItemWithServer | undefined)[] = Array.from(
+      { length: itemCount },
+      () => undefined,
+    );
     for (let i = 0; i < Math.min(items.length, itemCount); i++) {
       resolved[i] = items[i];
     }
@@ -249,7 +244,7 @@ export function MediaPosterGrid({
       ref={containerRef}
       className={`w-full min-w-0 ${POSTER_GRID_INSET_CLASSNAME}`}
     >
-      {!isReady || scrollMargin === null ? (
+      {!isReady || scrollElement === null || scrollMargin === null ? (
         <PosterGridStatic items={items} />
       ) : (
         <div

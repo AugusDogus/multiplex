@@ -6,8 +6,9 @@ import {
   AppShellMobileNav,
   AppShellSidebar,
 } from "~/components/app-shell";
+import { AppScrollContainer } from "~/components/app-scroll-container";
 import { AppSidebarSkeleton } from "~/components/app-sidebar-skeleton";
-import { SidebarInset, SidebarProvider } from "~/components/ui/sidebar";
+import { SidebarProvider } from "~/components/ui/sidebar";
 import { HydrateClient } from "~/trpc/server";
 
 export default function AppLayout({
@@ -15,16 +16,16 @@ export default function AppLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <HydrateClient>
-      <div className="max-w-screen overflow-hidden">
-        <SidebarProvider>
+      <div className="h-svh max-w-screen overflow-hidden">
+        <SidebarProvider className="h-full min-h-0 overflow-hidden">
           <Suspense fallback={<AppSidebarSkeleton />}>
             <AppShellSidebar />
           </Suspense>
-          <SidebarInset className="w-0 max-w-full min-w-0 flex-1">
+          <AppScrollContainer>
             <Suspense fallback={<AppContentGateFallback />}>
               <AppPlexContentGate>{children}</AppPlexContentGate>
             </Suspense>
-          </SidebarInset>
+          </AppScrollContainer>
           <Suspense fallback={null}>
             <AppShellMobileNav />
           </Suspense>
