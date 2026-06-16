@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, ViewTransition } from "react";
 import type { LibraryPivotId } from "@multiplex/plex-query";
 import { AppCenteredMessage } from "~/components/app-centered-message";
 import { AppPageLayout } from "~/components/app-page-layout";
@@ -10,6 +10,7 @@ import { LibraryPivotSkeleton } from "~/components/library-pivot-skeleton";
 import { LibraryPosterTab } from "~/components/library-poster-tab";
 import { LibraryRecommended } from "~/components/library-recommended";
 import { LibraryTabs } from "~/components/library-tabs";
+import { ViewTransitionPage } from "~/components/view-transition-page";
 import { SUPPORTED_PIVOT_IDS, isSupportedPivot } from "~/lib/library-constants";
 import {
   buildLibraryContentKey,
@@ -112,17 +113,30 @@ export default async function MediaLibraryPage({
       }
       headerCenter={<LibraryTabs pivots={supportedPivots} />}
     >
-      <Suspense
-        key={activePivot}
-        fallback={<LibraryPivotSkeleton pivot={activePivot} />}
-      >
-        <LibraryPivotContent
-          activePivot={activePivot}
-          machineIdentifier={machineIdentifier}
-          sectionId={source}
-          searchParams={resolvedSearchParams}
-        />
-      </Suspense>
+      <ViewTransitionPage>
+        <Suspense
+          fallback={
+            <ViewTransition exit="slide-down">
+              <LibraryPivotSkeleton pivot={activePivot} />
+            </ViewTransition>
+          }
+        >
+          <ViewTransition
+            key={activePivot}
+            name="library-pivot-content"
+            share="auto"
+            enter="auto"
+            default="none"
+          >
+            <LibraryPivotContent
+              activePivot={activePivot}
+              machineIdentifier={machineIdentifier}
+              sectionId={source}
+              searchParams={resolvedSearchParams}
+            />
+          </ViewTransition>
+        </Suspense>
+      </ViewTransitionPage>
     </AppPageLayout>
   );
 }

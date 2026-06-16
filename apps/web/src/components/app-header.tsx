@@ -14,6 +14,7 @@ import {
 import { Separator } from "~/components/ui/separator";
 import { SidebarTrigger } from "~/components/ui/sidebar";
 import { getAppHeaderSearchWrapperClassName } from "~/lib/app-header-search";
+import { NAV_BACK_TYPES } from "~/lib/view-transitions";
 import { cn } from "~/lib/utils";
 
 export interface AppHeaderBreadcrumb {
@@ -59,7 +60,11 @@ export function AppHeader({
         <BreadcrumbItem className="max-w-[34vw] shrink-0 truncate sm:max-w-none">
           {crumb.href ? (
             <BreadcrumbLink asChild>
-              <Link href={crumb.href} className="block truncate">
+              <Link
+                href={crumb.href}
+                transitionTypes={[...NAV_BACK_TYPES]}
+                className="block truncate"
+              >
                 {crumb.label}
               </Link>
             </BreadcrumbLink>
@@ -90,6 +95,7 @@ export function AppHeader({
       {showLogoOnMobile && (
         <Link
           href="/"
+          transitionTypes={[...NAV_BACK_TYPES]}
           aria-label="Multiplex home"
           className="flex shrink-0 items-center gap-2 md:hidden"
         >

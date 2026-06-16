@@ -9,6 +9,9 @@ const config = {
   // Hide the floating dev indicator so it doesn't visually collide with the
   // mobile bottom navigation while developing / recording demos.
   devIndicators: false,
+  experimental: {
+    viewTransition: true,
+  },
   reactCompiler: true,
   cacheComponents: true,
   images: {

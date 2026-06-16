@@ -7,6 +7,7 @@ import { MediaPosterCard } from "~/components/media-poster-card";
 import { PosterCardSkeleton } from "~/components/poster-card-skeleton";
 import { Skeleton } from "~/components/ui/skeleton";
 import { getHubHref } from "~/lib/plex-routes";
+import { NAV_FORWARD_TYPES } from "~/lib/view-transitions";
 
 interface MediaHubRowProps {
   hub: HubWithServer;
@@ -36,6 +37,7 @@ export function MediaHubRow({ hub }: MediaHubRowProps) {
         {hubHref ? (
           <Link
             href={hubHref}
+            transitionTypes={[...NAV_FORWARD_TYPES]}
             className="group -my-2 flex min-w-0 items-center gap-1 rounded-sm py-2 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
           >
             <h2 className="truncate text-xl font-semibold tracking-tight sm:text-2xl">

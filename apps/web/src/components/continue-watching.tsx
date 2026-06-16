@@ -4,7 +4,7 @@ import { CirclePlay, MoreHorizontal, Play } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import React, { useState } from "react";
+import React, { useState, ViewTransition } from "react";
 import {
   getMainTitle,
   getSubtitle,
@@ -21,6 +21,10 @@ import { MediaProgressBar } from "~/components/media-progress-bar";
 import { useVisibilityChange } from "~/hooks/use-visibility-change";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { getItemDetailsHref } from "~/lib/plex-routes";
+import {
+  getPosterTransitionName,
+  NAV_FORWARD_TYPES,
+} from "~/lib/view-transitions";
 import { api, type RouterOutputs } from "~/trpc/react";
 
 /* ────────────────────────────────────────────────────────────
@@ -236,39 +240,41 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
   };
 
   const posterContent = (
-    <>
-      {thumbnailUrl ? (
-        <Image
-          src={thumbnailUrl}
-          alt={mainTitle}
-          className="h-full w-full object-cover"
-          loading="lazy"
-          width={160}
-          height={240}
-        />
-      ) : (
-        <div className="flex h-full w-full items-center justify-center">
-          <CirclePlay className="text-muted-foreground h-12 w-12" />
-        </div>
-      )}
-
-      {progressPercent > 0 && (
-        <>
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-t from-black/60 to-transparent" />
-          <MediaProgressBar
-            value={progressPercent}
-            className="absolute right-0 bottom-0 left-0 h-1 bg-black/40"
-            fillClassName="bg-primary transition-all duration-300"
+    <ViewTransition name={getPosterTransitionName(item.ratingKey)} share="morph">
+      <>
+        {thumbnailUrl ? (
+          <Image
+            src={thumbnailUrl}
+            alt={mainTitle}
+            className="h-full w-full object-cover"
+            loading="lazy"
+            width={160}
+            height={240}
           />
-        </>
-      )}
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <CirclePlay className="text-muted-foreground h-12 w-12" />
+          </div>
+        )}
 
-      {isItemCompleted && (
-        <div className="absolute top-2 right-2 rounded bg-green-600 px-2 py-1 text-xs text-white shadow-sm">
-          Watched
-        </div>
-      )}
-    </>
+        {progressPercent > 0 && (
+          <>
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-t from-black/60 to-transparent" />
+            <MediaProgressBar
+              value={progressPercent}
+              className="absolute right-0 bottom-0 left-0 h-1 bg-black/40"
+              fillClassName="bg-primary transition-all duration-300"
+            />
+          </>
+        )}
+
+        {isItemCompleted && (
+          <div className="absolute top-2 right-2 rounded bg-green-600 px-2 py-1 text-xs text-white shadow-sm">
+            Watched
+          </div>
+        )}
+      </>
+    </ViewTransition>
   );
 
   const metadataContent = (
@@ -294,6 +300,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
         <div className="group relative h-[240px] w-[160px]">
           <Link
             href={detailsHref}
+            transitionTypes={[...NAV_FORWARD_TYPES]}
             aria-label={`View details for ${mainTitle}`}
             onClick={handleAnchorClick}
             className="bg-muted relative block size-full overflow-hidden rounded-md shadow-lg transition-all duration-200 group-hover:shadow-xl active:scale-[0.98] md:active:scale-100"
@@ -320,6 +327,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
 
         <Link
           href={detailsHref}
+          transitionTypes={[...NAV_FORWARD_TYPES]}
           onClick={handleAnchorClick}
           className="focus-visible:ring-ring flex w-[160px] flex-col gap-1 rounded-sm text-left focus-visible:ring-2 focus-visible:outline-none"
         >

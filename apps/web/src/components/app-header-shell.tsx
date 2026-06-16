@@ -17,6 +17,7 @@ export function AppHeaderShell({
 }: AppHeaderShellProps) {
   return (
     <header
+      style={{ viewTransitionName: "site-header" }}
       className={cn(
         "@container/appheader flex shrink-0 items-center",
         centerLayout ? "min-h-16 md:h-16" : "h-16",

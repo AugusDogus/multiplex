@@ -13,6 +13,7 @@ import {
 import { MediaProgressBar } from "~/components/media-progress-bar";
 import { Button } from "~/components/ui/button";
 import { getItemDetailsHref } from "~/lib/plex-routes";
+import { NAV_FORWARD_TYPES } from "~/lib/view-transitions";
 
 import type {
   EnrichedChildMetadata,
@@ -97,6 +98,7 @@ function MobileEpisodeRow({
       <div className="relative w-[132px] shrink-0">
         <Link
           href={detailsHref}
+          transitionTypes={[...NAV_FORWARD_TYPES]}
           aria-label={`View details for ${episode.title}`}
           className="bg-muted relative block aspect-video overflow-hidden rounded-lg shadow-md"
         >
@@ -138,6 +140,7 @@ function MobileEpisodeRow({
       <div className="flex min-w-0 flex-1 flex-col justify-center gap-1 py-0.5">
         <Link
           href={detailsHref}
+          transitionTypes={[...NAV_FORWARD_TYPES]}
           className="focus-visible:ring-ring rounded-sm focus-visible:ring-2 focus-visible:outline-none"
         >
           <h3 className="line-clamp-2 text-sm leading-5 font-medium">
@@ -177,6 +180,7 @@ function EpisodeCard({
       <div className="relative aspect-video overflow-hidden rounded-xl shadow-lg">
         <Link
           href={detailsHref}
+          transitionTypes={[...NAV_FORWARD_TYPES]}
           aria-label={`View details for ${episode.title}`}
           className="bg-muted block size-full"
         >
@@ -217,6 +221,7 @@ function EpisodeCard({
       <div className="flex min-w-0 flex-col gap-1">
         <Link
           href={detailsHref}
+          transitionTypes={[...NAV_FORWARD_TYPES]}
           className="focus-visible:ring-ring rounded-sm focus-visible:ring-2 focus-visible:outline-none"
         >
           <h3 className="line-clamp-2 text-sm leading-5 font-medium">

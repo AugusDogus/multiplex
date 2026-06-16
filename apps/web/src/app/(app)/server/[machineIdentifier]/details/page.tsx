@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
+import { ViewTransition } from "react";
 
 import { AppHeader } from "~/components/app-header";
 import { MediaItemDetails } from "~/components/media-item-details";
+import { ViewTransitionPage } from "~/components/view-transition-page";
 import {
   getItemDetailsBreadcrumbs,
   parseItemDetailsKey,
@@ -43,9 +45,13 @@ export default async function MediaItemDetailsPage({
       <AppHeader
         breadcrumbs={getItemDetailsBreadcrumbs(details.item, machineIdentifier)}
       />
-      <main className="flex min-w-0 flex-1 flex-col p-4">
-        <MediaItemDetails details={details} serverId={machineIdentifier} />
-      </main>
+      <ViewTransitionPage>
+        <ViewTransition enter="slide-up" default="none">
+          <main className="flex min-w-0 flex-1 flex-col p-4">
+            <MediaItemDetails details={details} serverId={machineIdentifier} />
+          </main>
+        </ViewTransition>
+      </ViewTransitionPage>
     </>
   );
 }

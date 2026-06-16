@@ -2,6 +2,7 @@ import { AppHeader } from "~/components/app-header";
 import { AppPageContent } from "~/components/app-page-content";
 import { ContinueWatching } from "~/components/continue-watching";
 import { HomeHubs } from "~/components/home-hubs";
+import { ViewTransitionPage } from "~/components/view-transition-page";
 import { api } from "~/trpc/server";
 
 export default async function Page() {
@@ -13,10 +14,12 @@ export default async function Page() {
   return (
     <>
       <AppHeader />
-      <AppPageContent spacing="home">
-        <ContinueWatching items={continueWatchingItems} />
-        <HomeHubs hubs={homeHubs} />
-      </AppPageContent>
+      <ViewTransitionPage>
+        <AppPageContent spacing="home">
+          <ContinueWatching items={continueWatchingItems} />
+          <HomeHubs hubs={homeHubs} />
+        </AppPageContent>
+      </ViewTransitionPage>
     </>
   );
 }

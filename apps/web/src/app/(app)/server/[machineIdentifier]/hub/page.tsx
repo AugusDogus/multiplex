@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { HubPageContent } from "~/components/hub-page-content";
 import { AppPageLayout } from "~/components/app-page-layout";
+import { ViewTransitionPage } from "~/components/view-transition-page";
 import { HUB_PAGE_SIZE } from "~/server/queries/plex-pagination";
 import { api } from "~/trpc/server";
 
@@ -32,11 +33,13 @@ export default async function HubPage({ params, searchParams }: PageProps) {
 
   return (
     <AppPageLayout title={title ?? "Collection"}>
-      <HubPageContent
-        machineIdentifier={machineIdentifier}
-        hubKey={hubKey}
-        initialContent={hubContent}
-      />
+      <ViewTransitionPage>
+        <HubPageContent
+          machineIdentifier={machineIdentifier}
+          hubKey={hubKey}
+          initialContent={hubContent}
+        />
+      </ViewTransitionPage>
     </AppPageLayout>
   );
 }

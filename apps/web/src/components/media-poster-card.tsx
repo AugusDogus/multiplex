@@ -3,7 +3,7 @@
 import { CirclePlay } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, ViewTransition } from "react";
 import {
   getHubItemSubtitle,
   getHubItemTitle,
@@ -11,6 +11,10 @@ import {
   type HubItemWithServer,
 } from "@multiplex/plex-query";
 import { getHubItemHref } from "~/lib/plex-routes";
+import {
+  getPosterTransitionName,
+  NAV_FORWARD_TYPES,
+} from "~/lib/view-transitions";
 import { cn } from "~/lib/utils";
 
 interface MediaPosterCardProps {
@@ -35,27 +39,37 @@ export function MediaPosterCard({ item, className }: MediaPosterCardProps) {
     <div className={cn("flex shrink-0 flex-col gap-2", className)}>
       <Link
         href={detailsHref}
+        transitionTypes={[...NAV_FORWARD_TYPES]}
         aria-label={`View details for ${title}`}
         className={posterClassName}
       >
-        {thumbnailUrl && !imageFailed ? (
-          <Image
-            src={thumbnailUrl}
-            alt={title}
-            className="h-full w-full object-cover"
-            loading="lazy"
-            width={160}
-            height={240}
-            onError={() => setImageFailed(true)}
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center">
-            <CirclePlay className="text-muted-foreground h-10 w-10 sm:h-12 sm:w-12" />
-          </div>
-        )}
+        <ViewTransition
+          name={getPosterTransitionName(item.ratingKey)}
+          share="morph"
+        >
+          {thumbnailUrl && !imageFailed ? (
+            <Image
+              src={thumbnailUrl}
+              alt={title}
+              className="h-full w-full object-cover"
+              loading="lazy"
+              width={160}
+              height={240}
+              onError={() => setImageFailed(true)}
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center">
+              <CirclePlay className="text-muted-foreground h-10 w-10 sm:h-12 sm:w-12" />
+            </div>
+          )}
+        </ViewTransition>
       </Link>
 
-      <Link href={detailsHref} className={metadataClassName}>
+      <Link
+        href={detailsHref}
+        transitionTypes={[...NAV_FORWARD_TYPES]}
+        className={metadataClassName}
+      >
         <h3 className="truncate text-sm leading-tight font-medium">{title}</h3>
         {subtitle && (
           <p className="text-muted-foreground truncate text-xs leading-tight">

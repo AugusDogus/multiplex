@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { ViewTransition } from "react";
 import { Check, MoreHorizontal, Play, Share2 } from "lucide-react";
 import {
   formatDetailsTimeRemaining,
@@ -29,6 +30,7 @@ import { MetadataGenres } from "./metadata-genres";
 import { MetadataRating } from "./metadata-rating";
 import { MetadataSummaryRow } from "./metadata-summary-row";
 import type { ItemDetails, PlayTarget } from "./types";
+import { getPosterTransitionName } from "~/lib/view-transitions";
 
 interface DetailsHeroProps {
   item: ItemDetails["item"];
@@ -98,6 +100,7 @@ export function DetailsHero({
             <HeroPoster
               posterUrl={posterUrl}
               title={item.title}
+              ratingKey={item.ratingKey}
               sizes="220px"
               iconClassName="size-12"
               className="bg-muted ring-border relative aspect-2/3 rounded-xl mask-[linear-gradient(#000_0_0)] shadow-2xl ring-1 [-webkit-mask:linear-gradient(#000_0_0)]"
@@ -161,6 +164,7 @@ export function DetailsHero({
             <HeroPoster
               posterUrl={posterUrl}
               title={item.title}
+              ratingKey={item.ratingKey}
               sizes="108px"
               iconClassName="size-10"
               className="bg-muted ring-border relative aspect-2/3 overflow-hidden rounded-lg shadow-2xl ring-1"
@@ -203,6 +207,7 @@ export function DetailsHero({
 interface HeroPosterProps {
   posterUrl: string | undefined;
   title: string;
+  ratingKey: string;
   sizes: string;
   iconClassName: string;
   className: string;
@@ -211,27 +216,30 @@ interface HeroPosterProps {
 function HeroPoster({
   posterUrl,
   title,
+  ratingKey,
   sizes,
   iconClassName,
   className,
 }: HeroPosterProps) {
   return (
-    <div className={className}>
-      {posterUrl ? (
-        <Image
-          src={posterUrl}
-          alt={`${title} poster`}
-          fill
-          priority
-          sizes={sizes}
-          className="object-cover"
-        />
-      ) : (
-        <div className="flex size-full items-center justify-center">
-          <Play className={`text-muted-foreground ${iconClassName}`} />
-        </div>
-      )}
-    </div>
+    <ViewTransition name={getPosterTransitionName(ratingKey)} share="morph">
+      <div className={className}>
+        {posterUrl ? (
+          <Image
+            src={posterUrl}
+            alt={`${title} poster`}
+            fill
+            priority
+            sizes={sizes}
+            className="object-cover"
+          />
+        ) : (
+          <div className="flex size-full items-center justify-center">
+            <Play className={`text-muted-foreground ${iconClassName}`} />
+          </div>
+        )}
+      </div>
+    </ViewTransition>
   );
 }
 

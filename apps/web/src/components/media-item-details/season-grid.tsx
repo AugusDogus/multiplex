@@ -12,6 +12,7 @@ import {
 
 import { Badge } from "~/components/ui/badge";
 import { getItemDetailsHref } from "~/lib/plex-routes";
+import { NAV_FORWARD_TYPES } from "~/lib/view-transitions";
 
 import type { EnrichedChildMetadata, MediaServerContext } from "./types";
 
@@ -67,6 +68,7 @@ function SeasonCard({
   return (
     <Link
       href={getItemDetailsHref(serverId, season.ratingKey)}
+      transitionTypes={[...NAV_FORWARD_TYPES]}
       className="focus-visible:ring-ring group flex w-40 shrink-0 flex-col gap-3 rounded-xl focus-visible:ring-2 focus-visible:outline-none"
     >
       <div className="bg-muted ring-border relative aspect-2/3 overflow-hidden rounded-xl shadow-lg ring-1 transition-shadow group-hover:shadow-xl">
