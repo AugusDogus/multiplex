@@ -26,7 +26,7 @@ export function MediaPosterCard({ item, className }: MediaPosterCardProps) {
   const thumbnailUrl = getThumbnailUrl(item, item.serverUrl, item.authToken);
 
   const posterClassName =
-    "bg-muted group relative block h-[180px] w-[120px] overflow-hidden rounded-md shadow-lg transition-all duration-200 hover:shadow-xl active:scale-[0.98] sm:h-[210px] sm:w-[140px] md:h-[240px] md:w-[160px]";
+    "bg-muted group relative block h-[180px] w-[120px] overflow-hidden rounded-md shadow-lg transition-[transform,box-shadow] duration-200 ease-out hover:shadow-xl active:scale-[0.98] sm:h-[210px] sm:w-[140px] md:h-[240px] md:w-[160px]";
 
   const metadataClassName =
     "focus-visible:ring-ring w-[120px] rounded-sm text-left focus-visible:ring-2 focus-visible:outline-none sm:w-[140px] md:w-[160px]";

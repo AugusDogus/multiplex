@@ -296,7 +296,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
             href={detailsHref}
             aria-label={`View details for ${mainTitle}`}
             onClick={handleAnchorClick}
-            className="bg-muted relative block size-full overflow-hidden rounded-md shadow-lg transition-all duration-200 group-hover:shadow-xl active:scale-[0.98] md:active:scale-100"
+            className="bg-muted relative block size-full overflow-hidden rounded-md shadow-lg transition-[transform,box-shadow] duration-200 ease-out group-hover:shadow-xl active:scale-[0.98] md:active:scale-100"
           >
             {posterContent}
             <div className="absolute top-2 left-2 rounded bg-black/60 p-1 md:hidden">
@@ -313,7 +313,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
               onClick={handlePlay}
               aria-label="Play"
             >
-              <Play className="fill-black/60 stroke-black/60 transition-all duration-200 group-hover/button:fill-black/20 group-hover/button:stroke-black/20 dark:fill-white/60 dark:stroke-white/60 group-hover/button:dark:fill-white/20 group-hover/button:dark:stroke-white/20" />
+              <Play className="fill-black/60 stroke-black/60 transition-colors duration-200 ease-out group-hover/button:fill-black/20 group-hover/button:stroke-black/20 dark:fill-white/60 dark:stroke-white/60 group-hover/button:dark:fill-white/20 group-hover/button:dark:stroke-white/20" />
             </Button>
           </div>
         </div>

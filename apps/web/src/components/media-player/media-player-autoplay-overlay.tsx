@@ -47,7 +47,7 @@ export function MediaPlayerAutoPlayOverlay({
         PLAYER_OVERLAY_BOTTOM_COMPACT_CONTROLS,
       )}
     >
-      <div className="w-full max-w-md rounded-lg bg-black/90 p-4 backdrop-blur-sm">
+      <div className="animate-in fade-in-0 slide-in-from-bottom-2 w-full max-w-md rounded-lg bg-black/90 p-4 backdrop-blur-sm duration-200 ease-out">
         <div className="mb-3 flex items-center justify-between">
           <div className="flex-1">
             <h3 className="text-sm font-medium text-white">Up Next</h3>
@@ -68,15 +68,11 @@ export function MediaPlayerAutoPlayOverlay({
             variant="outline"
             size="sm"
             onClick={handleCancel}
-            className="flex-1 border-gray-600 text-white hover:bg-gray-800"
+            className="flex-1 border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white"
           >
             Cancel
           </Button>
-          <Button
-            size="sm"
-            onClick={handlePlayNow}
-            className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
-          >
+          <Button size="sm" onClick={handlePlayNow} className="flex-1">
             Play Now
           </Button>
         </div>

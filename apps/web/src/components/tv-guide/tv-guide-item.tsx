@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
@@ -164,7 +163,7 @@ export function TvGuideItem({
         <div
           className={cn(
             "border-card absolute flex min-h-16 flex-col items-start justify-start rounded-md border-2",
-            "cursor-pointer overflow-hidden transition-all duration-500 ease-in",
+            "cursor-pointer overflow-hidden transition-colors duration-200 ease-out",
             colorClass,
             // Use minimal spacing for very short programs to prevent overlap
             isVeryShort ? "m-0 p-1" : "m-0.5 p-2",
@@ -192,45 +191,41 @@ export function TvGuideItem({
         </div>
       ) : (
         // Use standard tooltip for normal-width programs
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div
-                className={cn(
-                  "border-card absolute flex min-h-16 flex-col items-start justify-start rounded-md border-2",
-                  "cursor-pointer overflow-hidden transition-all duration-500 ease-in",
-                  colorClass,
-                  // Use minimal spacing for very short programs to prevent overlap
-                  isVeryShort ? "m-0 p-1" : "m-0.5 p-2",
-                  className,
-                )}
-                style={{ left, width }}
-                onClick={handleClick}
-              >
-                {/* Show Title */}
-                <div className="w-full text-sm leading-tight font-semibold text-nowrap text-white drop-shadow-sm">
-                  {program.grandparentTitle ??
-                    program.title ??
-                    "Unknown Program"}
-                </div>
-
-                {/* Season and Episode */}
-                {(program.parentIndex != null || program.index != null) && (
-                  <div className="w-full text-xs leading-tight text-nowrap text-white/90 drop-shadow-sm">
-                    {program.parentIndex != null && `S${program.parentIndex}`}
-                    {program.parentIndex != null &&
-                      program.index != null &&
-                      " · "}
-                    {program.index != null && `E${program.index}`}
-                  </div>
-                )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div
+              className={cn(
+                "border-card absolute flex min-h-16 flex-col items-start justify-start rounded-md border-2",
+                "cursor-pointer overflow-hidden transition-colors duration-200 ease-out",
+                colorClass,
+                // Use minimal spacing for very short programs to prevent overlap
+                isVeryShort ? "m-0 p-1" : "m-0.5 p-2",
+                className,
+              )}
+              style={{ left, width }}
+              onClick={handleClick}
+            >
+              {/* Show Title */}
+              <div className="w-full text-sm leading-tight font-semibold text-nowrap text-white drop-shadow-sm">
+                {program.grandparentTitle ?? program.title ?? "Unknown Program"}
               </div>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="max-w-sm">
-              {tooltipContent()}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+
+              {/* Season and Episode */}
+              {(program.parentIndex != null || program.index != null) && (
+                <div className="w-full text-xs leading-tight text-nowrap text-white/90 drop-shadow-sm">
+                  {program.parentIndex != null && `S${program.parentIndex}`}
+                  {program.parentIndex != null &&
+                    program.index != null &&
+                    " · "}
+                  {program.index != null && `E${program.index}`}
+                </div>
+              )}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-sm">
+            {tooltipContent()}
+          </TooltipContent>
+        </Tooltip>
       )}
 
       {/* Render cursor tooltip for wide programs */}

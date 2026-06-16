@@ -182,20 +182,20 @@ export function MediaPlayerProgress({
       <div className="relative flex-1">
         <div
           ref={progressRef}
-          className={`group relative h-2 cursor-pointer rounded-full bg-white/20 ${disabled ? "cursor-not-allowed opacity-50" : "hover:h-3"} transition-all duration-200`}
+          className={`group relative h-2 cursor-pointer rounded-full bg-white/20 ${disabled ? "cursor-not-allowed opacity-50" : "hover:h-3"} transition-[height] duration-200 ease-out`}
           onMouseDown={handleMouseDown}
           onMouseMove={handleProgressMouseMove}
           onMouseLeave={handleProgressMouseLeave}
         >
           {/* Buffered Progress */}
           <div
-            className="absolute top-0 left-0 h-full rounded-full bg-white/30 transition-all duration-300"
+            className="absolute top-0 left-0 h-full rounded-full bg-white/30 transition-[width] duration-300 ease-out"
             style={{ width: bufferedWidth }}
           />
 
           {/* Current Progress */}
           <div
-            className="absolute top-0 left-0 h-full rounded-full bg-white transition-all duration-300"
+            className={`absolute top-0 left-0 h-full rounded-full bg-white ${isDragging ? "" : "transition-[width] duration-300 ease-out"}`}
             style={{ width: progressWidth }}
           />
 

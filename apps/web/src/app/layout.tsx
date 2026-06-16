@@ -5,6 +5,7 @@ import { Geist } from "next/font/google";
 
 import { MediaPlayerModal } from "~/components/media-player";
 import { ThemeProvider } from "~/components/theme-provider";
+import { TooltipProvider } from "~/components/ui/tooltip";
 import { TRPCReactProvider } from "~/trpc/react";
 
 export const metadata: Metadata = {
@@ -31,8 +32,10 @@ export default function RootLayout({
             enableSystem
             disableTransitionOnChange
           >
-            {children}
-            <MediaPlayerModal />
+            <TooltipProvider>
+              {children}
+              <MediaPlayerModal />
+            </TooltipProvider>
           </ThemeProvider>
         </TRPCReactProvider>
       </body>

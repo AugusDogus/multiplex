@@ -16,7 +16,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "~/components/ui/sidebar";
-import { TooltipProvider } from "~/components/ui/tooltip";
 import { useSidebarPinning } from "~/hooks/use-sidebar-pinning";
 import { useServerLibraries } from "~/hooks/use-server-libraries";
 import { getSidebarSources } from "~/hooks/use-sidebar-sources";
@@ -59,52 +58,50 @@ export function AppSidebar({
   };
 
   return (
-    <TooltipProvider>
-      <Sidebar variant="inset" {...props}>
-        <SidebarHeader>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton size="lg" asChild>
-                <Link href="/">
-                  <div className="text-sidebar-primary flex aspect-square size-8 items-center justify-center rounded-lg">
-                    <Command className="size-fit dark:text-white" />
-                  </div>
-                  <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-medium">Multiplex</span>
-                    <span className="truncate text-xs">
-                      v{packageJson.version}
-                    </span>
-                  </div>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarHeader>
+    <Sidebar variant="inset" {...props}>
+      <SidebarHeader>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton size="lg" asChild>
+              <Link href="/">
+                <div className="text-sidebar-primary flex aspect-square size-8 items-center justify-center rounded-lg">
+                  <Command className="size-fit dark:text-white" />
+                </div>
+                <div className="grid flex-1 text-left text-sm leading-tight">
+                  <span className="truncate font-medium">Multiplex</span>
+                  <span className="truncate text-xs">
+                    v{packageJson.version}
+                  </span>
+                </div>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarHeader>
 
-        <SidebarContent>
-          {currentPage === "main" ? (
-            <SidebarMain
-              pinnedSources={sidebarSources.pinnedSources}
-              pendingSourceIdentity={pendingSourceIdentity}
-              onTogglePinnedSource={handleTogglePinnedSource}
-              onShowMore={() => setCurrentPage("all")}
-            />
-          ) : (
-            <SidebarAll
-              servers={servers}
-              serverLibraries={serverLibraries}
-              sidebarSources={sidebarSources}
-              pendingSourceIdentity={pendingSourceIdentity}
-              onTogglePinnedSource={handleTogglePinnedSource}
-              onBack={() => setCurrentPage("main")}
-            />
-          )}
-        </SidebarContent>
+      <SidebarContent>
+        {currentPage === "main" ? (
+          <SidebarMain
+            pinnedSources={sidebarSources.pinnedSources}
+            pendingSourceIdentity={pendingSourceIdentity}
+            onTogglePinnedSource={handleTogglePinnedSource}
+            onShowMore={() => setCurrentPage("all")}
+          />
+        ) : (
+          <SidebarAll
+            servers={servers}
+            serverLibraries={serverLibraries}
+            sidebarSources={sidebarSources}
+            pendingSourceIdentity={pendingSourceIdentity}
+            onTogglePinnedSource={handleTogglePinnedSource}
+            onBack={() => setCurrentPage("main")}
+          />
+        )}
+      </SidebarContent>
 
-        <SidebarFooter>
-          <NavUser user={user} userInfo={currentUserInfo} />
-        </SidebarFooter>
-      </Sidebar>
-    </TooltipProvider>
+      <SidebarFooter>
+        <NavUser user={user} userInfo={currentUserInfo} />
+      </SidebarFooter>
+    </Sidebar>
   );
 }

@@ -6,6 +6,13 @@
 @theme {
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+
+  /* Shared motion curves. Strong variants of the standard easings — the
+     built-in CSS curves are too weak to feel intentional. Overriding the
+     default `ease-out`/`ease-in-out` utilities aligns every surface. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 @theme inline {
@@ -122,6 +129,20 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /* Respect the OS "reduce motion" setting everywhere. Movement-based
+     animation is collapsed to near-instant; opacity/color fades still read
+     fine at this duration, so comprehension cues survive. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
 @layer utilities {
@@ -194,16 +215,16 @@
   }
 
   .animate-seek-label-in {
-    animation: seek-label-in 0.28s cubic-bezier(0, 0, 0.2, 1) forwards;
+    animation: seek-label-in 0.28s var(--ease-out) forwards;
     transform-origin: center center;
   }
 
   .animate-seek-chevron-forward {
-    animation: seek-chevron-forward 0.28s cubic-bezier(0, 0, 0.2, 1) forwards;
+    animation: seek-chevron-forward 0.28s var(--ease-out) forwards;
   }
 
   .animate-seek-chevron-backward {
-    animation: seek-chevron-backward 0.28s cubic-bezier(0, 0, 0.2, 1) forwards;
+    animation: seek-chevron-backward 0.28s var(--ease-out) forwards;
   }
 
   /* Media player chrome — keyframe fades (more reliable than opacity transitions) */
@@ -231,12 +252,12 @@
   }
 
   .mp-chrome-layer[data-state="visible"] {
-    animation: mp-chrome-fade-in 300ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+    animation: mp-chrome-fade-in 300ms var(--ease-out) forwards;
     pointer-events: none;
   }
 
   .mp-chrome-layer[data-state="hiding"] {
-    animation: mp-chrome-fade-out 250ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+    animation: mp-chrome-fade-out 250ms var(--ease-out) forwards;
     pointer-events: none;
   }
 
