@@ -3,31 +3,16 @@ export const POSTER_GRID_ROW_GAP_PX = 20;
 
 export const POSTER_GRID_INSET_CLASSNAME = "px-4 md:px-8";
 
-const POSTER_WIDTH_PX = {
-  base: 120,
-  sm: 140,
-  md: 160,
-} as const;
-
-const POSTER_HEIGHT_PX = {
-  base: 180,
-  sm: 210,
-  md: 240,
-} as const;
+const POSTER_WIDTH_PX = 160;
+const POSTER_HEIGHT_PX = 240;
 
 const POSTER_GRID_COLUMN_GAP_PX = {
   base: 12,
   sm: 16,
 } as const;
 
-function getPosterWidth(viewportWidth: number): number {
-  if (viewportWidth >= 768) {
-    return POSTER_WIDTH_PX.md;
-  }
-  if (viewportWidth >= 640) {
-    return POSTER_WIDTH_PX.sm;
-  }
-  return POSTER_WIDTH_PX.base;
+function getPosterWidth(_viewportWidth: number): number {
+  return POSTER_WIDTH_PX;
 }
 
 function getPosterGridColumnGap(viewportWidth: number): number {
@@ -54,14 +39,8 @@ export function getPosterGridTemplateColumns(
   return `repeat(${columnCount}, minmax(${targetWidth}px, 1fr))`;
 }
 
-function getPosterHeight(viewportWidth: number): number {
-  if (viewportWidth >= 768) {
-    return POSTER_HEIGHT_PX.md;
-  }
-  if (viewportWidth >= 640) {
-    return POSTER_HEIGHT_PX.sm;
-  }
-  return POSTER_HEIGHT_PX.base;
+function getPosterHeight(_viewportWidth: number): number {
+  return POSTER_HEIGHT_PX;
 }
 
 /** Poster card stack only; excludes inter-row gap. */
