@@ -77,11 +77,11 @@ export function AppHeaderSkeleton({
   const centerSkeleton = center ? (
     <div
       aria-hidden="true"
-      className="bg-muted/70 flex w-fit max-w-full min-w-0 items-center justify-center gap-1 overflow-hidden rounded-full p-1"
+      className="flex w-full max-w-full min-w-0 items-center justify-start gap-2 overflow-hidden py-0.5 md:w-fit md:justify-center md:gap-1 md:rounded-full md:bg-muted/70 md:p-1"
     >
-      <Skeleton className="h-8 w-28 rounded-full" />
-      <Skeleton className="h-8 w-24 rounded-full" />
-      <Skeleton className="hidden h-8 w-24 rounded-full sm:block" />
+      <Skeleton className="h-8 w-28 shrink-0 rounded-lg md:rounded-full" />
+      <Skeleton className="h-8 w-24 shrink-0 rounded-lg md:rounded-full" />
+      <Skeleton className="hidden h-8 w-24 shrink-0 rounded-lg sm:block md:rounded-full" />
     </div>
   ) : undefined;
 

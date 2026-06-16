@@ -92,8 +92,8 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
       ref={scrollRef}
       aria-label="Library views"
       className={cn(
-        "bg-muted/70 scrollbar-hide flex w-fit max-w-full min-w-0 items-center gap-1 overflow-x-auto rounded-full p-1",
-        alignTabs === "center" ? "justify-center" : "justify-start",
+        "scrollbar-hide flex w-full max-w-full min-w-0 items-center justify-start gap-2 overflow-x-auto py-0.5 md:w-fit md:gap-1 md:rounded-full md:bg-muted/70 md:p-1",
+        alignTabs === "center" ? "md:justify-center" : "md:justify-start",
         className,
       )}
     >
@@ -114,11 +114,11 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
             href={`${pathname}?${params.toString()}`}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              "flex shrink-0 items-center rounded-full px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-all @5xl/appheader:gap-2 @5xl/appheader:px-4",
+              "flex shrink-0 items-center rounded-lg border px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-all md:rounded-full md:border-0 @5xl/appheader:gap-2 @5xl/appheader:px-4",
               "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
               isActive
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
+                ? "border-border bg-muted text-foreground shadow-sm md:bg-background"
+                : "border-transparent text-muted-foreground hover:border-border/60 hover:bg-muted/50 hover:text-foreground md:hover:bg-transparent",
             )}
           >
             <Icon

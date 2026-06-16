@@ -23,12 +23,12 @@ export function AppHeaderShell({
       )}
     >
       {centerLayout ? (
-        <div className="grid w-full min-w-0 grid-cols-1 items-center gap-y-2 px-4 py-2 md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-x-2 md:gap-y-0 md:py-0">
-          <div className="flex w-full min-w-0 items-center md:col-start-1 md:w-auto">
+        <div className="flex w-full min-w-0 items-center gap-3 px-4 py-2 md:grid md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-x-2 md:py-0">
+          <div className="flex min-w-0 max-w-[42vw] shrink-0 items-center md:col-start-1 md:max-w-none md:w-auto">
             {leading}
           </div>
 
-          <div className="flex min-w-0 justify-center overflow-hidden md:col-start-2">
+          <div className="flex min-w-0 flex-1 justify-start overflow-hidden md:col-start-2 md:justify-center">
             {center}
           </div>
 
