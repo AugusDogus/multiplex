@@ -1,8 +1,5 @@
 "use client";
 
-import { CirclePlay, MoreHorizontal, Play } from "lucide-react";
-import Image from "next/image";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 import {
@@ -15,9 +12,8 @@ import {
 } from "@multiplex/plex-query";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { useProgressStore } from "~/stores/progress-store";
-import { Button } from "~/components/ui/button";
 import { ContinueWatchingDrawer } from "~/components/continue-watching-drawer";
-import { MediaProgressBar } from "~/components/media-progress-bar";
+import { MediaPosterCard } from "~/components/media-poster-card";
 import { useVisibilityChange } from "~/hooks/use-visibility-change";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { getItemDetailsHref } from "~/lib/plex-routes";
@@ -165,7 +161,6 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
     getItemProgress(item.ratingKey) ?? item.progressPercent ?? 0;
   const isItemCompleted = isCompleted(item);
 
-  // Generate thumbnail URL using Plex photo transcoding service
   const thumbnailUrl = getThumbnailUrl(item, item.serverUrl, item.authToken);
 
   const canPlay = Boolean(
@@ -228,104 +223,27 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
   // On mobile, tapping the poster/metadata opens the options drawer instead of
   // navigating. The decision is made at click time so a single <Link> can serve
   // both viewports without a hydration flash or a JS breakpoint hook.
-  const handleAnchorClick = (event: React.MouseEvent) => {
+  const handleNavigateClick = (event: React.MouseEvent) => {
     if (window.matchMedia("(max-width: 767px)").matches) {
       event.preventDefault();
       setIsDrawerOpen(true);
     }
   };
 
-  const posterContent = (
-    <>
-      {thumbnailUrl ? (
-        <Image
-          src={thumbnailUrl}
-          alt={mainTitle}
-          className="h-full w-full object-cover"
-          loading="lazy"
-          width={160}
-          height={240}
-        />
-      ) : (
-        <div className="flex h-full w-full items-center justify-center">
-          <CirclePlay className="text-muted-foreground h-12 w-12" />
-        </div>
-      )}
-
-      {progressPercent > 0 && (
-        <>
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-t from-black/60 to-transparent" />
-          <MediaProgressBar
-            value={progressPercent}
-            className="absolute right-0 bottom-0 left-0 h-1 bg-black/40"
-            fillClassName="bg-primary transition-all duration-300"
-          />
-        </>
-      )}
-
-      {isItemCompleted && (
-        <div className="absolute top-2 right-2 rounded bg-green-600 px-2 py-1 text-xs text-white shadow-sm">
-          Watched
-        </div>
-      )}
-    </>
-  );
-
-  const metadataContent = (
-    <>
-      <h3 className="truncate text-sm leading-tight font-medium">
-        {mainTitle}
-      </h3>
-      {subtitle && (
-        <div className="text-muted-foreground text-xs leading-tight">
-          {subtitle.split("\n").map((line, index) => (
-            <div key={index} className="truncate">
-              {line}
-            </div>
-          ))}
-        </div>
-      )}
-    </>
-  );
-
   return (
     <>
-      <div className="flex shrink-0 flex-col gap-2">
-        <div className="group relative h-[240px] w-[160px]">
-          <Link
-            href={detailsHref}
-            aria-label={`View details for ${mainTitle}`}
-            onClick={handleAnchorClick}
-            className="bg-muted relative block size-full overflow-hidden rounded-md shadow-lg transition-[transform,box-shadow] duration-200 ease-out group-hover:shadow-xl active:scale-[0.98] md:active:scale-100"
-          >
-            {posterContent}
-            <div className="absolute top-2 left-2 rounded bg-black/60 p-1 md:hidden">
-              <MoreHorizontal className="h-4 w-4 text-white" />
-            </div>
-          </Link>
-
-          {/* Hover Overlay with Play Button - Desktop only */}
-          <div className="pointer-events-none absolute inset-0 hidden items-center justify-center bg-black/60 opacity-0 transition-opacity duration-200 group-hover:opacity-100 md:flex">
-            <Button
-              variant="secondary"
-              size="icon"
-              className="group/button pointer-events-auto h-12 w-12 rounded-full"
-              onClick={handlePlay}
-              aria-label="Play"
-            >
-              <Play className="fill-black/60 stroke-black/60 transition-colors duration-200 ease-out group-hover/button:fill-black/20 group-hover/button:stroke-black/20 dark:fill-white/60 dark:stroke-white/60 group-hover/button:dark:fill-white/20 group-hover/button:dark:stroke-white/20" />
-            </Button>
-          </div>
-        </div>
-
-        <Link
-          href={detailsHref}
-          onClick={handleAnchorClick}
-          className="focus-visible:ring-ring flex w-[160px] flex-col gap-1 rounded-sm text-left focus-visible:ring-2 focus-visible:outline-none"
-        >
-          {metadataContent}
-        </Link>
-      </div>
+      <MediaPosterCard
+        title={mainTitle}
+        subtitle={subtitle}
+        detailsHref={detailsHref}
+        thumbnailUrl={thumbnailUrl}
+        progressPercent={progressPercent}
+        isCompleted={isItemCompleted}
+        showPlayOverlay={canPlay}
+        onPlay={handlePlay}
+        onNavigateClick={handleNavigateClick}
+        showMobileMenuHint
+      />
 
       <ContinueWatchingDrawer
         item={item}
