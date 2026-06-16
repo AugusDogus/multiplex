@@ -15,8 +15,8 @@ import { PosterGridStatic } from "~/components/poster-grid-static";
 import { usePosterGridLayout } from "~/hooks/use-poster-grid-layout";
 import { useTanStackVirtualizer } from "~/hooks/use-tanstack-virtualizer";
 import {
-  getPosterGridRowContentHeight,
   POSTER_GRID_INSET_CLASSNAME,
+  POSTER_GRID_ROW_CONTENT_HEIGHT_PX,
   POSTER_GRID_ROW_GAP_PX,
 } from "~/lib/poster-grid-layout";
 
@@ -49,7 +49,6 @@ const VirtualizedPosterGridRow = memo(function VirtualizedPosterGridRow({
   startIndex,
   cellCount,
   columns,
-  viewportWidth,
   translateY,
   resolvedItems,
   measureElement,
@@ -58,7 +57,6 @@ const VirtualizedPosterGridRow = memo(function VirtualizedPosterGridRow({
   startIndex: number;
   cellCount: number;
   columns: number;
-  viewportWidth: number;
   translateY: number;
   resolvedItems: (HubItemWithServer | undefined)[];
   measureElement: (element: Element | null) => void;
@@ -67,7 +65,6 @@ const VirtualizedPosterGridRow = memo(function VirtualizedPosterGridRow({
     <PosterGridRow
       rowIndex={rowIndex}
       columnCount={columns}
-      viewportWidth={viewportWidth}
       cellCount={cellCount}
       startIndex={startIndex}
       resolvedItems={resolvedItems}
@@ -113,7 +110,7 @@ export function MediaPosterGrid({
   }, []);
   const scrollElement = useAppScrollElement();
   const [scrollMargin, setScrollMargin] = useState<number | null>(null);
-  const { columns, viewportWidth, isReady } = usePosterGridLayout(containerEl);
+  const { columns, isReady } = usePosterGridLayout(containerEl);
 
   useLayoutEffect(() => {
     const element = containerEl;
@@ -138,9 +135,6 @@ export function MediaPosterGrid({
     return () => observer.disconnect();
   }, [containerEl, scrollElement]);
 
-  const estimatedRowContentHeight =
-    getPosterGridRowContentHeight(viewportWidth);
-
   const itemCount = onLoadPage
     ? totalSize
     : Math.min(totalSize, items.length);
@@ -148,7 +142,7 @@ export function MediaPosterGrid({
 
   const virtualizer = useTanStackVirtualizer({
     count: rowCount,
-    estimateSize: () => estimatedRowContentHeight,
+    estimateSize: () => POSTER_GRID_ROW_CONTENT_HEIGHT_PX,
     gap: POSTER_GRID_ROW_GAP_PX,
     getItemKey: (index) => `${columns}-${index}`,
     getScrollElement: () => scrollElement,
@@ -225,15 +219,7 @@ export function MediaPosterGrid({
       return;
     }
     virtualizer.measure();
-  }, [
-    columns,
-    viewportWidth,
-    estimatedRowContentHeight,
-    scrollMargin,
-    isReady,
-    rowCount,
-    virtualizer,
-  ]);
+  }, [columns, scrollMargin, isReady, rowCount, virtualizer]);
 
   if (items.length === 0) {
     return <p className="text-muted-foreground text-sm">{emptyMessage}</p>;
@@ -260,7 +246,6 @@ export function MediaPosterGrid({
                 startIndex={startIndex}
                 cellCount={Math.min(columns, itemCount - startIndex)}
                 columns={columns}
-                viewportWidth={viewportWidth}
                 translateY={virtualRow.start - scrollMargin}
                 resolvedItems={resolvedItems}
                 measureElement={virtualizer.measureElement}

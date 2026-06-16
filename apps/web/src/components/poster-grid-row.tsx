@@ -10,7 +10,6 @@ import { cn } from "~/lib/utils";
 
 export interface PosterGridRowProps {
   columnCount: number;
-  viewportWidth: number;
   cellCount: number;
   startIndex: number;
   resolvedItems: (HubItemWithServer | undefined)[];
@@ -22,7 +21,6 @@ export interface PosterGridRowProps {
 
 export function PosterGridRow({
   columnCount,
-  viewportWidth,
   cellCount,
   startIndex,
   resolvedItems,
@@ -37,10 +35,7 @@ export function PosterGridRow({
       ref={measureElement}
       className={cn("grid justify-items-center gap-x-3 sm:gap-x-4", className)}
       style={{
-        gridTemplateColumns: getPosterGridTemplateColumns(
-          columnCount,
-          viewportWidth,
-        ),
+        gridTemplateColumns: getPosterGridTemplateColumns(columnCount),
         ...style,
       }}
     >
