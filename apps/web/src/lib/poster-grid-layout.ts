@@ -3,17 +3,13 @@ export const POSTER_GRID_ROW_GAP_PX = 20;
 
 export const POSTER_GRID_INSET_CLASSNAME = "px-4 md:px-8";
 
-const POSTER_WIDTH_PX = 160;
-const POSTER_HEIGHT_PX = 240;
+export const POSTER_WIDTH_PX = 160;
+export const POSTER_HEIGHT_PX = 240;
 
 const POSTER_GRID_COLUMN_GAP_PX = {
   base: 12,
   sm: 16,
 } as const;
-
-function getPosterWidth(_viewportWidth: number): number {
-  return POSTER_WIDTH_PX;
-}
 
 function getPosterGridColumnGap(viewportWidth: number): number {
   return viewportWidth >= 640
@@ -26,30 +22,20 @@ export function getPosterGridColumnsForWidth(
   trackWidth: number,
   viewportWidth: number,
 ): number {
-  const targetWidth = getPosterWidth(viewportWidth);
   const gap = getPosterGridColumnGap(viewportWidth);
-  return Math.max(1, Math.floor((trackWidth + gap) / (targetWidth + gap)));
+  return Math.max(
+    1,
+    Math.floor((trackWidth + gap) / (POSTER_WIDTH_PX + gap)),
+  );
 }
 
-export function getPosterGridTemplateColumns(
-  columnCount: number,
-  viewportWidth: number,
-): string {
-  const targetWidth = getPosterWidth(viewportWidth);
-  return `repeat(${columnCount}, minmax(${targetWidth}px, 1fr))`;
-}
-
-function getPosterHeight(_viewportWidth: number): number {
-  return POSTER_HEIGHT_PX;
+export function getPosterGridTemplateColumns(columnCount: number): string {
+  return `repeat(${columnCount}, minmax(${POSTER_WIDTH_PX}px, 1fr))`;
 }
 
 /** Poster card stack only; excludes inter-row gap. */
-export function getPosterGridRowContentHeight(viewportWidth: number): number {
-  const cardGap = 8;
-  const titleLine = 18;
-  const subtitleLine = 15;
-  return getPosterHeight(viewportWidth) + cardGap + titleLine + subtitleLine;
-}
+export const POSTER_GRID_ROW_CONTENT_HEIGHT_PX =
+  POSTER_HEIGHT_PX + 8 + 18 + 15;
 
 export function measurePosterGridTrackWidth(element: HTMLElement): number {
   const styles = window.getComputedStyle(element);
