@@ -30,6 +30,7 @@ import { MetadataGenres } from "./metadata-genres";
 import { MetadataRating } from "./metadata-rating";
 import { MetadataSummaryRow } from "./metadata-summary-row";
 import type { ItemDetails, PlayTarget } from "./types";
+import { useIsLargeScreen } from "~/hooks/use-is-large-screen";
 import { getPosterTransitionName } from "~/lib/view-transitions";
 
 interface DetailsHeroProps {
@@ -69,6 +70,7 @@ export function DetailsHero({
   const secondaryTitle = getDetailsSecondaryTitle(item);
   const canPlay = Boolean(imageServerUrl && imageAuthToken && playTarget);
   const playLabel = getPlayButtonLabel(playTarget);
+  const isLargeScreen = useIsLargeScreen();
 
   const actions = (
     <HeroActions
@@ -101,6 +103,7 @@ export function DetailsHero({
               posterUrl={posterUrl}
               title={item.title}
               ratingKey={item.ratingKey}
+              enableTransition={isLargeScreen}
               sizes="220px"
               iconClassName="size-12"
               className="bg-muted ring-border relative aspect-2/3 rounded-xl mask-[linear-gradient(#000_0_0)] shadow-2xl ring-1 [-webkit-mask:linear-gradient(#000_0_0)]"
@@ -165,6 +168,7 @@ export function DetailsHero({
               posterUrl={posterUrl}
               title={item.title}
               ratingKey={item.ratingKey}
+              enableTransition={!isLargeScreen}
               sizes="108px"
               iconClassName="size-10"
               className="bg-muted ring-border relative aspect-2/3 overflow-hidden rounded-lg shadow-2xl ring-1"
@@ -208,6 +212,7 @@ interface HeroPosterProps {
   posterUrl: string | undefined;
   title: string;
   ratingKey: string;
+  enableTransition: boolean;
   sizes: string;
   iconClassName: string;
   className: string;
@@ -217,28 +222,37 @@ function HeroPoster({
   posterUrl,
   title,
   ratingKey,
+  enableTransition,
   sizes,
   iconClassName,
   className,
 }: HeroPosterProps) {
+  const poster = (
+    <div className={className}>
+      {posterUrl ? (
+        <Image
+          src={posterUrl}
+          alt={`${title} poster`}
+          fill
+          priority
+          sizes={sizes}
+          className="object-cover"
+        />
+      ) : (
+        <div className="flex size-full items-center justify-center">
+          <Play className={`text-muted-foreground ${iconClassName}`} />
+        </div>
+      )}
+    </div>
+  );
+
+  if (!enableTransition) {
+    return poster;
+  }
+
   return (
     <ViewTransition name={getPosterTransitionName(ratingKey)} share="morph">
-      <div className={className}>
-        {posterUrl ? (
-          <Image
-            src={posterUrl}
-            alt={`${title} poster`}
-            fill
-            priority
-            sizes={sizes}
-            className="object-cover"
-          />
-        ) : (
-          <div className="flex size-full items-center justify-center">
-            <Play className={`text-muted-foreground ${iconClassName}`} />
-          </div>
-        )}
-      </div>
+      {poster}
     </ViewTransition>
   );
 }
