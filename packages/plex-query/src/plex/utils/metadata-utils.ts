@@ -51,6 +51,18 @@ export function toPlayableMetadata(item: ItemMetadata): PlayableMetadata | null 
   return { ...item, streamPartKey };
 }
 
+const PLAYABLE_POSTER_ITEM_TYPES = new Set([
+  "movie",
+  "episode",
+  "show",
+  "season",
+]);
+
+/** Whether a browse/hub poster can offer direct playback (vs. opening a collection/playlist). */
+export function isPlayablePosterItemType(type: string): boolean {
+  return PLAYABLE_POSTER_ITEM_TYPES.has(type);
+}
+
 export function resolvePlayTarget(
   item: ItemMetadata,
   playableChildren: PlayableEnrichedChild[],

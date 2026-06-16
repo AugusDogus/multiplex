@@ -14,6 +14,7 @@ import { MediaProgressBar } from "~/components/media-progress-bar";
 import { Button } from "~/components/ui/button";
 import { getHubItemHref } from "~/lib/plex-routes";
 import { cn } from "~/lib/utils";
+import { useHubItemPlayback } from "~/hooks/use-hub-item-playback";
 
 const POSTER_SIZE_CLASSNAME = "h-[240px] w-[160px]";
 
@@ -67,6 +68,10 @@ function resolvePosterCardContent(
 }
 
 export function MediaPosterCard(props: MediaPosterCardProps) {
+  const item = isItemProps(props) ? props.item : undefined;
+  const hubPlayback = useHubItemPlayback(item);
+
+  const resolved = resolvePosterCardContent(props);
   const {
     title,
     subtitle,
@@ -75,11 +80,13 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
     className,
     progressPercent = 0,
     isCompleted = false,
-    showPlayOverlay = false,
-    onPlay,
     onNavigateClick,
     showMobileMenuHint = false,
-  } = resolvePosterCardContent(props);
+  } = resolved;
+
+  const showPlayOverlay =
+    props.showPlayOverlay ?? (item ? hubPlayback.canPlay : false);
+  const onPlay = props.onPlay ?? (item ? hubPlayback.play : undefined);
 
   const [imageFailed, setImageFailed] = useState(false);
 
