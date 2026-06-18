@@ -3,18 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { clamp } from "./utils/media-player-utils";
-
-// Utility function for formatting time
-function formatTime(seconds: number): string {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const remainingSeconds = Math.floor(seconds % 60);
-
-  if (hours > 0) {
-    return `${hours}:${minutes.toString().padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`;
-  }
-  return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
-}
+import { formatTime } from "./utils/playback-time-utils";
 
 /* ────────────────────────────────────────────────────────────
    Media Player Progress Bar
@@ -141,20 +130,6 @@ export function MediaPlayerProgress({
     setHoverTime(null);
   }, []);
 
-  /**
-   * Format time for hover tooltip
-   */
-  const formatHoverTime = useCallback((time: number): string => {
-    const hours = Math.floor(time / 3600);
-    const minutes = Math.floor((time % 3600) / 60);
-    const seconds = Math.floor(time % 60);
-
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-    }
-    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-  }, []);
-
   // Attach global mouse events for dragging
   useEffect(() => {
     if (isDragging) {
@@ -174,7 +149,7 @@ export function MediaPlayerProgress({
   return (
     <div className={`flex items-center gap-3 ${className}`}>
       {/* Current Time */}
-      <div className="min-w-[3rem] text-right font-mono text-sm text-white/90">
+      <div className="min-w-12 text-right font-mono text-sm text-white/90">
         {formattedCurrentTime}
       </div>
 
@@ -208,14 +183,14 @@ export function MediaPlayerProgress({
                 transform: "translateX(-50%)",
               }}
             >
-              {formatHoverTime(hoverTime)}
+              {formatTime(hoverTime)}
             </div>
           )}
         </div>
       </div>
 
       {/* Duration */}
-      <div className="min-w-[3rem] font-mono text-sm text-white/90">
+      <div className="min-w-12 font-mono text-sm text-white/90">
         {formattedDuration}
       </div>
     </div>
