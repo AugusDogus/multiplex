@@ -18,12 +18,9 @@ import { useCaptionLines } from "./hooks/use-caption-lines";
 import { usePlexSubtitleTrack } from "./hooks/use-plex-subtitle-track";
 import { useResumePlayback } from "./hooks/use-resume-playback";
 import { useSeekOverlay } from "./hooks/use-seek-overlay";
+import { buildPlexPlaybackPlan } from "./utils/plex-playback-plan";
 import { getVideoElementError } from "./utils/media-player-utils";
-import {
-  buildPlexPlaybackPlan,
-  generatePlexStreamUrl,
-  transcodeUsesOffsetTimeline,
-} from "./utils/plex-stream-utils";
+import { generatePlexStreamUrl } from "./utils/plex-stream-urls";
 import { useSuppressNativeLongPress } from "./hooks/use-suppress-native-long-press";
 import { useVideoPressGesture } from "./hooks/use-video-press-gesture";
 import { MediaPlayerCaptionsOverlay } from "./media-player-captions-overlay";
@@ -144,7 +141,7 @@ export const MediaPlayerVideo = forwardRef<
     const playbackRate = useMediaPlayerStore((state) => state.playbackRate);
     const streamOffset = useMediaPlayerStore((state) => state.streamOffset);
     const playbackPlan = useMemo(() => buildPlexPlaybackPlan(item), [item]);
-    const usesOffsetTimeline = transcodeUsesOffsetTimeline(item, streamOffset);
+    const usesOffsetTimeline = streamOffset > 0;
     const isLoading = useMediaPlayerStore((state) => state.isLoading);
     const showControls = useMediaPlayerStore((state) => state.showControls);
     const captionSize = useMediaPlayerStore((state) => state.captionSize);
@@ -206,7 +203,6 @@ export const MediaPlayerVideo = forwardRef<
     const videoCodec = media?.videoCodec;
     const audioCodec = media?.audioCodec;
     const container = media?.container;
-    const burnedSubtitleIndex = playbackPlan.burnedSubtitleIndex;
 
     // Derive video source URL and error state from item. `streamOffset` only
     // affects transcoded streams, where it gets baked into the URL so the
@@ -237,8 +233,8 @@ export const MediaPlayerVideo = forwardRef<
           streamItem,
           serverUrl,
           authToken,
+          playbackPlan,
           streamOffset,
-          burnedSubtitleIndex,
         );
         return { videoSrc: streamUrl, hasError: false };
       } catch (error) {
@@ -257,7 +253,7 @@ export const MediaPlayerVideo = forwardRef<
       videoCodec,
       audioCodec,
       container,
-      burnedSubtitleIndex,
+      playbackPlan,
       streamOffset,
     ]);
 

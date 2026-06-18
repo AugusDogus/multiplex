@@ -10,12 +10,12 @@ import {
   type SyntheticEvent,
 } from "react";
 import type { MediaPlayerItem } from "~/types/media-player";
+import type { PlexPlaybackPlan } from "../utils/plex-playback-plan";
 import {
   generatePlexExternalSubtitleUrl,
   generatePlexSubtitleTrackUrl,
   hasValidStreamingData,
-  type PlexPlaybackPlan,
-} from "../utils/plex-stream-utils";
+} from "../utils/plex-stream-urls";
 import { parseSrtCues, shiftSrtCues } from "../utils/srt-parser";
 
 const EXTERNAL_SUBTITLE_TRACK_LABEL = "Multiplex External";

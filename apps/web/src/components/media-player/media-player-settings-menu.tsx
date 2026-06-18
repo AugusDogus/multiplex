@@ -13,10 +13,8 @@ import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { api } from "~/trpc/react";
 import type { MediaPlayerItem, PlaybackRate } from "~/types/media-player";
 import { CAPTION_SIZE_OPTIONS } from "./utils/caption-size";
-import {
-  buildPlexSubtitleSelectionUrl,
-  playbackUsesTranscode,
-} from "./utils/plex-stream-utils";
+import { playbackUsesTranscode } from "./utils/plex-playback-plan";
+import { buildPlexSubtitleSelectionUrl } from "./utils/plex-stream-urls";
 
 /* ────────────────────────────────────────────────────────────
    Media Player Settings Menu
