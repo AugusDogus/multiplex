@@ -1,4 +1,8 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useRef, useState, type ReactNode } from "react";
+import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
 
 interface MediaCarouselProps {
@@ -8,43 +12,19 @@ interface MediaCarouselProps {
   gapClassName?: string;
 }
 
-/** Tailwind arbitrary variants for CSS Overflow 5 ::scroll-button() (Chrome 135+). */
-const scrollButtonSupport =
-  "supports-[selector(::scroll-button(left))]" as const;
+interface ScrollState {
+  canScrollLeft: boolean;
+  canScrollRight: boolean;
+}
 
-const headerScrollButtonClasses = [
-  "[anchor-name:--media-carousel-header]",
-] as const;
+function getScrollState(element: HTMLElement): ScrollState {
+  const maxScrollLeft = element.scrollWidth - element.clientWidth;
 
-const trackScrollButtonClasses = [
-  `${scrollButtonSupport}:[&::scroll-button(left)]:[content:'‹'_/'Scroll_left']`,
-  `${scrollButtonSupport}:[&::scroll-button(right)]:[content:'›'_/'Scroll_right']`,
-  `${scrollButtonSupport}:[&::scroll-button(*)]:absolute`,
-  `${scrollButtonSupport}:[&::scroll-button(*)]:z-10`,
-  `${scrollButtonSupport}:[&::scroll-button(*)]:hidden`,
-  `${scrollButtonSupport}:[&::scroll-button(*)]:size-8`,
-  `${scrollButtonSupport}:[&::scroll-button(*)]:cursor-pointer`,
-  `${scrollButtonSupport}:[&::scroll-button(*)]:items-center`,
-  `${scrollButtonSupport}:[&::scroll-button(*)]:justify-center`,
-  `${scrollButtonSupport}:[&::scroll-button(*)]:rounded-md`,
-  `${scrollButtonSupport}:[&::scroll-button(*)]:border`,
-  `${scrollButtonSupport}:[&::scroll-button(*)]:border-border`,
-  `${scrollButtonSupport}:[&::scroll-button(*)]:bg-background`,
-  `${scrollButtonSupport}:[&::scroll-button(*)]:text-lg`,
-  `${scrollButtonSupport}:[&::scroll-button(*)]:leading-none`,
-  `${scrollButtonSupport}:[&::scroll-button(*)]:text-foreground`,
-  `${scrollButtonSupport}:[&::scroll-button(*)]:shadow-xs`,
-  `${scrollButtonSupport}:[&::scroll-button(*)]:[position-anchor:--media-carousel-header]`,
-  `${scrollButtonSupport}:[&::scroll-button(*)]:[top:anchor(center)]`,
-  `${scrollButtonSupport}:[&::scroll-button(*)]:-mt-4`,
-  `${scrollButtonSupport}:[&::scroll-button(*)]:md:inline-flex`,
-  `${scrollButtonSupport}:[&::scroll-button(right)]:[right:anchor(right)]`,
-  `${scrollButtonSupport}:[&::scroll-button(left)]:[right:calc(anchor(right)-2.25rem)]`,
-  `${scrollButtonSupport}:[&::scroll-button(*):disabled]:hidden`,
-  `${scrollButtonSupport}:[&::scroll-button(*):focus-visible]:outline-none`,
-  `${scrollButtonSupport}:[&::scroll-button(*):focus-visible]:ring-[3px]`,
-  `${scrollButtonSupport}:[&::scroll-button(*):focus-visible]:ring-ring/50`,
-] as const;
+  return {
+    canScrollLeft: element.scrollLeft > 1,
+    canScrollRight: element.scrollLeft < maxScrollLeft - 1,
+  };
+}
 
 export function MediaCarousel({
   children,
@@ -52,23 +32,97 @@ export function MediaCarousel({
   className,
   gapClassName = "gap-4",
 }: MediaCarouselProps) {
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const [scrollState, setScrollState] = useState<ScrollState>({
+    canScrollLeft: false,
+    canScrollRight: false,
+  });
+
+  function attachTrack(node: HTMLDivElement | null) {
+    trackRef.current = node;
+
+    if (!node) {
+      return;
+    }
+
+    const syncScrollState = () => {
+      setScrollState(getScrollState(node));
+    };
+
+    syncScrollState();
+
+    node.addEventListener("scroll", syncScrollState, { passive: true });
+
+    const resizeObserver = new ResizeObserver(syncScrollState);
+    resizeObserver.observe(node);
+
+    const mutationObserver = new MutationObserver(syncScrollState);
+    mutationObserver.observe(node, { childList: true, subtree: true });
+
+    return () => {
+      node.removeEventListener("scroll", syncScrollState);
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+    };
+  }
+
+  function scrollTrack(direction: "left" | "right") {
+    const track = trackRef.current;
+    if (!track) {
+      return;
+    }
+
+    const distance = Math.max(track.clientWidth * 0.85, 200);
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+
+    track.scrollBy({
+      left: direction === "left" ? -distance : distance,
+      behavior: prefersReducedMotion ? "auto" : "smooth",
+    });
+  }
+
+  const showControls = scrollState.canScrollLeft || scrollState.canScrollRight;
+
   return (
     <section className={cn("flex flex-col gap-y-4", className)}>
       {header ? (
-        <div
-          className={cn(
-            "flex min-h-8 items-center justify-between gap-4 px-4 md:px-8",
-            headerScrollButtonClasses,
-          )}
-        >
+        <div className="flex items-center justify-between gap-4 px-4 md:px-8">
           <div className="min-w-0 flex-1">{header}</div>
+          {showControls ? (
+            <div className="hidden shrink-0 items-center gap-1 md:flex">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8"
+                onClick={() => scrollTrack("left")}
+                disabled={!scrollState.canScrollLeft}
+                aria-label="Scroll left"
+              >
+                <ChevronLeft />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8"
+                onClick={() => scrollTrack("right")}
+                disabled={!scrollState.canScrollRight}
+                aria-label="Scroll right"
+              >
+                <ChevronRight />
+              </Button>
+            </div>
+          ) : null}
         </div>
       ) : null}
       <div className="w-full max-w-full overflow-hidden">
         <div
+          ref={attachTrack}
           className={cn(
             "scrollbar-hide flex overflow-x-auto scroll-smooth px-4 pb-4 md:px-8",
-            header && trackScrollButtonClasses,
             gapClassName,
           )}
         >
