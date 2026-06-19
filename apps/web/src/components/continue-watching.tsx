@@ -25,24 +25,12 @@ import { api, type RouterOutputs } from "~/trpc/react";
    Horizontal slider of poster items with progress
    ──────────────────────────────────────────────────────────── */
 
-// Wrapper component to avoid repeating the same container classes
 interface SectionWrapperProps {
   children: React.ReactNode;
-  showTitle?: boolean;
-  title?: string;
 }
 
-function SectionWrapper({ children, showTitle, title }: SectionWrapperProps) {
-  return (
-    <div className="flex flex-col gap-y-4">
-      {showTitle && (
-        <div className="flex items-center justify-between px-4 md:px-8">
-          <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
-        </div>
-      )}
-      {children}
-    </div>
-  );
+function SectionWrapper({ children }: SectionWrapperProps) {
+  return <div className="flex flex-col gap-y-4">{children}</div>;
 }
 
 export interface ContinueWatchingProps {
@@ -101,7 +89,12 @@ export function ContinueWatching({
   // Only show error when we have nothing to display at all
   if (error && items.length === 0) {
     return (
-      <SectionWrapper showTitle={showTitle} title={title}>
+      <SectionWrapper>
+        {showTitle ? (
+          <h2 className="px-4 text-2xl font-semibold tracking-tight md:px-8">
+            {title}
+          </h2>
+        ) : null}
         <div className="text-muted-foreground px-4 text-sm md:px-8">
           Failed to load Continue Watching data
         </div>
@@ -111,7 +104,12 @@ export function ContinueWatching({
 
   if (items.length === 0) {
     return (
-      <SectionWrapper showTitle={showTitle} title={title}>
+      <SectionWrapper>
+        {showTitle ? (
+          <h2 className="px-4 text-2xl font-semibold tracking-tight md:px-8">
+            {title}
+          </h2>
+        ) : null}
         <div className="text-muted-foreground px-4 text-sm md:px-8">
           Nothing to continue watching. Start watching something to see it here.
         </div>
@@ -120,16 +118,20 @@ export function ContinueWatching({
   }
 
   return (
-    <SectionWrapper showTitle={showTitle} title={title}>
-      <MediaCarousel>
-        {items.map((item) => (
-          <ContinueWatchingItem
-            key={`${item.serverId}-${item.ratingKey}`}
-            item={item}
-          />
-        ))}
-      </MediaCarousel>
-    </SectionWrapper>
+    <MediaCarousel
+      header={
+        showTitle ? (
+          <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
+        ) : undefined
+      }
+    >
+      {items.map((item) => (
+        <ContinueWatchingItem
+          key={`${item.serverId}-${item.ratingKey}`}
+          item={item}
+        />
+      ))}
+    </MediaCarousel>
   );
 }
 

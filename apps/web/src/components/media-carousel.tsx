@@ -13,6 +13,7 @@ import { cn } from "~/lib/utils";
 
 interface MediaCarouselProps {
   children: ReactNode;
+  header?: ReactNode;
   className?: string;
   gapClassName?: string;
 }
@@ -28,6 +29,7 @@ function getScrollOffsets(element: HTMLElement) {
 
 export function MediaCarousel({
   children,
+  header,
   className,
   gapClassName = "gap-4",
 }: MediaCarouselProps) {
@@ -89,64 +91,72 @@ export function MediaCarousel({
   const showControls = canScrollLeft || canScrollRight;
 
   return (
-    <div
-      className={cn(
-        "group/carousel relative w-full max-w-full overflow-hidden",
-        className,
-      )}
-    >
-      {showControls ? (
-        <>
-          <CarouselArrow
-            direction="left"
-            disabled={!canScrollLeft}
-            onClick={() => scroll("left")}
-          />
-          <CarouselArrow
-            direction="right"
-            disabled={!canScrollRight}
-            onClick={() => scroll("right")}
-          />
-        </>
+    <section className={cn("flex flex-col gap-y-4", className)}>
+      {header ? (
+        <div className="flex items-center justify-between gap-4 px-4 md:px-8">
+          <div className="min-w-0 flex-1">{header}</div>
+          {showControls ? (
+            <CarouselControls
+              canScrollLeft={canScrollLeft}
+              canScrollRight={canScrollRight}
+              onScrollLeft={() => scroll("left")}
+              onScrollRight={() => scroll("right")}
+            />
+          ) : null}
+        </div>
       ) : null}
-      <div
-        ref={scrollRef}
-        className={cn(
-          "scrollbar-hide flex overflow-x-auto px-4 pb-4 md:px-8",
-          gapClassName,
-        )}
-      >
-        {children}
+      <div className="w-full max-w-full overflow-hidden">
+        <div
+          ref={scrollRef}
+          className={cn(
+            "scrollbar-hide flex overflow-x-auto px-4 pb-4 md:px-8",
+            gapClassName,
+          )}
+        >
+          {children}
+        </div>
       </div>
-    </div>
+    </section>
   );
 }
 
-interface CarouselArrowProps {
-  direction: "left" | "right";
-  disabled: boolean;
-  onClick: () => void;
+interface CarouselControlsProps {
+  canScrollLeft: boolean;
+  canScrollRight: boolean;
+  onScrollLeft: () => void;
+  onScrollRight: () => void;
 }
 
-function CarouselArrow({ direction, disabled, onClick }: CarouselArrowProps) {
-  const Icon = direction === "left" ? ChevronLeft : ChevronRight;
-
+function CarouselControls({
+  canScrollLeft,
+  canScrollRight,
+  onScrollLeft,
+  onScrollRight,
+}: CarouselControlsProps) {
   return (
-    <Button
-      type="button"
-      variant="secondary"
-      size="icon"
-      className={cn(
-        "bg-background/90 absolute top-1/2 z-10 hidden size-9 -translate-y-1/2 rounded-full shadow-md backdrop-blur-sm transition-opacity duration-150 md:flex",
-        direction === "left" ? "left-3 md:left-5" : "right-3 md:right-5",
-        "opacity-0 group-hover/carousel:opacity-100 focus-visible:opacity-100",
-        disabled && "pointer-events-none opacity-0",
-      )}
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={direction === "left" ? "Scroll left" : "Scroll right"}
-    >
-      <Icon />
-    </Button>
+    <div className="hidden shrink-0 items-center gap-1 md:flex">
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="size-8"
+        onClick={onScrollLeft}
+        disabled={!canScrollLeft}
+        aria-label="Scroll left"
+      >
+        <ChevronLeft />
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="size-8"
+        onClick={onScrollRight}
+        disabled={!canScrollRight}
+        aria-label="Scroll right"
+      >
+        <ChevronRight />
+      </Button>
+    </div>
   );
 }
