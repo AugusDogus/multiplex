@@ -1,7 +1,13 @@
 "use client";
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
+import {
+  useRef,
+  useState,
+  type ReactNode,
+  type SyntheticEvent,
+  type UIEvent,
+} from "react";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
 
@@ -17,6 +23,13 @@ interface ScrollState {
   canScrollRight: boolean;
 }
 
+interface MediaCarouselControlsProps {
+  canScrollLeft: boolean;
+  canScrollRight: boolean;
+  onScrollLeft: () => void;
+  onScrollRight: () => void;
+}
+
 function getScrollState(element: HTMLElement): ScrollState {
   const maxScrollLeft = element.scrollWidth - element.clientWidth;
 
@@ -26,44 +39,74 @@ function getScrollState(element: HTMLElement): ScrollState {
   };
 }
 
+function MediaCarouselControls({
+  canScrollLeft,
+  canScrollRight,
+  onScrollLeft,
+  onScrollRight,
+}: MediaCarouselControlsProps) {
+  if (!canScrollLeft && !canScrollRight) {
+    return null;
+  }
+
+  return (
+    <div className="hidden shrink-0 items-center gap-1 md:flex">
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="size-8"
+        onClick={onScrollLeft}
+        disabled={!canScrollLeft}
+        aria-label="Scroll left"
+      >
+        <ChevronLeft />
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="size-8"
+        onClick={onScrollRight}
+        disabled={!canScrollRight}
+        aria-label="Scroll right"
+      >
+        <ChevronRight />
+      </Button>
+    </div>
+  );
+}
+
 export function MediaCarousel({
   children,
   header,
   className,
   gapClassName = "gap-4",
 }: MediaCarouselProps) {
-  const trackRef = useRef<HTMLDivElement | null>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
   const [scrollState, setScrollState] = useState<ScrollState>({
     canScrollLeft: false,
     canScrollRight: false,
   });
 
-  function attachTrack(node: HTMLDivElement | null) {
+  function syncScrollState(target: HTMLElement) {
+    setScrollState(getScrollState(target));
+  }
+
+  function handleTrackRef(node: HTMLDivElement | null) {
     trackRef.current = node;
 
-    if (!node) {
-      return;
+    if (node) {
+      syncScrollState(node);
     }
+  }
 
-    const syncScrollState = () => {
-      setScrollState(getScrollState(node));
-    };
+  function handleTrackScroll(event: UIEvent<HTMLDivElement>) {
+    syncScrollState(event.currentTarget);
+  }
 
-    syncScrollState();
-
-    node.addEventListener("scroll", syncScrollState, { passive: true });
-
-    const resizeObserver = new ResizeObserver(syncScrollState);
-    resizeObserver.observe(node);
-
-    const mutationObserver = new MutationObserver(syncScrollState);
-    mutationObserver.observe(node, { childList: true, subtree: true });
-
-    return () => {
-      node.removeEventListener("scroll", syncScrollState);
-      resizeObserver.disconnect();
-      mutationObserver.disconnect();
-    };
+  function handleTrackLoad(event: SyntheticEvent<HTMLDivElement>) {
+    syncScrollState(event.currentTarget);
   }
 
   function scrollTrack(direction: "left" | "right") {
@@ -83,44 +126,24 @@ export function MediaCarousel({
     });
   }
 
-  const showControls = scrollState.canScrollLeft || scrollState.canScrollRight;
-
   return (
     <section className={cn("flex flex-col gap-y-4", className)}>
       {header ? (
         <div className="flex items-center justify-between gap-4 px-4 md:px-8">
           <div className="min-w-0 flex-1">{header}</div>
-          {showControls ? (
-            <div className="hidden shrink-0 items-center gap-1 md:flex">
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="size-8"
-                onClick={() => scrollTrack("left")}
-                disabled={!scrollState.canScrollLeft}
-                aria-label="Scroll left"
-              >
-                <ChevronLeft />
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="size-8"
-                onClick={() => scrollTrack("right")}
-                disabled={!scrollState.canScrollRight}
-                aria-label="Scroll right"
-              >
-                <ChevronRight />
-              </Button>
-            </div>
-          ) : null}
+          <MediaCarouselControls
+            canScrollLeft={scrollState.canScrollLeft}
+            canScrollRight={scrollState.canScrollRight}
+            onScrollLeft={() => scrollTrack("left")}
+            onScrollRight={() => scrollTrack("right")}
+          />
         </div>
       ) : null}
       <div className="w-full max-w-full overflow-hidden">
         <div
-          ref={attachTrack}
+          ref={handleTrackRef}
+          onScroll={handleTrackScroll}
+          onLoadCapture={handleTrackLoad}
           className={cn(
             "scrollbar-hide flex overflow-x-auto scroll-smooth px-4 pb-4 md:px-8",
             gapClassName,
