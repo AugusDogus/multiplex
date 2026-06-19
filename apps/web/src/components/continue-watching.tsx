@@ -13,6 +13,7 @@ import {
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { useProgressStore } from "~/stores/progress-store";
 import { ContinueWatchingDrawer } from "~/components/continue-watching-drawer";
+import { MediaCarousel } from "~/components/media-carousel";
 import { MediaPosterCard } from "~/components/media-poster-card";
 import { useVisibilityChange } from "~/hooks/use-visibility-change";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
@@ -120,16 +121,14 @@ export function ContinueWatching({
 
   return (
     <SectionWrapper showTitle={showTitle} title={title}>
-      <div className="w-full max-w-full overflow-hidden">
-        <div className="scrollbar-hide flex gap-4 overflow-x-auto px-4 pb-4 md:px-8">
-          {items.map((item) => (
-            <ContinueWatchingItem
-              key={`${item.serverId}-${item.ratingKey}`}
-              item={item}
-            />
-          ))}
-        </div>
-      </div>
+      <MediaCarousel>
+        {items.map((item) => (
+          <ContinueWatchingItem
+            key={`${item.serverId}-${item.ratingKey}`}
+            item={item}
+          />
+        ))}
+      </MediaCarousel>
     </SectionWrapper>
   );
 }

@@ -3,6 +3,7 @@
 import { ChevronRight } from "lucide-react";
 import Link from "next/link";
 import type { HubWithServer } from "@multiplex/plex-query";
+import { MediaCarousel } from "~/components/media-carousel";
 import { MediaPosterCard } from "~/components/media-poster-card";
 import { PosterCardSkeleton } from "~/components/poster-card-skeleton";
 import { Skeleton } from "~/components/ui/skeleton";
@@ -49,16 +50,14 @@ export function MediaHubRow({ hub }: MediaHubRowProps) {
           </h2>
         )}
       </div>
-      <div className="w-full max-w-full overflow-hidden">
-        <div className="scrollbar-hide flex gap-3 overflow-x-auto px-4 pb-4 sm:gap-4 md:px-8">
-          {hub.items.map((item) => (
-            <MediaPosterCard
-              key={`${item.serverId}-${item.ratingKey}`}
-              item={item}
-            />
-          ))}
-        </div>
-      </div>
+      <MediaCarousel gapClassName="gap-3 sm:gap-4">
+        {hub.items.map((item) => (
+          <MediaPosterCard
+            key={`${item.serverId}-${item.ratingKey}`}
+            item={item}
+          />
+        ))}
+      </MediaCarousel>
     </section>
   );
 }
