@@ -16,7 +16,7 @@ export default function AppLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <HydrateClient>
-      <div className="h-svh max-w-screen overflow-hidden">
+      <div className="h-svh max-w-screen overflow-hidden overscroll-none">
         <SidebarProvider className="h-full min-h-0 overflow-hidden">
           <Suspense fallback={<AppSidebarSkeleton />}>
             <AppShellSidebar />

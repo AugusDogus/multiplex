@@ -30,7 +30,7 @@ export function AppScrollContainer({ children }: AppScrollContainerProps) {
     <AppScrollElementContext.Provider value={scrollElement}>
       <SidebarInset
         ref={scrollRef}
-        className="h-svh w-0 max-w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto md:h-[calc(100svh-1rem)]"
+        className="h-svh w-0 max-w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-none md:h-[calc(100svh-1rem)]"
       >
         {children}
       </SidebarInset>
