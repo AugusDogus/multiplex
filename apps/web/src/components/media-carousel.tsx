@@ -45,10 +45,6 @@ function MediaCarouselControls({
   onScrollLeft,
   onScrollRight,
 }: MediaCarouselControlsProps) {
-  if (!canScrollLeft && !canScrollRight) {
-    return null;
-  }
-
   return (
     <div className="hidden shrink-0 items-center gap-1 md:flex">
       <Button
@@ -89,24 +85,12 @@ export function MediaCarousel({
     canScrollRight: false,
   });
 
-  function syncScrollState(target: HTMLElement) {
-    setScrollState(getScrollState(target));
-  }
-
-  function handleTrackRef(node: HTMLDivElement | null) {
-    trackRef.current = node;
-
-    if (node) {
-      syncScrollState(node);
-    }
-  }
-
   function handleTrackScroll(event: UIEvent<HTMLDivElement>) {
-    syncScrollState(event.currentTarget);
+    setScrollState(getScrollState(event.currentTarget));
   }
 
   function handleTrackLoad(event: SyntheticEvent<HTMLDivElement>) {
-    syncScrollState(event.currentTarget);
+    setScrollState(getScrollState(event.currentTarget));
   }
 
   function scrollTrack(direction: "left" | "right") {
@@ -141,7 +125,12 @@ export function MediaCarousel({
       ) : null}
       <div className="w-full max-w-full overflow-hidden">
         <div
-          ref={handleTrackRef}
+          ref={(node) => {
+            trackRef.current = node;
+            if (node) {
+              setScrollState(getScrollState(node));
+            }
+          }}
           onScroll={handleTrackScroll}
           onLoadCapture={handleTrackLoad}
           className={cn(
