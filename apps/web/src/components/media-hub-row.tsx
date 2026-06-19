@@ -31,34 +31,31 @@ export function MediaHubRow({ hub }: MediaHubRowProps) {
     ? getHubHref(hub.serverId, hub.key, hub.title)
     : undefined;
 
+  const header = hubHref ? (
+    <Link
+      href={hubHref}
+      className="group -my-2 flex min-w-0 items-center gap-1 rounded-sm py-2 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+    >
+      <h2 className="truncate text-xl font-semibold tracking-tight sm:text-2xl">
+        {hub.title}
+      </h2>
+      <ChevronRight className="text-muted-foreground size-5 shrink-0 transition-transform group-hover:translate-x-0.5 group-active:translate-x-1" />
+    </Link>
+  ) : (
+    <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
+      {hub.title}
+    </h2>
+  );
+
   return (
-    <section className="flex flex-col gap-y-4">
-      <div className="flex items-center justify-between px-4 md:px-8">
-        {hubHref ? (
-          <Link
-            href={hubHref}
-            className="group -my-2 flex min-w-0 items-center gap-1 rounded-sm py-2 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-          >
-            <h2 className="truncate text-xl font-semibold tracking-tight sm:text-2xl">
-              {hub.title}
-            </h2>
-            <ChevronRight className="text-muted-foreground size-5 shrink-0 transition-transform group-hover:translate-x-0.5 group-active:translate-x-1" />
-          </Link>
-        ) : (
-          <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
-            {hub.title}
-          </h2>
-        )}
-      </div>
-      <MediaCarousel gapClassName="gap-3 sm:gap-4">
-        {hub.items.map((item) => (
-          <MediaPosterCard
-            key={`${item.serverId}-${item.ratingKey}`}
-            item={item}
-          />
-        ))}
-      </MediaCarousel>
-    </section>
+    <MediaCarousel header={header} gapClassName="gap-3 sm:gap-4">
+      {hub.items.map((item) => (
+        <MediaPosterCard
+          key={`${item.serverId}-${item.ratingKey}`}
+          item={item}
+        />
+      ))}
+    </MediaCarousel>
   );
 }
 
