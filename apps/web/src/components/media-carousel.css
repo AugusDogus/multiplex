@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@layer components {
+  /* ::scroll-button() is CSS Overflow 5 — Tailwind has no utilities for it, but
+     button appearance and layout hooks use @apply. Unsupported browsers fall back
+     to touch/scrollbar scrolling with no header controls. */
+  @supports selector(::scroll-button(left)) {
+    .media-carousel__header {
+      anchor-name: --media-carousel-header;
+    }
+
+    .media-carousel__track {
+      @apply scroll-smooth;
+    }
+
+    .media-carousel:has(.media-carousel__header)
+      .media-carousel__track::scroll-button(left) {
+      content: "‹" / "Scroll left";
+    }
+
+    .media-carousel:has(.media-carousel__header)
+      .media-carousel__track::scroll-button(right) {
+      content: "›" / "Scroll right";
+    }
+
+    .media-carousel:has(.media-carousel__header)
+      .media-carousel__track::scroll-button(*) {
+      @apply border-border bg-background text-foreground absolute z-10 hidden size-8 cursor-pointer items-center justify-center rounded-md border text-lg leading-none shadow-xs md:inline-flex;
+      position-anchor: --media-carousel-header;
+      top: anchor(center);
+      margin-top: -1rem;
+    }
+
+    .media-carousel:has(.media-carousel__header)
+      .media-carousel__track::scroll-button(right) {
+      right: anchor(right);
+    }
+
+    .media-carousel:has(.media-carousel__header)
+      .media-carousel__track::scroll-button(left) {
+      right: calc(anchor(right) - 2.25rem);
+    }
+
+    .media-carousel:has(.media-carousel__header)
+      .media-carousel__track::scroll-button(*):disabled {
+      @apply hidden;
+    }
+
+    .media-carousel:has(.media-carousel__header)
+      .media-carousel__track::scroll-button(*):focus-visible {
+      @apply ring-ring/50 ring-[3px] outline-none;
+    }
+  }
+}
