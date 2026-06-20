@@ -1,7 +1,8 @@
 "use client";
 
-import type { EmblaCarouselType } from "embla-carousel";
+import type { EmblaCarouselType, EmblaPluginType } from "embla-carousel";
 import useEmblaCarousel from "embla-carousel-react";
+import { WheelGesturesPlugin } from "embla-carousel-wheel-gestures";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   Children,
@@ -11,6 +12,8 @@ import {
 } from "react";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
+
+const MEDIA_CAROUSEL_PLUGINS: EmblaPluginType[] = [WheelGesturesPlugin()];
 
 interface MediaCarouselProps {
   children: ReactNode;
@@ -44,12 +47,14 @@ function useEmblaScrollButtons(emblaApi: EmblaCarouselType | undefined) {
       }
 
       emblaApi.on("select", subscribe);
+      emblaApi.on("scroll", subscribe);
       emblaApi.on("reinit", subscribe);
       emblaApi.on("resize", subscribe);
       emblaApi.on("slideschanged", subscribe);
 
       return () => {
         emblaApi.off("select", subscribe);
+        emblaApi.off("scroll", subscribe);
         emblaApi.off("reinit", subscribe);
         emblaApi.off("resize", subscribe);
         emblaApi.off("slideschanged", subscribe);
@@ -109,10 +114,13 @@ export function MediaCarousel({
   className,
   gapClassName = "gap-4",
 }: MediaCarouselProps) {
-  const [emblaRef, emblaApi] = useEmblaCarousel({
-    align: "start",
-    containScroll: "trimSnaps",
-  });
+  const [emblaRef, emblaApi] = useEmblaCarousel(
+    {
+      align: "start",
+      dragFree: true,
+    },
+    MEDIA_CAROUSEL_PLUGINS,
+  );
   const { canGoToPrev, canGoToNext } = useEmblaScrollButtons(emblaApi);
 
   const slides = Children.toArray(children);
@@ -132,7 +140,7 @@ export function MediaCarousel({
       ) : null}
       <div className="w-full max-w-full overflow-hidden px-4 md:px-8">
         <div ref={emblaRef} className="overflow-hidden pb-4">
-          <div className={cn("flex touch-pan-y", gapClassName)}>
+          <div className={cn("flex", gapClassName)}>
             {slides.map((slide, index) => (
               <div
                 key={isValidElement(slide) ? (slide.key ?? index) : index}
