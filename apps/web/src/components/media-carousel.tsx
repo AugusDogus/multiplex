@@ -1,19 +1,16 @@
 "use client";
 
-import type { EmblaCarouselType, EmblaPluginType } from "embla-carousel";
-import useEmblaCarousel from "embla-carousel-react";
-import { WheelGesturesPlugin } from "embla-carousel-wheel-gestures";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   Children,
   isValidElement,
-  useSyncExternalStore,
+  useRef,
+  useState,
   type ReactNode,
+  type UIEvent,
 } from "react";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
-
-const MEDIA_CAROUSEL_PLUGINS: EmblaPluginType[] = [WheelGesturesPlugin()];
 
 interface MediaCarouselProps {
   children: ReactNode;
@@ -29,44 +26,12 @@ interface MediaCarouselControlsProps {
   onGoToNext: () => void;
 }
 
-function getScrollButtonsSnapshot(
-  emblaApi: EmblaCarouselType | undefined,
-): string {
-  if (!emblaApi) {
-    return "00";
-  }
-
-  return `${emblaApi.canGoToPrev() ? "1" : "0"}${emblaApi.canGoToNext() ? "1" : "0"}`;
-}
-
-function useEmblaScrollButtons(emblaApi: EmblaCarouselType | undefined) {
-  const snapshot = useSyncExternalStore(
-    (subscribe) => {
-      if (!emblaApi) {
-        return () => {};
-      }
-
-      emblaApi.on("select", subscribe);
-      emblaApi.on("scroll", subscribe);
-      emblaApi.on("reinit", subscribe);
-      emblaApi.on("resize", subscribe);
-      emblaApi.on("slideschanged", subscribe);
-
-      return () => {
-        emblaApi.off("select", subscribe);
-        emblaApi.off("scroll", subscribe);
-        emblaApi.off("reinit", subscribe);
-        emblaApi.off("resize", subscribe);
-        emblaApi.off("slideschanged", subscribe);
-      };
-    },
-    () => getScrollButtonsSnapshot(emblaApi),
-    () => "00",
-  );
+function getScrollButtonState(element: HTMLElement) {
+  const maxScrollLeft = element.scrollWidth - element.clientWidth;
 
   return {
-    canGoToPrev: snapshot[0] === "1",
-    canGoToNext: snapshot[1] === "1",
+    canGoToPrev: element.scrollLeft > 1,
+    canGoToNext: element.scrollLeft < maxScrollLeft - 1,
   };
 }
 
@@ -114,14 +79,40 @@ export function MediaCarousel({
   className,
   gapClassName = "gap-4",
 }: MediaCarouselProps) {
-  const [emblaRef, emblaApi] = useEmblaCarousel(
-    {
-      align: "start",
-      dragFree: true,
-    },
-    MEDIA_CAROUSEL_PLUGINS,
-  );
-  const { canGoToPrev, canGoToNext } = useEmblaScrollButtons(emblaApi);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [canGoToPrev, setCanGoToPrev] = useState(false);
+  const [canGoToNext, setCanGoToNext] = useState(false);
+
+  function updateScrollButtons() {
+    const element = scrollRef.current;
+    if (!element) {
+      return;
+    }
+
+    const { canGoToPrev: nextCanGoToPrev, canGoToNext: nextCanGoToNext } =
+      getScrollButtonState(element);
+
+    setCanGoToPrev((current) =>
+      current === nextCanGoToPrev ? current : nextCanGoToPrev,
+    );
+    setCanGoToNext((current) =>
+      current === nextCanGoToNext ? current : nextCanGoToNext,
+    );
+  }
+
+  function handleScroll(_event: UIEvent<HTMLDivElement>) {
+    updateScrollButtons();
+  }
+
+  function scrollByPage(direction: -1 | 1) {
+    const element = scrollRef.current;
+    if (!element) {
+      return;
+    }
+
+    const distance = Math.max(element.clientWidth * 0.8, 240);
+    element.scrollBy({ left: direction * distance, behavior: "smooth" });
+  }
 
   const slides = Children.toArray(children);
 
@@ -133,24 +124,36 @@ export function MediaCarousel({
           <MediaCarouselControls
             canGoToPrev={canGoToPrev}
             canGoToNext={canGoToNext}
-            onGoToPrev={() => emblaApi?.goToPrev()}
-            onGoToNext={() => emblaApi?.goToNext()}
+            onGoToPrev={() => scrollByPage(-1)}
+            onGoToNext={() => scrollByPage(1)}
           />
         </div>
       ) : null}
-      <div className="w-full max-w-full overflow-hidden px-4 md:px-8">
-        <div ref={emblaRef} className="overflow-hidden pb-4">
-          <div className={cn("flex", gapClassName)}>
-            {slides.map((slide, index) => (
-              <div
-                key={isValidElement(slide) ? (slide.key ?? index) : index}
-                className="min-w-0 shrink-0"
-              >
-                {slide}
-              </div>
-            ))}
+      <div
+        ref={(node) => {
+          scrollRef.current = node;
+          if (node) {
+            const { canGoToPrev: prev, canGoToNext: next } =
+              getScrollButtonState(node);
+            setCanGoToPrev(prev);
+            setCanGoToNext(next);
+          }
+        }}
+        onScroll={handleScroll}
+        onLoadCapture={updateScrollButtons}
+        className={cn(
+          "scrollbar-hide flex w-full max-w-full overflow-x-auto overscroll-x-contain px-4 pb-4 [-webkit-overflow-scrolling:touch] md:px-8",
+          gapClassName,
+        )}
+      >
+        {slides.map((slide, index) => (
+          <div
+            key={isValidElement(slide) ? (slide.key ?? index) : index}
+            className="min-w-0 shrink-0"
+          >
+            {slide}
           </div>
-        </div>
+        ))}
       </div>
     </section>
   );
