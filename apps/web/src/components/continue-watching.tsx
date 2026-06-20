@@ -18,12 +18,7 @@ import { MediaPosterCard } from "~/components/media-poster-card";
 import { useVisibilityChange } from "~/hooks/use-visibility-change";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { getItemDetailsHref } from "~/lib/plex-routes";
-import {
-  isAwaitingSsrRetry,
-  ssrSeededQueryOptions,
-} from "~/lib/ssr-seeded-query";
-import { api, type RouterOutputs } from "~/trpc/react";
-import { Skeleton } from "~/components/ui/skeleton";
+import { api } from "~/trpc/react";
 
 /* ────────────────────────────────────────────────────────────
    Continue Watching Component
@@ -38,36 +33,7 @@ function SectionWrapper({ children }: SectionWrapperProps) {
   return <div className="flex flex-col gap-y-4">{children}</div>;
 }
 
-function ContinueWatchingSkeleton({
-  showTitle,
-  title,
-}: {
-  showTitle: boolean;
-  title: string;
-}) {
-  return (
-    <SectionWrapper>
-      {showTitle ? (
-        <h2 className="px-4 text-2xl font-semibold tracking-tight md:px-8">
-          {title}
-        </h2>
-      ) : null}
-      <div className="flex gap-4 overflow-hidden px-4 pb-4 md:px-8">
-        {Array.from({ length: 6 }).map((_, index) => (
-          <div key={index} className="flex shrink-0 flex-col gap-2">
-            <Skeleton className="h-[240px] w-[160px] rounded-md" />
-            <Skeleton className="h-4 w-28" />
-            <Skeleton className="h-3 w-20" />
-          </div>
-        ))}
-      </div>
-    </SectionWrapper>
-  );
-}
-
 export interface ContinueWatchingProps {
-  /** Initial Continue Watching items from server-side rendering */
-  items: RouterOutputs["plex"]["getAllContinueWatching"];
   /** Whether to show the section title */
   showTitle?: boolean;
   /** Custom title for the section */
@@ -79,7 +45,6 @@ export interface ContinueWatchingProps {
 }
 
 export function ContinueWatching({
-  items: initialItems,
   showTitle = true,
   title = "Continue Watching",
   refreshInterval = 5000,
@@ -87,39 +52,33 @@ export function ContinueWatching({
 }: ContinueWatchingProps) {
   const isPageVisible = useVisibilityChange();
 
-  // Use tRPC query for auto-refresh, seeded with the server-rendered items so
-  // the section paints immediately instead of waiting for the first client fetch.
-  const {
-    data: items,
-    error,
-    isFetching,
-  } = api.plex.getAllContinueWatching.useQuery(undefined, {
-    ...ssrSeededQueryOptions(initialItems, refreshInterval / 2),
-    // Only refetch when page is visible and auto-refresh is enabled
-    refetchInterval:
-      enableAutoRefresh && isPageVisible ? refreshInterval : false,
-    // Don't refetch on window focus to avoid excessive requests
-    refetchOnWindowFocus: false,
-    // Keep data in cache for longer than stale time
-    gcTime: refreshInterval * 4, // Keep in cache for 4x the refresh interval
-    // Retry failed requests with exponential backoff
-    retry: (failureCount: number, error: unknown) => {
-      // Don't retry more than 3 times
-      if (failureCount >= 3) return false;
-      // Don't retry on auth errors (401, 403)
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes("401") || errorMessage.includes("403"))
-        return false;
-      return true;
+  const { data: items = [], error } = api.plex.getAllContinueWatching.useQuery(
+    undefined,
+    {
+      // Only refetch when page is visible and auto-refresh is enabled
+      refetchInterval:
+        enableAutoRefresh && isPageVisible ? refreshInterval : false,
+      // Don't refetch on window focus to avoid excessive requests
+      refetchOnWindowFocus: false,
+      // Keep data fresh but don't show loading state during background refresh
+      staleTime: refreshInterval / 2,
+      // Keep data in cache for longer than stale time
+      gcTime: refreshInterval * 4,
+      // Retry failed requests with exponential backoff
+      retry: (failureCount: number, error: unknown) => {
+        // Don't retry more than 3 times
+        if (failureCount >= 3) return false;
+        // Don't retry on auth errors (401, 403)
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes("401") || errorMessage.includes("403"))
+          return false;
+        return true;
+      },
+      retryDelay: (attemptIndex: number) =>
+        Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff, max 30s
     },
-    retryDelay: (attemptIndex: number) =>
-      Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff, max 30s
-  });
-
-  if (isAwaitingSsrRetry(items, isFetching)) {
-    return <ContinueWatchingSkeleton showTitle={showTitle} title={title} />;
-  }
+  );
 
   // Only show error when we have nothing to display at all
   if (error && items.length === 0) {

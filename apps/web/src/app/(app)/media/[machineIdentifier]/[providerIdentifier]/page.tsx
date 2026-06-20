@@ -183,7 +183,7 @@ async function LibraryPivotContent(props: PivotContentProps) {
     }
 
     case "recommended": {
-      const libraryHubs = await api.plex.getLibraryHubs({
+      await api.plex.getLibraryHubs.prefetch({
         machineIdentifier,
         sectionId,
       });
@@ -191,7 +191,6 @@ async function LibraryPivotContent(props: PivotContentProps) {
         <LibraryRecommended
           machineIdentifier={machineIdentifier}
           sectionId={sectionId}
-          initialHubs={libraryHubs}
         />
       );
     }

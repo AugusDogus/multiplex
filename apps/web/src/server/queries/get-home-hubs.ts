@@ -9,6 +9,7 @@ import {
   buildPlexServerContext,
   enrichHubsWithServer,
 } from "~/server/queries/plex-server-context";
+import { retryAsync } from "~/server/utils/retry";
 
 export async function getHomeHubsQuery(
   plex: PlexTvClient,
@@ -41,10 +42,12 @@ export async function getHomeHubsQuery(
       .map((source) => source.directoryID)
       .filter((id) => /^\d+$/.test(id));
 
-    const response = await context.serverClient.getHubs({
-      onlyTransient: true,
-      contentDirectoryIds: libraryDirectoryIds,
-    });
+    const response = await retryAsync(() =>
+      context.serverClient.getHubs({
+        onlyTransient: true,
+        contentDirectoryIds: libraryDirectoryIds,
+      }),
+    );
 
     return enrichHubsWithServer(filterBrowsableHubs(response.hubs), context);
   } catch {
