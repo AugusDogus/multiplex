@@ -52,36 +52,42 @@ export function ContinueWatching({
 }: ContinueWatchingProps) {
   const isPageVisible = useVisibilityChange();
 
-  const { data: items = [], error } = api.plex.getAllContinueWatching.useQuery(
-    undefined,
-    {
-      // Only refetch when page is visible and auto-refresh is enabled
-      refetchInterval:
-        enableAutoRefresh && isPageVisible ? refreshInterval : false,
-      // Don't refetch on window focus to avoid excessive requests
-      refetchOnWindowFocus: false,
-      // Keep data fresh but don't show loading state during background refresh
-      staleTime: refreshInterval / 2,
-      // Keep data in cache for longer than stale time
-      gcTime: refreshInterval * 4,
-      // Retry failed requests with exponential backoff
-      retry: (failureCount: number, error: unknown) => {
-        // Don't retry more than 3 times
-        if (failureCount >= 3) return false;
-        // Don't retry on auth errors (401, 403)
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        if (errorMessage.includes("401") || errorMessage.includes("403"))
-          return false;
-        return true;
-      },
-      retryDelay: (attemptIndex: number) =>
-        Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff, max 30s
+  const {
+    data: items = [],
+    error,
+    isFetching,
+  } = api.plex.getAllContinueWatching.useQuery(undefined, {
+    // Only refetch when page is visible and auto-refresh is enabled
+    refetchInterval:
+      enableAutoRefresh && isPageVisible ? refreshInterval : false,
+    // Don't refetch on window focus to avoid excessive requests
+    refetchOnWindowFocus: false,
+    // Keep data fresh but don't show loading state during background refresh
+    staleTime: refreshInterval / 2,
+    // Keep data in cache for longer than stale time
+    gcTime: refreshInterval * 4,
+    // Retry failed requests with exponential backoff
+    retry: (failureCount: number, error: unknown) => {
+      // Don't retry more than 3 times
+      if (failureCount >= 3) return false;
+      // Don't retry on auth errors (401, 403)
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes("401") || errorMessage.includes("403"))
+        return false;
+      return true;
     },
-  );
+    retryDelay: (attemptIndex: number) =>
+      Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff, max 30s
+  });
 
-  // Only show error when we have nothing to display at all
-  if (error && items.length === 0) {
+  // After a failed SSR prefetch, React Query refetches on mount.
+  if (error && isFetching && items.length === 0) {
+    return null;
+  }
+
+  // Only show error when recovery has finished and we still have nothing
+  if (error && !isFetching && items.length === 0) {
     return (
       <SectionWrapper>
         {showTitle ? (

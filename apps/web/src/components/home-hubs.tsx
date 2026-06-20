@@ -4,15 +4,19 @@ import { MediaHubRow, MediaHubRowSkeleton } from "~/components/media-hub-row";
 import { api } from "~/trpc/react";
 
 export function HomeHubs() {
-  const { data: hubs = [], isPending } = api.plex.getHomeHubs.useQuery(
-    undefined,
-    {
-      staleTime: 5 * 60 * 1000,
-      refetchOnWindowFocus: false,
-    },
-  );
+  const {
+    data: hubs = [],
+    isPending,
+    isError,
+    isFetching,
+  } = api.plex.getHomeHubs.useQuery(undefined, {
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
 
-  if (isPending && hubs.length === 0) {
+  const isRecovering = isError && isFetching;
+
+  if ((isPending || isRecovering) && hubs.length === 0) {
     return (
       <>
         <MediaHubRowSkeleton />

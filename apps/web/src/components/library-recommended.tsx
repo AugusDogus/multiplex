@@ -12,7 +12,12 @@ export function LibraryRecommended({
   machineIdentifier,
   sectionId,
 }: LibraryRecommendedProps) {
-  const { data: hubs = [], isPending } = api.plex.getLibraryHubs.useQuery(
+  const {
+    data: hubs = [],
+    isPending,
+    isError,
+    isFetching,
+  } = api.plex.getLibraryHubs.useQuery(
     { machineIdentifier, sectionId },
     {
       staleTime: 5 * 60 * 1000,
@@ -20,7 +25,9 @@ export function LibraryRecommended({
     },
   );
 
-  if (isPending && hubs.length === 0) {
+  const isRecovering = isError && isFetching;
+
+  if ((isPending || isRecovering) && hubs.length === 0) {
     return (
       <div className="flex flex-col gap-8">
         <MediaHubRowSkeleton />
