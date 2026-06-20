@@ -21,7 +21,7 @@ import {
 import { LIBRARY_PAGE_SIZE } from "~/server/queries/plex-pagination";
 import { getAppPlexContext } from "~/server/queries/get-app-plex-context";
 import { resolveLibraryTitle } from "~/server/queries/resolve-library-title";
-import { api } from "~/trpc/server";
+import { api, HydrateClient } from "~/trpc/server";
 
 interface PageProps {
   params: Promise<{
@@ -188,10 +188,12 @@ async function LibraryPivotContent(props: PivotContentProps) {
         sectionId,
       });
       return (
-        <LibraryRecommended
-          machineIdentifier={machineIdentifier}
-          sectionId={sectionId}
-        />
+        <HydrateClient>
+          <LibraryRecommended
+            machineIdentifier={machineIdentifier}
+            sectionId={sectionId}
+          />
+        </HydrateClient>
       );
     }
 

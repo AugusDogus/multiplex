@@ -2,21 +2,24 @@ import { AppHeader } from "~/components/app-header";
 import { AppPageContent } from "~/components/app-page-content";
 import { ContinueWatching } from "~/components/continue-watching";
 import { HomeHubs } from "~/components/home-hubs";
-import { api } from "~/trpc/server";
+import { api, HydrateClient } from "~/trpc/server";
 
 export default async function Page() {
+  // Prefetch into the per-request QueryClient so HydrateClient can dehydrate
+  // the cache to client useQuery hooks. Direct api.*() calls do not populate
+  // the cache — see https://trpc.io/docs/client/react/server-components
   await Promise.all([
     api.plex.getAllContinueWatching.prefetch(),
     api.plex.getHomeHubs.prefetch(),
   ]);
 
   return (
-    <>
+    <HydrateClient>
       <AppHeader />
       <AppPageContent spacing="home">
         <ContinueWatching />
         <HomeHubs />
       </AppPageContent>
-    </>
+    </HydrateClient>
   );
 }
