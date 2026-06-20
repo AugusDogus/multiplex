@@ -2,6 +2,10 @@
 
 import type { HubWithServer } from "@multiplex/plex-query";
 import { MediaHubRow, MediaHubRowSkeleton } from "~/components/media-hub-row";
+import {
+  isAwaitingSsrRetry,
+  ssrSeededQueryOptions,
+} from "~/lib/ssr-seeded-query";
 import { api } from "~/trpc/react";
 
 interface HomeHubsProps {
@@ -9,13 +13,19 @@ interface HomeHubsProps {
 }
 
 export function HomeHubs({ hubs: initialHubs }: HomeHubsProps) {
-  const { data: hubs, isLoading } = api.plex.getHomeHubs.useQuery(undefined, {
-    initialData: initialHubs,
-    staleTime: 5 * 60 * 1000,
+  const {
+    data: hubs,
+    isLoading,
+    isFetching,
+  } = api.plex.getHomeHubs.useQuery(undefined, {
+    ...ssrSeededQueryOptions(initialHubs, 5 * 60 * 1000),
     refetchOnWindowFocus: false,
   });
 
-  if (isLoading && hubs.length === 0) {
+  if (
+    (isLoading || isAwaitingSsrRetry(hubs, isFetching)) &&
+    hubs.length === 0
+  ) {
     return (
       <>
         <MediaHubRowSkeleton />

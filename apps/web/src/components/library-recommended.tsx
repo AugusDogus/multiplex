@@ -2,6 +2,10 @@
 
 import type { HubWithServer } from "@multiplex/plex-query";
 import { MediaHubRow, MediaHubRowSkeleton } from "~/components/media-hub-row";
+import {
+  isAwaitingSsrRetry,
+  ssrSeededQueryOptions,
+} from "~/lib/ssr-seeded-query";
 import { api } from "~/trpc/react";
 
 interface LibraryRecommendedProps {
@@ -15,16 +19,22 @@ export function LibraryRecommended({
   sectionId,
   initialHubs,
 }: LibraryRecommendedProps) {
-  const { data: hubs, isLoading } = api.plex.getLibraryHubs.useQuery(
+  const {
+    data: hubs,
+    isLoading,
+    isFetching,
+  } = api.plex.getLibraryHubs.useQuery(
     { machineIdentifier, sectionId },
     {
-      initialData: initialHubs,
-      staleTime: 5 * 60 * 1000,
+      ...ssrSeededQueryOptions(initialHubs, 5 * 60 * 1000),
       refetchOnWindowFocus: false,
     },
   );
 
-  if (isLoading && hubs.length === 0) {
+  if (
+    (isLoading || isAwaitingSsrRetry(hubs, isFetching)) &&
+    hubs.length === 0
+  ) {
     return (
       <div className="flex flex-col gap-8">
         <MediaHubRowSkeleton />
