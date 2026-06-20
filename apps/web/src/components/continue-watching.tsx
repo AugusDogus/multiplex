@@ -55,8 +55,10 @@ export function ContinueWatching({
   const {
     data: items = [],
     error,
+    isPending,
     isFetching,
   } = api.plex.getAllContinueWatching.useQuery(undefined, {
+    refetchOnMount: "always",
     // Only refetch when page is visible and auto-refresh is enabled
     refetchInterval:
       enableAutoRefresh && isPageVisible ? refreshInterval : false,
@@ -80,6 +82,22 @@ export function ContinueWatching({
     retryDelay: (attemptIndex: number) =>
       Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff, max 30s
   });
+
+  // SSR prefetch can return a transient empty list on cold start — refetch on mount.
+  if ((isPending || isFetching) && items.length === 0 && !error) {
+    return (
+      <SectionWrapper>
+        {showTitle ? (
+          <h2 className="px-4 text-2xl font-semibold tracking-tight md:px-8">
+            {title}
+          </h2>
+        ) : null}
+        <div className="text-muted-foreground px-4 text-sm md:px-8">
+          Loading Continue Watching…
+        </div>
+      </SectionWrapper>
+    );
+  }
 
   // After a failed SSR prefetch, React Query refetches on mount.
   if (error && isFetching && items.length === 0) {

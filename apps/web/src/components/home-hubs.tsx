@@ -7,16 +7,16 @@ export function HomeHubs() {
   const {
     data: hubs = [],
     isPending,
-    isError,
     isFetching,
   } = api.plex.getHomeHubs.useQuery(undefined, {
     staleTime: 5 * 60 * 1000,
+    // SSR prefetch can succeed with a transient empty result on cold start.
+    // Always verify on mount so hydrated [] recovers without a manual refresh.
+    refetchOnMount: "always",
     refetchOnWindowFocus: false,
   });
 
-  const isRecovering = isError && isFetching;
-
-  if ((isPending || isRecovering) && hubs.length === 0) {
+  if ((isPending || isFetching) && hubs.length === 0) {
     return (
       <>
         <MediaHubRowSkeleton />
