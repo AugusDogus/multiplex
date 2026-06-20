@@ -15,19 +15,17 @@ export function LibraryRecommended({
   const {
     data: hubs = [],
     isPending,
-    isError,
     isFetching,
   } = api.plex.getLibraryHubs.useQuery(
     { machineIdentifier, sectionId },
     {
       staleTime: 5 * 60 * 1000,
+      refetchOnMount: "always",
       refetchOnWindowFocus: false,
     },
   );
 
-  const isRecovering = isError && isFetching;
-
-  if ((isPending || isRecovering) && hubs.length === 0) {
+  if ((isPending || isFetching) && hubs.length === 0) {
     return (
       <div className="flex flex-col gap-8">
         <MediaHubRowSkeleton />

@@ -23,13 +23,26 @@ async function fetchHomeHubsForServer(
   server: PlexDevice,
   userInfo: PlexUserInfo,
   libraryDirectoryIds: string[],
-) {
+): Promise<HubWithServer[]> {
   return retryAsync(async () => {
     const context = buildPlexServerContext(plex, server, userInfo);
-    return context.serverClient.getHubs({
+    const response = await context.serverClient.getHubs({
       onlyTransient: true,
       contentDirectoryIds: libraryDirectoryIds,
     });
+
+    const hubs = enrichHubsWithServer(
+      filterBrowsableHubs(response.hubs),
+      context,
+    );
+
+    // PMS can return empty hub rows on a cold first connection even when the
+    // account has pinned libraries with content. Treat that as transient.
+    if (hubs.length === 0 && libraryDirectoryIds.length > 0) {
+      throw new Error("Home hubs empty despite pinned libraries");
+    }
+
+    return hubs;
   }, PMS_REQUEST_RETRY_OPTIONS);
 }
 
@@ -59,13 +72,5 @@ export async function getHomeHubsQuery(
     .map((source) => source.directoryID)
     .filter((id) => /^\d+$/.test(id));
 
-  const context = buildPlexServerContext(plex, server, userInfo);
-  const response = await fetchHomeHubsForServer(
-    plex,
-    server,
-    userInfo,
-    libraryDirectoryIds,
-  );
-
-  return enrichHubsWithServer(filterBrowsableHubs(response.hubs), context);
+  return fetchHomeHubsForServer(plex, server, userInfo, libraryDirectoryIds);
 }
