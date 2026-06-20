@@ -1,31 +1,18 @@
 "use client";
 
-import type { HubWithServer } from "@multiplex/plex-query";
 import { MediaHubRow, MediaHubRowSkeleton } from "~/components/media-hub-row";
-import {
-  isAwaitingSsrRetry,
-  ssrSeededQueryOptions,
-} from "~/lib/ssr-seeded-query";
 import { api } from "~/trpc/react";
 
-interface HomeHubsProps {
-  hubs: HubWithServer[];
-}
+export function HomeHubs() {
+  const { data: hubs = [], isPending } = api.plex.getHomeHubs.useQuery(
+    undefined,
+    {
+      staleTime: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+    },
+  );
 
-export function HomeHubs({ hubs: initialHubs }: HomeHubsProps) {
-  const {
-    data: hubs,
-    isLoading,
-    isFetching,
-  } = api.plex.getHomeHubs.useQuery(undefined, {
-    ...ssrSeededQueryOptions(initialHubs, 5 * 60 * 1000),
-    refetchOnWindowFocus: false,
-  });
-
-  if (
-    (isLoading || isAwaitingSsrRetry(hubs, isFetching)) &&
-    hubs.length === 0
-  ) {
+  if (isPending && hubs.length === 0) {
     return (
       <>
         <MediaHubRowSkeleton />
