@@ -9,6 +9,12 @@ import {
 } from "@multiplex/plex-query";
 import { getServersQuery } from "~/server/queries/get-servers";
 import { getUserInfoQuery } from "~/server/queries/get-user-info";
+import { retryAsync } from "~/server/utils/retry";
+
+export const PMS_REQUEST_RETRY_OPTIONS = {
+  attempts: 5,
+  baseDelayMs: 1_000,
+} as const;
 
 export interface PlexServerContext {
   server: PlexDevice;
@@ -70,6 +76,22 @@ export async function resolvePlexServerContext(
  * when the server can't be resolved or any request throws. Centralizes the
  * try/resolve/fallback envelope shared by the library browse queries.
  */
+/**
+ * Run a PMS request with retries. Each attempt uses a fresh server client so
+ * connection discovery can start over after a cold-start failure.
+ */
+export async function withPmsRetry<T>(
+  plex: PlexTvClient,
+  server: PlexDevice,
+  userInfo: PlexUserInfo,
+  run: (context: PlexServerContext) => Promise<T>,
+): Promise<T> {
+  return retryAsync(() => {
+    const context = buildPlexServerContext(plex, server, userInfo);
+    return run(context);
+  }, PMS_REQUEST_RETRY_OPTIONS);
+}
+
 export async function withPlexServerContext<T>(
   plex: PlexTvClient,
   machineIdentifier: string,

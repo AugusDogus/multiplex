@@ -183,10 +183,12 @@ async function LibraryPivotContent(props: PivotContentProps) {
     }
 
     case "recommended": {
-      await api.plex.getLibraryHubs.prefetch({
-        machineIdentifier,
-        sectionId,
-      });
+      await Promise.allSettled([
+        api.plex.getLibraryHubs.prefetch({
+          machineIdentifier,
+          sectionId,
+        }),
+      ]);
       return (
         <HydrateClient>
           <LibraryRecommended

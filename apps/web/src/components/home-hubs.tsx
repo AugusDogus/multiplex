@@ -1,6 +1,10 @@
 "use client";
 
 import { MediaHubRow, MediaHubRowSkeleton } from "~/components/media-hub-row";
+import {
+  isHubQueryLoading,
+  PLEX_HUB_QUERY_OPTIONS,
+} from "~/lib/plex-hub-query-options";
 import { api } from "~/trpc/react";
 
 export function HomeHubs() {
@@ -8,15 +12,9 @@ export function HomeHubs() {
     data: hubs = [],
     isPending,
     isFetching,
-  } = api.plex.getHomeHubs.useQuery(undefined, {
-    staleTime: 5 * 60 * 1000,
-    // SSR prefetch can succeed with a transient empty result on cold start.
-    // Always verify on mount so hydrated [] recovers without a manual refresh.
-    refetchOnMount: "always",
-    refetchOnWindowFocus: false,
-  });
+  } = api.plex.getHomeHubs.useQuery(undefined, PLEX_HUB_QUERY_OPTIONS);
 
-  if ((isPending || isFetching) && hubs.length === 0) {
+  if (isHubQueryLoading(isPending, isFetching, hubs.length)) {
     return (
       <>
         <MediaHubRowSkeleton />
