@@ -18,6 +18,7 @@ import { MediaPosterCard } from "~/components/media-poster-card";
 import { useVisibilityChange } from "~/hooks/use-visibility-change";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { getItemDetailsHref } from "~/lib/plex-routes";
+import { isHubQueryLoading } from "~/lib/plex-hub-query-options";
 import { api } from "~/trpc/react";
 
 /* ────────────────────────────────────────────────────────────
@@ -58,21 +59,13 @@ export function ContinueWatching({
     isPending,
     isFetching,
   } = api.plex.getAllContinueWatching.useQuery(undefined, {
-    refetchOnMount: "always",
-    // Only refetch when page is visible and auto-refresh is enabled
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+    gcTime: refreshInterval * 4,
     refetchInterval:
       enableAutoRefresh && isPageVisible ? refreshInterval : false,
-    // Don't refetch on window focus to avoid excessive requests
-    refetchOnWindowFocus: false,
-    // Keep data fresh but don't show loading state during background refresh
-    staleTime: refreshInterval / 2,
-    // Keep data in cache for longer than stale time
-    gcTime: refreshInterval * 4,
-    // Retry failed requests with exponential backoff
     retry: (failureCount: number, error: unknown) => {
-      // Don't retry more than 3 times
       if (failureCount >= 3) return false;
-      // Don't retry on auth errors (401, 403)
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       if (errorMessage.includes("401") || errorMessage.includes("403"))
@@ -80,11 +73,10 @@ export function ContinueWatching({
       return true;
     },
     retryDelay: (attemptIndex: number) =>
-      Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff, max 30s
+      Math.min(1000 * 2 ** attemptIndex, 30000),
   });
 
-  // SSR prefetch can return a transient empty list on cold start — refetch on mount.
-  if ((isPending || isFetching) && items.length === 0 && !error) {
+  if (isHubQueryLoading(isPending, isFetching, items.length) && !error) {
     return (
       <SectionWrapper>
         {showTitle ? (
@@ -99,13 +91,7 @@ export function ContinueWatching({
     );
   }
 
-  // After a failed SSR prefetch, React Query refetches on mount.
-  if (error && isFetching && items.length === 0) {
-    return null;
-  }
-
-  // Only show error when recovery has finished and we still have nothing
-  if (error && !isFetching && items.length === 0) {
+  if (error && items.length === 0) {
     return (
       <SectionWrapper>
         {showTitle ? (

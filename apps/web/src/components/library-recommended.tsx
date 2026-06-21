@@ -1,6 +1,10 @@
 "use client";
 
 import { MediaHubRow, MediaHubRowSkeleton } from "~/components/media-hub-row";
+import {
+  isHubQueryLoading,
+  PLEX_HUB_QUERY_OPTIONS,
+} from "~/lib/plex-hub-query-options";
 import { api } from "~/trpc/react";
 
 interface LibraryRecommendedProps {
@@ -18,14 +22,10 @@ export function LibraryRecommended({
     isFetching,
   } = api.plex.getLibraryHubs.useQuery(
     { machineIdentifier, sectionId },
-    {
-      staleTime: 5 * 60 * 1000,
-      refetchOnMount: "always",
-      refetchOnWindowFocus: false,
-    },
+    PLEX_HUB_QUERY_OPTIONS,
   );
 
-  if ((isPending || isFetching) && hubs.length === 0) {
+  if (isHubQueryLoading(isPending, isFetching, hubs.length)) {
     return (
       <div className="flex flex-col gap-8">
         <MediaHubRowSkeleton />

@@ -7,16 +7,9 @@ import {
 } from "@multiplex/plex-query";
 import { getServersQuery } from "~/server/queries/get-servers";
 import { getUserInfoQuery } from "~/server/queries/get-user-info";
-import { retryAsync } from "~/server/utils/retry";
-
-const PMS_REQUEST_RETRY_OPTIONS = {
-  attempts: 5,
-  baseDelayMs: 1_000,
-} as const;
+import { withPmsRetry } from "~/server/queries/plex-server-context";
 
 export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
-  // Get servers and user info (cached, so polling only pays for the
-  // per-server continue-watching requests)
   const [servers, userInfo] = await Promise.all([
     getServersQuery(plex),
     getUserInfoQuery(plex),
@@ -26,15 +19,12 @@ export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
     return [];
   }
 
-  // Extract pinned sources from user settings
-  const pinnedSources =
-    userInfo.settings?.sidebarSettings?.pinnedSources ?? [];
+  const pinnedSources = userInfo.settings?.sidebarSettings?.pinnedSources ?? [];
 
   if (pinnedSources.length === 0) {
     return [];
   }
 
-  // Group pinned sources by server (machineIdentifier)
   const sourcesByServer = pinnedSources.reduce(
     (acc, source) => {
       acc[source.machineIdentifier] ??= [];
@@ -44,10 +34,8 @@ export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
     {} as Record<string, PinnedSource[]>,
   );
 
-  // Fetch Continue Watching from each server that has pinned sources
   const serverPromises = Object.entries(sourcesByServer).map(
     async ([machineIdentifier, sources]) => {
-      // Find the server
       const server = servers.find(
         (s) => s.clientIdentifier === machineIdentifier,
       );
@@ -56,22 +44,19 @@ export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
         return null;
       }
 
-      // Extract directory IDs from pinned sources
       const directoryIds = sources.map((source) => source.directoryID);
 
-      // Fresh server client per attempt so connection discovery can retry
-      const response = await retryAsync(() => {
-        const serverClient = plex.createServerClient(server);
-        return serverClient.getContinueWatching(directoryIds);
-      }, PMS_REQUEST_RETRY_OPTIONS);
+      const response = await withPmsRetry(plex, server, userInfo, (context) =>
+        context.serverClient.getContinueWatching(directoryIds),
+      );
 
       return { response, server };
     },
   );
 
-  const serverResults = (
-    await Promise.allSettled(serverPromises)
-  ).flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+  const serverResults = (await Promise.allSettled(serverPromises)).flatMap(
+    (result) => (result.status === "fulfilled" ? [result.value] : []),
+  );
 
   const successfulResults = serverResults.filter(
     (
@@ -82,35 +67,24 @@ export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
     } => result !== null,
   );
 
-  const attemptedServerCount = Object.keys(sourcesByServer).length;
-  if (successfulResults.length === 0 && attemptedServerCount > 0) {
-    throw new Error("Unable to reach Plex servers for Continue Watching");
-  }
-
-  // Combine all items from all servers with server connection info
   const allItems = successfulResults.flatMap(({ response, server }) => {
-      const serverUrl = getServerUrl(server);
-      const authToken = server.accessToken ?? userInfo.authToken;
+    const serverUrl = getServerUrl(server);
+    const authToken = server.accessToken ?? userInfo.authToken;
 
-      const items = Array.isArray(response.items) ? response.items : [];
-      return items.map((item: ContinueWatchingResponse["items"][0]) => ({
-        ...item,
-        serverUrl,
-        authToken,
-        serverName: server.name,
-      }));
-    });
+    const items = Array.isArray(response.items) ? response.items : [];
+    return items.map((item: ContinueWatchingResponse["items"][0]) => ({
+      ...item,
+      serverUrl,
+      authToken,
+      serverName: server.name,
+    }));
+  });
 
-    // Sort by most recently watched using functional approach
-    type ItemWithServer = (typeof allItems)[number];
+  type ItemWithServer = (typeof allItems)[number];
 
-    const sortedItems = [...allItems].sort(
-      (a: ItemWithServer, b: ItemWithServer) => {
-        const aTime = a.lastViewedAt?.getTime() ?? 0;
-        const bTime = b.lastViewedAt?.getTime() ?? 0;
-        return bTime - aTime;
-      },
-    );
-
-  return sortedItems;
+  return [...allItems].sort((a: ItemWithServer, b: ItemWithServer) => {
+    const aTime = a.lastViewedAt?.getTime() ?? 0;
+    const bTime = b.lastViewedAt?.getTime() ?? 0;
+    return bTime - aTime;
+  });
 }

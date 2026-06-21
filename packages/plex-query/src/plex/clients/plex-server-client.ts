@@ -22,11 +22,7 @@ import {
   type LibrarySectionPivots,
 } from "../schemas/library-browse-schemas";
 import { assertAllowedHubKey } from "../utils/hub-key-utils";
-import {
-  HUB_PAGE_SIZE,
-  HUB_PREVIEW_SIZE,
-  LIBRARY_PAGE_SIZE,
-} from "../../constants/pagination";
+import { HUB_PAGE_SIZE, HUB_PREVIEW_SIZE, LIBRARY_PAGE_SIZE } from "../../constants/pagination";
 import { dvrsResponseSchema, type DVRsResponse } from "../schemas/dvr-schemas";
 import {
   channelsResponseSchema,
@@ -40,10 +36,7 @@ import {
   type CreatePlayQueueParams,
   type PlayQueueResponse,
 } from "../schemas/play-queue-schemas";
-import {
-  MediaContainerSchema,
-  type MediaContainer,
-} from "../schemas/plex-server-schemas";
+import { MediaContainerSchema, type MediaContainer } from "../schemas/plex-server-schemas";
 import type { PlexDevice } from "../schemas/plex-tv-schemas";
 import {
   searchResponseSchema,
@@ -73,8 +66,7 @@ export class PlexServerClient {
   private readonly config: PlexConfig;
   private readonly server: PlexDevice;
   private workingConnection: PlexDevice["connections"][0] | null = null;
-  private connectionTestPromise: Promise<PlexDevice["connections"][0]> | null =
-    null;
+  private connectionTestPromise: Promise<PlexDevice["connections"][0]> | null = null;
 
   /**
    * @param server - Plex Media Server device information
@@ -93,9 +85,7 @@ export class PlexServerClient {
    * @param connection - Connection to test
    * @returns Promise that resolves if connection works, rejects if not
    */
-  private async testConnection(
-    connection: PlexDevice["connections"][0],
-  ): Promise<boolean> {
+  private async testConnection(connection: PlexDevice["connections"][0]): Promise<boolean> {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(
@@ -199,9 +189,7 @@ export class PlexServerClient {
       // Return the first working connection from this batch
       for (const result of results) {
         if (result.status === "fulfilled" && result.value.works) {
-          console.log(
-            `✅ ${this.server.name}: Connected via ${result.value.connection.uri}`,
-          );
+          console.log(`✅ ${this.server.name}: Connected via ${result.value.connection.uri}`);
           return result.value.connection;
         }
       }
@@ -213,9 +201,7 @@ export class PlexServerClient {
     }
 
     console.log(`❌ ${this.server.name}: No working connections found`);
-    throw new Error(
-      `No working connections found for server ${this.server.name}`,
-    );
+    throw new Error(`No working connections found for server ${this.server.name}`);
   }
 
   /**
@@ -424,10 +410,7 @@ export class PlexServerClient {
    * Get the filter/sort metadata for a library section. Drives the Library
    * tab's type, filter, and sort dropdown menus.
    */
-  async getLibraryMeta(
-    sectionId: string,
-    type?: string,
-  ): Promise<LibraryMetaResponse> {
+  async getLibraryMeta(sectionId: string, type?: string): Promise<LibraryMetaResponse> {
     const queryParams: Record<string, string> = {
       includeMeta: "1",
       "X-Plex-Container-Size": "0",
@@ -517,18 +500,14 @@ export class PlexServerClient {
     params?: { start?: number; size?: number },
   ): Promise<FilterValuesResponse> {
     const questionIndex = filterPath.indexOf("?");
-    const path =
-      questionIndex === -1 ? filterPath : filterPath.slice(0, questionIndex);
-    const query =
-      questionIndex === -1 ? "" : filterPath.slice(questionIndex + 1);
+    const path = questionIndex === -1 ? filterPath : filterPath.slice(0, questionIndex);
+    const query = questionIndex === -1 ? "" : filterPath.slice(questionIndex + 1);
     const endpoint = path.startsWith("/") ? path.slice(1) : path;
 
     // Carry through only the filter's own query params (e.g. `type=2`); drop
     // any Plex control params so the caller can't override pagination/auth.
     const passthroughParams = Object.fromEntries(
-      [...new URLSearchParams(query)].filter(
-        ([key]) => !key.startsWith("X-Plex-"),
-      ),
+      [...new URLSearchParams(query)].filter(([key]) => !key.startsWith("X-Plex-")),
     );
 
     const queryParams: Record<string, string> = {
@@ -632,9 +611,7 @@ export class PlexServerClient {
    * @param contentDirectoryIds - Array of library section IDs to include
    * @returns Continue Watching response with progress and metadata
    */
-  async getContinueWatching(
-    contentDirectoryIds: string[],
-  ): Promise<ContinueWatchingResponse> {
+  async getContinueWatching(contentDirectoryIds: string[]): Promise<ContinueWatchingResponse> {
     if (contentDirectoryIds.length === 0) {
       // Return empty response if no directories specified
       return {
@@ -685,11 +662,7 @@ export class PlexServerClient {
           if (feature.Directory) {
             for (const directory of feature.Directory) {
               // Look for library sections (directories with numeric IDs)
-              if (
-                "id" in directory &&
-                directory.id &&
-                !isNaN(Number(directory.id))
-              ) {
+              if ("id" in directory && directory.id && !isNaN(Number(directory.id))) {
                 libraryDirectoryIds.push(directory.id);
               }
             }
@@ -699,10 +672,7 @@ export class PlexServerClient {
 
       return await this.getContinueWatching(libraryDirectoryIds);
     } catch (error) {
-      console.warn(
-        `Failed to get all Continue Watching for ${this.server.name}:`,
-        error,
-      );
+      console.warn(`Failed to get all Continue Watching for ${this.server.name}:`, error);
       // Return empty response on error
       return {
         serverId: this.server.clientIdentifier,
@@ -738,10 +708,7 @@ export class PlexServerClient {
     try {
       return searchResponseSchema.parse(rawResponse);
     } catch (error) {
-      console.error(
-        `Search schema validation failed for ${this.server.name}:`,
-        error,
-      );
+      console.error(`Search schema validation failed for ${this.server.name}:`, error);
       throw error;
     }
   }
@@ -757,8 +724,7 @@ export class PlexServerClient {
       date: params.date,
     };
 
-    const providerIdentifier =
-      params.providerIdentifier ?? "tv.plex.providers.epg.xmltv:71";
+    const providerIdentifier = params.providerIdentifier ?? "tv.plex.providers.epg.xmltv:71";
 
     return await this.get({
       endpoint: `/${providerIdentifier}/grid`,
@@ -810,9 +776,7 @@ export class PlexServerClient {
    */
   async reloadAllGuides(): Promise<void> {
     const dvrsResponse = await this.getDVRs();
-    const reloadPromises = dvrsResponse.MediaContainer.Dvr.map((dvr) =>
-      this.reloadGuide(dvr.key),
-    );
+    const reloadPromises = dvrsResponse.MediaContainer.Dvr.map((dvr) => this.reloadGuide(dvr.key));
     await Promise.all(reloadPromises);
   }
 
@@ -821,9 +785,7 @@ export class PlexServerClient {
    * @param params - Parameters for creating the play queue
    * @returns Play queue response with markers
    */
-  async createPlayQueue(
-    params: CreatePlayQueueParams,
-  ): Promise<PlayQueueResponse> {
+  async createPlayQueue(params: CreatePlayQueueParams): Promise<PlayQueueResponse> {
     const queryParams = {
       type: params.type,
       uri: params.uri,
@@ -850,10 +812,7 @@ export class PlexServerClient {
    * @param includeMarkers - Whether to include markers in the response
    * @returns Play queue response with markers
    */
-  async getPlayQueue(
-    playQueueId: string,
-    includeMarkers = true,
-  ): Promise<PlayQueueResponse> {
+  async getPlayQueue(playQueueId: string, includeMarkers = true): Promise<PlayQueueResponse> {
     return await this.get({
       endpoint: `playQueues/${playQueueId}`,
       params: {
@@ -880,48 +839,28 @@ export class PlexServerClient {
         const connection = await this.findWorkingConnection();
 
         // Manually construct URL to avoid encoding colons in provider identifiers
-        const baseUrl = connection.uri.endsWith("/")
-          ? connection.uri.slice(0, -1)
-          : connection.uri;
-        const endpointWithoutLeadingSlash = endpoint.startsWith("/")
-          ? endpoint.slice(1)
-          : endpoint;
+        const baseUrl = connection.uri.endsWith("/") ? connection.uri.slice(0, -1) : connection.uri;
+        const endpointWithoutLeadingSlash = endpoint.startsWith("/") ? endpoint.slice(1) : endpoint;
 
         // Build query parameters manually
         const queryParams = new URLSearchParams();
 
         // Add all X-Plex parameters as query parameters, with overrides
-        queryParams.append(
-          "X-Plex-Product",
-          xPlexOverrides.product ?? this.config.product,
-        );
-        queryParams.append(
-          "X-Plex-Version",
-          xPlexOverrides.version ?? this.config.version,
-        );
+        queryParams.append("X-Plex-Product", xPlexOverrides.product ?? this.config.product);
+        queryParams.append("X-Plex-Version", xPlexOverrides.version ?? this.config.version);
         queryParams.append(
           "X-Plex-Client-Identifier",
           xPlexOverrides.clientIdentifier ?? this.config.clientIdentifier,
         );
-        queryParams.append(
-          "X-Plex-Platform",
-          xPlexOverrides.platform ?? this.config.platform,
-        );
-        queryParams.append(
-          "X-Plex-Platform-Version",
-          xPlexOverrides.platformVersion ?? "137.0",
-        );
+        queryParams.append("X-Plex-Platform", xPlexOverrides.platform ?? this.config.platform);
+        queryParams.append("X-Plex-Platform-Version", xPlexOverrides.platformVersion ?? "137.0");
         queryParams.append(
           "X-Plex-Features",
-          xPlexOverrides.features ??
-            "external-media,indirect-media,hub-style-list",
+          xPlexOverrides.features ?? "external-media,indirect-media,hub-style-list",
         );
         queryParams.append("X-Plex-Model", xPlexOverrides.model ?? "bundled");
         queryParams.append("X-Plex-Device", xPlexOverrides.device ?? "Windows");
-        queryParams.append(
-          "X-Plex-Device-Name",
-          xPlexOverrides.deviceName ?? this.config.platform,
-        );
+        queryParams.append("X-Plex-Device-Name", xPlexOverrides.deviceName ?? this.config.platform);
         queryParams.append("X-Plex-Language", xPlexOverrides.language ?? "en");
         queryParams.append("X-Plex-Token", this.token);
 
@@ -930,10 +869,7 @@ export class PlexServerClient {
           queryParams.append("X-Plex-Session-Id", xPlexOverrides.sessionId);
         }
         if (xPlexOverrides.playbackSessionId) {
-          queryParams.append(
-            "X-Plex-Playback-Session-Id",
-            xPlexOverrides.playbackSessionId,
-          );
+          queryParams.append("X-Plex-Playback-Session-Id", xPlexOverrides.playbackSessionId);
         }
         if (xPlexOverrides.deviceScreenResolution) {
           queryParams.append(
@@ -958,9 +894,7 @@ export class PlexServerClient {
           headers,
         });
 
-        console.log(
-          `Response from ${this.server.name}: ${response.status} ${response.statusText}`,
-        );
+        console.log(`Response from ${this.server.name}: ${response.status} ${response.statusText}`);
 
         if (!response.ok) {
           console.log(
@@ -990,8 +924,7 @@ export class PlexServerClient {
 
         return data as T;
       } catch (error) {
-        const currentError =
-          error instanceof Error ? error : new Error(String(error));
+        const currentError = error instanceof Error ? error : new Error(String(error));
         errors.push(currentError);
 
         console.log(
@@ -1006,11 +939,7 @@ export class PlexServerClient {
 
         // If this was a connection-related error, reset our cached connection
         // and try again with a different connection
-        if (
-          error instanceof PlexAPIError &&
-          error.status &&
-          error.status >= 500
-        ) {
+        if (error instanceof PlexAPIError && error.status && error.status >= 500) {
           this.resetConnection();
           continue;
         }
@@ -1026,9 +955,7 @@ export class PlexServerClient {
       }
     }
 
-    throw (
-      errors[errors.length - 1] ?? new Error("Request failed after retries")
-    );
+    throw errors[errors.length - 1] ?? new Error("Request failed after retries");
   }
 
   /**
@@ -1037,13 +964,7 @@ export class PlexServerClient {
    * @returns Parsed and validated response data
    */
   private async post<T>(options: PostRequestOptions<T>): Promise<T> {
-    const {
-      endpoint,
-      params,
-      schema,
-      expectEmptyResponse = false,
-      xPlexOverrides = {},
-    } = options;
+    const { endpoint, params, schema, expectEmptyResponse = false, xPlexOverrides = {} } = options;
     const maxRetries = 2;
     const errors: Error[] = [];
 
@@ -1053,61 +974,36 @@ export class PlexServerClient {
         const url = new URL(endpoint, connection.uri);
 
         // Add all X-Plex parameters as query parameters, with overrides
-        url.searchParams.append(
-          "X-Plex-Product",
-          xPlexOverrides.product ?? this.config.product,
-        );
-        url.searchParams.append(
-          "X-Plex-Version",
-          xPlexOverrides.version ?? this.config.version,
-        );
+        url.searchParams.append("X-Plex-Product", xPlexOverrides.product ?? this.config.product);
+        url.searchParams.append("X-Plex-Version", xPlexOverrides.version ?? this.config.version);
         url.searchParams.append(
           "X-Plex-Client-Identifier",
           xPlexOverrides.clientIdentifier ?? this.config.clientIdentifier,
         );
-        url.searchParams.append(
-          "X-Plex-Platform",
-          xPlexOverrides.platform ?? this.config.platform,
-        );
+        url.searchParams.append("X-Plex-Platform", xPlexOverrides.platform ?? this.config.platform);
         url.searchParams.append(
           "X-Plex-Platform-Version",
           xPlexOverrides.platformVersion ?? "137.0",
         );
         url.searchParams.append(
           "X-Plex-Features",
-          xPlexOverrides.features ??
-            "external-media,indirect-media,hub-style-list",
+          xPlexOverrides.features ?? "external-media,indirect-media,hub-style-list",
         );
-        url.searchParams.append(
-          "X-Plex-Model",
-          xPlexOverrides.model ?? "bundled",
-        );
-        url.searchParams.append(
-          "X-Plex-Device",
-          xPlexOverrides.device ?? "Windows",
-        );
+        url.searchParams.append("X-Plex-Model", xPlexOverrides.model ?? "bundled");
+        url.searchParams.append("X-Plex-Device", xPlexOverrides.device ?? "Windows");
         url.searchParams.append(
           "X-Plex-Device-Name",
           xPlexOverrides.deviceName ?? this.config.platform,
         );
-        url.searchParams.append(
-          "X-Plex-Language",
-          xPlexOverrides.language ?? "en",
-        );
+        url.searchParams.append("X-Plex-Language", xPlexOverrides.language ?? "en");
         url.searchParams.append("X-Plex-Token", this.token);
 
         // Optional parameters that can be overridden
         if (xPlexOverrides.sessionId) {
-          url.searchParams.append(
-            "X-Plex-Session-Id",
-            xPlexOverrides.sessionId,
-          );
+          url.searchParams.append("X-Plex-Session-Id", xPlexOverrides.sessionId);
         }
         if (xPlexOverrides.playbackSessionId) {
-          url.searchParams.append(
-            "X-Plex-Playback-Session-Id",
-            xPlexOverrides.playbackSessionId,
-          );
+          url.searchParams.append("X-Plex-Playback-Session-Id", xPlexOverrides.playbackSessionId);
         }
         if (xPlexOverrides.deviceScreenResolution) {
           url.searchParams.append(
@@ -1129,25 +1025,18 @@ export class PlexServerClient {
         console.log(`Making POST request to ${this.server.name}:`);
         console.log(`URL: ${url.toString()}`);
         console.log(`Headers:`, headers);
-        console.log(
-          `Token (first 10 chars): ${this.token.substring(0, 10)}...`,
-        );
+        console.log(`Token (first 10 chars): ${this.token.substring(0, 10)}...`);
 
         const response = await fetch(url.toString(), {
           method: "POST",
           headers,
         });
 
-        console.log(
-          `Response from ${this.server.name}: ${response.status} ${response.statusText}`,
-        );
+        console.log(`Response from ${this.server.name}: ${response.status} ${response.statusText}`);
 
         if (!response.ok) {
           // Log response headers for debugging
-          console.log(
-            `Response headers:`,
-            Object.fromEntries(response.headers.entries()),
-          );
+          console.log(`Response headers:`, Object.fromEntries(response.headers.entries()));
 
           throw new PlexAPIError(
             `Plex Server API request failed: ${response.statusText}`,
@@ -1191,8 +1080,7 @@ export class PlexServerClient {
 
         return data;
       } catch (error) {
-        const currentError =
-          error instanceof Error ? error : new Error(String(error));
+        const currentError = error instanceof Error ? error : new Error(String(error));
         errors.push(currentError);
 
         console.log(
@@ -1207,11 +1095,7 @@ export class PlexServerClient {
 
         // If this was a connection-related error, reset our cached connection
         // and try again with a different connection
-        if (
-          error instanceof PlexAPIError &&
-          error.status &&
-          error.status >= 500
-        ) {
+        if (error instanceof PlexAPIError && error.status && error.status >= 500) {
           this.resetConnection();
           continue;
         }
@@ -1227,10 +1111,7 @@ export class PlexServerClient {
       }
     }
 
-    throw (
-      errors[errors.length - 1] ??
-      new Error("POST request failed after retries")
-    );
+    throw errors[errors.length - 1] ?? new Error("POST request failed after retries");
   }
 
   private getHeaders(): Record<string, string> {

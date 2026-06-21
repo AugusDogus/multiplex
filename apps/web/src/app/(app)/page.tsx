@@ -8,9 +8,10 @@ export default async function Page() {
   // Prefetch into the per-request QueryClient so HydrateClient can dehydrate
   // the cache to client useQuery hooks. Direct api.*() calls do not populate
   // the cache — see https://trpc.io/docs/client/react/server-components
-  // Prefetch sequentially to avoid cold-start connection storms against PMS.
-  await api.plex.getHomeHubs.prefetch();
-  await api.plex.getAllContinueWatching.prefetch();
+  await Promise.allSettled([
+    api.plex.getHomeHubs.prefetch(),
+    api.plex.getAllContinueWatching.prefetch(),
+  ]);
 
   return (
     <HydrateClient>
