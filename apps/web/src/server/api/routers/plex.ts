@@ -440,6 +440,35 @@ export const plexRouter = createTRPCRouter({
       );
     }),
 
+  setItemWatchedState: protectedProcedure
+    .input(
+      z.object({
+        serverId: z.string(),
+        ratingKey: z.string(),
+        watched: z.boolean(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const servers = await getServersQuery(ctx.plex);
+      const server = servers.find((s) => s.clientIdentifier === input.serverId);
+
+      if (!server) {
+        throw new Error(`Server with ID ${input.serverId} not found`);
+      }
+
+      const serverClient = ctx.plex.createServerClient(server);
+
+      if (input.watched) {
+        await serverClient.markItemWatched(input.ratingKey);
+      } else {
+        await serverClient.markItemUnwatched(input.ratingKey);
+      }
+
+      await ctx.plex.syncViewState();
+
+      return await serverClient.getItemMetadata(input.ratingKey);
+    }),
+
   getItemMetadata: protectedProcedure
     .input(
       z.object({

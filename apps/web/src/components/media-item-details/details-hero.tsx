@@ -1,7 +1,17 @@
 "use client";
 
 import Image from "next/image";
-import { Check, MoreHorizontal, Play, Share2 } from "lucide-react";
+import { useState } from "react";
+import {
+  Check,
+  ExternalLink,
+  Info,
+  Link,
+  Loader2,
+  MoreHorizontal,
+  Play,
+  Share2,
+} from "lucide-react";
 import {
   formatDetailsTimeRemaining,
   getBackdropImagePath,
@@ -23,12 +33,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
+import { api } from "~/trpc/react";
 
 import { MetadataDirectors } from "./metadata-directors";
 import { MetadataGenres } from "./metadata-genres";
 import { MetadataRating } from "./metadata-rating";
 import { MetadataSummaryRow } from "./metadata-summary-row";
 import type { ItemDetails, PlayTarget } from "./types";
+
+const SHARE_FEEDBACK_MS = 2_000;
 
 interface DetailsHeroProps {
   item: ItemDetails["item"];
@@ -70,6 +83,8 @@ export function DetailsHero({
 
   const actions = (
     <HeroActions
+      item={item}
+      serverId={serverId}
       playTarget={playTarget}
       onPlay={onPlay}
       canPlay={canPlay}
@@ -187,6 +202,8 @@ export function DetailsHero({
 
           <div className="col-span-2 flex flex-wrap items-center gap-2">
             <HeroActions
+              item={item}
+              serverId={serverId}
               playTarget={playTarget}
               onPlay={onPlay}
               canPlay={canPlay}
@@ -236,6 +253,8 @@ function HeroPoster({
 }
 
 interface HeroActionsProps {
+  item: ItemDetails["item"];
+  serverId: string;
   playTarget: PlayTarget;
   onPlay: (source: PlayableMetadata) => void;
   canPlay: boolean;
@@ -244,12 +263,102 @@ interface HeroActionsProps {
 }
 
 function HeroActions({
+  item,
+  serverId,
   playTarget,
   onPlay,
   canPlay,
   playLabel,
   playButtonClassName,
 }: HeroActionsProps) {
+  const utils = api.useUtils();
+  const itemWatched = getItemWatchedState(item);
+  const [watchedOverride, setWatchedOverride] = useState<{
+    ratingKey: string;
+    watched: boolean;
+  } | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const visibleWatched =
+    watchedOverride?.ratingKey === item.ratingKey
+      ? watchedOverride.watched
+      : itemWatched;
+  const watchedActionLabel = visibleWatched
+    ? "Mark as unwatched"
+    : "Mark as watched";
+
+  const setWatchedStateMutation = api.plex.setItemWatchedState.useMutation({
+    onMutate: (variables) => {
+      setFeedbackMessage(null);
+      setWatchedOverride({
+        ratingKey: variables.ratingKey,
+        watched: variables.watched,
+      });
+    },
+    onError: (error) => {
+      setWatchedOverride(null);
+      setFeedbackMessage(error.message);
+    },
+    onSuccess: async (_updatedItem, variables) => {
+      setFeedbackMessage(
+        variables.watched ? "Marked as watched" : "Marked as unwatched",
+      );
+      await Promise.all([
+        utils.plex.getItemDetails.invalidate({
+          serverId,
+          ratingKey: variables.ratingKey,
+        }),
+        utils.plex.getItemMetadata.invalidate({
+          serverId,
+          ratingKey: variables.ratingKey,
+        }),
+        utils.plex.getAllContinueWatching.invalidate(),
+      ]);
+    },
+  });
+
+  const toggleWatchedState = () => {
+    if (setWatchedStateMutation.isPending) {
+      return;
+    }
+
+    setWatchedStateMutation.mutate({
+      serverId,
+      ratingKey: item.ratingKey,
+      watched: !visibleWatched,
+    });
+  };
+
+  const copyShareLink = async () => {
+    const shareUrl = window.location.href;
+
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setFeedbackMessage("Link copied");
+      window.setTimeout(() => setFeedbackMessage(null), SHARE_FEEDBACK_MS);
+    } catch {
+      setFeedbackMessage("Could not copy link");
+    }
+  };
+
+  const openInPlex = () => {
+    window.open(
+      getPlexWebDetailsUrl(serverId, item),
+      "_blank",
+      "noopener,noreferrer",
+    );
+  };
+
+  const scrollToTechnicalDetails = () => {
+    const detailsSection = document.getElementById("technical-details");
+
+    if (!detailsSection) {
+      setFeedbackMessage("No technical info available");
+      return;
+    }
+
+    detailsSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   return (
     <>
       <Button
@@ -261,10 +370,27 @@ function HeroActions({
         <Play data-icon="inline-start" />
         {playLabel}
       </Button>
-      <Button variant="outline" size="icon" aria-label="Mark as watched">
-        <Check />
+      <Button
+        variant={visibleWatched ? "secondary" : "outline"}
+        size="icon"
+        aria-label={watchedActionLabel}
+        title={watchedActionLabel}
+        onClick={toggleWatchedState}
+        disabled={setWatchedStateMutation.isPending}
+      >
+        {setWatchedStateMutation.isPending ? (
+          <Loader2 className="animate-spin" />
+        ) : (
+          <Check className={visibleWatched ? "text-primary" : undefined} />
+        )}
       </Button>
-      <Button variant="outline" size="icon" aria-label="Share">
+      <Button
+        variant="outline"
+        size="icon"
+        aria-label="Copy share link"
+        title="Copy share link"
+        onClick={() => void copyShareLink()}
+      >
         <Share2 />
       </Button>
       <DropdownMenu>
@@ -275,15 +401,57 @@ function HeroActions({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuGroup>
-            <DropdownMenuItem disabled>Watch Together...</DropdownMenuItem>
-            <DropdownMenuItem disabled>Play Next</DropdownMenuItem>
-            <DropdownMenuItem disabled>Add to Queue</DropdownMenuItem>
-            <DropdownMenuItem disabled>Add to...</DropdownMenuItem>
-            <DropdownMenuItem disabled>Report Issue...</DropdownMenuItem>
-            <DropdownMenuItem disabled>Get Info</DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={toggleWatchedState}
+              disabled={setWatchedStateMutation.isPending}
+            >
+              <Check />
+              {watchedActionLabel}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void copyShareLink()}>
+              <Link />
+              Copy link
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={openInPlex}>
+              <ExternalLink />
+              Open in Plex
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={scrollToTechnicalDetails}>
+              <Info />
+              Get info
+            </DropdownMenuItem>
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
+      {feedbackMessage && (
+        <span
+          className="text-muted-foreground basis-full text-sm"
+          role="status"
+        >
+          {feedbackMessage}
+        </span>
+      )}
     </>
   );
+}
+
+function getItemWatchedState(item: ItemDetails["item"]): boolean {
+  if (
+    typeof item.leafCount === "number" &&
+    typeof item.viewedLeafCount === "number"
+  ) {
+    return item.leafCount > 0 && item.viewedLeafCount >= item.leafCount;
+  }
+
+  return (item.viewCount ?? 0) > 0;
+}
+
+function getPlexWebDetailsUrl(
+  serverId: string,
+  item: ItemDetails["item"],
+): string {
+  const itemKey = item.key.startsWith("/")
+    ? item.key
+    : `/library/metadata/${item.ratingKey}`;
+  return `https://app.plex.tv/desktop/#!/server/${encodeURIComponent(serverId)}/details?key=${encodeURIComponent(itemKey)}`;
 }

@@ -3,9 +3,11 @@ import {
   type GetRequestOptions,
   type PlexConfig,
   type PostRequestOptions,
+  type PutRequestOptions,
 } from "../types/client-types";
 
 export const PLEX_TV_API_BASE_URL = "https://plex.tv/api/v2/";
+export const PLEX_CLIENTS_BASE_URL = "https://clients.plex.tv/";
 export const PLEX_CLIENTS_API_BASE_URL = "https://clients.plex.tv/api/v2/";
 export const PLEX_CLIENTS_USER_API_BASE_URL = `${PLEX_CLIENTS_API_BASE_URL}user/`;
 
@@ -132,10 +134,22 @@ export class PlexTvBaseClient {
       },
     });
 
-    return this.parseResponse(response, options.schema);
+    return this.parseResponse(response, options.schema, options.expectEmptyResponse ?? false);
   }
 
   protected async post<T>(token: string, options: PostRequestOptions<T>): Promise<T> {
+    return this.sendWithBody(token, "POST", options);
+  }
+
+  protected async put<T>(token: string, options: PutRequestOptions<T>): Promise<T> {
+    return this.sendWithBody(token, "PUT", options);
+  }
+
+  private async sendWithBody<T>(
+    token: string,
+    method: "POST" | "PUT",
+    options: PostRequestOptions<T> | PutRequestOptions<T>,
+  ): Promise<T> {
     const url = this.buildUrl(token, options);
     const headers: HeadersInit = {
       accept: "application/json",
@@ -146,7 +160,7 @@ export class PlexTvBaseClient {
     }
 
     const response = await fetch(url.toString(), {
-      method: "POST",
+      method,
       headers,
       body: options.body,
     });

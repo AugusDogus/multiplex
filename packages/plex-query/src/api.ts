@@ -264,6 +264,26 @@ const sendTimeline = createMutation<void, SendTimelineParams>({
   },
 });
 
+interface SetItemWatchedStateParams extends ServerTokenParams {
+  ratingKey: string;
+  watched: boolean;
+}
+
+const setItemWatchedState = createMutation<void, SetItemWatchedStateParams>({
+  mutationFn: async ({ server, token, ratingKey, watched }) => {
+    const tvClient = new PlexTvClient(token, getPlexConfig());
+    const serverClient = new PlexServerClient(server, token, getPlexConfig());
+
+    if (watched) {
+      await serverClient.markItemWatched(ratingKey);
+    } else {
+      await serverClient.markItemUnwatched(ratingKey);
+    }
+
+    await tvClient.syncViewState();
+  },
+});
+
 /* ────────────────────────────────────────────────────────────
    Exported API Object
    ──────────────────────────────────────────────────────────── */
@@ -303,6 +323,7 @@ export const api = {
     // Mutations
     createPlayQueue,
     sendTimeline,
+    setItemWatchedState,
   },
 };
 
