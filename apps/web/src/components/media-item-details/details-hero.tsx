@@ -41,7 +41,7 @@ import { MetadataRating } from "./metadata-rating";
 import { MetadataSummaryRow } from "./metadata-summary-row";
 import type { ItemDetails, PlayTarget } from "./types";
 
-const SHARE_FEEDBACK_MS = 2_000;
+const SHARE_FEEDBACK_MS = 5_000;
 
 interface DetailsHeroProps {
   item: ItemDetails["item"];
@@ -417,6 +417,7 @@ function HeroActions({
         size="default"
         aria-label={shareCopied ? "Link copied" : "Copy share link"}
         title={shareCopied ? "Link copied" : "Copy share link"}
+        onPointerDown={copyShareLink}
         onClick={copyShareLink}
       >
         <Share2 />
