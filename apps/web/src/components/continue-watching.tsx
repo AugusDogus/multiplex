@@ -17,6 +17,7 @@ import { MediaCarousel } from "~/components/media-carousel";
 import { MediaPosterCard } from "~/components/media-poster-card";
 import { useVisibilityChange } from "~/hooks/use-visibility-change";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
+import { PLEX_DETAILS_QUERY_OPTIONS } from "~/lib/plex-details-query-options";
 import { getItemDetailsHref } from "~/lib/plex-routes";
 import { isHubQueryLoading } from "~/lib/plex-hub-query-options";
 import { api } from "~/trpc/react";
@@ -150,6 +151,7 @@ interface ContinueWatchingItemProps {
 
 function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
   const router = useRouter();
+  const utils = api.useUtils();
   const openPlayer = useMediaPlayerStore((state) => state.openPlayer);
   const getItemProgress = useProgressStore((state) => state.getItemProgress);
   const updateItemProgress = useProgressStore(
@@ -159,7 +161,11 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
 
   const mainTitle = getMainTitle(item);
   const subtitle = getSubtitle(item);
-  const detailsHref = getItemDetailsHref(item.serverId, item.ratingKey);
+  const detailsHref = getItemDetailsHref(
+    item.serverId,
+    item.type,
+    item.ratingKey,
+  );
 
   // Use updated progress if available, otherwise use server data
   const progressPercent: number =
@@ -222,6 +228,10 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
 
   const handleViewDetails = () => {
     setIsDrawerOpen(false);
+    void utils.plex.getItemDetails.prefetch(
+      { serverId: item.serverId, ratingKey: item.ratingKey },
+      PLEX_DETAILS_QUERY_OPTIONS,
+    );
     router.push(detailsHref);
   };
 
@@ -241,6 +251,10 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
         title={mainTitle}
         subtitle={subtitle}
         detailsHref={detailsHref}
+        detailsPrefetchInput={{
+          serverId: item.serverId,
+          ratingKey: item.ratingKey,
+        }}
         thumbnailUrl={thumbnailUrl}
         progressPercent={progressPercent}
         isCompleted={isItemCompleted}

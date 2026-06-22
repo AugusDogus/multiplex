@@ -30,7 +30,7 @@ export function EpisodeSeasonIndex({
     <span>
       {item.parentRatingKey ? (
         <Link
-          href={getItemDetailsHref(serverId, item.parentRatingKey)}
+          href={getItemDetailsHref(serverId, "season", item.parentRatingKey)}
           className="hover:text-foreground transition-colors"
         >
           {seasonLabel}

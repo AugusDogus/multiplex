@@ -34,9 +34,11 @@ import { useServerLibraries } from "~/hooks/use-server-libraries";
 import { useSidebarPinning } from "~/hooks/use-sidebar-pinning";
 import { getSidebarSources } from "~/hooks/use-sidebar-sources";
 import { signOut } from "~/lib/auth/client";
+import { PLEX_DETAILS_QUERY_OPTIONS } from "~/lib/plex-details-query-options";
 import { getItemDetailsHref } from "~/lib/plex-routes";
 import { cn } from "~/lib/utils";
 import { useLastLibraryStore } from "~/stores/last-library-store";
+import { api } from "~/trpc/react";
 
 interface MobileNavProps {
   session: {
@@ -55,6 +57,7 @@ type ActiveTab = "home" | "libraries" | "search" | "you" | null;
 export function MobileNav({ session, servers, userInfo }: MobileNavProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const utils = api.useUtils();
   const [librariesOpen, setLibrariesOpen] = useState(false);
   const [youOpen, setYouOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -97,7 +100,13 @@ export function MobileNav({ session, servers, userInfo }: MobileNavProps) {
 
   function handleResultSelect(result: ProcessedSearchResult) {
     setSearchOpen(false);
-    router.push(getItemDetailsHref(result.serverId, result.ratingKey));
+    void utils.plex.getItemDetails.prefetch(
+      { serverId: result.serverId, ratingKey: result.ratingKey },
+      PLEX_DETAILS_QUERY_OPTIONS,
+    );
+    router.push(
+      getItemDetailsHref(result.serverId, result.type, result.ratingKey),
+    );
   }
 
   return (

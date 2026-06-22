@@ -1,7 +1,14 @@
 import type { ItemMetadata } from "@multiplex/plex-query";
 
-const METADATA_KEY_PATTERN = /^\/library\/metadata\/(\d+)$/;
 const LIBRARY_PROVIDER_IDENTIFIER = "com.plexapp.plugins.library";
+const ITEM_DETAILS_ROUTE_TYPES = [
+  "movie",
+  "show",
+  "season",
+  "episode",
+] as const;
+
+export type ItemDetailsRouteType = (typeof ITEM_DETAILS_ROUTE_TYPES)[number];
 
 export interface PlexBreadcrumb {
   label: string;
@@ -22,6 +29,7 @@ type ItemDetailsBreadcrumbInput = Pick<
 
 interface MetadataAncestor {
   label: string;
+  type: ItemDetailsRouteType;
   ratingKey: string;
 }
 
@@ -76,6 +84,7 @@ function getMetadataAncestors(
   ) {
     ancestors.push({
       label: item.grandparentTitle,
+      type: "show",
       ratingKey: item.grandparentRatingKey,
     });
   }
@@ -87,6 +96,7 @@ function getMetadataAncestors(
   ) {
     ancestors.push({
       label: item.parentTitle,
+      type: item.type === "episode" ? "season" : "show",
       ratingKey: item.parentRatingKey,
     });
   }
@@ -108,7 +118,11 @@ export function getItemDetailsBreadcrumbs(
   for (const ancestor of getMetadataAncestors(item)) {
     crumbs.push({
       label: ancestor.label,
-      href: getItemDetailsHref(machineIdentifier, ancestor.ratingKey),
+      href: getItemDetailsHref(
+        machineIdentifier,
+        ancestor.type,
+        ancestor.ratingKey,
+      ),
     });
   }
 
@@ -119,10 +133,23 @@ export function getItemDetailsBreadcrumbs(
 
 export function getItemDetailsHref(
   machineIdentifier: string,
+  type: string,
   ratingKey: string,
 ): string {
-  // Plex uses literal metadata keys in URLs; keep this unencoded for compatibility.
-  return `/server/${machineIdentifier}/details?key=/library/metadata/${ratingKey}`;
+  return `/item/${getItemDetailsRouteType(type)}/${encodeURIComponent(machineIdentifier)}/${encodeURIComponent(ratingKey)}`;
+}
+
+export function getItemDetailsRouteType(
+  type: string,
+): ItemDetailsRouteType | "media" {
+  const normalizedType = type.toLowerCase();
+  return isItemDetailsRouteType(normalizedType) ? normalizedType : "media";
+}
+
+export function isItemDetailsRouteType(
+  type: string,
+): type is ItemDetailsRouteType {
+  return ITEM_DETAILS_ROUTE_TYPES.includes(type as ItemDetailsRouteType);
 }
 
 /**
@@ -149,7 +176,7 @@ export function getHubItemHref(
     );
   }
 
-  return getItemDetailsHref(machineIdentifier, item.ratingKey);
+  return getItemDetailsHref(machineIdentifier, item.type, item.ratingKey);
 }
 
 export function getHubHref(
@@ -163,13 +190,4 @@ export function getHubHref(
   });
 
   return `/server/${machineIdentifier}/hub?${params.toString()}`;
-}
-
-export function parseItemDetailsKey(key: string | undefined): string | null {
-  if (!key) {
-    return null;
-  }
-
-  const match = METADATA_KEY_PATTERN.exec(key);
-  return match?.[1] ?? null;
 }

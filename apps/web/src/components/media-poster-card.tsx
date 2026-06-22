@@ -12,9 +12,11 @@ import {
 } from "@multiplex/plex-query";
 import { MediaProgressBar } from "~/components/media-progress-bar";
 import { Button } from "~/components/ui/button";
+import { PLEX_DETAILS_QUERY_OPTIONS } from "~/lib/plex-details-query-options";
 import { getHubItemHref } from "~/lib/plex-routes";
 import { cn } from "~/lib/utils";
 import { useHubItemPlayback } from "~/hooks/use-hub-item-playback";
+import { api } from "~/trpc/react";
 
 const POSTER_SIZE_CLASSNAME = "h-[240px] w-[160px]";
 
@@ -30,6 +32,10 @@ interface MediaPosterCardContentProps {
   onPlay?: () => void;
   onNavigateClick?: (event: React.MouseEvent) => void;
   showMobileMenuHint?: boolean;
+  detailsPrefetchInput?: {
+    serverId: string;
+    ratingKey: string;
+  };
 }
 
 interface MediaPosterCardFromItemProps
@@ -58,18 +64,28 @@ function resolvePosterCardContent(
   }
 
   const { item, ...rest } = props;
+  const detailsPrefetchInput =
+    item.type === "collection" || item.type === "playlist"
+      ? undefined
+      : {
+          serverId: item.serverId,
+          ratingKey: item.ratingKey,
+        };
+
   return {
     ...rest,
     title: getHubItemTitle(item),
     subtitle: getHubItemSubtitle(item),
     detailsHref: getHubItemHref(item.serverId, item),
     thumbnailUrl: getThumbnailUrl(item, item.serverUrl, item.authToken),
+    detailsPrefetchInput,
   };
 }
 
 export function MediaPosterCard(props: MediaPosterCardProps) {
   const item = isItemProps(props) ? props.item : undefined;
   const hubPlayback = useHubItemPlayback(item);
+  const utils = api.useUtils();
 
   const resolved = resolvePosterCardContent(props);
   const {
@@ -82,6 +98,7 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
     isCompleted = false,
     onNavigateClick,
     showMobileMenuHint = false,
+    detailsPrefetchInput,
   } = resolved;
 
   const showPlayOverlay =
@@ -89,6 +106,17 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
   const onPlay = props.onPlay ?? (item ? hubPlayback.play : undefined);
 
   const [imageFailed, setImageFailed] = useState(false);
+
+  const prefetchDetails = () => {
+    if (!detailsPrefetchInput) {
+      return;
+    }
+
+    void utils.plex.getItemDetails.prefetch(
+      detailsPrefetchInput,
+      PLEX_DETAILS_QUERY_OPTIONS,
+    );
+  };
 
   const posterContent = (
     <>
@@ -149,6 +177,8 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
           href={detailsHref}
           aria-label={`View details for ${title}`}
           onClick={onNavigateClick}
+          onFocus={prefetchDetails}
+          onMouseEnter={prefetchDetails}
           className="bg-muted relative block size-full overflow-hidden rounded-md shadow-lg transition-[transform,box-shadow] duration-200 ease-out group-hover:shadow-xl active:scale-[0.98] md:active:scale-100"
         >
           {posterContent}
@@ -177,6 +207,8 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
       <Link
         href={detailsHref}
         onClick={onNavigateClick}
+        onFocus={prefetchDetails}
+        onMouseEnter={prefetchDetails}
         className="focus-visible:ring-ring flex w-[160px] flex-col gap-1 rounded-sm text-left focus-visible:ring-2 focus-visible:outline-none"
       >
         {metadataContent}
