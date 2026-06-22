@@ -368,6 +368,14 @@ function HeroActions({
     }
 
     detailsSection.scrollIntoView({ behavior: "smooth", block: "start" });
+    detailsSection.animate(
+      [
+        { boxShadow: "0 0 0 0 var(--ring)" },
+        { boxShadow: "0 0 0 4px var(--ring)" },
+        { boxShadow: "0 0 0 0 var(--ring)" },
+      ],
+      { duration: 1_400, easing: "ease-out" },
+    );
     setFeedbackMessage("Showing info");
   };
 
