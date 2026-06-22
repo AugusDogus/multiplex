@@ -12,18 +12,19 @@ import {
 } from "@multiplex/plex-query";
 import { MediaProgressBar } from "~/components/media-progress-bar";
 import { Button } from "~/components/ui/button";
-import { PLEX_DETAILS_QUERY_OPTIONS } from "~/lib/plex-details-query-options";
 import { getHubItemHref } from "~/lib/plex-routes";
 import { cn } from "~/lib/utils";
 import { useHubItemPlayback } from "~/hooks/use-hub-item-playback";
-import { api } from "~/trpc/react";
+import {
+  type ItemDetailsNavigationTarget,
+  useItemDetailsNavigation,
+} from "~/hooks/use-item-details-navigation";
 
 const POSTER_SIZE_CLASSNAME = "h-[240px] w-[160px]";
 
-interface MediaPosterCardContentProps {
+interface MediaPosterCardContentBaseProps {
   title: string;
   subtitle?: string;
-  detailsHref: string;
   thumbnailUrl?: string | null;
   className?: string;
   progressPercent?: number;
@@ -32,16 +33,28 @@ interface MediaPosterCardContentProps {
   onPlay?: () => void;
   onNavigateClick?: (event: React.MouseEvent) => void;
   showMobileMenuHint?: boolean;
-  detailsPrefetchInput?: {
-    serverId: string;
-    ratingKey: string;
-  };
 }
+
+type PosterCardRouteProps =
+  | {
+      detailsHref: string;
+      detailsTarget?: never;
+    }
+  | {
+      detailsHref?: never;
+      detailsTarget: ItemDetailsNavigationTarget;
+    };
+
+type MediaPosterCardContentProps = MediaPosterCardContentBaseProps &
+  PosterCardRouteProps;
+
+type ResolvedPosterCardContentProps = MediaPosterCardContentBaseProps &
+  PosterCardRouteProps;
 
 interface MediaPosterCardFromItemProps
   extends Omit<
-    MediaPosterCardContentProps,
-    "title" | "subtitle" | "detailsHref" | "thumbnailUrl"
+    MediaPosterCardContentBaseProps,
+    "title" | "subtitle" | "thumbnailUrl"
   > {
   item: HubItemWithServer;
 }
@@ -58,48 +71,52 @@ function isItemProps(
 
 function resolvePosterCardContent(
   props: MediaPosterCardProps,
-): MediaPosterCardContentProps {
+): ResolvedPosterCardContentProps {
   if (!isItemProps(props)) {
     return props;
   }
 
   const { item, ...rest } = props;
-  const detailsPrefetchInput =
+  const detailsRoute =
     item.type === "collection" || item.type === "playlist"
-      ? undefined
+      ? { detailsHref: getHubItemHref(item.serverId, item) }
       : {
-          serverId: item.serverId,
-          ratingKey: item.ratingKey,
+          detailsTarget: {
+            serverId: item.serverId,
+            type: item.type,
+            ratingKey: item.ratingKey,
+          },
         };
 
   return {
     ...rest,
+    ...detailsRoute,
     title: getHubItemTitle(item),
     subtitle: getHubItemSubtitle(item),
-    detailsHref: getHubItemHref(item.serverId, item),
     thumbnailUrl: getThumbnailUrl(item, item.serverUrl, item.authToken),
-    detailsPrefetchInput,
   };
 }
 
 export function MediaPosterCard(props: MediaPosterCardProps) {
   const item = isItemProps(props) ? props.item : undefined;
   const hubPlayback = useHubItemPlayback(item);
-  const utils = api.useUtils();
+  const itemDetailsNavigation = useItemDetailsNavigation();
 
   const resolved = resolvePosterCardContent(props);
   const {
     title,
     subtitle,
-    detailsHref,
     thumbnailUrl,
     className,
     progressPercent = 0,
     isCompleted = false,
     onNavigateClick,
     showMobileMenuHint = false,
-    detailsPrefetchInput,
   } = resolved;
+  const detailsTarget = resolved.detailsTarget;
+  const detailsHref = detailsTarget
+    ? itemDetailsNavigation.getHref(detailsTarget)
+    : resolved.detailsHref;
 
   const showPlayOverlay =
     props.showPlayOverlay ?? (item ? hubPlayback.canPlay : false);
@@ -108,14 +125,11 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
   const [imageFailed, setImageFailed] = useState(false);
 
   const prefetchDetails = () => {
-    if (!detailsPrefetchInput) {
+    if (!detailsTarget) {
       return;
     }
 
-    void utils.plex.getItemDetails.prefetch(
-      detailsPrefetchInput,
-      PLEX_DETAILS_QUERY_OPTIONS,
-    );
+    itemDetailsNavigation.prefetch(detailsTarget);
   };
 
   const posterContent = (
