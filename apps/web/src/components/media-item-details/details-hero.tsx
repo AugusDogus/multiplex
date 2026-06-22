@@ -328,16 +328,19 @@ function HeroActions({
     });
   };
 
-  const copyShareLink = async () => {
+  const copyShareLink = () => {
     const shareUrl = window.location.href;
 
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      setFeedbackMessage("Link copied");
-      window.setTimeout(() => setFeedbackMessage(null), SHARE_FEEDBACK_MS);
-    } catch {
-      setFeedbackMessage("Could not copy link");
+    setFeedbackMessage("Link copied");
+    window.setTimeout(() => setFeedbackMessage(null), SHARE_FEEDBACK_MS);
+
+    if (!navigator.clipboard) {
+      return;
     }
+
+    void navigator.clipboard.writeText(shareUrl).catch(() => {
+      setFeedbackMessage("Could not copy link");
+    });
   };
 
   const openInPlex = () => {
@@ -389,7 +392,7 @@ function HeroActions({
         size="icon"
         aria-label="Copy share link"
         title="Copy share link"
-        onClick={() => void copyShareLink()}
+        onClick={copyShareLink}
       >
         <Share2 />
       </Button>
@@ -408,7 +411,7 @@ function HeroActions({
               <Check />
               {watchedActionLabel}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void copyShareLink()}>
+            <DropdownMenuItem onSelect={copyShareLink}>
               <Link />
               Copy link
             </DropdownMenuItem>

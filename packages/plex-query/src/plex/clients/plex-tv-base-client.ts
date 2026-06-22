@@ -7,7 +7,6 @@ import {
 } from "../types/client-types";
 
 export const PLEX_TV_API_BASE_URL = "https://plex.tv/api/v2/";
-export const PLEX_CLIENTS_BASE_URL = "https://clients.plex.tv/";
 export const PLEX_CLIENTS_API_BASE_URL = "https://clients.plex.tv/api/v2/";
 export const PLEX_CLIENTS_USER_API_BASE_URL = `${PLEX_CLIENTS_API_BASE_URL}user/`;
 
