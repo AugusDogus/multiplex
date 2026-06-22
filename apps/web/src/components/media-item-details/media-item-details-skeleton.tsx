@@ -1,4 +1,7 @@
 import { Skeleton } from "~/components/ui/skeleton";
+import type { ItemDetailsRouteType } from "~/lib/plex-routes";
+
+type MediaItemDetailsSkeletonVariant = ItemDetailsRouteType | "media";
 
 function DetailsHeroSkeleton() {
   return (
@@ -96,7 +99,83 @@ function CastGridSkeleton() {
   );
 }
 
-export function MediaItemDetailsSkeleton() {
+function SeasonGridSkeleton() {
+  return (
+    <section className="flex flex-col gap-4">
+      <Skeleton className="h-8 w-28" />
+      <div className="scrollbar-hide -mx-4 flex gap-4 overflow-x-auto px-4 pb-2 md:mx-0 md:px-0">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="flex w-40 shrink-0 flex-col gap-3">
+            <Skeleton className="aspect-2/3 rounded-xl" />
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-4 w-28" />
+              <Skeleton className="h-3 w-20" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function EpisodeGridSkeleton() {
+  return (
+    <section className="flex flex-col gap-4">
+      <Skeleton className="h-8 w-32" />
+      <div className="hidden gap-5 sm:grid sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="flex min-w-0 flex-col gap-3">
+            <Skeleton className="aspect-video rounded-xl" />
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-3 w-full" />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-col gap-3 sm:hidden">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="flex gap-3">
+            <Skeleton className="aspect-video w-[132px] shrink-0 rounded-lg" />
+            <div className="flex flex-1 flex-col justify-center gap-2">
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-3 w-full" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ItemChildrenSkeleton({
+  variant,
+}: {
+  variant: MediaItemDetailsSkeletonVariant;
+}) {
+  switch (variant) {
+    case "show":
+      return <SeasonGridSkeleton />;
+    case "season":
+      return <EpisodeGridSkeleton />;
+    case "movie":
+    case "episode":
+    case "media":
+      return null;
+    default: {
+      const exhaustive: never = variant;
+      return exhaustive;
+    }
+  }
+}
+
+export function MediaItemDetailsSkeleton({
+  variant = "media",
+}: {
+  variant?: MediaItemDetailsSkeletonVariant;
+}) {
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-6 pb-24 lg:gap-8 lg:pb-8">
       <DetailsHeroSkeleton />
@@ -104,6 +183,7 @@ export function MediaItemDetailsSkeleton() {
         <DetailsSynopsisSkeleton />
       </div>
       <TechnicalDetailsSkeleton />
+      <ItemChildrenSkeleton variant={variant} />
       <CastGridSkeleton />
     </div>
   );

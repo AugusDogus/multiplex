@@ -90,7 +90,11 @@ function MobileEpisodeRow({
     height: 180,
   });
   const progressPercent = getProgressPercent(episode);
-  const detailsHref = getItemDetailsHref(serverId, episode.ratingKey);
+  const detailsHref = getItemDetailsHref(
+    serverId,
+    episode.type,
+    episode.ratingKey,
+  );
 
   return (
     <article className="flex gap-3">
@@ -170,7 +174,11 @@ function EpisodeCard({
     height: 270,
   });
   const progressPercent = getProgressPercent(episode);
-  const detailsHref = getItemDetailsHref(serverId, episode.ratingKey);
+  const detailsHref = getItemDetailsHref(
+    serverId,
+    episode.type,
+    episode.ratingKey,
+  );
 
   return (
     <article className="group flex min-w-0 flex-col gap-3">

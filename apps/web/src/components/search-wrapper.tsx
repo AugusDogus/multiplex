@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import type { ProcessedSearchResult } from "@multiplex/plex-query";
 import { SearchForm } from "~/components/search-form";
 import { SearchCommandModal } from "~/components/search-command-modal";
+import { PLEX_DETAILS_QUERY_OPTIONS } from "~/lib/plex-details-query-options";
 import { getItemDetailsHref } from "~/lib/plex-routes";
+import { api } from "~/trpc/react";
 
 interface SearchWrapperProps {
   className?: string;
@@ -17,6 +19,7 @@ export function SearchWrapper({
   collapseAtContainer = false,
 }: SearchWrapperProps) {
   const router = useRouter();
+  const utils = api.useUtils();
   const [searchModalOpen, setSearchModalOpen] = React.useState(false);
 
   React.useEffect(() => {
@@ -37,7 +40,13 @@ export function SearchWrapper({
 
   const handleResultSelect = (result: ProcessedSearchResult) => {
     setSearchModalOpen(false);
-    router.push(getItemDetailsHref(result.serverId, result.ratingKey));
+    void utils.plex.getItemDetails.prefetch(
+      { serverId: result.serverId, ratingKey: result.ratingKey },
+      PLEX_DETAILS_QUERY_OPTIONS,
+    );
+    router.push(
+      getItemDetailsHref(result.serverId, result.type, result.ratingKey),
+    );
   };
 
   return (
