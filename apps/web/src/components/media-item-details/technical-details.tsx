@@ -13,7 +13,7 @@ export function TechnicalDetails({ item }: TechnicalDetailsProps) {
   return (
     <section
       id="technical-details"
-      className="bg-card grid gap-3 rounded-xl border p-4 text-sm sm:grid-cols-3"
+      className="bg-card grid scroll-mt-24 gap-3 rounded-xl border p-4 text-sm sm:grid-cols-3"
     >
       {rows.map((row) => (
         <div key={row.label} className="flex flex-col gap-1">
