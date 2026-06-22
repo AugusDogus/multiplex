@@ -278,6 +278,7 @@ function HeroActions({
     watched: boolean;
   } | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
   const visibleWatched =
     watchedOverride?.ratingKey === item.ratingKey
       ? watchedOverride.watched
@@ -332,13 +333,20 @@ function HeroActions({
     const shareUrl = window.location.href;
 
     setFeedbackMessage("Link copied");
-    window.setTimeout(() => setFeedbackMessage(null), SHARE_FEEDBACK_MS);
+    setShareCopied(true);
+    window.setTimeout(() => {
+      setShareCopied(false);
+      setFeedbackMessage((current) =>
+        current === "Link copied" ? null : current,
+      );
+    }, SHARE_FEEDBACK_MS);
 
     if (!navigator.clipboard) {
       return;
     }
 
     void navigator.clipboard.writeText(shareUrl).catch(() => {
+      setShareCopied(false);
       setFeedbackMessage("Could not copy link");
     });
   };
@@ -360,6 +368,7 @@ function HeroActions({
     }
 
     detailsSection.scrollIntoView({ behavior: "smooth", block: "start" });
+    setFeedbackMessage("Showing info");
   };
 
   return (
@@ -389,12 +398,13 @@ function HeroActions({
       </Button>
       <Button
         variant="outline"
-        size="icon"
-        aria-label="Copy share link"
-        title="Copy share link"
+        size={shareCopied ? "default" : "icon"}
+        aria-label={shareCopied ? "Link copied" : "Copy share link"}
+        title={shareCopied ? "Link copied" : "Copy share link"}
         onClick={copyShareLink}
       >
         <Share2 />
+        {shareCopied && "Copied"}
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
