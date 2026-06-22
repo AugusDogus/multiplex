@@ -368,14 +368,22 @@ function HeroActions({
     }
 
     detailsSection.scrollIntoView({ behavior: "smooth", block: "start" });
+    const previousOutline = detailsSection.style.outline;
+    const previousOutlineOffset = detailsSection.style.outlineOffset;
+    detailsSection.style.outline = "3px solid var(--ring)";
+    detailsSection.style.outlineOffset = "4px";
     detailsSection.animate(
       [
-        { boxShadow: "0 0 0 0 var(--ring)" },
-        { boxShadow: "0 0 0 4px var(--ring)" },
-        { boxShadow: "0 0 0 0 var(--ring)" },
+        { transform: "scale(1)" },
+        { transform: "scale(1.01)" },
+        { transform: "scale(1)" },
       ],
       { duration: 1_400, easing: "ease-out" },
     );
+    window.setTimeout(() => {
+      detailsSection.style.outline = previousOutline;
+      detailsSection.style.outlineOffset = previousOutlineOffset;
+    }, 1_600);
     setFeedbackMessage("Showing info");
   };
 
@@ -406,13 +414,13 @@ function HeroActions({
       </Button>
       <Button
         variant="outline"
-        size={shareCopied ? "default" : "icon"}
+        size="default"
         aria-label={shareCopied ? "Link copied" : "Copy share link"}
         title={shareCopied ? "Link copied" : "Copy share link"}
         onClick={copyShareLink}
       >
         <Share2 />
-        {shareCopied && "Copied"}
+        {shareCopied ? "Copied" : "Share"}
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
