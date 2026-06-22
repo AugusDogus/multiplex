@@ -8,6 +8,7 @@ import {
 } from "../schemas/plex-tv-schemas";
 import type { PlexConfig } from "../types/client-types";
 import {
+  PLEX_CLIENTS_BASE_URL,
   PLEX_CLIENTS_API_BASE_URL,
   PLEX_CLIENTS_USER_API_BASE_URL,
   PlexTvBaseClient,
@@ -120,6 +121,21 @@ export class PlexTvClient extends PlexTvBaseClient {
       baseUrl: PLEX_CLIENTS_USER_API_BASE_URL,
       contentType: "application/json",
       body,
+      xPlexOverrides: {
+        product: "Plex Web",
+        sessionId: crypto.randomUUID(),
+      },
+    });
+  }
+
+  async syncViewState(): Promise<void> {
+    await this.put(this.token, {
+      endpoint: "plex/v2/users/view_state_sync",
+      params: {
+        context: "tail=false",
+      },
+      baseUrl: PLEX_CLIENTS_BASE_URL,
+      expectEmptyResponse: true,
       xPlexOverrides: {
         product: "Plex Web",
         sessionId: crypto.randomUUID(),

@@ -88,10 +88,7 @@ export class PlexServerClient {
   private async testConnection(connection: PlexDevice["connections"][0]): Promise<boolean> {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(
-        () => controller.abort(),
-        CONNECTION_TEST_TIMEOUT_MS,
-      );
+      const timeoutId = setTimeout(() => controller.abort(), CONNECTION_TEST_TIMEOUT_MS);
 
       const testUrl = `${connection.uri}/identity`;
 
@@ -606,6 +603,25 @@ export class PlexServerClient {
     return parsed.MediaContainer.Metadata ?? [];
   }
 
+  async markItemWatched(ratingKey: string): Promise<void> {
+    await this.setItemWatchedState(ratingKey, true);
+  }
+
+  async markItemUnwatched(ratingKey: string): Promise<void> {
+    await this.setItemWatchedState(ratingKey, false);
+  }
+
+  private async setItemWatchedState(ratingKey: string, watched: boolean): Promise<void> {
+    await this.get({
+      endpoint: watched ? ":/scrobble" : ":/unscrobble",
+      params: {
+        identifier: "com.plexapp.plugins.library",
+        key: ratingKey,
+      },
+      expectEmptyResponse: true,
+    });
+  }
+
   /**
    * Get Continue Watching data for specific library directories
    * @param contentDirectoryIds - Array of library section IDs to include
@@ -908,6 +924,10 @@ export class PlexServerClient {
           );
 
           throw currentError;
+        }
+
+        if (options.expectEmptyResponse) {
+          return undefined as T;
         }
 
         const data = await response.json();
