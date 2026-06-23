@@ -48,6 +48,7 @@ import {
   type GetRequestOptions,
   type PlexConfig,
   type PostRequestOptions,
+  type PutRequestOptions,
 } from "../types/client-types";
 
 /* ────────────────────────────────────────────────────────────
@@ -57,6 +58,25 @@ import {
 
 /** Cold starts (fresh browser + server) often need longer than LAN latency. */
 const CONNECTION_TEST_TIMEOUT_MS = 3_000;
+
+function createConnectionFromUri(uri: string): PlexDevice["connections"][0] {
+  const parsedUrl = new URL(uri);
+
+  return {
+    protocol: parsedUrl.protocol.replace(":", ""),
+    address: parsedUrl.hostname,
+    port:
+      parsedUrl.port.length > 0
+        ? Number.parseInt(parsedUrl.port, 10)
+        : parsedUrl.protocol === "https:"
+          ? 443
+          : 80,
+    uri: uri.endsWith("/") ? uri.slice(0, -1) : uri,
+    local: parsedUrl.hostname === "localhost" || parsedUrl.hostname === "127.0.0.1",
+    relay: false,
+    IPv6: parsedUrl.hostname.includes(":"),
+  };
+}
 
 /**
  * Client for interacting with individual Plex Media Server instances
@@ -78,6 +98,43 @@ export class PlexServerClient {
     this.token = server.accessToken ?? token;
     this.config = config;
     this.server = server;
+  }
+
+  static fromConnectionUri(
+    serverId: string,
+    connectionUri: string,
+    token: string,
+    config: PlexConfig,
+  ): PlexServerClient {
+    const connection = createConnectionFromUri(connectionUri);
+    const server: PlexDevice = {
+      name: "Plex Media Server",
+      product: "Plex Media Server",
+      productVersion: "",
+      platform: "",
+      platformVersion: "",
+      device: "",
+      clientIdentifier: serverId,
+      createdAt: "",
+      lastSeenAt: "",
+      provides: "server",
+      ownerId: null,
+      sourceTitle: null,
+      publicAddress: connection.address,
+      accessToken: token,
+      owned: true,
+      home: false,
+      synced: false,
+      relay: false,
+      presence: true,
+      httpsRequired: connection.protocol === "https",
+      publicAddressMatches: false,
+      connections: [connection],
+    };
+    const client = new PlexServerClient(server, token, config);
+    client.workingConnection = connection;
+
+    return client;
   }
 
   /**
@@ -822,6 +879,25 @@ export class PlexServerClient {
     });
   }
 
+  async updatePlayQueue(params: {
+    playQueueId: string;
+    type: CreatePlayQueueParams["type"];
+    uri: string;
+    next?: boolean;
+    shuffle?: boolean;
+  }): Promise<PlayQueueResponse> {
+    return await this.put({
+      endpoint: `playQueues/${params.playQueueId}`,
+      params: {
+        type: params.type,
+        uri: params.uri,
+        ...(params.next !== undefined ? { next: params.next ? "1" : "0" } : {}),
+        ...(params.shuffle ? { shuffle: "1" } : {}),
+      },
+      schema: playQueueResponseSchema,
+    });
+  }
+
   /**
    * Get play queue by ID with markers
    * @param playQueueId - The play queue ID to retrieve
@@ -984,6 +1060,17 @@ export class PlexServerClient {
    * @returns Parsed and validated response data
    */
   private async post<T>(options: PostRequestOptions<T>): Promise<T> {
+    return this.sendWithoutBody("POST", options);
+  }
+
+  private async put<T>(options: PutRequestOptions<T>): Promise<T> {
+    return this.sendWithoutBody("PUT", options);
+  }
+
+  private async sendWithoutBody<T>(
+    method: "POST" | "PUT",
+    options: PostRequestOptions<T> | PutRequestOptions<T>,
+  ): Promise<T> {
     const { endpoint, params, schema, expectEmptyResponse = false, xPlexOverrides = {} } = options;
     const maxRetries = 2;
     const errors: Error[] = [];
@@ -1042,13 +1129,11 @@ export class PlexServerClient {
 
         const headers = this.getHeaders();
 
-        console.log(`Making POST request to ${this.server.name}:`);
-        console.log(`URL: ${url.toString()}`);
+        console.log(`Making ${method} request to ${this.server.name}:`);
         console.log(`Headers:`, headers);
-        console.log(`Token (first 10 chars): ${this.token.substring(0, 10)}...`);
 
         const response = await fetch(url.toString(), {
-          method: "POST",
+          method,
           headers,
         });
 
@@ -1104,7 +1189,7 @@ export class PlexServerClient {
         errors.push(currentError);
 
         console.log(
-          `POST request to ${this.server.name} failed (attempt ${attempt + 1}):`,
+          `${method} request to ${this.server.name} failed (attempt ${attempt + 1}):`,
           currentError.message,
         );
 
@@ -1131,7 +1216,7 @@ export class PlexServerClient {
       }
     }
 
-    throw errors[errors.length - 1] ?? new Error("POST request failed after retries");
+    throw errors[errors.length - 1] ?? new Error(`${method} request failed after retries`);
   }
 
   private getHeaders(): Record<string, string> {

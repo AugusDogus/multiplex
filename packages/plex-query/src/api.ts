@@ -244,6 +244,27 @@ const createPlayQueue = createMutation<PlayQueueResponse, CreatePlayQueueMutatio
   },
 });
 
+interface UpdatePlayQueueMutationParams extends ServerTokenParams {
+  playQueueId: string;
+  type: CreatePlayQueueParams["type"];
+  uri: string;
+  next?: boolean;
+  shuffle?: boolean;
+}
+
+const updatePlayQueue = createMutation<PlayQueueResponse, UpdatePlayQueueMutationParams>({
+  mutationFn: async ({ server, token, playQueueId, type, uri, next, shuffle }) => {
+    const client = new PlexServerClient(server, token, getPlexConfig());
+    return client.updatePlayQueue({
+      playQueueId,
+      type,
+      uri,
+      next,
+      shuffle,
+    });
+  },
+});
+
 interface SendTimelineParams extends ServerTokenParams {
   ratingKey: string;
   key: string;
@@ -322,6 +343,7 @@ export const api = {
 
     // Mutations
     createPlayQueue,
+    updatePlayQueue,
     sendTimeline,
     setItemWatchedState,
   },
