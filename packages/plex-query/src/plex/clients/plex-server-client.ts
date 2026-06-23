@@ -891,7 +891,7 @@ export class PlexServerClient {
       params: {
         type: params.type,
         uri: params.uri,
-        ...(params.next !== undefined ? { next: params.next ? "1" : "0" } : {}),
+        ...(params.next ? { next: "1" } : {}),
         ...(params.shuffle ? { shuffle: "1" } : {}),
       },
       schema: playQueueResponseSchema,
