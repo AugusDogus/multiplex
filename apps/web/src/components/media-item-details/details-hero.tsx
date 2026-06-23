@@ -282,15 +282,15 @@ function HeroActions({
     (state) => state.updatePlaybackState,
   );
   const itemWatched = getItemWatchedState(item);
-  const [watchedOverride, setWatchedOverride] = useState<{
+  const [confirmedWatchedOverride, setConfirmedWatchedOverride] = useState<{
     ratingKey: string;
     watched: boolean;
   } | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
   const visibleWatched =
-    watchedOverride?.ratingKey === item.ratingKey
-      ? watchedOverride.watched
+    confirmedWatchedOverride?.ratingKey === item.ratingKey
+      ? confirmedWatchedOverride.watched
       : itemWatched;
   const watchedActionLabel = visibleWatched
     ? "Mark as unwatched"
@@ -303,18 +303,14 @@ function HeroActions({
   );
 
   const setWatchedStateMutation = api.plex.setItemWatchedState.useMutation({
-    onMutate: (variables) => {
-      setFeedbackMessage(null);
-      setWatchedOverride({
-        ratingKey: variables.ratingKey,
-        watched: variables.watched,
-      });
-    },
     onError: (error) => {
-      setWatchedOverride(null);
       setFeedbackMessage(error.message);
     },
     onSuccess: (_updatedItem, variables) => {
+      setConfirmedWatchedOverride({
+        ratingKey: variables.ratingKey,
+        watched: variables.watched,
+      });
       setFeedbackMessage(
         variables.watched ? "Marked as watched" : "Marked as unwatched",
       );
@@ -350,6 +346,7 @@ function HeroActions({
       return;
     }
 
+    setFeedbackMessage(null);
     setWatchedStateMutation.mutate({
       serverId,
       ratingKey: item.ratingKey,
