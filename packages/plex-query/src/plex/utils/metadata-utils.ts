@@ -460,8 +460,9 @@ export function getMediaInfo(item: Pick<ItemMetadata, "Media">): MediaInfoVersio
     parts: media.Part.map((part) => ({
       id: part.id,
       file: part.file,
+      // `Container` is already shown at the version level, so the part only
+      // adds the file-specific size and duration.
       rows: rowsFrom([
-        ["Container", part.container?.toUpperCase()],
         ["Size", formatFileSize(part.size)],
         ["Duration", formatMetadataDuration(part.duration)],
       ]),
