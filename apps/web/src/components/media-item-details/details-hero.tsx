@@ -27,6 +27,8 @@ import {
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { api } from "~/trpc/react";
 
+import { AddToPlaylistDialog } from "./add-to-playlist-dialog";
+import { MediaInfoDialog } from "./media-info-dialog";
 import { MetadataDirectors } from "./metadata-directors";
 import { MetadataGenres } from "./metadata-genres";
 import { MetadataRating } from "./metadata-rating";
@@ -39,6 +41,10 @@ const PLEX_ACTION_NOT_IMPLEMENTED =
 const QUEUE_ACTION_REQUIRES_PLAYER =
   "Start playback first to add items to the active queue.";
 const QUEUE_ACTION_PENDING = "Updating the active Plex queue.";
+const PLEX_ACTION_REQUIRES_SERVER =
+  "This action needs an active server connection.";
+const GET_INFO_REQUIRES_MEDIA =
+  "Media info is only available once this item has playable media.";
 
 interface DetailsHeroProps {
   item: ItemDetails["item"];
@@ -289,7 +295,11 @@ function HeroActions({
   } | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
+  const [mediaInfoOpen, setMediaInfoOpen] = useState(false);
+  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const shareResetTimeoutRef = useRef<number | null>(null);
+  const hasMediaInfo = Boolean(item.Media?.length);
+  const canAddToPlaylist = Boolean(serverUrl && authToken);
   const visibleWatched =
     confirmedWatchedOverride?.ratingKey === item.ratingKey
       ? confirmedWatchedOverride.watched
@@ -524,12 +534,17 @@ function HeroActions({
               Add to Queue
             </DropdownMenuItem>
             <DropdownMenuItem
-              disabled
-              aria-label={getDisabledMenuItemLabel(
-                "Add to...",
-                PLEX_ACTION_NOT_IMPLEMENTED,
-              )}
-              title={PLEX_ACTION_NOT_IMPLEMENTED}
+              onSelect={() => setAddToPlaylistOpen(true)}
+              disabled={!canAddToPlaylist}
+              aria-label={
+                canAddToPlaylist
+                  ? undefined
+                  : getDisabledMenuItemLabel(
+                      "Add to...",
+                      PLEX_ACTION_REQUIRES_SERVER,
+                    )
+              }
+              title={canAddToPlaylist ? undefined : PLEX_ACTION_REQUIRES_SERVER}
             >
               Add to...
             </DropdownMenuItem>
@@ -544,18 +559,41 @@ function HeroActions({
               Report Issue...
             </DropdownMenuItem>
             <DropdownMenuItem
-              disabled
-              aria-label={getDisabledMenuItemLabel(
-                "Get Info",
-                PLEX_ACTION_NOT_IMPLEMENTED,
-              )}
-              title={PLEX_ACTION_NOT_IMPLEMENTED}
+              onSelect={() => setMediaInfoOpen(true)}
+              disabled={!hasMediaInfo}
+              aria-label={
+                hasMediaInfo
+                  ? undefined
+                  : getDisabledMenuItemLabel(
+                      "Get Info",
+                      GET_INFO_REQUIRES_MEDIA,
+                    )
+              }
+              title={hasMediaInfo ? undefined : GET_INFO_REQUIRES_MEDIA}
             >
               Get Info
             </DropdownMenuItem>
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
+      <MediaInfoDialog
+        item={item}
+        serverUrl={serverUrl}
+        authToken={authToken}
+        open={mediaInfoOpen}
+        onOpenChange={setMediaInfoOpen}
+      />
+      {serverUrl && authToken && (
+        <AddToPlaylistDialog
+          item={item}
+          serverId={serverId}
+          serverUrl={serverUrl}
+          authToken={authToken}
+          open={addToPlaylistOpen}
+          onOpenChange={setAddToPlaylistOpen}
+          onFeedback={setFeedbackMessage}
+        />
+      )}
       {feedbackMessage && (
         <span
           className="text-muted-foreground basis-full text-sm"
