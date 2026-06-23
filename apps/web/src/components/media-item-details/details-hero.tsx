@@ -425,13 +425,12 @@ function HeroActions({
       return;
     }
 
-    setFeedbackMessage("Link copied");
+    // The in-button "Copied" state is the only confirmation we need; clear any
+    // stale status text rather than duplicating it beneath the actions.
+    setFeedbackMessage(null);
     setShareCopied(true);
     shareResetTimeoutRef.current = window.setTimeout(() => {
       setShareCopied(false);
-      setFeedbackMessage((current) =>
-        current === "Link copied" ? null : current,
-      );
       shareResetTimeoutRef.current = null;
     }, SHARE_FEEDBACK_MS);
 
@@ -483,7 +482,7 @@ function HeroActions({
         ) : (
           <Share2 data-icon="inline-start" />
         )}
-        <span className="min-w-14 text-left">{shareButtonLabel}</span>
+        <span className="min-w-14 text-center">{shareButtonLabel}</span>
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
