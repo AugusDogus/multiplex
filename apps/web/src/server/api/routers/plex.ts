@@ -4,9 +4,11 @@ import {
   getPlexConfig,
   getNextPinnedSources,
   pinnedSourceSchema,
+  buildLibraryItemUri,
   enrichMetadataChildren,
   getPlayableChildren,
   PlexServerClient,
+  playlistTypes,
   resolvePlayTarget,
 } from "@multiplex/plex-query";
 import { z } from "zod";
@@ -505,16 +507,107 @@ export const plexRouter = createTRPCRouter({
         input.authToken,
         getPlexConfig(),
       );
-      const itemKey = input.key.startsWith("/")
-        ? input.key
-        : `/library/metadata/${input.ratingKey}`;
 
       return await serverClient.updatePlayQueue({
         playQueueId: input.playQueueId,
         type: input.type,
-        uri: `server://${input.serverId}/com.plexapp.plugins.library${itemKey}`,
+        uri: buildLibraryItemUri(input.serverId, input.ratingKey, input.key),
         next: input.next,
       });
+    }),
+
+  getItemPlaylists: protectedProcedure
+    .input(
+      z.object({
+        serverId: z.string(),
+        serverUrl: z.string().url(),
+        authToken: z.string(),
+        playlistType: z.enum(playlistTypes),
+      }),
+    )
+    .query(async ({ input }) => {
+      const serverClient = PlexServerClient.fromConnectionUri(
+        input.serverId,
+        input.serverUrl,
+        input.authToken,
+        getPlexConfig(),
+      );
+
+      const playlists = await serverClient.getPlaylistsByType(
+        input.playlistType,
+      );
+
+      // Smart playlists are rule-driven, so Plex rejects manual appends; hide
+      // them from the picker to match Plex Web.
+      return playlists
+        .filter((playlist) => !playlist.smart)
+        .map((playlist) => ({
+          ratingKey: playlist.ratingKey,
+          title: playlist.title,
+          leafCount: playlist.leafCount ?? 0,
+        }));
+    }),
+
+  addItemToPlaylist: protectedProcedure
+    .input(
+      z.object({
+        serverId: z.string(),
+        serverUrl: z.string().url(),
+        authToken: z.string(),
+        playlistRatingKey: z.string(),
+        // Carried through only so the client can show "Added to <name>"; the
+        // server identifies the playlist by `playlistRatingKey`.
+        playlistTitle: z.string().optional(),
+        ratingKey: z.string(),
+        key: z.string(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const serverClient = PlexServerClient.fromConnectionUri(
+        input.serverId,
+        input.serverUrl,
+        input.authToken,
+        getPlexConfig(),
+      );
+
+      const response = await serverClient.addItemToPlaylist(
+        input.playlistRatingKey,
+        buildLibraryItemUri(input.serverId, input.ratingKey, input.key),
+      );
+
+      return { leafCountAdded: response.MediaContainer.leafCountAdded ?? 0 };
+    }),
+
+  createPlaylistWithItem: protectedProcedure
+    .input(
+      z.object({
+        serverId: z.string(),
+        serverUrl: z.string().url(),
+        authToken: z.string(),
+        title: z.string().trim().min(1).max(255),
+        type: z.enum(playlistTypes),
+        ratingKey: z.string(),
+        key: z.string(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const serverClient = PlexServerClient.fromConnectionUri(
+        input.serverId,
+        input.serverUrl,
+        input.authToken,
+        getPlexConfig(),
+      );
+
+      const response = await serverClient.createPlaylist({
+        title: input.title,
+        type: input.type,
+        uri: buildLibraryItemUri(input.serverId, input.ratingKey, input.key),
+      });
+
+      return {
+        ratingKey: response.MediaContainer.Metadata?.[0]?.ratingKey ?? null,
+        title: response.MediaContainer.Metadata?.[0]?.title ?? input.title,
+      };
     }),
 
   getItemMetadata: protectedProcedure

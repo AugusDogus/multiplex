@@ -36,6 +36,12 @@ import {
   type CreatePlayQueueParams,
   type PlayQueueResponse,
 } from "../schemas/play-queue-schemas";
+import {
+  playlistsResponseSchema,
+  type Playlist,
+  type PlaylistType,
+  type PlaylistsResponse,
+} from "../schemas/playlist-schemas";
 import { MediaContainerSchema, type MediaContainer } from "../schemas/plex-server-schemas";
 import type { PlexDevice } from "../schemas/plex-tv-schemas";
 import {
@@ -913,6 +919,66 @@ export class PlexServerClient {
         own: "1",
       },
       schema: playQueueResponseSchema,
+    });
+  }
+
+  /**
+   * List the user's playlists filtered to a single `playlistType` (the buckets
+   * Plex Web shows in its "Add to..." picker). Smart playlists are returned too
+   * but can't be appended to, so callers filter them out.
+   *
+   * @param playlistType - `video`, `audio`, or `photo`
+   * @returns Playlists of the requested type
+   */
+  async getPlaylistsByType(playlistType: PlaylistType): Promise<Playlist[]> {
+    const response = await this.get({
+      endpoint: "playlists",
+      params: {
+        playlistType,
+      },
+      schema: playlistsResponseSchema,
+    });
+
+    return response.MediaContainer.Metadata ?? [];
+  }
+
+  /**
+   * Append an item to an existing playlist.
+   *
+   * Mirrors Plex Web: `PUT /playlists/{playlistRatingKey}/items?uri=<serverUri>`
+   * where `serverUri` points at the source item on this server.
+   *
+   * @returns The playlist container, including `leafCountAdded`.
+   */
+  async addItemToPlaylist(playlistRatingKey: string, uri: string): Promise<PlaylistsResponse> {
+    return await this.put({
+      endpoint: `playlists/${playlistRatingKey}/items`,
+      params: { uri },
+      schema: playlistsResponseSchema,
+    });
+  }
+
+  /**
+   * Create a new (dumb) playlist seeded with a single item.
+   *
+   * Mirrors Plex Web: `POST /playlists?type=<video|audio|photo>&title=<title>&smart=0&uri=<serverUri>`.
+   *
+   * @returns The created playlist container, including its new `ratingKey`.
+   */
+  async createPlaylist(params: {
+    title: string;
+    type: PlaylistType;
+    uri: string;
+  }): Promise<PlaylistsResponse> {
+    return await this.post({
+      endpoint: "playlists",
+      params: {
+        title: params.title,
+        type: params.type,
+        smart: "0",
+        uri: params.uri,
+      },
+      schema: playlistsResponseSchema,
     });
   }
 
