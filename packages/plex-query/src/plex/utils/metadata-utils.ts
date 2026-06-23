@@ -11,6 +11,16 @@ import type {
    Metadata utilities for item details and hierarchy navigation
    ──────────────────────────────────────────────────────────── */
 
+/**
+ * Build the `server://` source URI Plex uses to reference a library item when
+ * mutating play queues and playlists. `key` is preferred when it already points
+ * at a metadata path; otherwise it is derived from the `ratingKey`.
+ */
+export function buildLibraryItemUri(serverId: string, ratingKey: string, key?: string): string {
+  const itemKey = key && key.startsWith("/") ? key : `/library/metadata/${ratingKey}`;
+  return `server://${serverId}/com.plexapp.plugins.library${itemKey}`;
+}
+
 export function enrichMetadataChildren(
   children: ItemMetadataChild[],
   parent: LibrarySectionFields,
@@ -51,12 +61,7 @@ export function toPlayableMetadata(item: ItemMetadata): PlayableMetadata | null 
   return { ...item, streamPartKey };
 }
 
-const PLAYABLE_POSTER_ITEM_TYPES = new Set([
-  "movie",
-  "episode",
-  "show",
-  "season",
-]);
+const PLAYABLE_POSTER_ITEM_TYPES = new Set(["movie", "episode", "show", "season"]);
 
 /** Whether a browse/hub poster can offer direct playback (vs. opening a collection/playlist). */
 export function isPlayablePosterItemType(type: string): boolean {
@@ -363,6 +368,150 @@ export function formatStreamCodec(codec: string) {
   }
 
   return codec.toUpperCase();
+}
+
+/* ────────────────────────────────────────────────────────────
+   Media Info (the "Get Info" modal)
+   ──────────────────────────────────────────────────────────── */
+
+export interface MediaInfoRow {
+  label: string;
+  value: string;
+}
+
+export interface MediaInfoStream {
+  id: number;
+  kind: "Video" | "Audio" | "Subtitle";
+  title: string;
+  rows: MediaInfoRow[];
+}
+
+export interface MediaInfoPart {
+  id: number;
+  file: string | undefined;
+  rows: MediaInfoRow[];
+  streams: MediaInfoStream[];
+}
+
+export interface MediaInfoVersion {
+  id: number;
+  label: string;
+  rows: MediaInfoRow[];
+  parts: MediaInfoPart[];
+}
+
+function rowsFrom(entries: [string, string | number | boolean | undefined][]): MediaInfoRow[] {
+  return entries.flatMap(([label, value]) => {
+    if (value === undefined || value === "") {
+      return [];
+    }
+
+    return [{ label, value: typeof value === "boolean" ? (value ? "Yes" : "No") : String(value) }];
+  });
+}
+
+/** Human-readable file size from a raw byte count (e.g. `1.4 GB`). */
+export function formatFileSize(bytes: number | undefined): string | undefined {
+  if (!bytes || bytes <= 0) {
+    return undefined;
+  }
+
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / Math.pow(1024, exponent);
+
+  return `${value.toFixed(value >= 100 || exponent === 0 ? 0 : 1)} ${units[exponent]}`;
+}
+
+/** Human-readable bitrate from a kilobit-per-second count (e.g. `8.2 Mbps`). */
+export function formatBitrate(kbps: number | undefined): string | undefined {
+  if (!kbps || kbps <= 0) {
+    return undefined;
+  }
+
+  return kbps >= 1000 ? `${(kbps / 1000).toFixed(1)} Mbps` : `${kbps} kbps`;
+}
+
+/**
+ * Flatten an item's `Media[].Part[].Stream[]` into the structured sections the
+ * Get Info modal renders. Returns an empty array for items without media (e.g.
+ * shows/seasons), letting the caller hide the action.
+ */
+export function getMediaInfo(item: Pick<ItemMetadata, "Media">): MediaInfoVersion[] {
+  const versions = item.Media ?? [];
+
+  return versions.map((media, mediaIndex) => ({
+    id: media.id,
+    label: versions.length > 1 ? `Version ${mediaIndex + 1}` : "Media",
+    rows: rowsFrom([
+      ["Container", media.container?.toUpperCase()],
+      [
+        "Resolution",
+        media.videoResolution
+          ? `${media.videoResolution} (${media.width}×${media.height})`
+          : undefined,
+      ],
+      ["Video codec", media.videoCodec ? formatStreamCodec(media.videoCodec) : undefined],
+      ["Frame rate", media.videoFrameRate],
+      ["Bitrate", formatBitrate(media.bitrate)],
+      ["Audio codec", media.audioCodec ? formatStreamCodec(media.audioCodec) : undefined],
+      ["Audio channels", media.audioChannels],
+    ]),
+    parts: media.Part.map((part) => ({
+      id: part.id,
+      file: part.file,
+      rows: rowsFrom([
+        ["Container", part.container?.toUpperCase()],
+        ["Size", formatFileSize(part.size)],
+        ["Duration", formatMetadataDuration(part.duration)],
+      ]),
+      streams: (part.Stream ?? []).map((stream): MediaInfoStream => {
+        if (stream.streamType === 1) {
+          return {
+            id: stream.id,
+            kind: "Video",
+            title: stream.extendedDisplayTitle || stream.displayTitle,
+            rows: rowsFrom([
+              ["Codec", formatStreamCodec(stream.codec)],
+              ["Resolution", `${stream.width}×${stream.height}`],
+              ["Bit depth", stream.bitDepth ? `${stream.bitDepth}-bit` : undefined],
+              ["Frame rate", stream.frameRate ? `${stream.frameRate} fps` : undefined],
+              ["Profile", stream.profile],
+              ["Bitrate", formatBitrate(stream.bitrate)],
+            ]),
+          };
+        }
+
+        if (stream.streamType === 2) {
+          return {
+            id: stream.id,
+            kind: "Audio",
+            title: stream.extendedDisplayTitle || stream.displayTitle,
+            rows: rowsFrom([
+              ["Codec", formatStreamCodec(stream.codec)],
+              ["Channels", stream.audioChannelLayout ?? stream.channels],
+              ["Language", stream.language],
+              ["Bitrate", formatBitrate(stream.bitrate)],
+              ["Default", stream.default],
+            ]),
+          };
+        }
+
+        return {
+          id: stream.id,
+          kind: "Subtitle",
+          title: stream.extendedDisplayTitle || stream.displayTitle,
+          rows: rowsFrom([
+            ["Codec", stream.codec ? formatStreamCodec(stream.codec) : undefined],
+            ["Language", stream.language],
+            ["Format", stream.format],
+            ["SDH", stream.hearingImpaired],
+            ["Default", stream.default],
+          ]),
+        };
+      }),
+    })),
+  }));
 }
 
 export function getTechnicalRows(item: ItemMetadata) {
