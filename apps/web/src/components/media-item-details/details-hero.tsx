@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, MoreHorizontal, Play, Share2 } from "lucide-react";
 import {
   formatDetailsTimeRemaining,
@@ -33,11 +33,12 @@ import { MetadataRating } from "./metadata-rating";
 import { MetadataSummaryRow } from "./metadata-summary-row";
 import type { ItemDetails, PlayTarget } from "./types";
 
-const SHARE_FEEDBACK_MS = 5_000;
+const SHARE_FEEDBACK_MS = 2_500;
 const PLEX_ACTION_NOT_IMPLEMENTED =
   "This Plex action is disabled until the matching Plex behavior is implemented.";
 const QUEUE_ACTION_REQUIRES_PLAYER =
   "Start playback first to add items to the active queue.";
+const QUEUE_ACTION_PENDING = "Updating the active Plex queue.";
 
 interface DetailsHeroProps {
   item: ItemDetails["item"];
@@ -288,6 +289,7 @@ function HeroActions({
   } | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
+  const shareResetTimeoutRef = useRef<number | null>(null);
   const visibleWatched =
     confirmedWatchedOverride?.ratingKey === item.ratingKey
       ? confirmedWatchedOverride.watched
@@ -295,12 +297,23 @@ function HeroActions({
   const watchedActionLabel = visibleWatched
     ? "Mark as unwatched"
     : "Mark as watched";
+  const watchedPendingLabel = visibleWatched
+    ? "Marking as unwatched"
+    : "Marking as watched";
   const canUpdateActiveQueue = Boolean(
     serverUrl &&
       authToken &&
       playQueueId &&
       currentPlayerItem?.serverId === serverId,
   );
+
+  useEffect(() => {
+    return () => {
+      if (shareResetTimeoutRef.current) {
+        window.clearTimeout(shareResetTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const setWatchedStateMutation = api.plex.setItemWatchedState.useMutation({
     onError: (error) => {
@@ -341,12 +354,22 @@ function HeroActions({
     },
   });
 
+  const watchedButtonLabel = setWatchedStateMutation.isPending
+    ? watchedPendingLabel
+    : watchedActionLabel;
+  const queueActionDisabledReason = getQueueActionDisabledReason(
+    canUpdateActiveQueue,
+    updatePlayQueueMutation.isPending,
+  );
+  const shareButtonLabel = shareCopied ? "Copied" : "Share";
+  const shareActionLabel = shareCopied ? "Link copied" : "Copy share link";
+
   const toggleWatchedState = () => {
     if (setWatchedStateMutation.isPending) {
       return;
     }
 
-    setFeedbackMessage(null);
+    setFeedbackMessage(watchedPendingLabel);
     setWatchedStateMutation.mutate({
       serverId,
       ratingKey: item.ratingKey,
@@ -366,6 +389,7 @@ function HeroActions({
       return;
     }
 
+    setFeedbackMessage(next ? "Adding to Play Next..." : "Adding to queue...");
     updatePlayQueueMutation.mutate({
       serverId,
       serverUrl,
@@ -381,20 +405,31 @@ function HeroActions({
   const copyShareLink = () => {
     const shareUrl = window.location.href;
 
+    if (shareResetTimeoutRef.current) {
+      window.clearTimeout(shareResetTimeoutRef.current);
+    }
+
+    if (!navigator.clipboard) {
+      setShareCopied(false);
+      setFeedbackMessage("Could not copy link");
+      return;
+    }
+
     setFeedbackMessage("Link copied");
     setShareCopied(true);
-    window.setTimeout(() => {
+    shareResetTimeoutRef.current = window.setTimeout(() => {
       setShareCopied(false);
       setFeedbackMessage((current) =>
         current === "Link copied" ? null : current,
       );
+      shareResetTimeoutRef.current = null;
     }, SHARE_FEEDBACK_MS);
 
-    if (!navigator.clipboard) {
-      return;
-    }
-
     void navigator.clipboard.writeText(shareUrl).catch(() => {
+      if (shareResetTimeoutRef.current) {
+        window.clearTimeout(shareResetTimeoutRef.current);
+        shareResetTimeoutRef.current = null;
+      }
       setShareCopied(false);
       setFeedbackMessage("Could not copy link");
     });
@@ -414,8 +449,9 @@ function HeroActions({
       <Button
         variant={visibleWatched ? "secondary" : "outline"}
         size="icon"
-        aria-label={watchedActionLabel}
-        title={watchedActionLabel}
+        aria-label={watchedButtonLabel}
+        aria-busy={setWatchedStateMutation.isPending || undefined}
+        title={watchedButtonLabel}
         onClick={toggleWatchedState}
         disabled={setWatchedStateMutation.isPending}
       >
@@ -426,14 +462,18 @@ function HeroActions({
         )}
       </Button>
       <Button
-        variant="outline"
+        variant={shareCopied ? "secondary" : "outline"}
         size="default"
-        aria-label={shareCopied ? "Link copied" : "Copy share link"}
-        title={shareCopied ? "Link copied" : "Copy share link"}
+        aria-label={shareActionLabel}
+        title={shareActionLabel}
         onClick={copyShareLink}
       >
-        <Share2 />
-        {shareCopied ? "Copied" : "Share"}
+        {shareCopied ? (
+          <Check data-icon="inline-start" />
+        ) : (
+          <Share2 data-icon="inline-start" />
+        )}
+        <span className="min-w-14 text-left">{shareButtonLabel}</span>
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -443,38 +483,74 @@ function HeroActions({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuGroup>
-            <DropdownMenuItem disabled title={PLEX_ACTION_NOT_IMPLEMENTED}>
+            <DropdownMenuItem
+              disabled
+              aria-label={getDisabledMenuItemLabel(
+                "Watch Together...",
+                PLEX_ACTION_NOT_IMPLEMENTED,
+              )}
+              title={PLEX_ACTION_NOT_IMPLEMENTED}
+            >
               Watch Together...
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={() => updateActiveQueue(true)}
-              disabled={
-                !canUpdateActiveQueue || updatePlayQueueMutation.isPending
+              disabled={Boolean(queueActionDisabledReason)}
+              aria-label={
+                queueActionDisabledReason
+                  ? getDisabledMenuItemLabel(
+                      "Play Next",
+                      queueActionDisabledReason,
+                    )
+                  : undefined
               }
-              title={
-                canUpdateActiveQueue ? undefined : QUEUE_ACTION_REQUIRES_PLAYER
-              }
+              title={queueActionDisabledReason}
             >
               Play Next
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={() => updateActiveQueue(false)}
-              disabled={
-                !canUpdateActiveQueue || updatePlayQueueMutation.isPending
+              disabled={Boolean(queueActionDisabledReason)}
+              aria-label={
+                queueActionDisabledReason
+                  ? getDisabledMenuItemLabel(
+                      "Add to Queue",
+                      queueActionDisabledReason,
+                    )
+                  : undefined
               }
-              title={
-                canUpdateActiveQueue ? undefined : QUEUE_ACTION_REQUIRES_PLAYER
-              }
+              title={queueActionDisabledReason}
             >
               Add to Queue
             </DropdownMenuItem>
-            <DropdownMenuItem disabled title={PLEX_ACTION_NOT_IMPLEMENTED}>
+            <DropdownMenuItem
+              disabled
+              aria-label={getDisabledMenuItemLabel(
+                "Add to...",
+                PLEX_ACTION_NOT_IMPLEMENTED,
+              )}
+              title={PLEX_ACTION_NOT_IMPLEMENTED}
+            >
               Add to...
             </DropdownMenuItem>
-            <DropdownMenuItem disabled title={PLEX_ACTION_NOT_IMPLEMENTED}>
+            <DropdownMenuItem
+              disabled
+              aria-label={getDisabledMenuItemLabel(
+                "Report Issue...",
+                PLEX_ACTION_NOT_IMPLEMENTED,
+              )}
+              title={PLEX_ACTION_NOT_IMPLEMENTED}
+            >
               Report Issue...
             </DropdownMenuItem>
-            <DropdownMenuItem disabled title={PLEX_ACTION_NOT_IMPLEMENTED}>
+            <DropdownMenuItem
+              disabled
+              aria-label={getDisabledMenuItemLabel(
+                "Get Info",
+                PLEX_ACTION_NOT_IMPLEMENTED,
+              )}
+              title={PLEX_ACTION_NOT_IMPLEMENTED}
+            >
               Get Info
             </DropdownMenuItem>
           </DropdownMenuGroup>
@@ -501,4 +577,23 @@ function getItemWatchedState(item: ItemDetails["item"]): boolean {
   }
 
   return (item.viewCount ?? 0) > 0;
+}
+
+function getQueueActionDisabledReason(
+  canUpdateActiveQueue: boolean,
+  isPending: boolean,
+): string | undefined {
+  if (!canUpdateActiveQueue) {
+    return QUEUE_ACTION_REQUIRES_PLAYER;
+  }
+
+  if (isPending) {
+    return QUEUE_ACTION_PENDING;
+  }
+
+  return undefined;
+}
+
+function getDisabledMenuItemLabel(label: string, reason: string): string {
+  return label.endsWith(".") ? `${label} ${reason}` : `${label}. ${reason}`;
 }
