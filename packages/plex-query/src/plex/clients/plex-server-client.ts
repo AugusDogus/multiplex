@@ -892,7 +892,7 @@ export class PlexServerClient {
         type: params.type,
         uri: params.uri,
         ...(params.next ? { next: "1" } : {}),
-        ...(params.shuffle ? { shuffle: "1" } : {}),
+        ...(params.shuffle === undefined ? {} : { shuffle: params.shuffle ? "1" : "0" }),
       },
       schema: playQueueResponseSchema,
     });
@@ -1172,14 +1172,11 @@ export class PlexServerClient {
               data = jsonData as T;
             }
           } catch (jsonError) {
-            // If JSON parsing fails, it might be an empty response
-            if (expectEmptyResponse) {
-              data = {} as T;
-            } else {
-              throw new PlexAPIError(
-                `Failed to parse JSON response from Plex Server API: ${jsonError instanceof Error ? jsonError.message : "Unknown error"}`,
-              );
-            }
+            // Reached only when a body was expected (the `expectEmptyResponse`
+            // case returns above), so a JSON failure here is a real error.
+            throw new PlexAPIError(
+              `Failed to parse JSON response from Plex Server API: ${jsonError instanceof Error ? jsonError.message : "Unknown error"}`,
+            );
           }
         }
 
