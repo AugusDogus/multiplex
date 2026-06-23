@@ -2,16 +2,7 @@
 
 import Image from "next/image";
 import { useState } from "react";
-import {
-  Check,
-  ExternalLink,
-  Info,
-  Link,
-  Loader2,
-  MoreHorizontal,
-  Play,
-  Share2,
-} from "lucide-react";
+import { Check, Loader2, MoreHorizontal, Play, Share2 } from "lucide-react";
 import {
   formatDetailsTimeRemaining,
   getBackdropImagePath,
@@ -33,6 +24,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
+import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { api } from "~/trpc/react";
 
 import { MetadataDirectors } from "./metadata-directors";
@@ -42,6 +34,10 @@ import { MetadataSummaryRow } from "./metadata-summary-row";
 import type { ItemDetails, PlayTarget } from "./types";
 
 const SHARE_FEEDBACK_MS = 5_000;
+const PLEX_ACTION_NOT_IMPLEMENTED =
+  "This Plex action is disabled until the matching Plex behavior is implemented.";
+const QUEUE_ACTION_REQUIRES_PLAYER =
+  "Start playback first to add items to the active queue.";
 
 interface DetailsHeroProps {
   item: ItemDetails["item"];
@@ -89,6 +85,8 @@ export function DetailsHero({
       onPlay={onPlay}
       canPlay={canPlay}
       playLabel={playLabel}
+      serverUrl={imageServerUrl}
+      authToken={imageAuthToken}
     />
   );
 
@@ -209,6 +207,8 @@ export function DetailsHero({
               canPlay={canPlay}
               playLabel={playLabel}
               playButtonClassName="min-h-11 flex-1"
+              serverUrl={imageServerUrl}
+              authToken={imageAuthToken}
             />
           </div>
         </div>
@@ -259,6 +259,8 @@ interface HeroActionsProps {
   onPlay: (source: PlayableMetadata) => void;
   canPlay: boolean;
   playLabel: string;
+  serverUrl: string | undefined;
+  authToken: string | undefined;
   playButtonClassName?: string;
 }
 
@@ -269,9 +271,16 @@ function HeroActions({
   onPlay,
   canPlay,
   playLabel,
+  serverUrl,
+  authToken,
   playButtonClassName,
 }: HeroActionsProps) {
   const utils = api.useUtils();
+  const currentPlayerItem = useMediaPlayerStore((state) => state.currentItem);
+  const playQueueId = useMediaPlayerStore((state) => state.playQueueId);
+  const updatePlaybackState = useMediaPlayerStore(
+    (state) => state.updatePlaybackState,
+  );
   const itemWatched = getItemWatchedState(item);
   const [watchedOverride, setWatchedOverride] = useState<{
     ratingKey: string;
@@ -286,6 +295,12 @@ function HeroActions({
   const watchedActionLabel = visibleWatched
     ? "Mark as unwatched"
     : "Mark as watched";
+  const canUpdateActiveQueue = Boolean(
+    serverUrl &&
+      authToken &&
+      playQueueId &&
+      currentPlayerItem?.serverId === serverId,
+  );
 
   const setWatchedStateMutation = api.plex.setItemWatchedState.useMutation({
     onMutate: (variables) => {
@@ -299,11 +314,11 @@ function HeroActions({
       setWatchedOverride(null);
       setFeedbackMessage(error.message);
     },
-    onSuccess: async (_updatedItem, variables) => {
+    onSuccess: (_updatedItem, variables) => {
       setFeedbackMessage(
         variables.watched ? "Marked as watched" : "Marked as unwatched",
       );
-      await Promise.all([
+      void Promise.all([
         utils.plex.getItemDetails.invalidate({
           serverId,
           ratingKey: variables.ratingKey,
@@ -313,7 +328,20 @@ function HeroActions({
           ratingKey: variables.ratingKey,
         }),
         utils.plex.getAllContinueWatching.invalidate(),
-      ]);
+      ]).catch(() => undefined);
+    },
+  });
+
+  const updatePlayQueueMutation = api.plex.updatePlayQueue.useMutation({
+    onSuccess: (playQueue, variables) => {
+      updatePlaybackState({
+        playQueue,
+        playQueueId: playQueue.MediaContainer.playQueueID.toString(),
+      });
+      setFeedbackMessage(variables.next ? "Will play next" : "Added to queue");
+    },
+    onError: (error) => {
+      setFeedbackMessage(error.message);
     },
   });
 
@@ -326,6 +354,30 @@ function HeroActions({
       serverId,
       ratingKey: item.ratingKey,
       watched: !visibleWatched,
+      serverUrl,
+      authToken,
+    });
+  };
+
+  const updateActiveQueue = (next: boolean) => {
+    if (
+      !serverUrl ||
+      !authToken ||
+      !playQueueId ||
+      updatePlayQueueMutation.isPending
+    ) {
+      return;
+    }
+
+    updatePlayQueueMutation.mutate({
+      serverId,
+      serverUrl,
+      authToken,
+      playQueueId,
+      ratingKey: item.ratingKey,
+      key: item.key,
+      type: "video",
+      next,
     });
   };
 
@@ -349,42 +401,6 @@ function HeroActions({
       setShareCopied(false);
       setFeedbackMessage("Could not copy link");
     });
-  };
-
-  const openInPlex = () => {
-    window.open(
-      getPlexWebDetailsUrl(serverId, item),
-      "_blank",
-      "noopener,noreferrer",
-    );
-  };
-
-  const scrollToTechnicalDetails = () => {
-    const detailsSection = document.getElementById("technical-details");
-
-    if (!detailsSection) {
-      setFeedbackMessage("No technical info available");
-      return;
-    }
-
-    detailsSection.scrollIntoView({ behavior: "smooth", block: "start" });
-    const previousOutline = detailsSection.style.outline;
-    const previousOutlineOffset = detailsSection.style.outlineOffset;
-    detailsSection.style.outline = "3px solid var(--ring)";
-    detailsSection.style.outlineOffset = "4px";
-    detailsSection.animate(
-      [
-        { transform: "scale(1)" },
-        { transform: "scale(1.01)" },
-        { transform: "scale(1)" },
-      ],
-      { duration: 1_400, easing: "ease-out" },
-    );
-    window.setTimeout(() => {
-      detailsSection.style.outline = previousOutline;
-      detailsSection.style.outlineOffset = previousOutlineOffset;
-    }, 1_600);
-    setFeedbackMessage("Showing info");
   };
 
   return (
@@ -417,7 +433,6 @@ function HeroActions({
         size="default"
         aria-label={shareCopied ? "Link copied" : "Copy share link"}
         title={shareCopied ? "Link copied" : "Copy share link"}
-        onPointerDown={copyShareLink}
         onClick={copyShareLink}
       >
         <Share2 />
@@ -431,24 +446,39 @@ function HeroActions({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuGroup>
+            <DropdownMenuItem disabled title={PLEX_ACTION_NOT_IMPLEMENTED}>
+              Watch Together...
+            </DropdownMenuItem>
             <DropdownMenuItem
-              onSelect={toggleWatchedState}
-              disabled={setWatchedStateMutation.isPending}
+              onSelect={() => updateActiveQueue(true)}
+              disabled={
+                !canUpdateActiveQueue || updatePlayQueueMutation.isPending
+              }
+              title={
+                canUpdateActiveQueue ? undefined : QUEUE_ACTION_REQUIRES_PLAYER
+              }
             >
-              <Check />
-              {watchedActionLabel}
+              Play Next
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={copyShareLink}>
-              <Link />
-              Copy link
+            <DropdownMenuItem
+              onSelect={() => updateActiveQueue(false)}
+              disabled={
+                !canUpdateActiveQueue || updatePlayQueueMutation.isPending
+              }
+              title={
+                canUpdateActiveQueue ? undefined : QUEUE_ACTION_REQUIRES_PLAYER
+              }
+            >
+              Add to Queue
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={openInPlex}>
-              <ExternalLink />
-              Open in Plex
+            <DropdownMenuItem disabled title={PLEX_ACTION_NOT_IMPLEMENTED}>
+              Add to...
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={scrollToTechnicalDetails}>
-              <Info />
-              Get info
+            <DropdownMenuItem disabled title={PLEX_ACTION_NOT_IMPLEMENTED}>
+              Report Issue...
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled title={PLEX_ACTION_NOT_IMPLEMENTED}>
+              Get Info
             </DropdownMenuItem>
           </DropdownMenuGroup>
         </DropdownMenuContent>
@@ -474,14 +504,4 @@ function getItemWatchedState(item: ItemDetails["item"]): boolean {
   }
 
   return (item.viewCount ?? 0) > 0;
-}
-
-function getPlexWebDetailsUrl(
-  serverId: string,
-  item: ItemDetails["item"],
-): string {
-  const itemKey = item.key.startsWith("/")
-    ? item.key
-    : `/library/metadata/${item.ratingKey}`;
-  return `https://app.plex.tv/desktop/#!/server/${encodeURIComponent(serverId)}/details?key=${encodeURIComponent(itemKey)}`;
 }

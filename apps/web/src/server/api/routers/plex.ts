@@ -1,10 +1,12 @@
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import {
   getServerUrl,
+  getPlexConfig,
   getNextPinnedSources,
   pinnedSourceSchema,
   enrichMetadataChildren,
   getPlayableChildren,
+  PlexServerClient,
   resolvePlayTarget,
 } from "@multiplex/plex-query";
 import { z } from "zod";
@@ -446,17 +448,31 @@ export const plexRouter = createTRPCRouter({
         serverId: z.string(),
         ratingKey: z.string(),
         watched: z.boolean(),
+        serverUrl: z.string().url().optional(),
+        authToken: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const servers = await getServersQuery(ctx.plex);
-      const server = servers.find((s) => s.clientIdentifier === input.serverId);
+      const serverClient =
+        input.serverUrl && input.authToken
+          ? PlexServerClient.fromConnectionUri(
+              input.serverId,
+              input.serverUrl,
+              input.authToken,
+              getPlexConfig(),
+            )
+          : await (async () => {
+              const servers = await getServersQuery(ctx.plex);
+              const server = servers.find(
+                (s) => s.clientIdentifier === input.serverId,
+              );
 
-      if (!server) {
-        throw new Error(`Server with ID ${input.serverId} not found`);
-      }
+              if (!server) {
+                throw new Error(`Server with ID ${input.serverId} not found`);
+              }
 
-      const serverClient = ctx.plex.createServerClient(server);
+              return ctx.plex.createServerClient(server);
+            })();
 
       if (input.watched) {
         await serverClient.markItemWatched(input.ratingKey);
@@ -464,9 +480,41 @@ export const plexRouter = createTRPCRouter({
         await serverClient.markItemUnwatched(input.ratingKey);
       }
 
-      await ctx.plex.syncViewState();
+      void ctx.plex.syncViewState().catch((error: unknown) => {
+        console.error("Failed to sync Plex view state", error);
+      });
+    }),
 
-      return await serverClient.getItemMetadata(input.ratingKey);
+  updatePlayQueue: protectedProcedure
+    .input(
+      z.object({
+        serverId: z.string(),
+        serverUrl: z.string().url(),
+        authToken: z.string(),
+        playQueueId: z.string(),
+        ratingKey: z.string(),
+        key: z.string(),
+        type: z.enum(["video", "audio"]).default("video"),
+        next: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const serverClient = PlexServerClient.fromConnectionUri(
+        input.serverId,
+        input.serverUrl,
+        input.authToken,
+        getPlexConfig(),
+      );
+      const itemKey = input.key.startsWith("/")
+        ? input.key
+        : `/library/metadata/${input.ratingKey}`;
+
+      return await serverClient.updatePlayQueue({
+        playQueueId: input.playQueueId,
+        type: input.type,
+        uri: `server://${input.serverId}/com.plexapp.plugins.library${itemKey}`,
+        next: input.next,
+      });
     }),
 
   getItemMetadata: protectedProcedure
