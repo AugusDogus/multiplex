@@ -78,7 +78,7 @@ export const plexRouter = createTRPCRouter({
     return friends.map((friend) => ({
       id: friend.id,
       uuid: friend.uuid,
-      title: friend.friendlyName || friend.title || friend.username,
+      title: friend.friendlyName ?? friend.title ?? friend.username,
       username: friend.username,
       thumb: friend.thumb,
       restricted: friend.restricted ?? false,

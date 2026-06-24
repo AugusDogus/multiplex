@@ -51,7 +51,7 @@ function formatParticipants(
   users: { title?: string | null; username?: string | null }[],
 ) {
   const names = users
-    .map((user) => user.title || user.username)
+    .map((user) => user.title ?? user.username)
     .filter((name): name is string => Boolean(name));
 
   if (names.length === 0) {
