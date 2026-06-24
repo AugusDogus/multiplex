@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Play, Users } from "lucide-react";
 
@@ -42,21 +41,6 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     },
   );
 
-  useEffect(() => {
-    if (!room || !userInfoQuery.data) {
-      return;
-    }
-
-    setSession({
-      room,
-      localUser: {
-        id: userInfoQuery.data.id,
-        deviceIdentifier: getWatchTogetherDeviceIdentifier(),
-        deviceName: "Multiplex Web",
-      },
-    });
-  }, [room, setSession, userInfoQuery.data]);
-
   const details = detailsQuery.data;
   const playTarget = details?.playTarget;
   const canStart = Boolean(
@@ -68,9 +52,24 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
   );
 
   const startPlayback = () => {
-    if (!room || !playTarget || !details?.serverUrl || !details.authToken) {
+    if (
+      !room ||
+      !playTarget ||
+      !details?.serverUrl ||
+      !details.authToken ||
+      !userInfoQuery.data
+    ) {
       return;
     }
+
+    setSession({
+      room,
+      localUser: {
+        id: userInfoQuery.data.id,
+        deviceIdentifier: getWatchTogetherDeviceIdentifier(),
+        deviceName: "Multiplex Web",
+      },
+    });
 
     openPlayer(
       createMediaPlayerItem(playTarget, {
