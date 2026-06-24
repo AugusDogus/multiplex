@@ -34,6 +34,7 @@ import { MetadataGenres } from "./metadata-genres";
 import { MetadataRating } from "./metadata-rating";
 import { MetadataSummaryRow } from "./metadata-summary-row";
 import type { ItemDetails, PlayTarget } from "./types";
+import { WatchTogetherInviteDialog } from "./watch-together-invite-dialog";
 
 const SHARE_FEEDBACK_MS = 2_500;
 const PLEX_ACTION_NOT_IMPLEMENTED =
@@ -297,9 +298,11 @@ function HeroActions({
   const [shareCopied, setShareCopied] = useState(false);
   const [mediaInfoOpen, setMediaInfoOpen] = useState(false);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
+  const [watchTogetherOpen, setWatchTogetherOpen] = useState(false);
   const shareResetTimeoutRef = useRef<number | null>(null);
   const hasMediaInfo = Boolean(item.Media?.length);
   const canAddToPlaylist = Boolean(serverUrl && authToken);
+  const canWatchTogether = Boolean(playTarget && serverUrl && authToken);
   const visibleWatched =
     confirmedWatchedOverride?.ratingKey === item.ratingKey
       ? confirmedWatchedOverride.watched
@@ -493,12 +496,17 @@ function HeroActions({
         <DropdownMenuContent align="end">
           <DropdownMenuGroup>
             <DropdownMenuItem
-              disabled
-              aria-label={getDisabledMenuItemLabel(
-                "Watch Together...",
-                PLEX_ACTION_NOT_IMPLEMENTED,
-              )}
-              title={PLEX_ACTION_NOT_IMPLEMENTED}
+              onSelect={() => setWatchTogetherOpen(true)}
+              disabled={!canWatchTogether}
+              aria-label={
+                canWatchTogether
+                  ? undefined
+                  : getDisabledMenuItemLabel(
+                      "Watch Together...",
+                      PLEX_ACTION_REQUIRES_SERVER,
+                    )
+              }
+              title={canWatchTogether ? undefined : PLEX_ACTION_REQUIRES_SERVER}
             >
               Watch Together...
             </DropdownMenuItem>
@@ -590,6 +598,16 @@ function HeroActions({
           authToken={authToken}
           open={addToPlaylistOpen}
           onOpenChange={setAddToPlaylistOpen}
+          onFeedback={setFeedbackMessage}
+        />
+      )}
+      {serverUrl && authToken && (
+        <WatchTogetherInviteDialog
+          item={item}
+          playTarget={playTarget}
+          serverId={serverId}
+          open={watchTogetherOpen}
+          onOpenChange={setWatchTogetherOpen}
           onFeedback={setFeedbackMessage}
         />
       )}

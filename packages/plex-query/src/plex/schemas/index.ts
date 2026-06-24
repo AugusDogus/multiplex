@@ -9,3 +9,4 @@ export * from "./plex-tv-schemas";
 export * from "./search-schemas";
 export * from "./hub-schemas";
 export * from "./library-browse-schemas";
+export * from "./watch-together-schemas";

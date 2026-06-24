@@ -10,6 +10,7 @@ import {
   PlexServerClient,
   playlistTypes,
   resolvePlayTarget,
+  WatchTogetherClient,
 } from "@multiplex/plex-query";
 import { z } from "zod";
 
@@ -48,6 +49,9 @@ export type plexRouterOutputs = inferRouterOutputs<typeof plexRouter>;
 // `library/sections/{id}/...` requests.
 const sectionIdSchema = z.string().regex(/^\d+$/);
 
+const watchTogetherClientForToken = (token: string) =>
+  new WatchTogetherClient(token, getPlexConfig());
+
 export const plexRouter = createTRPCRouter({
   getServers: protectedProcedure.query(async ({ ctx }) => {
     return getServersQuery(ctx.plex);
@@ -56,6 +60,74 @@ export const plexRouter = createTRPCRouter({
   getUserInfo: protectedProcedure.query(async ({ ctx }) => {
     return getUserInfoQuery(ctx.plex);
   }),
+
+  getWatchTogetherRooms: protectedProcedure.query(async ({ ctx }) => {
+    return watchTogetherClientForToken(ctx.plex.getToken()).listRooms();
+  }),
+
+  getWatchTogetherRoom: protectedProcedure
+    .input(z.object({ roomId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      return watchTogetherClientForToken(ctx.plex.getToken()).getRoom(
+        input.roomId,
+      );
+    }),
+
+  getWatchTogetherInvitees: protectedProcedure.query(async ({ ctx }) => {
+    const friends = await ctx.plex.getFriends();
+    return friends.map((friend) => ({
+      id: friend.id,
+      uuid: friend.uuid,
+      title: friend.friendlyName || friend.title || friend.username,
+      username: friend.username,
+      thumb: friend.thumb,
+      restricted: friend.restricted ?? false,
+    }));
+  }),
+
+  createWatchTogetherRoom: protectedProcedure
+    .input(
+      z.object({
+        serverId: z.string(),
+        ratingKey: z.string(),
+        key: z.string().optional(),
+        title: z.string().min(1),
+        users: z.array(z.number()).default([]),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return watchTogetherClientForToken(ctx.plex.getToken()).createRoom({
+        sourceUri: buildLibraryItemUri(
+          input.serverId,
+          input.ratingKey,
+          input.key,
+        ),
+        title: input.title,
+        users: input.users,
+      });
+    }),
+
+  inviteWatchTogetherUsers: protectedProcedure
+    .input(
+      z.object({
+        roomId: z.string().min(1),
+        users: z.array(z.number()).min(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await watchTogetherClientForToken(ctx.plex.getToken()).inviteUsers(
+        input.roomId,
+        input.users,
+      );
+    }),
+
+  deleteWatchTogetherRoom: protectedProcedure
+    .input(z.object({ roomId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await watchTogetherClientForToken(ctx.plex.getToken()).deleteRoom(
+        input.roomId,
+      );
+    }),
 
   getAllServerLibraries: protectedProcedure.query(async ({ ctx }) => {
     return getAllServerLibrariesQuery(ctx.plex);
