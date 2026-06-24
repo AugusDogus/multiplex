@@ -21,6 +21,7 @@ import { useDragToDismiss } from "./hooks/use-drag-to-dismiss";
 import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
 import { useMediaPlayer } from "./hooks/use-media-player";
 import { usePlayQueue } from "./hooks/use-play-queue";
+import { useSyncplaySession } from "./hooks/use-syncplay-session";
 import { useTimelineUpdates } from "./hooks/use-timeline-updates";
 import { useAutoPlayNextEpisode } from "./hooks/use-auto-play-next-episode";
 import { useMobileVideoChrome } from "./hooks/use-mobile-video-chrome";
@@ -161,6 +162,29 @@ export function MediaPlayerModal() {
     onStop,
     clearSession,
   } = useTimelineUpdates();
+  const {
+    onLocalPause: onSyncplayLocalPause,
+    onLocalPlay: onSyncplayLocalPlay,
+    onLocalSeeked: onSyncplayLocalSeeked,
+  } = useSyncplaySession({ actions });
+
+  const handleVideoPlay = useCallback(() => {
+    onPlay();
+    onSyncplayLocalPlay();
+  }, [onPlay, onSyncplayLocalPlay]);
+
+  const handleVideoPause = useCallback(() => {
+    onPause();
+    onSyncplayLocalPause();
+  }, [onPause, onSyncplayLocalPause]);
+
+  const handleVideoSeeked = useCallback(
+    (time: number) => {
+      onSeeked(time);
+      onSyncplayLocalSeeked(time);
+    },
+    [onSeeked, onSyncplayLocalSeeked],
+  );
 
   const handleClose = useCallback(() => {
     onStop();
@@ -360,10 +384,10 @@ export function MediaPlayerModal() {
                 onVideoDoubleClick={handleVideoDoubleClick}
                 onVolumeScroll={handleVolumeScroll}
                 onVideoEnded={onEnded}
-                onVideoPlay={onPlay}
-                onVideoPause={onPause}
+                onVideoPlay={handleVideoPlay}
+                onVideoPause={handleVideoPause}
                 onVideoTimeUpdate={onTimeUpdate}
-                onVideoSeeked={onSeeked}
+                onVideoSeeked={handleVideoSeeked}
               />
 
               <MediaPlayerOverlay

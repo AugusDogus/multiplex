@@ -6,10 +6,15 @@ import {
   type PinnedSource,
   type PlexUserInfo,
 } from "../schemas/plex-tv-schemas";
+import {
+  plexFriendsSchema,
+  type PlexFriend,
+} from "../schemas/watch-together-schemas";
 import type { PlexConfig } from "../types/client-types";
 import {
   PLEX_CLIENTS_API_BASE_URL,
   PLEX_CLIENTS_USER_API_BASE_URL,
+  PLEX_TV_API_BASE_URL,
   PlexTvBaseClient,
 } from "./plex-tv-base-client";
 import { PlexServerClient } from "./plex-server-client";
@@ -29,9 +34,8 @@ export class PlexTvClient extends PlexTvBaseClient {
     settings: PlexUserInfo["settings"] | undefined,
     pinnedSources: PinnedSource[],
   ): string {
-    const experienceSettings: Partial<NonNullable<PlexUserInfo["settings"]>> = settings
-      ? { ...settings }
-      : {};
+    const experienceSettings: Partial<NonNullable<PlexUserInfo["settings"]>> =
+      settings ? { ...settings } : {};
 
     delete experienceSettings.otherSettings;
 
@@ -39,7 +43,8 @@ export class PlexTvClient extends PlexTvBaseClient {
       ...experienceSettings,
       sidebarSettings: {
         ...experienceSettings.sidebarSettings,
-        hasCompletedSetup: experienceSettings.sidebarSettings?.hasCompletedSetup ?? true,
+        hasCompletedSetup:
+          experienceSettings.sidebarSettings?.hasCompletedSetup ?? true,
         pinnedSources,
       },
     });
@@ -69,7 +74,9 @@ export class PlexTvClient extends PlexTvBaseClient {
       schema: sessionsSchema,
     });
 
-    const servers = data.filter((device) => device.product === "Plex Media Server");
+    const servers = data.filter(
+      (device) => device.product === "Plex Media Server",
+    );
 
     return servers;
   }
@@ -98,9 +105,14 @@ export class PlexTvClient extends PlexTvBaseClient {
     return userInfoSchema.parse(rawData);
   }
 
-  async updateSidebarPinnedSources(pinnedSources: PinnedSource[]): Promise<void> {
+  async updateSidebarPinnedSources(
+    pinnedSources: PinnedSource[],
+  ): Promise<void> {
     const userInfo = await this.getUserInfo();
-    const experienceValue = this.buildExperienceSettingValue(userInfo.settings, pinnedSources);
+    const experienceValue = this.buildExperienceSettingValue(
+      userInfo.settings,
+      pinnedSources,
+    );
     const body = JSON.stringify({
       value: JSON.stringify([
         {
@@ -168,12 +180,15 @@ export class PlexTvClient extends PlexTvBaseClient {
     throw new Error("Not implemented yet");
   }
 
-  /**
-   * Get user's friends
-   * @todo Implement friends retrieval
-   */
-  async getFriends() {
-    throw new Error("Not implemented yet");
+  async getFriends(): Promise<PlexFriend[]> {
+    return this.get(this.token, {
+      endpoint: "friends",
+      schema: plexFriendsSchema,
+      baseUrl: PLEX_TV_API_BASE_URL,
+      xPlexOverrides: {
+        product: "Plex Web",
+      },
+    });
   }
 
   /**
