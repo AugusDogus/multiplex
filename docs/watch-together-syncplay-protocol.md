@@ -9,7 +9,7 @@ Reverse-engineered from Plex Web `plex-4.159.0` and verified against live
 2. Open the More menu.
 3. Select `Watch Together...`.
 4. Plex shows a `Watch Together` dialog with `Friends and Accounts with Library
-   Access`, `Cancel`, and `Invite`.
+Access`, `Cancel`, and `Invite`.
 5. The room is created only after confirming the invite flow.
 
 ## Room REST API
@@ -250,7 +250,9 @@ Server `Set.user` payloads can include room membership events:
     "user": {
       "{\"deviceIdentifier\":\"...\",\"deviceName\":\"...\",\"userID\":\"...\"}": {
         "room": { "name": "<roomID>" },
-        "file": { "name": "{\"ads\":{\"playing\":false},\"uri\":\"server://...\"}" },
+        "file": {
+          "name": "{\"ads\":{\"playing\":false},\"uri\":\"server://...\"}"
+        },
         "event": { "joined": true, "left": false }
       }
     }
