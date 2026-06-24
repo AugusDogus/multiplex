@@ -8,8 +8,8 @@
   "scripts": {
     "lint": "bun --filter @multiplex/web lint && oxlint --ignore-pattern 'apps/web/**' .",
     "lint:fix": "bun --filter @multiplex/web lint:fix && oxlint --fix --ignore-pattern 'apps/web/**' .",
-    "format": "bun --filter @multiplex/web format:write && oxfmt --write . '!apps/web/**'",
-    "format:check": "bun --filter @multiplex/web format:check && oxfmt --check . '!apps/web/**'",
+    "format": "bun --filter @multiplex/web format:write && oxfmt --write . '!apps/web/**' '!.agents/**'",
+    "format:check": "bun --filter @multiplex/web format:check && oxfmt --check . '!apps/web/**' '!.agents/**'",
     "typecheck": "bun --filter '*' typecheck",
     "check": "bun run lint && bun run format:check && bun run typecheck",
     "dev": "bun --filter @multiplex/web dev",
