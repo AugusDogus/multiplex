@@ -154,7 +154,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
                 </div>
                 <div className="min-w-0">
                   <p className="line-clamp-1 font-medium">
-                    {user.title || user.username || "Plex user"}
+                    {user.title ?? user.username ?? "Plex user"}
                   </p>
                   <p className="text-muted-foreground text-sm">{status}</p>
                 </div>
