@@ -11,6 +11,10 @@ Reverse-engineered from Plex Web `plex-4.159.0` and verified against live
 4. Plex shows a `Watch Together` dialog with `Friends and Accounts with Library
 Access`, `Cancel`, and `Invite`.
 5. The room is created only after confirming the invite flow.
+6. After the creator presses `Invite`, Plex closes the dialog and redirects into
+   the Watch Together lobby for the item.
+7. Navigating back to Home shows a `Watch Together` row near the top with the
+   active room.
 
 ## Room REST API
 
@@ -51,6 +55,10 @@ Body:
 `users` can be `null` or omitted to create a room without inviting additional
 users.
 
+When `users` contains invited Plex user ids, the created room includes both the
+creator and invitees in the response. Plex Web uses the numeric Plex user id
+(`idRaw` in the invite modal's mapped user data), not the Plex UUID.
+
 Observed response:
 
 ```json
@@ -70,6 +78,12 @@ Observed response:
       "id": 559216671,
       "title": "multiplextest",
       "username": "multiplextest",
+      "thumb": "..."
+    },
+    {
+      "id": 10147836,
+      "title": "Augie",
+      "username": "AugusDogus",
       "thumb": "..."
     }
   ]
@@ -95,6 +109,36 @@ Body:
 
 Plex Web tolerates `404` while deleting and refreshes the room list after
 create, invite, and delete.
+
+## Invite and lobby lifecycle
+
+Plex Web builds the invite list from:
+
+- Community friends without library access.
+- Users and managed/home accounts with library access, returned from the
+  library-access data source. These entries are mapped to `{ id: idRaw, uuid,
+title, username, thumb, restricted }`.
+
+After a preplay invite succeeds:
+
+1. The invite modal sets `isInviteCompleted`.
+2. The modal closes.
+3. The optional `onInviteCompleted` callback fires.
+4. The creator is navigated into the Watch Together lobby for the new room.
+
+In the lobby, the participants hub shows the creator and invitee statuses:
+
+- Creator: `Buffering...` until the player has enough initial buffer, then
+  `Ready`.
+- Invitee: `Invited` until their syncplay client joins and starts reporting
+  presence/readiness.
+
+The lobby includes `Start` and `Cancel` actions and displays the message that
+playback starts automatically when everyone is ready.
+
+The Home page's first row can be `Watch Together`; it renders active rooms from
+the same `/rooms` data. An invited room card includes the item title and
+participant names, for example `multiplextest and Augie`.
 
 ## Syncplay websocket
 
