@@ -68,12 +68,10 @@ export function MediaPlayerSettingsMenu({
   const [subtitleError, setSubtitleError] = useState<string | null>(null);
   const [isUpdatingSubtitle, setIsUpdatingSubtitle] = useState(false);
 
-  // Always start on the root pane the next time the menu opens.
-  useEffect(() => {
-    if (!open) setPane("root");
-  }, [open]);
-
   const handleOpenChange = (next: boolean) => {
+    if (!next) {
+      setPane("root");
+    }
     setOpen(next);
     onOpenChange?.(next);
   };

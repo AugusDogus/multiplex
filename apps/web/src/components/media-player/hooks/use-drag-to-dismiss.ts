@@ -180,19 +180,6 @@ export function useDragToDismiss({
     el.style.opacity = "";
   }, []);
 
-  const reset = useCallback(() => {
-    if (dismissTimeoutRef.current) {
-      clearTimeout(dismissTimeoutRef.current);
-      dismissTimeoutRef.current = null;
-    }
-    stateRef.current.pointerId = null;
-    stateRef.current.claimed = false;
-    stateRef.current.dismissing = false;
-    setIsDragging(false);
-    setTransition("");
-    clearTransform();
-  }, [clearTransform, setTransition]);
-
   const onPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
       if (!enabled) return;
@@ -292,10 +279,6 @@ export function useDragToDismiss({
   );
 
   useEffect(() => {
-    if (!enabled) reset();
-  }, [enabled, reset]);
-
-  useEffect(() => {
     return () => {
       if (dismissTimeoutRef.current) {
         clearTimeout(dismissTimeoutRef.current);
@@ -316,6 +299,6 @@ export function useDragToDismiss({
       onPointerUp: onPointerEnd,
       onPointerCancel: onPointerEnd,
     },
-    isDragging,
+    isDragging: enabled && isDragging,
   };
 }

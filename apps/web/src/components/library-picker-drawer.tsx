@@ -3,15 +3,21 @@
 import {
   ArrowLeft,
   ChevronDown,
+  Film as FilmIcon,
+  ListVideo as PlaylistIcon,
   Loader2,
+  Music as MusicIcon,
   Pin,
   PinOff,
+  Play as DefaultSourceIcon,
   RefreshCw,
+  Tv as LiveTvIcon,
+  TvMinimal as TvIcon,
   TriangleAlert,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   getPinnedSourceIdentity,
   isPinnedSource,
@@ -44,7 +50,7 @@ import {
   type UseSidebarSourcesReturn,
 } from "~/hooks/use-sidebar-sources";
 import { cn } from "~/lib/utils";
-import { getSourceIcon, isUrlActive } from "./sidebar-utils";
+import { isUrlActive } from "./sidebar-utils";
 
 type View = "favorites" | "all";
 
@@ -66,12 +72,6 @@ export function LibraryPickerDrawer({
 }: LibraryPickerDrawerProps) {
   const [view, setView] = useState<View>(initialView);
 
-  // Reset to the requested initial view every time the drawer reopens so a user
-  // who closed the drawer on the "all" view doesn't get stuck there next time.
-  useEffect(() => {
-    if (open) setView(initialView);
-  }, [open, initialView]);
-
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -81,11 +81,19 @@ export function LibraryPickerDrawer({
   const sidebarSources = getSidebarSources(currentUserInfo, serverLibraries);
 
   function handleSelectSource() {
+    setView(initialView);
     onOpenChange(false);
   }
 
+  function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen) {
+      setView(initialView);
+    }
+    onOpenChange(nextOpen);
+  }
+
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={handleOpenChange}>
       <DrawerContent className="max-h-[85vh]">
         {view === "favorites" ? (
           <FavoritesView
@@ -417,8 +425,6 @@ function SourceRow({
   onSelect,
   onTogglePinnedSource,
 }: SourceRowProps) {
-  const Icon = getSourceIcon(source.sourceType);
-
   function handleTogglePinned(event: React.MouseEvent) {
     event.preventDefault();
     event.stopPropagation();
@@ -439,7 +445,7 @@ function SourceRow({
             : "text-foreground active:bg-accent/60",
         )}
       >
-        <Icon className="size-4 shrink-0" />
+        <SourceIcon sourceType={source.sourceType} />
         <span className="truncate">{source.title}</span>
       </Link>
       <button
@@ -459,4 +465,23 @@ function SourceRow({
       </button>
     </li>
   );
+}
+
+function SourceIcon({ sourceType }: { sourceType: string }) {
+  const className = "size-4 shrink-0";
+
+  switch (sourceType) {
+    case "movies":
+      return <FilmIcon className={className} />;
+    case "tv":
+      return <TvIcon className={className} />;
+    case "music":
+      return <MusicIcon className={className} />;
+    case "playlist":
+      return <PlaylistIcon className={className} />;
+    case "Live TV & DVR":
+      return <LiveTvIcon className={className} />;
+    default:
+      return <DefaultSourceIcon className={className} />;
+  }
 }

@@ -22,10 +22,7 @@ export interface SyncplayPlaybackState {
 }
 
 interface SyncplayClientOptions {
-  room: Pick<
-    WatchTogetherRoom,
-    "id" | "syncplayHost" | "syncplayPort" | "sourceUri"
-  >;
+  room: Pick<WatchTogetherRoom, "id" | "syncplayHost" | "syncplayPort" | "sourceUri">;
   user: SyncplayUser;
   onParticipant?: (state: SyncplayParticipantState) => void;
   onPlaybackState?: (state: SyncplayPlaybackState) => void;
@@ -79,12 +76,8 @@ export class SyncplayClient {
   private socket: WebSocket | null = null;
   private readonly room: SyncplayClientOptions["room"];
   private readonly user: SyncplayUser;
-  private readonly onParticipant: NonNullable<
-    SyncplayClientOptions["onParticipant"]
-  >;
-  private readonly onPlaybackState: NonNullable<
-    SyncplayClientOptions["onPlaybackState"]
-  >;
+  private readonly onParticipant: NonNullable<SyncplayClientOptions["onParticipant"]>;
+  private readonly onPlaybackState: NonNullable<SyncplayClientOptions["onPlaybackState"]>;
   private readonly onClose: NonNullable<SyncplayClientOptions["onClose"]>;
   private readonly onError: NonNullable<SyncplayClientOptions["onError"]>;
 
@@ -100,9 +93,7 @@ export class SyncplayClient {
   connect(): void {
     this.disconnect();
 
-    const socket = new WebSocket(
-      `wss://${this.room.syncplayHost}:${this.room.syncplayPort}/ws`,
-    );
+    const socket = new WebSocket(`wss://${this.room.syncplayHost}:${this.room.syncplayPort}/ws`);
     this.socket = socket;
 
     socket.addEventListener("open", () => {
@@ -178,9 +169,7 @@ export class SyncplayClient {
     try {
       frame = JSON.parse(event.data) as SyncplayIncomingFrame;
     } catch (error) {
-      this.onError(
-        error instanceof Error ? error : new Error("Invalid syncplay frame"),
-      );
+      this.onError(error instanceof Error ? error : new Error("Invalid syncplay frame"));
       return;
     }
 
@@ -211,9 +200,7 @@ export class SyncplayClient {
     }
   }
 
-  private handleList(
-    list: Record<string, Record<string, SyncplayListUserState>>,
-  ): void {
+  private handleList(list: Record<string, Record<string, SyncplayListUserState>>): void {
     const roomUsers = list[this.room.id];
     if (!roomUsers) {
       return;
@@ -255,20 +242,14 @@ export class SyncplayClient {
 
         this.onParticipant({
           user,
-          isPresent: value.event?.left
-            ? false
-            : value.event?.joined
-              ? true
-              : undefined,
+          isPresent: value.event?.left ? false : value.event?.joined ? true : undefined,
         });
       }
     }
   }
 
   private handleState(payload: SyncplayStatePayload): void {
-    const user = payload.playstate.setBy
-      ? decodeSyncplayUser(payload.playstate.setBy)
-      : null;
+    const user = payload.playstate.setBy ? decodeSyncplayUser(payload.playstate.setBy) : null;
 
     if (user?.deviceIdentifier === this.user.deviceIdentifier) {
       return;

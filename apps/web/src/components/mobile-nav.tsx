@@ -12,7 +12,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   type PlexDevice,
@@ -53,7 +53,6 @@ interface MobileNavProps {
 type ActiveTab = "home" | "libraries" | "search" | "you" | null;
 
 export function MobileNav({ session, servers, userInfo }: MobileNavProps) {
-  const router = useRouter();
   const pathname = usePathname();
   const itemDetailsNavigation = useItemDetailsNavigation();
   const [librariesOpen, setLibrariesOpen] = useState(false);
