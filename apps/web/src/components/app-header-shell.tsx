@@ -24,7 +24,7 @@ export function AppHeaderShell({
     >
       {centerLayout ? (
         <div className="flex w-full min-w-0 items-center gap-3 px-4 py-2 md:grid md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:gap-x-2 md:py-0">
-          <div className="flex min-w-0 max-w-[42vw] shrink-0 items-center md:col-start-1 md:max-w-none md:w-full">
+          <div className="flex max-w-[42vw] min-w-0 shrink-0 items-center md:col-start-1 md:w-full md:max-w-none">
             {leading}
           </div>
 

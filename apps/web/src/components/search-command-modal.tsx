@@ -53,18 +53,18 @@ export function SearchCommandModal({
   const isDebouncing = searchQuery !== debouncedQuery;
   const isSearching = searchQuery.length > 0 && (isDebouncing || isLoading);
 
-  // Reset search query when modal is closed
-  React.useEffect(() => {
-    if (!open) {
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
       setSearchQuery("");
     }
-  }, [open]);
+    onOpenChange(nextOpen);
+  };
 
   const handleResultSelect = (result: ProcessedSearchResult) => {
     if (onResultSelect) {
       onResultSelect(result);
     }
-    onOpenChange(false);
+    handleOpenChange(false);
   };
 
   // Group results by type for display
@@ -117,7 +117,7 @@ export function SearchCommandModal({
   }, [searchResults]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         showCloseButton={false}
         className="top-[15%] max-h-[80dvh] translate-y-0 overflow-hidden rounded-xl p-0 sm:max-w-[640px]"
@@ -133,7 +133,7 @@ export function SearchCommandModal({
             />
             <button
               type="button"
-              onClick={() => onOpenChange(false)}
+              onClick={() => handleOpenChange(false)}
               className="bg-background ring-border focus-visible:ring-ring hover:bg-muted ml-auto hidden h-5 cursor-pointer items-center rounded-sm px-1.5 text-xs ring-1 transition-colors focus-visible:ring-2 focus-visible:outline-hidden [@media(hover:hover)_and_(pointer:fine)]:flex"
             >
               Esc

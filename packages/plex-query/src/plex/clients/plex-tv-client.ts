@@ -6,10 +6,7 @@ import {
   type PinnedSource,
   type PlexUserInfo,
 } from "../schemas/plex-tv-schemas";
-import {
-  plexFriendsSchema,
-  type PlexFriend,
-} from "../schemas/watch-together-schemas";
+import { plexFriendsSchema, type PlexFriend } from "../schemas/watch-together-schemas";
 import type { PlexConfig } from "../types/client-types";
 import {
   PLEX_CLIENTS_API_BASE_URL,
@@ -34,8 +31,9 @@ export class PlexTvClient extends PlexTvBaseClient {
     settings: PlexUserInfo["settings"] | undefined,
     pinnedSources: PinnedSource[],
   ): string {
-    const experienceSettings: Partial<NonNullable<PlexUserInfo["settings"]>> =
-      settings ? { ...settings } : {};
+    const experienceSettings: Partial<NonNullable<PlexUserInfo["settings"]>> = settings
+      ? { ...settings }
+      : {};
 
     delete experienceSettings.otherSettings;
 
@@ -43,8 +41,7 @@ export class PlexTvClient extends PlexTvBaseClient {
       ...experienceSettings,
       sidebarSettings: {
         ...experienceSettings.sidebarSettings,
-        hasCompletedSetup:
-          experienceSettings.sidebarSettings?.hasCompletedSetup ?? true,
+        hasCompletedSetup: experienceSettings.sidebarSettings?.hasCompletedSetup ?? true,
         pinnedSources,
       },
     });
@@ -74,9 +71,7 @@ export class PlexTvClient extends PlexTvBaseClient {
       schema: sessionsSchema,
     });
 
-    const servers = data.filter(
-      (device) => device.product === "Plex Media Server",
-    );
+    const servers = data.filter((device) => device.product === "Plex Media Server");
 
     return servers;
   }
@@ -105,14 +100,9 @@ export class PlexTvClient extends PlexTvBaseClient {
     return userInfoSchema.parse(rawData);
   }
 
-  async updateSidebarPinnedSources(
-    pinnedSources: PinnedSource[],
-  ): Promise<void> {
+  async updateSidebarPinnedSources(pinnedSources: PinnedSource[]): Promise<void> {
     const userInfo = await this.getUserInfo();
-    const experienceValue = this.buildExperienceSettingValue(
-      userInfo.settings,
-      pinnedSources,
-    );
+    const experienceValue = this.buildExperienceSettingValue(userInfo.settings, pinnedSources);
     const body = JSON.stringify({
       value: JSON.stringify([
         {

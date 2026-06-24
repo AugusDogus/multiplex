@@ -33,11 +33,16 @@ export function MediaPlayerChromeFade({
   const layerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    let frame: number;
     if (visible) {
-      setState("visible");
-      return;
+      frame = window.requestAnimationFrame(() => setState("visible"));
+    } else {
+      frame = window.requestAnimationFrame(() =>
+        setState((current) => (current === "hidden" ? "hidden" : "hiding")),
+      );
     }
-    setState((current) => (current === "hidden" ? "hidden" : "hiding"));
+
+    return () => window.cancelAnimationFrame(frame);
   }, [visible]);
 
   useLayoutEffect(() => {

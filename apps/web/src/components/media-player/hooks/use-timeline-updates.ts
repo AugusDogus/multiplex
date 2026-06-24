@@ -153,6 +153,5 @@ export function useTimelineUpdates() {
     onEnded,
     onStop,
     clearSession,
-    sessionId: sessionIdRef.current,
   };
 }

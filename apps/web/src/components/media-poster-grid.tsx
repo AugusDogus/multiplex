@@ -1,19 +1,12 @@
 "use client";
 
-import {
-  memo,
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-  useState,
-} from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import type { HubItemWithServer } from "@multiplex/plex-query";
 import { useAppScrollElement } from "~/components/app-scroll-container";
 import { PosterGridRow } from "~/components/poster-grid-row";
 import { PosterGridStatic } from "~/components/poster-grid-static";
 import { usePosterGridLayout } from "~/hooks/use-poster-grid-layout";
-import { useTanStackVirtualizer } from "~/hooks/use-tanstack-virtualizer";
 import {
   POSTER_GRID_INSET_CLASSNAME,
   POSTER_GRID_ROW_CONTENT_HEIGHT_PX,
@@ -43,6 +36,14 @@ interface MediaPosterGridProps {
 }
 
 const OVERSCAN_ROWS = 3;
+const POSTER_GRID_ROW_SIZE_PX =
+  POSTER_GRID_ROW_CONTENT_HEIGHT_PX + POSTER_GRID_ROW_GAP_PX;
+
+interface VirtualPosterRow {
+  index: number;
+  key: string;
+  start: number;
+}
 
 const VirtualizedPosterGridRow = memo(function VirtualizedPosterGridRow({
   rowIndex,
@@ -79,6 +80,57 @@ const VirtualizedPosterGridRow = memo(function VirtualizedPosterGridRow({
 
 const EMPTY_PAGE_RESULT: PaginatedPosterResult = { items: [], totalSize: 0 };
 
+function getVirtualTotalSize(rowCount: number): number {
+  if (rowCount <= 0) {
+    return 0;
+  }
+
+  return (
+    rowCount * POSTER_GRID_ROW_CONTENT_HEIGHT_PX +
+    (rowCount - 1) * POSTER_GRID_ROW_GAP_PX
+  );
+}
+
+function getVirtualRows({
+  columns,
+  rowCount,
+  scrollHeight,
+  scrollMargin,
+  scrollTop,
+}: {
+  columns: number;
+  rowCount: number;
+  scrollHeight: number;
+  scrollMargin: number;
+  scrollTop: number;
+}): VirtualPosterRow[] {
+  if (rowCount === 0 || scrollHeight === 0) {
+    return [];
+  }
+
+  const viewportTop = Math.max(0, scrollTop - scrollMargin);
+  const viewportBottom = viewportTop + scrollHeight;
+  const startIndex = Math.max(
+    0,
+    Math.floor(viewportTop / POSTER_GRID_ROW_SIZE_PX) - OVERSCAN_ROWS,
+  );
+  const endIndex = Math.min(
+    rowCount - 1,
+    Math.ceil(viewportBottom / POSTER_GRID_ROW_SIZE_PX) + OVERSCAN_ROWS,
+  );
+  const rows: VirtualPosterRow[] = [];
+
+  for (let index = startIndex; index <= endIndex; index++) {
+    rows.push({
+      index,
+      key: `${columns}-${index}`,
+      start: index * POSTER_GRID_ROW_SIZE_PX,
+    });
+  }
+
+  return rows;
+}
+
 /**
  * Windowed poster grid: the scrollbar reflects `totalSize` up front and
  * pages are fetched on demand for whichever offsets scroll into view, so
@@ -110,6 +162,7 @@ export function MediaPosterGrid({
   }, []);
   const scrollElement = useAppScrollElement();
   const [scrollMargin, setScrollMargin] = useState<number | null>(null);
+  const [scrollState, setScrollState] = useState({ height: 0, top: 0 });
   const { columns, isReady } = usePosterGridLayout(containerEl);
 
   useLayoutEffect(() => {
@@ -135,21 +188,54 @@ export function MediaPosterGrid({
     return () => observer.disconnect();
   }, [containerEl, scrollElement]);
 
-  const itemCount = onLoadPage
-    ? totalSize
-    : Math.min(totalSize, items.length);
+  const itemCount = onLoadPage ? totalSize : Math.min(totalSize, items.length);
   const rowCount = isReady && columns > 0 ? Math.ceil(itemCount / columns) : 0;
+  const measureElement = useCallback(() => undefined, []);
 
-  const virtualizer = useTanStackVirtualizer({
-    count: rowCount,
-    estimateSize: () => POSTER_GRID_ROW_CONTENT_HEIGHT_PX,
-    gap: POSTER_GRID_ROW_GAP_PX,
-    getItemKey: (index) => `${columns}-${index}`,
-    getScrollElement: () => scrollElement,
-    overscan: OVERSCAN_ROWS,
-    scrollMargin: scrollMargin ?? 0,
-  });
-  const virtualRows = virtualizer.getVirtualItems();
+  useLayoutEffect(() => {
+    if (!scrollElement) {
+      return;
+    }
+
+    let frame: number | null = null;
+    const update = () => {
+      frame = null;
+      setScrollState({
+        height: scrollElement.clientHeight,
+        top: scrollElement.scrollTop,
+      });
+    };
+    const scheduleUpdate = () => {
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
+      frame = window.requestAnimationFrame(update);
+    };
+
+    scheduleUpdate();
+    scrollElement.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("resize", scheduleUpdate);
+
+    return () => {
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
+      scrollElement.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
+    };
+  }, [scrollElement]);
+
+  const virtualRows = useMemo(
+    () =>
+      getVirtualRows({
+        columns,
+        rowCount,
+        scrollHeight: scrollState.height,
+        scrollMargin: scrollMargin ?? 0,
+        scrollTop: scrollState.top,
+      }),
+    [columns, rowCount, scrollMargin, scrollState],
+  );
 
   const neededPagesKey = useMemo(() => {
     if (!onLoadPage) {
@@ -214,13 +300,6 @@ export function MediaPosterGrid({
     return resolved;
   }, [items, neededPages, pageResults, pageSize, itemCount]);
 
-  useLayoutEffect(() => {
-    if (scrollMargin === null || !isReady || rowCount === 0) {
-      return;
-    }
-    virtualizer.measure();
-  }, [columns, scrollMargin, isReady, rowCount, virtualizer]);
-
   if (items.length === 0) {
     return <p className="text-muted-foreground text-sm">{emptyMessage}</p>;
   }
@@ -235,7 +314,7 @@ export function MediaPosterGrid({
       ) : (
         <div
           className="relative w-full"
-          style={{ height: virtualizer.getTotalSize() }}
+          style={{ height: getVirtualTotalSize(rowCount) }}
         >
           {virtualRows.map((virtualRow) => {
             const startIndex = virtualRow.index * columns;
@@ -246,9 +325,9 @@ export function MediaPosterGrid({
                 startIndex={startIndex}
                 cellCount={Math.min(columns, itemCount - startIndex)}
                 columns={columns}
-                translateY={virtualRow.start - scrollMargin}
+                translateY={virtualRow.start}
                 resolvedItems={resolvedItems}
-                measureElement={virtualizer.measureElement}
+                measureElement={measureElement}
               />
             );
           })}

@@ -7,6 +7,57 @@ import {
 import { cn } from "~/lib/utils";
 import type { TvGuideItemProps } from "~/types/tv-guide";
 
+interface CursorTooltipProps {
+  isHovered: boolean;
+  isVeryWide: boolean;
+  mousePosition: { x: number; y: number };
+  windowDimensions: { width: number; height: number };
+  children: React.ReactNode;
+}
+
+function CursorTooltip({
+  isHovered,
+  isVeryWide,
+  mousePosition,
+  windowDimensions,
+  children,
+}: CursorTooltipProps) {
+  if (!isHovered || !isVeryWide || windowDimensions.width === 0) return null;
+
+  // Calculate position to avoid going off-screen
+  const tooltipWidth = 320; // Approximate max width
+  const tooltipHeight = 120; // Approximate height
+  const offset = 10;
+
+  let left = mousePosition.x + offset;
+  let top = mousePosition.y - offset;
+
+  // Adjust horizontal position if tooltip would go off-screen
+  if (left + tooltipWidth > windowDimensions.width) {
+    left = mousePosition.x - tooltipWidth - offset;
+  }
+
+  // Adjust vertical position if tooltip would go off-screen
+  if (top - tooltipHeight < 0) {
+    top = mousePosition.y + offset;
+  }
+
+  return (
+    <div
+      className="pointer-events-none fixed z-50"
+      style={{
+        left,
+        top,
+        transform: top < mousePosition.y ? "translateY(-100%)" : "none",
+      }}
+    >
+      <div className="bg-popover text-popover-foreground max-w-sm rounded-md border p-3 shadow-md">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 // Simplified color palette using CSS classes with built-in hover states
 const programColors = [
   "bg-blue-500/70 hover:bg-blue-400/80",
@@ -118,44 +169,6 @@ export function TvGuideItem({
     );
   };
 
-  // Custom cursor-based tooltip for wide programs
-  const CursorTooltip = () => {
-    if (!isHovered || !isVeryWide || windowDimensions.width === 0) return null;
-
-    // Calculate position to avoid going off-screen
-    const tooltipWidth = 320; // Approximate max width
-    const tooltipHeight = 120; // Approximate height
-    const offset = 10;
-
-    let left = mousePosition.x + offset;
-    let top = mousePosition.y - offset;
-
-    // Adjust horizontal position if tooltip would go off-screen
-    if (left + tooltipWidth > windowDimensions.width) {
-      left = mousePosition.x - tooltipWidth - offset;
-    }
-
-    // Adjust vertical position if tooltip would go off-screen
-    if (top - tooltipHeight < 0) {
-      top = mousePosition.y + offset;
-    }
-
-    return (
-      <div
-        className="pointer-events-none fixed z-50"
-        style={{
-          left,
-          top,
-          transform: top < mousePosition.y ? "translateY(-100%)" : "none",
-        }}
-      >
-        <div className="bg-popover text-popover-foreground max-w-sm rounded-md border p-3 shadow-md">
-          {tooltipContent()}
-        </div>
-      </div>
-    );
-  };
-
   return (
     <>
       {isVeryWide ? (
@@ -229,7 +242,14 @@ export function TvGuideItem({
       )}
 
       {/* Render cursor tooltip for wide programs */}
-      <CursorTooltip />
+      <CursorTooltip
+        isHovered={isHovered}
+        isVeryWide={isVeryWide}
+        mousePosition={mousePosition}
+        windowDimensions={windowDimensions}
+      >
+        {tooltipContent()}
+      </CursorTooltip>
     </>
   );
 }

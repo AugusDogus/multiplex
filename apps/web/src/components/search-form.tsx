@@ -25,14 +25,11 @@ export function SearchForm({
   collapseAtContainer = false,
   ...props
 }: SearchFormProps) {
-  const [isMac, setIsMac] = React.useState(false);
-
-  React.useEffect(() => {
-    setIsMac(
+  const [isMac] = React.useState(
+    () =>
       typeof navigator !== "undefined" &&
-        /Mac|iPhone|iPad|iPod/.test(navigator.platform),
-    );
-  }, []);
+      /Mac|iPhone|iPad|iPod/.test(navigator.platform),
+  );
 
   return (
     <div {...props}>

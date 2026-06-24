@@ -29,9 +29,7 @@ export class WatchTogetherClient {
     return watchTogetherRoomSchema.parse(data);
   }
 
-  async createRoom(
-    input: CreateWatchTogetherRoomInput,
-  ): Promise<WatchTogetherRoom> {
+  async createRoom(input: CreateWatchTogetherRoomInput): Promise<WatchTogetherRoom> {
     const data = await this.request("rooms", {
       method: "POST",
       body: JSON.stringify({
