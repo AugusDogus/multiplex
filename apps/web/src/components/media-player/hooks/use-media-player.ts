@@ -35,14 +35,18 @@ export function useMediaPlayer(): {
         await videoRef.current.play();
         console.log("🎬 Player: video.play() succeeded");
         store.updatePlaybackState({ isPlaying: true });
+        return true;
       } catch (error) {
         console.error("🎬 Player: video.play() failed:", error);
         store.updatePlaybackState({
           error: "Failed to start video playback",
           isPlaying: false,
         });
+        return false;
       }
     }
+
+    return false;
   }, [store]);
 
   /**
@@ -208,9 +212,7 @@ export function useMediaPlayer(): {
   }, []);
 
   const actions: MediaPlayerActions = {
-    play: () => {
-      void play();
-    },
+    play,
     pause,
     togglePlay,
     seek,

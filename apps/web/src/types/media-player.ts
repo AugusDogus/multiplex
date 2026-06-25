@@ -107,7 +107,7 @@ export interface MediaPlayerState {
  */
 export interface MediaPlayerActions {
   // Playback controls
-  play: () => void;
+  play: () => boolean | Promise<boolean>;
   pause: () => void;
   togglePlay: () => void;
   seek: (time: number) => void;
