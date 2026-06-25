@@ -30,6 +30,7 @@ export type MediaPlayerItem = ItemMetadata &
 
 export type PlaybackRate = 0.5 | 0.75 | 1 | 1.25 | 1.5 | 1.75 | 2;
 export type CaptionSize = "small" | "medium" | "large" | "extra-large";
+export type MediaPlayerSeekResult = "direct" | "reload" | "none";
 
 /**
  * Next episode information for auto-play
@@ -110,7 +111,7 @@ export interface MediaPlayerActions {
   play: () => boolean | Promise<boolean>;
   pause: () => void;
   togglePlay: () => void;
-  seek: (time: number) => void;
+  seek: (time: number) => MediaPlayerSeekResult;
 
   // Audio controls
   setVolume: (volume: number) => void;
