@@ -200,7 +200,11 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
       while (remoteStateGenerationRef.current === generation) {
         const playerState = useMediaPlayerStore.getState();
         if (playerState.error) {
-          break;
+          return {
+            isPaused: true,
+            positionSeconds: playerState.currentTime,
+            shouldSeek: false,
+          };
         }
 
         const playbackSettled = playerState.isPlaying !== state.isPaused;
@@ -229,7 +233,16 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
   const waitForDurationThenApplyRemoteState = useCallback(
     async (state: SyncplayPlaybackState, generation: number) => {
       while (remoteStateGenerationRef.current === generation) {
-        if (useMediaPlayerStore.getState().duration > 0) {
+        const playerState = useMediaPlayerStore.getState();
+        if (playerState.error) {
+          return {
+            isPaused: true,
+            positionSeconds: playerState.currentTime,
+            shouldSeek: false,
+          };
+        }
+
+        if (playerState.duration > 0) {
           const applyResult = applyRemotePlaybackState(state);
           return waitForRemoteStateToSettle(state, applyResult, generation);
         }

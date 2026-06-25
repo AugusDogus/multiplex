@@ -100,6 +100,7 @@ export class SyncplayClient {
   private lastPing: SyncplayPingState | null = null;
   private pendingState: SyncplayStateInput | null = null;
   private readonly knownParticipants = new Map<string, SyncplayUser>();
+  private connectionId = 0;
 
   constructor(options: SyncplayClientOptions) {
     this.room = options.room;
@@ -113,6 +114,8 @@ export class SyncplayClient {
   connect(): void {
     this.disconnect();
 
+    this.connectionId += 1;
+    const connectionId = this.connectionId;
     const socket = new WebSocket(`wss://${this.room.syncplayHost}:${this.room.syncplayPort}/ws`);
     this.socket = socket;
 
@@ -130,7 +133,7 @@ export class SyncplayClient {
       if (this.socket !== socket) {
         return;
       }
-      this.handleMessage(event);
+      this.handleMessage(event, connectionId);
     });
     socket.addEventListener("close", () => {
       if (this.socket !== socket) {
@@ -155,6 +158,7 @@ export class SyncplayClient {
 
     const socket = this.socket;
     this.socket = null;
+    this.connectionId += 1;
     this.pendingState = null;
     socket.close(1000);
     if (options.notify) {
@@ -207,7 +211,7 @@ export class SyncplayClient {
     }
   }
 
-  private handleMessage(event: MessageEvent<string>): void {
+  private handleMessage(event: MessageEvent<string>, connectionId: number): void {
     let frame: SyncplayIncomingFrame;
 
     try {
@@ -262,7 +266,7 @@ export class SyncplayClient {
         this.onError(new Error("Invalid syncplay State frame"));
         return;
       }
-      this.handleState(frame.State);
+      this.handleState(frame.State, connectionId);
     }
   }
 
@@ -280,8 +284,8 @@ export class SyncplayClient {
         continue;
       }
 
-      presentUsers.add(encodedUser);
-      this.knownParticipants.set(encodedUser, user);
+      presentUsers.add(user.deviceIdentifier);
+      this.knownParticipants.set(user.deviceIdentifier, user);
       this.onParticipant({
         user,
         isPresent: true,
@@ -290,8 +294,8 @@ export class SyncplayClient {
       });
     }
 
-    for (const [encodedUser, user] of this.knownParticipants) {
-      if (presentUsers.has(encodedUser)) {
+    for (const [deviceIdentifier, user] of this.knownParticipants) {
+      if (presentUsers.has(deviceIdentifier)) {
         continue;
       }
 
@@ -299,6 +303,7 @@ export class SyncplayClient {
         user,
         isPresent: false,
       });
+      this.knownParticipants.delete(deviceIdentifier);
     }
   }
 
@@ -306,7 +311,7 @@ export class SyncplayClient {
     if (payload.ready) {
       const user = decodeSyncplayUser(payload.ready.username);
       if (user) {
-        this.knownParticipants.set(payload.ready.username, user);
+        this.knownParticipants.set(user.deviceIdentifier, user);
         this.onParticipant({ user, isReady: payload.ready.isReady });
       }
     }
@@ -322,7 +327,11 @@ export class SyncplayClient {
           continue;
         }
 
-        this.knownParticipants.set(encodedUser, user);
+        if (value.event?.left) {
+          this.knownParticipants.delete(user.deviceIdentifier);
+        } else {
+          this.knownParticipants.set(user.deviceIdentifier, user);
+        }
         this.onParticipant({
           user,
           isPresent: value.event?.left ? false : value.event?.joined ? true : undefined,
@@ -331,7 +340,7 @@ export class SyncplayClient {
     }
   }
 
-  private handleState(payload: SyncplayStatePayload): void {
+  private handleState(payload: SyncplayStatePayload, connectionId: number): void {
     const user = payload.playstate.setBy ? decodeSyncplayUser(payload.playstate.setBy) : null;
 
     if (user?.deviceIdentifier === this.user.deviceIdentifier) {
@@ -361,6 +370,10 @@ export class SyncplayClient {
       }
     })
       .then((state) => {
+        if (this.connectionId !== connectionId) {
+          return;
+        }
+
         if (isSkipReply(state)) {
           return;
         }
@@ -368,6 +381,10 @@ export class SyncplayClient {
         this.sendState(state ?? fallbackState);
       })
       .catch((error: unknown) => {
+        if (this.connectionId !== connectionId) {
+          return;
+        }
+
         this.onError(
           error instanceof Error ? error : new Error("Syncplay playback handler rejected"),
         );
