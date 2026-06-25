@@ -21,27 +21,7 @@ interface WatchTogetherStore {
 export const useWatchTogetherStore = create<WatchTogetherStore>()((set) => ({
   session: null,
   participants: {},
-  setSession: (session) =>
-    set((state) => ({
-      session,
-      participants: {
-        ...Object.fromEntries(
-          session.room.users.map((user) => [
-            String(user.id),
-            {
-              user: {
-                id: user.id,
-                deviceIdentifier: String(user.id),
-                deviceName: user.title ?? user.username ?? "Plex user",
-              },
-              isPresent: false,
-              isReady: false,
-            },
-          ]),
-        ),
-        ...state.participants,
-      },
-    })),
+  setSession: (session) => set({ session, participants: {} }),
   clearSession: () => set({ session: null, participants: {} }),
   updateParticipant: (participant) =>
     set((state) => ({

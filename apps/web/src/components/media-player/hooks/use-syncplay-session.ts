@@ -22,11 +22,9 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
     (state) => state.updateParticipant,
   );
   const currentItem = useMediaPlayerStore((state) => state.currentItem);
-  const currentTime = useMediaPlayerStore((state) => state.currentTime);
-  const isPlaying = useMediaPlayerStore((state) => state.isPlaying);
   const canPlay = useMediaPlayerStore((state) => state.canPlay);
   const clientRef = useRef<SyncplayClient | null>(null);
-  const suppressNextLocalEventRef = useRef(false);
+  const suppressedLocalEventCountRef = useRef(0);
 
   const activeForCurrentItem = Boolean(
     session &&
@@ -47,15 +45,27 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
     const client = new SyncplayClient({
       room: session.room,
       user: session.localUser,
+      getPlaybackState: () => {
+        const state = useMediaPlayerStore.getState();
+        return {
+          isPaused: !state.isPlaying,
+          positionSeconds: state.currentTime,
+          shouldSeek: false,
+        };
+      },
       onParticipant: updateParticipant,
       onPlaybackState: (state) => {
+        const currentTime = useMediaPlayerStore.getState().currentTime;
+        const currentlyPlaying = useMediaPlayerStore.getState().isPlaying;
         const diffSeconds = currentTime - state.positionSeconds;
         const shouldSeek =
           state.shouldSeek ||
           diffSeconds >= SEEK_AHEAD_THRESHOLD_SECONDS ||
           diffSeconds <= SEEK_BEHIND_THRESHOLD_SECONDS;
 
-        suppressNextLocalEventRef.current = true;
+        const willChangePlayback = state.isPaused === currentlyPlaying;
+        suppressedLocalEventCountRef.current +=
+          (shouldSeek ? 1 : 0) + (willChangePlayback ? 1 : 0);
 
         if (shouldSeek) {
           seek(state.positionSeconds);
@@ -78,15 +88,7 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
         clientRef.current = null;
       }
     };
-  }, [
-    activeForCurrentItem,
-    currentTime,
-    pause,
-    play,
-    seek,
-    session,
-    updateParticipant,
-  ]);
+  }, [activeForCurrentItem, pause, play, seek, session, updateParticipant]);
 
   useEffect(() => {
     if (!clientRef.current || !activeForCurrentItem) {
@@ -97,36 +99,37 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
   }, [activeForCurrentItem, canPlay]);
 
   const sendLocalState = useCallback(
-    (shouldSeek = false, timeOverride?: number) => {
+    (isPaused: boolean, shouldSeek = false, timeOverride?: number) => {
       if (!activeForCurrentItem || !clientRef.current) {
         return;
       }
 
-      if (suppressNextLocalEventRef.current) {
-        suppressNextLocalEventRef.current = false;
+      if (suppressedLocalEventCountRef.current > 0) {
+        suppressedLocalEventCountRef.current -= 1;
         return;
       }
 
+      const state = useMediaPlayerStore.getState();
       clientRef.current.sendState({
-        isPaused: !isPlaying,
-        positionSeconds: timeOverride ?? currentTime,
+        isPaused,
+        positionSeconds: timeOverride ?? state.currentTime,
         shouldSeek,
       });
     },
-    [activeForCurrentItem, currentTime, isPlaying],
+    [activeForCurrentItem],
   );
 
   const onLocalPlay = useCallback(() => {
-    sendLocalState(false);
+    sendLocalState(false, false);
   }, [sendLocalState]);
 
   const onLocalPause = useCallback(() => {
-    sendLocalState(false);
+    sendLocalState(true, false);
   }, [sendLocalState]);
 
   const onLocalSeeked = useCallback(
     (time: number) => {
-      sendLocalState(true, time);
+      sendLocalState(!useMediaPlayerStore.getState().isPlaying, true, time);
     },
     [sendLocalState],
   );

@@ -85,11 +85,15 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     router.push("/");
   };
 
-  if (roomQuery.isPending || userInfoQuery.isPending) {
+  if (
+    roomQuery.isPending ||
+    userInfoQuery.isPending ||
+    userInfoQuery.isLoading
+  ) {
     return <LobbyStatus message="Loading Watch Together room..." />;
   }
 
-  if (roomQuery.isError || !room || !source) {
+  if (roomQuery.isError || userInfoQuery.isError || !room || !source) {
     return <LobbyStatus message="This Watch Together room is unavailable." />;
   }
 

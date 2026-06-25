@@ -74,14 +74,14 @@ export const plexRouter = createTRPCRouter({
     }),
 
   getWatchTogetherInvitees: protectedProcedure.query(async ({ ctx }) => {
-    const friends = await ctx.plex.getFriends();
-    return friends.map((friend) => ({
-      id: friend.id,
-      uuid: friend.uuid,
-      title: friend.friendlyName ?? friend.title ?? friend.username,
-      username: friend.username,
-      thumb: friend.thumb,
-      restricted: friend.restricted ?? false,
+    const invitees = await ctx.plex.getWatchTogetherInvitees();
+    return invitees.map((invitee) => ({
+      id: invitee.id,
+      uuid: invitee.uuid,
+      title: invitee.friendlyName ?? invitee.title ?? invitee.username,
+      username: invitee.username,
+      thumb: invitee.thumb,
+      restricted: invitee.restricted ?? false,
     }));
   }),
 

@@ -309,7 +309,10 @@ export function MediaPosterGrid({
       ref={containerRef}
       className={`w-full min-w-0 ${POSTER_GRID_INSET_CLASSNAME}`}
     >
-      {!isReady || scrollElement === null || scrollMargin === null ? (
+      {!isReady ||
+      scrollElement === null ||
+      scrollMargin === null ||
+      scrollState.height === 0 ? (
         <PosterGridStatic items={items} />
       ) : (
         <div

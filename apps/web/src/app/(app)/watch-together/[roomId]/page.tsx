@@ -12,7 +12,7 @@ interface PageProps {
 export default async function WatchTogetherPage({ params }: PageProps) {
   const { roomId } = await params;
 
-  void api.plex.getWatchTogetherRoom.prefetch({ roomId });
+  await api.plex.getWatchTogetherRoom.prefetch({ roomId });
 
   return (
     <HydrateClient>
