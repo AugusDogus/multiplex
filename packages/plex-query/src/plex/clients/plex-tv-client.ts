@@ -182,10 +182,7 @@ export class PlexTvClient extends PlexTvBaseClient {
   }
 
   async getWatchTogetherInvitees(): Promise<PlexFriend[]> {
-    const [friends, sharedUsers] = await Promise.all([
-      this.getFriends(),
-      this.getSharedUsers().catch(() => []),
-    ]);
+    const [friends, sharedUsers] = await Promise.all([this.getFriends(), this.getSharedUsers()]);
     const invitees = new Map<number, PlexFriend>();
 
     for (const user of [...sharedUsers, ...friends]) {

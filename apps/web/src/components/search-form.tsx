@@ -10,8 +10,9 @@ import {
   getAppHeaderSearchInputClassName,
 } from "~/lib/app-header-search";
 
-function subscribeToPlatformChanges() {
-  return () => undefined;
+function subscribeToPlatformChanges(onStoreChange: () => void) {
+  const timeout = window.setTimeout(onStoreChange, 0);
+  return () => window.clearTimeout(timeout);
 }
 
 function getPlatformSnapshot() {

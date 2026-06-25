@@ -13,10 +13,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
-import { getWatchTogetherDeviceIdentifier } from "~/lib/device-identifier";
 import { getWatchTogetherRoomHref } from "~/lib/watch-together-source";
 import { cn } from "~/lib/utils";
-import { useWatchTogetherStore } from "~/stores/watch-together-store";
 import { api } from "~/trpc/react";
 
 import type { ItemDetails, PlayTarget } from "./types";
@@ -39,31 +37,14 @@ export function WatchTogetherInviteDialog({
   onFeedback,
 }: WatchTogetherInviteDialogProps) {
   const router = useRouter();
-  const setSession = useWatchTogetherStore((state) => state.setSession);
   const [selectedUsers, setSelectedUsers] = useState<number[]>([]);
   const inviteesQuery = api.plex.getWatchTogetherInvitees.useQuery(undefined, {
-    enabled: open,
-    staleTime: 60_000,
-  });
-  const userInfoQuery = api.plex.getUserInfo.useQuery(undefined, {
     enabled: open,
     staleTime: 60_000,
   });
   const createRoomMutation = api.plex.createWatchTogetherRoom.useMutation({
     onError: (error) => onFeedback(error.message),
     onSuccess: (room) => {
-      const localUser = userInfoQuery.data;
-      if (localUser) {
-        setSession({
-          room,
-          localUser: {
-            id: localUser.id,
-            deviceIdentifier: getWatchTogetherDeviceIdentifier(),
-            deviceName: "Multiplex Web",
-          },
-        });
-      }
-
       handleOpenChange(false);
       onFeedback("Watch Together room created");
       router.push(getWatchTogetherRoomHref(room.id));
@@ -71,12 +52,9 @@ export function WatchTogetherInviteDialog({
   });
 
   const invitees = inviteesQuery.data ?? [];
-  const isBusy =
-    createRoomMutation.isPending ||
-    inviteesQuery.isPending ||
-    userInfoQuery.isPending;
+  const isBusy = createRoomMutation.isPending || inviteesQuery.isPending;
   const playable = playTarget ?? item;
-  const canInvite = Boolean(playTarget && userInfoQuery.data && !isBusy);
+  const canInvite = Boolean(playTarget && !isBusy);
 
   const selectedSet = useMemo(() => new Set(selectedUsers), [selectedUsers]);
 
@@ -96,7 +74,7 @@ export function WatchTogetherInviteDialog({
   };
 
   const createRoom = () => {
-    if (!playTarget || !userInfoQuery.data || createRoomMutation.isPending) {
+    if (!playTarget || createRoomMutation.isPending) {
       return;
     }
 

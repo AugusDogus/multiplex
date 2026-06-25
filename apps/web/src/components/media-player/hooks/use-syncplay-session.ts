@@ -17,6 +17,7 @@ interface UseSyncplaySessionOptions {
 
 export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
   const { pause, play, seek } = actions;
+  const actionsRef = useRef({ pause, play, seek });
   const session = useWatchTogetherStore((state) => state.session);
   const updateParticipant = useWatchTogetherStore(
     (state) => state.updateParticipant,
@@ -34,6 +35,10 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
       parseWatchTogetherSourceUri(session.room.sourceUri)?.ratingKey ===
         currentItem.ratingKey,
   );
+
+  useEffect(() => {
+    actionsRef.current = { pause, play, seek };
+  }, [pause, play, seek]);
 
   useEffect(() => {
     if (!session || !activeForCurrentItem) {
@@ -68,13 +73,13 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
           (shouldSeek ? 1 : 0) + (willChangePlayback ? 1 : 0);
 
         if (shouldSeek) {
-          seek(state.positionSeconds);
+          actionsRef.current.seek(state.positionSeconds);
         }
 
         if (state.isPaused) {
-          pause();
+          actionsRef.current.pause();
         } else {
-          play();
+          actionsRef.current.play();
         }
       },
     });
@@ -88,7 +93,7 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
         clientRef.current = null;
       }
     };
-  }, [activeForCurrentItem, pause, play, seek, session, updateParticipant]);
+  }, [activeForCurrentItem, session, updateParticipant]);
 
   useEffect(() => {
     if (!clientRef.current || !activeForCurrentItem) {

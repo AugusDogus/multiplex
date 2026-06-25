@@ -25,7 +25,7 @@ export class WatchTogetherClient {
   }
 
   async getRoom(roomId: string): Promise<WatchTogetherRoom> {
-    const data = await this.request(`rooms/${roomId}`);
+    const data = await this.request(`rooms/${encodeURIComponent(roomId)}`);
     return watchTogetherRoomSchema.parse(data);
   }
 
@@ -43,14 +43,14 @@ export class WatchTogetherClient {
   }
 
   async inviteUsers(roomId: string, users: number[]): Promise<void> {
-    await this.request(`rooms/${roomId}/invite`, {
+    await this.request(`rooms/${encodeURIComponent(roomId)}/invite`, {
       method: "POST",
       body: JSON.stringify({ users }),
     });
   }
 
   async deleteRoom(roomId: string): Promise<void> {
-    await this.request(`rooms/${roomId}`, { method: "DELETE" }, [404]);
+    await this.request(`rooms/${encodeURIComponent(roomId)}`, { method: "DELETE" }, [404]);
   }
 
   private async request(
