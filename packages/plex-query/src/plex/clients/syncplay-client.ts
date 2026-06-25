@@ -126,7 +126,6 @@ export class SyncplayClient {
     }
 
     const socket = this.socket;
-    this.socket = null;
     socket.close(1000);
   }
 
@@ -263,19 +262,21 @@ export class SyncplayClient {
       return;
     }
 
-    this.sendState(
-      this.getPlaybackState() ?? {
-        isPaused: payload.playstate.paused,
-        positionSeconds: payload.playstate.position,
-        shouldSeek: false,
-      },
-    );
-
     this.onPlaybackState({
       user,
       isPaused: payload.playstate.paused,
       positionSeconds: payload.playstate.position,
       shouldSeek: Boolean(payload.playstate.doSeek),
+    });
+
+    queueMicrotask(() => {
+      this.sendState(
+        this.getPlaybackState() ?? {
+          isPaused: payload.playstate.paused,
+          positionSeconds: payload.playstate.position,
+          shouldSeek: false,
+        },
+      );
     });
   }
 

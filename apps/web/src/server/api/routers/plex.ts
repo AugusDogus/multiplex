@@ -48,6 +48,7 @@ export type plexRouterOutputs = inferRouterOutputs<typeof plexRouter>;
 // `source` value from injecting extra path segments or query params into the
 // `library/sections/{id}/...` requests.
 const sectionIdSchema = z.string().regex(/^\d+$/);
+const watchTogetherRoomIdSchema = z.string().regex(/^[A-Za-z0-9]+$/);
 
 const watchTogetherClientForToken = (token: string) =>
   new WatchTogetherClient(token, getPlexConfig());
@@ -66,7 +67,7 @@ export const plexRouter = createTRPCRouter({
   }),
 
   getWatchTogetherRoom: protectedProcedure
-    .input(z.object({ roomId: z.string().min(1) }))
+    .input(z.object({ roomId: watchTogetherRoomIdSchema }))
     .query(async ({ ctx, input }) => {
       return watchTogetherClientForToken(ctx.plex.getToken()).getRoom(
         input.roomId,
@@ -110,7 +111,7 @@ export const plexRouter = createTRPCRouter({
   inviteWatchTogetherUsers: protectedProcedure
     .input(
       z.object({
-        roomId: z.string().min(1),
+        roomId: watchTogetherRoomIdSchema,
         users: z.array(z.number()).min(1),
       }),
     )
@@ -122,7 +123,7 @@ export const plexRouter = createTRPCRouter({
     }),
 
   deleteWatchTogetherRoom: protectedProcedure
-    .input(z.object({ roomId: z.string().min(1) }))
+    .input(z.object({ roomId: watchTogetherRoomIdSchema }))
     .mutation(async ({ ctx, input }) => {
       await watchTogetherClientForToken(ctx.plex.getToken()).deleteRoom(
         input.roomId,

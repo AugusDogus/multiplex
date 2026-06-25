@@ -215,11 +215,14 @@ export function MediaPosterGrid({
     scheduleUpdate();
     scrollElement.addEventListener("scroll", scheduleUpdate, { passive: true });
     window.addEventListener("resize", scheduleUpdate);
+    const observer = new ResizeObserver(scheduleUpdate);
+    observer.observe(scrollElement);
 
     return () => {
       if (frame !== null) {
         window.cancelAnimationFrame(frame);
       }
+      observer.disconnect();
       scrollElement.removeEventListener("scroll", scheduleUpdate);
       window.removeEventListener("resize", scheduleUpdate);
     };
