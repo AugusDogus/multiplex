@@ -64,7 +64,7 @@ export function WatchTogetherInviteDialog({
         });
       }
 
-      onOpenChange(false);
+      handleOpenChange(false);
       onFeedback("Watch Together room created");
       router.push(getWatchTogetherRoomHref(room.id));
     },
@@ -88,6 +88,13 @@ export function WatchTogetherInviteDialog({
     );
   };
 
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setSelectedUsers([]);
+    }
+    onOpenChange(nextOpen);
+  };
+
   const createRoom = () => {
     if (!playTarget || !userInfoQuery.data || createRoomMutation.isPending) {
       return;
@@ -103,7 +110,7 @@ export function WatchTogetherInviteDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Watch Together</DialogTitle>
@@ -146,7 +153,7 @@ export function WatchTogetherInviteDialog({
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="line-clamp-1 font-medium">
-                        {invitee.title || invitee.username}
+                        {invitee.title ?? invitee.username}
                       </span>
                       <span className="text-muted-foreground line-clamp-1 text-xs">
                         {invitee.username}
@@ -169,7 +176,7 @@ export function WatchTogetherInviteDialog({
             type="button"
             variant="outline"
             disabled={createRoomMutation.isPending}
-            onClick={() => onOpenChange(false)}
+            onClick={() => handleOpenChange(false)}
           >
             Cancel
           </Button>

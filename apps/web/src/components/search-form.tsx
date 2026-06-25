@@ -10,6 +10,18 @@ import {
   getAppHeaderSearchInputClassName,
 } from "~/lib/app-header-search";
 
+function subscribeToPlatformChanges() {
+  return () => undefined;
+}
+
+function getPlatformSnapshot() {
+  return /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+}
+
+function getServerPlatformSnapshot() {
+  return false;
+}
+
 interface SearchFormProps extends React.ComponentProps<"div"> {
   onSearchClick: () => void;
   /**
@@ -25,10 +37,10 @@ export function SearchForm({
   collapseAtContainer = false,
   ...props
 }: SearchFormProps) {
-  const [isMac] = React.useState(
-    () =>
-      typeof navigator !== "undefined" &&
-      /Mac|iPhone|iPad|iPod/.test(navigator.platform),
+  const isMac = React.useSyncExternalStore(
+    subscribeToPlatformChanges,
+    getPlatformSnapshot,
+    getServerPlatformSnapshot,
   );
 
   return (

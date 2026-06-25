@@ -181,9 +181,97 @@ export class PlexTvClient extends PlexTvBaseClient {
     });
   }
 
+  async getWatchTogetherInvitees(): Promise<PlexFriend[]> {
+    const [friends, sharedUsers] = await Promise.all([
+      this.getFriends(),
+      this.getSharedUsers().catch(() => []),
+    ]);
+    const invitees = new Map<number, PlexFriend>();
+
+    for (const user of [...sharedUsers, ...friends]) {
+      invitees.set(user.id, user);
+    }
+
+    return [...invitees.values()].sort((left, right) => {
+      const leftName = left.friendlyName ?? left.title ?? left.username;
+      const rightName = right.friendlyName ?? right.title ?? right.username;
+      return leftName.localeCompare(rightName);
+    });
+  }
+
+  private async getSharedUsers(): Promise<PlexFriend[]> {
+    const url = new URL("https://clients.plex.tv/api/users");
+    url.searchParams.set("X-Plex-Product", "Plex Web");
+    url.searchParams.set("X-Plex-Version", this.config.version);
+    url.searchParams.set("X-Plex-Client-Identifier", this.config.clientIdentifier);
+    url.searchParams.set("X-Plex-Platform", this.config.platform);
+    url.searchParams.set("X-Plex-Token", this.token);
+
+    const response = await fetch(url, {
+      headers: { accept: "application/xml" },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Plex shared users request failed: ${response.status}`);
+    }
+
+    return parseSharedUsersXml(await response.text());
+  }
+
   /**
    * Make a GET request to the Plex.tv API
    * @param options - Request options including endpoint, params, schema, and baseUrl
    * @returns Parsed and validated response data
    */
+}
+
+function parseSharedUsersXml(xml: string): PlexFriend[] {
+  const users: PlexFriend[] = [];
+  const userMatches = xml.matchAll(/<User\s+([^>]+)>/g);
+
+  for (const match of userMatches) {
+    const attrs = parseXmlAttributes(match[1] ?? "");
+    const id = Number.parseInt(attrs.id ?? "", 10);
+    const username = attrs.username;
+    const uuid = attrs.uuid ?? "";
+
+    if (!Number.isFinite(id) || !username) {
+      continue;
+    }
+
+    users.push({
+      id,
+      uuid,
+      title: attrs.title ?? username,
+      username,
+      friendlyName: attrs.title ?? username,
+      thumb: attrs.thumb,
+      restricted: attrs.restricted === "1",
+    });
+  }
+
+  return users;
+}
+
+function parseXmlAttributes(value: string): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  const matches = value.matchAll(/([A-Za-z0-9_:-]+)="([^"]*)"/g);
+
+  for (const match of matches) {
+    const [, key, attrValue] = match;
+    if (key && attrValue !== undefined) {
+      attrs[key] = decodeXmlAttribute(attrValue);
+    }
+  }
+
+  return attrs;
+}
+
+function decodeXmlAttribute(value: string): string {
+  return value
+    .replaceAll("&quot;", '"')
+    .replaceAll("&apos;", "'")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&");
 }

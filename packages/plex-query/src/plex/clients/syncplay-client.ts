@@ -24,6 +24,7 @@ export interface SyncplayPlaybackState {
 interface SyncplayClientOptions {
   room: Pick<WatchTogetherRoom, "id" | "syncplayHost" | "syncplayPort" | "sourceUri">;
   user: SyncplayUser;
+  getPlaybackState?: () => SyncplayStateInput | null;
   onParticipant?: (state: SyncplayParticipantState) => void;
   onPlaybackState?: (state: SyncplayPlaybackState) => void;
   onClose?: () => void;
@@ -76,14 +77,17 @@ export class SyncplayClient {
   private socket: WebSocket | null = null;
   private readonly room: SyncplayClientOptions["room"];
   private readonly user: SyncplayUser;
+  private readonly getPlaybackState: NonNullable<SyncplayClientOptions["getPlaybackState"]>;
   private readonly onParticipant: NonNullable<SyncplayClientOptions["onParticipant"]>;
   private readonly onPlaybackState: NonNullable<SyncplayClientOptions["onPlaybackState"]>;
   private readonly onClose: NonNullable<SyncplayClientOptions["onClose"]>;
   private readonly onError: NonNullable<SyncplayClientOptions["onError"]>;
+  private requestedReady: boolean | null | undefined;
 
   constructor(options: SyncplayClientOptions) {
     this.room = options.room;
     this.user = options.user;
+    this.getPlaybackState = options.getPlaybackState ?? (() => null);
     this.onParticipant = options.onParticipant ?? (() => undefined);
     this.onPlaybackState = options.onPlaybackState ?? (() => undefined);
     this.onClose = options.onClose ?? (() => undefined);
@@ -107,6 +111,9 @@ export class SyncplayClient {
     });
     socket.addEventListener("message", (event) => this.handleMessage(event));
     socket.addEventListener("close", () => {
+      if (this.socket !== socket) {
+        return;
+      }
       this.socket = null;
       this.onClose();
     });
@@ -124,6 +131,7 @@ export class SyncplayClient {
   }
 
   setReady(isReady: boolean | null): void {
+    this.requestedReady = isReady;
     this.send({ Set: { ready: { isReady } } });
   }
 
@@ -181,7 +189,7 @@ export class SyncplayClient {
     if ("Hello" in frame) {
       this.send({ List: {} });
       this.setFile();
-      this.setReady(null);
+      this.setReady(this.requestedReady ?? null);
       return;
     }
 
@@ -254,6 +262,14 @@ export class SyncplayClient {
     if (user?.deviceIdentifier === this.user.deviceIdentifier) {
       return;
     }
+
+    this.sendState(
+      this.getPlaybackState() ?? {
+        isPaused: payload.playstate.paused,
+        positionSeconds: payload.playstate.position,
+        shouldSeek: false,
+      },
+    );
 
     this.onPlaybackState({
       user,
