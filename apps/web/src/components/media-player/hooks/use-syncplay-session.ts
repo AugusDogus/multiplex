@@ -44,20 +44,13 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
     if (!session || !activeForCurrentItem) {
       clientRef.current?.disconnect();
       clientRef.current = null;
+      suppressedLocalEventCountRef.current = 0;
       return;
     }
 
     const client = new SyncplayClient({
       room: session.room,
       user: session.localUser,
-      getPlaybackState: () => {
-        const state = useMediaPlayerStore.getState();
-        return {
-          isPaused: !state.isPlaying,
-          positionSeconds: state.currentTime,
-          shouldSeek: false,
-        };
-      },
       onParticipant: updateParticipant,
       onPlaybackState: (state) => {
         const currentTime = useMediaPlayerStore.getState().currentTime;
@@ -89,6 +82,7 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
 
     return () => {
       client.disconnect();
+      suppressedLocalEventCountRef.current = 0;
       if (clientRef.current === client) {
         clientRef.current = null;
       }

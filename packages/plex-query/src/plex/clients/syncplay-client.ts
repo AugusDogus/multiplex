@@ -24,7 +24,6 @@ export interface SyncplayPlaybackState {
 interface SyncplayClientOptions {
   room: Pick<WatchTogetherRoom, "id" | "syncplayHost" | "syncplayPort" | "sourceUri">;
   user: SyncplayUser;
-  getPlaybackState?: () => SyncplayStateInput | null;
   onParticipant?: (state: SyncplayParticipantState) => void;
   onPlaybackState?: (state: SyncplayPlaybackState) => void;
   onClose?: () => void;
@@ -77,7 +76,6 @@ export class SyncplayClient {
   private socket: WebSocket | null = null;
   private readonly room: SyncplayClientOptions["room"];
   private readonly user: SyncplayUser;
-  private readonly getPlaybackState: NonNullable<SyncplayClientOptions["getPlaybackState"]>;
   private readonly onParticipant: NonNullable<SyncplayClientOptions["onParticipant"]>;
   private readonly onPlaybackState: NonNullable<SyncplayClientOptions["onPlaybackState"]>;
   private readonly onClose: NonNullable<SyncplayClientOptions["onClose"]>;
@@ -87,7 +85,6 @@ export class SyncplayClient {
   constructor(options: SyncplayClientOptions) {
     this.room = options.room;
     this.user = options.user;
-    this.getPlaybackState = options.getPlaybackState ?? (() => null);
     this.onParticipant = options.onParticipant ?? (() => undefined);
     this.onPlaybackState = options.onPlaybackState ?? (() => undefined);
     this.onClose = options.onClose ?? (() => undefined);
@@ -181,6 +178,7 @@ export class SyncplayClient {
     }
 
     if ("Error" in frame) {
+      this.onError(new Error(`Syncplay protocol error: ${JSON.stringify(frame.Error)}`));
       this.disconnect();
       return;
     }
@@ -269,14 +267,10 @@ export class SyncplayClient {
       shouldSeek: Boolean(payload.playstate.doSeek),
     });
 
-    queueMicrotask(() => {
-      this.sendState(
-        this.getPlaybackState() ?? {
-          isPaused: payload.playstate.paused,
-          positionSeconds: payload.playstate.position,
-          shouldSeek: false,
-        },
-      );
+    this.sendState({
+      isPaused: payload.playstate.paused,
+      positionSeconds: payload.playstate.position,
+      shouldSeek: false,
     });
   }
 

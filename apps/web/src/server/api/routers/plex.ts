@@ -49,6 +49,11 @@ export type plexRouterOutputs = inferRouterOutputs<typeof plexRouter>;
 // `library/sections/{id}/...` requests.
 const sectionIdSchema = z.string().regex(/^\d+$/);
 const watchTogetherRoomIdSchema = z.string().regex(/^[A-Za-z0-9]+$/);
+const metadataRatingKeySchema = z.string().regex(/^\d+$/);
+const metadataKeySchema = z
+  .string()
+  .regex(/^\/library\/metadata\/\d+$/)
+  .optional();
 
 const watchTogetherClientForToken = (token: string) =>
   new WatchTogetherClient(token, getPlexConfig());
@@ -90,8 +95,8 @@ export const plexRouter = createTRPCRouter({
     .input(
       z.object({
         serverId: z.string(),
-        ratingKey: z.string(),
-        key: z.string().optional(),
+        ratingKey: metadataRatingKeySchema,
+        key: metadataKeySchema,
         title: z.string().min(1),
         users: z.array(z.number()).default([]),
       }),
