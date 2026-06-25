@@ -148,6 +148,7 @@ export class SyncplayClient {
 
     const socket = this.socket;
     this.socket = null;
+    this.pendingState = null;
     socket.close(1000);
     if (options.notify) {
       this.onClose();
@@ -194,7 +195,7 @@ export class SyncplayClient {
       },
     };
 
-    if (!this.send(frame)) {
+    if (!this.send(frame) && this.socket?.readyState === WebSocket.CONNECTING) {
       this.pendingState = state;
     }
   }
@@ -221,6 +222,10 @@ export class SyncplayClient {
     }
 
     if ("Hello" in frame) {
+      if (!isRecord(frame.Hello)) {
+        this.onError(new Error("Invalid syncplay Hello frame"));
+        return;
+      }
       this.send({ List: {} });
       this.setFile();
       this.setReady(this.requestedReady ?? null);
@@ -228,16 +233,28 @@ export class SyncplayClient {
     }
 
     if ("List" in frame) {
+      if (!isValidListPayload(frame.List, this.room.id)) {
+        this.onError(new Error("Invalid syncplay List frame"));
+        return;
+      }
       this.handleList(frame.List);
       return;
     }
 
     if ("Set" in frame) {
+      if (!isValidSetPayload(frame.Set)) {
+        this.onError(new Error("Invalid syncplay Set frame"));
+        return;
+      }
       this.handleSet(frame.Set);
       return;
     }
 
     if ("State" in frame) {
+      if (!isValidStatePayload(frame.State)) {
+        this.onError(new Error("Invalid syncplay State frame"));
+        return;
+      }
       this.handleState(frame.State);
     }
   }
@@ -299,32 +316,34 @@ export class SyncplayClient {
 
     this.lastPing = payload.ping ?? null;
 
-    void Promise.resolve(
-      this.onPlaybackState({
-        user,
-        isPaused: payload.playstate.paused,
-        positionSeconds: payload.playstate.position,
-        shouldSeek: Boolean(payload.playstate.doSeek),
-      }),
-    )
-      .then((state) => {
-        this.sendState(
-          state ?? {
+    const fallbackState = {
+      isPaused: payload.playstate.paused,
+      positionSeconds: payload.playstate.position,
+      shouldSeek: false,
+    };
+
+    void new Promise<SyncplayStateInput | null | void>((resolve, reject) => {
+      try {
+        resolve(
+          this.onPlaybackState({
+            user,
             isPaused: payload.playstate.paused,
             positionSeconds: payload.playstate.position,
-            shouldSeek: false,
-          },
+            shouldSeek: Boolean(payload.playstate.doSeek),
+          }),
         );
+      } catch (error) {
+        reject(error);
+      }
+    })
+      .then((state) => {
+        this.sendState(state ?? fallbackState);
       })
       .catch((error: unknown) => {
         this.onError(
           error instanceof Error ? error : new Error("Syncplay playback handler rejected"),
         );
-        this.sendState({
-          isPaused: payload.playstate.paused,
-          positionSeconds: payload.playstate.position,
-          shouldSeek: false,
-        });
+        this.sendState(fallbackState);
       });
   }
 
@@ -346,6 +365,147 @@ export class SyncplayClient {
     this.socket.send(JSON.stringify(frame));
     return true;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isValidListPayload(
+  value: unknown,
+  roomId: string,
+): value is Record<string, Record<string, SyncplayListUserState>> {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const roomUsers = value[roomId];
+  if (roomUsers === undefined) {
+    return true;
+  }
+
+  if (!isRecord(roomUsers)) {
+    return false;
+  }
+
+  return Object.values(roomUsers).every((state) => {
+    if (!isRecord(state)) {
+      return false;
+    }
+
+    if (
+      state.position !== undefined &&
+      (typeof state.position !== "number" || !Number.isFinite(state.position))
+    ) {
+      return false;
+    }
+
+    if (
+      state.isReady !== undefined &&
+      state.isReady !== null &&
+      typeof state.isReady !== "boolean"
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+function isValidSetPayload(value: unknown): value is SyncplaySetPayload {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const ready = value.ready;
+  if (ready !== undefined) {
+    if (!isRecord(ready) || typeof ready.username !== "string") {
+      return false;
+    }
+
+    if (ready.isReady !== null && typeof ready.isReady !== "boolean") {
+      return false;
+    }
+  }
+
+  const user = value.user;
+  if (user !== undefined) {
+    if (!isRecord(user)) {
+      return false;
+    }
+
+    for (const state of Object.values(user)) {
+      if (!isRecord(state)) {
+        return false;
+      }
+
+      if (state.room !== undefined && !isRecord(state.room)) {
+        return false;
+      }
+
+      if (state.event !== undefined && !isRecord(state.event)) {
+        return false;
+      }
+
+      if (isRecord(state.event)) {
+        if (state.event.joined !== undefined && typeof state.event.joined !== "boolean") {
+          return false;
+        }
+
+        if (state.event.left !== undefined && typeof state.event.left !== "boolean") {
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
+function isValidStatePayload(value: unknown): value is SyncplayStatePayload {
+  if (!isRecord(value) || !isRecord(value.playstate)) {
+    return false;
+  }
+
+  const { playstate } = value;
+  if (
+    typeof playstate.position !== "number" ||
+    !Number.isFinite(playstate.position) ||
+    typeof playstate.paused !== "boolean"
+  ) {
+    return false;
+  }
+
+  if (playstate.doSeek !== undefined && typeof playstate.doSeek !== "boolean") {
+    return false;
+  }
+
+  if (
+    playstate.setBy !== undefined &&
+    playstate.setBy !== null &&
+    typeof playstate.setBy !== "string"
+  ) {
+    return false;
+  }
+
+  if (value.ping !== undefined) {
+    if (!isRecord(value.ping)) {
+      return false;
+    }
+
+    for (const field of [
+      value.ping.clientLatencyCalculation,
+      value.ping.clientRtt,
+      value.ping.serverRtt,
+      value.ping.latencyCalculation,
+    ]) {
+      if (field !== undefined && (typeof field !== "number" || !Number.isFinite(field))) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 export function encodeSyncplayUser(user: SyncplayUser): string {

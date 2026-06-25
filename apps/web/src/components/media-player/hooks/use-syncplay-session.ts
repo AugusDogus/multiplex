@@ -18,6 +18,12 @@ const REMOTE_STATE_SETTLE_INTERVAL_MS = 25;
 const REMOTE_SEEK_SUPPRESSION_MS = 5000;
 const REMOTE_PLAYBACK_SUPPRESSION_MS = 750;
 
+interface SuppressedPlaybackEvent {
+  id: number;
+  isPaused: boolean;
+  expiresAt: number;
+}
+
 function clampRemotePosition(
   positionSeconds: number,
   duration: number,
@@ -48,9 +54,8 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
   const duration = useMediaPlayerStore((state) => state.duration);
   const clientRef = useRef<SyncplayClient | null>(null);
   const canPlayRef = useRef(canPlay);
-  const suppressedPlaybackEventsRef = useRef<
-    Array<{ isPaused: boolean; expiresAt: number }>
-  >([]);
+  const suppressedPlaybackEventIdRef = useRef(0);
+  const suppressedPlaybackEventsRef = useRef<SuppressedPlaybackEvent[]>([]);
   const suppressedSeekRef = useRef<{
     positionSeconds: number;
     expiresAt: number;
@@ -73,6 +78,22 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
   useEffect(() => {
     canPlayRef.current = canPlay;
   }, [canPlay]);
+
+  const addSuppressedPlaybackEvent = useCallback((isPaused: boolean) => {
+    suppressedPlaybackEventIdRef.current += 1;
+    const id = suppressedPlaybackEventIdRef.current;
+    suppressedPlaybackEventsRef.current.push({
+      id,
+      isPaused,
+      expiresAt: performance.now() + REMOTE_PLAYBACK_SUPPRESSION_MS,
+    });
+    return id;
+  }, []);
+
+  const removeSuppressedPlaybackEvent = useCallback((id: number) => {
+    suppressedPlaybackEventsRef.current =
+      suppressedPlaybackEventsRef.current.filter((event) => event.id !== id);
+  }, []);
 
   const applyRemotePlaybackState = useCallback(
     (state: SyncplayPlaybackState): "applied" | "pending" => {
@@ -101,21 +122,19 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
       }
 
       if (state.isPaused && playerState.isPlaying) {
-        suppressedPlaybackEventsRef.current.push({
-          isPaused: true,
-          expiresAt: performance.now() + REMOTE_PLAYBACK_SUPPRESSION_MS,
-        });
+        addSuppressedPlaybackEvent(true);
         actionsRef.current.pause();
       } else if (!state.isPaused && !playerState.isPlaying) {
-        suppressedPlaybackEventsRef.current.push({
-          isPaused: false,
-          expiresAt: performance.now() + REMOTE_PLAYBACK_SUPPRESSION_MS,
+        const suppressedEventId = addSuppressedPlaybackEvent(false);
+        void Promise.resolve(actionsRef.current.play()).then((played) => {
+          if (!played) {
+            removeSuppressedPlaybackEvent(suppressedEventId);
+          }
         });
-        actionsRef.current.play();
       }
       return "applied";
     },
-    [],
+    [addSuppressedPlaybackEvent, removeSuppressedPlaybackEvent],
   );
 
   const getCurrentPlaybackState = useCallback(() => {
