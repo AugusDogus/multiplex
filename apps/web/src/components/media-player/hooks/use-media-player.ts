@@ -3,7 +3,10 @@
 import { useCallback, useRef } from "react";
 import type { Marker } from "@multiplex/plex-query";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
-import type { MediaPlayerActions } from "~/types/media-player";
+import type {
+  MediaPlayerActions,
+  MediaPlayerSeekResult,
+} from "~/types/media-player";
 import { clamp, supportsFullscreen } from "../utils/media-player-utils";
 
 /* ────────────────────────────────────────────────────────────
@@ -34,7 +37,7 @@ export function useMediaPlayer(): {
       try {
         await videoRef.current.play();
         console.log("🎬 Player: video.play() succeeded");
-        store.updatePlaybackState({ isPlaying: true });
+        store.updatePlaybackState({ error: null, isPlaying: true });
         return true;
       } catch (error) {
         console.error("🎬 Player: video.play() failed:", error);
@@ -76,7 +79,7 @@ export function useMediaPlayer(): {
    * @param time - Time to seek to in seconds
    */
   const seek = useCallback(
-    (time: number) => {
+    (time: number): MediaPlayerSeekResult => {
       if (videoRef.current) {
         const clampedTime = clamp(time, 0, store.duration);
         // Plex's transcoded MP4 stream advertises an empty seekable range, so
@@ -92,11 +95,14 @@ export function useMediaPlayer(): {
             isLoading: true,
             canPlay: false,
           });
-          return;
+          return "reload";
         }
         videoRef.current.currentTime = clampedTime;
         store.updatePlaybackState({ currentTime: clampedTime });
+        return "direct";
       }
+
+      return "none";
     },
     [store],
   );

@@ -27,7 +27,7 @@ interface SyncplayClientOptions {
   onParticipant?: (state: SyncplayParticipantState) => void;
   onPlaybackState?: (
     state: SyncplayPlaybackState,
-  ) => Promise<SyncplayStateInput | null | void> | SyncplayStateInput | null | void;
+  ) => Promise<SyncplayStateReply> | SyncplayStateReply;
   onClose?: () => void;
   onError?: (error: Event | Error) => void;
 }
@@ -37,6 +37,12 @@ interface SyncplayStateInput {
   positionSeconds: number;
   shouldSeek?: boolean;
 }
+
+interface SyncplaySkipReply {
+  skipReply: true;
+}
+
+type SyncplayStateReply = SyncplayStateInput | SyncplaySkipReply | null | void;
 
 type SyncplayIncomingFrame =
   | { Hello: { username: string; room: { name: string } } }
@@ -93,6 +99,7 @@ export class SyncplayClient {
   private requestedReady: boolean | null | undefined;
   private lastPing: SyncplayPingState | null = null;
   private pendingState: SyncplayStateInput | null = null;
+  private readonly knownParticipants = new Map<string, SyncplayUser>();
 
   constructor(options: SyncplayClientOptions) {
     this.room = options.room;
@@ -265,17 +272,32 @@ export class SyncplayClient {
       return;
     }
 
+    const presentUsers = new Set<string>();
+
     for (const [encodedUser, state] of Object.entries(roomUsers)) {
       const user = decodeSyncplayUser(encodedUser);
       if (!user) {
         continue;
       }
 
+      presentUsers.add(encodedUser);
+      this.knownParticipants.set(encodedUser, user);
       this.onParticipant({
         user,
         isPresent: true,
         isReady: state.isReady,
         positionSeconds: state.position,
+      });
+    }
+
+    for (const [encodedUser, user] of this.knownParticipants) {
+      if (presentUsers.has(encodedUser)) {
+        continue;
+      }
+
+      this.onParticipant({
+        user,
+        isPresent: false,
       });
     }
   }
@@ -284,6 +306,7 @@ export class SyncplayClient {
     if (payload.ready) {
       const user = decodeSyncplayUser(payload.ready.username);
       if (user) {
+        this.knownParticipants.set(payload.ready.username, user);
         this.onParticipant({ user, isReady: payload.ready.isReady });
       }
     }
@@ -299,6 +322,7 @@ export class SyncplayClient {
           continue;
         }
 
+        this.knownParticipants.set(encodedUser, user);
         this.onParticipant({
           user,
           isPresent: value.event?.left ? false : value.event?.joined ? true : undefined,
@@ -322,7 +346,7 @@ export class SyncplayClient {
       shouldSeek: false,
     };
 
-    void new Promise<SyncplayStateInput | null | void>((resolve, reject) => {
+    void new Promise<SyncplayStateReply>((resolve, reject) => {
       try {
         resolve(
           this.onPlaybackState({
@@ -337,6 +361,10 @@ export class SyncplayClient {
       }
     })
       .then((state) => {
+        if (isSkipReply(state)) {
+          return;
+        }
+
         this.sendState(state ?? fallbackState);
       })
       .catch((error: unknown) => {
@@ -369,6 +397,10 @@ export class SyncplayClient {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isSkipReply(value: SyncplayStateReply): value is SyncplaySkipReply {
+  return isRecord(value) && value.skipReply === true;
 }
 
 function isValidListPayload(
