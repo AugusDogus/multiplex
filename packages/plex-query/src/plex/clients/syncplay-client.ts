@@ -92,6 +92,7 @@ export class SyncplayClient {
   private readonly onError: NonNullable<SyncplayClientOptions["onError"]>;
   private requestedReady: boolean | null | undefined;
   private lastPing: SyncplayPingState | null = null;
+  private pendingState: SyncplayStateInput | null = null;
 
   constructor(options: SyncplayClientOptions) {
     this.room = options.room;
@@ -116,6 +117,7 @@ export class SyncplayClient {
           version: "1.6.4",
         },
       });
+      this.flushPendingState();
     });
     socket.addEventListener("message", (event) => {
       if (this.socket !== socket) {
@@ -171,7 +173,7 @@ export class SyncplayClient {
   }
 
   sendState(state: SyncplayStateInput): void {
-    this.send({
+    const frame = {
       State: {
         ping: {
           clientLatencyCalculation: performance.now() / 1000,
@@ -190,7 +192,11 @@ export class SyncplayClient {
           server: 0,
         },
       },
-    });
+    };
+
+    if (!this.send(frame)) {
+      this.pendingState = state;
+    }
   }
 
   private handleMessage(event: MessageEvent<string>): void {
@@ -200,6 +206,11 @@ export class SyncplayClient {
       frame = JSON.parse(event.data) as SyncplayIncomingFrame;
     } catch (error) {
       this.onError(error instanceof Error ? error : new Error("Invalid syncplay frame"));
+      return;
+    }
+
+    if (typeof frame !== "object" || frame === null) {
+      this.onError(new Error("Invalid syncplay frame: expected object"));
       return;
     }
 
@@ -295,23 +306,45 @@ export class SyncplayClient {
         positionSeconds: payload.playstate.position,
         shouldSeek: Boolean(payload.playstate.doSeek),
       }),
-    ).then((state) => {
-      this.sendState(
-        state ?? {
+    )
+      .then((state) => {
+        this.sendState(
+          state ?? {
+            isPaused: payload.playstate.paused,
+            positionSeconds: payload.playstate.position,
+            shouldSeek: false,
+          },
+        );
+      })
+      .catch((error: unknown) => {
+        this.onError(
+          error instanceof Error ? error : new Error("Syncplay playback handler rejected"),
+        );
+        this.sendState({
           isPaused: payload.playstate.paused,
           positionSeconds: payload.playstate.position,
           shouldSeek: false,
-        },
-      );
-    });
+        });
+      });
   }
 
-  private send(frame: unknown): void {
-    if (this.socket?.readyState !== WebSocket.OPEN) {
+  private flushPendingState(): void {
+    const pendingState = this.pendingState;
+    if (!pendingState) {
       return;
     }
 
+    this.pendingState = null;
+    this.sendState(pendingState);
+  }
+
+  private send(frame: unknown): boolean {
+    if (this.socket?.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+
     this.socket.send(JSON.stringify(frame));
+    return true;
   }
 }
 

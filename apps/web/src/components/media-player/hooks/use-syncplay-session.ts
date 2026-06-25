@@ -16,6 +16,7 @@ const SEEK_BEHIND_THRESHOLD_SECONDS = -1.75;
 const REMOTE_STATE_SETTLE_TIMEOUT_MS = 1000;
 const REMOTE_STATE_SETTLE_INTERVAL_MS = 25;
 const REMOTE_SEEK_SUPPRESSION_MS = 5000;
+const REMOTE_PLAYBACK_SUPPRESSION_MS = 750;
 
 function clampRemotePosition(
   positionSeconds: number,
@@ -47,7 +48,9 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
   const duration = useMediaPlayerStore((state) => state.duration);
   const clientRef = useRef<SyncplayClient | null>(null);
   const canPlayRef = useRef(canPlay);
-  const suppressedPlaybackEventCountRef = useRef(0);
+  const suppressedPlaybackEventsRef = useRef<
+    Array<{ isPaused: boolean; expiresAt: number }>
+  >([]);
   const suppressedSeekRef = useRef<{
     positionSeconds: number;
     expiresAt: number;
@@ -98,10 +101,16 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
       }
 
       if (state.isPaused && playerState.isPlaying) {
-        suppressedPlaybackEventCountRef.current += 1;
+        suppressedPlaybackEventsRef.current.push({
+          isPaused: true,
+          expiresAt: performance.now() + REMOTE_PLAYBACK_SUPPRESSION_MS,
+        });
         actionsRef.current.pause();
       } else if (!state.isPaused && !playerState.isPlaying) {
-        suppressedPlaybackEventCountRef.current += 1;
+        suppressedPlaybackEventsRef.current.push({
+          isPaused: false,
+          expiresAt: performance.now() + REMOTE_PLAYBACK_SUPPRESSION_MS,
+        });
         actionsRef.current.play();
       }
       return "applied";
@@ -151,7 +160,7 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
     if (!session || !activeForCurrentItem) {
       clientRef.current?.disconnect();
       clientRef.current = null;
-      suppressedPlaybackEventCountRef.current = 0;
+      suppressedPlaybackEventsRef.current = [];
       suppressedSeekRef.current = null;
       pendingRemoteStateRef.current = null;
       return;
@@ -212,7 +221,7 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
           if (sawFatalError) {
             clientRef.current = null;
             clearWatchTogetherSession();
-            suppressedPlaybackEventCountRef.current = 0;
+            suppressedPlaybackEventsRef.current = [];
             suppressedSeekRef.current = null;
             pendingRemoteStateRef.current = null;
           }
@@ -230,7 +239,7 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
       disposed = true;
       clearReconnectTimeout();
       clientRef.current?.disconnect();
-      suppressedPlaybackEventCountRef.current = 0;
+      suppressedPlaybackEventsRef.current = [];
       suppressedSeekRef.current = null;
       pendingRemoteStateRef.current = null;
       clientRef.current = null;
@@ -272,8 +281,18 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
         return;
       }
 
-      if (suppressedPlaybackEventCountRef.current > 0) {
-        suppressedPlaybackEventCountRef.current -= 1;
+      const now = performance.now();
+      suppressedPlaybackEventsRef.current =
+        suppressedPlaybackEventsRef.current.filter(
+          (event) => event.expiresAt >= now,
+        );
+      const suppressedPlaybackIndex =
+        suppressedPlaybackEventsRef.current.findIndex(
+          (event) => event.isPaused === nextState.isPaused,
+        );
+
+      if (suppressedPlaybackIndex >= 0) {
+        suppressedPlaybackEventsRef.current.splice(suppressedPlaybackIndex, 1);
         return;
       }
 
