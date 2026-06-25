@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
-import { SyncplayClient } from "@multiplex/plex-query";
+import {
+  SyncplayClient,
+  type SyncplayPlaybackState,
+} from "@multiplex/plex-query";
 
 import { parseWatchTogetherSourceUri } from "~/lib/watch-together-source";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
@@ -10,6 +13,20 @@ import type { MediaPlayerActions } from "~/types/media-player";
 
 const SEEK_AHEAD_THRESHOLD_SECONDS = 4;
 const SEEK_BEHIND_THRESHOLD_SECONDS = -1.75;
+const REMOTE_STATE_SETTLE_TIMEOUT_MS = 1000;
+const REMOTE_STATE_SETTLE_INTERVAL_MS = 25;
+const REMOTE_SEEK_SUPPRESSION_MS = 5000;
+
+function clampRemotePosition(
+  positionSeconds: number,
+  duration: number,
+): number {
+  if (duration <= 0) {
+    return positionSeconds;
+  }
+
+  return Math.min(Math.max(positionSeconds, 0), duration);
+}
 
 interface UseSyncplaySessionOptions {
   actions: MediaPlayerActions;
@@ -19,13 +36,23 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
   const { pause, play, seek } = actions;
   const actionsRef = useRef({ pause, play, seek });
   const session = useWatchTogetherStore((state) => state.session);
+  const clearWatchTogetherSession = useWatchTogetherStore(
+    (state) => state.clearSession,
+  );
   const updateParticipant = useWatchTogetherStore(
     (state) => state.updateParticipant,
   );
   const currentItem = useMediaPlayerStore((state) => state.currentItem);
   const canPlay = useMediaPlayerStore((state) => state.canPlay);
+  const duration = useMediaPlayerStore((state) => state.duration);
   const clientRef = useRef<SyncplayClient | null>(null);
-  const suppressedLocalEventCountRef = useRef(0);
+  const canPlayRef = useRef(canPlay);
+  const suppressedPlaybackEventCountRef = useRef(0);
+  const suppressedSeekRef = useRef<{
+    positionSeconds: number;
+    expiresAt: number;
+  } | null>(null);
+  const pendingRemoteStateRef = useRef<SyncplayPlaybackState | null>(null);
 
   const activeForCurrentItem = Boolean(
     session &&
@@ -41,53 +68,195 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
   }, [pause, play, seek]);
 
   useEffect(() => {
+    canPlayRef.current = canPlay;
+  }, [canPlay]);
+
+  const applyRemotePlaybackState = useCallback(
+    (state: SyncplayPlaybackState): "applied" | "pending" => {
+      const playerState = useMediaPlayerStore.getState();
+      const targetPosition = clampRemotePosition(
+        state.positionSeconds,
+        playerState.duration,
+      );
+      const diffSeconds = playerState.currentTime - targetPosition;
+      const shouldSeek =
+        state.shouldSeek ||
+        diffSeconds >= SEEK_AHEAD_THRESHOLD_SECONDS ||
+        diffSeconds <= SEEK_BEHIND_THRESHOLD_SECONDS;
+
+      if (shouldSeek && playerState.duration <= 0) {
+        pendingRemoteStateRef.current = state;
+        return "pending";
+      }
+
+      if (shouldSeek) {
+        suppressedSeekRef.current = {
+          positionSeconds: targetPosition,
+          expiresAt: performance.now() + REMOTE_SEEK_SUPPRESSION_MS,
+        };
+        actionsRef.current.seek(targetPosition);
+      }
+
+      if (state.isPaused && playerState.isPlaying) {
+        suppressedPlaybackEventCountRef.current += 1;
+        actionsRef.current.pause();
+      } else if (!state.isPaused && !playerState.isPlaying) {
+        suppressedPlaybackEventCountRef.current += 1;
+        actionsRef.current.play();
+      }
+      return "applied";
+    },
+    [],
+  );
+
+  const getCurrentPlaybackState = useCallback(() => {
+    const playerState = useMediaPlayerStore.getState();
+    return {
+      isPaused: !playerState.isPlaying,
+      positionSeconds: playerState.currentTime,
+      shouldSeek: false,
+    };
+  }, []);
+
+  const waitForRemoteStateToSettle = useCallback(
+    async (state: SyncplayPlaybackState) => {
+      const startedAt = performance.now();
+
+      while (performance.now() - startedAt < REMOTE_STATE_SETTLE_TIMEOUT_MS) {
+        const playerState = useMediaPlayerStore.getState();
+        const targetPosition = clampRemotePosition(
+          state.positionSeconds,
+          playerState.duration,
+        );
+        const playbackSettled = playerState.isPlaying !== state.isPaused;
+        const positionSettled =
+          !state.shouldSeek ||
+          Math.abs(playerState.currentTime - targetPosition) < 0.75;
+
+        if (playbackSettled && positionSettled) {
+          break;
+        }
+
+        await new Promise((resolve) =>
+          window.setTimeout(resolve, REMOTE_STATE_SETTLE_INTERVAL_MS),
+        );
+      }
+
+      return getCurrentPlaybackState();
+    },
+    [getCurrentPlaybackState],
+  );
+
+  useEffect(() => {
     if (!session || !activeForCurrentItem) {
       clientRef.current?.disconnect();
       clientRef.current = null;
-      suppressedLocalEventCountRef.current = 0;
+      suppressedPlaybackEventCountRef.current = 0;
+      suppressedSeekRef.current = null;
+      pendingRemoteStateRef.current = null;
       return;
     }
 
-    const client = new SyncplayClient({
-      room: session.room,
-      user: session.localUser,
-      onParticipant: updateParticipant,
-      onPlaybackState: (state) => {
-        const currentTime = useMediaPlayerStore.getState().currentTime;
-        const currentlyPlaying = useMediaPlayerStore.getState().isPlaying;
-        const diffSeconds = currentTime - state.positionSeconds;
-        const shouldSeek =
-          state.shouldSeek ||
-          diffSeconds >= SEEK_AHEAD_THRESHOLD_SECONDS ||
-          diffSeconds <= SEEK_BEHIND_THRESHOLD_SECONDS;
+    let disposed = false;
+    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+    let sawFatalError = false;
 
-        const willChangePlayback = state.isPaused === currentlyPlaying;
-        suppressedLocalEventCountRef.current +=
-          (shouldSeek ? 1 : 0) + (willChangePlayback ? 1 : 0);
-
-        if (shouldSeek) {
-          actionsRef.current.seek(state.positionSeconds);
-        }
-
-        if (state.isPaused) {
-          actionsRef.current.pause();
-        } else {
-          actionsRef.current.play();
-        }
-      },
-    });
-
-    client.connect();
-    clientRef.current = client;
-
-    return () => {
-      client.disconnect();
-      suppressedLocalEventCountRef.current = 0;
-      if (clientRef.current === client) {
-        clientRef.current = null;
+    const clearReconnectTimeout = () => {
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
       }
     };
-  }, [activeForCurrentItem, session, updateParticipant]);
+
+    const connect = () => {
+      if (disposed) {
+        return;
+      }
+
+      const client = new SyncplayClient({
+        room: session.room,
+        user: session.localUser,
+        onParticipant: updateParticipant,
+        onPlaybackState: async (state) => {
+          const result = applyRemotePlaybackState(state);
+          return result === "pending"
+            ? {
+                isPaused: state.isPaused,
+                positionSeconds: state.positionSeconds,
+                shouldSeek: false,
+              }
+            : waitForRemoteStateToSettle(state);
+        },
+        onClose: () => {
+          if (disposed || clientRef.current !== client) {
+            return;
+          }
+
+          clientRef.current = null;
+          if (sawFatalError) {
+            return;
+          }
+
+          clearReconnectTimeout();
+          reconnectTimeout = setTimeout(connect, 1000);
+        },
+        onError: (error) => {
+          if (disposed || clientRef.current !== client) {
+            return;
+          }
+
+          sawFatalError =
+            error instanceof Error &&
+            error.message.startsWith("Syncplay protocol error:");
+
+          if (sawFatalError) {
+            clientRef.current = null;
+            clearWatchTogetherSession();
+            suppressedPlaybackEventCountRef.current = 0;
+            suppressedSeekRef.current = null;
+            pendingRemoteStateRef.current = null;
+          }
+        },
+      });
+
+      client.connect();
+      client.setReady(canPlayRef.current);
+      clientRef.current = client;
+    };
+
+    connect();
+
+    return () => {
+      disposed = true;
+      clearReconnectTimeout();
+      clientRef.current?.disconnect();
+      suppressedPlaybackEventCountRef.current = 0;
+      suppressedSeekRef.current = null;
+      pendingRemoteStateRef.current = null;
+      clientRef.current = null;
+    };
+  }, [
+    activeForCurrentItem,
+    applyRemotePlaybackState,
+    clearWatchTogetherSession,
+    session,
+    updateParticipant,
+    waitForRemoteStateToSettle,
+  ]);
+
+  useEffect(() => {
+    if (!activeForCurrentItem || !canPlay || duration <= 0) {
+      return;
+    }
+
+    const pendingState = pendingRemoteStateRef.current;
+    if (!pendingState) {
+      return;
+    }
+
+    pendingRemoteStateRef.current = null;
+    applyRemotePlaybackState(pendingState);
+  }, [activeForCurrentItem, applyRemotePlaybackState, canPlay, duration]);
 
   useEffect(() => {
     if (!clientRef.current || !activeForCurrentItem) {
@@ -98,45 +267,61 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
   }, [activeForCurrentItem, canPlay]);
 
   const sendLocalState = useCallback(
-    (isPaused: boolean, shouldSeek = false, timeOverride?: number) => {
+    (nextState: { isPaused: boolean; shouldSeek?: boolean; time?: number }) => {
       if (!activeForCurrentItem || !clientRef.current) {
         return;
       }
 
-      if (suppressedLocalEventCountRef.current > 0) {
-        suppressedLocalEventCountRef.current -= 1;
+      if (suppressedPlaybackEventCountRef.current > 0) {
+        suppressedPlaybackEventCountRef.current -= 1;
         return;
       }
 
-      const state = useMediaPlayerStore.getState();
+      const playerState = useMediaPlayerStore.getState();
       clientRef.current.sendState({
-        isPaused,
-        positionSeconds: timeOverride ?? state.currentTime,
-        shouldSeek,
+        isPaused: nextState.isPaused,
+        positionSeconds: nextState.time ?? playerState.currentTime,
+        shouldSeek: nextState.shouldSeek ?? false,
       });
     },
     [activeForCurrentItem],
   );
 
-  const onLocalPlay = useCallback(() => {
-    sendLocalState(false, false);
-  }, [sendLocalState]);
-
-  const onLocalPause = useCallback(() => {
-    sendLocalState(true, false);
-  }, [sendLocalState]);
+  const onLocalPlaybackChange = useCallback(
+    (isPaused: boolean) => {
+      sendLocalState({ isPaused });
+    },
+    [sendLocalState],
+  );
 
   const onLocalSeeked = useCallback(
     (time: number) => {
-      sendLocalState(!useMediaPlayerStore.getState().isPlaying, true, time);
+      const suppressedSeek = suppressedSeekRef.current;
+      if (
+        suppressedSeek &&
+        performance.now() <= suppressedSeek.expiresAt &&
+        Math.abs(time - suppressedSeek.positionSeconds) < 0.75
+      ) {
+        suppressedSeekRef.current = null;
+        return;
+      }
+
+      if (suppressedSeek && performance.now() > suppressedSeek.expiresAt) {
+        suppressedSeekRef.current = null;
+      }
+
+      sendLocalState({
+        isPaused: !useMediaPlayerStore.getState().isPlaying,
+        shouldSeek: true,
+        time,
+      });
     },
     [sendLocalState],
   );
 
   return {
     isActive: activeForCurrentItem,
-    onLocalPlay,
-    onLocalPause,
+    onLocalPlaybackChange,
     onLocalSeeked,
   };
 }

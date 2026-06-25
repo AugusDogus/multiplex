@@ -25,7 +25,9 @@ interface SyncplayClientOptions {
   room: Pick<WatchTogetherRoom, "id" | "syncplayHost" | "syncplayPort" | "sourceUri">;
   user: SyncplayUser;
   onParticipant?: (state: SyncplayParticipantState) => void;
-  onPlaybackState?: (state: SyncplayPlaybackState) => void;
+  onPlaybackState?: (
+    state: SyncplayPlaybackState,
+  ) => Promise<SyncplayStateInput | null | void> | SyncplayStateInput | null | void;
   onClose?: () => void;
   onError?: (error: Event | Error) => void;
 }
@@ -64,12 +66,20 @@ interface SyncplaySetPayload {
 }
 
 interface SyncplayStatePayload {
+  ping?: SyncplayPingState;
   playstate: {
     position: number;
     paused: boolean;
     doSeek?: boolean;
     setBy?: string | null;
   };
+}
+
+interface SyncplayPingState {
+  clientLatencyCalculation?: number;
+  clientRtt?: number;
+  serverRtt?: number;
+  latencyCalculation?: number;
 }
 
 export class SyncplayClient {
@@ -81,6 +91,7 @@ export class SyncplayClient {
   private readonly onClose: NonNullable<SyncplayClientOptions["onClose"]>;
   private readonly onError: NonNullable<SyncplayClientOptions["onError"]>;
   private requestedReady: boolean | null | undefined;
+  private lastPing: SyncplayPingState | null = null;
 
   constructor(options: SyncplayClientOptions) {
     this.room = options.room;
@@ -106,7 +117,12 @@ export class SyncplayClient {
         },
       });
     });
-    socket.addEventListener("message", (event) => this.handleMessage(event));
+    socket.addEventListener("message", (event) => {
+      if (this.socket !== socket) {
+        return;
+      }
+      this.handleMessage(event);
+    });
     socket.addEventListener("close", () => {
       if (this.socket !== socket) {
         return;
@@ -114,16 +130,26 @@ export class SyncplayClient {
       this.socket = null;
       this.onClose();
     });
-    socket.addEventListener("error", (event) => this.onError(event));
+    socket.addEventListener("error", (event) => {
+      if (this.socket !== socket) {
+        return;
+      }
+      this.onError(event);
+      this.disconnect({ notify: true });
+    });
   }
 
-  disconnect(): void {
+  disconnect(options: { notify?: boolean } = {}): void {
     if (!this.socket) {
       return;
     }
 
     const socket = this.socket;
+    this.socket = null;
     socket.close(1000);
+    if (options.notify) {
+      this.onClose();
+    }
   }
 
   setReady(isReady: boolean | null): void {
@@ -149,9 +175,9 @@ export class SyncplayClient {
       State: {
         ping: {
           clientLatencyCalculation: performance.now() / 1000,
-          clientRtt: 0,
-          serverRtt: 0,
-          latencyCalculation: 0,
+          clientRtt: this.lastPing?.clientRtt ?? 0,
+          serverRtt: this.lastPing?.serverRtt ?? 0,
+          latencyCalculation: this.lastPing?.latencyCalculation ?? 0,
         },
         playstate: {
           doSeek: state.shouldSeek ?? false,
@@ -179,7 +205,7 @@ export class SyncplayClient {
 
     if ("Error" in frame) {
       this.onError(new Error(`Syncplay protocol error: ${JSON.stringify(frame.Error)}`));
-      this.disconnect();
+      this.disconnect({ notify: true });
       return;
     }
 
@@ -260,17 +286,23 @@ export class SyncplayClient {
       return;
     }
 
-    this.onPlaybackState({
-      user,
-      isPaused: payload.playstate.paused,
-      positionSeconds: payload.playstate.position,
-      shouldSeek: Boolean(payload.playstate.doSeek),
-    });
+    this.lastPing = payload.ping ?? null;
 
-    this.sendState({
-      isPaused: payload.playstate.paused,
-      positionSeconds: payload.playstate.position,
-      shouldSeek: false,
+    void Promise.resolve(
+      this.onPlaybackState({
+        user,
+        isPaused: payload.playstate.paused,
+        positionSeconds: payload.playstate.position,
+        shouldSeek: Boolean(payload.playstate.doSeek),
+      }),
+    ).then((state) => {
+      this.sendState(
+        state ?? {
+          isPaused: payload.playstate.paused,
+          positionSeconds: payload.playstate.position,
+          shouldSeek: false,
+        },
+      );
     });
   }
 

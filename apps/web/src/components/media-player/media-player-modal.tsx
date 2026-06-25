@@ -163,20 +163,19 @@ export function MediaPlayerModal() {
     clearSession,
   } = useTimelineUpdates();
   const {
-    onLocalPause: onSyncplayLocalPause,
-    onLocalPlay: onSyncplayLocalPlay,
+    onLocalPlaybackChange: onSyncplayLocalPlaybackChange,
     onLocalSeeked: onSyncplayLocalSeeked,
   } = useSyncplaySession({ actions });
 
   const handleVideoPlay = useCallback(() => {
     onPlay();
-    onSyncplayLocalPlay();
-  }, [onPlay, onSyncplayLocalPlay]);
+    onSyncplayLocalPlaybackChange(false);
+  }, [onPlay, onSyncplayLocalPlaybackChange]);
 
   const handleVideoPause = useCallback(() => {
     onPause();
-    onSyncplayLocalPause();
-  }, [onPause, onSyncplayLocalPause]);
+    onSyncplayLocalPlaybackChange(true);
+  }, [onPause, onSyncplayLocalPlaybackChange]);
 
   const handleVideoSeeked = useCallback(
     (time: number) => {
