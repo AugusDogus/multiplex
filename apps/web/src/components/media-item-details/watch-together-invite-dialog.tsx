@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Users } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 
 import { Button } from "~/components/ui/button";
 import {
@@ -13,6 +13,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
+import {
+  PlexUserAvatar,
+  PlexUserAvatarStack,
+} from "~/components/watch-together/plex-user-avatar";
 import { getWatchTogetherRoomHref } from "~/lib/watch-together-source";
 import { cn } from "~/lib/utils";
 import { api } from "~/trpc/react";
@@ -51,12 +55,19 @@ export function WatchTogetherInviteDialog({
     },
   });
 
-  const invitees = inviteesQuery.data ?? [];
+  const invitees = useMemo(
+    () => inviteesQuery.data ?? [],
+    [inviteesQuery.data],
+  );
   const isBusy = createRoomMutation.isPending || inviteesQuery.isPending;
   const playable = playTarget ?? item;
   const canInvite = Boolean(playTarget && !isBusy);
 
   const selectedSet = useMemo(() => new Set(selectedUsers), [selectedUsers]);
+  const selectedInvitees = useMemo(
+    () => invitees.filter((invitee) => selectedSet.has(invitee.id)),
+    [invitees, selectedSet],
+  );
 
   const toggleInvitee = (id: number) => {
     setSelectedUsers((current) =>
@@ -65,6 +76,8 @@ export function WatchTogetherInviteDialog({
         : [...current, id],
     );
   };
+
+  const clearSelection = () => setSelectedUsers([]);
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
@@ -98,10 +111,30 @@ export function WatchTogetherInviteDialog({
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
+          {selectedInvitees.length > 0 && (
+            <div className="bg-muted/40 flex items-center gap-3 rounded-lg px-3 py-2">
+              <PlexUserAvatarStack users={selectedInvitees} max={5} />
+              <span className="text-sm font-medium">
+                {selectedInvitees.length}{" "}
+                {selectedInvitees.length === 1 ? "friend" : "friends"} selected
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-foreground ml-auto h-7 px-2"
+                disabled={createRoomMutation.isPending}
+                onClick={clearSelection}
+              >
+                Clear
+              </Button>
+            </div>
+          )}
+
           <p className="text-muted-foreground text-sm">
             Friends and Accounts with Library Access
           </p>
-          <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
+          <div className="-mr-1 flex max-h-72 flex-col gap-1 overflow-y-auto pr-1">
             {inviteesQuery.isPending ? (
               <InviteStatus>
                 <Loader2 className="size-4 animate-spin" /> Loading friends...
@@ -119,16 +152,15 @@ export function WatchTogetherInviteDialog({
                   <button
                     key={invitee.id}
                     type="button"
+                    aria-pressed={selected}
                     className={cn(
-                      "hover:bg-accent focus-visible:bg-accent flex items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors outline-none",
+                      "hover:bg-accent focus-visible:ring-ring flex items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm transition-colors outline-none focus-visible:ring-2",
                       selected && "bg-accent",
                     )}
                     disabled={createRoomMutation.isPending}
                     onClick={() => toggleInvitee(invitee.id)}
                   >
-                    <span className="bg-muted flex size-9 items-center justify-center rounded-full">
-                      <Users className="size-4" />
-                    </span>
+                    <PlexUserAvatar user={invitee} className="size-9" />
                     <span className="min-w-0 flex-1">
                       <span className="line-clamp-1 font-medium">
                         {invitee.title ?? invitee.username}
@@ -137,11 +169,18 @@ export function WatchTogetherInviteDialog({
                         {invitee.username}
                       </span>
                     </span>
-                    {selected && (
-                      <span className="text-primary text-xs font-medium">
-                        Selected
-                      </span>
-                    )}
+                    <span
+                      className={cn(
+                        "flex size-5 shrink-0 items-center justify-center rounded-full border transition-colors",
+                        selected
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-muted-foreground/30",
+                      )}
+                    >
+                      {selected && (
+                        <Check className="size-3.5" strokeWidth={3} />
+                      )}
+                    </span>
                   </button>
                 );
               })
@@ -162,7 +201,9 @@ export function WatchTogetherInviteDialog({
             {createRoomMutation.isPending && (
               <Loader2 className="animate-spin" data-icon="inline-start" />
             )}
-            Invite
+            {selectedInvitees.length > 0
+              ? `Invite ${selectedInvitees.length}`
+              : "Create room"}
           </Button>
         </DialogFooter>
       </DialogContent>
