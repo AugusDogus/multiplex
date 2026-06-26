@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { getMainTitle } from "@multiplex/plex-query";
 import { Play, Users } from "lucide-react";
 
 import { MediaCarousel } from "~/components/media-carousel";
@@ -46,19 +47,22 @@ export function WatchTogetherRow() {
 }
 
 function WatchTogetherRoomCard({ room }: { room: WatchTogetherRoom }) {
-  const { posterUrl, isPending } = useWatchTogetherRoomMedia(room.sourceUri);
+  const { item, posterUrl, isPending } = useWatchTogetherRoomMedia(
+    room.sourceUri,
+  );
+  const title = item ? getMainTitle(item) : room.title;
 
   return (
     <Link
       href={getWatchTogetherRoomHref(room.id)}
-      aria-label={`Open Watch Together room for ${room.title}`}
+      aria-label={`Open Watch Together room for ${title}`}
       className="group flex w-[160px] flex-col gap-2"
     >
       <div className="bg-muted relative aspect-2/3 overflow-hidden rounded-md shadow-lg transition-[transform,box-shadow] duration-200 ease-out group-hover:shadow-xl group-active:scale-[0.98] md:group-active:scale-100">
         {posterUrl ? (
           <Image
             src={posterUrl}
-            alt={`${room.title} poster`}
+            alt={`${title} poster`}
             fill
             sizes="160px"
             className="object-cover"
@@ -98,9 +102,7 @@ function WatchTogetherRoomCard({ room }: { room: WatchTogetherRoom }) {
       </div>
 
       <div className="min-w-0">
-        <h3 className="truncate text-sm leading-tight font-medium">
-          {room.title}
-        </h3>
+        <h3 className="truncate text-sm leading-tight font-medium">{title}</h3>
         <p className="text-muted-foreground truncate text-xs leading-tight">
           {formatParticipants(room.users)}
         </p>
