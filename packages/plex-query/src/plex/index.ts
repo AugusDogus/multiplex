@@ -17,6 +17,13 @@ export type {
   SyncplayWebSocketFactory,
   SyncplayWebSocketLike,
 } from "./clients/syncplay-client";
+export { SyncplaySessionController } from "./clients/syncplay-session-controller";
+export type {
+  SyncplayPlayerAdapter,
+  SyncplayPlayerState,
+  SyncplaySeekResult,
+  SyncplaySessionControllerOptions,
+} from "./clients/syncplay-session-controller";
 export { PlexTvAuthService } from "./clients/plex-tv-auth-service";
 export { PlexTvClient } from "./clients/plex-tv-client";
 export { WatchTogetherClient } from "./clients/watch-together-client";

@@ -37,11 +37,13 @@ export function useMediaPlayer(): {
       try {
         await videoRef.current.play();
         console.log("🎬 Player: video.play() succeeded");
-        store.updatePlaybackState({ error: null, isPlaying: true });
+        useMediaPlayerStore
+          .getState()
+          .updatePlaybackState({ error: null, isPlaying: true });
         return true;
       } catch (error) {
         console.error("🎬 Player: video.play() failed:", error);
-        store.updatePlaybackState({
+        useMediaPlayerStore.getState().updatePlaybackState({
           error: "Failed to start video playback",
           isPlaying: false,
         });
@@ -50,7 +52,7 @@ export function useMediaPlayer(): {
     }
 
     return false;
-  }, [store]);
+  }, []);
 
   /**
    * Pause video playback
@@ -59,79 +61,79 @@ export function useMediaPlayer(): {
     console.log("🎬 Player: pause() called");
     if (videoRef.current) {
       videoRef.current.pause();
-      store.updatePlaybackState({ isPlaying: false });
+      useMediaPlayerStore.getState().updatePlaybackState({ isPlaying: false });
     }
-  }, [store]);
+  }, []);
 
   /**
    * Toggle play/pause state
    */
   const togglePlay = useCallback(() => {
-    if (store.isPlaying) {
+    if (useMediaPlayerStore.getState().isPlaying) {
       pause();
     } else {
       void play();
     }
-  }, [store.isPlaying, play, pause]);
+  }, [play, pause]);
 
   /**
    * Seek to a specific time in the video
    * @param time - Time to seek to in seconds
    */
-  const seek = useCallback(
-    (time: number): MediaPlayerSeekResult => {
-      if (videoRef.current) {
-        const clampedTime = clamp(time, 0, store.duration);
-        // Plex's transcoded MP4 stream advertises an empty seekable range, so
-        // assigning `video.currentTime` is silently rejected. For those we
-        // seek by reloading the stream with a new `offset` instead.
-        const isTranscoded = videoRef.current.currentSrc.includes(
-          "/video/:/transcode/universal/",
-        );
-        if (isTranscoded) {
-          store.updatePlaybackState({
-            streamOffset: clampedTime,
-            currentTime: clampedTime,
-            isLoading: true,
-            canPlay: false,
-          });
-          return "reload";
-        }
-        videoRef.current.currentTime = clampedTime;
-        store.updatePlaybackState({ currentTime: clampedTime });
-        return "direct";
+  const seek = useCallback((time: number): MediaPlayerSeekResult => {
+    if (videoRef.current) {
+      const clampedTime = clamp(
+        time,
+        0,
+        useMediaPlayerStore.getState().duration,
+      );
+      // Plex's transcoded MP4 stream advertises an empty seekable range, so
+      // assigning `video.currentTime` is silently rejected. For those we
+      // seek by reloading the stream with a new `offset` instead.
+      const isTranscoded = videoRef.current.currentSrc.includes(
+        "/video/:/transcode/universal/",
+      );
+      if (isTranscoded) {
+        useMediaPlayerStore.getState().updatePlaybackState({
+          streamOffset: clampedTime,
+          currentTime: clampedTime,
+          isLoading: true,
+          canPlay: false,
+        });
+        return "reload";
       }
+      videoRef.current.currentTime = clampedTime;
+      useMediaPlayerStore
+        .getState()
+        .updatePlaybackState({ currentTime: clampedTime });
+      return "direct";
+    }
 
-      return "none";
-    },
-    [store],
-  );
+    return "none";
+  }, []);
 
   /**
    * Set the volume level
    * @param volume - Volume level (0-1)
    */
-  const setVolume = useCallback(
-    (volume: number) => {
-      if (videoRef.current) {
-        const clampedVolume = clamp(volume, 0, 1);
-        videoRef.current.volume = clampedVolume;
-        store.setVolume(clampedVolume);
-      }
-    },
-    [store],
-  );
+  const setVolume = useCallback((volume: number) => {
+    if (videoRef.current) {
+      const clampedVolume = clamp(volume, 0, 1);
+      videoRef.current.volume = clampedVolume;
+      useMediaPlayerStore.getState().setVolume(clampedVolume);
+    }
+  }, []);
 
   /**
    * Toggle mute state
    */
   const toggleMute = useCallback(() => {
     if (videoRef.current) {
-      const newMuted = !store.isMuted;
+      const newMuted = !useMediaPlayerStore.getState().isMuted;
       videoRef.current.muted = newMuted;
-      store.toggleMute();
+      useMediaPlayerStore.getState().toggleMute();
     }
-  }, [store]);
+  }, []);
 
   /**
    * Toggle fullscreen mode
@@ -144,23 +146,29 @@ export function useMediaPlayer(): {
 
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().then(
-        () => store.updatePlaybackState({ isFullscreen: true }),
+        () =>
+          useMediaPlayerStore
+            .getState()
+            .updatePlaybackState({ isFullscreen: true }),
         (error) => console.error("Fullscreen request failed:", error),
       );
     } else {
       document.exitFullscreen().then(
-        () => store.updatePlaybackState({ isFullscreen: false }),
+        () =>
+          useMediaPlayerStore
+            .getState()
+            .updatePlaybackState({ isFullscreen: false }),
         (error) => console.error("Exit fullscreen failed:", error),
       );
     }
-  }, [store]);
+  }, []);
 
   /**
    * Show controls temporarily and set timeout to hide them
    */
   const showControlsTemporarily = useCallback(() => {
-    store.showControlsTemporarily();
-  }, [store]);
+    useMediaPlayerStore.getState().showControlsTemporarily();
+  }, []);
 
   /**
    * Skip forward by a specified number of seconds
@@ -168,10 +176,11 @@ export function useMediaPlayer(): {
    */
   const skipForward = useCallback(
     (seconds = 10) => {
-      const newTime = Math.min(store.currentTime + seconds, store.duration);
+      const { currentTime, duration } = useMediaPlayerStore.getState();
+      const newTime = Math.min(currentTime + seconds, duration);
       seek(newTime);
     },
-    [store.currentTime, store.duration, seek],
+    [seek],
   );
 
   /**
@@ -180,10 +189,13 @@ export function useMediaPlayer(): {
    */
   const skipBackward = useCallback(
     (seconds = 10) => {
-      const newTime = Math.max(store.currentTime - seconds, 0);
+      const newTime = Math.max(
+        useMediaPlayerStore.getState().currentTime - seconds,
+        0,
+      );
       seek(newTime);
     },
-    [store.currentTime, seek],
+    [seek],
   );
 
   /**
@@ -197,8 +209,8 @@ export function useMediaPlayer(): {
    * Jump to the end of the video
    */
   const jumpToEnd = useCallback(() => {
-    seek(store.duration);
-  }, [store.duration, seek]);
+    seek(useMediaPlayerStore.getState().duration);
+  }, [seek]);
 
   /**
    * Seek to the end of a marker (for skip intro/credits functionality)
