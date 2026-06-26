@@ -103,6 +103,8 @@ export class SyncplaySessionController {
     this.disconnectClient();
     this.disposed = false;
     this.sawFatalError = false;
+    this.suppressedPlaybackEvents = [];
+    this.suppressedSeek = null;
     this.connectClient();
   }
 
