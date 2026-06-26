@@ -7,6 +7,14 @@ import type {
   PlayableMetadata,
 } from "../schemas/continue-watching-schemas";
 
+const LIBRARY_ITEM_URI_PATTERN =
+  /^server:\/\/(?<serverId>[^/]+)\/com\.plexapp\.plugins\.library\/library\/metadata\/(?<ratingKey>[^/?#]+)/;
+
+export interface LibraryItemUriParts {
+  serverId: string;
+  ratingKey: string;
+}
+
 /* ────────────────────────────────────────────────────────────
    Metadata utilities for item details and hierarchy navigation
    ──────────────────────────────────────────────────────────── */
@@ -19,6 +27,18 @@ import type {
 export function buildLibraryItemUri(serverId: string, ratingKey: string, key?: string): string {
   const itemKey = key && key.startsWith("/") ? key : `/library/metadata/${ratingKey}`;
   return `server://${serverId}/com.plexapp.plugins.library${itemKey}`;
+}
+
+export function parseLibraryItemUri(sourceUri: string): LibraryItemUriParts | null {
+  const match = LIBRARY_ITEM_URI_PATTERN.exec(sourceUri);
+  if (!match?.groups?.serverId || !match.groups.ratingKey) {
+    return null;
+  }
+
+  return {
+    serverId: match.groups.serverId,
+    ratingKey: match.groups.ratingKey,
+  };
 }
 
 export function enrichMetadataChildren(

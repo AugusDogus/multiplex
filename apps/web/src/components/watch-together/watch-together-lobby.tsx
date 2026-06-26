@@ -1,12 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { parseLibraryItemUri } from "@multiplex/plex-query";
 import { Loader2, Play, Users } from "lucide-react";
 
 import { Button } from "~/components/ui/button";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { getWatchTogetherDeviceIdentifier } from "~/lib/device-identifier";
-import { parseWatchTogetherSourceUri } from "~/lib/watch-together-source";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { useWatchTogetherStore } from "~/stores/watch-together-store";
 import { api } from "~/trpc/react";
@@ -29,7 +29,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     staleTime: 60_000,
   });
   const room = roomQuery.data;
-  const source = room ? parseWatchTogetherSourceUri(room.sourceUri) : null;
+  const source = room ? parseLibraryItemUri(room.sourceUri) : null;
   const detailsQuery = api.plex.getItemDetails.useQuery(
     {
       serverId: source?.serverId ?? "",

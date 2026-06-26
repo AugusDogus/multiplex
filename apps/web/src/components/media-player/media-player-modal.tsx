@@ -40,6 +40,7 @@ import { MediaPlayerVideo } from "./media-player-video";
 import type { MediaPlayerSeekFeedbackHandle } from "./media-player-video";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { cn } from "~/lib/utils";
+import { useWatchTogetherStore } from "~/stores/watch-together-store";
 
 /* ────────────────────────────────────────────────────────────
    Media Player Modal
@@ -63,6 +64,9 @@ export function MediaPlayerModal() {
   const volume = useMediaPlayerStore((state) => state.volume);
 
   const { closePlayer, updatePlaybackState } = useMediaPlayerStore();
+  const clearWatchTogetherSession = useWatchTogetherStore(
+    (state) => state.clearSession,
+  );
   const { actions, videoRef } = useMediaPlayer();
   const seekFeedbackRef = useRef<MediaPlayerSeekFeedbackHandle>(null);
   const isMobile = useIsMobile();
@@ -151,7 +155,6 @@ export function MediaPlayerModal() {
   }, [actions, currentTime, duration, isMobile]);
 
   usePlayQueue(currentItem);
-  const { autoPlayState } = useAutoPlayNextEpisode();
 
   const {
     onPlay,
@@ -165,7 +168,11 @@ export function MediaPlayerModal() {
   const {
     onLocalPlaybackChange: onSyncplayLocalPlaybackChange,
     onLocalSeeked: onSyncplayLocalSeeked,
+    isActive: isSyncplayActive,
   } = useSyncplaySession({ actions });
+  const { autoPlayState } = useAutoPlayNextEpisode({
+    enabled: !isSyncplayActive,
+  });
 
   const handleVideoPlay = useCallback(() => {
     onPlay();
@@ -188,9 +195,16 @@ export function MediaPlayerModal() {
   const handleClose = useCallback(() => {
     onStop();
     clearSession();
+    clearWatchTogetherSession();
     clearAllTimeouts();
     closePlayer();
-  }, [onStop, clearSession, clearAllTimeouts, closePlayer]);
+  }, [
+    onStop,
+    clearSession,
+    clearWatchTogetherSession,
+    clearAllTimeouts,
+    closePlayer,
+  ]);
 
   const {
     ref: dragRef,
