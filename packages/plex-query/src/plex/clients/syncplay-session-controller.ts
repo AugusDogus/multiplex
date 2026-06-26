@@ -100,6 +100,7 @@ export class SyncplaySessionController {
   }
 
   connect(): void {
+    this.disconnectClient();
     this.disposed = false;
     this.sawFatalError = false;
     this.connectClient();
@@ -107,9 +108,7 @@ export class SyncplaySessionController {
 
   disconnect(): void {
     this.disposed = true;
-    this.clearReconnectTimeout();
-    this.client?.disconnect();
-    this.client = null;
+    this.disconnectClient();
     this.remoteStateGeneration += 1;
     this.suppressedPlaybackEvents = [];
     this.suppressedSeek = null;
@@ -208,6 +207,12 @@ export class SyncplaySessionController {
     client.connect();
     client.setReady(this.options.player.getState().canPlay);
     this.client = client;
+  }
+
+  private disconnectClient(): void {
+    this.clearReconnectTimeout();
+    this.client?.disconnect();
+    this.client = null;
   }
 
   private applyRemotePlaybackState(state: SyncplayPlaybackState): RemoteApplyResult {
@@ -419,7 +424,7 @@ export class SyncplaySessionController {
   }
 
   private clearReconnectTimeout(): void {
-    if (!this.reconnectTimeout) {
+    if (this.reconnectTimeout === null) {
       return;
     }
 

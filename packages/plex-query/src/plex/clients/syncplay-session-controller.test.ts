@@ -24,6 +24,7 @@ const REMOTE_USER = {
 
 class FakeWebSocket implements SyncplayWebSocketLike {
   readyState = 0;
+  closeCount = 0;
   sent: unknown[] = [];
   private readonly listeners = {
     open: [] as (() => void)[],
@@ -37,6 +38,7 @@ class FakeWebSocket implements SyncplayWebSocketLike {
   }
 
   close(): void {
+    this.closeCount += 1;
     this.readyState = 3;
   }
 
@@ -64,12 +66,21 @@ class FakeWebSocket implements SyncplayWebSocketLike {
       listener(event);
     }
   }
+
+  closeFromServer(): void {
+    this.readyState = 3;
+    for (const listener of this.listeners.close) {
+      listener();
+    }
+  }
 }
 
 function createController(options: {
   sockets: FakeWebSocket[];
   state: SyncplayPlayerState;
   play?: () => boolean | Promise<boolean>;
+  setTimeout?: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>;
+  clearTimeout?: (timeout: ReturnType<typeof setTimeout>) => void;
 }) {
   return new SyncplaySessionController({
     room: ROOM,
@@ -91,11 +102,13 @@ function createController(options: {
       return socket;
     },
     now: () => 1234,
-    setTimeout: (callback) => {
-      callback();
-      return 0 as unknown as ReturnType<typeof setTimeout>;
-    },
-    clearTimeout: () => undefined,
+    setTimeout:
+      options.setTimeout ??
+      ((callback) => {
+        callback();
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }),
+    clearTimeout: options.clearTimeout ?? (() => undefined),
   });
 }
 
@@ -207,5 +220,59 @@ describe("SyncplaySessionController", () => {
         },
       },
     ]);
+  });
+
+  test("connect replaces existing sockets instead of creating duplicate sessions", () => {
+    const sockets: FakeWebSocket[] = [];
+    const controller = createController({
+      sockets,
+      state: {
+        isPlaying: false,
+        currentTime: 0,
+        duration: 120,
+        canPlay: true,
+        isLoading: false,
+        error: null,
+      },
+    });
+
+    controller.connect();
+    controller.connect();
+
+    expect(sockets).toHaveLength(2);
+    expect(sockets[0]?.closeCount).toBe(1);
+  });
+
+  test("disconnect clears reconnect timers even when timer handle is zero", () => {
+    const sockets: FakeWebSocket[] = [];
+    const clearedTimers: ReturnType<typeof setTimeout>[] = [];
+    let scheduledReconnect: (() => void) | null = null;
+    const zeroTimer = 0 as unknown as ReturnType<typeof setTimeout>;
+    const controller = createController({
+      sockets,
+      state: {
+        isPlaying: false,
+        currentTime: 0,
+        duration: 120,
+        canPlay: true,
+        isLoading: false,
+        error: null,
+      },
+      setTimeout: (callback) => {
+        scheduledReconnect = callback;
+        return zeroTimer;
+      },
+      clearTimeout: (timeout) => {
+        clearedTimers.push(timeout);
+      },
+    });
+
+    controller.connect();
+    sockets[0]?.closeFromServer();
+    expect(scheduledReconnect).not.toBeNull();
+
+    controller.disconnect();
+
+    expect(clearedTimers).toEqual([zeroTimer]);
   });
 });

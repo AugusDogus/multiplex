@@ -25,16 +25,22 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
   const updateParticipant = useWatchTogetherStore(
     (state) => state.updateParticipant,
   );
-  const currentItem = useMediaPlayerStore((state) => state.currentItem);
+  const currentItemServerId = useMediaPlayerStore(
+    (state) => state.currentItem?.serverId,
+  );
+  const currentItemRatingKey = useMediaPlayerStore(
+    (state) => state.currentItem?.ratingKey,
+  );
   const canPlay = useMediaPlayerStore((state) => state.canPlay);
   const roomSource = session
     ? parseLibraryItemUri(session.room.sourceUri)
     : null;
   const activeForCurrentItem = Boolean(
     session &&
-      currentItem &&
-      roomSource?.serverId === currentItem.serverId &&
-      roomSource.ratingKey === currentItem.ratingKey,
+      currentItemServerId &&
+      currentItemRatingKey &&
+      roomSource?.serverId === currentItemServerId &&
+      roomSource.ratingKey === currentItemRatingKey,
   );
 
   const player = useMemo<SyncplayPlayerAdapter>(
@@ -61,7 +67,7 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
     if (!session || !activeForCurrentItem) {
       controllerRef.current?.disconnect();
       controllerRef.current = null;
-      if (session && currentItem) {
+      if (session && currentItemServerId && currentItemRatingKey) {
         clearWatchTogetherSession();
       }
       return;
@@ -87,7 +93,8 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
   }, [
     activeForCurrentItem,
     clearWatchTogetherSession,
-    currentItem,
+    currentItemRatingKey,
+    currentItemServerId,
     player,
     session,
     updateParticipant,

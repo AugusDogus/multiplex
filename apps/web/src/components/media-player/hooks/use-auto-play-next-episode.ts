@@ -27,6 +27,7 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
   const autoPlay = useMediaPlayerStore((state) => state.autoPlay);
 
   const {
+    cancelAutoPlay,
     startAutoPlayCountdown,
     triggerAutoPlay,
     updatePlaybackState,
@@ -116,7 +117,14 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
 
   // Auto-play logic - event-driven by video time
   useEffect(() => {
-    if (!enabled || !autoPlay.isEnabled) {
+    if (!enabled) {
+      if (autoPlay.isCountingDown || autoPlay.nextEpisode) {
+        cancelAutoPlay();
+      }
+      return;
+    }
+
+    if (!autoPlay.isEnabled) {
       return;
     }
 
@@ -164,6 +172,8 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
     enabled,
     autoPlay.isEnabled,
     autoPlay.isCountingDown,
+    autoPlay.nextEpisode,
+    cancelAutoPlay,
     startAutoPlayCountdown,
     triggerAutoPlay,
     updateCountdownSeconds,
