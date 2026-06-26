@@ -21,28 +21,48 @@ export interface SyncplayPlaybackState {
   shouldSeek: boolean;
 }
 
-interface SyncplayClientOptions {
+export interface SyncplayWebSocketLike {
+  readonly readyState: number;
+  send(data: string): void;
+  close(code?: number): void;
+  addEventListener(type: "open", listener: () => void): void;
+  addEventListener(type: "message", listener: (event: MessageEvent<string>) => void): void;
+  addEventListener(type: "close", listener: () => void): void;
+  addEventListener(type: "error", listener: (event: Event) => void): void;
+}
+
+export type SyncplayWebSocketFactory = (url: string) => SyncplayWebSocketLike;
+
+export interface SyncplayStateInput {
+  isPaused: boolean;
+  positionSeconds: number;
+  shouldSeek?: boolean;
+}
+
+export interface SyncplaySkipReply {
+  skipReply: true;
+}
+
+export type SyncplayStateReply = SyncplayStateInput | SyncplaySkipReply | null | void;
+
+export interface SyncplayClientOptions {
   room: Pick<WatchTogetherRoom, "id" | "syncplayHost" | "syncplayPort" | "sourceUri">;
   user: SyncplayUser;
   onParticipant?: (state: SyncplayParticipantState) => void;
   onPlaybackState?: (
     state: SyncplayPlaybackState,
   ) => Promise<SyncplayStateReply> | SyncplayStateReply;
+  getPlaybackState?: () => SyncplayStateInput | null | undefined;
   onClose?: () => void;
   onError?: (error: Event | Error) => void;
+  webSocketFactory?: SyncplayWebSocketFactory;
+  now?: () => number;
 }
 
-interface SyncplayStateInput {
-  isPaused: boolean;
-  positionSeconds: number;
-  shouldSeek?: boolean;
-}
+export const SKIP_SYNCPLAY_REPLY: SyncplaySkipReply = { skipReply: true };
 
-interface SyncplaySkipReply {
-  skipReply: true;
-}
-
-type SyncplayStateReply = SyncplayStateInput | SyncplaySkipReply | null | void;
+const SOCKET_CONNECTING = 0;
+const SOCKET_OPEN = 1;
 
 type SyncplayIncomingFrame =
   | { Hello: { username: string; room: { name: string } } }
@@ -89,13 +109,16 @@ interface SyncplayPingState {
 }
 
 export class SyncplayClient {
-  private socket: WebSocket | null = null;
+  private socket: SyncplayWebSocketLike | null = null;
   private readonly room: SyncplayClientOptions["room"];
   private readonly user: SyncplayUser;
   private readonly onParticipant: NonNullable<SyncplayClientOptions["onParticipant"]>;
   private readonly onPlaybackState: NonNullable<SyncplayClientOptions["onPlaybackState"]>;
+  private readonly getPlaybackState: NonNullable<SyncplayClientOptions["getPlaybackState"]>;
   private readonly onClose: NonNullable<SyncplayClientOptions["onClose"]>;
   private readonly onError: NonNullable<SyncplayClientOptions["onError"]>;
+  private readonly webSocketFactory: SyncplayWebSocketFactory;
+  private readonly now: NonNullable<SyncplayClientOptions["now"]>;
   private requestedReady: boolean | null | undefined;
   private lastPing: SyncplayPingState | null = null;
   private pendingState: SyncplayStateInput | null = null;
@@ -107,8 +130,11 @@ export class SyncplayClient {
     this.user = options.user;
     this.onParticipant = options.onParticipant ?? (() => undefined);
     this.onPlaybackState = options.onPlaybackState ?? (() => undefined);
+    this.getPlaybackState = options.getPlaybackState ?? (() => undefined);
     this.onClose = options.onClose ?? (() => undefined);
     this.onError = options.onError ?? (() => undefined);
+    this.webSocketFactory = options.webSocketFactory ?? createDefaultWebSocket;
+    this.now = options.now ?? getDefaultNow;
   }
 
   connect(): void {
@@ -116,7 +142,9 @@ export class SyncplayClient {
 
     this.connectionId += 1;
     const connectionId = this.connectionId;
-    const socket = new WebSocket(`wss://${this.room.syncplayHost}:${this.room.syncplayPort}/ws`);
+    const socket = this.webSocketFactory(
+      `wss://${this.room.syncplayHost}:${this.room.syncplayPort}/ws`,
+    );
     this.socket = socket;
 
     socket.addEventListener("open", () => {
@@ -188,7 +216,7 @@ export class SyncplayClient {
     const frame = {
       State: {
         ping: {
-          clientLatencyCalculation: performance.now() / 1000,
+          clientLatencyCalculation: this.now() / 1000,
           clientRtt: this.lastPing?.clientRtt ?? 0,
           serverRtt: this.lastPing?.serverRtt ?? 0,
           latencyCalculation: this.lastPing?.latencyCalculation ?? 0,
@@ -206,7 +234,7 @@ export class SyncplayClient {
       },
     };
 
-    if (!this.send(frame) && this.socket?.readyState === WebSocket.CONNECTING) {
+    if (!this.send(frame) && this.socket?.readyState === SOCKET_CONNECTING) {
       this.pendingState = state;
     }
   }
@@ -318,7 +346,7 @@ export class SyncplayClient {
 
     if (payload.user) {
       for (const [encodedUser, value] of Object.entries(payload.user)) {
-        if (value.room?.name !== this.room.id) {
+        if (value.room?.name !== undefined && value.room.name !== this.room.id) {
           continue;
         }
 
@@ -378,7 +406,7 @@ export class SyncplayClient {
           return;
         }
 
-        this.sendState(state ?? fallbackState);
+        this.sendState(state ?? this.getPlaybackState() ?? fallbackState);
       })
       .catch((error: unknown) => {
         if (this.connectionId !== connectionId) {
@@ -388,7 +416,10 @@ export class SyncplayClient {
         this.onError(
           error instanceof Error ? error : new Error("Syncplay playback handler rejected"),
         );
-        this.sendState(fallbackState);
+        const currentState = this.getPlaybackState();
+        if (currentState) {
+          this.sendState(currentState);
+        }
       });
   }
 
@@ -403,7 +434,7 @@ export class SyncplayClient {
   }
 
   private send(frame: unknown): boolean {
-    if (this.socket?.readyState !== WebSocket.OPEN) {
+    if (this.socket?.readyState !== SOCKET_OPEN) {
       return false;
     }
 
@@ -418,6 +449,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isSkipReply(value: SyncplayStateReply): value is SyncplaySkipReply {
   return isRecord(value) && value.skipReply === true;
+}
+
+function createDefaultWebSocket(url: string): SyncplayWebSocketLike {
+  if (!("WebSocket" in globalThis)) {
+    throw new Error("SyncplayClient requires a WebSocket implementation");
+  }
+
+  return new globalThis.WebSocket(url);
+}
+
+function getDefaultNow(): number {
+  return globalThis.performance?.now() ?? Date.now();
 }
 
 function isValidListPayload(

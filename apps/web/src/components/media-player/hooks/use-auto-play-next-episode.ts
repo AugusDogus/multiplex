@@ -16,7 +16,8 @@ import { api } from "~/trpc/react";
  * Uses the play queue to find the next episode in sequence
  * Polls for queue updates to handle dynamic changes
  */
-export function useAutoPlayNextEpisode() {
+export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
+  const { enabled = true } = options;
   const currentItem = useMediaPlayerStore((state) => state.currentItem);
   const currentTime = useMediaPlayerStore((state) => state.currentTime);
   const duration = useMediaPlayerStore((state) => state.duration);
@@ -115,7 +116,7 @@ export function useAutoPlayNextEpisode() {
 
   // Auto-play logic - event-driven by video time
   useEffect(() => {
-    if (!autoPlay.isEnabled) {
+    if (!enabled || !autoPlay.isEnabled) {
       return;
     }
 
@@ -160,6 +161,7 @@ export function useAutoPlayNextEpisode() {
     currentTime,
     duration,
     nextEpisode,
+    enabled,
     autoPlay.isEnabled,
     autoPlay.isCountingDown,
     startAutoPlayCountdown,

@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import {
+  parseLibraryItemUri,
+  SKIP_SYNCPLAY_REPLY,
   SyncplayClient,
   type SyncplayPlaybackState,
+  type SyncplayStateInput,
 } from "@multiplex/plex-query";
 
-import { parseWatchTogetherSourceUri } from "~/lib/watch-together-source";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { useWatchTogetherStore } from "~/stores/watch-together-store";
 import type {
@@ -19,6 +21,7 @@ const SEEK_BEHIND_THRESHOLD_SECONDS = -1.75;
 const REMOTE_STATE_SETTLE_INTERVAL_MS = 25;
 const REMOTE_SEEK_SUPPRESSION_MS = 5000;
 const REMOTE_PLAYBACK_SUPPRESSION_MS = 750;
+const REMOTE_STATE_APPLY_TIMEOUT_MS = 5000;
 
 interface SuppressedPlaybackEvent {
   id: number;
@@ -32,9 +35,8 @@ interface RemoteApplyResult {
   targetPosition: number;
   seekMode?: MediaPlayerSeekResult;
   seekSettled?: Promise<void>;
+  playSettled?: Promise<boolean>;
 }
-
-const SKIP_SYNCPLAY_REPLY = { skipReply: true } as const;
 
 interface SuppressedSeekEvent {
   positionSeconds: number;
@@ -53,6 +55,15 @@ function clampRemotePosition(
   }
 
   return Math.min(Math.max(positionSeconds, 0), duration);
+}
+
+function getCurrentSyncplayState(): SyncplayStateInput {
+  const playerState = useMediaPlayerStore.getState();
+  return {
+    isPaused: !playerState.isPlaying || Boolean(playerState.error),
+    positionSeconds: playerState.currentTime,
+    shouldSeek: false,
+  };
 }
 
 interface UseSyncplaySessionOptions {
@@ -81,9 +92,9 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
   const activeForCurrentItem = Boolean(
     session &&
       currentItem &&
-      parseWatchTogetherSourceUri(session.room.sourceUri)?.serverId ===
+      parseLibraryItemUri(session.room.sourceUri)?.serverId ===
         currentItem.serverId &&
-      parseWatchTogetherSourceUri(session.room.sourceUri)?.ratingKey ===
+      parseLibraryItemUri(session.room.sourceUri)?.ratingKey ===
         currentItem.ratingKey,
   );
 
@@ -152,22 +163,33 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
 
       if (shouldSeek) {
         seekMode = actionsRef.current.seek(targetPosition);
-        seekSettled =
-          seekMode === "none"
-            ? undefined
-            : createSuppressedSeekEvent(targetPosition, seekMode).settled;
+        if (seekMode === "none") {
+          return { status: "pending", shouldSeek, targetPosition };
+        }
+        seekSettled = createSuppressedSeekEvent(
+          targetPosition,
+          seekMode,
+        ).settled;
       }
 
+      let playSettled: Promise<boolean> | undefined;
       if (state.isPaused && playerState.isPlaying) {
         addSuppressedPlaybackEvent(true);
         actionsRef.current.pause();
       } else if (!state.isPaused && !playerState.isPlaying) {
         const suppressedEventId = addSuppressedPlaybackEvent(false);
-        void Promise.resolve(actionsRef.current.play()).then((played) => {
-          if (!played) {
+        playSettled = Promise.resolve(actionsRef.current.play()).then(
+          (played) => {
+            if (!played) {
+              removeSuppressedPlaybackEvent(suppressedEventId);
+            }
+            return played;
+          },
+          () => {
             removeSuppressedPlaybackEvent(suppressedEventId);
-          }
-        });
+            return false;
+          },
+        );
       }
       return {
         status: "applied",
@@ -175,6 +197,7 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
         targetPosition,
         seekMode,
         seekSettled,
+        playSettled,
       };
     },
     [
@@ -190,6 +213,7 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
       applyResult: RemoteApplyResult,
       generation: number,
     ) => {
+      const deadline = performance.now() + REMOTE_STATE_APPLY_TIMEOUT_MS;
       let directSeekSettled = applyResult.seekMode !== "direct";
       if (applyResult.seekMode === "direct" && applyResult.seekSettled) {
         void applyResult.seekSettled.then(() => {
@@ -197,14 +221,19 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
         });
       }
 
+      let playSettled = !applyResult.playSettled;
+      let playSucceeded = true;
+      if (applyResult.playSettled) {
+        void applyResult.playSettled.then((played) => {
+          playSettled = true;
+          playSucceeded = played;
+        });
+      }
+
       while (remoteStateGenerationRef.current === generation) {
         const playerState = useMediaPlayerStore.getState();
         if (playerState.error) {
-          return {
-            isPaused: true,
-            positionSeconds: playerState.currentTime,
-            shouldSeek: false,
-          };
+          return getCurrentSyncplayState();
         }
 
         const playbackSettled = playerState.isPlaying !== state.isPaused;
@@ -220,6 +249,13 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
           break;
         }
 
+        if (
+          performance.now() >= deadline ||
+          (!state.isPaused && playSettled && !playSucceeded)
+        ) {
+          return getCurrentSyncplayState();
+        }
+
         await new Promise((resolve) =>
           window.setTimeout(resolve, REMOTE_STATE_SETTLE_INTERVAL_MS),
         );
@@ -232,19 +268,23 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
 
   const waitForDurationThenApplyRemoteState = useCallback(
     async (state: SyncplayPlaybackState, generation: number) => {
+      const deadline = performance.now() + REMOTE_STATE_APPLY_TIMEOUT_MS;
       while (remoteStateGenerationRef.current === generation) {
         const playerState = useMediaPlayerStore.getState();
         if (playerState.error) {
-          return {
-            isPaused: true,
-            positionSeconds: playerState.currentTime,
-            shouldSeek: false,
-          };
+          return getCurrentSyncplayState();
         }
 
         if (playerState.duration > 0) {
           const applyResult = applyRemotePlaybackState(state);
+          if (applyResult.status === "pending") {
+            return getCurrentSyncplayState();
+          }
           return waitForRemoteStateToSettle(state, applyResult, generation);
+        }
+
+        if (performance.now() >= deadline) {
+          return getCurrentSyncplayState();
         }
 
         await new Promise((resolve) =>
@@ -264,6 +304,9 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
       remoteStateGenerationRef.current += 1;
       suppressedPlaybackEventsRef.current = [];
       suppressedSeekRef.current = null;
+      if (session && currentItem) {
+        clearWatchTogetherSession();
+      }
       return;
     }
 
@@ -287,6 +330,7 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
         room: session.room,
         user: session.localUser,
         onParticipant: updateParticipant,
+        getPlaybackState: getCurrentSyncplayState,
         onPlaybackState: async (state) => {
           const generation = ++remoteStateGenerationRef.current;
           const result = applyRemotePlaybackState(state);
@@ -346,6 +390,7 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
     activeForCurrentItem,
     applyRemotePlaybackState,
     clearWatchTogetherSession,
+    currentItem,
     session,
     updateParticipant,
     waitForDurationThenApplyRemoteState,
