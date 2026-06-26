@@ -111,7 +111,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
 
   return (
     <section className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-      <div className="relative overflow-hidden rounded-2xl border shadow-sm">
+      <div className="relative isolate overflow-hidden rounded-2xl border shadow-sm">
         {media.backdropUrl && (
           <Image
             src={media.backdropUrl}
@@ -122,8 +122,8 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
             className="-z-20 object-cover"
           />
         )}
-        <div className="from-background via-background/85 to-background/55 absolute inset-0 -z-10 bg-linear-to-t" />
-        <div className="from-background/90 absolute inset-0 -z-10 bg-linear-to-r to-transparent" />
+        <div className="from-background via-background/40 absolute inset-0 -z-10 bg-linear-to-t to-transparent" />
+        <div className="from-background via-background/80 to-background/30 absolute inset-0 -z-10 bg-linear-to-r" />
 
         <div className="flex flex-col gap-6 p-6 sm:flex-row sm:items-end sm:p-8">
           <div className="bg-muted ring-border relative aspect-2/3 w-28 shrink-0 self-start overflow-hidden rounded-xl shadow-2xl ring-1 sm:w-40">
