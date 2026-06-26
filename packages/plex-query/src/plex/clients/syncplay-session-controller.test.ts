@@ -243,6 +243,46 @@ describe("SyncplaySessionController", () => {
     expect(sockets[0]?.closeCount).toBe(1);
   });
 
+  test("connect clears stale playback suppression from previous sessions", () => {
+    const sockets: FakeWebSocket[] = [];
+    const state: SyncplayPlayerState = {
+      isPlaying: false,
+      currentTime: 10,
+      duration: 120,
+      canPlay: true,
+      isLoading: false,
+      error: null,
+    };
+    const controller = createController({
+      sockets,
+      state,
+      play: () => {
+        state.isPlaying = true;
+        return true;
+      },
+    });
+
+    controller.connect();
+    sockets[0]?.open();
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 10,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+    sockets[0]?.sent.splice(0);
+
+    controller.connect();
+    sockets[1]?.open();
+    sockets[1]?.sent.splice(0);
+    controller.handleLocalPlaybackChange(false);
+
+    expect(sockets[1]?.sent).toHaveLength(1);
+  });
+
   test("disconnect clears reconnect timers even when timer handle is zero", () => {
     const sockets: FakeWebSocket[] = [];
     const clearedTimers: ReturnType<typeof setTimeout>[] = [];

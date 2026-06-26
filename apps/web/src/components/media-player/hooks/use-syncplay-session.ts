@@ -108,13 +108,27 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
     controllerRef.current?.setReady(canPlay);
   }, [activeForCurrentItem, canPlay]);
 
-  const onLocalPlaybackChange = useCallback((isPaused: boolean) => {
-    controllerRef.current?.handleLocalPlaybackChange(isPaused);
-  }, []);
+  const onLocalPlaybackChange = useCallback(
+    (isPaused: boolean) => {
+      if (!activeForCurrentItem) {
+        return;
+      }
 
-  const onLocalSeeked = useCallback((time: number) => {
-    controllerRef.current?.handleLocalSeeked(time);
-  }, []);
+      controllerRef.current?.handleLocalPlaybackChange(isPaused);
+    },
+    [activeForCurrentItem],
+  );
+
+  const onLocalSeeked = useCallback(
+    (time: number) => {
+      if (!activeForCurrentItem) {
+        return;
+      }
+
+      controllerRef.current?.handleLocalSeeked(time);
+    },
+    [activeForCurrentItem],
+  );
 
   return {
     isActive: activeForCurrentItem,
