@@ -417,9 +417,7 @@ export class SyncplayClient {
           error instanceof Error ? error : new Error("Syncplay playback handler rejected"),
         );
         const currentState = this.getPlaybackState();
-        if (currentState) {
-          this.sendState(currentState);
-        }
+        this.sendState(currentState ?? fallbackState);
       });
   }
 
