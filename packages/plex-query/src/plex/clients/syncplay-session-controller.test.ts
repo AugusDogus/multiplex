@@ -79,6 +79,8 @@ function createController(options: {
   sockets: FakeWebSocket[];
   state: SyncplayPlayerState;
   play?: () => boolean | Promise<boolean>;
+  seek?: (positionSeconds: number) => "direct" | "reload" | "none";
+  now?: () => number;
   setTimeout?: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>;
   clearTimeout?: (timeout: ReturnType<typeof setTimeout>) => void;
 }) {
@@ -91,17 +93,19 @@ function createController(options: {
       pause: () => {
         options.state.isPlaying = false;
       },
-      seek: (positionSeconds) => {
-        options.state.currentTime = positionSeconds;
-        return "direct";
-      },
+      seek:
+        options.seek ??
+        ((positionSeconds) => {
+          options.state.currentTime = positionSeconds;
+          return "direct";
+        }),
     },
     webSocketFactory: () => {
       const socket = new FakeWebSocket();
       options.sockets.push(socket);
       return socket;
     },
-    now: () => 1234,
+    now: options.now ?? (() => 1234),
     setTimeout:
       options.setTimeout ??
       ((callback) => {
@@ -281,6 +285,97 @@ describe("SyncplaySessionController", () => {
     controller.handleLocalPlaybackChange(false);
 
     expect(sockets[1]?.sent).toHaveLength(1);
+  });
+
+  test("connect invalidates pending remote apply loops from previous sessions", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const waitCallbacks: (() => void)[] = [];
+    let seekCalls = 0;
+    const controller = createController({
+      sockets,
+      state: {
+        isPlaying: false,
+        currentTime: 0,
+        duration: 120,
+        canPlay: true,
+        isLoading: false,
+        error: null,
+      },
+      seek: () => {
+        seekCalls += 1;
+        return "none";
+      },
+      setTimeout: (callback) => {
+        waitCallbacks.push(callback);
+        return waitCallbacks.length as unknown as ReturnType<typeof setTimeout>;
+      },
+    });
+
+    controller.connect();
+    sockets[0]?.open();
+    sockets[0]?.sent.splice(0);
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: true,
+          position: 50,
+          doSeek: true,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+    await flushPromises();
+    expect(seekCalls).toBe(2);
+
+    controller.connect();
+    waitCallbacks.shift()?.();
+    await flushPromises();
+
+    expect(seekCalls).toBe(2);
+    expect(sockets[0]?.sent).toEqual([]);
+  });
+
+  test("retries pending remote apply when seek is temporarily unavailable", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const state: SyncplayPlayerState = {
+      isPlaying: false,
+      currentTime: 0,
+      duration: 120,
+      canPlay: true,
+      isLoading: false,
+      error: null,
+    };
+    let seekCalls = 0;
+    const controller = createController({
+      sockets,
+      state,
+      seek: (positionSeconds) => {
+        seekCalls += 1;
+        if (seekCalls === 1) {
+          return "none";
+        }
+        state.currentTime = positionSeconds;
+        return "reload";
+      },
+    });
+
+    controller.connect();
+    sockets[0]?.open();
+    sockets[0]?.sent.splice(0);
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: true,
+          position: 50,
+          doSeek: true,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(seekCalls).toBe(2);
+    expect(sockets[0]?.sent).toEqual([]);
   });
 
   test("disconnect clears reconnect timers even when timer handle is zero", () => {
