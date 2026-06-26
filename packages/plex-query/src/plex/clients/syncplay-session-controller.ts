@@ -105,6 +105,7 @@ export class SyncplaySessionController {
     this.sawFatalError = false;
     this.suppressedPlaybackEvents = [];
     this.suppressedSeek = null;
+    this.remoteStateGeneration += 1;
     this.connectClient();
   }
 
@@ -333,10 +334,29 @@ export class SyncplaySessionController {
       }
 
       if (playerState.duration > 0) {
-        const applyResult = this.applyRemotePlaybackState(state);
-        if (applyResult.status === "pending") {
-          return this.getCurrentState();
+        let applyResult = this.applyRemotePlaybackState(state);
+        while (applyResult.status === "pending") {
+          if (this.now() >= deadline) {
+            return this.getCurrentState();
+          }
+
+          await this.wait(this.remoteStateSettleIntervalMs);
+          if (this.remoteStateGeneration !== generation) {
+            return SKIP_SYNCPLAY_REPLY;
+          }
+
+          const nextPlayerState = this.options.player.getState();
+          if (nextPlayerState.error) {
+            return this.getCurrentState();
+          }
+
+          if (nextPlayerState.duration <= 0) {
+            continue;
+          }
+
+          applyResult = this.applyRemotePlaybackState(state);
         }
+
         return this.waitForRemoteStateToSettle(state, applyResult, generation);
       }
 
