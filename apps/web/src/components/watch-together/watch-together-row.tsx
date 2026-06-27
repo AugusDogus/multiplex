@@ -50,13 +50,16 @@ function WatchTogetherRoomCard({ room }: { room: WatchTogetherRoom }) {
   const { item, posterUrl, isPending } = useWatchTogetherRoomMedia(
     room.sourceUri,
   );
-  const title = item ? getMainTitle(item) : room.title;
+  // Fall back to the room's own title if metadata is unavailable or yields an
+  // empty title, so the card heading / alt / aria-label never go blank.
+  const mediaTitle = item ? getMainTitle(item) : "";
+  const title = mediaTitle === "" ? room.title : mediaTitle;
 
   return (
     <Link
       href={getWatchTogetherRoomHref(room.id)}
       aria-label={`Open Watch Together room for ${title}`}
-      className="group flex w-[160px] flex-col gap-2"
+      className="group focus-visible:ring-ring flex w-[160px] flex-col gap-2 rounded-md focus-visible:ring-2 focus-visible:outline-none"
     >
       <div className="bg-muted relative aspect-2/3 overflow-hidden rounded-md shadow-lg transition-[transform,box-shadow] duration-200 ease-out group-hover:shadow-xl group-active:scale-[0.98] md:group-active:scale-100">
         {posterUrl ? (
