@@ -148,6 +148,9 @@ export function WatchTogetherInviteDialog({
             ) : (
               invitees.map((invitee) => {
                 const selected = selectedSet.has(invitee.id);
+                const displayName = invitee.title ?? invitee.username;
+                const showUsername =
+                  Boolean(invitee.username) && invitee.username !== displayName;
                 return (
                   <button
                     key={invitee.id}
@@ -163,11 +166,13 @@ export function WatchTogetherInviteDialog({
                     <PlexUserAvatar user={invitee} className="size-9" />
                     <span className="min-w-0 flex-1">
                       <span className="line-clamp-1 font-medium">
-                        {invitee.title ?? invitee.username}
+                        {displayName}
                       </span>
-                      <span className="text-muted-foreground line-clamp-1 text-xs">
-                        {invitee.username}
-                      </span>
+                      {showUsername && (
+                        <span className="text-muted-foreground line-clamp-1 text-xs">
+                          {invitee.username}
+                        </span>
+                      )}
                     </span>
                     <span
                       className={cn(
