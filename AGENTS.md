@@ -22,6 +22,13 @@ All commands are run from the workspace root via `bun run <script>`:
 | DB push      | `bun db:push` (syncs Drizzle schema to SQLite)         |
 | DB studio    | `bun db:studio` (opens Drizzle Studio)                 |
 
+## Commit messages
+
+- Use Conventional Commit syntax with a scope: `type(scope): summary`.
+- Common types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`.
+- Prefer focused scopes such as `watch-together`, `plex-query`, or `media-player`.
+- Example: `fix(watch-together): handle Plex friends without usernames`.
+
 ## Cursor Cloud specific instructions
 
 ### Environment setup
