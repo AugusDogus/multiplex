@@ -34,7 +34,7 @@ export const plexFriendSchema = z
     id: z.number(),
     uuid: z.string(),
     title: z.string().nullish(),
-    username: z.string(),
+    username: z.string().nullish(),
     friendlyName: z.string().nullish(),
     thumb: z.string().nullish(),
     restricted: z.boolean().optional(),

@@ -84,8 +84,16 @@ export const plexRouter = createTRPCRouter({
     return invitees.map((invitee) => ({
       id: invitee.id,
       uuid: invitee.uuid,
-      title: invitee.friendlyName ?? invitee.title ?? invitee.username,
-      username: invitee.username,
+      title:
+        invitee.friendlyName ??
+        invitee.title ??
+        invitee.username ??
+        "Plex user",
+      username:
+        invitee.username ??
+        invitee.title ??
+        invitee.friendlyName ??
+        "Plex user",
       thumb: invitee.thumb,
       restricted: invitee.restricted ?? false,
     }));

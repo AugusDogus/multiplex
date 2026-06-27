@@ -190,9 +190,7 @@ export class PlexTvClient extends PlexTvBaseClient {
     }
 
     return [...invitees.values()].sort((left, right) => {
-      const leftName = left.friendlyName ?? left.title ?? left.username;
-      const rightName = right.friendlyName ?? right.title ?? right.username;
-      return leftName.localeCompare(rightName);
+      return getPlexFriendDisplayName(left).localeCompare(getPlexFriendDisplayName(right));
     });
   }
 
@@ -220,6 +218,10 @@ export class PlexTvClient extends PlexTvBaseClient {
    * @param options - Request options including endpoint, params, schema, and baseUrl
    * @returns Parsed and validated response data
    */
+}
+
+function getPlexFriendDisplayName(friend: PlexFriend): string {
+  return friend.friendlyName ?? friend.title ?? friend.username ?? "Plex user";
 }
 
 function parseSharedUsersXml(xml: string): PlexFriend[] {
