@@ -4,6 +4,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { cn } from "~/lib/utils";
 
 export interface PlexUserLike {
+  id?: number;
   title?: string | null;
   username?: string | null;
   thumb?: string | null;
@@ -72,7 +73,7 @@ export function PlexUserAvatarStack({
     <div className={cn("flex items-center -space-x-2", className)}>
       {visible.map((user, index) => (
         <PlexUserAvatar
-          key={`${getPlexUserName(user)}-${index}`}
+          key={user.id ?? `${getPlexUserName(user)}-${index}`}
           user={user}
           className={cn(
             "ring-background size-7 shadow-sm ring-2",
