@@ -17,18 +17,24 @@ interface UseWatchTogetherRoomMediaOptions {
 }
 
 interface WatchTogetherRoomMedia {
+  source: ReturnType<typeof parseLibraryItemUri>;
   details: ItemDetails | undefined;
   item: ItemDetails["item"] | undefined;
   posterUrl: string | undefined;
   backdropUrl: string | undefined;
   isPending: boolean;
+  isError: boolean;
 }
 
 /**
  * Resolves the media behind a Watch Together room (which only carries a
  * `sourceUri`) into the poster/backdrop art and full metadata used across the
  * home row and lobby. The underlying `getItemDetails` query is cached per
- * server+item, so the home row card and lobby share the same fetch.
+ * server+item, so the home row card and lobby share the same fetch (navigating
+ * into the lobby is instant). The row only needs the poster, so it over-fetches
+ * `playTarget`/`serverName` here; that is accepted in exchange for the shared
+ * cache. Rooms are created from a play target (movie/episode), so the heavier
+ * show/season children fetch inside `getItemDetails` is not triggered.
  */
 export function useWatchTogetherRoomMedia(
   sourceUri: string | undefined,
@@ -65,10 +71,12 @@ export function useWatchTogetherRoomMedia(
     : undefined;
 
   return {
+    source,
     details,
     item,
     posterUrl,
     backdropUrl,
     isPending: Boolean(source) && detailsQuery.isPending,
+    isError: Boolean(source) && detailsQuery.isError,
   };
 }
