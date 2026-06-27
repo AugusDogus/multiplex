@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
@@ -7,7 +8,6 @@ import {
   getMainTitle,
   getMetadataSummaryLines,
   getMetadataTypeLabel,
-  parseLibraryItemUri,
   type SyncplayParticipantState,
 } from "@multiplex/plex-query";
 import { Loader2, Play, Users } from "lucide-react";
@@ -44,8 +44,18 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     staleTime: 60_000,
   });
   const room = roomQuery.data;
-  const source = room ? parseLibraryItemUri(room.sourceUri) : null;
   const media = useWatchTogetherRoomMedia(room?.sourceUri);
+  const source = media.source;
+
+  // Syncplay participant state is keyed by device identifier, so index it by
+  // the numeric Plex user id once to match it against the room's user list.
+  const participantsByUserId = useMemo(
+    () =>
+      new Map(
+        Object.values(participants).map((state) => [state.user.id, state]),
+      ),
+    [participants],
+  );
 
   const details = media.details;
   const item = media.item;
@@ -176,11 +186,21 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
             <p className="text-muted-foreground text-sm">
               Playback stays in sync for everyone in this room.
             </p>
+            {media.isError && (
+              <p className="text-destructive text-sm">
+                Unable to load this title from the server, so playback may be
+                unavailable.
+              </p>
+            )}
             <div className="flex flex-wrap gap-2 pt-1">
               <Button variant="outline" onClick={leaveLobby}>
                 Cancel
               </Button>
-              <Button disabled={!canStart} onClick={startPlayback}>
+              <Button
+                disabled={!canStart}
+                aria-busy={media.isPending || undefined}
+                onClick={startPlayback}
+              >
                 {media.isPending ? (
                   <Loader2 className="animate-spin" data-icon="inline-start" />
                 ) : (
@@ -202,11 +222,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {room.users.map((user) => {
-            const participant =
-              participants[String(user.id)] ??
-              Object.values(participants).find(
-                (state) => state.user.id === user.id,
-              );
+            const participant = participantsByUserId.get(user.id);
             const isLocal = user.id === userInfoQuery.data?.id;
             const status = getParticipantStatus(participant, isLocal);
             const statusMeta = getStatusMeta(status);
@@ -273,7 +289,7 @@ function getStatusMeta(status: ParticipantStatus): {
     case "ready":
       return { label: "Ready", dotClassName: "bg-green-500" };
     case "buffering":
-      return { label: "Buffering…", dotClassName: "bg-amber-500" };
+      return { label: "Buffering...", dotClassName: "bg-amber-500" };
     case "inLobby":
       return { label: "In lobby", dotClassName: "bg-primary" };
     case "invited":
