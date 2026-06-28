@@ -29,7 +29,22 @@ export const useWatchTogetherStore = create<WatchTogetherStore>()((set) => ({
         ...state.participants,
         [participant.user.deviceIdentifier]: {
           ...state.participants[participant.user.deviceIdentifier],
-          ...participant,
+          // Merge only fields that are actually provided. Syncplay sends
+          // partial `Set` updates (e.g. a file/readiness change) that omit
+          // presence; spreading them blindly would clobber `isPresent` learned
+          // from the room list and flip a present member back to "Invited".
+          ...(participant.isPresent !== undefined && {
+            isPresent: participant.isPresent,
+          }),
+          ...(participant.isReady !== undefined && {
+            isReady: participant.isReady,
+          }),
+          ...(participant.positionSeconds !== undefined && {
+            positionSeconds: participant.positionSeconds,
+          }),
+          ...(participant.isPaused !== undefined && {
+            isPaused: participant.isPaused,
+          }),
           user: participant.user,
         },
       },
