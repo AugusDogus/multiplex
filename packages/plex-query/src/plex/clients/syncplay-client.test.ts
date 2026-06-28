@@ -264,6 +264,57 @@ describe("SyncplayClient", () => {
     expect(sockets[0]?.sent).toEqual([]);
   });
 
+  test("with no playback handlers, replies to State by echoing the room playstate (presence heartbeat)", async () => {
+    // The lobby presence connection has no player to drive, so it must keep the
+    // membership alive by replying to the server's ~1Hz State pings — but it
+    // echoes the server's own playstate so it can never move a watcher's
+    // position/pause. (Mirrors Plex's client when its player isn't foreground.)
+    const sockets: FakeWebSocket[] = [];
+    const client = createClient({ sockets });
+
+    client.connect();
+    sockets[0]?.open();
+    sockets[0]?.message({
+      Hello: { username: encodeSyncplayUser(LOCAL_USER), room: { name: ROOM.id } },
+    });
+    sockets[0]?.sent.splice(0);
+
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 99,
+          doSeek: true,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(sockets[0]?.sent).toEqual([
+      {
+        State: {
+          ping: {
+            clientLatencyCalculation: 1.234,
+            clientRtt: 0,
+            serverRtt: 0,
+            latencyCalculation: 0,
+          },
+          playstate: {
+            doSeek: false,
+            paused: false,
+            position: 99,
+            setBy: null,
+          },
+          ignoringOnTheFly: {
+            client: 0,
+            server: 0,
+          },
+        },
+      },
+    ]);
+  });
+
   test("buffers outbound playback state while connecting", () => {
     const sockets: FakeWebSocket[] = [];
     const client = createClient({ sockets });

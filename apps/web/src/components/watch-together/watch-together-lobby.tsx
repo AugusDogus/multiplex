@@ -9,6 +9,7 @@ import {
   getMetadataSummaryLines,
   getMetadataTypeLabel,
   type SyncplayParticipantState,
+  type SyncplayUser,
 } from "@multiplex/plex-query";
 import { Loader2, Play, Users } from "lucide-react";
 
@@ -18,6 +19,7 @@ import {
   getPlexUserName,
   PlexUserAvatar,
 } from "~/components/watch-together/plex-user-avatar";
+import { useWatchTogetherLobbyPresence } from "~/components/watch-together/use-watch-together-lobby-presence";
 import { useWatchTogetherRoomMedia } from "~/components/watch-together/use-watch-together-room-media";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { getWatchTogetherDeviceIdentifier } from "~/lib/device-identifier";
@@ -36,6 +38,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
   const setSession = useWatchTogetherStore((state) => state.setSession);
   const clearSession = useWatchTogetherStore((state) => state.clearSession);
   const participants = useWatchTogetherStore((state) => state.participants);
+  const session = useWatchTogetherStore((state) => state.session);
   const roomQuery = api.plex.getWatchTogetherRoom.useQuery(
     { roomId },
     { refetchInterval: 10_000 },
@@ -46,6 +49,48 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
   const room = roomQuery.data;
   const media = useWatchTogetherRoomMedia(room?.sourceUri);
   const source = media.source;
+  const localUserId = userInfoQuery.data?.id;
+
+  const localUser = useMemo<SyncplayUser | null>(() => {
+    if (localUserId === undefined) {
+      return null;
+    }
+    return {
+      id: localUserId,
+      deviceIdentifier: getWatchTogetherDeviceIdentifier(),
+      deviceName: "Multiplex Web",
+    };
+  }, [localUserId]);
+
+  // Only the room fields Syncplay needs, kept reference-stable (depend on the
+  // primitives, not the room object) so the presence connection isn't torn down
+  // on every 10s room refetch / participant-list change.
+  const roomSyncplayHost = room?.syncplayHost;
+  const roomSyncplayPort = room?.syncplayPort;
+  const roomSourceUri = room?.sourceUri;
+  const presenceRoom = useMemo(
+    () =>
+      roomSyncplayHost !== undefined &&
+      roomSyncplayPort !== undefined &&
+      roomSourceUri !== undefined
+        ? {
+            id: roomId,
+            syncplayHost: roomSyncplayHost,
+            syncplayPort: roomSyncplayPort,
+            sourceUri: roomSourceUri,
+          }
+        : undefined,
+    [roomId, roomSyncplayHost, roomSyncplayPort, roomSourceUri],
+  );
+
+  // While in the lobby (and not yet playing) join Syncplay for presence so
+  // everyone sees who has actually arrived. The media player takes over the
+  // connection once playback starts (session set).
+  useWatchTogetherLobbyPresence({
+    room: presenceRoom,
+    localUser,
+    enabled: !session,
+  });
 
   // Syncplay participant state is keyed by device identifier, so index it by
   // the numeric Plex user id once to match it against the room's user list.
@@ -75,19 +120,12 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
       !playTarget ||
       !details?.serverUrl ||
       !details.authToken ||
-      !userInfoQuery.data
+      !localUser
     ) {
       return;
     }
 
-    setSession({
-      room,
-      localUser: {
-        id: userInfoQuery.data.id,
-        deviceIdentifier: getWatchTogetherDeviceIdentifier(),
-        deviceName: "Multiplex Web",
-      },
-    });
+    setSession({ room, localUser });
 
     openPlayer(
       createMediaPlayerItem(playTarget, {
@@ -118,6 +156,10 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
   const title = item ? getMainTitle(item) : room.title;
   const secondaryTitle = item ? getDetailsSecondaryTitle(item) : undefined;
   const summaryLines = item ? getMetadataSummaryLines(item) : [];
+  const someoneElseWatching = room.users.some(
+    (user) =>
+      user.id !== localUserId && participantsByUserId.get(user.id)?.isReady,
+  );
 
   return (
     <section className="mx-auto flex w-full max-w-5xl flex-col gap-6">
@@ -184,7 +226,9 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
               </div>
             )}
             <p className="text-muted-foreground text-sm">
-              Playback stays in sync for everyone in this room.
+              {someoneElseWatching
+                ? "Someone already started watching — press Start to join."
+                : "Playback stays in sync for everyone in this room."}
             </p>
             {media.isError && (
               <p className="text-destructive text-sm">
@@ -223,7 +267,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {room.users.map((user) => {
             const participant = participantsByUserId.get(user.id);
-            const isLocal = user.id === userInfoQuery.data?.id;
+            const isLocal = user.id === localUserId;
             const status = getParticipantStatus(participant, isLocal);
             const statusMeta = getStatusMeta(status);
 
@@ -264,21 +308,23 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
   );
 }
 
-type ParticipantStatus = "ready" | "buffering" | "inLobby" | "invited";
+type ParticipantStatus = "watching" | "inLobby" | "invited";
 
 function getParticipantStatus(
   participant: SyncplayParticipantState | undefined,
   isLocal: boolean,
 ): ParticipantStatus {
+  // `isReady` is only set once a member's media player is loaded, i.e. they
+  // have started watching. Presence (`isPresent`) means they are in the lobby.
   if (participant?.isReady) {
-    return "ready";
+    return "watching";
   }
 
-  if (participant?.isPresent) {
-    return "buffering";
+  if (participant?.isPresent || isLocal) {
+    return "inLobby";
   }
 
-  return isLocal ? "inLobby" : "invited";
+  return "invited";
 }
 
 function getStatusMeta(status: ParticipantStatus): {
@@ -286,10 +332,8 @@ function getStatusMeta(status: ParticipantStatus): {
   dotClassName: string;
 } {
   switch (status) {
-    case "ready":
-      return { label: "Ready", dotClassName: "bg-green-500" };
-    case "buffering":
-      return { label: "Buffering...", dotClassName: "bg-amber-500" };
+    case "watching":
+      return { label: "Watching", dotClassName: "bg-green-500" };
     case "inLobby":
       return { label: "In lobby", dotClassName: "bg-primary" };
     case "invited":
