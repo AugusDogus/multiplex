@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
@@ -27,6 +27,10 @@ import { cn } from "~/lib/utils";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { useWatchTogetherStore } from "~/stores/watch-together-store";
 import { api } from "~/trpc/react";
+
+// Short settle delay before auto-starting once everyone has joined, so a
+// transient presence blip doesn't launch playback prematurely.
+const AUTO_START_DELAY_MS = 1200;
 
 interface WatchTogetherLobbyProps {
   roomId: string;
@@ -105,21 +109,21 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
   const details = media.details;
   const item = media.item;
   const playTarget = details?.playTarget;
+  const serverId = source?.serverId;
+  const serverUrl = details?.serverUrl;
+  const authToken = details?.authToken;
   const canStart = Boolean(
-    room &&
-      playTarget &&
-      details?.serverUrl &&
-      details.authToken &&
-      userInfoQuery.data,
+    room && playTarget && serverId && serverUrl && authToken && localUser,
   );
 
-  const startPlayback = () => {
+  // Stable so the auto-start effect's timer isn't reset on every render.
+  const startPlayback = useCallback(() => {
     if (
       !room ||
-      !source ||
+      !serverId ||
       !playTarget ||
-      !details?.serverUrl ||
-      !details.authToken ||
+      !serverUrl ||
+      !authToken ||
       !localUser
     ) {
       return;
@@ -128,13 +132,53 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     setSession({ room, localUser });
 
     openPlayer(
-      createMediaPlayerItem(playTarget, {
-        serverId: source.serverId,
-        serverUrl: details.serverUrl,
-        authToken: details.authToken,
-      }),
+      createMediaPlayerItem(playTarget, { serverId, serverUrl, authToken }),
     );
-  };
+  }, [
+    room,
+    serverId,
+    playTarget,
+    serverUrl,
+    authToken,
+    localUser,
+    setSession,
+    openPlayer,
+  ]);
+
+  // Every invited participant is present in the lobby (the local user counts as
+  // present even before their own presence frame arrives).
+  const allInvitedPresent = Boolean(
+    room &&
+      room.users.length > 0 &&
+      room.users.every(
+        (user) =>
+          user.id === localUserId ||
+          Boolean(participantsByUserId.get(user.id)?.isPresent),
+      ),
+  );
+
+  // Auto-start like the official Plex app: once everyone has joined, open the
+  // player automatically (fired at most once per lobby visit). The short delay
+  // lets presence settle so a transient blip doesn't launch prematurely.
+  const hasAutoStartedRef = useRef(false);
+
+  useEffect(() => {
+    if (
+      !allInvitedPresent ||
+      !canStart ||
+      session ||
+      hasAutoStartedRef.current
+    ) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      hasAutoStartedRef.current = true;
+      startPlayback();
+    }, AUTO_START_DELAY_MS);
+
+    return () => clearTimeout(timer);
+  }, [allInvitedPresent, canStart, session, startPlayback]);
 
   const leaveLobby = () => {
     clearSession();
@@ -226,9 +270,11 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
               </div>
             )}
             <p className="text-muted-foreground text-sm">
-              {someoneElseWatching
-                ? "Someone already started watching — press Start to join."
-                : "Playback stays in sync for everyone in this room."}
+              {allInvitedPresent
+                ? "Everyone has joined — starting playback..."
+                : someoneElseWatching
+                  ? "Someone already started watching — press Start to join."
+                  : "Playback stays in sync for everyone in this room."}
             </p>
             {media.isError && (
               <p className="text-destructive text-sm">
