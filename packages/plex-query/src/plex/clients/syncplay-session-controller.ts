@@ -216,8 +216,7 @@ export class SyncplaySessionController {
       }
     }
 
-    const withinStartupGrace =
-      this.now() - this.connectedAt < this.remoteStartupGraceMs;
+    const withinStartupGrace = this.now() - this.connectedAt < this.remoteStartupGraceMs;
     if (state.isPaused && playerState.isPlaying && !withinStartupGrace) {
       this.suppress("suppressedPlayPause");
       this.options.player.pause();
