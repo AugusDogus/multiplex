@@ -79,12 +79,14 @@ class FakeWebSocket implements SyncplayWebSocketLike {
 function createClient(options: {
   sockets: FakeWebSocket[];
   participants?: SyncplayParticipantState[];
+  observer?: boolean;
   onPlaybackState?: ConstructorParameters<typeof SyncplayClient>[0]["onPlaybackState"];
   getPlaybackState?: ConstructorParameters<typeof SyncplayClient>[0]["getPlaybackState"];
 }) {
   return new SyncplayClient({
     room: ROOM,
     user: LOCAL_USER,
+    observer: options.observer,
     onParticipant: (participant) => options.participants?.push(participant),
     onPlaybackState: options.onPlaybackState,
     getPlaybackState: options.getPlaybackState,
@@ -264,13 +266,14 @@ describe("SyncplayClient", () => {
     expect(sockets[0]?.sent).toEqual([]);
   });
 
-  test("with no playback handlers, replies to State by echoing the room playstate (presence heartbeat)", async () => {
-    // The lobby presence connection has no player to drive, so it must keep the
-    // membership alive by replying to the server's ~1Hz State pings — but it
-    // echoes the server's own playstate so it can never move a watcher's
-    // position/pause. (Mirrors Plex's client when its player isn't foreground.)
+  test("observer replies to every State ping by echoing the server playstate (presence heartbeat)", async () => {
+    // The lobby presence connection has no player to drive. To stay listed as
+    // an active member it must keep replying to the server's ~1Hz State pings —
+    // even pings the server attributes to this user (setBy = self), which a
+    // driver would skip. It echoes the server's own playstate so it can never
+    // move a watcher's position/pause.
     const sockets: FakeWebSocket[] = [];
-    const client = createClient({ sockets });
+    const client = createClient({ sockets, observer: true });
 
     client.connect();
     sockets[0]?.open();
@@ -279,13 +282,15 @@ describe("SyncplayClient", () => {
     });
     sockets[0]?.sent.splice(0);
 
+    // A ping the server attributes to us (setBy = LOCAL_USER): a driver skips
+    // this, but the observer must still reply to keep the heartbeat alive.
     sockets[0]?.message({
       State: {
         playstate: {
           paused: false,
           position: 99,
           doSeek: true,
-          setBy: encodeSyncplayUser(REMOTE_USER),
+          setBy: encodeSyncplayUser(LOCAL_USER),
         },
       },
     });
