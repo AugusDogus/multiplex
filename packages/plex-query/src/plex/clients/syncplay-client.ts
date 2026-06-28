@@ -48,6 +48,14 @@ export type SyncplayStateReply = SyncplayStateInput | SyncplaySkipReply | null |
 export interface SyncplayClientOptions {
   room: Pick<WatchTogetherRoom, "id" | "syncplayHost" | "syncplayPort" | "sourceUri">;
   user: SyncplayUser;
+  /**
+   * Presence/observer mode for the lobby: this client has no player to drive,
+   * so on every server `State` ping it replies by echoing the server's own
+   * playstate. That heartbeat keeps the server treating it as an active member
+   * (so it stays listed for everyone else) without ever changing the shared
+   * position/pause. Drivers (the media player) leave this off.
+   */
+  observer?: boolean;
   onParticipant?: (state: SyncplayParticipantState) => void;
   onPlaybackState?: (
     state: SyncplayPlaybackState,
@@ -119,6 +127,7 @@ export class SyncplayClient {
   private readonly onError: NonNullable<SyncplayClientOptions["onError"]>;
   private readonly webSocketFactory: SyncplayWebSocketFactory;
   private readonly now: NonNullable<SyncplayClientOptions["now"]>;
+  private readonly observer: boolean;
   private requestedReady: boolean | null | undefined;
   private lastPing: SyncplayPingState | null = null;
   private pendingState: SyncplayStateInput | null = null;
@@ -135,6 +144,7 @@ export class SyncplayClient {
     this.onError = options.onError ?? (() => undefined);
     this.webSocketFactory = options.webSocketFactory ?? createDefaultWebSocket;
     this.now = options.now ?? getDefaultNow;
+    this.observer = options.observer ?? false;
   }
 
   connect(): void {
@@ -369,6 +379,19 @@ export class SyncplayClient {
   }
 
   private handleState(payload: SyncplayStatePayload, connectionId: number): void {
+    // Observers reply to every ping by echoing the server's own playstate. This
+    // is a pure heartbeat: it keeps the server listing us as an active member
+    // (so others see us) while never changing the shared position/pause.
+    if (this.observer) {
+      this.lastPing = payload.ping ?? null;
+      this.sendState({
+        isPaused: payload.playstate.paused,
+        positionSeconds: payload.playstate.position,
+        shouldSeek: false,
+      });
+      return;
+    }
+
     const user = payload.playstate.setBy ? decodeSyncplayUser(payload.playstate.setBy) : null;
 
     if (user?.deviceIdentifier === this.user.deviceIdentifier) {
