@@ -46,3 +46,10 @@ yarn-error.log*
 
 # llms
 llms/
+
+# playwright
+/apps/web/test-results/
+/apps/web/playwright-report/
+/apps/web/blob-report/
+/apps/web/playwright/.cache/
+/apps/web/e2e/.auth/
