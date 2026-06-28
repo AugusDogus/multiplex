@@ -117,6 +117,8 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
   );
 
   // Stable so the auto-start effect's timer isn't reset on every render.
+  // Returns whether playback actually opened, so auto-start only latches once it
+  // has truly started (and retries if a param wasn't ready yet).
   const startPlayback = useCallback(() => {
     if (
       !room ||
@@ -126,7 +128,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
       !authToken ||
       !localUser
     ) {
-      return;
+      return false;
     }
 
     setSession({ room, localUser });
@@ -134,6 +136,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     openPlayer(
       createMediaPlayerItem(playTarget, { serverId, serverUrl, authToken }),
     );
+    return true;
   }, [
     room,
     serverId,
@@ -158,27 +161,45 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
   );
 
   // Auto-start like the official Plex app: once everyone has joined, open the
-  // player automatically (fired at most once per lobby visit). The short delay
-  // lets presence settle so a transient blip doesn't launch prematurely.
+  // player automatically. Presence briefly flaps during the Syncplay
+  // observer->driver handoff (a participant's lobby socket is replaced by their
+  // player's), so we arm a single delayed start and deliberately DON'T tear it
+  // down on those transient dep changes — cancelling on a flap is what left the
+  // second joiner stuck. It arms at most once, is cancelled if playback begins
+  // another way, and only latches once playback actually opens.
   const hasAutoStartedRef = useRef(false);
+  const autoStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (
-      !allInvitedPresent ||
-      !canStart ||
-      session ||
-      hasAutoStartedRef.current
-    ) {
+    if (session || hasAutoStartedRef.current) {
+      if (autoStartTimerRef.current !== null) {
+        clearTimeout(autoStartTimerRef.current);
+        autoStartTimerRef.current = null;
+      }
       return;
     }
 
-    const timer = setTimeout(() => {
-      hasAutoStartedRef.current = true;
-      startPlayback();
-    }, AUTO_START_DELAY_MS);
+    if (autoStartTimerRef.current !== null || !allInvitedPresent || !canStart) {
+      return;
+    }
 
-    return () => clearTimeout(timer);
+    autoStartTimerRef.current = setTimeout(() => {
+      autoStartTimerRef.current = null;
+      if (startPlayback()) {
+        hasAutoStartedRef.current = true;
+      }
+    }, AUTO_START_DELAY_MS);
   }, [allInvitedPresent, canStart, session, startPlayback]);
+
+  // Cancel a pending auto-start only when the lobby itself goes away.
+  useEffect(
+    () => () => {
+      if (autoStartTimerRef.current !== null) {
+        clearTimeout(autoStartTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const leaveLobby = () => {
     clearSession();
