@@ -52,7 +52,14 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
   const session = useWatchTogetherStore((state) => state.session);
   const roomQuery = api.plex.getWatchTogetherRoom.useQuery(
     { roomId },
-    { refetchInterval: 10_000 },
+    {
+      // Poll for participant/room updates, but stop once the room errors out
+      // (e.g. it's gone/expired) so we don't hammer a dead room every 10s and
+      // flood the console with errors.
+      refetchInterval: (query) =>
+        query.state.status === "error" ? false : 10_000,
+      retry: 1,
+    },
   );
   const userInfoQuery = api.plex.getUserInfo.useQuery(undefined, {
     staleTime: 60_000,
