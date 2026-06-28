@@ -12,6 +12,7 @@
     "format:check": "bun --filter @multiplex/web format:check && oxfmt --check . '!apps/web/**' '!.agents/**'",
     "typecheck": "bun --filter '*' typecheck",
     "check": "bun run lint && bun run format:check && bun run typecheck",
+    "test": "bun --filter '*' test",
     "dev": "bun --filter @multiplex/web dev",
     "build": "bun --filter @multiplex/web build",
     "start": "bun --filter @multiplex/web start",

@@ -17,6 +17,7 @@
     "lint:fix": "eslint . --fix",
     "preview": "next build && next start",
     "start": "next start",
+    "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
