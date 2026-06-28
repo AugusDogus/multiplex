@@ -111,25 +111,34 @@ export function WatchTogetherInviteDialog({
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
-          {selectedInvitees.length > 0 && (
-            <div className="bg-muted/40 flex items-center gap-3 rounded-lg px-3 py-2">
-              <PlexUserAvatarStack users={selectedInvitees} max={5} />
-              <span className="text-sm font-medium">
-                {selectedInvitees.length}{" "}
-                {selectedInvitees.length === 1 ? "friend" : "friends"} selected
+          {/* Always render this row at a fixed height so selecting the first
+              friend doesn't shift the dialog (no layout jump / CLS). */}
+          <div className="bg-muted/40 flex h-12 items-center gap-3 rounded-lg px-3">
+            {selectedInvitees.length > 0 ? (
+              <>
+                <PlexUserAvatarStack users={selectedInvitees} max={5} />
+                <span className="text-sm font-medium">
+                  {selectedInvitees.length}{" "}
+                  {selectedInvitees.length === 1 ? "friend" : "friends"}{" "}
+                  selected
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-foreground ml-auto h-7 px-2"
+                  disabled={createRoomMutation.isPending}
+                  onClick={clearSelection}
+                >
+                  Clear
+                </Button>
+              </>
+            ) : (
+              <span className="text-muted-foreground text-sm">
+                Select friends below to invite them.
               </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="text-muted-foreground hover:text-foreground ml-auto h-7 px-2"
-                disabled={createRoomMutation.isPending}
-                onClick={clearSelection}
-              >
-                Clear
-              </Button>
-            </div>
-          )}
+            )}
+          </div>
 
           <p className="text-muted-foreground text-sm">
             Friends and Accounts with Library Access
@@ -202,7 +211,12 @@ export function WatchTogetherInviteDialog({
           >
             Cancel
           </Button>
-          <Button type="button" disabled={!canInvite} onClick={createRoom}>
+          <Button
+            type="button"
+            disabled={!canInvite}
+            onClick={createRoom}
+            className="min-w-32"
+          >
             {createRoomMutation.isPending && (
               <Loader2 className="animate-spin" data-icon="inline-start" />
             )}
