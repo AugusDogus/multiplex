@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
@@ -31,6 +31,13 @@ import { api } from "~/trpc/react";
 // Short settle delay before auto-starting once everyone has joined, so a
 // transient presence blip doesn't launch playback prematurely.
 const AUTO_START_DELAY_MS = 1200;
+
+// Presence flaps briefly (isPresent false->true) during the Syncplay
+// observer->driver handoff when a participant starts watching — their lobby
+// socket closes and the player's opens. Treat "everyone joined" as sticky:
+// true immediately, false only after sustained absence, so those blips can't
+// reset the auto-start timer (which left the second joiner stuck).
+const PRESENCE_GRACE_MS = 3000;
 
 interface WatchTogetherLobbyProps {
   roomId: string;
@@ -148,9 +155,9 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     openPlayer,
   ]);
 
-  // Every invited participant is present in the lobby (the local user counts as
-  // present even before their own presence frame arrives).
-  const allInvitedPresent = Boolean(
+  // Every invited participant is present in the lobby right now (the local user
+  // counts as present even before their own presence frame arrives).
+  const allInvitedPresentNow = Boolean(
     room &&
       room.users.length > 0 &&
       room.users.every(
@@ -160,46 +167,45 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
       ),
   );
 
-  // Auto-start like the official Plex app: once everyone has joined, open the
-  // player automatically. Presence briefly flaps during the Syncplay
-  // observer->driver handoff (a participant's lobby socket is replaced by their
-  // player's), so we arm a single delayed start and deliberately DON'T tear it
-  // down on those transient dep changes — cancelling on a flap is what left the
-  // second joiner stuck. It arms at most once, is cancelled if playback begins
-  // another way, and only latches once playback actually opens.
-  const hasAutoStartedRef = useRef(false);
-  const autoStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
+  // Sticky/debounced: shields the auto-start (and the hint) from the brief
+  // presence blips of the observer->driver handoff.
+  const [allInvitedPresent, setAllInvitedPresent] = useState(false);
   useEffect(() => {
-    if (session || hasAutoStartedRef.current) {
-      if (autoStartTimerRef.current !== null) {
-        clearTimeout(autoStartTimerRef.current);
-        autoStartTimerRef.current = null;
-      }
+    if (allInvitedPresentNow) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- safe debounce: idempotent flip-on; the flip-off below is delayed
+      setAllInvitedPresent(true);
+      return;
+    }
+    const timer = setTimeout(
+      () => setAllInvitedPresent(false),
+      PRESENCE_GRACE_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [allInvitedPresentNow]);
+
+  // Auto-start like the official Plex app: once everyone has (stably) joined,
+  // open the player automatically. Fires once per "gathering" — re-armed only
+  // when everyone genuinely scatters (debounced above), so it neither loops
+  // after the player is closed nor gets stuck on a transient blip. Latches only
+  // once playback actually opens, so a not-yet-ready moment can retry.
+  const hasAutoStartedRef = useRef(false);
+  useEffect(() => {
+    if (!allInvitedPresent) {
+      hasAutoStartedRef.current = false;
+      return;
+    }
+    if (!canStart || session || hasAutoStartedRef.current) {
       return;
     }
 
-    if (autoStartTimerRef.current !== null || !allInvitedPresent || !canStart) {
-      return;
-    }
-
-    autoStartTimerRef.current = setTimeout(() => {
-      autoStartTimerRef.current = null;
+    const timer = setTimeout(() => {
       if (startPlayback()) {
         hasAutoStartedRef.current = true;
       }
     }, AUTO_START_DELAY_MS);
-  }, [allInvitedPresent, canStart, session, startPlayback]);
 
-  // Cancel a pending auto-start only when the lobby itself goes away.
-  useEffect(
-    () => () => {
-      if (autoStartTimerRef.current !== null) {
-        clearTimeout(autoStartTimerRef.current);
-      }
-    },
-    [],
-  );
+    return () => clearTimeout(timer);
+  }, [allInvitedPresent, canStart, session, startPlayback]);
 
   const leaveLobby = () => {
     clearSession();
