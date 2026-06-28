@@ -192,6 +192,21 @@ export function MediaPlayerModal() {
     [onSeeked, onSyncplayLocalSeeked],
   );
 
+  // Plex's transcoded streams can't be seeked via `currentTime`; we reload the
+  // stream at a new `streamOffset` instead, which never fires a `seeked` event.
+  // Report those reload-seeks to Syncplay here so they propagate to the room.
+  // (Remote-applied reload-seeks are filtered out by the session controller's
+  // own suppression, so this doesn't echo them back.)
+  const streamOffset = useMediaPlayerStore((state) => state.streamOffset);
+  const previousStreamOffsetRef = useRef(streamOffset);
+  useEffect(() => {
+    if (streamOffset === previousStreamOffsetRef.current) {
+      return;
+    }
+    previousStreamOffsetRef.current = streamOffset;
+    onSyncplayLocalSeeked(streamOffset);
+  }, [streamOffset, onSyncplayLocalSeeked]);
+
   const handleClose = useCallback(() => {
     onStop();
     clearSession();
