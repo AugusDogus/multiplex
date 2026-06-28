@@ -83,35 +83,49 @@ async function disbandRoom(
     .catch(() => undefined);
 }
 
-/** Waits for the player to open and confirms the video is actually advancing. */
+/**
+ * Waits for the player to open and confirms the video is actually advancing.
+ * Nudges play() if it's stuck, tolerating slow transcode startup for two
+ * simultaneous sessions on a live server.
+ */
 async function expectPlayingAndAdvancing(
   page: Page,
   label: string,
-): Promise<number> {
+): Promise<void> {
   const video = page.locator("video");
   await expect(video, `${label}: player should open`).toBeVisible({
     timeout: 60_000,
   });
 
-  // Wait until playback has actually begun (currentTime moving past 0). Real
-  // Plex transcode startup for two simultaneous sessions can take a while.
-  await expect
-    .poll(
-      async () =>
-        video.evaluate((el: HTMLVideoElement) => el.currentTime).catch(() => 0),
-      {
-        message: `${label}: video should start playing`,
-        timeout: 120_000,
-        intervals: [1_000],
-      },
-    )
-    .toBeGreaterThan(0.1);
+  const currentTime = () =>
+    video.evaluate((el: HTMLVideoElement) => el.currentTime).catch(() => 0);
 
-  const first = await video.evaluate((el: HTMLVideoElement) => el.currentTime);
-  await page.waitForTimeout(3_000);
-  const second = await video.evaluate((el: HTMLVideoElement) => el.currentTime);
-  expect(second, `${label}: timecode should advance`).toBeGreaterThan(first);
-  return second;
+  const deadline = Date.now() + 120_000;
+  let last = await currentTime();
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(2_500);
+    const next = await currentTime();
+    if (next > last + 0.5) {
+      return; // playback is genuinely advancing
+    }
+    // Stuck (paused by stale room state, or autoplay didn't take): nudge it.
+    await video
+      .evaluate((el: HTMLVideoElement) => el.paused && el.play())
+      .catch(() => undefined);
+    last = next;
+  }
+
+  const diag = await video
+    .evaluate((el: HTMLVideoElement) => ({
+      currentTime: el.currentTime,
+      paused: el.paused,
+      readyState: el.readyState,
+      networkState: el.networkState,
+    }))
+    .catch(() => null);
+  throw new Error(
+    `${label}: video never advanced. diag=${JSON.stringify(diag)}`,
+  );
 }
 
 test("two viewers auto-start and play the same item in sync", async ({

@@ -365,8 +365,11 @@ describe("SyncplayClient", () => {
       },
     });
 
-    // While echoing we do not drive our player and we mirror the server state.
-    expect(applied).toEqual([]);
+    // We still apply the peer's change to our player (that's how it propagates),
+    // but our reply echoes the server's state rather than asserting our own.
+    expect(applied).toEqual([
+      { user: REMOTE_USER, isPaused: true, positionSeconds: 70, shouldSeek: false },
+    ]);
     expect(lastPlaystate(sockets[0])?.playstate).toEqual({
       doSeek: false,
       paused: true,

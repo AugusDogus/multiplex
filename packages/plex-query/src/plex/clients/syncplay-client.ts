@@ -435,7 +435,10 @@ export class SyncplayClient {
     // local change of ours is still in flight (which would otherwise be clobbered).
     const setByUser = payload.playstate.setBy ? decodeSyncplayUser(payload.playstate.setBy) : null;
     const isSelf = setByUser?.deviceIdentifier === this.user.deviceIdentifier;
-    if (!shouldEcho && !isSelf && this.ignoringClient === 0) {
+    // Apply the remote playstate whether or not we're echoing — echoing only
+    // changes what we reply with, not whether a peer's change reaches our
+    // player. (Observers pass no `applyRemoteState`, so this is a no-op there.)
+    if (!isSelf && this.ignoringClient === 0) {
       this.applyRemoteState({
         user: setByUser,
         isPaused: payload.playstate.paused,
