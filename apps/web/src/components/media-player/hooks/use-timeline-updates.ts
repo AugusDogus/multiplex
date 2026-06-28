@@ -10,6 +10,14 @@ import { api } from "~/trpc/react";
    Manages sending timeline updates to Plex server during playback
    ──────────────────────────────────────────────────────────── */
 
+// While playing, report progress at roughly this cadence (Plex's own clients
+// poll ~every 10s). The `timeupdate` event fires several times a second, so
+// without throttling we'd flood the server with a request per second per
+// viewer — which piles up (each call re-resolves the server) and starts failing
+// with "Failed to fetch", spamming the console. State changes (play/pause/seek/
+// stop/item change) still report immediately.
+const TIMELINE_PROGRESS_INTERVAL_MS = 10_000;
+
 /**
  * Hook to manage timeline updates to Plex server during media playback
  * Uses video events directly instead of intervals
@@ -27,6 +35,10 @@ export function useTimelineUpdates() {
     state: string;
     ratingKey?: string;
   } | null>(null);
+  const lastSentAtRef = useRef<number | null>(null);
+  // Best-effort progress reporting; surface a transient failure once rather
+  // than logging every retry (which would flood the dev error overlay).
+  const hasLoggedFailureRef = useRef(false);
 
   const sendTimelineMutation = api.plex.sendTimeline.useMutation();
 
@@ -56,12 +68,29 @@ export function useTimelineUpdates() {
 
       if (!hasStateChanged && !hasTimeChanged && !hasItemChanged) return;
 
+      // Throttle the high-frequency "playing" progress pings; always let state/
+      // item changes (play/pause/seek/stop/new item) through immediately.
+      const isPeriodicProgress =
+        !hasStateChanged && !hasItemChanged && playbackState === "playing";
+      const now = Date.now();
+      if (
+        isPeriodicProgress &&
+        lastSentAtRef.current !== null &&
+        now - lastSentAtRef.current < TIMELINE_PROGRESS_INTERVAL_MS
+      ) {
+        return;
+      }
+
       // Apply Plex safety checks (except for stopped state)
       if (playbackState !== "stopped") {
         const durationMs = duration * 1000;
         const currentTimeMs = timeToUse * 1000;
         if (durationMs <= 30000 || durationMs - currentTimeMs <= 30000) return;
       }
+
+      // Mark the attempt now (before awaiting) so a slow/failing request still
+      // throttles the next one instead of letting them stack up.
+      lastSentAtRef.current = now;
 
       try {
         await sendTimelineMutation.mutateAsync({
@@ -89,8 +118,12 @@ export function useTimelineUpdates() {
           ratingKey: currentItem.ratingKey,
           progressPercent: (timeToUse / duration) * 100,
         });
+        hasLoggedFailureRef.current = false;
       } catch (error) {
-        console.error("Timeline update failed:", error);
+        if (!hasLoggedFailureRef.current) {
+          hasLoggedFailureRef.current = true;
+          console.error("Timeline update failed:", error);
+        }
       }
     },
     [
@@ -143,6 +176,8 @@ export function useTimelineUpdates() {
   const clearSession = useCallback(() => {
     sessionIdRef.current = null;
     lastUpdateRef.current = null;
+    lastSentAtRef.current = null;
+    hasLoggedFailureRef.current = false;
   }, []);
 
   return {
