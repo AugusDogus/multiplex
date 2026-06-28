@@ -5,14 +5,12 @@ export * from "./utils";
 
 // Export legacy imports for backward compatibility
 export { PlexServerClient } from "./clients/plex-server-client";
-export { SKIP_SYNCPLAY_REPLY, SyncplayClient } from "./clients/syncplay-client";
+export { SyncplayClient } from "./clients/syncplay-client";
 export type {
   SyncplayClientOptions,
   SyncplayParticipantState,
   SyncplayPlaybackState,
-  SyncplaySkipReply,
   SyncplayStateInput,
-  SyncplayStateReply,
   SyncplayUser,
   SyncplayWebSocketFactory,
   SyncplayWebSocketLike,

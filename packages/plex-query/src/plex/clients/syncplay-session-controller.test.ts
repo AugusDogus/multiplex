@@ -10,17 +10,8 @@ const ROOM = {
   sourceUri: "server://server123/com.plexapp.plugins.library/library/metadata/456",
 } satisfies Pick<WatchTogetherRoom, "id" | "syncplayHost" | "syncplayPort" | "sourceUri">;
 
-const LOCAL_USER = {
-  id: 1,
-  deviceIdentifier: "local-device",
-  deviceName: "Local Device",
-};
-
-const REMOTE_USER = {
-  id: 2,
-  deviceIdentifier: "remote-device",
-  deviceName: "Remote Device",
-};
+const LOCAL_USER = { id: 1, deviceIdentifier: "local-device", deviceName: "Local Device" };
+const REMOTE_USER = { id: 2, deviceIdentifier: "remote-device", deviceName: "Remote Device" };
 
 class FakeWebSocket implements SyncplayWebSocketLike {
   readyState = 0;
@@ -55,57 +46,62 @@ class FakeWebSocket implements SyncplayWebSocketLike {
 
   open(): void {
     this.readyState = 1;
-    for (const listener of this.listeners.open) {
-      listener();
-    }
+    for (const listener of this.listeners.open) listener();
   }
 
   message(frame: unknown): void {
     const event = { data: JSON.stringify(frame) } as MessageEvent<string>;
-    for (const listener of this.listeners.message) {
-      listener(event);
-    }
+    for (const listener of this.listeners.message) listener(event);
   }
 
   closeFromServer(): void {
     this.readyState = 3;
-    for (const listener of this.listeners.close) {
-      listener();
-    }
+    for (const listener of this.listeners.close) listener();
   }
+}
+
+interface PlayerCalls {
+  play: number;
+  pause: number;
+  seeks: number[];
 }
 
 function createController(options: {
   sockets: FakeWebSocket[];
   state: SyncplayPlayerState;
-  play?: () => boolean | Promise<boolean>;
-  seek?: (positionSeconds: number) => "direct" | "reload" | "none";
+  calls: PlayerCalls;
   now?: () => number;
   setTimeout?: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>;
   clearTimeout?: (timeout: ReturnType<typeof setTimeout>) => void;
+  onFatalError?: (error: Error) => void;
 }) {
-  return new SyncplaySessionController({
+  const controller = new SyncplaySessionController({
     room: ROOM,
     user: LOCAL_USER,
+    onFatalError: options.onFatalError,
     player: {
       getState: () => options.state,
-      play: options.play ?? (() => true),
+      play: () => {
+        options.calls.play += 1;
+        options.state.isPlaying = true;
+        return true;
+      },
       pause: () => {
+        options.calls.pause += 1;
         options.state.isPlaying = false;
       },
-      seek:
-        options.seek ??
-        ((positionSeconds) => {
-          options.state.currentTime = positionSeconds;
-          return "direct";
-        }),
+      seek: (positionSeconds) => {
+        options.calls.seeks.push(positionSeconds);
+        options.state.currentTime = positionSeconds;
+        return "direct";
+      },
     },
     webSocketFactory: () => {
       const socket = new FakeWebSocket();
       options.sockets.push(socket);
       return socket;
     },
-    now: options.now ?? (() => 1234),
+    now: options.now ?? (() => 1000),
     setTimeout:
       options.setTimeout ??
       ((callback) => {
@@ -114,300 +110,163 @@ function createController(options: {
       }),
     clearTimeout: options.clearTimeout ?? (() => undefined),
   });
+  return controller;
 }
 
-async function flushPromises(): Promise<void> {
-  for (let index = 0; index < 10; index += 1) {
-    await Promise.resolve();
-  }
+function makeState(overrides: Partial<SyncplayPlayerState> = {}): SyncplayPlayerState {
+  return {
+    isPlaying: true,
+    currentTime: 30,
+    duration: 120,
+    canPlay: true,
+    isLoading: false,
+    error: null,
+    ...overrides,
+  };
+}
+
+function lastState(socket: FakeWebSocket | undefined) {
+  return (socket?.sent.at(-1) as { State?: { playstate?: unknown; ignoringOnTheFly?: unknown } })
+    ?.State;
 }
 
 describe("SyncplaySessionController", () => {
-  test("sends local playback changes through the syncplay client", () => {
+  test("applies a remote pause to the local player", () => {
     const sockets: FakeWebSocket[] = [];
-    const controller = createController({
-      sockets,
-      state: {
-        isPlaying: true,
-        currentTime: 12,
-        duration: 120,
-        canPlay: true,
-        isLoading: false,
-        error: null,
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const state = makeState({ isPlaying: true, currentTime: 30 });
+    const controller = createController({ sockets, state, calls });
+    controller.connect();
+    sockets[0]?.open();
+
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: true, position: 30, setBy: encodeSyncplayUser(REMOTE_USER) },
       },
     });
 
-    controller.connect();
-    sockets[0]?.open();
-    sockets[0]?.sent.splice(0);
-
-    controller.handleLocalPlaybackChange(false);
-
-    expect(sockets[0]?.sent).toEqual([
-      {
-        State: {
-          ping: {
-            clientLatencyCalculation: 1.234,
-            clientRtt: 0,
-            serverRtt: 0,
-            latencyCalculation: 0,
-          },
-          playstate: {
-            doSeek: false,
-            paused: false,
-            position: 12,
-            setBy: null,
-          },
-          ignoringOnTheFly: {
-            client: 0,
-            server: 0,
-          },
-        },
-      },
-    ]);
+    expect(calls.pause).toBe(1);
+    expect(state.isPlaying).toBe(false);
   });
 
-  test("replies with current local state when remote play fails", async () => {
+  test("applies a remote seek to the local player", () => {
     const sockets: FakeWebSocket[] = [];
-    const state: SyncplayPlayerState = {
-      isPlaying: false,
-      currentTime: 12,
-      duration: 120,
-      canPlay: true,
-      isLoading: false,
-      error: null,
-    };
-    const controller = createController({
-      sockets,
-      state,
-      play: () => {
-        state.error = "play failed";
-        return false;
-      },
-    });
-
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const state = makeState({ isPlaying: false, currentTime: 0, duration: 120 });
+    const controller = createController({ sockets, state, calls });
     controller.connect();
     sockets[0]?.open();
-    sockets[0]?.sent.splice(0);
 
     sockets[0]?.message({
       State: {
         playstate: {
           paused: false,
-          position: 99,
-          doSeek: false,
-          setBy: encodeSyncplayUser(REMOTE_USER),
-        },
-      },
-    });
-    await flushPromises();
-
-    expect(sockets[0]?.sent).toEqual([
-      {
-        State: {
-          ping: {
-            clientLatencyCalculation: 1.234,
-            clientRtt: 0,
-            serverRtt: 0,
-            latencyCalculation: 0,
-          },
-          playstate: {
-            doSeek: false,
-            paused: true,
-            position: 99,
-            setBy: null,
-          },
-          ignoringOnTheFly: {
-            client: 0,
-            server: 0,
-          },
-        },
-      },
-    ]);
-  });
-
-  test("connect replaces existing sockets instead of creating duplicate sessions", () => {
-    const sockets: FakeWebSocket[] = [];
-    const controller = createController({
-      sockets,
-      state: {
-        isPlaying: false,
-        currentTime: 0,
-        duration: 120,
-        canPlay: true,
-        isLoading: false,
-        error: null,
-      },
-    });
-
-    controller.connect();
-    controller.connect();
-
-    expect(sockets).toHaveLength(2);
-    expect(sockets[0]?.closeCount).toBe(1);
-  });
-
-  test("connect clears stale playback suppression from previous sessions", () => {
-    const sockets: FakeWebSocket[] = [];
-    const state: SyncplayPlayerState = {
-      isPlaying: false,
-      currentTime: 10,
-      duration: 120,
-      canPlay: true,
-      isLoading: false,
-      error: null,
-    };
-    const controller = createController({
-      sockets,
-      state,
-      play: () => {
-        state.isPlaying = true;
-        return true;
-      },
-    });
-
-    controller.connect();
-    sockets[0]?.open();
-    sockets[0]?.message({
-      State: {
-        playstate: {
-          paused: false,
-          position: 10,
-          setBy: encodeSyncplayUser(REMOTE_USER),
-        },
-      },
-    });
-    sockets[0]?.sent.splice(0);
-
-    controller.connect();
-    sockets[1]?.open();
-    sockets[1]?.sent.splice(0);
-    controller.handleLocalPlaybackChange(false);
-
-    expect(sockets[1]?.sent).toHaveLength(1);
-  });
-
-  test("connect invalidates pending remote apply loops from previous sessions", async () => {
-    const sockets: FakeWebSocket[] = [];
-    const waitCallbacks: (() => void)[] = [];
-    let seekCalls = 0;
-    const controller = createController({
-      sockets,
-      state: {
-        isPlaying: false,
-        currentTime: 0,
-        duration: 120,
-        canPlay: true,
-        isLoading: false,
-        error: null,
-      },
-      seek: () => {
-        seekCalls += 1;
-        return "none";
-      },
-      setTimeout: (callback) => {
-        waitCallbacks.push(callback);
-        return waitCallbacks.length as unknown as ReturnType<typeof setTimeout>;
-      },
-    });
-
-    controller.connect();
-    sockets[0]?.open();
-    sockets[0]?.sent.splice(0);
-    sockets[0]?.message({
-      State: {
-        playstate: {
-          paused: true,
           position: 50,
           doSeek: true,
           setBy: encodeSyncplayUser(REMOTE_USER),
         },
       },
     });
-    await flushPromises();
-    expect(seekCalls).toBe(2);
 
-    controller.connect();
-    waitCallbacks.shift()?.();
-    await flushPromises();
-
-    expect(seekCalls).toBe(2);
-    expect(sockets[0]?.sent).toEqual([]);
+    expect(calls.seeks).toEqual([50]);
+    expect(calls.play).toBe(1);
   });
 
-  test("retries pending remote apply when seek is temporarily unavailable", async () => {
+  test("claims a local pause on the next server ping", () => {
     const sockets: FakeWebSocket[] = [];
-    const state: SyncplayPlayerState = {
-      isPlaying: false,
-      currentTime: 0,
-      duration: 120,
-      canPlay: true,
-      isLoading: false,
-      error: null,
-    };
-    let seekCalls = 0;
-    const controller = createController({
-      sockets,
-      state,
-      seek: (positionSeconds) => {
-        seekCalls += 1;
-        if (seekCalls === 1) {
-          return "none";
-        }
-        state.currentTime = positionSeconds;
-        return "reload";
-      },
-    });
-
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const state = makeState({ isPlaying: false, currentTime: 30 }); // user just paused
+    const controller = createController({ sockets, state, calls });
     controller.connect();
     sockets[0]?.open();
+
+    controller.handleLocalPlaybackChange(true);
     sockets[0]?.sent.splice(0);
+
+    // Peer still playing; server relays it.
     sockets[0]?.message({
       State: {
-        playstate: {
-          paused: true,
-          position: 50,
-          doSeek: true,
-          setBy: encodeSyncplayUser(REMOTE_USER),
-        },
+        playstate: { paused: false, position: 35, setBy: encodeSyncplayUser(REMOTE_USER) },
       },
     });
-    await flushPromises();
 
-    expect(seekCalls).toBe(2);
-    expect(sockets[0]?.sent).toEqual([]);
+    // We don't get dragged back to playing, and we claim our pause.
+    expect(calls.play).toBe(0);
+    expect(lastState(sockets[0])).toMatchObject({
+      playstate: { paused: true, position: 30, setBy: encodeSyncplayUser(LOCAL_USER) },
+      ignoringOnTheFly: { client: 1, server: 0 },
+    });
   });
 
-  test("disconnect clears reconnect timers even when timer handle is zero", () => {
+  test("does not re-broadcast a pause it applied itself", () => {
     const sockets: FakeWebSocket[] = [];
-    const clearedTimers: ReturnType<typeof setTimeout>[] = [];
-    let scheduledReconnect: (() => void) | null = null;
-    const zeroTimer = 0 as unknown as ReturnType<typeof setTimeout>;
-    const controller = createController({
-      sockets,
-      state: {
-        isPlaying: false,
-        currentTime: 0,
-        duration: 120,
-        canPlay: true,
-        isLoading: false,
-        error: null,
-      },
-      setTimeout: (callback) => {
-        scheduledReconnect = callback;
-        return zeroTimer;
-      },
-      clearTimeout: (timeout) => {
-        clearedTimers.push(timeout);
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const state = makeState({ isPlaying: true, currentTime: 30 });
+    const controller = createController({ sockets, state, calls });
+    controller.connect();
+    sockets[0]?.open();
+
+    // Remote pause -> controller pauses the player (and arms suppression).
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: true, position: 30, setBy: encodeSyncplayUser(REMOTE_USER) },
       },
     });
+    expect(calls.pause).toBe(1);
 
+    // The player emits its pause event; the controller must NOT treat that as a
+    // fresh user pause (which would claim/echo it back).
+    sockets[0]?.sent.splice(0);
+    controller.handleLocalPlaybackChange(true);
+
+    // No new claimed State (no setBy=self / client counter) was produced.
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: true, position: 30, setBy: encodeSyncplayUser(REMOTE_USER) },
+      },
+    });
+    expect(lastState(sockets[0])).toMatchObject({
+      ignoringOnTheFly: { client: 0, server: 0 },
+    });
+  });
+
+  test("reconnects after an unexpected socket close", () => {
+    const sockets: FakeWebSocket[] = [];
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const controller = createController({ sockets, state: makeState(), calls });
     controller.connect();
     sockets[0]?.closeFromServer();
-    expect(scheduledReconnect).not.toBeNull();
+    expect(sockets).toHaveLength(2);
+  });
 
+  test("does not reconnect after a fatal protocol error", () => {
+    const sockets: FakeWebSocket[] = [];
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    let fatal: Error | null = null;
+    const controller = createController({
+      sockets,
+      state: makeState(),
+      calls,
+      onFatalError: (error) => {
+        fatal = error;
+      },
+    });
+    controller.connect();
+    sockets[0]?.open();
+    sockets[0]?.message({ Error: { message: "boom" } });
+    sockets[0]?.closeFromServer();
+
+    expect(fatal).not.toBeNull();
+    expect(sockets).toHaveLength(1); // no reconnect attempt
+  });
+
+  test("disconnect closes the socket", () => {
+    const sockets: FakeWebSocket[] = [];
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const controller = createController({ sockets, state: makeState(), calls });
+    controller.connect();
+    sockets[0]?.open();
     controller.disconnect();
-
-    expect(clearedTimers).toEqual([zeroTimer]);
+    expect(sockets[0]?.closeCount).toBeGreaterThanOrEqual(1);
   });
 });

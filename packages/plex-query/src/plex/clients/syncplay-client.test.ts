@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   encodeSyncplayUser,
-  SKIP_SYNCPLAY_REPLY,
   SyncplayClient,
   type SyncplayParticipantState,
+  type SyncplayPlaybackState,
+  type SyncplayStateInput,
   type SyncplayWebSocketLike,
 } from "./syncplay-client";
 import type { WatchTogetherRoom } from "../schemas/watch-together-schemas";
@@ -80,15 +81,15 @@ function createClient(options: {
   sockets: FakeWebSocket[];
   participants?: SyncplayParticipantState[];
   observer?: boolean;
-  onPlaybackState?: ConstructorParameters<typeof SyncplayClient>[0]["onPlaybackState"];
-  getPlaybackState?: ConstructorParameters<typeof SyncplayClient>[0]["getPlaybackState"];
+  applied?: SyncplayPlaybackState[];
+  getPlaybackState?: () => SyncplayStateInput | null | undefined;
 }) {
   return new SyncplayClient({
     room: ROOM,
     user: LOCAL_USER,
     observer: options.observer,
     onParticipant: (participant) => options.participants?.push(participant),
-    onPlaybackState: options.onPlaybackState,
+    applyRemoteState: (state) => options.applied?.push(state),
     getPlaybackState: options.getPlaybackState,
     webSocketFactory: (url) => {
       const socket = new FakeWebSocket(url);
@@ -99,9 +100,22 @@ function createClient(options: {
   });
 }
 
-async function flushPromises(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
+function lastPlaystate(socket: FakeWebSocket | undefined) {
+  const frame = socket?.sent.at(-1) as
+    | {
+        State?: {
+          ping?: {
+            clientLatencyCalculation: number;
+            clientRtt: number;
+            serverRtt: number;
+            latencyCalculation: number;
+          };
+          playstate?: { paused: boolean; position: number; doSeek: boolean; setBy: string | null };
+          ignoringOnTheFly?: { client: number; server: number };
+        };
+      }
+    | undefined;
+  return frame?.State;
 }
 
 describe("SyncplayClient", () => {
@@ -184,18 +198,13 @@ describe("SyncplayClient", () => {
     ]);
   });
 
-  test("replies with current local state when playback handler rejects", async () => {
+  test("applies a remote playstate and replies with the local player's state", () => {
     const sockets: FakeWebSocket[] = [];
+    const applied: SyncplayPlaybackState[] = [];
     const client = createClient({
       sockets,
-      onPlaybackState: () => {
-        throw new Error("apply failed");
-      },
-      getPlaybackState: () => ({
-        isPaused: true,
-        positionSeconds: 12,
-        shouldSeek: false,
-      }),
+      applied,
+      getPlaybackState: () => ({ isPaused: true, positionSeconds: 12, shouldSeek: false }),
     });
     client.connect();
     sockets[0]?.open();
@@ -211,42 +220,29 @@ describe("SyncplayClient", () => {
         },
       },
     });
-    await flushPromises();
 
-    expect(sockets[0]?.sent).toEqual([
-      {
-        State: {
-          ping: {
-            clientLatencyCalculation: 1.234,
-            clientRtt: 0,
-            serverRtt: 0,
-            latencyCalculation: 0,
-          },
-          playstate: {
-            doSeek: false,
-            paused: true,
-            position: 12,
-            setBy: null,
-          },
-          ignoringOnTheFly: {
-            client: 0,
-            server: 0,
-          },
-        },
-      },
+    expect(applied).toEqual([
+      { user: REMOTE_USER, isPaused: false, positionSeconds: 99, shouldSeek: true },
     ]);
+    expect(lastPlaystate(sockets[0])).toEqual({
+      ping: {
+        clientLatencyCalculation: 1.234,
+        clientRtt: 0,
+        serverRtt: 0,
+        latencyCalculation: 0,
+      },
+      playstate: { doSeek: false, paused: true, position: 12, setBy: null },
+      ignoringOnTheFly: { client: 0, server: 0 },
+    });
   });
 
-  test("does not reply when playback handler returns skip reply", async () => {
+  test("ignores a remote playstate that the server attributes to us", () => {
     const sockets: FakeWebSocket[] = [];
+    const applied: SyncplayPlaybackState[] = [];
     const client = createClient({
       sockets,
-      onPlaybackState: () => SKIP_SYNCPLAY_REPLY,
-      getPlaybackState: () => ({
-        isPaused: true,
-        positionSeconds: 12,
-        shouldSeek: false,
-      }),
+      applied,
+      getPlaybackState: () => ({ isPaused: false, positionSeconds: 30, shouldSeek: false }),
     });
     client.connect();
     sockets[0]?.open();
@@ -255,25 +251,134 @@ describe("SyncplayClient", () => {
     sockets[0]?.message({
       State: {
         playstate: {
+          paused: true,
+          position: 5,
+          setBy: encodeSyncplayUser(LOCAL_USER),
+        },
+      },
+    });
+
+    expect(applied).toEqual([]); // never re-apply our own change
+    // still replies (heartbeat) with our own state
+    expect(lastPlaystate(sockets[0])?.playstate).toEqual({
+      doSeek: false,
+      paused: false,
+      position: 30,
+      setBy: null,
+    });
+  });
+
+  test("claims a local pause and ignores an in-flight peer override", () => {
+    const sockets: FakeWebSocket[] = [];
+    const applied: SyncplayPlaybackState[] = [];
+    // Local player is now paused at 20 (the user just paused).
+    const client = createClient({
+      sockets,
+      applied,
+      getPlaybackState: () => ({ isPaused: true, positionSeconds: 20, shouldSeek: false }),
+    });
+    client.connect();
+    sockets[0]?.open();
+    sockets[0]?.sent.splice(0);
+
+    // User paused locally.
+    client.markLocalPlayPause();
+
+    // A peer is still playing and the server relays their State.
+    sockets[0]?.message({
+      State: {
+        playstate: {
           paused: false,
-          position: 99,
+          position: 25,
           setBy: encodeSyncplayUser(REMOTE_USER),
         },
       },
     });
-    await flushPromises();
 
-    expect(sockets[0]?.sent).toEqual([]);
+    // The peer's "playing" must NOT be applied (would clobber our pause)...
+    expect(applied).toEqual([]);
+    // ...and we claim the pause: own state, attributed to us, client counter raised.
+    expect(lastPlaystate(sockets[0])).toEqual({
+      ping: {
+        clientLatencyCalculation: 1.234,
+        clientRtt: 0,
+        serverRtt: 0,
+        latencyCalculation: 0,
+      },
+      playstate: {
+        doSeek: false,
+        paused: true,
+        position: 20,
+        setBy: encodeSyncplayUser(LOCAL_USER),
+      },
+      ignoringOnTheFly: { client: 1, server: 0 },
+    });
   });
 
-  test("observer replies to every State ping by echoing the server playstate (presence heartbeat)", async () => {
-    // The lobby presence connection has no player to drive. To stay listed as
-    // an active member it must keep replying to the server's ~1Hz State pings —
-    // even pings the server attributes to this user (setBy = self), which a
-    // driver would skip. It echoes the server's own playstate so it can never
-    // move a watcher's position/pause.
+  test("clears the in-flight flag once the server acknowledges our client counter", () => {
     const sockets: FakeWebSocket[] = [];
-    const client = createClient({ sockets, observer: true });
+    const applied: SyncplayPlaybackState[] = [];
+    const client = createClient({
+      sockets,
+      applied,
+      getPlaybackState: () => ({ isPaused: true, positionSeconds: 20, shouldSeek: false }),
+    });
+    client.connect();
+    sockets[0]?.open();
+    client.markLocalPlayPause();
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: false, position: 25, setBy: encodeSyncplayUser(REMOTE_USER) },
+      },
+    });
+    // in flight now (client = 1)
+    expect(lastPlaystate(sockets[0])?.ignoringOnTheFly).toEqual({ client: 1, server: 0 });
+
+    // Server acks our counter and reports the agreed (paused) state.
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: true, position: 20, setBy: encodeSyncplayUser(LOCAL_USER) },
+        ignoringOnTheFly: { client: 1, server: 0 },
+      },
+    });
+
+    expect(lastPlaystate(sockets[0])?.ignoringOnTheFly).toEqual({ client: 0, server: 0 });
+  });
+
+  test("defers (echoes) while the server is relaying another client's change", () => {
+    const sockets: FakeWebSocket[] = [];
+    const applied: SyncplayPlaybackState[] = [];
+    const client = createClient({
+      sockets,
+      applied,
+      getPlaybackState: () => ({ isPaused: false, positionSeconds: 50, shouldSeek: false }),
+    });
+    client.connect();
+    sockets[0]?.open();
+    sockets[0]?.sent.splice(0);
+
+    // Server signals it's mid-change for someone else (server counter > 0).
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: true, position: 70, setBy: encodeSyncplayUser(REMOTE_USER) },
+        ignoringOnTheFly: { client: 0, server: 3 },
+      },
+    });
+
+    // While echoing we do not drive our player and we mirror the server state.
+    expect(applied).toEqual([]);
+    expect(lastPlaystate(sockets[0])?.playstate).toEqual({
+      doSeek: false,
+      paused: true,
+      position: 70,
+      setBy: null,
+    });
+  });
+
+  test("observer echoes every State ping (presence heartbeat), even pings attributed to us", () => {
+    const sockets: FakeWebSocket[] = [];
+    const applied: SyncplayPlaybackState[] = [];
+    const client = createClient({ sockets, observer: true, applied });
 
     client.connect();
     sockets[0]?.open();
@@ -282,8 +387,6 @@ describe("SyncplayClient", () => {
     });
     sockets[0]?.sent.splice(0);
 
-    // A ping the server attributes to us (setBy = LOCAL_USER): a driver skips
-    // this, but the observer must still reply to keep the heartbeat alive.
     sockets[0]?.message({
       State: {
         playstate: {
@@ -294,30 +397,18 @@ describe("SyncplayClient", () => {
         },
       },
     });
-    await flushPromises();
 
-    expect(sockets[0]?.sent).toEqual([
-      {
-        State: {
-          ping: {
-            clientLatencyCalculation: 1.234,
-            clientRtt: 0,
-            serverRtt: 0,
-            latencyCalculation: 0,
-          },
-          playstate: {
-            doSeek: false,
-            paused: false,
-            position: 99,
-            setBy: null,
-          },
-          ignoringOnTheFly: {
-            client: 0,
-            server: 0,
-          },
-        },
+    expect(applied).toEqual([]); // observers never drive a player
+    expect(lastPlaystate(sockets[0])).toEqual({
+      ping: {
+        clientLatencyCalculation: 1.234,
+        clientRtt: 0,
+        serverRtt: 0,
+        latencyCalculation: 0,
       },
-    ]);
+      playstate: { doSeek: false, paused: false, position: 99, setBy: null },
+      ignoringOnTheFly: { client: 0, server: 0 },
+    });
   });
 
   test("buffers outbound playback state while connecting", () => {
@@ -346,16 +437,8 @@ describe("SyncplayClient", () => {
             serverRtt: 0,
             latencyCalculation: 0,
           },
-          playstate: {
-            doSeek: true,
-            paused: false,
-            position: 30,
-            setBy: null,
-          },
-          ignoringOnTheFly: {
-            client: 0,
-            server: 0,
-          },
+          playstate: { doSeek: true, paused: false, position: 30, setBy: null },
+          ignoringOnTheFly: { client: 0, server: 0 },
         },
       },
     ]);

@@ -39,35 +39,31 @@ export interface SyncplayStateInput {
   shouldSeek?: boolean;
 }
 
-export interface SyncplaySkipReply {
-  skipReply: true;
-}
-
-export type SyncplayStateReply = SyncplayStateInput | SyncplaySkipReply | null | void;
-
 export interface SyncplayClientOptions {
   room: Pick<WatchTogetherRoom, "id" | "syncplayHost" | "syncplayPort" | "sourceUri">;
   user: SyncplayUser;
   /**
-   * Presence/observer mode for the lobby: this client has no player to drive,
-   * so on every server `State` ping it replies by echoing the server's own
-   * playstate. That heartbeat keeps the server treating it as an active member
-   * (so it stays listed for everyone else) without ever changing the shared
-   * position/pause. Drivers (the media player) leave this off.
+   * Presence/observer mode for the lobby ("echo" mode in Syncplay terms): this
+   * client has no player to drive, so on every server `State` ping it replies by
+   * echoing the server's own playstate. That heartbeat keeps the server treating
+   * it as an active member (so it stays listed for everyone else) without ever
+   * changing the shared position/pause. Drivers (the media player) leave this off.
    */
   observer?: boolean;
   onParticipant?: (state: SyncplayParticipantState) => void;
-  onPlaybackState?: (
-    state: SyncplayPlaybackState,
-  ) => Promise<SyncplayStateReply> | SyncplayStateReply;
+  /**
+   * Drive the local player toward a remote-initiated playstate. Only called for
+   * drivers (non-observer) and only when the change wasn't made locally and
+   * isn't being ignored on-the-fly (see the arbitration in `handleState`).
+   */
+  applyRemoteState?: (state: SyncplayPlaybackState) => void;
+  /** Current local playstate, reported back to the server on each `State` ping. */
   getPlaybackState?: () => SyncplayStateInput | null | undefined;
   onClose?: () => void;
   onError?: (error: Event | Error) => void;
   webSocketFactory?: SyncplayWebSocketFactory;
   now?: () => number;
 }
-
-export const SKIP_SYNCPLAY_REPLY: SyncplaySkipReply = { skipReply: true };
 
 const SOCKET_CONNECTING = 0;
 const SOCKET_OPEN = 1;
@@ -107,6 +103,10 @@ interface SyncplayStatePayload {
     doSeek?: boolean;
     setBy?: string | null;
   };
+  ignoringOnTheFly?: {
+    client?: number;
+    server?: number;
+  };
 }
 
 interface SyncplayPingState {
@@ -121,7 +121,7 @@ export class SyncplayClient {
   private readonly room: SyncplayClientOptions["room"];
   private readonly user: SyncplayUser;
   private readonly onParticipant: NonNullable<SyncplayClientOptions["onParticipant"]>;
-  private readonly onPlaybackState: NonNullable<SyncplayClientOptions["onPlaybackState"]>;
+  private readonly applyRemoteState: NonNullable<SyncplayClientOptions["applyRemoteState"]>;
   private readonly getPlaybackState: NonNullable<SyncplayClientOptions["getPlaybackState"]>;
   private readonly onClose: NonNullable<SyncplayClientOptions["onClose"]>;
   private readonly onError: NonNullable<SyncplayClientOptions["onError"]>;
@@ -133,12 +133,22 @@ export class SyncplayClient {
   private pendingState: SyncplayStateInput | null = null;
   private readonly knownParticipants = new Map<string, SyncplayUser>();
   private connectionId = 0;
+  // Syncplay's "ignoring on the fly" handshake — the arbitration that stops a
+  // peer's in-flight playstate from clobbering a local pause/seek. `client` is
+  // raised while one of our own changes is awaiting server acknowledgement;
+  // `server` mirrors the server while it is relaying someone else's change.
+  private ignoringClient = 0;
+  private ignoringServer = 0;
+  // Flags set when the local user pauses/plays/seeks, so the next `State` reply
+  // claims the change (and bumps `ignoringClient`).
+  private pendingPlayPause = false;
+  private pendingSeek = false;
 
   constructor(options: SyncplayClientOptions) {
     this.room = options.room;
     this.user = options.user;
     this.onParticipant = options.onParticipant ?? (() => undefined);
-    this.onPlaybackState = options.onPlaybackState ?? (() => undefined);
+    this.applyRemoteState = options.applyRemoteState ?? (() => undefined);
     this.getPlaybackState = options.getPlaybackState ?? (() => undefined);
     this.onClose = options.onClose ?? (() => undefined);
     this.onError = options.onError ?? (() => undefined);
@@ -150,6 +160,10 @@ export class SyncplayClient {
   connect(): void {
     this.disconnect();
 
+    this.ignoringClient = 0;
+    this.ignoringServer = 0;
+    this.pendingPlayPause = false;
+    this.pendingSeek = false;
     this.connectionId += 1;
     const connectionId = this.connectionId;
     const socket = this.webSocketFactory(
@@ -209,6 +223,20 @@ export class SyncplayClient {
     this.send({ Set: { ready: { isReady } } });
   }
 
+  /**
+   * Record that the local user toggled play/pause. The change is claimed on the
+   * next `State` exchange, which raises `ignoringClient` so the server arbitrates
+   * it and other clients defer to it.
+   */
+  markLocalPlayPause(): void {
+    this.pendingPlayPause = true;
+  }
+
+  /** Record that the local user seeked; reported with `doSeek` on the next reply. */
+  markLocalSeek(): void {
+    this.pendingSeek = true;
+  }
+
   setFile(): void {
     this.send({
       Set: {
@@ -235,11 +263,13 @@ export class SyncplayClient {
           doSeek: state.shouldSeek ?? false,
           paused: state.isPaused,
           position: state.positionSeconds,
-          setBy: null,
+          // Claim authorship while a local change is in flight so the server
+          // attributes it to us and relays it to the room.
+          setBy: this.ignoringClient > 0 ? encodeSyncplayUser(this.user) : null,
         },
         ignoringOnTheFly: {
-          client: 0,
-          server: 0,
+          client: this.ignoringClient,
+          server: this.ignoringServer,
         },
       },
     };
@@ -379,69 +409,66 @@ export class SyncplayClient {
   }
 
   private handleState(payload: SyncplayStatePayload, connectionId: number): void {
-    // Observers reply to every ping by echoing the server's own playstate. This
-    // is a pure heartbeat: it keeps the server listing us as an active member
-    // (so others see us) while never changing the shared position/pause.
-    if (this.observer) {
-      this.lastPing = payload.ping ?? null;
-      this.sendState({
-        isPaused: payload.playstate.paused,
-        positionSeconds: payload.playstate.position,
-        shouldSeek: false,
-      });
-      return;
-    }
-
-    const user = payload.playstate.setBy ? decodeSyncplayUser(payload.playstate.setBy) : null;
-
-    if (user?.deviceIdentifier === this.user.deviceIdentifier) {
-      return;
-    }
-
     this.lastPing = payload.ping ?? null;
 
-    const fallbackState = {
-      isPaused: payload.playstate.paused,
-      positionSeconds: payload.playstate.position,
-      shouldSeek: false,
-    };
+    // Mirror the server's "ignoring on the fly" counter for this message, then
+    // decide whether we're echoing (observer, or deferring while the server
+    // relays someone else's change).
+    this.ignoringServer =
+      (payload.ignoringOnTheFly?.server ?? 0) > 0 ? payload.ignoringOnTheFly!.server! : 0;
+    const shouldEcho = this.observer || this.ignoringServer > 0;
 
-    void new Promise<SyncplayStateReply>((resolve, reject) => {
-      try {
-        resolve(
-          this.onPlaybackState({
-            user,
-            isPaused: payload.playstate.paused,
-            positionSeconds: payload.playstate.position,
-            shouldSeek: Boolean(payload.playstate.doSeek),
-          }),
-        );
-      } catch (error) {
-        reject(error);
-      }
-    })
-      .then((state) => {
-        if (this.connectionId !== connectionId) {
-          return;
-        }
+    // The server echoes our `client` counter back once it has processed our
+    // change; matching it (or entering echo mode) clears the in-flight state.
+    const ackedClient =
+      (payload.ignoringOnTheFly?.client ?? 0) > 0 ? payload.ignoringOnTheFly!.client! : 0;
+    if (shouldEcho || ackedClient === this.ignoringClient) {
+      this.ignoringClient = 0;
+    }
+    // A fresh local change (claimed below) raises the counter so the server
+    // arbitrates it and peers defer to it.
+    if (!shouldEcho && (this.pendingPlayPause || this.pendingSeek)) {
+      this.ignoringClient += 1;
+    }
 
-        if (isSkipReply(state)) {
-          return;
-        }
-
-        this.sendState(state ?? this.getPlaybackState() ?? fallbackState);
-      })
-      .catch((error: unknown) => {
-        if (this.connectionId !== connectionId) {
-          return;
-        }
-
-        this.onError(
-          error instanceof Error ? error : new Error("Syncplay playback handler rejected"),
-        );
-        const currentState = this.getPlaybackState();
-        this.sendState(currentState ?? fallbackState);
+    // Apply the remote playstate to our player unless we made it ourselves or a
+    // local change of ours is still in flight (which would otherwise be clobbered).
+    const setByUser = payload.playstate.setBy ? decodeSyncplayUser(payload.playstate.setBy) : null;
+    const isSelf = setByUser?.deviceIdentifier === this.user.deviceIdentifier;
+    if (!shouldEcho && !isSelf && this.ignoringClient === 0) {
+      this.applyRemoteState({
+        user: setByUser,
+        isPaused: payload.playstate.paused,
+        positionSeconds: payload.playstate.position,
+        shouldSeek: Boolean(payload.playstate.doSeek),
       });
+    }
+
+    if (this.connectionId !== connectionId) {
+      return;
+    }
+
+    // Reply to every ping: echo the server's state (heartbeat) or report our own
+    // player's state (claiming a pending seek via `doSeek`).
+    const reply: SyncplayStateInput = shouldEcho
+      ? {
+          isPaused: payload.playstate.paused,
+          positionSeconds: payload.playstate.position,
+          shouldSeek: false,
+        }
+      : this.buildLocalReply();
+    this.pendingPlayPause = false;
+    this.pendingSeek = false;
+    this.sendState(reply);
+  }
+
+  private buildLocalReply(): SyncplayStateInput {
+    const local = this.getPlaybackState();
+    return {
+      isPaused: local?.isPaused ?? true,
+      positionSeconds: local?.positionSeconds ?? 0,
+      shouldSeek: this.pendingSeek,
+    };
   }
 
   private flushPendingState(): void {
@@ -466,10 +493,6 @@ export class SyncplayClient {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
-}
-
-function isSkipReply(value: SyncplayStateReply): value is SyncplaySkipReply {
-  return isRecord(value) && value.skipReply === true;
 }
 
 function createDefaultWebSocket(url: string): SyncplayWebSocketLike {

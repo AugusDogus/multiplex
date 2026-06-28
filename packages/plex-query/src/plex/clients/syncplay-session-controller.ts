@@ -1,21 +1,16 @@
 import type { WatchTogetherRoom } from "../schemas/watch-together-schemas";
 import {
-  SKIP_SYNCPLAY_REPLY,
   SyncplayClient,
   type SyncplayClientOptions,
   type SyncplayParticipantState,
   type SyncplayPlaybackState,
   type SyncplayStateInput,
-  type SyncplayStateReply,
   type SyncplayUser,
 } from "./syncplay-client";
 
 const DEFAULT_SEEK_AHEAD_THRESHOLD_SECONDS = 4;
 const DEFAULT_SEEK_BEHIND_THRESHOLD_SECONDS = -1.75;
-const DEFAULT_REMOTE_STATE_SETTLE_INTERVAL_MS = 25;
-const DEFAULT_REMOTE_SEEK_SUPPRESSION_MS = 5000;
-const DEFAULT_REMOTE_PLAYBACK_SUPPRESSION_MS = 750;
-const DEFAULT_REMOTE_STATE_APPLY_TIMEOUT_MS = 5000;
+const DEFAULT_REMOTE_EVENT_SUPPRESSION_MS = 5000;
 const DEFAULT_RECONNECT_DELAY_MS = 1000;
 
 export type SyncplaySeekResult = "direct" | "reload" | "none";
@@ -50,45 +45,32 @@ export interface SyncplaySessionControllerOptions {
   clearTimeout?: (timeout: ReturnType<typeof setTimeout>) => void;
   seekAheadThresholdSeconds?: number;
   seekBehindThresholdSeconds?: number;
-  remoteStateSettleIntervalMs?: number;
-  remoteSeekSuppressionMs?: number;
-  remotePlaybackSuppressionMs?: number;
-  remoteStateApplyTimeoutMs?: number;
+  remoteEventSuppressionMs?: number;
   reconnectDelayMs?: number;
 }
 
-interface SuppressedPlaybackEvent {
-  id: number;
-  isPaused: boolean;
+interface SuppressedEvent {
   expiresAt: number;
 }
 
-interface SuppressedSeekEvent {
-  positionSeconds: number;
-  expiresAt: number;
-  mode: SyncplaySeekResult;
-  settled: Promise<void>;
-  resolve: () => void;
-}
-
-interface RemoteApplyResult {
-  status: "applied" | "pending";
-  shouldSeek: boolean;
-  targetPosition: number;
-  seekMode?: SyncplaySeekResult;
-  seekSettled?: Promise<void>;
-  playSettled?: Promise<boolean>;
-}
-
+/**
+ * Drives the local media player from a Watch Together room and reports local
+ * changes back, using {@link SyncplayClient}'s "ignoring on the fly" handshake
+ * for arbitration. This class is a thin bridge: it applies remote play/pause/
+ * seek to the player and forwards genuine user actions to the client. Echo/loop
+ * prevention for the client's own remote-applies is handled by short-lived
+ * suppression entries (a player paused by us must not be re-broadcast as a new
+ * local pause).
+ */
 export class SyncplaySessionController {
   private client: SyncplayClient | null = null;
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
   private sawFatalError = false;
-  private suppressedPlaybackEventId = 0;
-  private suppressedPlaybackEvents: SuppressedPlaybackEvent[] = [];
-  private suppressedSeek: SuppressedSeekEvent | null = null;
-  private remoteStateGeneration = 0;
+  // Programmatic play/pause/seek we triggered while applying remote state; the
+  // resulting player events must not be mistaken for fresh user actions.
+  private suppressedPlayPause: SuppressedEvent | null = null;
+  private suppressedSeek: SuppressedEvent | null = null;
   private readonly now: () => number;
   private readonly setTimer: NonNullable<SyncplaySessionControllerOptions["setTimeout"]>;
   private readonly clearTimer: NonNullable<SyncplaySessionControllerOptions["clearTimeout"]>;
@@ -103,17 +85,15 @@ export class SyncplaySessionController {
     this.disconnectClient();
     this.disposed = false;
     this.sawFatalError = false;
-    this.suppressedPlaybackEvents = [];
+    this.suppressedPlayPause = null;
     this.suppressedSeek = null;
-    this.remoteStateGeneration += 1;
     this.connectClient();
   }
 
   disconnect(): void {
     this.disposed = true;
     this.disconnectClient();
-    this.remoteStateGeneration += 1;
-    this.suppressedPlaybackEvents = [];
+    this.suppressedPlayPause = null;
     this.suppressedSeek = null;
   }
 
@@ -121,31 +101,20 @@ export class SyncplaySessionController {
     this.client?.setReady(isReady);
   }
 
-  handleLocalPlaybackChange(isPaused: boolean): void {
-    this.sendLocalState({ isPaused });
-  }
-
-  handleLocalSeeked(time: number): void {
-    const suppressedSeek = this.suppressedSeek;
-    if (
-      suppressedSeek &&
-      this.now() <= suppressedSeek.expiresAt &&
-      Math.abs(time - suppressedSeek.positionSeconds) < 0.75
-    ) {
-      suppressedSeek.resolve();
-      this.suppressedSeek = null;
+  handleLocalPlaybackChange(_isPaused: boolean): void {
+    // Ignore the event our own remote-apply just produced; otherwise claim the
+    // user's change (reported on the next State ping, like the official client).
+    if (this.consume("suppressedPlayPause")) {
       return;
     }
+    this.client?.markLocalPlayPause();
+  }
 
-    if (suppressedSeek && this.now() > suppressedSeek.expiresAt) {
-      this.suppressedSeek = null;
+  handleLocalSeeked(_time: number): void {
+    if (this.consume("suppressedSeek")) {
+      return;
     }
-
-    this.sendLocalState({
-      isPaused: !this.options.player.getState().isPlaying,
-      shouldSeek: true,
-      time,
-    });
+    this.client?.markLocalSeek();
   }
 
   private connectClient(): void {
@@ -158,15 +127,9 @@ export class SyncplaySessionController {
       user: this.options.user,
       onParticipant: this.options.onParticipant,
       getPlaybackState: () => this.getCurrentState(),
+      applyRemoteState: (state) => this.applyRemoteState(state),
       webSocketFactory: this.options.webSocketFactory,
       now: this.now,
-      onPlaybackState: async (state) => {
-        const generation = ++this.remoteStateGeneration;
-        const result = this.applyRemotePlaybackState(state);
-        return result.status === "pending"
-          ? this.waitForDurationThenApplyRemoteState(state, generation)
-          : this.waitForRemoteStateToSettle(state, result, generation);
-      },
       onClose: () => {
         if (this.disposed || this.client !== client) {
           return;
@@ -201,7 +164,7 @@ export class SyncplaySessionController {
 
         this.sawFatalError = true;
         this.client = null;
-        this.suppressedPlaybackEvents = [];
+        this.suppressedPlayPause = null;
         this.suppressedSeek = null;
         this.options.onFatalError?.(fatalError);
       },
@@ -218,8 +181,13 @@ export class SyncplaySessionController {
     this.client = null;
   }
 
-  private applyRemotePlaybackState(state: SyncplayPlaybackState): RemoteApplyResult {
+  /** Steer the player toward a remote-initiated playstate (fire-and-forget). */
+  private applyRemoteState(state: SyncplayPlaybackState): void {
     const playerState = this.options.player.getState();
+    if (playerState.error) {
+      return;
+    }
+
     const targetPosition = clampRemotePosition(state.positionSeconds, playerState.duration);
     const diffSeconds = playerState.currentTime - targetPosition;
     const shouldSeek =
@@ -229,175 +197,26 @@ export class SyncplaySessionController {
       diffSeconds <=
         (this.options.seekBehindThresholdSeconds ?? DEFAULT_SEEK_BEHIND_THRESHOLD_SECONDS);
 
-    if (shouldSeek && playerState.duration <= 0) {
-      return { status: "pending", shouldSeek, targetPosition };
-    }
-
-    let seekMode: SyncplaySeekResult | undefined;
-    let seekSettled: Promise<void> | undefined;
-    if (shouldSeek) {
-      seekMode = this.options.player.seek(targetPosition);
-      if (seekMode === "none") {
-        return { status: "pending", shouldSeek, targetPosition };
+    if (shouldSeek && playerState.duration > 0) {
+      const result = this.options.player.seek(targetPosition);
+      if (result !== "none") {
+        this.suppress("suppressedSeek");
       }
-      seekSettled = this.createSuppressedSeekEvent(targetPosition, seekMode).settled;
     }
 
-    let playSettled: Promise<boolean> | undefined;
     if (state.isPaused && playerState.isPlaying) {
-      this.addSuppressedPlaybackEvent(true);
+      this.suppress("suppressedPlayPause");
       this.options.player.pause();
     } else if (!state.isPaused && !playerState.isPlaying) {
-      const suppressedEventId = this.addSuppressedPlaybackEvent(false);
-      playSettled = Promise.resolve(this.options.player.play()).then(
-        (played) => {
-          if (!played) {
-            this.removeSuppressedPlaybackEvent(suppressedEventId);
-          }
-          return played;
-        },
-        () => {
-          this.removeSuppressedPlaybackEvent(suppressedEventId);
-          return false;
-        },
-      );
-    }
-
-    return {
-      status: "applied",
-      shouldSeek,
-      targetPosition,
-      seekMode,
-      seekSettled,
-      playSettled,
-    };
-  }
-
-  private async waitForRemoteStateToSettle(
-    state: SyncplayPlaybackState,
-    applyResult: RemoteApplyResult,
-    generation: number,
-  ): Promise<SyncplayStateReply> {
-    const deadline = this.now() + this.remoteStateApplyTimeoutMs;
-    let directSeekSettled = applyResult.seekMode !== "direct";
-    if (applyResult.seekMode === "direct" && applyResult.seekSettled) {
-      void applyResult.seekSettled.then(() => {
-        directSeekSettled = true;
-      });
-    }
-
-    let playSettled = !applyResult.playSettled;
-    let playSucceeded = true;
-    if (applyResult.playSettled) {
-      void applyResult.playSettled.then((played) => {
-        playSettled = true;
-        playSucceeded = played;
-      });
-    }
-
-    while (this.remoteStateGeneration === generation) {
-      const playerState = this.options.player.getState();
-      if (playerState.error) {
-        return this.getCurrentState();
-      }
-
-      const playbackSettled = playerState.isPlaying !== state.isPaused;
-      const positionSettled =
-        !applyResult.shouldSeek ||
-        ((applyResult.seekMode !== "direct" || directSeekSettled) &&
-          Math.abs(playerState.currentTime - applyResult.targetPosition) < 0.75 &&
-          (applyResult.seekMode !== "reload" || (playerState.canPlay && !playerState.isLoading)));
-
-      if (playbackSettled && positionSettled) {
-        break;
-      }
-
-      if (this.now() >= deadline || (!state.isPaused && playSettled && !playSucceeded)) {
-        return this.getCurrentState();
-      }
-
-      await this.wait(this.remoteStateSettleIntervalMs);
-    }
-
-    return SKIP_SYNCPLAY_REPLY;
-  }
-
-  private async waitForDurationThenApplyRemoteState(
-    state: SyncplayPlaybackState,
-    generation: number,
-  ): Promise<SyncplayStateReply> {
-    const deadline = this.now() + this.remoteStateApplyTimeoutMs;
-    while (this.remoteStateGeneration === generation) {
-      const playerState = this.options.player.getState();
-      if (playerState.error) {
-        return this.getCurrentState();
-      }
-
-      if (playerState.duration > 0) {
-        let applyResult = this.applyRemotePlaybackState(state);
-        while (applyResult.status === "pending") {
-          if (this.now() >= deadline) {
-            return this.getCurrentState();
-          }
-
-          await this.wait(this.remoteStateSettleIntervalMs);
-          if (this.remoteStateGeneration !== generation) {
-            return SKIP_SYNCPLAY_REPLY;
-          }
-
-          const nextPlayerState = this.options.player.getState();
-          if (nextPlayerState.error) {
-            return this.getCurrentState();
-          }
-
-          if (nextPlayerState.duration <= 0) {
-            continue;
-          }
-
-          applyResult = this.applyRemotePlaybackState(state);
+      this.suppress("suppressedPlayPause");
+      void Promise.resolve(this.options.player.play()).then((played) => {
+        if (!played) {
+          // Playback couldn't start (e.g. autoplay/transcode hiccup); drop the
+          // suppression so a later genuine play is still reported.
+          this.suppressedPlayPause = null;
         }
-
-        return this.waitForRemoteStateToSettle(state, applyResult, generation);
-      }
-
-      if (this.now() >= deadline) {
-        return this.getCurrentState();
-      }
-
-      await this.wait(this.remoteStateSettleIntervalMs);
+      });
     }
-
-    return SKIP_SYNCPLAY_REPLY;
-  }
-
-  private sendLocalState(nextState: {
-    isPaused: boolean;
-    shouldSeek?: boolean;
-    time?: number;
-  }): void {
-    if (!this.client) {
-      return;
-    }
-
-    const now = this.now();
-    this.suppressedPlaybackEvents = this.suppressedPlaybackEvents.filter(
-      (event) => event.expiresAt >= now,
-    );
-    const suppressedPlaybackIndex = this.suppressedPlaybackEvents.findIndex(
-      (event) => event.isPaused === nextState.isPaused,
-    );
-
-    if (suppressedPlaybackIndex >= 0) {
-      this.suppressedPlaybackEvents.splice(suppressedPlaybackIndex, 1);
-      return;
-    }
-
-    const playerState = this.options.player.getState();
-    this.client.sendState({
-      isPaused: nextState.isPaused,
-      positionSeconds: nextState.time ?? playerState.currentTime,
-      shouldSeek: nextState.shouldSeek ?? false,
-    });
   }
 
   private getCurrentState(): SyncplayStateInput {
@@ -409,40 +228,22 @@ export class SyncplaySessionController {
     };
   }
 
-  private addSuppressedPlaybackEvent(isPaused: boolean): number {
-    this.suppressedPlaybackEventId += 1;
-    const id = this.suppressedPlaybackEventId;
-    this.suppressedPlaybackEvents.push({
-      id,
-      isPaused,
-      expiresAt: this.now() + this.remotePlaybackSuppressionMs,
-    });
-    return id;
-  }
-
-  private removeSuppressedPlaybackEvent(id: number): void {
-    this.suppressedPlaybackEvents = this.suppressedPlaybackEvents.filter(
-      (event) => event.id !== id,
-    );
-  }
-
-  private createSuppressedSeekEvent(
-    positionSeconds: number,
-    mode: SyncplaySeekResult,
-  ): SuppressedSeekEvent {
-    let resolveSettled: () => void = () => undefined;
-    const settled = new Promise<void>((resolve) => {
-      resolveSettled = resolve;
-    });
-    const event: SuppressedSeekEvent = {
-      positionSeconds,
-      expiresAt: this.now() + this.remoteSeekSuppressionMs,
-      mode,
-      settled,
-      resolve: resolveSettled,
+  private suppress(key: "suppressedPlayPause" | "suppressedSeek"): void {
+    this[key] = {
+      expiresAt: this.now() + this.remoteEventSuppressionMs,
     };
-    this.suppressedSeek = event;
-    return event;
+  }
+
+  private consume(key: "suppressedPlayPause" | "suppressedSeek"): boolean {
+    const event = this[key];
+    if (event && this.now() <= event.expiresAt) {
+      this[key] = null;
+      return true;
+    }
+    if (event) {
+      this[key] = null;
+    }
+    return false;
   }
 
   private clearReconnectTimeout(): void {
@@ -454,26 +255,8 @@ export class SyncplaySessionController {
     this.reconnectTimeout = null;
   }
 
-  private wait(ms: number): Promise<void> {
-    return new Promise((resolve) => {
-      this.setTimer(resolve, ms);
-    });
-  }
-
-  private get remoteStateSettleIntervalMs(): number {
-    return this.options.remoteStateSettleIntervalMs ?? DEFAULT_REMOTE_STATE_SETTLE_INTERVAL_MS;
-  }
-
-  private get remoteSeekSuppressionMs(): number {
-    return this.options.remoteSeekSuppressionMs ?? DEFAULT_REMOTE_SEEK_SUPPRESSION_MS;
-  }
-
-  private get remotePlaybackSuppressionMs(): number {
-    return this.options.remotePlaybackSuppressionMs ?? DEFAULT_REMOTE_PLAYBACK_SUPPRESSION_MS;
-  }
-
-  private get remoteStateApplyTimeoutMs(): number {
-    return this.options.remoteStateApplyTimeoutMs ?? DEFAULT_REMOTE_STATE_APPLY_TIMEOUT_MS;
+  private get remoteEventSuppressionMs(): number {
+    return this.options.remoteEventSuppressionMs ?? DEFAULT_REMOTE_EVENT_SUPPRESSION_MS;
   }
 }
 
