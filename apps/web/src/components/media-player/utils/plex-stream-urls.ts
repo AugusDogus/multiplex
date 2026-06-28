@@ -1,3 +1,4 @@
+import { getPlexClientIdentifier } from "~/lib/device-identifier";
 import type { MediaPlayerItem } from "~/types/media-player";
 import type { PlexPlaybackPlan } from "./plex-playback-plan";
 
@@ -5,7 +6,6 @@ interface ClientProfile {
   platform: string;
   product: string;
   version: string;
-  clientIdentifier: string;
   device: string;
   deviceName: string;
 }
@@ -14,7 +14,6 @@ const CLIENT_PROFILE: ClientProfile = {
   platform: "Chrome",
   product: "Multiplex",
   version: "1.0",
-  clientIdentifier: "multiplex-web",
   device: "Chrome",
   deviceName: "Multiplex Web",
 };
@@ -29,10 +28,10 @@ function applyClientHeaders(url: URL, authToken: string): void {
   url.searchParams.set("X-Plex-Platform-Version", "1.0");
   url.searchParams.set("X-Plex-Product", CLIENT_PROFILE.product);
   url.searchParams.set("X-Plex-Version", CLIENT_PROFILE.version);
-  url.searchParams.set(
-    "X-Plex-Client-Identifier",
-    CLIENT_PROFILE.clientIdentifier,
-  );
+  // Per-browser identifier: Plex keys transcode sessions by client identifier,
+  // so a shared one would make two Watch Together viewers collide on a single
+  // transcode session. See getPlexClientIdentifier().
+  url.searchParams.set("X-Plex-Client-Identifier", getPlexClientIdentifier());
   url.searchParams.set("X-Plex-Device", CLIENT_PROFILE.device);
   url.searchParams.set("X-Plex-Device-Name", CLIENT_PROFILE.deviceName);
 }
@@ -91,9 +90,10 @@ function buildDirectPlayUrl(
   const streamUrl = new URL(`${baseUrl}${partKey}`);
   applyClientHeaders(streamUrl, authToken);
   streamUrl.searchParams.set("X-Plex-Protocol", "1.0");
+  // Per-browser so simultaneous Watch Together viewers don't share a session.
   streamUrl.searchParams.set(
     "X-Plex-Session-Identifier",
-    `multiplex-${item.ratingKey}`,
+    `${getPlexClientIdentifier()}-${item.ratingKey}`,
   );
   return streamUrl.toString();
 }
@@ -111,7 +111,10 @@ function buildDirectStreamUrl(
 ): string {
   const baseUrl = getBaseServerUrl(serverUrl);
   const streamUrl = new URL(`${baseUrl}/video/:/transcode/universal/start.mp4`);
-  const session = `multiplex-${item.ratingKey}-${Math.floor(offsetSeconds)}`;
+  // Include the per-browser client id so two Watch Together viewers streaming
+  // the same item at the same offset get separate transcode sessions instead of
+  // colliding on one (which killed the second viewer's stream).
+  const session = `${getPlexClientIdentifier()}-${item.ratingKey}-${Math.floor(offsetSeconds)}`;
 
   applyClientHeaders(streamUrl, authToken);
   applyUniversalTranscodeParams(streamUrl, item, "http", session);

@@ -22,7 +22,7 @@ import {
 import { useWatchTogetherLobbyPresence } from "~/components/watch-together/use-watch-together-lobby-presence";
 import { useWatchTogetherRoomMedia } from "~/components/watch-together/use-watch-together-room-media";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
-import { getWatchTogetherDeviceIdentifier } from "~/lib/device-identifier";
+import { getPlexClientIdentifier } from "~/lib/device-identifier";
 import { cn } from "~/lib/utils";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { useWatchTogetherStore } from "~/stores/watch-together-store";
@@ -68,7 +68,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     }
     return {
       id: localUserId,
-      deviceIdentifier: getWatchTogetherDeviceIdentifier(),
+      deviceIdentifier: getPlexClientIdentifier(),
       deviceName: "Multiplex Web",
     };
   }, [localUserId]);
