@@ -74,11 +74,15 @@ function createController(options: {
   setTimeout?: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>;
   clearTimeout?: (timeout: ReturnType<typeof setTimeout>) => void;
   onFatalError?: (error: Error) => void;
+  remoteStartupGraceMs?: number;
 }) {
   const controller = new SyncplaySessionController({
     room: ROOM,
     user: LOCAL_USER,
     onFatalError: options.onFatalError,
+    // Tests exercise steady-state arbitration; disable the startup grace unless
+    // a test opts in.
+    remoteStartupGraceMs: options.remoteStartupGraceMs ?? 0,
     player: {
       getState: () => options.state,
       play: () => {
@@ -147,6 +151,32 @@ describe("SyncplaySessionController", () => {
 
     expect(calls.pause).toBe(1);
     expect(state.isPlaying).toBe(false);
+  });
+
+  test("ignores a remote pause during the startup grace (so auto-start can begin)", () => {
+    const sockets: FakeWebSocket[] = [];
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const state = makeState({ isPlaying: true, currentTime: 0 });
+    // Clock stays within the grace window; the stale lobby "paused" must not
+    // pause our freshly-autoplaying player.
+    const controller = createController({
+      sockets,
+      state,
+      calls,
+      now: () => 1000,
+      remoteStartupGraceMs: 5000,
+    });
+    controller.connect();
+    sockets[0]?.open();
+
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: true, position: 0, setBy: encodeSyncplayUser(REMOTE_USER) },
+      },
+    });
+
+    expect(calls.pause).toBe(0);
+    expect(state.isPlaying).toBe(true);
   });
 
   test("applies a remote seek to the local player", () => {
