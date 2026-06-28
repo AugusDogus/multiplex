@@ -45,3 +45,12 @@ All commands are run from the workspace root via `bun run <script>`:
 ### Testing with Plex account
 
 - Secrets `MULTIPLEX_ACCOUNT_EMAIL` and `MULTIPLEX_ACCOUNT_PASSWORD` provide Plex credentials for end-to-end login testing via the Plex OAuth flow.
+
+### Watch Together end-to-end tests (Playwright)
+
+- Located in `apps/web/e2e`. Run with `bun run --filter @multiplex/web test:e2e` (or `test:e2e:setup` to just authenticate). They drive two real Plex accounts through the plex.tv login and verify the lobby auto-starts and both viewers play the same item in sync.
+- Requires a running dev server (the config reuses an existing one on port 3000), internet access to `plex.tv`, and these account env vars:
+  - Host (account A): `AUGUSDOGUS_ACCOUNT_USERNAME` / `AUGUSDOGUS_ACCOUNT_PASSWORD`
+  - Guest (account B): `MULTIPLEX_ACCOUNT_EMAIL` / `MULTIPLEX_ACCOUNT_PASSWORD`
+- Uses the system Google Chrome (`channel: "chrome"`) because Plex streams are H.264/AAC, which Playwright's bundled Chromium cannot decode.
+- The pause/seek/leave sync tests are `test.fixme` until the Syncplay driver gets playback-control arbitration.
