@@ -12,6 +12,15 @@ const DEFAULT_SEEK_AHEAD_THRESHOLD_SECONDS = 4;
 const DEFAULT_SEEK_BEHIND_THRESHOLD_SECONDS = -1.75;
 const DEFAULT_REMOTE_EVENT_SUPPRESSION_MS = 5000;
 const DEFAULT_RECONNECT_DELAY_MS = 1000;
+// On auto-start every participant opens the player while the room's playstate is
+// still "paused" (the lobby never played), so the first State pings would pause
+// the freshly-autoplaying player and the whole room deadlocks at 0:00. For a
+// brief window after connecting we therefore don't let a remote *pause* stop our
+// player; our local "playing" then propagates and the room gets going. (The
+// official client instead dispatches an explicit play on auto-start.) Remote
+// play/seek still apply during this window, and normal pause arbitration resumes
+// right after.
+const DEFAULT_REMOTE_STARTUP_GRACE_MS = 5000;
 
 export type SyncplaySeekResult = "direct" | "reload" | "none";
 
@@ -46,6 +55,7 @@ export interface SyncplaySessionControllerOptions {
   seekAheadThresholdSeconds?: number;
   seekBehindThresholdSeconds?: number;
   remoteEventSuppressionMs?: number;
+  remoteStartupGraceMs?: number;
   reconnectDelayMs?: number;
 }
 
@@ -71,6 +81,7 @@ export class SyncplaySessionController {
   // resulting player events must not be mistaken for fresh user actions.
   private suppressedPlayPause: SuppressedEvent | null = null;
   private suppressedSeek: SuppressedEvent | null = null;
+  private connectedAt = 0;
   private readonly now: () => number;
   private readonly setTimer: NonNullable<SyncplaySessionControllerOptions["setTimeout"]>;
   private readonly clearTimer: NonNullable<SyncplaySessionControllerOptions["clearTimeout"]>;
@@ -122,6 +133,7 @@ export class SyncplaySessionController {
       return;
     }
 
+    this.connectedAt = this.now();
     const client = new SyncplayClient({
       room: this.options.room,
       user: this.options.user,
@@ -204,7 +216,9 @@ export class SyncplaySessionController {
       }
     }
 
-    if (state.isPaused && playerState.isPlaying) {
+    const withinStartupGrace =
+      this.now() - this.connectedAt < this.remoteStartupGraceMs;
+    if (state.isPaused && playerState.isPlaying && !withinStartupGrace) {
       this.suppress("suppressedPlayPause");
       this.options.player.pause();
     } else if (!state.isPaused && !playerState.isPlaying) {
@@ -257,6 +271,10 @@ export class SyncplaySessionController {
 
   private get remoteEventSuppressionMs(): number {
     return this.options.remoteEventSuppressionMs ?? DEFAULT_REMOTE_EVENT_SUPPRESSION_MS;
+  }
+
+  private get remoteStartupGraceMs(): number {
+    return this.options.remoteStartupGraceMs ?? DEFAULT_REMOTE_STARTUP_GRACE_MS;
   }
 }
 
