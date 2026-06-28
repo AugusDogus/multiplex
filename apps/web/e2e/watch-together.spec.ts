@@ -70,6 +70,19 @@ async function joinRoomFromHome(page: Page, roomId: string): Promise<void> {
   });
 }
 
+/** Disbands a room via the authenticated tRPC endpoint (best-effort teardown). */
+async function disbandRoom(
+  context: BrowserContext,
+  roomId: string,
+): Promise<void> {
+  await context.request
+    .post("/api/trpc/plex.deleteWatchTogetherRoom?batch=1", {
+      data: { "0": { json: { roomId } } },
+      headers: { "content-type": "application/json" },
+    })
+    .catch(() => undefined);
+}
+
 /** Waits for the player to open and confirms the video is actually advancing. */
 async function expectPlayingAndAdvancing(
   page: Page,
@@ -103,16 +116,28 @@ async function expectPlayingAndAdvancing(
 
 test("two viewers auto-start and play the same item in sync", async ({
   browser,
+  baseURL,
 }) => {
   // Real Plex login + transcoded playback for two viewers is slow.
   test.setTimeout(360_000);
-  const hostContext = await browser.newContext({ storageState: HOST_STATE });
-  const guestContext = await browser.newContext({ storageState: GUEST_STATE });
+  const hostContext = await browser.newContext({
+    storageState: HOST_STATE,
+    baseURL,
+  });
+  const guestContext = await browser.newContext({
+    storageState: GUEST_STATE,
+    baseURL,
+  });
+  let roomId: string | undefined;
   let cleanedUp = false;
-  const cleanup = async (contexts: BrowserContext[]) => {
+  const cleanup = async () => {
     if (cleanedUp) return;
     cleanedUp = true;
-    await Promise.all(contexts.map((context) => context.close()));
+    // Disband the room we created so lobbies don't pile up, then close.
+    if (roomId) {
+      await disbandRoom(hostContext, roomId);
+    }
+    await Promise.all([hostContext.close(), guestContext.close()]);
   };
 
   try {
@@ -130,7 +155,7 @@ test("two viewers auto-start and play the same item in sync", async ({
     console.error("E2E step: host opens a movie");
     await openFirstMovieDetails(host);
     console.error("E2E step: host creates room inviting guest");
-    const roomId = await createRoomInvitingGuest(host);
+    roomId = await createRoomInvitingGuest(host);
     console.error(`E2E step: room created ${roomId}`);
 
     // Guest joins from their home page (the room card must appear there).
@@ -161,9 +186,9 @@ test("two viewers auto-start and play the same item in sync", async ({
     expect(guestId, "guest client id").toBeTruthy();
     expect(hostId, "client ids must differ between browsers").not.toBe(guestId);
 
-    await cleanup([hostContext, guestContext]);
+    await cleanup();
   } finally {
-    await cleanup([hostContext, guestContext]);
+    await cleanup();
   }
 });
 
