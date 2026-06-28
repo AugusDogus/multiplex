@@ -1,4 +1,10 @@
-import { test, expect, type BrowserContext, type Page } from "@playwright/test";
+import {
+  test,
+  expect,
+  type Browser,
+  type BrowserContext,
+  type Page,
+} from "@playwright/test";
 import { ACCOUNT_A, ACCOUNT_B, storageStatePath } from "./helpers/accounts";
 
 // These run against a live Plex server with two real accounts, so keep them
@@ -130,12 +136,22 @@ async function expectPlayingAndAdvancing(
   );
 }
 
-test("two viewers auto-start and play the same item in sync", async ({
-  browser,
-  baseURL,
-}) => {
-  // Real Plex login + transcoded playback for two viewers is slow.
-  test.setTimeout(360_000);
+interface SyncedRoom {
+  host: Page;
+  guest: Page;
+  roomId: string;
+  cleanup: () => Promise<void>;
+}
+
+/**
+ * Logs in both accounts, has the host create a room inviting the guest, the
+ * guest join from their home card, and waits until both are actually playing the
+ * same item. Returns the pages plus a cleanup that disbands the room.
+ */
+async function setupSyncedRoom(
+  browser: Browser,
+  baseURL: string | undefined,
+): Promise<SyncedRoom> {
   const hostContext = await browser.newContext({
     storageState: HOST_STATE,
     baseURL,
@@ -149,7 +165,6 @@ test("two viewers auto-start and play the same item in sync", async ({
   const cleanup = async () => {
     if (cleanedUp) return;
     cleanedUp = true;
-    // Disband the room we created so lobbies don't pile up, then close.
     if (roomId) {
       await disbandRoom(hostContext, roomId);
     }
@@ -160,33 +175,57 @@ test("two viewers auto-start and play the same item in sync", async ({
     const host = await hostContext.newPage();
     const guest = await guestContext.newPage();
 
-    // Sanity: both contexts are authenticated (not bounced to /login).
     console.error("E2E step: verify both logged in");
     await host.goto("/");
     await expect(host).not.toHaveURL(/\/login/);
     await guest.goto("/");
     await expect(guest).not.toHaveURL(/\/login/);
 
-    // Host creates a room inviting the guest, then waits in the lobby.
     console.error("E2E step: host opens a movie");
     await openFirstMovieDetails(host);
     console.error("E2E step: host creates room inviting guest");
     roomId = await createRoomInvitingGuest(host);
     console.error(`E2E step: room created ${roomId}`);
 
-    // Guest joins from their home page (the room card must appear there).
     console.error("E2E step: guest joins from home");
     await joinRoomFromHome(guest, roomId);
 
-    // Both should auto-start and actually play the same item — the regression
-    // we care about (previously the second viewer hit a black screen / "no
-    // supported sources" because both shared one Plex transcode session).
     console.error("E2E step: wait for both to play");
     await Promise.all([
       expectPlayingAndAdvancing(host, "host"),
       expectPlayingAndAdvancing(guest, "guest"),
     ]);
     console.error("E2E step: both playing");
+
+    return { host, guest, roomId, cleanup };
+  } catch (error) {
+    await cleanup();
+    throw error;
+  }
+}
+
+test("two viewers auto-start, play the same item in sync, and pause/resume propagates", async ({
+  browser,
+  baseURL,
+}) => {
+  // Real Plex login + transcoded playback for two viewers is slow.
+  test.setTimeout(360_000);
+  const { host, guest, cleanup } = await setupSyncedRoom(browser, baseURL);
+
+  try {
+    // Each browser must use a distinct X-Plex-Client-Identifier (the streaming
+    // fix): the per-browser id is what gives them separate transcode sessions.
+    const hostId = await host.evaluate(
+      (key) => window.localStorage.getItem(key),
+      DEVICE_ID_KEY,
+    );
+    const guestId = await guest.evaluate(
+      (key) => window.localStorage.getItem(key),
+      DEVICE_ID_KEY,
+    );
+    expect(hostId, "host client id").toBeTruthy();
+    expect(guestId, "guest client id").toBeTruthy();
+    expect(hostId, "client ids must differ between browsers").not.toBe(guestId);
 
     // Pause on the host must propagate to the guest (Syncplay arbitration).
     console.error("E2E step: host pauses");
@@ -219,42 +258,38 @@ test("two viewers auto-start and play the same item in sync", async ({
       )
       .toBe(false);
     console.error("E2E step: guest resumed with host");
-
-    // Each browser must use a distinct X-Plex-Client-Identifier (the fix): the
-    // per-browser id is what gives them separate transcode sessions.
-    const hostId = await host.evaluate(
-      (key) => window.localStorage.getItem(key),
-      DEVICE_ID_KEY,
-    );
-    const guestId = await guest.evaluate(
-      (key) => window.localStorage.getItem(key),
-      DEVICE_ID_KEY,
-    );
-    expect(hostId, "host client id").toBeTruthy();
-    expect(guestId, "guest client id").toBeTruthy();
-    expect(hostId, "client ids must differ between browsers").not.toBe(guestId);
-
-    await cleanup();
   } finally {
     await cleanup();
   }
 });
 
-// Playback-control sync (pause / seek / leave) does not yet propagate between
-// participants: the Syncplay driver has no arbitration, so every client echoes
-// its own playstate on each ~1 Hz server ping and a still-playing peer
-// overrides the one that paused/seeked. Enable these once that's fixed.
-test.fixme("pausing one participant pauses the others", async () => {
-  // TODO: after arbitration fix — host pauses, assert guest's video pauses.
-});
+test("a host seek propagates to the guest", async ({ browser, baseURL }) => {
+  // Real Plex login + transcoded playback for two viewers is slow.
+  test.setTimeout(360_000);
+  const { host, guest, cleanup } = await setupSyncedRoom(browser, baseURL);
 
-test.fixme(
-  "seeking one participant moves the others to the same position",
-  async () => {
-    // TODO: after arbitration fix — host seeks, assert guest's currentTime jumps.
-  },
-);
-
-test.fixme("a participant leaving pauses playback for the others", async () => {
-  // TODO: after arbitration fix — host leaves, assert guest's video pauses.
+  try {
+    // Seek via the app's keyboard shortcut (digit = jump to %), which goes
+    // through the real transcoded-reload seek path (raw currentTime assignment
+    // is rejected by Plex's transcoded stream).
+    console.error("E2E step: host seeks to ~80%");
+    const duration = await host
+      .locator("video")
+      .evaluate((v: HTMLVideoElement) => v.duration || 0);
+    const seekTarget = duration * 0.8;
+    await host.keyboard.press("Digit8");
+    await expect
+      .poll(
+        () =>
+          guest
+            .locator("video")
+            .evaluate((v: HTMLVideoElement) => v.currentTime)
+            .catch(() => 0),
+        { message: "guest should follow the host's seek", timeout: 60_000 },
+      )
+      .toBeGreaterThan(seekTarget - 60);
+    console.error("E2E step: guest followed seek");
+  } finally {
+    await cleanup();
+  }
 });
