@@ -59,6 +59,7 @@ export function useWatchTogetherLobbyPresence({
       const nextClient = new SyncplayClient({
         room,
         user: localUser,
+        observer: true,
         onParticipant: updateParticipant,
         onClose: () => {
           if (disposed || client !== nextClient) {
