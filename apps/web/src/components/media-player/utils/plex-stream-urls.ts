@@ -253,6 +253,25 @@ export function hasValidStreamingData(item: MediaPlayerItem): boolean {
  * playback's `sessionPrefix` (we use one base id per playback, suffixed by the
  * seek offset). The official Plex client stops its session the same way.
  */
+/** Stops a single transcode session by its exact key (best-effort). */
+export async function stopTranscodeSession(
+  serverUrl: string,
+  authToken: string,
+  sessionKey: string,
+): Promise<void> {
+  if (!sessionKey) return;
+  try {
+    const stopUrl = new URL(
+      `${getBaseServerUrl(serverUrl)}/video/:/transcode/universal/stop`,
+    );
+    applyClientHeaders(stopUrl, authToken);
+    stopUrl.searchParams.set("session", sessionKey);
+    await fetch(stopUrl.toString());
+  } catch {
+    // Best-effort.
+  }
+}
+
 export async function stopPlaybackTranscodeSessions(
   serverUrl: string,
   authToken: string,

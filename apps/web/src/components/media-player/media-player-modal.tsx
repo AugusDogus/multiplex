@@ -38,7 +38,10 @@ import { MediaPlayerSkipOverlay } from "./media-player-skip-overlay";
 import { MediaPlayerAutoPlayOverlay } from "./media-player-autoplay-overlay";
 import { MediaPlayerVideo } from "./media-player-video";
 import type { MediaPlayerSeekFeedbackHandle } from "./media-player-video";
-import { stopPlaybackTranscodeSessions } from "./utils/plex-stream-urls";
+import {
+  stopPlaybackTranscodeSessions,
+  stopTranscodeSession,
+} from "./utils/plex-stream-urls";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { cn } from "~/lib/utils";
 import { useWatchTogetherStore } from "~/stores/watch-together-store";
@@ -199,22 +202,39 @@ export function MediaPlayerModal() {
   // (Remote-applied reload-seeks are filtered out by the session controller's
   // own suppression, so this doesn't echo them back.)
   const streamOffset = useMediaPlayerStore((state) => state.streamOffset);
+  const streamSessionId = useMediaPlayerStore((state) => state.streamSessionId);
+  const streamServerUrl = currentItem?.serverUrl;
+  const streamAuthToken = currentItem?.authToken;
+
+  // We seek a transcoded stream by reloading it at a new `streamOffset` (a new
+  // transcode session). Report that seek to Syncplay so it propagates, and stop
+  // the previous offset's transcode so seeking doesn't pile up sessions and hit
+  // the server's transcode limit (HTTP 400 / "video source not supported").
   const previousStreamOffsetRef = useRef(streamOffset);
   useEffect(() => {
     if (streamOffset === previousStreamOffsetRef.current) {
       return;
     }
+    const previousOffset = previousStreamOffsetRef.current;
     previousStreamOffsetRef.current = streamOffset;
     onSyncplayLocalSeeked(streamOffset);
-  }, [streamOffset, onSyncplayLocalSeeked]);
+    if (streamSessionId && streamServerUrl && streamAuthToken) {
+      void stopTranscodeSession(
+        streamServerUrl,
+        streamAuthToken,
+        `${streamSessionId}-${Math.floor(previousOffset)}`,
+      );
+    }
+  }, [
+    streamOffset,
+    onSyncplayLocalSeeked,
+    streamSessionId,
+    streamServerUrl,
+    streamAuthToken,
+  ]);
 
   // Stop this playback's transcode session(s) on the server when it ends (the
-  // session id is cleared on close / changes on a new playback). Without this,
-  // sessions linger and concurrent viewers / repeat plays hit the server's
-  // transcode limit and get HTTP 400 ("video source not supported").
-  const streamSessionId = useMediaPlayerStore((state) => state.streamSessionId);
-  const streamServerUrl = currentItem?.serverUrl;
-  const streamAuthToken = currentItem?.authToken;
+  // session id is cleared on close / changes on a new playback).
   useEffect(() => {
     if (!streamSessionId || !streamServerUrl || !streamAuthToken) {
       return;
