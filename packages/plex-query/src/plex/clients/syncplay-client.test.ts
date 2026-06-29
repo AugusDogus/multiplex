@@ -380,6 +380,36 @@ describe("SyncplayClient", () => {
     });
   });
 
+  test("carries a local change forward when it happens while the server is relaying a peer", () => {
+    const sockets: FakeWebSocket[] = [];
+    const client = createClient({
+      sockets,
+      getPlaybackState: () => ({ isPaused: true, positionSeconds: 50, shouldSeek: false }),
+    });
+    client.connect();
+    sockets[0]?.open();
+    client.markLocalPlayPause();
+
+    // Server is mid-change for someone else (server > 0): we can't claim yet, so
+    // we echo — but the pending local change must NOT be dropped.
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: false, position: 70, setBy: encodeSyncplayUser(REMOTE_USER) },
+        ignoringOnTheFly: { client: 0, server: 3 },
+      },
+    });
+    expect(lastPlaystate(sockets[0])?.ignoringOnTheFly).toEqual({ client: 0, server: 3 });
+
+    // Once the server stops relaying, our still-pending change is claimed.
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: false, position: 72, setBy: encodeSyncplayUser(REMOTE_USER) },
+        ignoringOnTheFly: { client: 0, server: 0 },
+      },
+    });
+    expect(lastPlaystate(sockets[0])?.ignoringOnTheFly).toEqual({ client: 1, server: 0 });
+  });
+
   test("observer echoes every State ping (presence heartbeat), even pings attributed to us", () => {
     const sockets: FakeWebSocket[] = [];
     const applied: SyncplayPlaybackState[] = [];
