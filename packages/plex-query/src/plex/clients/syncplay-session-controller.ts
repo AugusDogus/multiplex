@@ -189,6 +189,11 @@ export class SyncplaySessionController {
         }
 
         this.client = null;
+        // Drop any seek/suppression queued on the dead connection so a pending
+        // retry can't fire after reconnect and yank the player to stale state.
+        this.clearPendingRemoteSeek();
+        this.suppressedPlayPause = null;
+        this.suppressedSeek = null;
         this.options.onClose?.();
         if (this.sawFatalError) {
           return;
@@ -252,19 +257,18 @@ export class SyncplaySessionController {
         (this.options.seekBehindThresholdSeconds ?? DEFAULT_SEEK_BEHIND_THRESHOLD_SECONDS);
 
     if (shouldSeek) {
-      if (playerState.duration > 0) {
-        this.clearPendingRemoteSeek();
-        const result = this.options.player.seek(targetPosition);
-        if (result !== "none") {
-          this.suppressedSeek = {
-            positionSeconds: targetPosition,
-            expiresAt: this.now() + this.remoteEventSuppressionMs,
-          };
-        }
-      } else {
-        // Metadata (duration) isn't loaded yet; retry shortly so the seek isn't
-        // silently dropped (it would otherwise clamp to 0).
+      // Only attempt the seek once we have a duration; `"none"` means the player
+      // couldn't seek yet (e.g. the <video> isn't mounted), so retry rather than
+      // drop the remote seek.
+      const result = playerState.duration > 0 ? this.options.player.seek(targetPosition) : "none";
+      if (result === "none") {
         this.schedulePendingRemoteSeek(state);
+      } else {
+        this.clearPendingRemoteSeek();
+        this.suppressedSeek = {
+          positionSeconds: targetPosition,
+          expiresAt: this.now() + this.remoteEventSuppressionMs,
+        };
       }
     } else {
       // A non-seek update supersedes any seek we were waiting to apply.

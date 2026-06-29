@@ -478,8 +478,14 @@ export class SyncplayClient {
     } else {
       reply = this.buildLocalReply();
     }
-    this.pendingPlayPause = false;
-    this.pendingSeek = false;
+    // Only drop the pending flags once we had the chance to claim them (a
+    // non-echo reply). While echoing (the server is relaying another client's
+    // change) we couldn't claim, so carry them forward to the next non-echo
+    // reply instead of silently losing the local change.
+    if (!shouldEcho) {
+      this.pendingPlayPause = false;
+      this.pendingSeek = false;
+    }
     this.sendState(reply);
   }
 
