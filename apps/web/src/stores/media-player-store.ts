@@ -17,7 +17,7 @@ import { useProgressStore } from "./progress-store";
 
 interface MediaPlayerStore extends MediaPlayerState {
   // Actions
-  openPlayer: (item: MediaPlayerItem) => void;
+  openPlayer: (item: MediaPlayerItem, options?: { resume?: boolean }) => void;
   closePlayer: () => void;
   updatePlaybackState: (updates: Partial<MediaPlayerState>) => void;
 
@@ -99,16 +99,20 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
         },
 
         // Actions implementation
-        openPlayer: (item) => {
-          // Check if we have updated progress for this item from the current session
+        openPlayer: (item, options) => {
+          // Watch Together starts everyone from the beginning (resume === false)
+          // so all participants stay in sync; otherwise resume from cached
+          // progress or the item's viewOffset.
+          const resume = options?.resume ?? true;
           const progressStore = useProgressStore.getState();
-          const updatedProgressPercent = progressStore.getItemProgress(
-            item.ratingKey,
-          );
+          const updatedProgressPercent = resume
+            ? progressStore.getItemProgress(item.ratingKey)
+            : undefined;
 
           // Calculate initial currentTime using updated progress if available
-          const initialCurrentTime =
-            updatedProgressPercent !== undefined && item.duration
+          const initialCurrentTime = !resume
+            ? 0
+            : updatedProgressPercent !== undefined && item.duration
               ? (updatedProgressPercent / 100) * (item.duration / 1000)
               : Math.floor(item.viewOffset ?? 0) / 1000;
 

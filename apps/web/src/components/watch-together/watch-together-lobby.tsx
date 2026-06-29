@@ -145,15 +145,15 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
 
     setSession({ room, localUser });
 
-    // Start every participant at the beginning, not their personal resume point:
-    // a Watch Together session must start everyone at the same position so they
-    // stay in sync (otherwise each viewer resumes to a different `viewOffset`,
-    // and the clients endlessly fight to seek each other to their own position).
-    // Syncplay keeps everyone together from there.
-    openPlayer({
-      ...createMediaPlayerItem(playTarget, { serverId, serverUrl, authToken }),
-      viewOffset: 0,
-    });
+    // Start every participant at the beginning, not their personal resume point
+    // (`resume: false` also skips the cached-progress lookup): a Watch Together
+    // session must start everyone at the same position so they stay in sync,
+    // otherwise each viewer resumes to a different spot and the clients fight to
+    // seek each other to their own position. Syncplay keeps everyone together.
+    openPlayer(
+      createMediaPlayerItem(playTarget, { serverId, serverUrl, authToken }),
+      { resume: false },
+    );
     return true;
   }, [
     room,

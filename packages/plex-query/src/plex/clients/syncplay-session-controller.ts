@@ -235,11 +235,17 @@ export class SyncplaySessionController {
     this.client = null;
   }
 
-  /** Steer the player toward a remote-initiated playstate (fire-and-forget). */
-  private applyRemoteState(state: SyncplayPlaybackState): void {
+  /**
+   * Steer the player toward a remote-initiated playstate (fire-and-forget).
+   * Returns whether we actually adopted the remote state: `false` means we did
+   * not move toward it (a pause skipped during the startup grace, or a seek
+   * deferred until metadata loads), so the client should report our own local
+   * state instead of echoing the remote one back.
+   */
+  private applyRemoteState(state: SyncplayPlaybackState): boolean {
     const playerState = this.options.player.getState();
     if (playerState.error) {
-      return;
+      return false;
     }
 
     const targetPosition = clampRemotePosition(state.positionSeconds, playerState.duration);
@@ -251,6 +257,7 @@ export class SyncplaySessionController {
       diffSeconds <=
         (this.options.seekBehindThresholdSeconds ?? DEFAULT_SEEK_BEHIND_THRESHOLD_SECONDS);
 
+    let adopted = true;
     if (shouldSeek) {
       if (playerState.duration > 0) {
         this.clearPendingRemoteSeek();
@@ -263,36 +270,53 @@ export class SyncplaySessionController {
         }
       } else {
         // Metadata (duration) isn't loaded yet; retry shortly so the seek isn't
-        // silently dropped (it would otherwise clamp to 0).
+        // silently dropped (it would otherwise clamp to 0). We haven't reached
+        // the target, so don't claim it.
         this.schedulePendingRemoteSeek(state);
+        adopted = false;
       }
+    } else {
+      // A non-seek update supersedes any seek we were waiting to apply.
+      this.clearPendingRemoteSeek();
     }
 
     const withinStartupGrace = this.now() - this.connectedAt < this.remoteStartupGraceMs;
-    if (state.isPaused && playerState.isPlaying && !withinStartupGrace) {
-      this.suppressedPlayPause = {
-        isPaused: true,
-        expiresAt: this.now() + this.remoteEventSuppressionMs,
-      };
-      this.options.player.pause();
+    if (state.isPaused && playerState.isPlaying) {
+      if (withinStartupGrace) {
+        // Don't let the stale lobby "paused" stop our autoplay during startup,
+        // and tell the caller we didn't adopt it so it reports our (playing)
+        // state and the room gets going.
+        adopted = false;
+      } else {
+        this.suppressedPlayPause = {
+          isPaused: true,
+          expiresAt: this.now() + this.remoteEventSuppressionMs,
+        };
+        this.options.player.pause();
+      }
     } else if (!state.isPaused && !playerState.isPlaying) {
-      this.suppressedPlayPause = {
+      const suppression = {
         isPaused: false,
         expiresAt: this.now() + this.remoteEventSuppressionMs,
       };
+      this.suppressedPlayPause = suppression;
       // Clear the suppression if play() never actually started (returned false
-      // or rejected), so a later genuine play is still reported.
+      // or rejected) — but only if a newer remote change hasn't replaced it.
       void Promise.resolve(this.options.player.play()).then(
         (played) => {
-          if (!played) {
+          if (!played && this.suppressedPlayPause === suppression) {
             this.suppressedPlayPause = null;
           }
         },
         () => {
-          this.suppressedPlayPause = null;
+          if (this.suppressedPlayPause === suppression) {
+            this.suppressedPlayPause = null;
+          }
         },
       );
     }
+
+    return adopted;
   }
 
   private schedulePendingRemoteSeek(state: SyncplayPlaybackState): void {
