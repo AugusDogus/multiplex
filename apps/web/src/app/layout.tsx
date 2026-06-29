@@ -2,6 +2,7 @@ import "~/styles/globals.css";
 
 import { type Metadata } from "next";
 import { Geist } from "next/font/google";
+import { StrictMode } from "react";
 
 import { MediaPlayerModal } from "~/components/media-player";
 import { ThemeProvider } from "~/components/theme-provider";
@@ -25,19 +26,21 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geist.variable}`} suppressHydrationWarning>
       <body>
-        <TRPCReactProvider>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="system"
-            enableSystem
-            disableTransitionOnChange
-          >
-            <TooltipProvider>
-              {children}
-              <MediaPlayerModal />
-            </TooltipProvider>
-          </ThemeProvider>
-        </TRPCReactProvider>
+        <StrictMode>
+          <TRPCReactProvider>
+            <ThemeProvider
+              attribute="class"
+              defaultTheme="system"
+              enableSystem
+              disableTransitionOnChange
+            >
+              <TooltipProvider>
+                {children}
+                <MediaPlayerModal />
+              </TooltipProvider>
+            </ThemeProvider>
+          </TRPCReactProvider>
+        </StrictMode>
       </body>
     </html>
   );
