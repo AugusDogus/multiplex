@@ -162,9 +162,20 @@ async function setupSyncedRoom(
   });
   let roomId: string | undefined;
   let cleanedUp = false;
+  let host: Page | undefined;
+  let guest: Page | undefined;
   const cleanup = async () => {
     if (cleanedUp) return;
     cleanedUp = true;
+    // Close the players via the UI (Escape) so the app stops their transcode
+    // sessions on the server; otherwise they linger and a later run/viewer hits
+    // the transcode limit (HTTP 400).
+    await Promise.all(
+      [host, guest]
+        .filter((page): page is Page => Boolean(page))
+        .map((page) => page.keyboard.press("Escape").catch(() => undefined)),
+    );
+    await host?.waitForTimeout(1_500).catch(() => undefined);
     if (roomId) {
       await disbandRoom(hostContext, roomId);
     }
@@ -172,8 +183,8 @@ async function setupSyncedRoom(
   };
 
   try {
-    const host = await hostContext.newPage();
-    const guest = await guestContext.newPage();
+    host = await hostContext.newPage();
+    guest = await guestContext.newPage();
 
     console.error("E2E step: verify both logged in");
     await host.goto("/");

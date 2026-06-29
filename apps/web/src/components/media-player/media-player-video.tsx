@@ -140,6 +140,9 @@ export const MediaPlayerVideo = forwardRef<
     const isMuted = useMediaPlayerStore((state) => state.isMuted);
     const playbackRate = useMediaPlayerStore((state) => state.playbackRate);
     const streamOffset = useMediaPlayerStore((state) => state.streamOffset);
+    const streamSessionId = useMediaPlayerStore(
+      (state) => state.streamSessionId,
+    );
     const playbackPlan = useMemo(() => buildPlexPlaybackPlan(item), [item]);
     const usesOffsetTimeline = streamOffset > 0;
     const isLoading = useMediaPlayerStore((state) => state.isLoading);
@@ -235,6 +238,7 @@ export const MediaPlayerVideo = forwardRef<
           authToken,
           playbackPlan,
           streamOffset,
+          streamSessionId,
         );
         return { videoSrc: streamUrl, hasError: false };
       } catch (error) {
@@ -255,6 +259,7 @@ export const MediaPlayerVideo = forwardRef<
       container,
       playbackPlan,
       streamOffset,
+      streamSessionId,
     ]);
 
     // Handle video metadata loaded

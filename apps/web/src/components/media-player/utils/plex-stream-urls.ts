@@ -82,6 +82,7 @@ function buildDirectPlayUrl(
   item: MediaPlayerItem,
   serverUrl: string,
   authToken: string,
+  sessionId: string,
 ): string {
   const partKey = item.Media?.[0]?.Part?.[0]?.key;
   if (!partKey) throw new Error("No media part key found for item");
@@ -90,11 +91,9 @@ function buildDirectPlayUrl(
   const streamUrl = new URL(`${baseUrl}${partKey}`);
   applyClientHeaders(streamUrl, authToken);
   streamUrl.searchParams.set("X-Plex-Protocol", "1.0");
-  // Per-browser so simultaneous Watch Together viewers don't share a session.
-  streamUrl.searchParams.set(
-    "X-Plex-Session-Identifier",
-    `${getPlexClientIdentifier()}-${item.ratingKey}`,
-  );
+  // Unique per playback so simultaneous viewers (and repeat plays) don't share
+  // a session.
+  streamUrl.searchParams.set("X-Plex-Session-Identifier", sessionId);
   return streamUrl.toString();
 }
 
@@ -108,13 +107,18 @@ function buildDirectStreamUrl(
   authToken: string,
   offsetSeconds: number,
   selectedSubtitleStreamIndex: number | null,
+  sessionId: string,
 ): string {
   const baseUrl = getBaseServerUrl(serverUrl);
   const streamUrl = new URL(`${baseUrl}/video/:/transcode/universal/start.mp4`);
-  // Include the per-browser client id so two Watch Together viewers streaming
-  // the same item at the same offset get separate transcode sessions instead of
-  // colliding on one (which killed the second viewer's stream).
-  const session = `${getPlexClientIdentifier()}-${item.ratingKey}-${Math.floor(offsetSeconds)}`;
+  // Session = a fresh per-playback id (so two viewers / repeat plays never
+  // collide) PLUS the offset. The offset matters because we reload the
+  // transcode to seek (Plex's universal MP4 stream isn't seekable in-place); a
+  // reload at a new offset must use a distinct session or it races the still-
+  // running one on the same session and Plex rejects it (HTTP 400 -> the
+  // "video source not supported" failure). Old offset sessions are short-lived
+  // and the server times them out.
+  const session = `${sessionId}-${Math.floor(offsetSeconds)}`;
 
   applyClientHeaders(streamUrl, authToken);
   applyUniversalTranscodeParams(streamUrl, item, "http", session);
@@ -215,6 +219,7 @@ export function generatePlexStreamUrl(
   authToken: string,
   playbackPlan: PlexPlaybackPlan,
   offsetSeconds = 0,
+  sessionId: string,
 ): string {
   if (!item.Media?.[0]?.Part?.[0]?.key) {
     throw new Error("No media part key found for item");
@@ -222,13 +227,14 @@ export function generatePlexStreamUrl(
 
   return playbackPlan.streamDecision === "direct-play" &&
     playbackPlan.burnedSubtitleIndex === null
-    ? buildDirectPlayUrl(item, serverUrl, authToken)
+    ? buildDirectPlayUrl(item, serverUrl, authToken, sessionId)
     : buildDirectStreamUrl(
         item,
         serverUrl,
         authToken,
         offsetSeconds,
         playbackPlan.burnedSubtitleIndex,
+        sessionId,
       );
 }
 
@@ -236,4 +242,44 @@ export function hasValidStreamingData(item: MediaPlayerItem): boolean {
   return Boolean(
     item.Media?.[0]?.Part?.[0]?.key && item.serverUrl && item.authToken,
   );
+}
+
+/**
+ * Tells Plex to stop the transcode session(s) started for a playback, freeing
+ * the server's transcode slot immediately. Without this, sessions linger
+ * (throttled but alive) until they time out, and concurrent viewers / repeat
+ * plays then hit the server's transcode limit and get HTTP 400 ("video source
+ * not supported"). Best-effort: stops every session whose id starts with this
+ * playback's `sessionPrefix` (we use one base id per playback, suffixed by the
+ * seek offset). The official Plex client stops its session the same way.
+ */
+export async function stopPlaybackTranscodeSessions(
+  serverUrl: string,
+  authToken: string,
+  sessionPrefix: string,
+): Promise<void> {
+  if (!sessionPrefix) return;
+  try {
+    const baseUrl = getBaseServerUrl(serverUrl);
+    const listUrl = new URL(`${baseUrl}/transcode/sessions`);
+    applyClientHeaders(listUrl, authToken);
+    const response = await fetch(listUrl.toString());
+    if (!response.ok) return;
+
+    const xml = await response.text();
+    const keys = Array.from(xml.matchAll(/TranscodeSession key="([^"]+)"/g))
+      .map((match) => match[1])
+      .filter((key): key is string => Boolean(key?.startsWith(sessionPrefix)));
+
+    await Promise.all(
+      keys.map((key) => {
+        const stopUrl = new URL(`${baseUrl}/video/:/transcode/universal/stop`);
+        applyClientHeaders(stopUrl, authToken);
+        stopUrl.searchParams.set("session", key);
+        return fetch(stopUrl.toString()).catch(() => undefined);
+      }),
+    );
+  } catch {
+    // Best-effort cleanup; the server times sessions out regardless.
+  }
 }
