@@ -53,4 +53,4 @@ All commands are run from the workspace root via `bun run <script>`:
   - Host (account A): `AUGUSDOGUS_ACCOUNT_USERNAME` / `AUGUSDOGUS_ACCOUNT_PASSWORD`
   - Guest (account B): `MULTIPLEX_ACCOUNT_EMAIL` / `MULTIPLEX_ACCOUNT_PASSWORD`
 - Uses the system Google Chrome (`channel: "chrome"`) because Plex streams are H.264/AAC, which Playwright's bundled Chromium cannot decode.
-- The pause/seek/leave sync tests are `test.fixme` until the Syncplay driver gets playback-control arbitration.
+- Covers simultaneous auto-start, pause/resume sync, and seek sync. Because these hit a live Plex server (real transcoding for two viewers), the config allows one retry for transient startup flakiness.
