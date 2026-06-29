@@ -205,7 +205,17 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
       hasAutoStartedRef.current = false;
       return;
     }
-    if (!canStart || session || hasAutoStartedRef.current) {
+    // Arm only while everyone is present *right now* too (not just per the
+    // debounced value): if an invited member leaves during the short auto-start
+    // delay, the debounced flag lingers (grace) but `allInvitedPresentNow` flips
+    // immediately, so the pending timer is cancelled rather than firing without
+    // everyone present.
+    if (
+      !allInvitedPresentNow ||
+      !canStart ||
+      session ||
+      hasAutoStartedRef.current
+    ) {
       return;
     }
 
@@ -216,7 +226,13 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     }, AUTO_START_DELAY_MS);
 
     return () => clearTimeout(timer);
-  }, [allInvitedPresent, canStart, session, startPlayback]);
+  }, [
+    allInvitedPresent,
+    allInvitedPresentNow,
+    canStart,
+    session,
+    startPlayback,
+  ]);
 
   const leaveLobby = () => {
     clearSession();
