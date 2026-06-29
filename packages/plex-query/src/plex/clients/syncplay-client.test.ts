@@ -89,7 +89,10 @@ function createClient(options: {
     user: LOCAL_USER,
     observer: options.observer,
     onParticipant: (participant) => options.participants?.push(participant),
-    applyRemoteState: (state) => options.applied?.push(state),
+    applyRemoteState: (state) => {
+      options.applied?.push(state);
+      return true; // mock adopts the remote state
+    },
     getPlaybackState: options.getPlaybackState,
     webSocketFactory: (url) => {
       const socket = new FakeWebSocket(url);

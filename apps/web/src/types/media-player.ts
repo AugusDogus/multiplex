@@ -129,7 +129,7 @@ export interface MediaPlayerActions {
   showControlsTemporarily: () => void;
 
   // Modal controls
-  openPlayer: (item: MediaPlayerItem) => void;
+  openPlayer: (item: MediaPlayerItem, options?: { resume?: boolean }) => void;
   closePlayer: () => void;
 
   // Extended playback controls (optional)
