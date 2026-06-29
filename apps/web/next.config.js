@@ -11,6 +11,7 @@ const config = {
   devIndicators: false,
   reactCompiler: true,
   cacheComponents: true,
+  partialPrefetching: true,
   images: {
     remotePatterns: [
       {
