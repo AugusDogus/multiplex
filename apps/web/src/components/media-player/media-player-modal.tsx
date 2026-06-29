@@ -38,6 +38,7 @@ import { MediaPlayerSkipOverlay } from "./media-player-skip-overlay";
 import { MediaPlayerAutoPlayOverlay } from "./media-player-autoplay-overlay";
 import { MediaPlayerVideo } from "./media-player-video";
 import type { MediaPlayerSeekFeedbackHandle } from "./media-player-video";
+import { stopPlaybackTranscodeSessions } from "./utils/plex-stream-urls";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { cn } from "~/lib/utils";
 import { useWatchTogetherStore } from "~/stores/watch-together-store";
@@ -206,6 +207,26 @@ export function MediaPlayerModal() {
     previousStreamOffsetRef.current = streamOffset;
     onSyncplayLocalSeeked(streamOffset);
   }, [streamOffset, onSyncplayLocalSeeked]);
+
+  // Stop this playback's transcode session(s) on the server when it ends (the
+  // session id is cleared on close / changes on a new playback). Without this,
+  // sessions linger and concurrent viewers / repeat plays hit the server's
+  // transcode limit and get HTTP 400 ("video source not supported").
+  const streamSessionId = useMediaPlayerStore((state) => state.streamSessionId);
+  const streamServerUrl = currentItem?.serverUrl;
+  const streamAuthToken = currentItem?.authToken;
+  useEffect(() => {
+    if (!streamSessionId || !streamServerUrl || !streamAuthToken) {
+      return;
+    }
+    return () => {
+      void stopPlaybackTranscodeSessions(
+        streamServerUrl,
+        streamAuthToken,
+        streamSessionId,
+      );
+    };
+  }, [streamSessionId, streamServerUrl, streamAuthToken]);
 
   const handleClose = useCallback(() => {
     onStop();

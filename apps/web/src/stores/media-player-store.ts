@@ -80,6 +80,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
         bufferedTime: 0,
         playbackRate: 1,
         streamOffset: 0,
+        streamSessionId: "",
         volume: 1,
         isMuted: false,
         isFullscreen: false,
@@ -124,6 +125,10 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
             currentItem: item,
             currentTime: initialCurrentTime,
             streamOffset: initialStreamOffset,
+            // Fresh, unique transcode session per playback (stable across seeks)
+            // so two viewers — and repeat plays of the same item — never collide
+            // on one Plex transcode session (which returns HTTP 400 / no source).
+            streamSessionId: `multiplex-${crypto.randomUUID()}`,
             isLoading: true,
             error: null,
             isPlaying: false,
@@ -151,6 +156,7 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
             duration: 0,
             bufferedTime: 0,
             streamOffset: 0,
+            streamSessionId: "",
             isLoading: false,
             error: null,
             canPlay: false,
