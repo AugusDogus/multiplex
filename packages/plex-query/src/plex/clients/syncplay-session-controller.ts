@@ -307,7 +307,13 @@ export class SyncplaySessionController {
   }
 
   private schedulePendingRemoteSeek(state: SyncplayPlaybackState): void {
-    if (this.pendingRemoteSeek === null) {
+    // Reset the deadline for a genuinely new seek target (not for the timer's
+    // own re-schedule of the same pending seek), so a fresh seek arriving during
+    // a long media load isn't dropped against a stale deadline.
+    const isNewTarget =
+      this.pendingRemoteSeek === null ||
+      this.pendingRemoteSeek.positionSeconds !== state.positionSeconds;
+    if (isNewTarget) {
       this.pendingRemoteSeekDeadline = this.now() + PENDING_SEEK_MAX_MS;
     }
     this.pendingRemoteSeek = state;
