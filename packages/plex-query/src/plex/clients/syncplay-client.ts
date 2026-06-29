@@ -57,10 +57,8 @@ export interface SyncplayClientOptions {
    * Drive the local player toward a remote-initiated playstate. Only called for
    * drivers (non-observer) and only when the change wasn't made locally and
    * isn't being ignored on-the-fly (see the arbitration in `handleState`).
-   * Returns `true` if it adopted the remote state; `false`/`void` if it
-   * deliberately didn't (so the reply reports our own state instead of echoing).
    */
-  applyRemoteState?: (state: SyncplayPlaybackState) => boolean | void;
+  applyRemoteState?: (state: SyncplayPlaybackState) => void;
   /** Current local playstate, reported back to the server on each `State` ping. */
   getPlaybackState?: () => SyncplayStateInput | null | undefined;
   onClose?: () => void;
@@ -445,17 +443,15 @@ export class SyncplayClient {
     // `applyRemoteState`, so this is a no-op there.)
     const setByUser = payload.playstate.setBy ? decodeSyncplayUser(payload.playstate.setBy) : null;
     const isSelf = setByUser?.deviceIdentifier === this.user.deviceIdentifier;
-    const eligibleToApply = !isSelf && this.ignoringClient === 0;
-    let adoptedRemote = false;
-    if (eligibleToApply) {
+    const appliedRemote = !isSelf && this.ignoringClient === 0;
+    if (appliedRemote) {
       try {
-        adoptedRemote =
-          this.applyRemoteState({
-            user: setByUser,
-            isPaused: payload.playstate.paused,
-            positionSeconds: payload.playstate.position,
-            shouldSeek: Boolean(payload.playstate.doSeek),
-          }) === true;
+        this.applyRemoteState({
+          user: setByUser,
+          isPaused: payload.playstate.paused,
+          positionSeconds: payload.playstate.position,
+          shouldSeek: Boolean(payload.playstate.doSeek),
+        });
       } catch (error) {
         // Never let a player error abort the reply below; the socket must keep
         // replying to stay in the session.
@@ -469,12 +465,11 @@ export class SyncplayClient {
       return;
     }
 
-    // Always reply (heartbeat). Echo the server's state when we adopted it (not
-    // a stale pre-apply sample) or while deferring; otherwise report our own
-    // player's state — e.g. when we kept playing through the startup grace or
-    // are claiming a pending local seek via `doSeek`.
+    // Always reply (heartbeat). Echo the server's state when we adopted a remote
+    // change (not a stale pre-apply sample) or while deferring; otherwise report
+    // our own player's state, claiming a pending local seek via `doSeek`.
     let reply: SyncplayStateInput;
-    if (shouldEcho || adoptedRemote) {
+    if (shouldEcho || appliedRemote) {
       reply = {
         isPaused: payload.playstate.paused,
         positionSeconds: payload.playstate.position,
