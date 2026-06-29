@@ -443,7 +443,7 @@ export class SyncplayClient {
     // `applyRemoteState`, so this is a no-op there.)
     const setByUser = payload.playstate.setBy ? decodeSyncplayUser(payload.playstate.setBy) : null;
     const isSelf = setByUser?.deviceIdentifier === this.user.deviceIdentifier;
-    const appliedRemote = !isSelf && this.ignoringClient === 0;
+    let appliedRemote = !isSelf && this.ignoringClient === 0;
     if (appliedRemote) {
       try {
         this.applyRemoteState({
@@ -453,8 +453,11 @@ export class SyncplayClient {
           shouldSeek: Boolean(payload.playstate.doSeek),
         });
       } catch (error) {
-        // Never let a player error abort the reply below; the socket must keep
+        // The apply failed, so the local player didn't actually adopt the remote
+        // state — report our real state below instead of echoing one we never
+        // applied. Never let the error abort the reply; the socket must keep
         // replying to stay in the session.
+        appliedRemote = false;
         this.onError(
           error instanceof Error ? error : new Error("Syncplay applyRemoteState handler threw"),
         );

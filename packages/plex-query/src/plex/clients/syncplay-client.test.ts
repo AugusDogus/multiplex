@@ -474,7 +474,12 @@ describe("SyncplayClient", () => {
     });
 
     // The throw must not abort the reply, or the socket would stop participating.
-    expect(lastPlaystate(sockets[0])).toBeTruthy();
+    // And since the apply failed, the reply must report our real local state
+    // (paused@5) rather than echoing the remote state we never adopted (play@99).
+    expect(lastPlaystate(sockets[0])?.playstate).toMatchObject({
+      paused: true,
+      position: 5,
+    });
   });
 
   test("rejects a State frame with a non-numeric ignoringOnTheFly counter", () => {
