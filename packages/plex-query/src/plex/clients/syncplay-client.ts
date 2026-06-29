@@ -51,6 +51,8 @@ export interface SyncplayClientOptions {
    */
   observer?: boolean;
   onParticipant?: (state: SyncplayParticipantState) => void;
+  /** Fires when the socket opens (after `Hello` is sent). */
+  onOpen?: () => void;
   /**
    * Drive the local player toward a remote-initiated playstate. Only called for
    * drivers (non-observer) and only when the change wasn't made locally and
@@ -121,6 +123,7 @@ export class SyncplayClient {
   private readonly room: SyncplayClientOptions["room"];
   private readonly user: SyncplayUser;
   private readonly onParticipant: NonNullable<SyncplayClientOptions["onParticipant"]>;
+  private readonly onOpen: NonNullable<SyncplayClientOptions["onOpen"]>;
   private readonly applyRemoteState: NonNullable<SyncplayClientOptions["applyRemoteState"]>;
   private readonly getPlaybackState: NonNullable<SyncplayClientOptions["getPlaybackState"]>;
   private readonly onClose: NonNullable<SyncplayClientOptions["onClose"]>;
@@ -148,6 +151,7 @@ export class SyncplayClient {
     this.room = options.room;
     this.user = options.user;
     this.onParticipant = options.onParticipant ?? (() => undefined);
+    this.onOpen = options.onOpen ?? (() => undefined);
     this.applyRemoteState = options.applyRemoteState ?? (() => undefined);
     this.getPlaybackState = options.getPlaybackState ?? (() => undefined);
     this.onClose = options.onClose ?? (() => undefined);
@@ -180,6 +184,7 @@ export class SyncplayClient {
         },
       });
       this.flushPendingState();
+      this.onOpen();
     });
     socket.addEventListener("message", (event) => {
       if (this.socket !== socket) {
@@ -433,33 +438,47 @@ export class SyncplayClient {
 
     // Apply the remote playstate to our player unless we made it ourselves or a
     // local change of ours is still in flight (which would otherwise be clobbered).
+    // Applies whether or not we're echoing — echoing only changes the reply, not
+    // whether a peer's change reaches our player. (Observers pass no
+    // `applyRemoteState`, so this is a no-op there.)
     const setByUser = payload.playstate.setBy ? decodeSyncplayUser(payload.playstate.setBy) : null;
     const isSelf = setByUser?.deviceIdentifier === this.user.deviceIdentifier;
-    // Apply the remote playstate whether or not we're echoing — echoing only
-    // changes what we reply with, not whether a peer's change reaches our
-    // player. (Observers pass no `applyRemoteState`, so this is a no-op there.)
-    if (!isSelf && this.ignoringClient === 0) {
-      this.applyRemoteState({
-        user: setByUser,
-        isPaused: payload.playstate.paused,
-        positionSeconds: payload.playstate.position,
-        shouldSeek: Boolean(payload.playstate.doSeek),
-      });
+    const appliedRemote = !isSelf && this.ignoringClient === 0;
+    if (appliedRemote) {
+      try {
+        this.applyRemoteState({
+          user: setByUser,
+          isPaused: payload.playstate.paused,
+          positionSeconds: payload.playstate.position,
+          shouldSeek: Boolean(payload.playstate.doSeek),
+        });
+      } catch (error) {
+        // Never let a player error abort the reply below; the socket must keep
+        // replying to stay in the session.
+        this.onError(
+          error instanceof Error ? error : new Error("Syncplay applyRemoteState handler threw"),
+        );
+      }
     }
 
     if (this.connectionId !== connectionId) {
       return;
     }
 
-    // Reply to every ping: echo the server's state (heartbeat) or report our own
-    // player's state (claiming a pending seek via `doSeek`).
-    const reply: SyncplayStateInput = shouldEcho
-      ? {
-          isPaused: payload.playstate.paused,
-          positionSeconds: payload.playstate.position,
-          shouldSeek: false,
-        }
-      : this.buildLocalReply();
+    // Always reply (heartbeat). Echo the server's state while deferring; report
+    // the state we just adopted when we applied a remote change (not a stale
+    // pre-apply sample); otherwise report our own player's state, claiming a
+    // pending local seek via `doSeek`.
+    let reply: SyncplayStateInput;
+    if (shouldEcho || appliedRemote) {
+      reply = {
+        isPaused: payload.playstate.paused,
+        positionSeconds: payload.playstate.position,
+        shouldSeek: false,
+      };
+    } else {
+      reply = this.buildLocalReply();
+    }
     this.pendingPlayPause = false;
     this.pendingSeek = false;
     this.sendState(reply);
@@ -638,6 +657,19 @@ function isValidStatePayload(value: unknown): value is SyncplayStatePayload {
       value.ping.serverRtt,
       value.ping.latencyCalculation,
     ]) {
+      if (field !== undefined && (typeof field !== "number" || !Number.isFinite(field))) {
+        return false;
+      }
+    }
+  }
+
+  // Validate the arbitration counters: a non-number here (e.g. "1") would slip
+  // through and corrupt the ignoring-on-the-fly handshake.
+  if (value.ignoringOnTheFly !== undefined) {
+    if (!isRecord(value.ignoringOnTheFly)) {
+      return false;
+    }
+    for (const field of [value.ignoringOnTheFly.client, value.ignoringOnTheFly.server]) {
       if (field !== undefined && (typeof field !== "number" || !Number.isFinite(field))) {
         return false;
       }

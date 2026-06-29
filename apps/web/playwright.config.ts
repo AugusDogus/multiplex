@@ -59,7 +59,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "bun run dev",
+    // Forward the port so a custom PLAYWRIGHT_PORT actually starts the dev
+    // server there (otherwise the readiness check polls the wrong port).
+    command: `bun run dev -- --port ${PORT}`,
     url: BASE_URL,
     reuseExistingServer: true,
     timeout: 120_000,

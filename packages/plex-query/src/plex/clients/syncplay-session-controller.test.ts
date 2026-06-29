@@ -260,6 +260,42 @@ describe("SyncplaySessionController", () => {
     });
   });
 
+  test("claims a user seek to a different position than a recent remote-applied seek", () => {
+    const sockets: FakeWebSocket[] = [];
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const state = makeState({ isPlaying: true, currentTime: 0, duration: 120 });
+    const controller = createController({ sockets, state, calls });
+    controller.connect();
+    sockets[0]?.open();
+
+    // Remote seek to 50 -> arms suppression for ~position 50.
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 50,
+          doSeek: true,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+    // The player's resulting 'seeked' at ~50 is suppressed (our own apply).
+    controller.handleLocalSeeked(50);
+
+    // A genuine user seek to a different position must still be claimed.
+    sockets[0]?.sent.splice(0);
+    controller.handleLocalSeeked(200);
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: false, position: 50, setBy: encodeSyncplayUser(REMOTE_USER) },
+      },
+    });
+
+    expect(lastState(sockets[0])).toMatchObject({
+      ignoringOnTheFly: { client: 1 },
+    });
+  });
+
   test("reconnects after an unexpected socket close", () => {
     const sockets: FakeWebSocket[] = [];
     const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };

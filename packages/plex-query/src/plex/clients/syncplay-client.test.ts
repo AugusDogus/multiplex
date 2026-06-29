@@ -198,7 +198,7 @@ describe("SyncplayClient", () => {
     ]);
   });
 
-  test("applies a remote playstate and replies with the local player's state", () => {
+  test("applies a remote playstate and replies with the adopted state", () => {
     const sockets: FakeWebSocket[] = [];
     const applied: SyncplayPlaybackState[] = [];
     const client = createClient({
@@ -224,6 +224,8 @@ describe("SyncplayClient", () => {
     expect(applied).toEqual([
       { user: REMOTE_USER, isPaused: false, positionSeconds: 99, shouldSeek: true },
     ]);
+    // We adopted the remote state, so the reply reflects it (not a stale
+    // pre-apply sample of the local player).
     expect(lastPlaystate(sockets[0])).toEqual({
       ping: {
         clientLatencyCalculation: 1.234,
@@ -231,7 +233,7 @@ describe("SyncplayClient", () => {
         serverRtt: 0,
         latencyCalculation: 0,
       },
-      playstate: { doSeek: false, paused: true, position: 12, setBy: null },
+      playstate: { doSeek: false, paused: false, position: 99, setBy: null },
       ignoringOnTheFly: { client: 0, server: 0 },
     });
   });
@@ -412,6 +414,66 @@ describe("SyncplayClient", () => {
       playstate: { doSeek: false, paused: false, position: 99, setBy: null },
       ignoringOnTheFly: { client: 0, server: 0 },
     });
+  });
+
+  test("still replies (heartbeat) when applyRemoteState throws", () => {
+    const sockets: FakeWebSocket[] = [];
+    const client = new SyncplayClient({
+      room: ROOM,
+      user: LOCAL_USER,
+      applyRemoteState: () => {
+        throw new Error("player blew up");
+      },
+      getPlaybackState: () => ({ isPaused: true, positionSeconds: 5, shouldSeek: false }),
+      onError: () => undefined,
+      webSocketFactory: (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      now: () => 1234,
+    });
+    client.connect();
+    sockets[0]?.open();
+    sockets[0]?.sent.splice(0);
+
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: false, position: 99, setBy: encodeSyncplayUser(REMOTE_USER) },
+      },
+    });
+
+    // The throw must not abort the reply, or the socket would stop participating.
+    expect(lastPlaystate(sockets[0])).toBeTruthy();
+  });
+
+  test("rejects a State frame with a non-numeric ignoringOnTheFly counter", () => {
+    const sockets: FakeWebSocket[] = [];
+    const errors: unknown[] = [];
+    const client = new SyncplayClient({
+      room: ROOM,
+      user: LOCAL_USER,
+      onError: (error) => errors.push(error),
+      webSocketFactory: (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      now: () => 1234,
+    });
+    client.connect();
+    sockets[0]?.open();
+    sockets[0]?.sent.splice(0);
+
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: false, position: 1 },
+        ignoringOnTheFly: { server: "1" },
+      },
+    });
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(sockets[0]?.sent).toEqual([]); // invalid frame -> no reply
   });
 
   test("buffers outbound playback state while connecting", () => {
