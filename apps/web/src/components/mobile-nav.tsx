@@ -12,7 +12,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   type PlexDevice,
@@ -265,6 +265,7 @@ interface YouDrawerProps {
 }
 
 function YouDrawer({ open, onOpenChange, user, userInfo }: YouDrawerProps) {
+  const router = useRouter();
   const hasPlexPass = userInfo.subscription?.active ?? false;
   const subscriptionText = hasPlexPass
     ? userInfo.subscriptionDescription
@@ -275,7 +276,7 @@ function YouDrawer({ open, onOpenChange, user, userInfo }: YouDrawerProps) {
 
   async function handleSignOut() {
     await signOut();
-    window.location.href = "/login";
+    router.replace("/login");
   }
 
   return (
