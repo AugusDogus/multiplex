@@ -286,7 +286,11 @@ export async function stopPlaybackTranscodeSessions(
     if (!response.ok) return;
 
     const xml = await response.text();
-    const keys = Array.from(xml.matchAll(/TranscodeSession key="([^"]+)"/g))
+    // Match `key` anywhere within a <TranscodeSession> tag (XML attribute order
+    // and whitespace aren't significant).
+    const keys = Array.from(
+      xml.matchAll(/<TranscodeSession\b[^>]*\bkey="([^"]+)"/g),
+    )
       .map((match) => match[1])
       .filter((key): key is string => Boolean(key?.startsWith(sessionPrefix)));
 
