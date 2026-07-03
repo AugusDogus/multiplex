@@ -4,6 +4,7 @@ import {
   type SyncplayClientOptions,
   type SyncplayParticipantState,
   type SyncplayPlaybackState,
+  type SyncplayRemoteAction,
   type SyncplayStateInput,
   type SyncplayUser,
 } from "./syncplay-client";
@@ -31,15 +32,6 @@ const DEFAULT_REMOTE_STARTUP_GRACE_MS = 5000;
 
 export type SyncplaySeekResult = "direct" | "reload" | "none";
 
-export type SyncplayRemoteActionType = "pause" | "resume" | "seek";
-
-/** A remote-initiated playback change that was actually applied to the local player. */
-export interface SyncplayRemoteAction {
-  type: SyncplayRemoteActionType;
-  user: SyncplayUser | null;
-  positionSeconds: number;
-}
-
 export interface SyncplayPlayerState {
   isPlaying: boolean;
   currentTime: number;
@@ -62,9 +54,9 @@ export interface SyncplaySessionControllerOptions {
   player: SyncplayPlayerAdapter;
   onParticipant?: (state: SyncplayParticipantState) => void;
   /**
-   * Fires when a remote participant's pause/resume/explicit-seek is applied to
-   * the local player (never for our own changes or silent drift corrections),
-   * so the UI can surface who did what.
+   * Fires on deliberate remote playback actions (incoming `doSeek` frames and
+   * remote-authored `paused` edges — see {@link SyncplayRemoteAction}), so the
+   * UI can surface who did what. Forwarded to {@link SyncplayClient}.
    */
   onRemoteAction?: (action: SyncplayRemoteAction) => void;
   onClose?: () => void;
@@ -119,6 +111,12 @@ export class SyncplaySessionController {
   private pendingRemoteSeek: SyncplayPlaybackState | null = null;
   private pendingRemoteSeekTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingRemoteSeekDeadline = 0;
+  // The last paused state we reported while the player was stable (not
+  // loading). While a stream (re)loads — e.g. a transcoded seek reloads at a
+  // new offset — the element is transiently "not playing", but the official
+  // Plex client keeps reporting the intended playstate; mirroring that keeps a
+  // buffering client from dragging the whole room into a phantom pause.
+  private lastStableIsPaused: boolean | null = null;
   private readonly now: () => number;
   private readonly setTimer: NonNullable<SyncplaySessionControllerOptions["setTimeout"]>;
   private readonly clearTimer: NonNullable<SyncplaySessionControllerOptions["clearTimeout"]>;
@@ -137,6 +135,7 @@ export class SyncplaySessionController {
     this.clearPendingRemoteSeek();
     this.suppressedPlayPause = null;
     this.suppressedSeek = null;
+    this.lastStableIsPaused = null;
     this.connectClient();
   }
 
@@ -153,6 +152,14 @@ export class SyncplaySessionController {
   }
 
   handleLocalPlaybackChange(isPaused: boolean): void {
+    // Play/pause events while the stream is (re)loading are mechanical churn —
+    // e.g. seeking a transcoded stream reloads it at a new offset, firing a
+    // pause on unload. The official Plex client never reports these; only
+    // deliberate user actions claim a playstate change.
+    if (this.options.player.getState().isLoading) {
+      return;
+    }
+    this.lastStableIsPaused = isPaused;
     // Ignore the event our own remote-apply just produced (same target state);
     // otherwise claim the user's change (reported on the next State ping).
     const suppressed = this.suppressedPlayPause;
@@ -197,6 +204,7 @@ export class SyncplaySessionController {
       room: this.options.room,
       user: this.options.user,
       onParticipant: this.options.onParticipant,
+      onRemoteAction: this.options.onRemoteAction,
       getPlaybackState: () => this.getCurrentState(),
       applyRemoteState: (state) => this.applyRemoteState(state),
       // Start the startup grace from the actual socket open, not connect-
@@ -294,15 +302,6 @@ export class SyncplaySessionController {
           positionSeconds: targetPosition,
           expiresAt: this.now() + this.remoteEventSuppressionMs,
         };
-        // Only an explicit remote seek (doSeek) is a user action worth
-        // surfacing; threshold-triggered corrections are silent drift fixes.
-        if (state.shouldSeek) {
-          this.options.onRemoteAction?.({
-            type: "seek",
-            user: state.user,
-            positionSeconds: targetPosition,
-          });
-        }
       }
     } else {
       // A non-seek update supersedes any seek we were waiting to apply.
@@ -320,27 +319,17 @@ export class SyncplaySessionController {
         isPaused: true,
         expiresAt: this.now() + this.remoteEventSuppressionMs,
       };
+      // The room's intent is now paused; report that even if our stream is
+      // mid-(re)load when the next ping arrives.
+      this.lastStableIsPaused = true;
       this.options.player.pause();
-      this.options.onRemoteAction?.({
-        type: "pause",
-        user: state.user,
-        positionSeconds: targetPosition,
-      });
     } else if (!state.isPaused && !playerState.isPlaying) {
       const suppression = {
         isPaused: false,
         expiresAt: this.now() + this.remoteEventSuppressionMs,
       };
       this.suppressedPlayPause = suppression;
-      // Reported at initiation: even if autoplay is later blocked locally, the
-      // remote user did resume the room.
-      if (!withinStartupGrace) {
-        this.options.onRemoteAction?.({
-          type: "resume",
-          user: state.user,
-          positionSeconds: targetPosition,
-        });
-      }
+      this.lastStableIsPaused = false;
       // Clear the suppression if play() never actually started (returned false
       // or rejected) — but only if a newer remote change hasn't replaced it.
       void Promise.resolve(this.options.player.play()).then(
@@ -396,8 +385,32 @@ export class SyncplaySessionController {
 
   private getCurrentState(): SyncplayStateInput {
     const playerState = this.options.player.getState();
+    if (playerState.error) {
+      return {
+        isPaused: true,
+        positionSeconds: playerState.currentTime,
+        shouldSeek: false,
+      };
+    }
+
+    // While the stream is (re)loading the element is transiently "not
+    // playing", but that's buffering, not a pause. Report the last stable
+    // playstate (the intent) like the official client, so a buffering viewer
+    // doesn't drag the whole room into a phantom pause.
+    if (playerState.isLoading && this.lastStableIsPaused !== null) {
+      return {
+        isPaused: this.lastStableIsPaused,
+        positionSeconds: playerState.currentTime,
+        shouldSeek: false,
+      };
+    }
+
+    const isPaused = !playerState.isPlaying;
+    if (!playerState.isLoading) {
+      this.lastStableIsPaused = isPaused;
+    }
     return {
-      isPaused: !playerState.isPlaying || Boolean(playerState.error),
+      isPaused,
       positionSeconds: playerState.currentTime,
       shouldSeek: false,
     };

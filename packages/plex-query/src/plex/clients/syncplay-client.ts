@@ -21,6 +21,22 @@ export interface SyncplayPlaybackState {
   shouldSeek: boolean;
 }
 
+export type SyncplayRemoteActionType = "pause" | "resume" | "seek";
+
+/**
+ * A deliberate playback action by a remote participant: an incoming `State`
+ * frame authored by them (`setBy`) whose `paused` value changed, or one
+ * carrying `doSeek`. This mirrors when the official Plex client shows its
+ * "<user> paused/resumed/seeked" notifications. `setBy` is sticky — the server
+ * repeats it on every subsequent ping — so only edges count, and the first
+ * frame after connecting only establishes the baseline.
+ */
+export interface SyncplayRemoteAction {
+  type: SyncplayRemoteActionType;
+  user: SyncplayUser | null;
+  positionSeconds: number;
+}
+
 export interface SyncplayWebSocketLike {
   readonly readyState: number;
   send(data: string): void;
@@ -51,6 +67,12 @@ export interface SyncplayClientOptions {
    */
   observer?: boolean;
   onParticipant?: (state: SyncplayParticipantState) => void;
+  /**
+   * Fires on deliberate remote playback actions (see
+   * {@link SyncplayRemoteAction}): incoming `doSeek` frames and remote-authored
+   * `paused` edges. Never fires for our own actions.
+   */
+  onRemoteAction?: (action: SyncplayRemoteAction) => void;
   /** Fires when the socket opens (after `Hello` is sent). */
   onOpen?: () => void;
   /**
@@ -123,6 +145,7 @@ export class SyncplayClient {
   private readonly room: SyncplayClientOptions["room"];
   private readonly user: SyncplayUser;
   private readonly onParticipant: NonNullable<SyncplayClientOptions["onParticipant"]>;
+  private readonly onRemoteAction: NonNullable<SyncplayClientOptions["onRemoteAction"]>;
   private readonly onOpen: NonNullable<SyncplayClientOptions["onOpen"]>;
   private readonly applyRemoteState: NonNullable<SyncplayClientOptions["applyRemoteState"]>;
   private readonly getPlaybackState: NonNullable<SyncplayClientOptions["getPlaybackState"]>;
@@ -146,11 +169,16 @@ export class SyncplayClient {
   // claims the change (and bumps `ignoringClient`).
   private pendingPlayPause = false;
   private pendingSeek = false;
+  // Room paused value from the previous State frame, for remote pause/resume
+  // edge detection (null = no frame yet this connection, so the first frame is
+  // a baseline, not an action).
+  private lastFramePaused: boolean | null = null;
 
   constructor(options: SyncplayClientOptions) {
     this.room = options.room;
     this.user = options.user;
     this.onParticipant = options.onParticipant ?? (() => undefined);
+    this.onRemoteAction = options.onRemoteAction ?? (() => undefined);
     this.onOpen = options.onOpen ?? (() => undefined);
     this.applyRemoteState = options.applyRemoteState ?? (() => undefined);
     this.getPlaybackState = options.getPlaybackState ?? (() => undefined);
@@ -168,6 +196,7 @@ export class SyncplayClient {
     this.ignoringServer = 0;
     this.pendingPlayPause = false;
     this.pendingSeek = false;
+    this.lastFramePaused = null;
     this.connectionId += 1;
     const connectionId = this.connectionId;
     const socket = this.webSocketFactory(
@@ -456,6 +485,31 @@ export class SyncplayClient {
     // `applyRemoteState`, so this is a no-op there.)
     const setByUser = payload.playstate.setBy ? decodeSyncplayUser(payload.playstate.setBy) : null;
     const isSelf = setByUser?.deviceIdentifier === this.user.deviceIdentifier;
+
+    // Deliberate remote actions live on the frames themselves: a `doSeek`
+    // frame is a seek, and a change in the room's `paused` value is a
+    // pause/resume by whoever `setBy` names (the official Plex client keys its
+    // "<user> paused/resumed/seeked" notifications off exactly this). `setBy`
+    // is sticky across pings, so only edges count — a repeated frame with the
+    // same `paused` value is a heartbeat, not a new action.
+    const framePaused = payload.playstate.paused;
+    if (!isSelf) {
+      if (payload.playstate.doSeek) {
+        this.onRemoteAction({
+          type: "seek",
+          user: setByUser,
+          positionSeconds: payload.playstate.position,
+        });
+      }
+      if (this.lastFramePaused !== null && framePaused !== this.lastFramePaused) {
+        this.onRemoteAction({
+          type: framePaused ? "pause" : "resume",
+          user: setByUser,
+          positionSeconds: payload.playstate.position,
+        });
+      }
+    }
+    this.lastFramePaused = framePaused;
     let appliedRemote = !isSelf && this.ignoringClient === 0;
     if (appliedRemote) {
       try {

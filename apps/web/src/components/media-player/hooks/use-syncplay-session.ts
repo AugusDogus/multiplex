@@ -7,10 +7,7 @@ import {
   type SyncplayPlayerAdapter,
 } from "@multiplex/plex-query";
 
-import {
-  createWatchTogetherSessionToasts,
-  type WatchTogetherSessionToasts,
-} from "~/components/watch-together/watch-together-session-toasts";
+import { createWatchTogetherSessionToasts } from "~/components/watch-together/watch-together-session-toasts";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { useWatchTogetherStore } from "~/stores/watch-together-store";
 import type { MediaPlayerActions } from "~/types/media-player";
@@ -22,7 +19,6 @@ interface UseSyncplaySessionOptions {
 export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
   const { pause, play, seek } = actions;
   const controllerRef = useRef<SyncplaySessionController | null>(null);
-  const toastsRef = useRef<WatchTogetherSessionToasts | null>(null);
   const session = useWatchTogetherStore((state) => state.session);
   const clearWatchTogetherSession = useWatchTogetherStore(
     (state) => state.clearSession,
@@ -96,16 +92,12 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
 
     controller.connect();
     controllerRef.current = controller;
-    toastsRef.current = toasts;
 
     return () => {
       controller.disconnect();
       toasts.dispose();
       if (controllerRef.current === controller) {
         controllerRef.current = null;
-      }
-      if (toastsRef.current === toasts) {
-        toastsRef.current = null;
       }
     };
   }, [
@@ -144,9 +136,6 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
       }
 
       controllerRef.current?.handleLocalSeeked(time);
-      // Our seek makes every peer reload/buffer; keep the resulting mechanical
-      // pause/resume churn out of our own toasts.
-      toastsRef.current?.noteLocalSeek();
     },
     [activeForCurrentItem],
   );

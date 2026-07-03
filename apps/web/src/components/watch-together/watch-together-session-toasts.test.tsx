@@ -78,7 +78,7 @@ function createHarness() {
 }
 
 describe("createWatchTogetherSessionToasts", () => {
-  test("a deliberate remote pause toasts after the hold window", () => {
+  test("a remote pause toasts after the hold window; resume and seek are instant", () => {
     const { notifier, shown, advance, settle, remoteWatching } =
       createHarness();
     remoteWatching();
@@ -91,7 +91,22 @@ describe("createWatchTogetherSessionToasts", () => {
     });
     expect(shown).toEqual([]); // held, not instant
     advance(2_000);
-    expect(shown).toEqual(["multiplextest paused playback"]);
+    notifier.handleRemoteAction({
+      type: "resume",
+      user: REMOTE_USER,
+      positionSeconds: 30,
+    });
+    advance(3_000);
+    notifier.handleRemoteAction({
+      type: "seek",
+      user: REMOTE_USER,
+      positionSeconds: 90,
+    });
+    expect(shown).toEqual([
+      "multiplextest paused playback",
+      "multiplextest resumed playback",
+      "multiplextest jumped to 1:30",
+    ]);
   });
 
   test("a pause followed by the author leaving reads as a single leave", () => {
@@ -110,7 +125,7 @@ describe("createWatchTogetherSessionToasts", () => {
     expect(shown).toEqual(["multiplextest left the session"]);
   });
 
-  test("ready flaps while connected (buffering) never toast leave/join", () => {
+  test("ready flaps while connected (buffering after a seek) never toast leave/join", () => {
     const { notifier, shown, advance, settle, remoteWatching } =
       createHarness();
     remoteWatching();
@@ -121,106 +136,6 @@ describe("createWatchTogetherSessionToasts", () => {
     notifier.handleParticipant({ user: REMOTE_USER, isReady: true });
     advance(20_000);
     expect(shown).toEqual([]);
-  });
-
-  test("pause/resume churn is muted while a participant is buffering and briefly after", () => {
-    const { notifier, shown, advance, settle, remoteWatching } =
-      createHarness();
-    remoteWatching();
-    settle();
-
-    // Remote starts buffering (e.g. their stream reloaded) and mechanically
-    // claims a pause.
-    notifier.handleParticipant({ user: REMOTE_USER, isReady: false });
-    notifier.handleRemoteAction({
-      type: "pause",
-      user: REMOTE_USER,
-      positionSeconds: 30,
-    });
-    advance(30_000); // long buffer; the held pause fires into the mute
-    // Finished buffering; the trailing mechanical "resumed" claim lands.
-    notifier.handleParticipant({ user: REMOTE_USER, isReady: true });
-    advance(1_000);
-    notifier.handleRemoteAction({
-      type: "resume",
-      user: REMOTE_USER,
-      positionSeconds: 30,
-    });
-    advance(10_000);
-    expect(shown).toEqual([]);
-  });
-
-  test("a remote seek toasts once and mutes the surrounding pause/resume churn", () => {
-    const { notifier, shown, advance, settle, remoteWatching } =
-      createHarness();
-    remoteWatching();
-    settle();
-
-    notifier.handleRemoteAction({
-      type: "seek",
-      user: REMOTE_USER,
-      positionSeconds: 90,
-    });
-    // The same State frame applies a pause (stream reload) with the seek.
-    notifier.handleRemoteAction({
-      type: "pause",
-      user: REMOTE_USER,
-      positionSeconds: 90,
-    });
-    advance(2_000);
-    // Re-applied identical seek within the dedupe window stays quiet.
-    notifier.handleRemoteAction({
-      type: "seek",
-      user: REMOTE_USER,
-      positionSeconds: 90,
-    });
-    advance(2_000);
-    notifier.handleRemoteAction({
-      type: "resume",
-      user: REMOTE_USER,
-      positionSeconds: 91,
-    });
-    advance(10_000);
-    expect(shown).toEqual(["multiplextest jumped to 1:30"]);
-  });
-
-  test("a local seek mutes the peers' mechanical pause/resume claims", () => {
-    const { notifier, shown, advance, settle, remoteWatching } =
-      createHarness();
-    remoteWatching();
-    settle();
-
-    notifier.noteLocalSeek();
-    notifier.handleRemoteAction({
-      type: "pause",
-      user: REMOTE_USER,
-      positionSeconds: 50,
-    });
-    advance(2_000);
-    notifier.handleRemoteAction({
-      type: "resume",
-      user: REMOTE_USER,
-      positionSeconds: 50,
-    });
-    advance(10_000);
-    expect(shown).toEqual([]);
-  });
-
-  test("a deliberate pause well after churn settles still toasts", () => {
-    const { notifier, shown, advance, settle, remoteWatching } =
-      createHarness();
-    remoteWatching();
-    settle();
-
-    notifier.noteLocalSeek();
-    advance(15_000); // churn window over
-    notifier.handleRemoteAction({
-      type: "pause",
-      user: REMOTE_USER,
-      positionSeconds: 60,
-    });
-    advance(2_000);
-    expect(shown).toEqual(["multiplextest paused playback"]);
   });
 
   test("roster at connect is silent; later joins and rejoins toast", () => {

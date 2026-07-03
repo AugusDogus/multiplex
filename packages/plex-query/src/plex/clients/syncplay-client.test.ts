@@ -4,6 +4,7 @@ import {
   SyncplayClient,
   type SyncplayParticipantState,
   type SyncplayPlaybackState,
+  type SyncplayRemoteAction,
   type SyncplayStateInput,
   type SyncplayWebSocketLike,
 } from "./syncplay-client";
@@ -82,6 +83,7 @@ function createClient(options: {
   participants?: SyncplayParticipantState[];
   observer?: boolean;
   applied?: SyncplayPlaybackState[];
+  actions?: SyncplayRemoteAction[];
   getPlaybackState?: () => SyncplayStateInput | null | undefined;
 }) {
   return new SyncplayClient({
@@ -89,6 +91,7 @@ function createClient(options: {
     user: LOCAL_USER,
     observer: options.observer,
     onParticipant: (participant) => options.participants?.push(participant),
+    onRemoteAction: (action) => options.actions?.push(action),
     applyRemoteState: (state) => options.applied?.push(state),
     getPlaybackState: options.getPlaybackState,
     webSocketFactory: (url) => {
@@ -509,6 +512,97 @@ describe("SyncplayClient", () => {
 
     expect(errors.length).toBeGreaterThan(0);
     expect(sockets[0]?.sent).toEqual([]); // invalid frame -> no reply
+  });
+
+  test("reports remote pause/resume edges and doSeek frames with their author", () => {
+    const sockets: FakeWebSocket[] = [];
+    const actions: SyncplayRemoteAction[] = [];
+    const client = createClient({
+      sockets,
+      actions,
+      getPlaybackState: () => ({ isPaused: false, positionSeconds: 10, shouldSeek: false }),
+    });
+    client.connect();
+    sockets[0]?.open();
+
+    // First frame is a baseline (no paused edge yet), even if authored remotely.
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: false, position: 10, setBy: encodeSyncplayUser(REMOTE_USER) },
+      },
+    });
+    expect(actions).toEqual([]);
+
+    // paused false -> true: a remote pause.
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: true, position: 12, setBy: encodeSyncplayUser(REMOTE_USER) },
+      },
+    });
+    // Repeated frame with the same paused value (sticky setBy): heartbeat, no action.
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: true, position: 12, setBy: encodeSyncplayUser(REMOTE_USER) },
+      },
+    });
+    // paused true -> false: a remote resume.
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: false, position: 12, setBy: encodeSyncplayUser(REMOTE_USER) },
+      },
+    });
+    // An explicit remote seek.
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 90,
+          doSeek: true,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+
+    expect(actions).toEqual([
+      { type: "pause", user: REMOTE_USER, positionSeconds: 12 },
+      { type: "resume", user: REMOTE_USER, positionSeconds: 12 },
+      { type: "seek", user: REMOTE_USER, positionSeconds: 90 },
+    ]);
+  });
+
+  test("never reports our own actions echoed back by the server", () => {
+    const sockets: FakeWebSocket[] = [];
+    const actions: SyncplayRemoteAction[] = [];
+    const client = createClient({
+      sockets,
+      actions,
+      getPlaybackState: () => ({ isPaused: true, positionSeconds: 20, shouldSeek: false }),
+    });
+    client.connect();
+    sockets[0]?.open();
+
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: false, position: 19, setBy: encodeSyncplayUser(LOCAL_USER) },
+      },
+    });
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: true, position: 20, setBy: encodeSyncplayUser(LOCAL_USER) },
+      },
+    });
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: true,
+          position: 80,
+          doSeek: true,
+          setBy: encodeSyncplayUser(LOCAL_USER),
+        },
+      },
+    });
+
+    expect(actions).toEqual([]);
   });
 
   test("sendClaimedPause proactively broadcasts a paused state claimed by us", () => {
