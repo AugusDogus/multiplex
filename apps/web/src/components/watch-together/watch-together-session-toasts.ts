@@ -9,20 +9,25 @@ import { toast } from "sonner";
 import { formatTime } from "~/components/media-player/utils/playback-time-utils";
 import { getPlexUserName } from "~/components/watch-together/plex-user-avatar";
 
-// Presence flaps briefly during the Syncplay observer->driver handoff (a
-// participant's lobby socket closes right as their player socket opens), so a
-// leave only toasts after sustained absence.
-const LEAVE_TOAST_GRACE_MS = 5000;
 // Participants reported right after we connect are the room's existing roster
 // (delivered via the initial List), not fresh joins.
 const INITIAL_ROSTER_SETTLE_MS = 5000;
 // A remote play can be re-applied every State ping while our player refuses to
 // start (e.g. autoplay blocked); identical repeats shouldn't stack toasts.
 const ACTION_DEDUPE_MS = 3000;
+// A viewer who closes their player broadcasts a claimed pause right before
+// disconnecting, so the pause and the leave arrive as a pair. Hold pause
+// toasts briefly and drop them when the author leaves, so the pair reads as a
+// single "left the session" (their leave is what paused the room).
+const PAUSE_LEAVE_HOLD_MS = 1500;
 
-interface PresenceEntry {
+interface ParticipantEntry {
   isPresent: boolean;
-  leaveTimer: ReturnType<typeof setTimeout> | null;
+  isReady: boolean;
+}
+
+interface PendingPause {
+  timer: ReturnType<typeof setTimeout>;
 }
 
 export interface WatchTogetherSessionToasts {
@@ -33,9 +38,12 @@ export interface WatchTogetherSessionToasts {
 
 /**
  * Turns Syncplay session events into toasts: who paused/resumed/seeked, and who
- * joined or left the session. One notifier lives per Syncplay session
- * connection; dispose it when the session ends so pending leave toasts don't
- * fire after the viewer has already moved on.
+ * joined or left the session. "In the session" means actively watching
+ * (readiness, which Syncplay only sets once a member's player has loaded) — not
+ * mere lobby presence, so the lobby<->player socket handoffs never produce
+ * false leave/join noise, while genuine leave-and-rejoin cycles toast both
+ * ways. One notifier lives per Syncplay session connection; dispose it when the
+ * session ends so pending toasts don't fire after the viewer has moved on.
  */
 export function createWatchTogetherSessionToasts(options: {
   room: Pick<WatchTogetherRoom, "users">;
@@ -45,7 +53,8 @@ export function createWatchTogetherSessionToasts(options: {
     options.room.users.map((user) => [user.id, getPlexUserName(user)]),
   );
   const startedAt = Date.now();
-  const presence = new Map<string, PresenceEntry>();
+  const participants = new Map<string, ParticipantEntry>();
+  const pendingPauses = new Map<string, PendingPause>();
   const lastActionAt = new Map<string, number>();
   let disposed = false;
 
@@ -56,49 +65,69 @@ export function createWatchTogetherSessionToasts(options: {
     return nameByUserId.get(user.id) ?? "Someone";
   };
 
+  const isWatching = (entry: ParticipantEntry | undefined): boolean =>
+    Boolean(entry?.isPresent && entry.isReady);
+
+  const cancelPendingPause = (deviceIdentifier: string): void => {
+    const pending = pendingPauses.get(deviceIdentifier);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pendingPauses.delete(deviceIdentifier);
+    }
+  };
+
   const handleParticipant = (participant: SyncplayParticipantState): void => {
     if (
       disposed ||
-      participant.isPresent === undefined ||
       participant.user.deviceIdentifier === options.localUser.deviceIdentifier
     ) {
       return;
     }
 
     const key = participant.user.deviceIdentifier;
-    const entry = presence.get(key);
+    const entry = participants.get(key);
+    const wasWatching = isWatching(entry);
+    const next: ParticipantEntry = entry ?? {
+      isPresent: false,
+      isReady: false,
+    };
+
+    if (participant.isPresent !== undefined) {
+      next.isPresent = participant.isPresent;
+      // Someone who isn't connected can't be watching; their readiness will be
+      // re-announced if they come back.
+      if (!participant.isPresent) {
+        next.isReady = false;
+      }
+    }
+    if (participant.isReady !== undefined) {
+      next.isReady = participant.isReady === true;
+    }
+    participants.set(key, next);
+
+    const nowWatching = isWatching(next);
+    if (nowWatching === wasWatching) {
+      return;
+    }
+
+    // Watchers reported while we're connecting are the room's existing state,
+    // not a fresh join.
+    if (
+      nowWatching &&
+      entry === undefined &&
+      Date.now() - startedAt < INITIAL_ROSTER_SETTLE_MS
+    ) {
+      return;
+    }
+
     const name = nameFor(participant.user);
-
-    if (participant.isPresent) {
-      if (entry?.leaveTimer) {
-        // Rejoined within the grace window: a presence blip, not a real leave.
-        clearTimeout(entry.leaveTimer);
-        entry.leaveTimer = null;
-        entry.isPresent = true;
-        return;
-      }
-      if (entry?.isPresent) {
-        return;
-      }
-      const isInitialRoster =
-        !entry && Date.now() - startedAt < INITIAL_ROSTER_SETTLE_MS;
-      presence.set(key, { isPresent: true, leaveTimer: null });
-      if (!isInitialRoster) {
-        toast(`${name} joined the session`);
-      }
-      return;
+    if (nowWatching) {
+      toast(`${name} joined the session`);
+    } else {
+      // Their goodbye pause is part of the leave, not a deliberate pause.
+      cancelPendingPause(key);
+      toast(`${name} left the session`);
     }
-
-    if (!entry?.isPresent) {
-      return;
-    }
-    entry.isPresent = false;
-    entry.leaveTimer = setTimeout(() => {
-      entry.leaveTimer = null;
-      if (!disposed) {
-        toast(`${name} left the session`);
-      }
-    }, LEAVE_TOAST_GRACE_MS);
   };
 
   const handleRemoteAction = (action: SyncplayRemoteAction): void => {
@@ -136,17 +165,33 @@ export function createWatchTogetherSessionToasts(options: {
       return;
     }
     lastActionAt.set(dedupeKey, now);
-    toast(message);
+
+    if (action.type !== "pause" || !action.user) {
+      toast(message);
+      return;
+    }
+
+    // Hold pause toasts briefly: if the author leaves within the window (they
+    // closed their player, which broadcasts this pause), the leave toast
+    // supersedes it.
+    const key = action.user.deviceIdentifier;
+    cancelPendingPause(key);
+    pendingPauses.set(key, {
+      timer: setTimeout(() => {
+        pendingPauses.delete(key);
+        if (!disposed && isWatching(participants.get(key))) {
+          toast(message);
+        }
+      }, PAUSE_LEAVE_HOLD_MS),
+    });
   };
 
   const dispose = (): void => {
     disposed = true;
-    for (const entry of presence.values()) {
-      if (entry.leaveTimer) {
-        clearTimeout(entry.leaveTimer);
-        entry.leaveTimer = null;
-      }
+    for (const pending of pendingPauses.values()) {
+      clearTimeout(pending.timer);
     }
+    pendingPauses.clear();
   };
 
   return { handleParticipant, handleRemoteAction, dispose };
