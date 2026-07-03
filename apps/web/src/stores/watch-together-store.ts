@@ -13,6 +13,14 @@ interface WatchTogetherSession {
 interface WatchTogetherStore {
   session: WatchTogetherSession | null;
   participants: Record<string, SyncplayParticipantState>;
+  /**
+   * Room the local user deliberately left (closed the player) while it was
+   * still live. The lobby must not auto-start this room again — clearing the
+   * participants on leave resets the lobby's "everyone joined" tracking, which
+   * would otherwise re-arm auto-start and drag the user straight back into
+   * playback. Cleared when a new session starts (e.g. pressing Start).
+   */
+  autoStartSuppressedRoomId: string | null;
   setSession: (session: WatchTogetherSession) => void;
   clearSession: () => void;
   updateParticipant: (participant: SyncplayParticipantState) => void;
@@ -21,8 +29,16 @@ interface WatchTogetherStore {
 export const useWatchTogetherStore = create<WatchTogetherStore>()((set) => ({
   session: null,
   participants: {},
-  setSession: (session) => set({ session, participants: {} }),
-  clearSession: () => set({ session: null, participants: {} }),
+  autoStartSuppressedRoomId: null,
+  setSession: (session) =>
+    set({ session, participants: {}, autoStartSuppressedRoomId: null }),
+  clearSession: () =>
+    set((state) => ({
+      session: null,
+      participants: {},
+      autoStartSuppressedRoomId:
+        state.session?.room.id ?? state.autoStartSuppressedRoomId,
+    })),
   updateParticipant: (participant) =>
     set((state) => {
       const key = participant.user.deviceIdentifier;

@@ -51,6 +51,12 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
   const clearSession = useWatchTogetherStore((state) => state.clearSession);
   const participants = useWatchTogetherStore((state) => state.participants);
   const session = useWatchTogetherStore((state) => state.session);
+  const autoStartSuppressedRoomId = useWatchTogetherStore(
+    (state) => state.autoStartSuppressedRoomId,
+  );
+  // The user deliberately left this room's playback (closed the player), so
+  // don't auto-start them straight back in; they can still press Start.
+  const autoStartSuppressed = autoStartSuppressedRoomId === roomId;
   const roomQuery = api.plex.getWatchTogetherRoom.useQuery(
     { roomId },
     {
@@ -215,6 +221,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
       !allInvitedPresentNow ||
       !canStart ||
       session ||
+      autoStartSuppressed ||
       hasAutoStartedRef.current
     ) {
       return;
@@ -230,6 +237,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
   }, [
     allInvitedPresent,
     allInvitedPresentNow,
+    autoStartSuppressed,
     canStart,
     session,
     startPlayback,
