@@ -3,14 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   parseLibraryItemUri,
-  SyncplaySessionController,
   type SyncplayPlayerAdapter,
 } from "@multiplex/plex-query";
 
 import {
-  createWatchTogetherSessionToasts,
-  type WatchTogetherSessionToasts,
-} from "~/components/watch-together/watch-together-session-toasts";
+  bindWatchTogetherSession,
+  type WatchTogetherSessionBinding,
+} from "~/components/watch-together/watch-together-session-binding";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { useWatchTogetherStore } from "~/stores/watch-together-store";
 import type { MediaPlayerActions } from "~/types/media-player";
@@ -19,10 +18,14 @@ interface UseSyncplaySessionOptions {
   actions: MediaPlayerActions;
 }
 
+/**
+ * React lifecycle for a Watch Together playback session: while the active
+ * session matches the item in the player, a {@link bindWatchTogetherSession}
+ * binding exists; all actual session logic is event-driven inside the binding.
+ */
 export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
   const { pause, play, seek } = actions;
-  const controllerRef = useRef<SyncplaySessionController | null>(null);
-  const toastsRef = useRef<WatchTogetherSessionToasts | null>(null);
+  const bindingRef = useRef<WatchTogetherSessionBinding | null>(null);
   const session = useWatchTogetherStore((state) => state.session);
   const clearWatchTogetherSession = useWatchTogetherStore(
     (state) => state.clearSession,
@@ -36,7 +39,6 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
   const currentItemRatingKey = useMediaPlayerStore(
     (state) => state.currentItem?.ratingKey,
   );
-  const canPlay = useMediaPlayerStore((state) => state.canPlay);
   const roomSource = session
     ? parseLibraryItemUri(session.room.sourceUri)
     : null;
@@ -70,42 +72,25 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
 
   useEffect(() => {
     if (!session || !activeForCurrentItem) {
-      controllerRef.current?.disconnect();
-      controllerRef.current = null;
       if (session && currentItemServerId && currentItemRatingKey) {
         clearWatchTogetherSession();
       }
       return;
     }
 
-    const toasts = createWatchTogetherSessionToasts({
+    const binding = bindWatchTogetherSession({
       room: session.room,
       localUser: session.localUser,
-    });
-    const controller = new SyncplaySessionController({
-      room: session.room,
-      user: session.localUser,
       player,
-      onParticipant: (participant) => {
-        updateParticipant(participant);
-        toasts.handleParticipant(participant);
-      },
-      onRemoteAction: toasts.handleRemoteAction,
+      onParticipant: updateParticipant,
       onFatalError: clearWatchTogetherSession,
     });
-
-    controller.connect();
-    controllerRef.current = controller;
-    toastsRef.current = toasts;
+    bindingRef.current = binding;
 
     return () => {
-      controller.disconnect();
-      toasts.dispose();
-      if (controllerRef.current === controller) {
-        controllerRef.current = null;
-      }
-      if (toastsRef.current === toasts) {
-        toastsRef.current = null;
+      binding.dispose();
+      if (bindingRef.current === binding) {
+        bindingRef.current = null;
       }
     };
   }, [
@@ -118,49 +103,19 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
     updateParticipant,
   ]);
 
-  useEffect(() => {
-    if (!activeForCurrentItem) {
-      return;
-    }
+  const onLocalPlaybackChange = useCallback((isPaused: boolean) => {
+    bindingRef.current?.handleLocalPlaybackChange(isPaused);
+  }, []);
 
-    controllerRef.current?.setReady(canPlay);
-    if (canPlay) {
-      toastsRef.current?.noteLocalStarted();
-    }
-  }, [activeForCurrentItem, canPlay]);
+  const onLocalSeeked = useCallback((time: number) => {
+    bindingRef.current?.handleLocalSeeked(time);
+  }, []);
 
-  const onLocalPlaybackChange = useCallback(
-    (isPaused: boolean) => {
-      if (!activeForCurrentItem) {
-        return;
-      }
-
-      controllerRef.current?.handleLocalPlaybackChange(isPaused);
-    },
-    [activeForCurrentItem],
-  );
-
-  const onLocalSeeked = useCallback(
-    (time: number) => {
-      if (!activeForCurrentItem) {
-        return;
-      }
-
-      controllerRef.current?.handleLocalSeeked(time);
-    },
-    [activeForCurrentItem],
-  );
-
-  // Broadcast a claimed pause so the rest of the room stops too (like the
-  // official Plex client) — call right before tearing the session down, while
-  // the socket is still open.
+  // Pause the room for everyone else right before the local viewer leaves —
+  // must run before the binding is disposed, while the socket is still open.
   const onLeaveSession = useCallback(() => {
-    if (!activeForCurrentItem) {
-      return;
-    }
-
-    controllerRef.current?.pauseRoom();
-  }, [activeForCurrentItem]);
+    bindingRef.current?.pauseRoom();
+  }, []);
 
   return {
     isActive: activeForCurrentItem,
