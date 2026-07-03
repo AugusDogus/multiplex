@@ -6,6 +6,7 @@ import { StrictMode } from "react";
 
 import { MediaPlayerModal } from "~/components/media-player";
 import { ThemeProvider } from "~/components/theme-provider";
+import { Toaster } from "~/components/ui/sonner";
 import { TooltipProvider } from "~/components/ui/tooltip";
 import { TRPCReactProvider } from "~/trpc/react";
 
@@ -37,6 +38,7 @@ export default function RootLayout({
               <TooltipProvider>
                 {children}
                 <MediaPlayerModal />
+                <Toaster />
               </TooltipProvider>
             </ThemeProvider>
           </TRPCReactProvider>

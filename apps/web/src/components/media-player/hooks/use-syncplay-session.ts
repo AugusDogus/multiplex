@@ -7,6 +7,7 @@ import {
   type SyncplayPlayerAdapter,
 } from "@multiplex/plex-query";
 
+import { createWatchTogetherSessionToasts } from "~/components/watch-together/watch-together-session-toasts";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { useWatchTogetherStore } from "~/stores/watch-together-store";
 import type { MediaPlayerActions } from "~/types/media-player";
@@ -73,11 +74,19 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
       return;
     }
 
+    const toasts = createWatchTogetherSessionToasts({
+      room: session.room,
+      localUser: session.localUser,
+    });
     const controller = new SyncplaySessionController({
       room: session.room,
       user: session.localUser,
       player,
-      onParticipant: updateParticipant,
+      onParticipant: (participant) => {
+        updateParticipant(participant);
+        toasts.handleParticipant(participant);
+      },
+      onRemoteAction: toasts.handleRemoteAction,
       onFatalError: clearWatchTogetherSession,
     });
 
@@ -86,6 +95,7 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
 
     return () => {
       controller.disconnect();
+      toasts.dispose();
       if (controllerRef.current === controller) {
         controllerRef.current = null;
       }
@@ -130,9 +140,21 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
     [activeForCurrentItem],
   );
 
+  // Broadcast a claimed pause so the rest of the room stops too (like the
+  // official Plex client) — call right before tearing the session down, while
+  // the socket is still open.
+  const onLeaveSession = useCallback(() => {
+    if (!activeForCurrentItem) {
+      return;
+    }
+
+    controllerRef.current?.pauseRoom();
+  }, [activeForCurrentItem]);
+
   return {
     isActive: activeForCurrentItem,
     onLocalPlaybackChange,
     onLocalSeeked,
+    onLeaveSession,
   };
 }
