@@ -19,6 +19,8 @@ export { SyncplaySessionController } from "./clients/syncplay-session-controller
 export type {
   SyncplayPlayerAdapter,
   SyncplayPlayerState,
+  SyncplayRemoteAction,
+  SyncplayRemoteActionType,
   SyncplaySeekResult,
   SyncplaySessionControllerOptions,
 } from "./clients/syncplay-session-controller";

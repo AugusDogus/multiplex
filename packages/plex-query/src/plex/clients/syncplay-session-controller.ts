@@ -31,6 +31,15 @@ const DEFAULT_REMOTE_STARTUP_GRACE_MS = 5000;
 
 export type SyncplaySeekResult = "direct" | "reload" | "none";
 
+export type SyncplayRemoteActionType = "pause" | "resume" | "seek";
+
+/** A remote-initiated playback change that was actually applied to the local player. */
+export interface SyncplayRemoteAction {
+  type: SyncplayRemoteActionType;
+  user: SyncplayUser | null;
+  positionSeconds: number;
+}
+
 export interface SyncplayPlayerState {
   isPlaying: boolean;
   currentTime: number;
@@ -52,6 +61,12 @@ export interface SyncplaySessionControllerOptions {
   user: SyncplayUser;
   player: SyncplayPlayerAdapter;
   onParticipant?: (state: SyncplayParticipantState) => void;
+  /**
+   * Fires when a remote participant's pause/resume/explicit-seek is applied to
+   * the local player (never for our own changes or silent drift corrections),
+   * so the UI can surface who did what.
+   */
+  onRemoteAction?: (action: SyncplayRemoteAction) => void;
   onClose?: () => void;
   onError?: (error: Event | Error) => void;
   onFatalError?: (error: Error) => void;
@@ -146,6 +161,16 @@ export class SyncplaySessionController {
       return;
     }
     this.client?.markLocalPlayPause();
+  }
+
+  /**
+   * Broadcast a paused playstate claimed by the local user, so the rest of the
+   * room pauses. Call before {@link disconnect} when the viewer is leaving the
+   * session (e.g. closing the player), mirroring the official Plex client.
+   */
+  pauseRoom(): void {
+    const playerState = this.options.player.getState();
+    this.client?.sendClaimedPause(playerState.currentTime);
   }
 
   handleLocalSeeked(time: number): void {
@@ -269,6 +294,15 @@ export class SyncplaySessionController {
           positionSeconds: targetPosition,
           expiresAt: this.now() + this.remoteEventSuppressionMs,
         };
+        // Only an explicit remote seek (doSeek) is a user action worth
+        // surfacing; threshold-triggered corrections are silent drift fixes.
+        if (state.shouldSeek) {
+          this.options.onRemoteAction?.({
+            type: "seek",
+            user: state.user,
+            positionSeconds: targetPosition,
+          });
+        }
       }
     } else {
       // A non-seek update supersedes any seek we were waiting to apply.
@@ -287,12 +321,26 @@ export class SyncplaySessionController {
         expiresAt: this.now() + this.remoteEventSuppressionMs,
       };
       this.options.player.pause();
+      this.options.onRemoteAction?.({
+        type: "pause",
+        user: state.user,
+        positionSeconds: targetPosition,
+      });
     } else if (!state.isPaused && !playerState.isPlaying) {
       const suppression = {
         isPaused: false,
         expiresAt: this.now() + this.remoteEventSuppressionMs,
       };
       this.suppressedPlayPause = suppression;
+      // Reported at initiation: even if autoplay is later blocked locally, the
+      // remote user did resume the room.
+      if (!withinStartupGrace) {
+        this.options.onRemoteAction?.({
+          type: "resume",
+          user: state.user,
+          positionSeconds: targetPosition,
+        });
+      }
       // Clear the suppression if play() never actually started (returned false
       // or rejected) — but only if a newer remote change hasn't replaced it.
       void Promise.resolve(this.options.player.play()).then(
