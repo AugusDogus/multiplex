@@ -11,7 +11,8 @@ import {
   type SyncplayParticipantState,
   type SyncplayUser,
 } from "@multiplex/plex-query";
-import { Loader2, Play, Users } from "lucide-react";
+import { Loader2, Play, Trash2, Users } from "lucide-react";
+import { toast } from "sonner";
 
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -234,9 +235,26 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     startPlayback,
   ]);
 
+  const utils = api.useUtils();
+  const deleteRoom = api.plex.deleteWatchTogetherRoom.useMutation({
+    onSuccess: async () => {
+      await utils.plex.getWatchTogetherRooms.invalidate();
+      toast("Watch Together session ended");
+      clearSession();
+      router.push("/");
+    },
+    onError: () => {
+      toast.error("Couldn't end the Watch Together session");
+    },
+  });
+
   const leaveLobby = () => {
     clearSession();
     router.push("/");
+  };
+
+  const endSession = () => {
+    deleteRoom.mutate({ roomId });
   };
 
   if (
@@ -338,7 +356,21 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
             )}
             <div className="flex flex-wrap gap-2 pt-1">
               <Button variant="outline" onClick={leaveLobby}>
-                Cancel
+                Leave
+              </Button>
+              <Button
+                variant="outline"
+                className="text-destructive hover:text-destructive"
+                disabled={deleteRoom.isPending}
+                aria-busy={deleteRoom.isPending || undefined}
+                onClick={endSession}
+              >
+                {deleteRoom.isPending ? (
+                  <Loader2 className="animate-spin" data-icon="inline-start" />
+                ) : (
+                  <Trash2 data-icon="inline-start" />
+                )}
+                End session
               </Button>
               <Button
                 disabled={!canStart}
