@@ -62,9 +62,12 @@ function createHarness() {
     }
   };
 
-  // The initial roster settle window is measured from creation; most tests
-  // want steady-state behavior, so fast-forward past it.
-  const settle = () => advance(6_000);
+  // Most tests want steady mid-session behavior: the local player has started
+  // and the starting-cohort window (measured from creation) has passed.
+  const settle = () => {
+    notifier.noteLocalStarted();
+    advance(6_000);
+  };
 
   const remoteWatching = () => {
     notifier.handleParticipant({
@@ -138,6 +141,47 @@ describe("createWatchTogetherSessionToasts", () => {
     expect(shown).toEqual([]);
   });
 
+  test("a starting-cohort member's slow load never toasts a join", () => {
+    const { notifier, shown, advance, settle } = createHarness();
+    // Present in the room while we're connecting (their player still loading).
+    notifier.handleParticipant({
+      user: REMOTE_USER,
+      isPresent: true,
+      isReady: false,
+    });
+    settle();
+    // The lobby->player socket handoff blips their presence before they're
+    // ever ready; that must not turn their eventual ready-up into a "join".
+    notifier.handleParticipant({ user: REMOTE_USER, isPresent: false });
+    notifier.handleParticipant({ user: REMOTE_USER, isPresent: true });
+    // Their transcode takes 40s; becoming ready is the session starting.
+    advance(40_000);
+    notifier.handleParticipant({ user: REMOTE_USER, isReady: true });
+    expect(shown).toEqual([]);
+  });
+
+  test("playstate edges before the local player starts are silent spin-up", () => {
+    const { notifier, shown, advance, remoteWatching } = createHarness();
+    remoteWatching();
+    advance(20_000); // well past any settle window, but we never started
+    notifier.handleRemoteAction({
+      type: "resume",
+      user: REMOTE_USER,
+      positionSeconds: 0,
+    });
+    expect(shown).toEqual([]);
+
+    notifier.noteLocalStarted();
+    advance(3_000);
+    notifier.handleRemoteAction({
+      type: "pause",
+      user: REMOTE_USER,
+      positionSeconds: 10,
+    });
+    advance(2_000);
+    expect(shown).toEqual(["multiplextest paused playback"]);
+  });
+
   test("roster at connect is silent; later joins and rejoins toast", () => {
     const { notifier, shown, advance, settle } = createHarness();
     // Reported during the initial settle window -> existing roster.
@@ -164,6 +208,22 @@ describe("createWatchTogetherSessionToasts", () => {
       "multiplextest left the session",
       "multiplextest joined the session",
     ]);
+  });
+
+  test("a genuine late joiner toasts once they start watching", () => {
+    const { notifier, shown, advance, settle } = createHarness();
+    settle();
+    advance(60_000);
+    // First seen long after connect: a real newcomer, not starting roster.
+    notifier.handleParticipant({
+      user: REMOTE_USER,
+      isPresent: true,
+      isReady: false,
+    });
+    expect(shown).toEqual([]); // in the lobby, not watching yet
+    advance(20_000);
+    notifier.handleParticipant({ user: REMOTE_USER, isReady: true });
+    expect(shown).toEqual(["multiplextest joined the session"]);
   });
 
   test("local user's own events never toast", () => {

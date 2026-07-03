@@ -13,9 +13,11 @@ import {
   PlexUserAvatar,
 } from "~/components/watch-together/plex-user-avatar";
 
-// Participants reported right after we connect are the room's existing roster
-// (delivered via the initial List), not fresh joins.
-const INITIAL_ROSTER_SETTLE_MS = 5000;
+// Participants reported right after we connect (via the initial List) are the
+// session's starting cohort, not fresh joins — their later ready-up is just
+// their player finishing its (possibly slow) transcode load, so it must not
+// toast no matter how long it takes.
+const STARTING_COHORT_WINDOW_MS = 5000;
 // Safety net against pathological repeats (the client only reports edges, so
 // genuine actions are never this close together).
 const ACTION_DEDUPE_MS = 2000;
@@ -32,6 +34,10 @@ interface ParticipantEntry {
   // Stays true through ready flaps (buffering after a seek) so only a real
   // connection loss toasts a leave, and only a genuine (re)join toasts a join.
   announcedWatching: boolean;
+  // Part of the session's starting cohort (seen while we were connecting).
+  // Their first ready-up is the session starting, not a join. Cleared once
+  // they genuinely leave, so a later rejoin toasts.
+  isStartingCohort: boolean;
 }
 
 interface PendingPause {
@@ -41,6 +47,12 @@ interface PendingPause {
 export interface WatchTogetherSessionToasts {
   handleParticipant: (participant: SyncplayParticipantState) => void;
   handleRemoteAction: (action: SyncplayRemoteAction) => void;
+  /**
+   * Report that the local player has become ready to play. Until then, remote
+   * playstate edges are the session spinning up (the first loader claiming
+   * play against the lobby's paused baseline), not deliberate actions.
+   */
+  noteLocalStarted: () => void;
   dispose: () => void;
 }
 
@@ -126,6 +138,7 @@ export function createWatchTogetherSessionToasts(
   const participants = new Map<string, ParticipantEntry>();
   const pendingPauses = new Map<string, PendingPause>();
   const lastActionAt = new Map<string, number>();
+  let localStarted = false;
   let disposed = false;
 
   const emit = (user: SyncplayUser | null, text: string): void => {
@@ -158,6 +171,7 @@ export function createWatchTogetherSessionToasts(
       isPresent: false,
       isReady: false,
       announcedWatching: false,
+      isStartingCohort: now() - startedAt < STARTING_COHORT_WINDOW_MS,
     };
     const wasPresent = entry.isPresent;
 
@@ -176,18 +190,22 @@ export function createWatchTogetherSessionToasts(
 
     if (isWatching(entry) && !entry.announcedWatching) {
       entry.announcedWatching = true;
-      // Watchers reported while we're connecting are the room's existing
-      // state, not a fresh join.
-      if (now() - startedAt >= INITIAL_ROSTER_SETTLE_MS) {
+      // The starting cohort becoming ready is the session starting (their
+      // player finished loading), not a fresh join.
+      if (!entry.isStartingCohort) {
         emit(participant.user, "joined the session");
       }
       return;
     }
 
     // Only a real connection loss is a leave; a ready flap while connected is
-    // buffering and stays silent.
+    // buffering and stays silent. (The lobby<->player socket handoff is a
+    // presence blip too, but it happens before anyone is announced, so it
+    // can't toast — and it must not clear the cohort flag, hence the
+    // announced guard.)
     if (!entry.isPresent && wasPresent && entry.announcedWatching) {
       entry.announcedWatching = false;
+      entry.isStartingCohort = false;
       // Their goodbye pause is part of the leave, not a deliberate pause.
       cancelPendingPause(key);
       emit(participant.user, "left the session");
@@ -195,7 +213,10 @@ export function createWatchTogetherSessionToasts(
   };
 
   const handleRemoteAction = (action: SyncplayRemoteAction): void => {
-    if (disposed) {
+    // Until our own player has started, playstate edges are session spin-up
+    // (the first loader claims play against the lobby's paused baseline), not
+    // deliberate actions.
+    if (disposed || !localStarted) {
       return;
     }
 
@@ -244,6 +265,10 @@ export function createWatchTogetherSessionToasts(
     });
   };
 
+  const noteLocalStarted = (): void => {
+    localStarted = true;
+  };
+
   const dispose = (): void => {
     disposed = true;
     for (const pending of pendingPauses.values()) {
@@ -252,5 +277,5 @@ export function createWatchTogetherSessionToasts(
     pendingPauses.clear();
   };
 
-  return { handleParticipant, handleRemoteAction, dispose };
+  return { handleParticipant, handleRemoteAction, noteLocalStarted, dispose };
 }
