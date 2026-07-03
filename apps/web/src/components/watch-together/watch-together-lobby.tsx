@@ -247,7 +247,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
   const deleteRoom = api.plex.deleteWatchTogetherRoom.useMutation({
     onSuccess: async () => {
       await utils.plex.getWatchTogetherRooms.invalidate();
-      toast("Watch Together session ended");
+      toast.success("Watch Together session ended");
       clearSession();
       router.push("/");
     },

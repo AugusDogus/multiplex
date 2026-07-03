@@ -3,11 +3,15 @@ import type {
   SyncplayRemoteAction,
   SyncplayUser,
   WatchTogetherRoom,
+  WatchTogetherUser,
 } from "@multiplex/plex-query";
 import { toast } from "sonner";
 
 import { formatTime } from "~/components/media-player/utils/playback-time-utils";
-import { getPlexUserName } from "~/components/watch-together/plex-user-avatar";
+import {
+  getPlexUserName,
+  PlexUserAvatar,
+} from "~/components/watch-together/plex-user-avatar";
 
 // Participants reported right after we connect are the room's existing roster
 // (delivered via the initial List), not fresh joins.
@@ -36,6 +40,28 @@ export interface WatchTogetherSessionToasts {
   dispose: () => void;
 }
 
+function SessionToast({
+  user,
+  name,
+  text,
+}: {
+  user: WatchTogetherUser | undefined;
+  name: string;
+  text: string;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <PlexUserAvatar
+        user={user ?? { title: name }}
+        className="size-7 shrink-0"
+      />
+      <span>
+        <span className="font-medium">{name}</span> {text}
+      </span>
+    </div>
+  );
+}
+
 /**
  * Turns Syncplay session events into toasts: who paused/resumed/seeked, and who
  * joined or left the session. "In the session" means actively watching
@@ -49,8 +75,8 @@ export function createWatchTogetherSessionToasts(options: {
   room: Pick<WatchTogetherRoom, "users">;
   localUser: SyncplayUser;
 }): WatchTogetherSessionToasts {
-  const nameByUserId = new Map(
-    options.room.users.map((user) => [user.id, getPlexUserName(user)]),
+  const roomUserById = new Map(
+    options.room.users.map((user) => [user.id, user]),
   );
   const startedAt = Date.now();
   const participants = new Map<string, ParticipantEntry>();
@@ -58,11 +84,10 @@ export function createWatchTogetherSessionToasts(options: {
   const lastActionAt = new Map<string, number>();
   let disposed = false;
 
-  const nameFor = (user: SyncplayUser | null): string => {
-    if (!user) {
-      return "Someone";
-    }
-    return nameByUserId.get(user.id) ?? "Someone";
+  const showToast = (user: SyncplayUser | null, text: string): void => {
+    const roomUser = user ? roomUserById.get(user.id) : undefined;
+    const name = roomUser ? getPlexUserName(roomUser) : "Someone";
+    toast(<SessionToast user={roomUser} name={name} text={text} />);
   };
 
   const isWatching = (entry: ParticipantEntry | undefined): boolean =>
@@ -120,13 +145,12 @@ export function createWatchTogetherSessionToasts(options: {
       return;
     }
 
-    const name = nameFor(participant.user);
     if (nowWatching) {
-      toast(`${name} joined the session`);
+      showToast(participant.user, "joined the session");
     } else {
       // Their goodbye pause is part of the leave, not a deliberate pause.
       cancelPendingPause(key);
-      toast(`${name} left the session`);
+      showToast(participant.user, "left the session");
     }
   };
 
@@ -135,20 +159,19 @@ export function createWatchTogetherSessionToasts(options: {
       return;
     }
 
-    const name = nameFor(action.user);
-    let message: string;
+    let text: string;
     let dedupeKey: string;
     switch (action.type) {
       case "pause":
-        message = `${name} paused playback`;
+        text = "paused playback";
         dedupeKey = `pause:${action.user?.id ?? "?"}`;
         break;
       case "resume":
-        message = `${name} resumed playback`;
+        text = "resumed playback";
         dedupeKey = `resume:${action.user?.id ?? "?"}`;
         break;
       case "seek":
-        message = `${name} jumped to ${formatTime(action.positionSeconds)}`;
+        text = `jumped to ${formatTime(action.positionSeconds)}`;
         // Position is part of the key so two distinct quick seeks both toast,
         // while a re-applied identical seek doesn't.
         dedupeKey = `seek:${action.user?.id ?? "?"}:${Math.round(action.positionSeconds)}`;
@@ -167,20 +190,21 @@ export function createWatchTogetherSessionToasts(options: {
     lastActionAt.set(dedupeKey, now);
 
     if (action.type !== "pause" || !action.user) {
-      toast(message);
+      showToast(action.user, text);
       return;
     }
 
     // Hold pause toasts briefly: if the author leaves within the window (they
     // closed their player, which broadcasts this pause), the leave toast
     // supersedes it.
-    const key = action.user.deviceIdentifier;
+    const user = action.user;
+    const key = user.deviceIdentifier;
     cancelPendingPause(key);
     pendingPauses.set(key, {
       timer: setTimeout(() => {
         pendingPauses.delete(key);
         if (!disposed && isWatching(participants.get(key))) {
-          toast(message);
+          showToast(user, text);
         }
       }, PAUSE_LEAVE_HOLD_MS),
     });

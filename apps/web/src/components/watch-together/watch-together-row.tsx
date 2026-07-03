@@ -66,7 +66,7 @@ function WatchTogetherRoomCard({ room }: { room: WatchTogetherRoom }) {
   const deleteRoom = api.plex.deleteWatchTogetherRoom.useMutation({
     onSuccess: async () => {
       await utils.plex.getWatchTogetherRooms.invalidate();
-      toast("Watch Together session removed");
+      toast.success("Watch Together session removed");
     },
     onError: () => {
       toast.error("Couldn't remove the Watch Together session");
