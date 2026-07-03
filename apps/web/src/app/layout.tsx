@@ -38,7 +38,9 @@ export default function RootLayout({
               <TooltipProvider>
                 {children}
                 <MediaPlayerModal />
-                <Toaster />
+                {/* Top-center keeps toasts clear of the media player chrome
+                    (title top-left, close top-right, controls bottom). */}
+                <Toaster position="top-center" />
               </TooltipProvider>
             </ThemeProvider>
           </TRPCReactProvider>
