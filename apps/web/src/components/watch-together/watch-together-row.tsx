@@ -141,9 +141,12 @@ function WatchTogetherRoomCard({ room }: { room: WatchTogetherRoom }) {
       <div
         className={cn(
           "absolute top-2 right-2 transition-opacity duration-200 ease-out",
+          // When hidden on desktop, also drop pointer events — otherwise the
+          // invisible trigger overlays the poster's corner and swallows clicks
+          // meant for the card's navigation link (a dead spot).
           isMenuOpen || deleteRoom.isPending
             ? "opacity-100"
-            : "md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100",
+            : "md:pointer-events-none md:opacity-0 md:group-focus-within:pointer-events-auto md:group-focus-within:opacity-100 md:group-hover:pointer-events-auto md:group-hover:opacity-100",
         )}
       >
         <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
