@@ -62,6 +62,21 @@ describe("getLobbyHint", () => {
     ).toBe("Getting the stream ready…");
   });
 
+  test("never tells the user to press Start while it is disabled (media not ready)", () => {
+    // Suppressed + everyone present + someone watching, but canStart is false:
+    // the Start button is disabled, so the hint must not say "press Start".
+    const hint = getLobbyHint({
+      ...base,
+      everyonePresent: true,
+      everyonePresentNow: true,
+      autoStartSuppressed: true,
+      someoneElseWatching: true,
+      canStart: false,
+    });
+    expect(hint).toBe("Getting the stream ready…");
+    expect(hint).not.toContain("Start");
+  });
+
   test("waits for missing invitees", () => {
     expect(getLobbyHint(base)).toBe("Waiting for everyone to join…");
   });

@@ -203,6 +203,23 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     return () => clearTimeout(timer);
   }, [allInvitedPresentNow]);
 
+  const utils = api.useUtils();
+  const deleteRoom = api.plex.deleteWatchTogetherRoom.useMutation({
+    onSuccess: async () => {
+      await utils.plex.getWatchTogetherRooms.invalidate();
+      toast.success("Watch Together session ended");
+      clearSession();
+      router.push("/");
+    },
+    onError: () => {
+      toast.error("Couldn't end the Watch Together session");
+    },
+  });
+  // Ending the session must win over starting it: don't auto-start (or let the
+  // Start button fire) once a delete is in flight, or the pending auto-start
+  // timer would open the player just as the room is being torn down.
+  const endingSession = deleteRoom.isPending;
+
   // Auto-start like the official Plex app: once everyone has (stably) joined,
   // open the player automatically. Fires once per "gathering" — re-armed only
   // when everyone genuinely scatters (debounced above), so it neither loops
@@ -224,6 +241,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
       !canStart ||
       session ||
       autoStartSuppressed ||
+      endingSession ||
       hasAutoStartedRef.current
     ) {
       return;
@@ -240,23 +258,11 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     allInvitedPresent,
     allInvitedPresentNow,
     autoStartSuppressed,
+    endingSession,
     canStart,
     session,
     startPlayback,
   ]);
-
-  const utils = api.useUtils();
-  const deleteRoom = api.plex.deleteWatchTogetherRoom.useMutation({
-    onSuccess: async () => {
-      await utils.plex.getWatchTogetherRooms.invalidate();
-      toast.success("Watch Together session ended");
-      clearSession();
-      router.push("/");
-    },
-    onError: () => {
-      toast.error("Couldn't end the Watch Together session");
-    },
-  });
 
   const leaveLobby = () => {
     clearSession();
@@ -367,25 +373,31 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
               </p>
             )}
             <div className="flex flex-wrap gap-2 pt-1">
-              <Button
-                variant="outline"
-                onClick={() => setInviteOpen(true)}
-                aria-label="Invite friends to this session"
-              >
-                <UserPlus data-icon="inline-start" />
-                Invite
-              </Button>
+              {/* Plex only lets you invite from the pre-playback lobby; once
+                  someone is watching there's nothing to invite into, so hide
+                  it and let the user join instead. */}
+              {!someoneElseWatching && (
+                <Button
+                  variant="outline"
+                  disabled={endingSession}
+                  onClick={() => setInviteOpen(true)}
+                  aria-label="Invite friends to this session"
+                >
+                  <UserPlus data-icon="inline-start" />
+                  Invite
+                </Button>
+              )}
               <Button variant="outline" onClick={leaveLobby}>
                 Leave
               </Button>
               <Button
                 variant="outline"
                 className="text-destructive hover:text-destructive"
-                disabled={deleteRoom.isPending}
-                aria-busy={deleteRoom.isPending || undefined}
+                disabled={endingSession}
+                aria-busy={endingSession || undefined}
                 onClick={endSession}
               >
-                {deleteRoom.isPending ? (
+                {endingSession ? (
                   <Loader2 className="animate-spin" data-icon="inline-start" />
                 ) : (
                   <Trash2 data-icon="inline-start" />
@@ -393,7 +405,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
                 End session
               </Button>
               <Button
-                disabled={!canStart}
+                disabled={!canStart || endingSession}
                 aria-busy={media.isPending || undefined}
                 onClick={startPlayback}
               >
@@ -496,6 +508,13 @@ export function getLobbyHint(input: LobbyHintInput): string {
 
   if (willAutoStart) {
     return "Everyone's here — starting playback…";
+  }
+  // Below here we'd point the user at Start — but it's disabled until the media
+  // resolves, so don't tell them to press an unavailable button.
+  if (!input.canStart) {
+    return input.everyonePresent
+      ? "Getting the stream ready…"
+      : "Waiting for everyone to join…";
   }
   if (input.someoneElseWatching) {
     return "Someone already started watching — press Start to join.";
