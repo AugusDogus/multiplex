@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "~/components/ui/button";
 import {
@@ -14,41 +14,43 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { WatchTogetherInviteePicker } from "~/components/watch-together/watch-together-invitee-picker";
-import { getWatchTogetherRoomHref } from "~/lib/watch-together-source";
 import { api } from "~/trpc/react";
 
-import type { ItemDetails, PlayTarget } from "./types";
-
-interface WatchTogetherInviteDialogProps {
-  item: ItemDetails["item"];
-  playTarget: PlayTarget;
-  serverId: string;
+interface WatchTogetherLobbyInviteDialogProps {
+  roomId: string;
+  /** Users already in the room, hidden from the picker. */
+  existingUserIds: number[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onFeedback: (message: string) => void;
 }
 
-export function WatchTogetherInviteDialog({
-  item,
-  playTarget,
-  serverId,
+/**
+ * Invite more friends into an existing Watch Together room from the lobby —
+ * the same capability the official Plex lobby's "+ Invite…" offers, which is
+ * what gives a lobby (even a solo one) a purpose.
+ */
+export function WatchTogetherLobbyInviteDialog({
+  roomId,
+  existingUserIds,
   open,
   onOpenChange,
-  onFeedback,
-}: WatchTogetherInviteDialogProps) {
-  const router = useRouter();
+}: WatchTogetherLobbyInviteDialogProps) {
   const [selectedUsers, setSelectedUsers] = useState<number[]>([]);
-  const createRoomMutation = api.plex.createWatchTogetherRoom.useMutation({
-    onError: (error) => onFeedback(error.message),
-    onSuccess: (room) => {
+  const utils = api.useUtils();
+  const inviteUsers = api.plex.inviteWatchTogetherUsers.useMutation({
+    onSuccess: async (_data, variables) => {
+      await utils.plex.getWatchTogetherRoom.invalidate({ roomId });
+      toast.success(
+        variables.users.length === 1
+          ? "Invited 1 friend"
+          : `Invited ${variables.users.length} friends`,
+      );
       handleOpenChange(false);
-      onFeedback("Watch Together room created");
-      router.push(getWatchTogetherRoomHref(room.id));
+    },
+    onError: () => {
+      toast.error("Couldn't send the invite");
     },
   });
-
-  const playable = playTarget ?? item;
-  const canInvite = Boolean(playTarget && !createRoomMutation.isPending);
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
@@ -57,27 +59,20 @@ export function WatchTogetherInviteDialog({
     onOpenChange(nextOpen);
   };
 
-  const createRoom = () => {
-    if (!playTarget || createRoomMutation.isPending) {
+  const sendInvite = () => {
+    if (selectedUsers.length === 0 || inviteUsers.isPending) {
       return;
     }
-
-    createRoomMutation.mutate({
-      serverId,
-      ratingKey: playable.ratingKey,
-      key: playable.key,
-      title: playable.title,
-      users: selectedUsers,
-    });
+    inviteUsers.mutate({ roomId, users: selectedUsers });
   };
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Watch Together</DialogTitle>
-          <DialogDescription className="line-clamp-2">
-            Invite friends, then start a synchronized session for {item.title}.
+          <DialogTitle>Invite friends</DialogTitle>
+          <DialogDescription>
+            Add more people to this Watch Together session.
           </DialogDescription>
         </DialogHeader>
 
@@ -85,31 +80,32 @@ export function WatchTogetherInviteDialog({
           enabled={open}
           selectedUserIds={selectedUsers}
           onSelectedUserIdsChange={setSelectedUsers}
-          disabled={createRoomMutation.isPending}
-          emptyHint="No Plex friends found. You can still create a room for yourself."
+          excludeUserIds={existingUserIds}
+          disabled={inviteUsers.isPending}
+          emptyHint="Everyone you can invite is already in this session."
         />
 
         <DialogFooter>
           <Button
             type="button"
             variant="outline"
-            disabled={createRoomMutation.isPending}
+            disabled={inviteUsers.isPending}
             onClick={() => handleOpenChange(false)}
           >
             Cancel
           </Button>
           <Button
             type="button"
-            disabled={!canInvite}
-            onClick={createRoom}
+            disabled={selectedUsers.length === 0 || inviteUsers.isPending}
+            onClick={sendInvite}
             className="min-w-32"
           >
-            {createRoomMutation.isPending && (
+            {inviteUsers.isPending && (
               <Loader2 className="animate-spin" data-icon="inline-start" />
             )}
             {selectedUsers.length > 0
               ? `Invite ${selectedUsers.length}`
-              : "Create room"}
+              : "Invite"}
           </Button>
         </DialogFooter>
       </DialogContent>

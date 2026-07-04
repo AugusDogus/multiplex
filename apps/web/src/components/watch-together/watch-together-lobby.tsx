@@ -11,7 +11,7 @@ import {
   type SyncplayParticipantState,
   type SyncplayUser,
 } from "@multiplex/plex-query";
-import { Loader2, Play, Trash2, Users } from "lucide-react";
+import { Loader2, Play, Trash2, UserPlus, Users } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "~/components/ui/badge";
@@ -21,6 +21,7 @@ import {
   PlexUserAvatar,
 } from "~/components/watch-together/plex-user-avatar";
 import { useWatchTogetherLobbyPresence } from "~/components/watch-together/use-watch-together-lobby-presence";
+import { WatchTogetherLobbyInviteDialog } from "~/components/watch-together/watch-together-lobby-invite-dialog";
 import { useWatchTogetherRoomMedia } from "~/components/watch-together/use-watch-together-room-media";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { getPlexClientIdentifier } from "~/lib/device-identifier";
@@ -57,6 +58,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
   // The user deliberately left this room's playback (closed the player), so
   // don't auto-start them straight back in; they can still press Start.
   const autoStartSuppressed = autoStartSuppressedRoomId === roomId;
+  const [inviteOpen, setInviteOpen] = useState(false);
   const roomQuery = api.plex.getWatchTogetherRoom.useQuery(
     { roomId },
     {
@@ -365,6 +367,14 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
               </p>
             )}
             <div className="flex flex-wrap gap-2 pt-1">
+              <Button
+                variant="outline"
+                onClick={() => setInviteOpen(true)}
+                aria-label="Invite friends to this session"
+              >
+                <UserPlus data-icon="inline-start" />
+                Invite
+              </Button>
               <Button variant="outline" onClick={leaveLobby}>
                 Leave
               </Button>
@@ -446,6 +456,13 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
           })}
         </div>
       </div>
+
+      <WatchTogetherLobbyInviteDialog
+        roomId={roomId}
+        existingUserIds={room.users.map((user) => user.id)}
+        open={inviteOpen}
+        onOpenChange={setInviteOpen}
+      />
     </section>
   );
 }
