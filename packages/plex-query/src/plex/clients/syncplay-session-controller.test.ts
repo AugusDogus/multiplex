@@ -454,21 +454,4 @@ describe("SyncplaySessionController", () => {
       playstate: { doSeek: true, paused: false, position: 5000 },
     });
   });
-
-  test("pauseRoom broadcasts a claimed pause at the player's position", () => {
-    const sockets: FakeWebSocket[] = [];
-    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
-    const state = makeState({ isPlaying: true, currentTime: 42 });
-    const controller = createController({ sockets, state, calls });
-    controller.connect();
-    sockets[0]?.open();
-    sockets[0]?.sent.splice(0);
-
-    controller.pauseRoom();
-
-    expect(lastState(sockets[0])).toMatchObject({
-      playstate: { paused: true, position: 42, setBy: encodeSyncplayUser(LOCAL_USER) },
-      ignoringOnTheFly: { client: 1, server: 0 },
-    });
-  });
 });

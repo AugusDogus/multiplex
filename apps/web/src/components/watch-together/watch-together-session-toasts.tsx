@@ -18,11 +18,6 @@ import {
 // their player finishing its (possibly slow) transcode load, so it must not
 // toast no matter how long it takes.
 const STARTING_COHORT_WINDOW_MS = 5000;
-// A viewer who closes their player broadcasts a claimed pause right before
-// disconnecting, so the pause and the leave arrive as a pair. Hold pause
-// toasts briefly and drop them when the author leaves, so the pair reads as a
-// single "left the session" (their leave is what paused the room).
-const PAUSE_LEAVE_HOLD_MS = 1500;
 
 interface ParticipantEntry {
   isPresent: boolean;
@@ -35,10 +30,6 @@ interface ParticipantEntry {
   // Their first ready-up is the session starting, not a join. Cleared once
   // they genuinely leave, so a later rejoin toasts.
   isStartingCohort: boolean;
-}
-
-interface PendingPause {
-  timer: ReturnType<typeof setTimeout>;
 }
 
 export interface WatchTogetherSessionToasts {
@@ -56,18 +47,13 @@ export interface WatchTogetherSessionToasts {
 export interface WatchTogetherSessionToastsOptions {
   room: Pick<WatchTogetherRoom, "users">;
   localUser: SyncplayUser;
-  /** Test seams; production uses sonner and real timers. */
+  /** Test seams; production uses sonner and the real clock. */
   showToast?: (
     user: WatchTogetherUser | undefined,
     name: string,
     text: string,
   ) => void;
   now?: () => number;
-  setTimeout?: (
-    callback: () => void,
-    ms: number,
-  ) => ReturnType<typeof setTimeout>;
-  clearTimeout?: (timeout: ReturnType<typeof setTimeout>) => void;
 }
 
 function SessionToast({
@@ -113,27 +99,20 @@ function showSessionToast(
  * buffering (e.g. every transcoded seek reloads the stream) and stay silent.
  *
  * One notifier lives per Syncplay session connection; dispose it when the
- * session ends so pending toasts don't fire after the viewer has moved on.
+ * session ends so events from a dying connection can't toast after the viewer
+ * has moved on.
  */
 export function createWatchTogetherSessionToasts(
   options: WatchTogetherSessionToastsOptions,
 ): WatchTogetherSessionToasts {
   const showToast = options.showToast ?? showSessionToast;
   const now = options.now ?? Date.now;
-  const setTimer =
-    options.setTimeout ??
-    ((callback: () => void, ms: number) => globalThis.setTimeout(callback, ms));
-  const clearTimer =
-    options.clearTimeout ??
-    ((timeout: ReturnType<typeof setTimeout>) =>
-      globalThis.clearTimeout(timeout));
 
   const roomUserById = new Map(
     options.room.users.map((user) => [user.id, user]),
   );
   const startedAt = now();
   const participants = new Map<string, ParticipantEntry>();
-  const pendingPauses = new Map<string, PendingPause>();
   let localStarted = false;
   let disposed = false;
 
@@ -145,14 +124,6 @@ export function createWatchTogetherSessionToasts(
 
   const isWatching = (entry: ParticipantEntry | undefined): boolean =>
     Boolean(entry?.isPresent && entry.isReady);
-
-  const cancelPendingPause = (deviceIdentifier: string): void => {
-    const pending = pendingPauses.get(deviceIdentifier);
-    if (pending) {
-      clearTimer(pending.timer);
-      pendingPauses.delete(deviceIdentifier);
-    }
-  };
 
   const handleParticipant = (participant: SyncplayParticipantState): void => {
     if (
@@ -202,8 +173,6 @@ export function createWatchTogetherSessionToasts(
     if (!entry.isPresent && wasPresent && entry.announcedWatching) {
       entry.announcedWatching = false;
       entry.isStartingCohort = false;
-      // Their goodbye pause is part of the leave, not a deliberate pause.
-      cancelPendingPause(key);
       emit(participant.user, "left the session");
     }
   };
@@ -216,42 +185,21 @@ export function createWatchTogetherSessionToasts(
       return;
     }
 
-    let text: string;
     switch (action.type) {
       case "pause":
-        text = "paused playback";
-        break;
+        emit(action.user, "paused playback");
+        return;
       case "resume":
-        text = "resumed playback";
-        break;
+        emit(action.user, "resumed playback");
+        return;
       case "seek":
-        text = `jumped to ${formatTime(action.positionSeconds)}`;
-        break;
+        emit(action.user, `jumped to ${formatTime(action.positionSeconds)}`);
+        return;
       default: {
         const exhaustive: never = action.type;
         return exhaustive;
       }
     }
-
-    if (action.type !== "pause" || !action.user) {
-      emit(action.user, text);
-      return;
-    }
-
-    // Hold pause toasts briefly: if the author leaves within the window (they
-    // closed their player, which broadcasts this pause), the leave toast
-    // supersedes it.
-    const user = action.user;
-    const key = user.deviceIdentifier;
-    cancelPendingPause(key);
-    pendingPauses.set(key, {
-      timer: setTimer(() => {
-        pendingPauses.delete(key);
-        if (!disposed && isWatching(participants.get(key))) {
-          emit(user, text);
-        }
-      }, PAUSE_LEAVE_HOLD_MS),
-    });
   };
 
   const noteLocalStarted = (): void => {
@@ -260,10 +208,6 @@ export function createWatchTogetherSessionToasts(
 
   const dispose = (): void => {
     disposed = true;
-    for (const pending of pendingPauses.values()) {
-      clearTimer(pending.timer);
-    }
-    pendingPauses.clear();
   };
 
   return { handleParticipant, handleRemoteAction, noteLocalStarted, dispose };

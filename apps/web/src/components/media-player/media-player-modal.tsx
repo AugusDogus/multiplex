@@ -172,7 +172,6 @@ export function MediaPlayerModal() {
   const {
     onLocalPlaybackChange: onSyncplayLocalPlaybackChange,
     onLocalSeeked: onSyncplayLocalSeeked,
-    onLeaveSession: onSyncplayLeaveSession,
     isActive: isSyncplayActive,
   } = useSyncplaySession({ actions });
   const { autoPlayState } = useAutoPlayNextEpisode({
@@ -250,17 +249,12 @@ export function MediaPlayerModal() {
   }, [streamSessionId, streamServerUrl, streamAuthToken]);
 
   const handleClose = useCallback(() => {
-    // Leaving a Watch Together session pauses the room for everyone else
-    // (matching the official Plex client) — must happen before the session is
-    // cleared, while the Syncplay socket is still open.
-    onSyncplayLeaveSession();
     onStop();
     clearSession();
     clearWatchTogetherSession();
     clearAllTimeouts();
     closePlayer();
   }, [
-    onSyncplayLeaveSession,
     onStop,
     clearSession,
     clearWatchTogetherSession,

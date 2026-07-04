@@ -20,16 +20,9 @@ const ROOM_USERS: WatchTogetherUser[] = [
   { id: 2, title: "multiplextest", username: "multiplextest", thumb: null },
 ];
 
-interface PendingTimer {
-  callback: () => void;
-  runAt: number;
-  cleared: boolean;
-}
-
-/** Deterministic clock + timer harness around the notifier's test seams. */
+/** Deterministic clock harness around the notifier's test seams. */
 function createHarness() {
   let currentTime = 100_000;
-  const timers: PendingTimer[] = [];
   const shown: string[] = [];
 
   const notifier = createWatchTogetherSessionToasts({
@@ -37,29 +30,10 @@ function createHarness() {
     localUser: LOCAL_USER,
     showToast: (_user, name, text) => shown.push(`${name} ${text}`),
     now: () => currentTime,
-    setTimeout: (callback, ms) => {
-      const timer: PendingTimer = {
-        callback,
-        runAt: currentTime + ms,
-        cleared: false,
-      };
-      timers.push(timer);
-      return timer as unknown as ReturnType<typeof setTimeout>;
-    },
-    clearTimeout: (timeout) => {
-      (timeout as unknown as PendingTimer).cleared = true;
-    },
   });
 
   const advance = (ms: number) => {
     currentTime += ms;
-    for (const timer of timers.splice(0)) {
-      if (!timer.cleared && timer.runAt <= currentTime) {
-        timer.callback();
-      } else if (!timer.cleared) {
-        timers.push(timer);
-      }
-    }
   };
 
   // Most tests want steady mid-session behavior: the local player has started
@@ -81,9 +55,8 @@ function createHarness() {
 }
 
 describe("createWatchTogetherSessionToasts", () => {
-  test("a remote pause toasts after the hold window; resume and seek are instant", () => {
-    const { notifier, shown, advance, settle, remoteWatching } =
-      createHarness();
+  test("remote pause/resume/seek toast immediately", () => {
+    const { notifier, shown, settle, remoteWatching } = createHarness();
     remoteWatching();
     settle();
 
@@ -92,14 +65,11 @@ describe("createWatchTogetherSessionToasts", () => {
       user: REMOTE_USER,
       positionSeconds: 30,
     });
-    expect(shown).toEqual([]); // held, not instant
-    advance(2_000);
     notifier.handleRemoteAction({
       type: "resume",
       user: REMOTE_USER,
       positionSeconds: 30,
     });
-    advance(3_000);
     notifier.handleRemoteAction({
       type: "seek",
       user: REMOTE_USER,
@@ -110,22 +80,6 @@ describe("createWatchTogetherSessionToasts", () => {
       "multiplextest resumed playback",
       "multiplextest jumped to 1:30",
     ]);
-  });
-
-  test("a pause followed by the author leaving reads as a single leave", () => {
-    const { notifier, shown, advance, settle, remoteWatching } =
-      createHarness();
-    remoteWatching();
-    settle();
-
-    notifier.handleRemoteAction({
-      type: "pause",
-      user: REMOTE_USER,
-      positionSeconds: 30,
-    });
-    notifier.handleParticipant({ user: REMOTE_USER, isPresent: false });
-    advance(2_000);
-    expect(shown).toEqual(["multiplextest left the session"]);
   });
 
   test("ready flaps while connected (buffering after a seek) never toast leave/join", () => {
@@ -172,19 +126,17 @@ describe("createWatchTogetherSessionToasts", () => {
     expect(shown).toEqual([]);
 
     notifier.noteLocalStarted();
-    advance(3_000);
     notifier.handleRemoteAction({
       type: "pause",
       user: REMOTE_USER,
       positionSeconds: 10,
     });
-    advance(2_000);
     expect(shown).toEqual(["multiplextest paused playback"]);
   });
 
   test("roster at connect is silent; later joins and rejoins toast", () => {
     const { notifier, shown, advance, settle } = createHarness();
-    // Reported during the initial settle window -> existing roster.
+    // Reported during the starting-cohort window -> existing roster.
     notifier.handleParticipant({
       user: REMOTE_USER,
       isPresent: true,
@@ -239,18 +191,17 @@ describe("createWatchTogetherSessionToasts", () => {
     expect(shown).toEqual([]);
   });
 
-  test("dispose cancels held pause toasts", () => {
-    const { notifier, shown, advance, settle, remoteWatching } =
-      createHarness();
+  test("nothing toasts after dispose", () => {
+    const { notifier, shown, settle, remoteWatching } = createHarness();
     remoteWatching();
     settle();
+    notifier.dispose();
     notifier.handleRemoteAction({
       type: "pause",
       user: REMOTE_USER,
       positionSeconds: 30,
     });
-    notifier.dispose();
-    advance(5_000);
+    notifier.handleParticipant({ user: REMOTE_USER, isPresent: false });
     expect(shown).toEqual([]);
   });
 });

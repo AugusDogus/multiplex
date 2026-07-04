@@ -170,16 +170,6 @@ export class SyncplaySessionController {
     this.client?.markLocalPlayPause();
   }
 
-  /**
-   * Broadcast a paused playstate claimed by the local user, so the rest of the
-   * room pauses. Call before {@link disconnect} when the viewer is leaving the
-   * session (e.g. closing the player), mirroring the official Plex client.
-   */
-  pauseRoom(): void {
-    const playerState = this.options.player.getState();
-    this.client?.sendClaimedPause(playerState.currentTime);
-  }
-
   handleLocalSeeked(time: number): void {
     // Only suppress a seek to ~the position we asked for, so a genuine user seek
     // within the window still claims the change.

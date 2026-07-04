@@ -271,19 +271,6 @@ export class SyncplayClient {
     this.pendingSeek = true;
   }
 
-  /**
-   * Proactively broadcast a paused playstate claimed by the local user, without
-   * waiting for the next server `State` ping. Used when a viewer leaves the
-   * session (closes their player) so the room pauses for everyone else — the
-   * socket is usually torn down right after, so there is no later reply that
-   * could claim the pause.
-   */
-  sendClaimedPause(positionSeconds: number): void {
-    this.pendingPlayPause = false;
-    this.ignoringClient += 1;
-    this.sendState({ isPaused: true, positionSeconds, shouldSeek: false });
-  }
-
   setFile(): void {
     this.send({
       Set: {

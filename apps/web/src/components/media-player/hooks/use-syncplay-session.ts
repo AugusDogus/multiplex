@@ -111,16 +111,9 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
     bindingRef.current?.handleLocalSeeked(time);
   }, []);
 
-  // Pause the room for everyone else right before the local viewer leaves —
-  // must run before the binding is disposed, while the socket is still open.
-  const onLeaveSession = useCallback(() => {
-    bindingRef.current?.pauseRoom();
-  }, []);
-
   return {
     isActive: activeForCurrentItem,
     onLocalPlaybackChange,
     onLocalSeeked,
-    onLeaveSession,
   };
 }

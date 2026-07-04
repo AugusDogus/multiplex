@@ -605,32 +605,6 @@ describe("SyncplayClient", () => {
     expect(actions).toEqual([]);
   });
 
-  test("sendClaimedPause proactively broadcasts a paused state claimed by us", () => {
-    const sockets: FakeWebSocket[] = [];
-    const client = createClient({ sockets });
-    client.connect();
-    sockets[0]?.open();
-    sockets[0]?.sent.splice(0);
-
-    client.sendClaimedPause(42);
-
-    expect(lastPlaystate(sockets[0])).toEqual({
-      ping: {
-        clientLatencyCalculation: 1.234,
-        clientRtt: 0,
-        serverRtt: 0,
-        latencyCalculation: 0,
-      },
-      playstate: {
-        doSeek: false,
-        paused: true,
-        position: 42,
-        setBy: encodeSyncplayUser(LOCAL_USER),
-      },
-      ignoringOnTheFly: { client: 1, server: 0 },
-    });
-  });
-
   test("buffers outbound playback state while connecting", () => {
     const sockets: FakeWebSocket[] = [];
     const client = createClient({ sockets });

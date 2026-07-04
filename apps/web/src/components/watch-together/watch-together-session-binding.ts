@@ -24,12 +24,6 @@ export interface WatchTogetherSessionBinding {
   handleLocalPlaybackChange: (isPaused: boolean) => void;
   /** A deliberate local seek (from the video element / stream-offset reload). */
   handleLocalSeeked: (time: number) => void;
-  /**
-   * Broadcast a claimed pause so the rest of the room stops too (like the
-   * official Plex client) — call right before disposing, while the Syncplay
-   * socket is still open.
-   */
-  pauseRoom: () => void;
   dispose: () => void;
 }
 
@@ -86,7 +80,6 @@ export function bindWatchTogetherSession(
     handleLocalPlaybackChange: (isPaused) =>
       controller.handleLocalPlaybackChange(isPaused),
     handleLocalSeeked: (time) => controller.handleLocalSeeked(time),
-    pauseRoom: () => controller.pauseRoom(),
     dispose: () => {
       unsubscribeReady();
       controller.disconnect();
