@@ -285,6 +285,14 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
       user.id !== localUserId && participantsByUserId.get(user.id)?.isReady,
   );
 
+  const lobbyHint = getLobbyHint({
+    everyonePresent: allInvitedPresent,
+    everyonePresentNow: allInvitedPresentNow,
+    canStart,
+    autoStartSuppressed,
+    someoneElseWatching,
+  });
+
   return (
     <section className="mx-auto flex w-full max-w-5xl flex-col gap-6">
       <div className="relative isolate overflow-hidden rounded-2xl border shadow-sm">
@@ -349,13 +357,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
                 ))}
               </div>
             )}
-            <p className="text-muted-foreground text-sm">
-              {allInvitedPresent
-                ? "Everyone has joined — starting playback..."
-                : someoneElseWatching
-                  ? "Someone already started watching — press Start to join."
-                  : "Playback stays in sync for everyone in this room."}
-            </p>
+            <p className="text-muted-foreground text-sm">{lobbyHint}</p>
             {media.isError && (
               <p className="text-destructive text-sm">
                 Unable to load this title from the server, so playback may be
@@ -446,6 +448,48 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
       </div>
     </section>
   );
+}
+
+interface LobbyHintInput {
+  /** Everyone invited is present (debounced/sticky). */
+  everyonePresent: boolean;
+  /** Everyone invited is present right now (undebounced). */
+  everyonePresentNow: boolean;
+  /** Media has resolved so playback can actually begin. */
+  canStart: boolean;
+  /** Auto-start is suppressed because this viewer already left the player. */
+  autoStartSuppressed: boolean;
+  /** Another member has already started watching. */
+  someoneElseWatching: boolean;
+}
+
+/**
+ * The lobby subtitle, kept honest: it must describe what will actually happen.
+ * In particular it only promises "starting playback…" when auto-start will
+ * really fire — otherwise a suppressed viewer (who closed the player once, or
+ * was left alone when the other member ended the session) sat forever under a
+ * "starting playback…" that only a page refresh could resolve.
+ */
+export function getLobbyHint(input: LobbyHintInput): string {
+  const willAutoStart =
+    input.everyonePresent &&
+    input.everyonePresentNow &&
+    input.canStart &&
+    !input.autoStartSuppressed;
+
+  if (willAutoStart) {
+    return "Everyone's here — starting playback…";
+  }
+  if (input.someoneElseWatching) {
+    return "Someone already started watching — press Start to join.";
+  }
+  if (input.autoStartSuppressed && input.everyonePresentNow) {
+    return "Press Start when you're ready to watch.";
+  }
+  if (input.everyonePresent) {
+    return "Getting the stream ready…";
+  }
+  return "Waiting for everyone to join…";
 }
 
 type ParticipantStatus = "watching" | "inLobby" | "invited";
