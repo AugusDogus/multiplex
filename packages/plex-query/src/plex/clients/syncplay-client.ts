@@ -479,8 +479,15 @@ export class SyncplayClient {
     // "<user> paused/resumed/seeked" notifications off exactly this). `setBy`
     // is sticky across pings, so only edges count — a repeated frame with the
     // same `paused` value is a heartbeat, not a new action.
+    //
+    // Only surface actions we actually adopt: while a local change of ours is
+    // in flight (`ignoringClient !== 0`) the peer's change is not applied to
+    // our player, so announcing it would show "Alice paused" while our player
+    // ignores it. Still track `lastFramePaused` so a swallowed edge doesn't
+    // leave a stale baseline that misfires later.
     const framePaused = payload.playstate.paused;
-    if (!isSelf) {
+    const appliedRemote = !isSelf && this.ignoringClient === 0;
+    if (appliedRemote) {
       if (payload.playstate.doSeek) {
         this.onRemoteAction({
           type: "seek",
@@ -497,8 +504,8 @@ export class SyncplayClient {
       }
     }
     this.lastFramePaused = framePaused;
-    let appliedRemote = !isSelf && this.ignoringClient === 0;
-    if (appliedRemote) {
+    let didApplyRemote = appliedRemote;
+    if (didApplyRemote) {
       try {
         this.applyRemoteState({
           user: setByUser,
@@ -511,7 +518,7 @@ export class SyncplayClient {
         // state — report our real state below instead of echoing one we never
         // applied. Never let the error abort the reply; the socket must keep
         // replying to stay in the session.
-        appliedRemote = false;
+        didApplyRemote = false;
         this.onError(
           error instanceof Error ? error : new Error("Syncplay applyRemoteState handler threw"),
         );
@@ -526,7 +533,7 @@ export class SyncplayClient {
     // change (not a stale pre-apply sample) or while deferring; otherwise report
     // our own player's state, claiming a pending local seek via `doSeek`.
     let reply: SyncplayStateInput;
-    if (shouldEcho || appliedRemote) {
+    if (shouldEcho || didApplyRemote) {
       reply = {
         isPaused: payload.playstate.paused,
         positionSeconds: payload.playstate.position,

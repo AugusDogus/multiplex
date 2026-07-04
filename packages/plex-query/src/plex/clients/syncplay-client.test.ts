@@ -570,6 +570,36 @@ describe("SyncplayClient", () => {
     ]);
   });
 
+  test("does not report a remote action while a local change is in flight", () => {
+    const sockets: FakeWebSocket[] = [];
+    const actions: SyncplayRemoteAction[] = [];
+    const client = createClient({
+      sockets,
+      actions,
+      getPlaybackState: () => ({ isPaused: true, positionSeconds: 20, shouldSeek: false }),
+    });
+    client.connect();
+    sockets[0]?.open();
+
+    // Baseline frame (paused=false).
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: false, position: 10, setBy: encodeSyncplayUser(REMOTE_USER) },
+      },
+    });
+    // Local pause goes in flight (raises ignoringClient on the next frame).
+    client.markLocalPlayPause();
+    // A peer's pause edge arrives while our change is in flight: it is NOT
+    // applied to our player, so it must NOT be surfaced as a remote action.
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: true, position: 12, setBy: encodeSyncplayUser(REMOTE_USER) },
+      },
+    });
+
+    expect(actions).toEqual([]);
+  });
+
   test("never reports our own actions echoed back by the server", () => {
     const sockets: FakeWebSocket[] = [];
     const actions: SyncplayRemoteAction[] = [];
