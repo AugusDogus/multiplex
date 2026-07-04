@@ -18,9 +18,6 @@ import {
 // their player finishing its (possibly slow) transcode load, so it must not
 // toast no matter how long it takes.
 const STARTING_COHORT_WINDOW_MS = 5000;
-// Safety net against pathological repeats (the client only reports edges, so
-// genuine actions are never this close together).
-const ACTION_DEDUPE_MS = 2000;
 // A viewer who closes their player broadcasts a claimed pause right before
 // disconnecting, so the pause and the leave arrive as a pair. Hold pause
 // toasts briefly and drop them when the author leaves, so the pair reads as a
@@ -137,7 +134,6 @@ export function createWatchTogetherSessionToasts(
   const startedAt = now();
   const participants = new Map<string, ParticipantEntry>();
   const pendingPauses = new Map<string, PendingPause>();
-  const lastActionAt = new Map<string, number>();
   let localStarted = false;
   let disposed = false;
 
@@ -236,13 +232,6 @@ export function createWatchTogetherSessionToasts(
         return exhaustive;
       }
     }
-
-    const dedupeKey = `${action.type}:${action.user?.id ?? "?"}`;
-    const lastAt = lastActionAt.get(dedupeKey);
-    if (lastAt !== undefined && now() - lastAt < ACTION_DEDUPE_MS) {
-      return;
-    }
-    lastActionAt.set(dedupeKey, now());
 
     if (action.type !== "pause" || !action.user) {
       emit(action.user, text);
