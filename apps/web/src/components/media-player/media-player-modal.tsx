@@ -68,8 +68,10 @@ export function MediaPlayerModal() {
   const volume = useMediaPlayerStore((state) => state.volume);
 
   const { closePlayer, updatePlaybackState } = useMediaPlayerStore();
-  const clearWatchTogetherSession = useWatchTogetherStore(
-    (state) => state.clearSession,
+  // Closing the player is a deliberate leave, so suppress auto-start for this
+  // room (don't yank the viewer straight back in).
+  const leaveWatchTogetherSession = useWatchTogetherStore(
+    (state) => state.leaveSession,
   );
   const { actions, videoRef } = useMediaPlayer();
   const seekFeedbackRef = useRef<MediaPlayerSeekFeedbackHandle>(null);
@@ -251,13 +253,13 @@ export function MediaPlayerModal() {
   const handleClose = useCallback(() => {
     onStop();
     clearSession();
-    clearWatchTogetherSession();
+    leaveWatchTogetherSession();
     clearAllTimeouts();
     closePlayer();
   }, [
     onStop,
     clearSession,
-    clearWatchTogetherSession,
+    leaveWatchTogetherSession,
     clearAllTimeouts,
     closePlayer,
   ]);

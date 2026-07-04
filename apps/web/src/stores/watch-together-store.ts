@@ -22,7 +22,17 @@ interface WatchTogetherStore {
    */
   autoStartSuppressedRoomId: string | null;
   setSession: (session: WatchTogetherSession) => void;
+  /**
+   * Tear down the session without suppressing auto-start. Use for involuntary
+   * teardowns (fatal Syncplay errors, the player switching items) so a
+   * transient failure doesn't get mistaken for the user deliberately leaving.
+   */
   clearSession: () => void;
+  /**
+   * The local user deliberately left the current session (closed the player),
+   * so suppress auto-start for that room before clearing it.
+   */
+  leaveSession: () => void;
   updateParticipant: (participant: SyncplayParticipantState) => void;
 }
 
@@ -32,7 +42,8 @@ export const useWatchTogetherStore = create<WatchTogetherStore>()((set) => ({
   autoStartSuppressedRoomId: null,
   setSession: (session) =>
     set({ session, participants: {}, autoStartSuppressedRoomId: null }),
-  clearSession: () =>
+  clearSession: () => set({ session: null, participants: {} }),
+  leaveSession: () =>
     set((state) => ({
       session: null,
       participants: {},
