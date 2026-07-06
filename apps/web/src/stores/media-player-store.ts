@@ -119,7 +119,12 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
           // from cached progress / viewOffset, or start at 0.
           const initialCurrentTime =
             options?.startPositionSeconds !== undefined
-              ? Math.max(0, options.startPositionSeconds)
+              ? item.duration
+                ? Math.min(
+                    Math.max(0, options.startPositionSeconds),
+                    item.duration / 1000,
+                  )
+                : Math.max(0, options.startPositionSeconds)
               : !resume
                 ? 0
                 : updatedProgressPercent !== undefined && item.duration
