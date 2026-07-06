@@ -8,7 +8,6 @@ import type {
 import { toast } from "sonner";
 
 import { formatTime } from "~/components/media-player/utils/playback-time-utils";
-import { WATCH_TOGETHER_SESSION_TOASTER_ID } from "~/lib/watch-together-session-toaster";
 import {
   getPlexUserName,
   PlexUserAvatar,
@@ -84,9 +83,7 @@ function showSessionToast(
   name: string,
   text: string,
 ): void {
-  toast(<SessionToast user={user} name={name} text={text} />, {
-    toasterId: WATCH_TOGETHER_SESSION_TOASTER_ID,
-  });
+  toast(<SessionToast user={user} name={name} text={text} />);
 }
 
 /**
