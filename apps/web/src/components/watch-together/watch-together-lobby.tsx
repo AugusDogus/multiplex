@@ -109,8 +109,13 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
   );
 
   // Latest room playhead, observed from presence State pings, so a late joiner
-  // starts where the room is instead of resetting everyone to 0:00.
+  // starts where the room is instead of resetting everyone to 0:00. Until a
+  // real State ping arrives the position is unknown — a joiner must wait for it
+  // rather than treat the default as 0:00 (which would reset the room). The
+  // `known` flag is state (not just a ref) so the Join button and auto-start
+  // react once it flips.
   const roomPositionRef = useRef(0);
+  const [roomPositionKnown, setRoomPositionKnown] = useState(false);
 
   // While in the lobby (and not yet playing) join Syncplay for presence so
   // everyone sees who has actually arrived. The media player takes over the
@@ -121,6 +126,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     enabled: !session,
     onRoomState: (state) => {
       roomPositionRef.current = state.positionSeconds;
+      setRoomPositionKnown(true);
     },
   });
 
@@ -164,8 +170,6 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
       return false;
     }
 
-    setSession({ room, localUser });
-
     // Joining a session someone is already watching? Start at the room's
     // current position (observed from presence), so the joiner syncs up instead
     // of dragging everyone back to 0:00. Otherwise (fresh auto-start) everyone
@@ -174,6 +178,15 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     const joiningInProgress = Object.values(
       useWatchTogetherStore.getState().participants,
     ).some((p) => p.user.id !== localUser.id && p.isReady);
+    // Don't join until we actually know where the room is — a default of 0
+    // would reset everyone. Bail so auto-start retries (this callback re-runs
+    // when `roomPositionKnown` flips) and the Join button stays disabled.
+    if (joiningInProgress && !roomPositionKnown) {
+      return false;
+    }
+
+    setSession({ room, localUser });
+
     const startPositionSeconds = joiningInProgress
       ? roomPositionRef.current
       : undefined;
@@ -190,6 +203,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     serverUrl,
     authToken,
     localUser,
+    roomPositionKnown,
     setSession,
     openPlayer,
   ]);
@@ -428,11 +442,23 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
                   invite — so Start appears once there's someone to watch with. */}
               {!isSoloRoom && (
                 <Button
-                  disabled={!canStart || leaving}
-                  aria-busy={media.isPending || undefined}
+                  // A late joiner can't start until we've observed the room's
+                  // position, or it would start at 0:00 and reset the room —
+                  // treat that brief wait as "preparing" and keep it disabled.
+                  disabled={
+                    !canStart ||
+                    leaving ||
+                    (someoneElseWatching && !roomPositionKnown)
+                  }
+                  aria-busy={
+                    media.isPending ||
+                    (someoneElseWatching && !roomPositionKnown) ||
+                    undefined
+                  }
                   onClick={startPlayback}
                 >
-                  {media.isPending ? (
+                  {media.isPending ||
+                  (someoneElseWatching && !roomPositionKnown) ? (
                     <Loader2
                       className="animate-spin"
                       data-icon="inline-start"
