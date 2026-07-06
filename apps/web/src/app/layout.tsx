@@ -38,7 +38,7 @@ export default function RootLayout({
               <TooltipProvider>
                 {children}
                 <MediaPlayerModal />
-                <Toaster position="top-right" />
+                <Toaster />
               </TooltipProvider>
             </ThemeProvider>
           </TRPCReactProvider>
