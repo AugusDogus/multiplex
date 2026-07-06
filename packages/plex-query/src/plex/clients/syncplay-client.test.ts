@@ -570,6 +570,49 @@ describe("SyncplayClient", () => {
     ]);
   });
 
+  test("does not report the auto-start (first move into playing) as a resume", () => {
+    const sockets: FakeWebSocket[] = [];
+    const actions: SyncplayRemoteAction[] = [];
+    const client = createClient({
+      sockets,
+      actions,
+      getPlaybackState: () => ({ isPaused: true, positionSeconds: 0, shouldSeek: false }),
+    });
+    client.connect();
+    sockets[0]?.open();
+
+    // Lobby baseline: room is paused at 0 (nobody has started yet).
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: true, position: 0, setBy: encodeSyncplayUser(REMOTE_USER) },
+      },
+    });
+    // Auto-start: the room moves into playing for the first time. This is the
+    // session starting, NOT a deliberate resume — it must not be reported.
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: false, position: 0, setBy: encodeSyncplayUser(REMOTE_USER) },
+      },
+    });
+    expect(actions).toEqual([]);
+
+    // A genuine later pause/resume once the room is playing IS reported.
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: true, position: 20, setBy: encodeSyncplayUser(REMOTE_USER) },
+      },
+    });
+    sockets[0]?.message({
+      State: {
+        playstate: { paused: false, position: 20, setBy: encodeSyncplayUser(REMOTE_USER) },
+      },
+    });
+    expect(actions).toEqual([
+      { type: "pause", user: REMOTE_USER, positionSeconds: 20 },
+      { type: "resume", user: REMOTE_USER, positionSeconds: 20 },
+    ]);
+  });
+
   test("does not report a remote action while a local change is in flight", () => {
     const sockets: FakeWebSocket[] = [];
     const actions: SyncplayRemoteAction[] = [];

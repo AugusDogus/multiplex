@@ -73,6 +73,12 @@ export interface SyncplayClientOptions {
    * `paused` edges. Never fires for our own actions.
    */
   onRemoteAction?: (action: SyncplayRemoteAction) => void;
+  /**
+   * Fires on every `State` ping with the room's current playhead. Lets an
+   * observer (the lobby) track where the room is, so a late joiner can start at
+   * the current position instead of resetting everyone to 0.
+   */
+  onRoomState?: (state: { paused: boolean; positionSeconds: number }) => void;
   /** Fires when the socket opens (after `Hello` is sent). */
   onOpen?: () => void;
   /**
@@ -146,6 +152,7 @@ export class SyncplayClient {
   private readonly user: SyncplayUser;
   private readonly onParticipant: NonNullable<SyncplayClientOptions["onParticipant"]>;
   private readonly onRemoteAction: NonNullable<SyncplayClientOptions["onRemoteAction"]>;
+  private readonly onRoomState: NonNullable<SyncplayClientOptions["onRoomState"]>;
   private readonly onOpen: NonNullable<SyncplayClientOptions["onOpen"]>;
   private readonly applyRemoteState: NonNullable<SyncplayClientOptions["applyRemoteState"]>;
   private readonly getPlaybackState: NonNullable<SyncplayClientOptions["getPlaybackState"]>;
@@ -173,12 +180,18 @@ export class SyncplayClient {
   // edge detection (null = no frame yet this connection, so the first frame is
   // a baseline, not an action).
   private lastFramePaused: boolean | null = null;
+  // Whether the room has reached playback yet this connection. The first
+  // transition into playing is the session auto-starting (everyone leaving the
+  // lobby's paused baseline), not a deliberate "resume", so it must not surface
+  // as a remote action.
+  private hasReachedPlaying = false;
 
   constructor(options: SyncplayClientOptions) {
     this.room = options.room;
     this.user = options.user;
     this.onParticipant = options.onParticipant ?? (() => undefined);
     this.onRemoteAction = options.onRemoteAction ?? (() => undefined);
+    this.onRoomState = options.onRoomState ?? (() => undefined);
     this.onOpen = options.onOpen ?? (() => undefined);
     this.applyRemoteState = options.applyRemoteState ?? (() => undefined);
     this.getPlaybackState = options.getPlaybackState ?? (() => undefined);
@@ -197,6 +210,7 @@ export class SyncplayClient {
     this.pendingPlayPause = false;
     this.pendingSeek = false;
     this.lastFramePaused = null;
+    this.hasReachedPlaying = false;
     this.connectionId += 1;
     const connectionId = this.connectionId;
     const socket = this.webSocketFactory(
@@ -444,6 +458,10 @@ export class SyncplayClient {
 
   private handleState(payload: SyncplayStatePayload, connectionId: number): void {
     this.lastPing = payload.ping ?? null;
+    this.onRoomState({
+      paused: payload.playstate.paused,
+      positionSeconds: payload.playstate.position,
+    });
 
     // Mirror the server's "ignoring on the fly" counter for this message, then
     // decide whether we're echoing (observer, or deferring while the server
@@ -486,6 +504,12 @@ export class SyncplayClient {
     // ignores it. Still track `lastFramePaused` so a swallowed edge doesn't
     // leave a stale baseline that misfires later.
     const framePaused = payload.playstate.paused;
+    // The session's first move into playing is the auto-start, not a resume;
+    // only announce resumes once the room has actually been playing.
+    const reachedPlayingBefore = this.hasReachedPlaying;
+    if (!framePaused) {
+      this.hasReachedPlaying = true;
+    }
     const appliedRemote = !isSelf && this.ignoringClient === 0;
     if (appliedRemote) {
       if (payload.playstate.doSeek) {
@@ -496,11 +520,19 @@ export class SyncplayClient {
         });
       }
       if (this.lastFramePaused !== null && framePaused !== this.lastFramePaused) {
-        this.onRemoteAction({
-          type: framePaused ? "pause" : "resume",
-          user: setByUser,
-          positionSeconds: payload.playstate.position,
-        });
+        if (framePaused) {
+          this.onRemoteAction({
+            type: "pause",
+            user: setByUser,
+            positionSeconds: payload.playstate.position,
+          });
+        } else if (reachedPlayingBefore) {
+          this.onRemoteAction({
+            type: "resume",
+            user: setByUser,
+            positionSeconds: payload.playstate.position,
+          });
+        }
       }
     }
     this.lastFramePaused = framePaused;
