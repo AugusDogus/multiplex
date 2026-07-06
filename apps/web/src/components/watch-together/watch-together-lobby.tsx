@@ -11,7 +11,8 @@ import {
   type SyncplayParticipantState,
   type SyncplayUser,
 } from "@multiplex/plex-query";
-import { Loader2, Play, UserPlus, Users } from "lucide-react";
+import { Loader2, LogOut, Play, UserPlus, Users } from "lucide-react";
+import { toast } from "sonner";
 
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -221,6 +222,27 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     return () => clearTimeout(timer);
   }, [allInvitedPresentNow]);
 
+  const utils = api.useUtils();
+  // "Leave" removes the session for this viewer (Plex's per-user removal) —
+  // going back home is what the sidebar is for, so the button actually leaves.
+  const leaveRoom = api.plex.deleteWatchTogetherRoom.useMutation({
+    onSuccess: async () => {
+      await utils.plex.getWatchTogetherRooms.invalidate();
+      clearSession();
+      router.push("/");
+    },
+    onError: () => {
+      // Removal failed, but honor the intent to leave rather than trapping the
+      // user in the lobby.
+      clearSession();
+      router.push("/");
+      toast.error("Couldn't remove the session, but you've left it.");
+    },
+  });
+  // A leave in flight must win over starting: don't auto-start (or let Start
+  // fire) while we're tearing the room down.
+  const leaving = leaveRoom.isPending;
+
   // Auto-start like the official Plex app: once everyone has (stably) joined,
   // open the player automatically. Fires once per "gathering" — re-armed only
   // when everyone genuinely scatters (debounced above), so it neither loops
@@ -243,6 +265,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
       session ||
       autoStartSuppressed ||
       isSoloRoom ||
+      leaving ||
       hasAutoStartedRef.current
     ) {
       return;
@@ -260,14 +283,17 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     allInvitedPresentNow,
     autoStartSuppressed,
     isSoloRoom,
+    leaving,
     canStart,
     session,
     startPlayback,
   ]);
 
   const leaveLobby = () => {
-    clearSession();
-    router.push("/");
+    if (leaving) {
+      return;
+    }
+    leaveRoom.mutate({ roomId });
   };
 
   if (
@@ -377,6 +403,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
               {!someoneElseWatching && (
                 <Button
                   variant="outline"
+                  disabled={leaving}
                   onClick={() => setInviteOpen(true)}
                   aria-label="Invite friends to this session"
                 >
@@ -384,14 +411,24 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
                   Invite
                 </Button>
               )}
-              <Button variant="outline" onClick={leaveLobby}>
+              <Button
+                variant="outline"
+                disabled={leaving}
+                aria-busy={leaving || undefined}
+                onClick={leaveLobby}
+              >
+                {leaving ? (
+                  <Loader2 className="animate-spin" data-icon="inline-start" />
+                ) : (
+                  <LogOut data-icon="inline-start" />
+                )}
                 Leave
               </Button>
               {/* A one-person room has nothing to start — only friends to
                   invite — so Start appears once there's someone to watch with. */}
               {!isSoloRoom && (
                 <Button
-                  disabled={!canStart}
+                  disabled={!canStart || leaving}
                   aria-busy={media.isPending || undefined}
                   onClick={startPlayback}
                 >
