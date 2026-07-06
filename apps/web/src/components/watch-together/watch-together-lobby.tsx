@@ -11,8 +11,7 @@ import {
   type SyncplayParticipantState,
   type SyncplayUser,
 } from "@multiplex/plex-query";
-import { Loader2, Play, Trash2, UserPlus, Users } from "lucide-react";
-import { toast } from "sonner";
+import { Loader2, Play, UserPlus, Users } from "lucide-react";
 
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -108,6 +107,10 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     [roomId, roomSyncplayHost, roomSyncplayPort, roomSourceUri],
   );
 
+  // Latest room playhead, observed from presence State pings, so a late joiner
+  // starts where the room is instead of resetting everyone to 0:00.
+  const roomPositionRef = useRef(0);
+
   // While in the lobby (and not yet playing) join Syncplay for presence so
   // everyone sees who has actually arrived. The media player takes over the
   // connection once playback starts (session set).
@@ -115,6 +118,9 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     room: presenceRoom,
     localUser,
     enabled: !session,
+    onRoomState: (state) => {
+      roomPositionRef.current = state.positionSeconds;
+    },
   });
 
   // Syncplay participant state is keyed by device identifier, so index it by
@@ -136,6 +142,11 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
   const canStart = Boolean(
     room && playTarget && serverId && serverUrl && authToken && localUser,
   );
+  // You're the only member of the room (everyone else removed themselves, or
+  // it was created solo). A one-person Watch Together isn't a watch party —
+  // there's nothing to start, only friends to invite — so we don't auto-start
+  // or show Start; the lobby's purpose is the Invite button.
+  const isSoloRoom = (room?.users.length ?? 0) <= 1;
 
   // Stable so the auto-start effect's timer isn't reset on every render.
   // Returns whether playback actually opened, so auto-start only latches once it
@@ -154,14 +165,21 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
 
     setSession({ room, localUser });
 
-    // Start every participant at the beginning, not their personal resume point
-    // (`resume: false` also skips the cached-progress lookup): a Watch Together
-    // session must start everyone at the same position so they stay in sync,
-    // otherwise each viewer resumes to a different spot and the clients fight to
-    // seek each other to their own position. Syncplay keeps everyone together.
+    // Joining a session someone is already watching? Start at the room's
+    // current position (observed from presence), so the joiner syncs up instead
+    // of dragging everyone back to 0:00. Otherwise (fresh auto-start) everyone
+    // begins at the beginning together — not their personal resume point — so
+    // they stay in sync from the same spot.
+    const joiningInProgress = Object.values(
+      useWatchTogetherStore.getState().participants,
+    ).some((p) => p.user.id !== localUser.id && p.isReady);
+    const startPositionSeconds = joiningInProgress
+      ? roomPositionRef.current
+      : undefined;
+
     openPlayer(
       createMediaPlayerItem(playTarget, { serverId, serverUrl, authToken }),
-      { resume: false },
+      { resume: false, startPositionSeconds },
     );
     return true;
   }, [
@@ -203,23 +221,6 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     return () => clearTimeout(timer);
   }, [allInvitedPresentNow]);
 
-  const utils = api.useUtils();
-  const deleteRoom = api.plex.deleteWatchTogetherRoom.useMutation({
-    onSuccess: async () => {
-      await utils.plex.getWatchTogetherRooms.invalidate();
-      toast.success("Watch Together session ended");
-      clearSession();
-      router.push("/");
-    },
-    onError: () => {
-      toast.error("Couldn't end the Watch Together session");
-    },
-  });
-  // Ending the session must win over starting it: don't auto-start (or let the
-  // Start button fire) once a delete is in flight, or the pending auto-start
-  // timer would open the player just as the room is being torn down.
-  const endingSession = deleteRoom.isPending;
-
   // Auto-start like the official Plex app: once everyone has (stably) joined,
   // open the player automatically. Fires once per "gathering" — re-armed only
   // when everyone genuinely scatters (debounced above), so it neither loops
@@ -241,7 +242,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
       !canStart ||
       session ||
       autoStartSuppressed ||
-      endingSession ||
+      isSoloRoom ||
       hasAutoStartedRef.current
     ) {
       return;
@@ -258,7 +259,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     allInvitedPresent,
     allInvitedPresentNow,
     autoStartSuppressed,
-    endingSession,
+    isSoloRoom,
     canStart,
     session,
     startPlayback,
@@ -267,10 +268,6 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
   const leaveLobby = () => {
     clearSession();
     router.push("/");
-  };
-
-  const endSession = () => {
-    deleteRoom.mutate({ roomId });
   };
 
   if (
@@ -299,6 +296,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     canStart,
     autoStartSuppressed,
     someoneElseWatching,
+    isSoloRoom,
   });
 
   return (
@@ -379,7 +377,6 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
               {!someoneElseWatching && (
                 <Button
                   variant="outline"
-                  disabled={endingSession}
                   onClick={() => setInviteOpen(true)}
                   aria-label="Invite friends to this session"
                 >
@@ -390,32 +387,25 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
               <Button variant="outline" onClick={leaveLobby}>
                 Leave
               </Button>
-              <Button
-                variant="outline"
-                className="text-destructive hover:text-destructive"
-                disabled={endingSession}
-                aria-busy={endingSession || undefined}
-                onClick={endSession}
-              >
-                {endingSession ? (
-                  <Loader2 className="animate-spin" data-icon="inline-start" />
-                ) : (
-                  <Trash2 data-icon="inline-start" />
-                )}
-                End session
-              </Button>
-              <Button
-                disabled={!canStart || endingSession}
-                aria-busy={media.isPending || undefined}
-                onClick={startPlayback}
-              >
-                {media.isPending ? (
-                  <Loader2 className="animate-spin" data-icon="inline-start" />
-                ) : (
-                  <Play data-icon="inline-start" />
-                )}
-                Start
-              </Button>
+              {/* A one-person room has nothing to start — only friends to
+                  invite — so Start appears once there's someone to watch with. */}
+              {!isSoloRoom && (
+                <Button
+                  disabled={!canStart}
+                  aria-busy={media.isPending || undefined}
+                  onClick={startPlayback}
+                >
+                  {media.isPending ? (
+                    <Loader2
+                      className="animate-spin"
+                      data-icon="inline-start"
+                    />
+                  ) : (
+                    <Play data-icon="inline-start" />
+                  )}
+                  {someoneElseWatching ? "Join" : "Start"}
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -490,6 +480,8 @@ interface LobbyHintInput {
   autoStartSuppressed: boolean;
   /** Another member has already started watching. */
   someoneElseWatching: boolean;
+  /** The local user is the only member of the room. */
+  isSoloRoom: boolean;
 }
 
 /**
@@ -500,6 +492,11 @@ interface LobbyHintInput {
  * "starting playback…" that only a page refresh could resolve.
  */
 export function getLobbyHint(input: LobbyHintInput): string {
+  // A one-person room can't start a watch party; its only action is Invite.
+  if (input.isSoloRoom) {
+    return "Invite a friend to start watching together.";
+  }
+
   const willAutoStart =
     input.everyonePresent &&
     input.everyonePresentNow &&
@@ -517,7 +514,7 @@ export function getLobbyHint(input: LobbyHintInput): string {
       : "Waiting for everyone to join…";
   }
   if (input.someoneElseWatching) {
-    return "Someone already started watching — press Start to join.";
+    return "Someone already started watching — press Join.";
   }
   if (input.autoStartSuppressed && input.everyonePresentNow) {
     return "Press Start when you're ready to watch.";

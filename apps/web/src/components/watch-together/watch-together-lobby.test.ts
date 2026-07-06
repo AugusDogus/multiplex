@@ -8,9 +8,22 @@ const base = {
   canStart: false,
   autoStartSuppressed: false,
   someoneElseWatching: false,
+  isSoloRoom: false,
 };
 
 describe("getLobbyHint", () => {
+  test("a one-person room points at Invite, never Start", () => {
+    const hint = getLobbyHint({
+      ...base,
+      isSoloRoom: true,
+      everyonePresent: true,
+      everyonePresentNow: true,
+      canStart: true,
+    });
+    expect(hint).toBe("Invite a friend to start watching together.");
+    expect(hint).not.toContain("Start");
+  });
+
   test("promises playback only when auto-start will actually fire", () => {
     expect(
       getLobbyHint({
@@ -49,7 +62,7 @@ describe("getLobbyHint", () => {
         autoStartSuppressed: true,
         someoneElseWatching: true,
       }),
-    ).toBe("Someone already started watching — press Start to join.");
+    ).toBe("Someone already started watching — press Join.");
   });
 
   test("everyone present but media still loading shows a preparing state", () => {
