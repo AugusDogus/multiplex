@@ -17,7 +17,10 @@ import { useProgressStore } from "./progress-store";
 
 interface MediaPlayerStore extends MediaPlayerState {
   // Actions
-  openPlayer: (item: MediaPlayerItem, options?: { resume?: boolean }) => void;
+  openPlayer: (
+    item: MediaPlayerItem,
+    options?: { resume?: boolean; startPositionSeconds?: number },
+  ) => void;
   closePlayer: () => void;
   updatePlaybackState: (updates: Partial<MediaPlayerState>) => void;
 
@@ -109,12 +112,19 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
             ? progressStore.getItemProgress(item.ratingKey)
             : undefined;
 
-          // Calculate initial currentTime using updated progress if available
-          const initialCurrentTime = !resume
-            ? 0
-            : updatedProgressPercent !== undefined && item.duration
-              ? (updatedProgressPercent / 100) * (item.duration / 1000)
-              : Math.floor(item.viewOffset ?? 0) / 1000;
+          // Calculate initial currentTime. An explicit `startPositionSeconds`
+          // wins (used when joining an in-progress Watch Together session, so
+          // the joiner starts at the room's current position instead of 0 and
+          // doesn't drag everyone else back to the start). Otherwise resume
+          // from cached progress / viewOffset, or start at 0.
+          const initialCurrentTime =
+            options?.startPositionSeconds !== undefined
+              ? Math.max(0, options.startPositionSeconds)
+              : !resume
+                ? 0
+                : updatedProgressPercent !== undefined && item.duration
+                  ? (updatedProgressPercent / 100) * (item.duration / 1000)
+                  : Math.floor(item.viewOffset ?? 0) / 1000;
 
           // Plex's transcoded MP4 stream can't be seeked after load, so for
           // resumed transcoded items we bake the resume position into the

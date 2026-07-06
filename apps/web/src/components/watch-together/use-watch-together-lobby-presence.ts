@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   SyncplayClient,
   type SyncplayUser,
@@ -20,6 +20,11 @@ interface UseWatchTogetherLobbyPresenceOptions {
   room: PresenceRoom | undefined;
   localUser: SyncplayUser | null;
   enabled: boolean;
+  /**
+   * Fires on every room `State` ping with the current playhead, so the lobby
+   * can start a late joiner at the room's position instead of resetting to 0.
+   */
+  onRoomState?: (state: { paused: boolean; positionSeconds: number }) => void;
 }
 
 /**
@@ -37,10 +42,15 @@ export function useWatchTogetherLobbyPresence({
   room,
   localUser,
   enabled,
+  onRoomState,
 }: UseWatchTogetherLobbyPresenceOptions) {
   const updateParticipant = useWatchTogetherStore(
     (state) => state.updateParticipant,
   );
+  // Keep the callback in a ref so a fresh inline function each render doesn't
+  // tear down and reconnect the presence socket.
+  const onRoomStateRef = useRef(onRoomState);
+  onRoomStateRef.current = onRoomState;
 
   useEffect(() => {
     if (!enabled || !room || !localUser) {
@@ -61,6 +71,7 @@ export function useWatchTogetherLobbyPresence({
         user: localUser,
         observer: true,
         onParticipant: updateParticipant,
+        onRoomState: (state) => onRoomStateRef.current?.(state),
         onClose: () => {
           if (disposed || client !== nextClient) {
             return;
