@@ -7,6 +7,7 @@ import { StrictMode } from "react";
 import { MediaPlayerModal } from "~/components/media-player";
 import { ThemeProvider } from "~/components/theme-provider";
 import { Toaster } from "~/components/ui/sonner";
+import { WATCH_TOGETHER_SESSION_TOASTER_ID } from "~/lib/watch-together-session-toaster";
 import { TooltipProvider } from "~/components/ui/tooltip";
 import { TRPCReactProvider } from "~/trpc/react";
 
@@ -38,9 +39,13 @@ export default function RootLayout({
               <TooltipProvider>
                 {children}
                 <MediaPlayerModal />
-                {/* Top-center keeps toasts clear of the media player chrome
-                    (title top-left, close top-right, controls bottom). */}
+                {/* Top-center keeps general toasts clear of the media player
+                    chrome (title top-left, close top-right, controls bottom). */}
                 <Toaster position="top-center" />
+                <Toaster
+                  id={WATCH_TOGETHER_SESSION_TOASTER_ID}
+                  position="top-right"
+                />
               </TooltipProvider>
             </ThemeProvider>
           </TRPCReactProvider>
