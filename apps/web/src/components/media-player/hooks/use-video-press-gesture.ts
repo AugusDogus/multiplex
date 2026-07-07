@@ -23,6 +23,13 @@ interface UseVideoPressGestureOptions {
   videoRef: RefObject<HTMLVideoElement | null>;
   /** Multiplier applied to the video's playbackRate while holding. */
   holdRate: number;
+  /**
+   * Whether press-and-hold fast forward is active. When false (e.g. during a
+   * Watch Together session, where an independent local rate would desync
+   * viewers) a press is only ever a tap/click — the rate is never changed.
+   * Defaults to true.
+   */
+  holdEnabled?: boolean;
   /** Press duration (ms) that promotes a press to a hold. */
   holdActivationMs: number;
   /** Pointer movement (px) that promotes a press to a drag. */
@@ -53,6 +60,7 @@ interface UseVideoPressGestureResult {
 export function useVideoPressGesture({
   videoRef,
   holdRate,
+  holdEnabled = true,
   holdActivationMs,
   dragTolerancePx,
   onTap,
@@ -113,6 +121,10 @@ export function useVideoPressGesture({
       holdAppliedRef.current = false;
       event.currentTarget.setPointerCapture(pointerId);
 
+      // When hold-to-fast-forward is disabled, a press is only ever a tap/click;
+      // never schedule the rate change.
+      if (!holdEnabled) return;
+
       // Defer the playback rate change until the press qualifies as a hold,
       // so quick taps don't briefly jitter playback rate.
       clearActivation();
@@ -128,7 +140,7 @@ export function useVideoPressGesture({
         setIsHolding(true);
       }, holdActivationMs);
     },
-    [clearActivation, holdActivationMs, holdRate, videoRef],
+    [clearActivation, holdActivationMs, holdEnabled, holdRate, videoRef],
   );
 
   const handlePointerMove = useCallback(

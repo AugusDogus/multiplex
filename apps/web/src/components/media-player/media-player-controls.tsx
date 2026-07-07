@@ -44,6 +44,11 @@ interface MediaPlayerControlsProps {
    * Notified when the settings popover open state changes.
    */
   onSettingsOpenChange?: (open: boolean) => void;
+  /**
+   * True while a Watch Together session is active; hides playback-speed
+   * controls that can't be synced across viewers.
+   */
+  isWatchTogetherActive?: boolean;
 }
 
 export function MediaPlayerControls({
@@ -52,6 +57,7 @@ export function MediaPlayerControls({
   progressOnly = false,
   className = "",
   onSettingsOpenChange,
+  isWatchTogetherActive = false,
 }: MediaPlayerControlsProps) {
   const currentTime = useMediaPlayerStore((state) => state.currentTime);
   const duration = useMediaPlayerStore((state) => state.duration);
@@ -218,6 +224,7 @@ export function MediaPlayerControls({
 
               <MediaPlayerSettingsMenu
                 disabled={!canPlay}
+                isWatchTogetherActive={isWatchTogetherActive}
                 onOpenChange={onSettingsOpenChange}
               />
 
