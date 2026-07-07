@@ -324,7 +324,9 @@ test("a Watch Together session disables playback-speed controls", async ({
 }) => {
   // Real Plex login + transcoded playback for two viewers is slow.
   test.setTimeout(360_000);
-  const { host, guest, cleanup } = await setupSyncedRoom(browser, baseURL);
+  // The guest is only needed so the host's session is genuinely active; this
+  // test asserts against the host.
+  const { host, cleanup } = await setupSyncedRoom(browser, baseURL);
 
   try {
     const hostVideo = host.locator("video");
