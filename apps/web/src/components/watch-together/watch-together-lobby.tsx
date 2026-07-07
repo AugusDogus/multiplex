@@ -117,6 +117,16 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
   const roomPositionRef = useRef(0);
   const [roomPositionKnown, setRoomPositionKnown] = useState(false);
 
+  // Stable across renders (only touches a ref and a state setter), so the
+  // presence connection doesn't tear down and reconnect on every render.
+  const handleRoomState = useCallback(
+    (state: { paused: boolean; positionSeconds: number }) => {
+      roomPositionRef.current = state.positionSeconds;
+      setRoomPositionKnown(true);
+    },
+    [],
+  );
+
   // While in the lobby (and not yet playing) join Syncplay for presence so
   // everyone sees who has actually arrived. The media player takes over the
   // connection once playback starts (session set).
@@ -124,10 +134,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     room: presenceRoom,
     localUser,
     enabled: !session,
-    onRoomState: (state) => {
-      roomPositionRef.current = state.positionSeconds;
-      setRoomPositionKnown(true);
-    },
+    onRoomState: handleRoomState,
   });
 
   // Syncplay participant state is keyed by device identifier, so index it by

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import {
   SyncplayClient,
   type SyncplayUser,
@@ -47,14 +47,9 @@ export function useWatchTogetherLobbyPresence({
   const updateParticipant = useWatchTogetherStore(
     (state) => state.updateParticipant,
   );
-  // Keep the callback in a ref so a fresh inline function each render doesn't
-  // tear down and reconnect the presence socket. Updated in an effect (not
-  // during render); the ref is only ever read asynchronously, on socket pings.
-  const onRoomStateRef = useRef(onRoomState);
-  useEffect(() => {
-    onRoomStateRef.current = onRoomState;
-  }, [onRoomState]);
 
+  // `onRoomState` must be stable (memoized by the caller); it's a dependency of
+  // the connection effect, so an unstable callback would reconnect every render.
   useEffect(() => {
     if (!enabled || !room || !localUser) {
       return;
@@ -74,7 +69,7 @@ export function useWatchTogetherLobbyPresence({
         user: localUser,
         observer: true,
         onParticipant: updateParticipant,
-        onRoomState: (state) => onRoomStateRef.current?.(state),
+        onRoomState,
         onClose: () => {
           if (disposed || client !== nextClient) {
             return;
@@ -101,5 +96,5 @@ export function useWatchTogetherLobbyPresence({
       client?.disconnect();
       client = null;
     };
-  }, [enabled, room, localUser, updateParticipant]);
+  }, [enabled, room, localUser, updateParticipant, onRoomState]);
 }
