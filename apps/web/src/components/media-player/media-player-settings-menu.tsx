@@ -109,11 +109,6 @@ export function MediaPlayerSettingsMenu({
     applyPlaybackMetadata(detailedItem);
   }, [detailedItem, applyPlaybackMetadata]);
 
-  // The Playback Speed pane is hidden during a Watch Together session, so never
-  // render it there — fall back to root if a session starts while it's open.
-  const activePane: Pane =
-    isWatchTogetherActive && pane === "speed" ? "root" : pane;
-
   const streamSource: StreamSource = detailedItem ?? currentItem;
   const qualityLabel = getQualityLabel(streamSource);
   const audioLabel = getAudioStreamLabel(streamSource);
@@ -196,7 +191,7 @@ export function MediaPlayerSettingsMenu({
           sideOffset={12}
           className="data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 z-50 w-72 overflow-hidden rounded-lg border border-white/10 bg-black/90 p-1.5 text-white backdrop-blur-md"
         >
-          {activePane === "root" ? (
+          {pane === "root" ? (
             <div className="flex flex-col">
               <ReadOnlyRow label="Quality" value={qualityLabel} />
               {!isWatchTogetherActive && (
@@ -222,7 +217,7 @@ export function MediaPlayerSettingsMenu({
                 onChange={setAutoPlayEnabled}
               />
             </div>
-          ) : activePane === "speed" ? (
+          ) : pane === "speed" ? (
             <Pane title="Playback Speed" onBack={() => setPane("root")}>
               {PLAYBACK_RATE_OPTIONS.map((option) => (
                 <SelectRow
