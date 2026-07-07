@@ -82,6 +82,8 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
         duration: 0,
         bufferedTime: 0,
         playbackRate: 1,
+        sessionPlaybackRate: null,
+        isLocalFastForward: false,
         streamOffset: 0,
         streamSessionId: "",
         volume: 1,
@@ -143,6 +145,8 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
             isOpen: true,
             currentItem: item,
             currentTime: initialCurrentTime,
+            sessionPlaybackRate: null,
+            isLocalFastForward: false,
             streamOffset: initialStreamOffset,
             // Fresh, unique transcode session per playback (stable across seeks)
             // so two viewers — and repeat plays of the same item — never collide
@@ -174,6 +178,8 @@ export const useMediaPlayerStore = create<MediaPlayerStore>()(
             currentTime: 0,
             duration: 0,
             bufferedTime: 0,
+            sessionPlaybackRate: null,
+            isLocalFastForward: false,
             streamOffset: 0,
             streamSessionId: "",
             isLoading: false,

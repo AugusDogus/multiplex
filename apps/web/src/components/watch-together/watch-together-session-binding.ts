@@ -58,20 +58,25 @@ export function bindWatchTogetherSession(
 
   controller.connect();
 
-  // Readiness events: the <video> element's load/canplay events land in the
-  // media-player store, so observe them as store transitions. (The controller
-  // samples the initial value itself on connect.)
+  // Readiness and local fast-forward both live in the media-player store as the
+  // <video> element's events land there, so observe them as store transitions.
+  // (The controller samples the initial ready value itself on connect.)
   if (useMediaPlayerStore.getState().canPlay) {
     toasts.noteLocalStarted();
   }
-  const unsubscribeReady = useMediaPlayerStore.subscribe(
+  controller.setLocalFastForward(
+    useMediaPlayerStore.getState().isLocalFastForward,
+  );
+  const unsubscribeStore = useMediaPlayerStore.subscribe(
     (state, previousState) => {
-      if (state.canPlay === previousState.canPlay) {
-        return;
+      if (state.canPlay !== previousState.canPlay) {
+        controller.setReady(state.canPlay);
+        if (state.canPlay) {
+          toasts.noteLocalStarted();
+        }
       }
-      controller.setReady(state.canPlay);
-      if (state.canPlay) {
-        toasts.noteLocalStarted();
+      if (state.isLocalFastForward !== previousState.isLocalFastForward) {
+        controller.setLocalFastForward(state.isLocalFastForward);
       }
     },
   );
@@ -81,7 +86,7 @@ export function bindWatchTogetherSession(
       controller.handleLocalPlaybackChange(isPaused),
     handleLocalSeeked: (time) => controller.handleLocalSeeked(time),
     dispose: () => {
-      unsubscribeReady();
+      unsubscribeStore();
       controller.disconnect();
       toasts.dispose();
     },
