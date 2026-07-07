@@ -85,6 +85,13 @@ interface MediaPlayerVideoProps {
    */
   useMobileSurfaceGestures?: boolean;
   /**
+   * True while a Watch Together session is driving this item. Disables the
+   * hold-for-2x gesture and forces normal (1x) playback, since an independent
+   * local playback rate can't be synced through Plex's syncplay server and
+   * would only desync viewers.
+   */
+  isWatchTogetherActive?: boolean;
+  /**
    * Imperative handle for showing seek feedback (e.g. keyboard shortcuts).
    */
   seekFeedbackRef?: RefObject<MediaPlayerSeekFeedbackHandle | null>;
@@ -126,6 +133,7 @@ export const MediaPlayerVideo = forwardRef<
       onVideoDoubleClick,
       onMobileSurfaceTap,
       useMobileSurfaceGestures = false,
+      isWatchTogetherActive = false,
       seekFeedbackRef,
       onVolumeScroll,
       onVideoEnded,
@@ -286,7 +294,7 @@ export const MediaPlayerVideo = forwardRef<
         );
         ref.current.volume = volume;
         ref.current.muted = isMuted;
-        ref.current.playbackRate = playbackRate;
+        ref.current.playbackRate = isWatchTogetherActive ? 1 : playbackRate;
       }
     }, [
       applyResumeSeekOnMetadata,
@@ -295,6 +303,7 @@ export const MediaPlayerVideo = forwardRef<
       volume,
       isMuted,
       playbackRate,
+      isWatchTogetherActive,
     ]);
 
     // Handle video play event
@@ -469,6 +478,7 @@ export const MediaPlayerVideo = forwardRef<
       holdRate: HOLD_PLAYBACK_RATE,
       holdActivationMs: HOLD_CLICK_SUPPRESSION_MS,
       dragTolerancePx: POINTER_DRAG_TOLERANCE_PX,
+      holdEnabled: !isWatchTogetherActive,
       onTap: useMobileSurfaceGestures ? onMobileSurfaceTap : undefined,
       onClick: useMobileSurfaceGestures ? undefined : onVideoClick,
     });
@@ -485,10 +495,14 @@ export const MediaPlayerVideo = forwardRef<
       [ref],
     );
 
+    // A Watch Together session forces normal speed (an unsynced local rate would
+    // desync viewers); otherwise honor the user's chosen rate.
     useEffect(() => {
       if (!videoElementRef.current) return;
-      videoElementRef.current.playbackRate = playbackRate;
-    }, [playbackRate]);
+      videoElementRef.current.playbackRate = isWatchTogetherActive
+        ? 1
+        : playbackRate;
+    }, [playbackRate, isWatchTogetherActive]);
 
     // Wheel-to-volume on desktop. The listener lives on the surface div (not
     // the <video>, which has `pointer-events: none` to let the surface own

@@ -43,11 +43,17 @@ type StreamSource = MediaPlayerItem | ItemMetadata | null | undefined;
 
 interface MediaPlayerSettingsMenuProps {
   disabled?: boolean;
+  /**
+   * Hide the Playback Speed control. In a Watch Together session an unsynced
+   * local rate would only desync viewers, so speed selection is unavailable.
+   */
+  isWatchTogetherActive?: boolean;
   onOpenChange?: (open: boolean) => void;
 }
 
 export function MediaPlayerSettingsMenu({
   disabled,
+  isWatchTogetherActive = false,
   onOpenChange,
 }: MediaPlayerSettingsMenuProps) {
   const currentItem = useMediaPlayerStore((state) => state.currentItem);
@@ -102,6 +108,11 @@ export function MediaPlayerSettingsMenu({
     if (!item || item.ratingKey !== detailedItem.ratingKey) return;
     applyPlaybackMetadata(detailedItem);
   }, [detailedItem, applyPlaybackMetadata]);
+
+  // The Playback Speed pane is hidden during a Watch Together session, so never
+  // render it there — fall back to root if a session starts while it's open.
+  const activePane: Pane =
+    isWatchTogetherActive && pane === "speed" ? "root" : pane;
 
   const streamSource: StreamSource = detailedItem ?? currentItem;
   const qualityLabel = getQualityLabel(streamSource);
@@ -185,14 +196,16 @@ export function MediaPlayerSettingsMenu({
           sideOffset={12}
           className="data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 z-50 w-72 overflow-hidden rounded-lg border border-white/10 bg-black/90 p-1.5 text-white backdrop-blur-md"
         >
-          {pane === "root" ? (
+          {activePane === "root" ? (
             <div className="flex flex-col">
               <ReadOnlyRow label="Quality" value={qualityLabel} />
-              <NavRow
-                label="Playback Speed"
-                value={formatPlaybackRate(playbackRate)}
-                onClick={() => setPane("speed")}
-              />
+              {!isWatchTogetherActive && (
+                <NavRow
+                  label="Playback Speed"
+                  value={formatPlaybackRate(playbackRate)}
+                  onClick={() => setPane("speed")}
+                />
+              )}
               <ReadOnlyRow label="Audio Stream" value={audioLabel} />
               <NavRow
                 label="Subtitles"
@@ -209,7 +222,7 @@ export function MediaPlayerSettingsMenu({
                 onChange={setAutoPlayEnabled}
               />
             </div>
-          ) : pane === "speed" ? (
+          ) : activePane === "speed" ? (
             <Pane title="Playback Speed" onBack={() => setPane("root")}>
               {PLAYBACK_RATE_OPTIONS.map((option) => (
                 <SelectRow

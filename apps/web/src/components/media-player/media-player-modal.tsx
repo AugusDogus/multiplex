@@ -458,6 +458,7 @@ export function MediaPlayerModal() {
                 item={currentItem}
                 className="h-full w-full"
                 useMobileSurfaceGestures={isMobile}
+                isWatchTogetherActive={isSyncplayActive}
                 onMobileSurfaceTap={isMobile ? handleSurfaceTap : undefined}
                 onVideoClick={isMobile ? undefined : handleVideoClick}
                 onVideoDoubleClick={handleVideoDoubleClick}
@@ -532,6 +533,7 @@ export function MediaPlayerModal() {
                       progressOnly
                       className="px-4 py-2"
                       onSettingsOpenChange={handleSettingsOpenChange}
+                      isWatchTogetherActive={isSyncplayActive}
                     />
                   </div>
                 </MediaPlayerChromeFade>
@@ -548,6 +550,7 @@ export function MediaPlayerModal() {
                     actions={actions}
                     progressOnly={false}
                     onSettingsOpenChange={handleSettingsOpenChange}
+                    isWatchTogetherActive={isSyncplayActive}
                   />
                 </div>
               )}
