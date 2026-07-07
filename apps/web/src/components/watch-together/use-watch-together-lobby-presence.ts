@@ -48,9 +48,12 @@ export function useWatchTogetherLobbyPresence({
     (state) => state.updateParticipant,
   );
   // Keep the callback in a ref so a fresh inline function each render doesn't
-  // tear down and reconnect the presence socket.
+  // tear down and reconnect the presence socket. Updated in an effect (not
+  // during render); the ref is only ever read asynchronously, on socket pings.
   const onRoomStateRef = useRef(onRoomState);
-  onRoomStateRef.current = onRoomState;
+  useEffect(() => {
+    onRoomStateRef.current = onRoomState;
+  }, [onRoomState]);
 
   useEffect(() => {
     if (!enabled || !room || !localUser) {
