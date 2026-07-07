@@ -68,7 +68,6 @@ interface PlayerCalls {
   play: number;
   pause: number;
   seeks: number[];
-  rates: (number | null)[];
 }
 
 function createController(options: {
@@ -81,8 +80,6 @@ function createController(options: {
   clearTimeout?: (timeout: ReturnType<typeof setTimeout>) => void;
   onFatalError?: (error: Error) => void;
   remoteStartupGraceMs?: number;
-  fastForwardConfirmSamples?: number;
-  fastForwardCooldownMs?: number;
 }) {
   const controller = new SyncplaySessionController({
     room: ROOM,
@@ -92,8 +89,6 @@ function createController(options: {
     // Tests exercise steady-state arbitration; disable the startup grace unless
     // a test opts in.
     remoteStartupGraceMs: options.remoteStartupGraceMs ?? 0,
-    fastForwardConfirmSamples: options.fastForwardConfirmSamples,
-    fastForwardCooldownMs: options.fastForwardCooldownMs,
     player: {
       getState: () => options.state,
       play: () => {
@@ -109,9 +104,6 @@ function createController(options: {
         options.calls.seeks.push(positionSeconds);
         options.state.currentTime = positionSeconds;
         return "direct";
-      },
-      setPlaybackRate: (rate) => {
-        options.calls.rates.push(rate);
       },
     },
     webSocketFactory: () => {
@@ -151,7 +143,7 @@ function lastState(socket: FakeWebSocket | undefined) {
 describe("SyncplaySessionController", () => {
   test("applies a remote pause to the local player", () => {
     const sockets: FakeWebSocket[] = [];
-    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [], rates: [] };
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
     const state = makeState({ isPlaying: true, currentTime: 30 });
     const controller = createController({ sockets, state, calls });
     controller.connect();
@@ -169,7 +161,7 @@ describe("SyncplaySessionController", () => {
 
   test("ignores a remote pause during the startup grace (so auto-start can begin)", () => {
     const sockets: FakeWebSocket[] = [];
-    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [], rates: [] };
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
     const state = makeState({ isPlaying: true, currentTime: 0 });
     // Clock stays within the grace window; the stale lobby "paused" must not
     // pause our freshly-autoplaying player.
@@ -195,7 +187,7 @@ describe("SyncplaySessionController", () => {
 
   test("applies a remote seek to the local player", () => {
     const sockets: FakeWebSocket[] = [];
-    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [], rates: [] };
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
     const state = makeState({ isPlaying: false, currentTime: 0, duration: 120 });
     const controller = createController({ sockets, state, calls });
     controller.connect();
@@ -218,7 +210,7 @@ describe("SyncplaySessionController", () => {
 
   test("claims a local pause on the next server ping", () => {
     const sockets: FakeWebSocket[] = [];
-    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [], rates: [] };
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
     const state = makeState({ isPlaying: false, currentTime: 30 }); // user just paused
     const controller = createController({ sockets, state, calls });
     controller.connect();
@@ -244,7 +236,7 @@ describe("SyncplaySessionController", () => {
 
   test("does not re-broadcast a pause it applied itself", () => {
     const sockets: FakeWebSocket[] = [];
-    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [], rates: [] };
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
     const state = makeState({ isPlaying: true, currentTime: 30 });
     const controller = createController({ sockets, state, calls });
     controller.connect();
@@ -276,7 +268,7 @@ describe("SyncplaySessionController", () => {
 
   test("claims a user seek to a different position than a recent remote-applied seek", () => {
     const sockets: FakeWebSocket[] = [];
-    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [], rates: [] };
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
     const state = makeState({ isPlaying: true, currentTime: 0, duration: 120 });
     const controller = createController({ sockets, state, calls });
     controller.connect();
@@ -312,7 +304,7 @@ describe("SyncplaySessionController", () => {
 
   test("reconnects after an unexpected socket close", () => {
     const sockets: FakeWebSocket[] = [];
-    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [], rates: [] };
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
     const controller = createController({ sockets, state: makeState(), calls });
     controller.connect();
     sockets[0]?.closeFromServer();
@@ -321,7 +313,7 @@ describe("SyncplaySessionController", () => {
 
   test("does not reconnect after a fatal protocol error", () => {
     const sockets: FakeWebSocket[] = [];
-    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [], rates: [] };
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
     let fatal: Error | null = null;
     const controller = createController({
       sockets,
@@ -342,7 +334,7 @@ describe("SyncplaySessionController", () => {
 
   test("disconnect closes the socket", () => {
     const sockets: FakeWebSocket[] = [];
-    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [], rates: [] };
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
     const controller = createController({ sockets, state: makeState(), calls });
     controller.connect();
     sockets[0]?.open();
@@ -352,7 +344,7 @@ describe("SyncplaySessionController", () => {
 
   test("forwards remote action edges from the protocol to onRemoteAction", () => {
     const sockets: FakeWebSocket[] = [];
-    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [], rates: [] };
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
     const actions: SyncplayRemoteAction[] = [];
     const state = makeState({ isPlaying: true, currentTime: 30 });
     const controller = createController({ sockets, state, calls, actions });
@@ -389,7 +381,7 @@ describe("SyncplaySessionController", () => {
 
   test("a silent drift-correction seek is not a remote action (no doSeek edge)", () => {
     const sockets: FakeWebSocket[] = [];
-    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [], rates: [] };
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
     const actions: SyncplayRemoteAction[] = [];
     // Player is far behind the room, so the threshold seek kicks in without an
     // explicit doSeek from a user.
@@ -410,7 +402,7 @@ describe("SyncplaySessionController", () => {
 
   test("ignores mechanical play/pause events while the stream is (re)loading", () => {
     const sockets: FakeWebSocket[] = [];
-    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [], rates: [] };
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
     // A transcoded seek reloads the stream: the element fires a pause on
     // unload while isLoading is true. That must not be claimed as a user pause.
     const state = makeState({ isPlaying: false, isLoading: true, currentTime: 50 });
@@ -434,7 +426,7 @@ describe("SyncplaySessionController", () => {
 
   test("reports the last stable playstate while the stream reloads (no phantom pause)", () => {
     const sockets: FakeWebSocket[] = [];
-    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [], rates: [] };
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
     const state = makeState({ isPlaying: true, currentTime: 30, duration: 7200 });
     const controller = createController({ sockets, state, calls });
     controller.connect();
@@ -460,206 +452,6 @@ describe("SyncplaySessionController", () => {
     });
     expect(lastState(sockets[0])).toMatchObject({
       playstate: { doSeek: true, paused: false, position: 5000 },
-    });
-  });
-
-  describe("fast-forward mirroring", () => {
-    /** Feeds a remote-authored playing State frame at the given room position. */
-    function sendPlaying(socket: FakeWebSocket | undefined, position: number) {
-      socket?.message({
-        State: {
-          playstate: { paused: false, position, setBy: encodeSyncplayUser(REMOTE_USER) },
-        },
-      });
-    }
-
-    test("mirrors a peer's fast forward, then reverts when the room returns to normal speed", () => {
-      const sockets: FakeWebSocket[] = [];
-      const calls: PlayerCalls = { play: 0, pause: 0, seeks: [], rates: [] };
-      const state = makeState({ isPlaying: true, currentTime: 30, duration: 600 });
-      let clock = 1000;
-      const controller = createController({
-        sockets,
-        state,
-        calls,
-        now: () => clock,
-        fastForwardConfirmSamples: 2,
-      });
-      controller.connect();
-      sockets[0]?.open();
-
-      // Baseline sample, then the room advances 2s of media per 1s of wall
-      // clock (a peer holding for 2x).
-      sendPlaying(sockets[0], 30);
-      clock = 2000;
-      sendPlaying(sockets[0], 32);
-      // One fast sample isn't enough to flip the rate.
-      expect(calls.rates).toEqual([]);
-
-      clock = 3000;
-      sendPlaying(sockets[0], 34);
-      // Two consecutive fast samples: mirror the peer's 2x locally.
-      expect(calls.rates).toEqual([2]);
-
-      // The room returns to real-time speed → revert to the base rate.
-      clock = 4000;
-      sendPlaying(sockets[0], 35);
-      expect(calls.rates).toEqual([2, null]);
-    });
-
-    test("periodic drift-correction seeks don't stop fast-forward detection", () => {
-      const sockets: FakeWebSocket[] = [];
-      const calls: PlayerCalls = { play: 0, pause: 0, seeks: [], rates: [] };
-      // The local player never advances on its own here, so each fast frame is
-      // also far enough behind to trigger a drift-correction seek. Those seeks
-      // must not reset the velocity sampler (the room position is continuous).
-      const state = makeState({ isPlaying: true, currentTime: 30, duration: 600 });
-      let clock = 1000;
-      const controller = createController({
-        sockets,
-        state,
-        calls,
-        now: () => clock,
-        fastForwardConfirmSamples: 2,
-      });
-      controller.connect();
-      sockets[0]?.open();
-
-      sendPlaying(sockets[0], 30);
-      clock = 2000;
-      sendPlaying(sockets[0], 32); // 2s ahead of a static player → drift seek
-      clock = 3000;
-      sendPlaying(sockets[0], 34); // still climbing at 2x
-
-      expect(calls.seeks.length).toBeGreaterThan(0); // drift corrections happened
-      expect(calls.rates).toEqual([2]); // ...but we still recognized the fast forward
-    });
-
-    test("does not mirror while the local user is holding for fast forward", () => {
-      const sockets: FakeWebSocket[] = [];
-      const calls: PlayerCalls = { play: 0, pause: 0, seeks: [], rates: [] };
-      const state = makeState({ isPlaying: true, currentTime: 30, duration: 600 });
-      let clock = 1000;
-      const controller = createController({
-        sockets,
-        state,
-        calls,
-        now: () => clock,
-        fastForwardConfirmSamples: 2,
-      });
-      controller.connect();
-      sockets[0]?.open();
-      controller.setLocalFastForward(true);
-
-      sendPlaying(sockets[0], 30);
-      clock = 2000;
-      sendPlaying(sockets[0], 32);
-      clock = 3000;
-      sendPlaying(sockets[0], 34);
-      clock = 4000;
-      sendPlaying(sockets[0], 36);
-
-      // The local hold owns the rate; the peer sees our accelerated position but
-      // we never mirror our own drive back onto the element.
-      expect(calls.rates).toEqual([]);
-    });
-
-    test("does not re-mirror during the cooldown after a local hold ends", () => {
-      const sockets: FakeWebSocket[] = [];
-      const calls: PlayerCalls = { play: 0, pause: 0, seeks: [], rates: [] };
-      const state = makeState({ isPlaying: true, currentTime: 30, duration: 600 });
-      let clock = 1000;
-      const controller = createController({
-        sockets,
-        state,
-        calls,
-        now: () => clock,
-        fastForwardConfirmSamples: 2,
-        fastForwardCooldownMs: 3000,
-      });
-      controller.connect();
-      sockets[0]?.open();
-
-      controller.setLocalFastForward(true);
-      controller.setLocalFastForward(false); // cooldown starts at clock=1000
-
-      sendPlaying(sockets[0], 30);
-      clock = 2000; // 1s into cooldown
-      sendPlaying(sockets[0], 32);
-      clock = 3000; // 2s into cooldown
-      sendPlaying(sockets[0], 34);
-      expect(calls.rates).toEqual([]); // still cooling down: no mirror
-
-      clock = 4500; // past the 3s cooldown
-      sendPlaying(sockets[0], 37);
-      clock = 5500;
-      sendPlaying(sockets[0], 39);
-      expect(calls.rates).toEqual([2]); // mirrors again once cooled down
-    });
-
-    test("an explicit remote seek is not read as a fast forward", () => {
-      const sockets: FakeWebSocket[] = [];
-      const calls: PlayerCalls = { play: 0, pause: 0, seeks: [], rates: [] };
-      const state = makeState({ isPlaying: true, currentTime: 30, duration: 600 });
-      let clock = 1000;
-      const controller = createController({
-        sockets,
-        state,
-        calls,
-        now: () => clock,
-        fastForwardConfirmSamples: 2,
-      });
-      controller.connect();
-      sockets[0]?.open();
-
-      sendPlaying(sockets[0], 30);
-      clock = 2000;
-      // A large jump carried by an explicit seek is a discontinuity, not a rate.
-      sockets[0]?.message({
-        State: {
-          playstate: {
-            paused: false,
-            position: 130,
-            doSeek: true,
-            setBy: encodeSyncplayUser(REMOTE_USER),
-          },
-        },
-      });
-      clock = 3000;
-      sendPlaying(sockets[0], 131);
-
-      expect(calls.rates).toEqual([]);
-    });
-
-    test("a remote pause stops an active mirror", () => {
-      const sockets: FakeWebSocket[] = [];
-      const calls: PlayerCalls = { play: 0, pause: 0, seeks: [], rates: [] };
-      const state = makeState({ isPlaying: true, currentTime: 30, duration: 600 });
-      let clock = 1000;
-      const controller = createController({
-        sockets,
-        state,
-        calls,
-        now: () => clock,
-        fastForwardConfirmSamples: 2,
-      });
-      controller.connect();
-      sockets[0]?.open();
-
-      sendPlaying(sockets[0], 30);
-      clock = 2000;
-      sendPlaying(sockets[0], 32);
-      clock = 3000;
-      sendPlaying(sockets[0], 34);
-      expect(calls.rates).toEqual([2]);
-
-      clock = 4000;
-      sockets[0]?.message({
-        State: {
-          playstate: { paused: true, position: 34, setBy: encodeSyncplayUser(REMOTE_USER) },
-        },
-      });
-      expect(calls.rates).toEqual([2, null]);
     });
   });
 });

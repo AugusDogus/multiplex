@@ -69,19 +69,6 @@ export interface MediaPlayerState {
   bufferedTime: number;
   playbackRate: PlaybackRate;
   /**
-   * Playback rate the active Watch Together session wants applied, used to
-   * mirror a peer holding for fast forward onto this player. `null` means no
-   * session override, so the element falls back to {@link playbackRate}. Never
-   * persisted — it is transient to a live session.
-   */
-  sessionPlaybackRate: number | null;
-  /**
-   * Whether the local user is currently holding the video surface for fast
-   * forward. Surfaced in the store so the Watch Together binding can tell the
-   * session controller to stop mirroring while the user drives the rate.
-   */
-  isLocalFastForward: boolean;
-  /**
    * Seconds of the original timeline that map to `video.currentTime = 0` for
    * the currently loaded stream. Only non-zero for Plex transcoded streams,
    * which we restart at an offset because the transcoder advertises an empty

@@ -66,12 +66,6 @@ export function useSyncplaySession({ actions }: UseSyncplaySessionOptions) {
       play,
       pause,
       seek,
-      // Mirror a peer's fast forward by driving a transient session rate; the
-      // <video> element applies `sessionPlaybackRate` over the user's base rate.
-      setPlaybackRate: (rate) =>
-        useMediaPlayerStore
-          .getState()
-          .updatePlaybackState({ sessionPlaybackRate: rate }),
     }),
     [pause, play, seek],
   );

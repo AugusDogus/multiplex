@@ -139,9 +139,6 @@ export const MediaPlayerVideo = forwardRef<
     const volume = useMediaPlayerStore((state) => state.volume);
     const isMuted = useMediaPlayerStore((state) => state.isMuted);
     const playbackRate = useMediaPlayerStore((state) => state.playbackRate);
-    const sessionPlaybackRate = useMediaPlayerStore(
-      (state) => state.sessionPlaybackRate,
-    );
     const streamOffset = useMediaPlayerStore((state) => state.streamOffset);
     const streamSessionId = useMediaPlayerStore(
       (state) => state.streamSessionId,
@@ -289,7 +286,7 @@ export const MediaPlayerVideo = forwardRef<
         );
         ref.current.volume = volume;
         ref.current.muted = isMuted;
-        ref.current.playbackRate = sessionPlaybackRate ?? playbackRate;
+        ref.current.playbackRate = playbackRate;
       }
     }, [
       applyResumeSeekOnMetadata,
@@ -298,7 +295,6 @@ export const MediaPlayerVideo = forwardRef<
       volume,
       isMuted,
       playbackRate,
-      sessionPlaybackRate,
     ]);
 
     // Handle video play event
@@ -489,19 +485,10 @@ export const MediaPlayerVideo = forwardRef<
       [ref],
     );
 
-    // A Watch Together session can mirror a peer's fast forward via
-    // `sessionPlaybackRate`; it overrides the user's own base rate while set.
     useEffect(() => {
       if (!videoElementRef.current) return;
-      videoElementRef.current.playbackRate =
-        sessionPlaybackRate ?? playbackRate;
-    }, [playbackRate, sessionPlaybackRate]);
-
-    // Surface the local hold gesture so the Watch Together binding can pause
-    // rate mirroring while the user drives the rate themselves.
-    useEffect(() => {
-      updatePlaybackState({ isLocalFastForward: isHoldingFastForward });
-    }, [isHoldingFastForward, updatePlaybackState]);
+      videoElementRef.current.playbackRate = playbackRate;
+    }, [playbackRate]);
 
     // Wheel-to-volume on desktop. The listener lives on the surface div (not
     // the <video>, which has `pointer-events: none` to let the surface own
@@ -556,18 +543,6 @@ export const MediaPlayerVideo = forwardRef<
         });
       }
     }, [ref, updatePlaybackState, usesOffsetTimeline]);
-
-    // The follower of a peer's hold-for-2x mirrors the rate via
-    // `sessionPlaybackRate`; show the same badge so they know why playback sped
-    // up. The local hold takes precedence in the label.
-    const followingFastForward =
-      !isHoldingFastForward &&
-      sessionPlaybackRate !== null &&
-      sessionPlaybackRate > 1;
-    const showFastForwardBadge = isHoldingFastForward || followingFastForward;
-    const fastForwardBadgeRate = isHoldingFastForward
-      ? HOLD_PLAYBACK_RATE
-      : sessionPlaybackRate;
 
     if (hasError || !videoSrc) {
       return (
@@ -645,7 +620,7 @@ export const MediaPlayerVideo = forwardRef<
           )}
         </video>
 
-        {showFastForwardBadge && (
+        {isHoldingFastForward && (
           <div
             className="pointer-events-none absolute top-6 left-1/2 z-50 -translate-x-1/2"
             role="status"
@@ -653,7 +628,7 @@ export const MediaPlayerVideo = forwardRef<
           >
             <div className="flex items-center gap-2 rounded-full bg-black/70 px-4 py-2 text-white shadow-lg ring-1 ring-white/20">
               <span className="text-sm font-semibold">
-                {fastForwardBadgeRate}x
+                {HOLD_PLAYBACK_RATE}x
               </span>
               <FastForward
                 className="h-4 w-4 fill-white"

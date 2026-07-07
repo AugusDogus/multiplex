@@ -30,33 +30,6 @@ const PENDING_SEEK_MAX_MS = 15000;
 // right after.
 const DEFAULT_REMOTE_STARTUP_GRACE_MS = 5000;
 
-// "Hold for 2x" is a local-only change to the <video>'s playbackRate, so
-// Syncplay never carries a rate. But when a peer holds, their playhead advances
-// faster and the room's shared position (which Plex relays from the participants'
-// reports) climbs at ~2x wall-clock. We infer that from the position stream and
-// mirror the rate locally so a follower plays smooth 2x instead of getting
-// repeatedly seek-corrected. This stays entirely within the Syncplay position
-// channel — nothing new is sent — so if the room position never speeds up it
-// simply never triggers.
-const DEFAULT_FAST_FORWARD_RATE = 2;
-// Sustained room-position velocity (× real time) that turns mirroring on/off.
-// The gap is a deadband so normal ~1x jitter can't flap the rate.
-const DEFAULT_FAST_FORWARD_ENTER_VELOCITY = 1.5;
-const DEFAULT_FAST_FORWARD_EXIT_VELOCITY = 1.25;
-// Consecutive fast samples required before mirroring, so a single noisy ping
-// doesn't briefly double the rate.
-const DEFAULT_FAST_FORWARD_CONFIRM_SAMPLES = 2;
-// After the local user stops holding, the room's position keeps arriving from
-// our own trailing fast reports for a ping or two; ignore velocity during this
-// window so releasing doesn't immediately re-accelerate us.
-const DEFAULT_FAST_FORWARD_COOLDOWN_MS = 3000;
-// Reject velocity samples from stale/bursty frame gaps (State pings are ~1s).
-const FAST_FORWARD_MIN_SAMPLE_DT_SECONDS = 0.2;
-const FAST_FORWARD_MAX_SAMPLE_DT_SECONDS = 6;
-// A jump larger than fast-forward could plausibly produce is a seek, not a
-// hold; don't read it as velocity.
-const FAST_FORWARD_JUMP_MARGIN_SECONDS = 2;
-
 export type SyncplaySeekResult = "direct" | "reload" | "none";
 
 export interface SyncplayPlayerState {
@@ -73,12 +46,6 @@ export interface SyncplayPlayerAdapter {
   play: () => boolean | Promise<boolean>;
   pause: () => void;
   seek: (positionSeconds: number) => SyncplaySeekResult;
-  /**
-   * Apply a session-driven playback rate to mirror a peer holding for fast
-   * forward. `null` clears the override so the player falls back to the user's
-   * own base rate. Only ever called with a rate the local user did not choose.
-   */
-  setPlaybackRate: (rate: number | null) => void;
 }
 
 export interface SyncplaySessionControllerOptions {
@@ -104,16 +71,6 @@ export interface SyncplaySessionControllerOptions {
   remoteEventSuppressionMs?: number;
   remoteStartupGraceMs?: number;
   reconnectDelayMs?: number;
-  fastForwardRate?: number;
-  fastForwardEnterVelocity?: number;
-  fastForwardExitVelocity?: number;
-  fastForwardConfirmSamples?: number;
-  fastForwardCooldownMs?: number;
-}
-
-interface RateSample {
-  time: number;
-  positionSeconds: number;
 }
 
 interface SuppressedPlayPause {
@@ -160,16 +117,6 @@ export class SyncplaySessionController {
   // Plex client keeps reporting the intended playstate; mirroring that keeps a
   // buffering client from dragging the whole room into a phantom pause.
   private lastStableIsPaused: boolean | null = null;
-  // Fast-forward mirroring: whether the local user is currently holding for 2x
-  // (they own the rate, so we don't infer/mirror), whether we're currently
-  // mirroring a peer's fast forward, the previous room-position sample used to
-  // measure velocity, a run length of consecutive "fast" samples, and when the
-  // local hold last ended (for the post-release cooldown).
-  private localFastForward = false;
-  private mirroringFastForward = false;
-  private lastRateSample: RateSample | null = null;
-  private consecutiveFastSamples = 0;
-  private localFastForwardEndedAt = Number.NEGATIVE_INFINITY;
   private readonly now: () => number;
   private readonly setTimer: NonNullable<SyncplaySessionControllerOptions["setTimeout"]>;
   private readonly clearTimer: NonNullable<SyncplaySessionControllerOptions["clearTimeout"]>;
@@ -189,10 +136,6 @@ export class SyncplaySessionController {
     this.suppressedPlayPause = null;
     this.suppressedSeek = null;
     this.lastStableIsPaused = null;
-    this.localFastForward = false;
-    this.localFastForwardEndedAt = Number.NEGATIVE_INFINITY;
-    this.resetRateSampler();
-    this.stopMirroringFastForward();
     this.connectClient();
   }
 
@@ -202,10 +145,6 @@ export class SyncplaySessionController {
     this.clearPendingRemoteSeek();
     this.suppressedPlayPause = null;
     this.suppressedSeek = null;
-    // Leave nothing accelerated behind us: a lingering 2x would otherwise
-    // outlive the session.
-    this.stopMirroringFastForward();
-    this.resetRateSampler();
   }
 
   setReady(isReady: boolean | null): void {
@@ -244,28 +183,6 @@ export class SyncplaySessionController {
       return;
     }
     this.client?.markLocalSeek();
-  }
-
-  /**
-   * Note whether the local user is holding for fast forward. While they are, we
-   * let their own gesture own the playback rate and never mirror (the peer sees
-   * our accelerated position through normal reports). On release we start a
-   * cooldown so our own trailing fast position reports don't bounce us straight
-   * back into mirroring.
-   */
-  setLocalFastForward(active: boolean): void {
-    if (active === this.localFastForward) {
-      return;
-    }
-    this.localFastForward = active;
-    this.resetRateSampler();
-    if (active) {
-      // The gesture is about to drive the element's rate; drop any mirror we
-      // were applying so the two don't fight.
-      this.stopMirroringFastForward();
-    } else {
-      this.localFastForwardEndedAt = this.now();
-    }
   }
 
   private connectClient(): void {
@@ -350,8 +267,6 @@ export class SyncplaySessionController {
   private applyRemoteState(state: SyncplayPlaybackState): void {
     const playerState = this.options.player.getState();
     if (playerState.error) {
-      this.resetRateSampler();
-      this.stopMirroringFastForward();
       return;
     }
 
@@ -363,14 +278,6 @@ export class SyncplaySessionController {
         (this.options.seekAheadThresholdSeconds ?? DEFAULT_SEEK_AHEAD_THRESHOLD_SECONDS) ||
       diffSeconds <=
         (this.options.seekBehindThresholdSeconds ?? DEFAULT_SEEK_BEHIND_THRESHOLD_SECONDS);
-
-    // Track how fast the room's playhead is moving to detect (and mirror) a
-    // peer holding for fast forward. Only an explicit remote seek is a
-    // room-position discontinuity; our own drift-correction seeks keep chasing a
-    // continuously advancing room position, so they must NOT reset the sampler
-    // (else the periodic catch-up seeks during a 2x hold would stop us ever
-    // recognizing the fast forward).
-    this.updateFastForwardMirror(targetPosition, state.isPaused, state.shouldSeek);
 
     if (shouldSeek) {
       // Only attempt the seek once we have a duration; `"none"` means the player
@@ -464,117 +371,6 @@ export class SyncplaySessionController {
       this.clearTimer(this.pendingRemoteSeekTimer);
       this.pendingRemoteSeekTimer = null;
     }
-  }
-
-  /**
-   * Measure the room playhead's velocity across State frames and mirror a
-   * sustained fast-forward onto the local player, so a follower plays smooth 2x
-   * instead of being repeatedly seek-corrected. Reverts to the user's base rate
-   * once the room returns to real-time speed.
-   */
-  private updateFastForwardMirror(
-    positionSeconds: number,
-    isPaused: boolean,
-    seeked: boolean,
-  ): void {
-    // A pause or a seek breaks the continuous playback we measure velocity
-    // over; drop the sample and any active mirror.
-    if (isPaused || seeked) {
-      this.resetRateSampler();
-      this.stopMirroringFastForward();
-      return;
-    }
-
-    const nowTime = this.now();
-    const previous = this.lastRateSample;
-    this.lastRateSample = { time: nowTime, positionSeconds };
-
-    // While the local user drives the rate themselves, keep sampling (so the
-    // baseline is fresh when they release) but never mirror.
-    if (this.localFastForward) {
-      this.consecutiveFastSamples = 0;
-      return;
-    }
-
-    if (!previous) {
-      return;
-    }
-
-    const dtSeconds = (nowTime - previous.time) / 1000;
-    if (
-      dtSeconds < FAST_FORWARD_MIN_SAMPLE_DT_SECONDS ||
-      dtSeconds > FAST_FORWARD_MAX_SAMPLE_DT_SECONDS
-    ) {
-      this.consecutiveFastSamples = 0;
-      return;
-    }
-
-    const advanceSeconds = positionSeconds - previous.positionSeconds;
-    // A rewind or a jump larger than fast forward can explain is a seek we
-    // haven't been told about, not a rate.
-    if (
-      advanceSeconds < 0 ||
-      advanceSeconds > dtSeconds * this.fastForwardRate + FAST_FORWARD_JUMP_MARGIN_SECONDS
-    ) {
-      this.consecutiveFastSamples = 0;
-      return;
-    }
-
-    const velocity = advanceSeconds / dtSeconds;
-    const enterVelocity =
-      this.options.fastForwardEnterVelocity ?? DEFAULT_FAST_FORWARD_ENTER_VELOCITY;
-    const exitVelocity = this.options.fastForwardExitVelocity ?? DEFAULT_FAST_FORWARD_EXIT_VELOCITY;
-
-    if (velocity <= exitVelocity) {
-      this.consecutiveFastSamples = 0;
-      this.stopMirroringFastForward();
-      return;
-    }
-
-    if (velocity < enterVelocity) {
-      // In the deadband: hold whatever we're doing without flapping.
-      return;
-    }
-
-    // Right after the local user releases a hold, our own trailing fast reports
-    // keep the room velocity high for a ping or two — ignore them.
-    const cooldownMs = this.options.fastForwardCooldownMs ?? DEFAULT_FAST_FORWARD_COOLDOWN_MS;
-    if (nowTime - this.localFastForwardEndedAt < cooldownMs) {
-      return;
-    }
-
-    this.consecutiveFastSamples += 1;
-    const confirmSamples =
-      this.options.fastForwardConfirmSamples ?? DEFAULT_FAST_FORWARD_CONFIRM_SAMPLES;
-    if (this.consecutiveFastSamples >= confirmSamples) {
-      this.startMirroringFastForward();
-    }
-  }
-
-  private startMirroringFastForward(): void {
-    if (this.mirroringFastForward) {
-      return;
-    }
-    this.mirroringFastForward = true;
-    this.options.player.setPlaybackRate(this.fastForwardRate);
-  }
-
-  private stopMirroringFastForward(): void {
-    if (!this.mirroringFastForward) {
-      return;
-    }
-    this.mirroringFastForward = false;
-    this.consecutiveFastSamples = 0;
-    this.options.player.setPlaybackRate(null);
-  }
-
-  private resetRateSampler(): void {
-    this.lastRateSample = null;
-    this.consecutiveFastSamples = 0;
-  }
-
-  private get fastForwardRate(): number {
-    return this.options.fastForwardRate ?? DEFAULT_FAST_FORWARD_RATE;
   }
 
   private getCurrentState(): SyncplayStateInput {
