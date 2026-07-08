@@ -323,6 +323,12 @@ export function useWatchTogetherAutoAdvance({
         return;
       }
 
+      // Re-learn presence from scratch on every (re)connect: leaves that
+      // happened while the socket was down never produced an
+      // `isPresent: false` frame, so carrying the old map over could count a
+      // departed participant as gathered and swap early.
+      setNextRoomParticipants({});
+
       const nextClient = new SyncplayClient({
         room: {
           id: nextRoom.id,
