@@ -442,10 +442,13 @@ export function useWatchTogetherAutoAdvance({
       viewOffset: 0,
     };
 
-    // Session first, then the player, in the same batch: the Syncplay session
-    // hook tears down bindings whose session doesn't match the playing item,
-    // so the two must change together. Everyone starts the next episode from
-    // the beginning (resume: false), staying in sync.
+    // The session and the player must change together: useSyncplaySession
+    // clears any session whose room source doesn't match the playing item, so
+    // observing one update without the other (in either order) would tear the
+    // new session down. Both calls run synchronously inside this effect, so
+    // React batches them into a single re-render and effects only ever see
+    // the consistent (next room, next item) pair. Everyone starts the next
+    // episode from the beginning (resume: false), staying in sync.
     setSession({ room: nextRoom, localUser: session.localUser });
     openPlayer(nextItem, { resume: false });
 
