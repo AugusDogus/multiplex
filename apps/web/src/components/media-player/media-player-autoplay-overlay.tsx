@@ -15,6 +15,12 @@ interface MediaPlayerAutoPlayOverlayProps {
   isCountingDown: boolean;
   countdownSeconds: number;
   nextEpisode: NextEpisodeInfo | null;
+  /**
+   * Hide the Cancel / Play Now buttons. Watch Together auto-advance is a
+   * group action driven by the room, so an individual can't cancel or skip
+   * ahead — the overlay is purely informational there.
+   */
+  showActions?: boolean;
 }
 
 /**
@@ -25,6 +31,7 @@ export function MediaPlayerAutoPlayOverlay({
   isCountingDown,
   countdownSeconds,
   nextEpisode,
+  showActions = true,
 }: MediaPlayerAutoPlayOverlayProps) {
   const { cancelAutoPlay, triggerAutoPlay } = useMediaPlayerStore();
 
@@ -63,19 +70,21 @@ export function MediaPlayerAutoPlayOverlay({
           </div>
         </div>
 
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleCancel}
-            className="flex-1 border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white"
-          >
-            Cancel
-          </Button>
-          <Button size="sm" onClick={handlePlayNow} className="flex-1">
-            Play Now
-          </Button>
-        </div>
+        {showActions && (
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCancel}
+              className="flex-1 border-white/30 bg-transparent text-white hover:bg-white/10 hover:text-white"
+            >
+              Cancel
+            </Button>
+            <Button size="sm" onClick={handlePlayNow} className="flex-1">
+              Play Now
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -21,6 +21,7 @@ import {
   PlexUserAvatar,
 } from "~/components/watch-together/plex-user-avatar";
 import { useWatchTogetherLobbyPresence } from "~/components/watch-together/use-watch-together-lobby-presence";
+import { MULTIPLEX_SYNCPLAY_DEVICE_NAME } from "~/components/watch-together/watch-together-auto-advance";
 import { WatchTogetherLobbyInviteDialog } from "~/components/watch-together/watch-together-lobby-invite-dialog";
 import { useWatchTogetherRoomMedia } from "~/components/watch-together/use-watch-together-room-media";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
@@ -83,7 +84,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     return {
       id: localUserId,
       deviceIdentifier: getPlexClientIdentifier(),
-      deviceName: "Multiplex Web",
+      deviceName: MULTIPLEX_SYNCPLAY_DEVICE_NAME,
     };
   }, [localUserId]);
 

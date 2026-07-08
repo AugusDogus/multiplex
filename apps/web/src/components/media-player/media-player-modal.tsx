@@ -24,6 +24,7 @@ import { usePlayQueue } from "./hooks/use-play-queue";
 import { useSyncplaySession } from "./hooks/use-syncplay-session";
 import { useTimelineUpdates } from "./hooks/use-timeline-updates";
 import { useAutoPlayNextEpisode } from "./hooks/use-auto-play-next-episode";
+import { useWatchTogetherAutoAdvance } from "./hooks/use-watch-together-auto-advance";
 import { useMobileVideoChrome } from "./hooks/use-mobile-video-chrome";
 import type { MobileSeekZone } from "./hooks/use-mobile-video-chrome";
 import { MediaPlayerCenterControls } from "./media-player-center-controls";
@@ -176,8 +177,15 @@ export function MediaPlayerModal() {
     onLocalSeeked: onSyncplayLocalSeeked,
     isActive: isSyncplayActive,
   } = useSyncplaySession({ actions });
-  const { autoPlayState } = useAutoPlayNextEpisode({
+  const { autoPlayState, nextEpisode } = useAutoPlayNextEpisode({
     enabled: !isSyncplayActive,
+  });
+  // Watch Together sessions can't use solo autoplay (a lone client switching
+  // items would desync the room), so they rotate the whole party into a new
+  // room for the next episode instead — seamlessly, without leaving the modal.
+  const watchTogetherAutoAdvance = useWatchTogetherAutoAdvance({
+    enabled: isSyncplayActive,
+    nextEpisode,
   });
 
   const handleVideoPlay = useCallback(() => {
@@ -485,9 +493,22 @@ export function MediaPlayerModal() {
               />
 
               <MediaPlayerAutoPlayOverlay
-                isCountingDown={autoPlayState.isCountingDown}
-                countdownSeconds={autoPlayState.countdownSeconds}
-                nextEpisode={autoPlayState.nextEpisode}
+                isCountingDown={
+                  isSyncplayActive
+                    ? watchTogetherAutoAdvance.isCountingDown
+                    : autoPlayState.isCountingDown
+                }
+                countdownSeconds={
+                  isSyncplayActive
+                    ? watchTogetherAutoAdvance.countdownSeconds
+                    : autoPlayState.countdownSeconds
+                }
+                nextEpisode={
+                  isSyncplayActive
+                    ? watchTogetherAutoAdvance.nextEpisode
+                    : autoPlayState.nextEpisode
+                }
+                showActions={!isSyncplayActive}
               />
 
               {isMobile ? (
