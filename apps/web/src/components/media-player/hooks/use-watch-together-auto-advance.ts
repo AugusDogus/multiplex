@@ -184,6 +184,25 @@ export function useWatchTogetherAutoAdvance({
     }
   }, [armed, nextRoom, swapped, rooms, session, currentItem, nextEpisode]);
 
+  // Prefetch the next episode's full metadata (Media/Part/Stream) while the
+  // protocol is armed, so the swap can hand the player a directly playable
+  // item — the stream URL builds immediately instead of erroring until the
+  // settings menu's metadata hydration kicks in.
+  const nextMetadataQuery = api.plex.getItemMetadata.useQuery(
+    {
+      serverId: currentItem?.serverId ?? "",
+      ratingKey: nextEpisode?.ratingKey ?? "",
+    },
+    {
+      enabled: armed && Boolean(currentItem?.serverId && nextEpisode),
+      staleTime: 5 * 60 * 1000,
+    },
+  );
+  const nextEpisodeMetadata =
+    nextMetadataQuery.data?.ratingKey === nextEpisode?.ratingKey
+      ? nextMetadataQuery.data
+      : undefined;
+
   const createRoomMutation = api.plex.createWatchTogetherRoom.useMutation({
     onSuccess: (room) => {
       setNextRoom(room);
@@ -364,10 +383,16 @@ export function useWatchTogetherAutoAdvance({
 
     const previousRoomId = session.room.id;
     // Same item shape solo autoplay builds: keep the shared server/library
-    // fields, drop the previous episode's stale Media/stream metadata.
+    // fields, drop the previous episode's stale Media/stream metadata, and —
+    // when the prefetch landed — substitute the next episode's full metadata
+    // so playback starts without waiting for hydration.
     const nextItem: MediaPlayerItem = {
       ...currentItem,
       Media: undefined,
+      ...nextEpisodeMetadata,
+      serverId: currentItem.serverId,
+      serverUrl: currentItem.serverUrl,
+      authToken: currentItem.authToken,
       ratingKey: nextEpisode.ratingKey,
       key: nextEpisode.key,
       title: nextEpisode.title,
@@ -413,6 +438,7 @@ export function useWatchTogetherAutoAdvance({
     participants,
     nextRoomParticipants,
     graceElapsed,
+    nextEpisodeMetadata,
     setSession,
     openPlayer,
     deletePreviousRoom,
