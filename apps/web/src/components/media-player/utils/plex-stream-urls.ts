@@ -78,7 +78,7 @@ function applyUniversalTranscodeProfile(
   );
 }
 
-function buildDirectPlayUrl(
+export function buildDirectPlayUrl(
   item: MediaPlayerItem,
   serverUrl: string,
   authToken: string,

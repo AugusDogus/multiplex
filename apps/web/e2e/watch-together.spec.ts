@@ -296,9 +296,11 @@ test("a host seek propagates to the guest", async ({ browser, baseURL }) => {
         new KeyboardEvent("keydown", { code: "Digit8", bubbles: true }),
       );
     });
-    // We seek transcoded streams by reloading at a new `offset`, so the guest
-    // following the seek shows up as its stream reloading at ~the same offset
-    // (the raw <video>.currentTime restarts near 0 for the new offset stream).
+    // The guest's effective position depends on the playback path:
+    // - Plex transcode: seeks reload the stream at a new `offset` URL param
+    //   (the raw <video>.currentTime restarts near 0 for the new stream).
+    // - Client remux / direct play: the real timeline is seekable, so
+    //   currentTime itself jumps to the target.
     await expect
       .poll(
         () =>
@@ -306,7 +308,8 @@ test("a host seek propagates to the guest", async ({ browser, baseURL }) => {
             .locator("video")
             .evaluate((v: HTMLVideoElement) => {
               const match = /[?&]offset=(\d+)/.exec(v.currentSrc);
-              return match ? Number(match[1]) : 0;
+              const urlOffset = match ? Number(match[1]) : 0;
+              return Math.max(urlOffset, v.currentTime);
             })
             .catch(() => 0),
         { message: "guest should follow the host's seek", timeout: 60_000 },

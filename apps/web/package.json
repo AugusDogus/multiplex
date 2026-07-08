@@ -24,6 +24,8 @@
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",
+    "@mediabunny/aac-encoder": "^1.50.3",
+    "@mediabunny/ac3": "^1.50.3",
     "@multiplex/auth-plugin-plex": "workspace:*",
     "@multiplex/plex-query": "workspace:*",
     "@radix-ui/react-dialog": "^1.1.14",
@@ -39,6 +41,7 @@
     "cmdk": "^1.1.1",
     "drizzle-orm": "^0.41.0",
     "lucide-react": "^0.518.0",
+    "mediabunny": "^1.50.3",
     "next": "^16.3.0-preview.5",
     "next-themes": "^0.4.6",
     "radix-ui": "^1.4.2",
