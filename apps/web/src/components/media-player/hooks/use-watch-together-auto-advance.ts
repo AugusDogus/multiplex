@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   SyncplayClient,
   type SyncplayParticipantState,
@@ -13,6 +14,7 @@ import {
   haveMultiplexParticipantsJoined,
   mergeParticipantState,
 } from "~/components/watch-together/watch-together-auto-advance";
+import { getWatchTogetherRoomHref } from "~/lib/watch-together-source";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { useWatchTogetherStore } from "~/stores/watch-together-store";
 import type { MediaPlayerItem, NextEpisodeInfo } from "~/types/media-player";
@@ -94,6 +96,7 @@ export function useWatchTogetherAutoAdvance({
     (state) => state.autoPlay.isEnabled,
   );
   const utils = api.useUtils();
+  const router = useRouter();
 
   const localUser = session?.localUser ?? null;
   const active = Boolean(
@@ -389,6 +392,16 @@ export function useWatchTogetherAutoAdvance({
     // The previous room served its purpose; drop it from this user's room
     // list (per-user removal — official clients still finishing keep theirs).
     deletePreviousRoom({ roomId: previousRoomId });
+
+    // The page under the modal is usually the previous room's lobby, which is
+    // now gone. Silently move it to the next room's lobby (the modal stays on
+    // top, so nothing flashes), so closing the player later doesn't strand the
+    // viewer on a dead room page. (One-shot imperative check — window.location
+    // rather than usePathname(), which the statically prerendered root layout
+    // can't read outside a Suspense boundary.)
+    if (window.location.pathname === getWatchTogetherRoomHref(previousRoomId)) {
+      router.replace(getWatchTogetherRoomHref(nextRoom.id));
+    }
   }, [
     armed,
     swapped,
@@ -403,6 +416,7 @@ export function useWatchTogetherAutoAdvance({
     setSession,
     openPlayer,
     deletePreviousRoom,
+    router,
   ]);
 
   return {

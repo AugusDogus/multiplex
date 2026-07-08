@@ -1,0 +1,279 @@
+import { test, expect, type Page } from "@playwright/test";
+import {
+  disbandRoom,
+  expectPlayingAndAdvancing,
+  openItemDetails,
+  setupSyncedRoom,
+} from "./helpers/watch-together";
+
+// Runs against a live Plex server with two real accounts; keep it sequential
+// with the rest of the Watch Together suite (shared rooms, one server).
+test.describe.configure({ mode: "serial" });
+
+interface EpisodePick {
+  href: string;
+  serverId: string;
+  ratingKey: string;
+  title: string;
+  durationMs: number;
+  next: { ratingKey: string; title: string };
+}
+
+interface PlayQueueItemShape {
+  ratingKey?: string;
+  title?: string;
+  duration?: number;
+}
+
+/**
+ * Finds an episode on the home page whose continuous play queue has a next
+ * episode, using the app's own tRPC endpoint (authenticated via the page's
+ * session), so the test doesn't hardcode library contents.
+ */
+async function pickEpisodeWithNext(page: Page): Promise<EpisodePick> {
+  await page.goto("/");
+  const links = page.locator('a[href*="/item/episode/"]');
+  await expect(links.first()).toBeVisible({ timeout: 30_000 });
+  const hrefs = [
+    ...new Set(
+      await links.evaluateAll((anchors) =>
+        anchors.map((a) => a.getAttribute("href")),
+      ),
+    ),
+  ].filter((href): href is string => Boolean(href));
+
+  for (const href of hrefs) {
+    const match = /\/item\/episode\/([^/]+)\/(\d+)/.exec(href);
+    if (!match) continue;
+    const [, serverId, ratingKey] = match;
+
+    const response = await page.request.post(
+      "/api/trpc/plex.createPlayQueue?batch=1",
+      {
+        data: {
+          "0": {
+            json: {
+              serverId,
+              type: "video",
+              uri: `server://${serverId}/com.plexapp.plugins.library/library/metadata/${ratingKey}`,
+              continuous: true,
+              includeMarkers: true,
+              includeChapters: true,
+              shuffle: false,
+              repeat: 0,
+            },
+          },
+        },
+        headers: { "content-type": "application/json" },
+      },
+    );
+    const body = (await response.json().catch(() => null)) as
+      | {
+          result?: {
+            data?: {
+              json?: { MediaContainer?: { Metadata?: PlayQueueItemShape[] } };
+            };
+          };
+        }[]
+      | null;
+    const items = body?.[0]?.result?.data?.json?.MediaContainer?.Metadata ?? [];
+    const index = items.findIndex((item) => item.ratingKey === ratingKey);
+    const current = index >= 0 ? items[index] : undefined;
+    const next = index >= 0 ? items[index + 1] : undefined;
+    if (
+      current?.duration &&
+      next?.ratingKey &&
+      serverId !== undefined &&
+      ratingKey !== undefined
+    ) {
+      return {
+        href,
+        serverId,
+        ratingKey,
+        title: current.title ?? "",
+        durationMs: current.duration,
+        next: { ratingKey: next.ratingKey, title: next.title ?? "" },
+      };
+    }
+  }
+
+  throw new Error("no home episode with a next episode in its play queue");
+}
+
+/** Dispatches a player keyboard shortcut on the document (see seek test). */
+async function pressPlayerKey(page: Page, code: string, shiftKey = false) {
+  await page.evaluate(
+    ({ code, shiftKey }) => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { code, shiftKey, bubbles: true }),
+      );
+    },
+    { code, shiftKey },
+  );
+}
+
+/** The viewer's full-timeline playback position (transcode offset + local). */
+async function playbackPosition(page: Page): Promise<number> {
+  return page
+    .locator("video")
+    .evaluate((el: HTMLVideoElement) => {
+      const match = /[?&]offset=(\d+(?:\.\d+)?)/.exec(el.currentSrc);
+      const offset = match ? Number(match[1]) : 0;
+      return offset + el.currentTime;
+    })
+    .catch(() => 0);
+}
+
+/** The rating key of the episode the player is currently streaming. */
+async function playingRatingKey(page: Page): Promise<string | null> {
+  return page
+    .locator("video")
+    .evaluate((el: HTMLVideoElement) => {
+      const match = /\/library\/metadata\/(\d+)/.exec(
+        decodeURIComponent(el.currentSrc),
+      );
+      return match?.[1] ?? null;
+    })
+    .catch(() => null);
+}
+
+test("a session auto-advances both viewers to the next episode without leaving the player", async ({
+  browser,
+  baseURL,
+}) => {
+  // Two live transcodes, a near-end seek, a real episode ending, and a second
+  // pair of transcodes for the next episode: give it plenty of room.
+  test.setTimeout(600_000);
+
+  // The host picks an episode that verifiably has a next episode.
+  let episode: EpisodePick | undefined;
+  const { host, guest, hostContext, cleanup } = await setupSyncedRoom(
+    browser,
+    baseURL,
+    {
+      // Optional demo captures of the whole flow (E2E_RECORD_DIR=<dir>).
+      recordVideoDir: process.env.E2E_RECORD_DIR,
+      openDetails: async (page) => {
+        episode = await pickEpisodeWithNext(page);
+        console.error(
+          `E2E step: picked episode ${episode.title} (${episode.ratingKey}) -> next ${episode.next.title} (${episode.next.ratingKey})`,
+        );
+        await openItemDetails(page, episode.href);
+      },
+    },
+  );
+
+  try {
+    expect(episode, "an episode with a next episode").toBeTruthy();
+    const durationSeconds = episode!.durationMs / 1000;
+
+    // Seek close to the end through the app's real seek path (keyboard
+    // shortcuts -> transcode reload), pacing the skips so each reload settles.
+    console.error("E2E step: host seeks to 90%");
+    await pressPlayerKey(host, "Digit9");
+    await expectPlayingAndAdvancing(host, "host after 90% seek");
+
+    const seekDeadline = Date.now() + 120_000;
+    for (;;) {
+      const remaining = durationSeconds - (await playbackPosition(host));
+      console.error(`E2E step: host remaining ~${Math.round(remaining)}s`);
+      // Land inside the auto-advance lead window (<=45s) but above the
+      // countdown, so the whole arm -> create -> discover flow gets exercised.
+      if (remaining <= 40) {
+        break;
+      }
+      if (Date.now() > seekDeadline) {
+        throw new Error("could not get near the episode end in time");
+      }
+      await pressPlayerKey(host, "ArrowRight", remaining > 75);
+      await host.waitForTimeout(5_000);
+    }
+
+    // The guest follows the seek (their own remaining time drops too).
+    await expect
+      .poll(async () => durationSeconds - (await playbackPosition(guest)), {
+        message: "guest should follow the host near the end",
+        timeout: 60_000,
+      })
+      .toBeLessThan(60);
+
+    // Both players must swap to the next episode's stream, and the player
+    // modal must never close (no lobby flash): the <video> stays mounted.
+    console.error("E2E step: waiting for auto-advance on both viewers");
+    const swapDeadline = Date.now() + 180_000;
+    for (;;) {
+      const [hostKey, guestKey] = await Promise.all([
+        playingRatingKey(host),
+        playingRatingKey(guest),
+      ]);
+      await Promise.all(
+        [[host, "host"] as const, [guest, "guest"] as const].map(
+          async ([page, label]) => {
+            await expect(
+              page.locator("video"),
+              `${label}: player must stay open through the swap`,
+            ).toBeVisible();
+          },
+        ),
+      );
+      if (
+        hostKey === episode!.next.ratingKey &&
+        guestKey === episode!.next.ratingKey
+      ) {
+        break;
+      }
+      if (Date.now() > swapDeadline) {
+        throw new Error(
+          `auto-advance never happened (host=${hostKey}, guest=${guestKey}, expected=${episode!.next.ratingKey})`,
+        );
+      }
+      await host.waitForTimeout(2_500);
+    }
+    console.error("E2E step: both viewers are on the next episode");
+
+    // ...and the next episode actually plays for both.
+    await Promise.all([
+      expectPlayingAndAdvancing(host, "host next episode"),
+      expectPlayingAndAdvancing(guest, "guest next episode"),
+    ]);
+    console.error("E2E step: next episode playing on both viewers");
+
+    // Hold for a moment of stable post-swap playback: catches an immediate
+    // post-swap crash and leaves recordings/traces showing the episode
+    // actually running.
+    await host.waitForTimeout(8_000);
+    await expect(host.locator("video")).toBeVisible();
+    await expect(guest.locator("video")).toBeVisible();
+  } finally {
+    // Disband whatever rooms this test left behind (the original room is
+    // usually already removed by the rotation; the next-episode room isn't).
+    const rooms = await hostContext.request
+      .get(
+        "/api/trpc/plex.getWatchTogetherRooms?batch=1&input=" +
+          encodeURIComponent(JSON.stringify({ 0: { json: null } })),
+      )
+      .then(
+        (response) =>
+          response.json() as Promise<
+            {
+              result?: {
+                data?: { json?: { id: string; sourceUri: string }[] };
+              };
+            }[]
+          >,
+      )
+      .catch(() => null);
+    for (const room of rooms?.[0]?.result?.data?.json ?? []) {
+      if (
+        episode &&
+        (room.sourceUri.endsWith(`/library/metadata/${episode.ratingKey}`) ||
+          room.sourceUri.endsWith(
+            `/library/metadata/${episode.next.ratingKey}`,
+          ))
+      ) {
+        await disbandRoom(hostContext, room.id);
+      }
+    }
+    await cleanup();
+  }
+});
