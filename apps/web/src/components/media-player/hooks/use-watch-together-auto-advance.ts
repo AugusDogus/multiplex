@@ -151,9 +151,14 @@ export function useWatchTogetherAutoAdvance({
   }, [advanceKey, inLeadWindow, armedKey]);
 
   // Discovery: the next room is invited to everyone in the current room, so
-  // it appears in each member's own room list — poll until it shows up.
+  // it appears in each member's own room list — poll until the swap. Polling
+  // continues even after a room has been adopted (and the creator learns its
+  // own room through this same path, not from the create response): if a
+  // failover raced the leader into creating a duplicate, every client keeps
+  // re-evaluating the deterministic winner and converges on the same room
+  // instead of the party splitting across duplicates.
   const roomsQuery = api.plex.getWatchTogetherRooms.useQuery(undefined, {
-    enabled: armed && !nextRoom && !swapped,
+    enabled: armed && !swapped,
     refetchInterval: DISCOVERY_POLL_MS,
     staleTime: 0,
   });
@@ -162,7 +167,6 @@ export function useWatchTogetherAutoAdvance({
   useEffect(() => {
     if (
       !armed ||
-      nextRoom ||
       swapped ||
       !rooms ||
       !session ||
@@ -178,9 +182,14 @@ export function useWatchTogetherAutoAdvance({
       nextRatingKey: nextEpisode.ratingKey,
       currentRoom: session.room,
     });
-    if (match) {
+    // Only ever adopt/replace, never clear: a transiently empty room list
+    // near the episode's end must not un-learn the room mid-swap.
+    if (match && match.id !== nextRoom?.id) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- adopting an async discovery result
       setNextRoom(match);
+      // Presence learned from a replaced room must not satisfy the
+      // everyone-joined check for the new one.
+      setNextRoomParticipants({});
     }
   }, [armed, nextRoom, swapped, rooms, session, currentItem, nextEpisode]);
 
@@ -204,9 +213,19 @@ export function useWatchTogetherAutoAdvance({
       : undefined;
 
   const createRoomMutation = api.plex.createWatchTogetherRoom.useMutation({
-    onSuccess: (room) => {
-      setNextRoom(room);
+    onSuccess: () => {
+      // Don't latch onto the created room directly — refresh the room list so
+      // the discovery path adopts it. Discovery is the single source of truth,
+      // so even the creator converges on the deterministic winner if a
+      // duplicate exists.
       void utils.plex.getWatchTogetherRooms.invalidate();
+    },
+    onError: () => {
+      // Re-arm creation so a transient failure retries (after the same
+      // rank-staggered delay) instead of silently disabling auto-advance for
+      // the rest of the episode — fatal when this is the only Multiplex
+      // client, since no failover would cover it.
+      hasAttemptedCreateRef.current = false;
     },
   });
   const createNextRoom = createRoomMutation.mutate;
