@@ -99,6 +99,13 @@ export function useWatchTogetherAutoAdvance({
   const router = useRouter();
 
   const localUser = session?.localUser ?? null;
+  // The player-settings "Auto Play" toggle deliberately gates Watch Together
+  // auto-advance too: the group countdown has no cancel button, so the toggle
+  // is a viewer's only way to opt out of being carried into the next episode.
+  // An opted-out viewer simply stops at the episode's end (like the official
+  // client) while the rest of the party rotates without them — leader
+  // election's staggered failover covers the case where the opted-out viewer
+  // would have been the leader.
   const active = Boolean(
     enabled &&
       session &&
@@ -131,6 +138,9 @@ export function useWatchTogetherAutoAdvance({
   const [graceElapsed, setGraceElapsed] = useState(false);
   const [swapped, setSwapped] = useState(false);
   const hasAttemptedCreateRef = useRef(false);
+  // Bumped when a create fails, so the creation effect re-runs and schedules
+  // a retry (clearing the ref alone wouldn't trigger a render).
+  const [createRetryToken, setCreateRetryToken] = useState(0);
 
   const armed = advanceKey !== null && armedKey === advanceKey;
 
@@ -187,9 +197,10 @@ export function useWatchTogetherAutoAdvance({
     if (match && match.id !== nextRoom?.id) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- adopting an async discovery result
       setNextRoom(match);
-      // Presence learned from a replaced room must not satisfy the
-      // everyone-joined check for the new one.
+      // Presence and grace learned against a replaced room must not satisfy
+      // the swap gating for the new one.
       setNextRoomParticipants({});
+      setGraceElapsed(false);
     }
   }, [armed, nextRoom, swapped, rooms, session, currentItem, nextEpisode]);
 
@@ -224,8 +235,10 @@ export function useWatchTogetherAutoAdvance({
       // Re-arm creation so a transient failure retries (after the same
       // rank-staggered delay) instead of silently disabling auto-advance for
       // the rest of the episode — fatal when this is the only Multiplex
-      // client, since no failover would cover it.
+      // client, since no failover would cover it. The token bump makes the
+      // creation effect actually re-run; resetting the ref alone wouldn't.
       hasAttemptedCreateRef.current = false;
+      setCreateRetryToken((token) => token + 1);
     },
   });
   const createNextRoom = createRoomMutation.mutate;
@@ -285,6 +298,7 @@ export function useWatchTogetherAutoAdvance({
     currentItem,
     nextEpisode,
     createNextRoom,
+    createRetryToken,
   ]);
 
   // Once the episode has ended, join the next room's Syncplay as a silent
@@ -352,9 +366,11 @@ export function useWatchTogetherAutoAdvance({
 
   // Grace period after the end: if the rest of the party hasn't appeared in
   // the next room by then, swap anyway rather than stranding this viewer on
-  // the end screen.
+  // the end screen. Measured from when the next room is actually known (not
+  // just from the episode ending), so a room discovered late still gets its
+  // full gathering window instead of swapping the instant it appears.
   useEffect(() => {
-    if (!armed || !atEnd || swapped) {
+    if (!armed || !atEnd || swapped || !nextRoom) {
       return;
     }
     const timer = setTimeout(
@@ -362,7 +378,7 @@ export function useWatchTogetherAutoAdvance({
       EVERYONE_JOINED_GRACE_MS,
     );
     return () => clearTimeout(timer);
-  }, [armed, atEnd, swapped]);
+  }, [armed, atEnd, swapped, nextRoom]);
 
   const deleteRoomMutation = api.plex.deleteWatchTogetherRoom.useMutation({
     onSettled: () => {
