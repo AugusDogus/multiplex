@@ -7,15 +7,18 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "bun test",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "effect": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:",
     "@types/react": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5.0.0",
