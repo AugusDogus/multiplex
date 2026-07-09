@@ -30,29 +30,29 @@ is enforced rather than documented.
 
 Executor precedents referenced throughout (clone: `UsefulSoftwareCo/executor`):
 
-| Pattern | Executor path |
-| --- | --- |
-| Lifecycle as tagged union + fibers + `Deferred` + `Queue` | `packages/core/execution/src/engine.ts` |
-| Pure decision function over counters/timers | `packages/hosts/cloudflare/src/mcp/session-alarm-policy.ts` |
-| Atom client + query/mutation atoms + reactivity keys | `packages/react/src/api/{client,atoms,reactivity-keys}.tsx` |
-| Boundary-wrapped non-Effect transport | `packages/plugins/mcp/src/sdk/connection.ts` |
-| Escape-hatch lint enforcement | `scripts/oxlint-plugin-executor` |
-| Agent skills for atom/schema/error discipline | `.agents/skills/wrdn-effect-*` |
+| Pattern                                                   | Executor path                                               |
+| --------------------------------------------------------- | ----------------------------------------------------------- |
+| Lifecycle as tagged union + fibers + `Deferred` + `Queue` | `packages/core/execution/src/engine.ts`                     |
+| Pure decision function over counters/timers               | `packages/hosts/cloudflare/src/mcp/session-alarm-policy.ts` |
+| Atom client + query/mutation atoms + reactivity keys      | `packages/react/src/api/{client,atoms,reactivity-keys}.tsx` |
+| Boundary-wrapped non-Effect transport                     | `packages/plugins/mcp/src/sdk/connection.ts`                |
+| Escape-hatch lint enforcement                             | `scripts/oxlint-plugin-executor`                            |
+| Agent skills for atom/schema/error discipline             | `.agents/skills/wrdn-effect-*`                              |
 
 ## Current state inventory
 
-| Concern | Today | Fate |
-| --- | --- | --- |
-| Server cache (rooms, metadata, queues) | tRPC + TanStack Query | **Keep** (phase 5 may revisit) |
-| Syncplay wire protocol | `SyncplayClient` (framework-free class in `plex-query`) | **Keep** as boundary, wrapped in a scoped Effect resource |
-| Driver arbitration | `SyncplaySessionController` | **Keep initially**, absorbed into the session service in phase 2 |
-| Session lifecycle | `watch-together-store` + `use-syncplay-session` (clear-on-mismatch inference) | **Replace** with session service |
-| Lobby presence + auto-start | `use-watch-together-lobby-presence` + effects in `watch-together-lobby.tsx` | **Replace** (phase 4) |
-| Auto-advance rotation | `use-watch-together-auto-advance.ts` (5 effects) | **Replace** (phase 3); its pure helpers port unchanged |
-| Rotation policy (election, room matching, joined checks) | `watch-together-auto-advance.ts` (pure, unit-tested) | **Port as-is** into the domain layer |
-| Player mechanics (video element, transcode reload seeks, markers) | `media-player-store` + hooks | **Keep**; commanded through an explicit adapter |
-| UI prefs (volume, captions, autoplay toggle) | `media-player-store` (persisted slice) | **Keep** |
-| progress-store, last-library-store | Zustand | **Out of scope** |
+| Concern                                                           | Today                                                                         | Fate                                                             |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Server cache (rooms, metadata, queues)                            | tRPC + TanStack Query                                                         | **Keep** (phase 5 may revisit)                                   |
+| Syncplay wire protocol                                            | `SyncplayClient` (framework-free class in `plex-query`)                       | **Keep** as boundary, wrapped in a scoped Effect resource        |
+| Driver arbitration                                                | `SyncplaySessionController`                                                   | **Keep initially**, absorbed into the session service in phase 2 |
+| Session lifecycle                                                 | `watch-together-store` + `use-syncplay-session` (clear-on-mismatch inference) | **Replace** with session service                                 |
+| Lobby presence + auto-start                                       | `use-watch-together-lobby-presence` + effects in `watch-together-lobby.tsx`   | **Replace** (phase 4)                                            |
+| Auto-advance rotation                                             | `use-watch-together-auto-advance.ts` (5 effects)                              | **Replace** (phase 3); its pure helpers port unchanged           |
+| Rotation policy (election, room matching, joined checks)          | `watch-together-auto-advance.ts` (pure, unit-tested)                          | **Port as-is** into the domain layer                             |
+| Player mechanics (video element, transcode reload seeks, markers) | `media-player-store` + hooks                                                  | **Keep**; commanded through an explicit adapter                  |
+| UI prefs (volume, captions, autoplay toggle)                      | `media-player-store` (persisted slice)                                        | **Keep**                                                         |
+| progress-store, last-library-store                                | Zustand                                                                       | **Out of scope**                                                 |
 
 ## Target architecture
 
@@ -78,7 +78,7 @@ Three layers, mirroring executor's separation:
 ### Layer 1: Domain model (`packages/plex-query` or new `packages/watch-together-domain`)
 
 Pure, Schema-typed, no IO. The session state is a tagged union; rotation is a
-nested union inside `Playing` (rotation happens *while* playing — it is not a
+nested union inside `Playing` (rotation happens _while_ playing — it is not a
 sibling state):
 
 ```ts
@@ -86,10 +86,10 @@ import { Schema } from "effect";
 
 export type RotationPhase =
   | { readonly _tag: "None" }
-  | { readonly _tag: "Armed" }                                  // in lead window, no room yet
+  | { readonly _tag: "Armed" } // in lead window, no room yet
   | { readonly _tag: "RoomKnown"; readonly nextRoom: WatchTogetherRoom }
   | {
-      readonly _tag: "Gathering";                               // episode ended, observing next room
+      readonly _tag: "Gathering"; // episode ended, observing next room
       readonly nextRoom: WatchTogetherRoom;
       readonly gatheredDeviceIds: ReadonlySet<string>;
     };
@@ -105,7 +105,7 @@ export type SessionState =
   | {
       readonly _tag: "Playing";
       readonly room: WatchTogetherRoom;
-      readonly item: PlayingItem;                                // ratingKey, serverId, ...
+      readonly item: PlayingItem; // ratingKey, serverId, ...
       readonly participants: ParticipantMap;
       readonly rotation: RotationPhase;
     };
@@ -117,7 +117,7 @@ the playing item disagree.** The swap is a single transition
 clear-on-mismatch inference and its batching invariant are deleted, not
 defended.
 
-The rotation *rules* become one pure decision function in the style of
+The rotation _rules_ become one pure decision function in the style of
 executor's `decideSessionAlarm` — this centralizes what is currently smeared
 across five effects, and it is exhaustively unit-testable with a fake clock:
 
@@ -125,20 +125,22 @@ across five effects, and it is exhaustively unit-testable with a fake clock:
 export type RotationDecision =
   | { readonly kind: "wait" }
   | { readonly kind: "arm" }
-  | { readonly kind: "create_room"; readonly afterMs: number }   // rank-staggered
+  | { readonly kind: "create_room"; readonly afterMs: number } // rank-staggered
   | { readonly kind: "adopt_room"; readonly room: WatchTogetherRoom }
   | { readonly kind: "begin_gathering" }
-  | { readonly kind: "swap" };                                   // everyone joined or grace elapsed
+  | { readonly kind: "swap" }; // everyone joined or grace elapsed
 
 export const decideRotation = (input: {
   readonly phase: RotationPhase;
   readonly timeRemainingSeconds: number;
-  readonly rank: number;                                         // getAutoAdvanceRank (ported)
-  readonly visibleRooms: ReadonlyArray<WatchTogetherRoom>;       // findNextEpisodeRoom input (ported)
-  readonly everyoneJoined: boolean;                              // haveMultiplexParticipantsJoined (ported)
+  readonly rank: number; // getAutoAdvanceRank (ported)
+  readonly visibleRooms: ReadonlyArray<WatchTogetherRoom>; // findNextEpisodeRoom input (ported)
+  readonly everyoneJoined: boolean; // haveMultiplexParticipantsJoined (ported)
   readonly graceElapsed: boolean;
   readonly autoPlayEnabled: boolean;
-}): RotationDecision => { /* pure */ };
+}): RotationDecision => {
+  /* pure */
+};
 ```
 
 `getAutoAdvanceRank`, `findNextEpisodeRoom`,
@@ -174,14 +176,14 @@ export class WatchTogetherSession extends Effect.Service<WatchTogetherSession>()
 
 Orchestration mapping (all executor-proven primitives):
 
-| Behavior | Today | Target |
-| --- | --- | --- |
-| Syncplay driver/observer socket | `SyncplayClient` + manual reconnect timers in 3 places | `Effect.acquireRelease` around `SyncplayClient`, reconnect via `Effect.retry(Schedule.exponential)` in a scoped fiber; fiber is interrupted automatically on state exit |
-| Discovery polling | React Query `refetchInterval: 4000` gated on `armed` | `Effect.repeat(Schedule.spaced("4 seconds"))` fiber, started/stopped by rotation phase |
-| Creation stagger | `setTimeout(CREATE_BASE_DELAY_MS + rank * CREATE_STAGGER_MS)` in an effect | `Effect.sleep(delay)` raced against room discovery (`Effect.raceFirst` — see executor's engine.ts note on `race` vs `raceFirst` in v4) |
-| "Everyone joined, or grace" | observer connection + `graceElapsed` state + swap effect | `Deferred.await(everyoneJoined)` raced with `Effect.sleep(grace)` — executor's pause/approval shape |
-| Create retry after failure | `createRetryToken` state bump to force effect re-run | `Effect.retry` on the create effect; the workaround class disappears |
-| Idempotent transitions | `swapped` boolean + refs | transitions are `SubscriptionRef.update` with tag checks; commands on wrong states are no-ops by construction |
+| Behavior                        | Today                                                                      | Target                                                                                                                                                                  |
+| ------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Syncplay driver/observer socket | `SyncplayClient` + manual reconnect timers in 3 places                     | `Effect.acquireRelease` around `SyncplayClient`, reconnect via `Effect.retry(Schedule.exponential)` in a scoped fiber; fiber is interrupted automatically on state exit |
+| Discovery polling               | React Query `refetchInterval: 4000` gated on `armed`                       | `Effect.repeat(Schedule.spaced("4 seconds"))` fiber, started/stopped by rotation phase                                                                                  |
+| Creation stagger                | `setTimeout(CREATE_BASE_DELAY_MS + rank * CREATE_STAGGER_MS)` in an effect | `Effect.sleep(delay)` raced against room discovery (`Effect.raceFirst` — see executor's engine.ts note on `race` vs `raceFirst` in v4)                                  |
+| "Everyone joined, or grace"     | observer connection + `graceElapsed` state + swap effect                   | `Deferred.await(everyoneJoined)` raced with `Effect.sleep(grace)` — executor's pause/approval shape                                                                     |
+| Create retry after failure      | `createRetryToken` state bump to force effect re-run                       | `Effect.retry` on the create effect; the workaround class disappears                                                                                                    |
+| Idempotent transitions          | `swapped` boolean + refs                                                   | transitions are `SubscriptionRef.update` with tag checks; commands on wrong states are no-ops by construction                                                           |
 
 **Plex API access** stays on tRPC (the Plex token lives server-side): a small
 `WatchTogetherApi` Effect service wraps the vanilla tRPC client
@@ -196,12 +198,12 @@ export interface PlayerPort {
   readonly play: () => void;
   readonly pause: () => void;
   readonly seek: (seconds: number) => void;
-  readonly snapshot: () => PlayerSnapshot;                        // time/duration/canPlay/...
+  readonly snapshot: () => PlayerSnapshot; // time/duration/canPlay/...
 }
 ```
 
 The web app implements `PlayerPort` over the existing `media-player-store`
-actions. The service *commands* the player and *receives* `playerEvent`s; it
+actions. The service _commands_ the player and _receives_ `playerEvent`s; it
 never spies on the store. The existing `SyncplaySessionController` arbitration
 logic (seek thresholds, startup grace, echo suppression) is absorbed into the
 service's socket fiber in phase 2, keeping its unit tests.
@@ -215,8 +217,8 @@ const sessionRuntime = Atom.runtime(WatchTogetherSession.Default);
 export const sessionStateAtom = sessionRuntime.atom(
   Effect.gen(function* () {
     const session = yield* WatchTogetherSession;
-    return session.state.changes;                                 // Stream<SessionState>
-  }).pipe(Effect.map(Stream.unwrap)),                             // stream-backed atom
+    return session.state.changes; // Stream<SessionState>
+  }).pipe(Effect.map(Stream.unwrap)), // stream-backed atom
 );
 
 export const joinLobbyAtom = sessionRuntime.fn((input: JoinLobbyInput) =>
@@ -270,7 +272,7 @@ behavioral contract; it does not change during the migration.
 - **Phase 2 — session service for playback (the spike).** `WatchTogetherSession`
   owning the driver socket lifecycle + `PlayerPort` + the atom bridge. Replaces
   `watch-together-store` + `use-syncplay-session` + the session-binding module
-  for the *playing* path only (lobby and rotation still on the old code,
+  for the _playing_ path only (lobby and rotation still on the old code,
   temporarily commanding the service). This is deliberately the smallest cut
   that proves the stream-atom bridge and the socket-as-scoped-fiber pattern.
   Verify: e2e pause/resume + seek specs; `SyncplaySessionController` tests
