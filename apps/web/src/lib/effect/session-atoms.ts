@@ -8,7 +8,9 @@ import * as Atom from "effect/unstable/reactivity/Atom";
 import { PlayerPort, type PlayerActions } from "./player-port";
 import {
   WatchTogetherSession,
+  type EnterLobbyInput,
   type LeaveOptions,
+  type LobbyContext,
   type RotationContext,
   type StartPlaybackInput,
   type SwapToInput,
@@ -61,6 +63,18 @@ const runSession = <A>(
  * hook, modal event handlers). Each call runs on {@link sessionRuntime}.
  */
 export const sessionCommands = {
+  enterLobby: (input: EnterLobbyInput): void => {
+    runSession((s) => s.enterLobby(input));
+  },
+  updateLobbyRoom: (room: EnterLobbyInput["room"]): void => {
+    runSession((s) => s.updateLobbyRoom(room));
+  },
+  exitLobby: (): void => {
+    runSession((s) => s.exitLobby());
+  },
+  setLobbyContext: (ctx: LobbyContext): void => {
+    runSession((s) => s.setLobbyContext(ctx));
+  },
   startPlayback: (input: StartPlaybackInput): void => {
     runSession((s) => s.startPlayback(input));
   },
@@ -79,6 +93,7 @@ export const sessionCommands = {
   handleLocalSeeked: (seconds: number): void => {
     runSession((s) => s.handleLocalSeeked(seconds));
   },
+  getSuppressedRoomId: (): string | null => session.getSuppressedRoomId(),
   snapshot: (): SessionState => session.snapshot(),
   /** Wire the mounted video element's play/pause/seek into PlayerPort. */
   registerPlayerActions: (actions: PlayerActions): void => {

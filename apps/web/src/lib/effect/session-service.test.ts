@@ -1,4 +1,4 @@
-import { beforeEach, expect, mock, test } from "bun:test";
+import { expect, mock, test } from "bun:test";
 import type {
   SessionState,
   SyncplayParticipantState,
@@ -14,8 +14,8 @@ import {
   Stream,
   SubscriptionRef,
 } from "effect";
+import { TestClock } from "effect/testing";
 
-import { useWatchTogetherStore } from "~/stores/watch-together-store";
 import type { MediaPlayerItem } from "~/types/media-player";
 
 import {
@@ -26,13 +26,21 @@ import {
 import {
   makeWatchTogetherSession,
   WatchTogetherSession,
+  type MakeObserverConnection,
   type MakeSessionController,
+  type ObserverConnectionLike,
   type SessionControllerLike,
-  type SessionMirror,
   type WatchTogetherSessionShape,
 } from "./session-service";
 
-const room = (id: string, ratingKey: string): WatchTogetherRoom =>
+const room = (
+  id: string,
+  ratingKey: string,
+  users: WatchTogetherRoom["users"] = [
+    { id: 1, title: "Host", username: "host", thumb: null },
+    { id: 2, title: "Guest", username: "guest", thumb: null },
+  ],
+): WatchTogetherRoom =>
   ({
     id,
     sourceUri: `server://srv/com.plexapp.plugins.library/library/metadata/${ratingKey}`,
@@ -40,7 +48,7 @@ const room = (id: string, ratingKey: string): WatchTogetherRoom =>
     type: "video",
     syncplayHost: "syncplay.example.com",
     syncplayPort: 443,
-    users: [],
+    users,
   }) as WatchTogetherRoom;
 
 const item = (ratingKey: string): MediaPlayerItem =>
@@ -62,7 +70,7 @@ const item = (ratingKey: string): MediaPlayerItem =>
 const localUser: SyncplayUser = {
   id: 1,
   deviceIdentifier: "device-1",
-  deviceName: "Multiplex",
+  deviceName: "Multiplex Web",
 };
 
 type StubController = SessionControllerLike & {
@@ -91,6 +99,40 @@ const makeStubControllerFactory = () => {
   return { makeController, controllers };
 };
 
+type StubObserver = ObserverConnectionLike & {
+  readonly options: {
+    onParticipant: (p: SyncplayParticipantState) => void;
+    onClose: () => void;
+    onRoomState?: (state: { paused: boolean; positionSeconds: number }) => void;
+  };
+  readonly roomId: string;
+  readonly disconnectCount: { n: number };
+};
+
+const makeStubObserverFactory = () => {
+  const observers: StubObserver[] = [];
+  const makeObserver: MakeObserverConnection = (options) => {
+    const disconnectCount = { n: 0 };
+    const observer: StubObserver = {
+      options: {
+        onParticipant: options.onParticipant,
+        onClose: options.onClose,
+        onRoomState: options.onRoomState,
+      },
+      roomId: options.room.id,
+      disconnectCount,
+      connect: mock(() => undefined),
+      disconnect: mock(() => {
+        disconnectCount.n += 1;
+      }),
+      setReady: mock(() => undefined),
+    };
+    observers.push(observer);
+    return observer;
+  };
+  return { makeObserver, observers };
+};
+
 const makeStubPlayer = (): PlayerPortShape & {
   loads: Array<{ item: MediaPlayerItem; opts: unknown }>;
 } => {
@@ -106,66 +148,52 @@ const makeStubPlayer = (): PlayerPortShape & {
   };
 };
 
-const makeMirror = (): SessionMirror & {
-  events: string[];
-} => {
-  const events: string[] = [];
-  return {
-    events,
-    setPlaying: (session) => {
-      events.push(`setPlaying:${session.room.id}`);
-      useWatchTogetherStore.getState().setSession(session);
-    },
-    clear: () => {
-      events.push("clear");
-      useWatchTogetherStore.getState().clearSession();
-    },
-    leave: () => {
-      events.push("leave");
-      useWatchTogetherStore.getState().leaveSession();
-    },
-    updateParticipant: (participant) => {
-      events.push(`participant:${participant.user.deviceIdentifier}`);
-      useWatchTogetherStore.getState().updateParticipant(participant);
-    },
-  };
-};
-
-beforeEach(() => {
-  useWatchTogetherStore.setState({
-    session: null,
-    participants: {},
-    autoStartSuppressedRoomId: null,
-  });
-});
-
 const withSession = async <A>(
-  f: (session: WatchTogetherSessionShape) => Effect.Effect<A>,
+  f: (ctx: {
+    session: WatchTogetherSessionShape;
+    controllers: StubController[];
+    observers: StubObserver[];
+    player: ReturnType<typeof makeStubPlayer>;
+  }) => Effect.Effect<A>,
   options?: {
     makeController?: MakeSessionController;
+    makeObserver?: MakeObserverConnection;
     player?: PlayerPortShape;
-    mirror?: SessionMirror;
+    withTestClock?: boolean;
   },
 ): Promise<A> => {
-  const player = options?.player ?? makeStubPlayer();
-  const { makeController } = options?.makeController
-    ? { makeController: options.makeController }
+  const player =
+    (options?.player as ReturnType<typeof makeStubPlayer> | undefined) ??
+    makeStubPlayer();
+  const { makeController, controllers } = options?.makeController
+    ? {
+        makeController: options.makeController,
+        controllers: [] as StubController[],
+      }
     : makeStubControllerFactory();
-  const mirror = options?.mirror ?? makeMirror();
+  const { makeObserver, observers } = options?.makeObserver
+    ? { makeObserver: options.makeObserver, observers: [] as StubObserver[] }
+    : makeStubObserverFactory();
 
-  const layer = WatchTogetherSession.layer({
+  let layer = WatchTogetherSession.layer({
     player,
     makeController,
-    mirror,
+    makeObserver,
   }).pipe(Layer.provideMerge(Layer.succeed(PlayerPort)(player)));
+
+  if (options?.withTestClock) {
+    layer = layer.pipe(Layer.provideMerge(TestClock.layer()));
+  }
 
   const runtime = ManagedRuntime.make(layer);
   try {
     return await runtime.runPromise(
-      Effect.gen(function* () {
-        const session = yield* WatchTogetherSession;
-        return yield* f(session);
-      }),
+      Effect.scoped(
+        Effect.gen(function* () {
+          const session = yield* WatchTogetherSession;
+          return yield* f({ session, controllers, observers, player });
+        }),
+      ),
     );
   } finally {
     await runtime.dispose();
@@ -175,10 +203,9 @@ const withSession = async <A>(
 test("startPlayback transitions to Playing and loads the player", async () => {
   const player = makeStubPlayer();
   const { makeController, controllers } = makeStubControllerFactory();
-  const mirror = makeMirror();
 
   await withSession(
-    (session) =>
+    ({ session }) =>
       Effect.gen(function* () {
         yield* session.startPlayback({
           room: room("r1", "100"),
@@ -205,20 +232,17 @@ test("startPlayback transitions to Playing and loads the player", async () => {
 
         expect(controllers).toHaveLength(1);
         expect(controllers[0]?.connect).toHaveBeenCalledTimes(1);
-        expect(mirror.events).toContain("setPlaying:r1");
-        expect(useWatchTogetherStore.getState().session?.room.id).toBe("r1");
       }),
-    { player, makeController, mirror },
+    { player, makeController },
   );
 });
 
 test("swapTo is a single atomic state change with no mismatched intermediate", async () => {
   const player = makeStubPlayer();
   const { makeController, controllers } = makeStubControllerFactory();
-  const mirror = makeMirror();
 
   await withSession(
-    (session) =>
+    ({ session }) =>
       Effect.gen(function* () {
         yield* session.startPlayback({
           room: room("r1", "100"),
@@ -235,7 +259,6 @@ test("swapTo is a single atomic state change with no mismatched intermediate", a
             }),
         ).pipe(Effect.forkDetach({ startImmediately: true }));
 
-        // Drop the initial current-value emission before swapping.
         seen.length = 0;
 
         yield* session.swapTo({
@@ -251,7 +274,6 @@ test("swapTo is a single atomic state change with no mismatched intermediate", a
             expect(s._tag).not.toBe("Playing");
             continue;
           }
-          // THE regression: room and item must never disagree.
           const roomKey = s.room.sourceUri.split("/").pop() ?? "";
           expect(s.item.ratingKey).toBe(roomKey);
         }
@@ -263,26 +285,21 @@ test("swapTo is a single atomic state change with no mismatched intermediate", a
           expect(final.item.ratingKey).toBe("200");
         }
 
-        // Old socket torn down, new one started.
         expect(controllers.length).toBe(2);
         expect(controllers[0]?.disconnectCount.n).toBe(1);
         expect(controllers[1]?.connect).toHaveBeenCalledTimes(1);
         expect(player.loads).toHaveLength(2);
         expect(player.loads[1]?.opts).toEqual({ resume: false });
-        expect(mirror.events.filter((e) => e.startsWith("setPlaying"))).toEqual(
-          ["setPlaying:r1", "setPlaying:r2"],
-        );
       }),
-    { player, makeController, mirror },
+    { player, makeController },
   );
 });
 
 test("leave clears state, interrupts the controller, and can suppress auto-start", async () => {
   const { makeController, controllers } = makeStubControllerFactory();
-  const mirror = makeMirror();
 
   await withSession(
-    (session) =>
+    ({ session }) =>
       Effect.gen(function* () {
         yield* session.startPlayback({
           room: room("r1", "100"),
@@ -293,13 +310,9 @@ test("leave clears state, interrupts the controller, and can suppress auto-start
 
         expect(session.snapshot()._tag).toBe("Idle");
         expect(controllers[0]?.disconnectCount.n).toBe(1);
-        expect(mirror.events).toContain("leave");
-        expect(useWatchTogetherStore.getState().session).toBeNull();
-        expect(useWatchTogetherStore.getState().autoStartSuppressedRoomId).toBe(
-          "r1",
-        );
+        expect(session.getSuppressedRoomId()).toBe("r1");
       }),
-    { makeController, mirror },
+    { makeController },
   );
 });
 
@@ -307,7 +320,7 @@ test("local playback and seek forward to the live controller", async () => {
   const { makeController, controllers } = makeStubControllerFactory();
 
   await withSession(
-    (session) =>
+    ({ session }) =>
       Effect.gen(function* () {
         yield* session.startPlayback({
           room: room("r1", "100"),
@@ -328,10 +341,9 @@ test("local playback and seek forward to the live controller", async () => {
 
 test("fatal controller error leaves Idle without auto-start suppression", async () => {
   const { makeController, controllers } = makeStubControllerFactory();
-  const mirror = makeMirror();
 
   await withSession(
-    (session) =>
+    ({ session }) =>
       Effect.gen(function* () {
         yield* session.startPlayback({
           room: room("r1", "100"),
@@ -343,27 +355,21 @@ test("fatal controller error leaves Idle without auto-start suppression", async 
         expect(onFatal).toBeDefined();
         onFatal?.(new Error("socket dead"));
 
-        // Fatal leave is forked; give it a turn to settle.
         yield* Effect.yieldNow;
         yield* Effect.yieldNow;
 
         expect(session.snapshot()._tag).toBe("Idle");
-        expect(mirror.events).toContain("clear");
-        expect(mirror.events).not.toContain("leave");
-        expect(
-          useWatchTogetherStore.getState().autoStartSuppressedRoomId,
-        ).toBeNull();
+        expect(session.getSuppressedRoomId()).toBeNull();
       }),
-    { makeController, mirror },
+    { makeController },
   );
 });
 
-test("participant events mirror into the Zustand store", async () => {
+test("participant events merge into Playing session state", async () => {
   const { makeController, controllers } = makeStubControllerFactory();
-  const mirror = makeMirror();
 
   await withSession(
-    (session) =>
+    ({ session }) =>
       Effect.gen(function* () {
         yield* session.startPlayback({
           room: room("r1", "100"),
@@ -384,11 +390,6 @@ test("participant events mirror into the Zustand store", async () => {
 
         yield* Effect.yieldNow;
 
-        expect(mirror.events).toContain("participant:device-2");
-        expect(
-          useWatchTogetherStore.getState().participants["device-2"],
-        ).toMatchObject({ isPresent: true, isReady: true });
-
         const snap = session.snapshot();
         expect(snap._tag).toBe("Playing");
         if (snap._tag === "Playing") {
@@ -398,7 +399,314 @@ test("participant events mirror into the Zustand store", async () => {
           });
         }
       }),
-    { makeController, mirror },
+    { makeController },
+  );
+});
+
+test("enterLobby starts observer, merges participants, and tracks room position", async () => {
+  await withSession(
+    ({ session, observers }) =>
+      Effect.gen(function* () {
+        yield* session.enterLobby({
+          room: room("r1", "100"),
+          localUser,
+        });
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+
+        const snap = session.snapshot();
+        expect(snap._tag).toBe("Lobby");
+        if (snap._tag !== "Lobby") return;
+        expect(snap.room.id).toBe("r1");
+        expect(snap.roomPositionSeconds).toBeNull();
+
+        expect(observers.length).toBeGreaterThanOrEqual(1);
+        expect(observers[0]?.connect).toHaveBeenCalled();
+        expect(observers[0]?.setReady).toHaveBeenCalledWith(false);
+
+        observers[0]?.options.onParticipant({
+          user: {
+            id: 2,
+            deviceIdentifier: "device-2",
+            deviceName: "Multiplex Web",
+          },
+          isPresent: true,
+        });
+        yield* Effect.yieldNow;
+
+        observers[0]?.options.onRoomState?.({
+          paused: true,
+          positionSeconds: 33,
+        });
+        yield* Effect.yieldNow;
+
+        const after = session.snapshot();
+        expect(after._tag).toBe("Lobby");
+        if (after._tag === "Lobby") {
+          expect(after.participants["device-2"]).toMatchObject({
+            isPresent: true,
+          });
+          expect(after.roomPositionSeconds).toBe(33);
+        }
+      }),
+    { withTestClock: true },
+  );
+});
+
+test("enterLobby is idempotent by room id (refetch does not reconnect)", async () => {
+  await withSession(
+    ({ session, observers }) =>
+      Effect.gen(function* () {
+        const r1 = room("r1", "100");
+        yield* session.enterLobby({ room: r1, localUser });
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        const countAfterEnter = observers.length;
+
+        yield* session.enterLobby({
+          room: { ...r1, title: "Updated title" },
+          localUser,
+        });
+        yield* Effect.yieldNow;
+
+        expect(observers.length).toBe(countAfterEnter);
+        const snap = session.snapshot();
+        expect(snap._tag).toBe("Lobby");
+        if (snap._tag === "Lobby") {
+          expect(snap.room.title).toBe("Updated title");
+        }
+      }),
+    { withTestClock: true },
+  );
+});
+
+test("exitLobby returns to Idle and disconnects the observer", async () => {
+  await withSession(
+    ({ session, observers }) =>
+      Effect.gen(function* () {
+        yield* session.enterLobby({
+          room: room("r1", "100"),
+          localUser,
+        });
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+
+        yield* session.exitLobby();
+        expect(session.snapshot()._tag).toBe("Idle");
+        expect(observers[0]?.disconnectCount.n).toBeGreaterThanOrEqual(1);
+      }),
+    { withTestClock: true },
+  );
+});
+
+test("startPlayback from Lobby interrupts observer and starts driver", async () => {
+  const player = makeStubPlayer();
+  const { makeController, controllers } = makeStubControllerFactory();
+  const { makeObserver, observers } = makeStubObserverFactory();
+
+  await withSession(
+    ({ session }) =>
+      Effect.gen(function* () {
+        yield* session.enterLobby({
+          room: room("r1", "100"),
+          localUser,
+        });
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        expect(observers.length).toBeGreaterThanOrEqual(1);
+
+        yield* session.startPlayback({
+          room: room("r1", "100"),
+          localUser,
+          item: item("100"),
+        });
+
+        expect(session.snapshot()._tag).toBe("Playing");
+        expect(observers[0]?.disconnectCount.n).toBeGreaterThanOrEqual(1);
+        expect(controllers).toHaveLength(1);
+        expect(controllers[0]?.connect).toHaveBeenCalled();
+        expect(player.loads).toHaveLength(1);
+      }),
+    { player, makeController, makeObserver, withTestClock: true },
+  );
+});
+
+test("auto-start fires after stability + delay via TestClock", async () => {
+  const player = makeStubPlayer();
+  const { makeController, controllers } = makeStubControllerFactory();
+  const { makeObserver, observers } = makeStubObserverFactory();
+
+  await withSession(
+    ({ session }) =>
+      Effect.gen(function* () {
+        const r = room("r1", "100");
+        yield* session.enterLobby({ room: r, localUser });
+        yield* session.setLobbyContext({
+          canStart: true,
+          playbackInput: { item: item("100") },
+          leaving: false,
+        });
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+
+        observers[0]?.options.onParticipant({
+          user: {
+            id: 2,
+            deviceIdentifier: "device-2",
+            deviceName: "Multiplex Web",
+          },
+          isPresent: true,
+        });
+        yield* Effect.yieldNow;
+
+        expect(session.snapshot()._tag).toBe("Lobby");
+
+        // Advance past AUTO_START_DELAY_MS (1200) with lobby 100ms ticks.
+        yield* TestClock.adjust("1300 millis");
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+
+        expect(session.snapshot()._tag).toBe("Playing");
+        expect(controllers).toHaveLength(1);
+        expect(player.loads[0]?.opts).toEqual({ resume: false });
+      }),
+    { player, makeController, makeObserver, withTestClock: true },
+  );
+});
+
+test("auto-start respects suppression and clears it on startPlayback", async () => {
+  const player = makeStubPlayer();
+  const { makeController } = makeStubControllerFactory();
+  const { makeObserver, observers } = makeStubObserverFactory();
+
+  await withSession(
+    ({ session }) =>
+      Effect.gen(function* () {
+        yield* session.startPlayback({
+          room: room("r1", "100"),
+          localUser,
+          item: item("100"),
+        });
+        yield* session.leave({ suppressAutoStart: true });
+        expect(session.getSuppressedRoomId()).toBe("r1");
+
+        yield* session.enterLobby({
+          room: room("r1", "100"),
+          localUser,
+        });
+        yield* session.setLobbyContext({
+          canStart: true,
+          playbackInput: { item: item("100") },
+          leaving: false,
+        });
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+
+        observers[0]?.options.onParticipant({
+          user: {
+            id: 2,
+            deviceIdentifier: "device-2",
+            deviceName: "Multiplex Web",
+          },
+          isPresent: true,
+        });
+        yield* TestClock.adjust("2000 millis");
+        yield* Effect.yieldNow;
+
+        // Suppressed — still Lobby.
+        expect(session.snapshot()._tag).toBe("Lobby");
+
+        // Manual start clears suppression.
+        yield* session.startPlayback({
+          room: room("r1", "100"),
+          localUser,
+          item: item("100"),
+        });
+        expect(session.getSuppressedRoomId()).toBeNull();
+        expect(session.snapshot()._tag).toBe("Playing");
+      }),
+    { player, makeController, makeObserver, withTestClock: true },
+  );
+});
+
+test("auto-start waits for known room position when joining in progress", async () => {
+  const player = makeStubPlayer();
+  const { makeController, controllers } = makeStubControllerFactory();
+  const { makeObserver, observers } = makeStubObserverFactory();
+
+  await withSession(
+    ({ session }) =>
+      Effect.gen(function* () {
+        yield* session.enterLobby({
+          room: room("r1", "100"),
+          localUser,
+        });
+        yield* session.setLobbyContext({
+          canStart: true,
+          playbackInput: { item: item("100") },
+          leaving: false,
+        });
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+
+        observers[0]?.options.onParticipant({
+          user: {
+            id: 2,
+            deviceIdentifier: "device-2",
+            deviceName: "Multiplex Web",
+          },
+          isPresent: true,
+          isReady: true,
+        });
+        yield* TestClock.adjust("2000 millis");
+        yield* Effect.yieldNow;
+        expect(session.snapshot()._tag).toBe("Lobby");
+
+        observers[0]?.options.onRoomState?.({
+          paused: false,
+          positionSeconds: 55,
+        });
+        yield* TestClock.adjust("1300 millis");
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+
+        expect(session.snapshot()._tag).toBe("Playing");
+        expect(controllers).toHaveLength(1);
+        expect(player.loads[0]?.opts).toEqual({
+          resume: false,
+          startPositionSeconds: 55,
+        });
+      }),
+    { player, makeController, makeObserver, withTestClock: true },
+  );
+});
+
+test("auto-start does not fire for solo rooms", async () => {
+  const { makeObserver, observers } = makeStubObserverFactory();
+
+  await withSession(
+    ({ session }) =>
+      Effect.gen(function* () {
+        yield* session.enterLobby({
+          room: room("r1", "100", [
+            { id: 1, title: "Host", username: "host", thumb: null },
+          ]),
+          localUser,
+        });
+        yield* session.setLobbyContext({
+          canStart: true,
+          playbackInput: { item: item("100") },
+          leaving: false,
+        });
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust("2000 millis");
+        yield* Effect.yieldNow;
+
+        expect(session.snapshot()._tag).toBe("Lobby");
+        expect(observers[0]?.connect).toHaveBeenCalled();
+      }),
+    { makeObserver, withTestClock: true },
   );
 });
 
@@ -411,7 +719,6 @@ test("makeWatchTogetherSession works without ManagedRuntime for unit isolation",
         const session = yield* makeWatchTogetherSession({
           player,
           makeController,
-          mirror: makeMirror(),
         });
 
         yield* session.startPlayback({

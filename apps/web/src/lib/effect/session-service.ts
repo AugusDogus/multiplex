@@ -4,13 +4,18 @@ import {
   DISCOVERY_POLL_MS,
   EVERYONE_JOINED_GRACE_MS,
   Idle,
+  LOBBY_OBSERVER_RECONNECT_DELAY_MS,
   OBSERVER_RECONNECT_DELAY_MS,
+  PRESENCE_GRACE_MS,
   RotationArmed,
   RotationNone,
   SyncplayClient,
+  allInvitedPresent,
+  decideLobbyAutoStart,
   decideRotation,
   getAutoAdvanceRank,
   haveMultiplexParticipantsJoined,
+  lobby,
   mergeParticipantState,
   playing,
   rotationGathering,
@@ -44,7 +49,6 @@ import {
 import type { Stream } from "effect";
 
 import { createWatchTogetherSessionToasts } from "~/components/watch-together/watch-together-session-toasts";
-import { useWatchTogetherStore } from "~/stores/watch-together-store";
 import type { MediaPlayerItem, NextEpisodeInfo } from "~/types/media-player";
 
 import { PlayerPort, type PlayerPortShape } from "./player-port";
@@ -76,6 +80,21 @@ export type RotationContext = {
   readonly autoPlayEnabled: boolean;
 };
 
+export type EnterLobbyInput = {
+  readonly room: WatchTogetherRoom;
+  readonly localUser: SyncplayUser;
+};
+
+/**
+ * React-derived lobby inputs the auto-start fiber cannot obtain itself
+ * (tRPC media resolution + leave-mutation pending).
+ */
+export type LobbyContext = {
+  readonly canStart: boolean;
+  readonly playbackInput: null | { readonly item: MediaPlayerItem };
+  readonly leaving: boolean;
+};
+
 /**
  * Minimal controller surface the session service drives. Production uses
  * {@link SyncplaySessionController}; tests inject a stub factory.
@@ -92,7 +111,10 @@ export type MakeSessionController = (
   options: SyncplaySessionControllerOptions,
 ) => SessionControllerLike;
 
-/** Silent Syncplay observer used while gathering in the next room. */
+/**
+ * Silent Syncplay observer used for lobby presence and rotation gathering.
+ * Lobby also supplies {@link onRoomState} for late-join playhead tracking.
+ */
 export type ObserverConnectionLike = {
   readonly connect: () => void;
   readonly disconnect: () => void;
@@ -107,35 +129,37 @@ export type MakeObserverConnection = (options: {
   readonly user: SyncplayUser;
   readonly onParticipant: (participant: SyncplayParticipantState) => void;
   readonly onClose: () => void;
+  readonly onRoomState?: (state: {
+    paused: boolean;
+    positionSeconds: number;
+  }) => void;
 }) => ObserverConnectionLike;
 
 export type WatchTogetherSessionShape = {
   readonly state: SubscriptionRef.SubscriptionRef<SessionState>;
   readonly changes: Stream.Stream<SessionState>;
   readonly snapshot: () => SessionState;
+  /**
+   * Idle→Lobby (starts presence observer + auto-start fiber). Idempotent by
+   * room id while already in Lobby: refreshes the room object without
+   * reconnecting. No-op while Playing (the driver owns the socket).
+   */
+  readonly enterLobby: (input: EnterLobbyInput) => Effect.Effect<void>;
+  /** Refresh the room object on Lobby (or Playing) when the same room refetches. */
+  readonly updateLobbyRoom: (room: WatchTogetherRoom) => Effect.Effect<void>;
+  /** Lobby→Idle on lobby unmount/navigation. Distinct from {@link leave}. */
+  readonly exitLobby: () => Effect.Effect<void>;
+  readonly setLobbyContext: (ctx: LobbyContext) => Effect.Effect<void>;
   readonly startPlayback: (input: StartPlaybackInput) => Effect.Effect<void>;
   readonly swapTo: (input: SwapToInput) => Effect.Effect<void>;
   readonly leave: (options: LeaveOptions) => Effect.Effect<void>;
   readonly setRotationContext: (ctx: RotationContext) => Effect.Effect<void>;
+  /** Room id whose auto-start is suppressed after a deliberate player close. */
+  readonly getSuppressedRoomId: () => string | null;
   readonly handleLocalPlaybackChange: (
     isPaused: boolean,
   ) => Effect.Effect<void>;
   readonly handleLocalSeeked: (seconds: number) => Effect.Effect<void>;
-};
-
-/**
- * Transitional Zustand write surface. The lobby presence hook still calls
- * `updateParticipant` directly while in the lobby (different lifetime, same
- * merge); the playing path is owned exclusively by this service.
- */
-export type SessionMirror = {
-  readonly setPlaying: (session: {
-    room: WatchTogetherRoom;
-    localUser: SyncplayUser;
-  }) => void;
-  readonly clear: () => void;
-  readonly leave: () => void;
-  readonly updateParticipant: (participant: SyncplayParticipantState) => void;
 };
 
 export type MakeWatchTogetherSessionOptions = {
@@ -143,16 +167,7 @@ export type MakeWatchTogetherSessionOptions = {
   readonly api?: WatchTogetherApiShape;
   readonly makeController?: MakeSessionController;
   readonly makeObserver?: MakeObserverConnection;
-  readonly mirror?: SessionMirror;
 };
-
-const defaultMirror = (): SessionMirror => ({
-  setPlaying: (session) => useWatchTogetherStore.getState().setSession(session),
-  clear: () => useWatchTogetherStore.getState().clearSession(),
-  leave: () => useWatchTogetherStore.getState().leaveSession(),
-  updateParticipant: (participant) =>
-    useWatchTogetherStore.getState().updateParticipant(participant),
-});
 
 const defaultMakeController: MakeSessionController = (options) =>
   new SyncplaySessionController(options);
@@ -164,8 +179,8 @@ const defaultMakeObserver: MakeObserverConnection = (options) =>
     observer: true,
     onParticipant: options.onParticipant,
     onClose: options.onClose,
+    onRoomState: options.onRoomState,
   });
-
 const toPlayingItem = (item: MediaPlayerItem): PlayingItem => ({
   serverId: item.serverId,
   ratingKey: item.ratingKey,
@@ -201,38 +216,6 @@ const playerAdapterFromPort = (
   },
   seek: (positionSeconds) => player.seek(positionSeconds),
 });
-
-const mergeParticipant = (
-  participants: ParticipantMap,
-  participant: SyncplayParticipantState,
-): ParticipantMap => {
-  const key = participant.user.deviceIdentifier;
-  if (participant.isPresent === false) {
-    return {
-      ...participants,
-      [key]: { user: participant.user, isPresent: false },
-    };
-  }
-  return {
-    ...participants,
-    [key]: {
-      ...participants[key],
-      ...(participant.isPresent !== undefined && {
-        isPresent: participant.isPresent,
-      }),
-      ...(participant.isReady !== undefined && {
-        isReady: participant.isReady,
-      }),
-      ...(participant.positionSeconds !== undefined && {
-        positionSeconds: participant.positionSeconds,
-      }),
-      ...(participant.isPaused !== undefined && {
-        isPaused: participant.isPaused,
-      }),
-      user: participant.user,
-    },
-  };
-};
 
 type ConnectionParams = {
   readonly room: WatchTogetherRoom;
@@ -386,26 +369,40 @@ export const makeWatchTogetherSession = (
       }));
     const makeController = options.makeController ?? defaultMakeController;
     const makeObserver = options.makeObserver ?? defaultMakeObserver;
-    const mirror = options.mirror ?? defaultMirror();
 
     const state = yield* SubscriptionRef.make<SessionState>(Idle);
     const rotationContext = yield* Ref.make<RotationContext>({
       nextEpisode: null,
       autoPlayEnabled: false,
     });
+    const lobbyContext = yield* Ref.make<LobbyContext>({
+      canStart: false,
+      playbackInput: null,
+      leaving: false,
+    });
 
     let connectionFiber: Fiber.Fiber<void, never> | null = null;
+    let lobbyFiber: Fiber.Fiber<void, never> | null = null;
     let rotationFiber: Fiber.Fiber<void, never> | null = null;
     let liveController: SessionControllerLike | null = null;
     let localUser: SyncplayUser | null = null;
     let leaving = false;
     let swapping = false;
+    let suppressedRoomId: string | null = null;
 
     const interruptConnection = (): Effect.Effect<void> =>
       Effect.gen(function* () {
         const fiber = connectionFiber;
         connectionFiber = null;
         liveController = null;
+        if (!fiber) return;
+        yield* Fiber.interrupt(fiber);
+      });
+
+    const interruptLobby = (): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        const fiber = lobbyFiber;
+        lobbyFiber = null;
         if (!fiber) return;
         yield* Fiber.interrupt(fiber);
       });
@@ -421,22 +418,24 @@ export const makeWatchTogetherSession = (
     const interruptActive = (): Effect.Effect<void> =>
       Effect.gen(function* () {
         yield* interruptRotation();
+        yield* interruptLobby();
         yield* interruptConnection();
       });
 
     yield* Effect.addFinalizer(() => interruptActive());
 
-    const onParticipant = (participant: SyncplayParticipantState): void => {
+    const onPlayingParticipant = (
+      participant: SyncplayParticipantState,
+    ): void => {
       Effect.runFork(
         SubscriptionRef.update(state, (s) => {
           if (s._tag !== "Playing") return s;
           return {
             ...s,
-            participants: mergeParticipant(s.participants, participant),
+            participants: mergeParticipantState(s.participants, participant),
           };
         }),
       );
-      mirror.updateParticipant(participant);
     };
 
     const leave = (leaveOptions: LeaveOptions): Effect.Effect<void> =>
@@ -444,14 +443,20 @@ export const makeWatchTogetherSession = (
         if (leaving) return;
         leaving = true;
         try {
+          const current = yield* SubscriptionRef.get(state);
+          if (leaveOptions.suppressAutoStart) {
+            if (current._tag === "Playing" || current._tag === "Lobby") {
+              suppressedRoomId = current.room.id;
+            }
+          }
           yield* interruptActive();
           localUser = null;
           yield* SubscriptionRef.set(state, Idle);
-          if (leaveOptions.suppressAutoStart) {
-            mirror.leave();
-          } else {
-            mirror.clear();
-          }
+          yield* Ref.set(lobbyContext, {
+            canStart: false,
+            playbackInput: null,
+            leaving: false,
+          });
         } finally {
           leaving = false;
         }
@@ -466,7 +471,7 @@ export const makeWatchTogetherSession = (
           {
             room,
             localUser: user,
-            onParticipant,
+            onParticipant: onPlayingParticipant,
             onFatalError: () => {
               Effect.runFork(leave({ suppressAutoStart: false }));
             },
@@ -480,6 +485,364 @@ export const makeWatchTogetherSession = (
 
         connectionFiber = fiber;
       });
+
+    /**
+     * Lobby presence observer + auto-start evaluation loop. Scoped children
+     * (observer reconnect loop) interrupt together when the lobby fiber ends
+     * (exitLobby / startPlayback / leave).
+     */
+    const runLobby = (
+      room: WatchTogetherRoom,
+      user: SyncplayUser,
+    ): Effect.Effect<void, never, Scope.Scope> =>
+      Effect.gen(function* () {
+        const stickyPresent = yield* Ref.make(false);
+        const hasAutoStarted = yield* Ref.make(false);
+        const presentSinceMs = yield* Ref.make<number | null>(null);
+        const clockMs = yield* Ref.make(0);
+        let observerFiber: Fiber.Fiber<void, never> | null = null;
+        let graceFiber: Fiber.Fiber<void, never> | null = null;
+
+        const interruptChild = (
+          fiber: Fiber.Fiber<void, never> | null,
+        ): Effect.Effect<void> =>
+          fiber ? Fiber.interrupt(fiber).pipe(Effect.asVoid) : Effect.void;
+
+        yield* Effect.addFinalizer(() =>
+          Effect.gen(function* () {
+            yield* interruptChild(observerFiber);
+            yield* interruptChild(graceFiber);
+            observerFiber = null;
+            graceFiber = null;
+          }),
+        );
+
+        let evaluateOnce: () => Effect.Effect<void, never, Scope.Scope> = () =>
+          Effect.void;
+
+        const startLobbyObserver = (): Effect.Effect<
+          void,
+          never,
+          Scope.Scope
+        > =>
+          Effect.gen(function* () {
+            if (observerFiber) return;
+            observerFiber = yield* Effect.gen(function* () {
+              yield* Effect.forever(
+                Effect.gen(function* () {
+                  // Re-learn presence from scratch on every (re)connect.
+                  yield* SubscriptionRef.update(state, (s) => {
+                    if (s._tag !== "Lobby" || s.room.id !== room.id) return s;
+                    return { ...s, participants: {} };
+                  });
+                  const closed = yield* Deferred.make<void>();
+                  yield* Effect.scoped(
+                    Effect.gen(function* () {
+                      const client = yield* Effect.acquireRelease(
+                        Effect.sync(() => {
+                          const next = makeObserver({
+                            room: {
+                              id: room.id,
+                              syncplayHost: room.syncplayHost,
+                              syncplayPort: room.syncplayPort,
+                              sourceUri: room.sourceUri,
+                            },
+                            user,
+                            onParticipant: (participant) => {
+                              Effect.runFork(
+                                Effect.gen(function* () {
+                                  yield* SubscriptionRef.update(state, (s) => {
+                                    if (
+                                      s._tag !== "Lobby" ||
+                                      s.room.id !== room.id
+                                    ) {
+                                      return s;
+                                    }
+                                    return {
+                                      ...s,
+                                      participants: mergeParticipantState(
+                                        s.participants,
+                                        participant,
+                                      ),
+                                    };
+                                  });
+                                  // runFork is outside the lobby Scope; re-scope.
+                                  yield* evaluateOnce().pipe(Effect.scoped);
+                                }),
+                              );
+                            },
+                            onRoomState: (roomState) => {
+                              Effect.runFork(
+                                Effect.gen(function* () {
+                                  yield* SubscriptionRef.update(state, (s) => {
+                                    if (
+                                      s._tag !== "Lobby" ||
+                                      s.room.id !== room.id
+                                    ) {
+                                      return s;
+                                    }
+                                    return {
+                                      ...s,
+                                      roomPositionSeconds:
+                                        roomState.positionSeconds,
+                                    };
+                                  });
+                                  yield* evaluateOnce().pipe(Effect.scoped);
+                                }),
+                              );
+                            },
+                            onClose: () => {
+                              Effect.runFork(
+                                Deferred.succeed(closed, undefined).pipe(
+                                  Effect.ignore,
+                                ),
+                              );
+                            },
+                          });
+                          next.connect();
+                          next.setReady(false);
+                          return next;
+                        }),
+                        (next) =>
+                          Effect.sync(() => {
+                            next.disconnect();
+                          }),
+                      );
+                      void client;
+                      yield* Deferred.await(closed);
+                    }),
+                  );
+                  yield* Effect.sleep(
+                    `${LOBBY_OBSERVER_RECONNECT_DELAY_MS} millis`,
+                  );
+                }),
+              );
+            }).pipe(Effect.forkScoped);
+          });
+
+        evaluateOnce = (): Effect.Effect<void, never, Scope.Scope> =>
+          Effect.gen(function* () {
+            if (leaving) return;
+            const session = yield* SubscriptionRef.get(state);
+            if (session._tag !== "Lobby" || session.room.id !== room.id) {
+              return;
+            }
+
+            const ctx = yield* Ref.get(lobbyContext);
+            const everyoneNow = allInvitedPresent(
+              session.room,
+              session.participants,
+              user.id,
+            );
+
+            if (everyoneNow) {
+              yield* interruptChild(graceFiber);
+              graceFiber = null;
+              const wasSticky = yield* Ref.get(stickyPresent);
+              if (!wasSticky) {
+                yield* Ref.set(stickyPresent, true);
+              }
+            } else {
+              const wasSticky = yield* Ref.get(stickyPresent);
+              if (wasSticky && !graceFiber) {
+                graceFiber = yield* Effect.gen(function* () {
+                  yield* Effect.sleep(`${PRESENCE_GRACE_MS} millis`);
+                  yield* Ref.set(stickyPresent, false);
+                  yield* Ref.set(presentSinceMs, null);
+                  yield* Ref.set(hasAutoStarted, false);
+                  yield* evaluateOnce();
+                }).pipe(Effect.forkScoped);
+              }
+            }
+
+            const sticky = yield* Ref.get(stickyPresent);
+            const started = yield* Ref.get(hasAutoStarted);
+            const someoneElseWatching = session.room.users.some(
+              (u) =>
+                u.id !== user.id &&
+                Boolean(
+                  Object.values(session.participants).find(
+                    (p) => p.user.id === u.id,
+                  )?.isReady,
+                ),
+            );
+            const canStart = ctx.canStart && ctx.playbackInput !== null;
+            const suppressed = suppressedRoomId === session.room.id;
+            const positionOk =
+              !someoneElseWatching || session.roomPositionSeconds !== null;
+            const armed =
+              sticky &&
+              everyoneNow &&
+              canStart &&
+              !suppressed &&
+              session.room.users.length > 1 &&
+              !ctx.leaving &&
+              !started &&
+              positionOk;
+
+            const now = yield* Ref.get(clockMs);
+            if (armed) {
+              const since = yield* Ref.get(presentSinceMs);
+              if (since === null) {
+                yield* Ref.set(presentSinceMs, now);
+              }
+            } else if (sticky && everyoneNow) {
+              // Conditions not fully met yet (media pending, unknown position,
+              // etc.) — keep sticky but don't accumulate delay until armed.
+              yield* Ref.set(presentSinceMs, null);
+            }
+
+            const since = yield* Ref.get(presentSinceMs);
+            const presentStableMs =
+              armed && since !== null ? Math.max(0, now - since) : 0;
+
+            const decision = decideLobbyAutoStart({
+              room: session.room,
+              participants: session.participants,
+              localUserId: user.id,
+              presentStableMs,
+              everyonePresentSticky: sticky,
+              autoStartSuppressed: suppressed,
+              canStart,
+              leaving: ctx.leaving,
+              hasAutoStarted: started,
+              roomPositionSeconds: session.roomPositionSeconds,
+            });
+
+            switch (decision.kind) {
+              case "wait":
+                return;
+              case "rearm":
+                yield* Ref.set(hasAutoStarted, false);
+                yield* Ref.set(presentSinceMs, null);
+                return;
+              case "start": {
+                const playback = ctx.playbackInput;
+                if (!playback) return;
+                yield* Ref.set(hasAutoStarted, true);
+                // Detach so interruptActive inside startPlayback cannot cancel
+                // the Lobby→Playing transition mid-flight.
+                yield* startPlayback({
+                  room: session.room,
+                  localUser: user,
+                  item: playback.item,
+                  resume: false,
+                  ...(decision.startPositionSeconds !== null && {
+                    startPositionSeconds: decision.startPositionSeconds,
+                  }),
+                }).pipe(
+                  Effect.forkDetach({ startImmediately: true }),
+                  Effect.asVoid,
+                );
+                return;
+              }
+              default: {
+                const _exhaustive: never = decision;
+                return _exhaustive;
+              }
+            }
+          });
+
+        yield* startLobbyObserver();
+        // Tick the lobby clock so presentStableMs / auto-start delay advance
+        // under TestClock and wall clock alike.
+        yield* Effect.gen(function* () {
+          yield* evaluateOnce();
+          yield* Effect.repeat(
+            Effect.gen(function* () {
+              yield* Ref.update(clockMs, (n) => n + 100);
+              yield* evaluateOnce();
+            }),
+            Schedule.spaced("100 millis"),
+          );
+        });
+      });
+
+    // Forward declaration: runLobby's auto-start calls startPlayback, which
+    // interrupts the lobby fiber — bind via suspend so the const is stable.
+    let startPlaybackImpl: (
+      input: StartPlaybackInput,
+    ) => Effect.Effect<void> = () => Effect.void;
+    const startPlayback = (input: StartPlaybackInput): Effect.Effect<void> =>
+      Effect.suspend(() => startPlaybackImpl(input));
+
+    const startLobbyFiber = (
+      room: WatchTogetherRoom,
+      user: SyncplayUser,
+    ): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        yield* interruptLobby();
+        const fiber = yield* runLobby(room, user).pipe(
+          Effect.scoped,
+          Effect.forkDetach({ startImmediately: true }),
+        );
+        lobbyFiber = fiber;
+      });
+
+    const enterLobby = (input: EnterLobbyInput): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        const current = yield* SubscriptionRef.get(state);
+        if (current._tag === "Playing") {
+          // Driver owns the socket; keep Playing. Still refresh room if same id.
+          if (current.room.id === input.room.id) {
+            yield* SubscriptionRef.set(state, {
+              ...current,
+              room: input.room,
+            });
+          }
+          return;
+        }
+        if (current._tag === "Lobby" && current.room.id === input.room.id) {
+          // Idempotent by room id: refresh room object, keep participants /
+          // position / observer fiber.
+          yield* SubscriptionRef.set(state, {
+            ...current,
+            room: input.room,
+          });
+          localUser = input.localUser;
+          return;
+        }
+
+        yield* interruptActive();
+        localUser = input.localUser;
+        yield* SubscriptionRef.set(
+          state,
+          lobby({
+            room: input.room,
+            participants: {},
+            roomPositionSeconds: null,
+          }),
+        );
+        yield* startLobbyFiber(input.room, input.localUser);
+      });
+
+    const updateLobbyRoom = (room: WatchTogetherRoom): Effect.Effect<void> =>
+      SubscriptionRef.update(state, (s) => {
+        if (s._tag === "Lobby" && s.room.id === room.id) {
+          return { ...s, room };
+        }
+        if (s._tag === "Playing" && s.room.id === room.id) {
+          return { ...s, room };
+        }
+        return s;
+      });
+
+    const exitLobby = (): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        const current = yield* SubscriptionRef.get(state);
+        if (current._tag !== "Lobby") return;
+        yield* interruptLobby();
+        localUser = null;
+        yield* SubscriptionRef.set(state, Idle);
+        yield* Ref.set(lobbyContext, {
+          canStart: false,
+          playbackInput: null,
+          leaving: false,
+        });
+      });
+
+    const setLobbyContext = (ctx: LobbyContext): Effect.Effect<void> =>
+      Ref.set(lobbyContext, ctx);
 
     const updateRotationPhase = (
       update: (
@@ -963,10 +1326,12 @@ export const makeWatchTogetherSession = (
         }
       });
 
-    const startPlayback = (input: StartPlaybackInput): Effect.Effect<void> =>
+    startPlaybackImpl = (input: StartPlaybackInput): Effect.Effect<void> =>
       Effect.gen(function* () {
         yield* interruptActive();
         localUser = input.localUser;
+        // Starting a session clears auto-start suppression (matches old store).
+        suppressedRoomId = null;
 
         const next = playing({
           room: input.room,
@@ -974,10 +1339,6 @@ export const makeWatchTogetherSession = (
           participants: {},
         });
         yield* SubscriptionRef.set(state, next);
-        mirror.setPlaying({
-          room: input.room,
-          localUser: input.localUser,
-        });
 
         player.load(input.item, {
           resume: false,
@@ -1006,7 +1367,6 @@ export const makeWatchTogetherSession = (
           }
           return swapPlayingRoom(s, input.room, toPlayingItem(input.item), {});
         });
-        mirror.setPlaying({ room: input.room, localUser: user });
 
         player.load(input.item, { resume: false });
         yield* startConnection(input.room, user);
@@ -1037,10 +1397,15 @@ export const makeWatchTogetherSession = (
       changes: SubscriptionRef.changes(state),
       // Escape-hatch sync read for React/compat; SubscriptionRef.get is Effect.
       snapshot: () => Effect.runSync(SubscriptionRef.get(state)),
+      enterLobby,
+      updateLobbyRoom,
+      exitLobby,
+      setLobbyContext,
       startPlayback,
       swapTo,
       leave,
       setRotationContext,
+      getSuppressedRoomId: () => suppressedRoomId,
       handleLocalPlaybackChange,
       handleLocalSeeked,
     } satisfies WatchTogetherSessionShape;

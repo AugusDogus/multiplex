@@ -53,3 +53,21 @@ export {
   OBSERVER_RECONNECT_DELAY_MS,
   rotationCountdown,
 } from "./rotation-policy";
+
+export type {
+  DecideLobbyAutoStartInput,
+  LobbyAutoStartDecision,
+  LobbyHintInput,
+  ParticipantStatus,
+} from "./lobby-policy";
+export {
+  allInvitedPresent,
+  AUTO_START_DELAY_MS,
+  decideLobbyAutoStart,
+  getLobbyHint,
+  getParticipantStatus,
+  isSoloRoom,
+  isSomeoneElseWatching,
+  LOBBY_OBSERVER_RECONNECT_DELAY_MS,
+  PRESENCE_GRACE_MS,
+} from "./lobby-policy";

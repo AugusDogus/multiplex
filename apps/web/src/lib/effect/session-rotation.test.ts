@@ -12,7 +12,6 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { TestClock } from "effect/testing";
 
 import { useMediaPlayerStore } from "~/stores/media-player-store";
-import { useWatchTogetherStore } from "~/stores/watch-together-store";
 import type { MediaPlayerItem, NextEpisodeInfo } from "~/types/media-player";
 
 import {
@@ -26,7 +25,6 @@ import {
   type MakeSessionController,
   type ObserverConnectionLike,
   type SessionControllerLike,
-  type SessionMirror,
   type WatchTogetherSessionShape,
 } from "./session-service";
 import {
@@ -191,14 +189,6 @@ const makeControllablePlayer = (): PlayerPortShape & {
   };
 };
 
-const makeMirror = (): SessionMirror => ({
-  setPlaying: (session) => useWatchTogetherStore.getState().setSession(session),
-  clear: () => useWatchTogetherStore.getState().clearSession(),
-  leave: () => useWatchTogetherStore.getState().leaveSession(),
-  updateParticipant: (participant) =>
-    useWatchTogetherStore.getState().updateParticipant(participant),
-});
-
 const makeStubApi = (overrides?: {
   rooms?: () => WatchTogetherRoom[];
   /** When provided, each call returns this Effect (for failure/retry tests). */
@@ -251,11 +241,6 @@ const makeStubApi = (overrides?: {
 };
 
 beforeEach(() => {
-  useWatchTogetherStore.setState({
-    session: null,
-    participants: {},
-    autoStartSuppressedRoomId: null,
-  });
   useMediaPlayerStore.getState().closePlayer();
 });
 
@@ -290,7 +275,6 @@ const withRotationSession = async <A>(
     api,
     makeController,
     makeObserver,
-    mirror: makeMirror(),
   }).pipe(
     Layer.provideMerge(Layer.succeed(PlayerPort)(player)),
     Layer.provideMerge(Layer.succeed(WatchTogetherApi)(api)),
