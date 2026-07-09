@@ -58,6 +58,15 @@ export const EVERYONE_JOINED_GRACE_MS = 10_000;
 export const DISCOVERY_POLL_MS = 4_000;
 
 /**
+ * Overlay countdown window (mirrors solo autoplay). Shown once rotation is
+ * armed and the remaining time is within this many seconds.
+ */
+export const COUNTDOWN_SECONDS = 5;
+
+/** Reconnect delay for the background next-room observer connection. */
+export const OBSERVER_RECONNECT_DELAY_MS = 2_000;
+
+/**
  * The Multiplex clients currently present in the session, in a deterministic
  * order (Plex user id, then device identifier). Every client computes the same
  * list from the shared Syncplay participant state, so the ordering doubles as
@@ -260,6 +269,28 @@ export function isAtEnd(input: {
   readonly timeRemainingSeconds: number;
 }): boolean {
   return input.durationSeconds > 0 && input.timeRemainingSeconds <= END_THRESHOLD_SECONDS;
+}
+
+/**
+ * Countdown overlay derivation for an armed rotation cycle. Pure so React and
+ * the session service share one definition of "is counting down".
+ */
+export function rotationCountdown(input: {
+  readonly phase: RotationPhase;
+  readonly timeRemainingSeconds: number;
+}): {
+  readonly isCountingDown: boolean;
+  readonly countdownSeconds: number;
+} {
+  const armed = input.phase._tag !== "None";
+  const isCountingDown = armed && input.timeRemainingSeconds <= COUNTDOWN_SECONDS;
+  return {
+    isCountingDown,
+    countdownSeconds: Math.max(
+      0,
+      Math.ceil(Math.min(input.timeRemainingSeconds, COUNTDOWN_SECONDS)),
+    ),
+  };
 }
 
 /**

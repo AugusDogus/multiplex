@@ -33,6 +33,7 @@ export type {
 } from "./rotation-policy";
 export {
   ADVANCE_LEAD_SECONDS,
+  COUNTDOWN_SECONDS,
   CREATE_BASE_DELAY_MS,
   CREATE_STAGGER_MS,
   createRoomDelayMs,
@@ -49,4 +50,6 @@ export {
   mergeParticipantState,
   MIN_PLAYBACK_SECONDS,
   MULTIPLEX_SYNCPLAY_DEVICE_NAME,
+  OBSERVER_RECONNECT_DELAY_MS,
+  rotationCountdown,
 } from "./rotation-policy";

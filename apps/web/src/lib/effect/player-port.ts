@@ -36,6 +36,8 @@ export type PlayerPortShape = {
   ) => void;
   readonly close: () => void;
   readonly snapshot: () => PlayerSnapshot;
+  /** Current media-player item (full metadata), or null when closed. */
+  readonly currentItem: () => MediaPlayerItem | null;
   readonly subscribe: (
     listener: (snapshot: PlayerSnapshot) => void,
   ) => () => void;
@@ -95,6 +97,7 @@ export const makePlayerPort = (): PlayerPortShape => {
       useMediaPlayerStore.getState().closePlayer();
     },
     snapshot: readSnapshot,
+    currentItem: () => useMediaPlayerStore.getState().currentItem,
     subscribe: (listener) => {
       let previous = readSnapshot();
       return useMediaPlayerStore.subscribe(() => {

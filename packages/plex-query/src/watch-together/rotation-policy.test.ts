@@ -18,6 +18,7 @@ import {
   mergeParticipantState,
   MIN_PLAYBACK_SECONDS,
   MULTIPLEX_SYNCPLAY_DEVICE_NAME,
+  rotationCountdown,
 } from "./rotation-policy";
 import { RotationArmed, RotationNone, rotationGathering, rotationRoomKnown } from "./session-state";
 
@@ -549,5 +550,28 @@ describe("decideRotation", () => {
         everyoneJoined: true,
       }),
     ).toEqual({ kind: "adopt_room", room: newer });
+  });
+
+  it("derives countdown overlay from armed phase + remaining time", () => {
+    expect(
+      rotationCountdown({
+        phase: RotationNone,
+        timeRemainingSeconds: 3,
+      }),
+    ).toEqual({ isCountingDown: false, countdownSeconds: 3 });
+
+    expect(
+      rotationCountdown({
+        phase: RotationArmed,
+        timeRemainingSeconds: 3.2,
+      }),
+    ).toEqual({ isCountingDown: true, countdownSeconds: 4 });
+
+    expect(
+      rotationCountdown({
+        phase: RotationArmed,
+        timeRemainingSeconds: 12,
+      }),
+    ).toEqual({ isCountingDown: false, countdownSeconds: 5 });
   });
 });

@@ -1,0 +1,744 @@
+import { beforeEach, expect, mock, test } from "bun:test";
+import {
+  CREATE_BASE_DELAY_MS,
+  CREATE_STAGGER_MS,
+  EVERYONE_JOINED_GRACE_MS,
+  MULTIPLEX_SYNCPLAY_DEVICE_NAME,
+  type SyncplayParticipantState,
+  type SyncplayUser,
+  type WatchTogetherRoom,
+} from "@multiplex/plex-query";
+import { Effect, Layer, ManagedRuntime } from "effect";
+import { TestClock } from "effect/testing";
+
+import { useMediaPlayerStore } from "~/stores/media-player-store";
+import { useWatchTogetherStore } from "~/stores/watch-together-store";
+import type { MediaPlayerItem, NextEpisodeInfo } from "~/types/media-player";
+
+import {
+  PlayerPort,
+  type PlayerPortShape,
+  type PlayerSnapshot,
+} from "./player-port";
+import {
+  WatchTogetherSession,
+  type MakeObserverConnection,
+  type MakeSessionController,
+  type ObserverConnectionLike,
+  type SessionControllerLike,
+  type SessionMirror,
+  type WatchTogetherSessionShape,
+} from "./session-service";
+import {
+  WatchTogetherApi,
+  type WatchTogetherApiShape,
+} from "./watch-together-api";
+
+const NOW = Date.now();
+
+const multiplexUser = (id: number, device = `device-${id}`): SyncplayUser => ({
+  id,
+  deviceIdentifier: device,
+  deviceName: MULTIPLEX_SYNCPLAY_DEVICE_NAME,
+});
+
+const localUser = multiplexUser(1);
+
+const room = (
+  id: string,
+  ratingKey: string,
+  users: WatchTogetherRoom["users"] = [
+    { id: 1, title: "Host", username: "host", thumb: null },
+    { id: 2, title: "Guest", username: "guest", thumb: null },
+  ],
+): WatchTogetherRoom =>
+  ({
+    id,
+    sourceUri: `server://srv/com.plexapp.plugins.library/library/metadata/${ratingKey}`,
+    title: `Room ${id}`,
+    type: "video",
+    syncplayHost: "syncplay.example.com",
+    syncplayPort: 443,
+    users,
+    updatedAt: Math.floor(NOW / 1000),
+  }) as WatchTogetherRoom;
+
+const item = (ratingKey: string): MediaPlayerItem =>
+  ({
+    ratingKey,
+    key: `/library/metadata/${ratingKey}`,
+    title: `Item ${ratingKey}`,
+    type: "episode",
+    hubTitle: "TV",
+    hubType: "metadata",
+    serverId: "srv",
+    serverUrl: "https://plex.example",
+    authToken: "token",
+    duration: 1_200_000,
+    index: 1,
+    parentIndex: 1,
+  }) as MediaPlayerItem;
+
+const nextEpisode: NextEpisodeInfo = {
+  ratingKey: "200",
+  key: "/library/metadata/200",
+  title: "Next Ep",
+  index: 2,
+  parentIndex: 1,
+  duration: 1_200_000,
+};
+
+type StubController = SessionControllerLike & {
+  readonly options: {
+    onParticipant?: (p: SyncplayParticipantState) => void;
+  };
+};
+
+const makeStubControllerFactory = () => {
+  const controllers: StubController[] = [];
+  const makeController: MakeSessionController = (options) => {
+    const controller: StubController = {
+      options,
+      connect: mock(() => undefined),
+      disconnect: mock(() => undefined),
+      setReady: mock(() => undefined),
+      handleLocalPlaybackChange: mock(() => undefined),
+      handleLocalSeeked: mock(() => undefined),
+    };
+    controllers.push(controller);
+    return controller;
+  };
+  return { makeController, controllers };
+};
+
+type StubObserver = ObserverConnectionLike & {
+  readonly options: {
+    onParticipant: (p: SyncplayParticipantState) => void;
+    onClose: () => void;
+  };
+  readonly roomId: string;
+};
+
+const makeStubObserverFactory = () => {
+  const observers: StubObserver[] = [];
+  const makeObserver: MakeObserverConnection = (options) => {
+    const observer: StubObserver = {
+      options: {
+        onParticipant: options.onParticipant,
+        onClose: options.onClose,
+      },
+      roomId: options.room.id,
+      connect: mock(() => undefined),
+      disconnect: mock(() => undefined),
+      setReady: mock(() => undefined),
+    };
+    observers.push(observer);
+    return observer;
+  };
+  return { makeObserver, observers };
+};
+
+const makeControllablePlayer = (): PlayerPortShape & {
+  setPlayback: (partial: Partial<PlayerSnapshot>) => void;
+  loads: Array<{ item: MediaPlayerItem; opts: unknown }>;
+} => {
+  const loads: Array<{ item: MediaPlayerItem; opts: unknown }> = [];
+  let snap: PlayerSnapshot = {
+    isPlaying: true,
+    currentTimeSeconds: 0,
+    durationSeconds: 1200,
+    canPlay: true,
+    isLoading: false,
+    error: null,
+  };
+  let current: MediaPlayerItem | null = null;
+  const listeners = new Set<(s: PlayerSnapshot) => void>();
+
+  return {
+    loads,
+    load: (nextItem, opts) => {
+      loads.push({ item: nextItem, opts });
+      current = nextItem;
+      snap = {
+        ...snap,
+        currentTimeSeconds: opts.startPositionSeconds ?? 0,
+        durationSeconds:
+          typeof nextItem.duration === "number"
+            ? nextItem.duration / 1000
+            : snap.durationSeconds,
+      };
+      for (const listener of listeners) listener(snap);
+    },
+    close: () => {
+      current = null;
+    },
+    snapshot: () => snap,
+    currentItem: () => current,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    registerActions: () => undefined,
+    play: () => true,
+    pause: () => undefined,
+    seek: () => "direct" as const,
+    setPlayback: (partial) => {
+      snap = { ...snap, ...partial };
+      for (const listener of listeners) listener(snap);
+    },
+  };
+};
+
+const makeMirror = (): SessionMirror => ({
+  setPlaying: (session) => useWatchTogetherStore.getState().setSession(session),
+  clear: () => useWatchTogetherStore.getState().clearSession(),
+  leave: () => useWatchTogetherStore.getState().leaveSession(),
+  updateParticipant: (participant) =>
+    useWatchTogetherStore.getState().updateParticipant(participant),
+});
+
+const makeStubApi = (overrides?: {
+  rooms?: () => WatchTogetherRoom[];
+  /** When provided, each call returns this Effect (for failure/retry tests). */
+  createRoomEffect?: (
+    input: Parameters<WatchTogetherApiShape["createRoom"]>[0],
+  ) => Effect.Effect<WatchTogetherRoom, { _tag: string }>;
+}): {
+  api: WatchTogetherApiShape;
+  createRoom: ReturnType<typeof mock>;
+  deleteRoom: ReturnType<typeof mock>;
+  listRooms: ReturnType<typeof mock>;
+} => {
+  const createRoom = mock(
+    (input: Parameters<WatchTogetherApiShape["createRoom"]>[0]) => {
+      if (overrides?.createRoomEffect) {
+        return overrides.createRoomEffect(input);
+      }
+      return Effect.succeed(room("r-created", "200"));
+    },
+  );
+  const deleteRoom = mock((_roomId: string) => Effect.void);
+  const listRooms = mock(() =>
+    Effect.succeed(overrides?.rooms ? overrides.rooms() : []),
+  );
+
+  const api: WatchTogetherApiShape = {
+    listRooms: () => listRooms() as never,
+    getRoom: () =>
+      Effect.fail({
+        _tag: "WatchTogetherApiError",
+        cause: "unused",
+        operation: "getRoom",
+      }) as never,
+    createRoom: (input) => createRoom(input) as never,
+    deleteRoom: (roomId) => deleteRoom(roomId) as never,
+    getItemMetadata: (input) =>
+      Effect.succeed({
+        ratingKey: input.ratingKey,
+        key: `/library/metadata/${input.ratingKey}`,
+        title: "Next Ep",
+        type: "episode",
+      }) as never,
+    getUserInfo: () => Effect.fail({ _tag: "WatchTogetherApiError" }) as never,
+    createPlayQueue: () =>
+      Effect.fail({ _tag: "WatchTogetherApiError" }) as never,
+    getPlayQueue: () => Effect.fail({ _tag: "WatchTogetherApiError" }) as never,
+  };
+
+  return { api, createRoom, deleteRoom, listRooms };
+};
+
+beforeEach(() => {
+  useWatchTogetherStore.setState({
+    session: null,
+    participants: {},
+    autoStartSuppressedRoomId: null,
+  });
+  useMediaPlayerStore.getState().closePlayer();
+});
+
+const withRotationSession = async <A>(
+  f: (ctx: {
+    session: WatchTogetherSessionShape;
+    player: ReturnType<typeof makeControllablePlayer>;
+    createRoom: ReturnType<typeof mock>;
+    deleteRoom: ReturnType<typeof mock>;
+    observers: StubObserver[];
+    controllers: StubController[];
+    setRooms: (rooms: WatchTogetherRoom[]) => void;
+  }) => Effect.Effect<A>,
+  options?: {
+    rooms?: () => WatchTogetherRoom[];
+    createRoomEffect?: (
+      input: Parameters<WatchTogetherApiShape["createRoom"]>[0],
+    ) => Effect.Effect<WatchTogetherRoom, { _tag: string }>;
+  },
+): Promise<A> => {
+  const player = makeControllablePlayer();
+  const { makeController, controllers } = makeStubControllerFactory();
+  const { makeObserver, observers } = makeStubObserverFactory();
+  let roomsFn = options?.rooms ?? (() => [] as WatchTogetherRoom[]);
+  const { api, createRoom, deleteRoom } = makeStubApi({
+    rooms: () => roomsFn(),
+    createRoomEffect: options?.createRoomEffect,
+  });
+
+  const layer = WatchTogetherSession.layer({
+    player,
+    api,
+    makeController,
+    makeObserver,
+    mirror: makeMirror(),
+  }).pipe(
+    Layer.provideMerge(Layer.succeed(PlayerPort)(player)),
+    Layer.provideMerge(Layer.succeed(WatchTogetherApi)(api)),
+    // TestClock must be in the ManagedRuntime so forkDetach children see it.
+    Layer.provideMerge(TestClock.layer()),
+  );
+
+  const runtime = ManagedRuntime.make(layer);
+  try {
+    // Outer Scope so TestClock.adjust / Schedule sleeps can resolve.
+    return await runtime.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const session = yield* WatchTogetherSession;
+          return yield* f({
+            session,
+            player,
+            createRoom,
+            deleteRoom,
+            observers,
+            controllers,
+            setRooms: (rooms) => {
+              roomsFn = () => rooms;
+            },
+          });
+        }),
+      ),
+    );
+  } finally {
+    await runtime.dispose();
+  }
+};
+
+const startArmed = (
+  session: WatchTogetherSessionShape,
+  player: ReturnType<typeof makeControllablePlayer>,
+  controllers: StubController[],
+  peers: SyncplayUser[] = [multiplexUser(2)],
+) =>
+  Effect.gen(function* () {
+    yield* session.startPlayback({
+      room: room("r1", "100"),
+      localUser,
+      item: item("100"),
+    });
+    for (const peer of peers) {
+      controllers[0]?.options.onParticipant?.({
+        user: peer,
+        isPresent: true,
+      });
+    }
+    yield* Effect.yieldNow;
+    // Enter the lead window before starting the rotation fiber so the first
+    // evaluateOnce arms immediately.
+    player.setPlayback({
+      currentTimeSeconds: 1160,
+      durationSeconds: 1200,
+    });
+    yield* session.setRotationContext({
+      nextEpisode,
+      autoPlayEnabled: true,
+    });
+    yield* Effect.yieldNow;
+    yield* TestClock.adjust("0 millis");
+    yield* Effect.yieldNow;
+  });
+
+/** Advance TestClock until `pred` holds (1s steps), for discovery/grace races. */
+const waitUntil = (
+  session: WatchTogetherSessionShape,
+  pred: (snap: ReturnType<WatchTogetherSessionShape["snapshot"]>) => boolean,
+  maxSeconds = 20,
+) =>
+  Effect.gen(function* () {
+    for (let i = 0; i < maxSeconds; i++) {
+      if (pred(session.snapshot())) return;
+      yield* TestClock.adjust("1 second");
+      yield* Effect.yieldNow;
+    }
+    expect(pred(session.snapshot())).toBe(true);
+  });
+
+test("arm → create (rank 0) → discovery adopts → gathering → everyone-joined swap", async () => {
+  const nextRoom = room("r2", "200");
+  await withRotationSession(
+    ({
+      session,
+      player,
+      createRoom,
+      deleteRoom,
+      setRooms,
+      observers,
+      controllers,
+    }) =>
+      Effect.gen(function* () {
+        yield* startArmed(session, player, controllers);
+
+        let snap = session.snapshot();
+        expect(snap._tag).toBe("Playing");
+        expect(snap._tag === "Playing" && snap.rotation._tag).toBe("Armed");
+
+        yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS} millis`);
+        yield* Effect.yieldNow;
+        expect(createRoom).toHaveBeenCalledTimes(1);
+        expect(createRoom).toHaveBeenCalledWith(
+          expect.objectContaining({
+            serverId: "srv",
+            ratingKey: "200",
+            users: [2],
+          }),
+        );
+
+        setRooms([nextRoom]);
+        yield* waitUntil(
+          session,
+          (s) => s._tag === "Playing" && s.rotation._tag === "RoomKnown",
+        );
+
+        snap = session.snapshot();
+        expect(snap._tag === "Playing" && snap.rotation._tag).toBe("RoomKnown");
+        expect(
+          snap._tag === "Playing" &&
+            snap.rotation._tag === "RoomKnown" &&
+            snap.rotation.nextRoom.id,
+        ).toBe("r2");
+
+        player.setPlayback({ currentTimeSeconds: 1200, durationSeconds: 1200 });
+        yield* waitUntil(
+          session,
+          (s) => s._tag === "Playing" && s.rotation._tag === "Gathering",
+        );
+
+        snap = session.snapshot();
+        expect(snap._tag === "Playing" && snap.rotation._tag).toBe("Gathering");
+        expect(observers.length).toBeGreaterThanOrEqual(1);
+        expect(observers[0]?.roomId).toBe("r2");
+        expect(observers[0]?.setReady).toHaveBeenCalledWith(false);
+
+        yield* TestClock.adjust("1 second");
+        yield* Effect.yieldNow;
+        snap = session.snapshot();
+        expect(snap._tag === "Playing" && snap.room.id).toBe("r1");
+
+        observers[0]?.options.onParticipant({
+          user: multiplexUser(2),
+          isPresent: true,
+        });
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        yield* waitUntil(
+          session,
+          (s) => s._tag === "Playing" && s.room.id === "r2",
+        );
+
+        snap = session.snapshot();
+        expect(snap._tag).toBe("Playing");
+        expect(snap._tag === "Playing" && snap.room.id).toBe("r2");
+        expect(snap._tag === "Playing" && snap.item.ratingKey).toBe("200");
+        expect(snap._tag === "Playing" && snap.rotation._tag).toBe("None");
+        expect(deleteRoom).toHaveBeenCalledWith("r1");
+        expect(player.loads.at(-1)?.item.ratingKey).toBe("200");
+      }),
+  );
+});
+
+test("rank 1 stagger: no create before 9500ms", async () => {
+  const rank1User = multiplexUser(2);
+  await withRotationSession(({ session, player, createRoom, controllers }) =>
+    Effect.gen(function* () {
+      yield* session.startPlayback({
+        room: room("r1", "100"),
+        localUser: rank1User,
+        item: item("100"),
+      });
+      controllers[0]?.options.onParticipant?.({
+        user: localUser,
+        isPresent: true,
+      });
+      yield* Effect.yieldNow;
+
+      player.setPlayback({
+        currentTimeSeconds: 1160,
+        durationSeconds: 1200,
+      });
+      yield* session.setRotationContext({
+        nextEpisode,
+        autoPlayEnabled: true,
+      });
+      yield* Effect.yieldNow;
+
+      const delay = CREATE_BASE_DELAY_MS + CREATE_STAGGER_MS;
+      yield* TestClock.adjust(`${delay - 100} millis`);
+      yield* Effect.yieldNow;
+      expect(createRoom).toHaveBeenCalledTimes(0);
+
+      const snap = session.snapshot();
+      expect(snap._tag === "Playing" && snap.rotation._tag).toBe("Armed");
+    }),
+  );
+});
+
+test("rank 1 discovery adoption cancels pending create", async () => {
+  const nextRoom = room("r2", "200");
+  const rank1User = multiplexUser(2);
+  await withRotationSession(
+    ({ session, player, createRoom, controllers, setRooms }) =>
+      Effect.gen(function* () {
+        yield* session.startPlayback({
+          room: room("r1", "100"),
+          localUser: rank1User,
+          item: item("100"),
+        });
+        controllers[0]?.options.onParticipant?.({
+          user: localUser,
+          isPresent: true,
+        });
+        yield* Effect.yieldNow;
+
+        player.setPlayback({
+          currentTimeSeconds: 1160,
+          durationSeconds: 1200,
+        });
+        // Room already visible before arming so discovery adopts on first poll
+        // and the rank-1 create never schedules.
+        setRooms([nextRoom]);
+        yield* session.setRotationContext({
+          nextEpisode,
+          autoPlayEnabled: true,
+        });
+        yield* Effect.yieldNow;
+        yield* waitUntil(
+          session,
+          (s) => s._tag === "Playing" && s.rotation._tag === "RoomKnown",
+          10,
+        );
+
+        const snap = session.snapshot();
+        expect(snap._tag === "Playing" && snap.rotation._tag).toBe("RoomKnown");
+        expect(createRoom).toHaveBeenCalledTimes(0);
+      }),
+  );
+});
+
+test("create failure retries after re-arming the staggered delay", async () => {
+  let attempts = 0;
+  await withRotationSession(
+    ({ session, player, createRoom: create, controllers }) =>
+      Effect.gen(function* () {
+        yield* startArmed(session, player, controllers);
+
+        yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS} millis`);
+        yield* Effect.yieldNow;
+        expect(create).toHaveBeenCalledTimes(1);
+
+        yield* TestClock.adjust("1 second");
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS} millis`);
+        yield* Effect.yieldNow;
+        expect(create).toHaveBeenCalledTimes(2);
+      }),
+    {
+      createRoomEffect: () => {
+        attempts += 1;
+        if (attempts === 1) {
+          return Effect.fail({
+            _tag: "WatchTogetherApiError",
+            cause: "transient",
+            operation: "createRoom",
+          });
+        }
+        return Effect.succeed(room("r-created", "200"));
+      },
+    },
+  );
+});
+
+test("grace path: gathering with missing participant swaps after grace", async () => {
+  const nextRoom = room("r2", "200");
+  await withRotationSession(
+    ({ session, player, deleteRoom, setRooms, controllers }) =>
+      Effect.gen(function* () {
+        yield* startArmed(session, player, controllers);
+        setRooms([nextRoom]);
+        yield* waitUntil(
+          session,
+          (s) => s._tag === "Playing" && s.rotation._tag === "RoomKnown",
+        );
+
+        player.setPlayback({ currentTimeSeconds: 1200, durationSeconds: 1200 });
+        yield* waitUntil(
+          session,
+          (s) => s._tag === "Playing" && s.rotation._tag === "Gathering",
+        );
+
+        let snap = session.snapshot();
+        expect(snap._tag === "Playing" && snap.rotation._tag).toBe("Gathering");
+
+        yield* TestClock.adjust(`${EVERYONE_JOINED_GRACE_MS - 500} millis`);
+        yield* Effect.yieldNow;
+        snap = session.snapshot();
+        expect(snap._tag === "Playing" && snap.room.id).toBe("r1");
+
+        yield* waitUntil(
+          session,
+          (s) => s._tag === "Playing" && s.room.id === "r2",
+          15,
+        );
+
+        snap = session.snapshot();
+        expect(snap._tag === "Playing" && snap.room.id).toBe("r2");
+        expect(deleteRoom).toHaveBeenCalledWith("r1");
+      }),
+  );
+});
+
+test("duplicate convergence: adopted room replaced by deterministic winner resets gathering", async () => {
+  const early = room("r-early", "200");
+  early.updatedAt = Math.floor(NOW / 1000) - 10;
+  const winner = room("r-winner", "200");
+  winner.updatedAt = Math.floor(NOW / 1000);
+
+  await withRotationSession(
+    ({ session, player, setRooms, observers, controllers }) =>
+      Effect.gen(function* () {
+        yield* startArmed(session, player, controllers);
+        setRooms([early]);
+        yield* waitUntil(
+          session,
+          (s) =>
+            s._tag === "Playing" &&
+            s.rotation._tag === "RoomKnown" &&
+            s.rotation.nextRoom.id === "r-early",
+        );
+
+        let snap = session.snapshot();
+        expect(
+          snap._tag === "Playing" &&
+            snap.rotation._tag === "RoomKnown" &&
+            snap.rotation.nextRoom.id,
+        ).toBe("r-early");
+
+        player.setPlayback({ currentTimeSeconds: 1200, durationSeconds: 1200 });
+        yield* waitUntil(
+          session,
+          (s) => s._tag === "Playing" && s.rotation._tag === "Gathering",
+        );
+        snap = session.snapshot();
+        expect(snap._tag === "Playing" && snap.rotation._tag).toBe("Gathering");
+        const observersBefore = observers.length;
+
+        setRooms([early, winner]);
+        // At end, adopt_room immediately re-enters Gathering for the winner.
+        yield* waitUntil(
+          session,
+          (s) =>
+            s._tag === "Playing" &&
+            s.rotation._tag === "Gathering" &&
+            s.rotation.nextRoom.id === "r-winner",
+        );
+
+        snap = session.snapshot();
+        expect(
+          snap._tag === "Playing" &&
+            snap.rotation._tag === "Gathering" &&
+            snap.rotation.nextRoom.id,
+        ).toBe("r-winner");
+        expect(observers.length).toBeGreaterThan(observersBefore);
+      }),
+  );
+});
+
+test("opt-out: autoPlayEnabled false → no arm, no create", async () => {
+  await withRotationSession(({ session, player, createRoom }) =>
+    Effect.gen(function* () {
+      yield* session.startPlayback({
+        room: room("r1", "100"),
+        localUser,
+        item: item("100"),
+      });
+      yield* session.setRotationContext({
+        nextEpisode,
+        autoPlayEnabled: false,
+      });
+      player.setPlayback({
+        currentTimeSeconds: 1160,
+        durationSeconds: 1200,
+      });
+      yield* TestClock.adjust("5 seconds");
+      yield* Effect.yieldNow;
+
+      const snap = session.snapshot();
+      expect(snap._tag === "Playing" && snap.rotation._tag).toBe("None");
+      expect(createRoom).toHaveBeenCalledTimes(0);
+    }),
+  );
+});
+
+test("observer reconnect resets gathered participants", async () => {
+  const nextRoom = room("r2", "200");
+  // Two peers so reporting only device-2 does not satisfy everyoneJoined.
+  const peers = [multiplexUser(2), multiplexUser(3)];
+  await withRotationSession(
+    ({ session, player, setRooms, observers, controllers }) =>
+      Effect.gen(function* () {
+        yield* startArmed(session, player, controllers, peers);
+        setRooms([nextRoom]);
+        yield* waitUntil(
+          session,
+          (s) => s._tag === "Playing" && s.rotation._tag === "RoomKnown",
+        );
+
+        player.setPlayback({ currentTimeSeconds: 1200, durationSeconds: 1200 });
+        yield* waitUntil(
+          session,
+          (s) => s._tag === "Playing" && s.rotation._tag === "Gathering",
+        );
+
+        const first = observers[0];
+        expect(first).toBeDefined();
+        first?.options.onParticipant({
+          user: multiplexUser(2),
+          isPresent: true,
+        });
+        yield* Effect.yieldNow;
+
+        let snap = session.snapshot();
+        expect(snap._tag === "Playing" && snap.rotation._tag).toBe("Gathering");
+        expect(
+          snap._tag === "Playing" &&
+            snap.rotation._tag === "Gathering" &&
+            snap.rotation.gatheredDeviceIds.has("device-2"),
+        ).toBe(true);
+        expect(snap._tag === "Playing" && snap.room.id).toBe("r1");
+
+        first?.options.onClose();
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust("2 seconds");
+        yield* Effect.yieldNow;
+
+        snap = session.snapshot();
+        expect(snap._tag === "Playing" && snap.rotation._tag).toBe("Gathering");
+        expect(
+          snap._tag === "Playing" &&
+            snap.rotation._tag === "Gathering" &&
+            snap.rotation.gatheredDeviceIds.has("device-2"),
+        ).toBe(false);
+        expect(observers.length).toBeGreaterThanOrEqual(2);
+        expect(first?.disconnect).toHaveBeenCalled();
+      }),
+  );
+});

@@ -71,6 +71,15 @@ test("snapshot reflects store playback fields", () => {
   });
 });
 
+test("currentItem mirrors the media-player store item", () => {
+  const port = makePlayerPort();
+  expect(port.currentItem()).toBeNull();
+  port.load(sampleItem, { resume: false });
+  expect(port.currentItem()?.ratingKey).toBe("100");
+  port.close();
+  expect(port.currentItem()).toBeNull();
+});
+
 test("subscribe fires when playback snapshot fields change", () => {
   const port = makePlayerPort();
   const listener = mock();

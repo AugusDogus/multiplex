@@ -23,7 +23,7 @@ import { useMediaPlayer } from "./hooks/use-media-player";
 import { usePlayQueue } from "./hooks/use-play-queue";
 import { useTimelineUpdates } from "./hooks/use-timeline-updates";
 import { useAutoPlayNextEpisode } from "./hooks/use-auto-play-next-episode";
-import { useWatchTogetherAutoAdvance } from "./hooks/use-watch-together-auto-advance";
+import { useWatchTogetherRotation } from "./hooks/use-watch-together-rotation";
 import { useMobileVideoChrome } from "./hooks/use-mobile-video-chrome";
 import type { MobileSeekZone } from "./hooks/use-mobile-video-chrome";
 import { MediaPlayerCenterControls } from "./media-player-center-controls";
@@ -207,7 +207,7 @@ export function MediaPlayerModal() {
   // Watch Together sessions can't use solo autoplay (a lone client switching
   // items would desync the room), so they rotate the whole party into a new
   // room for the next episode instead — seamlessly, without leaving the modal.
-  const watchTogetherAutoAdvance = useWatchTogetherAutoAdvance({
+  const watchTogetherAutoAdvance = useWatchTogetherRotation({
     enabled: isSyncplayActive,
     nextEpisode,
   });

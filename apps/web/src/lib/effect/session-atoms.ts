@@ -9,10 +9,12 @@ import { PlayerPort, type PlayerActions } from "./player-port";
 import {
   WatchTogetherSession,
   type LeaveOptions,
+  type RotationContext,
   type StartPlaybackInput,
   type SwapToInput,
   type WatchTogetherSessionShape,
 } from "./session-service";
+import { WatchTogetherApi } from "./watch-together-api";
 
 /**
  * App-lifetime Effect runtime for Watch Together session orchestration.
@@ -27,6 +29,7 @@ import {
  */
 const sessionLayer = WatchTogetherSession.Default.pipe(
   Layer.provideMerge(PlayerPort.Default),
+  Layer.provideMerge(WatchTogetherApi.Default),
 );
 
 export const sessionRuntime = ManagedRuntime.make(sessionLayer);
@@ -66,6 +69,9 @@ export const sessionCommands = {
   },
   leave: (options: LeaveOptions): void => {
     runSession((s) => s.leave(options));
+  },
+  setRotationContext: (ctx: RotationContext): void => {
+    runSession((s) => s.setRotationContext(ctx));
   },
   handleLocalPlaybackChange: (isPaused: boolean): void => {
     runSession((s) => s.handleLocalPlaybackChange(isPaused));
