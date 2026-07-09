@@ -3,7 +3,10 @@
 import { Context, Layer } from "effect";
 
 import { useMediaPlayerStore } from "~/stores/media-player-store";
-import type { MediaPlayerItem } from "~/types/media-player";
+import type {
+  MediaPlayerItem,
+  MediaPlayerSeekResult,
+} from "~/types/media-player";
 
 export type PlayerSnapshot = {
   readonly isPlaying: boolean;
@@ -14,10 +17,16 @@ export type PlayerSnapshot = {
   readonly error: string | null;
 };
 
+/**
+ * Result types match the Syncplay controller's contract: `play` reports
+ * whether playback actually started (autoplay can be blocked), and `seek`
+ * reports how the seek was applied — `"none"` means the video wasn't ready
+ * and the controller must retry the remote seek rather than drop it.
+ */
 export type PlayerActions = {
-  readonly play: () => void;
+  readonly play: () => boolean | Promise<boolean>;
   readonly pause: () => void;
-  readonly seek: (seconds: number) => void;
+  readonly seek: (seconds: number) => MediaPlayerSeekResult;
 };
 
 export type PlayerPortShape = {
@@ -35,9 +44,9 @@ export type PlayerPortShape = {
    * Until registered, play/pause/seek no-op with a console.warn.
    */
   readonly registerActions: (actions: PlayerActions) => void;
-  readonly play: () => void;
+  readonly play: () => boolean | Promise<boolean>;
   readonly pause: () => void;
-  readonly seek: (seconds: number) => void;
+  readonly seek: (seconds: number) => MediaPlayerSeekResult;
 };
 
 const readSnapshot = (): PlayerSnapshot => {
@@ -101,9 +110,9 @@ export const makePlayerPort = (): PlayerPortShape => {
     play: () => {
       if (!actions) {
         warnUnregistered("play");
-        return;
+        return false;
       }
-      actions.play();
+      return actions.play();
     },
     pause: () => {
       if (!actions) {
@@ -115,9 +124,11 @@ export const makePlayerPort = (): PlayerPortShape => {
     seek: (seconds) => {
       if (!actions) {
         warnUnregistered("seek");
-        return;
+        // "none" tells the Syncplay controller to retry the remote seek once
+        // the video is ready, instead of silently dropping it.
+        return "none";
       }
-      actions.seek(seconds);
+      return actions.seek(seconds);
     },
   };
 };

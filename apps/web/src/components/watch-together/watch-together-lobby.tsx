@@ -26,8 +26,8 @@ import { WatchTogetherLobbyInviteDialog } from "~/components/watch-together/watc
 import { useWatchTogetherRoomMedia } from "~/components/watch-together/use-watch-together-room-media";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { getPlexClientIdentifier } from "~/lib/device-identifier";
+import { sessionCommands } from "~/lib/effect/session-atoms";
 import { cn } from "~/lib/utils";
-import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { useWatchTogetherStore } from "~/stores/watch-together-store";
 import { api } from "~/trpc/react";
 
@@ -48,8 +48,6 @@ interface WatchTogetherLobbyProps {
 
 export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
   const router = useRouter();
-  const openPlayer = useMediaPlayerStore((state) => state.openPlayer);
-  const setSession = useWatchTogetherStore((state) => state.setSession);
   const clearSession = useWatchTogetherStore((state) => state.clearSession);
   const participants = useWatchTogetherStore((state) => state.participants);
   const session = useWatchTogetherStore((state) => state.session);
@@ -193,16 +191,21 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
       return false;
     }
 
-    setSession({ room, localUser });
-
     const startPositionSeconds = joiningInProgress
       ? roomPositionRef.current
       : undefined;
 
-    openPlayer(
-      createMediaPlayerItem(playTarget, { serverId, serverUrl, authToken }),
-      { resume: false, startPositionSeconds },
-    );
+    sessionCommands.startPlayback({
+      room,
+      localUser,
+      item: createMediaPlayerItem(playTarget, {
+        serverId,
+        serverUrl,
+        authToken,
+      }),
+      resume: false,
+      startPositionSeconds,
+    });
     return true;
   }, [
     room,
@@ -212,8 +215,6 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     authToken,
     localUser,
     roomPositionKnown,
-    setSession,
-    openPlayer,
   ]);
 
   // Every invited participant is present in the lobby right now (the local user

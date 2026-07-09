@@ -95,7 +95,7 @@ test("play/pause/seek warn until registerActions, then delegate", () => {
   const port = makePlayerPort();
   const warn = spyOn(console, "warn").mockImplementation(() => undefined);
 
-  port.play();
+  void port.play();
   port.pause();
   port.seek(10);
   expect(warn).toHaveBeenCalledTimes(3);
@@ -106,7 +106,7 @@ test("play/pause/seek warn until registerActions, then delegate", () => {
     seek: mock(),
   };
   port.registerActions(actions);
-  port.play();
+  void port.play();
   port.pause();
   port.seek(33);
 

@@ -5,6 +5,15 @@ import type {
 } from "@multiplex/plex-query";
 import { create } from "zustand";
 
+/**
+ * Transitional read model; written only by WatchTogetherSession (playing path)
+ * and lobby presence (lobby path); removed in phases 3–4.
+ *
+ * Playing-path writers: `WatchTogetherSession` mirrors Idle/Playing into
+ * `setSession` / `clearSession` / `leaveSession` / `updateParticipant`.
+ * Lobby-path writer: `use-watch-together-lobby-presence` still calls
+ * `updateParticipant` directly (different lifetime, same merge function).
+ */
 interface WatchTogetherSession {
   room: WatchTogetherRoom;
   localUser: SyncplayUser;
@@ -21,18 +30,27 @@ interface WatchTogetherStore {
    * playback. Cleared when a new session starts (e.g. pressing Start).
    */
   autoStartSuppressedRoomId: string | null;
+  /** @internal Playing-path mirror — prefer `sessionCommands` from app code. */
   setSession: (session: WatchTogetherSession) => void;
   /**
    * Tear down the session without suppressing auto-start. Use for involuntary
-   * teardowns (fatal Syncplay errors, the player switching items) so a
-   * transient failure doesn't get mistaken for the user deliberately leaving.
+   * teardowns (fatal Syncplay errors) so a transient failure doesn't get
+   * mistaken for the user deliberately leaving.
+   *
+   * @internal Playing-path mirror — prefer `sessionCommands.leave`.
    */
   clearSession: () => void;
   /**
    * The local user deliberately left the current session (closed the player),
    * so suppress auto-start for that room before clearing it.
+   *
+   * @internal Playing-path mirror — prefer `sessionCommands.leave`.
    */
   leaveSession: () => void;
+  /**
+   * Merge a participant update. Written by WatchTogetherSession while Playing,
+   * and by lobby presence while in the lobby (same merge; different lifetime).
+   */
   updateParticipant: (participant: SyncplayParticipantState) => void;
 }
 

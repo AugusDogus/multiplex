@@ -21,7 +21,6 @@ import { useDragToDismiss } from "./hooks/use-drag-to-dismiss";
 import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
 import { useMediaPlayer } from "./hooks/use-media-player";
 import { usePlayQueue } from "./hooks/use-play-queue";
-import { useSyncplaySession } from "./hooks/use-syncplay-session";
 import { useTimelineUpdates } from "./hooks/use-timeline-updates";
 import { useAutoPlayNextEpisode } from "./hooks/use-auto-play-next-episode";
 import { useWatchTogetherAutoAdvance } from "./hooks/use-watch-together-auto-advance";
@@ -44,8 +43,8 @@ import {
   stopTranscodeSession,
 } from "./utils/plex-stream-urls";
 import { useIsMobile } from "~/hooks/use-mobile";
+import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
 import { cn } from "~/lib/utils";
-import { useWatchTogetherStore } from "~/stores/watch-together-store";
 
 /* ────────────────────────────────────────────────────────────
    Media Player Modal
@@ -69,14 +68,10 @@ export function MediaPlayerModal() {
   const volume = useMediaPlayerStore((state) => state.volume);
 
   const { closePlayer, updatePlaybackState } = useMediaPlayerStore();
-  // Closing the player is a deliberate leave, so suppress auto-start for this
-  // room (don't yank the viewer straight back in).
-  const leaveWatchTogetherSession = useWatchTogetherStore(
-    (state) => state.leaveSession,
-  );
   const { actions, videoRef } = useMediaPlayer();
   const seekFeedbackRef = useRef<MediaPlayerSeekFeedbackHandle>(null);
   const isMobile = useIsMobile();
+  const sessionState = useSessionState();
 
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const mouseMoveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -172,11 +167,40 @@ export function MediaPlayerModal() {
     onStop,
     clearSession,
   } = useTimelineUpdates();
-  const {
-    onLocalPlaybackChange: onSyncplayLocalPlaybackChange,
-    onLocalSeeked: onSyncplayLocalSeeked,
-    isActive: isSyncplayActive,
-  } = useSyncplaySession({ actions });
+
+  // Register video-element actions into PlayerPort so the session service's
+  // Syncplay controller can command play/pause/seek.
+  useEffect(() => {
+    sessionCommands.registerPlayerActions({
+      // Results flow through to the Syncplay controller: play() reports
+      // whether playback actually started, seek() reports direct/reload/none
+      // (it retries remote seeks that return "none").
+      play: () => actions.play(),
+      pause: () => {
+        actions.pause();
+      },
+      seek: (seconds) => actions.seek(seconds),
+    });
+  }, [actions]);
+
+  // Mismatch is unrepresentable in SessionState; keep a defensive item match
+  // during the transition while the Zustand mirror and player can briefly lag.
+  const isSyncplayActive =
+    sessionState._tag === "Playing" &&
+    Boolean(
+      currentItem &&
+        sessionState.item.serverId === currentItem.serverId &&
+        sessionState.item.ratingKey === currentItem.ratingKey,
+    );
+
+  const onSyncplayLocalPlaybackChange = useCallback((isPaused: boolean) => {
+    sessionCommands.handleLocalPlaybackChange(isPaused);
+  }, []);
+
+  const onSyncplayLocalSeeked = useCallback((time: number) => {
+    sessionCommands.handleLocalSeeked(time);
+  }, []);
+
   const { autoPlayState, nextEpisode } = useAutoPlayNextEpisode({
     enabled: !isSyncplayActive,
   });
@@ -261,16 +285,11 @@ export function MediaPlayerModal() {
   const handleClose = useCallback(() => {
     onStop();
     clearSession();
-    leaveWatchTogetherSession();
+    // Deliberate leave — suppress auto-start for this room.
+    sessionCommands.leave({ suppressAutoStart: true });
     clearAllTimeouts();
     closePlayer();
-  }, [
-    onStop,
-    clearSession,
-    leaveWatchTogetherSession,
-    clearAllTimeouts,
-    closePlayer,
-  ]);
+  }, [onStop, clearSession, clearAllTimeouts, closePlayer]);
 
   const {
     ref: dragRef,

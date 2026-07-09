@@ -14,6 +14,7 @@ import {
   haveMultiplexParticipantsJoined,
   mergeParticipantState,
 } from "~/components/watch-together/watch-together-auto-advance";
+import { sessionCommands } from "~/lib/effect/session-atoms";
 import { getWatchTogetherRoomHref } from "~/lib/watch-together-source";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
 import { useWatchTogetherStore } from "~/stores/watch-together-store";
@@ -87,11 +88,9 @@ export function useWatchTogetherAutoAdvance({
 }: UseWatchTogetherAutoAdvanceOptions) {
   const session = useWatchTogetherStore((state) => state.session);
   const participants = useWatchTogetherStore((state) => state.participants);
-  const setSession = useWatchTogetherStore((state) => state.setSession);
   const currentItem = useMediaPlayerStore((state) => state.currentItem);
   const currentTime = useMediaPlayerStore((state) => state.currentTime);
   const duration = useMediaPlayerStore((state) => state.duration);
-  const openPlayer = useMediaPlayerStore((state) => state.openPlayer);
   const autoPlayEnabled = useMediaPlayerStore(
     (state) => state.autoPlay.isEnabled,
   );
@@ -448,15 +447,10 @@ export function useWatchTogetherAutoAdvance({
       viewOffset: 0,
     };
 
-    // The session and the player must change together: useSyncplaySession
-    // clears any session whose room source doesn't match the playing item, so
-    // observing one update without the other (in either order) would tear the
-    // new session down. Both calls run synchronously inside this effect, so
-    // React batches them into a single re-render and effects only ever see
-    // the consistent (next room, next item) pair. Everyone starts the next
+    // Atomic room+item swap owned by WatchTogetherSession (single
+    // SubscriptionRef update + PlayerPort.load). Everyone starts the next
     // episode from the beginning (resume: false), staying in sync.
-    setSession({ room: nextRoom, localUser: session.localUser });
-    openPlayer(nextItem, { resume: false });
+    sessionCommands.swapTo({ room: nextRoom, item: nextItem });
 
     // The previous room served its purpose; drop it from this user's room
     // list (per-user removal — official clients still finishing keep theirs).
@@ -483,8 +477,6 @@ export function useWatchTogetherAutoAdvance({
     nextRoomParticipants,
     graceElapsed,
     nextEpisodeMetadata,
-    setSession,
-    openPlayer,
     deletePreviousRoom,
     router,
   ]);
