@@ -6,6 +6,13 @@ allowed-tools: Read Grep Glob Bash
 
 You audit React code in this repo for one thing: did the author roll their own optimistic-update layer on top of an effect-atom query atom instead of using `Atom.optimistic` / `Atom.optimisticFn`?
 
+Scope note: this applies to query/mutation atoms over server data. Multiplex
+does not have those yet — today's only atom is `Atom.subscriptionRef` over the
+session service (`apps/web/src/lib/effect/session-atoms.ts`); server data flows
+through tRPC + TanStack Query. This skill becomes live guidance if/when server
+data moves onto effect-atom (migration plan phase 5). The examples below use
+Multiplex's domain but reference the future shape.
+
 This is not a security skill. It is a correctness skill. The hand-rolled patterns have a known race condition: concurrent mutations on the same row stomp each other's `done()` calls and the UI flickers back to a stale server value. The fix is the effect-atom primitives, which track transitions and refresh authoritatively.
 
 Trace. Do not pattern-match a `useState` and call it a day. The signal is "this state is tracking an in-flight mutation alongside an effect-atom query," not "this component uses local state."
@@ -61,20 +68,20 @@ Pattern source of truth: `.reference/executor` (after `bun run pull:references`)
 import { useState } from "react";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 
-import { secretsAtom, updateSecret } from "./atoms";
+import { watchTogetherRoomsAtom, deleteWatchTogetherRoom } from "./atoms";
 
-export function SecretsPanel() {
-  const secrets = useAtomValue(secretsAtom);
-  const doUpdate = useAtomSet(updateSecret, { mode: "promise" });
-  const [pendingValue, setPendingValue] = useState<Map<string, string>>(new Map());
+export function WatchTogetherRow() {
+  const rooms = useAtomValue(watchTogetherRoomsAtom);
+  const doRemove = useAtomSet(deleteWatchTogetherRoom, { mode: "promise" });
+  const [pendingRemoval, setPendingRemoval] = useState<Set<string>>(new Set());
 
-  const handleEdit = async (id: string, value: string) => {
-    setPendingValue((m) => new Map(m).set(id, value));
+  const handleRemove = async (id: string) => {
+    setPendingRemoval((s) => new Set(s).add(id));
     try {
-      await doUpdate({ path: { secretId: id }, payload: { value } });
+      await doRemove({ params: { roomId: id } });
     } finally {
-      setPendingValue((m) => {
-        const next = new Map(m);
+      setPendingRemoval((s) => {
+        const next = new Set(s);
         next.delete(id);
         return next;
       });
@@ -86,44 +93,44 @@ export function SecretsPanel() {
 ### Safe: effect-atom primitives
 
 ```tsx
-export const secretsOptimisticAtom = Atom.family((scopeId: string) =>
-  Atom.optimistic(secretsAtom(scopeId)),
+export const roomsOptimisticAtom = Atom.family((serverId: string) =>
+  Atom.optimistic(watchTogetherRoomsAtom(serverId)),
 );
 
-export const updateSecretOptimistic = Atom.family((scopeId: string) =>
-  secretsOptimisticAtom(scopeId).pipe(
+export const removeRoomOptimistic = Atom.family((serverId: string) =>
+  roomsOptimisticAtom(serverId).pipe(
     Atom.optimisticFn({
-      reducer: (current, arg: { path: { secretId: string }; payload: { value: string } }) =>
+      reducer: (current, arg: { params: { roomId: string } }) =>
         Result.map(current, (rows) =>
-          rows.map((r) => (r.id === arg.path.secretId ? { ...r, value: arg.payload.value } : r)),
+          rows.filter((r) => r.id !== arg.params.roomId),
         ),
-      fn: updateSecret,
+      fn: deleteWatchTogetherRoom,
     }),
   ),
 );
 
-const secrets = useAtomValue(secretsOptimisticAtom(scopeId));
-const doUpdate = useAtomSet(updateSecretOptimistic(scopeId), { mode: "promise" });
+const rooms = useAtomValue(roomsOptimisticAtom(serverId));
+const doRemove = useAtomSet(removeRoomOptimistic(serverId), { mode: "promise" });
 
-const handleEdit = (id: string, value: string) =>
-  doUpdate({ path: { secretId: id }, payload: { value } });
+const handleRemove = (id: string) =>
+  doRemove({ params: { roomId: id } });
 ```
 
 ### Subtle: missing Atom.family wrapper
 
 ```tsx
 // Bad: builds a fresh optimistic atom every render. No transition state survives.
-const optimistic = Atom.optimistic(secretsAtom(scopeId));
+const optimistic = Atom.optimistic(watchTogetherRoomsAtom(serverId));
 const value = useAtomValue(optimistic);
 ```
 
 ```tsx
 // Safe: Atom.family memoizes per key so transitions persist.
-export const secretsOptimisticAtom = Atom.family((scopeId: string) =>
-  Atom.optimistic(secretsAtom(scopeId)),
+export const roomsOptimisticAtom = Atom.family((serverId: string) =>
+  Atom.optimistic(watchTogetherRoomsAtom(serverId)),
 );
 
-const value = useAtomValue(secretsOptimisticAtom(scopeId));
+const value = useAtomValue(roomsOptimisticAtom(serverId));
 ```
 
 ## Output Requirements

@@ -31,20 +31,19 @@ The preferred UI boundary is `mode: "promiseExit"` plus `Exit.isFailure`. This k
 ## Bad
 
 ```tsx
-const doAdd = useAtomSet(addGraphqlSource, { mode: "promise" });
+const doAdd = useAtomSet(createWatchTogetherRoom, { mode: "promise" });
 
 const handleAdd = async () => {
   setAdding(true);
   setAddError(null);
   try {
     await doAdd({
-      params: { scopeId },
-      payload,
-      reactivityKeys: sourceWriteKeys,
+      payload: { serverId, ratingKey, title, users },
+      reactivityKeys: roomWriteKeys,
     });
     props.onComplete();
   } catch (e) {
-    setAddError(e instanceof Error ? e.message : "Failed to add source");
+    setAddError(e instanceof Error ? e.message : "Failed to create room");
     setAdding(false);
   }
 };
@@ -56,22 +55,21 @@ const handleAdd = async () => {
 import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 
-const doAdd = useAtomSet(addGraphqlSource, { mode: "promiseExit" });
+const doAdd = useAtomSet(createWatchTogetherRoom, { mode: "promiseExit" });
 
 const handleAdd = async () => {
   setAdding(true);
   setAddError(null);
   const exit = await doAdd({
-    params: { scopeId },
-    payload,
-    reactivityKeys: sourceWriteKeys,
+    payload: { serverId, ratingKey, title, users },
+    reactivityKeys: roomWriteKeys,
   });
   if (Exit.isFailure(exit)) {
     const error = Exit.findErrorOption(exit);
     setAddError(
       Option.isSome(error) && error.value instanceof Error
         ? error.value.message
-        : "Failed to add source",
+        : "Failed to create room",
     );
     setAdding(false);
     return;
@@ -91,7 +89,7 @@ if (Exit.isFailure(exit)) {
   return;
 }
 
-const sourceId = exit.value.namespace;
+const roomId = exit.value.id;
 ```
 
 If a follow-up effect-atom mutation can fail and the UI treats that as add failure, make that setter `promiseExit` too and branch the same way. Do not put the follow-up mutation in `try/catch` just because the first mutation now returns `Exit`.
