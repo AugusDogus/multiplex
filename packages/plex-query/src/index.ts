@@ -17,3 +17,6 @@ export { createQuery, createMutation, createDependentQuery } from "./create-quer
 
 // Re-export Plex types and utilities for convenience
 export * from "./plex";
+
+// Watch Together domain (session state + rotation policy)
+export * from "./watch-together";

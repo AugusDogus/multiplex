@@ -13,6 +13,7 @@
     "typecheck": "bun --filter '*' typecheck",
     "check": "bun run lint && bun run format:check && bun run typecheck",
     "test": "bun --filter '*' test",
+    "pull:references": "bun run scripts/pull-references.ts",
     "dev": "bun --filter @multiplex/web dev",
     "build": "bun --filter @multiplex/web build",
     "start": "bun --filter @multiplex/web start",

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { plexFriendSchema } from "./watch-together-schemas";
 
 describe("watch together schemas", () => {

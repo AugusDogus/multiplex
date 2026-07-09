@@ -47,6 +47,9 @@ yarn-error.log*
 # llms
 llms/
 
+# local clones of Effect / executor reference repos (bun run pull:references)
+.reference/
+
 # playwright
 /apps/web/test-results/
 /apps/web/playwright-report/

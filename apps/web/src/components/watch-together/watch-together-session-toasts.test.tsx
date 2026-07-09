@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import type { SyncplayUser, WatchTogetherUser } from "@multiplex/plex-query";
 
 import { createWatchTogetherSessionToasts } from "./watch-together-session-toasts";

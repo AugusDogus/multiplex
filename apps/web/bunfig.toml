@@ -1,4 +1,0 @@
-# `bun test` must not pick up the Playwright e2e specs (e2e/*.spec.ts) — those
-# only run under Playwright (`bun run test:e2e`) and error when loaded by bun.
-[test]
-root = "src"

@@ -29,6 +29,15 @@ All commands are run from the workspace root via `bun run <script>`:
 - Prefer focused scopes such as `watch-together`, `plex-query`, or `media-player`.
 - Example: `fix(watch-together): handle Plex friends without usernames`.
 
+## Effect v4 conventions
+
+Multiplex is adopting Effect v4 for Watch Together session architecture. Phase-0 tooling:
+
+- **Unit tests use Vitest**, not `bun test` / `bun:test`. Run `bun run test` from the root (or `bunx vitest run` inside a workspace). Effect-domain suites should prefer `@effect/vitest` (see `.agents/skills/effect-vitest-tests`).
+- **Agent skills** for Effect discipline live under `.agents/skills/effect-*` (`effect-typed-errors`, `effect-schema-boundaries`, `effect-vitest-tests`, `effect-atom-optimistic`, `effect-atom-reactivity-keys`, `effect-promise-exit`).
+- **Reference clones**: `bun run pull:references` shallow-clones Effect, effect-atom, and executor into gitignored `.reference/` for pattern lookup.
+- **Escape-hatch lint**: oxlint rule `multiplex/no-effect-escape-hatch` (plugin in `scripts/oxlint-plugin-multiplex/`) flags `Effect.runPromise` / `runSync` / `runFork` / `runPromiseExit` outside designated boundary files. Root oxlint currently covers packages/scripts only (`apps/web` uses ESLint); see the plugin README for coverage details.
+
 ## Cursor Cloud specific instructions
 
 ### Environment setup
