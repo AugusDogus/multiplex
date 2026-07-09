@@ -1,4 +1,4 @@
-import { beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, mock, spyOn, test } from "bun:test";
 
 import { makePlayerPort } from "./player-port";
 import { useMediaPlayerStore } from "~/stores/media-player-store";
@@ -73,7 +73,7 @@ test("snapshot reflects store playback fields", () => {
 
 test("subscribe fires when playback snapshot fields change", () => {
   const port = makePlayerPort();
-  const listener = vi.fn();
+  const listener = mock();
   const unsubscribe = port.subscribe(listener);
 
   useMediaPlayerStore.getState().updateCurrentTime(5);
@@ -93,7 +93,7 @@ test("subscribe fires when playback snapshot fields change", () => {
 
 test("play/pause/seek warn until registerActions, then delegate", () => {
   const port = makePlayerPort();
-  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const warn = spyOn(console, "warn").mockImplementation(() => undefined);
 
   port.play();
   port.pause();
@@ -101,17 +101,17 @@ test("play/pause/seek warn until registerActions, then delegate", () => {
   expect(warn).toHaveBeenCalledTimes(3);
 
   const actions = {
-    play: vi.fn(),
-    pause: vi.fn(),
-    seek: vi.fn(),
+    play: mock(),
+    pause: mock(),
+    seek: mock(),
   };
   port.registerActions(actions);
   port.play();
   port.pause();
   port.seek(33);
 
-  expect(actions.play).toHaveBeenCalledOnce();
-  expect(actions.pause).toHaveBeenCalledOnce();
+  expect(actions.play).toHaveBeenCalledTimes(1);
+  expect(actions.pause).toHaveBeenCalledTimes(1);
   expect(actions.seek).toHaveBeenCalledWith(33);
 
   warn.mockRestore();

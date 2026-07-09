@@ -1,5 +1,5 @@
 import { Effect, Exit, Result } from "effect";
-import { expect, test, vi } from "vitest";
+import { expect, mock, test } from "bun:test";
 
 import {
   makeWatchTogetherApi,
@@ -34,44 +34,54 @@ const makeStubClient = (
 ): WatchTogetherTrpcClient =>
   ({
     getWatchTogetherRooms: {
-      query: vi.fn().mockResolvedValue([]),
+      query: mock().mockResolvedValue([]),
       ...overrides.getWatchTogetherRooms,
     },
     getWatchTogetherRoom: {
-      query: vi.fn(),
+      query: mock(),
       ...overrides.getWatchTogetherRoom,
     },
     createWatchTogetherRoom: {
-      mutate: vi.fn(),
+      mutate: mock(),
       ...overrides.createWatchTogetherRoom,
     },
     deleteWatchTogetherRoom: {
-      mutate: vi.fn().mockResolvedValue(undefined),
+      mutate: mock().mockResolvedValue(undefined),
       ...overrides.deleteWatchTogetherRoom,
     },
     getItemMetadata: {
-      query: vi.fn(),
+      query: mock(),
       ...overrides.getItemMetadata,
     },
     getUserInfo: {
-      query: vi.fn(),
+      query: mock(),
       ...overrides.getUserInfo,
     },
     createPlayQueue: {
-      mutate: vi.fn(),
+      mutate: mock(),
       ...overrides.createPlayQueue,
     },
     getPlayQueue: {
-      query: vi.fn(),
+      query: mock(),
       ...overrides.getPlayQueue,
     },
   }) as WatchTogetherTrpcClient;
 
 test("listRooms succeeds with the client response", async () => {
-  const rooms = [{ id: "room-1" }];
+  const rooms = [
+    {
+      id: "room-1",
+      sourceUri: "server://s/com.plexapp.plugins.library/library/metadata/1",
+      title: "Room",
+      type: "video",
+      syncplayHost: "syncplay.example.com",
+      syncplayPort: 443,
+      users: [],
+    },
+  ];
   const client = makeStubClient({
     getWatchTogetherRooms: {
-      query: vi.fn().mockResolvedValue(rooms),
+      query: mock().mockResolvedValue(rooms),
     },
   });
   const api = makeWatchTogetherApi(client);
@@ -84,7 +94,7 @@ test("rejections become WatchTogetherApiError on the error channel", async () =>
   const cause = new Error("network down");
   const client = makeStubClient({
     getWatchTogetherRooms: {
-      query: vi.fn().mockRejectedValue(cause),
+      query: mock().mockRejectedValue(cause),
     },
   });
   const api = makeWatchTogetherApi(client);
@@ -97,7 +107,7 @@ test("getRoom wraps query failures with the operation name", async () => {
   const cause = { message: "not found" };
   const client = makeStubClient({
     getWatchTogetherRoom: {
-      query: vi.fn().mockRejectedValue(cause),
+      query: mock().mockRejectedValue(cause),
     },
   });
   const api = makeWatchTogetherApi(client);

@@ -25,7 +25,7 @@ intermediate states unrepresentable.** We adopt the architecture proven in
 `UsefulSoftwareCo/executor` (Effect v4 + `@effect/atom-react`): tagged-union
 domain state, pure policy functions, Effect fibers/`Deferred`/`Schedule` for
 orchestration, and atoms as the React bridge. Executor also supplies the
-tooling spine (lint enforcement, vitest setup, agent skills) so the discipline
+tooling spine (lint enforcement, test discipline, agent skills) so the discipline
 is enforced rather than documented.
 
 Executor precedents referenced throughout (clone: `UsefulSoftwareCo/executor`):
@@ -238,11 +238,12 @@ the shape above.
 
 - Dependencies via workspace catalog (already used for react/zod/etc.):
   `effect@4.0.0-beta.x` (pin the exact beta executor pins, currently
-  `4.0.0-beta.59`), `@effect/atom-react`, `@effect/vitest`, `vitest`.
-- **Test runner switch for Effect code**: `@effect/vitest` (with `TestClock`)
-  for domain + service tests. Existing `bun:test` suites keep running until
-  their subjects are ported; new Effect code is vitest-only. Root `test`
-  script runs both during the transition.
+  `4.0.0-beta.59`) and `@effect/atom-react`.
+- **Test runner stays `bun test`** (owner preference: no vite/vitest in this
+  repo). Effect suites run effects via `Effect.runPromise` (test files are a
+  designated escape-hatch boundary) and get timer determinism from
+  `TestClock` in `effect/testing` (`TestClock.layer()` + `TestClock.adjust`),
+  which is runner-agnostic in v4. See `.agents/skills/effect-bun-tests`.
 - Port executor's `no-effect-escape-hatch` oxlint rule (multiplex already runs
   oxlint) so `Effect.runPromise`/`runSync` stay at boundaries.
 - Optional but recommended: `effect-language-service` patch in `prepare`
@@ -250,7 +251,8 @@ the shape above.
   separately since it changes typechecking).
 - Port the relevant executor skills into `.agents/skills/`:
   `wrdn-effect-typed-errors`, `wrdn-effect-schema-boundaries`,
-  `wrdn-effect-vitest-tests`, `wrdn-effect-atom-optimistic` (the atom skills
+  `wrdn-effect-vitest-tests` (adapted to `bun:test` as `effect-bun-tests`),
+  `wrdn-effect-atom-optimistic` (the atom skills
   matter from phase 2 on). Add a `scripts/pull-references.ts` and `.reference/`
   (gitignored) with `effect`, `effect-atom` for pattern lookup.
 
@@ -261,11 +263,11 @@ the two-account Playwright e2e (`watch-together.spec.ts` +
 `watch-together-auto-advance.spec.ts`) staying green. The e2e suite is the
 behavioral contract; it does not change during the migration.
 
-- **Phase 0 — tooling.** Deps, catalog pins, vitest wiring, lint rule, skills,
+- **Phase 0 — tooling.** Deps, catalog pins, lint rule, skills,
   `.reference`. No behavior change. Verify: `bun run check`, both test
   runners, e2e smoke.
 - **Phase 1 — domain layer.** `SessionState` union, `decideRotation`, ported
-  pure helpers, `@effect/vitest` tests with `TestClock` covering the rotation
+  pure helpers, `bun:test` suites with `TestClock` (from `effect/testing`) covering the rotation
   timing rules that today only the e2e exercises (stagger, grace, failover,
   duplicate convergence, opt-out viewer). Pure code only; nothing imports it
   yet. Verify: unit tests.

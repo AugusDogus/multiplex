@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import type { SyncplayParticipantState, SyncplayUser } from "../plex/clients/syncplay-client";
 import type { WatchTogetherRoom } from "../plex/schemas/watch-together-schemas";
 import {

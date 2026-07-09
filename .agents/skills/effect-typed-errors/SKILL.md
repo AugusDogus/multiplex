@@ -92,4 +92,4 @@ Bad boundary fix: do not replace natural boundary code with fake thenables, fake
 
 - React/effect-atom mutation handlers using `try/catch`; use `effect-promise-exit` for that UI-specific boundary.
 - Schema / unknown probing; use `effect-schema-boundaries`.
-- Vitest / `@effect/vitest` imports; use `effect-vitest-tests`.
+- vitest / `@effect/vitest` imports; unit tests stay on `bun:test` (see `effect-bun-tests`).
