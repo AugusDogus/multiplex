@@ -122,7 +122,7 @@ export async function expectPlayingAndAdvancing(
     // Stuck (paused by stale room state, or autoplay didn't take): nudge it.
     await video
       .evaluate((el: HTMLVideoElement) => {
-        if (el.paused) void el.play();
+        if (el.paused) el.play().catch(() => undefined);
       })
       .catch(() => undefined);
     last = next;

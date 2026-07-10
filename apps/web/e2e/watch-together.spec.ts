@@ -49,7 +49,7 @@ test("two viewers auto-start, play the same item in sync, and pause/resume propa
     console.error("E2E step: host resumes");
     await host
       .locator("video")
-      .evaluate((v: HTMLVideoElement) => void v.play());
+      .evaluate((v: HTMLVideoElement) => v.play().catch(() => undefined));
     await expect
       .poll(
         () =>
