@@ -69,5 +69,6 @@ export {
   isSoloRoom,
   isSomeoneElseWatching,
   LOBBY_OBSERVER_RECONNECT_DELAY_MS,
+  participantsByUserId,
   PRESENCE_GRACE_MS,
 } from "./lobby-policy";

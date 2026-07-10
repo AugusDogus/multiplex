@@ -141,3 +141,39 @@ test("play/pause/seek warn until registerActions, then delegate", () => {
 
   warn.mockRestore();
 });
+
+test("unregister clears actions; stale unregister does not clobber a newer registration", () => {
+  const { port } = makeIsolatedPort();
+  const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+
+  const first = {
+    play: mock(() => true),
+    pause: mock(),
+    seek: mock(() => "direct" as const),
+  };
+  const unregisterFirst = port.registerActions(first);
+
+  const second = {
+    play: mock(() => true),
+    pause: mock(),
+    seek: mock(() => "direct" as const),
+  };
+  const unregisterSecond = port.registerActions(second);
+
+  // Stale cleanup must not wipe the newer registration.
+  unregisterFirst();
+  void port.play();
+  expect(second.play).toHaveBeenCalledTimes(1);
+  expect(first.play).toHaveBeenCalledTimes(0);
+  expect(warn).not.toHaveBeenCalled();
+
+  unregisterSecond();
+  warn.mockClear();
+  void port.play();
+  port.pause();
+  expect(port.seek(1)).toBe("none");
+  expect(warn).toHaveBeenCalledTimes(3);
+  expect(second.play).toHaveBeenCalledTimes(1);
+
+  warn.mockRestore();
+});

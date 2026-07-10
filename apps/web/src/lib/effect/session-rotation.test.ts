@@ -178,7 +178,7 @@ const makeControllablePlayer = (): PlayerPortShape & {
         listeners.delete(listener);
       };
     },
-    registerActions: () => undefined,
+    registerActions: () => () => undefined,
     play: () => true,
     pause: () => undefined,
     seek: () => "direct" as const,
@@ -195,11 +195,13 @@ const makeStubApi = (overrides?: {
   createRoomEffect?: (
     input: Parameters<WatchTogetherApiShape["createRoom"]>[0],
   ) => Effect.Effect<WatchTogetherRoom, { _tag: string }>;
+  getItemMetadata?: WatchTogetherApiShape["getItemMetadata"];
 }): {
   api: WatchTogetherApiShape;
   createRoom: ReturnType<typeof mock>;
   deleteRoom: ReturnType<typeof mock>;
   listRooms: ReturnType<typeof mock>;
+  getItemMetadata: ReturnType<typeof mock>;
 } => {
   const createRoom = mock(
     (input: Parameters<WatchTogetherApiShape["createRoom"]>[0]) => {
@@ -213,6 +215,22 @@ const makeStubApi = (overrides?: {
   const listRooms = mock(() =>
     Effect.succeed(overrides?.rooms ? overrides.rooms() : []),
   );
+  const getItemMetadata = mock(
+    (input: Parameters<WatchTogetherApiShape["getItemMetadata"]>[0]) => {
+      if (overrides?.getItemMetadata) {
+        return overrides.getItemMetadata(input);
+      }
+      return Effect.succeed({
+        ratingKey: input.ratingKey,
+        key: `/library/metadata/${input.ratingKey}`,
+        title: `Meta ${input.ratingKey}`,
+        type: "episode",
+        // Distinct marker so swap assertions can prove which episode's
+        // prefetch landed (full Media shape is irrelevant to the guard).
+        Media: [{ id: Number(input.ratingKey) }] as MediaPlayerItem["Media"],
+      });
+    },
+  );
 
   const api: WatchTogetherApiShape = {
     listRooms: () => listRooms() as never,
@@ -224,20 +242,14 @@ const makeStubApi = (overrides?: {
       }) as never,
     createRoom: (input) => createRoom(input) as never,
     deleteRoom: (roomId) => deleteRoom(roomId) as never,
-    getItemMetadata: (input) =>
-      Effect.succeed({
-        ratingKey: input.ratingKey,
-        key: `/library/metadata/${input.ratingKey}`,
-        title: "Next Ep",
-        type: "episode",
-      }) as never,
+    getItemMetadata: (input) => getItemMetadata(input) as never,
     getUserInfo: () => Effect.fail({ _tag: "WatchTogetherApiError" }) as never,
     createPlayQueue: () =>
       Effect.fail({ _tag: "WatchTogetherApiError" }) as never,
     getPlayQueue: () => Effect.fail({ _tag: "WatchTogetherApiError" }) as never,
   };
 
-  return { api, createRoom, deleteRoom, listRooms };
+  return { api, createRoom, deleteRoom, listRooms, getItemMetadata };
 };
 
 beforeEach(() => {
@@ -250,6 +262,7 @@ const withRotationSession = async <A>(
     player: ReturnType<typeof makeControllablePlayer>;
     createRoom: ReturnType<typeof mock>;
     deleteRoom: ReturnType<typeof mock>;
+    getItemMetadata: ReturnType<typeof mock>;
     observers: StubObserver[];
     controllers: StubController[];
     setRooms: (rooms: WatchTogetherRoom[]) => void;
@@ -265,7 +278,7 @@ const withRotationSession = async <A>(
   const { makeController, controllers } = makeStubControllerFactory();
   const { makeObserver, observers } = makeStubObserverFactory();
   let roomsFn = options?.rooms ?? (() => [] as WatchTogetherRoom[]);
-  const { api, createRoom, deleteRoom } = makeStubApi({
+  const { api, createRoom, deleteRoom, getItemMetadata } = makeStubApi({
     rooms: () => roomsFn(),
     createRoomEffect: options?.createRoomEffect,
   });
@@ -294,6 +307,7 @@ const withRotationSession = async <A>(
             player,
             createRoom,
             deleteRoom,
+            getItemMetadata,
             observers,
             controllers,
             setRooms: (rooms) => {
@@ -723,6 +737,81 @@ test("observer reconnect resets gathered participants", async () => {
         ).toBe(false);
         expect(observers.length).toBeGreaterThanOrEqual(2);
         expect(first?.disconnect).toHaveBeenCalled();
+      }),
+  );
+});
+
+test("changing nextEpisode mid-rotation re-prefetches and swap uses new metadata", async () => {
+  const nextEpisodeAlt: NextEpisodeInfo = {
+    ratingKey: "300",
+    key: "/library/metadata/300",
+    title: "Alt Next Ep",
+    index: 3,
+    parentIndex: 1,
+    duration: 1_200_000,
+  };
+  const nextRoom = room("r3", "300");
+
+  await withRotationSession(
+    ({ session, player, getItemMetadata, setRooms, controllers, observers }) =>
+      Effect.gen(function* () {
+        yield* startArmed(session, player, controllers);
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust("0 millis");
+        yield* Effect.yieldNow;
+
+        expect(getItemMetadata).toHaveBeenCalled();
+        const firstCalls = getItemMetadata.mock.calls.length;
+        expect(
+          getItemMetadata.mock.calls.some(
+            (call) => (call[0] as { ratingKey: string }).ratingKey === "200",
+          ),
+        ).toBe(true);
+
+        // Mid-Armed: point rotation at a different next episode.
+        yield* session.setRotationContext({
+          nextEpisode: nextEpisodeAlt,
+          autoPlayEnabled: true,
+        });
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust("1 second");
+        yield* Effect.yieldNow;
+
+        expect(getItemMetadata.mock.calls.length).toBeGreaterThan(firstCalls);
+        expect(
+          getItemMetadata.mock.calls.some(
+            (call) => (call[0] as { ratingKey: string }).ratingKey === "300",
+          ),
+        ).toBe(true);
+
+        setRooms([nextRoom]);
+        yield* waitUntil(
+          session,
+          (s) => s._tag === "Playing" && s.rotation._tag === "RoomKnown",
+        );
+
+        player.setPlayback({ currentTimeSeconds: 1200, durationSeconds: 1200 });
+        yield* waitUntil(
+          session,
+          (s) => s._tag === "Playing" && s.rotation._tag === "Gathering",
+        );
+
+        observers[0]?.options.onParticipant({
+          user: multiplexUser(2),
+          isPresent: true,
+        });
+        yield* waitUntil(
+          session,
+          (s) => s._tag === "Playing" && s.room.id === "r3",
+        );
+
+        const loaded = player.loads.at(-1)?.item;
+        expect(loaded?.ratingKey).toBe("300");
+        // Prefetch metadata (Media) must match the new episode, not the old.
+        // buildNextItem spreads metadata then overwrites title from nextEpisode.
+        expect(loaded?.Media?.[0]?.id).toBe(300);
+        expect(loaded?.title).toBe("Alt Next Ep");
+        expect(loaded?.key).toBe("/library/metadata/300");
       }),
   );
 });

@@ -18,6 +18,15 @@ const isEffectEscapeHatch = (node) => {
   if (expression?.type !== "MemberExpression") return false;
   const object = unwrapExpression(expression.object);
   if (object?.type !== "Identifier" || object.name !== "Effect") return false;
+  // Computed access only matches string literals (`Effect["runPromise"]`).
+  // `Effect[runPromise]` (identifier variable) is not a static escape hatch.
+  if (expression.computed) {
+    const prop = unwrapExpression(expression.property);
+    const isStringLiteral =
+      (prop?.type === "Literal" && typeof prop.value === "string") ||
+      prop?.type === "StringLiteral";
+    if (!isStringLiteral) return false;
+  }
   const property = getPropertyName(expression.property);
   return escapeHatches.has(property);
 };

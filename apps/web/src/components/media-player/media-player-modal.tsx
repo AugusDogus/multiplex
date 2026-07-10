@@ -176,7 +176,7 @@ export function MediaPlayerModal() {
   // Register video-element actions into PlayerPort so the session service's
   // Syncplay controller can command play/pause/seek.
   useEffect(() => {
-    sessionCommands.registerPlayerActions({
+    return sessionCommands.registerPlayerActions({
       // Results flow through to the Syncplay controller: play() reports
       // whether playback actually started, seek() reports direct/reload/none
       // (it retries remote seeks that return "none").
@@ -188,9 +188,18 @@ export function MediaPlayerModal() {
     });
   }, [actions]);
 
-  // Mismatch is unrepresentable in SessionState; keep a defensive item match
-  // during the transition while the Zustand mirror and player can briefly lag.
-  const isSyncplayActive =
+  // Session owns the room whenever we're Lobby or Playing — solo autoplay must
+  // stay off for the whole lifetime (including the one-render lag after a
+  // rotation swap where session.item already advanced but currentItem has not).
+  const isWatchTogetherSession =
+    sessionState._tag === "Playing" || sessionState._tag === "Lobby";
+
+  // Item-match gate: only forward local video events into the live Syncplay
+  // controller when this modal is actually showing the session's item. During
+  // the swap lag, handleLocal* would still be harmless (controller is for the
+  // new room / no-ops if null), but UI chrome that means "this video is the
+  // synced one" should wait for the player store to catch up.
+  const isSyncplayActiveForCurrentItem =
     sessionState._tag === "Playing" &&
     Boolean(
       currentItem &&
@@ -206,33 +215,45 @@ export function MediaPlayerModal() {
     sessionCommands.handleLocalSeeked(time);
   }, []);
 
+  // Gate solo autoplay on session tag alone — NOT item match. At episode end
+  // during a WT swap, item mismatch would briefly re-enable solo triggerAutoPlay
+  // and open the next episode outside the room.
   const { autoPlayState, nextEpisode } = useAutoPlayNextEpisode({
-    enabled: !isSyncplayActive,
+    enabled: !isWatchTogetherSession,
   });
   // Watch Together sessions can't use solo autoplay (a lone client switching
   // items would desync the room), so they rotate the whole party into a new
   // room for the next episode instead — seamlessly, without leaving the modal.
   const watchTogetherAutoAdvance = useWatchTogetherRotation({
-    enabled: isSyncplayActive,
+    enabled: isWatchTogetherSession,
     nextEpisode,
   });
 
+  // Forward local play/pause/seek whenever a session is live. During the brief
+  // item mismatch after swap the previous video's ending events are fine to
+  // send: the new room's controller either absorbs them or has no adapter yet.
   const handleVideoPlay = useCallback(() => {
     onPlay();
-    onSyncplayLocalPlaybackChange(false);
-  }, [onPlay, onSyncplayLocalPlaybackChange]);
+    if (isWatchTogetherSession) {
+      onSyncplayLocalPlaybackChange(false);
+    }
+  }, [onPlay, onSyncplayLocalPlaybackChange, isWatchTogetherSession]);
 
   const handleVideoPause = useCallback(() => {
     onPause();
-    onSyncplayLocalPlaybackChange(true);
-  }, [onPause, onSyncplayLocalPlaybackChange]);
+    if (isWatchTogetherSession) {
+      onSyncplayLocalPlaybackChange(true);
+    }
+  }, [onPause, onSyncplayLocalPlaybackChange, isWatchTogetherSession]);
 
   const handleVideoSeeked = useCallback(
     (time: number) => {
       onSeeked(time);
-      onSyncplayLocalSeeked(time);
+      if (isWatchTogetherSession) {
+        onSyncplayLocalSeeked(time);
+      }
     },
-    [onSeeked, onSyncplayLocalSeeked],
+    [onSeeked, onSyncplayLocalSeeked, isWatchTogetherSession],
   );
 
   // Plex's transcoded streams can't be seeked via `currentTime`; we reload the
@@ -254,7 +275,9 @@ export function MediaPlayerModal() {
     }
     const previousOffset = previousStreamOffsetRef.current;
     previousStreamOffsetRef.current = streamOffset;
-    onSyncplayLocalSeeked(streamOffset);
+    if (isWatchTogetherSession) {
+      onSyncplayLocalSeeked(streamOffset);
+    }
     if (streamSessionId && streamServerUrl && streamAuthToken) {
       void stopTranscodeSession(
         streamServerUrl,
@@ -265,6 +288,7 @@ export function MediaPlayerModal() {
   }, [
     streamOffset,
     onSyncplayLocalSeeked,
+    isWatchTogetherSession,
     streamSessionId,
     streamServerUrl,
     streamAuthToken,
@@ -488,7 +512,7 @@ export function MediaPlayerModal() {
                 item={currentItem}
                 className="h-full w-full"
                 useMobileSurfaceGestures={isMobile}
-                isWatchTogetherActive={isSyncplayActive}
+                isWatchTogetherActive={isSyncplayActiveForCurrentItem}
                 onMobileSurfaceTap={isMobile ? handleSurfaceTap : undefined}
                 onVideoClick={isMobile ? undefined : handleVideoClick}
                 onVideoDoubleClick={handleVideoDoubleClick}
@@ -516,21 +540,21 @@ export function MediaPlayerModal() {
 
               <MediaPlayerAutoPlayOverlay
                 isCountingDown={
-                  isSyncplayActive
+                  isWatchTogetherSession
                     ? watchTogetherAutoAdvance.isCountingDown
                     : autoPlayState.isCountingDown
                 }
                 countdownSeconds={
-                  isSyncplayActive
+                  isWatchTogetherSession
                     ? watchTogetherAutoAdvance.countdownSeconds
                     : autoPlayState.countdownSeconds
                 }
                 nextEpisode={
-                  isSyncplayActive
+                  isWatchTogetherSession
                     ? watchTogetherAutoAdvance.nextEpisode
                     : autoPlayState.nextEpisode
                 }
-                showActions={!isSyncplayActive}
+                showActions={!isWatchTogetherSession}
               />
 
               {isMobile ? (
@@ -576,7 +600,7 @@ export function MediaPlayerModal() {
                       progressOnly
                       className="px-4 py-2"
                       onSettingsOpenChange={handleSettingsOpenChange}
-                      isWatchTogetherActive={isSyncplayActive}
+                      isWatchTogetherActive={isSyncplayActiveForCurrentItem}
                     />
                   </div>
                 </MediaPlayerChromeFade>
@@ -593,7 +617,7 @@ export function MediaPlayerModal() {
                     actions={actions}
                     progressOnly={false}
                     onSettingsOpenChange={handleSettingsOpenChange}
-                    isWatchTogetherActive={isSyncplayActive}
+                    isWatchTogetherActive={isSyncplayActiveForCurrentItem}
                   />
                 </div>
               )}

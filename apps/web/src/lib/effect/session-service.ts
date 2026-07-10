@@ -15,6 +15,7 @@ import {
   decideRotation,
   getAutoAdvanceRank,
   haveMultiplexParticipantsJoined,
+  isSomeoneElseWatching,
   lobby,
   mergeParticipantState,
   playing,
@@ -496,6 +497,10 @@ export const makeWatchTogetherSession = (
       user: SyncplayUser,
     ): Effect.Effect<void, never, Scope.Scope> =>
       Effect.gen(function* () {
+        // Long-lived lobby scope: observer-callback evaluations must fork
+        // grace timers here, not into a throwaway Effect.scoped that closes
+        // when the callback returns (which would orphan graceFiber).
+        const lobbyScope = yield* Effect.scope;
         const stickyPresent = yield* Ref.make(false);
         const hasAutoStarted = yield* Ref.make(false);
         const presentSinceMs = yield* Ref.make<number | null>(null);
@@ -517,8 +522,7 @@ export const makeWatchTogetherSession = (
           }),
         );
 
-        let evaluateOnce: () => Effect.Effect<void, never, Scope.Scope> = () =>
-          Effect.void;
+        let evaluateOnce: () => Effect.Effect<void> = () => Effect.void;
 
         const startLobbyObserver = (): Effect.Effect<
           void,
@@ -566,8 +570,9 @@ export const makeWatchTogetherSession = (
                                       ),
                                     };
                                   });
-                                  // runFork is outside the lobby Scope; re-scope.
-                                  yield* evaluateOnce().pipe(Effect.scoped);
+                                  // Do not Effect.scoped here — grace fibers
+                                  // must land in lobbyScope via forkIn.
+                                  yield* evaluateOnce();
                                 }),
                               );
                             },
@@ -587,7 +592,7 @@ export const makeWatchTogetherSession = (
                                         roomState.positionSeconds,
                                     };
                                   });
-                                  yield* evaluateOnce().pipe(Effect.scoped);
+                                  yield* evaluateOnce();
                                 }),
                               );
                             },
@@ -620,7 +625,7 @@ export const makeWatchTogetherSession = (
             }).pipe(Effect.forkScoped);
           });
 
-        evaluateOnce = (): Effect.Effect<void, never, Scope.Scope> =>
+        evaluateOnce = (): Effect.Effect<void> =>
           Effect.gen(function* () {
             if (leaving) return;
             const session = yield* SubscriptionRef.get(state);
@@ -645,26 +650,25 @@ export const makeWatchTogetherSession = (
             } else {
               const wasSticky = yield* Ref.get(stickyPresent);
               if (wasSticky && !graceFiber) {
-                graceFiber = yield* Effect.gen(function* () {
-                  yield* Effect.sleep(`${PRESENCE_GRACE_MS} millis`);
-                  yield* Ref.set(stickyPresent, false);
-                  yield* Ref.set(presentSinceMs, null);
-                  yield* Ref.set(hasAutoStarted, false);
-                  yield* evaluateOnce();
-                }).pipe(Effect.forkScoped);
+                graceFiber = yield* Effect.forkIn(
+                  Effect.gen(function* () {
+                    yield* Effect.sleep(`${PRESENCE_GRACE_MS} millis`);
+                    yield* Ref.set(stickyPresent, false);
+                    yield* Ref.set(presentSinceMs, null);
+                    yield* Ref.set(hasAutoStarted, false);
+                    yield* evaluateOnce();
+                  }),
+                  lobbyScope,
+                );
               }
             }
 
             const sticky = yield* Ref.get(stickyPresent);
             const started = yield* Ref.get(hasAutoStarted);
-            const someoneElseWatching = session.room.users.some(
-              (u) =>
-                u.id !== user.id &&
-                Boolean(
-                  Object.values(session.participants).find(
-                    (p) => p.user.id === u.id,
-                  )?.isReady,
-                ),
+            const someoneElseWatching = isSomeoneElseWatching(
+              session.room,
+              session.participants,
+              user.id,
             );
             const canStart = ctx.canStart && ctx.playbackInput !== null;
             const suppressed = suppressedRoomId === session.room.id;
@@ -878,6 +882,8 @@ export const makeWatchTogetherSession = (
         let observerFiber: Fiber.Fiber<void, never> | null = null;
         let graceFiber: Fiber.Fiber<void, never> | null = null;
         let prefetchFiber: Fiber.Fiber<void, never> | null = null;
+        /** ratingKey the in-flight / completed prefetch was launched for. */
+        let prefetchTargetKey: string | null = null;
 
         const interruptChild = (
           fiber: Fiber.Fiber<void, never> | null,
@@ -912,6 +918,7 @@ export const makeWatchTogetherSession = (
           Effect.gen(function* () {
             yield* interruptChild(prefetchFiber);
             prefetchFiber = null;
+            prefetchTargetKey = null;
           });
 
         yield* Effect.addFinalizer(() =>
@@ -952,7 +959,14 @@ export const makeWatchTogetherSession = (
           serverId: string,
         ): ScopedVoid =>
           Effect.gen(function* () {
-            if (prefetchFiber) return;
+            // Same target already in flight or completed — keep it.
+            if (prefetchTargetKey === nextEpisode.ratingKey) return;
+            // Target changed (or first launch): interrupt any stale fiber and
+            // discard mismatched metadata before relaunching.
+            yield* interruptChild(prefetchFiber);
+            prefetchFiber = null;
+            prefetchTargetKey = nextEpisode.ratingKey;
+            yield* Ref.set(prefetchedMetadata, null);
             prefetchFiber = yield* Effect.gen(function* () {
               const meta = yield* api
                 .getItemMetadata({
@@ -966,6 +980,13 @@ export const makeWatchTogetherSession = (
               }
             }).pipe(
               Effect.catch(() => Effect.void),
+              // Clear the fiber ref on completion so a later same-key call can
+              // re-check; target key stays so we don't refetch needlessly.
+              Effect.ensuring(
+                Effect.sync(() => {
+                  prefetchFiber = null;
+                }),
+              ),
               Effect.forkScoped,
             );
           });
@@ -1171,7 +1192,8 @@ export const makeWatchTogetherSession = (
                 yield* Ref.set(hasAttemptedCreate, false);
                 yield* Ref.set(graceElapsed, false);
                 yield* Ref.set(gatheredParticipants, {});
-                yield* Ref.set(prefetchedMetadata, null);
+                // Keep prefetch across re-arm when nextEpisode is unchanged;
+                // ensurePrefetch interrupts/relaunches if the key changed.
                 yield* updateRotationPhase(() => RotationArmed);
                 yield* ensureDiscovery();
                 yield* ensurePrefetch(ctx.nextEpisode, ctx.serverId);
@@ -1248,6 +1270,13 @@ export const makeWatchTogetherSession = (
                 );
               }
               return;
+            }
+
+            // Keep prefetch aligned with the current next episode even when
+            // the phase is already past arm (setRotationContext can change
+            // nextEpisode mid-rotation without re-emitting "arm").
+            if (session.rotation._tag !== "None") {
+              yield* ensurePrefetch(nextEpisode, session.item.serverId);
             }
 
             const snap = player.snapshot();

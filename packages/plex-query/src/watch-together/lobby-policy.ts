@@ -202,6 +202,48 @@ export function decideLobbyAutoStart(input: DecideLobbyAutoStartInput): LobbyAut
   };
 }
 
-function participantsByUserId(participants: ParticipantMap): Map<number, SyncplayParticipantState> {
-  return new Map(Object.values(participants).map((state) => [state.user.id, state]));
+/**
+ * Collapse a device-keyed {@link ParticipantMap} to one row per user.
+ *
+ * A user may appear on multiple devices (stale absent + live present). Last
+ * write wins would misclassify them; merge across devices instead:
+ * present/ready if ANY device is, and prefer identity/position from a present
+ * device when available.
+ */
+export function participantsByUserId(
+  participants: ParticipantMap,
+): Map<number, SyncplayParticipantState> {
+  const byUserId = new Map<number, SyncplayParticipantState>();
+  for (const state of Object.values(participants)) {
+    const existing = byUserId.get(state.user.id);
+    if (!existing) {
+      byUserId.set(state.user.id, state);
+      continue;
+    }
+    byUserId.set(state.user.id, mergeParticipantDevices(existing, state));
+  }
+  return byUserId;
+}
+
+function mergeParticipantDevices(
+  a: SyncplayParticipantState,
+  b: SyncplayParticipantState,
+): SyncplayParticipantState {
+  const aPresent = a.isPresent === true;
+  const bPresent = b.isPresent === true;
+  const isPresent = aPresent || bPresent;
+  const isReady = a.isReady === true || b.isReady === true;
+
+  const presentSide = aPresent ? a : bPresent ? b : null;
+  const user = presentSide?.user ?? a.user;
+  const positionSeconds = presentSide?.positionSeconds ?? a.positionSeconds ?? b.positionSeconds;
+  const isPaused = presentSide?.isPaused ?? a.isPaused ?? b.isPaused;
+
+  return {
+    user,
+    isPresent,
+    ...(isReady ? { isReady: true } : {}),
+    ...(positionSeconds !== undefined && { positionSeconds }),
+    ...(isPaused !== undefined && { isPaused }),
+  };
 }

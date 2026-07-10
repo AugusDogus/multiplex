@@ -48,8 +48,9 @@ export type PlayerPortShape = {
   /**
    * Wave-2: register video-element play/pause/seek actions from React hooks.
    * Until registered, play/pause/seek no-op with a console.warn.
+   * Returns an unregister that clears only if this registration is still current.
    */
-  readonly registerActions: (actions: PlayerActions) => void;
+  readonly registerActions: (actions: PlayerActions) => () => void;
   readonly play: () => boolean | Promise<boolean>;
   readonly pause: () => void;
   readonly seek: (seconds: number) => MediaPlayerSeekResult;
@@ -118,6 +119,11 @@ export const makePlayerPort = (player: PlayerServiceShape): PlayerPortShape => {
     },
     registerActions: (next) => {
       actions = next;
+      return () => {
+        if (actions === next) {
+          actions = null;
+        }
+      };
     },
     play: () => {
       if (!actions) {

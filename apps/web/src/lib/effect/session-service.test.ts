@@ -6,6 +6,7 @@ import type {
   SyncplayUser,
   WatchTogetherRoom,
 } from "@multiplex/plex-query";
+import { PRESENCE_GRACE_MS } from "@multiplex/plex-query";
 import {
   Effect,
   Fiber,
@@ -708,6 +709,102 @@ test("auto-start does not fire for solo rooms", async () => {
         expect(observers[0]?.connect).toHaveBeenCalled();
       }),
     { makeObserver, withTestClock: true },
+  );
+});
+
+test("presence drop via observer starts a grace timer that fires under TestClock", async () => {
+  const player = makeStubPlayer();
+  const { makeController, controllers } = makeStubControllerFactory();
+  const { makeObserver, observers } = makeStubObserverFactory();
+
+  await withSession(
+    ({ session }) =>
+      Effect.gen(function* () {
+        const r = room("r1", "100");
+        yield* session.enterLobby({ room: r, localUser });
+        yield* session.setLobbyContext({
+          canStart: true,
+          playbackInput: { item: item("100") },
+          leaving: false,
+        });
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+
+        // Everyone present → sticky on.
+        observers[0]?.options.onParticipant({
+          user: {
+            id: 2,
+            deviceIdentifier: "device-2",
+            deviceName: "Multiplex Web",
+          },
+          isPresent: true,
+        });
+        yield* Effect.yieldNow;
+
+        // Drop presence via the observer callback path (the bug: evaluateOnce
+        // used Effect.scoped and interrupted the grace fiber immediately).
+        observers[0]?.options.onParticipant({
+          user: {
+            id: 2,
+            deviceIdentifier: "device-2",
+            deviceName: "Multiplex Web",
+          },
+          isPresent: false,
+        });
+        yield* Effect.yieldNow;
+
+        // Still Lobby during grace — sticky has not cleared yet.
+        expect(session.snapshot()._tag).toBe("Lobby");
+        expect(controllers).toHaveLength(0);
+
+        // Advance past PRESENCE_GRACE_MS so sticky clears / hasAutoStarted rearms.
+        yield* TestClock.adjust(`${PRESENCE_GRACE_MS + 200} millis`);
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+
+        // Guest still absent → must NOT auto-start for the departed cohort.
+        expect(session.snapshot()._tag).toBe("Lobby");
+        expect(controllers).toHaveLength(0);
+
+        // Guest returns after grace → auto-start can arm again.
+        observers[0]?.options.onParticipant({
+          user: {
+            id: 2,
+            deviceIdentifier: "device-2",
+            deviceName: "Multiplex Web",
+          },
+          isPresent: true,
+        });
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust("1300 millis");
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+
+        expect(session.snapshot()._tag).toBe("Playing");
+        expect(controllers).toHaveLength(1);
+      }),
+    { player, makeController, makeObserver, withTestClock: true },
+  );
+});
+
+test("leave then immediate snapshot sees Idle (sync-prefix ordering)", async () => {
+  const { makeController } = makeStubControllerFactory();
+  await withSession(
+    ({ session }) =>
+      Effect.gen(function* () {
+        yield* session.startPlayback({
+          room: room("r1", "100"),
+          localUser,
+          item: item("100"),
+        });
+        expect(session.snapshot()._tag).toBe("Playing");
+
+        // Mirrors sessionCommands.leave via runFork: interrupt + Idle write
+        // complete in the sync prefix before the caller continues.
+        yield* session.leave({ suppressAutoStart: false });
+        expect(session.snapshot()._tag).toBe("Idle");
+      }),
+    { makeController },
   );
 });
 

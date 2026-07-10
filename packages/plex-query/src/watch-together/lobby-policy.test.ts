@@ -207,6 +207,103 @@ describe("allInvitedPresent / isSomeoneElseWatching / isSoloRoom", () => {
       ),
     ).toBe(false);
   });
+
+  test("multi-device: stale absent then live present still counts as present", () => {
+    const participants: ParticipantMap = {
+      "device-2-stale": participant(2, {
+        isPresent: false,
+        user: {
+          id: 2,
+          deviceIdentifier: "device-2-stale",
+          deviceName: "Multiplex Web",
+        },
+      }),
+      "device-2-live": participant(2, {
+        isPresent: true,
+        user: {
+          id: 2,
+          deviceIdentifier: "device-2-live",
+          deviceName: "Multiplex Web",
+        },
+      }),
+    };
+    expect(
+      allInvitedPresent(
+        room([
+          { id: 1, title: "Host", username: "host", thumb: null },
+          { id: 2, title: "Guest", username: "guest", thumb: null },
+        ]),
+        participants,
+        1,
+      ),
+    ).toBe(true);
+  });
+
+  test("multi-device: live present then stale absent still counts as present", () => {
+    // Object key insertion order: live first, then stale last-write — merge
+    // must not let the absent device clobber presence.
+    const participants: ParticipantMap = {
+      "device-2-live": participant(2, {
+        isPresent: true,
+        user: {
+          id: 2,
+          deviceIdentifier: "device-2-live",
+          deviceName: "Multiplex Web",
+        },
+      }),
+      "device-2-stale": participant(2, {
+        isPresent: false,
+        user: {
+          id: 2,
+          deviceIdentifier: "device-2-stale",
+          deviceName: "Multiplex Web",
+        },
+      }),
+    };
+    expect(
+      allInvitedPresent(
+        room([
+          { id: 1, title: "Host", username: "host", thumb: null },
+          { id: 2, title: "Guest", username: "guest", thumb: null },
+        ]),
+        participants,
+        1,
+      ),
+    ).toBe(true);
+  });
+
+  test("multi-device: ready on one device only still counts as watching", () => {
+    const participants: ParticipantMap = {
+      "device-2-lobby": participant(2, {
+        isPresent: true,
+        isReady: false,
+        user: {
+          id: 2,
+          deviceIdentifier: "device-2-lobby",
+          deviceName: "Multiplex Web",
+        },
+      }),
+      "device-2-watching": participant(2, {
+        isPresent: true,
+        isReady: true,
+        user: {
+          id: 2,
+          deviceIdentifier: "device-2-watching",
+          deviceName: "Multiplex Web",
+        },
+      }),
+    };
+    expect(
+      isSomeoneElseWatching(
+        room([
+          { id: 1, title: "Host", username: "host", thumb: null },
+          { id: 2, title: "Guest", username: "guest", thumb: null },
+        ]),
+        participants,
+        1,
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("decideLobbyAutoStart", () => {

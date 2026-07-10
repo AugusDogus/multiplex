@@ -10,6 +10,7 @@ import {
   getParticipantStatus,
   isSoloRoom,
   isSomeoneElseWatching,
+  participantsByUserId as mergeParticipantsByUserId,
   type ParticipantMap,
   type SyncplayParticipantState,
   type SyncplayUser,
@@ -216,13 +217,7 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   }, [leaving, deleteRoom, roomId, router]);
 
   const participantsByUserId = useMemo(
-    () =>
-      new Map(
-        Object.values(sessionParticipants).map((state) => [
-          state.user.id,
-          state,
-        ]),
-      ),
+    () => mergeParticipantsByUserId(sessionParticipants),
     [sessionParticipants],
   );
 
