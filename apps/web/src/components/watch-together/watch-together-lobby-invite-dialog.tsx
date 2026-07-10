@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useAtomSet } from "@effect/atom-react";
+import * as Exit from "effect/Exit";
 
 import { Button } from "~/components/ui/button";
 import {
@@ -14,7 +16,8 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { WatchTogetherInviteePicker } from "~/components/watch-together/watch-together-invitee-picker";
-import { api } from "~/trpc/react";
+import { inviteWatchTogetherUsers } from "~/lib/effect/plex-atoms";
+import { watchTogetherRoomWriteKeysFor } from "~/lib/effect/reactivity-keys";
 
 interface WatchTogetherLobbyInviteDialogProps {
   roomId: string;
@@ -36,20 +39,9 @@ export function WatchTogetherLobbyInviteDialog({
   onOpenChange,
 }: WatchTogetherLobbyInviteDialogProps) {
   const [selectedUsers, setSelectedUsers] = useState<number[]>([]);
-  const utils = api.useUtils();
-  const inviteUsers = api.plex.inviteWatchTogetherUsers.useMutation({
-    onSuccess: async (_data, variables) => {
-      await utils.plex.getWatchTogetherRoom.invalidate({ roomId });
-      toast.success(
-        variables.users.length === 1
-          ? "Invited 1 friend"
-          : `Invited ${variables.users.length} friends`,
-      );
-      handleOpenChange(false);
-    },
-    onError: () => {
-      toast.error("Couldn't send the invite");
-    },
+  const [isPending, setIsPending] = useState(false);
+  const inviteUsers = useAtomSet(inviteWatchTogetherUsers, {
+    mode: "promiseExit",
   });
 
   const handleOpenChange = (nextOpen: boolean) => {
@@ -59,11 +51,28 @@ export function WatchTogetherLobbyInviteDialog({
     onOpenChange(nextOpen);
   };
 
-  const sendInvite = () => {
-    if (selectedUsers.length === 0 || inviteUsers.isPending) {
+  const sendInvite = async () => {
+    if (selectedUsers.length === 0 || isPending) {
       return;
     }
-    inviteUsers.mutate({ roomId, users: selectedUsers });
+    setIsPending(true);
+    const exit = await inviteUsers({
+      params: { roomId },
+      payload: { users: selectedUsers },
+      reactivityKeys: watchTogetherRoomWriteKeysFor(roomId),
+    });
+    if (Exit.isFailure(exit)) {
+      toast.error("Couldn't send the invite");
+      setIsPending(false);
+      return;
+    }
+    toast.success(
+      selectedUsers.length === 1
+        ? "Invited 1 friend"
+        : `Invited ${selectedUsers.length} friends`,
+    );
+    handleOpenChange(false);
+    setIsPending(false);
   };
 
   return (
@@ -81,7 +90,7 @@ export function WatchTogetherLobbyInviteDialog({
           selectedUserIds={selectedUsers}
           onSelectedUserIdsChange={setSelectedUsers}
           excludeUserIds={existingUserIds}
-          disabled={inviteUsers.isPending}
+          disabled={isPending}
           emptyHint="Everyone you can invite is already in this session."
         />
 
@@ -89,18 +98,20 @@ export function WatchTogetherLobbyInviteDialog({
           <Button
             type="button"
             variant="outline"
-            disabled={inviteUsers.isPending}
+            disabled={isPending}
             onClick={() => handleOpenChange(false)}
           >
             Cancel
           </Button>
           <Button
             type="button"
-            disabled={selectedUsers.length === 0 || inviteUsers.isPending}
-            onClick={sendInvite}
+            disabled={selectedUsers.length === 0 || isPending}
+            onClick={() => {
+              void sendInvite();
+            }}
             className="min-w-32"
           >
-            {inviteUsers.isPending && (
+            {isPending && (
               <Loader2 className="animate-spin" data-icon="inline-start" />
             )}
             {selectedUsers.length > 0

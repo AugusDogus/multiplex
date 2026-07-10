@@ -4,7 +4,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { getMainTitle } from "@multiplex/plex-query";
+import { getMainTitle, type WatchTogetherRoom } from "@multiplex/plex-query";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import * as Exit from "effect/Exit";
 import { Loader2, MoreHorizontal, Play, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 
@@ -21,20 +24,19 @@ import {
   type PlexUserLike,
 } from "~/components/watch-together/plex-user-avatar";
 import { useWatchTogetherRoomMedia } from "~/components/watch-together/use-watch-together-room-media";
+import {
+  removeWatchTogetherRoomOptimistic,
+  watchTogetherRoomsOptimisticAtom,
+} from "~/lib/effect/plex-atoms";
+import { watchTogetherRoomWriteKeys } from "~/lib/effect/reactivity-keys";
 import { getWatchTogetherRoomHref } from "~/lib/watch-together-source";
 import { cn } from "~/lib/utils";
-import { api } from "~/trpc/react";
-import type { RouterOutputs } from "~/trpc/react";
-
-type WatchTogetherRoom = RouterOutputs["plex"]["getWatchTogetherRooms"][number];
 
 export function WatchTogetherRow() {
-  const { data: rooms = [] } = api.plex.getWatchTogetherRooms.useQuery(
-    undefined,
-    {
-      refetchInterval: 15_000,
-      staleTime: 0,
-    },
+  const roomsResult = useAtomValue(watchTogetherRoomsOptimisticAtom);
+  const rooms = AsyncResult.getOrElse(
+    roomsResult,
+    (): WatchTogetherRoom[] => [],
   );
 
   if (rooms.length === 0) {
@@ -58,25 +60,35 @@ export function WatchTogetherRow() {
 
 function WatchTogetherRoomCard({ room }: { room: WatchTogetherRoom }) {
   const router = useRouter();
-  const utils = api.useUtils();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isRemoving, setIsRemoving] = useState(false);
   const { item, posterUrl, isPending } = useWatchTogetherRoomMedia(
     room.sourceUri,
   );
-  const deleteRoom = api.plex.deleteWatchTogetherRoom.useMutation({
-    onSuccess: async () => {
-      await utils.plex.getWatchTogetherRooms.invalidate();
-      toast.success("Watch Together session removed");
-    },
-    onError: () => {
-      toast.error("Couldn't remove the Watch Together session");
-    },
+  const removeRoom = useAtomSet(removeWatchTogetherRoomOptimistic, {
+    mode: "promiseExit",
   });
   // Fall back to the room's own title if metadata is unavailable or yields an
   // empty title, so the card heading / alt / aria-label never go blank.
   const mediaTitle = item ? getMainTitle(item) : "";
   const title = mediaTitle === "" ? room.title : mediaTitle;
   const roomHref = getWatchTogetherRoomHref(room.id);
+
+  const handleRemove = async () => {
+    if (isRemoving) return;
+    setIsRemoving(true);
+    const exit = await removeRoom({
+      params: { roomId: room.id },
+      reactivityKeys: watchTogetherRoomWriteKeys,
+    });
+    if (Exit.isFailure(exit)) {
+      toast.error("Couldn't remove the Watch Together session");
+      setIsRemoving(false);
+      return;
+    }
+    toast.success("Watch Together session removed");
+    setIsRemoving(false);
+  };
 
   return (
     <div className="group relative flex w-[160px] shrink-0 flex-col gap-2">
@@ -144,7 +156,7 @@ function WatchTogetherRoomCard({ room }: { room: WatchTogetherRoom }) {
           // When hidden on desktop, also drop pointer events — otherwise the
           // invisible trigger overlays the poster's corner and swallows clicks
           // meant for the card's navigation link (a dead spot).
-          isMenuOpen || deleteRoom.isPending
+          isMenuOpen || isRemoving
             ? "opacity-100"
             : "md:pointer-events-none md:opacity-0 md:group-focus-within:pointer-events-auto md:group-focus-within:opacity-100 md:group-hover:pointer-events-auto md:group-hover:opacity-100",
         )}
@@ -157,7 +169,7 @@ function WatchTogetherRoomCard({ room }: { room: WatchTogetherRoom }) {
               aria-label={`Watch Together options for ${title}`}
               className="size-7 rounded-full bg-black/55 text-white backdrop-blur-sm hover:bg-black/70 hover:text-white"
             >
-              {deleteRoom.isPending ? (
+              {isRemoving ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : (
                 <MoreHorizontal className="size-4" />
@@ -171,8 +183,10 @@ function WatchTogetherRoomCard({ room }: { room: WatchTogetherRoom }) {
             </DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"
-              disabled={deleteRoom.isPending}
-              onSelect={() => deleteRoom.mutate({ roomId: room.id })}
+              disabled={isRemoving}
+              onSelect={() => {
+                void handleRemove();
+              }}
             >
               <Trash2 />
               Remove

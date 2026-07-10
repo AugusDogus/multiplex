@@ -4,13 +4,23 @@ import type {
   ItemMetadata,
   StreamType as PlexStream,
 } from "@multiplex/plex-query";
+import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import { Effect } from "effect";
+import * as Option from "effect/Option";
 import { Check, ChevronLeft, ChevronRight, Settings } from "lucide-react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { useEffect, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
 import { playerCommands, usePlayerState } from "~/lib/effect/player-atoms";
-import { api } from "~/trpc/react";
+import { asItemMetadata } from "~/lib/effect/plex-boundary";
+import {
+  makePlexHttpApiClient,
+  plexHttpClientLayer,
+} from "~/lib/effect/plex-api-client";
+import { itemMetadataAtom } from "~/lib/effect/plex-atoms";
+import { sessionRuntime } from "~/lib/effect/runtime";
 import type { MediaPlayerItem, PlaybackRate } from "~/types/media-player";
 import { CAPTION_SIZE_OPTIONS } from "./utils/caption-size";
 import { playbackUsesTranscode } from "./utils/plex-playback-plan";
@@ -84,17 +94,17 @@ export function MediaPlayerSettingsMenu({
   // shallow `currentItem` from the store has no audio or subtitle stream
   // information. Fetch the full metadata once the player has an item so the
   // settings menu can show real stream choices.
-  const { data: detailedItem, refetch: refetchDetailedItem } =
-    api.plex.getItemMetadata.useQuery(
-      {
-        serverId: currentItem?.serverId ?? "",
-        ratingKey: currentItem?.ratingKey ?? "",
-      },
-      {
-        enabled: Boolean(currentItem?.serverId && currentItem.ratingKey),
-        staleTime: 5 * 60 * 1000,
-      },
-    );
+  const metadataKey = {
+    serverId: currentItem?.serverId ?? "",
+    ratingKey: currentItem?.ratingKey ?? "",
+    enabled: Boolean(currentItem?.serverId && currentItem.ratingKey),
+  };
+  const metadataAtom = itemMetadataAtom(metadataKey);
+  const detailedItemResult = useAtomValue(metadataAtom);
+  const refreshDetailedItem = useAtomRefresh(metadataAtom);
+  const detailedItem = Option.getOrUndefined(
+    AsyncResult.value(detailedItemResult),
+  );
 
   // Keep the store's `currentItem` hydrated with expanded stream metadata so
   // playback and the settings menu share one canonical subtitle selection.
@@ -149,13 +159,23 @@ export function MediaPlayerSettingsMenu({
       }
 
       const previousUsesTranscode = playbackUsesTranscode(currentItem);
-      const refreshed = await refetchDetailedItem();
-      if (refreshed.data) {
-        applyPlaybackMetadata(refreshed.data, {
-          reloadVideo: true,
-          previousVideoUsesTranscode: previousUsesTranscode,
-        });
-      }
+      const refreshed = await sessionRuntime.runPromise(
+        Effect.gen(function* () {
+          const client = yield* makePlexHttpApiClient();
+          const metadata = yield* client.library.getItemMetadata({
+            query: {
+              serverId: currentItem.serverId,
+              ratingKey: currentItem.ratingKey,
+            },
+          });
+          return asItemMetadata(metadata);
+        }).pipe(Effect.provide(plexHttpClientLayer)),
+      );
+      refreshDetailedItem();
+      applyPlaybackMetadata(refreshed, {
+        reloadVideo: true,
+        previousVideoUsesTranscode: previousUsesTranscode,
+      });
       setPane("root");
     } catch (error) {
       console.error(

@@ -1,16 +1,25 @@
 "use client";
 
-import {
-  createTRPCClient,
-  httpBatchStreamLink,
-  loggerLink,
-  type TRPCClient,
-} from "@trpc/client";
-import { Context, Data, Effect, Layer } from "effect";
-import SuperJSON from "superjson";
+import { Context, Data, Effect, Layer, ManagedRuntime } from "effect";
+import type {
+  ItemMetadata,
+  PlayQueueResponse,
+  WatchTogetherRoom,
+} from "@multiplex/plex-query";
 
-import type { AppRouter } from "~/server/api/root";
-import type { RouterInputs, RouterOutputs } from "~/trpc/react";
+import type * as S from "~/server/effect-api/schemas";
+
+import {
+  makePlexHttpApiClient,
+  plexHttpClientLayer,
+  type PlexHttpApiClient,
+} from "./plex-api-client";
+import {
+  asItemMetadata,
+  asPlayQueue,
+  asWatchTogetherRoom,
+  asWatchTogetherRooms,
+} from "./plex-boundary";
 
 export class WatchTogetherApiError extends Data.TaggedError(
   "WatchTogetherApiError",
@@ -19,133 +28,114 @@ export class WatchTogetherApiError extends Data.TaggedError(
   readonly operation: string;
 }> {}
 
-/** Subset of the plex tRPC client used by Watch Together session orchestration. */
-export type WatchTogetherTrpcClient = Pick<
-  TRPCClient<AppRouter>["plex"],
-  | "getWatchTogetherRooms"
-  | "getWatchTogetherRoom"
-  | "createWatchTogetherRoom"
-  | "deleteWatchTogetherRoom"
-  | "getItemMetadata"
-  | "getUserInfo"
-  | "createPlayQueue"
-  | "getPlayQueue"
->;
+type UserInfo = typeof S.UserInfo.Type;
+type CreateRoomBody = typeof S.CreateWatchTogetherRoomBody.Type;
+type CreatePlayQueueBody = typeof S.CreatePlayQueueBody.Type;
+type GetPlayQueueQuery = typeof S.GetPlayQueueQuery.Type;
 
 export type WatchTogetherApiShape = {
   readonly listRooms: () => Effect.Effect<
-    RouterOutputs["plex"]["getWatchTogetherRooms"],
+    WatchTogetherRoom[],
     WatchTogetherApiError
   >;
   readonly getRoom: (
-    roomId: RouterInputs["plex"]["getWatchTogetherRoom"]["roomId"],
-  ) => Effect.Effect<
-    RouterOutputs["plex"]["getWatchTogetherRoom"],
-    WatchTogetherApiError
-  >;
+    roomId: string,
+  ) => Effect.Effect<WatchTogetherRoom, WatchTogetherApiError>;
   readonly createRoom: (
-    input: RouterInputs["plex"]["createWatchTogetherRoom"],
-  ) => Effect.Effect<
-    RouterOutputs["plex"]["createWatchTogetherRoom"],
-    WatchTogetherApiError
-  >;
+    input: CreateRoomBody,
+  ) => Effect.Effect<WatchTogetherRoom, WatchTogetherApiError>;
   readonly deleteRoom: (
-    roomId: RouterInputs["plex"]["deleteWatchTogetherRoom"]["roomId"],
-  ) => Effect.Effect<
-    RouterOutputs["plex"]["deleteWatchTogetherRoom"],
-    WatchTogetherApiError
-  >;
+    roomId: string,
+  ) => Effect.Effect<void, WatchTogetherApiError>;
   readonly getItemMetadata: (input: {
     serverId: string;
     ratingKey: string;
-  }) => Effect.Effect<
-    RouterOutputs["plex"]["getItemMetadata"],
-    WatchTogetherApiError
-  >;
-  readonly getUserInfo: () => Effect.Effect<
-    RouterOutputs["plex"]["getUserInfo"],
-    WatchTogetherApiError
-  >;
+  }) => Effect.Effect<ItemMetadata, WatchTogetherApiError>;
+  readonly getUserInfo: () => Effect.Effect<UserInfo, WatchTogetherApiError>;
   readonly createPlayQueue: (
-    input: RouterInputs["plex"]["createPlayQueue"],
-  ) => Effect.Effect<
-    RouterOutputs["plex"]["createPlayQueue"],
-    WatchTogetherApiError
-  >;
+    input: CreatePlayQueueBody,
+  ) => Effect.Effect<PlayQueueResponse, WatchTogetherApiError>;
   readonly getPlayQueue: (
-    input: RouterInputs["plex"]["getPlayQueue"],
-  ) => Effect.Effect<
-    RouterOutputs["plex"]["getPlayQueue"],
-    WatchTogetherApiError
-  >;
+    input: GetPlayQueueQuery,
+  ) => Effect.Effect<PlayQueueResponse, WatchTogetherApiError>;
 };
 
-const getBaseUrl = (): string => {
-  if (typeof window !== "undefined") return window.location.origin;
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return `http://localhost:${process.env.PORT ?? 3000}`;
-};
-
-let browserClient: WatchTogetherTrpcClient | undefined;
-
-const createBrowserTrpcClient = (): WatchTogetherTrpcClient => {
-  const client = createTRPCClient<AppRouter>({
-    links: [
-      loggerLink({
-        enabled: (op) =>
-          process.env.NODE_ENV === "development" ||
-          (op.direction === "down" && op.result instanceof Error),
-      }),
-      httpBatchStreamLink({
-        transformer: SuperJSON,
-        url: getBaseUrl() + "/api/trpc",
-        headers: () => {
-          const headers = new Headers();
-          headers.set("x-trpc-source", "effect-watch-together-api");
-          return headers;
-        },
-      }),
-    ],
-  });
-  return client.plex;
-};
-
-const getBrowserTrpcClient = (): WatchTogetherTrpcClient => {
-  browserClient ??= createBrowserTrpcClient();
-  return browserClient;
-};
-
-const wrap =
-  <A>(operation: string, try_: () => Promise<A>) =>
-  (): Effect.Effect<A, WatchTogetherApiError> =>
-    Effect.tryPromise({
-      try: try_,
-      catch: (cause) => new WatchTogetherApiError({ cause, operation }),
-    });
+const wrap = <A>(
+  operation: string,
+  effect: Effect.Effect<A, unknown>,
+): Effect.Effect<A, WatchTogetherApiError> =>
+  effect.pipe(
+    Effect.mapError((cause) => new WatchTogetherApiError({ cause, operation })),
+  );
 
 export const makeWatchTogetherApi = (
-  client: WatchTogetherTrpcClient = getBrowserTrpcClient(),
+  client: PlexHttpApiClient,
 ): WatchTogetherApiShape => ({
-  listRooms: wrap("listRooms", () => client.getWatchTogetherRooms.query()),
+  listRooms: () =>
+    wrap(
+      "listRooms",
+      client.watchTogether
+        .getWatchTogetherRooms()
+        .pipe(Effect.map(asWatchTogetherRooms)),
+    ),
   getRoom: (roomId) =>
-    wrap("getRoom", () => client.getWatchTogetherRoom.query({ roomId }))(),
+    wrap(
+      "getRoom",
+      client.watchTogether
+        .getWatchTogetherRoom({ params: { roomId } })
+        .pipe(Effect.map(asWatchTogetherRoom)),
+    ),
   createRoom: (input) =>
-    wrap("createRoom", () => client.createWatchTogetherRoom.mutate(input))(),
+    wrap(
+      "createRoom",
+      client.watchTogether
+        .createWatchTogetherRoom({ payload: input })
+        .pipe(Effect.map(asWatchTogetherRoom)),
+    ),
   deleteRoom: (roomId) =>
-    wrap("deleteRoom", () =>
-      client.deleteWatchTogetherRoom.mutate({ roomId }),
-    )(),
+    wrap(
+      "deleteRoom",
+      client.watchTogether.deleteWatchTogetherRoom({
+        params: { roomId },
+      }),
+    ),
   getItemMetadata: (input) =>
-    wrap("getItemMetadata", () => client.getItemMetadata.query(input))(),
-  getUserInfo: wrap("getUserInfo", () => client.getUserInfo.query()),
+    wrap(
+      "getItemMetadata",
+      client.library
+        .getItemMetadata({ query: input })
+        .pipe(Effect.map(asItemMetadata)),
+    ),
+  getUserInfo: () => wrap("getUserInfo", client.account.getUserInfo()),
   createPlayQueue: (input) =>
-    wrap("createPlayQueue", () => client.createPlayQueue.mutate(input))(),
+    wrap(
+      "createPlayQueue",
+      client.playback
+        .createPlayQueue({ payload: input })
+        .pipe(Effect.map(asPlayQueue)),
+    ),
   getPlayQueue: (input) =>
-    wrap("getPlayQueue", () => client.getPlayQueue.query(input))(),
+    wrap(
+      "getPlayQueue",
+      client.playback
+        .getPlayQueue({ query: input })
+        .pipe(Effect.map(asPlayQueue)),
+    ),
 });
 
+let browserHttpClient: PlexHttpApiClient | undefined;
+
+const getBrowserHttpClient = (): PlexHttpApiClient => {
+  if (browserHttpClient) {
+    return browserHttpClient;
+  }
+  const runtime = ManagedRuntime.make(plexHttpClientLayer);
+  browserHttpClient = runtime.runSync(makePlexHttpApiClient());
+  return browserHttpClient;
+};
+
 /**
- * Browser-side Plex/Watch Together API boundary over the vanilla tRPC client.
+ * Browser-side Plex/Watch Together API boundary over the Effect HttpApi client.
  *
  * Effect v4 (`4.0.0-beta.59`) exposes services via `Context.Service` (the
  * older `Effect.Service` helper is not present in this beta).
@@ -155,10 +145,10 @@ export class WatchTogetherApi extends Context.Service<
   WatchTogetherApiShape
 >()("WatchTogetherApi") {
   static readonly Default = Layer.sync(WatchTogetherApi, () =>
-    makeWatchTogetherApi(),
+    makeWatchTogetherApi(getBrowserHttpClient()),
   );
 
-  /** Test / alternate-transport layer with an injectable tRPC client. */
-  static readonly layer = (client: WatchTogetherTrpcClient) =>
+  /** Test / alternate-transport layer with an injectable HttpApi client. */
+  static readonly layer = (client: PlexHttpApiClient) =>
     Layer.succeed(WatchTogetherApi)(makeWatchTogetherApi(client));
 }

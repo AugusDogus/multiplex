@@ -3,6 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
+import { useAtomSet } from "@effect/atom-react";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 
 import { Button } from "~/components/ui/button";
 import {
@@ -14,8 +17,9 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { WatchTogetherInviteePicker } from "~/components/watch-together/watch-together-invitee-picker";
+import { createWatchTogetherRoom } from "~/lib/effect/plex-atoms";
+import { watchTogetherRoomWriteKeys } from "~/lib/effect/reactivity-keys";
 import { getWatchTogetherRoomHref } from "~/lib/watch-together-source";
-import { api } from "~/trpc/react";
 
 import type { ItemDetails, PlayTarget } from "./types";
 
@@ -38,17 +42,13 @@ export function WatchTogetherInviteDialog({
 }: WatchTogetherInviteDialogProps) {
   const router = useRouter();
   const [selectedUsers, setSelectedUsers] = useState<number[]>([]);
-  const createRoomMutation = api.plex.createWatchTogetherRoom.useMutation({
-    onError: (error) => onFeedback(error.message),
-    onSuccess: (room) => {
-      handleOpenChange(false);
-      onFeedback("Watch Together room created");
-      router.push(getWatchTogetherRoomHref(room.id));
-    },
+  const [isPending, setIsPending] = useState(false);
+  const createRoomMutation = useAtomSet(createWatchTogetherRoom, {
+    mode: "promiseExit",
   });
 
   const playable = playTarget ?? item;
-  const canInvite = Boolean(playTarget && !createRoomMutation.isPending);
+  const canInvite = Boolean(playTarget && !isPending);
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
@@ -57,18 +57,40 @@ export function WatchTogetherInviteDialog({
     onOpenChange(nextOpen);
   };
 
-  const createRoom = () => {
-    if (!playTarget || createRoomMutation.isPending) {
+  const createRoom = async () => {
+    if (!playTarget || isPending) {
       return;
     }
 
-    createRoomMutation.mutate({
-      serverId,
-      ratingKey: playable.ratingKey,
-      key: playable.key,
-      title: playable.title,
-      users: selectedUsers,
+    setIsPending(true);
+    const exit = await createRoomMutation({
+      payload: {
+        serverId,
+        ratingKey: playable.ratingKey,
+        key: playable.key,
+        title: playable.title,
+        users: selectedUsers,
+      },
+      reactivityKeys: watchTogetherRoomWriteKeys,
     });
+    if (Exit.isFailure(exit)) {
+      const error = Exit.findErrorOption(exit);
+      onFeedback(
+        Option.isSome(error) &&
+          error.value !== null &&
+          typeof error.value === "object" &&
+          "message" in error.value &&
+          typeof (error.value as { message: unknown }).message === "string"
+          ? (error.value as { message: string }).message
+          : "Failed to create Watch Together room",
+      );
+      setIsPending(false);
+      return;
+    }
+    handleOpenChange(false);
+    onFeedback("Watch Together room created");
+    router.push(getWatchTogetherRoomHref(exit.value.id));
+    setIsPending(false);
   };
 
   return (
@@ -85,7 +107,7 @@ export function WatchTogetherInviteDialog({
           enabled={open}
           selectedUserIds={selectedUsers}
           onSelectedUserIdsChange={setSelectedUsers}
-          disabled={createRoomMutation.isPending}
+          disabled={isPending}
           emptyHint="No Plex friends found. You can still create a room for yourself."
         />
 
@@ -93,7 +115,7 @@ export function WatchTogetherInviteDialog({
           <Button
             type="button"
             variant="outline"
-            disabled={createRoomMutation.isPending}
+            disabled={isPending}
             onClick={() => handleOpenChange(false)}
           >
             Cancel
@@ -101,10 +123,12 @@ export function WatchTogetherInviteDialog({
           <Button
             type="button"
             disabled={!canInvite}
-            onClick={createRoom}
+            onClick={() => {
+              void createRoom();
+            }}
             className="min-w-32"
           >
-            {createRoomMutation.isPending && (
+            {isPending && (
               <Loader2 className="animate-spin" data-icon="inline-start" />
             )}
             {selectedUsers.length > 0

@@ -2,14 +2,19 @@
 
 import { useMemo } from "react";
 import { Check, Loader2 } from "lucide-react";
+import { useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Option from "effect/Option";
 
 import { Button } from "~/components/ui/button";
 import {
   PlexUserAvatar,
   PlexUserAvatarStack,
 } from "~/components/watch-together/plex-user-avatar";
+import { isAsyncResultLoading } from "~/lib/effect/async-result";
+import { watchTogetherInviteesAtom } from "~/lib/effect/plex-atoms";
 import { cn } from "~/lib/utils";
-import { api } from "~/trpc/react";
 
 interface WatchTogetherInviteePickerProps {
   /** Gate the invitees query to when the picker is actually shown. */
@@ -24,6 +29,8 @@ interface WatchTogetherInviteePickerProps {
   emptyHint?: string;
 }
 
+const disabledInviteesAtom = Atom.make(() => AsyncResult.initial(false));
+
 /**
  * The shared "pick friends to invite" surface: a stable-height selection
  * summary plus the selectable friends list. Used both when creating a room and
@@ -37,18 +44,28 @@ export function WatchTogetherInviteePicker({
   disabled = false,
   emptyHint = "No Plex friends found.",
 }: WatchTogetherInviteePickerProps) {
-  const inviteesQuery = api.plex.getWatchTogetherInvitees.useQuery(undefined, {
-    enabled,
-    staleTime: 60_000,
-  });
+  const inviteesResult = useAtomValue(
+    enabled ? watchTogetherInviteesAtom : disabledInviteesAtom,
+  );
 
   const excludeSet = useMemo(
     () => new Set(excludeUserIds ?? []),
     [excludeUserIds],
   );
   const invitees = useMemo(
-    () => (inviteesQuery.data ?? []).filter((i) => !excludeSet.has(i.id)),
-    [inviteesQuery.data, excludeSet],
+    () =>
+      (
+        Option.getOrElse(
+          AsyncResult.value(inviteesResult),
+          () => [],
+        ) as readonly {
+          id: number;
+          title: string;
+          username: string;
+          thumb?: string | null;
+        }[]
+      ).filter((i) => !excludeSet.has(i.id)),
+    [inviteesResult, excludeSet],
   );
   const selectedSet = useMemo(
     () => new Set(selectedUserIds),
@@ -100,11 +117,11 @@ export function WatchTogetherInviteePicker({
         Friends and Accounts with Library Access
       </p>
       <div className="-mr-1 flex max-h-72 flex-col gap-1 overflow-y-auto pr-1">
-        {inviteesQuery.isPending ? (
+        {isAsyncResultLoading(inviteesResult) ? (
           <InviteStatus>
             <Loader2 className="size-4 animate-spin" /> Loading friends...
           </InviteStatus>
-        ) : inviteesQuery.isError ? (
+        ) : AsyncResult.isFailure(inviteesResult) ? (
           <InviteStatus>Could not load invitees.</InviteStatus>
         ) : invitees.length === 0 ? (
           <InviteStatus>{emptyHint}</InviteStatus>

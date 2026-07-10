@@ -15,13 +15,23 @@ import {
   type SyncplayUser,
   type WatchTogetherRoom,
 } from "@multiplex/plex-query";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 import { toast } from "sonner";
 
 import { useWatchTogetherRoomMedia } from "~/components/watch-together/use-watch-together-room-media";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { getPlexClientIdentifier } from "~/lib/device-identifier";
+import { isAsyncResultLoading } from "~/lib/effect/async-result";
+import {
+  deleteWatchTogetherRoom,
+  userInfoAtom,
+  watchTogetherRoomAtom,
+} from "~/lib/effect/plex-atoms";
+import { watchTogetherRoomWriteKeys } from "~/lib/effect/reactivity-keys";
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
-import { api } from "~/trpc/react";
 
 export type LobbyViewModel =
   | { readonly status: "loading" }
@@ -51,23 +61,19 @@ export type LobbyViewModel =
 export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   const router = useRouter();
   const sessionState = useSessionState();
+  const [leaving, setLeaving] = useState(false);
 
-  const roomQuery = api.plex.getWatchTogetherRoom.useQuery(
-    { roomId },
-    {
-      // Poll for participant/room updates. Keep polling even after an error so a
-      // transient network hiccup recovers on the next interval (don't latch the
-      // lobby into "room unavailable" on a single failure).
-      refetchInterval: 10_000,
-    },
-  );
-  const userInfoQuery = api.plex.getUserInfo.useQuery(undefined, {
-    staleTime: 60_000,
+  const roomResult = useAtomValue(watchTogetherRoomAtom(roomId));
+  const userInfoResult = useAtomValue(userInfoAtom);
+  const deleteRoom = useAtomSet(deleteWatchTogetherRoom, {
+    mode: "promiseExit",
   });
-  const room = roomQuery.data;
+
+  const room = Option.getOrUndefined(AsyncResult.value(roomResult));
+  const userInfo = Option.getOrUndefined(AsyncResult.value(userInfoResult));
   const media = useWatchTogetherRoomMedia(room?.sourceUri);
   const source = media.source;
-  const localUserId = userInfoQuery.data?.id;
+  const localUserId = userInfo?.id;
 
   const localUser = useMemo<SyncplayUser | null>(() => {
     if (localUserId === undefined) {
@@ -145,21 +151,6 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     });
   }, [playTarget, serverId, serverUrl, authToken]);
 
-  const utils = api.useUtils();
-  const leaveRoom = api.plex.deleteWatchTogetherRoom.useMutation({
-    onSuccess: async () => {
-      await utils.plex.getWatchTogetherRooms.invalidate();
-      sessionCommands.leave({ suppressAutoStart: false });
-      router.push("/");
-    },
-    onError: () => {
-      sessionCommands.leave({ suppressAutoStart: false });
-      router.push("/");
-      toast.error("Couldn't remove the session, but you've left it.");
-    },
-  });
-  const leaving = leaveRoom.isPending;
-
   useEffect(() => {
     sessionCommands.setLobbyContext({
       canStart,
@@ -206,8 +197,23 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     if (leaving) {
       return;
     }
-    leaveRoom.mutate({ roomId });
-  }, [leaving, leaveRoom, roomId]);
+    setLeaving(true);
+    void (async () => {
+      const exit = await deleteRoom({
+        params: { roomId },
+        reactivityKeys: watchTogetherRoomWriteKeys,
+      });
+      if (Exit.isFailure(exit)) {
+        sessionCommands.leave({ suppressAutoStart: false });
+        router.push("/");
+        toast.error("Couldn't remove the session, but you've left it.");
+        setLeaving(false);
+        return;
+      }
+      sessionCommands.leave({ suppressAutoStart: false });
+      router.push("/");
+    })();
+  }, [leaving, deleteRoom, roomId, router]);
 
   const participantsByUserId = useMemo(
     () =>
@@ -242,16 +248,15 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   }, [allInvitedPresentNow]);
 
   if (
-    roomQuery.isPending ||
-    userInfoQuery.isPending ||
-    userInfoQuery.isLoading
+    isAsyncResultLoading(roomResult) ||
+    isAsyncResultLoading(userInfoResult)
   ) {
     return { status: "loading" };
   }
 
   if (
-    roomQuery.isError ||
-    userInfoQuery.isError ||
+    AsyncResult.isFailure(roomResult) ||
+    AsyncResult.isFailure(userInfoResult) ||
     !room ||
     !source ||
     localUserId === undefined ||

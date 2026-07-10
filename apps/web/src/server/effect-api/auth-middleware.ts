@@ -1,35 +1,33 @@
+/**
+ * Live better-auth session middleware for the Plex HttpApi.
+ *
+ * Tag definitions (isomorphic; client-safe) live in `./auth-middleware-tag`.
+ * This module imports `~/lib/auth/server` and must stay server-only.
+ */
 import {
   getPlexConfig,
   PlexTvClient,
   WatchTogetherClient,
   type PlexDevice,
 } from "@multiplex/plex-query";
-import { Context, Effect, Layer, type Redacted } from "effect";
+import { Effect, Layer, type Redacted } from "effect";
 import { HttpServerRequest } from "effect/unstable/http";
-import { HttpApiMiddleware, HttpApiSecurity } from "effect/unstable/httpapi";
 
 import { auth } from "~/lib/auth/server";
 import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
+import {
+  PlexAuthMiddleware,
+  PlexSession,
+  type PlexSessionShape,
+} from "./auth-middleware-tag";
 import { UnauthorizedError } from "./errors";
 
 export type AuthSession = NonNullable<
   Awaited<ReturnType<typeof auth.api.getSession>>
 >;
 
-/**
- * Authenticated request context for HttpApi handlers — same payload the tRPC
- * `protectedProcedure` middleware guarantees (`authSession` + `plex`).
- */
-export type PlexSessionShape = {
-  readonly authSession: AuthSession;
-  readonly plex: PlexTvClient;
-  readonly watchTogether: WatchTogetherClient;
-};
-
-export class PlexSession extends Context.Service<
-  PlexSession,
-  PlexSessionShape
->()("multiplex/effect-api/PlexSession") {}
+export type { PlexSessionShape };
+export { PlexAuthMiddleware, PlexSession };
 
 export const makePlexSession = (
   authSession: AuthSession,
@@ -79,19 +77,6 @@ export const resolvePlexSessionFromHeaders = (
  * request headers (matching tRPC), because cookie-cache / dual cookies may be
  * involved.
  */
-export class PlexAuthMiddleware extends HttpApiMiddleware.Service<
-  PlexAuthMiddleware,
-  { provides: PlexSession }
->()("multiplex/effect-api/PlexAuthMiddleware", {
-  error: UnauthorizedError,
-  security: {
-    cookie: HttpApiSecurity.apiKey({
-      in: "cookie",
-      key: "better-auth.session_token",
-    }),
-  },
-}) {}
-
 export const PlexAuthMiddlewareLive = Layer.succeed(PlexAuthMiddleware, {
   cookie: (httpEffect, _options) =>
     Effect.gen(function* () {

@@ -5,8 +5,38 @@ export {
   WatchTogetherApi,
   WatchTogetherApiError,
   type WatchTogetherApiShape,
-  type WatchTogetherTrpcClient,
 } from "./watch-together-api";
+
+export { PlexApiClient, makePlexHttpApiClient } from "./plex-api-client";
+export {
+  asItemDetails,
+  asItemMetadata,
+  asPlayQueue,
+  asWatchTogetherRoom,
+  asWatchTogetherRooms,
+  type ItemDetails,
+} from "./plex-boundary";
+export {
+  ReactivityKey,
+  watchTogetherRoomWriteKeys,
+  watchTogetherRoomWriteKeysFor,
+} from "./reactivity-keys";
+export {
+  createPlayQueue,
+  createWatchTogetherRoom,
+  deleteWatchTogetherRoom,
+  inviteWatchTogetherUsers,
+  itemDetailsAtom,
+  itemMetadataAtom,
+  playQueueAtom,
+  removeWatchTogetherRoomOptimistic,
+  sendTimeline,
+  userInfoAtom,
+  watchTogetherInviteesAtom,
+  watchTogetherRoomAtom,
+  watchTogetherRoomsAtom,
+  watchTogetherRoomsOptimisticAtom,
+} from "./plex-atoms";
 
 export {
   makePlayerPort,

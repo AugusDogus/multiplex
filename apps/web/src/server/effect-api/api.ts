@@ -7,7 +7,7 @@ import {
 import { Schema } from "effect";
 import { HttpApiSchema } from "effect/unstable/httpapi";
 
-import { PlexAuthMiddleware } from "./auth-middleware";
+import { PlexAuthMiddleware } from "./auth-middleware-tag";
 import {
   InternalPlexError,
   NotFoundError,

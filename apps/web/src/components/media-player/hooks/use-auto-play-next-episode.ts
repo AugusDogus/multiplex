@@ -2,9 +2,13 @@
 
 import { useEffect, useMemo } from "react";
 import type { PlayQueueItem } from "@multiplex/plex-query";
+import { useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import * as Option from "effect/Option";
+
 import { playerCommands, usePlayerState } from "~/lib/effect/player-atoms";
+import { playQueueAtom } from "~/lib/effect/plex-atoms";
 import type { NextEpisodeInfo } from "~/types/media-player";
-import { api } from "~/trpc/react";
 
 /* ────────────────────────────────────────────────────────────
    Auto-Play Next Episode Hook
@@ -27,21 +31,20 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
   const playQueueId = player.playQueueId;
   const autoPlay = player.autoPlay;
 
+  const shouldPoll = Boolean(
+    currentItem?.serverId && playQueueId && currentItem?.type === "episode",
+  );
+
   // Poll for play queue updates when we have a play queue ID
-  const { data: updatedPlayQueue } = api.plex.getPlayQueue.useQuery(
-    {
+  const playQueueResult = useAtomValue(
+    playQueueAtom({
       serverId: currentItem?.serverId ?? "",
       playQueueId: playQueueId ?? "",
-      includeMarkers: true,
-    },
-    {
-      enabled: Boolean(
-        currentItem?.serverId && playQueueId && currentItem?.type === "episode",
-      ),
-      refetchInterval: 30000, // Poll every 30 seconds
-      refetchOnWindowFocus: false,
-      staleTime: 15000, // Consider data stale after 15 seconds
-    },
+      enabled: shouldPoll,
+    }),
+  );
+  const updatedPlayQueue = Option.getOrUndefined(
+    AsyncResult.value(playQueueResult),
   );
 
   // Update the play queue in state when we get fresh data
@@ -168,8 +171,6 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
     hasNextEpisode: Boolean(nextEpisode),
     nextEpisode: nextEpisode,
     // Expose queue polling status for debugging
-    isPollingQueue: Boolean(
-      currentItem?.serverId && playQueueId && currentItem?.type === "episode",
-    ),
+    isPollingQueue: shouldPoll,
   };
 }

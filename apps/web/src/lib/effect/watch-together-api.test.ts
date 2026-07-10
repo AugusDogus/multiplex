@@ -1,10 +1,10 @@
 import { Effect, Exit, Result } from "effect";
 import { expect, mock, test } from "bun:test";
 
+import type { PlexHttpApiClient } from "./plex-api-client";
 import {
   makeWatchTogetherApi,
   WatchTogetherApiError,
-  type WatchTogetherTrpcClient,
 } from "./watch-together-api";
 
 const expectApiError = (
@@ -27,45 +27,52 @@ const expectApiError = (
   });
 };
 
+type WatchTogetherGroup = PlexHttpApiClient["watchTogether"];
+type LibraryGroup = PlexHttpApiClient["library"];
+type AccountGroup = PlexHttpApiClient["account"];
+type PlaybackGroup = PlexHttpApiClient["playback"];
+
+const succeed = <A>(value: A) => Effect.succeed(value);
+const fail = (cause: unknown) => Effect.fail(cause);
+
 const makeStubClient = (
-  overrides: Partial<{
-    [K in keyof WatchTogetherTrpcClient]: Partial<WatchTogetherTrpcClient[K]>;
-  }> = {},
-): WatchTogetherTrpcClient =>
+  overrides: {
+    watchTogether?: Partial<WatchTogetherGroup>;
+    library?: Partial<LibraryGroup>;
+    account?: Partial<AccountGroup>;
+    playback?: Partial<PlaybackGroup>;
+  } = {},
+): PlexHttpApiClient =>
   ({
-    getWatchTogetherRooms: {
-      query: mock().mockResolvedValue([]),
-      ...overrides.getWatchTogetherRooms,
+    watchTogether: {
+      getWatchTogetherRooms: mock().mockReturnValue(succeed([])),
+      getWatchTogetherRoom: mock(),
+      createWatchTogetherRoom: mock(),
+      inviteWatchTogetherUsers: mock(),
+      deleteWatchTogetherRoom: mock().mockReturnValue(succeed(undefined)),
+      getWatchTogetherInvitees: mock().mockReturnValue(succeed([])),
+      ...overrides.watchTogether,
     },
-    getWatchTogetherRoom: {
-      query: mock(),
-      ...overrides.getWatchTogetherRoom,
+    library: {
+      getItemMetadata: mock(),
+      getItemDetails: mock(),
+      ...overrides.library,
     },
-    createWatchTogetherRoom: {
-      mutate: mock(),
-      ...overrides.createWatchTogetherRoom,
+    account: {
+      getUserInfo: mock(),
+      getServers: mock(),
+      togglePinnedSource: mock(),
+      ...overrides.account,
     },
-    deleteWatchTogetherRoom: {
-      mutate: mock().mockResolvedValue(undefined),
-      ...overrides.deleteWatchTogetherRoom,
+    playback: {
+      createPlayQueue: mock(),
+      getPlayQueue: mock(),
+      sendTimeline: mock(),
+      ...overrides.playback,
     },
-    getItemMetadata: {
-      query: mock(),
-      ...overrides.getItemMetadata,
-    },
-    getUserInfo: {
-      query: mock(),
-      ...overrides.getUserInfo,
-    },
-    createPlayQueue: {
-      mutate: mock(),
-      ...overrides.createPlayQueue,
-    },
-    getPlayQueue: {
-      query: mock(),
-      ...overrides.getPlayQueue,
-    },
-  }) as WatchTogetherTrpcClient;
+    search: {} as PlexHttpApiClient["search"],
+    liveTv: {} as PlexHttpApiClient["liveTv"],
+  }) as PlexHttpApiClient;
 
 test("listRooms succeeds with the client response", async () => {
   const rooms = [
@@ -80,8 +87,8 @@ test("listRooms succeeds with the client response", async () => {
     },
   ];
   const client = makeStubClient({
-    getWatchTogetherRooms: {
-      query: mock().mockResolvedValue(rooms),
+    watchTogether: {
+      getWatchTogetherRooms: mock().mockReturnValue(succeed(rooms)),
     },
   });
   const api = makeWatchTogetherApi(client);
@@ -90,11 +97,11 @@ test("listRooms succeeds with the client response", async () => {
   expect(result).toEqual(rooms);
 });
 
-test("rejections become WatchTogetherApiError on the error channel", async () => {
+test("failures become WatchTogetherApiError on the error channel", async () => {
   const cause = new Error("network down");
   const client = makeStubClient({
-    getWatchTogetherRooms: {
-      query: mock().mockRejectedValue(cause),
+    watchTogether: {
+      getWatchTogetherRooms: mock().mockReturnValue(fail(cause)),
     },
   });
   const api = makeWatchTogetherApi(client);
@@ -106,8 +113,8 @@ test("rejections become WatchTogetherApiError on the error channel", async () =>
 test("getRoom wraps query failures with the operation name", async () => {
   const cause = { message: "not found" };
   const client = makeStubClient({
-    getWatchTogetherRoom: {
-      query: mock().mockRejectedValue(cause),
+    watchTogether: {
+      getWatchTogetherRoom: mock().mockReturnValue(fail(cause)),
     },
   });
   const api = makeWatchTogetherApi(client);

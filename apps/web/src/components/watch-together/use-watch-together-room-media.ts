@@ -6,11 +6,13 @@ import {
   getPosterImagePath,
   parseLibraryItemUri,
 } from "@multiplex/plex-query";
+import { useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import * as Option from "effect/Option";
 
-import { api } from "~/trpc/react";
-import type { RouterOutputs } from "~/trpc/react";
-
-type ItemDetails = NonNullable<RouterOutputs["plex"]["getItemDetails"]>;
+import { isAsyncResultLoading } from "~/lib/effect/async-result";
+import type { ItemDetails } from "~/lib/effect/plex-boundary";
+import { itemDetailsAtom } from "~/lib/effect/plex-atoms";
 
 interface UseWatchTogetherRoomMediaOptions {
   enabled?: boolean;
@@ -41,19 +43,18 @@ export function useWatchTogetherRoomMedia(
   { enabled = true }: UseWatchTogetherRoomMediaOptions = {},
 ): WatchTogetherRoomMedia {
   const source = sourceUri ? parseLibraryItemUri(sourceUri) : null;
+  const queryEnabled = enabled && Boolean(source);
 
-  const detailsQuery = api.plex.getItemDetails.useQuery(
-    {
+  const detailsResult = useAtomValue(
+    itemDetailsAtom({
       serverId: source?.serverId ?? "",
       ratingKey: source?.ratingKey ?? "",
-    },
-    {
-      enabled: enabled && Boolean(source),
-      staleTime: 60_000,
-    },
+      enabled: queryEnabled,
+    }),
   );
 
-  const details = detailsQuery.data ?? undefined;
+  const details =
+    Option.getOrUndefined(AsyncResult.value(detailsResult)) ?? undefined;
   const item = details?.item;
   const serverUrl = details?.serverUrl ?? undefined;
   const authToken = details?.authToken ?? undefined;
@@ -72,11 +73,11 @@ export function useWatchTogetherRoomMedia(
 
   return {
     source,
-    details,
+    details: details ?? undefined,
     item,
     posterUrl,
     backdropUrl,
-    isPending: Boolean(source) && detailsQuery.isPending,
-    isError: Boolean(source) && detailsQuery.isError,
+    isPending: queryEnabled && isAsyncResultLoading(detailsResult),
+    isError: queryEnabled && AsyncResult.isFailure(detailsResult),
   };
 }

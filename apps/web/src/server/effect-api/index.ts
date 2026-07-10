@@ -1,11 +1,15 @@
 export { PlexApi } from "./api";
 export {
   PlexAuthMiddleware,
-  PlexAuthMiddlewareLive,
   PlexSession,
+  type PlexSessionShape,
+} from "./auth-middleware-tag";
+export {
+  PlexAuthMiddlewareLive,
   makeStubPlexAuthMiddlewareLive,
   makePlexSession,
   resolvePlexSessionFromHeaders,
+  type AuthSession,
 } from "./auth-middleware";
 export {
   InternalPlexError,

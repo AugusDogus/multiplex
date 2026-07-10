@@ -1,9 +1,15 @@
 "use client";
 
 import { useCallback, useRef } from "react";
+import { Effect } from "effect";
+
 import { usePlayerState } from "~/lib/effect/player-atoms";
+import {
+  makePlexHttpApiClient,
+  plexHttpClientLayer,
+} from "~/lib/effect/plex-api-client";
+import { sessionRuntime } from "~/lib/effect/runtime";
 import { useProgressStore } from "~/stores/progress-store";
-import { api } from "~/trpc/react";
 
 /* ────────────────────────────────────────────────────────────
    Timeline Updates Hook
@@ -17,6 +23,25 @@ import { api } from "~/trpc/react";
 // with "Failed to fetch", spamming the console. State changes (play/pause/seek/
 // stop/item change) still report immediately.
 const TIMELINE_PROGRESS_INTERVAL_MS = 10_000;
+
+const sendTimelineViaHttpApi = (payload: {
+  readonly serverId: string;
+  readonly ratingKey: string;
+  readonly key: string;
+  readonly playbackTime: number;
+  readonly time: number;
+  readonly duration: number;
+  readonly state: "playing" | "paused" | "buffering" | "stopped";
+  readonly hasMDE?: number;
+  readonly context?: string;
+  readonly sessionId: string;
+}) =>
+  sessionRuntime.runPromise(
+    Effect.gen(function* () {
+      const client = yield* makePlexHttpApiClient();
+      yield* client.playback.sendTimeline({ payload });
+    }).pipe(Effect.provide(plexHttpClientLayer)),
+  );
 
 /**
  * Hook to manage timeline updates to Plex server during media playback
@@ -40,8 +65,6 @@ export function useTimelineUpdates() {
   // Best-effort progress reporting; surface a transient failure once rather
   // than logging every retry (which would flood the dev error overlay).
   const hasLoggedFailureRef = useRef(false);
-
-  const sendTimelineMutation = api.plex.sendTimeline.useMutation();
 
   // Get or create session ID
   const getSessionId = useCallback(() => {
@@ -94,7 +117,7 @@ export function useTimelineUpdates() {
       lastSentAtRef.current = now;
 
       try {
-        await sendTimelineMutation.mutateAsync({
+        await sendTimelineViaHttpApi({
           serverId: currentItem.serverId,
           ratingKey: currentItem.ratingKey,
           key: `/library/metadata/${currentItem.ratingKey}`,
@@ -127,14 +150,7 @@ export function useTimelineUpdates() {
         }
       }
     },
-    [
-      currentItem,
-      currentTime,
-      duration,
-      getSessionId,
-      sendTimelineMutation,
-      updateItemProgress,
-    ],
+    [currentItem, currentTime, duration, getSessionId, updateItemProgress],
   );
 
   // Event handlers for video events
