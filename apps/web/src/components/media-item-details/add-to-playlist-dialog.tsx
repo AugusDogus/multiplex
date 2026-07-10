@@ -1,6 +1,10 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 import { Loader2, ListPlus, Plus } from "lucide-react";
 import { getPlaylistTypeForItemType } from "@multiplex/plex-query";
 
@@ -13,7 +17,14 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
-import { api } from "~/trpc/react";
+import { isAsyncResultLoading } from "~/lib/effect/async-result";
+import {
+  addItemToPlaylist,
+  createPlaylistWithItem,
+  itemPlaylistsAtom,
+} from "~/lib/effect/plex-browse-atoms";
+import { asCreatePlaylistResult } from "~/lib/effect/plex-boundary";
+import { itemPlaylistsWriteKeysFor } from "~/lib/effect/reactivity-keys";
 
 import type { ItemDetails } from "./types";
 
@@ -36,61 +47,65 @@ export function AddToPlaylistDialog({
   onOpenChange,
   onFeedback,
 }: AddToPlaylistDialogProps) {
-  const utils = api.useUtils();
   const playlistType = getPlaylistTypeForItemType(item.type);
   const [newTitle, setNewTitle] = useState("");
-
-  const playlistsQuery = api.plex.getItemPlaylists.useQuery(
-    { serverId, serverUrl, authToken, playlistType },
-    { enabled: open, staleTime: 30_000 },
+  const [pendingPlaylistKey, setPendingPlaylistKey] = useState<string | null>(
+    null,
   );
+  const [isCreating, setIsCreating] = useState(false);
 
-  const invalidatePlaylists = () =>
-    utils.plex.getItemPlaylists.invalidate({
+  const playlistsResult = useAtomValue(
+    itemPlaylistsAtom({
       serverId,
       serverUrl,
       authToken,
       playlistType,
-    });
+      enabled: open,
+    }),
+  );
+  const playlists =
+    Option.getOrUndefined(AsyncResult.value(playlistsResult)) ?? [];
+  const isPlaylistsPending = isAsyncResultLoading(playlistsResult);
+  const isPlaylistsError = AsyncResult.isFailure(playlistsResult);
 
-  const addMutation = api.plex.addItemToPlaylist.useMutation({
-    onSuccess: (_result, variables) => {
-      void invalidatePlaylists();
-      onFeedback(`Added to ${variables.playlistTitle}`);
-      onOpenChange(false);
-    },
-    onError: (error) => onFeedback(error.message),
+  const addToPlaylistMutation = useAtomSet(addItemToPlaylist, {
+    mode: "promiseExit",
+  });
+  const createPlaylistMutation = useAtomSet(createPlaylistWithItem, {
+    mode: "promiseExit",
   });
 
-  const createMutation = api.plex.createPlaylistWithItem.useMutation({
-    onSuccess: (result) => {
-      void invalidatePlaylists();
-      onFeedback(`Created playlist "${result.title}"`);
-      setNewTitle("");
-      onOpenChange(false);
-    },
-    onError: (error) => onFeedback(error.message),
-  });
-
-  const isBusy = addMutation.isPending || createMutation.isPending;
-  const pendingPlaylistKey = addMutation.isPending
-    ? addMutation.variables?.playlistRatingKey
-    : undefined;
+  const isBusy = pendingPlaylistKey !== null || isCreating;
+  const playlistWriteKeys = itemPlaylistsWriteKeysFor(serverId, playlistType);
 
   const addToPlaylist = (playlistRatingKey: string, playlistTitle: string) => {
     if (isBusy) {
       return;
     }
 
-    addMutation.mutate({
-      serverId,
-      serverUrl,
-      authToken,
-      playlistRatingKey,
-      playlistTitle,
-      ratingKey: item.ratingKey,
-      key: item.key,
-    });
+    setPendingPlaylistKey(playlistRatingKey);
+    void (async () => {
+      const exit = await addToPlaylistMutation({
+        payload: {
+          serverId,
+          serverUrl,
+          authToken,
+          playlistRatingKey,
+          playlistTitle,
+          ratingKey: item.ratingKey,
+          key: item.key,
+        },
+        reactivityKeys: playlistWriteKeys,
+      });
+      if (Exit.isFailure(exit)) {
+        onFeedback(getExitErrorMessage(exit, "Failed to add to playlist"));
+        setPendingPlaylistKey(null);
+        return;
+      }
+      onFeedback(`Added to ${playlistTitle}`);
+      onOpenChange(false);
+      setPendingPlaylistKey(null);
+    })();
   };
 
   const createPlaylist = () => {
@@ -99,18 +114,32 @@ export function AddToPlaylistDialog({
       return;
     }
 
-    createMutation.mutate({
-      serverId,
-      serverUrl,
-      authToken,
-      title,
-      type: playlistType,
-      ratingKey: item.ratingKey,
-      key: item.key,
-    });
+    setIsCreating(true);
+    void (async () => {
+      const exit = await createPlaylistMutation({
+        payload: {
+          serverId,
+          serverUrl,
+          authToken,
+          title,
+          type: playlistType,
+          ratingKey: item.ratingKey,
+          key: item.key,
+        },
+        reactivityKeys: playlistWriteKeys,
+      });
+      if (Exit.isFailure(exit)) {
+        onFeedback(getExitErrorMessage(exit, "Failed to create playlist"));
+        setIsCreating(false);
+        return;
+      }
+      const result = asCreatePlaylistResult(exit.value);
+      onFeedback(`Created playlist "${result.title}"`);
+      setNewTitle("");
+      onOpenChange(false);
+      setIsCreating(false);
+    })();
   };
-
-  const playlists = playlistsQuery.data ?? [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -139,7 +168,7 @@ export function AddToPlaylistDialog({
               disabled={isBusy}
             />
             <Button type="submit" disabled={!newTitle.trim() || isBusy}>
-              {createMutation.isPending ? (
+              {isCreating ? (
                 <Loader2 className="animate-spin" />
               ) : (
                 <Plus data-icon="inline-start" />
@@ -149,11 +178,11 @@ export function AddToPlaylistDialog({
           </form>
 
           <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
-            {playlistsQuery.isPending ? (
+            {isPlaylistsPending ? (
               <PlaylistStatus>
                 <Loader2 className="size-4 animate-spin" /> Loading playlists…
               </PlaylistStatus>
-            ) : playlistsQuery.isError ? (
+            ) : isPlaylistsError ? (
               <PlaylistStatus>Could not load playlists.</PlaylistStatus>
             ) : playlists.length === 0 ? (
               <PlaylistStatus>
@@ -198,4 +227,21 @@ function PlaylistStatus({ children }: { children: ReactNode }) {
       {children}
     </div>
   );
+}
+
+function getExitErrorMessage(
+  exit: Exit.Exit<unknown, unknown>,
+  fallback: string,
+): string {
+  const error = Exit.findErrorOption(exit);
+  if (
+    Option.isSome(error) &&
+    error.value !== null &&
+    typeof error.value === "object" &&
+    "message" in error.value &&
+    typeof (error.value as { message: unknown }).message === "string"
+  ) {
+    return (error.value as { message: string }).message;
+  }
+  return fallback;
 }

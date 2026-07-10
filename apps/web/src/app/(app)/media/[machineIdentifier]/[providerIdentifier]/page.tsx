@@ -21,7 +21,14 @@ import {
 import { LIBRARY_PAGE_SIZE } from "~/server/queries/plex-pagination";
 import { getAppPlexContext } from "~/server/queries/get-app-plex-context";
 import { resolveLibraryTitle } from "~/server/queries/resolve-library-title";
-import { api, HydrateClient } from "~/trpc/server";
+import {
+  getLibraryCategories,
+  getLibraryCollections,
+  getLibraryContent,
+  getLibraryMeta,
+  getLibraryPivots,
+  getLibraryPlaylists,
+} from "~/server/plex-rsc";
 
 interface PageProps {
   params: Promise<{
@@ -75,11 +82,10 @@ export default async function MediaLibraryPage({
     );
   }
 
-  const { title: librarySectionTitle, pivots } =
-    await api.plex.getLibraryPivots({
-      machineIdentifier,
-      sectionId: source,
-    });
+  const { title: librarySectionTitle, pivots } = await getLibraryPivots({
+    machineIdentifier,
+    sectionId: source,
+  });
   const supportedPivots = pivots.filter((pivot) =>
     SUPPORTED_PIVOT_IDS.includes(pivot.id),
   );
@@ -135,7 +141,7 @@ async function LibraryPivotContent(props: PivotContentProps) {
       return renderLibraryTab(props);
 
     case "collections": {
-      const collections = await api.plex.getLibraryCollections({
+      const collections = await getLibraryCollections({
         machineIdentifier,
         sectionId,
         start: 0,
@@ -152,7 +158,7 @@ async function LibraryPivotContent(props: PivotContentProps) {
     }
 
     case "playlists": {
-      const playlists = await api.plex.getLibraryPlaylists({
+      const playlists = await getLibraryPlaylists({
         machineIdentifier,
         sectionId,
         start: 0,
@@ -169,7 +175,7 @@ async function LibraryPivotContent(props: PivotContentProps) {
     }
 
     case "categories": {
-      const { categories } = await api.plex.getLibraryCategories({
+      const { categories } = await getLibraryCategories({
         machineIdentifier,
         sectionId,
       });
@@ -183,19 +189,12 @@ async function LibraryPivotContent(props: PivotContentProps) {
     }
 
     case "recommended": {
-      await Promise.allSettled([
-        api.plex.getLibraryHubs.prefetch({
-          machineIdentifier,
-          sectionId,
-        }),
-      ]);
+      // Prefetch dropped — `libraryHubsAtom` fetches on the client.
       return (
-        <HydrateClient>
-          <LibraryRecommended
-            machineIdentifier={machineIdentifier}
-            sectionId={sectionId}
-          />
-        </HydrateClient>
+        <LibraryRecommended
+          machineIdentifier={machineIdentifier}
+          sectionId={sectionId}
+        />
       );
     }
 
@@ -215,7 +214,7 @@ async function renderLibraryTab({
   const requestedSort = firstParam(searchParams.sort);
   const filters = extractLibraryFilters(searchParams);
 
-  const meta = await api.plex.getLibraryMeta({
+  const meta = await getLibraryMeta({
     machineIdentifier,
     sectionId,
     type: requestedType,
@@ -223,7 +222,7 @@ async function renderLibraryTab({
   const { type, typeNumber } = resolveActiveType(meta, requestedType);
   const sort = resolveSort(type, requestedSort);
 
-  const libraryContent = await api.plex.getLibraryContent({
+  const libraryContent = await getLibraryContent({
     machineIdentifier,
     sectionId,
     start: 0,

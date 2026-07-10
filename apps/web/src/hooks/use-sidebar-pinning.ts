@@ -6,7 +6,18 @@ import {
   type PlexUserInfo,
   toPinnedSource,
 } from "@multiplex/plex-query";
-import { api } from "~/trpc/react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
+
+import { asUserInfo } from "~/lib/effect/plex-boundary";
+import {
+  togglePinnedSource,
+  togglePinnedSourceOptimistic,
+  userInfoOptimisticAtom,
+} from "~/lib/effect/plex-browse-atoms";
+import { pinnedSourceWriteKeys } from "~/lib/effect/reactivity-keys";
 
 function applyPinnedSourceUpdate(
   userInfo: PlexUserInfo,
@@ -33,49 +44,71 @@ function applyPinnedSourceUpdate(
   };
 }
 
+/**
+ * Sidebar pin/unpin.
+ *
+ * Once `userInfoOptimisticAtom` has a settled value, reads and writes go
+ * through the shared optimistic family (instant pin/unpin + automatic
+ * rollback). Until then the atom's reducer is a no-op on `Initial`, so we
+ * mirror the former local-override semantics against the RSC `userInfo` prop.
+ */
 export function useSidebarPinning(userInfo: PlexUserInfo) {
+  const optimisticResult = useAtomValue(userInfoOptimisticAtom);
+  const togglePinnedOptimistic = useAtomSet(togglePinnedSourceOptimistic, {
+    mode: "promiseExit",
+  });
+  const togglePinnedPlain = useAtomSet(togglePinnedSource, {
+    mode: "promiseExit",
+  });
   const [userInfoOverride, setUserInfoOverride] = useState<PlexUserInfo | null>(
     null,
   );
-  const utils = api.useUtils();
-  const currentUserInfo = userInfoOverride ?? userInfo;
+  const [pendingSourceIdentity, setPendingSourceIdentity] = useState<
+    string | null
+  >(null);
 
-  const togglePinnedSourceMutation = api.plex.togglePinnedSource.useMutation({
-    onMutate: (variables) => {
-      const previousUserInfo = userInfoOverride;
-
-      setUserInfoOverride(
-        applyPinnedSourceUpdate(
-          currentUserInfo,
-          variables.source,
-          variables.action,
-        ),
-      );
-
-      return { previousUserInfo };
-    },
-    onError: (_error, _variables, context) => {
-      setUserInfoOverride(context?.previousUserInfo ?? null);
-    },
-    onSuccess: async (updatedUserInfo) => {
-      setUserInfoOverride(updatedUserInfo);
-      await utils.plex.getAllContinueWatching.invalidate();
-    },
-  });
-
-  const pendingSourceIdentity =
-    togglePinnedSourceMutation.isPending && togglePinnedSourceMutation.variables
-      ? getPinnedSourceIdentity(togglePinnedSourceMutation.variables.source)
-      : null;
+  const atomUserInfo = Option.getOrUndefined(
+    Option.map(AsyncResult.value(optimisticResult), asUserInfo),
+  );
+  // Prefer the optimistic atom once settled; until then use local override /
+  // RSC prop (override is ignored once the atom owns the value).
+  const currentUserInfo = atomUserInfo ?? userInfoOverride ?? userInfo;
 
   function handleTogglePinnedSource(
     source: PinnedSource,
     action: "pin" | "unpin",
   ) {
-    togglePinnedSourceMutation.mutate({
-      action,
-      source: toPinnedSource(source),
-    });
+    const pinnedSource = toPinnedSource(source);
+    setPendingSourceIdentity(getPinnedSourceIdentity(pinnedSource));
+
+    void (async () => {
+      if (atomUserInfo !== undefined) {
+        const exit = await togglePinnedOptimistic({
+          payload: { action, source: pinnedSource },
+          reactivityKeys: [...pinnedSourceWriteKeys],
+        });
+        setPendingSourceIdentity(null);
+        if (Exit.isFailure(exit)) {
+          return;
+        }
+        return;
+      }
+
+      // Atom still Initial — local override mirrors former onMutate/onError.
+      const previousOverride = userInfoOverride;
+      setUserInfoOverride(
+        applyPinnedSourceUpdate(currentUserInfo, pinnedSource, action),
+      );
+      const exit = await togglePinnedPlain({
+        payload: { action, source: pinnedSource },
+        reactivityKeys: [...pinnedSourceWriteKeys],
+      });
+      setPendingSourceIdentity(null);
+      if (Exit.isFailure(exit)) {
+        setUserInfoOverride(previousOverride);
+        return;
+      }
+    })();
   }
 
   return {

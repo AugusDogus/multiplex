@@ -1,5 +1,7 @@
 "use client";
 
+import { useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { ArrowDown, ArrowUp, ChevronDown } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
@@ -15,10 +17,12 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
+import { isAsyncResultLoading } from "~/lib/effect/async-result";
+import { libraryFilterValuesAtom } from "~/lib/effect/plex-browse-atoms";
+import type { LibraryFilterValuesResult } from "~/lib/effect/plex-boundary";
 import { getTypeNumber } from "~/lib/library-browse-params";
 import { POSTER_GRID_INSET_CLASSNAME } from "~/lib/poster-grid-layout";
 import { cn } from "~/lib/utils";
-import { api } from "~/trpc/react";
 
 interface LibraryControlsProps {
   machineIdentifier: string;
@@ -253,24 +257,29 @@ function FilterSubmenu({
   prefetch,
   onSelectValue,
 }: FilterSubmenuProps) {
-  const { data: values, isLoading } = api.plex.getLibraryFilterValues.useQuery(
-    { machineIdentifier, filterPath: filter.key },
-    {
+  const valuesResult = useAtomValue(
+    libraryFilterValuesAtom({
+      machineIdentifier,
+      filterPath: filter.key,
       enabled: prefetch,
-      staleTime: 5 * 60 * 1000,
-      refetchOnWindowFocus: false,
-    },
+    }),
   );
+  const values = AsyncResult.getOrElse(
+    valuesResult,
+    (): LibraryFilterValuesResult => [],
+  );
+  // Match TanStack `enabled: false` — disabled queries are not "loading".
+  const isLoading = prefetch && isAsyncResultLoading(valuesResult);
 
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>{filter.title}</DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="max-h-[60vh] overflow-y-auto">
         {isLoading && <DropdownMenuItem disabled>Loading…</DropdownMenuItem>}
-        {!isLoading && (values?.length ?? 0) === 0 && (
+        {!isLoading && values.length === 0 && (
           <DropdownMenuItem disabled>No options</DropdownMenuItem>
         )}
-        {values?.map((value) => (
+        {values.map((value) => (
           <DropdownMenuCheckboxItem
             key={value.key}
             checked={activeValue === value.key}

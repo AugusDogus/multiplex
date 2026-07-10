@@ -2,7 +2,6 @@ import { notFound } from "next/navigation";
 
 import { MediaItemDetailsPageClient } from "~/components/media-item-details-page-client";
 import type { ItemDetailsRouteType } from "~/lib/plex-routes";
-import { api, HydrateClient } from "~/trpc/server";
 
 interface MediaItemDetailsRouteProps {
   params: Promise<{
@@ -22,18 +21,12 @@ export async function MediaItemDetailsRoute({
     notFound();
   }
 
-  void api.plex.getItemDetails.prefetch({
-    serverId: machineIdentifier,
-    ratingKey,
-  });
-
+  // Prefetch was tRPC/React Query only; the client atom owns the read now.
   return (
-    <HydrateClient>
-      <MediaItemDetailsPageClient
-        serverId={machineIdentifier}
-        ratingKey={ratingKey}
-        itemType={itemType}
-      />
-    </HydrateClient>
+    <MediaItemDetailsPageClient
+      serverId={machineIdentifier}
+      ratingKey={ratingKey}
+      itemType={itemType}
+    />
   );
 }

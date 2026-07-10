@@ -1,14 +1,18 @@
 "use client";
 
+import { useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import * as Option from "effect/Option";
+
 import { AppHeader } from "~/components/app-header";
 import { MediaItemDetails } from "~/components/media-item-details";
 import { MediaItemDetailsSkeleton } from "~/components/media-item-details/media-item-details-skeleton";
+import { isAsyncResultLoading } from "~/lib/effect/async-result";
+import { itemDetailsAtom } from "~/lib/effect/plex-atoms";
 import {
   getItemDetailsBreadcrumbs,
   type ItemDetailsRouteType,
 } from "~/lib/plex-routes";
-import { PLEX_DETAILS_QUERY_OPTIONS } from "~/lib/plex-details-query-options";
-import { api } from "~/trpc/react";
 
 interface MediaItemDetailsPageClientProps {
   serverId: string;
@@ -21,17 +25,13 @@ export function MediaItemDetailsPageClient({
   ratingKey,
   itemType,
 }: MediaItemDetailsPageClientProps) {
-  const {
-    data: details,
-    error,
-    isPending,
-    isFetching,
-  } = api.plex.getItemDetails.useQuery(
-    { serverId, ratingKey },
-    PLEX_DETAILS_QUERY_OPTIONS,
-  );
+  const detailsResult = useAtomValue(itemDetailsAtom({ serverId, ratingKey }));
+  const details =
+    Option.getOrUndefined(AsyncResult.value(detailsResult)) ?? undefined;
+  const isPending = isAsyncResultLoading(detailsResult);
+  const isError = AsyncResult.isFailure(detailsResult);
 
-  if ((isPending || isFetching) && !details) {
+  if (isPending && !details) {
     return (
       <>
         <AppHeader />
@@ -42,7 +42,7 @@ export function MediaItemDetailsPageClient({
     );
   }
 
-  if (error || !details) {
+  if (isError || !details) {
     return (
       <>
         <AppHeader>Details unavailable</AppHeader>

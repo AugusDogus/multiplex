@@ -3,7 +3,6 @@ import { Suspense } from "react";
 import { AppHeader } from "~/components/app-header";
 import { AppPageContent } from "~/components/app-page-content";
 import { WatchTogetherLobby } from "~/components/watch-together/watch-together-lobby";
-import { api, HydrateClient } from "~/trpc/server";
 
 interface PageProps {
   params: Promise<{
@@ -33,11 +32,5 @@ export default function WatchTogetherPage({ params }: PageProps) {
 async function WatchTogetherRoom({ params }: PageProps) {
   const { roomId } = await params;
 
-  await api.plex.getWatchTogetherRoom.prefetch({ roomId });
-
-  return (
-    <HydrateClient>
-      <WatchTogetherLobby roomId={roomId} />
-    </HydrateClient>
-  );
+  return <WatchTogetherLobby roomId={roomId} />;
 }

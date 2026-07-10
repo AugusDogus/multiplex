@@ -1,19 +1,15 @@
 "use client";
 
 import { useCallback } from "react";
-import type { HubItemWithServer } from "@multiplex/plex-query";
 import { MediaPosterGrid } from "~/components/media-poster-grid";
+import { fetchHubContentPage } from "~/lib/effect/plex-browse-atoms";
+import type { HubContentPage } from "~/lib/effect/plex-boundary";
 import { HUB_PAGE_SIZE } from "~/server/queries/plex-pagination";
-import { api } from "~/trpc/react";
 
 interface HubPageContentProps {
   machineIdentifier: string;
   hubKey: string;
-  initialContent: {
-    items: HubItemWithServer[];
-    totalSize: number;
-    offset: number;
-  };
+  initialContent: HubContentPage;
 }
 
 export function HubPageContent({
@@ -21,20 +17,18 @@ export function HubPageContent({
   hubKey,
   initialContent,
 }: HubPageContentProps) {
-  const utils = api.useUtils();
-
-  // Plain client call (not `utils.fetch`): the grid caches pages under its
-  // own query key, so going through the query cache here would store every
+  // Imperative HttpApi fetch (not the page atom): the grid caches pages under
+  // its own key, so going through the atom registry here would store every
   // page twice.
   const onLoadPage = useCallback(
     (input: { start: number; size: number }) =>
-      utils.client.plex.getHubContent.query({
+      fetchHubContentPage({
         machineIdentifier,
         hubKey,
         start: input.start,
         size: input.size,
       }),
-    [utils, machineIdentifier, hubKey],
+    [machineIdentifier, hubKey],
   );
 
   const contentKey = `${machineIdentifier}-${hubKey}`;

@@ -1,18 +1,22 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useContext } from "react";
+import { RegistryContext } from "@effect/atom-react";
 import {
   isPlayablePosterItemType,
   toPlayableMetadata,
   type HubItemWithServer,
   type ItemMetadata,
 } from "@multiplex/plex-query";
+import { Effect } from "effect";
+import * as AtomRegistry from "effect/unstable/reactivity/AtomRegistry";
+
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { playerCommands } from "~/lib/effect/player-atoms";
-import { api } from "~/trpc/react";
+import { itemDetailsAtom } from "~/lib/effect/plex-atoms";
 
 export function useHubItemPlayback(item: HubItemWithServer | undefined) {
-  const utils = api.useUtils();
+  const registry = useContext(RegistryContext);
 
   const canPlay = Boolean(
     item &&
@@ -40,17 +44,26 @@ export function useHubItemPlayback(item: HubItemWithServer | undefined) {
       return;
     }
 
-    const details = await utils.client.plex.getItemDetails.query({
+    const detailsAtom = itemDetailsAtom({
       serverId: item.serverId,
       ratingKey: item.ratingKey,
     });
-
-    if (details?.playTarget) {
-      playerCommands.openPlayer(
-        createMediaPlayerItem(details.playTarget, playback),
+    const unmount = registry.mount(detailsAtom);
+    try {
+      const details = await Effect.runPromise(
+        AtomRegistry.getResult(registry, detailsAtom, {
+          suspendOnWaiting: true,
+        }),
       );
+      if (details?.playTarget) {
+        playerCommands.openPlayer(
+          createMediaPlayerItem(details.playTarget, playback),
+        );
+      }
+    } finally {
+      unmount();
     }
-  }, [item, utils]);
+  }, [item, registry]);
 
   return { canPlay, play };
 }

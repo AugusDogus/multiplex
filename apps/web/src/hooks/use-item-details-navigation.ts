@@ -1,10 +1,11 @@
 "use client";
 
+import { useContext } from "react";
 import { useRouter } from "next/navigation";
+import { RegistryContext } from "@effect/atom-react";
 
-import { PLEX_DETAILS_QUERY_OPTIONS } from "~/lib/plex-details-query-options";
+import { itemDetailsAtom } from "~/lib/effect/plex-atoms";
 import { getItemDetailsHref } from "~/lib/plex-routes";
-import { api } from "~/trpc/react";
 
 export interface ItemDetailsNavigationTarget {
   serverId: string;
@@ -14,19 +15,21 @@ export interface ItemDetailsNavigationTarget {
 
 export function useItemDetailsNavigation() {
   const router = useRouter();
-  const utils = api.useUtils();
+  const registry = useContext(RegistryContext);
 
   const getHref = (target: ItemDetailsNavigationTarget) =>
     getItemDetailsHref(target.serverId, target.type, target.ratingKey);
 
   const prefetch = (target: ItemDetailsNavigationTarget) => {
-    void utils.plex.getItemDetails.prefetch(
-      {
-        serverId: target.serverId,
-        ratingKey: target.ratingKey,
-      },
-      PLEX_DETAILS_QUERY_OPTIONS,
-    );
+    // Mount briefly so AtomHttpApi starts the fetch into the shared registry;
+    // idle TTL keeps the result warm for the subsequent details navigation.
+    const atom = itemDetailsAtom({
+      serverId: target.serverId,
+      ratingKey: target.ratingKey,
+    });
+    const unmount = registry.mount(atom);
+    // Keep the subscription long enough for the request to settle / cache.
+    window.setTimeout(unmount, 30_000);
   };
 
   const navigate = (target: ItemDetailsNavigationTarget) => {

@@ -1,20 +1,18 @@
 "use client";
 
+import { useAtomValue } from "@effect/atom-react";
+import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+
 import { MediaHubRow, MediaHubRowSkeleton } from "~/components/media-hub-row";
-import {
-  isHubQueryLoading,
-  PLEX_HUB_QUERY_OPTIONS,
-} from "~/lib/plex-hub-query-options";
-import { api } from "~/trpc/react";
+import { isAsyncResultLoading } from "~/lib/effect/async-result";
+import type { HomeHubsResult } from "~/lib/effect/plex-boundary";
+import { homeHubsAtom } from "~/lib/effect/plex-browse-atoms";
 
 export function HomeHubs() {
-  const {
-    data: hubs = [],
-    isPending,
-    isFetching,
-  } = api.plex.getHomeHubs.useQuery(undefined, PLEX_HUB_QUERY_OPTIONS);
+  const hubsResult = useAtomValue(homeHubsAtom);
+  const hubs = AsyncResult.getOrElse(hubsResult, (): HomeHubsResult => []);
 
-  if (isHubQueryLoading(isPending, isFetching, hubs.length)) {
+  if (isAsyncResultLoading(hubsResult)) {
     return (
       <>
         <MediaHubRowSkeleton />

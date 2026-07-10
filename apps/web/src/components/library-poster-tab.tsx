@@ -1,10 +1,13 @@
 "use client";
 
 import { useCallback } from "react";
-import type { HubItemWithServer } from "@multiplex/plex-query";
 import { MediaPosterGrid } from "~/components/media-poster-grid";
+import {
+  fetchLibraryCollectionsPage,
+  fetchLibraryPlaylistsPage,
+} from "~/lib/effect/plex-browse-atoms";
+import type { LibraryContentPage } from "~/lib/effect/plex-boundary";
 import { LIBRARY_PAGE_SIZE } from "~/server/queries/plex-pagination";
-import { api } from "~/trpc/react";
 
 type PosterTabKind = "collections" | "playlists";
 
@@ -17,16 +20,12 @@ interface LibraryPosterTabProps {
   kind: PosterTabKind;
   machineIdentifier: string;
   sectionId: string;
-  initialContent: {
-    items: HubItemWithServer[];
-    totalSize: number;
-    offset: number;
-  };
+  initialContent: LibraryContentPage;
 }
 
 /**
  * Paginated poster grid for the Collections and Playlists tabs, which share an
- * identical shape and differ only in which tRPC procedure loads further pages.
+ * identical shape and differ only in which page helper loads further pages.
  */
 export function LibraryPosterTab({
   kind,
@@ -34,22 +33,20 @@ export function LibraryPosterTab({
   sectionId,
   initialContent,
 }: LibraryPosterTabProps) {
-  const utils = api.useUtils();
-
   const onLoadPage = useCallback(
     (input: { start: number; size: number }) => {
-      const procedure =
+      const fetchPage =
         kind === "collections"
-          ? utils.client.plex.getLibraryCollections
-          : utils.client.plex.getLibraryPlaylists;
-      return procedure.query({
+          ? fetchLibraryCollectionsPage
+          : fetchLibraryPlaylistsPage;
+      return fetchPage({
         machineIdentifier,
         sectionId,
         start: input.start,
         size: input.size,
       });
     },
-    [utils, kind, machineIdentifier, sectionId],
+    [kind, machineIdentifier, sectionId],
   );
 
   const contentKey = `${machineIdentifier}-${sectionId}-${kind}`;

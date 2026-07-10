@@ -2,6 +2,9 @@
 
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
+import { useAtomSet } from "@effect/atom-react";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 import { Check, Loader2, MoreHorizontal, Play, Share2 } from "lucide-react";
 import {
   formatDetailsTimeRemaining,
@@ -25,7 +28,15 @@ import {
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
 import { playerCommands, usePlayerState } from "~/lib/effect/player-atoms";
-import { api } from "~/trpc/react";
+import { asPlayQueue } from "~/lib/effect/plex-boundary";
+import {
+  setItemWatchedState,
+  updatePlayQueue,
+} from "~/lib/effect/plex-browse-atoms";
+import {
+  playQueueWriteKeysFor,
+  watchedStateWriteKeysFor,
+} from "~/lib/effect/reactivity-keys";
 
 import { AddToPlaylistDialog } from "./add-to-playlist-dialog";
 import { MediaInfoDialog } from "./media-info-dialog";
@@ -283,7 +294,6 @@ function HeroActions({
   authToken,
   playButtonClassName,
 }: HeroActionsProps) {
-  const utils = api.useUtils();
   const { currentItem: currentPlayerItem, playQueueId } = usePlayerState();
   const itemWatched = getItemWatchedState(item);
   const [confirmedWatchedOverride, setConfirmedWatchedOverride] = useState<{
@@ -295,6 +305,8 @@ function HeroActions({
   const [mediaInfoOpen, setMediaInfoOpen] = useState(false);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [watchTogetherOpen, setWatchTogetherOpen] = useState(false);
+  const [isWatchedPending, setIsWatchedPending] = useState(false);
+  const [isQueuePending, setIsQueuePending] = useState(false);
   const shareResetTimeoutRef = useRef<number | null>(null);
   const hasMediaInfo = Boolean(item.Media?.length);
   const canAddToPlaylist = Boolean(serverUrl && authToken);
@@ -316,6 +328,13 @@ function HeroActions({
       currentPlayerItem?.serverId === serverId,
   );
 
+  const setWatchedState = useAtomSet(setItemWatchedState, {
+    mode: "promiseExit",
+  });
+  const updateActivePlayQueue = useAtomSet(updatePlayQueue, {
+    mode: "promiseExit",
+  });
+
   useEffect(() => {
     return () => {
       if (shareResetTimeoutRef.current) {
@@ -324,91 +343,87 @@ function HeroActions({
     };
   }, []);
 
-  const setWatchedStateMutation = api.plex.setItemWatchedState.useMutation({
-    onError: (error) => {
-      setFeedbackMessage(error.message);
-    },
-    onSuccess: (_updatedItem, variables) => {
-      setConfirmedWatchedOverride({
-        ratingKey: variables.ratingKey,
-        watched: variables.watched,
-      });
-      setFeedbackMessage(
-        variables.watched ? "Marked as watched" : "Marked as unwatched",
-      );
-      void Promise.all([
-        utils.plex.getItemDetails.invalidate({
-          serverId,
-          ratingKey: variables.ratingKey,
-        }),
-        utils.plex.getItemMetadata.invalidate({
-          serverId,
-          ratingKey: variables.ratingKey,
-        }),
-        utils.plex.getAllContinueWatching.invalidate(),
-      ]).catch(() => undefined);
-    },
-  });
-
-  const updatePlayQueueMutation = api.plex.updatePlayQueue.useMutation({
-    onSuccess: (playQueue, variables) => {
-      playerCommands.updatePlaybackState({
-        playQueue,
-        playQueueId: playQueue.MediaContainer.playQueueID.toString(),
-      });
-      setFeedbackMessage(variables.next ? "Will play next" : "Added to queue");
-    },
-    onError: (error) => {
-      setFeedbackMessage(error.message);
-    },
-  });
-
-  const watchedButtonLabel = setWatchedStateMutation.isPending
+  const watchedButtonLabel = isWatchedPending
     ? watchedPendingLabel
     : watchedActionLabel;
   const queueActionDisabledReason = getQueueActionDisabledReason(
     canUpdateActiveQueue,
-    updatePlayQueueMutation.isPending,
+    isQueuePending,
   );
   const shareButtonLabel = shareCopied ? "Copied" : "Share";
   const shareActionLabel = shareCopied ? "Link copied" : "Copy share link";
 
   const toggleWatchedState = () => {
-    if (setWatchedStateMutation.isPending) {
+    if (isWatchedPending) {
       return;
     }
 
+    const nextWatched = !visibleWatched;
+    setIsWatchedPending(true);
     setFeedbackMessage(watchedPendingLabel);
-    setWatchedStateMutation.mutate({
-      serverId,
-      ratingKey: item.ratingKey,
-      watched: !visibleWatched,
-      serverUrl,
-      authToken,
-    });
+    void (async () => {
+      const exit = await setWatchedState({
+        payload: {
+          serverId,
+          ratingKey: item.ratingKey,
+          watched: nextWatched,
+          ...(serverUrl !== undefined ? { serverUrl } : {}),
+          ...(authToken !== undefined ? { authToken } : {}),
+        },
+        reactivityKeys: watchedStateWriteKeysFor(serverId, item.ratingKey),
+      });
+      if (Exit.isFailure(exit)) {
+        setFeedbackMessage(
+          getExitErrorMessage(exit, "Failed to update watched state"),
+        );
+        setIsWatchedPending(false);
+        return;
+      }
+      setConfirmedWatchedOverride({
+        ratingKey: item.ratingKey,
+        watched: nextWatched,
+      });
+      setFeedbackMessage(
+        nextWatched ? "Marked as watched" : "Marked as unwatched",
+      );
+      setIsWatchedPending(false);
+    })();
   };
 
   const updateActiveQueue = (next: boolean) => {
-    if (
-      !serverUrl ||
-      !authToken ||
-      !playQueueId ||
-      updatePlayQueueMutation.isPending
-    ) {
+    if (!serverUrl || !authToken || !playQueueId || isQueuePending) {
       return;
     }
 
+    setIsQueuePending(true);
     setFeedbackMessage(next ? "Adding to Play Next..." : "Adding to queue...");
-    updatePlayQueueMutation.mutate({
-      serverId,
-      serverUrl,
-      authToken,
-      playQueueId,
-      ratingKey: item.ratingKey,
-      key: item.key,
-      type: "video",
-      next,
-    });
+    void (async () => {
+      const exit = await updateActivePlayQueue({
+        payload: {
+          serverId,
+          serverUrl,
+          authToken,
+          playQueueId,
+          ratingKey: item.ratingKey,
+          key: item.key,
+          type: "video",
+          next,
+        },
+        reactivityKeys: playQueueWriteKeysFor(playQueueId),
+      });
+      if (Exit.isFailure(exit)) {
+        setFeedbackMessage(getExitErrorMessage(exit, "Failed to update queue"));
+        setIsQueuePending(false);
+        return;
+      }
+      const playQueue = asPlayQueue(exit.value);
+      playerCommands.updatePlaybackState({
+        playQueue,
+        playQueueId: playQueue.MediaContainer.playQueueID.toString(),
+      });
+      setFeedbackMessage(next ? "Will play next" : "Added to queue");
+      setIsQueuePending(false);
+    })();
   };
 
   const copyShareLink = () => {
@@ -458,12 +473,12 @@ function HeroActions({
         variant={visibleWatched ? "secondary" : "outline"}
         size="icon"
         aria-label={watchedButtonLabel}
-        aria-busy={setWatchedStateMutation.isPending || undefined}
+        aria-busy={isWatchedPending || undefined}
         title={watchedButtonLabel}
         onClick={toggleWatchedState}
-        disabled={setWatchedStateMutation.isPending}
+        disabled={isWatchedPending}
       >
-        {setWatchedStateMutation.isPending ? (
+        {isWatchedPending ? (
           <Loader2 className="animate-spin" />
         ) : (
           <Check className={visibleWatched ? "text-primary" : undefined} />
@@ -647,4 +662,21 @@ function getQueueActionDisabledReason(
 
 function getDisabledMenuItemLabel(label: string, reason: string): string {
   return label.endsWith(".") ? `${label} ${reason}` : `${label}. ${reason}`;
+}
+
+function getExitErrorMessage(
+  exit: Exit.Exit<unknown, unknown>,
+  fallback: string,
+): string {
+  const error = Exit.findErrorOption(exit);
+  if (
+    Option.isSome(error) &&
+    error.value !== null &&
+    typeof error.value === "object" &&
+    "message" in error.value &&
+    typeof (error.value as { message: unknown }).message === "string"
+  ) {
+    return (error.value as { message: string }).message;
+  }
+  return fallback;
 }
