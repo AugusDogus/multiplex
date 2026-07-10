@@ -5,7 +5,9 @@ import drizzle from "eslint-plugin-drizzle";
 
 export default tseslint.config(
   {
-    ignores: [".next"],
+    // Build output and Playwright artifacts (minified report assets otherwise
+    // dominate lint time and fail parsing).
+    ignores: [".next", "playwright-report", "test-results", "e2e/.auth"],
   },
   ...nextCoreWebVitals,
   {

@@ -114,9 +114,16 @@ async function playbackPosition(page: Page): Promise<number> {
     .catch(() => 0);
 }
 
-/** The rating key of the episode the player is currently streaming. */
-async function playingRatingKey(page: Page): Promise<string | null> {
-  return page
+/**
+ * Identifies the episode the player is currently on. Transcoded streams carry
+ * the rating key in the URL (`path=/library/metadata/{id}`); direct-play URLs
+ * (`/library/parts/{partId}/...`) don't, so also read the player dialog's
+ * accessible title ("Media Player - {episode title}") as a fallback signal.
+ */
+async function playingEpisode(
+  page: Page,
+): Promise<{ ratingKey: string | null; title: string | null }> {
+  const ratingKey = await page
     .locator("video")
     .evaluate((el: HTMLVideoElement) => {
       const match = /\/library\/metadata\/(\d+)/.exec(
@@ -125,6 +132,18 @@ async function playingRatingKey(page: Page): Promise<string | null> {
       return match?.[1] ?? null;
     })
     .catch(() => null);
+  const title = await page
+    .evaluate(() => {
+      for (const heading of document.querySelectorAll("h2")) {
+        const text = heading.textContent ?? "";
+        if (text.startsWith("Media Player - ")) {
+          return text.slice("Media Player - ".length);
+        }
+      }
+      return null;
+    })
+    .catch(() => null);
+  return { ratingKey, title };
 }
 
 test("a session auto-advances both viewers to the next episode without leaving the player", async ({
@@ -191,10 +210,17 @@ test("a session auto-advances both viewers to the next episode without leaving t
     // modal must never close (no lobby flash): the <video> stays mounted.
     console.error("E2E step: waiting for auto-advance on both viewers");
     const swapDeadline = Date.now() + 180_000;
+    const onNextEpisode = (episodeInfo: {
+      ratingKey: string | null;
+      title: string | null;
+    }) =>
+      episodeInfo.ratingKey === episode!.next.ratingKey ||
+      (episodeInfo.ratingKey === null &&
+        episodeInfo.title === episode!.next.title);
     for (;;) {
-      const [hostKey, guestKey] = await Promise.all([
-        playingRatingKey(host),
-        playingRatingKey(guest),
+      const [hostEpisode, guestEpisode] = await Promise.all([
+        playingEpisode(host),
+        playingEpisode(guest),
       ]);
       await Promise.all(
         [[host, "host"] as const, [guest, "guest"] as const].map(
@@ -206,15 +232,12 @@ test("a session auto-advances both viewers to the next episode without leaving t
           },
         ),
       );
-      if (
-        hostKey === episode!.next.ratingKey &&
-        guestKey === episode!.next.ratingKey
-      ) {
+      if (onNextEpisode(hostEpisode) && onNextEpisode(guestEpisode)) {
         break;
       }
       if (Date.now() > swapDeadline) {
         throw new Error(
-          `auto-advance never happened (host=${hostKey}, guest=${guestKey}, expected=${episode!.next.ratingKey})`,
+          `auto-advance never happened (host=${JSON.stringify(hostEpisode)}, guest=${JSON.stringify(guestEpisode)}, expected=${episode!.next.ratingKey} "${episode!.next.title}")`,
         );
       }
       await host.waitForTimeout(2_500);
