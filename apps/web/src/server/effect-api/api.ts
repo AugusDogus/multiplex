@@ -327,8 +327,7 @@ const LiveTvApi = HttpApiGroup.make("liveTv")
   .middleware(PlexAuthMiddleware);
 
 /**
- * Plex domain HttpApi — additive mirror of the tRPC `plex` router.
- * Mounted at `/api/effect` beside tRPC; clients are unchanged until P5-2.
+ * Plex domain HttpApi — mounted at `/api/effect`.
  */
 export const PlexApi = HttpApi.make("plex")
   .add(WatchTogetherApi)
@@ -341,6 +340,6 @@ export const PlexApi = HttpApi.make("plex")
     OpenApi.annotations({
       title: "Multiplex Plex API",
       description:
-        "Effect HttpApi surface mirroring the plex tRPC router (additive migration).",
+        "Effect HttpApi surface for Plex account, library, playback, and Watch Together.",
     }),
   );

@@ -1,27 +1,24 @@
 # API Development Patterns
 
 ## Plex API Integration
-- Follow existing patterns in [src/lib/plex.tv/clients/](mdc:src/lib/plex.tv/clients/)
-- Use PlexServerClient and PlexTvClient classes consistently
+- Follow existing patterns in `packages/plex-query` (`PlexServerClient`, `PlexTvClient`)
 - Handle authentication and connection management as existing methods do
 
 ## Request/Response Handling
 - **DO NOT handle API requests differently than current implementations**
-- Always parse responses with Zod schemas - no exceptions
+- Always parse responses with Zod schemas at the plex-query boundary - no exceptions
 - Follow the pattern: raw fetch → schema validation → typed return
-- Use existing error handling patterns from [src/lib/plex.tv/types/client-types.ts](mdc:src/lib/plex.tv/types/client-types.ts)
 
 ## Schema Development
-- Study existing schemas in [src/lib/plex.tv/schemas/](mdc:src/lib/plex.tv/schemas/)
+- Study existing schemas in `packages/plex-query/src/plex/schemas/`
 - Use real API responses to build schemas, not assumptions
 - Test schema validation with actual Plex server responses
 - **If you don't have example responses, ask for them or research the Plex API docs**
 
-## tRPC Integration
-- Follow patterns in [src/server/api/routers/plex.ts](mdc:src/server/api/routers/plex.ts)
-- Use protectedProcedure for authenticated endpoints
-- Validate inputs with Zod schemas
-- Return properly typed responses
+## Effect HttpApi
+- Follow patterns in `apps/web/src/server/effect-api/` (groups in `api.ts`, handlers, schemas)
+- Auth via better-auth `PlexAuthMiddleware`; handlers read `PlexSession`
+- Client atoms live under `apps/web/src/lib/effect/` (`AtomHttpApi`)
 description:
 globs:
 alwaysApply: false

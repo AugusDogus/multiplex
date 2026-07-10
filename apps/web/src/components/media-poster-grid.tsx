@@ -1,7 +1,13 @@
 "use client";
 
-import { memo, useCallback, useLayoutEffect, useMemo, useState } from "react";
-import { useQueries } from "@tanstack/react-query";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
 import type { HubItemWithServer } from "@multiplex/plex-query";
 import { useAppScrollElement } from "~/components/app-scroll-container";
 import { PosterGridRow } from "~/components/poster-grid-row";
@@ -38,6 +44,17 @@ interface MediaPosterGridProps {
 const OVERSCAN_ROWS = 3;
 const POSTER_GRID_ROW_SIZE_PX =
   POSTER_GRID_ROW_CONTENT_HEIGHT_PX + POSTER_GRID_ROW_GAP_PX;
+
+/** Module-level page cache so remounts (same `contentKey`) stay instant. */
+const posterPageCache = new Map<string, PaginatedPosterResult>();
+
+function posterPageCacheKey(
+  contentKey: string,
+  pageSize: number,
+  pageIndex: number,
+): string {
+  return `${contentKey}\0${pageSize}\0${pageIndex}`;
+}
 
 interface VirtualPosterRow {
   index: number;
@@ -138,7 +155,7 @@ function getVirtualRows({
  *
  * Render with a `key` derived from the content source (matching
  * `contentKey`) so navigating to different content remounts the grid.
- * Fetched pages live in the react-query cache keyed by `contentKey`, so
+ * Fetched pages live in a module-level cache keyed by `contentKey`, so
  * they survive the remount and navigating back is instant.
  */
 export function MediaPosterGrid({
@@ -149,11 +166,8 @@ export function MediaPosterGrid({
   onLoadPage,
   emptyMessage = "No items found.",
 }: MediaPosterGridProps) {
-  // TanStack Virtual mutates the virtualizer instance in place, so the
-  // React Compiler would cache getVirtualItems()/getTotalSize() against
-  // the stable instance reference and never re-render on scroll. Opt this
-  // component out until the virtualizer ships compiler support
-  // (https://github.com/TanStack/virtual/issues/736).
+  // Custom scroll virtualization mutates measured layout in place; keep the
+  // compiler from caching scroll-derived values against stable refs.
   "use no memo";
 
   const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
@@ -164,6 +178,8 @@ export function MediaPosterGrid({
   const [scrollMargin, setScrollMargin] = useState<number | null>(null);
   const [scrollState, setScrollState] = useState({ height: 0, top: 0 });
   const { columns, isReady } = usePosterGridLayout(containerEl);
+  /** Bumps when the module-level page cache gains entries for this grid. */
+  const [pageCacheVersion, setPageCacheVersion] = useState(0);
 
   useLayoutEffect(() => {
     const element = containerEl;
@@ -267,20 +283,50 @@ export function MediaPosterGrid({
     [neededPagesKey],
   );
 
-  const pageResults = useQueries({
-    queries: neededPages.map((pageIndex) => ({
-      queryKey: ["media-poster-grid", contentKey, pageSize, pageIndex],
-      queryFn: async () => {
-        const result = await onLoadPage?.({
-          start: pageIndex * pageSize,
-          size: pageSize,
-        });
-        return result ?? EMPTY_PAGE_RESULT;
-      },
-      staleTime: Infinity,
-    })),
-    combine: (results) => results.map((result) => result.data),
-  });
+  const pageResults = useMemo(() => {
+    void pageCacheVersion;
+    const results: Record<number, PaginatedPosterResult> = {};
+    for (const pageIndex of neededPages) {
+      const cached = posterPageCache.get(
+        posterPageCacheKey(contentKey, pageSize, pageIndex),
+      );
+      if (cached) {
+        results[pageIndex] = cached;
+      }
+    }
+    return results;
+  }, [neededPages, contentKey, pageSize, pageCacheVersion]);
+
+  useEffect(() => {
+    if (!onLoadPage || neededPages.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    const loadPage = onLoadPage;
+
+    for (const pageIndex of neededPages) {
+      const cacheKey = posterPageCacheKey(contentKey, pageSize, pageIndex);
+      if (posterPageCache.has(cacheKey)) {
+        continue;
+      }
+
+      void loadPage({
+        start: pageIndex * pageSize,
+        size: pageSize,
+      }).then((result) => {
+        if (cancelled) {
+          return;
+        }
+        posterPageCache.set(cacheKey, result ?? EMPTY_PAGE_RESULT);
+        setPageCacheVersion((version) => version + 1);
+      });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [neededPages, contentKey, pageSize, onLoadPage]);
 
   const resolvedItems = useMemo(() => {
     const resolved: (HubItemWithServer | undefined)[] = Array.from(
@@ -290,16 +336,16 @@ export function MediaPosterGrid({
     for (let i = 0; i < Math.min(items.length, itemCount); i++) {
       resolved[i] = items[i];
     }
-    neededPages.forEach((pageIndex, queryIndex) => {
-      const result = pageResults[queryIndex];
+    for (const pageIndex of neededPages) {
+      const result = pageResults[pageIndex];
       if (!result) {
-        return;
+        continue;
       }
       const base = pageIndex * pageSize;
       for (let i = 0; i < result.items.length && base + i < itemCount; i++) {
         resolved[base + i] = result.items[i];
       }
-    });
+    }
     return resolved;
   }, [items, neededPages, pageResults, pageSize, itemCount]);
 

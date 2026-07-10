@@ -27,7 +27,7 @@ import type {
   WatchTogetherRoom,
 } from "@multiplex/plex-query";
 
-/** Composite returned by `library.getItemDetails` (same shape as the tRPC query). */
+/** Composite returned by `library.getItemDetails`. */
 export type ItemDetails = {
   readonly item: ItemMetadata;
   readonly children: EnrichedItemMetadataChild[];

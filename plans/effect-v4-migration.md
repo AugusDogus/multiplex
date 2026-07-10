@@ -43,7 +43,7 @@ Executor precedents referenced throughout (clone: `UsefulSoftwareCo/executor`):
 
 | Concern                                                           | Today                                                                         | Fate                                                             |
 | ----------------------------------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Server cache (rooms, metadata, queues)                            | tRPC + TanStack Query                                                         | **Keep** (phase 5 may revisit)                                   |
+| Server cache (rooms, metadata, queues)                            | Effect HttpApi + AtomHttpApi                                                  | **Done** (phase 5)                                               |
 | Syncplay wire protocol                                            | `SyncplayClient` (framework-free class in `plex-query`)                       | **Keep** as boundary, wrapped in a scoped Effect resource        |
 | Driver arbitration                                                | `SyncplaySessionController`                                                   | **Keep initially**, absorbed into the session service in phase 2 |
 | Session lifecycle                                                 | `watch-together-store` + `use-syncplay-session` (clear-on-mismatch inference) | **Replace** with session service                                 |
@@ -300,33 +300,25 @@ behavioral contract; it does not change during the migration.
   transport-independent `~/server/queries/*` layer.
 
   Waves:
-  - **P5-1a — HttpApi server (additive).** `PlexApi` HttpApi groups
-    mirroring the plex tRPC router, better-auth middleware, handlers
-    delegating to the existing `~/server/queries/*` + plex-query clients,
-    mounted at `/api/effect/[[...slugs]]` beside tRPC. Schema policy:
-    precise Effect Schemas for the small, contract-critical domain shapes
-    (Watch Together rooms, invitees, servers, user info); permissive
-    boundary schemas for the large Plex metadata trees (already
-    zod-validated server-side in plex-query), with a typed client-side
-    boundary helper — documented tradeoff, tightened opportunistically.
-  - **P5-1b — player-store split (parallel with 1a).** `PlayerService`
-    (Effect, `SubscriptionRef`) owns playback/session state;
-    `media-player-store` shrinks to persisted UI prefs; `PlayerPort`
-    reimplemented over the service; all player components/hooks migrate.
-  - **P5-2 — Watch Together + playback data onto AtomHttpApi.**
-    `WatchTogetherApi` reimplemented over the HttpApi client; rooms row,
-    lobby queries, invitees, play queues, timeline scrobbling become atoms
-    with reactivity keys (+ optimistic room removal). The staged
-    `effect-atom-*` skills become live guidance here.
-  - **P5-3 — browse surfaces onto atoms** (home hubs, libraries, details,
-    search, live TV), parallelized per surface with disjoint ownership.
-    RSC strategy: pages that server-prefetch keep doing so by calling
-    `~/server/queries/*` directly and passing initial data as props;
-    client interactivity/refetch moves to atoms.
-  - **P5-4 — retirement.** Delete the tRPC router/provider/react-query
-    client, superjson, and TanStack Query; migrate the e2e helpers that
-    call tRPC endpoints directly (`disbandRoom`, play-queue probing) to
-    the HttpApi endpoints; full e2e gate.
+  - **P5-1a — HttpApi server (additive).** ✅ Complete. `PlexApi` HttpApi
+    groups, better-auth middleware, handlers delegating to
+    `~/server/queries/*` + plex-query clients, mounted at
+    `/api/effect/[[...slugs]]`. Schema policy: precise Effect Schemas for
+    contract-critical domain shapes; permissive boundary schemas for large
+    Plex metadata trees.
+  - **P5-1b — player-store split (parallel with 1a).** ✅ Complete.
+    `PlayerService` owns playback/session state; `media-player-store`
+    shrinks to persisted UI prefs; `PlayerPort` over the service.
+  - **P5-2 — Watch Together + playback data onto AtomHttpApi.** ✅ Complete.
+    `WatchTogetherApi` over the HttpApi client; rooms row, lobby queries,
+    invitees, play queues, timeline scrobbling as atoms with reactivity
+    keys (+ optimistic room removal).
+  - **P5-3 — browse surfaces onto atoms.** ✅ Complete. Home hubs,
+    libraries, details, search, live TV on atoms; RSC pages call
+    `~/server/queries/*` directly for initial data.
+  - **P5-4 — retirement.** ✅ Complete. Deleted tRPC router/provider/
+    react-query/superjson; e2e helpers (`disbandRoom`, play-queue probing)
+    call Effect HttpApi endpoints; plex-query TanStack peer/helpers removed.
 
 Ordering rationale: playback (phase 2) before rotation (phase 3) because
 rotation composes on top of a working session service; lobby last because it

@@ -9,7 +9,6 @@ import { ThemeProvider } from "~/components/theme-provider";
 import { Toaster } from "~/components/ui/sonner";
 import { TooltipProvider } from "~/components/ui/tooltip";
 import { EffectRegistryProvider } from "~/lib/effect";
-import { TRPCReactProvider } from "~/trpc/react";
 
 export const metadata: Metadata = {
   title: "Multiplex",
@@ -29,22 +28,20 @@ export default function RootLayout({
     <html lang="en" className={`${geist.variable}`} suppressHydrationWarning>
       <body>
         <StrictMode>
-          <TRPCReactProvider>
-            <EffectRegistryProvider>
-              <ThemeProvider
-                attribute="class"
-                defaultTheme="system"
-                enableSystem
-                disableTransitionOnChange
-              >
-                <TooltipProvider>
-                  {children}
-                  <MediaPlayerModal />
-                  <Toaster />
-                </TooltipProvider>
-              </ThemeProvider>
-            </EffectRegistryProvider>
-          </TRPCReactProvider>
+          <EffectRegistryProvider>
+            <ThemeProvider
+              attribute="class"
+              defaultTheme="system"
+              enableSystem
+              disableTransitionOnChange
+            >
+              <TooltipProvider>
+                {children}
+                <MediaPlayerModal />
+                <Toaster />
+              </TooltipProvider>
+            </ThemeProvider>
+          </EffectRegistryProvider>
         </StrictMode>
       </body>
     </html>

@@ -87,7 +87,7 @@ export type EnterLobbyInput = {
 
 /**
  * React-derived lobby inputs the auto-start fiber cannot obtain itself
- * (tRPC media resolution + leave-mutation pending).
+ * (media resolution + leave-mutation pending).
  */
 export type LobbyContext = {
   readonly canStart: boolean;

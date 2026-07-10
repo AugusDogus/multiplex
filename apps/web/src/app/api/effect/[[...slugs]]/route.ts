@@ -1,5 +1,5 @@
 /**
- * Effect HttpApi mount — additive beside tRPC at `/api/trpc`.
+ * Effect HttpApi mount at `/api/effect`.
  *
  * Designated Effect boundary: `HttpRouter.toWebHandler` builds a fetch-style
  * handler once at module scope (executor `toApiHandler` pattern).

@@ -14,7 +14,7 @@ import { PlexApiClient } from "./plex-api-client";
 import { ReactivityKey } from "./reactivity-keys";
 
 // ---------------------------------------------------------------------------
-// Query atoms — TTLs mirror today's tRPC staleTime / refetchInterval.
+// Query atoms — TTLs mirror the previous client cache staleTime / refetchInterval.
 // Polling surfaces wrap with `Atom.withRefresh` so subscribed views keep
 // refreshing at the previous React Query cadence while mounted.
 // ---------------------------------------------------------------------------

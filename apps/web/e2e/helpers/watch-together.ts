@@ -84,16 +84,13 @@ export async function joinRoomFromHome(
   });
 }
 
-/** Disbands a room via the authenticated tRPC endpoint (best-effort teardown). */
+/** Disbands a room via the authenticated Effect HttpApi (best-effort teardown). */
 export async function disbandRoom(
   context: BrowserContext,
   roomId: string,
 ): Promise<void> {
   await context.request
-    .post("/api/trpc/plex.deleteWatchTogetherRoom?batch=1", {
-      data: { "0": { json: { roomId } } },
-      headers: { "content-type": "application/json" },
-    })
+    .delete(`/api/effect/watch-together/rooms/${roomId}`)
     .catch(() => undefined);
 }
 

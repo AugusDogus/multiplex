@@ -39,8 +39,7 @@ export const makePlexSession = (
 });
 
 /**
- * Resolves better-auth session + PlexTvClient from request headers — same
- * logic as `createTRPCContext` + `enforceUserIsAuthed`.
+ * Resolves better-auth session + PlexTvClient from request headers.
  */
 export const resolvePlexSessionFromHeaders = (
   headers: Headers,
@@ -74,8 +73,7 @@ export const resolvePlexSessionFromHeaders = (
  * Cookie-based better-auth session middleware. Declares the better-auth
  * session cookie as the security scheme so missing cookies fail closed before
  * the handler; the live impl still calls `auth.api.getSession` with the full
- * request headers (matching tRPC), because cookie-cache / dual cookies may be
- * involved.
+ * request headers, because cookie-cache / dual cookies may be involved.
  */
 export const PlexAuthMiddlewareLive = Layer.succeed(PlexAuthMiddleware, {
   cookie: (httpEffect, _options) =>

@@ -6,7 +6,7 @@ import {
 } from "@multiplex/plex-query";
 
 // ---------------------------------------------------------------------------
-// Input validators — mirror apps/web/src/server/api/routers/plex.ts zod schemas
+// Input validators — Effect Schema contracts for HttpApi payloads / queries
 // ---------------------------------------------------------------------------
 
 export const SectionId = Schema.String.check(Schema.isPattern(/^\d+$/));

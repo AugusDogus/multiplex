@@ -30,7 +30,7 @@ import { getServersQuery } from "~/server/queries/get-servers";
 
 /**
  * Direct server-side Plex data access for React Server Components.
- * Replaces the tRPC RSC caller (`~/trpc/server`) for browse surfaces (P5-3).
+ * RSC helpers for browse surfaces — call `~/server/queries/*` directly.
  *
  * Prefetch-only procedures (home hubs, continue watching, library hubs,
  * watch-together room) stay on client atoms — pages do not await them for
@@ -79,7 +79,7 @@ const requirePlex = async () => {
 };
 
 // ---------------------------------------------------------------------------
-// Input validators (mirror plex tRPC router zod schemas)
+// Input validators (mirror Effect HttpApi / plex-query zod schemas)
 // ---------------------------------------------------------------------------
 
 const sectionIdSchema = z.string().regex(/^\d+$/);

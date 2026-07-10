@@ -5,9 +5,8 @@
  *
  * ## Library / hub pagination
  *
- * `MediaPosterGrid` owns the page cache (TanStack `useQueries` today) and loads
- * further pages through an imperative `onLoadPage` callback — not
- * `useInfiniteQuery`. We mirror that with:
+ * `MediaPosterGrid` owns a module-level page cache and loads further pages
+ * through an imperative `onLoadPage` callback. We mirror that with:
  *
  * 1. `Atom.family`-by-page query atoms keyed by
  *    `{ machineIdentifier, sectionId|hubKey, start, size, …filters }` for
@@ -79,7 +78,7 @@ const runClient = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
   Effect.runPromise(effect);
 
 // ---------------------------------------------------------------------------
-// Query atoms — TTLs mirror today's tRPC staleTime / refetchInterval.
+// Query atoms — TTLs mirror the previous client cache staleTime / refetchInterval.
 // ---------------------------------------------------------------------------
 
 /** Home hubs row — was staleTime 0 (refetch on mount). */

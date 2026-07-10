@@ -21,7 +21,7 @@ export async function MediaItemDetailsRoute({
     notFound();
   }
 
-  // Prefetch was tRPC/React Query only; the client atom owns the read now.
+  // Prefetch is unused; the client atom owns the read.
   return (
     <MediaItemDetailsPageClient
       serverId={machineIdentifier}
