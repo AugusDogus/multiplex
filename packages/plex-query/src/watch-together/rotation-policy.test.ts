@@ -126,7 +126,7 @@ describe("findNextEpisodeRoom", () => {
     now: NOW,
   };
 
-  it("finds the room pointing at the next episode with the whole party invited", () => {
+  it("finds the room pointing at the next episode with the exact party invited", () => {
     const match = room({ id: "room-next" });
     expect(findNextEpisodeRoom({ ...input, rooms: [match] })).toEqual(match);
   });
@@ -152,6 +152,49 @@ describe("findNextEpisodeRoom", () => {
         rooms: [wrongEpisode, wrongServer, missingGuest, sameRoom],
       }),
     ).toBeNull();
+  });
+
+  it("rejects a superset invite list (different party that includes us)", () => {
+    const superset = room({
+      id: "room-superset",
+      users: [
+        { id: 1, title: "Host", username: "host", thumb: null },
+        { id: 2, title: "Guest", username: "guest", thumb: null },
+        { id: 3, title: "Other", username: "other", thumb: null },
+      ],
+    });
+    expect(findNextEpisodeRoom({ ...input, rooms: [superset] })).toBeNull();
+  });
+
+  it("adopts an exact party match", () => {
+    const exact = room({ id: "room-exact" });
+    expect(findNextEpisodeRoom({ ...input, rooms: [exact] })).toEqual(exact);
+  });
+
+  it("compares unique user-id sets (duplicate entries do not break equality)", () => {
+    const withDupes = room({
+      id: "room-dupes",
+      users: [
+        { id: 1, title: "Host", username: "host", thumb: null },
+        { id: 2, title: "Guest", username: "guest", thumb: null },
+        { id: 1, title: "Host again", username: "host", thumb: null },
+      ],
+    });
+    const currentWithDupes = {
+      id: "room-current",
+      users: [
+        { id: 1, title: "Host", username: "host", thumb: null },
+        { id: 1, title: "Host dup", username: "host", thumb: null },
+        { id: 2, title: "Guest", username: "guest", thumb: null },
+      ],
+    };
+    expect(
+      findNextEpisodeRoom({
+        ...input,
+        currentRoom: currentWithDupes,
+        rooms: [withDupes],
+      }),
+    ).toEqual(withDupes);
   });
 
   it("rejects stale rooms from an earlier watch party", () => {
@@ -346,11 +389,13 @@ describe("decideRotation", () => {
       afterMs: CREATE_BASE_DELAY_MS,
     });
 
-    const known = rotationRoomKnown(room({ id: "next" }));
+    const knownRoom = room({ id: "next" });
+    const known = rotationRoomKnown(knownRoom);
     expect(
       decideRotation({
         ...baseDecide,
         phase: known,
+        visibleRooms: [knownRoom],
         timeRemainingSeconds: 200,
         currentTimeSeconds: 1000,
       }),
@@ -552,6 +597,62 @@ describe("decideRotation", () => {
     ).toEqual({ kind: "adopt_room", room: newer });
   });
 
+  it("invalidates RoomKnown when the adopted room leaves matching candidates", () => {
+    const match = room({ id: "room-next" });
+    expect(
+      decideRotation({
+        ...baseDecide,
+        phase: rotationRoomKnown(match),
+        visibleRooms: [],
+        timeRemainingSeconds: 40,
+      }),
+    ).toEqual({ kind: "invalidate_room" });
+  });
+
+  it("invalidates Gathering when the adopted room is gone even if swap conditions hold", () => {
+    const match = room({ id: "room-next" });
+    expect(
+      decideRotation({
+        ...baseDecide,
+        phase: rotationGathering(match),
+        visibleRooms: [],
+        timeRemainingSeconds: 0,
+        currentTimeSeconds: 1200,
+        everyoneJoined: true,
+        graceElapsed: true,
+      }),
+    ).toEqual({ kind: "invalidate_room" });
+  });
+
+  it("does not invalidate RoomKnown while the adopted room still matches", () => {
+    const match = room({ id: "room-next" });
+    expect(
+      decideRotation({
+        ...baseDecide,
+        phase: rotationRoomKnown(match),
+        visibleRooms: [match],
+        timeRemainingSeconds: 40,
+      }),
+    ).toEqual({ kind: "wait" });
+  });
+
+  it("prefers adopt_room over invalidate when a different deterministic winner appears", () => {
+    const older = room({
+      id: "room-old",
+      updatedAt: Math.floor(NOW / 1000) - 60,
+    });
+    const newer = room({ id: "room-new" });
+
+    expect(
+      decideRotation({
+        ...baseDecide,
+        phase: rotationRoomKnown(older),
+        visibleRooms: [newer],
+        timeRemainingSeconds: 40,
+      }),
+    ).toEqual({ kind: "adopt_room", room: newer });
+  });
+
   it("derives countdown overlay from armed phase + remaining time", () => {
     expect(
       rotationCountdown({
@@ -573,5 +674,20 @@ describe("decideRotation", () => {
         timeRemainingSeconds: 12,
       }),
     ).toEqual({ isCountingDown: false, countdownSeconds: 5 });
+
+    // Episode ended / gathering wait: hide the overlay (no stuck "0").
+    expect(
+      rotationCountdown({
+        phase: RotationArmed,
+        timeRemainingSeconds: 0,
+      }),
+    ).toEqual({ isCountingDown: false, countdownSeconds: 0 });
+
+    expect(
+      rotationCountdown({
+        phase: rotationGathering(room({ id: "next" })),
+        timeRemainingSeconds: -0.1,
+      }),
+    ).toEqual({ isCountingDown: false, countdownSeconds: 0 });
   });
 });

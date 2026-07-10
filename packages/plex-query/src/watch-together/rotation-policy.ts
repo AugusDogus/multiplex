@@ -130,14 +130,15 @@ export interface FindNextEpisodeRoomInput {
  * The invite itself is the discovery signal: the leader creates the next room
  * inviting everyone from the current room, which makes it appear in every
  * member's own room list — no extra backend or side channel needed. A room
- * counts only if it points at the next episode on the same server, includes
- * the whole current party (so every member can discover it), and is recent.
- * Ties resolve deterministically so all clients converge on the same room
- * even if a failover raced the leader into creating a duplicate.
+ * counts only if it points at the next episode on the same server, invites
+ * exactly the same party (unique user-id sets equal — a superset would let a
+ * different watch party that happens to include us hijack the rotation), and
+ * is recent. Ties resolve deterministically so all clients converge on the
+ * same room even if a failover raced the leader into creating a duplicate.
  */
 export function findNextEpisodeRoom(input: FindNextEpisodeRoomInput): WatchTogetherRoom | null {
   const now = input.now ?? Date.now();
-  const currentUserIds = input.currentRoom.users.map((user) => user.id);
+  const currentUserIds = new Set(input.currentRoom.users.map((user) => user.id));
 
   const candidates = input.rooms.filter((room) => {
     if (room.id === input.currentRoom.id) {
@@ -149,8 +150,13 @@ export function findNextEpisodeRoom(input: FindNextEpisodeRoomInput): WatchToget
       return false;
     }
 
+    // Exact party match on unique ids (array lengths can lie if either list
+    // carries duplicates). Superset invite lists belong to a different party.
     const roomUserIds = new Set(room.users.map((user) => user.id));
-    if (!currentUserIds.every((id) => roomUserIds.has(id))) {
+    if (
+      roomUserIds.size !== currentUserIds.size ||
+      ![...currentUserIds].every((id) => roomUserIds.has(id))
+    ) {
       return false;
     }
 
@@ -283,7 +289,10 @@ export function rotationCountdown(input: {
   readonly countdownSeconds: number;
 } {
   const armed = input.phase._tag !== "None";
-  const isCountingDown = armed && input.timeRemainingSeconds <= COUNTDOWN_SECONDS;
+  // Hide once the episode has ended (≤0): gathering/grace wait on the swap
+  // loading state, not a stuck "0" overlay.
+  const isCountingDown =
+    armed && input.timeRemainingSeconds > 0 && input.timeRemainingSeconds <= COUNTDOWN_SECONDS;
   return {
     isCountingDown,
     countdownSeconds: Math.max(
@@ -309,6 +318,13 @@ export type RotationDecision =
   | { readonly kind: "adopt_room"; readonly room: WatchTogetherRoom }
   | { readonly kind: "begin_gathering" }
   | { readonly kind: "swap" }
+  /**
+   * Adopted next room disappeared from matching candidates (disbanded /
+   * deleted, or no longer passes party/item filters). Age-based expiry is
+   * unlikely in the ~1 minute adopt→swap window; the real case is a room
+   * that vanished. Caller reverts to Armed and rediscovers/recreates.
+   */
+  | { readonly kind: "invalidate_room" }
   | { readonly kind: "disabled" };
 
 export type DecideRotationInput = {
@@ -385,6 +401,11 @@ export function decideRotation(input: DecideRotationInput): RotationDecision {
       if (discovered && discovered.id !== input.phase.nextRoom.id) {
         return { kind: "adopt_room", room: discovered };
       }
+      // Our adopted room is gone / no longer a match and nothing replaced it
+      // (disbanded or filter mismatch — not age expiry in practice).
+      if (!discovered) {
+        return { kind: "invalidate_room" };
+      }
       // Gathering only at end — joining the next lobby early would let an
       // official client's lobby auto-start while this party is still finishing.
       if (atEnd) {
@@ -395,6 +416,9 @@ export function decideRotation(input: DecideRotationInput): RotationDecision {
     case "Gathering": {
       if (discovered && discovered.id !== input.phase.nextRoom.id) {
         return { kind: "adopt_room", room: discovered };
+      }
+      if (!discovered) {
+        return { kind: "invalidate_room" };
       }
       // Swap when everyone joined OR grace elapsed (grace runs from
       // room-known-at-end — the service starts the timer on begin_gathering /

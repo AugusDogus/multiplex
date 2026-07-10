@@ -943,10 +943,13 @@ export const makeWatchTogetherSession = (
             discoveryFiber = yield* Effect.gen(function* () {
               yield* Effect.repeat(
                 Effect.gen(function* () {
-                  const rooms = yield* api
-                    .listRooms()
-                    .pipe(Effect.orElseSucceed(() => []));
-                  yield* Ref.set(visibleRooms, rooms);
+                  // Retain the last successful list on poll failure so a
+                  // transient network blip cannot empty visibleRooms and
+                  // spuriously invalidate an adopted room.
+                  const result = yield* api.listRooms().pipe(Effect.option);
+                  if (Option.isSome(result)) {
+                    yield* Ref.set(visibleRooms, result.value);
+                  }
                   yield* evaluateOnce();
                 }),
                 Schedule.spaced(`${DISCOVERY_POLL_MS} millis`),
@@ -1227,6 +1230,20 @@ export const makeWatchTogetherSession = (
                 );
                 yield* startObserver(nextRoom);
                 yield* startGrace();
+              });
+            case "invalidate_room":
+              // Adopted next room vanished (disbanded) or stopped matching;
+              // keep the arm latch and rediscover/recreate with a fresh stagger.
+              return Effect.gen(function* () {
+                yield* stopCreate();
+                yield* stopObserver();
+                yield* stopGrace();
+                yield* Ref.set(hasAttemptedCreate, false);
+                yield* Ref.set(graceElapsed, false);
+                yield* Ref.set(gatheredParticipants, {});
+                yield* updateRotationPhase(() => RotationArmed);
+                yield* ensureDiscovery();
+                yield* evaluateOnce();
               });
             case "swap":
               return Effect.gen(function* () {

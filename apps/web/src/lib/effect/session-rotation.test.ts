@@ -2,6 +2,7 @@ import { beforeEach, expect, mock, test } from "bun:test";
 import {
   CREATE_BASE_DELAY_MS,
   CREATE_STAGGER_MS,
+  DISCOVERY_POLL_MS,
   EVERYONE_JOINED_GRACE_MS,
   MULTIPLEX_SYNCPLAY_DEVICE_NAME,
   type SyncplayParticipantState,
@@ -195,6 +196,11 @@ const makeStubApi = (overrides?: {
   createRoomEffect?: (
     input: Parameters<WatchTogetherApiShape["createRoom"]>[0],
   ) => Effect.Effect<WatchTogetherRoom, { _tag: string }>;
+  /** Override listRooms Effect (success or failure). */
+  listRoomsEffect?: () => Effect.Effect<
+    WatchTogetherRoom[],
+    { _tag: string; cause?: string; operation?: string }
+  >;
   getItemMetadata?: WatchTogetherApiShape["getItemMetadata"];
 }): {
   api: WatchTogetherApiShape;
@@ -212,9 +218,12 @@ const makeStubApi = (overrides?: {
     },
   );
   const deleteRoom = mock((_roomId: string) => Effect.void);
-  const listRooms = mock(() =>
-    Effect.succeed(overrides?.rooms ? overrides.rooms() : []),
-  );
+  const listRooms = mock(() => {
+    if (overrides?.listRoomsEffect) {
+      return overrides.listRoomsEffect();
+    }
+    return Effect.succeed(overrides?.rooms ? overrides.rooms() : []);
+  });
   const getItemMetadata = mock(
     (input: Parameters<WatchTogetherApiShape["getItemMetadata"]>[0]) => {
       if (overrides?.getItemMetadata) {
@@ -266,6 +275,8 @@ const withRotationSession = async <A>(
     observers: StubObserver[];
     controllers: StubController[];
     setRooms: (rooms: WatchTogetherRoom[]) => void;
+    /** Make subsequent listRooms polls fail (network blip). */
+    setListRoomsFailing: (failing: boolean) => void;
   }) => Effect.Effect<A>,
   options?: {
     rooms?: () => WatchTogetherRoom[];
@@ -278,8 +289,18 @@ const withRotationSession = async <A>(
   const { makeController, controllers } = makeStubControllerFactory();
   const { makeObserver, observers } = makeStubObserverFactory();
   let roomsFn = options?.rooms ?? (() => [] as WatchTogetherRoom[]);
+  let listRoomsFailing = false;
   const { api, createRoom, deleteRoom, getItemMetadata } = makeStubApi({
-    rooms: () => roomsFn(),
+    listRoomsEffect: () => {
+      if (listRoomsFailing) {
+        return Effect.fail({
+          _tag: "WatchTogetherApiError",
+          cause: "network blip",
+          operation: "listRooms",
+        });
+      }
+      return Effect.succeed(roomsFn());
+    },
     createRoomEffect: options?.createRoomEffect,
   });
 
@@ -312,6 +333,9 @@ const withRotationSession = async <A>(
             controllers,
             setRooms: (rooms) => {
               roomsFn = () => rooms;
+            },
+            setListRoomsFailing: (failing) => {
+              listRoomsFailing = failing;
             },
           });
         }),
@@ -812,6 +836,78 @@ test("changing nextEpisode mid-rotation re-prefetches and swap uses new metadata
         expect(loaded?.Media?.[0]?.id).toBe(300);
         expect(loaded?.title).toBe("Alt Next Ep");
         expect(loaded?.key).toBe("/library/metadata/300");
+      }),
+  );
+});
+
+test("empty discovery after adopt invalidates to Armed and recreates after stagger", async () => {
+  const nextRoom = room("r2", "200");
+  await withRotationSession(
+    ({ session, player, createRoom, setRooms, controllers }) =>
+      Effect.gen(function* () {
+        yield* startArmed(session, player, controllers);
+        setRooms([nextRoom]);
+        yield* waitUntil(
+          session,
+          (s) => s._tag === "Playing" && s.rotation._tag === "RoomKnown",
+        );
+
+        const createsBefore = createRoom.mock.calls.length;
+
+        // Room disbanded: successful poll returns empty matching set.
+        setRooms([]);
+        yield* waitUntil(
+          session,
+          (s) => s._tag === "Playing" && s.rotation._tag === "Armed",
+          15,
+        );
+
+        const snap = session.snapshot();
+        expect(snap._tag === "Playing" && snap.rotation._tag).toBe("Armed");
+
+        yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS} millis`);
+        yield* Effect.yieldNow;
+        expect(createRoom.mock.calls.length).toBeGreaterThan(createsBefore);
+      }),
+  );
+});
+
+test("failed discovery poll retains last rooms and does not invalidate", async () => {
+  const nextRoom = room("r2", "200");
+  await withRotationSession(
+    ({
+      session,
+      player,
+      createRoom,
+      setRooms,
+      setListRoomsFailing,
+      controllers,
+    }) =>
+      Effect.gen(function* () {
+        yield* startArmed(session, player, controllers);
+        setRooms([nextRoom]);
+        yield* waitUntil(
+          session,
+          (s) => s._tag === "Playing" && s.rotation._tag === "RoomKnown",
+        );
+
+        const createsBefore = createRoom.mock.calls.length;
+        setListRoomsFailing(true);
+
+        // Advance past at least one discovery poll + evaluate cadence.
+        yield* TestClock.adjust(`${DISCOVERY_POLL_MS + 2_000} millis`);
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust("2 seconds");
+        yield* Effect.yieldNow;
+
+        const snap = session.snapshot();
+        expect(snap._tag === "Playing" && snap.rotation._tag).toBe("RoomKnown");
+        expect(
+          snap._tag === "Playing" &&
+            snap.rotation._tag === "RoomKnown" &&
+            snap.rotation.nextRoom.id,
+        ).toBe("r2");
+        expect(createRoom.mock.calls.length).toBe(createsBefore);
       }),
   );
 });
