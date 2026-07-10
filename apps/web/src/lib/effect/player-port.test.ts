@@ -1,7 +1,8 @@
 import { beforeEach, expect, mock, spyOn, test } from "bun:test";
 
 import { makePlayerPort } from "./player-port";
-import { useMediaPlayerStore } from "~/stores/media-player-store";
+import { createPlayerService } from "./player-service";
+import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import type { MediaPlayerItem } from "~/types/media-player";
 
 const sampleItem = {
@@ -17,15 +18,26 @@ const sampleItem = {
   duration: 600_000,
 } as MediaPlayerItem;
 
+function makeIsolatedPort() {
+  const player = createPlayerService();
+  return { port: makePlayerPort(player), player };
+}
+
 beforeEach(() => {
-  useMediaPlayerStore.getState().closePlayer();
+  usePlayerPrefsStore.setState({
+    volume: 1,
+    isMuted: false,
+    playbackRate: 1,
+    captionSize: "medium",
+    autoPlayEnabled: true,
+  });
 });
 
-test("load opens the media player via the Zustand store", () => {
-  const port = makePlayerPort();
+test("load opens the media player via PlayerService", () => {
+  const { port, player } = makeIsolatedPort();
   port.load(sampleItem, { resume: false });
 
-  const state = useMediaPlayerStore.getState();
+  const state = player.snapshot();
   expect(state.isOpen).toBe(true);
   expect(state.currentItem?.ratingKey).toBe("100");
   expect(state.isLoading).toBe(true);
@@ -33,26 +45,26 @@ test("load opens the media player via the Zustand store", () => {
 });
 
 test("load with startPositionSeconds seeds currentTime", () => {
-  const port = makePlayerPort();
+  const { port, player } = makeIsolatedPort();
   port.load(sampleItem, { resume: false, startPositionSeconds: 42 });
 
-  expect(useMediaPlayerStore.getState().currentTime).toBe(42);
+  expect(player.snapshot().currentTime).toBe(42);
 });
 
 test("close clears the media player", () => {
-  const port = makePlayerPort();
+  const { port, player } = makeIsolatedPort();
   port.load(sampleItem, { resume: false });
   port.close();
 
-  const state = useMediaPlayerStore.getState();
+  const state = player.snapshot();
   expect(state.isOpen).toBe(false);
   expect(state.currentItem).toBeNull();
 });
 
-test("snapshot reflects store playback fields", () => {
-  const port = makePlayerPort();
+test("snapshot reflects playback fields", () => {
+  const { port, player } = makeIsolatedPort();
   port.load(sampleItem, { resume: false });
-  useMediaPlayerStore.getState().updatePlaybackState({
+  player.updatePlaybackState({
     isPlaying: true,
     currentTime: 12,
     duration: 100,
@@ -71,8 +83,8 @@ test("snapshot reflects store playback fields", () => {
   });
 });
 
-test("currentItem mirrors the media-player store item", () => {
-  const port = makePlayerPort();
+test("currentItem mirrors the player service item", () => {
+  const { port } = makeIsolatedPort();
   expect(port.currentItem()).toBeNull();
   port.load(sampleItem, { resume: false });
   expect(port.currentItem()?.ratingKey).toBe("100");
@@ -80,28 +92,32 @@ test("currentItem mirrors the media-player store item", () => {
   expect(port.currentItem()).toBeNull();
 });
 
-test("subscribe fires when playback snapshot fields change", () => {
-  const port = makePlayerPort();
+test("subscribe fires when playback snapshot fields change", async () => {
+  const { port, player } = makeIsolatedPort();
   const listener = mock();
   const unsubscribe = port.subscribe(listener);
 
-  useMediaPlayerStore.getState().updateCurrentTime(5);
+  // SubscriptionRef streams are async; give the fiber a tick.
+  player.updateCurrentTime(5);
+  await Bun.sleep(10);
   expect(listener).toHaveBeenCalledWith(
     expect.objectContaining({ currentTimeSeconds: 5 }),
   );
 
   listener.mockClear();
   // Volume is outside PlayerSnapshot — must not notify.
-  useMediaPlayerStore.getState().setVolume(0.5);
+  player.setVolume(0.5);
+  await Bun.sleep(10);
   expect(listener).not.toHaveBeenCalled();
 
   unsubscribe();
-  useMediaPlayerStore.getState().updateCurrentTime(9);
+  player.updateCurrentTime(9);
+  await Bun.sleep(10);
   expect(listener).not.toHaveBeenCalled();
 });
 
 test("play/pause/seek warn until registerActions, then delegate", () => {
-  const port = makePlayerPort();
+  const { port } = makeIsolatedPort();
   const warn = spyOn(console, "warn").mockImplementation(() => undefined);
 
   void port.play();

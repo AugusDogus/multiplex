@@ -9,7 +9,7 @@ import {
   toPlayableMetadata,
   type ContinueWatchingItemWithServer,
 } from "@multiplex/plex-query";
-import { useMediaPlayerStore } from "~/stores/media-player-store";
+import { playerCommands } from "~/lib/effect/player-atoms";
 import { useProgressStore } from "~/stores/progress-store";
 import { ContinueWatchingDrawer } from "~/components/continue-watching-drawer";
 import { MediaCarousel } from "~/components/media-carousel";
@@ -149,7 +149,6 @@ interface ContinueWatchingItemProps {
 
 function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
   const itemDetailsNavigation = useItemDetailsNavigation();
-  const openPlayer = useMediaPlayerStore((state) => state.openPlayer);
   const getItemProgress = useProgressStore((state) => state.getItemProgress);
   const updateItemProgress = useProgressStore(
     (state) => state.updateItemProgress,
@@ -183,7 +182,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
       return;
     }
 
-    openPlayer(
+    playerCommands.openPlayer(
       createMediaPlayerItem(playable, {
         serverId: item.serverId,
         serverUrl: item.serverUrl,
@@ -211,7 +210,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
     });
 
     setIsDrawerOpen(false);
-    openPlayer(
+    playerCommands.openPlayer(
       createMediaPlayerItem(
         { ...playable, viewOffset: 0 },
         {

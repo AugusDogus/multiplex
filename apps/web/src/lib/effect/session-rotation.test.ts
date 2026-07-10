@@ -11,9 +11,9 @@ import {
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { TestClock } from "effect/testing";
 
-import { useMediaPlayerStore } from "~/stores/media-player-store";
 import type { MediaPlayerItem, NextEpisodeInfo } from "~/types/media-player";
 
+import { playerCommands } from "./player-atoms";
 import {
   PlayerPort,
   type PlayerPortShape,
@@ -241,7 +241,7 @@ const makeStubApi = (overrides?: {
 };
 
 beforeEach(() => {
-  useMediaPlayerStore.getState().closePlayer();
+  playerCommands.closePlayer();
 });
 
 const withRotationSession = async <A>(

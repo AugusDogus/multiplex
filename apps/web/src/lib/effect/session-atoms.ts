@@ -2,10 +2,11 @@
 
 import type { SessionState } from "@multiplex/plex-query";
 import { useAtomValue } from "@effect/atom-react";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Effect } from "effect";
 import * as Atom from "effect/unstable/reactivity/Atom";
 
 import { PlayerPort, type PlayerActions } from "./player-port";
+import { sessionRuntime } from "./runtime";
 import {
   WatchTogetherSession,
   type EnterLobbyInput,
@@ -16,7 +17,6 @@ import {
   type SwapToInput,
   type WatchTogetherSessionShape,
 } from "./session-service";
-import { WatchTogetherApi } from "./watch-together-api";
 
 /**
  * App-lifetime Effect runtime for Watch Together session orchestration.
@@ -28,13 +28,12 @@ import { WatchTogetherApi } from "./watch-together-api";
  * `SubscriptionRef<SessionState>` (not the stream-atom /
  * `useSyncExternalStore` fallbacks). Values reach React via
  * `useAtomValue(sessionStateAtom)`.
+ *
+ * Runtime composition (PlayerService + PlayerPort + session + API) lives in
+ * {@link ./runtime} so {@link ./player-atoms} shares the same graph without a
+ * circular import.
  */
-const sessionLayer = WatchTogetherSession.Default.pipe(
-  Layer.provideMerge(PlayerPort.Default),
-  Layer.provideMerge(WatchTogetherApi.Default),
-);
-
-export const sessionRuntime = ManagedRuntime.make(sessionLayer);
+export { sessionRuntime };
 
 const session: WatchTogetherSessionShape = sessionRuntime.runSync(
   Effect.gen(function* () {

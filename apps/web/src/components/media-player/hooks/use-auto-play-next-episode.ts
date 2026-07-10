@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo } from "react";
 import type { PlayQueueItem } from "@multiplex/plex-query";
-import { useMediaPlayerStore } from "~/stores/media-player-store";
+import { playerCommands, usePlayerState } from "~/lib/effect/player-atoms";
 import type { NextEpisodeInfo } from "~/types/media-player";
 import { api } from "~/trpc/react";
 
@@ -18,21 +18,14 @@ import { api } from "~/trpc/react";
  */
 export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
   const { enabled = true } = options;
-  const currentItem = useMediaPlayerStore((state) => state.currentItem);
-  const currentTime = useMediaPlayerStore((state) => state.currentTime);
-  const duration = useMediaPlayerStore((state) => state.duration);
-  const isPlaying = useMediaPlayerStore((state) => state.isPlaying);
-  const playQueue = useMediaPlayerStore((state) => state.playQueue);
-  const playQueueId = useMediaPlayerStore((state) => state.playQueueId);
-  const autoPlay = useMediaPlayerStore((state) => state.autoPlay);
-
-  const {
-    cancelAutoPlay,
-    startAutoPlayCountdown,
-    triggerAutoPlay,
-    updatePlaybackState,
-    updateCountdownSeconds,
-  } = useMediaPlayerStore();
+  const player = usePlayerState();
+  const currentItem = player.currentItem;
+  const currentTime = player.currentTime;
+  const duration = player.duration;
+  const isPlaying = player.isPlaying;
+  const playQueue = player.playQueue;
+  const playQueueId = player.playQueueId;
+  const autoPlay = player.autoPlay;
 
   // Poll for play queue updates when we have a play queue ID
   const { data: updatedPlayQueue } = api.plex.getPlayQueue.useQuery(
@@ -60,17 +53,12 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
       );
       const markers = currentItemInQueue?.Marker ?? [];
 
-      updatePlaybackState({
+      playerCommands.updatePlaybackState({
         playQueue: updatedPlayQueue,
         markers,
       });
     }
-  }, [
-    updatedPlayQueue,
-    playQueueId,
-    currentItem?.ratingKey,
-    updatePlaybackState,
-  ]);
+  }, [updatedPlayQueue, playQueueId, currentItem?.ratingKey]);
 
   // Use the most recent play queue data (either from state or polling)
   const activePlayQueue = updatedPlayQueue ?? playQueue;
@@ -119,7 +107,7 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
   useEffect(() => {
     if (!enabled) {
       if (autoPlay.isCountingDown || autoPlay.nextEpisode) {
-        cancelAutoPlay();
+        playerCommands.cancelAutoPlay();
       }
       return;
     }
@@ -155,14 +143,14 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
 
     if (isAtVeryEnd) {
       // At the very end - immediately play next episode (no countdown for skip/seek to end)
-      triggerAutoPlay(nextEpisode);
+      playerCommands.triggerAutoPlay(nextEpisode);
     } else if (isNearEndAndPlaying) {
       // Start countdown when we're in the last 5 seconds while playing
       if (!autoPlay.isCountingDown) {
-        startAutoPlayCountdown(nextEpisode);
+        playerCommands.startAutoPlayCountdown(nextEpisode);
       }
       // Update countdown seconds based on actual time remaining
-      updateCountdownSeconds(timeRemaining);
+      playerCommands.updateCountdownSeconds(timeRemaining);
     }
   }, [
     isPlaying,
@@ -173,10 +161,6 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
     autoPlay.isEnabled,
     autoPlay.isCountingDown,
     autoPlay.nextEpisode,
-    cancelAutoPlay,
-    startAutoPlayCountdown,
-    triggerAutoPlay,
-    updateCountdownSeconds,
   ]);
 
   return {

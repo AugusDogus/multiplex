@@ -24,7 +24,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
-import { useMediaPlayerStore } from "~/stores/media-player-store";
+import { playerCommands, usePlayerState } from "~/lib/effect/player-atoms";
 import { api } from "~/trpc/react";
 
 import { AddToPlaylistDialog } from "./add-to-playlist-dialog";
@@ -284,11 +284,7 @@ function HeroActions({
   playButtonClassName,
 }: HeroActionsProps) {
   const utils = api.useUtils();
-  const currentPlayerItem = useMediaPlayerStore((state) => state.currentItem);
-  const playQueueId = useMediaPlayerStore((state) => state.playQueueId);
-  const updatePlaybackState = useMediaPlayerStore(
-    (state) => state.updatePlaybackState,
-  );
+  const { currentItem: currentPlayerItem, playQueueId } = usePlayerState();
   const itemWatched = getItemWatchedState(item);
   const [confirmedWatchedOverride, setConfirmedWatchedOverride] = useState<{
     ratingKey: string;
@@ -356,7 +352,7 @@ function HeroActions({
 
   const updatePlayQueueMutation = api.plex.updatePlayQueue.useMutation({
     onSuccess: (playQueue, variables) => {
-      updatePlaybackState({
+      playerCommands.updatePlaybackState({
         playQueue,
         playQueueId: playQueue.MediaContainer.playQueueID.toString(),
       });

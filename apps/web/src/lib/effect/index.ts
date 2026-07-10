@@ -17,6 +17,31 @@ export {
 } from "./player-port";
 
 export {
+  createPlayerService,
+  getBufferedPercent,
+  getFormattedCurrentTime,
+  getFormattedDuration,
+  getIsReady,
+  getPlayerStatus,
+  getProgressPercent,
+  initialPlayerState,
+  makePlayerService,
+  PlayerService,
+  type PlayerPlaybackUpdate,
+  type PlayerServiceShape,
+  type PlayerState,
+} from "./player-service";
+
+export {
+  playerCommands,
+  playerStateAtom,
+  usePlayerPlaybackState,
+  usePlayerState,
+  usePlayerStateSelector,
+  type PlayerViewState,
+} from "./player-atoms";
+
+export {
   makeWatchTogetherSession,
   WatchTogetherSession,
   type EnterLobbyInput,
@@ -39,5 +64,7 @@ export {
   sessionStateAtom,
   useSessionState,
 } from "./session-atoms";
+
+export { appEffectLayer } from "./runtime";
 
 export { EffectRegistryProvider } from "./registry-provider";

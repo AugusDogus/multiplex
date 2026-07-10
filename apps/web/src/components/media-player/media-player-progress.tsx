@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useMediaPlayerStore } from "~/stores/media-player-store";
+import { usePlayerState } from "~/lib/effect/player-atoms";
 import { clamp } from "./utils/media-player-utils";
 import { formatTime } from "./utils/playback-time-utils";
 
@@ -40,11 +40,10 @@ export function MediaPlayerProgress({
   disabled = false,
   className = "",
 }: MediaPlayerProgressProps) {
-  const currentTimeFromStore = useMediaPlayerStore(
-    (state) => state.currentTime,
-  );
-  const durationFromStore = useMediaPlayerStore((state) => state.duration);
-  const bufferedTime = useMediaPlayerStore((state) => state.bufferedTime);
+  const player = usePlayerState();
+  const currentTimeFromStore = player.currentTime;
+  const durationFromStore = player.duration;
+  const bufferedTime = player.bufferedTime;
 
   // Compute values locally to avoid object reference issues
   const progressPercent =

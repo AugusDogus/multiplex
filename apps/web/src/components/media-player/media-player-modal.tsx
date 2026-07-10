@@ -9,7 +9,7 @@ import {
   useState,
   type PointerEvent,
 } from "react";
-import { useMediaPlayerStore } from "~/stores/media-player-store";
+import { playerCommands, usePlayerState } from "~/lib/effect/player-atoms";
 import { Button } from "~/components/ui/button";
 import {
   Dialog,
@@ -55,19 +55,24 @@ const MOBILE_CONTROLS_HIDE_DELAY_MS = 3000;
 const SEEK_SECONDS = 10;
 
 export function MediaPlayerModal() {
-  const isOpen = useMediaPlayerStore((state) => state.isOpen);
-  const currentItem = useMediaPlayerStore((state) => state.currentItem);
-  const showControls = useMediaPlayerStore((state) => state.showControls);
-  const markers = useMediaPlayerStore((state) => state.markers);
-  const isLoading = useMediaPlayerStore((state) => state.isLoading);
-  const error = useMediaPlayerStore((state) => state.error);
-  const isPlaying = useMediaPlayerStore((state) => state.isPlaying);
-  const canPlay = useMediaPlayerStore((state) => state.canPlay);
-  const currentTime = useMediaPlayerStore((state) => state.currentTime);
-  const duration = useMediaPlayerStore((state) => state.duration);
-  const volume = useMediaPlayerStore((state) => state.volume);
+  const {
+    isOpen,
+    currentItem,
+    showControls,
+    markers,
+    isLoading,
+    error,
+    isPlaying,
+    canPlay,
+    currentTime,
+    duration,
+    volume,
+    streamOffset,
+    streamSessionId,
+  } = usePlayerState();
 
-  const { closePlayer, updatePlaybackState } = useMediaPlayerStore();
+  const closePlayer = playerCommands.closePlayer;
+  const updatePlaybackState = playerCommands.updatePlaybackState;
   const { actions, videoRef } = useMediaPlayer();
   const seekFeedbackRef = useRef<MediaPlayerSeekFeedbackHandle>(null);
   const isMobile = useIsMobile();
@@ -235,8 +240,6 @@ export function MediaPlayerModal() {
   // Report those reload-seeks to Syncplay here so they propagate to the room.
   // (Remote-applied reload-seeks are filtered out by the session controller's
   // own suppression, so this doesn't echo them back.)
-  const streamOffset = useMediaPlayerStore((state) => state.streamOffset);
-  const streamSessionId = useMediaPlayerStore((state) => state.streamSessionId);
   const streamServerUrl = currentItem?.serverUrl;
   const streamAuthToken = currentItem?.authToken;
 

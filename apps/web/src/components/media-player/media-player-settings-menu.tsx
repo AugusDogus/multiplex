@@ -9,7 +9,7 @@ import { Popover as PopoverPrimitive } from "radix-ui";
 import { useEffect, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
-import { useMediaPlayerStore } from "~/stores/media-player-store";
+import { playerCommands, usePlayerState } from "~/lib/effect/player-atoms";
 import { api } from "~/trpc/react";
 import type { MediaPlayerItem, PlaybackRate } from "~/types/media-player";
 import { CAPTION_SIZE_OPTIONS } from "./utils/caption-size";
@@ -56,18 +56,16 @@ export function MediaPlayerSettingsMenu({
   isWatchTogetherActive = false,
   onOpenChange,
 }: MediaPlayerSettingsMenuProps) {
-  const currentItem = useMediaPlayerStore((state) => state.currentItem);
-  const playbackRate = useMediaPlayerStore((state) => state.playbackRate);
-  const captionSize = useMediaPlayerStore((state) => state.captionSize);
-  const autoPlayEnabled = useMediaPlayerStore(
-    (state) => state.autoPlay.isEnabled,
-  );
   const {
-    setAutoPlayEnabled,
-    setPlaybackRate,
-    setCaptionSize,
-    applyPlaybackMetadata,
-  } = useMediaPlayerStore();
+    currentItem,
+    playbackRate,
+    captionSize,
+    autoPlay: { isEnabled: autoPlayEnabled },
+  } = usePlayerState();
+  const setAutoPlayEnabled = playerCommands.setAutoPlayEnabled;
+  const setPlaybackRate = playerCommands.setPlaybackRate;
+  const setCaptionSize = playerCommands.setCaptionSize;
+  const applyPlaybackMetadata = playerCommands.applyPlaybackMetadata;
 
   const [open, setOpen] = useState(false);
   const [pane, setPane] = useState<Pane>("root");
@@ -104,7 +102,7 @@ export function MediaPlayerSettingsMenu({
   // retrigger this effect and cause an update loop.
   useEffect(() => {
     if (!detailedItem) return;
-    const item = useMediaPlayerStore.getState().currentItem;
+    const item = playerCommands.snapshot().currentItem;
     if (!item || item.ratingKey !== detailedItem.ratingKey) return;
     applyPlaybackMetadata(detailedItem);
   }, [detailedItem, applyPlaybackMetadata]);

@@ -8,11 +8,10 @@ import {
   type ItemMetadata,
 } from "@multiplex/plex-query";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
-import { useMediaPlayerStore } from "~/stores/media-player-store";
+import { playerCommands } from "~/lib/effect/player-atoms";
 import { api } from "~/trpc/react";
 
 export function useHubItemPlayback(item: HubItemWithServer | undefined) {
-  const openPlayer = useMediaPlayerStore((state) => state.openPlayer);
   const utils = api.useUtils();
 
   const canPlay = Boolean(
@@ -35,7 +34,9 @@ export function useHubItemPlayback(item: HubItemWithServer | undefined) {
 
     const inlinePlayable = toPlayableMetadata(item as unknown as ItemMetadata);
     if (inlinePlayable) {
-      openPlayer(createMediaPlayerItem(inlinePlayable, playback));
+      playerCommands.openPlayer(
+        createMediaPlayerItem(inlinePlayable, playback),
+      );
       return;
     }
 
@@ -45,9 +46,11 @@ export function useHubItemPlayback(item: HubItemWithServer | undefined) {
     });
 
     if (details?.playTarget) {
-      openPlayer(createMediaPlayerItem(details.playTarget, playback));
+      playerCommands.openPlayer(
+        createMediaPlayerItem(details.playTarget, playback),
+      );
     }
-  }, [item, openPlayer, utils]);
+  }, [item, utils]);
 
   return { canPlay, play };
 }

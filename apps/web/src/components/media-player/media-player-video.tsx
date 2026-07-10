@@ -12,7 +12,8 @@ import {
 } from "react";
 import type { MouseEvent, PointerEvent, RefObject } from "react";
 import { cn } from "~/lib/utils";
-import { useMediaPlayerStore } from "~/stores/media-player-store";
+import { playerCommands, usePlayerState } from "~/lib/effect/player-atoms";
+import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import type { MediaPlayerItem } from "~/types/media-player";
 import { useCaptionLines } from "./hooks/use-caption-lines";
 import { usePlexSubtitleTrack } from "./hooks/use-plex-subtitle-track";
@@ -144,19 +145,19 @@ export const MediaPlayerVideo = forwardRef<
     },
     ref,
   ) => {
-    const volume = useMediaPlayerStore((state) => state.volume);
-    const isMuted = useMediaPlayerStore((state) => state.isMuted);
-    const playbackRate = useMediaPlayerStore((state) => state.playbackRate);
-    const streamOffset = useMediaPlayerStore((state) => state.streamOffset);
-    const streamSessionId = useMediaPlayerStore(
-      (state) => state.streamSessionId,
-    );
+    const {
+      volume,
+      isMuted,
+      playbackRate,
+      streamOffset,
+      streamSessionId,
+      isLoading,
+      showControls,
+      captionSize,
+    } = usePlayerState();
+    const updatePlaybackState = playerCommands.updatePlaybackState;
     const playbackPlan = useMemo(() => buildPlexPlaybackPlan(item), [item]);
     const usesOffsetTimeline = streamOffset > 0;
-    const isLoading = useMediaPlayerStore((state) => state.isLoading);
-    const showControls = useMediaPlayerStore((state) => state.showControls);
-    const captionSize = useMediaPlayerStore((state) => state.captionSize);
-    const { updatePlaybackState } = useMediaPlayerStore();
     const videoElementRef = useRef<HTMLVideoElement | null>(null);
     const surfaceElementRef = useRef<HTMLDivElement | null>(null);
     const { plexSubtitleTrackSrc, handlePlexTrackLoad, captionTrack } =
@@ -394,12 +395,13 @@ export const MediaPlayerVideo = forwardRef<
     // Handle volume change event
     const handleVolumeChange = useCallback(() => {
       if (ref && "current" in ref && ref.current) {
-        updatePlaybackState({
+        // Volume / mute live in the persisted prefs store, not PlayerService.
+        usePlayerPrefsStore.setState({
           volume: ref.current.volume,
           isMuted: ref.current.muted,
         });
       }
-    }, [ref, updatePlaybackState]);
+    }, [ref]);
 
     // Handle stalled event
     const handleStalled = useCallback(() => {

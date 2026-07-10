@@ -2,7 +2,12 @@
 
 import { useCallback, useRef } from "react";
 import type { Marker } from "@multiplex/plex-query";
-import { useMediaPlayerStore } from "~/stores/media-player-store";
+import {
+  playerCommands,
+  usePlayerState,
+  type PlayerViewState,
+} from "~/lib/effect/player-atoms";
+import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import type {
   MediaPlayerActions,
   MediaPlayerSeekResult,
@@ -15,7 +20,7 @@ import { clamp, supportsFullscreen } from "../utils/media-player-utils";
    ──────────────────────────────────────────────────────────── */
 
 export function useMediaPlayer(): {
-  state: ReturnType<typeof useMediaPlayerStore>;
+  state: PlayerViewState;
   actions: MediaPlayerActions & {
     skipForward: (seconds?: number) => void;
     skipBackward: (seconds?: number) => void;
@@ -25,7 +30,7 @@ export function useMediaPlayer(): {
   };
   videoRef: React.RefObject<HTMLVideoElement | null>;
 } {
-  const store = useMediaPlayerStore();
+  const state = usePlayerState();
   const videoRef = useRef<HTMLVideoElement>(null);
 
   /**
@@ -37,13 +42,11 @@ export function useMediaPlayer(): {
       try {
         await videoRef.current.play();
         console.log("🎬 Player: video.play() succeeded");
-        useMediaPlayerStore
-          .getState()
-          .updatePlaybackState({ error: null, isPlaying: true });
+        playerCommands.updatePlaybackState({ error: null, isPlaying: true });
         return true;
       } catch (error) {
         console.error("🎬 Player: video.play() failed:", error);
-        useMediaPlayerStore.getState().updatePlaybackState({
+        playerCommands.updatePlaybackState({
           error: "Failed to start video playback",
           isPlaying: false,
         });
@@ -61,7 +64,7 @@ export function useMediaPlayer(): {
     console.log("🎬 Player: pause() called");
     if (videoRef.current) {
       videoRef.current.pause();
-      useMediaPlayerStore.getState().updatePlaybackState({ isPlaying: false });
+      playerCommands.updatePlaybackState({ isPlaying: false });
     }
   }, []);
 
@@ -69,7 +72,7 @@ export function useMediaPlayer(): {
    * Toggle play/pause state
    */
   const togglePlay = useCallback(() => {
-    if (useMediaPlayerStore.getState().isPlaying) {
+    if (playerCommands.snapshot().isPlaying) {
       pause();
     } else {
       void play();
@@ -82,11 +85,7 @@ export function useMediaPlayer(): {
    */
   const seek = useCallback((time: number): MediaPlayerSeekResult => {
     if (videoRef.current) {
-      const clampedTime = clamp(
-        time,
-        0,
-        useMediaPlayerStore.getState().duration,
-      );
+      const clampedTime = clamp(time, 0, playerCommands.snapshot().duration);
       // Plex's transcoded MP4 stream advertises an empty seekable range, so
       // assigning `video.currentTime` is silently rejected. For those we
       // seek by reloading the stream with a new `offset` instead.
@@ -94,7 +93,7 @@ export function useMediaPlayer(): {
         "/video/:/transcode/universal/",
       );
       if (isTranscoded) {
-        useMediaPlayerStore.getState().updatePlaybackState({
+        playerCommands.updatePlaybackState({
           streamOffset: clampedTime,
           currentTime: clampedTime,
           isLoading: true,
@@ -103,9 +102,7 @@ export function useMediaPlayer(): {
         return "reload";
       }
       videoRef.current.currentTime = clampedTime;
-      useMediaPlayerStore
-        .getState()
-        .updatePlaybackState({ currentTime: clampedTime });
+      playerCommands.updatePlaybackState({ currentTime: clampedTime });
       return "direct";
     }
 
@@ -120,7 +117,7 @@ export function useMediaPlayer(): {
     if (videoRef.current) {
       const clampedVolume = clamp(volume, 0, 1);
       videoRef.current.volume = clampedVolume;
-      useMediaPlayerStore.getState().setVolume(clampedVolume);
+      playerCommands.setVolume(clampedVolume);
     }
   }, []);
 
@@ -129,9 +126,9 @@ export function useMediaPlayer(): {
    */
   const toggleMute = useCallback(() => {
     if (videoRef.current) {
-      const newMuted = !useMediaPlayerStore.getState().isMuted;
+      const newMuted = !usePlayerPrefsStore.getState().isMuted;
       videoRef.current.muted = newMuted;
-      useMediaPlayerStore.getState().toggleMute();
+      playerCommands.toggleMute();
     }
   }, []);
 
@@ -146,18 +143,12 @@ export function useMediaPlayer(): {
 
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().then(
-        () =>
-          useMediaPlayerStore
-            .getState()
-            .updatePlaybackState({ isFullscreen: true }),
+        () => playerCommands.updatePlaybackState({ isFullscreen: true }),
         (error) => console.error("Fullscreen request failed:", error),
       );
     } else {
       document.exitFullscreen().then(
-        () =>
-          useMediaPlayerStore
-            .getState()
-            .updatePlaybackState({ isFullscreen: false }),
+        () => playerCommands.updatePlaybackState({ isFullscreen: false }),
         (error) => console.error("Exit fullscreen failed:", error),
       );
     }
@@ -167,7 +158,7 @@ export function useMediaPlayer(): {
    * Show controls temporarily and set timeout to hide them
    */
   const showControlsTemporarily = useCallback(() => {
-    useMediaPlayerStore.getState().showControlsTemporarily();
+    playerCommands.showControlsTemporarily();
   }, []);
 
   /**
@@ -176,7 +167,7 @@ export function useMediaPlayer(): {
    */
   const skipForward = useCallback(
     (seconds = 10) => {
-      const { currentTime, duration } = useMediaPlayerStore.getState();
+      const { currentTime, duration } = playerCommands.snapshot();
       const newTime = Math.min(currentTime + seconds, duration);
       seek(newTime);
     },
@@ -190,7 +181,7 @@ export function useMediaPlayer(): {
   const skipBackward = useCallback(
     (seconds = 10) => {
       const newTime = Math.max(
-        useMediaPlayerStore.getState().currentTime - seconds,
+        playerCommands.snapshot().currentTime - seconds,
         0,
       );
       seek(newTime);
@@ -209,7 +200,7 @@ export function useMediaPlayer(): {
    * Jump to the end of the video
    */
   const jumpToEnd = useCallback(() => {
-    seek(useMediaPlayerStore.getState().duration);
+    seek(playerCommands.snapshot().duration);
   }, [seek]);
 
   /**
@@ -224,9 +215,9 @@ export function useMediaPlayer(): {
     [seek],
   );
 
-  // Placeholder for openPlayer - this is handled by the store directly
+  // Placeholder for openPlayer - this is handled by playerCommands directly
   const openPlayer = useCallback(() => {
-    console.warn("openPlayer should be called via store.openPlayer");
+    console.warn("openPlayer should be called via playerCommands.openPlayer");
   }, []);
 
   const actions: MediaPlayerActions = {
@@ -239,7 +230,7 @@ export function useMediaPlayer(): {
     toggleFullscreen,
     showControlsTemporarily,
     openPlayer,
-    closePlayer: store.closePlayer,
+    closePlayer: playerCommands.closePlayer,
   };
 
   // Extended actions for internal use
@@ -253,7 +244,7 @@ export function useMediaPlayer(): {
   };
 
   return {
-    state: store,
+    state,
     actions: extendedActions,
     videoRef,
   };

@@ -3,7 +3,7 @@
 import type { PlayableMetadata } from "@multiplex/plex-query";
 
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
-import { useMediaPlayerStore } from "~/stores/media-player-store";
+import { playerCommands } from "~/lib/effect/player-atoms";
 
 import { CastGrid } from "./cast-grid";
 import { DetailsHero } from "./details-hero";
@@ -13,7 +13,6 @@ import { TechnicalDetails } from "./technical-details";
 import type { MediaItemDetailsProps } from "./types";
 
 export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
-  const openPlayer = useMediaPlayerStore((state) => state.openPlayer);
   const {
     item,
     children,
@@ -29,7 +28,7 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
       return;
     }
 
-    openPlayer(
+    playerCommands.openPlayer(
       createMediaPlayerItem(source, {
         serverId,
         serverUrl,

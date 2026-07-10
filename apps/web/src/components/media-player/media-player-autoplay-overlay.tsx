@@ -2,7 +2,7 @@
 
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
-import { useMediaPlayerStore } from "~/stores/media-player-store";
+import { playerCommands } from "~/lib/effect/player-atoms";
 import type { NextEpisodeInfo } from "~/types/media-player";
 import { PLAYER_OVERLAY_BOTTOM_COMPACT_CONTROLS } from "./utils/player-overlay-layout";
 
@@ -33,18 +33,16 @@ export function MediaPlayerAutoPlayOverlay({
   nextEpisode,
   showActions = true,
 }: MediaPlayerAutoPlayOverlayProps) {
-  const { cancelAutoPlay, triggerAutoPlay } = useMediaPlayerStore();
-
   if (!isCountingDown || !nextEpisode) {
     return null;
   }
 
   const handlePlayNow = () => {
-    triggerAutoPlay(nextEpisode);
+    playerCommands.triggerAutoPlay(nextEpisode);
   };
 
   const handleCancel = () => {
-    cancelAutoPlay();
+    playerCommands.cancelAutoPlay();
   };
 
   return (

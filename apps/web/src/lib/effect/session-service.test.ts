@@ -23,6 +23,7 @@ import {
   PlayerPort,
   type PlayerPortShape,
 } from "./player-port";
+import { createPlayerService } from "./player-service";
 import {
   makeWatchTogetherSession,
   WatchTogetherSession,
@@ -137,7 +138,7 @@ const makeStubPlayer = (): PlayerPortShape & {
   loads: Array<{ item: MediaPlayerItem; opts: unknown }>;
 } => {
   const loads: Array<{ item: MediaPlayerItem; opts: unknown }> = [];
-  const base = makePlayerPort();
+  const base = makePlayerPort(createPlayerService());
   return {
     ...base,
     loads,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useMediaPlayerStore } from "~/stores/media-player-store";
+import { playerCommands } from "~/lib/effect/player-atoms";
 import type { MediaPlayerItem } from "~/types/media-player";
 import { api } from "~/trpc/react";
 
@@ -16,7 +16,6 @@ import { api } from "~/trpc/react";
  * @returns Play queue management functions and data
  */
 export function usePlayQueue(item: MediaPlayerItem | null) {
-  const { updatePlaybackState } = useMediaPlayerStore();
   const lastItemRef = useRef<string | null>(null);
 
   // Create play queue mutation
@@ -28,7 +27,7 @@ export function usePlayQueue(item: MediaPlayerItem | null) {
       const markers = playQueue.MediaContainer.Metadata?.[0]?.Marker ?? [];
 
       // Update media player state with play queue data
-      updatePlaybackState({
+      playerCommands.updatePlaybackState({
         playQueue,
         playQueueId: playQueue.MediaContainer.playQueueID.toString(),
         markers,
@@ -37,7 +36,7 @@ export function usePlayQueue(item: MediaPlayerItem | null) {
     onError: (error: unknown) => {
       console.error("Failed to create play queue:", error);
       // Continue playback without markers on error
-      updatePlaybackState({
+      playerCommands.updatePlaybackState({
         playQueue: null,
         playQueueId: null,
         markers: [],
@@ -80,13 +79,13 @@ export function usePlayQueue(item: MediaPlayerItem | null) {
       });
     } else {
       // Clear play queue state if no valid item
-      updatePlaybackState({
+      playerCommands.updatePlaybackState({
         playQueue: null,
         playQueueId: null,
         markers: [],
       });
     }
-  }, [item, createPlayQueueMutation, updatePlaybackState]);
+  }, [item, createPlayQueueMutation]);
 
   return {
     isCreating: createPlayQueueMutation.isPending,

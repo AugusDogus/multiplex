@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, type RefObject } from "react";
-import { useMediaPlayerStore } from "~/stores/media-player-store";
+import { playerCommands } from "~/lib/effect/player-atoms";
 
 const RESUME_SEEK_TOLERANCE_SEC = 0.5;
 
@@ -41,7 +41,7 @@ export function useResumePlayback({
   );
 
   const captureResumeTimeOnLoadStart = useCallback(() => {
-    const storeCurrentTime = useMediaPlayerStore.getState().currentTime;
+    const storeCurrentTime = playerCommands.snapshot().currentTime;
     if (!usesOffsetTimeline && storeCurrentTime > 0) {
       pendingResumeTimeRef.current = storeCurrentTime;
     }
@@ -49,7 +49,7 @@ export function useResumePlayback({
 
   const applyResumeSeekOnMetadata = useCallback(
     (video: HTMLVideoElement) => {
-      const storeCurrentTime = useMediaPlayerStore.getState().currentTime;
+      const storeCurrentTime = playerCommands.snapshot().currentTime;
       const startTime = pendingResumeTimeRef.current ?? storeCurrentTime;
       const needsResumeSeek = !usesOffsetTimeline && startTime > 0;
 

@@ -6,7 +6,7 @@ import { rotationCountdown } from "@multiplex/plex-query";
 
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
 import { getWatchTogetherRoomHref } from "~/lib/watch-together-source";
-import { useMediaPlayerStore } from "~/stores/media-player-store";
+import { usePlayerState } from "~/lib/effect/player-atoms";
 import type { NextEpisodeInfo } from "~/types/media-player";
 
 interface UseWatchTogetherRotationOptions {
@@ -27,11 +27,10 @@ export function useWatchTogetherRotation({
   nextEpisode,
 }: UseWatchTogetherRotationOptions) {
   const sessionState = useSessionState();
-  const currentTime = useMediaPlayerStore((state) => state.currentTime);
-  const duration = useMediaPlayerStore((state) => state.duration);
-  const autoPlayEnabled = useMediaPlayerStore(
-    (state) => state.autoPlay.isEnabled,
-  );
+  const player = usePlayerState();
+  const currentTime = player.currentTime;
+  const duration = player.duration;
+  const autoPlayEnabled = player.autoPlay.isEnabled;
   const router = useRouter();
 
   const playing =

@@ -1,8 +1,12 @@
 "use client";
 
-import { Context, Layer } from "effect";
+import { Context, Effect, Fiber, Layer, Stream } from "effect";
 
-import { useMediaPlayerStore } from "~/stores/media-player-store";
+import {
+  PlayerService,
+  type PlayerServiceShape,
+  type PlayerState,
+} from "./player-service";
 import type {
   MediaPlayerItem,
   MediaPlayerSeekResult,
@@ -51,17 +55,14 @@ export type PlayerPortShape = {
   readonly seek: (seconds: number) => MediaPlayerSeekResult;
 };
 
-const readSnapshot = (): PlayerSnapshot => {
-  const state = useMediaPlayerStore.getState();
-  return {
-    isPlaying: state.isPlaying,
-    currentTimeSeconds: state.currentTime,
-    durationSeconds: state.duration,
-    canPlay: state.canPlay,
-    isLoading: state.isLoading,
-    error: state.error,
-  };
-};
+const toSnapshot = (state: PlayerState): PlayerSnapshot => ({
+  isPlaying: state.isPlaying,
+  currentTimeSeconds: state.currentTime,
+  durationSeconds: state.duration,
+  canPlay: state.canPlay,
+  isLoading: state.isLoading,
+  error: state.error,
+});
 
 const snapshotsEqual = (a: PlayerSnapshot, b: PlayerSnapshot): boolean =>
   a.isPlaying === b.isPlaying &&
@@ -72,12 +73,12 @@ const snapshotsEqual = (a: PlayerSnapshot, b: PlayerSnapshot): boolean =>
   a.error === b.error;
 
 /**
- * TODO(wave-2): play/pause/seek currently live on the video element via React
- * hooks (`useMediaPlayerActions` etc.). Register them through
- * `registerActions` once the session service needs to command playback; until
- * then those methods warn and no-op.
+ * Imperative player boundary over {@link PlayerService}.
+ *
+ * Effect v4 (`4.0.0-beta.59`) uses `Context.Service` + `Layer.effect`
+ * (no `Effect.Service` / auto-`Default` in this beta).
  */
-export const makePlayerPort = (): PlayerPortShape => {
+export const makePlayerPort = (player: PlayerServiceShape): PlayerPortShape => {
   let actions: PlayerActions | null = null;
 
   const warnUnregistered = (method: "play" | "pause" | "seek"): void => {
@@ -88,24 +89,32 @@ export const makePlayerPort = (): PlayerPortShape => {
 
   return {
     load: (item, opts) => {
-      useMediaPlayerStore.getState().openPlayer(item, {
+      player.openPlayer(item, {
         resume: opts.resume,
         startPositionSeconds: opts.startPositionSeconds,
       });
     },
     close: () => {
-      useMediaPlayerStore.getState().closePlayer();
+      player.closePlayer();
     },
-    snapshot: readSnapshot,
-    currentItem: () => useMediaPlayerStore.getState().currentItem,
+    snapshot: () => toSnapshot(player.snapshot()),
+    currentItem: () => player.snapshot().currentItem,
     subscribe: (listener) => {
-      let previous = readSnapshot();
-      return useMediaPlayerStore.subscribe(() => {
-        const next = readSnapshot();
-        if (snapshotsEqual(previous, next)) return;
-        previous = next;
-        listener(next);
-      });
+      let previous = toSnapshot(player.snapshot());
+      // SubscriptionRef.changes is a module function in v4 beta.59.
+      const fiber = Effect.runFork(
+        Stream.runForEach(player.changes, (state) =>
+          Effect.sync(() => {
+            const next = toSnapshot(state);
+            if (snapshotsEqual(previous, next)) return;
+            previous = next;
+            listener(next);
+          }),
+        ),
+      );
+      return () => {
+        Effect.runFork(Fiber.interrupt(fiber));
+      };
     },
     registerActions: (next) => {
       actions = next;
@@ -136,14 +145,13 @@ export const makePlayerPort = (): PlayerPortShape => {
   };
 };
 
-/**
- * Imperative player boundary over the Zustand media-player store.
- *
- * Effect v4 (`4.0.0-beta.59`) uses `Context.Service` + `Layer.succeed` /
- * `Layer.sync` (no `Effect.Service` / auto-`Default` in this beta).
- */
 export class PlayerPort extends Context.Service<PlayerPort, PlayerPortShape>()(
   "PlayerPort",
 ) {
-  static readonly Default = Layer.sync(PlayerPort, makePlayerPort);
+  static readonly Default = Layer.effect(PlayerPort)(
+    Effect.gen(function* () {
+      const player = yield* PlayerService;
+      return makePlayerPort(player);
+    }),
+  );
 }
