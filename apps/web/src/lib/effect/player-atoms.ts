@@ -16,6 +16,7 @@ import type {
 
 import {
   PlayerService,
+  type PlayerPlaybackIdentity,
   type PlayerPlaybackUpdate,
   type PlayerServiceShape,
   type PlayerState,
@@ -115,9 +116,16 @@ export const playerCommands = {
   closePlayer: (): void => {
     runPlayer((p) => p.closePlayer());
   },
+  playbackIdentity: (): PlayerPlaybackIdentity | null =>
+    runPlayer((p) => p.playbackIdentity()),
+  /** Item-scoped async callers must use `updatePlaybackStateFor`. */
   updatePlaybackState: (updates: PlayerPlaybackUpdate): void => {
     runPlayer((p) => p.updatePlaybackState(updates));
   },
+  updatePlaybackStateFor: (
+    expected: PlayerPlaybackIdentity,
+    updates: PlayerPlaybackUpdate,
+  ): boolean => runPlayer((p) => p.updatePlaybackStateFor(expected, updates)),
   updateCurrentTime: (time: number): void => {
     runPlayer((p) => p.updateCurrentTime(time));
   },
@@ -128,6 +136,7 @@ export const playerCommands = {
     runPlayer((p) => p.updateBufferedTime(bufferedTime));
   },
   applyPlaybackMetadata: (
+    expected: PlayerPlaybackIdentity,
     metadata: ItemMetadata,
     options?: {
       preserveCurrentTime?: number;
@@ -135,7 +144,7 @@ export const playerCommands = {
       previousVideoUsesTranscode?: boolean;
     },
   ): void => {
-    runPlayer((p) => p.applyPlaybackMetadata(metadata, options));
+    runPlayer((p) => p.applyPlaybackMetadata(expected, metadata, options));
   },
   toggleFullscreen: (): void => {
     runPlayer((p) => p.toggleFullscreen());

@@ -44,6 +44,7 @@ import {
   Option,
   Ref,
   Schedule,
+  Semaphore,
   SubscriptionRef,
   type Scope,
 } from "effect";
@@ -65,16 +66,29 @@ export type StartPlaybackInput = {
   readonly item: MediaPlayerItem;
   readonly resume?: false;
   readonly startPositionSeconds?: number;
+  /** Reject a detached auto-start after its Lobby lifetime was replaced. */
+  readonly expectedLobby?: {
+    readonly generation: number;
+    readonly roomId: string;
+  };
 };
 
 export type SwapToInput = {
   readonly room: WatchTogetherRoom;
   readonly item: MediaPlayerItem;
+  /** Reject a detached rotation after another lifecycle command took over. */
+  readonly expectedCurrent?: {
+    readonly roomId: string;
+    readonly serverId: string;
+    readonly ratingKey: string;
+  };
 };
 
 export type LeaveOptions = {
   readonly suppressAutoStart: boolean;
 };
+
+const REPLACEMENT_PREPARATION_TIMEOUT = "2 seconds";
 
 export type RotationContext = {
   readonly nextEpisode: NextEpisodeInfo | null;
@@ -88,7 +102,7 @@ export type EnterLobbyInput = {
 
 /**
  * React-derived lobby inputs the auto-start fiber cannot obtain itself
- * (media resolution + leave-mutation pending).
+ * (tRPC media resolution + leave-mutation pending).
  */
 export type LobbyContext = {
   readonly canStart: boolean;
@@ -221,6 +235,7 @@ const playerAdapterFromPort = (
 type ConnectionParams = {
   readonly room: WatchTogetherRoom;
   readonly localUser: SyncplayUser;
+  readonly isCurrent: () => boolean;
   readonly onParticipant: (participant: SyncplayParticipantState) => void;
   readonly onFatalError: () => void;
   readonly onController: (controller: SessionControllerLike) => void;
@@ -249,16 +264,20 @@ const runConnection = (
         user: params.localUser,
         player: playerAdapterFromPort(player),
         onParticipant: (participant) => {
+          if (!params.isCurrent()) return;
           params.onParticipant(participant);
           toasts.handleParticipant(participant);
         },
         onRemoteAction: toasts.handleRemoteAction,
         onFatalError: () => {
+          if (!params.isCurrent()) return;
           params.onFatalError();
         },
       });
 
-      params.onController(controller);
+      if (params.isCurrent()) {
+        params.onController(controller);
+      }
       controller.connect();
 
       if (player.snapshot().canPlay) {
@@ -381,6 +400,11 @@ export const makeWatchTogetherSession = (
       playbackInput: null,
       leaving: false,
     });
+    const lifecycleSemaphore = yield* Semaphore.make(1);
+
+    const serializeLifecycle = <A>(
+      effect: Effect.Effect<A>,
+    ): Effect.Effect<A> => lifecycleSemaphore.withPermits(1)(effect);
 
     let connectionFiber: Fiber.Fiber<void, never> | null = null;
     let lobbyFiber: Fiber.Fiber<void, never> | null = null;
@@ -390,6 +414,7 @@ export const makeWatchTogetherSession = (
     let leaving = false;
     let swapping = false;
     let suppressedRoomId: string | null = null;
+    let lifecycleGeneration = 0;
 
     const interruptConnection = (): Effect.Effect<void> =>
       Effect.gen(function* () {
@@ -427,23 +452,34 @@ export const makeWatchTogetherSession = (
 
     const onPlayingParticipant = (
       participant: SyncplayParticipantState,
+      generation: number,
+      roomId: string,
     ): void => {
       Effect.runFork(
-        SubscriptionRef.update(state, (s) => {
-          if (s._tag !== "Playing") return s;
-          return {
-            ...s,
-            participants: mergeParticipantState(s.participants, participant),
-          };
-        }),
+        serializeLifecycle(
+          Effect.gen(function* () {
+            if (lifecycleGeneration !== generation) return;
+            yield* SubscriptionRef.update(state, (s) => {
+              if (s._tag !== "Playing" || s.room.id !== roomId) return s;
+              return {
+                ...s,
+                participants: mergeParticipantState(
+                  s.participants,
+                  participant,
+                ),
+              };
+            });
+          }),
+        ),
       );
     };
 
-    const leave = (leaveOptions: LeaveOptions): Effect.Effect<void> =>
+    const leaveImpl = (leaveOptions: LeaveOptions): Effect.Effect<void> =>
       Effect.gen(function* () {
         if (leaving) return;
         leaving = true;
         try {
+          lifecycleGeneration += 1;
           const current = yield* SubscriptionRef.get(state);
           if (leaveOptions.suppressAutoStart) {
             if (current._tag === "Playing" || current._tag === "Lobby") {
@@ -462,21 +498,40 @@ export const makeWatchTogetherSession = (
           leaving = false;
         }
       });
+    const leave = (leaveOptions: LeaveOptions): Effect.Effect<void> =>
+      serializeLifecycle(leaveImpl(leaveOptions));
+    const leaveIfGeneration = (
+      generation: number,
+      leaveOptions: LeaveOptions,
+    ): Effect.Effect<void> =>
+      serializeLifecycle(
+        Effect.gen(function* () {
+          if (lifecycleGeneration !== generation) return;
+          yield* leaveImpl(leaveOptions);
+        }),
+      );
 
     const startConnection = (
       room: WatchTogetherRoom,
       user: SyncplayUser,
+      generation: number,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
         const fiber = yield* runConnection(
           {
             room,
             localUser: user,
-            onParticipant: onPlayingParticipant,
+            isCurrent: () => lifecycleGeneration === generation,
+            onParticipant: (participant) => {
+              onPlayingParticipant(participant, generation, room.id);
+            },
             onFatalError: () => {
-              Effect.runFork(leave({ suppressAutoStart: false }));
+              Effect.runFork(
+                leaveIfGeneration(generation, { suppressAutoStart: false }),
+              );
             },
             onController: (controller) => {
+              if (lifecycleGeneration !== generation) return;
               liveController = controller;
             },
           },
@@ -495,11 +550,10 @@ export const makeWatchTogetherSession = (
     const runLobby = (
       room: WatchTogetherRoom,
       user: SyncplayUser,
+      generation: number,
     ): Effect.Effect<void, never, Scope.Scope> =>
       Effect.gen(function* () {
-        // Long-lived lobby scope: observer-callback evaluations must fork
-        // grace timers here, not into a throwaway Effect.scoped that closes
-        // when the callback returns (which would orphan graceFiber).
+        // Callback evaluations fork grace work into the lobby lifetime.
         const lobbyScope = yield* Effect.scope;
         const stickyPresent = yield* Ref.make(false);
         const hasAutoStarted = yield* Ref.make(false);
@@ -536,7 +590,13 @@ export const makeWatchTogetherSession = (
                 Effect.gen(function* () {
                   // Re-learn presence from scratch on every (re)connect.
                   yield* SubscriptionRef.update(state, (s) => {
-                    if (s._tag !== "Lobby" || s.room.id !== room.id) return s;
+                    if (
+                      lifecycleGeneration !== generation ||
+                      s._tag !== "Lobby" ||
+                      s.room.id !== room.id
+                    ) {
+                      return s;
+                    }
                     return { ...s, participants: {} };
                   });
                   const closed = yield* Deferred.make<void>();
@@ -555,8 +615,12 @@ export const makeWatchTogetherSession = (
                             onParticipant: (participant) => {
                               Effect.runFork(
                                 Effect.gen(function* () {
+                                  if (lifecycleGeneration !== generation) {
+                                    return;
+                                  }
                                   yield* SubscriptionRef.update(state, (s) => {
                                     if (
+                                      lifecycleGeneration !== generation ||
                                       s._tag !== "Lobby" ||
                                       s.room.id !== room.id
                                     ) {
@@ -570,8 +634,6 @@ export const makeWatchTogetherSession = (
                                       ),
                                     };
                                   });
-                                  // Do not Effect.scoped here — grace fibers
-                                  // must land in lobbyScope via forkIn.
                                   yield* evaluateOnce();
                                 }),
                               );
@@ -579,8 +641,12 @@ export const makeWatchTogetherSession = (
                             onRoomState: (roomState) => {
                               Effect.runFork(
                                 Effect.gen(function* () {
+                                  if (lifecycleGeneration !== generation) {
+                                    return;
+                                  }
                                   yield* SubscriptionRef.update(state, (s) => {
                                     if (
+                                      lifecycleGeneration !== generation ||
                                       s._tag !== "Lobby" ||
                                       s.room.id !== room.id
                                     ) {
@@ -627,7 +693,7 @@ export const makeWatchTogetherSession = (
 
         evaluateOnce = (): Effect.Effect<void> =>
           Effect.gen(function* () {
-            if (leaving) return;
+            if (leaving || lifecycleGeneration !== generation) return;
             const session = yield* SubscriptionRef.get(state);
             if (session._tag !== "Lobby" || session.room.id !== room.id) {
               return;
@@ -731,6 +797,10 @@ export const makeWatchTogetherSession = (
                   localUser: user,
                   item: playback.item,
                   resume: false,
+                  expectedLobby: {
+                    generation,
+                    roomId: room.id,
+                  },
                   ...(decision.startPositionSeconds !== null && {
                     startPositionSeconds: decision.startPositionSeconds,
                   }),
@@ -768,15 +838,16 @@ export const makeWatchTogetherSession = (
       input: StartPlaybackInput,
     ) => Effect.Effect<void> = () => Effect.void;
     const startPlayback = (input: StartPlaybackInput): Effect.Effect<void> =>
-      Effect.suspend(() => startPlaybackImpl(input));
+      serializeLifecycle(Effect.suspend(() => startPlaybackImpl(input)));
 
     const startLobbyFiber = (
       room: WatchTogetherRoom,
       user: SyncplayUser,
+      generation: number,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
         yield* interruptLobby();
-        const fiber = yield* runLobby(room, user).pipe(
+        const fiber = yield* runLobby(room, user, generation).pipe(
           Effect.scoped,
           Effect.forkDetach({ startImmediately: true }),
         );
@@ -807,6 +878,8 @@ export const makeWatchTogetherSession = (
           return;
         }
 
+        lifecycleGeneration += 1;
+        const generation = lifecycleGeneration;
         yield* interruptActive();
         localUser = input.localUser;
         yield* SubscriptionRef.set(
@@ -817,8 +890,8 @@ export const makeWatchTogetherSession = (
             roomPositionSeconds: null,
           }),
         );
-        yield* startLobbyFiber(input.room, input.localUser);
-      });
+        yield* startLobbyFiber(input.room, input.localUser, generation);
+      }).pipe(serializeLifecycle);
 
     const updateLobbyRoom = (room: WatchTogetherRoom): Effect.Effect<void> =>
       SubscriptionRef.update(state, (s) => {
@@ -835,6 +908,7 @@ export const makeWatchTogetherSession = (
       Effect.gen(function* () {
         const current = yield* SubscriptionRef.get(state);
         if (current._tag !== "Lobby") return;
+        lifecycleGeneration += 1;
         yield* interruptLobby();
         localUser = null;
         yield* SubscriptionRef.set(state, Idle);
@@ -843,7 +917,7 @@ export const makeWatchTogetherSession = (
           playbackInput: null,
           leaving: false,
         });
-      });
+      }).pipe(serializeLifecycle);
 
     const setLobbyContext = (ctx: LobbyContext): Effect.Effect<void> =>
       Ref.set(lobbyContext, ctx);
@@ -867,9 +941,12 @@ export const makeWatchTogetherSession = (
       user: SyncplayUser,
     ): Effect.Effect<void, never, Scope.Scope> =>
       Effect.gen(function* () {
+        // Callback evaluations fork replacement work into the rotation lifetime.
+        const rotationScope = yield* Effect.scope;
         const visibleRooms = yield* Ref.make<ReadonlyArray<WatchTogetherRoom>>(
           [],
         );
+        const discoveryRevision = yield* Ref.make(0);
         const graceElapsed = yield* Ref.make(false);
         const hasAttemptedCreate = yield* Ref.make(false);
         const gatheredParticipants = yield* Ref.make<ParticipantMap>({});
@@ -882,8 +959,10 @@ export const makeWatchTogetherSession = (
         let observerFiber: Fiber.Fiber<void, never> | null = null;
         let graceFiber: Fiber.Fiber<void, never> | null = null;
         let prefetchFiber: Fiber.Fiber<void, never> | null = null;
-        /** ratingKey the in-flight / completed prefetch was launched for. */
+        let pendingCreateRank: number | null = null;
         let prefetchTargetKey: string | null = null;
+        let rotationTargetKey: string | null = null;
+        let invalidRoomMissRevision: number | null = null;
 
         const interruptChild = (
           fiber: Fiber.Fiber<void, never> | null,
@@ -894,6 +973,7 @@ export const makeWatchTogetherSession = (
           Effect.gen(function* () {
             yield* interruptChild(createFiber);
             createFiber = null;
+            pendingCreateRank = null;
           });
 
         const stopDiscovery = (): Effect.Effect<void> =>
@@ -932,29 +1012,31 @@ export const makeWatchTogetherSession = (
         );
 
         // Assigned after executeDecision; helpers close over the mutable binding.
-        // Child helpers use Scope because they forkScoped; the rotation fiber
-        // itself is already Effect.scoped.
-        type ScopedVoid = Effect.Effect<void, never, Scope.Scope>;
+        type ScopedVoid = Effect.Effect<void>;
         let evaluateOnce: () => ScopedVoid = () => Effect.void;
 
         const ensureDiscovery = (): ScopedVoid =>
           Effect.gen(function* () {
             if (discoveryFiber) return;
-            discoveryFiber = yield* Effect.gen(function* () {
-              yield* Effect.repeat(
-                Effect.gen(function* () {
-                  // Retain the last successful list on poll failure so a
-                  // transient network blip cannot empty visibleRooms and
-                  // spuriously invalidate an adopted room.
-                  const result = yield* api.listRooms().pipe(Effect.option);
-                  if (Option.isSome(result)) {
-                    yield* Ref.set(visibleRooms, result.value);
-                  }
-                  yield* evaluateOnce();
-                }),
-                Schedule.spaced(`${DISCOVERY_POLL_MS} millis`),
-              );
-            }).pipe(Effect.forkScoped);
+            discoveryFiber = yield* Effect.forkIn(
+              Effect.gen(function* () {
+                yield* Effect.repeat(
+                  Effect.gen(function* () {
+                    const result = yield* api.listRooms().pipe(Effect.option);
+                    if (Option.isSome(result)) {
+                      yield* Ref.set(visibleRooms, result.value);
+                      yield* Ref.update(
+                        discoveryRevision,
+                        (revision) => revision + 1,
+                      );
+                    }
+                    yield* evaluateOnce();
+                  }),
+                  Schedule.spaced(`${DISCOVERY_POLL_MS} millis`),
+                );
+              }),
+              rotationScope,
+            );
           });
 
         const ensurePrefetch = (
@@ -962,35 +1044,35 @@ export const makeWatchTogetherSession = (
           serverId: string,
         ): ScopedVoid =>
           Effect.gen(function* () {
-            // Same target already in flight or completed — keep it.
             if (prefetchTargetKey === nextEpisode.ratingKey) return;
-            // Target changed (or first launch): interrupt any stale fiber and
-            // discard mismatched metadata before relaunching.
             yield* interruptChild(prefetchFiber);
             prefetchFiber = null;
             prefetchTargetKey = nextEpisode.ratingKey;
             yield* Ref.set(prefetchedMetadata, null);
-            prefetchFiber = yield* Effect.gen(function* () {
-              const meta = yield* api
-                .getItemMetadata({
-                  serverId,
-                  ratingKey: nextEpisode.ratingKey,
-                })
-                .pipe(Effect.option);
-              const value = Option.getOrUndefined(meta);
-              if (value?.ratingKey === nextEpisode.ratingKey) {
-                yield* Ref.set(prefetchedMetadata, value as PrefetchedMetadata);
-              }
-            }).pipe(
-              Effect.catch(() => Effect.void),
-              // Clear the fiber ref on completion so a later same-key call can
-              // re-check; target key stays so we don't refetch needlessly.
-              Effect.ensuring(
-                Effect.sync(() => {
-                  prefetchFiber = null;
-                }),
+            prefetchFiber = yield* Effect.forkIn(
+              Effect.gen(function* () {
+                const meta = yield* api
+                  .getItemMetadata({
+                    serverId,
+                    ratingKey: nextEpisode.ratingKey,
+                  })
+                  .pipe(Effect.option);
+                const value = Option.getOrUndefined(meta);
+                if (value?.ratingKey === nextEpisode.ratingKey) {
+                  yield* Ref.set(
+                    prefetchedMetadata,
+                    value as PrefetchedMetadata,
+                  );
+                }
+              }).pipe(
+                Effect.catch(() => Effect.void),
+                Effect.ensuring(
+                  Effect.sync(() => {
+                    prefetchFiber = null;
+                  }),
+                ),
               ),
-              Effect.forkScoped,
+              rotationScope,
             );
           });
 
@@ -999,127 +1081,154 @@ export const makeWatchTogetherSession = (
           nextEpisode: NextEpisodeInfo,
           currentRoom: WatchTogetherRoom,
           serverId: string,
+          rank: number,
         ): ScopedVoid =>
           Effect.gen(function* () {
             yield* stopCreate();
             yield* Ref.set(hasAttemptedCreate, true);
-            createFiber = yield* Effect.gen(function* () {
-              yield* Effect.sleep(`${afterMs} millis`);
-              const result = yield* api
-                .createRoom({
-                  serverId,
-                  ratingKey: nextEpisode.ratingKey,
-                  key: nextEpisode.key,
-                  title: nextEpisode.title || `Episode ${nextEpisode.index}`,
-                  users: currentRoom.users
-                    .map((u) => u.id)
-                    .filter((id) => id !== user.id),
-                })
-                .pipe(Effect.exit);
-              // Room is adopted via discovery, not the create response.
-              if (Exit.isFailure(result)) {
-                yield* Ref.set(hasAttemptedCreate, false);
-                yield* evaluateOnce();
-              }
-            }).pipe(Effect.forkScoped);
+            pendingCreateRank = rank;
+            createFiber = yield* Effect.forkIn(
+              Effect.gen(function* () {
+                yield* Effect.sleep(`${afterMs} millis`);
+                pendingCreateRank = null;
+                const result = yield* api
+                  .createRoom({
+                    serverId,
+                    ratingKey: nextEpisode.ratingKey,
+                    key: nextEpisode.key,
+                    title: nextEpisode.title || `Episode ${nextEpisode.index}`,
+                    users: currentRoom.users
+                      .map((u) => u.id)
+                      .filter((id) => id !== user.id),
+                  })
+                  .pipe(Effect.exit);
+                createFiber = null;
+                // Room is adopted via discovery, not the create response.
+                if (Exit.isFailure(result)) {
+                  yield* Ref.set(hasAttemptedCreate, false);
+                  yield* evaluateOnce();
+                }
+              }),
+              rotationScope,
+            );
           });
 
         const startObserver = (nextRoom: WatchTogetherRoom): ScopedVoid =>
           Effect.gen(function* () {
             yield* stopObserver();
             yield* Ref.set(gatheredParticipants, {});
-            observerFiber = yield* Effect.gen(function* () {
-              yield* Effect.forever(
-                Effect.gen(function* () {
-                  // Re-learn presence from scratch on every (re)connect: leaves
-                  // while the socket was down never produced an isPresent:false.
-                  yield* Ref.set(gatheredParticipants, {});
-                  yield* updateRotationPhase((phase) => {
-                    if (phase._tag !== "Gathering") return phase;
-                    if (phase.nextRoom.id !== nextRoom.id) return phase;
-                    return rotationGathering(phase.nextRoom, new Set());
-                  });
-                  const closed = yield* Deferred.make<void>();
-                  // Per-connection scope so disconnect runs on close/reconnect,
-                  // not only when the whole observer fiber is interrupted.
-                  yield* Effect.scoped(
-                    Effect.gen(function* () {
-                      const client = yield* Effect.acquireRelease(
-                        Effect.sync(() => {
-                          const next = makeObserver({
-                            room: {
-                              id: nextRoom.id,
-                              syncplayHost: nextRoom.syncplayHost,
-                              syncplayPort: nextRoom.syncplayPort,
-                              sourceUri: nextRoom.sourceUri,
-                            },
-                            user,
-                            onParticipant: (participant) => {
-                              Effect.runFork(
-                                Effect.gen(function* () {
-                                  const gathered = yield* Ref.updateAndGet(
-                                    gatheredParticipants,
-                                    (prev) =>
-                                      mergeParticipantState(prev, participant),
-                                  );
-                                  yield* updateRotationPhase((phase) => {
-                                    if (phase._tag !== "Gathering")
-                                      return phase;
-                                    if (phase.nextRoom.id !== nextRoom.id) {
-                                      return phase;
-                                    }
-                                    return rotationGathering(
-                                      phase.nextRoom,
-                                      new Set(
-                                        Object.entries(gathered)
-                                          .filter(
-                                            ([, p]) => p.isPresent === true,
-                                          )
-                                          .map(([id]) => id),
-                                      ),
-                                    );
-                                  });
-                                  // runFork is outside the rotation Scope; re-scope.
-                                  yield* evaluateOnce().pipe(Effect.scoped);
-                                }),
-                              );
-                            },
-                            onClose: () => {
-                              Effect.runFork(
-                                Deferred.succeed(closed, undefined).pipe(
-                                  Effect.ignore,
-                                ),
-                              );
-                            },
-                          });
-                          next.connect();
-                          next.setReady(false);
-                          return next;
-                        }),
-                        (next) =>
+            observerFiber = yield* Effect.forkIn(
+              Effect.gen(function* () {
+                yield* Effect.forever(
+                  Effect.gen(function* () {
+                    // Re-learn presence from scratch on every (re)connect: leaves
+                    // while the socket was down never produced an isPresent:false.
+                    yield* Ref.set(gatheredParticipants, {});
+                    yield* updateRotationPhase((phase) => {
+                      if (phase._tag !== "Gathering") return phase;
+                      if (phase.nextRoom.id !== nextRoom.id) return phase;
+                      return rotationGathering(phase.nextRoom, new Set());
+                    });
+                    const closed = yield* Deferred.make<void>();
+                    // Per-connection scope so disconnect runs on close/reconnect,
+                    // not only when the whole observer fiber is interrupted.
+                    yield* Effect.scoped(
+                      Effect.gen(function* () {
+                        const client = yield* Effect.acquireRelease(
                           Effect.sync(() => {
-                            next.disconnect();
+                            const next = makeObserver({
+                              room: {
+                                id: nextRoom.id,
+                                syncplayHost: nextRoom.syncplayHost,
+                                syncplayPort: nextRoom.syncplayPort,
+                                sourceUri: nextRoom.sourceUri,
+                              },
+                              user,
+                              onParticipant: (participant) => {
+                                Effect.runFork(
+                                  Effect.gen(function* () {
+                                    const session =
+                                      yield* SubscriptionRef.get(state);
+                                    if (
+                                      session._tag !== "Playing" ||
+                                      rotationNextRoom(session.rotation)?.id !==
+                                        nextRoom.id
+                                    ) {
+                                      // A replaced room can still deliver a queued callback.
+                                      return;
+                                    }
+                                    const gathered = yield* Ref.updateAndGet(
+                                      gatheredParticipants,
+                                      (prev) =>
+                                        mergeParticipantState(
+                                          prev,
+                                          participant,
+                                        ),
+                                    );
+                                    yield* updateRotationPhase((phase) => {
+                                      if (phase._tag !== "Gathering")
+                                        return phase;
+                                      if (phase.nextRoom.id !== nextRoom.id) {
+                                        return phase;
+                                      }
+                                      return rotationGathering(
+                                        phase.nextRoom,
+                                        new Set(
+                                          Object.entries(gathered)
+                                            .filter(
+                                              ([, p]) => p.isPresent === true,
+                                            )
+                                            .map(([id]) => id),
+                                        ),
+                                      );
+                                    });
+                                    yield* evaluateOnce();
+                                  }),
+                                );
+                              },
+                              onClose: () => {
+                                Effect.runFork(
+                                  Deferred.succeed(closed, undefined).pipe(
+                                    Effect.ignore,
+                                  ),
+                                );
+                              },
+                            });
+                            next.connect();
+                            next.setReady(false);
+                            return next;
                           }),
-                      );
-                      void client;
-                      yield* Deferred.await(closed);
-                    }),
-                  );
-                  yield* Effect.sleep(`${OBSERVER_RECONNECT_DELAY_MS} millis`);
-                }),
-              );
-            }).pipe(Effect.forkScoped);
+                          (next) =>
+                            Effect.sync(() => {
+                              next.disconnect();
+                            }),
+                        );
+                        void client;
+                        yield* Deferred.await(closed);
+                      }),
+                    );
+                    yield* Effect.sleep(
+                      `${OBSERVER_RECONNECT_DELAY_MS} millis`,
+                    );
+                  }),
+                );
+              }),
+              rotationScope,
+            );
           });
 
         const startGrace = (): ScopedVoid =>
           Effect.gen(function* () {
             yield* stopGrace();
             yield* Ref.set(graceElapsed, false);
-            graceFiber = yield* Effect.gen(function* () {
-              yield* Effect.sleep(`${EVERYONE_JOINED_GRACE_MS} millis`);
-              yield* Ref.set(graceElapsed, true);
-              yield* evaluateOnce();
-            }).pipe(Effect.forkScoped);
+            graceFiber = yield* Effect.forkIn(
+              Effect.gen(function* () {
+                yield* Effect.sleep(`${EVERYONE_JOINED_GRACE_MS} millis`);
+                yield* Ref.set(graceElapsed, true);
+                yield* evaluateOnce();
+              }),
+              rotationScope,
+            );
           });
 
         const adoptRoom = (room: WatchTogetherRoom): Effect.Effect<void> =>
@@ -1144,6 +1253,12 @@ export const makeWatchTogetherSession = (
 
             const currentItem = player.currentItem();
             if (!currentItem) return;
+            if (
+              currentItem.serverId !== current.item.serverId ||
+              currentItem.ratingKey !== current.item.ratingKey
+            ) {
+              return;
+            }
 
             const metadata = yield* Ref.get(prefetchedMetadata);
             const nextItem = buildNextItem(currentItem, nextEpisode, metadata);
@@ -1154,8 +1269,24 @@ export const makeWatchTogetherSession = (
             // the atomic swap or the best-effort previous-room delete.
             yield* Effect.gen(function* () {
               try {
-                yield* swapTo({ room: nextRoom, item: nextItem });
-                yield* api.deleteRoom(previousRoomId).pipe(Effect.ignore);
+                yield* swapTo({
+                  room: nextRoom,
+                  item: nextItem,
+                  expectedCurrent: {
+                    roomId: current.room.id,
+                    serverId: current.item.serverId,
+                    ratingKey: current.item.ratingKey,
+                  },
+                });
+                const swapped = yield* SubscriptionRef.get(state);
+                if (
+                  swapped._tag === "Playing" &&
+                  swapped.room.id === nextRoom.id &&
+                  swapped.item.serverId === nextItem.serverId &&
+                  swapped.item.ratingKey === nextItem.ratingKey
+                ) {
+                  yield* api.deleteRoom(previousRoomId).pipe(Effect.ignore);
+                }
               } finally {
                 swapping = false;
               }
@@ -1171,6 +1302,7 @@ export const makeWatchTogetherSession = (
             readonly nextEpisode: NextEpisodeInfo;
             readonly currentRoom: WatchTogetherRoom;
             readonly serverId: string;
+            readonly rank: number;
           },
         ): ScopedVoid => {
           switch (decision.kind) {
@@ -1189,14 +1321,16 @@ export const makeWatchTogetherSession = (
                 yield* Ref.set(gatheredParticipants, {});
                 yield* Ref.set(visibleRooms, []);
                 yield* Ref.set(prefetchedMetadata, null);
+                rotationTargetKey = null;
+                invalidRoomMissRevision = null;
               });
             case "arm":
               return Effect.gen(function* () {
                 yield* Ref.set(hasAttemptedCreate, false);
                 yield* Ref.set(graceElapsed, false);
                 yield* Ref.set(gatheredParticipants, {});
-                // Keep prefetch across re-arm when nextEpisode is unchanged;
-                // ensurePrefetch interrupts/relaunches if the key changed.
+                rotationTargetKey = ctx.nextEpisode.ratingKey;
+                invalidRoomMissRevision = null;
                 yield* updateRotationPhase(() => RotationArmed);
                 yield* ensureDiscovery();
                 yield* ensurePrefetch(ctx.nextEpisode, ctx.serverId);
@@ -1210,6 +1344,7 @@ export const makeWatchTogetherSession = (
                   ctx.nextEpisode,
                   ctx.currentRoom,
                   ctx.serverId,
+                  ctx.rank,
                 );
               });
             case "adopt_room":
@@ -1217,6 +1352,7 @@ export const makeWatchTogetherSession = (
                 yield* ensureDiscovery();
                 yield* ensurePrefetch(ctx.nextEpisode, ctx.serverId);
                 yield* adoptRoom(decision.room);
+                invalidRoomMissRevision = null;
                 yield* evaluateOnce();
               });
             case "begin_gathering":
@@ -1232,8 +1368,6 @@ export const makeWatchTogetherSession = (
                 yield* startGrace();
               });
             case "invalidate_room":
-              // Adopted next room vanished (disbanded) or stopped matching;
-              // keep the arm latch and rediscover/recreate with a fresh stagger.
               return Effect.gen(function* () {
                 yield* stopCreate();
                 yield* stopObserver();
@@ -1242,6 +1376,7 @@ export const makeWatchTogetherSession = (
                 yield* Ref.set(graceElapsed, false);
                 yield* Ref.set(gatheredParticipants, {});
                 yield* updateRotationPhase(() => RotationArmed);
+                invalidRoomMissRevision = null;
                 yield* ensureDiscovery();
                 yield* evaluateOnce();
               });
@@ -1283,15 +1418,32 @@ export const makeWatchTogetherSession = (
                     },
                     currentRoom: session.room,
                     serverId: session.item.serverId,
+                    rank: 0,
                   },
                 );
               }
               return;
             }
 
-            // Keep prefetch aligned with the current next episode even when
-            // the phase is already past arm (setRotationContext can change
-            // nextEpisode mid-rotation without re-emitting "arm").
+            if (
+              session.rotation._tag !== "None" &&
+              rotationTargetKey !== nextEpisode.ratingKey
+            ) {
+              // Timers, gathering state, and metadata all belong to one target.
+              yield* stopCreate();
+              yield* stopObserver();
+              yield* stopGrace();
+              yield* Ref.set(hasAttemptedCreate, false);
+              yield* Ref.set(graceElapsed, false);
+              yield* Ref.set(gatheredParticipants, {});
+              rotationTargetKey = nextEpisode.ratingKey;
+              invalidRoomMissRevision = null;
+              yield* updateRotationPhase(() => RotationArmed);
+              yield* ensureDiscovery();
+              yield* ensurePrefetch(nextEpisode, session.item.serverId);
+              return yield* evaluateOnce();
+            }
+
             if (session.rotation._tag !== "None") {
               yield* ensurePrefetch(nextEpisode, session.item.serverId);
             }
@@ -1307,8 +1459,17 @@ export const makeWatchTogetherSession = (
             const rooms = yield* Ref.get(visibleRooms);
             const gathered = yield* Ref.get(gatheredParticipants);
             const grace = yield* Ref.get(graceElapsed);
-            const attempted = yield* Ref.get(hasAttemptedCreate);
             const rank = getAutoAdvanceRank(session.participants, user);
+            if (
+              session.rotation._tag === "Armed" &&
+              pendingCreateRank !== null &&
+              pendingCreateRank !== rank
+            ) {
+              // Re-elect while the create is still sleeping, not once in flight.
+              yield* stopCreate();
+              yield* Ref.set(hasAttemptedCreate, false);
+            }
+            const attempted = yield* Ref.get(hasAttemptedCreate);
             const everyoneJoined = haveMultiplexParticipantsJoined(
               session.participants,
               gathered,
@@ -1331,10 +1492,26 @@ export const makeWatchTogetherSession = (
               hasAttemptedCreate: attempted,
             });
 
+            if (decision.kind === "invalidate_room") {
+              const revision = yield* Ref.get(discoveryRevision);
+              if (invalidRoomMissRevision === null) {
+                invalidRoomMissRevision = revision;
+                return;
+              }
+              // Wait for a second successful discovery response. Repeated
+              // evaluation of one incomplete response is not confirmation.
+              if (invalidRoomMissRevision === revision) {
+                return;
+              }
+            } else {
+              invalidRoomMissRevision = null;
+            }
+
             yield* executeDecision(decision, {
               nextEpisode,
               currentRoom: session.room,
               serverId: session.item.serverId,
+              rank,
             });
           });
 
@@ -1374,6 +1551,20 @@ export const makeWatchTogetherSession = (
 
     startPlaybackImpl = (input: StartPlaybackInput): Effect.Effect<void> =>
       Effect.gen(function* () {
+        if (input.expectedLobby) {
+          const current = yield* SubscriptionRef.get(state);
+          if (
+            lifecycleGeneration !== input.expectedLobby.generation ||
+            input.room.id !== input.expectedLobby.roomId ||
+            current._tag !== "Lobby" ||
+            current.room.id !== input.expectedLobby.roomId
+          ) {
+            return;
+          }
+        }
+
+        lifecycleGeneration += 1;
+        const generation = lifecycleGeneration;
         yield* interruptActive();
         localUser = input.localUser;
         // Starting a session clears auto-start suppression (matches old store).
@@ -1391,7 +1582,7 @@ export const makeWatchTogetherSession = (
           startPositionSeconds: input.startPositionSeconds,
         });
 
-        yield* startConnection(input.room, input.localUser);
+        yield* startConnection(input.room, input.localUser, generation);
         yield* maybeStartRotation();
       });
 
@@ -1400,7 +1591,26 @@ export const makeWatchTogetherSession = (
         const user = localUser;
         if (!user) return;
 
+        if (input.expectedCurrent) {
+          const current = yield* SubscriptionRef.get(state);
+          if (
+            current._tag !== "Playing" ||
+            current.room.id !== input.expectedCurrent.roomId ||
+            current.item.serverId !== input.expectedCurrent.serverId ||
+            current.item.ratingKey !== input.expectedCurrent.ratingKey
+          ) {
+            return;
+          }
+        }
+
+        lifecycleGeneration += 1;
+        const generation = lifecycleGeneration;
         yield* interruptActive();
+
+        yield* Effect.tryPromise(() => player.prepareForReplacement()).pipe(
+          Effect.timeout(REPLACEMENT_PREPARATION_TIMEOUT),
+          Effect.ignore,
+        );
 
         // Single atomic ref update: room+item swap with no intermediate state.
         yield* SubscriptionRef.update(state, (s) => {
@@ -1415,15 +1625,15 @@ export const makeWatchTogetherSession = (
         });
 
         player.load(input.item, { resume: false });
-        yield* startConnection(input.room, user);
+        yield* startConnection(input.room, user, generation);
         yield* maybeStartRotation();
-      });
+      }).pipe(serializeLifecycle);
 
     const setRotationContext = (ctx: RotationContext): Effect.Effect<void> =>
       Effect.gen(function* () {
         yield* Ref.set(rotationContext, ctx);
         yield* maybeStartRotation();
-      });
+      }).pipe(serializeLifecycle);
 
     const handleLocalPlaybackChange = (
       isPaused: boolean,

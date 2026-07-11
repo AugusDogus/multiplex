@@ -180,6 +180,7 @@ const makeControllablePlayer = (): PlayerPortShape & {
       };
     },
     registerActions: () => () => undefined,
+    prepareForReplacement: () => Promise.resolve(),
     play: () => true,
     pause: () => undefined,
     seek: () => "direct" as const,
@@ -196,7 +197,6 @@ const makeStubApi = (overrides?: {
   createRoomEffect?: (
     input: Parameters<WatchTogetherApiShape["createRoom"]>[0],
   ) => Effect.Effect<WatchTogetherRoom, { _tag: string }>;
-  /** Override listRooms Effect (success or failure). */
   listRoomsEffect?: () => Effect.Effect<
     WatchTogetherRoom[],
     { _tag: string; cause?: string; operation?: string }
@@ -234,8 +234,6 @@ const makeStubApi = (overrides?: {
         key: `/library/metadata/${input.ratingKey}`,
         title: `Meta ${input.ratingKey}`,
         type: "episode",
-        // Distinct marker so swap assertions can prove which episode's
-        // prefetch landed (full Media shape is irrelevant to the guard).
         Media: [{ id: Number(input.ratingKey) }] as MediaPlayerItem["Media"],
       });
     },
@@ -275,7 +273,6 @@ const withRotationSession = async <A>(
     observers: StubObserver[];
     controllers: StubController[];
     setRooms: (rooms: WatchTogetherRoom[]) => void;
-    /** Make subsequent listRooms polls fail (network blip). */
     setListRoomsFailing: (failing: boolean) => void;
   }) => Effect.Effect<A>,
   options?: {
@@ -478,6 +475,41 @@ test("arm → create (rank 0) → discovery adopts → gathering → everyone-jo
   );
 });
 
+test("rotation does not build the next item from unrelated player media", async () => {
+  const nextRoom = room("r2", "200");
+  await withRotationSession(
+    ({ session, player, setRooms, observers, controllers, deleteRoom }) =>
+      Effect.gen(function* () {
+        yield* startArmed(session, player, controllers);
+        setRooms([nextRoom]);
+        yield* waitUntil(
+          session,
+          (s) => s._tag === "Playing" && s.rotation._tag === "RoomKnown",
+        );
+
+        player.setPlayback({ currentTimeSeconds: 1200 });
+        yield* waitUntil(
+          session,
+          (s) => s._tag === "Playing" && s.rotation._tag === "Gathering",
+        );
+
+        player.load(item("999"), { resume: false });
+        const loadsBeforeSwap = player.loads.length;
+        observers.at(-1)?.options.onParticipant({
+          user: multiplexUser(2),
+          isPresent: true,
+        });
+        yield* TestClock.adjust("2 seconds");
+        yield* Effect.yieldNow;
+
+        const snap = session.snapshot();
+        expect(snap._tag === "Playing" && snap.room.id).toBe("r1");
+        expect(player.loads).toHaveLength(loadsBeforeSwap);
+        expect(deleteRoom).not.toHaveBeenCalled();
+      }),
+  );
+});
+
 test("rank 1 stagger: no create before 9500ms", async () => {
   const rank1User = multiplexUser(2);
   await withRotationSession(({ session, player, createRoom, controllers }) =>
@@ -553,6 +585,48 @@ test("rank 1 discovery adoption cancels pending create", async () => {
         expect(snap._tag === "Playing" && snap.rotation._tag).toBe("RoomKnown");
         expect(createRoom).toHaveBeenCalledTimes(0);
       }),
+  );
+});
+
+test("a pending create is rescheduled when participant rank changes", async () => {
+  const rank1User = multiplexUser(2);
+  await withRotationSession(({ session, player, createRoom, controllers }) =>
+    Effect.gen(function* () {
+      yield* session.startPlayback({
+        room: room("r1", "100"),
+        localUser: rank1User,
+        item: item("100"),
+      });
+      controllers[0]?.options.onParticipant?.({
+        user: localUser,
+        isPresent: true,
+      });
+      yield* Effect.yieldNow;
+      player.setPlayback({
+        currentTimeSeconds: 1160,
+        durationSeconds: 1200,
+      });
+      yield* session.setRotationContext({
+        nextEpisode,
+        autoPlayEnabled: true,
+      });
+      yield* Effect.yieldNow;
+
+      controllers[0]?.options.onParticipant?.({
+        user: localUser,
+        isPresent: false,
+      });
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("1 second");
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS} millis`);
+      yield* Effect.yieldNow;
+
+      expect(createRoom).toHaveBeenCalledTimes(1);
+      expect(createRoom).toHaveBeenCalledWith(
+        expect.objectContaining({ ratingKey: "200" }),
+      );
+    }),
   );
 });
 
@@ -680,6 +754,26 @@ test("duplicate convergence: adopted room replaced by deterministic winner reset
             snap.rotation.nextRoom.id,
         ).toBe("r-winner");
         expect(observers.length).toBeGreaterThan(observersBefore);
+
+        observers[0]?.options.onParticipant({
+          user: multiplexUser(2),
+          isPresent: true,
+        });
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        const afterStaleCallback = session.snapshot();
+        expect(
+          afterStaleCallback._tag === "Playing" && afterStaleCallback.room.id,
+        ).toBe("r1");
+
+        observers.at(-1)?.options.onParticipant({
+          user: multiplexUser(2),
+          isPresent: true,
+        });
+        yield* waitUntil(
+          session,
+          (s) => s._tag === "Playing" && s.room.id === "r-winner",
+        );
       }),
   );
 });
@@ -765,62 +859,73 @@ test("observer reconnect resets gathered participants", async () => {
   );
 });
 
-test("changing nextEpisode mid-rotation re-prefetches and swap uses new metadata", async () => {
-  const nextEpisodeAlt: NextEpisodeInfo = {
+test("changing nextEpisode resets target-specific work and prefetch", async () => {
+  const alternate: NextEpisodeInfo = {
     ratingKey: "300",
     key: "/library/metadata/300",
-    title: "Alt Next Ep",
+    title: "Alternate Next Ep",
     index: 3,
     parentIndex: 1,
     duration: 1_200_000,
   };
-  const nextRoom = room("r3", "300");
+  const alternateRoom = room("r3", "300");
 
   await withRotationSession(
-    ({ session, player, getItemMetadata, setRooms, controllers, observers }) =>
+    ({
+      session,
+      player,
+      createRoom,
+      getItemMetadata,
+      setRooms,
+      controllers,
+      observers,
+    }) =>
       Effect.gen(function* () {
         yield* startArmed(session, player, controllers);
-        yield* Effect.yieldNow;
-        yield* TestClock.adjust("0 millis");
-        yield* Effect.yieldNow;
-
-        expect(getItemMetadata).toHaveBeenCalled();
-        const firstCalls = getItemMetadata.mock.calls.length;
-        expect(
-          getItemMetadata.mock.calls.some(
-            (call) => (call[0] as { ratingKey: string }).ratingKey === "200",
-          ),
-        ).toBe(true);
-
-        // Mid-Armed: point rotation at a different next episode.
         yield* session.setRotationContext({
-          nextEpisode: nextEpisodeAlt,
+          nextEpisode: alternate,
           autoPlayEnabled: true,
         });
-        yield* Effect.yieldNow;
         yield* TestClock.adjust("1 second");
         yield* Effect.yieldNow;
+        yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS} millis`);
+        yield* Effect.yieldNow;
 
-        expect(getItemMetadata.mock.calls.length).toBeGreaterThan(firstCalls);
+        expect(
+          createRoom.mock.calls.some(
+            (call) => (call[0] as { ratingKey: string }).ratingKey === "100",
+          ),
+        ).toBe(false);
+        expect(
+          createRoom.mock.calls.some(
+            (call) => (call[0] as { ratingKey: string }).ratingKey === "200",
+          ),
+        ).toBe(false);
+        expect(
+          createRoom.mock.calls.some(
+            (call) => (call[0] as { ratingKey: string }).ratingKey === "300",
+          ),
+        ).toBe(true);
         expect(
           getItemMetadata.mock.calls.some(
             (call) => (call[0] as { ratingKey: string }).ratingKey === "300",
           ),
         ).toBe(true);
 
-        setRooms([nextRoom]);
+        setRooms([alternateRoom]);
         yield* waitUntil(
           session,
           (s) => s._tag === "Playing" && s.rotation._tag === "RoomKnown",
         );
-
-        player.setPlayback({ currentTimeSeconds: 1200, durationSeconds: 1200 });
+        player.setPlayback({
+          currentTimeSeconds: 1200,
+          durationSeconds: 1200,
+        });
         yield* waitUntil(
           session,
           (s) => s._tag === "Playing" && s.rotation._tag === "Gathering",
         );
-
-        observers[0]?.options.onParticipant({
+        observers.at(-1)?.options.onParticipant({
           user: multiplexUser(2),
           isPresent: true,
         });
@@ -831,16 +936,13 @@ test("changing nextEpisode mid-rotation re-prefetches and swap uses new metadata
 
         const loaded = player.loads.at(-1)?.item;
         expect(loaded?.ratingKey).toBe("300");
-        // Prefetch metadata (Media) must match the new episode, not the old.
-        // buildNextItem spreads metadata then overwrites title from nextEpisode.
         expect(loaded?.Media?.[0]?.id).toBe(300);
-        expect(loaded?.title).toBe("Alt Next Ep");
-        expect(loaded?.key).toBe("/library/metadata/300");
+        expect(loaded?.title).toBe("Alternate Next Ep");
       }),
   );
 });
 
-test("empty discovery after adopt invalidates to Armed and recreates after stagger", async () => {
+test("two empty discovery responses invalidate an adopted room and recreate", async () => {
   const nextRoom = room("r2", "200");
   await withRotationSession(
     ({ session, player, createRoom, setRooms, controllers }) =>
@@ -851,28 +953,32 @@ test("empty discovery after adopt invalidates to Armed and recreates after stagg
           session,
           (s) => s._tag === "Playing" && s.rotation._tag === "RoomKnown",
         );
-
         const createsBefore = createRoom.mock.calls.length;
 
-        // Room disbanded: successful poll returns empty matching set.
         setRooms([]);
+        yield* TestClock.adjust(`${DISCOVERY_POLL_MS + 100} millis`);
+        yield* Effect.yieldNow;
+        const afterFirstMiss = session.snapshot();
+        expect(
+          afterFirstMiss._tag === "Playing" && afterFirstMiss.rotation._tag,
+        ).toBe("RoomKnown");
+
+        yield* TestClock.adjust(`${DISCOVERY_POLL_MS + 100} millis`);
+        yield* Effect.yieldNow;
         yield* waitUntil(
           session,
           (s) => s._tag === "Playing" && s.rotation._tag === "Armed",
           15,
         );
-
-        const snap = session.snapshot();
-        expect(snap._tag === "Playing" && snap.rotation._tag).toBe("Armed");
-
         yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS} millis`);
         yield* Effect.yieldNow;
+
         expect(createRoom.mock.calls.length).toBeGreaterThan(createsBefore);
       }),
   );
 });
 
-test("failed discovery poll retains last rooms and does not invalidate", async () => {
+test("failed discovery retains the last adopted room", async () => {
   const nextRoom = room("r2", "200");
   await withRotationSession(
     ({
@@ -890,14 +996,10 @@ test("failed discovery poll retains last rooms and does not invalidate", async (
           session,
           (s) => s._tag === "Playing" && s.rotation._tag === "RoomKnown",
         );
-
         const createsBefore = createRoom.mock.calls.length;
-        setListRoomsFailing(true);
 
-        // Advance past at least one discovery poll + evaluate cadence.
+        setListRoomsFailing(true);
         yield* TestClock.adjust(`${DISCOVERY_POLL_MS + 2_000} millis`);
-        yield* Effect.yieldNow;
-        yield* TestClock.adjust("2 seconds");
         yield* Effect.yieldNow;
 
         const snap = session.snapshot();

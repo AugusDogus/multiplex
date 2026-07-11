@@ -41,6 +41,7 @@ export type PlayerState = {
   readonly bufferedTime: number;
   readonly streamOffset: number;
   readonly streamSessionId: string;
+  readonly sourceGeneration: number;
   readonly isFullscreen: boolean;
   readonly showControls: boolean;
   readonly isLoading: boolean;
@@ -54,9 +55,43 @@ export type PlayerState = {
   };
 };
 
-/** Fields writable via {@link PlayerServiceShape.updatePlaybackState}. */
+export type PlayerPlaybackIdentity = {
+  readonly streamSessionId: string;
+  readonly serverId: string;
+  readonly ratingKey: string;
+};
+
+export function getPlayerPlaybackIdentity(
+  state: PlayerState,
+): PlayerPlaybackIdentity | null {
+  return state.currentItem
+    ? {
+        streamSessionId: state.streamSessionId,
+        serverId: state.currentItem.serverId,
+        ratingKey: state.currentItem.ratingKey,
+      }
+    : null;
+}
+
+export function isPlayerPlaybackIdentityCurrent(
+  state: PlayerState,
+  expected: PlayerPlaybackIdentity,
+): boolean {
+  const current = getPlayerPlaybackIdentity(state);
+  return (
+    current !== null &&
+    current.streamSessionId === expected.streamSessionId &&
+    current.serverId === expected.serverId &&
+    current.ratingKey === expected.ratingKey
+  );
+}
+
+/**
+ * Fields writable via {@link PlayerServiceShape.updatePlaybackState}.
+ * Item-scoped async callers must use `updatePlaybackStateFor` instead.
+ */
 export type PlayerPlaybackUpdate = Partial<
-  Omit<PlayerState, "autoPlay"> & {
+  Omit<PlayerState, "autoPlay" | "sourceGeneration"> & {
     autoPlay: PlayerState["autoPlay"];
   }
 >;
@@ -73,6 +108,7 @@ export const initialPlayerState: PlayerState = {
   bufferedTime: 0,
   streamOffset: 0,
   streamSessionId: "",
+  sourceGeneration: 0,
   isFullscreen: false,
   showControls: true,
   isLoading: false,
@@ -128,11 +164,18 @@ export type PlayerServiceShape = {
     options?: { resume?: boolean; startPositionSeconds?: number },
   ) => void;
   readonly closePlayer: () => void;
+  readonly playbackIdentity: () => PlayerPlaybackIdentity | null;
+  /** Only for synchronous updates that are not scoped to a playback item. */
   readonly updatePlaybackState: (updates: PlayerPlaybackUpdate) => void;
+  readonly updatePlaybackStateFor: (
+    expected: PlayerPlaybackIdentity,
+    updates: PlayerPlaybackUpdate,
+  ) => boolean;
   readonly updateCurrentTime: (time: number) => void;
   readonly updateDuration: (duration: number) => void;
   readonly updateBufferedTime: (bufferedTime: number) => void;
   readonly applyPlaybackMetadata: (
+    expected: PlayerPlaybackIdentity,
     metadata: ItemMetadata,
     options?: {
       preserveCurrentTime?: number;
@@ -166,10 +209,47 @@ const setState = (
   updates: PlayerPlaybackUpdate | ((s: PlayerState) => PlayerState),
 ): void => {
   Effect.runSync(
-    typeof updates === "function"
-      ? SubscriptionRef.update(state, updates)
-      : SubscriptionRef.update(state, (s) => ({ ...s, ...updates })),
+    SubscriptionRef.update(state, (current) => {
+      const next =
+        typeof updates === "function"
+          ? updates(current)
+          : { ...current, ...updates };
+
+      if (
+        next.streamOffset !== current.streamOffset &&
+        next.sourceGeneration === current.sourceGeneration
+      ) {
+        return {
+          ...next,
+          sourceGeneration: current.sourceGeneration + 1,
+        };
+      }
+
+      return next;
+    }),
   );
+};
+
+const getVideoSourceSignature = (item: MediaPlayerItem): string => {
+  const media = item.Media?.[0];
+  const plan = buildPlexPlaybackPlan(item);
+
+  return plan.streamDecision === "direct-play" &&
+    plan.burnedSubtitleIndex === null
+    ? JSON.stringify({
+        kind: "direct-play",
+        serverUrl: item.serverUrl,
+        authToken: item.authToken,
+        partKey: media?.Part?.[0]?.key,
+      })
+    : JSON.stringify({
+        kind: "transcode",
+        serverUrl: item.serverUrl,
+        authToken: item.authToken,
+        key: item.key,
+        hasPart: Boolean(media?.Part?.[0]?.key),
+        burnedSubtitleIndex: plan.burnedSubtitleIndex,
+      });
 };
 
 const getState = (
@@ -227,15 +307,20 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
           ? initialCurrentTime
           : 0;
 
-      setState(state, {
+      setState(state, (current) => ({
+        ...current,
         isOpen: true,
         currentItem: item,
+        playQueue: null,
+        playQueueId: null,
+        markers: [],
         currentTime: initialCurrentTime,
         streamOffset: initialStreamOffset,
         // Fresh, unique transcode session per playback (stable across seeks)
         // so two viewers — and repeat plays of the same item — never collide
         // on one Plex transcode session (which returns HTTP 400 / no source).
         streamSessionId: `multiplex-${crypto.randomUUID()}`,
+        sourceGeneration: current.sourceGeneration + 1,
         isLoading: true,
         error: null,
         isPlaying: false,
@@ -243,7 +328,12 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
         bufferedTime: 0,
         canPlay: false,
         isBuffering: false,
-      });
+        autoPlay: {
+          isCountingDown: false,
+          countdownSeconds: 0,
+          nextEpisode: null,
+        },
+      }));
     };
 
     const cancelAutoPlay: PlayerServiceShape["cancelAutoPlay"] = () => {
@@ -301,8 +391,9 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
 
         // autoPlay.isEnabled lives in player-prefs-store and is intentionally
         // left alone (same persistence behavior as the old store's closePlayer).
-        setState(state, {
+        setState(state, (current) => ({
           ...initialPlayerState,
+          sourceGeneration: current.sourceGeneration + 1,
           autoPlay: {
             isCountingDown: false,
             countdownSeconds: 0,
@@ -310,76 +401,103 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
           },
           showControls: true,
           isFullscreen: false,
-        });
+        }));
       },
 
+      playbackIdentity: () => getPlayerPlaybackIdentity(getState(state)),
+
       updatePlaybackState: (updates) => setState(state, updates),
+      updatePlaybackStateFor: (expected, updates) => {
+        let applied = false;
+        setState(state, (current) => {
+          if (!isPlayerPlaybackIdentityCurrent(current, expected)) {
+            return current;
+          }
+          applied = true;
+          return { ...current, ...updates };
+        });
+        return applied;
+      },
 
       updateCurrentTime: (time) => setState(state, { currentTime: time }),
       updateDuration: (duration) => setState(state, { duration }),
       updateBufferedTime: (bufferedTime) => setState(state, { bufferedTime }),
 
-      applyPlaybackMetadata: (metadata, options) => {
-        const current = getState(state);
-        if (
-          !current.currentItem ||
-          current.currentItem.ratingKey !== metadata.ratingKey
-        ) {
-          return;
-        }
+      applyPlaybackMetadata: (expected, metadata, options) => {
+        setState(state, (current) => {
+          if (
+            !current.currentItem ||
+            !isPlayerPlaybackIdentityCurrent(current, expected) ||
+            metadata.ratingKey !== expected.ratingKey
+          ) {
+            return current;
+          }
 
-        const currentStreams =
-          current.currentItem.Media?.[0]?.Part?.[0]?.Stream;
-        const nextStreams = metadata.Media?.[0]?.Part?.[0]?.Stream;
-        if (
-          !options?.reloadVideo &&
-          currentStreams &&
-          nextStreams &&
-          JSON.stringify(currentStreams) === JSON.stringify(nextStreams)
-        ) {
-          return;
-        }
+          const currentStreams =
+            current.currentItem.Media?.[0]?.Part?.[0]?.Stream;
+          const nextStreams = metadata.Media?.[0]?.Part?.[0]?.Stream;
+          if (
+            !options?.reloadVideo &&
+            currentStreams &&
+            nextStreams &&
+            JSON.stringify(currentStreams) === JSON.stringify(nextStreams)
+          ) {
+            return current;
+          }
 
-        const hydratedItem: MediaPlayerItem = {
-          ...current.currentItem,
-          ...metadata,
-          serverUrl: current.currentItem.serverUrl,
-          authToken: current.currentItem.authToken,
-          serverId: current.currentItem.serverId,
-        };
-        const plan = buildPlexPlaybackPlan(hydratedItem);
-        const preserveCurrentTime =
-          options?.preserveCurrentTime ?? current.currentTime;
+          const hydratedItem: MediaPlayerItem = {
+            ...current.currentItem,
+            ...metadata,
+            serverUrl: current.currentItem.serverUrl,
+            authToken: current.currentItem.authToken,
+            serverId: current.currentItem.serverId,
+          };
+          const plan = buildPlexPlaybackPlan(hydratedItem);
+          const videoSourceChanged =
+            getVideoSourceSignature(current.currentItem) !==
+            getVideoSourceSignature(hydratedItem);
+          const preserveCurrentTime =
+            options?.preserveCurrentTime ?? current.currentTime;
 
-        if (options?.reloadVideo) {
-          const previousUsesTranscode =
-            options.previousVideoUsesTranscode ??
-            playbackUsesTranscode(current.currentItem);
-          const shouldReloadVideo =
-            previousUsesTranscode || plan.videoUsesTranscode;
+          if (options?.reloadVideo) {
+            const previousUsesTranscode =
+              options.previousVideoUsesTranscode ??
+              playbackUsesTranscode(current.currentItem);
+            const shouldReloadVideo =
+              previousUsesTranscode || plan.videoUsesTranscode;
+            const sourceGeneration =
+              shouldReloadVideo || videoSourceChanged
+                ? current.sourceGeneration + 1
+                : current.sourceGeneration;
 
-          setState(state, {
+            return {
+              ...current,
+              currentItem: hydratedItem,
+              currentTime: preserveCurrentTime,
+              sourceGeneration,
+              streamOffset:
+                plan.videoUsesTranscode && preserveCurrentTime > 0
+                  ? preserveCurrentTime
+                  : 0,
+              ...(shouldReloadVideo ? { isLoading: true, canPlay: false } : {}),
+            };
+          }
+
+          const shouldSeedStreamOffset =
+            current.streamOffset === 0 &&
+            current.currentTime > 0 &&
+            plan.videoUsesTranscode;
+
+          return {
+            ...current,
             currentItem: hydratedItem,
-            currentTime: preserveCurrentTime,
-            streamOffset:
-              plan.videoUsesTranscode && preserveCurrentTime > 0
-                ? preserveCurrentTime
-                : 0,
-            ...(shouldReloadVideo ? { isLoading: true, canPlay: false } : {}),
-          });
-          return;
-        }
-
-        const shouldSeedStreamOffset =
-          current.streamOffset === 0 &&
-          current.currentTime > 0 &&
-          plan.videoUsesTranscode;
-
-        setState(state, {
-          currentItem: hydratedItem,
-          streamOffset: shouldSeedStreamOffset
-            ? current.currentTime
-            : current.streamOffset,
+            sourceGeneration: videoSourceChanged
+              ? current.sourceGeneration + 1
+              : current.sourceGeneration,
+            streamOffset: shouldSeedStreamOffset
+              ? current.currentTime
+              : current.streamOffset,
+          };
         });
       },
 

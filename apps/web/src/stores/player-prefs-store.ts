@@ -25,13 +25,23 @@ export interface PlayerPrefsState {
 
 /** Legacy persisted JSON written by the pre-split media-player-store. */
 export type LegacyPersistedPrefs = {
-  volume?: number;
-  isMuted?: boolean;
-  playbackRate?: PlaybackRate;
-  captionSize?: CaptionSize;
-  autoPlay?: { isEnabled?: boolean };
-  autoPlayEnabled?: boolean;
+  volume?: unknown;
+  isMuted?: unknown;
+  playbackRate?: unknown;
+  captionSize?: unknown;
+  autoPlay?: { isEnabled?: unknown };
+  autoPlayEnabled?: unknown;
 };
+
+const playbackRates: readonly PlaybackRate[] = [
+  0.5, 0.75, 1, 1.25, 1.5, 1.75, 2,
+];
+const captionSizes: readonly CaptionSize[] = [
+  "small",
+  "medium",
+  "large",
+  "extra-large",
+];
 
 export function prefsFromPersisted(
   persisted: unknown,
@@ -41,12 +51,18 @@ export function prefsFromPersisted(
     return current;
   }
   const p = persisted as LegacyPersistedPrefs;
+  const volume =
+    typeof p.volume === "number" && Number.isFinite(p.volume)
+      ? Math.min(Math.max(p.volume, 0), 1)
+      : current.volume;
+  const playbackRate = playbackRates.find((rate) => rate === p.playbackRate);
+  const captionSize = captionSizes.find((size) => size === p.captionSize);
   return {
     ...current,
-    volume: typeof p.volume === "number" ? p.volume : current.volume,
+    volume,
     isMuted: typeof p.isMuted === "boolean" ? p.isMuted : current.isMuted,
-    playbackRate: p.playbackRate ?? current.playbackRate,
-    captionSize: p.captionSize ?? current.captionSize,
+    playbackRate: playbackRate ?? current.playbackRate,
+    captionSize: captionSize ?? current.captionSize,
     autoPlayEnabled:
       typeof p.autoPlay?.isEnabled === "boolean"
         ? p.autoPlay.isEnabled

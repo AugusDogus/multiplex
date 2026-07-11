@@ -31,6 +31,7 @@ export type PlayerActions = {
   readonly play: () => boolean | Promise<boolean>;
   readonly pause: () => void;
   readonly seek: (seconds: number) => MediaPlayerSeekResult;
+  readonly prepareForReplacement: () => Promise<void>;
 };
 
 export type PlayerPortShape = {
@@ -51,6 +52,7 @@ export type PlayerPortShape = {
    * Returns an unregister that clears only if this registration is still current.
    */
   readonly registerActions: (actions: PlayerActions) => () => void;
+  readonly prepareForReplacement: () => Promise<void>;
   readonly play: () => boolean | Promise<boolean>;
   readonly pause: () => void;
   readonly seek: (seconds: number) => MediaPlayerSeekResult;
@@ -125,6 +127,8 @@ export const makePlayerPort = (player: PlayerServiceShape): PlayerPortShape => {
         }
       };
     },
+    prepareForReplacement: () =>
+      actions?.prepareForReplacement() ?? Promise.resolve(),
     play: () => {
       if (!actions) {
         warnUnregistered("play");

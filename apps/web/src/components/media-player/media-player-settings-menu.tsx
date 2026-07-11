@@ -4,23 +4,13 @@ import type {
   ItemMetadata,
   StreamType as PlexStream,
 } from "@multiplex/plex-query";
-import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import { Effect } from "effect";
-import * as Option from "effect/Option";
 import { Check, ChevronLeft, ChevronRight, Settings } from "lucide-react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { useEffect, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
 import { playerCommands, usePlayerState } from "~/lib/effect/player-atoms";
-import { asItemMetadata } from "~/lib/effect/plex-boundary";
-import {
-  makePlexHttpApiClient,
-  plexHttpClientLayer,
-} from "~/lib/effect/plex-api-client";
-import { itemMetadataAtom } from "~/lib/effect/plex-atoms";
-import { sessionRuntime } from "~/lib/effect/runtime";
+import { api } from "~/trpc/react";
 import type { MediaPlayerItem, PlaybackRate } from "~/types/media-player";
 import { CAPTION_SIZE_OPTIONS } from "./utils/caption-size";
 import { playbackUsesTranscode } from "./utils/plex-playback-plan";
@@ -68,6 +58,7 @@ export function MediaPlayerSettingsMenu({
 }: MediaPlayerSettingsMenuProps) {
   const {
     currentItem,
+    streamSessionId,
     playbackRate,
     captionSize,
     autoPlay: { isEnabled: autoPlayEnabled },
@@ -94,28 +85,53 @@ export function MediaPlayerSettingsMenu({
   // shallow `currentItem` from the store has no audio or subtitle stream
   // information. Fetch the full metadata once the player has an item so the
   // settings menu can show real stream choices.
-  const metadataKey = {
-    serverId: currentItem?.serverId ?? "",
-    ratingKey: currentItem?.ratingKey ?? "",
-    enabled: Boolean(currentItem?.serverId && currentItem.ratingKey),
-  };
-  const metadataAtom = itemMetadataAtom(metadataKey);
-  const detailedItemResult = useAtomValue(metadataAtom);
-  const refreshDetailedItem = useAtomRefresh(metadataAtom);
-  const detailedItem = Option.getOrUndefined(
-    AsyncResult.value(detailedItemResult),
-  );
+  const metadataServerId = currentItem?.serverId ?? "";
+  const metadataRatingKey = currentItem?.ratingKey ?? "";
+  const { data: detailedItem, refetch: refetchDetailedItem } =
+    api.plex.getItemMetadata.useQuery(
+      {
+        serverId: metadataServerId,
+        ratingKey: metadataRatingKey,
+      },
+      {
+        enabled: Boolean(metadataServerId && metadataRatingKey),
+        staleTime: 5 * 60 * 1000,
+      },
+    );
 
   // Keep the store's `currentItem` hydrated with expanded stream metadata so
   // playback and the settings menu share one canonical subtitle selection.
-  // Read `currentItem` inside the effect so hydrating the store does not
-  // retrigger this effect and cause an update loop.
   useEffect(() => {
-    if (!detailedItem) return;
-    const item = playerCommands.snapshot().currentItem;
-    if (!item || item.ratingKey !== detailedItem.ratingKey) return;
-    applyPlaybackMetadata(detailedItem);
-  }, [detailedItem, applyPlaybackMetadata]);
+    if (
+      !detailedItem ||
+      !metadataServerId ||
+      !metadataRatingKey ||
+      detailedItem.ratingKey !== metadataRatingKey
+    ) {
+      return;
+    }
+
+    const identity = {
+      streamSessionId,
+      serverId: metadataServerId,
+      ratingKey: metadataRatingKey,
+    };
+    const currentIdentity = playerCommands.playbackIdentity();
+    if (
+      currentIdentity?.streamSessionId !== identity.streamSessionId ||
+      currentIdentity.serverId !== identity.serverId ||
+      currentIdentity.ratingKey !== identity.ratingKey
+    ) {
+      return;
+    }
+    applyPlaybackMetadata(identity, detailedItem);
+  }, [
+    detailedItem,
+    metadataServerId,
+    metadataRatingKey,
+    streamSessionId,
+    applyPlaybackMetadata,
+  ]);
 
   const streamSource: StreamSource = detailedItem ?? currentItem;
   const qualityLabel = getQualityLabel(streamSource);
@@ -137,6 +153,23 @@ export function MediaPlayerSettingsMenu({
       return;
     }
 
+    const playbackIdentity = playerCommands.playbackIdentity();
+    if (
+      playbackIdentity?.serverId !== currentItem.serverId ||
+      playbackIdentity.ratingKey !== currentItem.ratingKey
+    ) {
+      return;
+    }
+
+    const isCurrentPlayback = () => {
+      const currentIdentity = playerCommands.playbackIdentity();
+      return (
+        currentIdentity?.streamSessionId === playbackIdentity.streamSessionId &&
+        currentIdentity.serverId === playbackIdentity.serverId &&
+        currentIdentity.ratingKey === playbackIdentity.ratingKey
+      );
+    };
+
     if (streamId === selectedSubtitleStreamId) {
       setPane("root");
       return;
@@ -152,37 +185,35 @@ export function MediaPlayerSettingsMenu({
         currentItem.authToken,
         streamId,
       );
+      const previousUsesTranscode = playbackUsesTranscode(currentItem);
       const response = await fetch(selectionUrl, { method: "PUT" });
 
       if (!response.ok) {
         throw new Error(`Plex returned ${response.status}`);
       }
 
-      const previousUsesTranscode = playbackUsesTranscode(currentItem);
-      const refreshed = await sessionRuntime.runPromise(
-        Effect.gen(function* () {
-          const client = yield* makePlexHttpApiClient();
-          const metadata = yield* client.library.getItemMetadata({
-            query: {
-              serverId: currentItem.serverId,
-              ratingKey: currentItem.ratingKey,
-            },
-          });
-          return asItemMetadata(metadata);
-        }).pipe(Effect.provide(plexHttpClientLayer)),
-      );
-      refreshDetailedItem();
-      applyPlaybackMetadata(refreshed, {
-        reloadVideo: true,
-        previousVideoUsesTranscode: previousUsesTranscode,
-      });
+      if (!isCurrentPlayback()) {
+        return;
+      }
+      const refreshed = await refetchDetailedItem();
+      if (!isCurrentPlayback()) {
+        return;
+      }
+      if (refreshed.data) {
+        applyPlaybackMetadata(playbackIdentity, refreshed.data, {
+          reloadVideo: true,
+          previousVideoUsesTranscode: previousUsesTranscode,
+        });
+      }
       setPane("root");
     } catch (error) {
       console.error(
         "Failed to select subtitle stream:",
         error instanceof Error ? error.message : error,
       );
-      setSubtitleError("Unable to update subtitles");
+      if (isCurrentPlayback()) {
+        setSubtitleError("Unable to update subtitles");
+      }
     } finally {
       setIsUpdatingSubtitle(false);
     }

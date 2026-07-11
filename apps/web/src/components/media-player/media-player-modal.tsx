@@ -54,6 +54,41 @@ import { cn } from "~/lib/utils";
 const MOBILE_CONTROLS_HIDE_DELAY_MS = 3000;
 const SEEK_SECONDS = 10;
 
+type ItemIdentity = {
+  readonly serverId: string;
+  readonly ratingKey: string;
+};
+
+type PlaybackGeneration = ItemIdentity & {
+  readonly streamSessionId: string;
+};
+
+const itemsMatch = (left: ItemIdentity, right: ItemIdentity | null): boolean =>
+  left.serverId === right?.serverId && left.ratingKey === right.ratingKey;
+
+const isSessionControllingItem = (item: ItemIdentity): boolean => {
+  const session = sessionCommands.snapshot();
+  const currentItem = playerCommands.snapshot().currentItem;
+  return (
+    session._tag === "Playing" &&
+    itemsMatch(session.item, item) &&
+    itemsMatch(session.item, currentItem)
+  );
+};
+
+const isSessionControllingPlayback = (
+  playback: PlaybackGeneration,
+): boolean => {
+  const session = sessionCommands.snapshot();
+  const player = playerCommands.snapshot();
+  return (
+    session._tag === "Playing" &&
+    itemsMatch(session.item, playback) &&
+    itemsMatch(playback, player.currentItem) &&
+    player.streamSessionId === playback.streamSessionId
+  );
+};
+
 export function MediaPlayerModal() {
   const {
     isOpen,
@@ -77,6 +112,10 @@ export function MediaPlayerModal() {
   const seekFeedbackRef = useRef<MediaPlayerSeekFeedbackHandle>(null);
   const isMobile = useIsMobile();
   const sessionState = useSessionState();
+  const playerItemServerId = currentItem?.serverId ?? null;
+  const playerItemRatingKey = currentItem?.ratingKey ?? null;
+  const streamServerUrl = currentItem?.serverUrl;
+  const streamAuthToken = currentItem?.authToken;
 
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const mouseMoveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -176,48 +215,118 @@ export function MediaPlayerModal() {
   // Register video-element actions into PlayerPort so the session service's
   // Syncplay controller can command play/pause/seek.
   useEffect(() => {
+    if (
+      !isOpen ||
+      !playerItemServerId ||
+      !playerItemRatingKey ||
+      !streamSessionId ||
+      !streamServerUrl ||
+      !streamAuthToken
+    ) {
+      return;
+    }
+
+    const registeredPlayback = {
+      serverId: playerItemServerId,
+      ratingKey: playerItemRatingKey,
+      streamSessionId,
+    };
     return sessionCommands.registerPlayerActions({
       // Results flow through to the Syncplay controller: play() reports
       // whether playback actually started, seek() reports direct/reload/none
       // (it retries remote seeks that return "none").
-      play: () => actions.play(),
+      play: () =>
+        isSessionControllingPlayback(registeredPlayback)
+          ? actions.play()
+          : false,
       pause: () => {
-        actions.pause();
+        if (isSessionControllingPlayback(registeredPlayback)) {
+          actions.pause();
+        }
       },
-      seek: (seconds) => actions.seek(seconds),
+      seek: (seconds) =>
+        isSessionControllingPlayback(registeredPlayback)
+          ? actions.seek(seconds)
+          : "none",
+      prepareForReplacement: () =>
+        stopPlaybackTranscodeSessions(
+          streamServerUrl,
+          streamAuthToken,
+          streamSessionId,
+        ),
     });
-  }, [actions]);
+  }, [
+    actions,
+    isOpen,
+    playerItemServerId,
+    playerItemRatingKey,
+    streamSessionId,
+    streamServerUrl,
+    streamAuthToken,
+  ]);
 
-  // Session owns the room whenever we're Lobby or Playing — solo autoplay must
-  // stay off for the whole lifetime (including the one-render lag after a
-  // rotation swap where session.item already advanced but currentItem has not).
   const isWatchTogetherSession =
     sessionState._tag === "Playing" || sessionState._tag === "Lobby";
-
-  // Item-match gate: only forward local video events into the live Syncplay
-  // controller when this modal is actually showing the session's item. During
-  // the swap lag, handleLocal* would still be harmless (controller is for the
-  // new room / no-ops if null), but UI chrome that means "this video is the
-  // synced one" should wait for the player store to catch up.
+  const isSessionPlaying = sessionState._tag === "Playing";
+  const sessionItemServerId = isSessionPlaying
+    ? sessionState.item.serverId
+    : null;
+  const sessionItemRatingKey = isSessionPlaying
+    ? sessionState.item.ratingKey
+    : null;
   const isSyncplayActiveForCurrentItem =
-    sessionState._tag === "Playing" &&
-    Boolean(
-      currentItem &&
-        sessionState.item.serverId === currentItem.serverId &&
-        sessionState.item.ratingKey === currentItem.ratingKey,
-    );
+    isSessionPlaying &&
+    sessionItemServerId === playerItemServerId &&
+    sessionItemRatingKey === playerItemRatingKey;
+
+  // A direct player replacement must not leave the previous room's controller
+  // attached to unrelated media. Re-check after the current task so swapTo's
+  // atomic SessionState + PlayerService item rotation can settle first.
+  useEffect(() => {
+    if (!isSessionPlaying || isSyncplayActiveForCurrentItem) {
+      return;
+    }
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+
+      const latestSession = sessionCommands.snapshot();
+      const latestItem = playerCommands.snapshot().currentItem;
+      if (
+        latestSession._tag === "Playing" &&
+        !itemsMatch(latestSession.item, latestItem)
+      ) {
+        sessionCommands.leave({ suppressAutoStart: true });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isSessionPlaying,
+    sessionItemServerId,
+    sessionItemRatingKey,
+    playerItemServerId,
+    playerItemRatingKey,
+    isSyncplayActiveForCurrentItem,
+  ]);
 
   const onSyncplayLocalPlaybackChange = useCallback((isPaused: boolean) => {
-    sessionCommands.handleLocalPlaybackChange(isPaused);
+    const item = playerCommands.snapshot().currentItem;
+    if (item && isSessionControllingItem(item)) {
+      sessionCommands.handleLocalPlaybackChange(isPaused);
+    }
   }, []);
 
   const onSyncplayLocalSeeked = useCallback((time: number) => {
-    sessionCommands.handleLocalSeeked(time);
+    const item = playerCommands.snapshot().currentItem;
+    if (item && isSessionControllingItem(item)) {
+      sessionCommands.handleLocalSeeked(time);
+    }
   }, []);
 
-  // Gate solo autoplay on session tag alone — NOT item match. At episode end
-  // during a WT swap, item mismatch would briefly re-enable solo triggerAutoPlay
-  // and open the next episode outside the room.
   const { autoPlayState, nextEpisode } = useAutoPlayNextEpisode({
     enabled: !isWatchTogetherSession,
   });
@@ -229,31 +338,21 @@ export function MediaPlayerModal() {
     nextEpisode,
   });
 
-  // Forward local play/pause/seek whenever a session is live. During the brief
-  // item mismatch after swap the previous video's ending events are fine to
-  // send: the new room's controller either absorbs them or has no adapter yet.
   const handleVideoPlay = useCallback(() => {
     onPlay();
-    if (isWatchTogetherSession) {
-      onSyncplayLocalPlaybackChange(false);
-    }
-  }, [onPlay, onSyncplayLocalPlaybackChange, isWatchTogetherSession]);
+    onSyncplayLocalPlaybackChange(false);
+  }, [onPlay, onSyncplayLocalPlaybackChange]);
 
   const handleVideoPause = useCallback(() => {
     onPause();
-    if (isWatchTogetherSession) {
-      onSyncplayLocalPlaybackChange(true);
-    }
-  }, [onPause, onSyncplayLocalPlaybackChange, isWatchTogetherSession]);
+    onSyncplayLocalPlaybackChange(true);
+  }, [onPause, onSyncplayLocalPlaybackChange]);
 
   const handleVideoSeeked = useCallback(
     (time: number) => {
       onSeeked(time);
-      if (isWatchTogetherSession) {
-        onSyncplayLocalSeeked(time);
-      }
     },
-    [onSeeked, onSyncplayLocalSeeked, isWatchTogetherSession],
+    [onSeeked],
   );
 
   // Plex's transcoded streams can't be seeked via `currentTime`; we reload the
@@ -261,34 +360,41 @@ export function MediaPlayerModal() {
   // Report those reload-seeks to Syncplay here so they propagate to the room.
   // (Remote-applied reload-seeks are filtered out by the session controller's
   // own suppression, so this doesn't echo them back.)
-  const streamServerUrl = currentItem?.serverUrl;
-  const streamAuthToken = currentItem?.authToken;
-
   // We seek a transcoded stream by reloading it at a new `streamOffset` (a new
   // transcode session). Report that seek to Syncplay so it propagates, and stop
   // the previous offset's transcode so seeking doesn't pile up sessions and hit
   // the server's transcode limit (HTTP 400 / "video source not supported").
-  const previousStreamOffsetRef = useRef(streamOffset);
+  const previousStreamRef = useRef({
+    sessionId: streamSessionId,
+    offset: streamOffset,
+  });
   useEffect(() => {
-    if (streamOffset === previousStreamOffsetRef.current) {
+    const previousStream = previousStreamRef.current;
+    if (streamSessionId !== previousStream.sessionId) {
+      previousStreamRef.current = {
+        sessionId: streamSessionId,
+        offset: streamOffset,
+      };
       return;
     }
-    const previousOffset = previousStreamOffsetRef.current;
-    previousStreamOffsetRef.current = streamOffset;
-    if (isWatchTogetherSession) {
-      onSyncplayLocalSeeked(streamOffset);
+    if (streamOffset === previousStream.offset) {
+      return;
     }
+    previousStreamRef.current = {
+      sessionId: streamSessionId,
+      offset: streamOffset,
+    };
+    onSyncplayLocalSeeked(streamOffset);
     if (streamSessionId && streamServerUrl && streamAuthToken) {
       void stopTranscodeSession(
         streamServerUrl,
         streamAuthToken,
-        `${streamSessionId}-${Math.floor(previousOffset)}`,
+        `${streamSessionId}-${Math.floor(previousStream.offset)}`,
       );
     }
   }, [
     streamOffset,
     onSyncplayLocalSeeked,
-    isWatchTogetherSession,
     streamSessionId,
     streamServerUrl,
     streamAuthToken,
@@ -318,13 +424,26 @@ export function MediaPlayerModal() {
     closePlayer();
   }, [onStop, clearSession, clearAllTimeouts, closePlayer]);
 
+  const handleDragDismiss = useCallback(() => {
+    const currentPlayback = playerCommands.playbackIdentity();
+    if (
+      currentPlayback?.serverId !== playerItemServerId ||
+      currentPlayback?.ratingKey !== playerItemRatingKey ||
+      currentPlayback?.streamSessionId !== streamSessionId
+    ) {
+      return;
+    }
+
+    handleClose();
+  }, [handleClose, playerItemServerId, playerItemRatingKey, streamSessionId]);
+
   const {
     ref: dragRef,
     handlers: dragHandlers,
     isDragging,
   } = useDragToDismiss({
     enabled: isOpen && isMobile,
-    onDismiss: handleClose,
+    onDismiss: handleDragDismiss,
     // Mobile mode CSS-rotates the player content 90° CW so a portrait phone
     // shows landscape video. Visual-down therefore lives on the physical
     // -X axis, and the player must slide off to physical left to dismiss.
@@ -521,6 +640,7 @@ export function MediaPlayerModal() {
                 onVideoPlay={handleVideoPlay}
                 onVideoPause={handleVideoPause}
                 onVideoTimeUpdate={onTimeUpdate}
+                onVideoSeeking={onSyncplayLocalSeeked}
                 onVideoSeeked={handleVideoSeeked}
               />
 

@@ -129,6 +129,7 @@ test("play/pause/seek warn until registerActions, then delegate", () => {
     play: mock(),
     pause: mock(),
     seek: mock(),
+    prepareForReplacement: mock(async () => undefined),
   };
   port.registerActions(actions);
   void port.play();
@@ -142,6 +143,23 @@ test("play/pause/seek warn until registerActions, then delegate", () => {
   warn.mockRestore();
 });
 
+test("prepareForReplacement delegates when registered and is safe otherwise", async () => {
+  const { port } = makeIsolatedPort();
+
+  await port.prepareForReplacement();
+
+  const prepareForReplacement = mock(async () => undefined);
+  port.registerActions({
+    play: mock(),
+    pause: mock(),
+    seek: mock(),
+    prepareForReplacement,
+  });
+
+  await port.prepareForReplacement();
+  expect(prepareForReplacement).toHaveBeenCalledTimes(1);
+});
+
 test("unregister clears actions; stale unregister does not clobber a newer registration", () => {
   const { port } = makeIsolatedPort();
   const warn = spyOn(console, "warn").mockImplementation(() => undefined);
@@ -150,6 +168,7 @@ test("unregister clears actions; stale unregister does not clobber a newer regis
     play: mock(() => true),
     pause: mock(),
     seek: mock(() => "direct" as const),
+    prepareForReplacement: mock(async () => undefined),
   };
   const unregisterFirst = port.registerActions(first);
 
@@ -157,6 +176,7 @@ test("unregister clears actions; stale unregister does not clobber a newer regis
     play: mock(() => true),
     pause: mock(),
     seek: mock(() => "direct" as const),
+    prepareForReplacement: mock(async () => undefined),
   };
   const unregisterSecond = port.registerActions(second);
 
@@ -166,6 +186,8 @@ test("unregister clears actions; stale unregister does not clobber a newer regis
   expect(second.play).toHaveBeenCalledTimes(1);
   expect(first.play).toHaveBeenCalledTimes(0);
   expect(warn).not.toHaveBeenCalled();
+  void port.prepareForReplacement();
+  expect(second.prepareForReplacement).toHaveBeenCalledTimes(1);
 
   unregisterSecond();
   warn.mockClear();

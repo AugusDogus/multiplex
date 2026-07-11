@@ -13,6 +13,10 @@ import {
 import type { MouseEvent, PointerEvent, RefObject } from "react";
 import { cn } from "~/lib/utils";
 import { playerCommands, usePlayerState } from "~/lib/effect/player-atoms";
+import type {
+  PlayerPlaybackIdentity,
+  PlayerPlaybackUpdate,
+} from "~/lib/effect/player-service";
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import type { MediaPlayerItem } from "~/types/media-player";
 import { useCaptionLines } from "./hooks/use-caption-lines";
@@ -117,6 +121,10 @@ interface MediaPlayerVideoProps {
    */
   onVideoTimeUpdate?: (currentTime: number) => void;
   /**
+   * Callback fired when a direct-play seek starts
+   */
+  onVideoSeeking?: (currentTime: number) => void;
+  /**
    * Callback fired when video seeking is complete
    */
   onVideoSeeked?: (currentTime: number) => void;
@@ -141,6 +149,7 @@ export const MediaPlayerVideo = forwardRef<
       onVideoPlay,
       onVideoPause,
       onVideoTimeUpdate,
+      onVideoSeeking,
       onVideoSeeked,
     },
     ref,
@@ -151,11 +160,34 @@ export const MediaPlayerVideo = forwardRef<
       playbackRate,
       streamOffset,
       streamSessionId,
+      sourceGeneration,
       isLoading,
       showControls,
       captionSize,
     } = usePlayerState();
-    const updatePlaybackState = playerCommands.updatePlaybackState;
+    const playbackIdentity = useMemo<PlayerPlaybackIdentity>(
+      () => ({
+        streamSessionId,
+        serverId: item.serverId,
+        ratingKey: item.ratingKey,
+      }),
+      [item.ratingKey, item.serverId, streamSessionId],
+    );
+    const isCurrentSource = useCallback(() => {
+      const current = playerCommands.snapshot();
+      return (
+        current.sourceGeneration === sourceGeneration &&
+        current.streamSessionId === playbackIdentity.streamSessionId &&
+        current.currentItem?.serverId === playbackIdentity.serverId &&
+        current.currentItem.ratingKey === playbackIdentity.ratingKey
+      );
+    }, [playbackIdentity, sourceGeneration]);
+    const updatePlaybackState = useCallback(
+      (updates: PlayerPlaybackUpdate) =>
+        isCurrentSource() &&
+        playerCommands.updatePlaybackStateFor(playbackIdentity, updates),
+      [isCurrentSource, playbackIdentity],
+    );
     const playbackPlan = useMemo(() => buildPlexPlaybackPlan(item), [item]);
     const usesOffsetTimeline = streamOffset > 0;
     const videoElementRef = useRef<HTMLVideoElement | null>(null);
@@ -176,6 +208,8 @@ export const MediaPlayerVideo = forwardRef<
       hasPendingResume,
     } = useResumePlayback({
       videoRef: videoElementRef,
+      playbackGeneration: playbackIdentity.streamSessionId,
+      sourceGeneration,
       usesOffsetTimeline,
       streamOffset,
       isLoading,
@@ -273,6 +307,8 @@ export const MediaPlayerVideo = forwardRef<
 
     // Handle video metadata loaded
     const handleLoadedMetadata = useCallback(() => {
+      if (!isCurrentSource()) return;
+
       console.log("🎬 Video: Metadata loaded, setting start time");
 
       if (ref && "current" in ref && ref.current) {
@@ -299,6 +335,7 @@ export const MediaPlayerVideo = forwardRef<
       }
     }, [
       applyResumeSeekOnMetadata,
+      isCurrentSource,
       ref,
       updatePlaybackState,
       volume,
@@ -309,26 +346,29 @@ export const MediaPlayerVideo = forwardRef<
 
     // Handle video play event
     const handlePlay = useCallback(() => {
-      updatePlaybackState({ isPlaying: true });
-      onVideoPlay?.();
+      if (updatePlaybackState({ isPlaying: true })) onVideoPlay?.();
     }, [updatePlaybackState, onVideoPlay]);
 
     // Handle video pause event
     const handlePause = useCallback(() => {
-      updatePlaybackState({ isPlaying: false });
-      onVideoPause?.();
+      if (updatePlaybackState({ isPlaying: false })) onVideoPause?.();
     }, [updatePlaybackState, onVideoPause]);
 
     // Handle video ended event
     const handleEnded = useCallback(() => {
-      updatePlaybackState({ isPlaying: false });
-      onVideoEnded?.();
+      if (updatePlaybackState({ isPlaying: false })) onVideoEnded?.();
     }, [updatePlaybackState, onVideoEnded]);
 
     // Handle seeking event
     const handleSeeking = useCallback(() => {
-      updatePlaybackState({ isBuffering: true });
-    }, [updatePlaybackState]);
+      if (!updatePlaybackState({ isBuffering: true })) return;
+
+      // Claim direct-play seeks before Syncplay can reapply the old room
+      // position while the browser is still fetching the target byte range.
+      if (!usesOffsetTimeline && videoElementRef.current) {
+        onVideoSeeking?.(videoElementRef.current.currentTime);
+      }
+    }, [onVideoSeeking, updatePlaybackState, usesOffsetTimeline]);
 
     // Handle waiting event (buffering starts)
     const handleWaiting = useCallback(() => {
@@ -597,6 +637,7 @@ export const MediaPlayerVideo = forwardRef<
         onDoubleClick={handleVideoDoubleClick}
       >
         <video
+          key={`${streamSessionId}:${sourceGeneration}`}
           ref={videoRefCallback}
           autoPlay
           src={videoSrc}

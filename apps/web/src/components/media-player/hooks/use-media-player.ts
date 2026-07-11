@@ -1,12 +1,8 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import type { Marker } from "@multiplex/plex-query";
-import {
-  playerCommands,
-  usePlayerState,
-  type PlayerViewState,
-} from "~/lib/effect/player-atoms";
+import { playerCommands } from "~/lib/effect/player-atoms";
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import type {
   MediaPlayerActions,
@@ -20,7 +16,6 @@ import { clamp, supportsFullscreen } from "../utils/media-player-utils";
    ──────────────────────────────────────────────────────────── */
 
 export function useMediaPlayer(): {
-  state: PlayerViewState;
   actions: MediaPlayerActions & {
     skipForward: (seconds?: number) => void;
     skipBackward: (seconds?: number) => void;
@@ -30,7 +25,6 @@ export function useMediaPlayer(): {
   };
   videoRef: React.RefObject<HTMLVideoElement | null>;
 } {
-  const state = usePlayerState();
   const videoRef = useRef<HTMLVideoElement>(null);
 
   /**
@@ -38,15 +32,32 @@ export function useMediaPlayer(): {
    */
   const play = useCallback(async () => {
     console.log("🎬 Player: play() called");
-    if (videoRef.current) {
+    const video = videoRef.current;
+    const playbackIdentity = playerCommands.playbackIdentity();
+    const sourceGeneration = playerCommands.snapshot().sourceGeneration;
+    if (video && playbackIdentity) {
       try {
-        await videoRef.current.play();
+        await video.play();
+        if (
+          videoRef.current !== video ||
+          playerCommands.snapshot().sourceGeneration !== sourceGeneration
+        ) {
+          return false;
+        }
         console.log("🎬 Player: video.play() succeeded");
-        playerCommands.updatePlaybackState({ error: null, isPlaying: true });
-        return true;
+        return playerCommands.updatePlaybackStateFor(playbackIdentity, {
+          error: null,
+          isPlaying: true,
+        });
       } catch (error) {
+        if (
+          videoRef.current !== video ||
+          playerCommands.snapshot().sourceGeneration !== sourceGeneration
+        ) {
+          return false;
+        }
         console.error("🎬 Player: video.play() failed:", error);
-        playerCommands.updatePlaybackState({
+        playerCommands.updatePlaybackStateFor(playbackIdentity, {
           error: "Failed to start video playback",
           isPlaying: false,
         });
@@ -62,9 +73,13 @@ export function useMediaPlayer(): {
    */
   const pause = useCallback(() => {
     console.log("🎬 Player: pause() called");
-    if (videoRef.current) {
-      videoRef.current.pause();
-      playerCommands.updatePlaybackState({ isPlaying: false });
+    const video = videoRef.current;
+    const playbackIdentity = playerCommands.playbackIdentity();
+    if (video && playbackIdentity) {
+      video.pause();
+      playerCommands.updatePlaybackStateFor(playbackIdentity, {
+        isPlaying: false,
+      });
     }
   }, []);
 
@@ -84,16 +99,18 @@ export function useMediaPlayer(): {
    * @param time - Time to seek to in seconds
    */
   const seek = useCallback((time: number): MediaPlayerSeekResult => {
-    if (videoRef.current) {
+    const video = videoRef.current;
+    const playbackIdentity = playerCommands.playbackIdentity();
+    if (video && playbackIdentity) {
       const clampedTime = clamp(time, 0, playerCommands.snapshot().duration);
       // Plex's transcoded MP4 stream advertises an empty seekable range, so
       // assigning `video.currentTime` is silently rejected. For those we
       // seek by reloading the stream with a new `offset` instead.
-      const isTranscoded = videoRef.current.currentSrc.includes(
+      const isTranscoded = video.currentSrc.includes(
         "/video/:/transcode/universal/",
       );
       if (isTranscoded) {
-        playerCommands.updatePlaybackState({
+        playerCommands.updatePlaybackStateFor(playbackIdentity, {
           streamOffset: clampedTime,
           currentTime: clampedTime,
           isLoading: true,
@@ -101,8 +118,10 @@ export function useMediaPlayer(): {
         });
         return "reload";
       }
-      videoRef.current.currentTime = clampedTime;
-      playerCommands.updatePlaybackState({ currentTime: clampedTime });
+      video.currentTime = clampedTime;
+      playerCommands.updatePlaybackStateFor(playbackIdentity, {
+        currentTime: clampedTime,
+      });
       return "direct";
     }
 
@@ -220,32 +239,44 @@ export function useMediaPlayer(): {
     console.warn("openPlayer should be called via playerCommands.openPlayer");
   }, []);
 
-  const actions: MediaPlayerActions = {
-    play,
-    pause,
-    togglePlay,
-    seek,
-    setVolume,
-    toggleMute,
-    toggleFullscreen,
-    showControlsTemporarily,
-    openPlayer,
-    closePlayer: playerCommands.closePlayer,
-  };
-
-  // Extended actions for internal use
-  const extendedActions = {
-    ...actions,
-    skipForward,
-    skipBackward,
-    jumpToStart,
-    jumpToEnd,
-    seekToMarkerEnd,
-  };
+  const actions = useMemo(
+    () => ({
+      play,
+      pause,
+      togglePlay,
+      seek,
+      setVolume,
+      toggleMute,
+      toggleFullscreen,
+      showControlsTemporarily,
+      openPlayer,
+      closePlayer: playerCommands.closePlayer,
+      skipForward,
+      skipBackward,
+      jumpToStart,
+      jumpToEnd,
+      seekToMarkerEnd,
+    }),
+    [
+      jumpToEnd,
+      jumpToStart,
+      openPlayer,
+      pause,
+      play,
+      seek,
+      seekToMarkerEnd,
+      setVolume,
+      showControlsTemporarily,
+      skipBackward,
+      skipForward,
+      toggleFullscreen,
+      toggleMute,
+      togglePlay,
+    ],
+  );
 
   return {
-    state,
-    actions: extendedActions,
+    actions,
     videoRef,
   };
 }

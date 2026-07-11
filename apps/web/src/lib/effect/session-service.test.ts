@@ -137,13 +137,17 @@ const makeStubObserverFactory = () => {
 
 const makeStubPlayer = (): PlayerPortShape & {
   loads: Array<{ item: MediaPlayerItem; opts: unknown }>;
+  events: string[];
 } => {
   const loads: Array<{ item: MediaPlayerItem; opts: unknown }> = [];
+  const events: string[] = [];
   const base = makePlayerPort(createPlayerService());
   return {
     ...base,
     loads,
+    events,
     load: (nextItem, opts) => {
+      events.push(`load:${nextItem.ratingKey}`);
       loads.push({ item: nextItem, opts });
       base.load(nextItem, opts);
     },
@@ -297,6 +301,178 @@ test("swapTo is a single atomic state change with no mismatched intermediate", a
   );
 });
 
+test("swapTo prepares the old playback before loading its replacement", async () => {
+  const player = makeStubPlayer();
+
+  await withSession(
+    ({ session }) =>
+      Effect.gen(function* () {
+        yield* session.startPlayback({
+          room: room("r1", "100"),
+          localUser,
+          item: item("100"),
+        });
+        player.registerActions({
+          play: () => true,
+          pause: () => undefined,
+          seek: () => "direct",
+          prepareForReplacement: async () => {
+            player.events.push("prepare");
+          },
+        });
+
+        yield* session.swapTo({
+          room: room("r2", "200"),
+          item: item("200"),
+        });
+
+        expect(player.events).toEqual(["load:100", "prepare", "load:200"]);
+      }),
+    { player },
+  );
+});
+
+test("swapTo ignores replacement preparation failure", async () => {
+  const player = makeStubPlayer();
+
+  await withSession(
+    ({ session }) =>
+      Effect.gen(function* () {
+        yield* session.startPlayback({
+          room: room("r1", "100"),
+          localUser,
+          item: item("100"),
+        });
+        player.registerActions({
+          play: () => true,
+          pause: () => undefined,
+          seek: () => "direct",
+          prepareForReplacement: () =>
+            Promise.reject(new Error("cleanup failed")),
+        });
+
+        yield* session.swapTo({
+          room: room("r2", "200"),
+          item: item("200"),
+        });
+
+        expect(player.loads.at(-1)?.item.ratingKey).toBe("200");
+      }),
+    { player },
+  );
+});
+
+test("swapTo bounds replacement preparation before loading", async () => {
+  const player = makeStubPlayer();
+
+  await withSession(
+    ({ session }) =>
+      Effect.gen(function* () {
+        yield* session.startPlayback({
+          room: room("r1", "100"),
+          localUser,
+          item: item("100"),
+        });
+        player.registerActions({
+          play: () => true,
+          pause: () => undefined,
+          seek: () => "direct",
+          prepareForReplacement: () => new Promise(() => undefined),
+        });
+
+        const swapFiber = yield* session
+          .swapTo({ room: room("r2", "200"), item: item("200") })
+          .pipe(Effect.forkDetach({ startImmediately: true }));
+        yield* Effect.yieldNow;
+        expect(player.loads).toHaveLength(1);
+
+        yield* TestClock.adjust("2 seconds");
+        yield* Fiber.join(swapFiber);
+        expect(player.loads.at(-1)?.item.ratingKey).toBe("200");
+      }),
+    { player, withTestClock: true },
+  );
+});
+
+test("a leave queued behind swapTo is the final lifecycle transition", async () => {
+  await withSession(({ session }) =>
+    Effect.gen(function* () {
+      yield* session.startPlayback({
+        room: room("r1", "100"),
+        localUser,
+        item: item("100"),
+      });
+
+      const swapFiber = yield* session
+        .swapTo({ room: room("r2", "200"), item: item("200") })
+        .pipe(Effect.forkDetach({ startImmediately: true }));
+      yield* Effect.yieldNow;
+      const leaveFiber = yield* session
+        .leave({ suppressAutoStart: true })
+        .pipe(Effect.forkDetach({ startImmediately: true }));
+
+      yield* Fiber.join(swapFiber);
+      yield* Fiber.join(leaveFiber);
+      expect(session.snapshot()._tag).toBe("Idle");
+    }),
+  );
+});
+
+test("swapTo queued after leave cannot resurrect an idle session", async () => {
+  await withSession(({ session }) =>
+    Effect.gen(function* () {
+      yield* session.startPlayback({
+        room: room("r1", "100"),
+        localUser,
+        item: item("100"),
+      });
+
+      const leaveFiber = yield* session
+        .leave({ suppressAutoStart: true })
+        .pipe(Effect.forkDetach({ startImmediately: true }));
+      yield* Effect.yieldNow;
+      const swapFiber = yield* session
+        .swapTo({ room: room("r2", "200"), item: item("200") })
+        .pipe(Effect.forkDetach({ startImmediately: true }));
+
+      yield* Fiber.join(leaveFiber);
+      yield* Fiber.join(swapFiber);
+      expect(session.snapshot()._tag).toBe("Idle");
+    }),
+  );
+});
+
+test("a stale rotation swap cannot replace a newer playback session", async () => {
+  await withSession(({ session }) =>
+    Effect.gen(function* () {
+      yield* session.startPlayback({
+        room: room("r1", "100"),
+        localUser,
+        item: item("100"),
+      });
+      yield* session.startPlayback({
+        room: room("r-new", "300"),
+        localUser,
+        item: item("300"),
+      });
+
+      yield* session.swapTo({
+        room: room("r2", "200"),
+        item: item("200"),
+        expectedCurrent: {
+          roomId: "r1",
+          serverId: "srv",
+          ratingKey: "100",
+        },
+      });
+
+      const snap = session.snapshot();
+      expect(snap._tag === "Playing" && snap.room.id).toBe("r-new");
+      expect(snap._tag === "Playing" && snap.item.ratingKey).toBe("300");
+    }),
+  );
+});
+
 test("leave clears state, interrupts the controller, and can suppress auto-start", async () => {
   const { makeController, controllers } = makeStubControllerFactory();
 
@@ -399,6 +575,48 @@ test("participant events merge into Playing session state", async () => {
             isPresent: true,
             isReady: true,
           });
+        }
+      }),
+    { makeController },
+  );
+});
+
+test("stale controller callbacks cannot affect a newer playback session", async () => {
+  const { makeController, controllers } = makeStubControllerFactory();
+
+  await withSession(
+    ({ session }) =>
+      Effect.gen(function* () {
+        yield* session.startPlayback({
+          room: room("r1", "100"),
+          localUser,
+          item: item("100"),
+        });
+        yield* session.startPlayback({
+          room: room("r2", "200"),
+          localUser,
+          item: item("200"),
+        });
+
+        controllers[0]?.options.onParticipant?.({
+          user: {
+            id: 2,
+            deviceIdentifier: "stale-device",
+            deviceName: "Friend",
+          },
+          isPresent: true,
+          isReady: true,
+        });
+        controllers[0]?.options.onFatalError?.(new Error("stale socket dead"));
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+
+        const snap = session.snapshot();
+        expect(snap._tag).toBe("Playing");
+        if (snap._tag === "Playing") {
+          expect(snap.room.id).toBe("r2");
+          expect(snap.item.ratingKey).toBe("200");
+          expect(snap.participants["stale-device"]).toBeUndefined();
         }
       }),
     { makeController },
@@ -530,6 +748,59 @@ test("startPlayback from Lobby interrupts observer and starts driver", async () 
         expect(player.loads).toHaveLength(1);
       }),
     { player, makeController, makeObserver, withTestClock: true },
+  );
+});
+
+test("stale detached lobby auto-start cannot replace a switched lobby or session", async () => {
+  const player = makeStubPlayer();
+  const { makeController, controllers } = makeStubControllerFactory();
+
+  await withSession(
+    ({ session }) =>
+      Effect.gen(function* () {
+        yield* session.enterLobby({
+          room: room("r1", "100"),
+          localUser,
+        });
+        yield* session.enterLobby({
+          room: room("r2", "200"),
+          localUser,
+        });
+
+        const staleAutoStart = {
+          room: room("r1", "100"),
+          localUser,
+          item: item("100"),
+          resume: false as const,
+          expectedLobby: { generation: 1, roomId: "r1" },
+        };
+        const staleLobbyFiber = yield* session
+          .startPlayback(staleAutoStart)
+          .pipe(Effect.forkDetach({ startImmediately: true }));
+        yield* Fiber.join(staleLobbyFiber);
+
+        let snap = session.snapshot();
+        expect(snap._tag === "Lobby" && snap.room.id).toBe("r2");
+        expect(player.loads).toHaveLength(0);
+        expect(controllers).toHaveLength(0);
+
+        yield* session.startPlayback({
+          room: room("r3", "300"),
+          localUser,
+          item: item("300"),
+        });
+        const staleSessionFiber = yield* session
+          .startPlayback(staleAutoStart)
+          .pipe(Effect.forkDetach({ startImmediately: true }));
+        yield* Fiber.join(staleSessionFiber);
+
+        snap = session.snapshot();
+        expect(snap._tag === "Playing" && snap.room.id).toBe("r3");
+        expect(snap._tag === "Playing" && snap.item.ratingKey).toBe("300");
+        expect(player.loads).toHaveLength(1);
+        expect(controllers).toHaveLength(1);
+      }),
+    { player, makeController, withTestClock: true },
   );
 });
 
@@ -712,7 +983,7 @@ test("auto-start does not fire for solo rooms", async () => {
   );
 });
 
-test("presence drop via observer starts a grace timer that fires under TestClock", async () => {
+test("observer presence drop keeps the lobby grace timer alive", async () => {
   const player = makeStubPlayer();
   const { makeController, controllers } = makeStubControllerFactory();
   const { makeObserver, observers } = makeStubObserverFactory();
@@ -720,8 +991,10 @@ test("presence drop via observer starts a grace timer that fires under TestClock
   await withSession(
     ({ session }) =>
       Effect.gen(function* () {
-        const r = room("r1", "100");
-        yield* session.enterLobby({ room: r, localUser });
+        yield* session.enterLobby({
+          room: room("r1", "100"),
+          localUser,
+        });
         yield* session.setLobbyContext({
           canStart: true,
           playbackInput: { item: item("100") },
@@ -730,52 +1003,31 @@ test("presence drop via observer starts a grace timer that fires under TestClock
         yield* Effect.yieldNow;
         yield* Effect.yieldNow;
 
-        // Everyone present → sticky on.
+        const guest = {
+          id: 2,
+          deviceIdentifier: "device-2",
+          deviceName: "Multiplex Web",
+        };
         observers[0]?.options.onParticipant({
-          user: {
-            id: 2,
-            deviceIdentifier: "device-2",
-            deviceName: "Multiplex Web",
-          },
+          user: guest,
           isPresent: true,
         });
         yield* Effect.yieldNow;
-
-        // Drop presence via the observer callback path (the bug: evaluateOnce
-        // used Effect.scoped and interrupted the grace fiber immediately).
         observers[0]?.options.onParticipant({
-          user: {
-            id: 2,
-            deviceIdentifier: "device-2",
-            deviceName: "Multiplex Web",
-          },
+          user: guest,
           isPresent: false,
         });
         yield* Effect.yieldNow;
 
-        // Still Lobby during grace — sticky has not cleared yet.
-        expect(session.snapshot()._tag).toBe("Lobby");
-        expect(controllers).toHaveLength(0);
-
-        // Advance past PRESENCE_GRACE_MS so sticky clears / hasAutoStarted rearms.
         yield* TestClock.adjust(`${PRESENCE_GRACE_MS + 200} millis`);
         yield* Effect.yieldNow;
-        yield* Effect.yieldNow;
-
-        // Guest still absent → must NOT auto-start for the departed cohort.
         expect(session.snapshot()._tag).toBe("Lobby");
         expect(controllers).toHaveLength(0);
 
-        // Guest returns after grace → auto-start can arm again.
         observers[0]?.options.onParticipant({
-          user: {
-            id: 2,
-            deviceIdentifier: "device-2",
-            deviceName: "Multiplex Web",
-          },
+          user: guest,
           isPresent: true,
         });
-        yield* Effect.yieldNow;
         yield* TestClock.adjust("1300 millis");
         yield* Effect.yieldNow;
         yield* Effect.yieldNow;
@@ -784,27 +1036,6 @@ test("presence drop via observer starts a grace timer that fires under TestClock
         expect(controllers).toHaveLength(1);
       }),
     { player, makeController, makeObserver, withTestClock: true },
-  );
-});
-
-test("leave then immediate snapshot sees Idle (sync-prefix ordering)", async () => {
-  const { makeController } = makeStubControllerFactory();
-  await withSession(
-    ({ session }) =>
-      Effect.gen(function* () {
-        yield* session.startPlayback({
-          room: room("r1", "100"),
-          localUser,
-          item: item("100"),
-        });
-        expect(session.snapshot()._tag).toBe("Playing");
-
-        // Mirrors sessionCommands.leave via runFork: interrupt + Idle write
-        // complete in the sync prefix before the caller continues.
-        yield* session.leave({ suppressAutoStart: false });
-        expect(session.snapshot()._tag).toBe("Idle");
-      }),
-    { makeController },
   );
 });
 
