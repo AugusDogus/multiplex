@@ -1,20 +1,21 @@
 # Effect v4 Migration Plan: Watch Together Session Architecture
 
-Status: draft for review. No code moves until this is approved.
+Status: phases 0-4 and the PlayerService split cover this PR. The broader
+phase-5 server-data migration is deferred and explicitly out of scope.
 
 ## Why
 
-The Watch Together session lifecycle is currently modeled as **inference over
-state diffs across two Zustand stores**: `useSyncplaySession` decides the
-session ended by noticing `currentItem` no longer matches
-`session.room.sourceUri`, and the auto-advance rotation is a hand-rolled state
+Before this migration, the Watch Together session lifecycle was modeled as
+**inference over state diffs across two Zustand stores**: `useSyncplaySession`
+decided the session ended by noticing `currentItem` no longer matched
+`session.room.sourceUri`, and the auto-advance rotation was a hand-rolled state
 machine (`armedKey` / `nextRoom` / `graceElapsed` / `swapped`) whose transition
-rules are spread across five `useEffect`s in
+rules were spread across five `useEffect`s in
 `use-watch-together-auto-advance.ts`. Every bug found in PR #57's review cycle
 was an instance of the same class:
 
-- the swap depends on two store updates being observed atomically (currently
-  guaranteed only by React batching plus a comment);
+- the swap depended on two store updates being observed atomically (guaranteed
+  only by React batching plus a comment);
 - "leave session" and "session rotating" are the same observable mismatch,
   disambiguated by timing;
 - timers, retries, and reconnects live in effects whose re-run conditions are
@@ -39,20 +40,21 @@ Executor precedents referenced throughout (clone: `UsefulSoftwareCo/executor`):
 | Escape-hatch lint enforcement                             | `scripts/oxlint-plugin-executor`                            |
 | Agent skills for atom/schema/error discipline             | `.agents/skills/wrdn-effect-*`                              |
 
-## Current state inventory
+## Pre-migration inventory
 
-| Concern                                                           | Today                                                                         | Fate                                                             |
-| ----------------------------------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Server cache (rooms, metadata, queues)                            | Effect HttpApi + AtomHttpApi                                                  | **Done** (phase 5)                                               |
-| Syncplay wire protocol                                            | `SyncplayClient` (framework-free class in `plex-query`)                       | **Keep** as boundary, wrapped in a scoped Effect resource        |
-| Driver arbitration                                                | `SyncplaySessionController`                                                   | **Keep initially**, absorbed into the session service in phase 2 |
-| Session lifecycle                                                 | `watch-together-store` + `use-syncplay-session` (clear-on-mismatch inference) | **Replace** with session service                                 |
-| Lobby presence + auto-start                                       | `use-watch-together-lobby-presence` + effects in `watch-together-lobby.tsx`   | **Replace** (phase 4)                                            |
-| Auto-advance rotation                                             | `use-watch-together-auto-advance.ts` (5 effects)                              | **Replace** (phase 3); its pure helpers port unchanged           |
-| Rotation policy (election, room matching, joined checks)          | `watch-together-auto-advance.ts` (pure, unit-tested)                          | **Port as-is** into the domain layer                             |
-| Player mechanics (video element, transcode reload seeks, markers) | `media-player-store` + hooks                                                  | **Keep**; commanded through an explicit adapter                  |
-| UI prefs (volume, captions, autoplay toggle)                      | `media-player-store` (persisted slice)                                        | **Keep**                                                         |
-| progress-store, last-library-store                                | Zustand                                                                       | **Out of scope**                                                 |
+| Concern                                                  | Baseline                                                                      | Fate                                                              |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Server cache (rooms, metadata, queues)                   | tRPC + TanStack Query                                                         | **Keep** (phase 5 may revisit)                                    |
+| Syncplay wire protocol                                   | `SyncplayClient` (framework-free class in `plex-query`)                       | **Keep** as boundary, wrapped in a scoped Effect resource         |
+| Driver arbitration                                       | `SyncplaySessionController`                                                   | **Keep** behind the session service's scoped connection lifecycle |
+| Session lifecycle                                        | `watch-together-store` + `use-syncplay-session` (clear-on-mismatch inference) | **Replace** with session service                                  |
+| Lobby presence + auto-start                              | `use-watch-together-lobby-presence` + effects in `watch-together-lobby.tsx`   | **Replace** (phase 4)                                             |
+| Auto-advance rotation                                    | `use-watch-together-auto-advance.ts` (5 effects)                              | **Replace** (phase 3); its pure helpers port unchanged            |
+| Rotation policy (election, room matching, joined checks) | `watch-together-auto-advance.ts` (pure, unit-tested)                          | **Port as-is** into the domain layer                              |
+| Player lifecycle and playback state                      | `media-player-store` + hooks                                                  | **Replace** with `PlayerService`; expose through Effect atoms     |
+| Video element and transcode mechanics                    | React hooks                                                                   | **Keep** behind `PlayerPort` and identity-scoped commands         |
+| UI prefs (volume, captions, autoplay toggle)             | `media-player-store` (persisted slice)                                        | **Split** into narrow `player-prefs-store` persistence adapter    |
+| progress-store, last-library-store                       | Zustand                                                                       | **Out of scope**                                                  |
 
 ## Target architecture
 
@@ -61,7 +63,7 @@ Three layers, mirroring executor's separation:
 ```text
 ┌────────────────────────────────────────────────────────────────┐
 │ React (@effect/atom-react)                                     │
-│   sessionStateAtom (stream-backed) · command atoms (fn atoms)  │
+│   sessionStateAtom (SubscriptionRef) · plain command facade    │
 └──────────────────────────┬─────────────────────────────────────┘
                            │ SubscriptionRef.changes / commands
 ┌──────────────────────────▼─────────────────────────────────────┐
@@ -75,15 +77,13 @@ Three layers, mirroring executor's separation:
 └────────────────────────────────────────────────────────────────┘
 ```
 
-### Layer 1: Domain model (`packages/plex-query` or new `packages/watch-together-domain`)
+### Layer 1: Domain model (`packages/plex-query`)
 
-Pure, Schema-typed, no IO. The session state is a tagged union; rotation is a
+Pure TypeScript, no IO. The session state is a tagged union; rotation is a
 nested union inside `Playing` (rotation happens _while_ playing — it is not a
 sibling state):
 
 ```ts
-import { Schema } from "effect";
-
 export type RotationPhase =
   | { readonly _tag: "None" }
   | { readonly _tag: "Armed" } // in lead window, no room yet
@@ -100,7 +100,7 @@ export type SessionState =
       readonly _tag: "Lobby";
       readonly room: WatchTogetherRoom;
       readonly participants: ParticipantMap;
-      readonly roomPosition: Option.Option<number>;
+      readonly roomPositionSeconds: number | null;
     }
   | {
       readonly _tag: "Playing";
@@ -150,28 +150,24 @@ along with their tests.
 
 ### Layer 2: `WatchTogetherSession` service (Effect, runs in the browser)
 
-One service owns the `SubscriptionRef<SessionState>` and every socket, timer,
-and API call. Transitions happen only inside the service — commands in, state
-stream out.
+One service owns the `SubscriptionRef<SessionState>`, session sockets and
+timers, and the transport calls needed for session orchestration. Cached browse,
+details, lobby room, and RSC data remain on tRPC + TanStack Query. Lifecycle
+transitions happen inside the service — commands in, state stream out.
 
 ```ts
-export class WatchTogetherSession extends Effect.Service<WatchTogetherSession>()(
-  "WatchTogetherSession",
-  {
-    scoped: Effect.gen(function* () {
-      const state = yield* SubscriptionRef.make<SessionState>({ _tag: "Idle" });
-      // ...
-      return {
-        state,                                                    // SubscriptionRef<SessionState>
-        joinLobby: (room: WatchTogetherRoom, user: SyncplayUser) => ...,
-        startPlayback: (opts: { startPositionSeconds?: number }) => ...,
-        playerEvent: (event: PlayerEvent) => ...,                 // play/pause/seek/time/ended/canplay
-        leave: () => ...,                                         // deliberate close
-      };
+export class WatchTogetherSession extends Context.Service<
+  WatchTogetherSession,
+  WatchTogetherSessionShape
+>()("WatchTogetherSession") {
+  static readonly Default = Layer.effect(WatchTogetherSession)(
+    Effect.gen(function* () {
+      const player = yield* PlayerPort;
+      const api = yield* WatchTogetherApi;
+      return yield* makeWatchTogetherSession({ player, api });
     }),
-    dependencies: [WatchTogetherApi.Default, PlayerPort.Default],
-  },
-) {}
+  );
+}
 ```
 
 Orchestration mapping (all executor-proven primitives):
@@ -187,52 +183,56 @@ Orchestration mapping (all executor-proven primitives):
 
 **Plex API access** stays on tRPC (the Plex token lives server-side): a small
 `WatchTogetherApi` Effect service wraps the vanilla tRPC client
-(`createTRPCClient` from `@trpc/client`, same router types) with typed errors.
+(`createTRPCClient` from `@trpc/client`, same router types, SuperJSON) with typed errors.
 This is executor's boundary pattern (`connection.ts` wrapping the MCP SDK).
 
 **Player integration** stays imperative behind an explicit port:
 
 ```ts
 export interface PlayerPort {
-  readonly load: (item: MediaPlayerItem, opts: { startPositionSeconds?: number }) => void;
-  readonly play: () => void;
+  readonly load: (
+    item: MediaPlayerItem,
+    opts: { resume: boolean; startPositionSeconds?: number },
+  ) => void;
+  readonly play: () => boolean | Promise<boolean>;
   readonly pause: () => void;
-  readonly seek: (seconds: number) => void;
+  readonly seek: (seconds: number) => MediaPlayerSeekResult;
   readonly snapshot: () => PlayerSnapshot; // time/duration/canPlay/...
 }
 ```
 
-The web app implements `PlayerPort` over the existing `media-player-store`
-actions. The service _commands_ the player and _receives_ `playerEvent`s; it
-never spies on the store. The existing `SyncplaySessionController` arbitration
-logic (seek thresholds, startup grace, echo suppression) is absorbed into the
-service's socket fiber in phase 2, keeping its unit tests.
+`PlayerService` is the canonical playback owner. React reads it through
+`Atom.subscriptionRef`; `PlayerPort` adapts the same service instance for Watch
+Together commands. The video element remains an imperative React boundary and
+registers generation-scoped play/pause/seek actions. A narrow Zustand
+`player-prefs-store` persists preferences only and never mirrors playback state.
+The existing `SyncplaySessionController` remains behind the service's scoped
+connection fiber and keeps its arbitration unit tests.
 
 ### Layer 3: React bridge (`@effect/atom-react`)
 
 ```ts
-// apps/web/src/watch-together/atoms.ts
-const sessionRuntime = Atom.runtime(WatchTogetherSession.Default);
-
-export const sessionStateAtom = sessionRuntime.atom(
+const session = sessionRuntime.runSync(
   Effect.gen(function* () {
-    const session = yield* WatchTogetherSession;
-    return session.state.changes; // Stream<SessionState>
-  }).pipe(Effect.map(Stream.unwrap)), // stream-backed atom
+    return yield* WatchTogetherSession;
+  }),
 );
 
-export const joinLobbyAtom = sessionRuntime.fn((input: JoinLobbyInput) =>
-  Effect.flatMap(WatchTogetherSession, (s) => s.joinLobby(input.room, input.user)),
-);
+const stateAtom = Atom.subscriptionRef(session.state);
+
+export const sessionStateAtom = stateAtom.pipe(Atom.keepAlive);
+
+export const sessionCommands = {
+  enterLobby(input: EnterLobbyInput) {
+    return sessionRuntime.runFork(session.enterLobby(input));
+  },
+};
 ```
 
 Components read one atom (`useAtomValue(sessionStateAtom)`) and issue commands
-(`useAtomSet(joinLobbyAtom)`). `RegistryProvider` mounts in the root layout
-next to the existing tRPC provider. The exact stream-atom incantation is the
-one pattern without an executor precedent; `.reference/effect-atom` (pull via
-executor's `scripts/pull-references.ts` pattern, which we replicate here) has
-the tests to copy from — validate it in the phase-2 spike before committing to
-the shape above.
+through a plain runtime-backed facade. `RegistryProvider` mounts in the root
+layout next to the existing tRPC provider. `Atom.subscriptionRef` is the only
+React bridge; transport caching and mutations remain TanStack Query concerns.
 
 ## Tooling spine (phase 0, before any behavior change)
 
@@ -272,7 +272,7 @@ behavioral contract; it does not change during the migration.
   duplicate convergence, opt-out viewer). Pure code only; nothing imports it
   yet. Verify: unit tests.
 - **Phase 2 — session service for playback (the spike).** `WatchTogetherSession`
-  owning the driver socket lifecycle + `PlayerPort` + the atom bridge. Replaces
+  owning the controller/socket lifecycle + `PlayerPort` + the atom bridge. Replaces
   `watch-together-store` + `use-syncplay-session` + the session-binding module
   for the _playing_ path only (lobby and rotation still on the old code,
   temporarily commanding the service). This is deliberately the smallest cut
@@ -288,37 +288,16 @@ behavioral contract; it does not change during the migration.
   late-join position; delete `use-watch-together-lobby-presence` and the
   lobby's effect logic (the component becomes a renderer of
   `sessionStateAtom` + command buttons). Verify: full e2e suite.
-- **Phase 5 (approved; scheduled).** Complete the platform migration.
-
-  **Transport decision: Effect HttpApi, not tRPC and not Effect RPC.**
-  Executor uses HttpApi exclusively (no `unstable/rpc` anywhere in it), and
-  v4 ships `AtomHttpApi` but no `AtomRpc` — the reactive client bridge
-  (query atoms with TTL, `reactivityKeys`, `Atom.optimistic`) only exists
-  for HttpApi. tRPC's three jobs are replaced directly: `protectedProcedure`
-  → better-auth `HttpApiMiddleware`; superjson → Schema contracts (Plex
-  payloads are plain JSON); RSC server caller → direct calls into the
-  transport-independent `~/server/queries/*` layer.
-
-  Waves:
-  - **P5-1a — HttpApi server (additive).** ✅ Complete. `PlexApi` HttpApi
-    groups, better-auth middleware, handlers delegating to
-    `~/server/queries/*` + plex-query clients, mounted at
-    `/api/effect/[[...slugs]]`. Schema policy: precise Effect Schemas for
-    contract-critical domain shapes; permissive boundary schemas for large
-    Plex metadata trees.
-  - **P5-1b — player-store split (parallel with 1a).** ✅ Complete.
-    `PlayerService` owns playback/session state; `media-player-store`
-    shrinks to persisted UI prefs; `PlayerPort` over the service.
-  - **P5-2 — Watch Together + playback data onto AtomHttpApi.** ✅ Complete.
-    `WatchTogetherApi` over the HttpApi client; rooms row, lobby queries,
-    invitees, play queues, timeline scrobbling as atoms with reactivity
-    keys (+ optimistic room removal).
-  - **P5-3 — browse surfaces onto atoms.** ✅ Complete. Home hubs,
-    libraries, details, search, live TV on atoms; RSC pages call
-    `~/server/queries/*` directly for initial data.
-  - **P5-4 — retirement.** ✅ Complete. Deleted tRPC router/provider/
-    react-query/superjson; e2e helpers (`disbandRoom`, play-queue probing)
-    call Effect HttpApi endpoints; plex-query TanStack peer/helpers removed.
+- **PlayerService split — complete.** Replace canonical Zustand playback state
+  with `PlayerService`, a shared Effect runtime, `playerStateAtom`, and
+  generation-scoped `PlayerPort` actions. Preserve the legacy localStorage
+  shape through a preference-only Zustand adapter.
+- **Phase 5 server data — deferred; non-goal for this PR.** Do not replace the
+  tRPC Plex router with Effect `HttpApi` / `AtomHttpApi`, introduce browse
+  atoms, or retire TanStack Query. Effect v4 does not yet have a mature Next.js
+  precedent for replacing this data stack, so doing so here would add
+  framework-integration risk unrelated to the player/session migration. Retain
+  tRPC + SuperJSON transport and TanStack Query caching/RSC hydration semantics.
 
 Ordering rationale: playback (phase 2) before rotation (phase 3) because
 rotation composes on top of a working session service; lobby last because it
@@ -329,30 +308,18 @@ is the least buggy today and touches the most UI.
 - **Effect v4 is beta; breaking changes between betas are expected.** Pin the
   exact version, upgrade deliberately (executor absorbs this routinely; we
   accept the same). v4 will be LTS at stabilization.
-- **Stream-atom bridge has no executor precedent.** De-risked by making it the
-  phase-2 spike with `.reference/effect-atom` as the pattern source; if the
-  bridge fights us, the fallback (atom polling a `SubscriptionRef.get`, or a
-  thin `useSyncExternalStore` adapter over the ref) keeps the service
-  architecture intact — the bridge choice is swappable.
+- **The React bridge is intentionally narrow.** `Atom.subscriptionRef` exposes
+  session state; commands run at the managed-runtime boundary. No server-data
+  cache behavior is delegated to atoms in this PR.
 - **Next.js / RSC boundaries.** The service and atoms are client-only
   (`"use client"`), matching how the player and stores already work; the
   `RegistryProvider` mounts in the root layout. SSR never sees session state.
 - **Bundle size.** v4 core is ~6–15 kB min+gz tree-shaken; acceptable.
-- **Two paradigms during transition.** Contained by the port/adapter seams:
-  Zustand survives only behind `PlayerPort` and UI prefs; no component reads
-  both worlds for the same data at any phase boundary.
+- **Multiple state tools.** Contained by ownership: Effect `PlayerService` and
+  `WatchTogetherSession` own canonical player/session runtime state; tRPC +
+  TanStack Query + SuperJSON own server data and RSC hydration; Zustand persists
+  preferences and unrelated local UI state. Jotai is not used. The media-player
+  modal reads both Effect services to enforce their item-identity boundary.
 - **Solo-maintainer bus factor on Effect fluency.** Mitigated by the skills +
   lint rules + `.reference` repos, which is exactly how executor keeps agents
   productive in this stack.
-
-## Open questions for review
-
-1. Domain layer location: new `packages/watch-together-domain`, or inside
-   `packages/plex-query` (which already holds the pure helpers and the
-   Syncplay protocol types)? Default: keep in `plex-query` to avoid a package
-   split before the shape settles.
-2. Pin `effect-tsgo` from day one (executor does) or stay on `tsc` until
-   phase 2 proves out? Default: stay on `tsc`.
-3. Should phase 2 also absorb `SyncplaySessionController` or wrap it as-is
-   first? Default: wrap as-is, absorb in a follow-up inside phase 2 once e2e
-   is green on the wrapped version.

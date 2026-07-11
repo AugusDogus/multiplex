@@ -4,9 +4,9 @@ A 3rd-party Plex client web app for synchronized watching with friends.
 
 ## Project structure
 
-- **Monorepo** with Bun workspaces: `apps/web` (Next.js 15 app) and `packages/plex-query` (Plex API client library)
+- **Monorepo** with Bun workspaces: `apps/web` (Next.js 16 preview app) and `packages/plex-query` (Plex API client library)
 - Package manager & runtime: **Bun** (lockfile: `bun.lock`)
-- **Data layer**: Effect v4 HttpApi at `/api/effect` with `@effect/atom-react` (`AtomHttpApi`) client atoms in `apps/web/src/lib/effect/`; server handlers in `apps/web/src/server/effect-api/`
+- **Ownership**: Effect v4 `PlayerService` and `WatchTogetherSession` own canonical player/session runtime state; tRPC + TanStack Query + SuperJSON own Plex server data and RSC hydration; Zustand is limited to persisted preferences and unrelated local UI state; do not introduce Jotai
 
 ## Commands
 
@@ -32,13 +32,13 @@ All commands are run from the workspace root via `bun run <script>`:
 
 ## Effect v4 conventions
 
-Multiplex uses Effect v4 for Watch Together session architecture and the Plex data API:
+Multiplex uses Effect v4 for canonical media-player state and Watch Together session orchestration:
 
 - **Unit tests stay on `bun test`** (no vitest in this repo). Run `bun run test` from the root or `bun test` inside a workspace. Effect suites run effects via `Effect.runPromise` and use `TestClock` from `effect/testing` for timer determinism (see `.agents/skills/effect-bun-tests`).
 - **Agent skills** for Effect discipline live under `.agents/skills/effect-*` (`effect-typed-errors`, `effect-schema-boundaries`, `effect-bun-tests`, `effect-atom-optimistic`, `effect-atom-reactivity-keys`, `effect-promise-exit`).
 - **Reference clones**: `bun run pull:references` shallow-clones Effect, effect-atom, and executor into gitignored `.reference/` for pattern lookup.
 - **Escape-hatch lint**: oxlint rule `multiplex/no-effect-escape-hatch` (plugin in `scripts/oxlint-plugin-multiplex/`) flags `Effect.runPromise` / `runSync` / `runFork` / `runPromiseExit` outside designated boundary files. Root oxlint currently covers packages/scripts only (`apps/web` uses ESLint); see the plugin README for coverage details.
-- **HttpApi + atoms**: server groups/handlers under `apps/web/src/server/effect-api/`; client atoms and `WatchTogetherApi` under `apps/web/src/lib/effect/`. RSC pages call `~/server/queries/*` directly when they need initial data.
+- **Do not duplicate runtime state**: `PlayerService` and `WatchTogetherSession` are canonical. `player-prefs-store` persists volume, mute, playback rate, captions, and autoplay preference only. Plex queries and mutations remain on tRPC/TanStack Query with SuperJSON and RSC hydration.
 
 ## Cursor Cloud specific instructions
 
@@ -50,7 +50,7 @@ Multiplex uses Effect v4 for Watch Together session architecture and the Plex da
 
 ### Running the dev server
 
-- `bun dev` starts Next.js 15 with Turbopack on `http://localhost:3000`.
+- `bun dev` starts the Next.js 16 preview with Turbopack on `http://localhost:3000`.
 - The app redirects unauthenticated users to `/login`. The login flow uses Plex OAuth (PIN-based), requiring internet access to `plex.tv`.
 
 ### Testing with Plex account
@@ -64,4 +64,4 @@ Multiplex uses Effect v4 for Watch Together session architecture and the Plex da
   - Host (account A): `AUGUSDOGUS_ACCOUNT_USERNAME` / `AUGUSDOGUS_ACCOUNT_PASSWORD`
   - Guest (account B): `MULTIPLEX_ACCOUNT_EMAIL` / `MULTIPLEX_ACCOUNT_PASSWORD`
 - Uses the system Google Chrome (`channel: "chrome"`) because Plex streams are H.264/AAC, which Playwright's bundled Chromium cannot decode.
-- Covers simultaneous auto-start, pause/resume sync, and seek sync. Helpers that need authenticated API calls hit `/api/effect/*` (session cookie from storageState). Because these hit a live Plex server (real transcoding for two viewers), the config allows one retry for transient startup flakiness.
+- Covers simultaneous auto-start, pause/resume sync, and seek sync. Because these hit a live Plex server (real transcoding for two viewers), the config allows one retry for transient startup flakiness.

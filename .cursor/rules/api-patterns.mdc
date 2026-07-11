@@ -1,24 +1,27 @@
 # API Development Patterns
 
 ## Plex API Integration
-- Follow existing patterns in `packages/plex-query` (`PlexServerClient`, `PlexTvClient`)
+- Follow existing patterns in [packages/plex-query/src/plex/clients/](mdc:packages/plex-query/src/plex/clients/)
+- Use `PlexServerClient` and `PlexTvClient` consistently
 - Handle authentication and connection management as existing methods do
 
 ## Request/Response Handling
 - **DO NOT handle API requests differently than current implementations**
-- Always parse responses with Zod schemas at the plex-query boundary - no exceptions
+- Parse Plex responses with Zod schemas at the `plex-query` boundary
 - Follow the pattern: raw fetch → schema validation → typed return
+- Use existing error handling patterns from [packages/plex-query/src/plex/types/client-types.ts](mdc:packages/plex-query/src/plex/types/client-types.ts)
 
 ## Schema Development
-- Study existing schemas in `packages/plex-query/src/plex/schemas/`
+- Study existing schemas in [packages/plex-query/src/plex/schemas/](mdc:packages/plex-query/src/plex/schemas/)
 - Use real API responses to build schemas, not assumptions
 - Test schema validation with actual Plex server responses
 - **If you don't have example responses, ask for them or research the Plex API docs**
 
-## Effect HttpApi
-- Follow patterns in `apps/web/src/server/effect-api/` (groups in `api.ts`, handlers, schemas)
-- Auth via better-auth `PlexAuthMiddleware`; handlers read `PlexSession`
-- Client atoms live under `apps/web/src/lib/effect/` (`AtomHttpApi`)
+## tRPC Integration
+- Server data is owned by tRPC, TanStack Query, SuperJSON, and RSC hydration; follow [apps/web/src/server/api/](mdc:apps/web/src/server/api/) and [apps/web/src/trpc/](mdc:apps/web/src/trpc/)
+- Use `protectedProcedure` for authenticated endpoints
+- Validate inputs with Zod schemas
+- Return properly typed responses
 description:
 globs:
 alwaysApply: false

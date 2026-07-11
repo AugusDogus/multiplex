@@ -14,9 +14,9 @@
 - Fix type errors at their source, not by bypassing them
 
 ## Schema Validation
-- All API requests/responses must use Zod schemas for validation
+- Validate tRPC inputs and parse Plex responses with Zod schemas at their boundaries
 - **If you don't know what an API response looks like, ADMIT IT** instead of hallucinating schemas
-- Follow existing schema patterns in [src/lib/plex.tv/schemas/](mdc:src/lib/plex.tv/schemas/)
+- Follow existing schema patterns in [packages/plex-query/src/plex/schemas/](mdc:packages/plex-query/src/plex/schemas/)
 - Test schemas with real API responses before implementing
 description:
 globs:

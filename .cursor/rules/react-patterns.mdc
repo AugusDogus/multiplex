@@ -1,28 +1,31 @@
 # React Development Patterns
 
 ## useEffect is a Code Smell
-- **NEVER use `useEffect`** - it's almost never actually needed
+- Avoid `useEffect` for derived state or data fetching
+- Use `useEffect` when synchronizing with external systems, managing subscriptions or timers, and performing their cleanup
 - Use event-driven patterns instead of effect-driven patterns
 - Prefer:
   - Event handlers for user interactions
-  - Effect atom mutations / command atoms for side effects
-  - Existing store/atom patterns for state management
+  - tRPC mutations with `onSuccess`/`onError` callbacks for server data
+  - Existing Effect command facades for player and Watch Together actions
   - Custom hooks that return event handlers
 
 ## State Management
-- Prefer Effect atoms (`@effect/atom-react`) for server data and session state
-- Keep UI prefs in the existing Zustand slices where already established
+- Effect `PlayerService` and `WatchTogetherSession` own canonical player/session runtime state; use their bridges in [apps/web/src/lib/effect/](mdc:apps/web/src/lib/effect/)
+- tRPC, TanStack Query, SuperJSON, and RSC hydration own server data
+- Use Zustand only for persisted preferences and unrelated UI state in [apps/web/src/stores/](mdc:apps/web/src/stores/); do not introduce Jotai
 - Keep state close to where it's used
 
 ## API Integration
-- Use Effect HttpApi client atoms under `apps/web/src/lib/effect/`
+- Use tRPC following patterns in [apps/web/src/trpc/](mdc:apps/web/src/trpc/)
 - Handle loading/error states in components, not effects
-- Follow existing patterns in `watch-together-row.tsx` and browse atoms
+- Use mutation callbacks for side effects
+- Follow existing patterns in [apps/web/src/server/api/routers/](mdc:apps/web/src/server/api/routers/)
 
 ## Component Structure
 - Keep components focused and single-purpose
 - Use composition over complex prop drilling
-- Follow existing component patterns in `apps/web/src/components/`
+- Follow existing component patterns in [apps/web/src/components/](mdc:apps/web/src/components/)
 description:
 globs:
 alwaysApply: false
