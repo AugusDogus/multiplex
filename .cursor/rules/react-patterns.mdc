@@ -1,3 +1,9 @@
+---
+description: React effects, state ownership, API integration, and component conventions
+globs: "apps/web/src/**/*.{ts,tsx}"
+alwaysApply: false
+---
+
 # React Development Patterns
 
 ## useEffect is a Code Smell
@@ -26,7 +32,3 @@
 - Keep components focused and single-purpose
 - Use composition over complex prop drilling
 - Follow existing component patterns in [apps/web/src/components/](mdc:apps/web/src/components/)
-description:
-globs:
-alwaysApply: false
----

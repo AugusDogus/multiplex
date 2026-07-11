@@ -1,3 +1,9 @@
+---
+description: Media player and Watch Together state ownership conventions
+globs: "apps/web/src/components/media-player/**/*.{ts,tsx},apps/web/src/components/watch-together/**/*.{ts,tsx},apps/web/src/lib/effect/**/*.{ts,tsx},apps/web/src/stores/player-prefs-store.ts"
+alwaysApply: false
+---
+
 # Media Player Development Patterns
 
 ## State Management
@@ -26,7 +32,3 @@
 - Use types from [apps/web/src/types/media-player.ts](mdc:apps/web/src/types/media-player.ts)
 - Extend existing interfaces rather than creating new ones
 - Ensure all media player operations are properly typed
-description:
-globs:
-alwaysApply: false
----

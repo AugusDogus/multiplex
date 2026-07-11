@@ -84,15 +84,10 @@
       "name": "@multiplex/plex-query",
       "version": "0.1.0",
       "dependencies": {
-        "effect": "catalog:",
         "zod": "catalog:",
       },
       "devDependencies": {
-        "@types/react": "catalog:",
         "typescript": "catalog:",
-      },
-      "peerDependencies": {
-        "react": "catalog:",
       },
     },
   },

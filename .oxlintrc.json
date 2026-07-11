@@ -1,27 +1,12 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript", "react", "import", "unicorn"],
-  "jsPlugins": [{ "name": "multiplex", "specifier": "./scripts/oxlint-plugin-multiplex.mjs" }],
   "env": { "browser": true, "node": true },
   "settings": { "react": { "version": "19.0" } },
   "rules": {
     "no-debugger": "error",
     "eqeqeq": "warn",
     "@typescript-eslint/no-explicit-any": "error",
-    "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
-    "multiplex/no-effect-escape-hatch": "error"
-  },
-  "overrides": [
-    {
-      "files": [
-        "scripts/**/*.{ts,js,mjs}",
-        "apps/web/src/lib/effect/**/*.{ts,tsx}",
-        "packages/*/src/**/runtime*.ts",
-        "packages/*/src/**/boundary*.ts"
-      ],
-      "rules": {
-        "multiplex/no-effect-escape-hatch": "off"
-      }
-    }
-  ]
+    "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }]
+  }
 }

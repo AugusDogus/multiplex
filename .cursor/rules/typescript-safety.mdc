@@ -1,3 +1,9 @@
+---
+description: TypeScript safety, error handling, and schema validation rules
+globs: "**/*.{ts,tsx}"
+alwaysApply: false
+---
+
 # TypeScript Safety Rules
 
 ## Strict Type Safety
@@ -18,7 +24,3 @@
 - **If you don't know what an API response looks like, ADMIT IT** instead of hallucinating schemas
 - Follow existing schema patterns in [packages/plex-query/src/plex/schemas/](mdc:packages/plex-query/src/plex/schemas/)
 - Test schemas with real API responses before implementing
-description:
-globs:
-alwaysApply: false
----

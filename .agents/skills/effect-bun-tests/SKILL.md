@@ -11,8 +11,7 @@ Effect-domain and Effect-service suites. Do not add vitest or `@effect/vitest`.
 
 - Import `describe`, `it`/`test`, `expect`, `mock`, `spyOn` from `bun:test`.
 - Run an Effect under test with `await Effect.runPromise(effect)` (tests are a
-  designated boundary for `Effect.runPromise`; the escape-hatch lint rule
-  exempts test files).
+  designated boundary for `Effect.runPromise`).
 - For timer/schedule behavior, provide `TestClock.layer()` from
   `effect/testing` and drive time with `TestClock.adjust(...)` instead of real
   sleeps:

@@ -1,3 +1,9 @@
+---
+description: Repository-wide organization, reuse, and naming conventions
+globs:
+alwaysApply: true
+---
+
 # Code Organization & DRY Principles
 
 ## Don't Reinvent the Wheel
@@ -23,7 +29,3 @@
 - Follow existing naming conventions in the codebase
 - Keep functions small and focused on single responsibilities
 - Use composition to build complex behavior from simple parts
-description:
-globs:
-alwaysApply: false
----

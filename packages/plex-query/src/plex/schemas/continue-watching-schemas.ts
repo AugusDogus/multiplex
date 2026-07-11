@@ -382,6 +382,14 @@ export type ContinueWatchingItem = z.infer<typeof ContinueWatchingMetadata> & {
   timeRemaining?: number;
 };
 
+/** Continue Watching item enriched with its Plex server connection details. */
+export type ContinueWatchingItemWithServer = ContinueWatchingItem & {
+  serverUrl?: string;
+  authToken?: string;
+  serverId: string;
+  serverName?: string;
+};
+
 export type ContinueWatchingResponse = z.infer<typeof continueWatchingResponseSchema>;
 
 export type ContinueWatchingHubType = z.infer<typeof ContinueWatchingHub>;

@@ -35,9 +35,8 @@ All commands are run from the workspace root via `bun run <script>`:
 Multiplex uses Effect v4 for canonical media-player state and Watch Together session orchestration:
 
 - **Unit tests stay on `bun test`** (no vitest in this repo). Run `bun run test` from the root or `bun test` inside a workspace. Effect suites run effects via `Effect.runPromise` and use `TestClock` from `effect/testing` for timer determinism (see `.agents/skills/effect-bun-tests`).
-- **Agent skills** for Effect discipline live under `.agents/skills/effect-*` (`effect-typed-errors`, `effect-schema-boundaries`, `effect-bun-tests`, `effect-atom-optimistic`, `effect-atom-reactivity-keys`, `effect-promise-exit`).
-- **Reference clones**: `bun run pull:references` shallow-clones Effect, effect-atom, and executor into gitignored `.reference/` for pattern lookup.
-- **Escape-hatch lint**: oxlint rule `multiplex/no-effect-escape-hatch` (plugin in `scripts/oxlint-plugin-multiplex/`) flags `Effect.runPromise` / `runSync` / `runFork` / `runPromiseExit` outside designated boundary files. Root oxlint currently covers packages/scripts only (`apps/web` uses ESLint); see the plugin README for coverage details.
+- **Agent skills** for Effect discipline live under `.agents/skills/effect-*` (`effect-typed-errors`, `effect-schema-boundaries`, and `effect-bun-tests`).
+- **Runtime boundaries stay narrow**: keep `Effect.runPromise`, `runSync`, `runFork`, and `runPromiseExit` in tests, runtime bootstraps, or true adapter boundaries rather than domain code.
 - **Do not duplicate runtime state**: `PlayerService` and `WatchTogetherSession` are canonical. `player-prefs-store` persists volume, mute, playback rate, captions, and autoplay preference only. Plex queries and mutations remain on tRPC/TanStack Query with SuperJSON and RSC hydration.
 
 ## Cursor Cloud specific instructions

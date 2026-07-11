@@ -1,6 +1,3 @@
-// Continue Watching types used by the web app / Effect boundary
-export type { ContinueWatchingItemWithServer } from "./api";
-
 // Config
 export { DEFAULT_PLEX_CONFIG, getPlexConfig } from "./config";
 

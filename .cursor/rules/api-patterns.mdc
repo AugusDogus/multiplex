@@ -1,3 +1,9 @@
+---
+description: Plex API, schema, and tRPC boundary conventions
+globs: "packages/plex-query/src/**/*.{ts,tsx},apps/web/src/server/api/**/*.{ts,tsx},apps/web/src/trpc/**/*.{ts,tsx}"
+alwaysApply: false
+---
+
 # API Development Patterns
 
 ## Plex API Integration
@@ -22,7 +28,3 @@
 - Use `protectedProcedure` for authenticated endpoints
 - Validate inputs with Zod schemas
 - Return properly typed responses
-description:
-globs:
-alwaysApply: false
----

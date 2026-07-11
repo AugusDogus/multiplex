@@ -1,6 +1,6 @@
 ---
 name: effect-typed-errors
-description: Fix lint findings that use untyped JavaScript error handling instead of Effect typed failures. Use when lint flags new Error, throw, try/catch, Promise.catch, Promise.reject, instanceof Error, unknown error message/stringification, redundant helpers that only construct tagged errors, or Effect.runPromise/runSync/runFork/runPromiseExit outside designated boundaries.
+description: Replace untyped JavaScript error handling with Effect typed failures. Use when reviewing new Error, throw, try/catch, Promise.catch, Promise.reject, instanceof Error, unknown error message/stringification, redundant helpers that only construct tagged errors, or Effect.runPromise/runSync/runFork/runPromiseExit outside designated boundaries.
 allowed-tools: Read Grep Glob Bash
 ---
 
@@ -11,13 +11,10 @@ The preferred boundary is typed `Schema.TaggedError` / `Data.TaggedError`
 values in the Effect error channel. Construct the tagged error directly at the
 failure site unless a helper performs real classification or normalization.
 
-Keep Effect values in the Effect world. The oxlint rule
-`multiplex/no-effect-escape-hatch` flags `Effect.runPromise` / `runSync` /
-`runFork` / `runPromiseExit` outside scripts, `apps/web/src/lib/effect/**`,
-test files, and similarly designated boundary globs (see root
-`.oxlintrc.json`). Prefer letting the session runtime
-(`session-atoms.ts`), `@effect/atom-react`, or a single bootstrap module drive
-execution.
+Keep Effect values in the Effect world. Limit `Effect.runPromise`, `runSync`,
+`runFork`, and `runPromiseExit` to scripts, tests, runtime bootstraps, and true
+adapter boundaries. Prefer letting the session runtime (`session-atoms.ts`),
+`@effect/atom-react`, or a single bootstrap module drive execution.
 
 ## Trace before changing
 
@@ -286,8 +283,8 @@ Do not create one tagged error per sentence of prose.
   contained and converted to a typed Effect failure or stable envelope.
 - Real normalization helpers that inspect protocol fields and preserve
   structured semantics.
-- React/effect-atom mutation handlers using `try/catch`; use
-  `effect-promise-exit` for that UI-specific boundary.
+- React mutation handlers at a Promise-based UI boundary, as long as failures
+  are converted to a stable UI result rather than leaked into domain code.
 - Non-Effect code that has not been migrated (tRPC routers, Zustand player
   store, existing React hooks) — this skill applies to Effect code and to new
   code entering the Effect world, not as a mandate to rewrite untouched
