@@ -57,6 +57,7 @@ export type SessionState =
       readonly room: WatchTogetherRoom;
       readonly participants: ParticipantMap;
       readonly roomPositionSeconds: number | null;
+      readonly everyonePresentSticky: boolean;
     }
   | {
       readonly _tag: "Playing";
@@ -90,12 +91,14 @@ export function lobby(input: {
   readonly room: WatchTogetherRoom;
   readonly participants?: ParticipantMap;
   readonly roomPositionSeconds?: number | null;
+  readonly everyonePresentSticky?: boolean;
 }): LobbySession {
   return {
     _tag: "Lobby",
     room: input.room,
     participants: input.participants ?? {},
     roomPositionSeconds: input.roomPositionSeconds ?? null,
+    everyonePresentSticky: input.everyonePresentSticky ?? false,
   };
 }
 
@@ -131,42 +134,6 @@ export function swapPlayingRoom(
     participants,
     rotation: RotationNone,
   };
-}
-
-export function isIdle(state: SessionState): state is IdleSession {
-  return state._tag === "Idle";
-}
-
-export function isLobby(state: SessionState): state is LobbySession {
-  return state._tag === "Lobby";
-}
-
-export function isPlaying(state: SessionState): state is PlayingSession {
-  return state._tag === "Playing";
-}
-
-export function isRotationNone(
-  phase: RotationPhase,
-): phase is Extract<RotationPhase, { _tag: "None" }> {
-  return phase._tag === "None";
-}
-
-export function isRotationArmed(
-  phase: RotationPhase,
-): phase is Extract<RotationPhase, { _tag: "Armed" }> {
-  return phase._tag === "Armed";
-}
-
-export function isRotationRoomKnown(
-  phase: RotationPhase,
-): phase is Extract<RotationPhase, { _tag: "RoomKnown" }> {
-  return phase._tag === "RoomKnown";
-}
-
-export function isRotationGathering(
-  phase: RotationPhase,
-): phase is Extract<RotationPhase, { _tag: "Gathering" }> {
-  return phase._tag === "Gathering";
 }
 
 /** Next room known to the rotation machine, if any. */

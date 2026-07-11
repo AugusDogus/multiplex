@@ -13,6 +13,7 @@ import {
   allInvitedPresent,
   decideLobbyAutoStart,
   decideRotation,
+  findNextEpisodeRoom,
   getAutoAdvanceRank,
   haveMultiplexParticipantsJoined,
   isSomeoneElseWatching,
@@ -48,7 +49,6 @@ import {
   SubscriptionRef,
   type Scope,
 } from "effect";
-import type { Stream } from "effect";
 
 import { createWatchTogetherSessionToasts } from "~/components/watch-together/watch-together-session-toasts";
 import type { MediaPlayerItem, NextEpisodeInfo } from "~/types/media-player";
@@ -86,6 +86,13 @@ export type SwapToInput = {
 
 export type LeaveOptions = {
   readonly suppressAutoStart: boolean;
+  /** Ignore cleanup belonging to a room that has already been replaced. */
+  readonly expectedRoomId?: string;
+};
+
+export type ExitLobbyOptions = {
+  /** Ignore cleanup belonging to a room that has already been replaced. */
+  readonly expectedRoomId?: string;
 };
 
 const REPLACEMENT_PREPARATION_TIMEOUT = "2 seconds";
@@ -152,7 +159,6 @@ export type MakeObserverConnection = (options: {
 
 export type WatchTogetherSessionShape = {
   readonly state: SubscriptionRef.SubscriptionRef<SessionState>;
-  readonly changes: Stream.Stream<SessionState>;
   readonly snapshot: () => SessionState;
   /**
    * Idle→Lobby (starts presence observer + auto-start fiber). Idempotent by
@@ -163,9 +169,9 @@ export type WatchTogetherSessionShape = {
   /** Refresh the room object on Lobby (or Playing) when the same room refetches. */
   readonly updateLobbyRoom: (room: WatchTogetherRoom) => Effect.Effect<void>;
   /** Lobby→Idle on lobby unmount/navigation. Distinct from {@link leave}. */
-  readonly exitLobby: () => Effect.Effect<void>;
+  readonly exitLobby: (options?: ExitLobbyOptions) => Effect.Effect<void>;
   readonly setLobbyContext: (ctx: LobbyContext) => Effect.Effect<void>;
-  readonly startPlayback: (input: StartPlaybackInput) => Effect.Effect<void>;
+  readonly startPlayback: (input: StartPlaybackInput) => Effect.Effect<boolean>;
   readonly swapTo: (input: SwapToInput) => Effect.Effect<void>;
   readonly leave: (options: LeaveOptions) => Effect.Effect<void>;
   readonly setRotationContext: (ctx: RotationContext) => Effect.Effect<void>;
@@ -343,13 +349,6 @@ export const makeWatchTogetherSession = (
       providedApi ??
       Option.getOrElse(apiFromContext, () => ({
         listRooms: () => Effect.succeed([]),
-        getRoom: () =>
-          Effect.fail(
-            new WatchTogetherApiError({
-              cause: "WatchTogetherApi not provided",
-              operation: "getRoom",
-            }),
-          ),
         createRoom: () =>
           Effect.fail(
             new WatchTogetherApiError({
@@ -363,27 +362,6 @@ export const makeWatchTogetherSession = (
             new WatchTogetherApiError({
               cause: "WatchTogetherApi not provided",
               operation: "getItemMetadata",
-            }),
-          ),
-        getUserInfo: () =>
-          Effect.fail(
-            new WatchTogetherApiError({
-              cause: "WatchTogetherApi not provided",
-              operation: "getUserInfo",
-            }),
-          ),
-        createPlayQueue: () =>
-          Effect.fail(
-            new WatchTogetherApiError({
-              cause: "WatchTogetherApi not provided",
-              operation: "createPlayQueue",
-            }),
-          ),
-        getPlayQueue: () =>
-          Effect.fail(
-            new WatchTogetherApiError({
-              cause: "WatchTogetherApi not provided",
-              operation: "getPlayQueue",
             }),
           ),
       }));
@@ -477,6 +455,15 @@ export const makeWatchTogetherSession = (
     const leaveImpl = (leaveOptions: LeaveOptions): Effect.Effect<void> =>
       Effect.gen(function* () {
         if (leaving) return;
+        if (leaveOptions.expectedRoomId) {
+          const current = yield* SubscriptionRef.get(state);
+          if (
+            current._tag === "Idle" ||
+            current.room.id !== leaveOptions.expectedRoomId
+          ) {
+            return;
+          }
+        }
         leaving = true;
         try {
           lifecycleGeneration += 1;
@@ -555,7 +542,6 @@ export const makeWatchTogetherSession = (
       Effect.gen(function* () {
         // Callback evaluations fork grace work into the lobby lifetime.
         const lobbyScope = yield* Effect.scope;
-        const stickyPresent = yield* Ref.make(false);
         const hasAutoStarted = yield* Ref.make(false);
         const presentSinceMs = yield* Ref.make<number | null>(null);
         const clockMs = yield* Ref.make(0);
@@ -709,17 +695,27 @@ export const makeWatchTogetherSession = (
             if (everyoneNow) {
               yield* interruptChild(graceFiber);
               graceFiber = null;
-              const wasSticky = yield* Ref.get(stickyPresent);
-              if (!wasSticky) {
-                yield* Ref.set(stickyPresent, true);
+              if (!session.everyonePresentSticky) {
+                yield* SubscriptionRef.update(state, (s) =>
+                  lifecycleGeneration === generation &&
+                  s._tag === "Lobby" &&
+                  s.room.id === room.id
+                    ? { ...s, everyonePresentSticky: true }
+                    : s,
+                );
               }
             } else {
-              const wasSticky = yield* Ref.get(stickyPresent);
-              if (wasSticky && !graceFiber) {
+              if (session.everyonePresentSticky && !graceFiber) {
                 graceFiber = yield* Effect.forkIn(
                   Effect.gen(function* () {
                     yield* Effect.sleep(`${PRESENCE_GRACE_MS} millis`);
-                    yield* Ref.set(stickyPresent, false);
+                    yield* SubscriptionRef.update(state, (s) =>
+                      lifecycleGeneration === generation &&
+                      s._tag === "Lobby" &&
+                      s.room.id === room.id
+                        ? { ...s, everyonePresentSticky: false }
+                        : s,
+                    );
                     yield* Ref.set(presentSinceMs, null);
                     yield* Ref.set(hasAutoStarted, false);
                     yield* evaluateOnce();
@@ -729,7 +725,7 @@ export const makeWatchTogetherSession = (
               }
             }
 
-            const sticky = yield* Ref.get(stickyPresent);
+            const sticky = everyoneNow ? true : session.everyonePresentSticky;
             const started = yield* Ref.get(hasAutoStarted);
             const someoneElseWatching = isSomeoneElseWatching(
               session.room,
@@ -836,8 +832,8 @@ export const makeWatchTogetherSession = (
     // interrupts the lobby fiber — bind via suspend so the const is stable.
     let startPlaybackImpl: (
       input: StartPlaybackInput,
-    ) => Effect.Effect<void> = () => Effect.void;
-    const startPlayback = (input: StartPlaybackInput): Effect.Effect<void> =>
+    ) => Effect.Effect<boolean> = () => Effect.succeed(false);
+    const startPlayback = (input: StartPlaybackInput): Effect.Effect<boolean> =>
       serializeLifecycle(Effect.suspend(() => startPlaybackImpl(input)));
 
     const startLobbyFiber = (
@@ -904,10 +900,16 @@ export const makeWatchTogetherSession = (
         return s;
       });
 
-    const exitLobby = (): Effect.Effect<void> =>
+    const exitLobby = (options?: ExitLobbyOptions): Effect.Effect<void> =>
       Effect.gen(function* () {
         const current = yield* SubscriptionRef.get(state);
-        if (current._tag !== "Lobby") return;
+        if (
+          current._tag !== "Lobby" ||
+          (options?.expectedRoomId &&
+            current.room.id !== options.expectedRoomId)
+        ) {
+          return;
+        }
         lifecycleGeneration += 1;
         yield* interruptLobby();
         localUser = null;
@@ -1087,6 +1089,7 @@ export const makeWatchTogetherSession = (
             yield* stopCreate();
             yield* Ref.set(hasAttemptedCreate, true);
             pendingCreateRank = rank;
+            const createGeneration = lifecycleGeneration;
             createFiber = yield* Effect.forkIn(
               Effect.gen(function* () {
                 yield* Effect.sleep(`${afterMs} millis`);
@@ -1103,11 +1106,48 @@ export const makeWatchTogetherSession = (
                   })
                   .pipe(Effect.exit);
                 createFiber = null;
-                // Room is adopted via discovery, not the create response.
                 if (Exit.isFailure(result)) {
                   yield* Ref.set(hasAttemptedCreate, false);
                   yield* evaluateOnce();
+                  return;
                 }
+
+                const session = yield* SubscriptionRef.get(state);
+                const ctx = yield* Ref.get(rotationContext);
+                if (
+                  lifecycleGeneration !== createGeneration ||
+                  session._tag !== "Playing" ||
+                  session.room.id !== currentRoom.id ||
+                  session.item.serverId !== serverId ||
+                  rotationTargetKey !== nextEpisode.ratingKey ||
+                  ctx.nextEpisode?.ratingKey !== nextEpisode.ratingKey ||
+                  !ctx.autoPlayEnabled
+                ) {
+                  return;
+                }
+
+                const createdRoom = findNextEpisodeRoom({
+                  rooms: [result.value],
+                  serverId,
+                  nextRatingKey: nextEpisode.ratingKey,
+                  currentRoom: session.room,
+                });
+                if (!createdRoom) {
+                  yield* Ref.set(hasAttemptedCreate, false);
+                  yield* evaluateOnce();
+                  return;
+                }
+
+                // Treat the validated create response as immediate local
+                // discovery. Polling stays active and can replace it with the
+                // deterministic winner if another client raced this create.
+                yield* Ref.update(visibleRooms, (rooms) => [
+                  createdRoom,
+                  ...rooms.filter((room) => room.id !== createdRoom.id),
+                ]);
+                yield* adoptRoom(createdRoom);
+                invalidRoomMissRevision = null;
+                yield* evaluateOnce();
               }),
               rotationScope,
             );
@@ -1549,7 +1589,7 @@ export const makeWatchTogetherSession = (
         }
       });
 
-    startPlaybackImpl = (input: StartPlaybackInput): Effect.Effect<void> =>
+    startPlaybackImpl = (input: StartPlaybackInput): Effect.Effect<boolean> =>
       Effect.gen(function* () {
         if (input.expectedLobby) {
           const current = yield* SubscriptionRef.get(state);
@@ -1559,7 +1599,7 @@ export const makeWatchTogetherSession = (
             current._tag !== "Lobby" ||
             current.room.id !== input.expectedLobby.roomId
           ) {
-            return;
+            return false;
           }
         }
 
@@ -1584,6 +1624,7 @@ export const makeWatchTogetherSession = (
 
         yield* startConnection(input.room, input.localUser, generation);
         yield* maybeStartRotation();
+        return true;
       });
 
     const swapTo = (input: SwapToInput): Effect.Effect<void> =>
@@ -1649,8 +1690,6 @@ export const makeWatchTogetherSession = (
 
     return {
       state,
-      // beta.59: `changes` is a module function, not a ref property getter.
-      changes: SubscriptionRef.changes(state),
       // Escape-hatch sync read for React/compat; SubscriptionRef.get is Effect.
       snapshot: () => Effect.runSync(SubscriptionRef.get(state)),
       enterLobby,

@@ -154,6 +154,8 @@ export const plexRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      await resolveServer(ctx.plex, input.serverId);
+
       return watchTogetherClientForToken(ctx.plex.getToken()).createRoom({
         sourceUri: buildLibraryItemUri(
           input.serverId,

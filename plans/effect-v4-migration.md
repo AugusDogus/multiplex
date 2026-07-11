@@ -26,8 +26,8 @@ intermediate states unrepresentable.** We adopt the architecture proven in
 `UsefulSoftwareCo/executor` (Effect v4 + `@effect/atom-react`): tagged-union
 domain state, pure policy functions, Effect fibers/`Deferred`/`Schedule` for
 orchestration, and atoms as the React bridge. Executor also supplies the
-tooling spine (lint enforcement, test discipline, agent skills) so the discipline
-is enforced rather than documented.
+tooling spine (test discipline and focused agent skills) so the discipline is
+part of the repository workflow rather than prose alone.
 
 Executor precedents referenced throughout (clone: `UsefulSoftwareCo/executor`):
 
@@ -37,8 +37,7 @@ Executor precedents referenced throughout (clone: `UsefulSoftwareCo/executor`):
 | Pure decision function over counters/timers               | `packages/hosts/cloudflare/src/mcp/session-alarm-policy.ts` |
 | Atom client + query/mutation atoms + reactivity keys      | `packages/react/src/api/{client,atoms,reactivity-keys}.tsx` |
 | Boundary-wrapped non-Effect transport                     | `packages/plugins/mcp/src/sdk/connection.ts`                |
-| Escape-hatch lint enforcement                             | `scripts/oxlint-plugin-executor`                            |
-| Agent skills for atom/schema/error discipline             | `.agents/skills/wrdn-effect-*`                              |
+| Agent skills for schema/error/test discipline             | `.agents/skills/wrdn-effect-*`                              |
 
 ## Pre-migration inventory
 
@@ -69,7 +68,8 @@ Three layers, mirroring executor's separation:
 ┌──────────────────────────▼─────────────────────────────────────┐
 │ WatchTogetherSession service (Effect, client-side runtime)     │
 │   owns SubscriptionRef<SessionState> · scoped socket fibers ·  │
-│   rotation fiber (Schedule/Deferred/race) · player adapter     │
+│   rotation fiber (Schedule/Deferred/scoped children) ·         │
+│   serialized lifecycle commands · player adapter               │
 └──────────────────────────┬─────────────────────────────────────┘
                            │ pure calls
 ┌──────────────────────────▼─────────────────────────────────────┐
@@ -101,6 +101,7 @@ export type SessionState =
       readonly room: WatchTogetherRoom;
       readonly participants: ParticipantMap;
       readonly roomPositionSeconds: number | null;
+      readonly everyonePresentSticky: boolean;
     }
   | {
       readonly _tag: "Playing";
@@ -117,9 +118,9 @@ the playing item disagree.** The swap is a single transition
 clear-on-mismatch inference and its batching invariant are deleted, not
 defended.
 
-The rotation _rules_ become one pure decision function in the style of
-executor's `decideSessionAlarm` — this centralizes what is currently smeared
-across five effects, and it is exhaustively unit-testable with a fake clock:
+The rotation _rules_ became one pure decision function in the style of
+executor's `decideSessionAlarm`, centralizing what was previously spread across
+five effects and making it exhaustively unit-testable with a fake clock:
 
 ```ts
 export type RotationDecision =
@@ -128,25 +129,33 @@ export type RotationDecision =
   | { readonly kind: "create_room"; readonly afterMs: number } // rank-staggered
   | { readonly kind: "adopt_room"; readonly room: WatchTogetherRoom }
   | { readonly kind: "begin_gathering" }
-  | { readonly kind: "swap" }; // everyone joined or grace elapsed
+  | { readonly kind: "swap" } // everyone joined or grace elapsed
+  | { readonly kind: "invalidate_room" }
+  | { readonly kind: "disabled" };
 
 export const decideRotation = (input: {
   readonly phase: RotationPhase;
   readonly timeRemainingSeconds: number;
+  readonly durationSeconds: number;
+  readonly currentTimeSeconds: number;
   readonly rank: number; // getAutoAdvanceRank (ported)
   readonly visibleRooms: ReadonlyArray<WatchTogetherRoom>; // findNextEpisodeRoom input (ported)
   readonly everyoneJoined: boolean; // haveMultiplexParticipantsJoined (ported)
   readonly graceElapsed: boolean;
   readonly autoPlayEnabled: boolean;
+  readonly serverId: string;
+  readonly nextRatingKey: string;
+  readonly currentRoom: Pick<WatchTogetherRoom, "id" | "users">;
+  readonly hasAttemptedCreate?: boolean;
 }): RotationDecision => {
   /* pure */
 };
 ```
 
 `getAutoAdvanceRank`, `findNextEpisodeRoom`,
-`haveMultiplexParticipantsJoined`, and `mergeParticipantState` port unchanged
-from `apps/web/src/components/watch-together/watch-together-auto-advance.ts`,
-along with their tests.
+`haveMultiplexParticipantsJoined`, and `mergeParticipantState` now live in
+`packages/plex-query/src/watch-together/rotation-policy.ts`, along with their
+tests.
 
 ### Layer 2: `WatchTogetherSession` service (Effect, runs in the browser)
 
@@ -172,14 +181,15 @@ export class WatchTogetherSession extends Context.Service<
 
 Orchestration mapping (all executor-proven primitives):
 
-| Behavior                        | Today                                                                      | Target                                                                                                                                                                  |
-| ------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Syncplay driver/observer socket | `SyncplayClient` + manual reconnect timers in 3 places                     | `Effect.acquireRelease` around `SyncplayClient`, reconnect via `Effect.retry(Schedule.exponential)` in a scoped fiber; fiber is interrupted automatically on state exit |
-| Discovery polling               | React Query `refetchInterval: 4000` gated on `armed`                       | `Effect.repeat(Schedule.spaced("4 seconds"))` fiber, started/stopped by rotation phase                                                                                  |
-| Creation stagger                | `setTimeout(CREATE_BASE_DELAY_MS + rank * CREATE_STAGGER_MS)` in an effect | `Effect.sleep(delay)` raced against room discovery (`Effect.raceFirst` — see executor's engine.ts note on `race` vs `raceFirst` in v4)                                  |
-| "Everyone joined, or grace"     | observer connection + `graceElapsed` state + swap effect                   | `Deferred.await(everyoneJoined)` raced with `Effect.sleep(grace)` — executor's pause/approval shape                                                                     |
-| Create retry after failure      | `createRetryToken` state bump to force effect re-run                       | `Effect.retry` on the create effect; the workaround class disappears                                                                                                    |
-| Idempotent transitions          | `swapped` boolean + refs                                                   | transitions are `SubscriptionRef.update` with tag checks; commands on wrong states are no-ops by construction                                                           |
+| Behavior                        | Before migration                                                           | Shipped implementation                                                                                                                    |
+| ------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Syncplay driver/observer socket | `SyncplayClient` + manual reconnect timers in 3 places                     | `Effect.acquireRelease` in a scoped `Effect.forever` loop with a fixed reconnect sleep; scope interruption disconnects the active client  |
+| Discovery polling               | React Query `refetchInterval: 4000` gated on `armed`                       | Scoped `Effect.repeat(Schedule.spaced("4 seconds"))`, started and stopped by rotation decisions                                           |
+| Creation stagger                | `setTimeout(CREATE_BASE_DELAY_MS + rank * CREATE_STAGGER_MS)` in an effect | Scoped `Effect.sleep(delay)` child fiber; a validated response is adopted immediately while discovery continues for duplicate convergence |
+| "Everyone joined, or grace"     | observer connection + `graceElapsed` state + swap effect                   | Participant callbacks evaluate immediately while one scoped grace fiber sleeps, marks `graceElapsed`, and re-evaluates                    |
+| Create retry after failure      | `createRetryToken` state bump to force effect re-run                       | Failure clears `hasAttemptedCreate` and re-evaluates, scheduling a fresh rank-staggered create attempt                                    |
+| Lifecycle serialization         | Ordering depended on React effects and store updates                       | A one-permit `Semaphore` serializes enter, exit, start, swap, and leave; generation and identity guards reject stale detached work        |
+| Idempotent transitions          | `swapped` boolean + refs                                                   | `SubscriptionRef.update` tag/identity checks and explicit fiber cancellation make stale or inapplicable work a no-op                      |
 
 **Plex API access** stays on tRPC (the Plex token lives server-side): a small
 `WatchTogetherApi` Effect service wraps the vanilla tRPC client
@@ -201,13 +211,14 @@ export interface PlayerPort {
 }
 ```
 
-`PlayerService` is the canonical playback owner. React reads it through
-`Atom.subscriptionRef`; `PlayerPort` adapts the same service instance for Watch
-Together commands. The video element remains an imperative React boundary and
-registers generation-scoped play/pause/seek actions. A narrow Zustand
-`player-prefs-store` persists preferences only and never mirrors playback state.
-The existing `SyncplaySessionController` remains behind the service's scoped
-connection fiber and keeps its arbitration unit tests.
+`PlayerService` is the canonical playback owner. React reads focused projections
+through a selector-based `useSyncExternalStore` bridge over the service's change
+stream; `PlayerPort` adapts the same service instance for Watch Together
+commands. The video element remains an imperative React boundary and registers
+generation-scoped play/pause/seek actions. A narrow Zustand `player-prefs-store`
+persists preferences only and never mirrors playback state. The existing
+`SyncplaySessionController` remains behind the service's scoped connection fiber
+and keeps its arbitration unit tests.
 
 ### Layer 3: React bridge (`@effect/atom-react`)
 
@@ -224,15 +235,16 @@ export const sessionStateAtom = stateAtom.pipe(Atom.keepAlive);
 
 export const sessionCommands = {
   enterLobby(input: EnterLobbyInput) {
-    return sessionRuntime.runFork(session.enterLobby(input));
+    return { completion: sessionRuntime.runPromise(session.enterLobby(input)) };
   },
 };
 ```
 
 Components read one atom (`useAtomValue(sessionStateAtom)`) and issue commands
 through a plain runtime-backed facade. `RegistryProvider` mounts in the root
-layout next to the existing tRPC provider. `Atom.subscriptionRef` is the only
-React bridge; transport caching and mutations remain TanStack Query concerns.
+layout next to the existing tRPC provider. `Atom.subscriptionRef` is the session
+state bridge; the player uses its selector-based `useSyncExternalStore` bridge.
+Transport caching and mutations remain TanStack Query concerns.
 
 ## Tooling spine (phase 0, before any behavior change)
 
@@ -244,17 +256,13 @@ React bridge; transport caching and mutations remain TanStack Query concerns.
   designated escape-hatch boundary) and get timer determinism from
   `TestClock` in `effect/testing` (`TestClock.layer()` + `TestClock.adjust`),
   which is runner-agnostic in v4. See `.agents/skills/effect-bun-tests`.
-- Port executor's `no-effect-escape-hatch` oxlint rule (multiplex already runs
-  oxlint) so `Effect.runPromise`/`runSync` stay at boundaries.
 - Optional but recommended: `effect-language-service` patch in `prepare`
   (executor does both this and `effect-tsgo`; adopt LSP first, evaluate tsgo
   separately since it changes typechecking).
 - Port the relevant executor skills into `.agents/skills/`:
   `wrdn-effect-typed-errors`, `wrdn-effect-schema-boundaries`,
-  `wrdn-effect-vitest-tests` (adapted to `bun:test` as `effect-bun-tests`),
-  `wrdn-effect-atom-optimistic` (the atom skills
-  matter from phase 2 on). Add a `scripts/pull-references.ts` and `.reference/`
-  (gitignored) with `effect`, `effect-atom` for pattern lookup.
+  and `wrdn-effect-vitest-tests` (adapted to `bun:test` as
+  `effect-bun-tests`).
 
 ## Phasing
 
@@ -263,20 +271,19 @@ the two-account Playwright e2e (`watch-together.spec.ts` +
 `watch-together-auto-advance.spec.ts`) staying green. The e2e suite is the
 behavioral contract; it does not change during the migration.
 
-- **Phase 0 — tooling.** Deps, catalog pins, lint rule, skills,
-  `.reference`. No behavior change. Verify: `bun run check`, both test
-  runners, e2e smoke.
+- **Phase 0 — tooling.** Dependencies, catalog pins, and focused skills. No
+  behavior change. Verify: `bun run check`, both test runners, e2e smoke.
 - **Phase 1 — domain layer.** `SessionState` union, `decideRotation`, ported
   pure helpers, `bun:test` suites with `TestClock` (from `effect/testing`) covering the rotation
-  timing rules that today only the e2e exercises (stagger, grace, failover,
+  timing rules that previously only the e2e exercised (stagger, grace, failover,
   duplicate convergence, opt-out viewer). Pure code only; nothing imports it
   yet. Verify: unit tests.
 - **Phase 2 — session service for playback (the spike).** `WatchTogetherSession`
-  owning the controller/socket lifecycle + `PlayerPort` + the atom bridge. Replaces
-  `watch-together-store` + `use-syncplay-session` + the session-binding module
-  for the _playing_ path only (lobby and rotation still on the old code,
-  temporarily commanding the service). This is deliberately the smallest cut
-  that proves the stream-atom bridge and the socket-as-scoped-fiber pattern.
+  owning the controller/socket lifecycle + `PlayerPort` + the atom bridge. At
+  this phase it replaced `watch-together-store` + `use-syncplay-session` + the
+  session-binding module for the _playing_ path only, while lobby and rotation
+  temporarily remained on the old code. This was the smallest cut that proved
+  the `SubscriptionRef` atom bridge and socket-as-scoped-fiber pattern.
   Verify: e2e pause/resume + seek specs; `SyncplaySessionController` tests
   ported.
 - **Phase 3 — rotation.** Fold auto-advance into the service as the
@@ -286,12 +293,12 @@ behavioral contract; it does not change during the migration.
   decision branch.
 - **Phase 4 — lobby.** `Lobby` state absorbs presence + auto-start +
   late-join position; delete `use-watch-together-lobby-presence` and the
-  lobby's effect logic (the component becomes a renderer of
+  lobby's effect logic (the component became a renderer of
   `sessionStateAtom` + command buttons). Verify: full e2e suite.
 - **PlayerService split — complete.** Replace canonical Zustand playback state
-  with `PlayerService`, a shared Effect runtime, `playerStateAtom`, and
-  generation-scoped `PlayerPort` actions. Preserve the legacy localStorage
-  shape through a preference-only Zustand adapter.
+  with `PlayerService`, a shared Effect runtime, selector-based React
+  subscriptions, and generation-scoped `PlayerPort` actions. Preserve the
+  legacy localStorage shape through a preference-only Zustand adapter.
 - **Phase 5 server data — deferred; non-goal for this PR.** Do not replace the
   tRPC Plex router with Effect `HttpApi` / `AtomHttpApi`, introduce browse
   atoms, or retire TanStack Query. Effect v4 does not yet have a mature Next.js
@@ -301,7 +308,7 @@ behavioral contract; it does not change during the migration.
 
 Ordering rationale: playback (phase 2) before rotation (phase 3) because
 rotation composes on top of a working session service; lobby last because it
-is the least buggy today and touches the most UI.
+was the least buggy area and touched the most UI.
 
 ## Risks and mitigations
 
@@ -320,6 +327,5 @@ is the least buggy today and touches the most UI.
   TanStack Query + SuperJSON own server data and RSC hydration; Zustand persists
   preferences and unrelated local UI state. Jotai is not used. The media-player
   modal reads both Effect services to enforce their item-identity boundary.
-- **Solo-maintainer bus factor on Effect fluency.** Mitigated by the skills +
-  lint rules + `.reference` repos, which is exactly how executor keeps agents
-  productive in this stack.
+- **Solo-maintainer bus factor on Effect fluency.** Mitigated by focused skills,
+  deterministic tests, and repository-local architecture guidance.

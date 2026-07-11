@@ -2,13 +2,6 @@ import { describe, expect, it } from "bun:test";
 import type { WatchTogetherRoom } from "../plex/schemas/watch-together-schemas";
 import {
   Idle,
-  isIdle,
-  isLobby,
-  isPlaying,
-  isRotationArmed,
-  isRotationGathering,
-  isRotationNone,
-  isRotationRoomKnown,
   lobby,
   playing,
   RotationArmed,
@@ -50,37 +43,34 @@ const itemB: PlayingItem = {
   durationSeconds: 1300,
 };
 
-describe("SessionState constructors and guards", () => {
+describe("SessionState constructors", () => {
   it("builds Idle / Lobby / Playing with defaults", () => {
     expect(Idle).toEqual({ _tag: "Idle" });
-    expect(isIdle(Idle)).toBe(true);
 
     const lobbyState = lobby({ room: room("lobby") });
     expect(lobbyState).toMatchObject({
       _tag: "Lobby",
       participants: {},
       roomPositionSeconds: null,
+      everyonePresentSticky: false,
     });
-    expect(isLobby(lobbyState)).toBe(true);
-    expect(isPlaying(lobbyState)).toBe(false);
 
     const playingState = playing({ room: room("play"), item: itemA });
+    expect(playingState._tag).toBe("Playing");
     expect(playingState.rotation).toEqual(RotationNone);
-    expect(isPlaying(playingState)).toBe(true);
-    expect(isIdle(playingState)).toBe(false);
   });
 
   it("builds rotation phases and exposes next-room lookup", () => {
     const next = room("next");
-    expect(isRotationNone(RotationNone)).toBe(true);
-    expect(isRotationArmed(RotationArmed)).toBe(true);
+    expect(RotationNone._tag).toBe("None");
+    expect(RotationArmed._tag).toBe("Armed");
 
     const known = rotationRoomKnown(next);
-    expect(isRotationRoomKnown(known)).toBe(true);
+    expect(known._tag).toBe("RoomKnown");
     expect(rotationNextRoom(known)).toEqual(next);
 
     const gathering = rotationGathering(next, new Set(["device-1"]));
-    expect(isRotationGathering(gathering)).toBe(true);
+    expect(gathering._tag).toBe("Gathering");
     expect(rotationNextRoom(gathering)).toEqual(next);
     expect(rotationNextRoom(RotationNone)).toBeNull();
     expect(rotationNextRoom(RotationArmed)).toBeNull();

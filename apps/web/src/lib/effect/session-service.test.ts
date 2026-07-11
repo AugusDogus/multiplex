@@ -1013,11 +1013,19 @@ test("observer presence drop keeps the lobby grace timer alive", async () => {
           isPresent: true,
         });
         yield* Effect.yieldNow;
+        const present = session.snapshot();
+        expect(present._tag === "Lobby" && present.everyonePresentSticky).toBe(
+          true,
+        );
         observers[0]?.options.onParticipant({
           user: guest,
           isPresent: false,
         });
         yield* Effect.yieldNow;
+        const withinGrace = session.snapshot();
+        expect(
+          withinGrace._tag === "Lobby" && withinGrace.everyonePresentSticky,
+        ).toBe(true);
 
         yield* TestClock.adjust(`${PRESENCE_GRACE_MS + 200} millis`);
         yield* Effect.yieldNow;

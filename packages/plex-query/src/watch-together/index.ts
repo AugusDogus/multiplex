@@ -9,13 +9,6 @@ export type {
 } from "./session-state";
 export {
   Idle,
-  isIdle,
-  isLobby,
-  isPlaying,
-  isRotationArmed,
-  isRotationGathering,
-  isRotationNone,
-  isRotationRoomKnown,
   lobby,
   playing,
   RotationArmed,

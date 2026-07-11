@@ -10,6 +10,7 @@ import { sessionRuntime } from "./runtime";
 import {
   WatchTogetherSession,
   type EnterLobbyInput,
+  type ExitLobbyOptions,
   type LeaveOptions,
   type LobbyContext,
   type RotationContext,
@@ -21,8 +22,8 @@ import {
 /**
  * App-lifetime Effect runtime for Watch Together session orchestration.
  *
- * Designated escape-hatch boundary: `runSync` / `runPromise` are allowed here
- * (oxlint `no-effect-escape-hatch` exempts `apps/web/src/lib/effect/**`).
+ * This module is the designated boundary for running session effects from
+ * synchronous React and event-handler APIs.
  *
  * Bridge shipped: `Atom.subscriptionRef` over the service's
  * `SubscriptionRef<SessionState>` (not the stream-atom /
@@ -62,53 +63,58 @@ const runSessionSync = <A>(
 ): A => sessionRuntime.runSync(f(session));
 
 /**
- * Commands that may `Fiber.interrupt` scoped connection/lobby/rotation fibers.
- * Interrupt awaits finalizers; an async finalizer makes the effect async and
- * `runSync` throws `AsyncFiberError`. Always fork — with sync finalizers
- * (our production case: `controller.disconnect` is sync) the interrupt +
- * subsequent state writes still complete before `runFork` returns, so
- * immediate `snapshot()` / atom reads see the transition. Call sites that
- * care about post-command state should prefer `useSessionState()` (atom) over
- * racing a follow-up `snapshot()` after a fire-and-forget fork.
+ * Commands that may interrupt scoped resources run as observable promises.
+ * ManagedRuntime owns their fibers and service-level serialization determines
+ * ordering, including when callers queue cleanup before prior work completes.
  */
-const runSessionFork = (
-  f: (s: WatchTogetherSessionShape) => Effect.Effect<void>,
-): void => {
-  sessionRuntime.runFork(f(session));
+type SessionLifecycleRuntime = {
+  readonly runPromise: <A>(effect: Effect.Effect<A>) => Promise<A>;
 };
+
+export type SessionCommand<A> = {
+  readonly completion: Promise<A>;
+};
+
+const runLifecycleCommand = <A>(
+  runtime: SessionLifecycleRuntime,
+  effect: Effect.Effect<A>,
+): SessionCommand<A> => ({ completion: runtime.runPromise(effect) });
+
+export const makeSessionLifecycleCommands = (
+  runtime: SessionLifecycleRuntime,
+  service: WatchTogetherSessionShape,
+) => ({
+  enterLobby: (input: EnterLobbyInput): SessionCommand<void> =>
+    runLifecycleCommand(runtime, service.enterLobby(input)),
+  exitLobby: (options?: ExitLobbyOptions): SessionCommand<void> =>
+    runLifecycleCommand(runtime, service.exitLobby(options)),
+  startPlayback: (input: StartPlaybackInput): SessionCommand<boolean> =>
+    runLifecycleCommand(runtime, service.startPlayback(input)),
+  swapTo: (input: SwapToInput): SessionCommand<void> =>
+    runLifecycleCommand(runtime, service.swapTo(input)),
+  leave: (options: LeaveOptions): SessionCommand<void> =>
+    runLifecycleCommand(runtime, service.leave(options)),
+});
+
+const lifecycleCommands = makeSessionLifecycleCommands(sessionRuntime, session);
 
 /**
  * Plain-function command facade for non-React callers (lobby, auto-advance
  * hook, modal event handlers). Each call runs on {@link sessionRuntime}.
  *
- * Interrupting commands (`enterLobby` when switching rooms, `exitLobby`,
- * `startPlayback`, `swapTo`, `leave`) use `runFork` so they never depend on
- * finalizer synchronicity. Non-interrupting commands stay on `runSync`.
+ * Lifecycle commands expose completion while synchronous local commands stay
+ * on `runSync`.
  */
 export const sessionCommands = {
-  enterLobby: (input: EnterLobbyInput): void => {
-    runSessionFork((s) => s.enterLobby(input));
-  },
+  ...lifecycleCommands,
   updateLobbyRoom: (room: EnterLobbyInput["room"]): void => {
     runSessionSync((s) => s.updateLobbyRoom(room));
-  },
-  exitLobby: (): void => {
-    runSessionFork((s) => s.exitLobby());
   },
   setLobbyContext: (ctx: LobbyContext): void => {
     runSessionSync((s) => s.setLobbyContext(ctx));
   },
-  startPlayback: (input: StartPlaybackInput): void => {
-    runSessionFork((s) => s.startPlayback(input));
-  },
-  swapTo: (input: SwapToInput): void => {
-    runSessionFork((s) => s.swapTo(input));
-  },
-  leave: (options: LeaveOptions): void => {
-    runSessionFork((s) => s.leave(options));
-  },
   setRotationContext: (ctx: RotationContext): void => {
-    runSessionFork((s) => s.setRotationContext(ctx));
+    sessionRuntime.runFork(session.setRotationContext(ctx));
   },
   handleLocalPlaybackChange: (isPaused: boolean): void => {
     runSessionSync((s) => s.handleLocalPlaybackChange(isPaused));

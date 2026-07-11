@@ -241,19 +241,9 @@ const makeStubApi = (overrides?: {
 
   const api: WatchTogetherApiShape = {
     listRooms: () => listRooms() as never,
-    getRoom: () =>
-      Effect.fail({
-        _tag: "WatchTogetherApiError",
-        cause: "unused",
-        operation: "getRoom",
-      }) as never,
     createRoom: (input) => createRoom(input) as never,
     deleteRoom: (roomId) => deleteRoom(roomId) as never,
     getItemMetadata: (input) => getItemMetadata(input) as never,
-    getUserInfo: () => Effect.fail({ _tag: "WatchTogetherApiError" }) as never,
-    createPlayQueue: () =>
-      Effect.fail({ _tag: "WatchTogetherApiError" }) as never,
-    getPlayQueue: () => Effect.fail({ _tag: "WatchTogetherApiError" }) as never,
   };
 
   return { api, createRoom, deleteRoom, listRooms, getItemMetadata };
@@ -425,7 +415,10 @@ test("arm → create (rank 0) → discovery adopts → gathering → everyone-jo
         setRooms([nextRoom]);
         yield* waitUntil(
           session,
-          (s) => s._tag === "Playing" && s.rotation._tag === "RoomKnown",
+          (s) =>
+            s._tag === "Playing" &&
+            s.rotation._tag === "RoomKnown" &&
+            s.rotation.nextRoom.id === "r2",
         );
 
         snap = session.snapshot();
@@ -475,6 +468,214 @@ test("arm → create (rank 0) → discovery adopts → gathering → everyone-jo
   );
 });
 
+test("successful create adopts and gathers without room-list visibility", async () => {
+  await withRotationSession(
+    ({ session, player, createRoom, observers, controllers }) =>
+      Effect.gen(function* () {
+        yield* startArmed(session, player, controllers);
+
+        yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS} millis`);
+        yield* Effect.yieldNow;
+
+        expect(createRoom).toHaveBeenCalledTimes(1);
+        let snap = session.snapshot();
+        expect(
+          snap._tag === "Playing" &&
+            snap.rotation._tag === "RoomKnown" &&
+            snap.rotation.nextRoom.id,
+        ).toBe("r-created");
+
+        player.setPlayback({ currentTimeSeconds: 1200, durationSeconds: 1200 });
+        yield* waitUntil(
+          session,
+          (s) =>
+            s._tag === "Playing" &&
+            s.rotation._tag === "Gathering" &&
+            s.rotation.nextRoom.id === "r-created",
+        );
+
+        snap = session.snapshot();
+        expect(snap._tag === "Playing" && snap.rotation._tag).toBe("Gathering");
+        expect(observers.at(-1)?.roomId).toBe("r-created");
+      }),
+  );
+});
+
+test("discovery replaces a created room with the deterministic winner", async () => {
+  const created = room("r-created", "200");
+  created.updatedAt = Math.floor(NOW / 1000) - 10;
+  const winner = room("r-winner", "200");
+
+  await withRotationSession(
+    ({ session, player, setRooms, controllers }) =>
+      Effect.gen(function* () {
+        yield* startArmed(session, player, controllers);
+        yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS} millis`);
+        yield* Effect.yieldNow;
+
+        let snap = session.snapshot();
+        expect(
+          snap._tag === "Playing" &&
+            snap.rotation._tag === "RoomKnown" &&
+            snap.rotation.nextRoom.id,
+        ).toBe("r-created");
+
+        setRooms([created, winner]);
+        yield* waitUntil(
+          session,
+          (s) =>
+            s._tag === "Playing" &&
+            s.rotation._tag === "RoomKnown" &&
+            s.rotation.nextRoom.id === "r-winner",
+        );
+
+        snap = session.snapshot();
+        expect(
+          snap._tag === "Playing" &&
+            snap.rotation._tag === "RoomKnown" &&
+            snap.rotation.nextRoom.id,
+        ).toBe("r-winner");
+      }),
+    { createRoomEffect: () => Effect.succeed(created) },
+  );
+});
+
+test("an old-target create response cannot pollute the current rotation", async () => {
+  const alternate: NextEpisodeInfo = {
+    ...nextEpisode,
+    ratingKey: "300",
+    key: "/library/metadata/300",
+    title: "Alternate Next Ep",
+    index: 3,
+  };
+  let resolveOldCreate: ((room: WatchTogetherRoom) => void) | undefined;
+
+  await withRotationSession(
+    ({ session, player, controllers }) =>
+      Effect.gen(function* () {
+        yield* startArmed(session, player, controllers);
+        yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS} millis`);
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        expect(resolveOldCreate).toBeDefined();
+
+        yield* session.setRotationContext({
+          nextEpisode: alternate,
+          autoPlayEnabled: true,
+        });
+        yield* Effect.sync(() => resolveOldCreate?.(room("r-stale", "200")));
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+
+        let snap = session.snapshot();
+        expect(snap._tag === "Playing" && snap.rotation._tag).toBe("Armed");
+
+        yield* TestClock.adjust("1 second");
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS} millis`);
+        yield* Effect.yieldNow;
+
+        snap = session.snapshot();
+        expect(
+          snap._tag === "Playing" &&
+            snap.rotation._tag === "RoomKnown" &&
+            snap.rotation.nextRoom.id,
+        ).toBe("r-current");
+      }),
+    {
+      createRoomEffect: (input) => {
+        if (input.ratingKey === "300") {
+          return Effect.succeed(room("r-current", "300"));
+        }
+        return Effect.promise(
+          () =>
+            new Promise<WatchTogetherRoom>((resolve) => {
+              resolveOldCreate = resolve;
+            }),
+        );
+      },
+    },
+  );
+});
+
+test("a create response for stale invitees retries against the live party", async () => {
+  const previousParty = [
+    { id: 1, title: "Host", username: "host", thumb: null },
+    { id: 2, title: "Guest", username: "guest", thumb: null },
+  ];
+  const currentParty = [
+    previousParty[0]!,
+    { id: 3, title: "New Guest", username: "new-guest", thumb: null },
+  ];
+  let resolveFirstCreate: ((room: WatchTogetherRoom) => void) | undefined;
+  let createAttempts = 0;
+
+  await withRotationSession(
+    ({ session, player, createRoom, controllers }) =>
+      Effect.gen(function* () {
+        yield* startArmed(session, player, controllers);
+        yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS} millis`);
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        expect(resolveFirstCreate).toBeDefined();
+
+        yield* session.updateLobbyRoom(room("r1", "100", currentParty));
+        yield* Effect.sync(() =>
+          resolveFirstCreate?.(room("r-stale-party", "200", previousParty)),
+        );
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+
+        let snap = session.snapshot();
+        expect(snap._tag === "Playing" && snap.rotation._tag).toBe("Armed");
+
+        yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS} millis`);
+        yield* Effect.yieldNow;
+
+        expect(createRoom).toHaveBeenCalledTimes(2);
+        expect(createRoom.mock.calls.at(-1)?.[0]).toEqual(
+          expect.objectContaining({ users: [3] }),
+        );
+        snap = session.snapshot();
+        expect(
+          snap._tag === "Playing" &&
+            snap.rotation._tag === "RoomKnown" &&
+            snap.rotation.nextRoom.id,
+        ).toBe("r-current-party");
+      }),
+    {
+      createRoomEffect: () => {
+        createAttempts += 1;
+        if (createAttempts > 1) {
+          return Effect.succeed(room("r-current-party", "200", currentParty));
+        }
+        return Effect.promise(
+          () =>
+            new Promise<WatchTogetherRoom>((resolve) => {
+              resolveFirstCreate = resolve;
+            }),
+        );
+      },
+    },
+  );
+});
+
+test("a wrong-source create response is not adopted", async () => {
+  await withRotationSession(
+    ({ session, player, controllers }) =>
+      Effect.gen(function* () {
+        yield* startArmed(session, player, controllers);
+        yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS} millis`);
+        yield* Effect.yieldNow;
+
+        const snap = session.snapshot();
+        expect(snap._tag === "Playing" && snap.rotation._tag).toBe("Armed");
+      }),
+    { createRoomEffect: () => Effect.succeed(room("r-wrong", "999")) },
+  );
+});
+
 test("rotation does not build the next item from unrelated player media", async () => {
   const nextRoom = room("r2", "200");
   await withRotationSession(
@@ -484,7 +685,10 @@ test("rotation does not build the next item from unrelated player media", async 
         setRooms([nextRoom]);
         yield* waitUntil(
           session,
-          (s) => s._tag === "Playing" && s.rotation._tag === "RoomKnown",
+          (s) =>
+            s._tag === "Playing" &&
+            s.rotation._tag === "RoomKnown" &&
+            s.rotation.nextRoom.id === "r2",
         );
 
         player.setPlayback({ currentTimeSeconds: 1200 });
@@ -672,7 +876,10 @@ test("grace path: gathering with missing participant swaps after grace", async (
         setRooms([nextRoom]);
         yield* waitUntil(
           session,
-          (s) => s._tag === "Playing" && s.rotation._tag === "RoomKnown",
+          (s) =>
+            s._tag === "Playing" &&
+            s.rotation._tag === "RoomKnown" &&
+            s.rotation.nextRoom.id === "r2",
         );
 
         player.setPlayback({ currentTimeSeconds: 1200, durationSeconds: 1200 });
@@ -815,7 +1022,10 @@ test("observer reconnect resets gathered participants", async () => {
         setRooms([nextRoom]);
         yield* waitUntil(
           session,
-          (s) => s._tag === "Playing" && s.rotation._tag === "RoomKnown",
+          (s) =>
+            s._tag === "Playing" &&
+            s.rotation._tag === "RoomKnown" &&
+            s.rotation.nextRoom.id === "r2",
         );
 
         player.setPlayback({ currentTimeSeconds: 1200, durationSeconds: 1200 });
@@ -951,7 +1161,10 @@ test("two empty discovery responses invalidate an adopted room and recreate", as
         setRooms([nextRoom]);
         yield* waitUntil(
           session,
-          (s) => s._tag === "Playing" && s.rotation._tag === "RoomKnown",
+          (s) =>
+            s._tag === "Playing" &&
+            s.rotation._tag === "RoomKnown" &&
+            s.rotation.nextRoom.id === "r2",
         );
         const createsBefore = createRoom.mock.calls.length;
 
@@ -994,7 +1207,10 @@ test("failed discovery retains the last adopted room", async () => {
         setRooms([nextRoom]);
         yield* waitUntil(
           session,
-          (s) => s._tag === "Playing" && s.rotation._tag === "RoomKnown",
+          (s) =>
+            s._tag === "Playing" &&
+            s.rotation._tag === "RoomKnown" &&
+            s.rotation.nextRoom.id === "r2",
         );
         const createsBefore = createRoom.mock.calls.length;
 

@@ -18,24 +18,14 @@ export class WatchTogetherApiError extends Data.TaggedError(
 export type WatchTogetherTrpcClient = Pick<
   TRPCClient<AppRouter>["plex"],
   | "getWatchTogetherRooms"
-  | "getWatchTogetherRoom"
   | "createWatchTogetherRoom"
   | "deleteWatchTogetherRoom"
   | "getItemMetadata"
-  | "getUserInfo"
-  | "createPlayQueue"
-  | "getPlayQueue"
 >;
 
 export type WatchTogetherApiShape = {
   readonly listRooms: () => Effect.Effect<
     RouterOutputs["plex"]["getWatchTogetherRooms"],
-    WatchTogetherApiError
-  >;
-  readonly getRoom: (
-    roomId: RouterInputs["plex"]["getWatchTogetherRoom"]["roomId"],
-  ) => Effect.Effect<
-    RouterOutputs["plex"]["getWatchTogetherRoom"],
     WatchTogetherApiError
   >;
   readonly createRoom: (
@@ -55,22 +45,6 @@ export type WatchTogetherApiShape = {
     ratingKey: string;
   }) => Effect.Effect<
     RouterOutputs["plex"]["getItemMetadata"],
-    WatchTogetherApiError
-  >;
-  readonly getUserInfo: () => Effect.Effect<
-    RouterOutputs["plex"]["getUserInfo"],
-    WatchTogetherApiError
-  >;
-  readonly createPlayQueue: (
-    input: RouterInputs["plex"]["createPlayQueue"],
-  ) => Effect.Effect<
-    RouterOutputs["plex"]["createPlayQueue"],
-    WatchTogetherApiError
-  >;
-  readonly getPlayQueue: (
-    input: RouterInputs["plex"]["getPlayQueue"],
-  ) => Effect.Effect<
-    RouterOutputs["plex"]["getPlayQueue"],
     WatchTogetherApiError
   >;
 };
@@ -101,8 +75,6 @@ export const makeWatchTogetherApi = (
   client: WatchTogetherTrpcClient = getBrowserTrpcClient(),
 ): WatchTogetherApiShape => ({
   listRooms: wrap("listRooms", () => client.getWatchTogetherRooms.query()),
-  getRoom: (roomId) =>
-    wrap("getRoom", () => client.getWatchTogetherRoom.query({ roomId }))(),
   createRoom: (input) =>
     wrap("createRoom", () => client.createWatchTogetherRoom.mutate(input))(),
   deleteRoom: (roomId) =>
@@ -111,11 +83,6 @@ export const makeWatchTogetherApi = (
     )(),
   getItemMetadata: (input) =>
     wrap("getItemMetadata", () => client.getItemMetadata.query(input))(),
-  getUserInfo: wrap("getUserInfo", () => client.getUserInfo.query()),
-  createPlayQueue: (input) =>
-    wrap("createPlayQueue", () => client.createPlayQueue.mutate(input))(),
-  getPlayQueue: (input) =>
-    wrap("getPlayQueue", () => client.getPlayQueue.query(input))(),
 });
 
 /**

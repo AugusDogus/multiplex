@@ -1,10 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   MULTIPLEX_SYNCPLAY_DEVICE_NAME,
-  PRESENCE_GRACE_MS,
   allInvitedPresent,
   getLobbyHint,
   getParticipantStatus,
@@ -19,6 +18,7 @@ import {
 import { toast } from "sonner";
 
 import { useWatchTogetherRoomMedia } from "~/components/watch-together/use-watch-together-room-media";
+import { isSessionForRoom } from "~/components/watch-together/watch-together-lobby-leave";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { getPlexClientIdentifier } from "~/lib/device-identifier";
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
@@ -39,7 +39,7 @@ export type LobbyViewModel =
       readonly roomPositionKnown: boolean;
       readonly leaving: boolean;
       readonly lobbyHint: string;
-      readonly startPlayback: () => boolean;
+      readonly startPlayback: () => Promise<boolean>;
       readonly leaveLobby: () => void;
       readonly getParticipantStatus: typeof getParticipantStatus;
     };
@@ -69,6 +69,7 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   const media = useWatchTogetherRoomMedia(room?.sourceUri);
   const source = media.source;
   const localUserId = userInfoQuery.data?.id;
+  const pendingStartRoomIdRef = useRef<string | null>(null);
 
   const localUser = useMemo<SyncplayUser | null>(() => {
     if (localUserId === undefined) {
@@ -92,13 +93,17 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     sessionCommands.enterLobby({ room, localUser });
   }, [room, localUser, sessionState._tag]);
 
-  // Exit only on unmount / roomId change, and only if still in Lobby for this
-  // room — Playing outlives the lobby page under the player modal.
+  // Always queue cleanup after enter/start. Room guards keep delayed cleanup
+  // from touching a replacement session.
   useEffect(() => {
     return () => {
-      const snap = sessionCommands.snapshot();
-      if (snap._tag === "Lobby" && snap.room.id === roomId) {
-        sessionCommands.exitLobby();
+      if (pendingStartRoomIdRef.current === roomId) {
+        sessionCommands.leave({
+          suppressAutoStart: false,
+          expectedRoomId: roomId,
+        });
+      } else {
+        sessionCommands.exitLobby({ expectedRoomId: roomId });
       }
     };
   }, [roomId]);
@@ -147,14 +152,29 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   }, [playTarget, serverId, serverUrl, authToken]);
 
   const utils = api.useUtils();
+  const leaveInitiatingSession = async (): Promise<boolean> => {
+    if (!isSessionForRoom(sessionCommands.snapshot(), roomId)) {
+      return false;
+    }
+
+    await sessionCommands.leave({
+      suppressAutoStart: false,
+      expectedRoomId: roomId,
+    }).completion;
+    return sessionCommands.snapshot()._tag === "Idle";
+  };
   const leaveRoom = api.plex.deleteWatchTogetherRoom.useMutation({
     onSuccess: async () => {
       await utils.plex.getWatchTogetherRooms.invalidate();
-      sessionCommands.leave({ suppressAutoStart: false });
+      if (!(await leaveInitiatingSession())) {
+        return;
+      }
       router.push("/");
     },
-    onError: () => {
-      sessionCommands.leave({ suppressAutoStart: false });
+    onError: async () => {
+      if (!(await leaveInitiatingSession())) {
+        return;
+      }
       router.push("/");
       toast.error("Couldn't remove the session, but you've left it.");
     },
@@ -169,7 +189,7 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     });
   }, [canStart, playbackItem, leaving]);
 
-  const startPlayback = useCallback(() => {
+  const startPlayback = useCallback(async () => {
     if (!room || !localUser || !playbackItem || !canStartMedia) {
       return false;
     }
@@ -183,16 +203,22 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
       return false;
     }
 
-    sessionCommands.startPlayback({
-      room,
-      localUser,
-      item: playbackItem,
-      resume: false,
-      ...(joiningInProgress && roomPositionSeconds !== null
-        ? { startPositionSeconds: roomPositionSeconds }
-        : {}),
-    });
-    return true;
+    pendingStartRoomIdRef.current = room.id;
+    try {
+      return await sessionCommands.startPlayback({
+        room,
+        localUser,
+        item: playbackItem,
+        resume: false,
+        ...(joiningInProgress && roomPositionSeconds !== null
+          ? { startPositionSeconds: roomPositionSeconds }
+          : {}),
+      }).completion;
+    } finally {
+      if (pendingStartRoomIdRef.current === room.id) {
+        pendingStartRoomIdRef.current = null;
+      }
+    }
   }, [
     room,
     localUser,
@@ -221,20 +247,10 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
       allInvitedPresent(room, sessionParticipants, localUserId),
   );
 
-  // Sticky presence for the hint only (auto-start sticky lives in the service).
-  const [allInvitedPresentSticky, setAllInvitedPresentSticky] = useState(false);
-  useEffect(() => {
-    if (allInvitedPresentNow) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- safe debounce: idempotent flip-on; the flip-off below is delayed
-      setAllInvitedPresentSticky(true);
-      return;
-    }
-    const timer = setTimeout(
-      () => setAllInvitedPresentSticky(false),
-      PRESENCE_GRACE_MS,
-    );
-    return () => clearTimeout(timer);
-  }, [allInvitedPresentNow]);
+  const allInvitedPresentSticky =
+    sessionState._tag === "Lobby" && sessionState.room.id === roomId
+      ? sessionState.everyonePresentSticky
+      : false;
 
   if (
     roomQuery.isPending ||

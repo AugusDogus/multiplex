@@ -37,10 +37,6 @@ const makeStubClient = (
       query: mock().mockResolvedValue([]),
       ...overrides.getWatchTogetherRooms,
     },
-    getWatchTogetherRoom: {
-      query: mock(),
-      ...overrides.getWatchTogetherRoom,
-    },
     createWatchTogetherRoom: {
       mutate: mock(),
       ...overrides.createWatchTogetherRoom,
@@ -52,18 +48,6 @@ const makeStubClient = (
     getItemMetadata: {
       query: mock(),
       ...overrides.getItemMetadata,
-    },
-    getUserInfo: {
-      query: mock(),
-      ...overrides.getUserInfo,
-    },
-    createPlayQueue: {
-      mutate: mock(),
-      ...overrides.createPlayQueue,
-    },
-    getPlayQueue: {
-      query: mock(),
-      ...overrides.getPlayQueue,
     },
   }) as WatchTogetherTrpcClient;
 
@@ -101,17 +85,4 @@ test("rejections become WatchTogetherApiError on the error channel", async () =>
 
   const exit = await Effect.runPromiseExit(api.listRooms());
   expectApiError(exit, { operation: "listRooms", cause });
-});
-
-test("getRoom wraps query failures with the operation name", async () => {
-  const cause = { message: "not found" };
-  const client = makeStubClient({
-    getWatchTogetherRoom: {
-      query: mock().mockRejectedValue(cause),
-    },
-  });
-  const api = makeWatchTogetherApi(client);
-
-  const exit = await Effect.runPromiseExit(api.getRoom("abc"));
-  expectApiError(exit, { operation: "getRoom", cause });
 });
