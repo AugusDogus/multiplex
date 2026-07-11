@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo } from "react";
 import type { PlayQueueItem } from "@multiplex/plex-query";
-import { playerCommands, usePlayerState } from "~/lib/effect/player-atoms";
+import {
+  playerCommands,
+  usePlayerStateSelector,
+} from "~/lib/effect/player-atoms";
+import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
+import { shallow } from "zustand/shallow";
 import type { NextEpisodeInfo } from "~/types/media-player";
 import { api } from "~/trpc/react";
 
@@ -18,25 +23,40 @@ import { api } from "~/trpc/react";
  */
 export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
   const { enabled = true } = options;
-  const player = usePlayerState();
-  const currentItem = player.currentItem;
-  const currentTime = player.currentTime;
-  const duration = player.duration;
-  const isPlaying = player.isPlaying;
-  const playQueue = player.playQueue;
-  const playQueueId = player.playQueueId;
-  const autoPlay = player.autoPlay;
+  const {
+    currentItem,
+    currentTime,
+    duration,
+    isPlaying,
+    playQueue,
+    playQueueId,
+    autoPlay,
+    streamSessionId,
+  } = usePlayerStateSelector(
+    (state) => ({
+      currentItem: state.currentItem,
+      currentTime: state.currentTime,
+      duration: state.duration,
+      isPlaying: state.isPlaying,
+      playQueue: state.playQueue,
+      playQueueId: state.playQueueId,
+      autoPlay: state.autoPlay,
+      streamSessionId: state.streamSessionId,
+    }),
+    shallow,
+  );
+  const autoPlayEnabled = usePlayerPrefsStore((state) => state.autoPlayEnabled);
   const pollingIdentity = useMemo(() => {
     const identity = playerCommands.playbackIdentity();
     if (
-      identity?.streamSessionId !== player.streamSessionId ||
+      identity?.streamSessionId !== streamSessionId ||
       identity.serverId !== currentItem?.serverId ||
       identity.ratingKey !== currentItem?.ratingKey
     ) {
       return null;
     }
     return identity;
-  }, [player.streamSessionId, currentItem?.serverId, currentItem?.ratingKey]);
+  }, [streamSessionId, currentItem?.serverId, currentItem?.ratingKey]);
 
   // Poll for play queue updates when we have a play queue ID
   const { data: updatedPlayQueue } = api.plex.getPlayQueue.useQuery(
@@ -141,7 +161,7 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
       return;
     }
 
-    if (!autoPlay.isEnabled) {
+    if (!autoPlayEnabled) {
       return;
     }
 
@@ -187,7 +207,7 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
     duration,
     nextEpisode,
     enabled,
-    autoPlay.isEnabled,
+    autoPlayEnabled,
     autoPlay.isCountingDown,
     autoPlay.nextEpisode,
   ]);

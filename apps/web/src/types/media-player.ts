@@ -90,7 +90,6 @@ export interface MediaPlayerState {
   // UI state
   isFullscreen: boolean;
   showControls: boolean;
-  controlsTimeout: number | null;
   captionSize: CaptionSize;
 
   // Loading/Error state
@@ -126,13 +125,8 @@ export interface MediaPlayerActions {
 
   // UI controls
   toggleFullscreen: () => void;
-  showControlsTemporarily: () => void;
 
   // Modal controls
-  openPlayer: (
-    item: MediaPlayerItem,
-    options?: { resume?: boolean; startPositionSeconds?: number },
-  ) => void;
   closePlayer: () => void;
 
   // Extended playback controls (optional)

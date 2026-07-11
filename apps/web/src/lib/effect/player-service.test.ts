@@ -3,12 +3,7 @@ import type { ItemMetadata } from "@multiplex/plex-query";
 
 import {
   createPlayerService,
-  getBufferedPercent,
-  getFormattedCurrentTime,
-  getIsReady,
   getPlayerPlaybackIdentity,
-  getPlayerStatus,
-  getProgressPercent,
   isPlayerPlaybackIdentityCurrent,
   type PlayerServiceShape,
 } from "./player-service";
@@ -446,36 +441,6 @@ describe("auto-play + close", () => {
     expect(state.currentItem).toBeNull();
     expect(state.autoPlay.isCountingDown).toBe(false);
     expect(usePlayerPrefsStore.getState().autoPlayEnabled).toBe(true);
-  });
-
-  test("setAutoPlayEnabled(false) clears countdown and writes prefs", () => {
-    player.openPlayer(sampleItem, { resume: false });
-    player.startAutoPlayCountdown(nextEpisode);
-    player.setAutoPlayEnabled(false);
-
-    expect(usePlayerPrefsStore.getState().autoPlayEnabled).toBe(false);
-    expect(player.snapshot().autoPlay.isCountingDown).toBe(false);
-    expect(player.snapshot().autoPlay.nextEpisode).toBeNull();
-  });
-});
-
-describe("pure getters", () => {
-  test("progress / buffered / formatted / status / ready", () => {
-    player.updatePlaybackState({
-      currentTime: 30,
-      duration: 100,
-      bufferedTime: 50,
-      canPlay: true,
-      isLoading: false,
-      error: null,
-      currentItem: sampleItem,
-    });
-    const s = player.snapshot();
-    expect(getProgressPercent(s)).toBe(30);
-    expect(getBufferedPercent(s)).toBe(50);
-    expect(getFormattedCurrentTime(s)).toMatch(/0?0:30|30/);
-    expect(getPlayerStatus(s).status).toBe("ready");
-    expect(getIsReady(s)).toBe(true);
   });
 });
 

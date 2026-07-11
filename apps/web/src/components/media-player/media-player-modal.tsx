@@ -9,7 +9,10 @@ import {
   useState,
   type PointerEvent,
 } from "react";
-import { playerCommands, usePlayerState } from "~/lib/effect/player-atoms";
+import {
+  playerCommands,
+  usePlayerStateSelector,
+} from "~/lib/effect/player-atoms";
 import { Button } from "~/components/ui/button";
 import {
   Dialog,
@@ -45,6 +48,8 @@ import {
 import { useIsMobile } from "~/hooks/use-mobile";
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
 import { cn } from "~/lib/utils";
+import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
+import { shallow } from "zustand/shallow";
 
 /* ────────────────────────────────────────────────────────────
    Media Player Modal
@@ -101,10 +106,26 @@ export function MediaPlayerModal() {
     canPlay,
     currentTime,
     duration,
-    volume,
     streamOffset,
     streamSessionId,
-  } = usePlayerState();
+  } = usePlayerStateSelector(
+    (state) => ({
+      isOpen: state.isOpen,
+      currentItem: state.currentItem,
+      showControls: state.showControls,
+      markers: state.markers,
+      isLoading: state.isLoading,
+      error: state.error,
+      isPlaying: state.isPlaying,
+      canPlay: state.canPlay,
+      currentTime: state.currentTime,
+      duration: state.duration,
+      streamOffset: state.streamOffset,
+      streamSessionId: state.streamSessionId,
+    }),
+    shallow,
+  );
+  const volume = usePlayerPrefsStore((state) => state.volume);
 
   const closePlayer = playerCommands.closePlayer;
   const updatePlaybackState = playerCommands.updatePlaybackState;
@@ -297,7 +318,7 @@ export function MediaPlayerModal() {
         latestSession._tag === "Playing" &&
         !itemsMatch(latestSession.item, latestItem)
       ) {
-        sessionCommands.leave({ suppressAutoStart: true });
+        void sessionCommands.leave({ suppressAutoStart: true });
       }
     });
 
@@ -419,7 +440,7 @@ export function MediaPlayerModal() {
     onStop();
     clearSession();
     // Deliberate leave — suppress auto-start for this room.
-    sessionCommands.leave({ suppressAutoStart: true });
+    void sessionCommands.leave({ suppressAutoStart: true });
     clearAllTimeouts();
     closePlayer();
   }, [onStop, clearSession, clearAllTimeouts, closePlayer]);

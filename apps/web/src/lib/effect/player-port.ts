@@ -47,7 +47,7 @@ export type PlayerPortShape = {
     listener: (snapshot: PlayerSnapshot) => void,
   ) => () => void;
   /**
-   * Wave-2: register video-element play/pause/seek actions from React hooks.
+   * Register video-element play/pause/seek actions from React hooks.
    * Until registered, play/pause/seek no-op with a console.warn.
    * Returns an unregister that clears only if this registration is still current.
    */
@@ -86,7 +86,7 @@ export const makePlayerPort = (player: PlayerServiceShape): PlayerPortShape => {
 
   const warnUnregistered = (method: "play" | "pause" | "seek"): void => {
     console.warn(
-      `[PlayerPort] ${method}() called before registerActions(); no-op until wave-2 adapter wires the video element.`,
+      `[PlayerPort] ${method}() called before registerActions(); no-op until the video-element adapter is registered.`,
     );
   };
 

@@ -136,7 +136,7 @@ export function useMediaPlayer(): {
     if (videoRef.current) {
       const clampedVolume = clamp(volume, 0, 1);
       videoRef.current.volume = clampedVolume;
-      playerCommands.setVolume(clampedVolume);
+      usePlayerPrefsStore.getState().setVolume(clampedVolume);
     }
   }, []);
 
@@ -147,7 +147,7 @@ export function useMediaPlayer(): {
     if (videoRef.current) {
       const newMuted = !usePlayerPrefsStore.getState().isMuted;
       videoRef.current.muted = newMuted;
-      playerCommands.toggleMute();
+      usePlayerPrefsStore.getState().toggleMute();
     }
   }, []);
 
@@ -171,13 +171,6 @@ export function useMediaPlayer(): {
         (error) => console.error("Exit fullscreen failed:", error),
       );
     }
-  }, []);
-
-  /**
-   * Show controls temporarily and set timeout to hide them
-   */
-  const showControlsTemporarily = useCallback(() => {
-    playerCommands.showControlsTemporarily();
   }, []);
 
   /**
@@ -234,11 +227,6 @@ export function useMediaPlayer(): {
     [seek],
   );
 
-  // Placeholder for openPlayer - this is handled by playerCommands directly
-  const openPlayer = useCallback(() => {
-    console.warn("openPlayer should be called via playerCommands.openPlayer");
-  }, []);
-
   const actions = useMemo(
     () => ({
       play,
@@ -248,8 +236,6 @@ export function useMediaPlayer(): {
       setVolume,
       toggleMute,
       toggleFullscreen,
-      showControlsTemporarily,
-      openPlayer,
       closePlayer: playerCommands.closePlayer,
       skipForward,
       skipBackward,
@@ -260,13 +246,11 @@ export function useMediaPlayer(): {
     [
       jumpToEnd,
       jumpToStart,
-      openPlayer,
       pause,
       play,
       seek,
       seekToMarkerEnd,
       setVolume,
-      showControlsTemporarily,
       skipBackward,
       skipForward,
       toggleFullscreen,

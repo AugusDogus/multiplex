@@ -12,22 +12,14 @@ import {
   buildPlexPlaybackPlan,
   playbackUsesTranscode,
 } from "~/components/media-player/utils/plex-playback-plan";
-import { formatTime } from "~/components/media-player/utils/playback-time-utils";
-import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import { useProgressStore } from "~/stores/progress-store";
-import type {
-  MediaPlayerItem,
-  NextEpisodeInfo,
-  PlaybackRate,
-  CaptionSize,
-} from "~/types/media-player";
+import type { MediaPlayerItem, NextEpisodeInfo } from "~/types/media-player";
 
 /**
  * Playback / session view-model owned by {@link PlayerService}.
  *
  * Persisted UI prefs (volume, mute, rate, caption size, autoPlay.enabled)
- * live in `player-prefs-store` — not here — but countdown fields stay on
- * this struct so overlay / auto-play hooks keep a single reactive read.
+ * live in `player-prefs-store`, while countdown fields stay here.
  */
 export type PlayerState = {
   readonly isOpen: boolean;
@@ -122,39 +114,6 @@ export const initialPlayerState: PlayerState = {
   },
 };
 
-export function getProgressPercent(state: PlayerState): number {
-  return state.duration > 0 ? (state.currentTime / state.duration) * 100 : 0;
-}
-
-export function getBufferedPercent(state: PlayerState): number {
-  return state.duration > 0 ? (state.bufferedTime / state.duration) * 100 : 0;
-}
-
-export function getFormattedCurrentTime(state: PlayerState): string {
-  return formatTime(state.currentTime);
-}
-
-export function getFormattedDuration(state: PlayerState): string {
-  return formatTime(state.duration);
-}
-
-export function getPlayerStatus(state: PlayerState): {
-  status: "loading" | "ready" | "error" | "buffering" | "waiting";
-  message?: string;
-} {
-  if (state.error) return { status: "error", message: state.error };
-  if (state.isLoading) return { status: "loading" };
-  if (state.isBuffering) return { status: "buffering" };
-  if (!state.canPlay) return { status: "waiting" };
-  return { status: "ready" };
-}
-
-export function getIsReady(state: PlayerState): boolean {
-  return Boolean(
-    state.currentItem && state.canPlay && !state.isLoading && !state.error,
-  );
-}
-
 export type PlayerServiceShape = {
   readonly state: SubscriptionRef.SubscriptionRef<PlayerState>;
   readonly changes: Stream.Stream<PlayerState>;
@@ -171,9 +130,6 @@ export type PlayerServiceShape = {
     expected: PlayerPlaybackIdentity,
     updates: PlayerPlaybackUpdate,
   ) => boolean;
-  readonly updateCurrentTime: (time: number) => void;
-  readonly updateDuration: (duration: number) => void;
-  readonly updateBufferedTime: (bufferedTime: number) => void;
   readonly applyPlaybackMetadata: (
     expected: PlayerPlaybackIdentity,
     metadata: ItemMetadata,
@@ -183,25 +139,10 @@ export type PlayerServiceShape = {
       previousVideoUsesTranscode?: boolean;
     },
   ) => void;
-  readonly toggleFullscreen: () => void;
-  /**
-   * Controls auto-hide uses plain `setTimeout` at this browser boundary
-   * (same behavior as the former Zustand store). The timer id is held in
-   * service closure — not in {@link PlayerState} — so atom subscribers are
-   * not woken by timer bookkeeping.
-   */
-  readonly showControlsTemporarily: () => void;
-  readonly hideControls: () => void;
   readonly startAutoPlayCountdown: (nextEpisode: NextEpisodeInfo) => void;
-  readonly setAutoPlayEnabled: (isEnabled: boolean) => void;
   readonly cancelAutoPlay: () => void;
   readonly triggerAutoPlay: (nextEpisode: NextEpisodeInfo) => void;
   readonly updateCountdownSeconds: (seconds: number) => void;
-  /** Prefs facade — writes {@link usePlayerPrefsStore}. */
-  readonly setVolume: (volume: number) => void;
-  readonly toggleMute: () => void;
-  readonly setPlaybackRate: (playbackRate: PlaybackRate) => void;
-  readonly setCaptionSize: (captionSize: CaptionSize) => void;
 };
 
 const setState = (
@@ -259,16 +200,6 @@ const getState = (
 export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
   function* () {
     const state = yield* SubscriptionRef.make<PlayerState>(initialPlayerState);
-
-    // Browser timer for controls auto-hide; cleared on close / re-show.
-    let controlsTimeout: ReturnType<typeof setTimeout> | null = null;
-
-    const clearControlsTimeout = (): void => {
-      if (controlsTimeout !== null) {
-        clearTimeout(controlsTimeout);
-        controlsTimeout = null;
-      }
-    };
 
     const openPlayer: PlayerServiceShape["openPlayer"] = (item, options) => {
       // Watch Together starts everyone from the beginning (resume === false)
@@ -387,8 +318,6 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
       openPlayer,
 
       closePlayer: () => {
-        clearControlsTimeout();
-
         // autoPlay.isEnabled lives in player-prefs-store and is intentionally
         // left alone (same persistence behavior as the old store's closePlayer).
         setState(state, (current) => ({
@@ -418,10 +347,6 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
         });
         return applied;
       },
-
-      updateCurrentTime: (time) => setState(state, { currentTime: time }),
-      updateDuration: (duration) => setState(state, { duration }),
-      updateBufferedTime: (bufferedTime) => setState(state, { bufferedTime }),
 
       applyPlaybackMetadata: (expected, metadata, options) => {
         setState(state, (current) => {
@@ -501,23 +426,6 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
         });
       },
 
-      toggleFullscreen: () =>
-        setState(state, (s) => ({ ...s, isFullscreen: !s.isFullscreen })),
-
-      showControlsTemporarily: () => {
-        clearControlsTimeout();
-        controlsTimeout = setTimeout(() => {
-          controlsTimeout = null;
-          setState(state, { showControls: false });
-        }, 3000);
-        setState(state, { showControls: true });
-      },
-
-      hideControls: () => {
-        clearControlsTimeout();
-        setState(state, { showControls: false });
-      },
-
       startAutoPlayCountdown: (nextEpisode) => {
         setState(state, (s) => ({
           ...s,
@@ -527,20 +435,6 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
             nextEpisode,
           },
         }));
-      },
-
-      setAutoPlayEnabled: (isEnabled) => {
-        usePlayerPrefsStore.getState().setAutoPlayEnabled(isEnabled);
-        if (!isEnabled) {
-          setState(state, (s) => ({
-            ...s,
-            autoPlay: {
-              isCountingDown: false,
-              countdownSeconds: 0,
-              nextEpisode: null,
-            },
-          }));
-        }
       },
 
       cancelAutoPlay,
@@ -567,19 +461,6 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
         if (countdownSeconds <= 0 && current.autoPlay.nextEpisode) {
           triggerAutoPlay(current.autoPlay.nextEpisode);
         }
-      },
-
-      setVolume: (volume) => {
-        usePlayerPrefsStore.getState().setVolume(volume);
-      },
-      toggleMute: () => {
-        usePlayerPrefsStore.getState().toggleMute();
-      },
-      setPlaybackRate: (playbackRate) => {
-        usePlayerPrefsStore.getState().setPlaybackRate(playbackRate);
-      },
-      setCaptionSize: (captionSize) => {
-        usePlayerPrefsStore.getState().setCaptionSize(captionSize);
       },
     } satisfies PlayerServiceShape;
   },

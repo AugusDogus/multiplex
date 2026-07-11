@@ -9,7 +9,12 @@ import { Popover as PopoverPrimitive } from "radix-ui";
 import { useEffect, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
-import { playerCommands, usePlayerState } from "~/lib/effect/player-atoms";
+import {
+  playerCommands,
+  usePlayerStateSelector,
+} from "~/lib/effect/player-atoms";
+import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
+import { shallow } from "zustand/shallow";
 import { api } from "~/trpc/react";
 import type { MediaPlayerItem, PlaybackRate } from "~/types/media-player";
 import { CAPTION_SIZE_OPTIONS } from "./utils/caption-size";
@@ -56,16 +61,21 @@ export function MediaPlayerSettingsMenu({
   isWatchTogetherActive = false,
   onOpenChange,
 }: MediaPlayerSettingsMenuProps) {
-  const {
-    currentItem,
-    streamSessionId,
-    playbackRate,
-    captionSize,
-    autoPlay: { isEnabled: autoPlayEnabled },
-  } = usePlayerState();
-  const setAutoPlayEnabled = playerCommands.setAutoPlayEnabled;
-  const setPlaybackRate = playerCommands.setPlaybackRate;
-  const setCaptionSize = playerCommands.setCaptionSize;
+  const { currentItem, streamSessionId } = usePlayerStateSelector(
+    (state) => ({
+      currentItem: state.currentItem,
+      streamSessionId: state.streamSessionId,
+    }),
+    shallow,
+  );
+  const playbackRate = usePlayerPrefsStore((state) => state.playbackRate);
+  const captionSize = usePlayerPrefsStore((state) => state.captionSize);
+  const autoPlayEnabled = usePlayerPrefsStore((state) => state.autoPlayEnabled);
+  const setAutoPlayEnabled = usePlayerPrefsStore(
+    (state) => state.setAutoPlayEnabled,
+  );
+  const setPlaybackRate = usePlayerPrefsStore((state) => state.setPlaybackRate);
+  const setCaptionSize = usePlayerPrefsStore((state) => state.setCaptionSize);
   const applyPlaybackMetadata = playerCommands.applyPlaybackMetadata;
 
   const [open, setOpen] = useState(false);

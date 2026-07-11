@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useRef } from "react";
-import { usePlayerState } from "~/lib/effect/player-atoms";
+import { usePlayerStateSelector } from "~/lib/effect/player-atoms";
+import { shallow } from "zustand/shallow";
 import { useProgressStore } from "~/stores/progress-store";
 import { api } from "~/trpc/react";
 
@@ -23,11 +24,16 @@ const TIMELINE_PROGRESS_INTERVAL_MS = 10_000;
  * Uses video events directly instead of intervals
  */
 export function useTimelineUpdates() {
-  const player = usePlayerState();
-  const currentItem = player.currentItem;
-  const currentTime = player.currentTime;
-  const duration = player.duration;
-  const isPlaying = player.isPlaying;
+  const { currentItem, currentTime, duration, isPlaying } =
+    usePlayerStateSelector(
+      (state) => ({
+        currentItem: state.currentItem,
+        currentTime: state.currentTime,
+        duration: state.duration,
+        isPlaying: state.isPlaying,
+      }),
+      shallow,
+    );
   const { updateItemProgress } = useProgressStore();
 
   const sessionIdRef = useRef<string | null>(null);

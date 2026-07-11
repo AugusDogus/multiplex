@@ -11,7 +11,9 @@ import {
   VolumeX,
 } from "lucide-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { usePlayerState } from "~/lib/effect/player-atoms";
+import { usePlayerStateSelector } from "~/lib/effect/player-atoms";
+import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
+import { shallow } from "zustand/shallow";
 import { Button } from "~/components/ui/button";
 import { type useMediaPlayer } from "./hooks/use-media-player";
 import { MediaPlayerProgress } from "./media-player-progress";
@@ -59,15 +61,19 @@ export function MediaPlayerControls({
   onSettingsOpenChange,
   isWatchTogetherActive = false,
 }: MediaPlayerControlsProps) {
-  const {
-    currentTime,
-    duration,
-    isPlaying,
-    volume,
-    isMuted,
-    isFullscreen,
-    canPlay,
-  } = usePlayerState();
+  const { currentTime, duration, isPlaying, isFullscreen, canPlay } =
+    usePlayerStateSelector(
+      (state) => ({
+        currentTime: state.currentTime,
+        duration: state.duration,
+        isPlaying: state.isPlaying,
+        isFullscreen: state.isFullscreen,
+        canPlay: state.canPlay,
+      }),
+      shallow,
+    );
+  const volume = usePlayerPrefsStore((state) => state.volume);
+  const isMuted = usePlayerPrefsStore((state) => state.isMuted);
 
   const [isDraggingVolume, setIsDraggingVolume] = useState(false);
   const volumeRef = useRef<HTMLDivElement>(null);

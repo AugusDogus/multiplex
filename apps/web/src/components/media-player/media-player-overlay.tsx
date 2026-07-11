@@ -2,7 +2,7 @@
 
 import React from "react";
 import { cn } from "~/lib/utils";
-import { usePlayerState } from "~/lib/effect/player-atoms";
+import { usePlayerStateSelector } from "~/lib/effect/player-atoms";
 import type { MediaPlayerItem } from "~/types/media-player";
 import { MediaPlayerChromeFade } from "./media-player-chrome-fade";
 
@@ -131,7 +131,7 @@ export function MediaPlayerOverlay({
   showTitle = true,
   className = "",
 }: MediaPlayerOverlayProps) {
-  const isBuffering = usePlayerState().isBuffering;
+  const isBuffering = usePlayerStateSelector((state) => state.isBuffering);
   const showSpinner = !error && (isLoading || isBuffering);
 
   return (

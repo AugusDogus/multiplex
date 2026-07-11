@@ -98,20 +98,20 @@ test("subscribe fires when playback snapshot fields change", async () => {
   const unsubscribe = port.subscribe(listener);
 
   // SubscriptionRef streams are async; give the fiber a tick.
-  player.updateCurrentTime(5);
+  player.updatePlaybackState({ currentTime: 5 });
   await Bun.sleep(10);
   expect(listener).toHaveBeenCalledWith(
     expect.objectContaining({ currentTimeSeconds: 5 }),
   );
 
   listener.mockClear();
-  // Volume is outside PlayerSnapshot — must not notify.
-  player.setVolume(0.5);
+  // Preferences are outside PlayerSnapshot — must not notify.
+  usePlayerPrefsStore.getState().setVolume(0.5);
   await Bun.sleep(10);
   expect(listener).not.toHaveBeenCalled();
 
   unsubscribe();
-  player.updateCurrentTime(9);
+  player.updatePlaybackState({ currentTime: 9 });
   await Bun.sleep(10);
   expect(listener).not.toHaveBeenCalled();
 });

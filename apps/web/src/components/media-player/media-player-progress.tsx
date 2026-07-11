@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { usePlayerState } from "~/lib/effect/player-atoms";
+import { usePlayerStateSelector } from "~/lib/effect/player-atoms";
 import { clamp } from "./utils/media-player-utils";
 import { formatTime } from "./utils/playback-time-utils";
 
@@ -34,26 +34,19 @@ interface MediaPlayerProgressProps {
 }
 
 export function MediaPlayerProgress({
-  currentTime: _currentTime,
+  currentTime,
   duration,
   onSeek,
   disabled = false,
   className = "",
 }: MediaPlayerProgressProps) {
-  const player = usePlayerState();
-  const currentTimeFromStore = player.currentTime;
-  const durationFromStore = player.duration;
-  const bufferedTime = player.bufferedTime;
+  const bufferedTime = usePlayerStateSelector((state) => state.bufferedTime);
 
   // Compute values locally to avoid object reference issues
-  const progressPercent =
-    durationFromStore > 0
-      ? (currentTimeFromStore / durationFromStore) * 100
-      : 0;
-  const bufferedPercent =
-    durationFromStore > 0 ? (bufferedTime / durationFromStore) * 100 : 0;
-  const formattedCurrentTime = formatTime(currentTimeFromStore);
-  const formattedDuration = formatTime(durationFromStore);
+  const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const bufferedPercent = duration > 0 ? (bufferedTime / duration) * 100 : 0;
+  const formattedCurrentTime = formatTime(currentTime);
+  const formattedDuration = formatTime(duration);
 
   const [isDragging, setIsDragging] = useState(false);
   const [hoverTime, setHoverTime] = useState<number | null>(null);

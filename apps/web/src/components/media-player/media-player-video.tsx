@@ -12,13 +12,17 @@ import {
 } from "react";
 import type { MouseEvent, PointerEvent, RefObject } from "react";
 import { cn } from "~/lib/utils";
-import { playerCommands, usePlayerState } from "~/lib/effect/player-atoms";
+import {
+  playerCommands,
+  usePlayerStateSelector,
+} from "~/lib/effect/player-atoms";
 import type {
   PlayerPlaybackIdentity,
   PlayerPlaybackUpdate,
 } from "~/lib/effect/player-service";
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import type { MediaPlayerItem } from "~/types/media-player";
+import { shallow } from "zustand/shallow";
 import { useCaptionLines } from "./hooks/use-caption-lines";
 import { usePlexSubtitleTrack } from "./hooks/use-plex-subtitle-track";
 import { useResumePlayback } from "./hooks/use-resume-playback";
@@ -155,16 +159,25 @@ export const MediaPlayerVideo = forwardRef<
     ref,
   ) => {
     const {
-      volume,
-      isMuted,
-      playbackRate,
       streamOffset,
       streamSessionId,
       sourceGeneration,
       isLoading,
       showControls,
-      captionSize,
-    } = usePlayerState();
+    } = usePlayerStateSelector(
+      (state) => ({
+        streamOffset: state.streamOffset,
+        streamSessionId: state.streamSessionId,
+        sourceGeneration: state.sourceGeneration,
+        isLoading: state.isLoading,
+        showControls: state.showControls,
+      }),
+      shallow,
+    );
+    const volume = usePlayerPrefsStore((state) => state.volume);
+    const isMuted = usePlayerPrefsStore((state) => state.isMuted);
+    const playbackRate = usePlayerPrefsStore((state) => state.playbackRate);
+    const captionSize = usePlayerPrefsStore((state) => state.captionSize);
     const playbackIdentity = useMemo<PlayerPlaybackIdentity>(
       () => ({
         streamSessionId,

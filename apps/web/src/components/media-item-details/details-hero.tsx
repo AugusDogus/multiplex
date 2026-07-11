@@ -24,7 +24,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
-import { playerCommands, usePlayerState } from "~/lib/effect/player-atoms";
+import {
+  playerCommands,
+  usePlayerStateSelector,
+} from "~/lib/effect/player-atoms";
+import { shallow } from "zustand/shallow";
 import { api } from "~/trpc/react";
 
 import { AddToPlaylistDialog } from "./add-to-playlist-dialog";
@@ -284,7 +288,13 @@ function HeroActions({
   playButtonClassName,
 }: HeroActionsProps) {
   const utils = api.useUtils();
-  const { currentItem: currentPlayerItem, playQueueId } = usePlayerState();
+  const { currentPlayerItem, playQueueId } = usePlayerStateSelector(
+    (state) => ({
+      currentPlayerItem: state.currentItem,
+      playQueueId: state.playQueueId,
+    }),
+    shallow,
+  );
   const itemWatched = getItemWatchedState(item);
   const [confirmedWatchedOverride, setConfirmedWatchedOverride] = useState<{
     ratingKey: string;
