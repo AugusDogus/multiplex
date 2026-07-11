@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   getNextPinnedSources,
   getPinnedSourceIdentity,
@@ -6,18 +5,7 @@ import {
   type PlexUserInfo,
   toPinnedSource,
 } from "@multiplex/plex-query";
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import * as Exit from "effect/Exit";
-import * as Option from "effect/Option";
-
-import { asUserInfo } from "~/lib/effect/plex-boundary";
-import {
-  togglePinnedSource,
-  togglePinnedSourceOptimistic,
-  userInfoOptimisticAtom,
-} from "~/lib/effect/plex-browse-atoms";
-import { pinnedSourceWriteKeys } from "~/lib/effect/reactivity-keys";
+import { api } from "~/trpc/react";
 
 function applyPinnedSourceUpdate(
   userInfo: PlexUserInfo,
@@ -44,71 +32,59 @@ function applyPinnedSourceUpdate(
   };
 }
 
-/**
- * Sidebar pin/unpin.
- *
- * Once `userInfoOptimisticAtom` has a settled value, reads and writes go
- * through the shared optimistic family (instant pin/unpin + automatic
- * rollback). Until then the atom's reducer is a no-op on `Initial`, so we
- * mirror the former local-override semantics against the RSC `userInfo` prop.
- */
 export function useSidebarPinning(userInfo: PlexUserInfo) {
-  const optimisticResult = useAtomValue(userInfoOptimisticAtom);
-  const togglePinnedOptimistic = useAtomSet(togglePinnedSourceOptimistic, {
-    mode: "promiseExit",
+  const userInfoQuery = api.plex.getUserInfo.useQuery(undefined, {
+    initialData: userInfo,
+    staleTime: 60_000,
   });
-  const togglePinnedPlain = useAtomSet(togglePinnedSource, {
-    mode: "promiseExit",
-  });
-  const [userInfoOverride, setUserInfoOverride] = useState<PlexUserInfo | null>(
-    null,
-  );
-  const [pendingSourceIdentity, setPendingSourceIdentity] = useState<
-    string | null
-  >(null);
+  const currentUserInfo = userInfoQuery.data;
+  const utils = api.useUtils();
 
-  const atomUserInfo = Option.getOrUndefined(
-    Option.map(AsyncResult.value(optimisticResult), asUserInfo),
-  );
-  // Prefer the optimistic atom once settled; until then use local override /
-  // RSC prop (override is ignored once the atom owns the value).
-  const currentUserInfo = atomUserInfo ?? userInfoOverride ?? userInfo;
+  const togglePinnedSourceMutation = api.plex.togglePinnedSource.useMutation({
+    scope: { id: "sidebar-pinning" },
+    onMutate: async (variables) => {
+      await utils.plex.getUserInfo.cancel();
+
+      const previousUserInfo = utils.plex.getUserInfo.getData();
+      utils.plex.getUserInfo.setData(
+        undefined,
+        applyPinnedSourceUpdate(
+          previousUserInfo ?? userInfo,
+          variables.source,
+          variables.action,
+        ),
+      );
+
+      return { previousUserInfo };
+    },
+    onError: (_error, _variables, context) => {
+      utils.plex.getUserInfo.setData(
+        undefined,
+        context?.previousUserInfo ?? userInfo,
+      );
+    },
+    onSuccess: async (updatedUserInfo) => {
+      utils.plex.getUserInfo.setData(undefined, updatedUserInfo);
+      await Promise.allSettled([
+        utils.plex.getAllContinueWatching.invalidate(),
+        utils.plex.getHomeHubs.invalidate(),
+      ]);
+    },
+  });
+
+  const pendingSourceIdentity =
+    togglePinnedSourceMutation.isPending && togglePinnedSourceMutation.variables
+      ? getPinnedSourceIdentity(togglePinnedSourceMutation.variables.source)
+      : null;
 
   function handleTogglePinnedSource(
     source: PinnedSource,
     action: "pin" | "unpin",
   ) {
-    const pinnedSource = toPinnedSource(source);
-    setPendingSourceIdentity(getPinnedSourceIdentity(pinnedSource));
-
-    void (async () => {
-      if (atomUserInfo !== undefined) {
-        const exit = await togglePinnedOptimistic({
-          payload: { action, source: pinnedSource },
-          reactivityKeys: [...pinnedSourceWriteKeys],
-        });
-        setPendingSourceIdentity(null);
-        if (Exit.isFailure(exit)) {
-          return;
-        }
-        return;
-      }
-
-      // Atom still Initial — local override mirrors former onMutate/onError.
-      const previousOverride = userInfoOverride;
-      setUserInfoOverride(
-        applyPinnedSourceUpdate(currentUserInfo, pinnedSource, action),
-      );
-      const exit = await togglePinnedPlain({
-        payload: { action, source: pinnedSource },
-        reactivityKeys: [...pinnedSourceWriteKeys],
-      });
-      setPendingSourceIdentity(null);
-      if (Exit.isFailure(exit)) {
-        setUserInfoOverride(previousOverride);
-        return;
-      }
-    })();
+    togglePinnedSourceMutation.mutate({
+      action,
+      source: toPinnedSource(source),
+    });
   }
 
   return {

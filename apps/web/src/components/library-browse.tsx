@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback } from "react";
+import type { HubItemWithServer } from "@multiplex/plex-query";
 import { MediaPosterGrid } from "~/components/media-poster-grid";
-import { fetchLibraryContentPage } from "~/lib/effect/plex-browse-atoms";
-import type { LibraryContentPage } from "~/lib/effect/plex-boundary";
 import { LIBRARY_PAGE_SIZE } from "~/server/queries/plex-pagination";
+import { api } from "~/trpc/react";
 
 interface LibraryBrowseProps {
   machineIdentifier: string;
@@ -13,7 +13,11 @@ interface LibraryBrowseProps {
   sort: string;
   filters: Record<string, string>;
   contentKey: string;
-  initialContent: LibraryContentPage;
+  initialContent: {
+    items: HubItemWithServer[];
+    totalSize: number;
+    offset: number;
+  };
 }
 
 export function LibraryBrowse({
@@ -25,21 +29,23 @@ export function LibraryBrowse({
   contentKey,
   initialContent,
 }: LibraryBrowseProps) {
-  // Imperative HttpApi fetch (not the page atom): the grid caches pages under
-  // its own key, so going through the atom registry here would store every
+  const utils = api.useUtils();
+
+  // Plain client call (not `utils.fetch`): the grid caches pages under its
+  // own query key, so going through the query cache here would store every
   // page twice.
   const onLoadPage = useCallback(
     (input: { start: number; size: number }) =>
-      fetchLibraryContentPage({
+      utils.client.plex.getLibraryContent.query({
         machineIdentifier,
         sectionId,
         start: input.start,
         size: input.size,
         sort,
-        ...(typeNumber !== undefined ? { type: typeNumber } : {}),
+        type: typeNumber,
         filters,
       }),
-    [machineIdentifier, sectionId, sort, typeNumber, filters],
+    [utils, machineIdentifier, sectionId, sort, typeNumber, filters],
   );
 
   return (

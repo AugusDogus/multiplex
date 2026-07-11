@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { MediaItemDetailsPageClient } from "~/components/media-item-details-page-client";
 import type { ItemDetailsRouteType } from "~/lib/plex-routes";
+import { api, HydrateClient } from "~/trpc/server";
 
 interface MediaItemDetailsRouteProps {
   params: Promise<{
@@ -21,12 +22,18 @@ export async function MediaItemDetailsRoute({
     notFound();
   }
 
-  // Prefetch is unused; the client atom owns the read.
+  void api.plex.getItemDetails.prefetch({
+    serverId: machineIdentifier,
+    ratingKey,
+  });
+
   return (
-    <MediaItemDetailsPageClient
-      serverId={machineIdentifier}
-      ratingKey={ratingKey}
-      itemType={itemType}
-    />
+    <HydrateClient>
+      <MediaItemDetailsPageClient
+        serverId={machineIdentifier}
+        ratingKey={ratingKey}
+        itemType={itemType}
+      />
+    </HydrateClient>
   );
 }

@@ -3,7 +3,7 @@ import { AppPageLayout } from "~/components/app-page-layout";
 import { LibraryHeaderDropdown } from "~/components/library-header-dropdown";
 import { TvGuide } from "~/components/tv-guide/tv-guide";
 import { getAppPlexContext } from "~/server/queries/get-app-plex-context";
-import { getServerChannelsProgramming } from "~/server/plex-rsc";
+import { api } from "~/trpc/server";
 
 interface PageProps {
   params: Promise<{
@@ -47,19 +47,21 @@ export default async function LiveTvPage({ params }: PageProps) {
     );
   }
 
-  const channelLineups = await getServerChannelsProgramming({
-    machineIdentifier,
-    providerIdentifier,
-    date: new Date().toISOString().substring(0, 10),
-    startTime,
-    endTime,
-  }).catch((error) => {
-    console.error(
-      `Failed to load channels for server ${machineIdentifier}:`,
-      error,
-    );
-    return [];
-  });
+  const channelLineups = await api.plex
+    .getServerChannelsProgramming({
+      machineIdentifier,
+      providerIdentifier,
+      date: new Date().toISOString().substring(0, 10),
+      startTime,
+      endTime,
+    })
+    .catch((error) => {
+      console.error(
+        `Failed to load channels for server ${machineIdentifier}:`,
+        error,
+      );
+      return [];
+    });
 
   const safeChannelLineups = Array.isArray(channelLineups)
     ? channelLineups

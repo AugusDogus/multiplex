@@ -2,9 +2,6 @@
 
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
-import { useAtomSet } from "@effect/atom-react";
-import * as Exit from "effect/Exit";
-import * as Option from "effect/Option";
 import { Check, Loader2, MoreHorizontal, Play, Share2 } from "lucide-react";
 import {
   formatDetailsTimeRemaining,
@@ -28,15 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
 import { playerCommands, usePlayerState } from "~/lib/effect/player-atoms";
-import { asPlayQueue } from "~/lib/effect/plex-boundary";
-import {
-  setItemWatchedState,
-  updatePlayQueue,
-} from "~/lib/effect/plex-browse-atoms";
-import {
-  playQueueWriteKeysFor,
-  watchedStateWriteKeysFor,
-} from "~/lib/effect/reactivity-keys";
+import { api } from "~/trpc/react";
 
 import { AddToPlaylistDialog } from "./add-to-playlist-dialog";
 import { MediaInfoDialog } from "./media-info-dialog";
@@ -294,6 +283,7 @@ function HeroActions({
   authToken,
   playButtonClassName,
 }: HeroActionsProps) {
+  const utils = api.useUtils();
   const { currentItem: currentPlayerItem, playQueueId } = usePlayerState();
   const itemWatched = getItemWatchedState(item);
   const [confirmedWatchedOverride, setConfirmedWatchedOverride] = useState<{
@@ -305,11 +295,8 @@ function HeroActions({
   const [mediaInfoOpen, setMediaInfoOpen] = useState(false);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
   const [watchTogetherOpen, setWatchTogetherOpen] = useState(false);
-  const [isWatchedPending, setIsWatchedPending] = useState(false);
-  const [isQueuePending, setIsQueuePending] = useState(false);
   const shareResetTimeoutRef = useRef<number | null>(null);
   const hasMediaInfo = Boolean(item.Media?.length);
-  const canAddToPlaylist = Boolean(serverUrl && authToken);
   const canWatchTogether = Boolean(playTarget && serverUrl && authToken);
   const visibleWatched =
     confirmedWatchedOverride?.ratingKey === item.ratingKey
@@ -328,13 +315,6 @@ function HeroActions({
       currentPlayerItem?.serverId === serverId,
   );
 
-  const setWatchedState = useAtomSet(setItemWatchedState, {
-    mode: "promiseExit",
-  });
-  const updateActivePlayQueue = useAtomSet(updatePlayQueue, {
-    mode: "promiseExit",
-  });
-
   useEffect(() => {
     return () => {
       if (shareResetTimeoutRef.current) {
@@ -343,87 +323,101 @@ function HeroActions({
     };
   }, []);
 
-  const watchedButtonLabel = isWatchedPending
+  const setWatchedStateMutation = api.plex.setItemWatchedState.useMutation({
+    onError: (error) => {
+      setFeedbackMessage(error.message);
+    },
+    onSuccess: (_updatedItem, variables) => {
+      setConfirmedWatchedOverride({
+        ratingKey: variables.ratingKey,
+        watched: variables.watched,
+      });
+      setFeedbackMessage(
+        variables.watched ? "Marked as watched" : "Marked as unwatched",
+      );
+      void Promise.all([
+        utils.plex.getItemDetails.invalidate({
+          serverId,
+          ratingKey: variables.ratingKey,
+        }),
+        utils.plex.getItemMetadata.invalidate({
+          serverId,
+          ratingKey: variables.ratingKey,
+        }),
+        utils.plex.getAllContinueWatching.invalidate(),
+      ]).catch(() => undefined);
+    },
+  });
+
+  const updatePlayQueueMutation = api.plex.updatePlayQueue.useMutation();
+
+  const watchedButtonLabel = setWatchedStateMutation.isPending
     ? watchedPendingLabel
     : watchedActionLabel;
   const queueActionDisabledReason = getQueueActionDisabledReason(
     canUpdateActiveQueue,
-    isQueuePending,
+    updatePlayQueueMutation.isPending,
   );
   const shareButtonLabel = shareCopied ? "Copied" : "Share";
   const shareActionLabel = shareCopied ? "Link copied" : "Copy share link";
 
   const toggleWatchedState = () => {
-    if (isWatchedPending) {
+    if (setWatchedStateMutation.isPending) {
       return;
     }
 
-    const nextWatched = !visibleWatched;
-    setIsWatchedPending(true);
     setFeedbackMessage(watchedPendingLabel);
-    void (async () => {
-      const exit = await setWatchedState({
-        payload: {
-          serverId,
-          ratingKey: item.ratingKey,
-          watched: nextWatched,
-          ...(serverUrl !== undefined ? { serverUrl } : {}),
-          ...(authToken !== undefined ? { authToken } : {}),
-        },
-        reactivityKeys: watchedStateWriteKeysFor(serverId, item.ratingKey),
-      });
-      if (Exit.isFailure(exit)) {
-        setFeedbackMessage(
-          getExitErrorMessage(exit, "Failed to update watched state"),
-        );
-        setIsWatchedPending(false);
-        return;
-      }
-      setConfirmedWatchedOverride({
-        ratingKey: item.ratingKey,
-        watched: nextWatched,
-      });
-      setFeedbackMessage(
-        nextWatched ? "Marked as watched" : "Marked as unwatched",
-      );
-      setIsWatchedPending(false);
-    })();
+    setWatchedStateMutation.mutate({
+      serverId,
+      ratingKey: item.ratingKey,
+      watched: !visibleWatched,
+    });
   };
 
   const updateActiveQueue = (next: boolean) => {
-    if (!serverUrl || !authToken || !playQueueId || isQueuePending) {
+    if (!playQueueId || updatePlayQueueMutation.isPending) {
       return;
     }
 
-    setIsQueuePending(true);
+    const playbackIdentity = playerCommands.playbackIdentity();
+    if (playbackIdentity?.serverId !== serverId) {
+      return;
+    }
+    const activePlayQueueId = playQueueId;
+
     setFeedbackMessage(next ? "Adding to Play Next..." : "Adding to queue...");
-    void (async () => {
-      const exit = await updateActivePlayQueue({
-        payload: {
-          serverId,
-          serverUrl,
-          authToken,
-          playQueueId,
-          ratingKey: item.ratingKey,
-          key: item.key,
-          type: "video",
-          next,
+    updatePlayQueueMutation.mutate(
+      {
+        serverId,
+        playQueueId: activePlayQueueId,
+        ratingKey: item.ratingKey,
+        key: item.key,
+        type: "video",
+        next,
+      },
+      {
+        onSuccess: (updatedPlayQueue) => {
+          if (playerCommands.snapshot().playQueueId !== activePlayQueueId) {
+            return;
+          }
+
+          const wasApplied = playerCommands.updatePlaybackStateFor(
+            playbackIdentity,
+            {
+              playQueue: updatedPlayQueue,
+              playQueueId:
+                updatedPlayQueue.MediaContainer.playQueueID.toString(),
+            },
+          );
+          if (wasApplied) {
+            setFeedbackMessage(next ? "Will play next" : "Added to queue");
+          }
         },
-        reactivityKeys: playQueueWriteKeysFor(playQueueId),
-      });
-      if (Exit.isFailure(exit)) {
-        setFeedbackMessage(getExitErrorMessage(exit, "Failed to update queue"));
-        setIsQueuePending(false);
-        return;
-      }
-      const playQueue = asPlayQueue(exit.value);
-      playerCommands.updatePlaybackState({
-        playQueue,
-        playQueueId: playQueue.MediaContainer.playQueueID.toString(),
-      });
-      setFeedbackMessage(next ? "Will play next" : "Added to queue");
-      setIsQueuePending(false);
-    })();
+        onError: (error) => {
+          setFeedbackMessage(error.message);
+        },
+      },
+    );
   };
 
   const copyShareLink = () => {
@@ -473,12 +467,12 @@ function HeroActions({
         variant={visibleWatched ? "secondary" : "outline"}
         size="icon"
         aria-label={watchedButtonLabel}
-        aria-busy={isWatchedPending || undefined}
+        aria-busy={setWatchedStateMutation.isPending || undefined}
         title={watchedButtonLabel}
         onClick={toggleWatchedState}
-        disabled={isWatchedPending}
+        disabled={setWatchedStateMutation.isPending}
       >
-        {isWatchedPending ? (
+        {setWatchedStateMutation.isPending ? (
           <Loader2 className="animate-spin" />
         ) : (
           <Check className={visibleWatched ? "text-primary" : undefined} />
@@ -551,19 +545,7 @@ function HeroActions({
             >
               Add to Queue
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={() => setAddToPlaylistOpen(true)}
-              disabled={!canAddToPlaylist}
-              aria-label={
-                canAddToPlaylist
-                  ? undefined
-                  : getDisabledMenuItemLabel(
-                      "Add to...",
-                      PLEX_ACTION_REQUIRES_SERVER,
-                    )
-              }
-              title={canAddToPlaylist ? undefined : PLEX_ACTION_REQUIRES_SERVER}
-            >
+            <DropdownMenuItem onSelect={() => setAddToPlaylistOpen(true)}>
               Add to...
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -601,17 +583,13 @@ function HeroActions({
         open={mediaInfoOpen}
         onOpenChange={setMediaInfoOpen}
       />
-      {serverUrl && authToken && (
-        <AddToPlaylistDialog
-          item={item}
-          serverId={serverId}
-          serverUrl={serverUrl}
-          authToken={authToken}
-          open={addToPlaylistOpen}
-          onOpenChange={setAddToPlaylistOpen}
-          onFeedback={setFeedbackMessage}
-        />
-      )}
+      <AddToPlaylistDialog
+        item={item}
+        serverId={serverId}
+        open={addToPlaylistOpen}
+        onOpenChange={setAddToPlaylistOpen}
+        onFeedback={setFeedbackMessage}
+      />
       {serverUrl && authToken && (
         <WatchTogetherInviteDialog
           item={item}
@@ -662,21 +640,4 @@ function getQueueActionDisabledReason(
 
 function getDisabledMenuItemLabel(label: string, reason: string): string {
   return label.endsWith(".") ? `${label} ${reason}` : `${label}. ${reason}`;
-}
-
-function getExitErrorMessage(
-  exit: Exit.Exit<unknown, unknown>,
-  fallback: string,
-): string {
-  const error = Exit.findErrorOption(exit);
-  if (
-    Option.isSome(error) &&
-    error.value !== null &&
-    typeof error.value === "object" &&
-    "message" in error.value &&
-    typeof (error.value as { message: unknown }).message === "string"
-  ) {
-    return (error.value as { message: string }).message;
-  }
-  return fallback;
 }

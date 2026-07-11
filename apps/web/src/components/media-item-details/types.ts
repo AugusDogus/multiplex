@@ -1,7 +1,6 @@
-import type { ItemDetails as BridgeItemDetails } from "~/lib/effect/plex-boundary";
+import type { RouterOutputs } from "~/trpc/react";
 
-/** Stable export name — aliases the Effect bridge composite. */
-export type ItemDetails = BridgeItemDetails;
+export type ItemDetails = NonNullable<RouterOutputs["plex"]["getItemDetails"]>;
 export type EnrichedChildMetadata = ItemDetails["children"][number];
 export type PlayableChildMetadata = ItemDetails["playableChildren"][number];
 export type PlayTarget = ItemDetails["playTarget"];

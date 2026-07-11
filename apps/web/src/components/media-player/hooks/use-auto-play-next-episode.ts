@@ -2,13 +2,9 @@
 
 import { useEffect, useMemo } from "react";
 import type { PlayQueueItem } from "@multiplex/plex-query";
-import { useAtomValue } from "@effect/atom-react";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import * as Option from "effect/Option";
-
 import { playerCommands, usePlayerState } from "~/lib/effect/player-atoms";
-import { playQueueAtom } from "~/lib/effect/plex-atoms";
 import type { NextEpisodeInfo } from "~/types/media-player";
+import { api } from "~/trpc/react";
 
 /* ────────────────────────────────────────────────────────────
    Auto-Play Next Episode Hook
@@ -30,41 +26,71 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
   const playQueue = player.playQueue;
   const playQueueId = player.playQueueId;
   const autoPlay = player.autoPlay;
-
-  const shouldPoll = Boolean(
-    currentItem?.serverId && playQueueId && currentItem?.type === "episode",
-  );
+  const pollingIdentity = useMemo(() => {
+    const identity = playerCommands.playbackIdentity();
+    if (
+      identity?.streamSessionId !== player.streamSessionId ||
+      identity.serverId !== currentItem?.serverId ||
+      identity.ratingKey !== currentItem?.ratingKey
+    ) {
+      return null;
+    }
+    return identity;
+  }, [player.streamSessionId, currentItem?.serverId, currentItem?.ratingKey]);
 
   // Poll for play queue updates when we have a play queue ID
-  const playQueueResult = useAtomValue(
-    playQueueAtom({
+  const { data: updatedPlayQueue } = api.plex.getPlayQueue.useQuery(
+    {
       serverId: currentItem?.serverId ?? "",
       playQueueId: playQueueId ?? "",
-      enabled: shouldPoll,
-    }),
+      includeMarkers: true,
+    },
+    {
+      enabled: Boolean(
+        currentItem?.serverId && playQueueId && currentItem?.type === "episode",
+      ),
+      refetchInterval: 30000, // Poll every 30 seconds
+      refetchOnWindowFocus: false,
+      staleTime: 15000, // Consider data stale after 15 seconds
+    },
   );
-  const updatedPlayQueue = Option.getOrUndefined(
-    AsyncResult.value(playQueueResult),
-  );
+
+  const refreshedQueue = useMemo(() => {
+    if (
+      !updatedPlayQueue ||
+      !pollingIdentity ||
+      !playQueueId ||
+      updatedPlayQueue.MediaContainer.playQueueID.toString() !== playQueueId
+    ) {
+      return null;
+    }
+
+    const currentItemInQueue = updatedPlayQueue.MediaContainer.Metadata?.find(
+      (queueItem: PlayQueueItem) =>
+        queueItem.ratingKey === pollingIdentity.ratingKey,
+    );
+    if (!currentItemInQueue) {
+      return null;
+    }
+
+    return {
+      playQueue: updatedPlayQueue,
+      markers: currentItemInQueue.Marker ?? [],
+    };
+  }, [updatedPlayQueue, pollingIdentity, playQueueId]);
 
   // Update the play queue in state when we get fresh data
   useEffect(() => {
-    if (updatedPlayQueue && playQueueId) {
-      // Extract markers from the current item in the updated queue
-      const currentItemInQueue = updatedPlayQueue.MediaContainer.Metadata?.find(
-        (item: PlayQueueItem) => item.ratingKey === currentItem?.ratingKey,
-      );
-      const markers = currentItemInQueue?.Marker ?? [];
-
-      playerCommands.updatePlaybackState({
-        playQueue: updatedPlayQueue,
-        markers,
+    if (refreshedQueue && pollingIdentity) {
+      playerCommands.updatePlaybackStateFor(pollingIdentity, {
+        playQueue: refreshedQueue.playQueue,
+        markers: refreshedQueue.markers,
       });
     }
-  }, [updatedPlayQueue, playQueueId, currentItem?.ratingKey]);
+  }, [refreshedQueue, pollingIdentity]);
 
   // Use the most recent play queue data (either from state or polling)
-  const activePlayQueue = updatedPlayQueue ?? playQueue;
+  const activePlayQueue = refreshedQueue?.playQueue ?? playQueue;
 
   // Find next episode from play queue
   const nextEpisode = useMemo((): NextEpisodeInfo | null => {
@@ -171,6 +197,8 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
     hasNextEpisode: Boolean(nextEpisode),
     nextEpisode: nextEpisode,
     // Expose queue polling status for debugging
-    isPollingQueue: shouldPoll,
+    isPollingQueue: Boolean(
+      currentItem?.serverId && playQueueId && currentItem?.type === "episode",
+    ),
   };
 }

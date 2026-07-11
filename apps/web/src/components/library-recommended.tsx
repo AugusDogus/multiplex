@@ -1,11 +1,11 @@
 "use client";
 
-import { useAtomValue } from "@effect/atom-react";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { MediaHubRow, MediaHubRowSkeleton } from "~/components/media-hub-row";
-import { isAsyncResultLoading } from "~/lib/effect/async-result";
-import { libraryHubsAtom } from "~/lib/effect/plex-browse-atoms";
-import type { LibraryHubsResult } from "~/lib/effect/plex-boundary";
+import {
+  isHubQueryLoading,
+  PLEX_HUB_QUERY_OPTIONS,
+} from "~/lib/plex-hub-query-options";
+import { api } from "~/trpc/react";
 
 interface LibraryRecommendedProps {
   machineIdentifier: string;
@@ -16,17 +16,16 @@ export function LibraryRecommended({
   machineIdentifier,
   sectionId,
 }: LibraryRecommendedProps) {
-  const hubsResult = useAtomValue(
-    libraryHubsAtom({ machineIdentifier, sectionId }),
+  const {
+    data: hubs = [],
+    isPending,
+    isFetching,
+  } = api.plex.getLibraryHubs.useQuery(
+    { machineIdentifier, sectionId },
+    PLEX_HUB_QUERY_OPTIONS,
   );
-  const hubs = AsyncResult.getOrElse(hubsResult, (): LibraryHubsResult => []);
-  // Mirror former `isHubQueryLoading`: skeleton while unsettled *or* while
-  // refetching an empty result (TTL 0 remounts).
-  const isLoading =
-    isAsyncResultLoading(hubsResult) ||
-    (AsyncResult.isWaiting(hubsResult) && hubs.length === 0);
 
-  if (isLoading) {
+  if (isHubQueryLoading(isPending, isFetching, hubs.length)) {
     return (
       <div className="flex flex-col gap-8">
         <MediaHubRowSkeleton />

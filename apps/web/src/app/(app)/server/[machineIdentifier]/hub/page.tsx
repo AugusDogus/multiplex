@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { HubPageContent } from "~/components/hub-page-content";
 import { AppPageLayout } from "~/components/app-page-layout";
 import { HUB_PAGE_SIZE } from "~/server/queries/plex-pagination";
-import { getHubContent } from "~/server/plex-rsc";
+import { api } from "~/trpc/server";
 
 interface PageProps {
   params: Promise<{
@@ -23,7 +23,7 @@ export default async function HubPage({ params, searchParams }: PageProps) {
     notFound();
   }
 
-  const hubContent = await getHubContent({
+  const hubContent = await api.plex.getHubContent({
     machineIdentifier,
     hubKey,
     start: 0,

@@ -2,9 +2,6 @@
 
 import * as React from "react";
 import { Command as CommandPrimitive } from "cmdk";
-import { useAtomValue } from "@effect/atom-react";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import * as Option from "effect/Option";
 import { Search } from "lucide-react";
 import {
   Command,
@@ -17,8 +14,7 @@ import { Dialog, DialogContent, DialogTitle } from "~/components/ui/dialog";
 import type { ProcessedSearchResult } from "@multiplex/plex-query";
 import { SearchResultItem } from "~/components/search-result-item";
 import { useDebounce } from "~/hooks/use-debounce";
-import { isAsyncResultLoading } from "~/lib/effect/async-result";
-import { searchAtom } from "~/lib/effect/plex-browse-atoms";
+import { api } from "~/trpc/react";
 
 interface SearchCommandModalProps {
   open: boolean;
@@ -40,16 +36,17 @@ export function SearchCommandModal({
   const [searchQuery, setSearchQuery] = React.useState("");
   const debouncedQuery = useDebounce(searchQuery, 300);
 
-  const searchResultsResult = useAtomValue(
-    searchAtom({
-      query: debouncedQuery || "",
+  const {
+    data: searchResults,
+    isLoading,
+    error,
+  } = api.plex.search.useQuery(
+    { query: debouncedQuery || "" },
+    {
       enabled: Boolean(debouncedQuery && debouncedQuery.length > 0),
-    }),
+      staleTime: 30000, // Cache results for 30 seconds
+    },
   );
-  const searchResults =
-    Option.getOrUndefined(AsyncResult.value(searchResultsResult)) ?? undefined;
-  const isLoading = isAsyncResultLoading(searchResultsResult);
-  const error = AsyncResult.isFailure(searchResultsResult);
 
   // Treat the debounce window as part of "searching" so we don't flash
   // "No results found" while the user is still typing.

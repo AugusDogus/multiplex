@@ -9,22 +9,16 @@ import {
   toPlayableMetadata,
   type ContinueWatchingItemWithServer,
 } from "@multiplex/plex-query";
-import { useAtomValue } from "@effect/atom-react";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import * as Atom from "effect/unstable/reactivity/Atom";
-import * as Option from "effect/Option";
-
+import { playerCommands } from "~/lib/effect/player-atoms";
+import { useProgressStore } from "~/stores/progress-store";
 import { ContinueWatchingDrawer } from "~/components/continue-watching-drawer";
 import { MediaCarousel } from "~/components/media-carousel";
 import { MediaPosterCard } from "~/components/media-poster-card";
-import { useItemDetailsNavigation } from "~/hooks/use-item-details-navigation";
 import { useVisibilityChange } from "~/hooks/use-visibility-change";
+import { useItemDetailsNavigation } from "~/hooks/use-item-details-navigation";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
-import { isAsyncResultLoading } from "~/lib/effect/async-result";
-import type { ContinueWatchingResult } from "~/lib/effect/plex-boundary";
-import { continueWatchingAtom } from "~/lib/effect/plex-browse-atoms";
-import { playerCommands } from "~/lib/effect/player-atoms";
-import { useProgressStore } from "~/stores/progress-store";
+import { isHubQueryLoading } from "~/lib/plex-hub-query-options";
+import { api } from "~/trpc/react";
 
 /* ────────────────────────────────────────────────────────────
    Continue Watching Component
@@ -39,19 +33,12 @@ function SectionWrapper({ children }: SectionWrapperProps) {
   return <div className="flex flex-col gap-y-4">{children}</div>;
 }
 
-/** Unsubscribes from `continueWatchingAtom` so `withRefresh` stops polling. */
-const pausedContinueWatchingAtom = Atom.make(() => AsyncResult.initial(false));
-
 export interface ContinueWatchingProps {
   /** Whether to show the section title */
   showTitle?: boolean;
   /** Custom title for the section */
   title?: string;
-  /**
-   * Kept for API compatibility. Cadence is owned by `continueWatchingAtom`
-   * (`Atom.withRefresh` at 5s); non-default values are ignored — report if a
-   * caller needs a different interval.
-   */
+  /** Auto-refresh interval in milliseconds (default: 5000ms) */
   refreshInterval?: number;
   /** Whether to enable auto-refresh (default: true) */
   enableAutoRefresh?: boolean;
@@ -60,43 +47,35 @@ export interface ContinueWatchingProps {
 export function ContinueWatching({
   showTitle = true,
   title = "Continue Watching",
-  refreshInterval: _refreshInterval = 5000,
+  refreshInterval = 5000,
   enableAutoRefresh = true,
 }: ContinueWatchingProps) {
   const isPageVisible = useVisibilityChange();
-  // Unsubscribe when hidden / auto-refresh off so Atom.withRefresh's timer
-  // finalizes (matches former refetchInterval: false gating).
-  const shouldPoll = enableAutoRefresh && isPageVisible;
-  const itemsResult = useAtomValue(
-    shouldPoll ? continueWatchingAtom : pausedContinueWatchingAtom,
-  );
-  const [cachedItems, setCachedItems] = useState<ContinueWatchingResult>([]);
 
-  const liveItems = Option.getOrElse(
-    AsyncResult.value(itemsResult),
-    (): ContinueWatchingResult => [],
-  );
-  // Adjust cached snapshot during render when the live atom settles (React's
-  // recommended pattern for deriving state from previous renders).
-  if (
-    shouldPoll &&
-    (AsyncResult.isSuccess(itemsResult) || liveItems.length > 0) &&
-    cachedItems !== liveItems
-  ) {
-    setCachedItems(liveItems);
-  }
+  const {
+    data: items = [],
+    error,
+    isPending,
+    isFetching,
+  } = api.plex.getAllContinueWatching.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+    gcTime: refreshInterval * 4,
+    refetchInterval:
+      enableAutoRefresh && isPageVisible ? refreshInterval : false,
+    retry: (failureCount: number, error: unknown) => {
+      if (failureCount >= 3) return false;
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes("401") || errorMessage.includes("403"))
+        return false;
+      return true;
+    },
+    retryDelay: (attemptIndex: number) =>
+      Math.min(1000 * 2 ** attemptIndex, 30000),
+  });
 
-  const items = shouldPoll
-    ? liveItems.length > 0 || AsyncResult.isSuccess(itemsResult)
-      ? liveItems
-      : cachedItems
-    : cachedItems;
-  const isLoading =
-    shouldPoll && isAsyncResultLoading(itemsResult) && items.length === 0;
-  const hasError =
-    shouldPoll && AsyncResult.isFailure(itemsResult) && items.length === 0;
-
-  if (isLoading) {
+  if (isHubQueryLoading(isPending, isFetching, items.length) && !error) {
     return (
       <SectionWrapper>
         {showTitle ? (
@@ -111,7 +90,7 @@ export function ContinueWatching({
     );
   }
 
-  if (hasError) {
+  if (error && items.length === 0) {
     return (
       <SectionWrapper>
         {showTitle ? (

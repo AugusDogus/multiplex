@@ -1,22 +1,20 @@
 "use client";
 
-import { useCallback, useContext } from "react";
-import { RegistryContext } from "@effect/atom-react";
+import { useCallback } from "react";
 import {
   isPlayablePosterItemType,
   toPlayableMetadata,
   type HubItemWithServer,
   type ItemMetadata,
 } from "@multiplex/plex-query";
-import { Effect } from "effect";
-import * as AtomRegistry from "effect/unstable/reactivity/AtomRegistry";
-
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { playerCommands } from "~/lib/effect/player-atoms";
-import { itemDetailsAtom } from "~/lib/effect/plex-atoms";
+import { api } from "~/trpc/react";
+
+let latestPlaybackIntent = 0;
 
 export function useHubItemPlayback(item: HubItemWithServer | undefined) {
-  const registry = useContext(RegistryContext);
+  const utils = api.useUtils();
 
   const canPlay = Boolean(
     item &&
@@ -26,6 +24,8 @@ export function useHubItemPlayback(item: HubItemWithServer | undefined) {
   );
 
   const play = useCallback(async () => {
+    const playbackIntent = ++latestPlaybackIntent;
+
     if (!item?.serverUrl || !item?.authToken) {
       return;
     }
@@ -44,26 +44,28 @@ export function useHubItemPlayback(item: HubItemWithServer | undefined) {
       return;
     }
 
-    const detailsAtom = itemDetailsAtom({
+    const startingPlayback = playerCommands.playbackIdentity();
+    const details = await utils.client.plex.getItemDetails.query({
       serverId: item.serverId,
       ratingKey: item.ratingKey,
     });
-    const unmount = registry.mount(detailsAtom);
-    try {
-      const details = await Effect.runPromise(
-        AtomRegistry.getResult(registry, detailsAtom, {
-          suspendOnWaiting: true,
-        }),
-      );
-      if (details?.playTarget) {
-        playerCommands.openPlayer(
-          createMediaPlayerItem(details.playTarget, playback),
-        );
-      }
-    } finally {
-      unmount();
+
+    const currentPlayback = playerCommands.playbackIdentity();
+    if (
+      playbackIntent !== latestPlaybackIntent ||
+      currentPlayback?.streamSessionId !== startingPlayback?.streamSessionId ||
+      currentPlayback?.serverId !== startingPlayback?.serverId ||
+      currentPlayback?.ratingKey !== startingPlayback?.ratingKey
+    ) {
+      return;
     }
-  }, [item, registry]);
+
+    if (details?.playTarget) {
+      playerCommands.openPlayer(
+        createMediaPlayerItem(details.playTarget, playback),
+      );
+    }
+  }, [item, utils]);
 
   return { canPlay, play };
 }

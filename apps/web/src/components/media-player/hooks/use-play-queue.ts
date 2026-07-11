@@ -1,13 +1,9 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useAtomSet } from "@effect/atom-react";
-import * as Exit from "effect/Exit";
-
 import { playerCommands } from "~/lib/effect/player-atoms";
-import { asPlayQueue } from "~/lib/effect/plex-boundary";
-import { createPlayQueue } from "~/lib/effect/plex-atoms";
 import type { MediaPlayerItem } from "~/types/media-player";
+import { api } from "~/trpc/react";
 
 /* ────────────────────────────────────────────────────────────
    Play Queue Hook
@@ -21,81 +17,90 @@ import type { MediaPlayerItem } from "~/types/media-player";
  */
 export function usePlayQueue(item: MediaPlayerItem | null) {
   const lastItemRef = useRef<string | null>(null);
-  const createPlayQueueMutation = useAtomSet(createPlayQueue, {
-    mode: "promiseExit",
-  });
+
+  // Create play queue mutation
+  const createPlayQueueMutation = api.plex.createPlayQueue.useMutation();
 
   /**
    * Create play queue when item changes
    */
   useEffect(() => {
-    // Create a unique key for the current item to avoid duplicate requests
-    const currentItemKey = item
-      ? `${item.serverId}-${item.librarySectionID}-${item.ratingKey}`
-      : null;
-
-    // Only proceed if the item has actually changed
-    if (currentItemKey === lastItemRef.current) {
-      return;
-    }
-
-    lastItemRef.current = currentItemKey;
+    const playbackIdentity = playerCommands.playbackIdentity();
 
     if (item && item.serverId && item.librarySectionID && item.ratingKey) {
-      // Use the full server URI format for play queues
-      const uri = `server://${item.serverId}/com.plexapp.plugins.library${item.key}`;
+      if (
+        playbackIdentity?.serverId !== item.serverId ||
+        playbackIdentity?.ratingKey !== item.ratingKey
+      ) {
+        return;
+      }
 
-      console.log("🎬 Creating play queue for:", item.title, "with URI:", uri);
+      // Include the stream session so replaying the same item creates a new queue.
+      const currentItemKey = `${playbackIdentity.streamSessionId}-${item.serverId}-${item.librarySectionID}-${item.ratingKey}`;
+      if (currentItemKey === lastItemRef.current) {
+        return;
+      }
+      lastItemRef.current = currentItemKey;
 
-      void (async () => {
-        const exit = await createPlayQueueMutation({
-          payload: {
-            serverId: item.serverId,
-            type: "video",
-            uri,
-            continuous: true,
-            includeMarkers: true,
-            includeChapters: true,
-            shuffle: false,
-            repeat: 0,
+      console.log("🎬 Creating play queue for:", item.title);
+
+      // Create play queue for marker support using .mutate (not .mutateAsync to avoid promise issues)
+      createPlayQueueMutation.mutate(
+        {
+          serverId: item.serverId,
+          type: "video",
+          ratingKey: item.ratingKey,
+          continuous: true,
+          includeMarkers: true,
+          includeChapters: true,
+          shuffle: false,
+          repeat: 0,
+        },
+        {
+          onSuccess: (playQueue) => {
+            console.log("🎬 Play queue created:", playQueue);
+
+            const markers =
+              playQueue.MediaContainer.Metadata?.[0]?.Marker ?? [];
+            playerCommands.updatePlaybackStateFor(playbackIdentity, {
+              playQueue,
+              playQueueId: playQueue.MediaContainer.playQueueID.toString(),
+              markers,
+            });
           },
-        });
-        if (Exit.isFailure(exit)) {
-          console.error("Failed to create play queue:", exit.cause);
-          // Continue playback without markers on error
-          playerCommands.updatePlaybackState({
-            playQueue: null,
-            playQueueId: null,
-            markers: [],
-          });
-          return;
-        }
-
-        const playQueue = asPlayQueue(exit.value);
-        console.log("🎬 Play queue created:", playQueue);
-
-        // Extract markers from the first metadata item
-        const markers = playQueue.MediaContainer.Metadata?.[0]?.Marker ?? [];
-
-        // Update media player state with play queue data
-        playerCommands.updatePlaybackState({
-          playQueue,
-          playQueueId: playQueue.MediaContainer.playQueueID.toString(),
-          markers,
-        });
-      })();
+          onError: (error: unknown) => {
+            console.error("Failed to create play queue:", error);
+            // Continue the initiating playback without markers on error.
+            playerCommands.updatePlaybackStateFor(playbackIdentity, {
+              playQueue: null,
+              playQueueId: null,
+              markers: [],
+            });
+          },
+        },
+      );
     } else {
+      const invalidItemKey = playbackIdentity
+        ? `${playbackIdentity.streamSessionId}-invalid-item`
+        : null;
+      if (invalidItemKey === lastItemRef.current) {
+        return;
+      }
+      lastItemRef.current = invalidItemKey;
+
       // Clear play queue state if no valid item
-      playerCommands.updatePlaybackState({
-        playQueue: null,
-        playQueueId: null,
-        markers: [],
-      });
+      if (playbackIdentity) {
+        playerCommands.updatePlaybackStateFor(playbackIdentity, {
+          playQueue: null,
+          playQueueId: null,
+          markers: [],
+        });
+      }
     }
   }, [item, createPlayQueueMutation]);
 
   return {
-    isCreating: false,
-    error: null,
+    isCreating: createPlayQueueMutation.isPending,
+    error: createPlayQueueMutation.error,
   };
 }
