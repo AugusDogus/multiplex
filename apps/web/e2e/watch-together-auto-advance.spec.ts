@@ -6,10 +6,6 @@ import {
   setupSyncedRoom,
 } from "./helpers/watch-together";
 
-// Runs against a live Plex server with two real accounts; keep it sequential
-// with the rest of the Watch Together suite (shared rooms, one server).
-test.describe.configure({ mode: "serial" });
-
 interface EpisodePick {
   href: string;
   serverId: string;
@@ -27,7 +23,7 @@ interface PlayQueueItemShape {
 
 /**
  * Finds an episode on the home page whose continuous play queue has a next
- * episode, using the app's own Effect HttpApi (authenticated via the page's
+ * episode, using the app's own tRPC endpoint (authenticated via the page's
  * session), so the test doesn't hardcode library contents.
  */
 async function pickEpisodeWithNext(page: Page): Promise<EpisodePick> {
@@ -48,25 +44,35 @@ async function pickEpisodeWithNext(page: Page): Promise<EpisodePick> {
     const [, serverId, ratingKey] = match;
 
     const response = await page.request.post(
-      "/api/effect/playback/play-queues",
+      "/api/trpc/plex.createPlayQueue?batch=1",
       {
         data: {
-          serverId,
-          type: "video",
-          uri: `server://${serverId}/com.plexapp.plugins.library/library/metadata/${ratingKey}`,
-          continuous: true,
-          includeMarkers: true,
-          includeChapters: true,
-          shuffle: false,
-          repeat: 0,
+          "0": {
+            json: {
+              serverId,
+              type: "video",
+              ratingKey,
+              continuous: true,
+              includeMarkers: true,
+              includeChapters: true,
+              shuffle: false,
+              repeat: 0,
+            },
+          },
         },
         headers: { "content-type": "application/json" },
       },
     );
-    const body = (await response.json().catch(() => null)) as {
-      MediaContainer?: { Metadata?: PlayQueueItemShape[] };
-    } | null;
-    const items = body?.MediaContainer?.Metadata ?? [];
+    const body = (await response.json().catch(() => null)) as
+      | {
+          result?: {
+            data?: {
+              json?: { MediaContainer?: { Metadata?: PlayQueueItemShape[] } };
+            };
+          };
+        }[]
+      | null;
+    const items = body?.[0]?.result?.data?.json?.MediaContainer?.Metadata ?? [];
     const index = items.findIndex((item) => item.ratingKey === ratingKey);
     const current = index >= 0 ? items[index] : undefined;
     const next = index >= 0 ? items[index + 1] : undefined;
@@ -261,13 +267,22 @@ test("a session auto-advances both viewers to the next episode without leaving t
     // Disband whatever rooms this test left behind (the original room is
     // usually already removed by the rotation; the next-episode room isn't).
     const rooms = await hostContext.request
-      .get("/api/effect/watch-together/rooms")
+      .get(
+        "/api/trpc/plex.getWatchTogetherRooms?batch=1&input=" +
+          encodeURIComponent(JSON.stringify({ 0: { json: null } })),
+      )
       .then(
         (response) =>
-          response.json() as Promise<{ id: string; sourceUri: string }[]>,
+          response.json() as Promise<
+            {
+              result?: {
+                data?: { json?: { id: string; sourceUri: string }[] };
+              };
+            }[]
+          >,
       )
       .catch(() => null);
-    for (const room of rooms ?? []) {
+    for (const room of rooms?.[0]?.result?.data?.json ?? []) {
       if (
         episode &&
         (room.sourceUri.endsWith(`/library/metadata/${episode.ratingKey}`) ||

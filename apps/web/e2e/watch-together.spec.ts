@@ -1,13 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { setupSyncedRoom } from "./helpers/watch-together";
 
-// These run against a live Plex server with two real accounts, so keep them
-// strictly sequential (shared rooms, one server).
-test.describe.configure({ mode: "serial" });
-
 const DEVICE_ID_KEY = "multiplex-watch-together-device-id";
 
-test("two viewers auto-start, play the same item in sync, and pause/resume propagates", async ({
+test("two viewers synchronize playback and disable local speed controls", async ({
   browser,
   baseURL,
 }) => {
@@ -61,6 +57,35 @@ test("two viewers auto-start, play the same item in sync, and pause/resume propa
       )
       .toBe(false);
     console.error("E2E step: guest resumed with host");
+
+    const hostVideo = host.locator("video");
+    const box = await hostVideo.boundingBox();
+    expect(box, "host video should have a layout box").toBeTruthy();
+    const centerX = box!.x + box!.width / 2;
+    const centerY = box!.y + box!.height / 2;
+
+    // An unsynced local playback rate would desync the room, so both the hold
+    // gesture and settings control must be unavailable during the session.
+    console.error("E2E step: host presses and holds; rate must stay 1x");
+    await host.mouse.move(centerX, centerY);
+    await host.mouse.down();
+    await host.waitForTimeout(3_000);
+    const rateWhileHolding = await hostVideo.evaluate(
+      (video: HTMLVideoElement) => video.playbackRate,
+    );
+    await host.mouse.up();
+    expect(rateWhileHolding, "hold must not fast-forward in a session").toBe(1);
+
+    console.error("E2E step: open settings; Playback Speed must be absent");
+    await host.mouse.move(centerX, box!.y + box!.height - 24);
+    const settingsButton = host.getByRole("button", {
+      name: "Playback settings",
+    });
+    await expect(settingsButton).toBeVisible({ timeout: 15_000 });
+    await settingsButton.click();
+    await expect(host.getByText("Quality")).toBeVisible({ timeout: 10_000 });
+    await expect(host.getByText("Playback Speed")).toHaveCount(0);
+    console.error("E2E step: playback-speed controls confirmed disabled");
   } finally {
     await cleanup();
   }
@@ -105,53 +130,6 @@ test("a host seek propagates to the guest", async ({ browser, baseURL }) => {
       )
       .toBeGreaterThan(seekTarget - 60);
     console.error("E2E step: guest followed seek");
-  } finally {
-    await cleanup();
-  }
-});
-
-test("a Watch Together session disables playback-speed controls", async ({
-  browser,
-  baseURL,
-}) => {
-  // Real Plex login + transcoded playback for two viewers is slow.
-  test.setTimeout(360_000);
-  // The guest is only needed so the host's session is genuinely active; this
-  // test asserts against the host.
-  const { host, cleanup } = await setupSyncedRoom(browser, baseURL);
-
-  try {
-    const hostVideo = host.locator("video");
-    const box = await hostVideo.boundingBox();
-    expect(box, "host video should have a layout box").toBeTruthy();
-    const centerX = box!.x + box!.width / 2;
-    const centerY = box!.y + box!.height / 2;
-
-    // 1. Hold-for-2x must not fast-forward while in a session (an unsynced local
-    //    rate would only desync viewers).
-    console.error("E2E step: host presses and holds; rate must stay 1x");
-    await host.mouse.move(centerX, centerY);
-    await host.mouse.down();
-    await host.waitForTimeout(3_000);
-    const rateWhileHolding = await hostVideo.evaluate(
-      (v: HTMLVideoElement) => v.playbackRate,
-    );
-    await host.mouse.up();
-    expect(rateWhileHolding, "hold must not fast-forward in a session").toBe(1);
-
-    // 2. The settings menu must not offer a Playback Speed control.
-    console.error("E2E step: open settings; Playback Speed must be absent");
-    // Reveal the control bar, then open the settings popover.
-    await host.mouse.move(centerX, box!.y + box!.height - 24);
-    const settingsButton = host.getByRole("button", {
-      name: "Playback settings",
-    });
-    await expect(settingsButton).toBeVisible({ timeout: 15_000 });
-    await settingsButton.click();
-    // The menu is open (a stable row is visible) but has no speed control.
-    await expect(host.getByText("Quality")).toBeVisible({ timeout: 10_000 });
-    await expect(host.getByText("Playback Speed")).toHaveCount(0);
-    console.error("E2E step: playback-speed controls confirmed disabled");
   } finally {
     await cleanup();
   }
