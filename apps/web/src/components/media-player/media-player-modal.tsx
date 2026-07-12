@@ -377,36 +377,10 @@ function usePlaybackSessionController({
     sessionItemServerId === playerItemServerId &&
     sessionItemRatingKey === playerItemRatingKey;
 
-  useEffect(() => {
-    if (!isSessionPlaying || isSyncplayActiveForCurrentItem) {
-      return;
-    }
-
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (cancelled) return;
-
-      const latestSession = sessionCommands.snapshot();
-      const latestItem = playerCommands.snapshot().currentItem;
-      if (
-        latestSession._tag === "Playing" &&
-        !itemsMatch(latestSession.item, latestItem)
-      ) {
-        void sessionCommands.leave({ suppressAutoStart: true });
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    isSessionPlaying,
-    sessionItemServerId,
-    sessionItemRatingKey,
-    playerItemServerId,
-    playerItemRatingKey,
-    isSyncplayActiveForCurrentItem,
-  ]);
+  // Intentionally no clear-on-mismatch leave: WatchTogetherSession owns the
+  // Playing room+item pair (swapPlayingRoom is atomic). Inferring "leave" from
+  // a transient React gap between session.item and player.currentItem during
+  // episode rotation tears down Syncplay and breaks pause sync.
 
   const { autoPlayState, nextEpisode } = useAutoPlayNextEpisode({
     enabled: !isWatchTogetherSession,

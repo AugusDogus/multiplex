@@ -22,6 +22,7 @@ import { isSessionForRoom } from "~/components/watch-together/watch-together-lob
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { getPlexClientIdentifier } from "~/lib/device-identifier";
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
+import { getWatchTogetherRoomHref } from "~/lib/watch-together-source";
 import { api } from "~/trpc/api";
 
 export type LobbyViewModel =
@@ -108,6 +109,19 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
       }
     };
   }, [roomId]);
+
+  // After episode rotation the previous room is deleted. If this lobby page is
+  // still mounted on the dead room id while Playing continues elsewhere,
+  // follow the live session room instead of latching "unavailable".
+  useEffect(() => {
+    if (sessionState._tag !== "Playing" || sessionState.room.id === roomId) {
+      return;
+    }
+    if (!roomQuery.isError && roomQuery.data) {
+      return;
+    }
+    router.replace(getWatchTogetherRoomHref(sessionState.room.id));
+  }, [roomId, roomQuery.data, roomQuery.isError, router, sessionState]);
 
   const sessionParticipants: ParticipantMap = (() => {
     if (

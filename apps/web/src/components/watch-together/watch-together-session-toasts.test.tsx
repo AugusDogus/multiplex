@@ -178,6 +178,76 @@ describe("createWatchTogetherSessionToasts", () => {
     expect(shown).toEqual(["multiplextest joined the session"]);
   });
 
+  test("a peer first seen after the connect window but before local start is cohort", () => {
+    const { notifier, shown, advance } = createHarness();
+    // Local player still loading; peer's Syncplay driver appears late.
+    advance(30_000);
+    notifier.handleParticipant({
+      user: REMOTE_USER,
+      isPresent: true,
+      isReady: false,
+    });
+    notifier.noteLocalStarted();
+    advance(40_000);
+    notifier.handleParticipant({ user: REMOTE_USER, isReady: true });
+    expect(shown).toEqual([]);
+  });
+
+  test("seeded lobby cohort never toasts a join even after a slow driver handoff", () => {
+    let currentTime = 100_000;
+    const shown: string[] = [];
+    const notifier = createWatchTogetherSessionToasts({
+      room: { users: ROOM_USERS },
+      localUser: LOCAL_USER,
+      initialCohortDeviceIds: new Set([REMOTE_USER.deviceIdentifier]),
+      showToast: (_user, name, text) => shown.push(`${name} ${text}`),
+      now: () => currentTime,
+    });
+    notifier.noteLocalStarted();
+    currentTime += 60_000;
+    notifier.handleParticipant({
+      user: REMOTE_USER,
+      isPresent: true,
+      isReady: true,
+    });
+    expect(shown).toEqual([]);
+  });
+
+  test("suppressed notifications stay silent for leave and playstate edges", () => {
+    let suppressed = true;
+    let currentTime = 100_000;
+    const shown: string[] = [];
+    const notifier = createWatchTogetherSessionToasts({
+      room: { users: ROOM_USERS },
+      localUser: LOCAL_USER,
+      shouldSuppressNotifications: () => suppressed,
+      showToast: (_user, name, text) => shown.push(`${name} ${text}`),
+      now: () => currentTime,
+    });
+    notifier.noteLocalStarted();
+    currentTime += 6_000;
+    notifier.handleParticipant({
+      user: REMOTE_USER,
+      isPresent: true,
+      isReady: true,
+    });
+    notifier.handleParticipant({ user: REMOTE_USER, isPresent: false });
+    notifier.handleRemoteAction({
+      type: "pause",
+      user: REMOTE_USER,
+      positionSeconds: 10,
+    });
+    expect(shown).toEqual([]);
+
+    suppressed = false;
+    notifier.handleParticipant({
+      user: REMOTE_USER,
+      isPresent: true,
+      isReady: true,
+    });
+    expect(shown).toEqual(["multiplextest joined the session"]);
+  });
+
   test("local user's own events never toast", () => {
     const { notifier, shown, advance, settle } = createHarness();
     settle();
