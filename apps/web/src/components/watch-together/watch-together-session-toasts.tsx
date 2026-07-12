@@ -26,7 +26,8 @@ interface ParticipantEntry {
   // Stays true through ready flaps (buffering after a seek) so only a real
   // connection loss toasts a leave, and only a genuine (re)join toasts a join.
   announcedWatching: boolean;
-  // Part of the session's starting cohort (seen while we were connecting).
+  // Part of the session's starting cohort (seen while we were connecting,
+  // before local playback started, or seeded from the prior lobby/room).
   // Their first ready-up is the session starting, not a join. Cleared once
   // they genuinely leave, so a later rejoin toasts.
   isStartingCohort: boolean;
@@ -47,6 +48,18 @@ export interface WatchTogetherSessionToasts {
 export interface WatchTogetherSessionToastsOptions {
   room: Pick<WatchTogetherRoom, "users">;
   localUser: SyncplayUser;
+  /**
+   * Device identifiers already known from the lobby (or prior room before an
+   * episode swap). Seeded as starting cohort so a slow Syncplay driver
+   * handoff does not toast "joined" ~tens of seconds into playback.
+   */
+  initialCohortDeviceIds?: ReadonlySet<string>;
+  /**
+   * When true, suppress join/leave/pause/resume/seek toasts. Used during
+   * episode rotation so peers disconnecting from the previous Syncplay room
+   * do not look like they left the party.
+   */
+  shouldSuppressNotifications?: () => boolean;
   /** Test seams; production uses sonner and the real clock. */
   showToast?: (
     user: WatchTogetherUser | undefined,
@@ -107,6 +120,8 @@ export function createWatchTogetherSessionToasts(
 ): WatchTogetherSessionToasts {
   const showToast = options.showToast ?? showSessionToast;
   const now = options.now ?? Date.now;
+  const shouldSuppress = options.shouldSuppressNotifications ?? (() => false);
+  const initialCohort = options.initialCohortDeviceIds ?? new Set<string>();
 
   const roomUserById = new Map(
     options.room.users.map((user) => [user.id, user]),
@@ -117,6 +132,9 @@ export function createWatchTogetherSessionToasts(
   let disposed = false;
 
   const emit = (user: SyncplayUser | null, text: string): void => {
+    if (shouldSuppress()) {
+      return;
+    }
     const roomUser = user ? roomUserById.get(user.id) : undefined;
     const name = roomUser ? getPlexUserName(roomUser) : "Someone";
     showToast(roomUser, name, text);
@@ -138,7 +156,13 @@ export function createWatchTogetherSessionToasts(
       isPresent: false,
       isReady: false,
       announcedWatching: false,
-      isStartingCohort: now() - startedAt < STARTING_COHORT_WINDOW_MS,
+      // Starting cohort if: seeded from lobby/prior room, first seen during
+      // the connect window, or first seen before local playback has started
+      // (peer still completing the lobby→driver Syncplay handoff).
+      isStartingCohort:
+        initialCohort.has(key) ||
+        now() - startedAt < STARTING_COHORT_WINDOW_MS ||
+        !localStarted,
     };
     const wasPresent = entry.isPresent;
 

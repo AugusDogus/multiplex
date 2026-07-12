@@ -245,7 +245,24 @@ type ConnectionParams = {
   readonly onParticipant: (participant: SyncplayParticipantState) => void;
   readonly onFatalError: () => void;
   readonly onController: (controller: SessionControllerLike) => void;
+  /** Peers already known from lobby / prior room — seeded into toast cohort. */
+  readonly initialCohortDeviceIds?: ReadonlySet<string>;
+  /** Suppress join/leave/playstate toasts (e.g. while rotating episodes). */
+  readonly shouldSuppressNotifications?: () => boolean;
 };
+
+/** Device ids of peers we already consider part of this party. */
+const cohortDeviceIds = (
+  participants: ParticipantMap,
+  localUser: SyncplayUser,
+): ReadonlySet<string> =>
+  new Set(
+    Object.entries(participants).flatMap(([id, participant]) =>
+      id !== localUser.deviceIdentifier && participant.isPresent !== false
+        ? [id]
+        : [],
+    ),
+  );
 
 /**
  * Scoped Syncplay driver: mirrors `bindWatchTogetherSession` (toasts +
@@ -263,6 +280,8 @@ const runConnection = (
       const toasts = createWatchTogetherSessionToasts({
         room: params.room,
         localUser: params.localUser,
+        initialCohortDeviceIds: params.initialCohortDeviceIds,
+        shouldSuppressNotifications: params.shouldSuppressNotifications,
       });
 
       const controller = makeController({
@@ -392,6 +411,9 @@ export const makeWatchTogetherSession = (
     let leaving = false;
     let swapping = false;
     let suppressedRoomId: string | null = null;
+    // Syncplay toast callbacks read this synchronously while rotation is armed
+    // so peers leaving the previous room do not look like they left the party.
+    let suppressSessionNotifications = false;
     let lifecycleGeneration = 0;
 
     const interruptConnection = (): Effect.Effect<void> =>
@@ -473,6 +495,7 @@ export const makeWatchTogetherSession = (
               suppressedRoomId = current.room.id;
             }
           }
+          suppressSessionNotifications = false;
           yield* interruptActive();
           localUser = null;
           yield* SubscriptionRef.set(state, Idle);
@@ -498,10 +521,14 @@ export const makeWatchTogetherSession = (
         }),
       );
 
+    const shouldSuppressSessionNotifications = (): boolean =>
+      suppressSessionNotifications;
+
     const startConnection = (
       room: WatchTogetherRoom,
       user: SyncplayUser,
       generation: number,
+      initialCohortDeviceIds?: ReadonlySet<string>,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
         const fiber = yield* runConnection(
@@ -509,6 +536,8 @@ export const makeWatchTogetherSession = (
             room,
             localUser: user,
             isCurrent: () => lifecycleGeneration === generation,
+            initialCohortDeviceIds,
+            shouldSuppressNotifications: shouldSuppressSessionNotifications,
             onParticipant: (participant) => {
               onPlayingParticipant(participant, generation, room.id);
             },
@@ -931,7 +960,11 @@ export const makeWatchTogetherSession = (
     ): Effect.Effect<void> =>
       SubscriptionRef.update(state, (s) => {
         if (s._tag !== "Playing") return s;
-        return { ...s, rotation: update(s.rotation) };
+        const rotation = update(s.rotation);
+        // Only Gathering is the handoff window where peers disconnect from the
+        // previous Syncplay room; Armed/RoomKnown still surface real leaves.
+        suppressSessionNotifications = rotation._tag === "Gathering";
+        return { ...s, rotation };
       });
 
     /**
@@ -1593,8 +1626,8 @@ export const makeWatchTogetherSession = (
 
     startPlaybackImpl = (input: StartPlaybackInput): Effect.Effect<boolean> =>
       Effect.gen(function* () {
+        const current = yield* SubscriptionRef.get(state);
         if (input.expectedLobby) {
-          const current = yield* SubscriptionRef.get(state);
           if (
             lifecycleGeneration !== input.expectedLobby.generation ||
             input.room.id !== input.expectedLobby.roomId ||
@@ -1604,6 +1637,13 @@ export const makeWatchTogetherSession = (
             return false;
           }
         }
+
+        // Capture lobby peers before interrupt tears the observer down so the
+        // driver-connection toasts treat them as the starting cohort.
+        const initialCohort =
+          current._tag === "Lobby"
+            ? cohortDeviceIds(current.participants, input.localUser)
+            : new Set<string>();
 
         lifecycleGeneration += 1;
         const generation = lifecycleGeneration;
@@ -1624,7 +1664,12 @@ export const makeWatchTogetherSession = (
           startPositionSeconds: input.startPositionSeconds,
         });
 
-        yield* startConnection(input.room, input.localUser, generation);
+        yield* startConnection(
+          input.room,
+          input.localUser,
+          generation,
+          initialCohort,
+        );
         yield* maybeStartRotation();
         return true;
       });
@@ -1634,8 +1679,8 @@ export const makeWatchTogetherSession = (
         const user = localUser;
         if (!user) return;
 
+        const current = yield* SubscriptionRef.get(state);
         if (input.expectedCurrent) {
-          const current = yield* SubscriptionRef.get(state);
           if (
             current._tag !== "Playing" ||
             current.room.id !== input.expectedCurrent.roomId ||
@@ -1646,6 +1691,13 @@ export const makeWatchTogetherSession = (
           }
         }
 
+        // Carry prior-room peers into the next connection's toast cohort so
+        // the Syncplay reconnect after episode swap does not toast "joined".
+        const initialCohort =
+          current._tag === "Playing"
+            ? cohortDeviceIds(current.participants, user)
+            : new Set<string>();
+
         lifecycleGeneration += 1;
         const generation = lifecycleGeneration;
         yield* interruptActive();
@@ -1654,6 +1706,10 @@ export const makeWatchTogetherSession = (
           Effect.timeout(REPLACEMENT_PREPARATION_TIMEOUT),
           Effect.ignore,
         );
+
+        // Load the next item before publishing the session swap so React never
+        // observes Playing(item N+1) while the player is still on item N.
+        player.load(input.item, { resume: false });
 
         // Single atomic ref update: room+item swap with no intermediate state.
         yield* SubscriptionRef.update(state, (s) => {
@@ -1666,9 +1722,9 @@ export const makeWatchTogetherSession = (
           }
           return swapPlayingRoom(s, input.room, toPlayingItem(input.item), {});
         });
+        suppressSessionNotifications = false;
 
-        player.load(input.item, { resume: false });
-        yield* startConnection(input.room, user, generation);
+        yield* startConnection(input.room, user, generation, initialCohort);
         yield* maybeStartRotation();
       }).pipe(serializeLifecycle);
 

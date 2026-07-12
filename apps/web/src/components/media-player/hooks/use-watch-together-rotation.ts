@@ -65,14 +65,20 @@ export function useWatchTogetherRotation({
     const roomId = playing.room.id;
     const previous = previousRoomIdRef.current;
     previousRoomIdRef.current = roomId;
-    if (previous && previous !== roomId) {
-      if (window.location.pathname === getWatchTogetherRoomHref(previous)) {
-        window.history.replaceState(
-          window.history.state,
-          "",
-          getWatchTogetherRoomHref(roomId),
-        );
-      }
+    if (!previous || previous === roomId) {
+      return;
+    }
+    const path = window.location.pathname;
+    const onPreviousLobby = path === getWatchTogetherRoomHref(previous);
+    const onAnyWatchTogetherLobby = path.startsWith("/watch-together/");
+    // Prefer replacing the previous room URL; also recover if the background
+    // route is some other (possibly deleted) Watch Together lobby.
+    if (onPreviousLobby || onAnyWatchTogetherLobby) {
+      window.history.replaceState(
+        window.history.state,
+        "",
+        getWatchTogetherRoomHref(roomId),
+      );
     }
   }, [playing]);
 
