@@ -7,7 +7,10 @@ import {
   type WatchTogetherRoom,
 } from "@multiplex/plex-query";
 
-import { isSessionForRoom } from "./watch-together-lobby-leave";
+import {
+  isSessionForRoom,
+  resolveLobbyLeaveTarget,
+} from "./watch-together-lobby-leave";
 
 const room = (id: string): WatchTogetherRoom => ({
   id,
@@ -38,5 +41,37 @@ describe("isSessionForRoom", () => {
       true,
     );
     expect(isSessionForRoom(Idle, "A")).toBe(false);
+  });
+});
+
+describe("resolveLobbyLeaveTarget", () => {
+  test("leaves and deletes the URL room when it matches the session", () => {
+    expect(
+      resolveLobbyLeaveTarget(playing({ room: room("A"), item }), "A"),
+    ).toEqual({ roomId: "A", leaveSession: true });
+    expect(resolveLobbyLeaveTarget(lobby({ room: room("A") }), "A")).toEqual({
+      roomId: "A",
+      leaveSession: true,
+    });
+  });
+
+  test("after rotation, Leave on the stale lobby targets the live room", () => {
+    expect(
+      resolveLobbyLeaveTarget(playing({ room: room("B"), item }), "A"),
+    ).toEqual({ roomId: "B", leaveSession: true });
+  });
+
+  test("Idle only deletes the URL room", () => {
+    expect(resolveLobbyLeaveTarget(Idle, "A")).toEqual({
+      roomId: "A",
+      leaveSession: false,
+    });
+  });
+
+  test("viewing another lobby while Lobby elsewhere does not tear that session down", () => {
+    expect(resolveLobbyLeaveTarget(lobby({ room: room("B") }), "A")).toEqual({
+      roomId: "A",
+      leaveSession: false,
+    });
   });
 });

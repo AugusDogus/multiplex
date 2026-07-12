@@ -18,7 +18,10 @@ import {
 import { toast } from "sonner";
 
 import { useWatchTogetherRoomMedia } from "~/components/watch-together/use-watch-together-room-media";
-import { isSessionForRoom } from "~/components/watch-together/watch-together-lobby-leave";
+import {
+  isSessionForRoom,
+  resolveLobbyLeaveTarget,
+} from "~/components/watch-together/watch-together-lobby-leave";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { getPlexClientIdentifier } from "~/lib/device-identifier";
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
@@ -111,17 +114,15 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   }, [roomId]);
 
   // After episode rotation the previous room is deleted. If this lobby page is
-  // still mounted on the dead room id while Playing continues elsewhere,
-  // follow the live session room instead of latching "unavailable".
+  // still mounted on the previous room id while Playing continues elsewhere,
+  // follow the live session room. Do not wait for the old room query to error —
+  // a stale TanStack cache entry would otherwise block the redirect forever.
   useEffect(() => {
     if (sessionState._tag !== "Playing" || sessionState.room.id === roomId) {
       return;
     }
-    if (!roomQuery.isError && roomQuery.data) {
-      return;
-    }
     router.replace(getWatchTogetherRoomHref(sessionState.room.id));
-  }, [roomId, roomQuery.data, roomQuery.isError, router, sessionState]);
+  }, [roomId, router, sessionState]);
 
   const sessionParticipants: ParticipantMap = (() => {
     if (
@@ -167,28 +168,35 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   })();
 
   const utils = api.useUtils();
-  const leaveInitiatingSession = async (): Promise<boolean> => {
-    if (!isSessionForRoom(sessionCommands.snapshot(), roomId)) {
-      return false;
+  const leaveActiveSession = async (targetRoomId: string): Promise<void> => {
+    if (!isSessionForRoom(sessionCommands.snapshot(), targetRoomId)) {
+      return;
     }
-
     await sessionCommands.leave({
       suppressAutoStart: false,
-      expectedRoomId: roomId,
+      expectedRoomId: targetRoomId,
     }).completion;
-    return sessionCommands.snapshot()._tag === "Idle";
   };
   const leaveRoom = api.plex.deleteWatchTogetherRoom.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (_data, variables) => {
       await utils.plex.getWatchTogetherRooms.invalidate();
-      if (!(await leaveInitiatingSession())) {
-        return;
-      }
+      await leaveActiveSession(variables.roomId);
+      // Always navigate home on an explicit Leave click. After rotation the URL
+      // room may already be gone and the session room may differ; stranding the
+      // viewer on "unavailable" is worse than going home.
       router.push("/");
     },
-    onError: async () => {
-      if (!(await leaveInitiatingSession())) {
-        return;
+    onError: async (_error, variables) => {
+      // Delete may fail because rotation already removed the room — still leave
+      // the live session when this lobby was targeting it.
+      const target = resolveLobbyLeaveTarget(
+        sessionCommands.snapshot(),
+        roomId,
+      );
+      if (target.leaveSession) {
+        await leaveActiveSession(target.roomId);
+      } else {
+        await leaveActiveSession(variables.roomId);
       }
       router.push("/");
       toast.error("Couldn't remove the session, but you've left it.");
@@ -240,7 +248,8 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     if (leaving) {
       return;
     }
-    leaveRoom.mutate({ roomId });
+    const target = resolveLobbyLeaveTarget(sessionCommands.snapshot(), roomId);
+    leaveRoom.mutate({ roomId: target.roomId });
   };
 
   const participantsByUserId = mergeParticipantsByUserId(sessionParticipants);

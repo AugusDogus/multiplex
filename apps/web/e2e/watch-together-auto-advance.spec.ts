@@ -332,11 +332,23 @@ test("a session auto-advances both viewers to the next episode without leaving t
       .toBe(false);
     console.error("E2E step: guest resumed with host after auto-advance");
 
+    // Closing the player must land on the live next-room lobby, not a deleted
+    // previous room ("unavailable") — requires App Router URL follow on swap.
+    console.error("E2E step: host closes player onto live lobby");
+    await host.locator('button[aria-label="Close"]').click();
+    await expect(host.locator("video")).toHaveCount(0, { timeout: 15_000 });
+    await expect(
+      host.getByText("This Watch Together room is unavailable."),
+    ).toHaveCount(0);
+    await expect(host).toHaveURL(
+      new RegExp(`/watch-together/${hostPath.split("/").pop()}`),
+    );
+    console.error("E2E step: host is on the live lobby after close");
+
     // Hold for a moment of stable post-swap playback: catches an immediate
     // post-swap crash and leaves recordings/traces showing the episode
     // actually running.
-    await host.waitForTimeout(8_000);
-    await expect(host.locator("video")).toBeVisible();
+    await guest.waitForTimeout(2_000);
     await expect(guest.locator("video")).toBeVisible();
   } finally {
     // Disband whatever rooms this test left behind (the original room is
