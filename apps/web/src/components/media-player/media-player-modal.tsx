@@ -885,6 +885,7 @@ function PlayerCloseButton({
         variant="ghost"
         size="icon"
         onClick={onClose}
+        aria-label="Close"
         className="text-white hover:bg-white/20"
       >
         <X className="h-6 w-6" />

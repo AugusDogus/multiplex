@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { rotationCountdown } from "@multiplex/plex-query";
 
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
@@ -27,6 +28,7 @@ export function useWatchTogetherRotation({
   enabled,
   nextEpisode,
 }: UseWatchTogetherRotationOptions) {
+  const router = useRouter();
   const sessionState = useSessionState();
   const { currentTime, duration } = usePlayerStateSelector(
     (state) => ({
@@ -53,34 +55,32 @@ export function useWatchTogetherRotation({
   // The page under the modal is usually the previous room's lobby, which is
   // now gone after a swap. Silently move it to the next room's lobby (the
   // modal stays on top, so nothing flashes), so closing the player later
-  // doesn't strand the viewer on a dead room page. (One-shot imperative check
-  // — window.location rather than usePathname(), which the statically
-  // prerendered root layout can't read outside a Suspense boundary.)
+  // doesn't strand the viewer on a dead room page.
+  //
+  // Use Next.js router.replace (not history.replaceState) so the App Router
+  // segment matches the live room — otherwise Leave/exitLobby still see the
+  // stale roomId param and no-op. Path is read from window.location rather
+  // than usePathname(), which the statically prerendered root layout can't
+  // read outside a Suspense boundary.
   const previousRoomIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!playing) {
       previousRoomIdRef.current = null;
       return;
     }
-    const roomId = playing.room.id;
+    const nextRoomId = playing.room.id;
     const previous = previousRoomIdRef.current;
-    previousRoomIdRef.current = roomId;
-    if (!previous || previous === roomId) {
+    previousRoomIdRef.current = nextRoomId;
+    if (!previous || previous === nextRoomId) {
       return;
     }
     const path = window.location.pathname;
     const onPreviousLobby = path === getWatchTogetherRoomHref(previous);
     const onAnyWatchTogetherLobby = path.startsWith("/watch-together/");
-    // Prefer replacing the previous room URL; also recover if the background
-    // route is some other (possibly deleted) Watch Together lobby.
     if (onPreviousLobby || onAnyWatchTogetherLobby) {
-      window.history.replaceState(
-        window.history.state,
-        "",
-        getWatchTogetherRoomHref(roomId),
-      );
+      router.replace(getWatchTogetherRoomHref(nextRoomId));
     }
-  }, [playing]);
+  }, [playing, router]);
 
   const timeRemaining =
     duration > 0 ? duration - currentTime : Number.POSITIVE_INFINITY;

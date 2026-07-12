@@ -1722,9 +1722,12 @@ export const makeWatchTogetherSession = (
           }
           return swapPlayingRoom(s, input.room, toPlayingItem(input.item), {});
         });
-        suppressSessionNotifications = false;
+        // Keep social toasts suppressed until the new Syncplay driver is up so
+        // peers reconnecting on the next room are not toasted as leave/join.
+        suppressSessionNotifications = true;
 
         yield* startConnection(input.room, user, generation, initialCohort);
+        suppressSessionNotifications = false;
         yield* maybeStartRotation();
       }).pipe(serializeLifecycle);
 
