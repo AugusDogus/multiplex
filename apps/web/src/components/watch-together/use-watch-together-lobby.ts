@@ -87,11 +87,12 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   // refetches only refresh the room object without reconnecting; while Playing
   // it is a no-op (driver owns the socket).
   useEffect(() => {
-    if (!room || !localUser) {
+    const currentRoom = roomQuery.data;
+    if (!currentRoom || !localUser) {
       return;
     }
-    sessionCommands.enterLobby({ room, localUser });
-  }, [room, roomQuery.data, localUser, sessionState._tag]);
+    sessionCommands.enterLobby({ room: currentRoom, localUser });
+  }, [roomQuery.data, localUser, sessionState._tag]);
 
   // Always queue cleanup after enter/start. Room guards keep delayed cleanup
   // from touching a replacement session.
