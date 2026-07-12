@@ -5,7 +5,7 @@ import {
   isHubQueryLoading,
   PLEX_HUB_QUERY_OPTIONS,
 } from "~/lib/plex-hub-query-options";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 
 export function HomeHubs() {
   const {

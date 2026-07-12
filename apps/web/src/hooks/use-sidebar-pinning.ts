@@ -5,7 +5,7 @@ import {
   type PlexUserInfo,
   toPinnedSource,
 } from "@multiplex/plex-query";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 
 function applyPinnedSourceUpdate(
   userInfo: PlexUserInfo,

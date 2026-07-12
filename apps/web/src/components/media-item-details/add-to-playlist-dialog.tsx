@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 
 import type { ItemDetails } from "./types";
 

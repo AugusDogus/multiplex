@@ -18,7 +18,7 @@ import {
 import { getTypeNumber } from "~/lib/library-browse-params";
 import { POSTER_GRID_INSET_CLASSNAME } from "~/lib/poster-grid-layout";
 import { cn } from "~/lib/utils";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 
 interface LibraryControlsProps {
   machineIdentifier: string;

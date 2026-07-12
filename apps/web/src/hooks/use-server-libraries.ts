@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { PlexDevice } from "@multiplex/plex-query";
 import type { plexRouterOutputs } from "~/server/api/routers/plex";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 
 export interface ServerLibraryState {
   data: plexRouterOutputs["getAllServerLibraries"][number] | null;

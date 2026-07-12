@@ -8,7 +8,7 @@ import {
   type ItemDetailsRouteType,
 } from "~/lib/plex-routes";
 import { PLEX_DETAILS_QUERY_OPTIONS } from "~/lib/plex-details-query-options";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 
 interface MediaItemDetailsPageClientProps {
   serverId: string;

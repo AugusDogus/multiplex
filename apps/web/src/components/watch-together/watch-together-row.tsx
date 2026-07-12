@@ -23,7 +23,7 @@ import {
 import { useWatchTogetherRoomMedia } from "~/components/watch-together/use-watch-together-room-media";
 import { getWatchTogetherRoomHref } from "~/lib/watch-together-source";
 import { cn } from "~/lib/utils";
-import { api, type RouterOutputs } from "~/trpc/react";
+import { api, type RouterOutputs } from "~/trpc/api";
 
 type WatchTogetherRoom = RouterOutputs["plex"]["getWatchTogetherRooms"][number];
 

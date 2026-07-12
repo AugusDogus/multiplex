@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { playerCommands } from "~/lib/effect/player-atoms";
 import type { MediaPlayerItem } from "~/types/media-player";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 
 /* ────────────────────────────────────────────────────────────
    Play Queue Hook

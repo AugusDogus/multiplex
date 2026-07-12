@@ -7,7 +7,7 @@ import {
   parseLibraryItemUri,
 } from "@multiplex/plex-query";
 
-import { api, type RouterOutputs } from "~/trpc/react";
+import { api, type RouterOutputs } from "~/trpc/api";
 
 type ItemDetails = NonNullable<RouterOutputs["plex"]["getItemDetails"]>;
 

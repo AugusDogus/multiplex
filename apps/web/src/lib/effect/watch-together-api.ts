@@ -5,7 +5,7 @@ import { Context, Data, Effect, Layer } from "effect";
 
 import type { AppRouter } from "~/server/api/root";
 import { createTrpcClientLinks } from "~/trpc/client-links";
-import type { RouterInputs, RouterOutputs } from "~/trpc/react";
+import type { RouterInputs, RouterOutputs } from "~/trpc/api";
 
 export class WatchTogetherApiError extends Data.TaggedError(
   "WatchTogetherApiError",

@@ -22,7 +22,7 @@ import { isSessionForRoom } from "~/components/watch-together/watch-together-lob
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { getPlexClientIdentifier } from "~/lib/device-identifier";
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 
 export type LobbyViewModel =
   | { readonly status: "loading" }

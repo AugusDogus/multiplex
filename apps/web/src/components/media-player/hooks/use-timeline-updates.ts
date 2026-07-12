@@ -4,7 +4,7 @@ import { useRef } from "react";
 import { usePlayerStateSelector } from "~/lib/effect/player-atoms";
 import { shallow } from "zustand/shallow";
 import { useProgressStore } from "~/stores/progress-store";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 
 /* ────────────────────────────────────────────────────────────
    Timeline Updates Hook

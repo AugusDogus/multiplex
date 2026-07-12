@@ -9,7 +9,7 @@ import {
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import { shallow } from "zustand/shallow";
 import type { NextEpisodeInfo } from "~/types/media-player";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 
 /* ────────────────────────────────────────────────────────────
    Auto-Play Next Episode Hook

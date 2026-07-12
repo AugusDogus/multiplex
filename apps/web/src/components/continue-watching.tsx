@@ -18,7 +18,7 @@ import { useVisibilityChange } from "~/hooks/use-visibility-change";
 import { useItemDetailsNavigation } from "~/hooks/use-item-details-navigation";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { isHubQueryLoading } from "~/lib/plex-hub-query-options";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 
 /* ────────────────────────────────────────────────────────────
    Continue Watching Component

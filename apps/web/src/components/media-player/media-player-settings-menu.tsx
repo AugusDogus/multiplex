@@ -15,7 +15,7 @@ import {
 } from "~/lib/effect/player-atoms";
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import { shallow } from "zustand/shallow";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 import type { MediaPlayerItem, PlaybackRate } from "~/types/media-player";
 import { CAPTION_SIZE_OPTIONS } from "./utils/caption-size";
 import { playbackUsesTranscode } from "./utils/plex-playback-plan";
