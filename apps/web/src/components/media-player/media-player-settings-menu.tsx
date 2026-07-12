@@ -141,6 +141,7 @@ export function MediaPlayerSettingsMenu({
     metadataRatingKey,
     streamSessionId,
     applyPlaybackMetadata,
+    currentItem,
   ]);
 
   const streamSource: StreamSource = detailedItem ?? currentItem;

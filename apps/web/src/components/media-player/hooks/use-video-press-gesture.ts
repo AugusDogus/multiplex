@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
@@ -78,122 +78,107 @@ export function useVideoPressGesture({
   );
   const suppressClickRef = useRef(false);
 
-  const clearActivation = useCallback(() => {
+  const clearActivation = () => {
     if (activationTimeoutRef.current) {
       clearTimeout(activationTimeoutRef.current);
       activationTimeoutRef.current = null;
     }
-  }, []);
+  };
 
-  const release = useCallback(
-    (pointerId: number) => {
+  const release = (pointerId: number) => {
+    if (pointerIdRef.current !== pointerId) return;
+
+    const video = videoRef.current;
+    if (video && previousRateRef.current !== null && holdAppliedRef.current) {
+      video.playbackRate = previousRateRef.current;
+    }
+
+    previousRateRef.current = null;
+    pointerIdRef.current = null;
+    startPosRef.current = null;
+    draggedRef.current = false;
+    holdAppliedRef.current = false;
+    clearActivation();
+    setIsHolding(false);
+  };
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (pointerIdRef.current !== null) return;
+
+    const video = videoRef.current;
+    if (!video) return;
+
+    const pointerId = event.pointerId;
+    previousRateRef.current = video.playbackRate;
+    pointerIdRef.current = pointerId;
+    startPosRef.current = { x: event.clientX, y: event.clientY };
+    draggedRef.current = false;
+    holdAppliedRef.current = false;
+    event.currentTarget.setPointerCapture(pointerId);
+
+    // When hold-to-fast-forward is disabled, a press is only ever a tap/click;
+    // never schedule the rate change.
+    if (!holdEnabled) return;
+
+    // Defer the playback rate change until the press qualifies as a hold,
+    // so quick taps don't briefly jitter playback rate.
+    clearActivation();
+    activationTimeoutRef.current = setTimeout(() => {
+      activationTimeoutRef.current = null;
       if (pointerIdRef.current !== pointerId) return;
 
-      const video = videoRef.current;
-      if (video && previousRateRef.current !== null && holdAppliedRef.current) {
-        video.playbackRate = previousRateRef.current;
-      }
+      const activeVideo = videoRef.current;
+      if (!activeVideo) return;
 
-      previousRateRef.current = null;
-      pointerIdRef.current = null;
-      startPosRef.current = null;
-      draggedRef.current = false;
-      holdAppliedRef.current = false;
-      clearActivation();
-      setIsHolding(false);
-    },
-    [clearActivation, videoRef],
-  );
+      activeVideo.playbackRate = holdRate;
+      holdAppliedRef.current = true;
+      setIsHolding(true);
+    }, holdActivationMs);
+  };
 
-  const handlePointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      if (event.pointerType === "mouse" && event.button !== 0) return;
-      if (pointerIdRef.current !== null) return;
+  const handlePointerMove = (event: ReactPointerEvent<HTMLElement>) => {
+    if (pointerIdRef.current !== event.pointerId) return;
+    if (draggedRef.current) return;
 
-      const video = videoRef.current;
-      if (!video) return;
+    const start = startPosRef.current;
+    if (!start) return;
 
-      const pointerId = event.pointerId;
-      previousRateRef.current = video.playbackRate;
-      pointerIdRef.current = pointerId;
-      startPosRef.current = { x: event.clientX, y: event.clientY };
-      draggedRef.current = false;
-      holdAppliedRef.current = false;
-      event.currentTarget.setPointerCapture(pointerId);
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    if (Math.hypot(dx, dy) < dragTolerancePx) return;
 
-      // When hold-to-fast-forward is disabled, a press is only ever a tap/click;
-      // never schedule the rate change.
-      if (!holdEnabled) return;
+    draggedRef.current = true;
+    clearActivation();
+  };
 
-      // Defer the playback rate change until the press qualifies as a hold,
-      // so quick taps don't briefly jitter playback rate.
-      clearActivation();
-      activationTimeoutRef.current = setTimeout(() => {
-        activationTimeoutRef.current = null;
-        if (pointerIdRef.current !== pointerId) return;
+  const handlePointerEnd = (event: ReactPointerEvent<HTMLElement>) => {
+    if (pointerIdRef.current !== event.pointerId) return;
 
-        const activeVideo = videoRef.current;
-        if (!activeVideo) return;
+    const wasHold = holdAppliedRef.current;
+    const wasDrag = draggedRef.current;
 
-        activeVideo.playbackRate = holdRate;
-        holdAppliedRef.current = true;
-        setIsHolding(true);
-      }, holdActivationMs);
-    },
-    [clearActivation, holdActivationMs, holdEnabled, holdRate, videoRef],
-  );
+    if (wasHold || wasDrag) {
+      suppressClickRef.current = true;
+    }
 
-  const handlePointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      if (pointerIdRef.current !== event.pointerId) return;
-      if (draggedRef.current) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    release(event.pointerId);
 
-      const start = startPosRef.current;
-      if (!start) return;
+    if (!wasHold && !wasDrag && onTap) {
+      onTap(event);
+    }
+  };
 
-      const dx = event.clientX - start.x;
-      const dy = event.clientY - start.y;
-      if (Math.hypot(dx, dy) < dragTolerancePx) return;
-
-      draggedRef.current = true;
-      clearActivation();
-    },
-    [clearActivation, dragTolerancePx],
-  );
-
-  const handlePointerEnd = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      if (pointerIdRef.current !== event.pointerId) return;
-
-      const wasHold = holdAppliedRef.current;
-      const wasDrag = draggedRef.current;
-
-      if (wasHold || wasDrag) {
-        suppressClickRef.current = true;
-      }
-
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-      release(event.pointerId);
-
-      if (!wasHold && !wasDrag && onTap) {
-        onTap(event);
-      }
-    },
-    [onTap, release],
-  );
-
-  const handleClick = useCallback(
-    (event: ReactMouseEvent<HTMLElement>) => {
-      if (suppressClickRef.current) {
-        suppressClickRef.current = false;
-        return;
-      }
-      onClick?.(event);
-    },
-    [onClick],
-  );
+  const handleClick = (event: ReactMouseEvent<HTMLElement>) => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+    onClick?.(event);
+  };
 
   // Defensive cleanup: if the consumer unmounts mid-press, the pending hold
   // timer would otherwise fire afterward, touch a stale `videoRef`, and call

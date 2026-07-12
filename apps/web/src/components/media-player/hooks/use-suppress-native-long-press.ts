@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useRef } from "react";
 
 function suppressNativeLongPress(event: TouchEvent) {
   if (event.touches.length > 1) return;
@@ -15,25 +15,22 @@ function suppressNativeLongPress(event: TouchEvent) {
 export function useSuppressNativeLongPress(enabled: boolean) {
   const elementRef = useRef<HTMLDivElement | null>(null);
 
-  return useCallback(
-    (node: HTMLDivElement | null) => {
-      if (elementRef.current) {
-        elementRef.current.removeEventListener(
-          "touchstart",
-          suppressNativeLongPress,
-        );
-        elementRef.current = null;
-      }
+  return (node: HTMLDivElement | null) => {
+    if (elementRef.current) {
+      elementRef.current.removeEventListener(
+        "touchstart",
+        suppressNativeLongPress,
+      );
+      elementRef.current = null;
+    }
 
-      if (node === null) return;
+    if (node === null) return;
 
-      elementRef.current = node;
-      if (enabled) {
-        node.addEventListener("touchstart", suppressNativeLongPress, {
-          passive: false,
-        });
-      }
-    },
-    [enabled],
-  );
+    elementRef.current = node;
+    if (enabled) {
+      node.addEventListener("touchstart", suppressNativeLongPress, {
+        passive: false,
+      });
+    }
+  };
 }

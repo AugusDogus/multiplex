@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
 import { rotationCountdown } from "@multiplex/plex-query";
 
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
@@ -37,7 +36,6 @@ export function useWatchTogetherRotation({
     shallow,
   );
   const autoPlayEnabled = usePlayerPrefsStore((state) => state.autoPlayEnabled);
-  const router = useRouter();
 
   const playing =
     enabled && sessionState._tag === "Playing" ? sessionState : null;
@@ -69,10 +67,14 @@ export function useWatchTogetherRotation({
     previousRoomIdRef.current = roomId;
     if (previous && previous !== roomId) {
       if (window.location.pathname === getWatchTogetherRoomHref(previous)) {
-        router.replace(getWatchTogetherRoomHref(roomId));
+        window.history.replaceState(
+          window.history.state,
+          "",
+          getWatchTogetherRoomHref(roomId),
+        );
       }
     }
-  }, [playing, router]);
+  }, [playing]);
 
   const timeRemaining =
     duration > 0 ? duration - currentTime : Number.POSITIVE_INFINITY;

@@ -171,7 +171,7 @@ const setState = (
   );
 };
 
-const getVideoSourceSignature = (item: MediaPlayerItem): string => {
+const getVideoSourceIdentity = (item: MediaPlayerItem): string => {
   const media = item.Media?.[0];
   const plan = buildPlexPlaybackPlan(item);
 
@@ -379,8 +379,8 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
           };
           const plan = buildPlexPlaybackPlan(hydratedItem);
           const videoSourceChanged =
-            getVideoSourceSignature(current.currentItem) !==
-            getVideoSourceSignature(hydratedItem);
+            getVideoSourceIdentity(current.currentItem) !==
+            getVideoSourceIdentity(hydratedItem);
           const preserveCurrentTime =
             options?.preserveCurrentTime ?? current.currentTime;
 
