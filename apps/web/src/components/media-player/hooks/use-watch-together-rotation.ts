@@ -78,7 +78,13 @@ export function useWatchTogetherRotation({
     const onPreviousLobby = path === getWatchTogetherRoomHref(previous);
     const onAnyWatchTogetherLobby = path.startsWith("/watch-together/");
     if (onPreviousLobby || onAnyWatchTogetherLobby) {
-      router.replace(getWatchTogetherRoomHref(nextRoomId));
+      const href = getWatchTogetherRoomHref(nextRoomId);
+      // Replace the address bar immediately so Playwright/assertions and any
+      // code reading window.location see the live room without waiting on the
+      // App Router soft-navigation. Also notify Next so the [roomId] segment
+      // remounts against the live room (Leave/exitLobby expectedRoomId guards).
+      window.history.replaceState(window.history.state, "", href);
+      router.replace(href);
     }
   }, [playing, router]);
 
