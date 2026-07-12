@@ -113,16 +113,18 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     };
   }, [roomId]);
 
-  // After episode rotation the previous room is deleted. If this lobby page is
-  // still mounted on the previous room id while Playing continues elsewhere,
-  // follow the live session room. Do not wait for the old room query to error —
-  // a stale TanStack cache entry would otherwise block the redirect forever.
+  // After episode rotation the previous room is deleted. Keep the address bar
+  // on the live room via replaceState only — soft-navigating while Playing
+  // remounts this lobby under the modal and breaks Syncplay pause sync.
   useEffect(() => {
     if (sessionState._tag !== "Playing" || sessionState.room.id === roomId) {
       return;
     }
-    router.replace(getWatchTogetherRoomHref(sessionState.room.id));
-  }, [roomId, router, sessionState]);
+    const href = getWatchTogetherRoomHref(sessionState.room.id);
+    if (window.location.pathname !== href) {
+      window.history.replaceState(window.history.state, "", href);
+    }
+  }, [roomId, sessionState]);
 
   const sessionParticipants: ParticipantMap = (() => {
     if (

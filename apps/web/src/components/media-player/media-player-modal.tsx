@@ -1,6 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
+import { useRouter } from "next/navigation";
 import {
   useEffect,
   useRef,
@@ -46,6 +47,7 @@ import {
 import { mediaPlayerControlsTransition } from "./utils/media-player-controls-transition";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
+import { getWatchTogetherRoomHref } from "~/lib/watch-together-source";
 import { cn } from "~/lib/utils";
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import { shallow } from "zustand/shallow";
@@ -472,6 +474,7 @@ function usePlaybackSessionController({
 }
 
 export function MediaPlayerModal() {
+  const router = useRouter();
   const {
     isOpen,
     currentItem,
@@ -552,6 +555,18 @@ export function MediaPlayerModal() {
   });
 
   const handleClose = () => {
+    // Reconcile the App Router segment to the live room before leave → Idle.
+    // During playback we only history.replaceState (to avoid remounting the
+    // lobby under the modal); without this, closing after rotation lands on
+    // the deleted previous room's page param ("unavailable").
+    const session = sessionCommands.snapshot();
+    if (session._tag === "Playing" || session._tag === "Lobby") {
+      const href = getWatchTogetherRoomHref(session.room.id);
+      if (window.location.pathname !== href) {
+        window.history.replaceState(window.history.state, "", href);
+      }
+      router.replace(href);
+    }
     onStop();
     clearTimelineSession();
     // Deliberate leave — suppress auto-start for this room.

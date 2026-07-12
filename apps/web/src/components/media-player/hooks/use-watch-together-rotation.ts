@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
 import { rotationCountdown } from "@multiplex/plex-query";
 
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
@@ -28,7 +27,6 @@ export function useWatchTogetherRotation({
   enabled,
   nextEpisode,
 }: UseWatchTogetherRotationOptions) {
-  const router = useRouter();
   const sessionState = useSessionState();
   const { currentTime, duration } = usePlayerStateSelector(
     (state) => ({
@@ -53,15 +51,13 @@ export function useWatchTogetherRotation({
   }, [enabled, nextEpisode, autoPlayEnabled]);
 
   // The page under the modal is usually the previous room's lobby, which is
-  // now gone after a swap. Silently move it to the next room's lobby (the
-  // modal stays on top, so nothing flashes), so closing the player later
-  // doesn't strand the viewer on a dead room page.
+  // now gone after a swap. Update the address bar to the next room so closing
+  // the player / Leave can target the live session.
   //
-  // Use Next.js router.replace (not history.replaceState) so the App Router
-  // segment matches the live room — otherwise Leave/exitLobby still see the
-  // stale roomId param and no-op. Path is read from window.location rather
-  // than usePathname(), which the statically prerendered root layout can't
-  // read outside a Suspense boundary.
+  // Use history.replaceState only — not router.replace — while Playing.
+  // Soft-navigating the App Router remounts the lobby under the modal and was
+  // observed to break post-swap pause sync. Leave resolves the live room via
+  // resolveLobbyLeaveTarget; player close reconciles the App Router segment.
   const previousRoomIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!playing) {
@@ -78,15 +74,13 @@ export function useWatchTogetherRotation({
     const onPreviousLobby = path === getWatchTogetherRoomHref(previous);
     const onAnyWatchTogetherLobby = path.startsWith("/watch-together/");
     if (onPreviousLobby || onAnyWatchTogetherLobby) {
-      const href = getWatchTogetherRoomHref(nextRoomId);
-      // Replace the address bar immediately so Playwright/assertions and any
-      // code reading window.location see the live room without waiting on the
-      // App Router soft-navigation. Also notify Next so the [roomId] segment
-      // remounts against the live room (Leave/exitLobby expectedRoomId guards).
-      window.history.replaceState(window.history.state, "", href);
-      router.replace(href);
+      window.history.replaceState(
+        window.history.state,
+        "",
+        getWatchTogetherRoomHref(nextRoomId),
+      );
     }
-  }, [playing, router]);
+  }, [playing]);
 
   const timeRemaining =
     duration > 0 ? duration - currentTime : Number.POSITIVE_INFINITY;
