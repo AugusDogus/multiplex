@@ -138,6 +138,13 @@ export function usePlexSubtitleTrack(
         headers: { Accept: "text/plain,*/*" },
         signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]),
       });
+      if (!response.ok) {
+        // TanStack Query owns this Promise boundary and exposes the rejection
+        // through `externalSubtitleQuery.error` below.
+        throw new Error(
+          `Plex subtitle request failed with status ${response.status}`,
+        );
+      }
       return response.text();
     },
     enabled: externalSubtitleUrl !== null,
