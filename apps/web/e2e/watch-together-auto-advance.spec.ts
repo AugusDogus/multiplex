@@ -193,6 +193,7 @@ test("a session auto-advances both viewers to the next episode without leaving t
     await expectPlayingAndAdvancing(host, "host after 90% seek");
 
     const seekDeadline = Date.now() + 120_000;
+    let lastRemaining = Number.POSITIVE_INFINITY;
     for (;;) {
       const remaining = durationSeconds - (await playbackPosition(host));
       console.error(`E2E step: host remaining ~${Math.round(remaining)}s`);
@@ -204,7 +205,14 @@ test("a session auto-advances both viewers to the next episode without leaving t
       if (Date.now() > seekDeadline) {
         throw new Error("could not get near the episode end in time");
       }
-      await pressPlayerKey(host, "ArrowRight", remaining > 75);
+      // If a skip-forward reload lost the timeline offset (remaining jumps back
+      // up), re-assert the percent seek instead of digging a deeper hole.
+      if (remaining > lastRemaining + 30) {
+        await pressPlayerKey(host, "Digit9");
+      } else {
+        await pressPlayerKey(host, "ArrowRight", remaining > 75);
+      }
+      lastRemaining = remaining;
       await host.waitForTimeout(5_000);
     }
 
