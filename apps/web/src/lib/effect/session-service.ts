@@ -961,9 +961,10 @@ export const makeWatchTogetherSession = (
       SubscriptionRef.update(state, (s) => {
         if (s._tag !== "Playing") return s;
         const rotation = update(s.rotation);
-        // Only Gathering is the handoff window where peers disconnect from the
-        // previous Syncplay room; Armed/RoomKnown still surface real leaves.
-        suppressSessionNotifications = rotation._tag === "Gathering";
+        // Suppress social toasts for the whole armed rotation window. Peers can
+        // emit pause/leave edges while still on the previous Syncplay room
+        // (episode end, disconnect) before Gathering starts on a slower client.
+        suppressSessionNotifications = rotation._tag !== "None";
         return { ...s, rotation };
       });
 

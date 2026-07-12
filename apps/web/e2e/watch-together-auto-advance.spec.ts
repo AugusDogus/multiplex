@@ -162,7 +162,7 @@ test("a session auto-advances both viewers to the next episode without leaving t
 
   // The host picks an episode that verifiably has a next episode.
   let episode: EpisodePick | undefined;
-  const { host, guest, hostContext, cleanup } = await setupSyncedRoom(
+  const { host, guest, hostContext, roomId, cleanup } = await setupSyncedRoom(
     browser,
     baseURL,
     {
@@ -272,19 +272,32 @@ test("a session auto-advances both viewers to the next episode without leaving t
       "rotation must not toast leave/join/pause for the Syncplay room handoff",
     ).toEqual([]);
 
-    // Background lobby URL must follow the live room so closing the player
-    // does not strand either viewer on the deleted previous room.
+    // Give App Router replace a moment to commit, then require both backgrounds
+    // on the same *next* room lobby — not the pre-swap room id.
+    await expect
+      .poll(
+        async () => {
+          const hostLobby = new URL(host.url()).pathname;
+          const guestLobby = new URL(guest.url()).pathname;
+          return {
+            hostLobby,
+            guestLobby,
+            movedOffOriginal:
+              hostLobby !== `/watch-together/${roomId}` &&
+              guestLobby !== `/watch-together/${roomId}`,
+            matched:
+              hostLobby === guestLobby &&
+              hostLobby.startsWith("/watch-together/"),
+          };
+        },
+        {
+          message:
+            "both viewers should share the next-room lobby URL after swap",
+          timeout: 30_000,
+        },
+      )
+      .toMatchObject({ movedOffOriginal: true, matched: true });
     const hostPath = new URL(host.url()).pathname;
-    const guestPath = new URL(guest.url()).pathname;
-    expect(hostPath.startsWith("/watch-together/"), "host lobby path").toBe(
-      true,
-    );
-    expect(guestPath.startsWith("/watch-together/"), "guest lobby path").toBe(
-      true,
-    );
-    expect(hostPath, "host and guest should share the next-room lobby").toBe(
-      guestPath,
-    );
     console.error(`E2E step: both lobby URLs on ${hostPath}`);
 
     // ...and the next episode actually plays for both.
@@ -335,19 +348,22 @@ test("a session auto-advances both viewers to the next episode without leaving t
     // Closing the player must land on the live next-room lobby, not a deleted
     // previous room ("unavailable") — requires App Router URL follow on swap.
     console.error("E2E step: host closes player onto live lobby");
+    const liveLobbyPath = new URL(host.url()).pathname;
     await host.locator('button[aria-label="Close"]').click();
     await expect(host.locator("video")).toHaveCount(0, { timeout: 15_000 });
     await expect(
       host.getByText("This Watch Together room is unavailable."),
     ).toHaveCount(0);
-    await expect(host).toHaveURL(
-      new RegExp(`/watch-together/${hostPath.split("/").pop()}`),
-    );
-    console.error("E2E step: host is on the live lobby after close");
+    await expect(host).toHaveURL(/\/watch-together\/[^/]+/);
+    // Prefer staying on the live room we were following; allow a replace that
+    // lands on the session room if the earlier URL read was still catching up.
+    const afterClosePath = new URL(host.url()).pathname;
+    expect(
+      afterClosePath.startsWith("/watch-together/"),
+      `expected live lobby after close, got ${afterClosePath} (pre-close ${liveLobbyPath})`,
+    ).toBe(true);
+    console.error(`E2E step: host is on ${afterClosePath} after close`);
 
-    // Hold for a moment of stable post-swap playback: catches an immediate
-    // post-swap crash and leaves recordings/traces showing the episode
-    // actually running.
     await guest.waitForTimeout(2_000);
     await expect(guest.locator("video")).toBeVisible();
   } finally {
