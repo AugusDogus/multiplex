@@ -54,7 +54,7 @@ export function AppHeader({
 
   const breadcrumbTrail = breadcrumbs?.length ? (
     breadcrumbs.map((crumb, index) => (
-      <Fragment key={`${crumb.label}-${index}`}>
+      <Fragment key={`${crumb.href ?? "current"}-${crumb.label}`}>
         {index > 0 && <BreadcrumbSeparator />}
         <BreadcrumbItem className="max-w-[34vw] shrink-0 truncate sm:max-w-none">
           {crumb.href ? (

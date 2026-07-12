@@ -153,12 +153,9 @@ export async function searchQuery(
     const serverResults = await Promise.allSettled(serverPromises);
 
     // Extract successful results
-    const allResults = serverResults
-      .filter(
-        (result): result is PromiseFulfilledResult<ProcessedSearchResult[]> =>
-          result.status === "fulfilled",
-      )
-      .flatMap((result) => result.value);
+    const allResults = serverResults.flatMap((result) =>
+      result.status === "fulfilled" ? result.value : [],
+    );
 
     // Sort by relevance score
     allResults.sort((a, b) => b.score - a.score);

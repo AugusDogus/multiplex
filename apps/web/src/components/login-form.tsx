@@ -5,18 +5,18 @@ import { Button } from "~/components/ui/button";
 import { authClient } from "~/lib/auth/client";
 import { cn } from "~/lib/utils";
 
+async function handlePlexLogin() {
+  try {
+    await authClient.plex.signIn();
+  } catch (cause) {
+    console.error("Failed to initiate Plex authentication:", cause);
+  }
+}
+
 export function LoginForm({
   className,
   ...props
 }: React.ComponentProps<"div">) {
-  const handlePlexLogin = async () => {
-    try {
-      await authClient.plex.signIn();
-    } catch (error) {
-      console.error("Failed to initiate Plex authentication:", error);
-    }
-  };
-
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <div className="flex flex-col gap-6">

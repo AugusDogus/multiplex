@@ -174,8 +174,8 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
       <h3 className="truncate text-sm leading-tight font-medium">{title}</h3>
       {subtitle && (
         <div className="text-muted-foreground text-xs leading-tight">
-          {subtitle.split("\n").map((line, index) => (
-            <div key={index} className="truncate">
+          {subtitle.split("\n").map((line) => (
+            <div key={line} className="truncate">
               {line}
             </div>
           ))}

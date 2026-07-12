@@ -636,6 +636,9 @@ export const MediaPlayerVideo = forwardRef<
     return (
       <div
         ref={surfaceRef}
+        role="button"
+        tabIndex={0}
+        aria-label="Video playback surface"
         className={`touch-action-none relative h-full w-full cursor-pointer overflow-hidden bg-black select-none [-webkit-touch-callout:none] ${className}`}
         {...pressPointerHandlers}
         // Only suppress the context menu on mobile, where it's triggered by
@@ -648,6 +651,12 @@ export const MediaPlayerVideo = forwardRef<
         }
         onClick={handleVideoClick}
         onDoubleClick={handleVideoDoubleClick}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onVideoClick?.();
+          }
+        }}
       >
         <video
           key={`${streamSessionId}:${sourceGeneration}`}

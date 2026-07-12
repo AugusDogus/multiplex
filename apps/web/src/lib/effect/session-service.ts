@@ -1100,9 +1100,9 @@ export const makeWatchTogetherSession = (
                     ratingKey: nextEpisode.ratingKey,
                     key: nextEpisode.key,
                     title: nextEpisode.title || `Episode ${nextEpisode.index}`,
-                    users: currentRoom.users
-                      .map((u) => u.id)
-                      .filter((id) => id !== user.id),
+                    users: currentRoom.users.flatMap((roomUser) =>
+                      roomUser.id === user.id ? [] : [roomUser.id],
+                    ),
                   })
                   .pipe(Effect.exit);
                 createFiber = null;
@@ -1214,11 +1214,13 @@ export const makeWatchTogetherSession = (
                                       return rotationGathering(
                                         phase.nextRoom,
                                         new Set(
-                                          Object.entries(gathered)
-                                            .filter(
-                                              ([, p]) => p.isPresent === true,
-                                            )
-                                            .map(([id]) => id),
+                                          Object.entries(gathered).flatMap(
+                                            ([id, participantState]) =>
+                                              participantState.isPresent ===
+                                              true
+                                                ? [id]
+                                                : [],
+                                          ),
                                         ),
                                       );
                                     });

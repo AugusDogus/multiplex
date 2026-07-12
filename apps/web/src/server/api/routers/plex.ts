@@ -616,13 +616,17 @@ export const plexRouter = createTRPCRouter({
 
       // Smart playlists are rule-driven, so Plex rejects manual appends; hide
       // them from the picker to match Plex Web.
-      return playlists
-        .filter((playlist) => !playlist.smart)
-        .map((playlist) => ({
-          ratingKey: playlist.ratingKey,
-          title: playlist.title,
-          leafCount: playlist.leafCount ?? 0,
-        }));
+      return playlists.flatMap((playlist) =>
+        playlist.smart
+          ? []
+          : [
+              {
+                ratingKey: playlist.ratingKey,
+                title: playlist.title,
+                leafCount: playlist.leafCount ?? 0,
+              },
+            ],
+      );
     }),
 
   addItemToPlaylist: protectedProcedure

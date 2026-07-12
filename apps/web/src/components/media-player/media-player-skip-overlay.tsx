@@ -14,6 +14,19 @@ interface MediaPlayerSkipOverlayProps {
   onSkip: (marker: Marker) => void;
 }
 
+function getButtonText(markerType: string) {
+  switch (markerType) {
+    case "intro":
+      return "Skip Intro";
+    case "credits":
+      return "Skip Credits";
+    case "commercial":
+      return "Skip Commercial";
+    default:
+      return "Skip";
+  }
+}
+
 /**
  * Overlay component that shows skip buttons for intro/credits markers
  * Appears when the current playback time is within a marker's range
@@ -34,20 +47,6 @@ export function MediaPlayerSkipOverlay({
   if (!activeMarker) {
     return null;
   }
-
-  // Determine button text based on marker type
-  const getButtonText = (markerType: string) => {
-    switch (markerType) {
-      case "intro":
-        return "Skip Intro";
-      case "credits":
-        return "Skip Credits";
-      case "commercial":
-        return "Skip Commercial";
-      default:
-        return "Skip";
-    }
-  };
 
   return (
     <div className="absolute right-[calc(var(--spacing)_*_21)] bottom-24 z-50">

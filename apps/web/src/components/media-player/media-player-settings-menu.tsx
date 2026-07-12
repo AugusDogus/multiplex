@@ -188,45 +188,50 @@ export function MediaPlayerSettingsMenu({
     setIsUpdatingSubtitle(true);
     setSubtitleError(null);
 
-    try {
-      const selectionUrl = buildPlexSubtitleSelectionUrl(
-        currentItem,
-        currentItem.serverUrl,
-        currentItem.authToken,
-        streamId,
-      );
-      const previousUsesTranscode = playbackUsesTranscode(currentItem);
-      const response = await fetch(selectionUrl, { method: "PUT" });
+    const selectionUrl = buildPlexSubtitleSelectionUrl(
+      currentItem,
+      currentItem.serverUrl,
+      currentItem.authToken,
+      streamId,
+    );
+    const previousUsesTranscode = playbackUsesTranscode(currentItem);
 
-      if (!response.ok) {
-        throw new Error(`Plex returned ${response.status}`);
-      }
+    await fetch(selectionUrl, { method: "PUT" })
+      .then(async (response) => {
+        if (!response.ok) {
+          console.error(
+            `Failed to select subtitle stream: Plex returned ${response.status}`,
+          );
+          if (isCurrentPlayback()) {
+            setSubtitleError("Unable to update subtitles");
+          }
+          return;
+        }
 
-      if (!isCurrentPlayback()) {
-        return;
-      }
-      const refreshed = await refetchDetailedItem();
-      if (!isCurrentPlayback()) {
-        return;
-      }
-      if (refreshed.data) {
-        applyPlaybackMetadata(playbackIdentity, refreshed.data, {
-          reloadVideo: true,
-          previousVideoUsesTranscode: previousUsesTranscode,
-        });
-      }
-      setPane("root");
-    } catch (error) {
-      console.error(
-        "Failed to select subtitle stream:",
-        error instanceof Error ? error.message : error,
-      );
-      if (isCurrentPlayback()) {
-        setSubtitleError("Unable to update subtitles");
-      }
-    } finally {
-      setIsUpdatingSubtitle(false);
-    }
+        if (!isCurrentPlayback()) {
+          return;
+        }
+        const refreshed = await refetchDetailedItem();
+        if (!isCurrentPlayback()) {
+          return;
+        }
+        if (refreshed.data) {
+          applyPlaybackMetadata(playbackIdentity, refreshed.data, {
+            reloadVideo: true,
+            previousVideoUsesTranscode: previousUsesTranscode,
+          });
+        }
+        setPane("root");
+      })
+      .catch((cause: unknown) => {
+        console.error("Failed to select subtitle stream:", cause);
+        if (isCurrentPlayback()) {
+          setSubtitleError("Unable to update subtitles");
+        }
+      })
+      .finally(() => {
+        setIsUpdatingSubtitle(false);
+      });
   };
 
   return (

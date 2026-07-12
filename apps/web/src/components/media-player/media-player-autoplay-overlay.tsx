@@ -23,6 +23,10 @@ interface MediaPlayerAutoPlayOverlayProps {
   showActions?: boolean;
 }
 
+function handleCancel() {
+  playerCommands.cancelAutoPlay();
+}
+
 /**
  * Overlay component that shows auto-play countdown and controls
  * Appears when nearing the end of a TV episode with a next episode available
@@ -39,10 +43,6 @@ export function MediaPlayerAutoPlayOverlay({
 
   const handlePlayNow = () => {
     playerCommands.triggerAutoPlay(nextEpisode);
-  };
-
-  const handleCancel = () => {
-    playerCommands.cancelAutoPlay();
   };
 
   return (

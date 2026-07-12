@@ -204,8 +204,8 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     }
 
     pendingStartRoomIdRef.current = room.id;
-    try {
-      return await sessionCommands.startPlayback({
+    return sessionCommands
+      .startPlayback({
         room,
         localUser,
         item: playbackItem,
@@ -213,12 +213,12 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
         ...(joiningInProgress && roomPositionSeconds !== null
           ? { startPositionSeconds: roomPositionSeconds }
           : {}),
-      }).completion;
-    } finally {
-      if (pendingStartRoomIdRef.current === room.id) {
-        pendingStartRoomIdRef.current = null;
-      }
-    }
+      })
+      .completion.finally(() => {
+        if (pendingStartRoomIdRef.current === room.id) {
+          pendingStartRoomIdRef.current = null;
+        }
+      });
   }, [
     room,
     localUser,

@@ -16,6 +16,10 @@ interface PlexErrorFallbackProps {
   resetErrorBoundary: () => void;
 }
 
+function handleReAuthenticate() {
+  void authClient.plex.signIn();
+}
+
 export function PlexErrorFallback({
   error,
   resetErrorBoundary,
@@ -24,10 +28,6 @@ export function PlexErrorFallback({
     error.message.includes("authentication") ||
     error.message.includes("Unauthorized") ||
     error.message.includes("token");
-
-  const handleReAuthenticate = () => {
-    void authClient.plex.signIn();
-  };
 
   return (
     <Card className="mx-4 my-4">
