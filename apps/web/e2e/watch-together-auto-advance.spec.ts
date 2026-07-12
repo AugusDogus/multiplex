@@ -214,6 +214,7 @@ test("a session auto-advances both viewers to the next episode without leaving t
 
     // Both players must swap to the next episode's stream, and the player
     // modal must never close (no lobby flash): the <video> stays mounted.
+    // Also watch for false leave/join toasts during the Syncplay room handoff.
     console.error("E2E step: waiting for auto-advance on both viewers");
     const swapDeadline = Date.now() + 180_000;
     const onNextEpisode = (episodeInfo: {
@@ -223,7 +224,21 @@ test("a session auto-advances both viewers to the next episode without leaving t
       episodeInfo.ratingKey === episode!.next.ratingKey ||
       (episodeInfo.ratingKey === null &&
         episodeInfo.title === episode!.next.title);
+    const socialToastRe =
+      /(left the session|joined the session|paused playback)/i;
+    const unexpectedToasts: string[] = [];
     for (;;) {
+      for (const page of [host, guest]) {
+        const texts = await page
+          .locator("[data-sonner-toast]")
+          .allTextContents()
+          .catch(() => []);
+        for (const text of texts) {
+          if (socialToastRe.test(text) && !unexpectedToasts.includes(text)) {
+            unexpectedToasts.push(text);
+          }
+        }
+      }
       const [hostEpisode, guestEpisode] = await Promise.all([
         playingEpisode(host),
         playingEpisode(guest),
@@ -249,6 +264,28 @@ test("a session auto-advances both viewers to the next episode without leaving t
       await host.waitForTimeout(2_500);
     }
     console.error("E2E step: both viewers are on the next episode");
+    console.error(
+      `E2E step: social toasts during swap: ${JSON.stringify(unexpectedToasts)}`,
+    );
+    expect(
+      unexpectedToasts,
+      "rotation must not toast leave/join/pause for the Syncplay room handoff",
+    ).toEqual([]);
+
+    // Background lobby URL must follow the live room so closing the player
+    // does not strand either viewer on the deleted previous room.
+    const hostPath = new URL(host.url()).pathname;
+    const guestPath = new URL(guest.url()).pathname;
+    expect(hostPath.startsWith("/watch-together/"), "host lobby path").toBe(
+      true,
+    );
+    expect(guestPath.startsWith("/watch-together/"), "guest lobby path").toBe(
+      true,
+    );
+    expect(hostPath, "host and guest should share the next-room lobby").toBe(
+      guestPath,
+    );
+    console.error(`E2E step: both lobby URLs on ${hostPath}`);
 
     // ...and the next episode actually plays for both.
     await Promise.all([
