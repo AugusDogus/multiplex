@@ -183,34 +183,32 @@ test("a session auto-advances both viewers to the next episode without leaving t
     const durationSeconds = episode!.durationMs / 1000;
 
     // Seek close to the end through the app's real seek path (keyboard
-    // shortcuts -> transcode reload), pacing the skips so each reload settles.
+    // shortcuts -> transcode reload). Prefer percent seeks + waiting over
+    // skip-forward: after a large offset, ArrowRight often reloads without the
+    // timeline offset and snaps remaining back to the full duration.
     console.error("E2E step: host seeks to 90%");
     await pressPlayerKey(host, "Digit9");
     await expectPlayingAndAdvancing(host, "host after 90% seek");
 
-    const seekDeadline = Date.now() + 120_000;
-    let lastRemaining = Number.POSITIVE_INFINITY;
-    for (;;) {
-      const remaining = durationSeconds - (await playbackPosition(host));
-      console.error(`E2E step: host remaining ~${Math.round(remaining)}s`);
-      // Land inside the auto-advance lead window (<=45s) but above the
-      // countdown, so the whole arm -> create -> discover flow gets exercised.
-      if (remaining <= 40) {
-        break;
-      }
-      if (Date.now() > seekDeadline) {
-        throw new Error("could not get near the episode end in time");
-      }
-      // If a skip-forward reload lost the timeline offset (remaining jumps back
-      // up), re-assert the percent seek instead of digging a deeper hole.
-      if (remaining > lastRemaining + 30) {
-        await pressPlayerKey(host, "Digit9");
-      } else {
-        await pressPlayerKey(host, "ArrowRight", remaining > 75);
-      }
-      lastRemaining = remaining;
-      await host.waitForTimeout(5_000);
-    }
+    await expect
+      .poll(
+        async () => {
+          const remaining = durationSeconds - (await playbackPosition(host));
+          console.error(`E2E step: host remaining ~${Math.round(remaining)}s`);
+          // If the 90% seek fell off, re-assert it before waiting further.
+          if (remaining > durationSeconds * 0.2) {
+            await pressPlayerKey(host, "Digit9");
+            await host.waitForTimeout(4_000);
+            return durationSeconds - (await playbackPosition(host));
+          }
+          return remaining;
+        },
+        {
+          message: "host should reach the auto-advance lead window",
+          timeout: 360_000,
+        },
+      )
+      .toBeLessThanOrEqual(40);
 
     // The guest follows the seek (their own remaining time drops too).
     await expect
