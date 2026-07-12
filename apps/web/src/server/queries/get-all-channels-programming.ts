@@ -70,7 +70,6 @@ async function getChannelsProgrammingData(
   endTime?: Date,
 ): Promise<AllChannelsProgrammingResult> {
   const servers = await getServersQuery(plex);
-  const channelLineups: ChannelLineup[] = [];
   const processedGridKeys = new Set<string>();
 
   // Convert time filters to Unix timestamps if provided
@@ -82,121 +81,135 @@ async function getChannelsProgrammingData(
     ? Math.floor(endTime.getTime() / 1000)
     : undefined;
 
-  // Get channels from all servers
-  for (const server of servers) {
-    const serverClient = plex.createServerClient(server);
-
-    try {
-      const channelsResponse = await serverClient.getChannels();
-
-      // Process each channel
-      for (const channel of channelsResponse.MediaContainer.Channel) {
-        // Skip if we've already processed this gridKey globally
-        if (processedGridKeys.has(channel.gridKey)) {
-          continue;
-        }
+  const availableChannels = (
+    await Promise.all(
+      servers.map(async (server) => {
+        const serverClient = plex.createServerClient(server);
 
         try {
-          const gridResponse = await serverClient.getGrid({
-            channelGridKey: channel.gridKey,
-            date: date,
-          });
-
-          // Filter programs by time window if specified
-          const allPrograms = (gridResponse.MediaContainer.Metadata ?? []).map(
-            (metadata) => ({
-              ratingKey: metadata.ratingKey,
-              key: metadata.key,
-              title: metadata.title,
-              summary: metadata.summary,
-              duration: metadata.duration,
-              addedAt: metadata.addedAt,
-              onAir: metadata.onAir,
-              type: metadata.type,
-              grandparentTitle: metadata.grandparentTitle,
-              parentTitle: metadata.parentTitle,
-              index: metadata.index,
-              parentIndex: metadata.parentIndex,
-              Media: metadata.Media.map((media) => ({
-                id: media.id,
-                duration: media.duration,
-                audioChannels: media.audioChannels,
-                videoResolution: media.videoResolution,
-                channelCallSign: media.channelCallSign,
-                channelIdentifier: media.channelIdentifier,
-                channelThumb: media.channelThumb,
-                channelTitle: media.channelTitle,
-                channelVcn: media.channelVcn,
-                protocol: media.protocol,
-                beginsAt: media.beginsAt,
-                endsAt: media.endsAt,
-                channelID: media.channelID,
-                onAir: media.onAir,
-              })),
-              Image: metadata.Image?.map((image) => ({
-                alt: image.alt,
-                type: image.type,
-                url: image.url,
-              })),
-              Channel: metadata.Channel?.map((channel) => ({
-                id: channel.id,
-                filter: channel.filter,
-                tag: channel.tag,
-              })),
-            }),
-          );
-
-          // Apply time filtering if specified
-          const filteredPrograms =
-            startTimeUnix && endTimeUnix
-              ? allPrograms.filter((program) => {
-                  const programStart = program.Media[0]?.beginsAt ?? 0;
-                  const programEnd = program.Media[0]?.endsAt ?? 0;
-
-                  // Include program if it overlaps with our time window
-                  return (
-                    programEnd > startTimeUnix && programStart < endTimeUnix
-                  );
-                })
-              : allPrograms;
-
-          channelLineups.push({
-            channel: {
-              id: channel.id,
-              gridKey: channel.gridKey,
-              vcn: channel.vcn,
-              thumb: channel.thumb,
-              title: channel.title,
-              callSign: channel.callSign,
-            },
-            programs: filteredPrograms,
-          });
-
-          processedGridKeys.add(channel.gridKey);
+          const channelsResponse = await serverClient.getChannels();
+          return channelsResponse.MediaContainer.Channel.map((channel) => ({
+            channel,
+            server,
+            serverClient,
+          }));
         } catch (error) {
           console.warn(
-            `Failed to get grid data for gridKey ${channel.gridKey} on server ${server.name}:`,
+            `Failed to get channels from server ${server.name}:`,
             error,
           );
-          // Add channel with empty programs if grid data fails
-          channelLineups.push({
-            channel: {
-              id: channel.id,
-              gridKey: channel.gridKey,
-              vcn: channel.vcn,
-              thumb: channel.thumb,
-              title: channel.title,
-              callSign: channel.callSign,
-            },
-            programs: [],
-          });
-          processedGridKeys.add(channel.gridKey);
+          return [];
         }
-      }
-    } catch (error) {
-      console.warn(`Failed to get channels from server ${server.name}:`, error);
+      }),
+    )
+  ).flat();
+
+  // Claim duplicate grid keys in server/channel order before starting the
+  // concurrent requests, so global deduplication remains deterministic.
+  const uniqueChannels = availableChannels.filter(({ channel }) => {
+    if (processedGridKeys.has(channel.gridKey)) {
+      return false;
     }
-  }
+
+    processedGridKeys.add(channel.gridKey);
+    return true;
+  });
+
+  const channelLineups = await Promise.all(
+    uniqueChannels.map(async ({ channel, server, serverClient }) => {
+      try {
+        const gridResponse = await serverClient.getGrid({
+          channelGridKey: channel.gridKey,
+          date: date,
+        });
+
+        // Filter programs by time window if specified
+        const allPrograms = (gridResponse.MediaContainer.Metadata ?? []).map(
+          (metadata) => ({
+            ratingKey: metadata.ratingKey,
+            key: metadata.key,
+            title: metadata.title,
+            summary: metadata.summary,
+            duration: metadata.duration,
+            addedAt: metadata.addedAt,
+            onAir: metadata.onAir,
+            type: metadata.type,
+            grandparentTitle: metadata.grandparentTitle,
+            parentTitle: metadata.parentTitle,
+            index: metadata.index,
+            parentIndex: metadata.parentIndex,
+            Media: metadata.Media.map((media) => ({
+              id: media.id,
+              duration: media.duration,
+              audioChannels: media.audioChannels,
+              videoResolution: media.videoResolution,
+              channelCallSign: media.channelCallSign,
+              channelIdentifier: media.channelIdentifier,
+              channelThumb: media.channelThumb,
+              channelTitle: media.channelTitle,
+              channelVcn: media.channelVcn,
+              protocol: media.protocol,
+              beginsAt: media.beginsAt,
+              endsAt: media.endsAt,
+              channelID: media.channelID,
+              onAir: media.onAir,
+            })),
+            Image: metadata.Image?.map((image) => ({
+              alt: image.alt,
+              type: image.type,
+              url: image.url,
+            })),
+            Channel: metadata.Channel?.map((channel) => ({
+              id: channel.id,
+              filter: channel.filter,
+              tag: channel.tag,
+            })),
+          }),
+        );
+
+        // Apply time filtering if specified
+        const filteredPrograms =
+          startTimeUnix && endTimeUnix
+            ? allPrograms.filter((program) => {
+                const programStart = program.Media[0]?.beginsAt ?? 0;
+                const programEnd = program.Media[0]?.endsAt ?? 0;
+
+                // Include program if it overlaps with our time window
+                return programEnd > startTimeUnix && programStart < endTimeUnix;
+              })
+            : allPrograms;
+
+        return {
+          channel: {
+            id: channel.id,
+            gridKey: channel.gridKey,
+            vcn: channel.vcn,
+            thumb: channel.thumb,
+            title: channel.title,
+            callSign: channel.callSign,
+          },
+          programs: filteredPrograms,
+        } satisfies ChannelLineup;
+      } catch (error) {
+        console.warn(
+          `Failed to get grid data for gridKey ${channel.gridKey} on server ${server.name}:`,
+          error,
+        );
+        // Add channel with empty programs if grid data fails
+        return {
+          channel: {
+            id: channel.id,
+            gridKey: channel.gridKey,
+            vcn: channel.vcn,
+            thumb: channel.thumb,
+            title: channel.title,
+            callSign: channel.callSign,
+          },
+          programs: [],
+        } satisfies ChannelLineup;
+      }
+    }),
+  );
 
   return channelLineups;
 }
@@ -427,7 +440,6 @@ async function getServerChannelsProgrammingForDate(
   startTime?: Date,
   endTime?: Date,
 ): Promise<AllChannelsProgrammingResult> {
-  const channelLineups: ChannelLineup[] = [];
   const processedGridKeys = new Set<string>();
 
   // Convert time filters to Unix timestamps if provided
@@ -441,119 +453,126 @@ async function getServerChannelsProgrammingForDate(
   try {
     const channelsResponse = await serverClient.getChannels(providerIdentifier);
 
-    // Process each channel
-    for (const channel of channelsResponse.MediaContainer.Channel) {
-      // Skip if we've already processed this gridKey
-      if (processedGridKeys.has(channel.gridKey)) {
-        continue;
-      }
+    const uniqueChannels = channelsResponse.MediaContainer.Channel.filter(
+      (channel) => {
+        if (processedGridKeys.has(channel.gridKey)) {
+          return false;
+        }
 
-      try {
-        const gridResponse = await serverClient.getGrid({
-          channelGridKey: channel.gridKey,
-          date: date,
-          providerIdentifier: providerIdentifier,
-        });
+        processedGridKeys.add(channel.gridKey);
+        return true;
+      },
+    );
 
-        // Filter programs by time window if specified
-        const allPrograms = (gridResponse.MediaContainer.Metadata ?? []).map(
-          (metadata) => ({
-            ratingKey: metadata.ratingKey,
-            key: metadata.key,
-            title: metadata.title,
-            summary: metadata.summary,
-            duration: metadata.duration,
-            addedAt: metadata.addedAt,
-            onAir: metadata.onAir,
-            type: metadata.type,
-            grandparentTitle: metadata.grandparentTitle,
-            parentTitle: metadata.parentTitle,
-            index: metadata.index,
-            parentIndex: metadata.parentIndex,
-            Media: metadata.Media.map((media) => ({
-              id: media.id,
-              duration: media.duration,
-              audioChannels: media.audioChannels,
-              videoResolution: media.videoResolution,
-              channelCallSign: media.channelCallSign,
-              channelIdentifier: media.channelIdentifier,
-              channelThumb: media.channelThumb,
-              channelTitle: media.channelTitle,
-              channelVcn: media.channelVcn,
-              protocol: media.protocol,
-              beginsAt: media.beginsAt,
-              endsAt: media.endsAt,
-              channelID: media.channelID,
-              onAir: media.onAir,
-            })),
-            Image: metadata.Image?.map((image) => ({
-              alt: image.alt,
-              type: image.type,
-              url: image.url,
-            })),
-            Channel: metadata.Channel?.map((channel) => ({
+    const channelLineups = await Promise.all(
+      uniqueChannels.map(async (channel) => {
+        try {
+          const gridResponse = await serverClient.getGrid({
+            channelGridKey: channel.gridKey,
+            date: date,
+            providerIdentifier: providerIdentifier,
+          });
+
+          // Filter programs by time window if specified
+          const allPrograms = (gridResponse.MediaContainer.Metadata ?? []).map(
+            (metadata) => ({
+              ratingKey: metadata.ratingKey,
+              key: metadata.key,
+              title: metadata.title,
+              summary: metadata.summary,
+              duration: metadata.duration,
+              addedAt: metadata.addedAt,
+              onAir: metadata.onAir,
+              type: metadata.type,
+              grandparentTitle: metadata.grandparentTitle,
+              parentTitle: metadata.parentTitle,
+              index: metadata.index,
+              parentIndex: metadata.parentIndex,
+              Media: metadata.Media.map((media) => ({
+                id: media.id,
+                duration: media.duration,
+                audioChannels: media.audioChannels,
+                videoResolution: media.videoResolution,
+                channelCallSign: media.channelCallSign,
+                channelIdentifier: media.channelIdentifier,
+                channelThumb: media.channelThumb,
+                channelTitle: media.channelTitle,
+                channelVcn: media.channelVcn,
+                protocol: media.protocol,
+                beginsAt: media.beginsAt,
+                endsAt: media.endsAt,
+                channelID: media.channelID,
+                onAir: media.onAir,
+              })),
+              Image: metadata.Image?.map((image) => ({
+                alt: image.alt,
+                type: image.type,
+                url: image.url,
+              })),
+              Channel: metadata.Channel?.map((channel) => ({
+                id: channel.id,
+                filter: channel.filter,
+                tag: channel.tag,
+              })),
+            }),
+          );
+
+          // Apply time filtering if specified
+          const filteredPrograms =
+            startTimeUnix && endTimeUnix
+              ? allPrograms.filter((program) => {
+                  const programStart = program.Media[0]?.beginsAt ?? 0;
+                  const programEnd = program.Media[0]?.endsAt ?? 0;
+
+                  // Include program if it overlaps with our time window
+                  return (
+                    programEnd > startTimeUnix && programStart < endTimeUnix
+                  );
+                })
+              : allPrograms;
+
+          return {
+            channel: {
               id: channel.id,
-              filter: channel.filter,
-              tag: channel.tag,
-            })),
-          }),
-        );
+              gridKey: channel.gridKey,
+              vcn: channel.vcn,
+              thumb: channel.thumb,
+              title: channel.title,
+              callSign: channel.callSign,
+            },
+            programs: filteredPrograms,
+          } satisfies ChannelLineup;
+        } catch (error) {
+          console.warn(
+            `Failed to get grid data for gridKey ${channel.gridKey} on ${date}:`,
+            error,
+          );
+          // Add channel with empty programs if grid data fails
+          return {
+            channel: {
+              id: channel.id,
+              gridKey: channel.gridKey,
+              vcn: channel.vcn,
+              thumb: channel.thumb,
+              title: channel.title,
+              callSign: channel.callSign,
+            },
+            programs: [],
+          } satisfies ChannelLineup;
+        }
+      }),
+    );
 
-        // Apply time filtering if specified
-        const filteredPrograms =
-          startTimeUnix && endTimeUnix
-            ? allPrograms.filter((program) => {
-                const programStart = program.Media[0]?.beginsAt ?? 0;
-                const programEnd = program.Media[0]?.endsAt ?? 0;
+    // Sort channel lineups by VCN (Virtual Channel Number)
+    channelLineups.sort((a, b) => {
+      const aVcn = parseFloat(a.channel.vcn) || 0;
+      const bVcn = parseFloat(b.channel.vcn) || 0;
+      return aVcn - bVcn;
+    });
 
-                // Include program if it overlaps with our time window
-                return programEnd > startTimeUnix && programStart < endTimeUnix;
-              })
-            : allPrograms;
-
-        channelLineups.push({
-          channel: {
-            id: channel.id,
-            gridKey: channel.gridKey,
-            vcn: channel.vcn,
-            thumb: channel.thumb,
-            title: channel.title,
-            callSign: channel.callSign,
-          },
-          programs: filteredPrograms,
-        });
-
-        processedGridKeys.add(channel.gridKey);
-      } catch (error) {
-        console.warn(
-          `Failed to get grid data for gridKey ${channel.gridKey} on ${date}:`,
-          error,
-        );
-        // Add channel with empty programs if grid data fails
-        channelLineups.push({
-          channel: {
-            id: channel.id,
-            gridKey: channel.gridKey,
-            vcn: channel.vcn,
-            thumb: channel.thumb,
-            title: channel.title,
-            callSign: channel.callSign,
-          },
-          programs: [],
-        });
-        processedGridKeys.add(channel.gridKey);
-      }
-    }
+    return channelLineups;
   } catch (error) {
     console.warn(`Failed to get channels for ${date}:`, error);
+    return [];
   }
-
-  // Sort channel lineups by VCN (Virtual Channel Number)
-  channelLineups.sort((a, b) => {
-    const aVcn = parseFloat(a.channel.vcn) || 0;
-    const bVcn = parseFloat(b.channel.vcn) || 0;
-    return aVcn - bVcn;
-  });
-
-  return channelLineups;
 }
