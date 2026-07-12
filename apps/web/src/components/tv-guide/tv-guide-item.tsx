@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Tooltip,
   TooltipContent,
@@ -126,14 +126,11 @@ export function TvGuideItem({
   };
 
   // Debounced mouse move handler to improve performance
-  const handleMouseMove = useCallback(
-    (event: React.MouseEvent) => {
-      if (isVeryWide) {
-        setMousePosition({ x: event.clientX, y: event.clientY });
-      }
-    },
-    [isVeryWide],
-  );
+  const handleMouseMove = (event: React.MouseEvent) => {
+    if (isVeryWide) {
+      setMousePosition({ x: event.clientX, y: event.clientY });
+    }
+  };
 
   const handleMouseEnter = () => {
     setIsHovered(true);

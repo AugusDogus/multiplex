@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
 import type { PlexDevice } from "@multiplex/plex-query";
 import type { plexRouterOutputs } from "~/server/api/routers/plex";
 import { api } from "~/trpc/react";
@@ -36,7 +36,7 @@ export function useServerLibraries(
   const { refetch: refetchAllServerLibraries } = allServerLibrariesQuery;
 
   // Transform the consolidated results into individual server states
-  const serverStates = useMemo(() => {
+  const serverStates = (() => {
     const states = new Map<string, ServerLibraryState>();
     const serverDataById = new Map<
       string,
@@ -64,45 +64,31 @@ export function useServerLibraries(
     }
 
     return states;
-  }, [
-    servers,
-    allServerLibrariesQuery.data,
-    allServerLibrariesQuery.error,
-    allServerLibrariesQuery.isLoading,
-    retryingServers,
-  ]);
+  })();
 
-  const retryServer = useCallback(
-    (serverId: string) => {
-      setRetryingServers((prev) => new Set([...prev, serverId]));
+  const retryServer = (serverId: string) => {
+    setRetryingServers((prev) => new Set([...prev, serverId]));
 
-      // Retry the entire query since we can't retry individual servers
-      refetchAllServerLibraries({ throwOnError: true })
-        .catch((error: Error) => {
-          console.error(`Failed to retry server ${serverId}:`, error);
-        })
-        .finally(() => {
-          setRetryingServers((prev) => {
-            const newSet = new Set(prev);
-            newSet.delete(serverId);
-            return newSet;
-          });
+    // Retry the entire query since we can't retry individual servers
+    refetchAllServerLibraries({ throwOnError: true })
+      .catch((error: Error) => {
+        console.error(`Failed to retry server ${serverId}:`, error);
+      })
+      .finally(() => {
+        setRetryingServers((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(serverId);
+          return newSet;
         });
-    },
-    [refetchAllServerLibraries],
+      });
+  };
+
+  const isAnyLoading = Array.from(serverStates.values()).some(
+    (state) => state.isLoading,
   );
 
-  const isAnyLoading = useMemo(
-    () => Array.from(serverStates.values()).some((state) => state.isLoading),
-    [serverStates],
-  );
-
-  const hasAnyData = useMemo(
-    () =>
-      Array.from(serverStates.values()).some(
-        (state) => state.data && !state.error,
-      ),
-    [serverStates],
+  const hasAnyData = Array.from(serverStates.values()).some(
+    (state) => state.data && !state.error,
   );
 
   return {

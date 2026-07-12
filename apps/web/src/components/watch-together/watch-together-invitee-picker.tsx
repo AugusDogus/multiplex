@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import { Check, Loader2 } from "lucide-react";
 
 import { Button } from "~/components/ui/button";
@@ -42,21 +41,13 @@ export function WatchTogetherInviteePicker({
     staleTime: 60_000,
   });
 
-  const excludeSet = useMemo(
-    () => new Set(excludeUserIds ?? []),
-    [excludeUserIds],
+  const excludeSet = new Set(excludeUserIds ?? []);
+  const invitees = (inviteesQuery.data ?? []).filter(
+    (invitee) => !excludeSet.has(invitee.id),
   );
-  const invitees = useMemo(
-    () => (inviteesQuery.data ?? []).filter((i) => !excludeSet.has(i.id)),
-    [inviteesQuery.data, excludeSet],
-  );
-  const selectedSet = useMemo(
-    () => new Set(selectedUserIds),
-    [selectedUserIds],
-  );
-  const selectedInvitees = useMemo(
-    () => invitees.filter((invitee) => selectedSet.has(invitee.id)),
-    [invitees, selectedSet],
+  const selectedSet = new Set(selectedUserIds);
+  const selectedInvitees = invitees.filter((invitee) =>
+    selectedSet.has(invitee.id),
   );
 
   const toggleInvitee = (id: number) => {

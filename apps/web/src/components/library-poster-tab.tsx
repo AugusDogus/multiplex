@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback } from "react";
 import type { HubItemWithServer } from "@multiplex/plex-query";
 import { MediaPosterGrid } from "~/components/media-poster-grid";
 import { LIBRARY_PAGE_SIZE } from "~/server/queries/plex-pagination";
@@ -36,21 +35,18 @@ export function LibraryPosterTab({
 }: LibraryPosterTabProps) {
   const utils = api.useUtils();
 
-  const onLoadPage = useCallback(
-    (input: { start: number; size: number }) => {
-      const procedure =
-        kind === "collections"
-          ? utils.client.plex.getLibraryCollections
-          : utils.client.plex.getLibraryPlaylists;
-      return procedure.query({
-        machineIdentifier,
-        sectionId,
-        start: input.start,
-        size: input.size,
-      });
-    },
-    [utils, kind, machineIdentifier, sectionId],
-  );
+  const onLoadPage = (input: { start: number; size: number }) => {
+    const procedure =
+      kind === "collections"
+        ? utils.client.plex.getLibraryCollections
+        : utils.client.plex.getLibraryPlaylists;
+    return procedure.query({
+      machineIdentifier,
+      sectionId,
+      start: input.start,
+      size: input.size,
+    });
+  };
 
   const contentKey = `${machineIdentifier}-${sectionId}-${kind}`;
 

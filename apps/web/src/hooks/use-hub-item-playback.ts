@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback } from "react";
 import {
   isPlayablePosterItemType,
   toPlayableMetadata,
@@ -23,7 +22,7 @@ export function useHubItemPlayback(item: HubItemWithServer | undefined) {
       item.authToken,
   );
 
-  const play = useCallback(async () => {
+  const play = async () => {
     latestPlaybackIntent += 1;
     const playbackIntent = latestPlaybackIntent;
 
@@ -66,7 +65,7 @@ export function useHubItemPlayback(item: HubItemWithServer | undefined) {
         createMediaPlayerItem(details.playTarget, playback),
       );
     }
-  }, [item, utils]);
+  };
 
   return { canPlay, play };
 }

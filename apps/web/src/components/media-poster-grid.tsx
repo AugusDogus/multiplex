@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useLayoutEffect, useMemo, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import type { HubItemWithServer } from "@multiplex/plex-query";
 import { useAppScrollElement } from "~/components/app-scroll-container";
@@ -45,7 +45,7 @@ interface VirtualPosterRow {
   start: number;
 }
 
-const VirtualizedPosterGridRow = memo(function VirtualizedPosterGridRow({
+function VirtualizedPosterGridRow({
   rowIndex,
   startIndex,
   cellCount,
@@ -76,7 +76,7 @@ const VirtualizedPosterGridRow = memo(function VirtualizedPosterGridRow({
       }}
     />
   );
-});
+}
 
 const EMPTY_PAGE_RESULT: PaginatedPosterResult = { items: [], totalSize: 0 };
 
@@ -89,6 +89,10 @@ function getVirtualTotalSize(rowCount: number): number {
     rowCount * POSTER_GRID_ROW_CONTENT_HEIGHT_PX +
     (rowCount - 1) * POSTER_GRID_ROW_GAP_PX
   );
+}
+
+function ignoreElementMeasurement() {
+  return undefined;
 }
 
 function getVirtualRows({
@@ -149,17 +153,10 @@ export function MediaPosterGrid({
   onLoadPage,
   emptyMessage = "No items found.",
 }: MediaPosterGridProps) {
-  // TanStack Virtual mutates the virtualizer instance in place, so the
-  // React Compiler would cache getVirtualItems()/getTotalSize() against
-  // the stable instance reference and never re-render on scroll. Opt this
-  // component out until the virtualizer ships compiler support
-  // (https://github.com/TanStack/virtual/issues/736).
-  "use no memo";
-
   const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
-  const containerRef = useCallback((node: HTMLDivElement | null) => {
+  const containerRef = (node: HTMLDivElement | null) => {
     setContainerEl(node);
-  }, []);
+  };
   const scrollElement = useAppScrollElement();
   const [scrollMargin, setScrollMargin] = useState<number | null>(null);
   const [scrollState, setScrollState] = useState({ height: 0, top: 0 });
@@ -190,8 +187,6 @@ export function MediaPosterGrid({
 
   const itemCount = onLoadPage ? totalSize : Math.min(totalSize, items.length);
   const rowCount = isReady && columns > 0 ? Math.ceil(itemCount / columns) : 0;
-  const measureElement = useCallback(() => undefined, []);
-
   useLayoutEffect(() => {
     if (!scrollElement) {
       return;
@@ -228,19 +223,15 @@ export function MediaPosterGrid({
     };
   }, [scrollElement]);
 
-  const virtualRows = useMemo(
-    () =>
-      getVirtualRows({
-        columns,
-        rowCount,
-        scrollHeight: scrollState.height,
-        scrollMargin: scrollMargin ?? 0,
-        scrollTop: scrollState.top,
-      }),
-    [columns, rowCount, scrollMargin, scrollState],
-  );
+  const virtualRows = getVirtualRows({
+    columns,
+    rowCount,
+    scrollHeight: scrollState.height,
+    scrollMargin: scrollMargin ?? 0,
+    scrollTop: scrollState.top,
+  });
 
-  const neededPagesKey = useMemo(() => {
+  const neededPagesKey = (() => {
     if (!onLoadPage) {
       return "";
     }
@@ -260,12 +251,10 @@ export function MediaPosterGrid({
       }
     }
     return [...pages].sort((a, b) => a - b).join(",");
-  }, [onLoadPage, items.length, pageSize, itemCount, virtualRows, columns]);
+  })();
 
-  const neededPages = useMemo(
-    () => (neededPagesKey === "" ? [] : neededPagesKey.split(",").map(Number)),
-    [neededPagesKey],
-  );
+  const neededPages =
+    neededPagesKey === "" ? [] : neededPagesKey.split(",").map(Number);
 
   const pageResults = useQueries({
     queries: neededPages.map((pageIndex) => ({
@@ -282,7 +271,7 @@ export function MediaPosterGrid({
     combine: (results) => results.map((result) => result.data),
   });
 
-  const resolvedItems = useMemo(() => {
+  const resolvedItems = (() => {
     const resolved: (HubItemWithServer | undefined)[] = Array.from(
       { length: itemCount },
       () => undefined,
@@ -301,7 +290,7 @@ export function MediaPosterGrid({
       }
     });
     return resolved;
-  }, [items, neededPages, pageResults, pageSize, itemCount]);
+  })();
 
   if (items.length === 0) {
     return <p className="text-muted-foreground text-sm">{emptyMessage}</p>;
@@ -333,7 +322,7 @@ export function MediaPosterGrid({
                 columns={columns}
                 translateY={virtualRow.start}
                 resolvedItems={resolvedItems}
-                measureElement={measureElement}
+                measureElement={ignoreElementMeasurement}
               />
             );
           })}
