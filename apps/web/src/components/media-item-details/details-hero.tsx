@@ -502,114 +502,29 @@ function HeroActions({
         )}
         <span className="min-w-14 text-center">{shareButtonLabel}</span>
       </Button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="icon" aria-label="More actions">
-            <MoreHorizontal />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuGroup>
-            <DropdownMenuItem
-              onSelect={() => setWatchTogetherOpen(true)}
-              disabled={!canWatchTogether}
-              aria-label={
-                canWatchTogether
-                  ? undefined
-                  : getDisabledMenuItemLabel(
-                      "Watch Together...",
-                      PLEX_ACTION_REQUIRES_SERVER,
-                    )
-              }
-              title={canWatchTogether ? undefined : PLEX_ACTION_REQUIRES_SERVER}
-            >
-              Watch Together...
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={() => updateActiveQueue(true)}
-              disabled={Boolean(queueActionDisabledReason)}
-              aria-label={
-                queueActionDisabledReason
-                  ? getDisabledMenuItemLabel(
-                      "Play Next",
-                      queueActionDisabledReason,
-                    )
-                  : undefined
-              }
-              title={queueActionDisabledReason}
-            >
-              Play Next
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={() => updateActiveQueue(false)}
-              disabled={Boolean(queueActionDisabledReason)}
-              aria-label={
-                queueActionDisabledReason
-                  ? getDisabledMenuItemLabel(
-                      "Add to Queue",
-                      queueActionDisabledReason,
-                    )
-                  : undefined
-              }
-              title={queueActionDisabledReason}
-            >
-              Add to Queue
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setAddToPlaylistOpen(true)}>
-              Add to...
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled
-              aria-label={getDisabledMenuItemLabel(
-                "Report Issue...",
-                PLEX_ACTION_NOT_IMPLEMENTED,
-              )}
-              title={PLEX_ACTION_NOT_IMPLEMENTED}
-            >
-              Report Issue...
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={() => setMediaInfoOpen(true)}
-              disabled={!hasMediaInfo}
-              aria-label={
-                hasMediaInfo
-                  ? undefined
-                  : getDisabledMenuItemLabel(
-                      "Get Info",
-                      GET_INFO_REQUIRES_MEDIA,
-                    )
-              }
-              title={hasMediaInfo ? undefined : GET_INFO_REQUIRES_MEDIA}
-            >
-              Get Info
-            </DropdownMenuItem>
-          </DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <MediaInfoDialog
-        item={item}
-        serverUrl={serverUrl}
-        authToken={authToken}
-        open={mediaInfoOpen}
-        onOpenChange={setMediaInfoOpen}
+      <HeroMoreActions
+        canWatchTogether={canWatchTogether}
+        queueActionDisabledReason={queueActionDisabledReason}
+        hasMediaInfo={hasMediaInfo}
+        onWatchTogether={() => setWatchTogetherOpen(true)}
+        onUpdateActiveQueue={updateActiveQueue}
+        onAddToPlaylist={() => setAddToPlaylistOpen(true)}
+        onMediaInfo={() => setMediaInfoOpen(true)}
       />
-      <AddToPlaylistDialog
+      <HeroActionDialogs
         item={item}
         serverId={serverId}
-        open={addToPlaylistOpen}
-        onOpenChange={setAddToPlaylistOpen}
+        serverUrl={serverUrl}
+        authToken={authToken}
+        playTarget={playTarget}
+        mediaInfoOpen={mediaInfoOpen}
+        onMediaInfoOpenChange={setMediaInfoOpen}
+        addToPlaylistOpen={addToPlaylistOpen}
+        onAddToPlaylistOpenChange={setAddToPlaylistOpen}
+        watchTogetherOpen={watchTogetherOpen}
+        onWatchTogetherOpenChange={setWatchTogetherOpen}
         onFeedback={setFeedbackMessage}
       />
-      {serverUrl && authToken && (
-        <WatchTogetherInviteDialog
-          item={item}
-          playTarget={playTarget}
-          serverId={serverId}
-          open={watchTogetherOpen}
-          onOpenChange={setWatchTogetherOpen}
-          onFeedback={setFeedbackMessage}
-        />
-      )}
       {feedbackMessage && (
         <span
           className="text-muted-foreground basis-full text-sm"
@@ -617,6 +532,169 @@ function HeroActions({
         >
           {feedbackMessage}
         </span>
+      )}
+    </>
+  );
+}
+
+interface HeroMoreActionsProps {
+  canWatchTogether: boolean;
+  queueActionDisabledReason: string | undefined;
+  hasMediaInfo: boolean;
+  onWatchTogether: () => void;
+  onUpdateActiveQueue: (next: boolean) => void;
+  onAddToPlaylist: () => void;
+  onMediaInfo: () => void;
+}
+
+function HeroMoreActions({
+  canWatchTogether,
+  queueActionDisabledReason,
+  hasMediaInfo,
+  onWatchTogether,
+  onUpdateActiveQueue,
+  onAddToPlaylist,
+  onMediaInfo,
+}: HeroMoreActionsProps) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="icon" aria-label="More actions">
+          <MoreHorizontal />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuGroup>
+          <DropdownMenuItem
+            onSelect={onWatchTogether}
+            disabled={!canWatchTogether}
+            aria-label={
+              canWatchTogether
+                ? undefined
+                : getDisabledMenuItemLabel(
+                    "Watch Together...",
+                    PLEX_ACTION_REQUIRES_SERVER,
+                  )
+            }
+            title={canWatchTogether ? undefined : PLEX_ACTION_REQUIRES_SERVER}
+          >
+            Watch Together...
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => onUpdateActiveQueue(true)}
+            disabled={Boolean(queueActionDisabledReason)}
+            aria-label={
+              queueActionDisabledReason
+                ? getDisabledMenuItemLabel(
+                    "Play Next",
+                    queueActionDisabledReason,
+                  )
+                : undefined
+            }
+            title={queueActionDisabledReason}
+          >
+            Play Next
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => onUpdateActiveQueue(false)}
+            disabled={Boolean(queueActionDisabledReason)}
+            aria-label={
+              queueActionDisabledReason
+                ? getDisabledMenuItemLabel(
+                    "Add to Queue",
+                    queueActionDisabledReason,
+                  )
+                : undefined
+            }
+            title={queueActionDisabledReason}
+          >
+            Add to Queue
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={onAddToPlaylist}>
+            Add to...
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled
+            aria-label={getDisabledMenuItemLabel(
+              "Report Issue...",
+              PLEX_ACTION_NOT_IMPLEMENTED,
+            )}
+            title={PLEX_ACTION_NOT_IMPLEMENTED}
+          >
+            Report Issue...
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={onMediaInfo}
+            disabled={!hasMediaInfo}
+            aria-label={
+              hasMediaInfo
+                ? undefined
+                : getDisabledMenuItemLabel("Get Info", GET_INFO_REQUIRES_MEDIA)
+            }
+            title={hasMediaInfo ? undefined : GET_INFO_REQUIRES_MEDIA}
+          >
+            Get Info
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+interface HeroActionDialogsProps {
+  item: ItemDetails["item"];
+  serverId: string;
+  serverUrl: string | undefined;
+  authToken: string | undefined;
+  playTarget: PlayTarget;
+  mediaInfoOpen: boolean;
+  onMediaInfoOpenChange: (open: boolean) => void;
+  addToPlaylistOpen: boolean;
+  onAddToPlaylistOpenChange: (open: boolean) => void;
+  watchTogetherOpen: boolean;
+  onWatchTogetherOpenChange: (open: boolean) => void;
+  onFeedback: (message: string | null) => void;
+}
+
+function HeroActionDialogs({
+  item,
+  serverId,
+  serverUrl,
+  authToken,
+  playTarget,
+  mediaInfoOpen,
+  onMediaInfoOpenChange,
+  addToPlaylistOpen,
+  onAddToPlaylistOpenChange,
+  watchTogetherOpen,
+  onWatchTogetherOpenChange,
+  onFeedback,
+}: HeroActionDialogsProps) {
+  return (
+    <>
+      <MediaInfoDialog
+        item={item}
+        serverUrl={serverUrl}
+        authToken={authToken}
+        open={mediaInfoOpen}
+        onOpenChange={onMediaInfoOpenChange}
+      />
+      <AddToPlaylistDialog
+        item={item}
+        serverId={serverId}
+        open={addToPlaylistOpen}
+        onOpenChange={onAddToPlaylistOpenChange}
+        onFeedback={onFeedback}
+      />
+      {serverUrl && authToken && (
+        <WatchTogetherInviteDialog
+          item={item}
+          playTarget={playTarget}
+          serverId={serverId}
+          open={watchTogetherOpen}
+          onOpenChange={onWatchTogetherOpenChange}
+          onFeedback={onFeedback}
+        />
       )}
     </>
   );
