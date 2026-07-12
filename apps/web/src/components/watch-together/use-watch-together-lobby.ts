@@ -126,6 +126,26 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     }
   }, [roomId, sessionState]);
 
+  // Player close leaves Idle with suppressAutoStart on the *live* room, but the
+  // App Router segment may still be the pre-rotation room id. Follow the
+  // suppressed room (or home) instead of latching "unavailable".
+  useEffect(() => {
+    if (sessionState._tag !== "Idle") {
+      return;
+    }
+    const suppressedRoomId = sessionCommands.getSuppressedRoomId();
+    if (!suppressedRoomId) {
+      return;
+    }
+    if (suppressedRoomId === roomId) {
+      return;
+    }
+    if (!roomQuery.isError && roomQuery.data) {
+      return;
+    }
+    router.replace(getWatchTogetherRoomHref(suppressedRoomId));
+  }, [roomId, roomQuery.data, roomQuery.isError, router, sessionState._tag]);
+
   const sessionParticipants: ParticipantMap = (() => {
     if (
       (sessionState._tag === "Lobby" || sessionState._tag === "Playing") &&
