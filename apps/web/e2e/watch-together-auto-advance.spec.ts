@@ -80,11 +80,7 @@ async function pickEpisodeWithNext(page: Page): Promise<EpisodePick> {
       current?.duration &&
       next?.ratingKey &&
       serverId !== undefined &&
-      ratingKey !== undefined &&
-      // Prefer episodes short enough that Digit9 (90%) lands inside / near the
-      // auto-advance lead window. Very long episodes flake when skip-forward
-      // after a percent seek reloads the stream without the timeline offset.
-      current.duration <= 12 * 60 * 1000
+      ratingKey !== undefined
     ) {
       return {
         href,
