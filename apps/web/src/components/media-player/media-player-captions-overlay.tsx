@@ -16,6 +16,15 @@ interface MediaPlayerCaptionsOverlayProps {
   captionSize: CaptionSize;
 }
 
+function keyCaptionLines(lines: string[]) {
+  const occurrences = new Map<string, number>();
+  return lines.map((text) => {
+    const occurrence = (occurrences.get(text) ?? 0) + 1;
+    occurrences.set(text, occurrence);
+    return { key: `${text}:${occurrence}`, text };
+  });
+}
+
 export function MediaPlayerCaptionsOverlay({
   lines,
   controlsVisible,
@@ -23,6 +32,7 @@ export function MediaPlayerCaptionsOverlay({
   captionSize,
 }: MediaPlayerCaptionsOverlayProps) {
   if (lines.length === 0) return null;
+  const keyedLines = keyCaptionLines(lines);
 
   return (
     <div
@@ -39,15 +49,15 @@ export function MediaPlayerCaptionsOverlay({
       aria-label="Subtitles"
     >
       <div className="flex max-w-[85%] flex-col items-center gap-1 text-center">
-        {lines.map((line, index) => (
+        {keyedLines.map((line) => (
           <p
-            key={`${index}-${line}`}
+            key={line.key}
             className={cn(
               "rounded-sm bg-black/75 leading-snug font-medium tracking-wide whitespace-pre-line text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]",
               CAPTION_SIZES[captionSize].className,
             )}
           >
-            {line}
+            {line.text}
           </p>
         ))}
       </div>

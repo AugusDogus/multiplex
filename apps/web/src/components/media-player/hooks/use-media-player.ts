@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef } from "react";
+import { useRef } from "react";
 import type { Marker } from "@multiplex/plex-query";
 import { playerCommands } from "~/lib/effect/player-atoms";
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
@@ -9,6 +9,25 @@ import type {
   MediaPlayerSeekResult,
 } from "~/types/media-player";
 import { clamp, supportsFullscreen } from "../utils/media-player-utils";
+
+function toggleFullscreen() {
+  if (!supportsFullscreen()) {
+    console.warn("Fullscreen not supported");
+    return;
+  }
+
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().then(
+      () => playerCommands.updatePlaybackState({ isFullscreen: true }),
+      (error) => console.error("Fullscreen request failed:", error),
+    );
+  } else {
+    document.exitFullscreen().then(
+      () => playerCommands.updatePlaybackState({ isFullscreen: false }),
+      (error) => console.error("Exit fullscreen failed:", error),
+    );
+  }
+}
 
 /* ────────────────────────────────────────────────────────────
    Main Media Player Hook
@@ -30,7 +49,7 @@ export function useMediaPlayer(): {
   /**
    * Start video playback
    */
-  const play = useCallback(async () => {
+  const play = async () => {
     console.log("🎬 Player: play() called");
     const video = videoRef.current;
     const playbackIdentity = playerCommands.playbackIdentity();
@@ -66,12 +85,12 @@ export function useMediaPlayer(): {
     }
 
     return false;
-  }, []);
+  };
 
   /**
    * Pause video playback
    */
-  const pause = useCallback(() => {
+  const pause = () => {
     console.log("🎬 Player: pause() called");
     const video = videoRef.current;
     const playbackIdentity = playerCommands.playbackIdentity();
@@ -81,24 +100,24 @@ export function useMediaPlayer(): {
         isPlaying: false,
       });
     }
-  }, []);
+  };
 
   /**
    * Toggle play/pause state
    */
-  const togglePlay = useCallback(() => {
+  const togglePlay = () => {
     if (playerCommands.snapshot().isPlaying) {
       pause();
     } else {
       void play();
     }
-  }, [play, pause]);
+  };
 
   /**
    * Seek to a specific time in the video
    * @param time - Time to seek to in seconds
    */
-  const seek = useCallback((time: number): MediaPlayerSeekResult => {
+  const seek = (time: number): MediaPlayerSeekResult => {
     const video = videoRef.current;
     const playbackIdentity = playerCommands.playbackIdentity();
     if (video && playbackIdentity) {
@@ -126,138 +145,91 @@ export function useMediaPlayer(): {
     }
 
     return "none";
-  }, []);
+  };
 
   /**
    * Set the volume level
    * @param volume - Volume level (0-1)
    */
-  const setVolume = useCallback((volume: number) => {
+  const setVolume = (volume: number) => {
     if (videoRef.current) {
       const clampedVolume = clamp(volume, 0, 1);
       videoRef.current.volume = clampedVolume;
       usePlayerPrefsStore.getState().setVolume(clampedVolume);
     }
-  }, []);
+  };
 
   /**
    * Toggle mute state
    */
-  const toggleMute = useCallback(() => {
+  const toggleMute = () => {
     if (videoRef.current) {
       const newMuted = !usePlayerPrefsStore.getState().isMuted;
       videoRef.current.muted = newMuted;
       usePlayerPrefsStore.getState().toggleMute();
     }
-  }, []);
-
-  /**
-   * Toggle fullscreen mode
-   */
-  const toggleFullscreen = useCallback(() => {
-    if (!supportsFullscreen()) {
-      console.warn("Fullscreen not supported");
-      return;
-    }
-
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().then(
-        () => playerCommands.updatePlaybackState({ isFullscreen: true }),
-        (error) => console.error("Fullscreen request failed:", error),
-      );
-    } else {
-      document.exitFullscreen().then(
-        () => playerCommands.updatePlaybackState({ isFullscreen: false }),
-        (error) => console.error("Exit fullscreen failed:", error),
-      );
-    }
-  }, []);
+  };
 
   /**
    * Skip forward by a specified number of seconds
    * @param seconds - Number of seconds to skip forward (default: 10)
    */
-  const skipForward = useCallback(
-    (seconds = 10) => {
-      const { currentTime, duration } = playerCommands.snapshot();
-      const newTime = Math.min(currentTime + seconds, duration);
-      seek(newTime);
-    },
-    [seek],
-  );
+  const skipForward = (seconds = 10) => {
+    const { currentTime, duration } = playerCommands.snapshot();
+    const newTime = Math.min(currentTime + seconds, duration);
+    seek(newTime);
+  };
 
   /**
    * Skip backward by a specified number of seconds
    * @param seconds - Number of seconds to skip backward (default: 10)
    */
-  const skipBackward = useCallback(
-    (seconds = 10) => {
-      const newTime = Math.max(
-        playerCommands.snapshot().currentTime - seconds,
-        0,
-      );
-      seek(newTime);
-    },
-    [seek],
-  );
+  const skipBackward = (seconds = 10) => {
+    const newTime = Math.max(
+      playerCommands.snapshot().currentTime - seconds,
+      0,
+    );
+    seek(newTime);
+  };
 
   /**
    * Jump to the beginning of the video
    */
-  const jumpToStart = useCallback(() => {
+  const jumpToStart = () => {
     seek(0);
-  }, [seek]);
+  };
 
   /**
    * Jump to the end of the video
    */
-  const jumpToEnd = useCallback(() => {
+  const jumpToEnd = () => {
     seek(playerCommands.snapshot().duration);
-  }, [seek]);
+  };
 
   /**
    * Seek to the end of a marker (for skip intro/credits functionality)
    * @param marker - The marker to skip to the end of
    */
-  const seekToMarkerEnd = useCallback(
-    (marker: Marker) => {
-      const seekTime = marker.endTimeOffset / 1000; // Convert ms to seconds
-      seek(seekTime);
-    },
-    [seek],
-  );
+  const seekToMarkerEnd = (marker: Marker) => {
+    const seekTime = marker.endTimeOffset / 1000; // Convert ms to seconds
+    seek(seekTime);
+  };
 
-  const actions = useMemo(
-    () => ({
-      play,
-      pause,
-      togglePlay,
-      seek,
-      setVolume,
-      toggleMute,
-      toggleFullscreen,
-      closePlayer: playerCommands.closePlayer,
-      skipForward,
-      skipBackward,
-      jumpToStart,
-      jumpToEnd,
-      seekToMarkerEnd,
-    }),
-    [
-      jumpToEnd,
-      jumpToStart,
-      pause,
-      play,
-      seek,
-      seekToMarkerEnd,
-      setVolume,
-      skipBackward,
-      skipForward,
-      toggleFullscreen,
-      toggleMute,
-      togglePlay,
-    ],
-  );
+  const actions = {
+    play,
+    pause,
+    togglePlay,
+    seek,
+    setVolume,
+    toggleMute,
+    toggleFullscreen,
+    closePlayer: playerCommands.closePlayer,
+    skipForward,
+    skipBackward,
+    jumpToStart,
+    jumpToEnd,
+    seekToMarkerEnd,
+  };
 
   return {
     actions,

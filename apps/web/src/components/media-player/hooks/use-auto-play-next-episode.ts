@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import type { PlayQueueItem } from "@multiplex/plex-query";
 import {
   playerCommands,
@@ -46,17 +46,13 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
     shallow,
   );
   const autoPlayEnabled = usePlayerPrefsStore((state) => state.autoPlayEnabled);
-  const pollingIdentity = useMemo(() => {
-    const identity = playerCommands.playbackIdentity();
-    if (
-      identity?.streamSessionId !== streamSessionId ||
-      identity.serverId !== currentItem?.serverId ||
-      identity.ratingKey !== currentItem?.ratingKey
-    ) {
-      return null;
-    }
-    return identity;
-  }, [streamSessionId, currentItem?.serverId, currentItem?.ratingKey]);
+  const playbackIdentity = playerCommands.playbackIdentity();
+  const pollingIdentity =
+    playbackIdentity?.streamSessionId === streamSessionId &&
+    playbackIdentity.serverId === currentItem?.serverId &&
+    playbackIdentity.ratingKey === currentItem?.ratingKey
+      ? playbackIdentity
+      : null;
 
   // Poll for play queue updates when we have a play queue ID
   const { data: updatedPlayQueue } = api.plex.getPlayQueue.useQuery(
@@ -75,7 +71,7 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
     },
   );
 
-  const refreshedQueue = useMemo(() => {
+  const refreshedQueue = (() => {
     if (
       !updatedPlayQueue ||
       !pollingIdentity ||
@@ -97,7 +93,7 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
       playQueue: updatedPlayQueue,
       markers: currentItemInQueue.Marker ?? [],
     };
-  }, [updatedPlayQueue, pollingIdentity, playQueueId]);
+  })();
 
   // Update the play queue in state when we get fresh data
   useEffect(() => {
@@ -113,7 +109,7 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
   const activePlayQueue = refreshedQueue?.playQueue ?? playQueue;
 
   // Find next episode from play queue
-  const nextEpisode = useMemo((): NextEpisodeInfo | null => {
+  const nextEpisode = ((): NextEpisodeInfo | null => {
     // Only work with episodes and when we have a play queue
     if (
       currentItem?.type !== "episode" ||
@@ -150,7 +146,7 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
       grandparentTitle: nextEpisodeData.grandparentTitle ?? "",
       parentTitle: nextEpisodeData.parentTitle ?? "",
     };
-  }, [currentItem, activePlayQueue]);
+  })();
 
   // Auto-play logic - event-driven by video time
   useEffect(() => {

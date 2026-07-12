@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
 /* ────────────────────────────────────────────────────────────
@@ -143,140 +143,122 @@ export function useDragToDismiss({
   });
   const dismissTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const setTransition = useCallback((value: string) => {
+  const setTransition = (value: string) => {
     const el = elementRef.current;
     if (!el) return;
     el.style.transition = value;
-  }, []);
+  };
 
-  const writeTransform = useCallback(
-    (visualDown: number) => {
-      const el = elementRef.current;
-      if (!el) return;
+  const writeTransform = (visualDown: number) => {
+    const el = elementRef.current;
+    if (!el) return;
 
-      // Rubber-band on upward drag; 1:1 tracking on downward drag.
-      const followed =
-        visualDown < 0
-          ? -Math.sqrt(-visualDown) * RUBBER_BAND_FACTOR
-          : visualDown;
-      const progress = Math.max(
-        0,
-        Math.min(1, visualDown / DISMISS_DISTANCE_PX),
-      );
-      const scale = 1 - progress * MAX_SCALE_REDUCTION;
-      const opacity = 1 - progress * MAX_OPACITY_REDUCTION;
+    // Rubber-band on upward drag; 1:1 tracking on downward drag.
+    const followed =
+      visualDown < 0
+        ? -Math.sqrt(-visualDown) * RUBBER_BAND_FACTOR
+        : visualDown;
+    const progress = Math.max(0, Math.min(1, visualDown / DISMISS_DISTANCE_PX));
+    const scale = 1 - progress * MAX_SCALE_REDUCTION;
+    const opacity = 1 - progress * MAX_OPACITY_REDUCTION;
 
-      const { x, y } = toPhysicalOffset(followed, rotation);
-      el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
-      el.style.opacity = String(opacity);
-    },
-    [rotation],
-  );
+    const { x, y } = toPhysicalOffset(followed, rotation);
+    el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
+    el.style.opacity = String(opacity);
+  };
 
-  const clearTransform = useCallback(() => {
+  const clearTransform = () => {
     const el = elementRef.current;
     if (!el) return;
     el.style.transform = "";
     el.style.opacity = "";
-  }, []);
+  };
 
-  const onPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      if (!enabled) return;
-      if (event.pointerType !== "touch" && event.pointerType !== "pen") return;
-      if (stateRef.current.pointerId !== null) return;
-      if (stateRef.current.dismissing) return;
+  const onPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
+    if (!enabled) return;
+    if (event.pointerType !== "touch" && event.pointerType !== "pen") return;
+    if (stateRef.current.pointerId !== null) return;
+    if (stateRef.current.dismissing) return;
 
-      stateRef.current.pointerId = event.pointerId;
-      stateRef.current.startX = event.clientX;
-      stateRef.current.startY = event.clientY;
-      stateRef.current.startT = event.timeStamp;
-      stateRef.current.lastDown = 0;
-      stateRef.current.lastT = event.timeStamp;
-      stateRef.current.claimed = false;
+    stateRef.current.pointerId = event.pointerId;
+    stateRef.current.startX = event.clientX;
+    stateRef.current.startY = event.clientY;
+    stateRef.current.startT = event.timeStamp;
+    stateRef.current.lastDown = 0;
+    stateRef.current.lastT = event.timeStamp;
+    stateRef.current.claimed = false;
 
-      setTransition("none");
-    },
-    [enabled, setTransition],
-  );
+    setTransition("none");
+  };
 
-  const onPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      const state = stateRef.current;
-      if (state.pointerId !== event.pointerId) return;
+  const onPointerMove = (event: ReactPointerEvent<HTMLElement>) => {
+    const state = stateRef.current;
+    if (state.pointerId !== event.pointerId) return;
 
-      const dxPhysical = event.clientX - state.startX;
-      const dyPhysical = event.clientY - state.startY;
-      const { down, cross } = toContentDelta(dxPhysical, dyPhysical, rotation);
+    const dxPhysical = event.clientX - state.startX;
+    const dyPhysical = event.clientY - state.startY;
+    const { down, cross } = toContentDelta(dxPhysical, dyPhysical, rotation);
 
-      state.lastDown = down;
-      state.lastT = event.timeStamp;
+    state.lastDown = down;
+    state.lastT = event.timeStamp;
 
-      if (!state.claimed) {
-        // Claim only on visual-down movement that dominates the orthogonal
-        // axis. This lets quick taps, holds, and orthogonal swipes through.
-        if (
-          down > CLAIM_THRESHOLD_PX &&
-          Math.abs(down) > Math.abs(cross) * 1.2
-        ) {
-          state.claimed = true;
-          setIsDragging(true);
-        } else {
-          return;
-        }
-      }
-
-      writeTransform(down);
-    },
-    [rotation, writeTransform],
-  );
-
-  const onPointerEnd = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      const state = stateRef.current;
-      if (state.pointerId !== event.pointerId) return;
-
-      const wasClaimed = state.claimed;
-      const down = state.lastDown;
-      const dt = Math.max(1, state.lastT - state.startT);
-      const velocity = down / dt;
-
-      state.pointerId = null;
-      state.claimed = false;
-
-      if (!wasClaimed) return;
-
-      setIsDragging(false);
-      setTransition(
-        `transform ${SETTLE_MS}ms ${SETTLE_EASING}, opacity ${SETTLE_MS}ms ${SETTLE_EASING}`,
-      );
-
-      const shouldDismiss =
-        down > DISMISS_DISTANCE_PX ||
-        (velocity > DISMISS_VELOCITY_PX_PER_MS &&
-          down > DISMISS_VELOCITY_MIN_DISTANCE_PX);
-
-      if (shouldDismiss) {
-        const el = elementRef.current;
-        if (el) {
-          const distance = offscreenDistance(rotation);
-          const { x, y } = toPhysicalOffset(distance, rotation);
-          el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${
-            1 - MAX_SCALE_REDUCTION
-          })`;
-          el.style.opacity = "0";
-        }
-        state.dismissing = true;
-        dismissTimeoutRef.current = setTimeout(() => {
-          dismissTimeoutRef.current = null;
-          onDismiss();
-        }, SETTLE_MS);
+    if (!state.claimed) {
+      // Claim only on visual-down movement that dominates the orthogonal
+      // axis. This lets quick taps, holds, and orthogonal swipes through.
+      if (down > CLAIM_THRESHOLD_PX && Math.abs(down) > Math.abs(cross) * 1.2) {
+        state.claimed = true;
+        setIsDragging(true);
       } else {
-        clearTransform();
+        return;
       }
-    },
-    [clearTransform, onDismiss, rotation, setTransition],
-  );
+    }
+
+    writeTransform(down);
+  };
+
+  const onPointerEnd = (event: ReactPointerEvent<HTMLElement>) => {
+    const state = stateRef.current;
+    if (state.pointerId !== event.pointerId) return;
+
+    const wasClaimed = state.claimed;
+    const down = state.lastDown;
+    const dt = Math.max(1, state.lastT - state.startT);
+    const velocity = down / dt;
+
+    state.pointerId = null;
+    state.claimed = false;
+
+    if (!wasClaimed) return;
+
+    setIsDragging(false);
+    setTransition(
+      `transform ${SETTLE_MS}ms ${SETTLE_EASING}, opacity ${SETTLE_MS}ms ${SETTLE_EASING}`,
+    );
+
+    const shouldDismiss =
+      down > DISMISS_DISTANCE_PX ||
+      (velocity > DISMISS_VELOCITY_PX_PER_MS &&
+        down > DISMISS_VELOCITY_MIN_DISTANCE_PX);
+
+    if (shouldDismiss) {
+      const el = elementRef.current;
+      if (el) {
+        const distance = offscreenDistance(rotation);
+        const { x, y } = toPhysicalOffset(distance, rotation);
+        el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${
+          1 - MAX_SCALE_REDUCTION
+        })`;
+        el.style.opacity = "0";
+      }
+      state.dismissing = true;
+      dismissTimeoutRef.current = setTimeout(() => {
+        dismissTimeoutRef.current = null;
+        onDismiss();
+      }, SETTLE_MS);
+    } else {
+      clearTransform();
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -287,9 +269,9 @@ export function useDragToDismiss({
     };
   }, []);
 
-  const refCallback = useCallback((node: HTMLDivElement | null) => {
+  const refCallback = (node: HTMLDivElement | null) => {
     elementRef.current = node;
-  }, []);
+  };
 
   return {
     ref: refCallback,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export type SeekOverlayDirection = "backward" | "forward";
 
@@ -23,72 +23,75 @@ export function useSeekOverlay(displayMs = DEFAULT_SEEK_OVERLAY_MS) {
   const overlayKeyRef = useRef(0);
   const [overlay, setOverlay] = useState<SeekOverlayState | null>(null);
 
-  const clearOverlayTimeout = useCallback(() => {
+  const clearOverlayTimeout = () => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
     }
-  }, []);
+  };
 
-  const clearSequenceTimeout = useCallback(() => {
+  const clearSequenceTimeout = () => {
     if (sequenceTimeoutRef.current) {
       clearTimeout(sequenceTimeoutRef.current);
       sequenceTimeoutRef.current = null;
     }
-  }, []);
+  };
 
-  const resetSequence = useCallback(() => {
+  const resetSequence = () => {
     clearSequenceTimeout();
     sequenceRef.current = null;
-  }, [clearSequenceTimeout]);
+  };
 
-  const resetSequenceDelayed = useCallback(() => {
+  const resetSequenceDelayed = () => {
     clearSequenceTimeout();
     sequenceTimeoutRef.current = setTimeout(() => {
       sequenceRef.current = null;
       sequenceTimeoutRef.current = null;
     }, SEEK_SEQUENCE_WINDOW_MS);
-  }, [clearSequenceTimeout]);
+  };
 
-  const showOverlay = useCallback(
-    (direction: SeekOverlayDirection, seconds: number, accumulate = true) => {
-      const previous = sequenceRef.current;
-      const totalSeconds =
-        accumulate && previous?.direction === direction
-          ? previous.seconds + seconds
-          : seconds;
+  const showOverlay = (
+    direction: SeekOverlayDirection,
+    seconds: number,
+    accumulate = true,
+  ) => {
+    const previous = sequenceRef.current;
+    const totalSeconds =
+      accumulate && previous?.direction === direction
+        ? previous.seconds + seconds
+        : seconds;
 
-      sequenceRef.current = { direction, seconds: totalSeconds };
-      resetSequenceDelayed();
+    sequenceRef.current = { direction, seconds: totalSeconds };
+    resetSequenceDelayed();
 
-      overlayKeyRef.current += 1;
-      setOverlay({
-        direction,
-        seconds: totalSeconds,
-        key: overlayKeyRef.current,
-      });
-      clearOverlayTimeout();
-      timeoutRef.current = setTimeout(() => {
-        setOverlay(null);
-        timeoutRef.current = null;
-        resetSequence();
-      }, displayMs);
-    },
-    [clearOverlayTimeout, displayMs, resetSequence, resetSequenceDelayed],
-  );
+    overlayKeyRef.current += 1;
+    setOverlay({
+      direction,
+      seconds: totalSeconds,
+      key: overlayKeyRef.current,
+    });
+    clearOverlayTimeout();
+    timeoutRef.current = setTimeout(() => {
+      setOverlay(null);
+      timeoutRef.current = null;
+      resetSequence();
+    }, displayMs);
+  };
 
-  const hideOverlay = useCallback(() => {
+  const hideOverlay = () => {
     clearOverlayTimeout();
     resetSequence();
     setOverlay(null);
-  }, [clearOverlayTimeout, resetSequence]);
+  };
 
   useEffect(() => {
     return () => {
-      clearOverlayTimeout();
-      clearSequenceTimeout();
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (sequenceTimeoutRef.current) {
+        clearTimeout(sequenceTimeoutRef.current);
+      }
     };
-  }, [clearOverlayTimeout, clearSequenceTimeout]);
+  }, []);
 
   return {
     overlay,

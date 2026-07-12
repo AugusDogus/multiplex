@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useEffect, useEffectEvent, useRef, useState } from "react";
 import { usePlayerStateSelector } from "~/lib/effect/player-atoms";
 import { clamp } from "./utils/media-player-utils";
 import { formatTime } from "./utils/playback-time-utils";
@@ -55,102 +55,89 @@ export function MediaPlayerProgress({
   /**
    * Calculate time from mouse position
    */
-  const getTimeFromPosition = useCallback(
-    (clientX: number): number => {
-      if (!progressRef.current) return 0;
+  const getTimeFromPosition = (clientX: number): number => {
+    if (!progressRef.current) return 0;
 
-      const rect = progressRef.current.getBoundingClientRect();
-      const percentage = clamp((clientX - rect.left) / rect.width, 0, 1);
-      return percentage * duration;
-    },
-    [duration],
-  );
+    const rect = progressRef.current.getBoundingClientRect();
+    const percentage = clamp((clientX - rect.left) / rect.width, 0, 1);
+    return percentage * duration;
+  };
 
   /**
    * Handle mouse down on progress bar
    */
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (disabled || duration === 0) return;
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (disabled || duration === 0) return;
 
-      e.preventDefault();
-      setIsDragging(true);
+    e.preventDefault();
+    setIsDragging(true);
 
-      const time = getTimeFromPosition(e.clientX);
-      onSeek(time);
-    },
-    [disabled, duration, getTimeFromPosition, onSeek],
-  );
+    const time = getTimeFromPosition(e.clientX);
+    onSeek(time);
+  };
 
   /**
    * Handle mouse move during drag
    */
-  const handleMouseMove = useCallback(
-    (e: MouseEvent) => {
-      if (!isDragging || disabled || duration === 0) return;
+  const handleMouseMove = useEffectEvent((e: MouseEvent) => {
+    if (!isDragging || disabled || duration === 0) return;
 
-      const time = getTimeFromPosition(e.clientX);
-      onSeek(time);
-    },
-    [isDragging, disabled, duration, getTimeFromPosition, onSeek],
-  );
+    const time = getTimeFromPosition(e.clientX);
+    onSeek(time);
+  });
 
   /**
    * Handle mouse up to end drag
    */
-  const handleMouseUp = useCallback(() => {
+  const handleMouseUp = useEffectEvent(() => {
     setIsDragging(false);
-  }, []);
+  });
 
   /**
    * Handle mouse move for hover preview
    */
-  const handleProgressMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (disabled || duration === 0) return;
+  const handleProgressMouseMove = (e: React.MouseEvent) => {
+    if (disabled || duration === 0) return;
 
-      const time = getTimeFromPosition(e.clientX);
-      setHoverTime(time);
-    },
-    [disabled, duration, getTimeFromPosition],
-  );
+    const time = getTimeFromPosition(e.clientX);
+    setHoverTime(time);
+  };
 
   /**
    * Handle mouse leave to clear hover
    */
-  const handleProgressMouseLeave = useCallback(() => {
+  const handleProgressMouseLeave = () => {
     setHoverTime(null);
-  }, []);
+  };
 
-  const handleProgressKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (disabled || duration === 0) return;
+  const handleProgressKeyDown = (
+    event: React.KeyboardEvent<HTMLDivElement>,
+  ) => {
+    if (disabled || duration === 0) return;
 
-      let nextTime: number;
-      switch (event.key) {
-        case "ArrowLeft":
-        case "ArrowDown":
-          nextTime = currentTime - 5;
-          break;
-        case "ArrowRight":
-        case "ArrowUp":
-          nextTime = currentTime + 5;
-          break;
-        case "Home":
-          nextTime = 0;
-          break;
-        case "End":
-          nextTime = duration;
-          break;
-        default:
-          return;
-      }
+    let nextTime: number;
+    switch (event.key) {
+      case "ArrowLeft":
+      case "ArrowDown":
+        nextTime = currentTime - 5;
+        break;
+      case "ArrowRight":
+      case "ArrowUp":
+        nextTime = currentTime + 5;
+        break;
+      case "Home":
+        nextTime = 0;
+        break;
+      case "End":
+        nextTime = duration;
+        break;
+      default:
+        return;
+    }
 
-      event.preventDefault();
-      onSeek(clamp(nextTime, 0, duration));
-    },
-    [currentTime, disabled, duration, onSeek],
-  );
+    event.preventDefault();
+    onSeek(clamp(nextTime, 0, duration));
+  };
 
   // Attach global mouse events for dragging
   useEffect(() => {
@@ -163,7 +150,7 @@ export function MediaPlayerProgress({
         document.removeEventListener("mouseup", handleMouseUp);
       };
     }
-  }, [isDragging, handleMouseMove, handleMouseUp]);
+  }, [isDragging]);
 
   const progressWidth = `${progressPercent}%`;
   const bufferedWidth = `${bufferedPercent}%`;

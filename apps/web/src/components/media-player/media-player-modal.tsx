@@ -2,10 +2,10 @@
 
 import { X } from "lucide-react";
 import {
-  useCallback,
   useEffect,
-  useMemo,
   useRef,
+  type ComponentProps,
+  type ComponentPropsWithRef,
   type PointerEvent,
 } from "react";
 import {
@@ -93,6 +93,410 @@ const isSessionControllingPlayback = (
   );
 };
 
+function onSyncplayLocalPlaybackChange(isPaused: boolean) {
+  const item = playerCommands.snapshot().currentItem;
+  if (item && isSessionControllingItem(item)) {
+    sessionCommands.handleLocalPlaybackChange(isPaused);
+  }
+}
+
+function onSyncplayLocalSeeked(time: number) {
+  const item = playerCommands.snapshot().currentItem;
+  if (item && isSessionControllingItem(item)) {
+    sessionCommands.handleLocalSeeked(time);
+  }
+}
+
+function stopOverlayPointer(event: PointerEvent) {
+  event.stopPropagation();
+}
+
+interface PlayerChromeControllerOptions {
+  actions: ReturnType<typeof useMediaPlayer>["actions"];
+  currentTime: number;
+  duration: number;
+  isMobile: boolean;
+  isOpen: boolean;
+  showControls: boolean;
+}
+
+function usePlayerChromeController({
+  actions,
+  currentTime,
+  duration,
+  isMobile,
+  isOpen,
+  showControls,
+}: PlayerChromeControllerOptions) {
+  const seekFeedbackRef = useRef<MediaPlayerSeekFeedbackHandle>(null);
+  const hideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mouseMoveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const isSettingsOpenRef = useRef(false);
+
+  const clearAllTimeouts = () => {
+    if (hideTimeoutRef.current) {
+      clearTimeout(hideTimeoutRef.current);
+      hideTimeoutRef.current = null;
+    }
+    if (mouseMoveTimeoutRef.current) {
+      clearTimeout(mouseMoveTimeoutRef.current);
+      mouseMoveTimeoutRef.current = null;
+    }
+  };
+
+  const showControlsImmediate = () => {
+    clearAllTimeouts();
+    playerCommands.updatePlaybackState({ showControls: true });
+  };
+
+  const hideControlsDelayed = (delay = MOBILE_CONTROLS_HIDE_DELAY_MS) => {
+    clearAllTimeouts();
+    hideTimeoutRef.current = setTimeout(() => {
+      playerCommands.updatePlaybackState({ showControls: false });
+    }, delay);
+  };
+
+  const hideControlsImmediate = () => {
+    clearAllTimeouts();
+    playerCommands.updatePlaybackState({ showControls: false });
+  };
+
+  const handleMobileDoubleTapSeek = (zone: MobileSeekZone) => {
+    if (zone === "forward") {
+      actions.skipForward(SEEK_SECONDS);
+      seekFeedbackRef.current?.presentSeek("forward");
+    } else {
+      actions.skipBackward(SEEK_SECONDS);
+      seekFeedbackRef.current?.presentSeek("backward");
+    }
+  };
+
+  const { handleSurfaceTap, resetAutoHide: resetMobileControlsTimer } =
+    useMobileVideoChrome({
+      showControls,
+      showControlsImmediate,
+      hideControlsImmediate,
+      hideControlsDelayed,
+      onDoubleTapSeek: handleMobileDoubleTapSeek,
+    });
+
+  const showSeekFeedback = (
+    direction: "backward" | "forward",
+    seconds: number,
+    accumulate = true,
+  ) => {
+    if (!isMobile) {
+      seekFeedbackRef.current?.show(direction, seconds, accumulate);
+    }
+  };
+
+  const actionsWithSeekFeedback = {
+    ...actions,
+    skipForward: (seconds = SEEK_SECONDS) => {
+      const canAccumulate = duration - currentTime > seconds;
+      actions.skipForward(seconds);
+      showSeekFeedback("forward", seconds, canAccumulate);
+    },
+    skipBackward: (seconds = SEEK_SECONDS) => {
+      const canAccumulate = currentTime > seconds;
+      actions.skipBackward(seconds);
+      showSeekFeedback("backward", seconds, canAccumulate);
+    },
+  };
+
+  const handleCenterTogglePlay = () => {
+    actions.togglePlay();
+    resetMobileControlsTimer();
+  };
+
+  const handleMobileSkipBackward = () => {
+    actions.skipBackward(SEEK_SECONDS);
+    seekFeedbackRef.current?.presentSeek("backward");
+    resetMobileControlsTimer();
+  };
+
+  const handleMobileSkipForward = () => {
+    actions.skipForward(SEEK_SECONDS);
+    seekFeedbackRef.current?.presentSeek("forward");
+    resetMobileControlsTimer();
+  };
+
+  const handleMouseEnter = () => {
+    showControlsImmediate();
+  };
+
+  const handleMouseLeave = () => {
+    if (isSettingsOpenRef.current) return;
+    hideControlsDelayed(1000);
+  };
+
+  const handleMouseMove = () => {
+    showControlsImmediate();
+    if (mouseMoveTimeoutRef.current) {
+      clearTimeout(mouseMoveTimeoutRef.current);
+    }
+    if (isSettingsOpenRef.current) return;
+    mouseMoveTimeoutRef.current = setTimeout(() => {
+      hideControlsDelayed(0);
+    }, 3000);
+  };
+
+  const handleSettingsOpenChange = (open: boolean) => {
+    isSettingsOpenRef.current = open;
+    if (open) {
+      showControlsImmediate();
+    } else if (!isMobile) {
+      handleMouseMove();
+    } else {
+      hideControlsDelayed(MOBILE_CONTROLS_HIDE_DELAY_MS);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen || !isMobile) return;
+    clearAllTimeouts();
+    hideTimeoutRef.current = setTimeout(() => {
+      playerCommands.updatePlaybackState({ showControls: false });
+    }, MOBILE_CONTROLS_HIDE_DELAY_MS);
+    return clearAllTimeouts;
+  }, [isOpen, isMobile]);
+
+  const chromeClassName = isMobile
+    ? undefined
+    : cn(
+        mediaPlayerControlsTransition.base,
+        showControls
+          ? cn(mediaPlayerControlsTransition.visible, "pointer-events-auto")
+          : cn(
+              mediaPlayerControlsTransition.hidden,
+              "group-hover:pointer-events-auto group-hover:opacity-100",
+            ),
+      );
+
+  return {
+    actionsWithSeekFeedback,
+    chromeClassName,
+    clearAllTimeouts,
+    handleCenterTogglePlay,
+    handleMobileSkipBackward,
+    handleMobileSkipForward,
+    handleMouseEnter,
+    handleMouseLeave,
+    handleMouseMove,
+    handleSettingsOpenChange,
+    handleSurfaceTap,
+    resetMobileControlsTimer,
+    seekFeedbackRef,
+  };
+}
+
+interface PlaybackSessionControllerOptions {
+  actions: ReturnType<typeof useMediaPlayer>["actions"];
+  currentItem: ComponentProps<typeof MediaPlayerOverlay>["item"] | null;
+  isOpen: boolean;
+  streamOffset: number;
+  streamSessionId: string;
+}
+
+function usePlaybackSessionController({
+  actions,
+  currentItem,
+  isOpen,
+  streamOffset,
+  streamSessionId,
+}: PlaybackSessionControllerOptions) {
+  const sessionState = useSessionState();
+  const playerItemServerId = currentItem?.serverId ?? null;
+  const playerItemRatingKey = currentItem?.ratingKey ?? null;
+  const streamServerUrl = currentItem?.serverUrl;
+  const streamAuthToken = currentItem?.authToken;
+  const timeline = useTimelineUpdates();
+
+  useEffect(() => {
+    if (
+      !isOpen ||
+      !playerItemServerId ||
+      !playerItemRatingKey ||
+      !streamSessionId ||
+      !streamServerUrl ||
+      !streamAuthToken
+    ) {
+      return;
+    }
+
+    const registeredPlayback = {
+      serverId: playerItemServerId,
+      ratingKey: playerItemRatingKey,
+      streamSessionId,
+    };
+    return sessionCommands.registerPlayerActions({
+      play: () =>
+        isSessionControllingPlayback(registeredPlayback)
+          ? actions.play()
+          : false,
+      pause: () => {
+        if (isSessionControllingPlayback(registeredPlayback)) {
+          actions.pause();
+        }
+      },
+      seek: (seconds) =>
+        isSessionControllingPlayback(registeredPlayback)
+          ? actions.seek(seconds)
+          : "none",
+      prepareForReplacement: () =>
+        stopPlaybackTranscodeSessions(
+          streamServerUrl,
+          streamAuthToken,
+          streamSessionId,
+        ),
+    });
+  }, [
+    actions,
+    isOpen,
+    playerItemServerId,
+    playerItemRatingKey,
+    streamSessionId,
+    streamServerUrl,
+    streamAuthToken,
+    currentItem,
+  ]);
+
+  const isWatchTogetherSession =
+    sessionState._tag === "Playing" || sessionState._tag === "Lobby";
+  const isSessionPlaying = sessionState._tag === "Playing";
+  const sessionItemServerId = isSessionPlaying
+    ? sessionState.item.serverId
+    : null;
+  const sessionItemRatingKey = isSessionPlaying
+    ? sessionState.item.ratingKey
+    : null;
+  const isSyncplayActiveForCurrentItem =
+    isSessionPlaying &&
+    sessionItemServerId === playerItemServerId &&
+    sessionItemRatingKey === playerItemRatingKey;
+
+  useEffect(() => {
+    if (!isSessionPlaying || isSyncplayActiveForCurrentItem) {
+      return;
+    }
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+
+      const latestSession = sessionCommands.snapshot();
+      const latestItem = playerCommands.snapshot().currentItem;
+      if (
+        latestSession._tag === "Playing" &&
+        !itemsMatch(latestSession.item, latestItem)
+      ) {
+        void sessionCommands.leave({ suppressAutoStart: true });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isSessionPlaying,
+    sessionItemServerId,
+    sessionItemRatingKey,
+    playerItemServerId,
+    playerItemRatingKey,
+    isSyncplayActiveForCurrentItem,
+  ]);
+
+  const { autoPlayState, nextEpisode } = useAutoPlayNextEpisode({
+    enabled: !isWatchTogetherSession,
+  });
+  const watchTogetherAutoAdvance = useWatchTogetherRotation({
+    enabled: isWatchTogetherSession,
+    nextEpisode,
+  });
+
+  const previousStreamRef = useRef({
+    sessionId: streamSessionId,
+    offset: streamOffset,
+  });
+  useEffect(() => {
+    const previousStream = previousStreamRef.current;
+    if (streamSessionId !== previousStream.sessionId) {
+      previousStreamRef.current = {
+        sessionId: streamSessionId,
+        offset: streamOffset,
+      };
+      return;
+    }
+    if (streamOffset === previousStream.offset) {
+      return;
+    }
+    previousStreamRef.current = {
+      sessionId: streamSessionId,
+      offset: streamOffset,
+    };
+    onSyncplayLocalSeeked(streamOffset);
+    if (streamSessionId && streamServerUrl && streamAuthToken) {
+      void stopTranscodeSession(
+        streamServerUrl,
+        streamAuthToken,
+        `${streamSessionId}-${Math.floor(previousStream.offset)}`,
+      );
+    }
+  }, [
+    streamOffset,
+    streamSessionId,
+    streamServerUrl,
+    streamAuthToken,
+    currentItem,
+  ]);
+
+  useEffect(() => {
+    if (!streamSessionId || !streamServerUrl || !streamAuthToken) {
+      return;
+    }
+    return () => {
+      void stopPlaybackTranscodeSessions(
+        streamServerUrl,
+        streamAuthToken,
+        streamSessionId,
+      );
+    };
+  }, [streamSessionId, streamServerUrl, streamAuthToken, currentItem]);
+
+  return {
+    autoPlayProps: {
+      isCountingDown: isWatchTogetherSession
+        ? watchTogetherAutoAdvance.isCountingDown
+        : autoPlayState.isCountingDown,
+      countdownSeconds: isWatchTogetherSession
+        ? watchTogetherAutoAdvance.countdownSeconds
+        : autoPlayState.countdownSeconds,
+      nextEpisode: isWatchTogetherSession
+        ? watchTogetherAutoAdvance.nextEpisode
+        : autoPlayState.nextEpisode,
+      showActions: !isWatchTogetherSession,
+    } satisfies ComponentProps<typeof MediaPlayerAutoPlayOverlay>,
+    clearTimelineSession: timeline.clearSession,
+    handleVideoPause: () => {
+      timeline.onPause();
+      onSyncplayLocalPlaybackChange(true);
+    },
+    handleVideoPlay: () => {
+      timeline.onPlay();
+      onSyncplayLocalPlaybackChange(false);
+    },
+    isSyncplayActiveForCurrentItem,
+    onEnded: timeline.onEnded,
+    onStop: timeline.onStop,
+    onTimeUpdate: timeline.onTimeUpdate,
+    onVideoSeeked: timeline.onSeeked,
+    playerItemRatingKey,
+    playerItemServerId,
+  };
+}
+
 export function MediaPlayerModal() {
   const {
     isOpen,
@@ -127,324 +531,62 @@ export function MediaPlayerModal() {
   const volume = usePlayerPrefsStore((state) => state.volume);
 
   const closePlayer = playerCommands.closePlayer;
-  const updatePlaybackState = playerCommands.updatePlaybackState;
   const { actions, videoRef } = useMediaPlayer();
-  const seekFeedbackRef = useRef<MediaPlayerSeekFeedbackHandle>(null);
   const isMobile = useIsMobile();
-  const sessionState = useSessionState();
-  const playerItemServerId = currentItem?.serverId ?? null;
-  const playerItemRatingKey = currentItem?.ratingKey ?? null;
-  const streamServerUrl = currentItem?.serverUrl;
-  const streamAuthToken = currentItem?.authToken;
-
-  const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const mouseMoveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const isSettingsOpenRef = useRef(false);
-
-  const clearAllTimeouts = useCallback(() => {
-    if (hideTimeoutRef.current) {
-      clearTimeout(hideTimeoutRef.current);
-      hideTimeoutRef.current = null;
-    }
-    if (mouseMoveTimeoutRef.current) {
-      clearTimeout(mouseMoveTimeoutRef.current);
-      mouseMoveTimeoutRef.current = null;
-    }
-  }, []);
-
-  const showControlsImmediate = useCallback(() => {
-    clearAllTimeouts();
-    updatePlaybackState({ showControls: true });
-  }, [clearAllTimeouts, updatePlaybackState]);
-
-  const hideControlsDelayed = useCallback(
-    (delay = MOBILE_CONTROLS_HIDE_DELAY_MS) => {
-      clearAllTimeouts();
-      hideTimeoutRef.current = setTimeout(() => {
-        updatePlaybackState({ showControls: false });
-      }, delay);
-    },
-    [clearAllTimeouts, updatePlaybackState],
-  );
-
-  const hideControlsImmediate = useCallback(() => {
-    clearAllTimeouts();
-    updatePlaybackState({ showControls: false });
-  }, [clearAllTimeouts, updatePlaybackState]);
-
-  const handleMobileDoubleTapSeek = useCallback(
-    (zone: MobileSeekZone) => {
-      if (zone === "forward") {
-        actions.skipForward(SEEK_SECONDS);
-        seekFeedbackRef.current?.presentSeek("forward");
-      } else {
-        actions.skipBackward(SEEK_SECONDS);
-        seekFeedbackRef.current?.presentSeek("backward");
-      }
-    },
-    [actions],
-  );
-
-  const { handleSurfaceTap, resetAutoHide: resetMobileControlsTimer } =
-    useMobileVideoChrome({
-      showControls,
-      showControlsImmediate,
-      hideControlsImmediate,
-      hideControlsDelayed,
-      onDoubleTapSeek: handleMobileDoubleTapSeek,
-    });
-
-  const actionsWithSeekFeedback = useMemo(() => {
-    const showSeekFeedback = (
-      direction: "backward" | "forward",
-      seconds: number,
-      accumulate = true,
-    ) => {
-      if (!isMobile) {
-        seekFeedbackRef.current?.show(direction, seconds, accumulate);
-      }
-    };
-
-    return {
-      ...actions,
-      skipForward: (seconds = SEEK_SECONDS) => {
-        const canAccumulate = duration - currentTime > seconds;
-        actions.skipForward(seconds);
-        showSeekFeedback("forward", seconds, canAccumulate);
-      },
-      skipBackward: (seconds = SEEK_SECONDS) => {
-        const canAccumulate = currentTime > seconds;
-        actions.skipBackward(seconds);
-        showSeekFeedback("backward", seconds, canAccumulate);
-      },
-    };
-  }, [actions, currentTime, duration, isMobile]);
-
+  const {
+    actionsWithSeekFeedback,
+    chromeClassName,
+    clearAllTimeouts,
+    handleCenterTogglePlay,
+    handleMobileSkipBackward,
+    handleMobileSkipForward,
+    handleMouseEnter,
+    handleMouseLeave,
+    handleMouseMove,
+    handleSettingsOpenChange,
+    handleSurfaceTap,
+    resetMobileControlsTimer,
+    seekFeedbackRef,
+  } = usePlayerChromeController({
+    actions,
+    currentTime,
+    duration,
+    isMobile,
+    isOpen,
+    showControls,
+  });
   usePlayQueue(currentItem);
 
   const {
-    onPlay,
-    onPause,
-    onTimeUpdate,
-    onSeeked,
+    autoPlayProps,
+    clearTimelineSession,
+    handleVideoPause,
+    handleVideoPlay,
+    isSyncplayActiveForCurrentItem,
     onEnded,
     onStop,
-    clearSession,
-  } = useTimelineUpdates();
-
-  // Register video-element actions into PlayerPort so the session service's
-  // Syncplay controller can command play/pause/seek.
-  useEffect(() => {
-    if (
-      !isOpen ||
-      !playerItemServerId ||
-      !playerItemRatingKey ||
-      !streamSessionId ||
-      !streamServerUrl ||
-      !streamAuthToken
-    ) {
-      return;
-    }
-
-    const registeredPlayback = {
-      serverId: playerItemServerId,
-      ratingKey: playerItemRatingKey,
-      streamSessionId,
-    };
-    return sessionCommands.registerPlayerActions({
-      // Results flow through to the Syncplay controller: play() reports
-      // whether playback actually started, seek() reports direct/reload/none
-      // (it retries remote seeks that return "none").
-      play: () =>
-        isSessionControllingPlayback(registeredPlayback)
-          ? actions.play()
-          : false,
-      pause: () => {
-        if (isSessionControllingPlayback(registeredPlayback)) {
-          actions.pause();
-        }
-      },
-      seek: (seconds) =>
-        isSessionControllingPlayback(registeredPlayback)
-          ? actions.seek(seconds)
-          : "none",
-      prepareForReplacement: () =>
-        stopPlaybackTranscodeSessions(
-          streamServerUrl,
-          streamAuthToken,
-          streamSessionId,
-        ),
-    });
-  }, [
+    onTimeUpdate,
+    onVideoSeeked,
+    playerItemRatingKey,
+    playerItemServerId,
+  } = usePlaybackSessionController({
     actions,
+    currentItem,
     isOpen,
-    playerItemServerId,
-    playerItemRatingKey,
-    streamSessionId,
-    streamServerUrl,
-    streamAuthToken,
-  ]);
-
-  const isWatchTogetherSession =
-    sessionState._tag === "Playing" || sessionState._tag === "Lobby";
-  const isSessionPlaying = sessionState._tag === "Playing";
-  const sessionItemServerId = isSessionPlaying
-    ? sessionState.item.serverId
-    : null;
-  const sessionItemRatingKey = isSessionPlaying
-    ? sessionState.item.ratingKey
-    : null;
-  const isSyncplayActiveForCurrentItem =
-    isSessionPlaying &&
-    sessionItemServerId === playerItemServerId &&
-    sessionItemRatingKey === playerItemRatingKey;
-
-  // A direct player replacement must not leave the previous room's controller
-  // attached to unrelated media. Re-check after the current task so swapTo's
-  // atomic SessionState + PlayerService item rotation can settle first.
-  useEffect(() => {
-    if (!isSessionPlaying || isSyncplayActiveForCurrentItem) {
-      return;
-    }
-
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (cancelled) return;
-
-      const latestSession = sessionCommands.snapshot();
-      const latestItem = playerCommands.snapshot().currentItem;
-      if (
-        latestSession._tag === "Playing" &&
-        !itemsMatch(latestSession.item, latestItem)
-      ) {
-        void sessionCommands.leave({ suppressAutoStart: true });
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    isSessionPlaying,
-    sessionItemServerId,
-    sessionItemRatingKey,
-    playerItemServerId,
-    playerItemRatingKey,
-    isSyncplayActiveForCurrentItem,
-  ]);
-
-  const onSyncplayLocalPlaybackChange = useCallback((isPaused: boolean) => {
-    const item = playerCommands.snapshot().currentItem;
-    if (item && isSessionControllingItem(item)) {
-      sessionCommands.handleLocalPlaybackChange(isPaused);
-    }
-  }, []);
-
-  const onSyncplayLocalSeeked = useCallback((time: number) => {
-    const item = playerCommands.snapshot().currentItem;
-    if (item && isSessionControllingItem(item)) {
-      sessionCommands.handleLocalSeeked(time);
-    }
-  }, []);
-
-  const { autoPlayState, nextEpisode } = useAutoPlayNextEpisode({
-    enabled: !isWatchTogetherSession,
-  });
-  // Watch Together sessions can't use solo autoplay (a lone client switching
-  // items would desync the room), so they rotate the whole party into a new
-  // room for the next episode instead — seamlessly, without leaving the modal.
-  const watchTogetherAutoAdvance = useWatchTogetherRotation({
-    enabled: isWatchTogetherSession,
-    nextEpisode,
-  });
-
-  const handleVideoPlay = useCallback(() => {
-    onPlay();
-    onSyncplayLocalPlaybackChange(false);
-  }, [onPlay, onSyncplayLocalPlaybackChange]);
-
-  const handleVideoPause = useCallback(() => {
-    onPause();
-    onSyncplayLocalPlaybackChange(true);
-  }, [onPause, onSyncplayLocalPlaybackChange]);
-
-  const handleVideoSeeked = useCallback(
-    (time: number) => {
-      onSeeked(time);
-    },
-    [onSeeked],
-  );
-
-  // Plex's transcoded streams can't be seeked via `currentTime`; we reload the
-  // stream at a new `streamOffset` instead, which never fires a `seeked` event.
-  // Report those reload-seeks to Syncplay here so they propagate to the room.
-  // (Remote-applied reload-seeks are filtered out by the session controller's
-  // own suppression, so this doesn't echo them back.)
-  // We seek a transcoded stream by reloading it at a new `streamOffset` (a new
-  // transcode session). Report that seek to Syncplay so it propagates, and stop
-  // the previous offset's transcode so seeking doesn't pile up sessions and hit
-  // the server's transcode limit (HTTP 400 / "video source not supported").
-  const previousStreamRef = useRef({
-    sessionId: streamSessionId,
-    offset: streamOffset,
-  });
-  useEffect(() => {
-    const previousStream = previousStreamRef.current;
-    if (streamSessionId !== previousStream.sessionId) {
-      previousStreamRef.current = {
-        sessionId: streamSessionId,
-        offset: streamOffset,
-      };
-      return;
-    }
-    if (streamOffset === previousStream.offset) {
-      return;
-    }
-    previousStreamRef.current = {
-      sessionId: streamSessionId,
-      offset: streamOffset,
-    };
-    onSyncplayLocalSeeked(streamOffset);
-    if (streamSessionId && streamServerUrl && streamAuthToken) {
-      void stopTranscodeSession(
-        streamServerUrl,
-        streamAuthToken,
-        `${streamSessionId}-${Math.floor(previousStream.offset)}`,
-      );
-    }
-  }, [
     streamOffset,
-    onSyncplayLocalSeeked,
     streamSessionId,
-    streamServerUrl,
-    streamAuthToken,
-  ]);
+  });
 
-  // Stop this playback's transcode session(s) on the server when it ends (the
-  // session id is cleared on close / changes on a new playback).
-  useEffect(() => {
-    if (!streamSessionId || !streamServerUrl || !streamAuthToken) {
-      return;
-    }
-    return () => {
-      void stopPlaybackTranscodeSessions(
-        streamServerUrl,
-        streamAuthToken,
-        streamSessionId,
-      );
-    };
-  }, [streamSessionId, streamServerUrl, streamAuthToken]);
-
-  const handleClose = useCallback(() => {
+  const handleClose = () => {
     onStop();
-    clearSession();
+    clearTimelineSession();
     // Deliberate leave — suppress auto-start for this room.
     void sessionCommands.leave({ suppressAutoStart: true });
     clearAllTimeouts();
     closePlayer();
-  }, [onStop, clearSession, clearAllTimeouts, closePlayer]);
+  };
 
-  const handleDragDismiss = useCallback(() => {
+  const handleDragDismiss = () => {
     const currentPlayback = playerCommands.playbackIdentity();
     if (
       currentPlayback?.serverId !== playerItemServerId ||
@@ -455,7 +597,7 @@ export function MediaPlayerModal() {
     }
 
     handleClose();
-  }, [handleClose, playerItemServerId, playerItemRatingKey, streamSessionId]);
+  };
 
   const {
     ref: dragRef,
@@ -470,96 +612,30 @@ export function MediaPlayerModal() {
     rotation: isMobile ? 90 : 0,
   });
 
-  const handleVideoClick = useCallback(() => {
+  const handleVideoClick = () => {
     actions.togglePlay();
-  }, [actions]);
+  };
 
-  const handleVideoDoubleClick = useCallback(() => {
+  const handleVideoDoubleClick = () => {
     actions.toggleFullscreen();
-  }, [actions]);
+  };
 
-  const handleVolumeScroll = useCallback(
-    (delta: number) => {
-      const volumeStep = 0.1;
-      const newVolume = Math.max(
-        0,
-        Math.min(1, volume + (delta > 0 ? volumeStep : -volumeStep)),
-      );
-      actions.setVolume(newVolume);
-    },
-    [actions, volume],
-  );
-
-  const handleCenterTogglePlay = useCallback(() => {
-    actions.togglePlay();
-    resetMobileControlsTimer();
-  }, [actions, resetMobileControlsTimer]);
-
-  const handleMobileSkipBackward = useCallback(() => {
-    actions.skipBackward(SEEK_SECONDS);
-    seekFeedbackRef.current?.presentSeek("backward");
-    resetMobileControlsTimer();
-  }, [actions, resetMobileControlsTimer]);
-
-  const handleMobileSkipForward = useCallback(() => {
-    actions.skipForward(SEEK_SECONDS);
-    seekFeedbackRef.current?.presentSeek("forward");
-    resetMobileControlsTimer();
-  }, [actions, resetMobileControlsTimer]);
-
-  const stopOverlayPointer = useCallback((event: PointerEvent) => {
-    event.stopPropagation();
-  }, []);
-
-  const handleMouseEnter = useCallback(() => {
-    showControlsImmediate();
-  }, [showControlsImmediate]);
-
-  const handleMouseLeave = useCallback(() => {
-    if (isSettingsOpenRef.current) return;
-    hideControlsDelayed(1000);
-  }, [hideControlsDelayed]);
-
-  const handleMouseMove = useCallback(() => {
-    showControlsImmediate();
-    if (mouseMoveTimeoutRef.current) {
-      clearTimeout(mouseMoveTimeoutRef.current);
-    }
-    if (isSettingsOpenRef.current) return;
-    mouseMoveTimeoutRef.current = setTimeout(() => {
-      hideControlsDelayed(0);
-    }, 3000);
-  }, [showControlsImmediate, hideControlsDelayed]);
-
-  // Keep the controls pinned while the settings popover is open and
-  // restart the auto-hide cycle once it closes.
-  const handleSettingsOpenChange = useCallback(
-    (open: boolean) => {
-      isSettingsOpenRef.current = open;
-      if (open) {
-        showControlsImmediate();
-      } else if (!isMobile) {
-        handleMouseMove();
-      } else {
-        hideControlsDelayed(MOBILE_CONTROLS_HIDE_DELAY_MS);
-      }
-    },
-    [showControlsImmediate, handleMouseMove, hideControlsDelayed, isMobile],
-  );
-
-  useEffect(() => {
-    if (!isOpen || !isMobile) return;
-    hideControlsDelayed(MOBILE_CONTROLS_HIDE_DELAY_MS);
-    return clearAllTimeouts;
-  }, [isOpen, isMobile, hideControlsDelayed, clearAllTimeouts]);
+  const handleVolumeScroll = (delta: number) => {
+    const volumeStep = 0.1;
+    const newVolume = Math.max(
+      0,
+      Math.min(1, volume + (delta > 0 ? volumeStep : -volumeStep)),
+    );
+    actions.setVolume(newVolume);
+  };
 
   // Escape must run the same full close path as the X button (stop timeline,
   // pause the Watch Together room, clear the session), not just close the
   // modal.
-  const keyboardActions = useMemo(
-    () => ({ ...actionsWithSeekFeedback, closePlayer: handleClose }),
-    [actionsWithSeekFeedback, handleClose],
-  );
+  const keyboardActions = {
+    ...actionsWithSeekFeedback,
+    closePlayer: handleClose,
+  };
 
   useKeyboardShortcuts({
     isOpen,
@@ -569,29 +645,133 @@ export function MediaPlayerModal() {
     volume,
   });
 
-  const chromeClassName = isMobile
-    ? undefined
-    : cn(
-        mediaPlayerControlsTransition.base,
-        showControls
-          ? cn(mediaPlayerControlsTransition.visible, "pointer-events-auto")
-          : cn(
-              mediaPlayerControlsTransition.hidden,
-              "group-hover:pointer-events-auto group-hover:opacity-100",
-            ),
-      );
-
   const mobileChromeVisible = isMobile && showControls && !isDragging;
 
   if (!currentItem) return null;
 
   return (
-    <Dialog modal={false} open={isOpen} onOpenChange={handleClose}>
+    <MediaPlayerModalView
+      onClose={handleClose}
+      dragRef={dragRef}
+      dragHandlers={dragHandlers}
+      chromeClassName={chromeClassName}
+      mobileChromeVisible={mobileChromeVisible}
+      currentItem={currentItem}
+      playbackState={{
+        isOpen,
+        isMobile,
+        showControls,
+        isLoading,
+        error,
+        isPlaying,
+        canPlay,
+        isWatchTogetherActive: isSyncplayActiveForCurrentItem,
+      }}
+      markers={markers}
+      currentTime={currentTime}
+      actions={actions}
+      autoPlayProps={autoPlayProps}
+      videoProps={{
+        ref: videoRef,
+        seekFeedbackRef,
+        item: currentItem,
+        className: "h-full w-full",
+        useMobileSurfaceGestures: isMobile,
+        isWatchTogetherActive: isSyncplayActiveForCurrentItem,
+        onMobileSurfaceTap: isMobile ? handleSurfaceTap : undefined,
+        onVideoClick: isMobile ? undefined : handleVideoClick,
+        onVideoDoubleClick: handleVideoDoubleClick,
+        onVolumeScroll: handleVolumeScroll,
+        onVideoEnded: onEnded,
+        onVideoPlay: handleVideoPlay,
+        onVideoPause: handleVideoPause,
+        onVideoTimeUpdate: onTimeUpdate,
+        onVideoSeeking: onSyncplayLocalSeeked,
+        onVideoSeeked,
+      }}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onMouseMove={handleMouseMove}
+      onCenterTogglePlay={handleCenterTogglePlay}
+      onMobileSkipBackward={handleMobileSkipBackward}
+      onMobileSkipForward={handleMobileSkipForward}
+      onSettingsOpenChange={handleSettingsOpenChange}
+      onResetMobileControlsTimer={resetMobileControlsTimer}
+    />
+  );
+}
+
+interface MediaPlayerModalViewProps {
+  onClose: () => void;
+  dragRef: ReturnType<typeof useDragToDismiss>["ref"];
+  dragHandlers: ReturnType<typeof useDragToDismiss>["handlers"];
+  chromeClassName: string | undefined;
+  mobileChromeVisible: boolean;
+  currentItem: ComponentProps<typeof MediaPlayerOverlay>["item"];
+  playbackState: {
+    isOpen: boolean;
+    isMobile: boolean;
+    showControls: boolean;
+    isLoading: boolean;
+    error: string | null;
+    isPlaying: boolean;
+    canPlay: boolean;
+    isWatchTogetherActive: boolean;
+  };
+  markers: ComponentProps<typeof MediaPlayerSkipOverlay>["markers"];
+  currentTime: number;
+  actions: ReturnType<typeof useMediaPlayer>["actions"];
+  autoPlayProps: ComponentProps<typeof MediaPlayerAutoPlayOverlay>;
+  videoProps: ComponentPropsWithRef<typeof MediaPlayerVideo>;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+  onMouseMove: () => void;
+  onCenterTogglePlay: () => void;
+  onMobileSkipBackward: () => void;
+  onMobileSkipForward: () => void;
+  onSettingsOpenChange: (open: boolean) => void;
+  onResetMobileControlsTimer: () => void;
+}
+
+function MediaPlayerModalView({
+  onClose,
+  dragRef,
+  dragHandlers,
+  chromeClassName,
+  mobileChromeVisible,
+  currentItem,
+  playbackState,
+  markers,
+  currentTime,
+  actions,
+  autoPlayProps,
+  videoProps,
+  onMouseEnter,
+  onMouseLeave,
+  onMouseMove,
+  onCenterTogglePlay,
+  onMobileSkipBackward,
+  onMobileSkipForward,
+  onSettingsOpenChange,
+  onResetMobileControlsTimer,
+}: MediaPlayerModalViewProps) {
+  const {
+    isOpen,
+    isMobile,
+    showControls,
+    isLoading,
+    error,
+    isPlaying,
+    canPlay,
+    isWatchTogetherActive,
+  } = playbackState;
+
+  return (
+    <Dialog modal={false} open={isOpen} onOpenChange={onClose}>
       <MediaPlayerDialogContent>
         <DialogTitle className="sr-only">
           Media Player - {currentItem.title}
         </DialogTitle>
-
         <DialogDescription className="sr-only">
           Playing {currentItem.title}. Use spacebar to play/pause, arrow keys to
           seek, and escape to close.
@@ -605,9 +785,9 @@ export function MediaPlayerModal() {
               : "relative h-full w-full overflow-hidden"
           }`}
           style={isMobile ? { willChange: "transform, opacity" } : undefined}
-          onMouseEnter={isMobile ? undefined : handleMouseEnter}
-          onMouseLeave={isMobile ? undefined : handleMouseLeave}
-          onMouseMove={isMobile ? undefined : handleMouseMove}
+          onMouseEnter={isMobile ? undefined : onMouseEnter}
+          onMouseLeave={isMobile ? undefined : onMouseLeave}
+          onMouseMove={isMobile ? undefined : onMouseMove}
           onPointerDown={isMobile ? dragHandlers.onPointerDown : undefined}
           onPointerMove={isMobile ? dragHandlers.onPointerMove : undefined}
           onPointerUp={isMobile ? dragHandlers.onPointerUp : undefined}
@@ -629,41 +809,14 @@ export function MediaPlayerModal() {
             }
           >
             {!isMobile && (
-              <div
-                className={cn("absolute top-4 right-4 z-50", chromeClassName)}
-                onPointerDown={stopOverlayPointer}
-              >
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleClose}
-                  className="text-white hover:bg-white/20"
-                >
-                  <X className="h-6 w-6" />
-                </Button>
-              </div>
+              <PlayerCloseButton
+                className={chromeClassName}
+                onClose={onClose}
+              />
             )}
 
             <div className="relative h-full w-full">
-              <MediaPlayerVideo
-                ref={videoRef}
-                seekFeedbackRef={seekFeedbackRef}
-                item={currentItem}
-                className="h-full w-full"
-                useMobileSurfaceGestures={isMobile}
-                isWatchTogetherActive={isSyncplayActiveForCurrentItem}
-                onMobileSurfaceTap={isMobile ? handleSurfaceTap : undefined}
-                onVideoClick={isMobile ? undefined : handleVideoClick}
-                onVideoDoubleClick={handleVideoDoubleClick}
-                onVolumeScroll={handleVolumeScroll}
-                onVideoEnded={onEnded}
-                onVideoPlay={handleVideoPlay}
-                onVideoPause={handleVideoPause}
-                onVideoTimeUpdate={onTimeUpdate}
-                onVideoSeeking={onSyncplayLocalSeeked}
-                onVideoSeeked={handleVideoSeeked}
-              />
-
+              <MediaPlayerVideo {...videoProps} />
               <MediaPlayerOverlay
                 item={currentItem}
                 isVisible={showControls}
@@ -671,31 +824,12 @@ export function MediaPlayerModal() {
                 error={error}
                 showTitle={!isMobile}
               />
-
               <MediaPlayerSkipOverlay
                 markers={markers}
                 currentTime={currentTime}
                 onSkip={actions.seekToMarkerEnd}
               />
-
-              <MediaPlayerAutoPlayOverlay
-                isCountingDown={
-                  isWatchTogetherSession
-                    ? watchTogetherAutoAdvance.isCountingDown
-                    : autoPlayState.isCountingDown
-                }
-                countdownSeconds={
-                  isWatchTogetherSession
-                    ? watchTogetherAutoAdvance.countdownSeconds
-                    : autoPlayState.countdownSeconds
-                }
-                nextEpisode={
-                  isWatchTogetherSession
-                    ? watchTogetherAutoAdvance.nextEpisode
-                    : autoPlayState.nextEpisode
-                }
-                showActions={!isWatchTogetherSession}
-              />
+              <MediaPlayerAutoPlayOverlay {...autoPlayProps} />
 
               {isMobile ? (
                 <MediaPlayerChromeFade
@@ -703,35 +837,20 @@ export function MediaPlayerModal() {
                   className="absolute inset-0 z-30"
                 >
                   <MediaPlayerTitleChrome item={currentItem} />
-
-                  <div
-                    className="pointer-events-auto absolute top-4 right-4 z-50"
-                    onPointerDown={stopOverlayPointer}
-                  >
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={handleClose}
-                      className="text-white hover:bg-white/20"
-                    >
-                      <X className="h-6 w-6" />
-                    </Button>
-                  </div>
-
+                  <PlayerCloseButton mobile onClose={onClose} />
                   <MediaPlayerCenterControls
                     isVisible
                     isPlaying={isPlaying}
                     disabled={!canPlay}
-                    onTogglePlay={handleCenterTogglePlay}
-                    onSkipBackward={handleMobileSkipBackward}
-                    onSkipForward={handleMobileSkipForward}
+                    onTogglePlay={onCenterTogglePlay}
+                    onSkipBackward={onMobileSkipBackward}
+                    onSkipForward={onMobileSkipForward}
                   />
-
                   <div
                     className="pointer-events-auto absolute right-0 bottom-0 left-0 z-30"
                     onPointerDown={(event) => {
                       stopOverlayPointer(event);
-                      resetMobileControlsTimer();
+                      onResetMobileControlsTimer();
                     }}
                   >
                     <MediaPlayerControls
@@ -739,8 +858,8 @@ export function MediaPlayerModal() {
                       actions={actions}
                       progressOnly
                       className="px-4 py-2"
-                      onSettingsOpenChange={handleSettingsOpenChange}
-                      isWatchTogetherActive={isSyncplayActiveForCurrentItem}
+                      onSettingsOpenChange={onSettingsOpenChange}
+                      isWatchTogetherActive={isWatchTogetherActive}
                     />
                   </div>
                 </MediaPlayerChromeFade>
@@ -756,8 +875,8 @@ export function MediaPlayerModal() {
                     isVisible
                     actions={actions}
                     progressOnly={false}
-                    onSettingsOpenChange={handleSettingsOpenChange}
-                    isWatchTogetherActive={isSyncplayActiveForCurrentItem}
+                    onSettingsOpenChange={onSettingsOpenChange}
+                    isWatchTogetherActive={isWatchTogetherActive}
                   />
                 </div>
               )}
@@ -766,5 +885,36 @@ export function MediaPlayerModal() {
         </div>
       </MediaPlayerDialogContent>
     </Dialog>
+  );
+}
+
+function PlayerCloseButton({
+  mobile = false,
+  className,
+  onClose,
+}: {
+  mobile?: boolean;
+  className?: string;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className={cn(
+        mobile
+          ? "pointer-events-auto absolute top-4 right-4 z-50"
+          : "absolute top-4 right-4 z-50",
+        className,
+      )}
+      onPointerDown={stopOverlayPointer}
+    >
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={onClose}
+        className="text-white hover:bg-white/20"
+      >
+        <X className="h-6 w-6" />
+      </Button>
+    </div>
   );
 }

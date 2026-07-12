@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useRef } from "react";
 import { usePlayerStateSelector } from "~/lib/effect/player-atoms";
 import { shallow } from "zustand/shallow";
 import { useProgressStore } from "~/stores/progress-store";
@@ -55,142 +55,123 @@ export function useTimelineUpdates() {
   const sendTimelineMutation = api.plex.sendTimeline.useMutation();
 
   // Get or create session ID
-  const getSessionId = useCallback(
-    () => getOrCreateSessionId(sessionIdRef),
-    [],
-  );
+  const getSessionId = () => getOrCreateSessionId(sessionIdRef);
 
   // Send timeline update for any playback state
-  const sendTimelineUpdate = useCallback(
-    async (
-      playbackState: "playing" | "paused" | "stopped",
-      timeOverride?: number,
-    ) => {
-      if (!currentItem) return;
+  const sendTimelineUpdate = async (
+    playbackState: "playing" | "paused" | "stopped",
+    timeOverride?: number,
+  ) => {
+    if (!currentItem) return;
 
-      const sessionId = getSessionId();
-      const timeToUse = timeOverride ?? currentTime;
+    const sessionId = getSessionId();
+    const timeToUse = timeOverride ?? currentTime;
 
-      // Check if we should send an update
-      const lastUpdate = lastUpdateRef.current;
-      const hasStateChanged = lastUpdate?.state !== playbackState;
-      const hasTimeChanged =
-        !lastUpdate || Math.abs(lastUpdate.currentTime - timeToUse) >= 1;
-      const hasItemChanged = lastUpdate?.ratingKey !== currentItem.ratingKey;
+    // Check if we should send an update
+    const lastUpdate = lastUpdateRef.current;
+    const hasStateChanged = lastUpdate?.state !== playbackState;
+    const hasTimeChanged =
+      !lastUpdate || Math.abs(lastUpdate.currentTime - timeToUse) >= 1;
+    const hasItemChanged = lastUpdate?.ratingKey !== currentItem.ratingKey;
 
-      if (!hasStateChanged && !hasTimeChanged && !hasItemChanged) return;
+    if (!hasStateChanged && !hasTimeChanged && !hasItemChanged) return;
 
-      // Throttle the high-frequency "playing" progress pings; always let state/
-      // item changes (play/pause/seek/stop/new item) through immediately.
-      const isPeriodicProgress =
-        !hasStateChanged && !hasItemChanged && playbackState === "playing";
-      const now = Date.now();
-      if (
-        isPeriodicProgress &&
-        lastSentAtRef.current !== null &&
-        now - lastSentAtRef.current < TIMELINE_PROGRESS_INTERVAL_MS
-      ) {
-        return;
+    // Throttle the high-frequency "playing" progress pings; always let state/
+    // item changes (play/pause/seek/stop/new item) through immediately.
+    const isPeriodicProgress =
+      !hasStateChanged && !hasItemChanged && playbackState === "playing";
+    const now = Date.now();
+    if (
+      isPeriodicProgress &&
+      lastSentAtRef.current !== null &&
+      now - lastSentAtRef.current < TIMELINE_PROGRESS_INTERVAL_MS
+    ) {
+      return;
+    }
+
+    // Apply Plex safety checks (except for stopped state)
+    if (playbackState !== "stopped") {
+      const durationMs = duration * 1000;
+      const currentTimeMs = timeToUse * 1000;
+      if (durationMs <= 30000 || durationMs - currentTimeMs <= 30000) return;
+    }
+
+    // Mark the attempt now (before awaiting) so a slow/failing request still
+    // throttles the next one instead of letting them stack up.
+    lastSentAtRef.current = now;
+
+    try {
+      await sendTimelineMutation.mutateAsync({
+        serverId: currentItem.serverId,
+        ratingKey: currentItem.ratingKey,
+        key: `/library/metadata/${currentItem.ratingKey}`,
+        playbackTime: Math.floor(timeToUse * 1000),
+        time: Math.floor(timeToUse * 1000),
+        duration: Math.floor(duration * 1000),
+        state: playbackState,
+        hasMDE: 1,
+        context: "home:hub.continueWatching&row=0&col=0",
+        sessionId,
+      });
+
+      // Update refs
+      lastUpdateRef.current = {
+        currentTime: timeToUse,
+        state: playbackState,
+        ratingKey: currentItem.ratingKey,
+      };
+
+      // Update progress store for real-time UI
+      updateItemProgress({
+        ratingKey: currentItem.ratingKey,
+        progressPercent: (timeToUse / duration) * 100,
+      });
+      hasLoggedFailureRef.current = false;
+    } catch (error) {
+      if (!hasLoggedFailureRef.current) {
+        hasLoggedFailureRef.current = true;
+        console.error("Timeline update failed:", error);
       }
-
-      // Apply Plex safety checks (except for stopped state)
-      if (playbackState !== "stopped") {
-        const durationMs = duration * 1000;
-        const currentTimeMs = timeToUse * 1000;
-        if (durationMs <= 30000 || durationMs - currentTimeMs <= 30000) return;
-      }
-
-      // Mark the attempt now (before awaiting) so a slow/failing request still
-      // throttles the next one instead of letting them stack up.
-      lastSentAtRef.current = now;
-
-      try {
-        await sendTimelineMutation.mutateAsync({
-          serverId: currentItem.serverId,
-          ratingKey: currentItem.ratingKey,
-          key: `/library/metadata/${currentItem.ratingKey}`,
-          playbackTime: Math.floor(timeToUse * 1000),
-          time: Math.floor(timeToUse * 1000),
-          duration: Math.floor(duration * 1000),
-          state: playbackState,
-          hasMDE: 1,
-          context: "home:hub.continueWatching&row=0&col=0",
-          sessionId,
-        });
-
-        // Update refs
-        lastUpdateRef.current = {
-          currentTime: timeToUse,
-          state: playbackState,
-          ratingKey: currentItem.ratingKey,
-        };
-
-        // Update progress store for real-time UI
-        updateItemProgress({
-          ratingKey: currentItem.ratingKey,
-          progressPercent: (timeToUse / duration) * 100,
-        });
-        hasLoggedFailureRef.current = false;
-      } catch (error) {
-        if (!hasLoggedFailureRef.current) {
-          hasLoggedFailureRef.current = true;
-          console.error("Timeline update failed:", error);
-        }
-      }
-    },
-    [
-      currentItem,
-      currentTime,
-      duration,
-      getSessionId,
-      sendTimelineMutation,
-      updateItemProgress,
-    ],
-  );
+    }
+  };
 
   // Event handlers for video events
-  const onPlay = useCallback(() => {
+  const onPlay = () => {
     void sendTimelineUpdate("playing");
-  }, [sendTimelineUpdate]);
+  };
 
-  const onPause = useCallback(() => {
+  const onPause = () => {
     void sendTimelineUpdate("paused");
-  }, [sendTimelineUpdate]);
+  };
 
-  const onTimeUpdate = useCallback(
-    (currentTime: number) => {
-      // Send playing update with current time
-      void sendTimelineUpdate("playing", currentTime);
-    },
-    [sendTimelineUpdate],
-  );
+  const onTimeUpdate = (currentTime: number) => {
+    // Send playing update with current time
+    void sendTimelineUpdate("playing", currentTime);
+  };
 
-  const onSeeked = useCallback(
-    (time: number) => {
-      // Send update at new position with current playback state
-      const currentState = isPlaying ? "playing" : "paused";
-      void sendTimelineUpdate(currentState, time);
-    },
-    [sendTimelineUpdate, isPlaying],
-  );
+  const onSeeked = (time: number) => {
+    // Send update at new position with current playback state
+    const currentState = isPlaying ? "playing" : "paused";
+    void sendTimelineUpdate(currentState, time);
+  };
 
-  const onEnded = useCallback(() => {
+  const onEnded = () => {
     // Video actually ended - send stopped with full duration
     void sendTimelineUpdate("stopped", duration);
-  }, [sendTimelineUpdate, duration]);
+  };
 
-  const onStop = useCallback(() => {
+  const onStop = () => {
     // User manually stopped/closed - send stopped with current time
     void sendTimelineUpdate("stopped", currentTime);
-  }, [sendTimelineUpdate, currentTime]);
+  };
 
   // Clear session
-  const clearSession = useCallback(() => {
+  const clearSession = () => {
     sessionIdRef.current = null;
     lastUpdateRef.current = null;
     lastSentAtRef.current = null;
     hasLoggedFailureRef.current = false;
-  }, []);
+  };
 
   return {
     onPlay,

@@ -10,7 +10,7 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useEffect, useEffectEvent, useRef, useState } from "react";
 import { usePlayerStateSelector } from "~/lib/effect/player-atoms";
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import { shallow } from "zustand/shallow";
@@ -80,58 +80,49 @@ export function MediaPlayerControls({
   /**
    * Calculate volume from mouse position
    */
-  const getVolumeFromPosition = useCallback((clientX: number): number => {
+  const getVolumeFromPosition = (clientX: number): number => {
     if (!volumeRef.current) return 0;
 
     const rect = volumeRef.current.getBoundingClientRect();
     const percentage = clamp((clientX - rect.left) / rect.width, 0, 1);
     return percentage;
-  }, []);
+  };
 
   /**
    * Handle volume bar mouse down
    */
-  const handleVolumeMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      setIsDraggingVolume(true);
+  const handleVolumeMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDraggingVolume(true);
 
-      const volume = getVolumeFromPosition(e.clientX);
-      actions.setVolume(volume);
-    },
-    [getVolumeFromPosition, actions],
-  );
+    const volume = getVolumeFromPosition(e.clientX);
+    actions.setVolume(volume);
+  };
 
   /**
    * Handle volume drag
    */
-  const handleVolumeMouseMove = useCallback(
-    (e: MouseEvent) => {
-      if (!isDraggingVolume) return;
+  const handleVolumeMouseMove = useEffectEvent((e: MouseEvent) => {
+    if (!isDraggingVolume) return;
 
-      const volume = getVolumeFromPosition(e.clientX);
-      actions.setVolume(volume);
-    },
-    [isDraggingVolume, getVolumeFromPosition, actions],
-  );
+    const volume = getVolumeFromPosition(e.clientX);
+    actions.setVolume(volume);
+  });
 
   /**
    * Handle volume drag end
    */
-  const handleVolumeMouseUp = useCallback(() => {
+  const handleVolumeMouseUp = useEffectEvent(() => {
     setIsDraggingVolume(false);
-  }, []);
+  });
 
-  const handleVolumeKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  const handleVolumeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
 
-      event.preventDefault();
-      const direction = event.key === "ArrowRight" ? 1 : -1;
-      actions.setVolume(clamp(volume + direction * 0.05, 0, 1));
-    },
-    [actions, volume],
-  );
+    event.preventDefault();
+    const direction = event.key === "ArrowRight" ? 1 : -1;
+    actions.setVolume(clamp(volume + direction * 0.05, 0, 1));
+  };
 
   // Attach global mouse events for volume dragging
   useEffect(() => {
@@ -144,7 +135,7 @@ export function MediaPlayerControls({
         document.removeEventListener("mouseup", handleVolumeMouseUp);
       };
     }
-  }, [isDraggingVolume, handleVolumeMouseMove, handleVolumeMouseUp]);
+  }, [isDraggingVolume]);
 
   if (!isVisible) return null;
 

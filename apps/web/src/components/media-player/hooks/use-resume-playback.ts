@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, type RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import { playerCommands } from "~/lib/effect/player-atoms";
 
 const RESUME_SEEK_TOLERANCE_SEC = 0.5;
@@ -46,21 +46,18 @@ export function useResumePlayback({
     pendingResumeTimeRef.current = null;
   }, [playbackGeneration, sourceGeneration]);
 
-  const isCurrentSource = useCallback(() => {
+  const isCurrentSource = () => {
     const current = playerCommands.snapshot();
     return (
       current.streamSessionId === playbackGeneration &&
       current.sourceGeneration === sourceGeneration
     );
-  }, [playbackGeneration, sourceGeneration]);
+  };
 
-  const getEffectiveTime = useCallback(
-    (localTime: number) =>
-      usesOffsetTimeline ? streamOffset + localTime : localTime,
-    [streamOffset, usesOffsetTimeline],
-  );
+  const getEffectiveTime = (localTime: number) =>
+    usesOffsetTimeline ? streamOffset + localTime : localTime;
 
-  const captureResumeTimeOnLoadStart = useCallback(() => {
+  const captureResumeTimeOnLoadStart = () => {
     if (!isCurrentSource()) return;
 
     const storeCurrentTime = playerCommands.snapshot().currentTime;
@@ -71,44 +68,35 @@ export function useResumePlayback({
         time: storeCurrentTime,
       };
     }
-  }, [
-    isCurrentSource,
-    playbackGeneration,
-    sourceGeneration,
-    usesOffsetTimeline,
-  ]);
+  };
 
-  const applyResumeSeekOnMetadata = useCallback(
-    (video: HTMLVideoElement) => {
-      if (!isCurrentSource()) {
-        return { needsResumeSeek: false, startTime: 0 };
-      }
+  const applyResumeSeekOnMetadata = (video: HTMLVideoElement) => {
+    if (!isCurrentSource()) {
+      return { needsResumeSeek: false, startTime: 0 };
+    }
 
-      const storeCurrentTime = playerCommands.snapshot().currentTime;
-      const pendingResumeTime =
-        pendingResumeTimeRef.current?.playbackGeneration ===
-          playbackGeneration &&
-        pendingResumeTimeRef.current.sourceGeneration === sourceGeneration
-          ? pendingResumeTimeRef.current.time
-          : null;
-      const startTime = pendingResumeTime ?? storeCurrentTime;
-      const needsResumeSeek = !usesOffsetTimeline && startTime > 0;
+    const storeCurrentTime = playerCommands.snapshot().currentTime;
+    const pendingResumeTime =
+      pendingResumeTimeRef.current?.playbackGeneration === playbackGeneration &&
+      pendingResumeTimeRef.current.sourceGeneration === sourceGeneration
+        ? pendingResumeTimeRef.current.time
+        : null;
+    const startTime = pendingResumeTime ?? storeCurrentTime;
+    const needsResumeSeek = !usesOffsetTimeline && startTime > 0;
 
-      if (needsResumeSeek) {
-        pendingResumeTimeRef.current = {
-          playbackGeneration,
-          sourceGeneration,
-          time: startTime,
-        };
-        video.currentTime = startTime;
-      }
+    if (needsResumeSeek) {
+      pendingResumeTimeRef.current = {
+        playbackGeneration,
+        sourceGeneration,
+        time: startTime,
+      };
+      video.currentTime = startTime;
+    }
 
-      return { needsResumeSeek, startTime };
-    },
-    [isCurrentSource, playbackGeneration, sourceGeneration, usesOffsetTimeline],
-  );
+    return { needsResumeSeek, startTime };
+  };
 
-  const handleTimeUpdate = useCallback(() => {
+  const handleTimeUpdate = () => {
     if (!isCurrentSource()) return;
 
     const video = videoRef.current;
@@ -136,18 +124,9 @@ export function useResumePlayback({
     if (updatePlaybackState({ currentTime: effectiveTime })) {
       onVideoTimeUpdate?.(effectiveTime);
     }
-  }, [
-    getEffectiveTime,
-    isCurrentSource,
-    isLoading,
-    onVideoTimeUpdate,
-    playbackGeneration,
-    sourceGeneration,
-    updatePlaybackState,
-    videoRef,
-  ]);
+  };
 
-  const handleSeeked = useCallback(() => {
+  const handleSeeked = () => {
     if (!isCurrentSource()) return;
 
     const video = videoRef.current;
@@ -177,23 +156,11 @@ export function useResumePlayback({
       currentTime: effectiveTime,
     });
     if (updated) onVideoSeeked?.(effectiveTime);
-  }, [
-    getEffectiveTime,
-    isCurrentSource,
-    onVideoSeeked,
-    playbackGeneration,
-    sourceGeneration,
-    updatePlaybackState,
-    usesOffsetTimeline,
-    videoRef,
-  ]);
+  };
 
-  const hasPendingResume = useCallback(
-    () =>
-      pendingResumeTimeRef.current?.playbackGeneration === playbackGeneration &&
-      pendingResumeTimeRef.current.sourceGeneration === sourceGeneration,
-    [playbackGeneration, sourceGeneration],
-  );
+  const hasPendingResume = () =>
+    pendingResumeTimeRef.current?.playbackGeneration === playbackGeneration &&
+    pendingResumeTimeRef.current.sourceGeneration === sourceGeneration;
 
   return {
     captureResumeTimeOnLoadStart,
