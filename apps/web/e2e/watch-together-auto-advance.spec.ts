@@ -345,6 +345,26 @@ test("a session auto-advances both viewers to the next episode without leaving t
       .toBe(false);
     console.error("E2E step: guest resumed with host after auto-advance");
 
+    // Seek sync must also survive rotation (same Syncplay controller path as
+    // pause). Jump to ~50% via the real keyboard/transcode-reload seek path —
+    // not near the end, which would arm another auto-advance cycle.
+    console.error("E2E step: host seeks to ~50% after auto-advance");
+    const nextDuration = await host
+      .locator("video")
+      .evaluate((v: HTMLVideoElement) => v.duration || 0);
+    const seekTarget = nextDuration > 0 ? nextDuration * 0.5 : 0;
+    expect(seekTarget, "next episode should expose a duration").toBeGreaterThan(
+      30,
+    );
+    await pressPlayerKey(host, "Digit5");
+    await expect
+      .poll(async () => playbackPosition(guest), {
+        message: "guest should follow the host's seek after auto-advance",
+        timeout: 60_000,
+      })
+      .toBeGreaterThan(seekTarget - 60);
+    console.error("E2E step: guest followed seek after auto-advance");
+
     // Closing the player must land on the live next-room lobby, not a deleted
     // previous room ("unavailable") — requires App Router URL follow on swap.
     console.error("E2E step: host closes player onto live lobby");
