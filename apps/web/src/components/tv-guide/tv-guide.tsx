@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Loader2 } from "lucide-react";
 import { Card, CardContent } from "~/components/ui/card";
 import { cn } from "~/lib/utils";
@@ -30,17 +30,23 @@ function calculateTimeSlots(startTime: Date, endTime: Date) {
   return { slots, slotCount, increment };
 }
 
-function formatTimeSlot(time: Date, isCompact: boolean): string {
+function formatTimeSlot(
+  time: Date,
+  isCompact: boolean,
+  timeZone: string,
+): string {
   if (isCompact) {
-    return time.toLocaleTimeString([], {
+    return time.toLocaleTimeString("en-US", {
       hour: "numeric",
       minute: "2-digit",
+      timeZone,
     });
   }
-  return time.toLocaleTimeString([], {
+  return time.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
+    timeZone,
   });
 }
 
@@ -142,12 +148,35 @@ function calculateCurrentTimeProgress(startTime: Date, endTime: Date): number {
   return (elapsed / total) * 100;
 }
 
+function subscribeToTimeZone(onStoreChange: () => void) {
+  const timeout = window.setTimeout(onStoreChange, 0);
+  return () => window.clearTimeout(timeout);
+}
+
+function getTimeZoneSnapshot() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+function getTimeZoneServerSnapshot() {
+  return "UTC";
+}
+
 interface TvGuideProps {
   startTime: Date;
   endTime: Date;
   channelLineups: TvGuideChannelLineup[];
   isLoading?: boolean;
   error?: string;
+}
+
+function handleProgramClick(program: TvGuideProgram) {
+  // TODO: Open program details modal
+  console.log("Program clicked:", program);
+}
+
+function handleChannelClick(channel: TvGuideChannelLineup["channel"]) {
+  // TODO: Open channel menu
+  console.log("Channel clicked:", channel);
 }
 
 export function TvGuide({
@@ -158,11 +187,20 @@ export function TvGuide({
   error,
 }: TvGuideProps) {
   const [isCompact, setIsCompact] = useState(false);
-  const [currentTimeProgress, setCurrentTimeProgress] = useState(
+  const timeZone = useSyncExternalStore(
+    subscribeToTimeZone,
+    getTimeZoneSnapshot,
+    getTimeZoneServerSnapshot,
+  );
+  const [currentTimeProgress, setCurrentTimeProgress] = useState(() =>
     calculateCurrentTimeProgress(startTime, endTime),
   );
-  const [currentTimeLabel, setCurrentTimeLabel] = useState(
-    new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+  const [currentTimeLabel, setCurrentTimeLabel] = useState(() =>
+    new Date().toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "UTC",
+    }),
   );
 
   // Detect mobile viewport for responsive design
@@ -181,26 +219,21 @@ export function TvGuide({
     const updateCurrentTime = () => {
       setCurrentTimeProgress(calculateCurrentTimeProgress(startTime, endTime));
       setCurrentTimeLabel(
-        new Date().toLocaleTimeString([], {
+        new Date().toLocaleTimeString("en-US", {
           hour: "2-digit",
           minute: "2-digit",
+          timeZone,
         }),
       );
     };
 
+    const initialUpdate = window.setTimeout(updateCurrentTime, 0);
     const interval = setInterval(updateCurrentTime, 60000); // Update every minute
-    return () => clearInterval(interval);
-  }, [startTime, endTime]);
-
-  const handleProgramClick = (program: TvGuideProgram) => {
-    // TODO: Open program details modal
-    console.log("Program clicked:", program);
-  };
-
-  const handleChannelClick = (channel: TvGuideChannelLineup["channel"]) => {
-    // TODO: Open channel menu
-    console.log("Channel clicked:", channel);
-  };
+    return () => {
+      window.clearTimeout(initialUpdate);
+      clearInterval(interval);
+    };
+  }, [startTime, endTime, timeZone]);
 
   // Time header component logic
   const { slots, slotCount } = calculateTimeSlots(startTime, endTime);
@@ -252,7 +285,7 @@ export function TvGuide({
                     className="border-card flex items-center justify-center border-l text-center text-sm font-medium last:border-r"
                     style={{ width: slotWidth }}
                   >
-                    {formatTimeSlot(slot.time, isCompact)}
+                    {formatTimeSlot(slot.time, isCompact, timeZone)}
                   </div>
                 ))}
               </div>

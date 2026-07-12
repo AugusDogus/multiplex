@@ -89,6 +89,7 @@ export function ServerLibraryGroup({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
                 onClick={() => onRetry(server.clientIdentifier)}
                 disabled={state.isRetrying}
                 className="text-muted-foreground hover:bg-accent hover:text-foreground flex h-6 w-6 items-center justify-center rounded-md disabled:opacity-50"

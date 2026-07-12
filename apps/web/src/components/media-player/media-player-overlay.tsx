@@ -1,6 +1,5 @@
 "use client";
 
-import React from "react";
 import { cn } from "~/lib/utils";
 import { usePlayerStateSelector } from "~/lib/effect/player-atoms";
 import type { MediaPlayerItem } from "~/types/media-player";
@@ -18,27 +17,6 @@ import {
    Media Player Overlay
    Title, metadata, and status overlays for the media player
    ──────────────────────────────────────────────────────────── */
-
-/** Strong ease-out — enter slightly slower than exit (asymmetric). */
-export const mediaPlayerControlsTransition = {
-  base: "transition-opacity ease-[cubic-bezier(0.23,1,0.32,1)]",
-  visible: "opacity-100 duration-200",
-  hidden:
-    "pointer-events-none opacity-0 duration-150 [&_*]:pointer-events-none",
-} as const;
-
-export function mediaPlayerChromeClassName(
-  isVisible: boolean,
-  className?: string,
-) {
-  return cn(
-    mediaPlayerControlsTransition.base,
-    isVisible
-      ? cn(mediaPlayerControlsTransition.visible, "pointer-events-none")
-      : mediaPlayerControlsTransition.hidden,
-    className,
-  );
-}
 
 interface MediaPlayerTitleChromeProps {
   item: MediaPlayerItem;
@@ -178,44 +156,5 @@ export function MediaPlayerOverlay({
         </div>
       </div>
     </div>
-  );
-}
-
-/* ────────────────────────────────────────────────────────────
-   Fade In/Out Animation Variants
-   ──────────────────────────────────────────────────────────── */
-
-interface FadeOverlayProps {
-  /**
-   * Whether the overlay should be visible
-   */
-  isVisible: boolean;
-  /**
-   * Children to render
-   */
-  children: React.ReactNode;
-  /**
-   * Additional CSS classes
-   */
-  className?: string;
-  /**
-   * Animation duration in milliseconds
-   */
-  duration?: number;
-}
-
-/**
- * Reusable fade overlay component for smooth transitions
- */
-/** @deprecated Use MediaPlayerChromeFade — kept as alias for existing imports */
-export function FadeOverlay({
-  isVisible,
-  children,
-  className = "",
-}: FadeOverlayProps) {
-  return (
-    <MediaPlayerChromeFade visible={isVisible} className={className}>
-      {children}
-    </MediaPlayerChromeFade>
   );
 }

@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import { Search } from "lucide-react";
-import { Label } from "~/components/ui/label";
 import { Button } from "~/components/ui/button";
 import { SidebarInput } from "~/components/ui/sidebar";
 import {
@@ -58,18 +57,20 @@ export function SearchForm({
       </Button>
 
       {/* Desktop: Show search input */}
-      <div
-        className={getAppHeaderSearchInputClassName(collapseAtContainer)}
-        onClick={onSearchClick}
-      >
-        <Label htmlFor="search" className="sr-only">
-          Search
-        </Label>
+      <div className={getAppHeaderSearchInputClassName(collapseAtContainer)}>
+        <button
+          type="button"
+          aria-label="Search"
+          className="absolute inset-0 z-10 cursor-pointer rounded-md"
+          onClick={onSearchClick}
+        />
         <SidebarInput
           id="search"
           placeholder="Search media..."
           className="h-8 cursor-pointer pr-12 pl-7"
           readOnly
+          tabIndex={-1}
+          aria-hidden="true"
         />
         <Search className="pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 opacity-50 select-none" />
         <kbd className="bg-muted text-foreground ring-border pointer-events-none absolute top-1/2 right-1.5 hidden h-5 min-w-5 shrink-0 -translate-y-1/2 items-center justify-center rounded-sm px-1.5 text-center font-sans text-xs leading-[1.7em] ring-1 select-none sm:flex">

@@ -6,7 +6,6 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
   type PointerEvent,
 } from "react";
 import {
@@ -35,7 +34,6 @@ import { MediaPlayerChromeFade } from "./media-player-chrome-fade";
 import {
   MediaPlayerOverlay,
   MediaPlayerTitleChrome,
-  mediaPlayerControlsTransition,
 } from "./media-player-overlay";
 import { MediaPlayerSkipOverlay } from "./media-player-skip-overlay";
 import { MediaPlayerAutoPlayOverlay } from "./media-player-autoplay-overlay";
@@ -45,6 +43,7 @@ import {
   stopPlaybackTranscodeSessions,
   stopTranscodeSession,
 } from "./utils/plex-stream-urls";
+import { mediaPlayerControlsTransition } from "./utils/media-player-controls-transition";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
 import { cn } from "~/lib/utils";
@@ -140,7 +139,7 @@ export function MediaPlayerModal() {
 
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const mouseMoveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const isSettingsOpenRef = useRef(false);
 
   const clearAllTimeouts = useCallback(() => {
     if (hideTimeoutRef.current) {
@@ -517,26 +516,26 @@ export function MediaPlayerModal() {
   }, [showControlsImmediate]);
 
   const handleMouseLeave = useCallback(() => {
-    if (isSettingsOpen) return;
+    if (isSettingsOpenRef.current) return;
     hideControlsDelayed(1000);
-  }, [hideControlsDelayed, isSettingsOpen]);
+  }, [hideControlsDelayed]);
 
   const handleMouseMove = useCallback(() => {
     showControlsImmediate();
     if (mouseMoveTimeoutRef.current) {
       clearTimeout(mouseMoveTimeoutRef.current);
     }
-    if (isSettingsOpen) return;
+    if (isSettingsOpenRef.current) return;
     mouseMoveTimeoutRef.current = setTimeout(() => {
       hideControlsDelayed(0);
     }, 3000);
-  }, [showControlsImmediate, hideControlsDelayed, isSettingsOpen]);
+  }, [showControlsImmediate, hideControlsDelayed]);
 
   // Keep the controls pinned while the settings popover is open and
   // restart the auto-hide cycle once it closes.
   const handleSettingsOpenChange = useCallback(
     (open: boolean) => {
-      setIsSettingsOpen(open);
+      isSettingsOpenRef.current = open;
       if (open) {
         showControlsImmediate();
       } else if (!isMobile) {

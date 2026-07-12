@@ -25,46 +25,6 @@ export function getMediaSubtitle(item: MediaPlayerItem): string | null {
 }
 
 /**
- * Get the media duration in seconds
- * @param item - The media player item
- * @returns Duration in seconds, or null if not available
- */
-export function getMediaDuration(item: MediaPlayerItem): number | null {
-  return item.duration ? Math.floor(item.duration / 1000) : null;
-}
-
-/**
- * Get the start time for playback (resume position)
- * @param item - The media player item
- * @returns Start time in seconds
- */
-export function getStartTime(item: MediaPlayerItem): number {
-  return item.viewOffset ? Math.floor(item.viewOffset / 1000) : 0;
-}
-
-/**
- * Determine if controls should be visible based on UI state
- * @param isMouseMoving - Whether the mouse is currently moving
- * @param isPlaying - Whether the video is currently playing
- * @param isTouch - Whether this is a touch device
- * @returns True if controls should be visible
- */
-export function shouldShowControls(
-  isMouseMoving: boolean,
-  isPlaying: boolean,
-  isTouch: boolean,
-): boolean {
-  // Always show controls if not playing
-  if (!isPlaying) return true;
-
-  // On touch devices, controls are toggled manually
-  if (isTouch) return false;
-
-  // Show controls when mouse is moving
-  return isMouseMoving;
-}
-
-/**
  * Get a user-friendly error message from a MediaError
  * @param error - The MediaError object from the video element
  * @returns Human-readable error message
@@ -103,61 +63,12 @@ export function supportsFullscreen(): boolean {
 }
 
 /**
- * Check if the browser supports the Picture-in-Picture API
- * @returns True if PiP is supported
- */
-export function supportsPictureInPicture(): boolean {
-  return "pictureInPictureEnabled" in document;
-}
-
-/**
- * Get the appropriate thumbnail URL for a media item
- * @param item - The media player item
- * @param serverUrl - The Plex server URL
- * @param authToken - The authentication token
- * @returns The thumbnail URL, or null if not available
- */
-export function getMediaThumbnail(
-  item: MediaPlayerItem,
-  serverUrl: string,
-  authToken: string,
-): string | null {
-  const thumb = item.thumb ?? item.parentThumb ?? item.grandparentThumb;
-  if (!thumb) return null;
-
-  const baseUrl = serverUrl.replace(/\/$/, "");
-  const thumbnailUrl = new URL(`${baseUrl}${thumb}`);
-  thumbnailUrl.searchParams.set("X-Plex-Token", authToken);
-
-  return thumbnailUrl.toString();
-}
-
-/**
- * Calculate the aspect ratio from width and height
- * @param width - Video width
- * @param height - Video height
- * @returns Aspect ratio as a decimal (e.g., 1.78 for 16:9)
- */
-export function calculateAspectRatio(width: number, height: number): number {
-  return height > 0 ? width / height : 16 / 9; // Default to 16:9
-}
-
-/**
  * Check if a media item is an episode
  * @param item - The media player item
  * @returns True if the item is an episode
  */
 export function isEpisode(item: MediaPlayerItem): boolean {
   return item.type === "episode";
-}
-
-/**
- * Check if a media item is a movie
- * @param item - The media player item
- * @returns True if the item is a movie
- */
-export function isMovie(item: MediaPlayerItem): boolean {
-  return item.type === "movie";
 }
 
 /**

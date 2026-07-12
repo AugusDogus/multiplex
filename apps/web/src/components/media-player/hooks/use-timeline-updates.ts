@@ -19,6 +19,11 @@ import { api } from "~/trpc/react";
 // stop/item change) still report immediately.
 const TIMELINE_PROGRESS_INTERVAL_MS = 10_000;
 
+function getOrCreateSessionId(ref: { current: string | null }) {
+  ref.current ??= `multiplex-${crypto.randomUUID()}`;
+  return ref.current;
+}
+
 /**
  * Hook to manage timeline updates to Plex server during media playback
  * Uses video events directly instead of intervals
@@ -50,10 +55,10 @@ export function useTimelineUpdates() {
   const sendTimelineMutation = api.plex.sendTimeline.useMutation();
 
   // Get or create session ID
-  const getSessionId = useCallback(() => {
-    sessionIdRef.current ??= `multiplex-${crypto.randomUUID()}`;
-    return sessionIdRef.current;
-  }, []);
+  const getSessionId = useCallback(
+    () => getOrCreateSessionId(sessionIdRef),
+    [],
+  );
 
   // Send timeline update for any playback state
   const sendTimelineUpdate = useCallback(

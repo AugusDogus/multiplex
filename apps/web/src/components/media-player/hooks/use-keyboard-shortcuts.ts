@@ -249,29 +249,3 @@ export function useKeyboardShortcuts({
   // This hook doesn't return anything as it's purely for side effects
   return null;
 }
-
-/**
- * Get a list of available keyboard shortcuts for display in help
- */
-export function getKeyboardShortcuts() {
-  return [
-    { key: "Space", description: "Play/Pause" },
-    { key: "Escape", description: "Close player" },
-    { key: "←", description: "Skip backward 10s" },
-    { key: "→", description: "Skip forward 10s" },
-    { key: "Shift + ←", description: "Skip backward 30s" },
-    { key: "Shift + →", description: "Skip forward 30s" },
-    { key: "↑", description: "Volume up" },
-    { key: "↓", description: "Volume down" },
-    { key: "M", description: "Toggle mute" },
-    { key: "F", description: "Toggle fullscreen" },
-    { key: "Home", description: "Jump to start" },
-    { key: "End", description: "Jump to end" },
-    { key: "0-9", description: "Jump to 0%-90%" },
-    { key: "J", description: "Skip backward 10s" },
-    { key: "K", description: "Play/Pause" },
-    { key: "L", description: "Skip forward 10s" },
-    { key: ",", description: "Skip backward 1s" },
-    { key: ".", description: "Skip forward 1s" },
-  ];
-}

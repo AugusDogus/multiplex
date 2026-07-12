@@ -12,12 +12,13 @@ export interface ItemDetailsNavigationTarget {
   ratingKey: string;
 }
 
+function getHref(target: ItemDetailsNavigationTarget) {
+  return getItemDetailsHref(target.serverId, target.type, target.ratingKey);
+}
+
 export function useItemDetailsNavigation() {
   const router = useRouter();
   const utils = api.useUtils();
-
-  const getHref = (target: ItemDetailsNavigationTarget) =>
-    getItemDetailsHref(target.serverId, target.type, target.ratingKey);
 
   const prefetch = (target: ItemDetailsNavigationTarget) => {
     void utils.plex.getItemDetails.prefetch(

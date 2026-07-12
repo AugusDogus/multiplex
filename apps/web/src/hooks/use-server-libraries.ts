@@ -38,16 +38,21 @@ export function useServerLibraries(
   // Transform the consolidated results into individual server states
   const serverStates = useMemo(() => {
     const states = new Map<string, ServerLibraryState>();
+    const serverDataById = new Map<
+      string,
+      plexRouterOutputs["getAllServerLibraries"][number]
+    >();
+    for (const result of allServerLibrariesQuery.data ?? []) {
+      serverDataById.set(result.serverId, result);
+    }
 
     // Initialize states for all servers
-    servers.forEach((server) => {
+    for (const server of servers) {
       const serverId = server.clientIdentifier;
       const isRetrying = retryingServers.has(serverId);
 
       // Find this server's data in the consolidated response
-      const serverData = allServerLibrariesQuery.data?.find(
-        (result) => result.serverId === serverId,
-      );
+      const serverData = serverDataById.get(serverId);
 
       states.set(serverId, {
         data: serverData ?? null,
@@ -56,7 +61,7 @@ export function useServerLibraries(
         isLoading: allServerLibrariesQuery.isLoading && !isRetrying,
         isRetrying,
       });
-    });
+    }
 
     return states;
   }, [

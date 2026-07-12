@@ -98,6 +98,9 @@ export function TvGuideItem({
 
   // Check if this is a very wide program (more than 50% width) - use cursor-based tooltip
   const isVeryWide = widthNumber > 50;
+  const hasParentIndex =
+    program.parentIndex !== null && program.parentIndex !== undefined;
+  const hasEpisodeIndex = program.index !== null && program.index !== undefined;
 
   // Initialize window dimensions on mount
   useEffect(() => {
@@ -147,8 +150,8 @@ export function TvGuideItem({
     const episodeTitle =
       program.title && program.title !== mainTitle ? program.title : null;
     const seasonEpisode =
-      program.parentIndex != null || program.index != null
-        ? `${program.parentIndex != null ? `S${program.parentIndex}` : ""}${program.parentIndex != null && program.index != null ? " · " : ""}${program.index != null ? `E${program.index}` : ""}`
+      hasParentIndex || hasEpisodeIndex
+        ? `${hasParentIndex ? `S${program.parentIndex}` : ""}${hasParentIndex && hasEpisodeIndex ? " · " : ""}${hasEpisodeIndex ? `E${program.index}` : ""}`
         : null;
 
     return (
@@ -173,7 +176,9 @@ export function TvGuideItem({
     <>
       {isVeryWide ? (
         // Use custom cursor-based tooltip for wide programs
-        <div
+        <button
+          type="button"
+          aria-label={program.grandparentTitle ?? program.title ?? "Program"}
           className={cn(
             "border-card absolute flex min-h-16 flex-col items-start justify-start rounded-md border-2",
             "cursor-pointer overflow-hidden transition-colors duration-200 ease-out",
@@ -194,19 +199,23 @@ export function TvGuideItem({
           </div>
 
           {/* Season and Episode */}
-          {(program.parentIndex != null || program.index != null) && (
+          {(hasParentIndex || hasEpisodeIndex) && (
             <div className="w-full text-xs leading-tight text-nowrap text-white/90 drop-shadow-sm">
-              {program.parentIndex != null && `S${program.parentIndex}`}
-              {program.parentIndex != null && program.index != null && " · "}
-              {program.index != null && `E${program.index}`}
+              {hasParentIndex && `S${program.parentIndex}`}
+              {hasParentIndex && hasEpisodeIndex && " · "}
+              {hasEpisodeIndex && `E${program.index}`}
             </div>
           )}
-        </div>
+        </button>
       ) : (
         // Use standard tooltip for normal-width programs
         <Tooltip>
           <TooltipTrigger asChild>
-            <div
+            <button
+              type="button"
+              aria-label={
+                program.grandparentTitle ?? program.title ?? "Program"
+              }
               className={cn(
                 "border-card absolute flex min-h-16 flex-col items-start justify-start rounded-md border-2",
                 "cursor-pointer overflow-hidden transition-colors duration-200 ease-out",
@@ -224,16 +233,14 @@ export function TvGuideItem({
               </div>
 
               {/* Season and Episode */}
-              {(program.parentIndex != null || program.index != null) && (
+              {(hasParentIndex || hasEpisodeIndex) && (
                 <div className="w-full text-xs leading-tight text-nowrap text-white/90 drop-shadow-sm">
-                  {program.parentIndex != null && `S${program.parentIndex}`}
-                  {program.parentIndex != null &&
-                    program.index != null &&
-                    " · "}
-                  {program.index != null && `E${program.index}`}
+                  {hasParentIndex && `S${program.parentIndex}`}
+                  {hasParentIndex && hasEpisodeIndex && " · "}
+                  {hasEpisodeIndex && `E${program.index}`}
                 </div>
               )}
-            </div>
+            </button>
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-sm">
             {tooltipContent()}

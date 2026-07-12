@@ -122,6 +122,36 @@ export function MediaPlayerProgress({
     setHoverTime(null);
   }, []);
 
+  const handleProgressKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (disabled || duration === 0) return;
+
+      let nextTime: number;
+      switch (event.key) {
+        case "ArrowLeft":
+        case "ArrowDown":
+          nextTime = currentTime - 5;
+          break;
+        case "ArrowRight":
+        case "ArrowUp":
+          nextTime = currentTime + 5;
+          break;
+        case "Home":
+          nextTime = 0;
+          break;
+        case "End":
+          nextTime = duration;
+          break;
+        default:
+          return;
+      }
+
+      event.preventDefault();
+      onSeek(clamp(nextTime, 0, duration));
+    },
+    [currentTime, disabled, duration, onSeek],
+  );
+
   // Attach global mouse events for dragging
   useEffect(() => {
     if (isDragging) {
@@ -149,10 +179,18 @@ export function MediaPlayerProgress({
       <div className="relative flex-1">
         <div
           ref={progressRef}
+          role="slider"
+          tabIndex={disabled ? -1 : 0}
+          aria-label="Playback position"
+          aria-valuemin={0}
+          aria-valuemax={duration}
+          aria-valuenow={currentTime}
+          aria-disabled={disabled}
           className={`group relative h-2 cursor-pointer rounded-full bg-white/20 ${disabled ? "cursor-not-allowed opacity-50" : "hover:h-3"} transition-[height] duration-200 ease-out`}
           onMouseDown={handleMouseDown}
           onMouseMove={handleProgressMouseMove}
           onMouseLeave={handleProgressMouseLeave}
+          onKeyDown={handleProgressKeyDown}
         >
           {/* Buffered Progress */}
           <div

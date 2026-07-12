@@ -32,9 +32,9 @@ export async function getHomeHubsQuery(
   }
 
   const pinnedSources = userInfo.settings?.sidebarSettings?.pinnedSources ?? [];
-  const libraryDirectoryIds = pinnedSources
-    .map((source) => source.directoryID)
-    .filter((id) => /^\d+$/.test(id));
+  const libraryDirectoryIds = pinnedSources.flatMap((source) =>
+    /^\d+$/.test(source.directoryID) ? [source.directoryID] : [],
+  );
 
   return withPmsRetry(plex, server, userInfo, async (context) => {
     const response = await context.serverClient.getHubs({

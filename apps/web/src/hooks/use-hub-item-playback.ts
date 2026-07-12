@@ -24,7 +24,8 @@ export function useHubItemPlayback(item: HubItemWithServer | undefined) {
   );
 
   const play = useCallback(async () => {
-    const playbackIntent = ++latestPlaybackIntent;
+    latestPlaybackIntent += 1;
+    const playbackIntent = latestPlaybackIntent;
 
     if (!item?.serverUrl || !item?.authToken) {
       return;

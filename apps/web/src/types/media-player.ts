@@ -135,10 +135,3 @@ export interface MediaPlayerActions {
   jumpToStart?: () => void;
   jumpToEnd?: () => void;
 }
-
-/** Returns whether the media player is ready to play. */
-export function isPlaybackReady(state: MediaPlayerState): boolean {
-  return Boolean(
-    state.currentItem && state.canPlay && !state.isLoading && !state.error,
-  );
-}

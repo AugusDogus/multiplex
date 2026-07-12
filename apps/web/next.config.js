@@ -13,6 +13,7 @@ const config = {
   reactCompiler: true,
   cacheComponents: true,
   partialPrefetching: true,
+  allowedDevOrigins: ["local.augie.haus"],
   images: {
     remotePatterns: [
       {

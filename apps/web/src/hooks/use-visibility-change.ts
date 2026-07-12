@@ -1,6 +1,6 @@
 import React from "react";
 
-function useVisibilityChangeSubscribe(callback: () => void) {
+function subscribeToVisibilityChange(callback: () => void) {
   document.addEventListener("visibilitychange", callback);
   return () => {
     document.removeEventListener("visibilitychange", callback);
@@ -17,7 +17,7 @@ function getVisibilityChangeServerSnapshot() {
 
 export function useVisibilityChange() {
   const visibilityState = React.useSyncExternalStore(
-    useVisibilityChangeSubscribe,
+    subscribeToVisibilityChange,
     getVisibilityChangeSnapshot,
     getVisibilityChangeServerSnapshot,
   );

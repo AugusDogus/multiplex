@@ -122,6 +122,17 @@ export function MediaPlayerControls({
     setIsDraggingVolume(false);
   }, []);
 
+  const handleVolumeKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+
+      event.preventDefault();
+      const direction = event.key === "ArrowRight" ? 1 : -1;
+      actions.setVolume(clamp(volume + direction * 0.05, 0, 1));
+    },
+    [actions, volume],
+  );
+
   // Attach global mouse events for volume dragging
   useEffect(() => {
     if (isDraggingVolume) {
@@ -217,8 +228,15 @@ export function MediaPlayerControls({
                 <div className="relative h-2 w-20">
                   <div
                     ref={volumeRef}
+                    role="slider"
+                    tabIndex={0}
+                    aria-label="Volume"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round((isMuted ? 0 : volume) * 100)}
                     className="group h-full cursor-pointer rounded-full bg-white/20"
                     onMouseDown={handleVolumeMouseDown}
+                    onKeyDown={handleVolumeKeyDown}
                   >
                     <div
                       className="h-full rounded-full bg-white transition-all duration-200"
