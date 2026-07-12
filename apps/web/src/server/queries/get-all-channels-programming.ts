@@ -1,6 +1,31 @@
 import type { PlexServerClient, PlexTvClient } from "@multiplex/plex-query";
 import { getServersQuery } from "./get-servers";
 
+const GRID_REQUEST_CONCURRENCY = 6;
+
+async function mapWithConcurrency<T extends object, R>(
+  items: readonly T[],
+  concurrency: number,
+  task: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  const runNext = async (): Promise<void> => {
+    const index = nextIndex;
+    nextIndex += 1;
+    const item = items[index];
+    if (!item) return;
+
+    results[index] = await task(item, index);
+    await runNext();
+  };
+
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => runNext()));
+  return results;
+}
+
 /**
  * Extract DVR ID from provider identifier
  * Example: "tv.plex.providers.epg.xmltv:73" -> "73"
@@ -115,8 +140,10 @@ async function getChannelsProgrammingData(
     return true;
   });
 
-  const channelLineups = await Promise.all(
-    uniqueChannels.map(async ({ channel, server, serverClient }) => {
+  const channelLineups = await mapWithConcurrency(
+    uniqueChannels,
+    GRID_REQUEST_CONCURRENCY,
+    async ({ channel, server, serverClient }) => {
       try {
         const gridResponse = await serverClient.getGrid({
           channelGridKey: channel.gridKey,
@@ -208,7 +235,7 @@ async function getChannelsProgrammingData(
           programs: [],
         } satisfies ChannelLineup;
       }
-    }),
+    },
   );
 
   return channelLineups;
@@ -464,8 +491,10 @@ async function getServerChannelsProgrammingForDate(
       },
     );
 
-    const channelLineups = await Promise.all(
-      uniqueChannels.map(async (channel) => {
+    const channelLineups = await mapWithConcurrency(
+      uniqueChannels,
+      GRID_REQUEST_CONCURRENCY,
+      async (channel) => {
         try {
           const gridResponse = await serverClient.getGrid({
             channelGridKey: channel.gridKey,
@@ -560,7 +589,7 @@ async function getServerChannelsProgrammingForDate(
             programs: [],
           } satisfies ChannelLineup;
         }
-      }),
+      },
     );
 
     // Sort channel lineups by VCN (Virtual Channel Number)
