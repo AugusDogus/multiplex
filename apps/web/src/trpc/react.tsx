@@ -1,13 +1,9 @@
 "use client";
 
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
-import { createTRPCReact } from "@trpc/react-query";
-import { type inferRouterInputs, type inferRouterOutputs } from "@trpc/server";
 import { useState } from "react";
 
-// `import type` (not `import { type ... }`) so no runtime side-effect import
-// of the server-only router graph leaks into the client bundle.
-import type { AppRouter } from "~/server/api/root";
+import { api } from "./api";
 import { createTrpcClientLinks } from "./client-links";
 import { createQueryClient } from "./query-client";
 
@@ -22,22 +18,6 @@ const getQueryClient = () => {
 
   return clientQueryClientSingleton;
 };
-
-export const api = createTRPCReact<AppRouter>();
-
-/**
- * Inference helper for inputs.
- *
- * @example type HelloInput = RouterInputs['example']['hello']
- */
-export type RouterInputs = inferRouterInputs<AppRouter>;
-
-/**
- * Inference helper for outputs.
- *
- * @example type HelloOutput = RouterOutputs['example']['hello']
- */
-export type RouterOutputs = inferRouterOutputs<AppRouter>;
 
 export function TRPCReactProvider(props: { children: React.ReactNode }) {
   const queryClient = getQueryClient();

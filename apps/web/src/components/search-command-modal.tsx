@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogTitle } from "~/components/ui/dialog";
 import type { ProcessedSearchResult } from "@multiplex/plex-query";
 import { SearchResultItem } from "~/components/search-result-item";
 import { useDebounce } from "~/hooks/use-debounce";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 
 interface SearchCommandModalProps {
   open: boolean;

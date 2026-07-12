@@ -29,7 +29,7 @@ import {
   usePlayerStateSelector,
 } from "~/lib/effect/player-atoms";
 import { shallow } from "zustand/shallow";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 
 import { AddToPlaylistDialog } from "./add-to-playlist-dialog";
 import { MediaInfoDialog } from "./media-info-dialog";

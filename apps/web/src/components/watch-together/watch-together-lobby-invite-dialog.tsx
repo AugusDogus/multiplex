@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { WatchTogetherInviteePicker } from "~/components/watch-together/watch-together-invitee-picker";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 
 interface WatchTogetherLobbyInviteDialogProps {
   roomId: string;

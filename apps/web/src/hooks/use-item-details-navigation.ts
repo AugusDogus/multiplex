@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 
 import { PLEX_DETAILS_QUERY_OPTIONS } from "~/lib/plex-details-query-options";
 import { getItemDetailsHref } from "~/lib/plex-routes";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 
 export interface ItemDetailsNavigationTarget {
   serverId: string;

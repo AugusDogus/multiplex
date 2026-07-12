@@ -1,4 +1,4 @@
-import type { RouterOutputs } from "~/trpc/react";
+import type { RouterOutputs } from "~/trpc/api";
 
 export type ItemDetails = NonNullable<RouterOutputs["plex"]["getItemDetails"]>;
 export type EnrichedChildMetadata = ItemDetails["children"][number];

@@ -8,7 +8,7 @@ import {
 } from "@multiplex/plex-query";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { playerCommands } from "~/lib/effect/player-atoms";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 
 let latestPlaybackIntent = 0;
 

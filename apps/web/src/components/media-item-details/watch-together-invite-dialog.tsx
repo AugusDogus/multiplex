@@ -15,7 +15,7 @@ import {
 } from "~/components/ui/dialog";
 import { WatchTogetherInviteePicker } from "~/components/watch-together/watch-together-invitee-picker";
 import { getWatchTogetherRoomHref } from "~/lib/watch-together-source";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 
 import type { ItemDetails, PlayTarget } from "./types";
 

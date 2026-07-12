@@ -8,7 +8,7 @@ import {
   PlexUserAvatarStack,
 } from "~/components/watch-together/plex-user-avatar";
 import { cn } from "~/lib/utils";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 
 interface WatchTogetherInviteePickerProps {
   /** Gate the invitees query to when the picker is actually shown. */

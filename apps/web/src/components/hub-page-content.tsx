@@ -3,7 +3,7 @@
 import type { HubItemWithServer } from "@multiplex/plex-query";
 import { MediaPosterGrid } from "~/components/media-poster-grid";
 import { HUB_PAGE_SIZE } from "~/server/queries/plex-pagination";
-import { api } from "~/trpc/react";
+import { api } from "~/trpc/api";
 
 interface HubPageContentProps {
   machineIdentifier: string;
