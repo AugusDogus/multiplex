@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useState,
-} from "react";
+import { createContext, type ReactNode, useContext, useState } from "react";
 
 import { SidebarInset } from "~/components/ui/sidebar";
 
@@ -22,9 +16,9 @@ interface AppScrollContainerProps {
 
 export function AppScrollContainer({ children }: AppScrollContainerProps) {
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
-  const scrollRef = useCallback((node: HTMLElement | null) => {
+  const scrollRef = (node: HTMLElement | null) => {
     setScrollElement((current) => (current === node ? current : node));
-  }, []);
+  };
 
   return (
     <AppScrollElementContext.Provider value={scrollElement}>

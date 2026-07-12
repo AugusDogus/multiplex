@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   MULTIPLEX_SYNCPLAY_DEVICE_NAME,
@@ -71,7 +71,7 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   const localUserId = userInfoQuery.data?.id;
   const pendingStartRoomIdRef = useRef<string | null>(null);
 
-  const localUser = useMemo<SyncplayUser | null>(() => {
+  const localUser: SyncplayUser | null = (() => {
     if (localUserId === undefined) {
       return null;
     }
@@ -80,7 +80,7 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
       deviceIdentifier: getPlexClientIdentifier(),
       deviceName: MULTIPLEX_SYNCPLAY_DEVICE_NAME,
     };
-  }, [localUserId]);
+  })();
 
   // Enter once room + localUser resolve; re-enter when we return to Idle after
   // closing the player (leave → Idle). enterLobby is idempotent by room id so
@@ -91,7 +91,7 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
       return;
     }
     sessionCommands.enterLobby({ room, localUser });
-  }, [room, localUser, sessionState._tag]);
+  }, [room, roomQuery.data, localUser, sessionState._tag]);
 
   // Always queue cleanup after enter/start. Room guards keep delayed cleanup
   // from touching a replacement session.
@@ -108,7 +108,7 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     };
   }, [roomId]);
 
-  const sessionParticipants: ParticipantMap = useMemo(() => {
+  const sessionParticipants: ParticipantMap = (() => {
     if (
       (sessionState._tag === "Lobby" || sessionState._tag === "Playing") &&
       sessionState.room.id === roomId
@@ -116,7 +116,7 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
       return sessionState.participants;
     }
     return {};
-  }, [sessionState, roomId]);
+  })();
 
   const roomPositionSeconds =
     sessionState._tag === "Lobby" && sessionState.room.id === roomId
@@ -140,7 +140,7 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   const canStart = canStartMedia && !isPlayingThisRoom;
   const solo = room ? isSoloRoom(room) : false;
 
-  const playbackItem = useMemo(() => {
+  const playbackItem = (() => {
     if (!playTarget || !serverId || !serverUrl || !authToken) {
       return null;
     }
@@ -149,7 +149,7 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
       serverUrl,
       authToken,
     });
-  }, [playTarget, serverId, serverUrl, authToken]);
+  })();
 
   const utils = api.useUtils();
   const leaveInitiatingSession = async (): Promise<boolean> => {
@@ -187,9 +187,9 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
       playbackInput: canStart && playbackItem ? { item: playbackItem } : null,
       leaving,
     });
-  }, [canStart, playbackItem, leaving]);
+  }, [canStart, playbackItem, leaving, leaveRoom.isPending]);
 
-  const startPlayback = useCallback(async () => {
+  const startPlayback = async () => {
     if (!room || !localUser || !playbackItem || !canStartMedia) {
       return false;
     }
@@ -219,27 +219,16 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
           pendingStartRoomIdRef.current = null;
         }
       });
-  }, [
-    room,
-    localUser,
-    playbackItem,
-    canStartMedia,
-    sessionParticipants,
-    roomPositionKnown,
-    roomPositionSeconds,
-  ]);
+  };
 
-  const leaveLobby = useCallback(() => {
+  const leaveLobby = () => {
     if (leaving) {
       return;
     }
     leaveRoom.mutate({ roomId });
-  }, [leaving, leaveRoom, roomId]);
+  };
 
-  const participantsByUserId = useMemo(
-    () => mergeParticipantsByUserId(sessionParticipants),
-    [sessionParticipants],
-  );
+  const participantsByUserId = mergeParticipantsByUserId(sessionParticipants);
 
   const allInvitedPresentNow = Boolean(
     room &&

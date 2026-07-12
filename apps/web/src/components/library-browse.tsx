@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback } from "react";
 import type { HubItemWithServer } from "@multiplex/plex-query";
 import { MediaPosterGrid } from "~/components/media-poster-grid";
 import { LIBRARY_PAGE_SIZE } from "~/server/queries/plex-pagination";
@@ -34,19 +33,16 @@ export function LibraryBrowse({
   // Plain client call (not `utils.fetch`): the grid caches pages under its
   // own query key, so going through the query cache here would store every
   // page twice.
-  const onLoadPage = useCallback(
-    (input: { start: number; size: number }) =>
-      utils.client.plex.getLibraryContent.query({
-        machineIdentifier,
-        sectionId,
-        start: input.start,
-        size: input.size,
-        sort,
-        type: typeNumber,
-        filters,
-      }),
-    [utils, machineIdentifier, sectionId, sort, typeNumber, filters],
-  );
+  const onLoadPage = (input: { start: number; size: number }) =>
+    utils.client.plex.getLibraryContent.query({
+      machineIdentifier,
+      sectionId,
+      start: input.start,
+      size: input.size,
+      sort,
+      type: typeNumber,
+      filters,
+    });
 
   return (
     <MediaPosterGrid

@@ -68,7 +68,7 @@ export function SearchCommandModal({
   };
 
   // Group results by type for display
-  const searchGroups: SearchGroup[] = React.useMemo(() => {
+  const searchGroups: SearchGroup[] = (() => {
     if (!searchResults) return [];
 
     const groups: SearchGroup[] = [];
@@ -114,7 +114,7 @@ export function SearchCommandModal({
     }
 
     return groups;
-  }, [searchResults]);
+  })();
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>

@@ -9,13 +9,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ComponentType,
-} from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
 import type { LibraryPivot } from "@multiplex/plex-query";
 import {
   SUPPORTED_PIVOT_LABELS,
@@ -46,18 +40,18 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
   const tabs = pivots.filter((pivot) => isSupportedPivot(pivot.id));
   const tabIds = tabs.map((pivot) => pivot.id).join(",");
 
-  const updateAlignment = useCallback(() => {
-    const element = scrollRef.current;
-    if (!element) {
-      return;
-    }
-
-    setAlignTabs(
-      element.scrollWidth > element.clientWidth + 1 ? "start" : "center",
-    );
-  }, []);
-
   useEffect(() => {
+    const updateAlignment = () => {
+      const element = scrollRef.current;
+      if (!element) {
+        return;
+      }
+
+      setAlignTabs(
+        element.scrollWidth > element.clientWidth + 1 ? "start" : "center",
+      );
+    };
+
     updateAlignment();
 
     const element = scrollRef.current;
@@ -74,7 +68,7 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
       observer.disconnect();
       window.removeEventListener("resize", updateAlignment);
     };
-  }, [tabIds, updateAlignment]);
+  }, [tabIds]);
 
   if (tabs.length <= 1) {
     return null;
