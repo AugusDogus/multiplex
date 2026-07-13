@@ -1,12 +1,12 @@
 import { expect, test } from "@playwright/test";
 
 import { ACCOUNT_A, storageStatePath } from "./helpers/accounts";
-import { disbandRoom, openFirstMovieDetails } from "./helpers/watch-together";
+import { disbandRoom, openTestVideoDetails } from "./helpers/watch-together";
 
 test("an unauthenticated guest does not request protected player metadata", async ({
   browser,
   baseURL,
-}) => {
+}, testInfo) => {
   const hostContext = await browser.newContext({
     baseURL,
     storageState: storageStatePath(ACCOUNT_A),
@@ -16,6 +16,31 @@ test("an unauthenticated guest does not request protected player metadata", asyn
   const host = await hostContext.newPage();
   const guest = await guestContext.newPage();
   let roomId: string | undefined;
+  let testError: unknown;
+
+  const hostSyncplayFrames: string[] = [];
+  const guestSyncplayFrames: string[] = [];
+  const captureSyncplayFrames = (page: typeof host, frames: string[]) => {
+    page.on("websocket", (socket) => {
+      if (!socket.url().includes("/ws")) return;
+      const capture = (
+        direction: "sent" | "received",
+        payload: string | Buffer,
+      ) => {
+        frames.push(
+          JSON.stringify({
+            at: Date.now(),
+            direction,
+            payload: payload.toString(),
+          }),
+        );
+      };
+      socket.on("framesent", (event) => capture("sent", event.payload));
+      socket.on("framereceived", (event) => capture("received", event.payload));
+    });
+  };
+  captureSyncplayFrames(host, hostSyncplayFrames);
+  captureSyncplayFrames(guest, guestSyncplayFrames);
 
   const metadataResponses: number[] = [];
   const guestConsoleErrors: string[] = [];
@@ -29,7 +54,7 @@ test("an unauthenticated guest does not request protected player metadata", asyn
   });
 
   try {
-    await openFirstMovieDetails(host);
+    await openTestVideoDetails(host);
     await host.getByRole("button", { name: "More actions" }).click();
     await host.getByRole("menuitem", { name: /watch together/i }).click();
 
@@ -114,11 +139,58 @@ test("an unauthenticated guest does not request protected player metadata", asyn
     ).toEqual([]);
     await expect(guest.getByText(/join watch together/i)).toHaveCount(0);
     expect(hostToasts.filter((text) => /jumped to/i.test(text))).toEqual([]);
+  } catch (error) {
+    testError = error;
+    throw error;
   } finally {
+    const pageState = async (page: typeof host) =>
+      page
+        .evaluate(() => {
+          const video = document.querySelector("video");
+          return {
+            url: window.location.href,
+            body: document.body.innerText,
+            video: video
+              ? {
+                  currentTime: video.currentTime,
+                  duration: video.duration,
+                  paused: video.paused,
+                  readyState: video.readyState,
+                  networkState: video.networkState,
+                  error: video.error?.message ?? null,
+                }
+              : null,
+          };
+        })
+        .catch(() => null);
+    if (testError) {
+      await testInfo.attach("syncplay-diagnostics.json", {
+        body: Buffer.from(
+          JSON.stringify(
+            {
+              host: {
+                page: await pageState(host),
+                frames: hostSyncplayFrames,
+              },
+              guest: {
+                page: await pageState(guest),
+                frames: guestSyncplayFrames,
+              },
+            },
+            null,
+            2,
+          ),
+        ),
+        contentType: "application/json",
+      });
+    }
     await Promise.all([
       host.keyboard.press("Escape").catch(() => undefined),
       guest.keyboard.press("Escape").catch(() => undefined),
     ]);
+    // Let the app's asynchronous Plex transcode teardown finish before the
+    // contexts disappear. Otherwise repeated runs can exhaust server slots.
+    await host.waitForTimeout(1_500).catch(() => undefined);
     if (roomId) await disbandRoom(hostContext, roomId);
     await Promise.all([hostContext.close(), guestContext.close()]);
   }
