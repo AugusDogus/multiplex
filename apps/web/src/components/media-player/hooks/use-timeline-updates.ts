@@ -28,7 +28,9 @@ function getOrCreateSessionId(ref: { current: string | null }) {
  * Hook to manage timeline updates to Plex server during media playback
  * Uses video events directly instead of intervals
  */
-export function useTimelineUpdates() {
+export function useTimelineUpdates({
+  enabled = true,
+}: { enabled?: boolean } = {}) {
   const { currentItem, currentTime, duration, isPlaying } =
     usePlayerStateSelector(
       (state) => ({
@@ -62,7 +64,7 @@ export function useTimelineUpdates() {
     playbackState: "playing" | "paused" | "stopped",
     timeOverride?: number,
   ) => {
-    if (!currentItem) return;
+    if (!enabled || !currentItem) return;
 
     const sessionId = getSessionId();
     const timeToUse = timeOverride ?? currentTime;

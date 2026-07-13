@@ -9,6 +9,7 @@ export function createMediaPlayerItem(
     serverId: string;
     serverUrl: string;
     authToken: string;
+    access?: "authenticated" | "guest-transient";
   },
 ): MediaPlayerItem {
   const { viewOffset, duration } = metadata;
@@ -20,6 +21,7 @@ export function createMediaPlayerItem(
     serverId: playback.serverId,
     serverUrl: playback.serverUrl,
     authToken: playback.authToken,
+    access: playback.access ?? "authenticated",
     progressPercent:
       viewOffset && duration ? getProgressPercent(metadata) : undefined,
     isCompleted: Boolean(metadata.viewCount),

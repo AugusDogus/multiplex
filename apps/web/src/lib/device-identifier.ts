@@ -1,5 +1,7 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
+
 // Keep the existing key so browsers retain their established identifier.
 const PLEX_CLIENT_ID_KEY = "multiplex-watch-together-device-id";
 
@@ -22,4 +24,15 @@ export function getPlexClientIdentifier(): string {
   const clientIdentifier = `multiplex-${crypto.randomUUID()}`;
   window.localStorage.setItem(PLEX_CLIENT_ID_KEY, clientIdentifier);
   return clientIdentifier;
+}
+
+const subscribeToBrowserAvailability = () => () => undefined;
+
+/** Hydration-safe access to the browser-only identifier. */
+export function usePlexClientIdentifier(): string | null {
+  return useSyncExternalStore(
+    subscribeToBrowserAvailability,
+    getPlexClientIdentifier,
+    () => null,
+  );
 }
