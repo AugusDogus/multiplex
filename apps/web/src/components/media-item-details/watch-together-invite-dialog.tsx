@@ -14,7 +14,10 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { WatchTogetherInviteePicker } from "~/components/watch-together/watch-together-invitee-picker";
-import { getWatchTogetherRoomHref } from "~/lib/watch-together-source";
+import {
+  getWatchTogetherRoomHref,
+  storeGuestHostCapability,
+} from "~/lib/watch-together-source";
 import { cn } from "~/lib/utils";
 import { api } from "~/trpc/api";
 
@@ -73,6 +76,7 @@ export function WatchTogetherInviteDialog({
       onSuccess: (result) => {
         handleOpenChange(false);
         onFeedback("Trusted Guest link created");
+        storeGuestHostCapability(result.room.id, result.capability);
         router.push(result.hostRoomPath);
       },
     },

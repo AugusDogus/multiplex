@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   MULTIPLEX_SYNCPLAY_DEVICE_NAME,
@@ -9,7 +9,11 @@ import {
 
 import { usePlexClientIdentifier } from "~/lib/device-identifier";
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
-import { getWatchTogetherRoomHref } from "~/lib/watch-together-source";
+import {
+  getWatchTogetherRoomHref,
+  readGuestHostCapability,
+  storeGuestHostCapability,
+} from "~/lib/watch-together-source";
 import { api } from "~/trpc/api";
 
 /**
@@ -23,16 +27,36 @@ export function WatchTogetherSessionShell({
   children: ReactNode;
 }) {
   const params = useParams();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const roomId = typeof params.roomId === "string" ? params.roomId : null;
-  const guestCapability = searchParams.get("guest");
+  const queryCapability = searchParams.get("guest");
+  const storedCapability = useSyncExternalStore<string | null | undefined>(
+    subscribeGuestCapability,
+    () => (roomId ? readGuestHostCapability(roomId) : null),
+    () => undefined,
+  );
+  const guestCapability = queryCapability ?? storedCapability;
+
+  useEffect(() => {
+    if (!roomId) return;
+    if (queryCapability) {
+      storeGuestHostCapability(roomId, queryCapability);
+      router.replace(getWatchTogetherRoomHref(roomId));
+    }
+  }, [queryCapability, roomId, router]);
+
   useWatchTogetherSessionLifecycle(roomId, guestCapability);
   return children;
 }
 
+function subscribeGuestCapability(): () => void {
+  return () => undefined;
+}
+
 function useWatchTogetherSessionLifecycle(
   roomId: string | null,
-  guestCapability: string | null,
+  guestCapability: string | null | undefined,
 ) {
   const router = useRouter();
   const sessionState = useSessionState();
@@ -51,7 +75,7 @@ function useWatchTogetherSessionLifecycle(
   const hostContextQuery = api.guestWatchTogether.hostContext.useQuery(
     { capability: guestCapability ?? "" },
     {
-      enabled: guestCapability !== null,
+      enabled: typeof guestCapability === "string",
       staleTime: 30_000,
       retry: false,
     },
@@ -74,7 +98,7 @@ function useWatchTogetherSessionLifecycle(
   // owns the socket) except refreshing the same room object.
   useEffect(() => {
     const currentRoom = roomQuery.data;
-    if (!currentRoom || !localUser) {
+    if (!currentRoom || !localUser || guestCapability === undefined) {
       return;
     }
     const hostContext = hostContextQuery.data;
@@ -82,7 +106,7 @@ function useWatchTogetherSessionLifecycle(
     // policy while capability validation is pending or unavailable could
     // restore Plex's all-present auto-start behavior unexpectedly.
     if (
-      guestCapability !== null &&
+      typeof guestCapability === "string" &&
       (!hostContext?.valid || hostContext.roomId !== currentRoom.id)
     ) {
       return;
@@ -90,7 +114,7 @@ function useWatchTogetherSessionLifecycle(
     sessionCommands.enterLobby({
       room: currentRoom,
       localUser,
-      ...(guestCapability !== null && hostContext?.valid
+      ...(typeof guestCapability === "string" && hostContext?.valid
         ? {
             startPolicy: {
               _tag: "HostControlled" as const,

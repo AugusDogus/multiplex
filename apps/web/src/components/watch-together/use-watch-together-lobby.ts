@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   MULTIPLEX_SYNCPLAY_DEVICE_NAME,
@@ -25,6 +25,7 @@ import {
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { usePlexClientIdentifier } from "~/lib/device-identifier";
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
+import { readGuestHostCapability } from "~/lib/watch-together-source";
 import { api } from "~/trpc/api";
 
 async function leaveActiveWatchTogetherSession(
@@ -92,10 +93,20 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   const source = media.source;
   const localUserId = userInfoQuery.data?.id;
   const pendingStartRoomIdRef = useRef<string | null>(null);
-  const guestCapability = searchParams.get("guest");
+  const queryCapability = searchParams.get("guest");
+  const storedGuestCapability = useSyncExternalStore<string | null | undefined>(
+    subscribeGuestCapability,
+    () => readGuestHostCapability(roomId),
+    () => undefined,
+  );
+  const guestCapability = queryCapability ?? storedGuestCapability;
   const hostContextQuery = api.guestWatchTogether.hostContext.useQuery(
     { capability: guestCapability ?? "" },
-    { enabled: guestCapability !== null, staleTime: 30_000, retry: false },
+    {
+      enabled: typeof guestCapability === "string",
+      staleTime: 30_000,
+      retry: false,
+    },
   );
 
   const localUser: SyncplayUser | null = (() => {
@@ -315,4 +326,8 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     leaveLobby,
     getParticipantStatus,
   };
+}
+
+function subscribeGuestCapability(): () => void {
+  return () => undefined;
 }

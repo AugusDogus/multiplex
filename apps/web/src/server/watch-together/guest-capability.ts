@@ -9,11 +9,8 @@ export const guestCapabilityPayloadSchema = z.object({
   version: z.literal(CAPABILITY_VERSION),
   hostUserId: z.string().min(1),
   roomId: z.string().regex(/^[A-Za-z0-9]+$/),
-  serverId: z.string().min(1),
-  ratingKey: z.string().regex(/^\d+$/),
   issuedAt: z.number().int().nonnegative(),
   expiresAt: z.number().int().positive(),
-  nonce: z.string().uuid(),
 });
 
 export type GuestCapabilityPayload = z.infer<
@@ -35,11 +32,8 @@ export interface GuestCapabilityCodec {
   readonly sign: (input: {
     hostUserId: string;
     roomId: string;
-    serverId: string;
-    ratingKey: string;
     now?: Date;
     lifetimeSeconds?: number;
-    nonce?: string;
   }) => Promise<string>;
   readonly verify: (
     capability: string,
@@ -60,15 +54,10 @@ export function createGuestCapabilityCodec(
         version: CAPABILITY_VERSION,
         hostUserId: input.hostUserId,
         roomId: input.roomId,
-        serverId: input.serverId,
-        ratingKey: input.ratingKey,
         issuedAt,
         expiresAt: issuedAt + lifetimeSeconds,
-        nonce: input.nonce ?? crypto.randomUUID(),
       });
-      const encodedPayload = Buffer.from(JSON.stringify(payload)).toString(
-        "base64url",
-      );
+      const encodedPayload = encodePayload(payload).toString("base64url");
       const signature = await crypto.subtle.sign(
         "HMAC",
         await keyPromise,
@@ -145,17 +134,44 @@ async function deriveSigningKey(secret: string): Promise<CryptoKey> {
   );
 }
 
-/** Boundary adapter: JSON and base64 are decoded once, then Zod owns shape. */
+/** Boundary adapter: compact binary and base64 are decoded once, then Zod owns shape. */
 function decodePayload(encodedPayload: string): GuestCapabilityPayload | null {
   try {
-    const value: unknown = JSON.parse(
-      Buffer.from(encodedPayload, "base64url").toString("utf8"),
-    );
+    const bytes = Buffer.from(encodedPayload, "base64url");
+    if (bytes.length < 11) return null;
+    const hostLength = bytes.readUInt8(9);
+    const roomLength = bytes.readUInt8(10);
+    if (bytes.length !== 11 + hostLength + roomLength) return null;
+    const decoder = new TextDecoder("utf-8", { fatal: true });
+    const value: unknown = {
+      version: bytes.readUInt8(0),
+      issuedAt: bytes.readUInt32BE(1),
+      expiresAt: bytes.readUInt32BE(5),
+      hostUserId: decoder.decode(bytes.subarray(11, 11 + hostLength)),
+      roomId: decoder.decode(bytes.subarray(11 + hostLength)),
+    };
     const parsed = guestCapabilityPayloadSchema.safeParse(value);
     return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }
+}
+
+function encodePayload(payload: GuestCapabilityPayload): Buffer {
+  const host = Buffer.from(payload.hostUserId, "utf8");
+  const room = Buffer.from(payload.roomId, "utf8");
+  if (host.length > 255 || room.length > 255) {
+    throw new RangeError("Guest capability identifiers are too long");
+  }
+  const bytes = Buffer.alloc(11 + host.length + room.length);
+  bytes.writeUInt8(payload.version, 0);
+  bytes.writeUInt32BE(payload.issuedAt, 1);
+  bytes.writeUInt32BE(payload.expiresAt, 5);
+  bytes.writeUInt8(host.length, 9);
+  bytes.writeUInt8(room.length, 10);
+  host.copy(bytes, 11);
+  room.copy(bytes, 11 + host.length);
+  return bytes;
 }
 
 function isBase64Url(value: string): boolean {

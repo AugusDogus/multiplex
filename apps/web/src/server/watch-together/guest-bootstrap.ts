@@ -112,17 +112,13 @@ export function createGuestBootstrapService(
     }
 
     const source = parseLibraryItemUri(room.sourceUri);
-    if (
-      room.id !== payload.roomId ||
-      source?.serverId !== payload.serverId ||
-      source.ratingKey !== payload.ratingKey
-    ) {
+    if (room.id !== payload.roomId || !source) {
       return { ok: false, reason: "room-unavailable" };
     }
 
     const access = await dependencies.resolveAccess(hostPlex, {
-      serverId: payload.serverId,
-      ratingKey: payload.ratingKey,
+      serverId: source.serverId,
+      ratingKey: source.ratingKey,
     });
     if (!access.ok) {
       return { ok: false, reason: "guest-unavailable" };
@@ -147,7 +143,7 @@ export function createGuestBootstrapService(
     const nextEpisode = await loadGuestNextEpisode(
       access.value.guestServerClient,
       room.sourceUri,
-      payload.ratingKey,
+      source.ratingKey,
     );
 
     const hostRoomUser = room.users.find(
@@ -188,7 +184,7 @@ export function createGuestBootstrapService(
           id: guestRoomUser.id,
           title: guestRoomUser.title ?? guestRoomUser.username ?? "Plex Guest",
         },
-        serverId: payload.serverId,
+        serverId: source.serverId,
         serverUrl: access.value.guestServerUrl,
         authToken: transientToken,
         item: access.value.item,
@@ -235,17 +231,13 @@ export function createGuestContinuationService(
     }
 
     const currentSource = parseLibraryItemUri(currentRoom.sourceUri);
-    if (
-      currentRoom.id !== payload.roomId ||
-      currentSource?.serverId !== payload.serverId ||
-      currentSource.ratingKey !== payload.ratingKey
-    ) {
+    if (currentRoom.id !== payload.roomId || !currentSource) {
       return { ok: false, reason: "room-unavailable" };
     }
 
     const currentAccess = await dependencies.resolveAccess(hostPlex, {
-      serverId: payload.serverId,
-      ratingKey: payload.ratingKey,
+      serverId: currentSource.serverId,
+      ratingKey: currentSource.ratingKey,
     });
     if (!currentAccess.ok) {
       return { ok: false, reason: "guest-unavailable" };
@@ -256,7 +248,7 @@ export function createGuestContinuationService(
 
     const nextRoom = findNextEpisodeRoom({
       rooms,
-      serverId: payload.serverId,
+      serverId: currentSource.serverId,
       nextRatingKey,
       currentRoom,
     });
@@ -265,7 +257,7 @@ export function createGuestContinuationService(
     }
 
     const nextAccess = await dependencies.resolveAccess(hostPlex, {
-      serverId: payload.serverId,
+      serverId: currentSource.serverId,
       ratingKey: nextRatingKey,
     });
     if (!nextAccess.ok) {
@@ -307,8 +299,6 @@ export function createGuestContinuationService(
     const successorCapability = await dependencies.capabilityCodec.sign({
       hostUserId: payload.hostUserId,
       roomId: nextRoom.id,
-      serverId: payload.serverId,
-      ratingKey: nextRatingKey,
       lifetimeSeconds: remainingLifetime,
     });
 
@@ -328,7 +318,7 @@ export function createGuestContinuationService(
           id: guestRoomUser.id,
           title: guestRoomUser.title ?? guestRoomUser.username ?? "Plex Guest",
         },
-        serverId: payload.serverId,
+        serverId: currentSource.serverId,
         serverUrl: nextAccess.value.guestServerUrl,
         authToken: transientToken,
         item: nextAccess.value.item,
