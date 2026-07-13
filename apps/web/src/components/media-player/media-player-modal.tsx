@@ -555,17 +555,14 @@ export function MediaPlayerModal() {
   });
 
   const handleClose = () => {
-    // Reconcile the App Router segment to the live room before leave → Idle.
-    // During playback we only history.replaceState (to avoid remounting the
-    // lobby under the modal); without this, closing after rotation lands on
-    // the deleted previous room's page param ("unavailable").
+    // Commit the live room before leave → Idle. WatchTogetherSessionShell
+    // soft-navs during Playing; this covers close if the segment still lags.
     const session = sessionCommands.snapshot();
     if (session._tag === "Playing" || session._tag === "Lobby") {
       const href = getWatchTogetherRoomHref(session.room.id);
       if (window.location.pathname !== href) {
-        window.history.replaceState(window.history.state, "", href);
+        router.replace(href);
       }
-      router.replace(href);
     }
     onStop();
     clearTimelineSession();

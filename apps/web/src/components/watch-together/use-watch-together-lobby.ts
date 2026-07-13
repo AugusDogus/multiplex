@@ -25,7 +25,6 @@ import {
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { getPlexClientIdentifier } from "~/lib/device-identifier";
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
-import { getWatchTogetherRoomHref } from "~/lib/watch-together-source";
 import { api } from "~/trpc/api";
 
 async function leaveActiveWatchTogetherSession(
@@ -61,9 +60,9 @@ export type LobbyViewModel =
     };
 
 /**
- * React glue for the Watch Together lobby: room/user queries → session
- * enter/exit + lobby context, and a presentational view-model derived from
- * {@link useSessionState}.
+ * Presentational lobby glue for a route `roomId`: queries, Start/Leave, and
+ * lobby auto-start context. Session enter/exit + URL follow live in
+ * {@link WatchTogetherSessionShell} so soft-nav can remount this hook safely.
  */
 export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   const router = useRouter();
@@ -98,20 +97,8 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     };
   })();
 
-  // Enter once room + localUser resolve; re-enter when we return to Idle after
-  // closing the player (leave → Idle). enterLobby is idempotent by room id so
-  // refetches only refresh the room object without reconnecting; while Playing
-  // it is a no-op (driver owns the socket).
-  useEffect(() => {
-    const currentRoom = roomQuery.data;
-    if (!currentRoom || !localUser) {
-      return;
-    }
-    sessionCommands.enterLobby({ room: currentRoom, localUser });
-  }, [roomQuery.data, localUser, sessionState._tag]);
-
-  // Always queue cleanup after enter/start. Room guards keep delayed cleanup
-  // from touching a replacement session.
+  // If Start is in flight and this lobby unmounts, leave that room. Session
+  // enter/exit for idle lobby browsing is owned by WatchTogetherSessionShell.
   useEffect(() => {
     return () => {
       if (pendingStartRoomIdRef.current === roomId) {
@@ -119,24 +106,9 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
           suppressAutoStart: false,
           expectedRoomId: roomId,
         });
-      } else {
-        sessionCommands.exitLobby({ expectedRoomId: roomId });
       }
     };
   }, [roomId]);
-
-  // After episode rotation the previous room is deleted. Keep the address bar
-  // on the live room via replaceState only — soft-navigating while Playing
-  // remounts this lobby under the modal and breaks Syncplay pause sync.
-  useEffect(() => {
-    if (sessionState._tag !== "Playing" || sessionState.room.id === roomId) {
-      return;
-    }
-    const href = getWatchTogetherRoomHref(sessionState.room.id);
-    if (window.location.pathname !== href) {
-      window.history.replaceState(window.history.state, "", href);
-    }
-  }, [roomId, sessionState]);
 
   const sessionParticipants: ParticipantMap = (() => {
     if (
@@ -165,9 +137,8 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   const canStartMedia = Boolean(
     room && playTarget && serverId && serverUrl && authToken && localUser,
   );
-  // While any Playing session is active, Start is gated — including when
-  // replaceState updated the address bar but this segment still mounts the
-  // pre-rotation room id.
+  // Start is gated while any playback session is active (player owns the
+  // session; lobby under the modal must not open a second one).
   const canStart = canStartMedia && sessionState._tag !== "Playing";
   const solo = room ? isSoloRoom(room) : false;
 
@@ -187,23 +158,12 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     onSuccess: async (_data, variables) => {
       await utils.plex.getWatchTogetherRooms.invalidate();
       await leaveActiveWatchTogetherSession(variables.roomId);
-      // Always navigate home on an explicit Leave click. After rotation the URL
-      // room may already be gone and the session room may differ; stranding the
-      // viewer on "unavailable" is worse than going home.
       router.push("/");
     },
     onError: async (_error, variables) => {
       // Delete may fail because rotation already removed the room — still leave
-      // the live session when this lobby was targeting it.
-      const target = resolveLobbyLeaveTarget(
-        sessionCommands.snapshot(),
-        roomId,
-      );
-      if (target.leaveSession) {
-        await leaveActiveWatchTogetherSession(target.roomId);
-      } else {
-        await leaveActiveWatchTogetherSession(variables.roomId);
-      }
+      // when the mutation targeted a live session room.
+      await leaveActiveWatchTogetherSession(variables.roomId);
       router.push("/");
       toast.error("Couldn't remove the session, but you've left it.");
     },
