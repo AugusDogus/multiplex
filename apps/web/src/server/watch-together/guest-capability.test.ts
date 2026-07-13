@@ -5,10 +5,7 @@ import { createGuestCapabilityCodec } from "./guest-capability";
 const INPUT = {
   hostUserId: "host-user-1",
   roomId: "Room123",
-  serverId: "server-1",
-  ratingKey: "42",
   now: new Date("2026-07-13T12:00:00.000Z"),
-  nonce: "c5b59a73-0d9c-4ed0-b01b-c342fcb788cd",
 };
 
 describe("guest capability", () => {
@@ -26,13 +23,20 @@ describe("guest capability", () => {
         version: 1,
         hostUserId: INPUT.hostUserId,
         roomId: INPUT.roomId,
-        serverId: INPUT.serverId,
-        ratingKey: INPUT.ratingKey,
         issuedAt: Math.floor(INPUT.now.getTime() / 1000),
         expiresAt: Math.floor(INPUT.now.getTime() / 1000) + 24 * 60 * 60,
-        nonce: INPUT.nonce,
       },
     });
+  });
+
+  test("keeps a production-sized capability compact", async () => {
+    const capability = await createGuestCapabilityCodec("test-secret").sign({
+      ...INPUT,
+      hostUserId: "TnQ1TVPP8GRBOgH4GOm1la0DnPyk8whn",
+      roomId: "lu5usks4ga5",
+    });
+
+    expect(capability.length).toBeLessThan(125);
   });
 
   test("rejects payload tampering", async () => {

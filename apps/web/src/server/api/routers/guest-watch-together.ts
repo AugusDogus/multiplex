@@ -53,22 +53,21 @@ export const guestWatchTogetherRouter = createTRPCRouter({
         NEXTJS_PLEX_CONFIG,
       );
       try {
-        const [room, access] = await Promise.all([
-          watchTogether.getRoom(payload.roomId),
-          resolveGuestAccess(ctx.plex, {
-            serverId: payload.serverId,
-            ratingKey: payload.ratingKey,
-          }),
-        ]);
+        const room = await watchTogether.getRoom(payload.roomId);
         const source = parseLibraryItemUri(room.sourceUri);
+        if (!source) {
+          return { valid: false as const };
+        }
+        const access = await resolveGuestAccess(ctx.plex, {
+          serverId: source.serverId,
+          ratingKey: source.ratingKey,
+        });
         if (!access.ok) {
           return { valid: false as const };
         }
         const roomUserIds = new Set(room.users.map((user) => user.id));
         if (
           room.id !== payload.roomId ||
-          source?.serverId !== payload.serverId ||
-          source.ratingKey !== payload.ratingKey ||
           !roomUserIds.has(access.value.hostPlexUserId) ||
           !roomUserIds.has(access.value.guest.id)
         ) {
@@ -150,14 +149,12 @@ export const guestWatchTogetherRouter = createTRPCRouter({
         ).sign({
           hostUserId: ctx.authSession.user.id,
           roomId: room.id,
-          serverId: input.serverId,
-          ratingKey: input.ratingKey,
         });
         return {
           room,
           capability,
           joinPath: `/watch-together/guest/${encodeURIComponent(capability)}`,
-          hostRoomPath: `/watch-together/${encodeURIComponent(room.id)}?guest=${encodeURIComponent(capability)}`,
+          hostRoomPath: `/watch-together/${encodeURIComponent(room.id)}`,
         };
       } catch (cause) {
         await watchTogether.deleteRoom(room.id).catch(() => undefined);

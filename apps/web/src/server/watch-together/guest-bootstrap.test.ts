@@ -45,8 +45,6 @@ async function makeCapability(options?: { expired?: boolean }) {
   return createGuestCapabilityCodec("test-secret").sign({
     hostUserId: "host-app-user",
     roomId: ROOM.id,
-    serverId: "server-1",
-    ratingKey: "42",
     ...(options?.expired
       ? {
           now: new Date("2020-01-01T00:00:00.000Z"),
@@ -126,7 +124,7 @@ function makeService(options?: {
     resolveAccess,
   });
 
-  return { issueTransientToken, service };
+  return { issueTransientToken, resolveAccess, service };
 }
 
 describe("guest bootstrap", () => {
@@ -226,7 +224,7 @@ describe("guest bootstrap", () => {
       : { ok: false as const };
     expect(successor).toMatchObject({
       ok: true,
-      payload: { roomId: nextRoom.id, ratingKey: "43" },
+      payload: { roomId: nextRoom.id },
     });
     expect(issueTransientToken).toHaveBeenCalledTimes(1);
   });
@@ -241,16 +239,17 @@ describe("guest bootstrap", () => {
     expect(issueTransientToken).not.toHaveBeenCalled();
   });
 
-  test("rejects a room whose signed media identity no longer matches", async () => {
-    const { issueTransientToken, service } = makeService({
+  test("derives media identity from the authenticated live room", async () => {
+    const { issueTransientToken, resolveAccess, service } = makeService({
       room: { ...ROOM, sourceUri: ROOM.sourceUri.replace("/42", "/43") },
     });
 
-    expect(await service(await makeCapability())).toEqual({
-      ok: false,
-      reason: "room-unavailable",
+    expect(await service(await makeCapability())).toMatchObject({ ok: true });
+    expect(resolveAccess).toHaveBeenCalledWith(expect.anything(), {
+      serverId: "server-1",
+      ratingKey: "43",
     });
-    expect(issueTransientToken).not.toHaveBeenCalled();
+    expect(issueTransientToken).toHaveBeenCalledTimes(1);
   });
 
   test("rejects an expired invite before loading or minting", async () => {

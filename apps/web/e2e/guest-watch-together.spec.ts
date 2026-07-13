@@ -10,6 +10,7 @@ test("an unauthenticated guest does not request protected player metadata", asyn
   const hostContext = await browser.newContext({
     baseURL,
     storageState: storageStatePath(ACCOUNT_A),
+    permissions: ["clipboard-read", "clipboard-write"],
   });
   const guestContext = await browser.newContext({ baseURL });
   const host = await hostContext.newPage();
@@ -40,18 +41,26 @@ test("an unauthenticated guest does not request protected player metadata", asyn
     await expect(createLink).toBeEnabled({ timeout: 30_000 });
     await createLink.click();
 
-    await host.waitForURL(/\/watch-together\/[^/?]+\?guest=/, {
+    await host.waitForURL(/\/watch-together\/[^/?]+$/, {
       timeout: 30_000,
     });
     const hostUrl = new URL(host.url());
     roomId = hostUrl.pathname.split("/").at(-1);
-    const capability = hostUrl.searchParams.get("guest");
     expect(roomId).toBeTruthy();
-    expect(capability).toBeTruthy();
+    expect(hostUrl.search).toBe("");
 
-    await guest.goto(
-      `/watch-together/guest/${encodeURIComponent(capability!)}`,
+    await host
+      .getByRole("button", { name: "Copy Guest Watch Together link" })
+      .click();
+    const guestUrl = new URL(
+      await host.evaluate(() => navigator.clipboard.readText()),
     );
+    const capability = guestUrl.pathname.split("/").at(-1);
+    expect(capability).toBeTruthy();
+    expect(capability!.length).toBeLessThan(125);
+    expect(guestUrl.href.length).toBeLessThan(200);
+
+    await guest.goto(guestUrl.href);
     await guest.getByLabel("Display name").fill("Browser Guest");
     await guest.getByRole("button", { name: "Join session" }).click();
     await expect(guest.getByText(/you're in/i)).toBeVisible({
@@ -60,6 +69,10 @@ test("an unauthenticated guest does not request protected player metadata", asyn
     await expect(host.getByText("Browser Guest")).toBeVisible({
       timeout: 30_000,
     });
+    // Plex can report the guest to the host just before the reciprocal
+    // Syncplay presence reaches the guest. Let that handshake settle before
+    // the one-shot host Start event.
+    await host.waitForTimeout(2_000);
 
     const start = host.getByRole("button", { name: "Start" });
     await expect(start).toBeEnabled({ timeout: 30_000 });
