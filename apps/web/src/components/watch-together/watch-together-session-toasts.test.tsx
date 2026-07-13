@@ -24,7 +24,7 @@ const ROOM_USERS: WatchTogetherUser[] = [
 function createHarness(
   options: {
     initialCohortDeviceIds?: ReadonlySet<string>;
-    shouldSuppressNotifications?: () => boolean;
+    isPresenceHandoff?: () => boolean;
   } = {},
 ) {
   let currentTime = 100_000;
@@ -34,7 +34,7 @@ function createHarness(
     room: { users: ROOM_USERS },
     localUser: LOCAL_USER,
     initialCohortDeviceIds: options.initialCohortDeviceIds,
-    shouldSuppressNotifications: options.shouldSuppressNotifications,
+    isPresenceHandoff: options.isPresenceHandoff,
     showToast: (_user, name, text) => shown.push(`${name} ${text}`),
     now: () => currentTime,
   });
@@ -214,10 +214,10 @@ describe("createWatchTogetherSessionToasts", () => {
     expect(shown).toEqual([]);
   });
 
-  test("suppressed notifications stay silent for leave and playstate edges", () => {
-    let suppressed = true;
+  test("presence handoff mutes join/leave but not pause/resume/seek", () => {
+    let handoff = true;
     const { notifier, shown, advance } = createHarness({
-      shouldSuppressNotifications: () => suppressed,
+      isPresenceHandoff: () => handoff,
     });
     notifier.noteLocalStarted();
     advance(6_000);
@@ -232,15 +232,18 @@ describe("createWatchTogetherSessionToasts", () => {
       user: REMOTE_USER,
       positionSeconds: 10,
     });
-    expect(shown).toEqual([]);
+    expect(shown).toEqual(["multiplextest paused playback"]);
 
-    suppressed = false;
+    handoff = false;
     notifier.handleParticipant({
       user: REMOTE_USER,
       isPresent: true,
       isReady: true,
     });
-    expect(shown).toEqual(["multiplextest joined the session"]);
+    expect(shown).toEqual([
+      "multiplextest paused playback",
+      "multiplextest joined the session",
+    ]);
   });
 
   test("local user's own events never toast", () => {
