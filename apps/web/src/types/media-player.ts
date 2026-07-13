@@ -15,6 +15,8 @@ export type MediaPlayerPlaybackContext = {
   serverId: string;
   serverUrl: string;
   authToken: string;
+  /** Guest links use a short-lived PMS token and must not call Multiplex's authenticated APIs. */
+  access?: "authenticated" | "guest-transient";
 };
 
 export type MediaPlayerComputedFields = {

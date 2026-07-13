@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   MULTIPLEX_SYNCPLAY_DEVICE_NAME,
   allInvitedPresent,
@@ -23,7 +23,7 @@ import {
   resolveLobbyLeaveTarget,
 } from "~/components/watch-together/watch-together-lobby-leave";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
-import { getPlexClientIdentifier } from "~/lib/device-identifier";
+import { usePlexClientIdentifier } from "~/lib/device-identifier";
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
 import { api } from "~/trpc/api";
 
@@ -48,6 +48,11 @@ export type LobbyViewModel =
       readonly localUserId: number;
       readonly media: ReturnType<typeof useWatchTogetherRoomMedia>;
       readonly participantsByUserId: Map<number, SyncplayParticipantState>;
+      readonly participantDevices: ParticipantMap;
+      readonly guestLink: null | {
+        readonly joinPath: string;
+        readonly guestUserId: number;
+      };
       readonly canStart: boolean;
       readonly isSoloRoom: boolean;
       readonly someoneElseWatching: boolean;
@@ -66,7 +71,9 @@ export type LobbyViewModel =
  */
 export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const sessionState = useSessionState();
+  const deviceIdentifier = usePlexClientIdentifier();
 
   const roomQuery = api.plex.getWatchTogetherRoom.useQuery(
     { roomId },
@@ -85,14 +92,19 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   const source = media.source;
   const localUserId = userInfoQuery.data?.id;
   const pendingStartRoomIdRef = useRef<string | null>(null);
+  const guestCapability = searchParams.get("guest");
+  const hostContextQuery = api.guestWatchTogether.hostContext.useQuery(
+    { capability: guestCapability ?? "" },
+    { enabled: guestCapability !== null, staleTime: 30_000, retry: false },
+  );
 
   const localUser: SyncplayUser | null = (() => {
-    if (localUserId === undefined) {
+    if (localUserId === undefined || !deviceIdentifier) {
       return null;
     }
     return {
       id: localUserId,
-      deviceIdentifier: getPlexClientIdentifier(),
+      deviceIdentifier,
       deviceName: MULTIPLEX_SYNCPLAY_DEVICE_NAME,
     };
   })();
@@ -275,6 +287,13 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     someoneElseWatching: someoneElse,
     isSoloRoom: solo,
   });
+  const guestLink =
+    hostContextQuery.data?.valid && hostContextQuery.data.roomId === roomId
+      ? {
+          joinPath: hostContextQuery.data.joinPath,
+          guestUserId: hostContextQuery.data.guestUserId,
+        }
+      : null;
 
   return {
     status: "ready",
@@ -282,12 +301,16 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     localUserId,
     media,
     participantsByUserId,
+    participantDevices: sessionParticipants,
+    guestLink,
     canStart,
     isSoloRoom: solo,
     someoneElseWatching: someoneElse,
     roomPositionKnown,
     leaving,
-    lobbyHint,
+    lobbyHint: guestLink
+      ? "You control when playback starts. Guests will follow automatically."
+      : lobbyHint,
     startPlayback,
     leaveLobby,
     getParticipantStatus,

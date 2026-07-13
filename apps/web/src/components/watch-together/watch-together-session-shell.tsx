@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   MULTIPLEX_SYNCPLAY_DEVICE_NAME,
   type SyncplayUser,
 } from "@multiplex/plex-query";
 
-import { getPlexClientIdentifier } from "~/lib/device-identifier";
+import { usePlexClientIdentifier } from "~/lib/device-identifier";
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
 import { getWatchTogetherRoomHref } from "~/lib/watch-together-source";
 import { api } from "~/trpc/api";
@@ -23,14 +23,20 @@ export function WatchTogetherSessionShell({
   children: ReactNode;
 }) {
   const params = useParams();
+  const searchParams = useSearchParams();
   const roomId = typeof params.roomId === "string" ? params.roomId : null;
-  useWatchTogetherSessionLifecycle(roomId);
+  const guestCapability = searchParams.get("guest");
+  useWatchTogetherSessionLifecycle(roomId, guestCapability);
   return children;
 }
 
-function useWatchTogetherSessionLifecycle(roomId: string | null) {
+function useWatchTogetherSessionLifecycle(
+  roomId: string | null,
+  guestCapability: string | null,
+) {
   const router = useRouter();
   const sessionState = useSessionState();
+  const deviceIdentifier = usePlexClientIdentifier();
 
   const roomQuery = api.plex.getWatchTogetherRoom.useQuery(
     { roomId: roomId ?? "" },
@@ -42,15 +48,23 @@ function useWatchTogetherSessionLifecycle(roomId: string | null) {
   const userInfoQuery = api.plex.getUserInfo.useQuery(undefined, {
     staleTime: 60_000,
   });
+  const hostContextQuery = api.guestWatchTogether.hostContext.useQuery(
+    { capability: guestCapability ?? "" },
+    {
+      enabled: guestCapability !== null,
+      staleTime: 30_000,
+      retry: false,
+    },
+  );
 
   const localUser: SyncplayUser | null = (() => {
     const localUserId = userInfoQuery.data?.id;
-    if (localUserId === undefined) {
+    if (localUserId === undefined || !deviceIdentifier) {
       return null;
     }
     return {
       id: localUserId,
-      deviceIdentifier: getPlexClientIdentifier(),
+      deviceIdentifier,
       deviceName: MULTIPLEX_SYNCPLAY_DEVICE_NAME,
     };
   })();
@@ -63,8 +77,37 @@ function useWatchTogetherSessionLifecycle(roomId: string | null) {
     if (!currentRoom || !localUser) {
       return;
     }
-    sessionCommands.enterLobby({ room: currentRoom, localUser });
-  }, [roomQuery.data, localUser, sessionState._tag]);
+    const hostContext = hostContextQuery.data;
+    // A `?guest=` URL must fail closed. Entering this room with the ordinary
+    // policy while capability validation is pending or unavailable could
+    // restore Plex's all-present auto-start behavior unexpectedly.
+    if (
+      guestCapability !== null &&
+      (!hostContext?.valid || hostContext.roomId !== currentRoom.id)
+    ) {
+      return;
+    }
+    sessionCommands.enterLobby({
+      room: currentRoom,
+      localUser,
+      ...(guestCapability !== null && hostContext?.valid
+        ? {
+            startPolicy: {
+              _tag: "HostControlled" as const,
+              localRole: "Host" as const,
+              hostUserId: hostContext.hostUserId,
+              guestUserId: hostContext.guestUserId,
+            },
+          }
+        : {}),
+    });
+  }, [
+    roomQuery.data,
+    localUser,
+    sessionState._tag,
+    guestCapability,
+    hostContextQuery.data,
+  ]);
 
   // Layout stays mounted across roomId soft-navs; only the dependency change
   // runs cleanup. exitLobby is a no-op while Playing, so remounting the page

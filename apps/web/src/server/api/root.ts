@@ -1,4 +1,5 @@
 import { plexRouter } from "~/server/api/routers/plex";
+import { guestWatchTogetherRouter } from "~/server/api/routers/guest-watch-together";
 import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
 
 /**
@@ -7,6 +8,7 @@ import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
  * All routers added in /api/routers should be manually added here.
  */
 export const appRouter = createTRPCRouter({
+  guestWatchTogether: guestWatchTogetherRouter,
   plex: plexRouter,
 });
 
