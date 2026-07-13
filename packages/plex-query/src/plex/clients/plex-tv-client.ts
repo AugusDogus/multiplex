@@ -6,6 +6,12 @@ import {
   type PinnedSource,
   type PlexUserInfo,
 } from "../schemas/plex-tv-schemas";
+import {
+  parsePlexHomeUsersXml,
+  switchedPlexHomeUserSchema,
+  type PlexHomeUser,
+  type SwitchedPlexHomeUser,
+} from "../schemas/plex-home-schemas";
 import { plexFriendsSchema, type PlexFriend } from "../schemas/watch-together-schemas";
 import type { PlexConfig } from "../types/client-types";
 import {
@@ -61,7 +67,14 @@ export class PlexTvClient extends PlexTvBaseClient {
    * @returns Array of Plex Media Server devices
    */
   async getServers(): Promise<PlexDevice[]> {
-    const data = await this.get(this.token, {
+    const data = await this.getResources();
+
+    return data.filter((device) => device.product === "Plex Media Server");
+  }
+
+  /** Get every Plex resource visible to the current identity. */
+  async getResources(): Promise<PlexDevice[]> {
+    return this.get(this.token, {
       endpoint: "resources",
       params: {
         includeHttps: 1,
@@ -70,10 +83,69 @@ export class PlexTvClient extends PlexTvBaseClient {
       },
       schema: sessionsSchema,
     });
+  }
 
-    const servers = data.filter((device) => device.product === "Plex Media Server");
+  /** List the current regular account's Plex Home members. */
+  async getHomeUsers(): Promise<PlexHomeUser[]> {
+    const url = new URL("https://plex.tv/api/home/users");
+    const response = await fetch(url, {
+      headers: {
+        accept: "application/xml",
+        "X-Plex-Token": this.token,
+        "X-Plex-Product": this.config.product,
+        "X-Plex-Version": this.config.version,
+        "X-Plex-Client-Identifier": this.config.clientIdentifier,
+        "X-Plex-Platform": this.config.platform,
+      },
+    });
 
-    return servers;
+    if (!response.ok) {
+      throw new Error(`Plex Home users request failed: ${response.status}`);
+    }
+
+    return parsePlexHomeUsersXml(await response.text());
+  }
+
+  /** Return the enabled built-in Guest profile, if this Home has one. */
+  async getGuestHomeUser(): Promise<PlexHomeUser | null> {
+    const users = await this.getHomeUsers();
+    return users.find((user) => user.guest) ?? null;
+  }
+
+  /**
+   * Switch to a Plex Home profile. Plex Web's current v2 endpoint requires the
+   * profile UUID (the older numeric-id route returns 422) and responds as JSON.
+   */
+  async switchHomeUser(userUuid: string): Promise<SwitchedPlexHomeUser> {
+    return this.post(this.token, {
+      endpoint: `home/users/${encodeURIComponent(userUuid)}/switch`,
+      schema: switchedPlexHomeUserSchema,
+      baseUrl: PLEX_TV_API_BASE_URL,
+      xPlexOverrides: {
+        product: "Plex Web",
+      },
+    });
+  }
+
+  /** Enable Plex Home's built-in Guest using the same private API as Plex Web. */
+  async enableGuestHomeUser(homeSize: number): Promise<void> {
+    const url = new URL("https://plex.tv/api/home");
+    url.searchParams.set("guestEnabled", "1");
+    const response = await fetch(url, {
+      method: homeSize === 1 ? "POST" : "PUT",
+      headers: {
+        accept: "application/json",
+        "X-Plex-Token": this.token,
+        "X-Plex-Product": this.config.product,
+        "X-Plex-Version": this.config.version,
+        "X-Plex-Client-Identifier": this.config.clientIdentifier,
+        "X-Plex-Platform": this.config.platform,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Unable to enable Plex Home Guest: ${response.status}`);
+    }
   }
 
   /**
@@ -162,14 +234,6 @@ export class PlexTvClient extends PlexTvBaseClient {
     return new PlexServerClient(server, this.token, this.config);
   }
 
-  /**
-   * Get all resources (servers, players, etc.)
-   * @todo Implement resource retrieval
-   */
-  async getResources() {
-    throw new Error("Not implemented yet");
-  }
-
   async getFriends(): Promise<PlexFriend[]> {
     return this.get(this.token, {
       endpoint: "friends",
@@ -182,10 +246,17 @@ export class PlexTvClient extends PlexTvBaseClient {
   }
 
   async getWatchTogetherInvitees(): Promise<PlexFriend[]> {
-    const [friends, sharedUsers] = await Promise.all([this.getFriends(), this.getSharedUsers()]);
+    const [friends, sharedUsers, guest] = await Promise.all([
+      this.getFriends(),
+      this.getSharedUsers(),
+      this.getGuestHomeUser(),
+    ]);
     const invitees = new Map<number, PlexFriend>();
 
     for (const user of [...sharedUsers, ...friends]) {
+      if (guest && (user.id === guest.id || user.uuid === guest.uuid)) {
+        continue;
+      }
       invitees.set(user.id, user);
     }
 
