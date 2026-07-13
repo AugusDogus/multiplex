@@ -201,6 +201,31 @@ describe("SyncplayClient", () => {
     ]);
   });
 
+  test("treats ready updates as presence when Plex omits the joined frame", () => {
+    const participants: SyncplayParticipantState[] = [];
+    const sockets: FakeWebSocket[] = [];
+    const client = createClient({ sockets, participants });
+    client.connect();
+    sockets[0]?.open();
+
+    sockets[0]?.message({
+      Set: {
+        ready: {
+          username: encodeSyncplayUser(REMOTE_USER),
+          isReady: false,
+        },
+      },
+    });
+
+    expect(participants).toEqual([
+      {
+        user: REMOTE_USER,
+        isPresent: true,
+        isReady: false,
+      },
+    ]);
+  });
+
   test("applies a remote playstate and replies with the adopted state", () => {
     const sockets: FakeWebSocket[] = [];
     const applied: SyncplayPlaybackState[] = [];

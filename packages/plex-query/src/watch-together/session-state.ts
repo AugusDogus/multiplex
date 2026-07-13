@@ -8,6 +8,26 @@ import type { WatchTogetherRoom } from "../plex/schemas/watch-together-schemas";
 export type ParticipantMap = Record<string, SyncplayParticipantState>;
 
 /**
+ * Controls who is allowed to launch playback from a lobby.
+ *
+ * Ordinary Plex friend rooms retain Plex's "everyone arrived" behavior. A
+ * share-link room is host controlled: the authenticated host starts manually,
+ * while each Guest device follows once the host is actively watching.
+ */
+export type LobbyStartPolicy =
+  | { readonly _tag: "AllInvitedPresent" }
+  | {
+      readonly _tag: "HostControlled";
+      readonly localRole: "Host" | "Guest";
+      readonly hostUserId: number;
+      readonly guestUserId: number;
+    };
+
+export const AllInvitedPresent: LobbyStartPolicy = {
+  _tag: "AllInvitedPresent",
+};
+
+/**
  * Minimal playing-item identity the session domain needs: enough to match a
  * room's `sourceUri`, create the next room, and keep the player bound to the
  * same library item the session claims to be playing.
@@ -58,6 +78,7 @@ export type SessionState =
       readonly participants: ParticipantMap;
       readonly roomPositionSeconds: number | null;
       readonly everyonePresentSticky: boolean;
+      readonly startPolicy: LobbyStartPolicy;
     }
   | {
       readonly _tag: "Playing";
@@ -65,6 +86,7 @@ export type SessionState =
       readonly item: PlayingItem;
       readonly participants: ParticipantMap;
       readonly rotation: RotationPhase;
+      readonly startPolicy: LobbyStartPolicy;
     };
 
 export type IdleSession = Extract<SessionState, { _tag: "Idle" }>;
@@ -92,6 +114,7 @@ export function lobby(input: {
   readonly participants?: ParticipantMap;
   readonly roomPositionSeconds?: number | null;
   readonly everyonePresentSticky?: boolean;
+  readonly startPolicy?: LobbyStartPolicy;
 }): LobbySession {
   return {
     _tag: "Lobby",
@@ -99,6 +122,7 @@ export function lobby(input: {
     participants: input.participants ?? {},
     roomPositionSeconds: input.roomPositionSeconds ?? null,
     everyonePresentSticky: input.everyonePresentSticky ?? false,
+    startPolicy: input.startPolicy ?? AllInvitedPresent,
   };
 }
 
@@ -107,6 +131,7 @@ export function playing(input: {
   readonly item: PlayingItem;
   readonly participants?: ParticipantMap;
   readonly rotation?: RotationPhase;
+  readonly startPolicy?: LobbyStartPolicy;
 }): PlayingSession {
   return {
     _tag: "Playing",
@@ -114,6 +139,7 @@ export function playing(input: {
     item: input.item,
     participants: input.participants ?? {},
     rotation: input.rotation ?? RotationNone,
+    startPolicy: input.startPolicy ?? AllInvitedPresent,
   };
 }
 
@@ -133,6 +159,7 @@ export function swapPlayingRoom(
     item: nextItem,
     participants,
     rotation: RotationNone,
+    startPolicy: _state.startPolicy,
   };
 }
 

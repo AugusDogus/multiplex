@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { WatchTogetherRoom } from "../plex/schemas/watch-together-schemas";
 import {
+  AllInvitedPresent,
   Idle,
   lobby,
   playing,
@@ -53,11 +54,13 @@ describe("SessionState constructors", () => {
       participants: {},
       roomPositionSeconds: null,
       everyonePresentSticky: false,
+      startPolicy: AllInvitedPresent,
     });
 
     const playingState = playing({ room: room("play"), item: itemA });
     expect(playingState._tag).toBe("Playing");
     expect(playingState.rotation).toEqual(RotationNone);
+    expect(playingState.startPolicy).toEqual(AllInvitedPresent);
   });
 
   it("builds rotation phases and exposes next-room lookup", () => {
@@ -99,6 +102,7 @@ describe("SessionState constructors", () => {
       item: itemB,
       participants: {},
       rotation: RotationNone,
+      startPolicy: AllInvitedPresent,
     });
     // Invariant: room and item always move together — no intermediate
     // Playing(roomB, itemA) or Playing(roomA, itemB) is produced.

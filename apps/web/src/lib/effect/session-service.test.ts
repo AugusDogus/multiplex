@@ -848,6 +848,123 @@ test("auto-start fires after stability + delay via TestClock", async () => {
   );
 });
 
+test("a host-controlled host stays in Lobby until Start is pressed", async () => {
+  const { makeObserver, observers } = makeStubObserverFactory();
+
+  await withSession(
+    ({ session }) =>
+      Effect.gen(function* () {
+        yield* session.enterLobby({
+          room: room("guest-link", "100"),
+          localUser,
+          startPolicy: {
+            _tag: "HostControlled",
+            localRole: "Host",
+            hostUserId: 1,
+            guestUserId: 2,
+          },
+        });
+        yield* session.setLobbyContext({
+          canStart: true,
+          playbackInput: { item: item("100") },
+          leaving: false,
+        });
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        observers[0]?.options.onParticipant({
+          user: {
+            id: 2,
+            deviceIdentifier: "guest-device",
+            deviceName: "Multiplex Guest · Alex",
+          },
+          isPresent: true,
+        });
+        yield* TestClock.adjust("3 seconds");
+        yield* Effect.yieldNow;
+
+        expect(session.snapshot()._tag).toBe("Lobby");
+      }),
+    { makeObserver, withTestClock: true },
+  );
+});
+
+test("a host-controlled guest follows only the ready host at the live position", async () => {
+  const player = makeStubPlayer();
+  const { makeController, controllers } = makeStubControllerFactory();
+  const { makeObserver, observers } = makeStubObserverFactory();
+  const guestUser: SyncplayUser = {
+    id: 2,
+    deviceIdentifier: "guest-device-a",
+    deviceName: "Multiplex Guest · Alex",
+  };
+
+  await withSession(
+    ({ session }) =>
+      Effect.gen(function* () {
+        yield* session.enterLobby({
+          room: room("guest-link", "100"),
+          localUser: guestUser,
+          startPolicy: {
+            _tag: "HostControlled",
+            localRole: "Guest",
+            hostUserId: 1,
+            guestUserId: 2,
+          },
+        });
+        yield* session.setLobbyContext({
+          canStart: true,
+          playbackInput: { item: item("100") },
+          leaving: false,
+        });
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+
+        // Another device on the shared Guest profile must not become host.
+        observers[0]?.options.onParticipant({
+          user: {
+            id: 2,
+            deviceIdentifier: "guest-device-b",
+            deviceName: "Multiplex Guest · Sam",
+          },
+          isPresent: true,
+          isReady: true,
+        });
+        observers[0]?.options.onRoomState?.({
+          paused: true,
+          positionSeconds: 37,
+        });
+        yield* TestClock.adjust("2 seconds");
+        yield* Effect.yieldNow;
+        expect(session.snapshot()._tag).toBe("Lobby");
+
+        observers[0]?.options.onParticipant({
+          user: {
+            id: 1,
+            deviceIdentifier: "host-device",
+            deviceName: "Multiplex Web",
+          },
+          isPresent: true,
+          isReady: true,
+        });
+        yield* TestClock.adjust("1300 millis");
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+
+        const state = session.snapshot();
+        expect(state._tag).toBe("Playing");
+        expect(state._tag === "Playing" && state.startPolicy._tag).toBe(
+          "HostControlled",
+        );
+        expect(player.loads[0]?.opts).toEqual({
+          resume: false,
+          startPositionSeconds: 37,
+        });
+        expect(controllers).toHaveLength(1);
+      }),
+    { player, makeController, makeObserver, withTestClock: true },
+  );
+});
+
 test("auto-start respects suppression and clears it on startPlayback", async () => {
   const player = makeStubPlayer();
   const { makeController } = makeStubControllerFactory();
