@@ -165,9 +165,10 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   const canStartMedia = Boolean(
     room && playTarget && serverId && serverUrl && authToken && localUser,
   );
-  // While Playing, Start is gated (session already open) — same as old
-  // `session` truthiness check.
-  const canStart = canStartMedia && !isPlayingThisRoom;
+  // While any Playing session is active, Start is gated — including when
+  // replaceState updated the address bar but this segment still mounts the
+  // pre-rotation room id.
+  const canStart = canStartMedia && sessionState._tag !== "Playing";
   const solo = room ? isSoloRoom(room) : false;
 
   const playbackItem = (() => {
@@ -218,7 +219,7 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   }, [canStart, playbackItem, leaving, leaveRoom.isPending]);
 
   const startPlayback = async () => {
-    if (!room || !localUser || !playbackItem || !canStartMedia) {
+    if (!room || !localUser || !playbackItem || !canStart) {
       return false;
     }
 
