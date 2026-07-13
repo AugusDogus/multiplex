@@ -9,17 +9,16 @@ import { ACCOUNT_A, ACCOUNT_B, storageStatePath } from "./accounts";
 const HOST_STATE = storageStatePath(ACCOUNT_A);
 const GUEST_STATE = storageStatePath(ACCOUNT_B);
 
-/** Opens the first movie's details page from the home library rows. */
-export async function openFirstMovieDetails(page: Page): Promise<void> {
-  await page.goto("/");
-  const movieLink = page.locator('a[href*="/item/movie/"]').first();
-  await expect(movieLink).toBeVisible({ timeout: 30_000 });
-  // Navigate via the href rather than clicking: home cards sit under hover
-  // overlays in a carousel, so a direct click can be intercepted.
-  const href = await movieLink.getAttribute("href");
-  expect(href, "movie link should have an href").toBeTruthy();
-  await page.goto(href!);
-  await page.waitForURL(/\/item\/movie\//, { timeout: 30_000 });
+/**
+ * Opens the stable direct-play fixture used by live Watch Together tests.
+ * The White Hole is MP4/H.264/AAC with no selected subtitle on the test server,
+ * so synchronization tests do not contend for Plex's limited transcode slots.
+ */
+export async function openTestVideoDetails(page: Page): Promise<void> {
+  await page.goto(
+    "/item/episode/0019947d618464e70d2b754687dc070b9dd628a9/406025",
+  );
+  await page.waitForURL(/\/item\/episode\//, { timeout: 30_000 });
   // Confirm the details page is interactive (the actions menu is present).
   await expect(page.getByRole("button", { name: "More actions" })).toBeVisible({
     timeout: 30_000,
@@ -154,7 +153,7 @@ export interface SyncedRoom {
 }
 
 export interface SetupSyncedRoomOptions {
-  /** Opens the details page to create the room from (default: first movie). */
+  /** Opens the details page to create the room from (default: direct-play fixture). */
   openDetails?: (page: Page) => Promise<void>;
   /** Record videos of both pages into this directory. */
   recordVideoDir?: string;
@@ -216,7 +215,7 @@ export async function setupSyncedRoom(
     await expect(guest).not.toHaveURL(/\/login/);
 
     console.error("E2E step: host opens the item details");
-    await (options.openDetails ?? openFirstMovieDetails)(host);
+    await (options.openDetails ?? openTestVideoDetails)(host);
     console.error("E2E step: host creates room inviting guest");
     roomId = await createRoomInvitingGuest(host);
     console.error(`E2E step: room created ${roomId}`);

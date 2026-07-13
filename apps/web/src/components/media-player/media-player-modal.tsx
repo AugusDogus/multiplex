@@ -434,6 +434,14 @@ function usePlaybackSessionController({
       return;
     }
     return () => {
+      // Stop the one stream we know is active without first listing sessions.
+      // This keepalive request can survive an abrupt tab/browser close; the
+      // broader prefix cleanup below remains useful for any older seek stream.
+      void stopTranscodeSession(
+        streamServerUrl,
+        streamAuthToken,
+        `${streamSessionId}-${Math.floor(previousStreamRef.current.offset)}`,
+      );
       void stopPlaybackTranscodeSessions(
         streamServerUrl,
         streamAuthToken,
