@@ -11,10 +11,10 @@ export function isSessionForRoom(
  * Which Plex room / session to tear down when the user clicks Leave on a lobby
  * page for `urlRoomId`.
  *
- * After episode rotation the address bar (or a stale Next.js segment) can still
- * show the previous room while {@link SessionState.Playing} has already moved
- * to the next room. Leave must target the live session in that case — guarding
- * only on `urlRoomId` no-ops and strands the viewer on a dead lobby.
+ * {@link WatchTogetherSessionShell} soft-navs the App Router to `SessionState.room`
+ * during Playing, so URL and session usually match. This helper still covers the
+ * brief window before that navigation commits (and intentional browsing of
+ * another lobby while Lobby elsewhere).
  */
 export function resolveLobbyLeaveTarget(
   session: SessionState,
@@ -26,7 +26,7 @@ export function resolveLobbyLeaveTarget(
   if (session.room.id === urlRoomId) {
     return { roomId: urlRoomId, leaveSession: true };
   }
-  // Stale lobby URL after rotation: leave/delete the live session room.
+  // Stale lobby URL before soft-nav commits: leave/delete the live session room.
   if (session._tag === "Playing") {
     return { roomId: session.room.id, leaveSession: true };
   }

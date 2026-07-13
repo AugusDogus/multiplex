@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { rotationCountdown } from "@multiplex/plex-query";
 
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
-import { getWatchTogetherRoomHref } from "~/lib/watch-together-source";
 import { usePlayerStateSelector } from "~/lib/effect/player-atoms";
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import { shallow } from "zustand/shallow";
@@ -19,9 +18,11 @@ interface UseWatchTogetherRotationOptions {
 
 /**
  * React glue for Watch Together auto-advance: pushes play-queue next-episode
- * discovery + the Auto Play toggle into {@link WatchTogetherSession}, derives
- * the countdown overlay from session rotation phase, and follows the lobby URL
- * after a room swap.
+ * discovery + the Auto Play toggle into {@link WatchTogetherSession} and
+ * derives the countdown overlay from session rotation phase.
+ *
+ * Lobby URL follow after a room swap lives in
+ * {@link WatchTogetherSessionShell} (layout-stable soft-nav).
  */
 export function useWatchTogetherRotation({
   enabled,
@@ -49,38 +50,6 @@ export function useWatchTogetherRotation({
       autoPlayEnabled: enabled && autoPlayEnabled,
     });
   }, [enabled, nextEpisode, autoPlayEnabled]);
-
-  // The page under the modal is usually the previous room's lobby, which is
-  // now gone after a swap. Update the address bar to the next room so closing
-  // the player / Leave can target the live session.
-  //
-  // Use history.replaceState only — not router.replace — while Playing.
-  // Soft-navigating the App Router remounts the lobby under the modal and was
-  // observed to break post-swap pause sync. Leave resolves the live room via
-  // resolveLobbyLeaveTarget; player close reconciles the App Router segment.
-  const previousRoomIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!playing) {
-      previousRoomIdRef.current = null;
-      return;
-    }
-    const nextRoomId = playing.room.id;
-    const previous = previousRoomIdRef.current;
-    previousRoomIdRef.current = nextRoomId;
-    if (!previous || previous === nextRoomId) {
-      return;
-    }
-    const path = window.location.pathname;
-    const onPreviousLobby = path === getWatchTogetherRoomHref(previous);
-    const onAnyWatchTogetherLobby = path.startsWith("/watch-together/");
-    if (onPreviousLobby || onAnyWatchTogetherLobby) {
-      window.history.replaceState(
-        window.history.state,
-        "",
-        getWatchTogetherRoomHref(nextRoomId),
-      );
-    }
-  }, [playing]);
 
   const timeRemaining =
     duration > 0 ? duration - currentTime : Number.POSITIVE_INFINITY;
