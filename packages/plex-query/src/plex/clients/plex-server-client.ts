@@ -56,6 +56,7 @@ import {
   type PostRequestOptions,
   type PutRequestOptions,
 } from "../types/client-types";
+import { z } from "zod";
 
 /* ────────────────────────────────────────────────────────────
    Plex Server Client
@@ -64,6 +65,17 @@ import {
 
 /** Cold starts (fresh browser + server) often need longer than LAN latency. */
 const CONNECTION_TEST_TIMEOUT_MS = 3_000;
+
+const delegationTokenResponseSchema = z.union([
+  z.object({ authToken: z.string().min(1) }),
+  z.object({ token: z.string().min(1) }),
+  z.object({
+    MediaContainer: z.union([
+      z.object({ authToken: z.string().min(1) }),
+      z.object({ token: z.string().min(1) }),
+    ]),
+  }),
+]);
 
 function createConnectionFromUri(uri: string): PlexDevice["connections"][0] {
   const parsedUrl = new URL(uri);
@@ -93,6 +105,28 @@ export class PlexServerClient {
   private readonly server: PlexDevice;
   private workingConnection: PlexDevice["connections"][0] | null = null;
   private connectionTestPromise: Promise<PlexDevice["connections"][0]> | null = null;
+
+  /**
+   * Mint a short-lived PMS delegation token for the current server identity.
+   * Callers must treat the returned value as a browser-visible credential.
+   */
+  async issueTransientToken(): Promise<string> {
+    const response = await this.post({
+      endpoint: "security/token",
+      params: {
+        type: "delegation",
+        scope: "all",
+      },
+      schema: delegationTokenResponseSchema,
+    });
+
+    if ("authToken" in response) return response.authToken;
+    if ("token" in response) return response.token;
+    if ("authToken" in response.MediaContainer) {
+      return response.MediaContainer.authToken;
+    }
+    return response.MediaContainer.token;
+  }
 
   /**
    * @param server - Plex Media Server device information
