@@ -26,6 +26,7 @@ import { usePlexSubtitleTrack } from "./hooks/use-plex-subtitle-track";
 import { useResumePlayback } from "./hooks/use-resume-playback";
 import { useSeekOverlay } from "./hooks/use-seek-overlay";
 import { buildPlexPlaybackPlan } from "./utils/plex-playback-plan";
+import { shouldClaimDirectSyncplaySeek } from "./utils/syncplay-seek-origin";
 import { getVideoElementError } from "./utils/media-player-utils";
 import { generatePlexStreamUrl } from "./utils/plex-stream-urls";
 import { useSuppressNativeLongPress } from "./hooks/use-suppress-native-long-press";
@@ -341,7 +342,13 @@ function useMediaPlayerVideoController(
 
     // Claim direct-play seeks before Syncplay can reapply the old room
     // position while the browser is still fetching the target byte range.
-    if (!usesOffsetTimeline && videoElementRef.current) {
+    if (
+      shouldClaimDirectSyncplaySeek({
+        usesOffsetTimeline,
+        hasPendingResume: hasPendingResume(),
+      }) &&
+      videoElementRef.current
+    ) {
       onVideoSeeking?.(videoElementRef.current.currentTime);
     }
   };

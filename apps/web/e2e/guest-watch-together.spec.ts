@@ -60,6 +60,25 @@ test("an unauthenticated guest does not request protected player metadata", asyn
     expect(capability!.length).toBeLessThan(125);
     expect(guestUrl.href.length).toBeLessThan(200);
 
+    await host.evaluate(() => {
+      const captured: string[] = [];
+      const captureToasts = () => {
+        for (const element of document.querySelectorAll(
+          "[data-sonner-toast]",
+        )) {
+          const text = element.textContent?.trim();
+          if (text && !captured.includes(text)) captured.push(text);
+        }
+      };
+      (
+        window as typeof window & { __capturedWatchTogetherToasts: string[] }
+      ).__capturedWatchTogetherToasts = captured;
+      new MutationObserver(captureToasts).observe(document.body, {
+        childList: true,
+        subtree: true,
+      });
+    });
+
     await guest.goto(guestUrl.href);
     await guest.getByLabel("Display name").fill("Browser Guest");
     await guest.getByRole("button", { name: "Join session" }).click();
@@ -72,14 +91,21 @@ test("an unauthenticated guest does not request protected player metadata", asyn
     // Plex can report the guest to the host just before the reciprocal
     // Syncplay presence reaches the guest. Let that handshake settle before
     // the one-shot host Start event.
-    await host.waitForTimeout(2_000);
+    await host.waitForTimeout(5_000);
 
     const start = host.getByRole("button", { name: "Start" });
     await expect(start).toBeEnabled({ timeout: 30_000 });
     await start.click();
     await expect(guest.locator("video")).toBeVisible({ timeout: 60_000 });
     await guest.waitForTimeout(2_000);
-
+    const hostToasts = await host.evaluate(
+      () =>
+        (
+          window as typeof window & {
+            __capturedWatchTogetherToasts: string[];
+          }
+        ).__capturedWatchTogetherToasts,
+    );
     expect(metadataResponses).toEqual([]);
     expect(
       guestConsoleErrors.filter((message) =>
@@ -87,6 +113,7 @@ test("an unauthenticated guest does not request protected player metadata", asyn
       ),
     ).toEqual([]);
     await expect(guest.getByText(/join watch together/i)).toHaveCount(0);
+    expect(hostToasts.filter((text) => /jumped to/i.test(text))).toEqual([]);
   } finally {
     await Promise.all([
       host.keyboard.press("Escape").catch(() => undefined),
