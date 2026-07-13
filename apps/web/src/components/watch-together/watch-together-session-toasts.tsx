@@ -55,11 +55,11 @@ export interface WatchTogetherSessionToastsOptions {
    */
   initialCohortDeviceIds?: ReadonlySet<string>;
   /**
-   * When true, suppress join/leave/pause/resume/seek toasts. Used during
-   * episode rotation so peers disconnecting from the previous Syncplay room
-   * do not look like they left the party.
+   * When true, suppress join/leave toasts only. Used while rotation is armed
+   * so peers disconnecting from the current Syncplay room before the swap do
+   * not look like they left the party. Pause/resume/seek still toast.
    */
-  shouldSuppressNotifications?: () => boolean;
+  isPresenceHandoff?: () => boolean;
   /** Test seams; production uses sonner and the real clock. */
   showToast?: (
     user: WatchTogetherUser | undefined,
@@ -120,7 +120,7 @@ export function createWatchTogetherSessionToasts(
 ): WatchTogetherSessionToasts {
   const showToast = options.showToast ?? showSessionToast;
   const now = options.now ?? Date.now;
-  const shouldSuppress = options.shouldSuppressNotifications ?? (() => false);
+  const isPresenceHandoff = options.isPresenceHandoff ?? (() => false);
   const initialCohort = options.initialCohortDeviceIds ?? new Set<string>();
 
   const roomUserById = new Map(
@@ -131,8 +131,12 @@ export function createWatchTogetherSessionToasts(
   let localStarted = false;
   let disposed = false;
 
-  const emit = (user: SyncplayUser | null, text: string): void => {
-    if (shouldSuppress()) {
+  const emit = (
+    user: SyncplayUser | null,
+    text: string,
+    kind: "presence" | "playstate",
+  ): void => {
+    if (kind === "presence" && isPresenceHandoff()) {
       return;
     }
     const roomUser = user ? roomUserById.get(user.id) : undefined;
@@ -184,7 +188,7 @@ export function createWatchTogetherSessionToasts(
       // The starting cohort becoming ready is the session starting (their
       // player finished loading), not a fresh join.
       if (!entry.isStartingCohort) {
-        emit(participant.user, "joined the session");
+        emit(participant.user, "joined the session", "presence");
       }
       return;
     }
@@ -197,7 +201,7 @@ export function createWatchTogetherSessionToasts(
     if (!entry.isPresent && wasPresent && entry.announcedWatching) {
       entry.announcedWatching = false;
       entry.isStartingCohort = false;
-      emit(participant.user, "left the session");
+      emit(participant.user, "left the session", "presence");
     }
   };
 
@@ -211,13 +215,17 @@ export function createWatchTogetherSessionToasts(
 
     switch (action.type) {
       case "pause":
-        emit(action.user, "paused playback");
+        emit(action.user, "paused playback", "playstate");
         return;
       case "resume":
-        emit(action.user, "resumed playback");
+        emit(action.user, "resumed playback", "playstate");
         return;
       case "seek":
-        emit(action.user, `jumped to ${formatTime(action.positionSeconds)}`);
+        emit(
+          action.user,
+          `jumped to ${formatTime(action.positionSeconds)}`,
+          "playstate",
+        );
         return;
       default: {
         const exhaustive: never = action.type;

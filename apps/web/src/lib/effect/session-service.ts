@@ -30,8 +30,6 @@ import {
   type SessionState,
   SyncplaySessionController,
   type SyncplayParticipantState,
-  type SyncplayPlayerAdapter,
-  type SyncplaySessionControllerOptions,
   type SyncplayUser,
   type WatchTogetherRoom,
 } from "@multiplex/plex-query";
@@ -55,10 +53,18 @@ import type { MediaPlayerItem, NextEpisodeInfo } from "~/types/media-player";
 
 import { PlayerPort, type PlayerPortShape } from "./player-port";
 import {
+  cohortDeviceIds,
+  runConnection,
+  type MakeSessionController,
+  type SessionControllerLike,
+} from "./session-connection";
+import {
   WatchTogetherApi,
   WatchTogetherApiError,
   type WatchTogetherApiShape,
 } from "./watch-together-api";
+
+export type { MakeSessionController, SessionControllerLike } from "./session-connection";
 
 export type StartPlaybackInput = {
   readonly room: WatchTogetherRoom;
@@ -116,22 +122,6 @@ export type LobbyContext = {
   readonly playbackInput: null | { readonly item: MediaPlayerItem };
   readonly leaving: boolean;
 };
-
-/**
- * Minimal controller surface the session service drives. Production uses
- * {@link SyncplaySessionController}; tests inject a stub factory.
- */
-export type SessionControllerLike = {
-  readonly connect: () => void;
-  readonly disconnect: () => void;
-  readonly setReady: (isReady: boolean | null) => void;
-  readonly handleLocalPlaybackChange: (isPaused: boolean) => void;
-  readonly handleLocalSeeked: (time: number) => void;
-};
-
-export type MakeSessionController = (
-  options: SyncplaySessionControllerOptions,
-) => SessionControllerLike;
 
 /**
  * Silent Syncplay observer used for lobby presence and rotation gathering.
@@ -213,120 +203,6 @@ const toPlayingItem = (item: MediaPlayerItem): PlayingItem => ({
   index: item.index,
   parentIndex: item.parentIndex,
 });
-
-const playerAdapterFromPort = (
-  player: PlayerPortShape,
-): SyncplayPlayerAdapter => ({
-  getState: () => {
-    const snap = player.snapshot();
-    return {
-      isPlaying: snap.isPlaying,
-      currentTime: snap.currentTimeSeconds,
-      duration: snap.durationSeconds,
-      canPlay: snap.canPlay,
-      isLoading: snap.isLoading,
-      error: snap.error,
-    };
-  },
-  // Pass results through untouched: the controller relies on play() reporting
-  // autoplay failures and on seek() returning "none" to retry a remote seek
-  // that arrived before the <video> was ready.
-  play: () => player.play(),
-  pause: () => {
-    player.pause();
-  },
-  seek: (positionSeconds) => player.seek(positionSeconds),
-});
-
-type ConnectionParams = {
-  readonly room: WatchTogetherRoom;
-  readonly localUser: SyncplayUser;
-  readonly isCurrent: () => boolean;
-  readonly onParticipant: (participant: SyncplayParticipantState) => void;
-  readonly onFatalError: () => void;
-  readonly onController: (controller: SessionControllerLike) => void;
-  /** Peers already known from lobby / prior room — seeded into toast cohort. */
-  readonly initialCohortDeviceIds?: ReadonlySet<string>;
-  /** Suppress join/leave/playstate toasts (e.g. while rotating episodes). */
-  readonly shouldSuppressNotifications?: () => boolean;
-};
-
-/** Device ids of peers we already consider part of this party. */
-const cohortDeviceIds = (
-  participants: ParticipantMap,
-  localUser: SyncplayUser,
-): ReadonlySet<string> =>
-  new Set(
-    Object.entries(participants).flatMap(([id, participant]) =>
-      id !== localUser.deviceIdentifier && participant.isPresent !== false
-        ? [id]
-        : [],
-    ),
-  );
-
-/**
- * Scoped Syncplay driver: mirrors `bindWatchTogetherSession` (toasts +
- * readiness observation) as an `Effect.acquireRelease` resource. Readiness
- * comes from {@link PlayerPort.subscribe} so the service does not import the
- * media-player store directly.
- */
-const runConnection = (
-  params: ConnectionParams,
-  player: PlayerPortShape,
-  makeController: MakeSessionController,
-): Effect.Effect<void, never, Scope.Scope> =>
-  Effect.acquireRelease(
-    Effect.sync(() => {
-      const toasts = createWatchTogetherSessionToasts({
-        room: params.room,
-        localUser: params.localUser,
-        initialCohortDeviceIds: params.initialCohortDeviceIds,
-        shouldSuppressNotifications: params.shouldSuppressNotifications,
-      });
-
-      const controller = makeController({
-        room: params.room,
-        user: params.localUser,
-        player: playerAdapterFromPort(player),
-        onParticipant: (participant) => {
-          if (!params.isCurrent()) return;
-          params.onParticipant(participant);
-          toasts.handleParticipant(participant);
-        },
-        onRemoteAction: toasts.handleRemoteAction,
-        onFatalError: () => {
-          if (!params.isCurrent()) return;
-          params.onFatalError();
-        },
-      });
-
-      if (params.isCurrent()) {
-        params.onController(controller);
-      }
-      controller.connect();
-
-      if (player.snapshot().canPlay) {
-        toasts.noteLocalStarted();
-      }
-      let previousCanPlay = player.snapshot().canPlay;
-      const unsubscribeReady = player.subscribe((snap) => {
-        if (snap.canPlay === previousCanPlay) return;
-        previousCanPlay = snap.canPlay;
-        controller.setReady(snap.canPlay);
-        if (snap.canPlay) {
-          toasts.noteLocalStarted();
-        }
-      });
-
-      return { controller, toasts, unsubscribeReady };
-    }),
-    ({ controller, toasts, unsubscribeReady }) =>
-      Effect.sync(() => {
-        unsubscribeReady();
-        controller.disconnect();
-        toasts.dispose();
-      }),
-  ).pipe(Effect.andThen(Effect.never));
 
 type PrefetchedMetadata = Partial<MediaPlayerItem> & {
   readonly ratingKey: string;
@@ -411,9 +287,6 @@ export const makeWatchTogetherSession = (
     let leaving = false;
     let swapping = false;
     let suppressedRoomId: string | null = null;
-    // Syncplay toast callbacks read this synchronously while rotation is armed
-    // so peers leaving the previous room do not look like they left the party.
-    let suppressSessionNotifications = false;
     let lifecycleGeneration = 0;
 
     const interruptConnection = (): Effect.Effect<void> =>
@@ -495,7 +368,6 @@ export const makeWatchTogetherSession = (
               suppressedRoomId = current.room.id;
             }
           }
-          suppressSessionNotifications = false;
           yield* interruptActive();
           localUser = null;
           yield* SubscriptionRef.set(state, Idle);
@@ -521,8 +393,10 @@ export const makeWatchTogetherSession = (
         }),
       );
 
-    const shouldSuppressSessionNotifications = (): boolean =>
-      suppressSessionNotifications;
+    const isPresenceHandoff = (): boolean => {
+      const current = Effect.runSync(SubscriptionRef.get(state));
+      return current._tag === "Playing" && current.rotation._tag !== "None";
+    };
 
     const startConnection = (
       room: WatchTogetherRoom,
@@ -531,13 +405,19 @@ export const makeWatchTogetherSession = (
       initialCohortDeviceIds?: ReadonlySet<string>,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
+        const notifications = createWatchTogetherSessionToasts({
+          room,
+          localUser: user,
+          initialCohortDeviceIds,
+          // Presence mute derives from Playing.rotation — no parallel flag.
+          isPresenceHandoff,
+        });
         const fiber = yield* runConnection(
           {
             room,
             localUser: user,
             isCurrent: () => lifecycleGeneration === generation,
-            initialCohortDeviceIds,
-            shouldSuppressNotifications: shouldSuppressSessionNotifications,
+            notifications,
             onParticipant: (participant) => {
               onPlayingParticipant(participant, generation, room.id);
             },
@@ -958,21 +838,9 @@ export const makeWatchTogetherSession = (
         phase: Extract<SessionState, { _tag: "Playing" }>["rotation"],
       ) => Extract<SessionState, { _tag: "Playing" }>["rotation"],
     ): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        let nextRotation:
-          | Extract<SessionState, { _tag: "Playing" }>["rotation"]
-          | undefined;
-        yield* SubscriptionRef.update(state, (s) => {
-          if (s._tag !== "Playing") return s;
-          const rotation = update(s.rotation);
-          nextRotation = rotation;
-          return { ...s, rotation };
-        });
-        if (nextRotation === undefined) return;
-        // Suppress social toasts for the whole armed rotation window. Peers can
-        // emit pause/leave edges while still on the previous Syncplay room
-        // (episode end, disconnect) before Gathering starts on a slower client.
-        suppressSessionNotifications = nextRotation._tag !== "None";
+      SubscriptionRef.update(state, (s) => {
+        if (s._tag !== "Playing") return s;
+        return { ...s, rotation: update(s.rotation) };
       });
 
     /**
@@ -1730,12 +1598,9 @@ export const makeWatchTogetherSession = (
           }
           return swapPlayingRoom(s, input.room, toPlayingItem(input.item), {});
         });
-        // Keep social toasts suppressed until the new Syncplay driver is up so
-        // peers reconnecting on the next room are not toasted as leave/join.
-        suppressSessionNotifications = true;
-
+        // Prior-room toasts are disposed with the interrupted connection;
+        // cohort seeding covers peers reconnecting on the next room.
         yield* startConnection(input.room, user, generation, initialCohort);
-        suppressSessionNotifications = false;
         yield* maybeStartRotation();
       }).pipe(serializeLifecycle);
 
