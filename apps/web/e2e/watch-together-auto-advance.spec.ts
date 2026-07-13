@@ -385,8 +385,8 @@ test("a session auto-advances both viewers to the next episode without leaving t
     // lands on the session room if the earlier URL read was still catching up.
     const afterClosePath = new URL(host.url()).pathname;
     expect(
-      afterClosePath.startsWith("/watch-together/"),
-      `expected live lobby after close, got ${afterClosePath} (pre-close ${liveLobbyPath})`,
+      afterClosePath === liveLobbyPath || afterClosePath === hostPath,
+      `expected live lobby after close, got ${afterClosePath} (pre-close ${liveLobbyPath}, session lobby ${hostPath})`,
     ).toBe(true);
     console.error(`E2E step: host is on ${afterClosePath} after close`);
 
