@@ -21,13 +21,20 @@ const ROOM_USERS: WatchTogetherUser[] = [
 ];
 
 /** Deterministic clock harness around the notifier's test seams. */
-function createHarness() {
+function createHarness(
+  options: {
+    initialCohortDeviceIds?: ReadonlySet<string>;
+    shouldSuppressNotifications?: () => boolean;
+  } = {},
+) {
   let currentTime = 100_000;
   const shown: string[] = [];
 
   const notifier = createWatchTogetherSessionToasts({
     room: { users: ROOM_USERS },
     localUser: LOCAL_USER,
+    initialCohortDeviceIds: options.initialCohortDeviceIds,
+    shouldSuppressNotifications: options.shouldSuppressNotifications,
     showToast: (_user, name, text) => shown.push(`${name} ${text}`),
     now: () => currentTime,
   });
@@ -194,17 +201,11 @@ describe("createWatchTogetherSessionToasts", () => {
   });
 
   test("seeded lobby cohort never toasts a join even after a slow driver handoff", () => {
-    let currentTime = 100_000;
-    const shown: string[] = [];
-    const notifier = createWatchTogetherSessionToasts({
-      room: { users: ROOM_USERS },
-      localUser: LOCAL_USER,
+    const { notifier, shown, advance } = createHarness({
       initialCohortDeviceIds: new Set([REMOTE_USER.deviceIdentifier]),
-      showToast: (_user, name, text) => shown.push(`${name} ${text}`),
-      now: () => currentTime,
     });
     notifier.noteLocalStarted();
-    currentTime += 60_000;
+    advance(60_000);
     notifier.handleParticipant({
       user: REMOTE_USER,
       isPresent: true,
@@ -215,17 +216,11 @@ describe("createWatchTogetherSessionToasts", () => {
 
   test("suppressed notifications stay silent for leave and playstate edges", () => {
     let suppressed = true;
-    let currentTime = 100_000;
-    const shown: string[] = [];
-    const notifier = createWatchTogetherSessionToasts({
-      room: { users: ROOM_USERS },
-      localUser: LOCAL_USER,
+    const { notifier, shown, advance } = createHarness({
       shouldSuppressNotifications: () => suppressed,
-      showToast: (_user, name, text) => shown.push(`${name} ${text}`),
-      now: () => currentTime,
     });
     notifier.noteLocalStarted();
-    currentTime += 6_000;
+    advance(6_000);
     notifier.handleParticipant({
       user: REMOTE_USER,
       isPresent: true,

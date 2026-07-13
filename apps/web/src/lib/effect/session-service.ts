@@ -958,14 +958,21 @@ export const makeWatchTogetherSession = (
         phase: Extract<SessionState, { _tag: "Playing" }>["rotation"],
       ) => Extract<SessionState, { _tag: "Playing" }>["rotation"],
     ): Effect.Effect<void> =>
-      SubscriptionRef.update(state, (s) => {
-        if (s._tag !== "Playing") return s;
-        const rotation = update(s.rotation);
+      Effect.gen(function* () {
+        let nextRotation:
+          | Extract<SessionState, { _tag: "Playing" }>["rotation"]
+          | undefined;
+        yield* SubscriptionRef.update(state, (s) => {
+          if (s._tag !== "Playing") return s;
+          const rotation = update(s.rotation);
+          nextRotation = rotation;
+          return { ...s, rotation };
+        });
+        if (nextRotation === undefined) return;
         // Suppress social toasts for the whole armed rotation window. Peers can
         // emit pause/leave edges while still on the previous Syncplay room
         // (episode end, disconnect) before Gathering starts on a slower client.
-        suppressSessionNotifications = rotation._tag !== "None";
-        return { ...s, rotation };
+        suppressSessionNotifications = nextRotation._tag !== "None";
       });
 
     /**
