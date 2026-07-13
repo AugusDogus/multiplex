@@ -97,6 +97,7 @@ export function MediaPlayerSettingsMenu({
   // settings menu can show real stream choices.
   const metadataServerId = currentItem?.serverId ?? "";
   const metadataRatingKey = currentItem?.ratingKey ?? "";
+  const canQueryDetailedMetadata = currentItem?.access !== "guest-transient";
   const { data: detailedItem, refetch: refetchDetailedItem } =
     api.plex.getItemMetadata.useQuery(
       {
@@ -104,7 +105,9 @@ export function MediaPlayerSettingsMenu({
         ratingKey: metadataRatingKey,
       },
       {
-        enabled: Boolean(metadataServerId && metadataRatingKey),
+        enabled: Boolean(
+          canQueryDetailedMetadata && metadataServerId && metadataRatingKey,
+        ),
         staleTime: 5 * 60 * 1000,
       },
     );
