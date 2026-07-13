@@ -14,6 +14,10 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const PORT = Number(process.env.PLAYWRIGHT_PORT ?? 3000);
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? `http://localhost:${PORT}`;
+const CHANNEL =
+  process.env.PLAYWRIGHT_CHANNEL === "chromium"
+    ? undefined
+    : (process.env.PLAYWRIGHT_CHANNEL ?? "chrome");
 
 export default defineConfig({
   testDir: "./e2e",
@@ -36,10 +40,11 @@ export default defineConfig({
     // instead of hanging until the whole-test timeout.
     actionTimeout: 30_000,
     navigationTimeout: 60_000,
-    channel: "chrome",
+    channel: CHANNEL,
     launchOptions: {
       args: [
         "--no-sandbox",
+        "--mute-audio",
         // Allow the lobby to auto-start playback without a user gesture, so the
         // tests exercise the real auto-start path.
         "--autoplay-policy=no-user-gesture-required",
@@ -55,7 +60,7 @@ export default defineConfig({
       name: "watch-together",
       testMatch: /.*\.spec\.ts/,
       dependencies: ["setup"],
-      use: { ...devices["Desktop Chrome"], channel: "chrome" },
+      use: { ...devices["Desktop Chrome"], channel: CHANNEL },
     },
   ],
   webServer: {
