@@ -157,15 +157,23 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   const leaveRoom = api.plex.deleteWatchTogetherRoom.useMutation({
     onSuccess: async (_data, variables) => {
       await utils.plex.getWatchTogetherRooms.invalidate();
-      await leaveActiveWatchTogetherSession(variables.roomId);
-      router.push("/");
+      try {
+        await leaveActiveWatchTogetherSession(variables.roomId);
+      } finally {
+        // Always leave the lobby UI even if session teardown rejects — the
+        // server room is already gone after a successful delete.
+        router.push("/");
+      }
     },
     onError: async (_error, variables) => {
       // Delete may fail because rotation already removed the room — still leave
       // when the mutation targeted a live session room.
-      await leaveActiveWatchTogetherSession(variables.roomId);
-      router.push("/");
-      toast.error("Couldn't remove the session, but you've left it.");
+      try {
+        await leaveActiveWatchTogetherSession(variables.roomId);
+      } finally {
+        router.push("/");
+        toast.error("Couldn't remove the session, but you've left it.");
+      }
     },
   });
   const leaving = leaveRoom.isPending;
