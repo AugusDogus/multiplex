@@ -260,6 +260,15 @@ describe("Plex authentication attempt binding", () => {
     getUserInfoSpy.mockRestore();
   });
 
+  test("does not expose token-forwarding endpoints", () => {
+    const endpointNames = Object.keys(plex().endpoints);
+
+    expect(endpointNames).toContain("initiatePlexAuth");
+    expect(endpointNames).toContain("plexCallback");
+    expect(endpointNames).not.toContain("getPlexServers");
+    expect(endpointNames).not.toContain("getPlexUser");
+  });
+
   test("derives the callback authority and sets a short-lived protected cookie", async () => {
     const jar = new CookieJar();
     const { context } = createContext();

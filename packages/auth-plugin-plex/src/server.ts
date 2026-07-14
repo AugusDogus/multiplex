@@ -2,7 +2,6 @@ import {
   PlexTvAuthService,
   authCallbackSchema,
   type PlexConfig,
-  type PlexDevice,
   type PlexUserInfo,
 } from "@multiplex/plex-query";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -208,10 +207,6 @@ const isValid = async (auth: Pick<z.infer<typeof authSchema>, "id" | "code">) =>
   }
 
   return authData;
-};
-
-const getServers = async (token: string): Promise<PlexDevice[]> => {
-  return await plexTv.getServers(token);
 };
 
 const getUserInfo = async (token: string): Promise<PlexUserInfo> => {
@@ -475,88 +470,6 @@ export const plex = () => {
                   ? String(error.message)
                   : ERROR_CODES.INVALID_PLEX_AUTH,
             });
-          }
-        },
-      ),
-
-      // Get user's Plex servers
-      getPlexServers: createAuthEndpoint(
-        "/plex/servers",
-        {
-          method: "GET",
-          query: z.object({
-            token: z.string(),
-          }),
-        },
-        async (ctx) => {
-          try {
-            const { token } = ctx.query;
-
-            if (!token) {
-              return ctx.json(
-                {
-                  success: false,
-                  error: "No token provided",
-                },
-                { status: 401 },
-              );
-            }
-
-            const servers = await getServers(token);
-
-            return ctx.json({
-              success: true,
-              servers,
-            });
-          } catch (error) {
-            return ctx.json(
-              {
-                success: false,
-                error: error instanceof Error ? error.message : "Failed to fetch servers",
-              },
-              { status: 500 },
-            );
-          }
-        },
-      ),
-
-      // Get user info
-      getPlexUser: createAuthEndpoint(
-        "/plex/user",
-        {
-          method: "GET",
-          query: z.object({
-            token: z.string(),
-          }),
-        },
-        async (ctx) => {
-          try {
-            const { token } = ctx.query;
-
-            if (!token) {
-              return ctx.json(
-                {
-                  success: false,
-                  error: "No token provided",
-                },
-                { status: 401 },
-              );
-            }
-
-            const userInfo = await getUserInfo(token);
-
-            return ctx.json({
-              success: true,
-              user: userInfo,
-            });
-          } catch (error) {
-            return ctx.json(
-              {
-                success: false,
-                error: error instanceof Error ? error.message : "Failed to fetch user info",
-              },
-              { status: 500 },
-            );
           }
         },
       ),
