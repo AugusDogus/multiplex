@@ -13,6 +13,7 @@ import {
   getPlaylistTypeForItemType,
   getPlayableChildren,
   playlistTypes,
+  PlexAPIError,
   resolvePlayTarget,
   toPublicPlaylistDetail,
   toPublicPlaylistItem,
@@ -120,6 +121,14 @@ const fetchPlaylist = async (
   try {
     playlist = await serverClient.getPlaylist(playlistRatingKey);
   } catch (cause) {
+    if (cause instanceof PlexAPIError && cause.status === 404) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Playlist not found",
+        cause,
+      });
+    }
+
     throw new TRPCError({
       code: "SERVICE_UNAVAILABLE",
       message: "Unable to load playlist",

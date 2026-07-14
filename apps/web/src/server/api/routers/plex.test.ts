@@ -4,7 +4,7 @@ import type {
   PlexServerClient,
   PlexTvClient,
 } from "@multiplex/plex-query";
-import { WatchTogetherClient } from "@multiplex/plex-query";
+import { PlexAPIError, WatchTogetherClient } from "@multiplex/plex-query";
 
 const getServersQuery = mock(
   (_plex: PlexTvClient): Promise<PlexDevice[]> => Promise.resolve([]),
@@ -234,6 +234,17 @@ test("playlist queries reject unknown servers and mismatched playlist ids", asyn
     }),
   );
   expect(mismatchError).toMatchObject({ code: "BAD_GATEWAY" });
+
+  const missing = makePlaylistCaller({
+    getPlaylist: mock().mockRejectedValue(new PlexAPIError("Not Found", 404)),
+  });
+  const missingError = await catchError(
+    missing.caller.getPlaylist({
+      serverId: SERVER.clientIdentifier,
+      playlistRatingKey: "42",
+    }),
+  );
+  expect(missingError).toMatchObject({ code: "NOT_FOUND" });
 });
 
 test("rename trims titles and delete reauthorizes the dumb editable playlist", async () => {
