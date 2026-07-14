@@ -77,8 +77,9 @@ export async function resolvePlexServerContext(
  * try/resolve/fallback envelope shared by the library browse queries.
  */
 /**
- * Run a PMS request with retries. Each attempt uses a fresh server client so
- * connection discovery can start over after a cold-start failure.
+ * Run a PMS request with retries. Successful operations reuse the user-scoped
+ * server client; a failed attempt invalidates it before connection discovery
+ * starts over.
  */
 export async function withPmsRetry<T>(
   plex: PlexTvClient,
@@ -86,10 +87,22 @@ export async function withPmsRetry<T>(
   userInfo: PlexUserInfo,
   run: (context: PlexServerContext) => Promise<T>,
 ): Promise<T> {
-  return retryAsync(() => {
-    const context = buildPlexServerContext(plex, server, userInfo);
-    return run(context);
-  }, PMS_REQUEST_RETRY_OPTIONS);
+  let attempt = 0;
+
+  try {
+    return await retryAsync(() => {
+      if (attempt > 0) {
+        plex.invalidateServerClient(server.clientIdentifier);
+      }
+      attempt += 1;
+
+      const context = buildPlexServerContext(plex, server, userInfo);
+      return run(context);
+    }, PMS_REQUEST_RETRY_OPTIONS);
+  } catch (error) {
+    plex.invalidateServerClient(server.clientIdentifier);
+    throw error;
+  }
 }
 
 export async function withPlexServerContext<T>(
