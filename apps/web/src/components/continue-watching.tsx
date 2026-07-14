@@ -13,6 +13,7 @@ import { playerCommands } from "~/lib/effect/player-atoms";
 import { useProgressStore } from "~/stores/progress-store";
 import { ContinueWatchingDrawer } from "~/components/continue-watching-drawer";
 import { MediaCarousel } from "~/components/media-carousel";
+import { ContinueWatchingSkeleton } from "~/components/media-carousel-skeleton";
 import { MediaPosterCard } from "~/components/media-poster-card";
 import { useVisibilityChange } from "~/hooks/use-visibility-change";
 import { useItemDetailsNavigation } from "~/hooks/use-item-details-navigation";
@@ -77,16 +78,14 @@ export function ContinueWatching({
 
   if (isHubQueryLoading(isPending, isFetching, items.length) && !error) {
     return (
-      <SectionWrapper>
-        {showTitle ? (
-          <h2 className="px-4 text-2xl font-semibold tracking-tight md:px-8">
-            {title}
-          </h2>
-        ) : null}
-        <div className="text-muted-foreground px-4 text-sm md:px-8">
-          Loading Continue Watching…
-        </div>
-      </SectionWrapper>
+      <ContinueWatchingSkeleton
+        header={
+          showTitle ? (
+            <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
+          ) : undefined
+        }
+        showTitle={false}
+      />
     );
   }
 

@@ -67,10 +67,16 @@ function DetailsSynopsisSkeleton() {
 
 function TechnicalDetailsSkeleton() {
   return (
-    <section className="bg-card grid gap-3 rounded-xl border p-4 text-sm sm:grid-cols-3">
+    <section
+      aria-hidden="true"
+      className="bg-card grid gap-3 rounded-xl border p-4 text-sm sm:grid-cols-3"
+    >
       {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="flex flex-col gap-1">
-          <Skeleton className="h-4 w-16" />
+        <div key={i} className="flex flex-col gap-1.5">
+          <Skeleton className="h-3.5 w-16" />
+          <Skeleton
+            className={`h-4 ${i % 3 === 0 ? "w-28" : i % 3 === 1 ? "w-20" : "w-24"}`}
+          />
         </div>
       ))}
     </section>

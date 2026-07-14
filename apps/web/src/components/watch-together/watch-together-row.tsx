@@ -10,6 +10,7 @@ import { toast } from "sonner";
 
 import { MediaCarousel } from "~/components/media-carousel";
 import { Button } from "~/components/ui/button";
+import { Skeleton } from "~/components/ui/skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -93,13 +94,10 @@ function WatchTogetherRoomCard({ room }: { room: WatchTogetherRoom }) {
               sizes="160px"
               className="object-cover"
             />
+          ) : isPending ? (
+            <Skeleton className="absolute inset-0 rounded-md" />
           ) : (
-            <div
-              className={cn(
-                "flex size-full items-center justify-center",
-                isPending && "animate-pulse",
-              )}
-            >
+            <div className="flex size-full items-center justify-center">
               <Play className="text-muted-foreground size-10" />
             </div>
           )}

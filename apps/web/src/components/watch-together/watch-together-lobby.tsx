@@ -14,6 +14,7 @@ import { toast } from "sonner";
 
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
+import { Skeleton } from "~/components/ui/skeleton";
 import {
   getPlexUserName,
   PlexUserAvatar,
@@ -107,13 +108,10 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
                 sizes="160px"
                 className="object-cover"
               />
+            ) : media.isPending ? (
+              <Skeleton className="absolute inset-0 rounded-xl" />
             ) : (
-              <div
-                className={cn(
-                  "flex size-full items-center justify-center",
-                  media.isPending && "animate-pulse",
-                )}
-              >
+              <div className="flex size-full items-center justify-center">
                 <Play className="text-muted-foreground size-10" />
               </div>
             )}
