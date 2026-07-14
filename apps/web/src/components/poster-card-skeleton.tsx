@@ -1,13 +1,16 @@
 import { Skeleton } from "~/components/ui/skeleton";
 import { cn } from "~/lib/utils";
 
+/** Enough fixed-width posters to overflow a typical desktop content column. */
+export const POSTER_SKELETON_OVERFLOW_COUNT = 12;
+
 interface PosterCardSkeletonProps {
   className?: string;
 }
 
 /**
  * Single poster-card loading placeholder used everywhere (home hubs,
- * Continue Watching, library grids, virtualized rows).
+ * Continue Watching, library grids, virtualized rows, show season strips).
  *
  * Heights match MediaPosterCard with one subtitle line:
  * 240 poster + 8 gap-2 + 17.5 title + 4 gap-1 + 15 subtitle = 284.5px

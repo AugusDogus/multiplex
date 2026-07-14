@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
 
-import { PosterCardSkeleton } from "~/components/poster-card-skeleton";
+import {
+  PosterCardSkeleton,
+  POSTER_SKELETON_OVERFLOW_COUNT,
+} from "~/components/poster-card-skeleton";
 import { Skeleton } from "~/components/ui/skeleton";
 import { cn } from "~/lib/utils";
 
@@ -10,15 +13,27 @@ interface MediaCarouselSkeletonProps {
   showTitle?: boolean;
   titleWidthClassName?: string;
   itemCount?: number;
+  /** Match loaded MediaCarousel scroll controls (md+). */
+  showControls?: boolean;
   gapClassName?: string;
   className?: string;
+}
+
+function CarouselControlsSkeleton() {
+  return (
+    <div className="hidden shrink-0 items-center gap-1 md:flex">
+      <Skeleton className="size-8 rounded-md" />
+      <Skeleton className="size-8 rounded-md" />
+    </div>
+  );
 }
 
 export function MediaCarouselSkeleton({
   header,
   showTitle = true,
   titleWidthClassName = "w-48",
-  itemCount = 6,
+  itemCount = POSTER_SKELETON_OVERFLOW_COUNT,
+  showControls = true,
   gapClassName = "gap-3 sm:gap-4",
   className,
 }: MediaCarouselSkeletonProps) {
@@ -30,9 +45,10 @@ export function MediaCarouselSkeleton({
 
   return (
     <section className={cn("flex flex-col gap-y-4", className)}>
-      {title ? (
+      {title || showControls ? (
         <div className="flex items-center justify-between gap-4 px-4 md:px-8">
           <div className="min-w-0 flex-1">{title}</div>
+          {showControls ? <CarouselControlsSkeleton /> : null}
         </div>
       ) : null}
       <div
@@ -47,12 +63,12 @@ export function MediaCarouselSkeleton({
   );
 }
 
-/** Home / Continue Watching row skeleton — same poster cards as hub rows. */
+/** Home / Continue Watching row — same posters + controls as other carousels. */
 export function ContinueWatchingSkeleton({
   header,
   showTitle = true,
   titleWidthClassName = "w-56",
-  itemCount = 8,
+  itemCount = POSTER_SKELETON_OVERFLOW_COUNT,
 }: {
   header?: ReactNode;
   showTitle?: boolean;
