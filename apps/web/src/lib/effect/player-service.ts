@@ -208,7 +208,13 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
       const resume = options?.resume ?? true;
       const progressStore = useProgressStore.getState();
       const updatedProgressPercent = resume
-        ? progressStore.getItemProgress(item.ratingKey)
+        ? progressStore.getItemProgress({
+            serverId: item.serverId,
+            ratingKey: item.ratingKey,
+          })
+        : undefined;
+      const resumableProgressPercent = Number.isFinite(updatedProgressPercent)
+        ? updatedProgressPercent
         : undefined;
 
       // Calculate initial currentTime. An explicit `startPositionSeconds`
@@ -226,8 +232,8 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
             : Math.max(0, options.startPositionSeconds)
           : !resume
             ? 0
-            : updatedProgressPercent !== undefined && item.duration
-              ? (updatedProgressPercent / 100) * (item.duration / 1000)
+            : resumableProgressPercent !== undefined && item.duration
+              ? (resumableProgressPercent / 100) * (item.duration / 1000)
               : Math.floor(item.viewOffset ?? 0) / 1000;
 
       // Plex's transcoded MP4 stream can't be seeked after load, so for
