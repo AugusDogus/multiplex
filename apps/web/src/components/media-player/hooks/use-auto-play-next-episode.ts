@@ -11,6 +11,27 @@ import { shallow } from "zustand/shallow";
 import type { NextEpisodeInfo } from "~/types/media-player";
 import { api } from "~/trpc/api";
 
+interface AutoPlayCancellationInput {
+  enabled: boolean;
+  autoPlayEnabled: boolean;
+  hasNextEpisode: boolean;
+  isCountingDown: boolean;
+  hasPendingEpisode: boolean;
+}
+
+export function shouldCancelAutoPlay({
+  enabled,
+  autoPlayEnabled,
+  hasNextEpisode,
+  isCountingDown,
+  hasPendingEpisode,
+}: AutoPlayCancellationInput): boolean {
+  const hasPendingAutoPlay = isCountingDown || hasPendingEpisode;
+  return (
+    hasPendingAutoPlay && (!enabled || !autoPlayEnabled || !hasNextEpisode)
+  );
+}
+
 /* ────────────────────────────────────────────────────────────
    Auto-Play Next Episode Hook
    Manages detection and triggering of auto-play functionality
@@ -150,19 +171,21 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
 
   // Auto-play logic - event-driven by video time
   useEffect(() => {
-    if (!enabled) {
-      if (autoPlay.isCountingDown || autoPlay.nextEpisode) {
-        playerCommands.cancelAutoPlay();
-      }
+    if (
+      shouldCancelAutoPlay({
+        enabled,
+        autoPlayEnabled,
+        hasNextEpisode: nextEpisode !== null,
+        isCountingDown: autoPlay.isCountingDown,
+        hasPendingEpisode: autoPlay.nextEpisode !== null,
+      })
+    ) {
+      playerCommands.cancelAutoPlay();
       return;
     }
 
-    if (!autoPlayEnabled) {
-      return;
-    }
-
-    // Don't trigger if no next episode found
-    if (!nextEpisode) {
+    // Don't trigger while disabled or when no next episode is available.
+    if (!enabled || !autoPlayEnabled || !nextEpisode) {
       return;
     }
 

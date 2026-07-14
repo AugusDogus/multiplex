@@ -438,6 +438,19 @@ describe("applyPlaybackMetadata", () => {
 });
 
 describe("auto-play + close", () => {
+  test("cancelAutoPlay resets countdown and next-episode intent", () => {
+    player.openPlayer(sampleItem, { resume: false });
+    player.startAutoPlayCountdown(nextEpisode);
+
+    player.cancelAutoPlay();
+
+    expect(player.snapshot().autoPlay).toEqual({
+      isCountingDown: false,
+      countdownSeconds: 0,
+      nextEpisode: null,
+    });
+  });
+
   test("triggerAutoPlay builds next item and resets countdown", () => {
     player.openPlayer(sampleItem, { resume: false });
     player.startAutoPlayCountdown(nextEpisode);
