@@ -165,7 +165,12 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
 
   // Use updated progress if available, otherwise use server data
   const progressPercent: number =
-    getItemProgress(item.ratingKey) ?? item.progressPercent ?? 0;
+    getItemProgress({
+      serverId: item.serverId,
+      ratingKey: item.ratingKey,
+    }) ??
+    item.progressPercent ??
+    0;
   const isItemCompleted = isCompleted(item);
 
   const thumbnailUrl = getPlexImagePath(
@@ -208,10 +213,13 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
       return;
     }
 
-    updateItemProgress({
-      ratingKey: item.ratingKey,
-      progressPercent: 0,
-    });
+    updateItemProgress(
+      {
+        serverId: item.serverId,
+        ratingKey: item.ratingKey,
+      },
+      0,
+    );
 
     setIsDrawerOpen(false);
     playerCommands.openPlayer(

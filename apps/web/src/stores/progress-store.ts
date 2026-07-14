@@ -1,14 +1,35 @@
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 
+export interface ProgressIdentity {
+  readonly serverId: string;
+  readonly ratingKey: string;
+}
+
+export const getProgressIdentityKey = ({
+  serverId,
+  ratingKey,
+}: ProgressIdentity): string => JSON.stringify([serverId, ratingKey]);
+
+export const toProgressPercent = (
+  time: number,
+  duration: number,
+): number | null => {
+  if (!Number.isFinite(time) || !Number.isFinite(duration) || duration <= 0) {
+    return null;
+  }
+
+  return (time / duration) * 100;
+};
+
 interface ProgressStore {
   updatedItemsProgress: Record<string, number>;
-  updateItemProgress: (update: {
-    ratingKey: string;
-    progressPercent: number;
-  }) => void;
-  getItemProgress: (ratingKey: string) => number | undefined;
-  clearItemProgress: (ratingKey: string) => void;
+  updateItemProgress: (
+    identity: ProgressIdentity,
+    progressPercent: number,
+  ) => void;
+  getItemProgress: (identity: ProgressIdentity) => number | undefined;
+  clearItemProgress: (identity: ProgressIdentity) => void;
   clearAllProgress: () => void;
 }
 
@@ -17,23 +38,28 @@ export const useProgressStore = create<ProgressStore>()(
     (set, get) => ({
       updatedItemsProgress: {},
 
-      updateItemProgress: (update) => {
+      updateItemProgress: (identity, progressPercent) => {
+        if (!Number.isFinite(progressPercent)) return;
+
         set((state) => ({
           updatedItemsProgress: {
             ...state.updatedItemsProgress,
-            [update.ratingKey]: update.progressPercent,
+            [getProgressIdentityKey(identity)]: Math.min(
+              Math.max(0, progressPercent),
+              100,
+            ),
           },
         }));
       },
 
-      getItemProgress: (ratingKey) => {
-        return get().updatedItemsProgress[ratingKey];
+      getItemProgress: (identity) => {
+        return get().updatedItemsProgress[getProgressIdentityKey(identity)];
       },
 
-      clearItemProgress: (ratingKey) => {
+      clearItemProgress: (identity) => {
         set((state) => {
           const newProgress = { ...state.updatedItemsProgress };
-          delete newProgress[ratingKey];
+          delete newProgress[getProgressIdentityKey(identity)];
           return { updatedItemsProgress: newProgress };
         });
       },
