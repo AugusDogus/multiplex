@@ -10,6 +10,8 @@ import { z } from "zod";
 export const playlistTypes = ["audio", "video", "photo"] as const;
 export type PlaylistType = (typeof playlistTypes)[number];
 
+export const LOCAL_LIBRARY_PROVIDER_IDENTIFIER = "com.plexapp.plugins.library";
+
 const playlistBaseSchema = z.object({
   ratingKey: z.string(),
   key: z.string(),
@@ -89,6 +91,7 @@ export const playlistProviderAccessResponseSchema = z.object({
   MediaContainer: z.object({
     MediaProvider: z.array(
       z.object({
+        identifier: z.string(),
         Feature: z.array(
           z.object({
             type: z.string(),

@@ -40,6 +40,7 @@ import {
   playlistContentsResponseSchema,
   playlistDetailResponseSchema,
   playlistProviderAccessResponseSchema,
+  LOCAL_LIBRARY_PROVIDER_IDENTIFIER,
   playlistsResponseSchema,
   type Playlist,
   type PlaylistContentsResponse,
@@ -1000,9 +1001,10 @@ export class PlexServerClient {
       endpoint: "media/providers",
       schema: playlistProviderAccessResponseSchema,
     });
-    const feature = response.MediaContainer.MediaProvider.flatMap(
-      (provider) => provider.Feature,
-    ).find((candidate) => candidate.type === "playlist");
+    const libraryProvider = response.MediaContainer.MediaProvider.find(
+      (provider) => provider.identifier === LOCAL_LIBRARY_PROVIDER_IDENTIFIER,
+    );
+    const feature = libraryProvider?.Feature.find((candidate) => candidate.type === "playlist");
 
     return {
       supported: feature !== undefined,
