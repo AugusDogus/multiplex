@@ -32,6 +32,26 @@ import { PlexServerClient } from "./plex-server-client";
  */
 export class PlexTvClient extends PlexTvBaseClient {
   private readonly token: string;
+  private readonly serverClients = new Map<
+    string,
+    { fingerprint: string; client: PlexServerClient }
+  >();
+
+  private getServerFingerprint(server: PlexDevice): string {
+    return JSON.stringify({
+      accessToken: server.accessToken ?? this.token,
+      owned: server.owned,
+      connections: server.connections.map((connection) => ({
+        protocol: connection.protocol,
+        address: connection.address,
+        port: connection.port,
+        uri: connection.uri,
+        local: connection.local,
+        relay: connection.relay,
+        IPv6: connection.IPv6,
+      })),
+    });
+  }
 
   private buildExperienceSettingValue(
     settings: PlexUserInfo["settings"] | undefined,
@@ -231,7 +251,23 @@ export class PlexTvClient extends PlexTvBaseClient {
    * @returns PlexServerClient instance
    */
   createServerClient(server: PlexDevice): PlexServerClient {
-    return new PlexServerClient(server, this.token, this.config);
+    const fingerprint = this.getServerFingerprint(server);
+    const cached = this.serverClients.get(server.clientIdentifier);
+
+    if (cached?.fingerprint === fingerprint) {
+      return cached.client;
+    }
+
+    const client = new PlexServerClient(server, this.token, this.config);
+    this.serverClients.set(server.clientIdentifier, { fingerprint, client });
+    return client;
+  }
+
+  /**
+   * Drop a cached server client so the next request re-runs connection discovery.
+   */
+  invalidateServerClient(serverId: string): void {
+    this.serverClients.delete(serverId);
   }
 
   async getFriends(): Promise<PlexFriend[]> {
