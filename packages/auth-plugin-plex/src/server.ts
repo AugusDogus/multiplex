@@ -5,6 +5,7 @@ import {
   type PlexDevice,
   type PlexUserInfo,
 } from "@multiplex/plex-query";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { AuthPluginSchema, BetterAuthPlugin } from "better-auth";
 import { createAuthEndpoint } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
@@ -12,6 +13,60 @@ import { mergeSchema } from "better-auth/db";
 import type { User } from "better-auth/types";
 import { APIError } from "better-call";
 import { z } from "zod";
+
+const PLEX_AUTH_ATTEMPT_COOKIE = "multiplex.plex_auth_attempt";
+const PLEX_AUTH_ATTEMPT_VERSION = 1;
+const PLEX_AUTH_ATTEMPT_TTL_SECONDS = 10 * 60;
+
+const authCallbackInputSchema = z.object({
+  id: z.unknown().optional(),
+  code: z.unknown().optional(),
+  state: z.unknown().optional(),
+});
+
+const authAttemptSchema = z.object({
+  version: z.literal(PLEX_AUTH_ATTEMPT_VERSION),
+  state: z.string().min(1),
+  id: z.number().int(),
+  code: z.string().min(1),
+  expiresAt: z.number().int(),
+});
+
+type AuthAttempt = z.infer<typeof authAttemptSchema>;
+
+function constantTimeEqual(left: string, right: string): boolean {
+  const leftDigest = createHash("sha256").update(left).digest();
+  const rightDigest = createHash("sha256").update(right).digest();
+
+  return timingSafeEqual(leftDigest, rightDigest);
+}
+
+function getTrustedCallbackUrl(baseURL: string): URL {
+  return new URL(`${baseURL.replace(/\/$/, "")}/plex/auth/callback`);
+}
+
+function getAttemptCookieOptions(baseURL: string) {
+  const authBaseUrl = new URL(baseURL);
+
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: authBaseUrl.protocol === "https:",
+    path: `${authBaseUrl.pathname.replace(/\/$/, "")}/plex/auth`,
+  };
+}
+
+function parseAuthAttempt(value: string | false | null): AuthAttempt | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  try {
+    return authAttemptSchema.parse(JSON.parse(value));
+  } catch {
+    return null;
+  }
+}
 
 // Plex auth schemas
 const authSchema = z.object({
@@ -39,6 +94,34 @@ const authSchema = z.object({
   authToken: z.string().nullable(),
   newRegistration: z.boolean().nullable(),
 });
+
+function getAttemptExpiry(auth: z.infer<typeof authSchema>, now: number): number {
+  const maximumExpiry = now + PLEX_AUTH_ATTEMPT_TTL_SECONDS * 1_000;
+  const plexExpiry = Date.parse(auth.expiresAt);
+
+  return Number.isFinite(plexExpiry) ? Math.min(plexExpiry, maximumExpiry) : maximumExpiry;
+}
+
+function createAuthAttempt(auth: z.infer<typeof authSchema>, now = Date.now()): AuthAttempt {
+  return {
+    version: PLEX_AUTH_ATTEMPT_VERSION,
+    state: randomBytes(32).toString("base64url"),
+    id: auth.id,
+    code: auth.code,
+    expiresAt: getAttemptExpiry(auth, now),
+  };
+}
+
+function matchesAuthAttempt(
+  attempt: AuthAttempt,
+  callback: z.infer<typeof authCallbackSchema>,
+  now = Date.now(),
+): boolean {
+  const codeMatches = constantTimeEqual(attempt.code, callback.code);
+  const stateMatches = constantTimeEqual(attempt.state, callback.state);
+
+  return attempt.expiresAt > now && attempt.id === callback.id && codeMatches && stateMatches;
+}
 
 // Plex configuration
 const config: PlexConfig = {
@@ -77,12 +160,13 @@ const getAuth = async () => {
   return auth;
 };
 
-const getUrl = (auth: z.infer<typeof authSchema>, callbackUrl: string) => {
+const getUrl = (auth: z.infer<typeof authSchema>, callbackUrl: URL, state: string) => {
   const url = new URL("https://app.plex.tv/auth");
   const forwardUrl = new URL(callbackUrl);
 
   forwardUrl.searchParams.set("code", auth.code);
   forwardUrl.searchParams.set("id", String(auth.id));
+  forwardUrl.searchParams.set("state", state);
 
   url.searchParams.set("forwardUrl", forwardUrl.toString());
   url.searchParams.set("clientID", config.clientIdentifier);
@@ -179,15 +263,23 @@ export const plex = () => {
         "/plex/auth/initiate",
         {
           method: "GET",
-          query: z.object({
-            callbackUrl: z.string().url(),
-          }),
         },
         async (ctx) => {
           try {
-            const { callbackUrl } = ctx.query;
             const auth = await getAuth();
-            const authUrl = getUrl(auth, callbackUrl);
+            const attempt = createAuthAttempt(auth);
+            const callbackUrl = getTrustedCallbackUrl(ctx.context.baseURL);
+            const cookieOptions = getAttemptCookieOptions(ctx.context.baseURL);
+            await ctx.setSignedCookie(
+              PLEX_AUTH_ATTEMPT_COOKIE,
+              JSON.stringify(attempt),
+              ctx.context.secret,
+              {
+                ...cookieOptions,
+                maxAge: Math.max(0, Math.floor((attempt.expiresAt - Date.now()) / 1_000)),
+              },
+            );
+            const authUrl = getUrl(auth, callbackUrl, attempt.state);
 
             return ctx.redirect(authUrl);
           } catch (error) {
@@ -203,11 +295,30 @@ export const plex = () => {
         "/plex/auth/callback",
         {
           method: "GET",
-          query: authCallbackSchema,
+          query: authCallbackInputSchema,
         },
         async (ctx) => {
           try {
-            const { id, code } = ctx.query;
+            const cookieOptions = getAttemptCookieOptions(ctx.context.baseURL);
+            const signedAttempt = await ctx.getSignedCookie(
+              PLEX_AUTH_ATTEMPT_COOKIE,
+              ctx.context.secret,
+            );
+            ctx.setCookie(PLEX_AUTH_ATTEMPT_COOKIE, "", {
+              ...cookieOptions,
+              maxAge: 0,
+            });
+
+            const callback = authCallbackSchema.safeParse(ctx.query);
+            const attempt = parseAuthAttempt(signedAttempt);
+
+            if (!callback.success || !attempt || !matchesAuthAttempt(attempt, callback.data)) {
+              throw new APIError("UNAUTHORIZED", {
+                message: ERROR_CODES.INVALID_PLEX_AUTH,
+              });
+            }
+
+            const { id, code } = callback.data;
 
             // Validate the PIN and get auth token
             const auth = await isValid({ id, code });
