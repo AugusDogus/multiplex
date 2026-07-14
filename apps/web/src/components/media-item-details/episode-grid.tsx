@@ -6,13 +6,13 @@ import { Play } from "lucide-react";
 import {
   formatEpisodeCount,
   formatEpisodeListLabel,
-  getPlexImageUrl,
   getProgressPercent,
 } from "@multiplex/plex-query";
 
 import { MediaProgressBar } from "~/components/media-progress-bar";
 import { Button } from "~/components/ui/button";
 import { getItemDetailsHref } from "~/lib/plex-routes";
+import { getPlexImagePath } from "~/lib/plex-image";
 
 import type {
   EnrichedChildMetadata,
@@ -30,8 +30,6 @@ export function EpisodeGrid({
   episodes,
   playableByRatingKey,
   serverId,
-  serverUrl,
-  authToken,
   onPlay,
 }: EpisodeGridProps) {
   return (
@@ -47,8 +45,6 @@ export function EpisodeGrid({
             episode={episode}
             playable={playableByRatingKey.get(episode.ratingKey)}
             serverId={serverId}
-            serverUrl={serverUrl}
-            authToken={authToken}
             onPlay={onPlay}
           />
         ))}
@@ -61,8 +57,6 @@ export function EpisodeGrid({
             episode={episode}
             playable={playableByRatingKey.get(episode.ratingKey)}
             serverId={serverId}
-            serverUrl={serverUrl}
-            authToken={authToken}
             onPlay={onPlay}
           />
         ))}
@@ -81,11 +75,9 @@ function MobileEpisodeRow({
   episode,
   playable,
   serverId,
-  serverUrl,
-  authToken,
   onPlay,
 }: EpisodeCardProps) {
-  const thumbnailUrl = getPlexImageUrl(episode.thumb, serverUrl, authToken, {
+  const thumbnailUrl = getPlexImagePath(serverId, episode.thumb, {
     width: 320,
     height: 180,
   });
@@ -165,11 +157,9 @@ function EpisodeCard({
   episode,
   playable,
   serverId,
-  serverUrl,
-  authToken,
   onPlay,
 }: EpisodeCardProps) {
-  const thumbnailUrl = getPlexImageUrl(episode.thumb, serverUrl, authToken, {
+  const thumbnailUrl = getPlexImagePath(serverId, episode.thumb, {
     width: 480,
     height: 270,
   });

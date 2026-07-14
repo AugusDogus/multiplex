@@ -12,6 +12,4 @@ export interface MediaItemDetailsProps {
 
 export interface MediaServerContext {
   serverId: string;
-  serverUrl: string | undefined;
-  authToken: string | undefined;
 }

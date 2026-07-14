@@ -2,12 +2,12 @@
 
 import {
   getBackdropImagePath,
-  getPlexImageUrl,
   getPosterImagePath,
   parseLibraryItemUri,
 } from "@multiplex/plex-query";
 
 import { api, type RouterOutputs } from "~/trpc/api";
+import { getPlexImagePath } from "~/lib/plex-image";
 
 type ItemDetails = NonNullable<RouterOutputs["plex"]["getItemDetails"]>;
 
@@ -54,16 +54,14 @@ export function useWatchTogetherRoomMedia(
 
   const details = detailsQuery.data ?? undefined;
   const item = details?.item;
-  const serverUrl = details?.serverUrl ?? undefined;
-  const authToken = details?.authToken ?? undefined;
   const posterUrl = item
-    ? getPlexImageUrl(getPosterImagePath(item), serverUrl, authToken, {
+    ? getPlexImagePath(source?.serverId, getPosterImagePath(item), {
         width: 320,
         height: 480,
       })
     : undefined;
   const backdropUrl = item
-    ? getPlexImageUrl(getBackdropImagePath(item), serverUrl, authToken, {
+    ? getPlexImagePath(source?.serverId, getBackdropImagePath(item), {
         width: 1280,
         height: 720,
       })

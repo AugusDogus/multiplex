@@ -1,14 +1,14 @@
-import { getPlexImageUrl, type ItemMetadata } from "@multiplex/plex-query";
+import type { ItemMetadata } from "@multiplex/plex-query";
 
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
+import { getPlexImagePath } from "~/lib/plex-image";
 
 interface CastGridProps {
   item: Pick<ItemMetadata, "Role">;
-  serverUrl: string | undefined;
-  authToken: string | undefined;
+  serverId: string;
 }
 
-export function CastGrid({ item, serverUrl, authToken }: CastGridProps) {
+export function CastGrid({ item, serverId }: CastGridProps) {
   const roles = item.Role;
   if (!roles?.length) {
     return null;
@@ -24,8 +24,7 @@ export function CastGrid({ item, serverUrl, authToken }: CastGridProps) {
             name={role.tag}
             role={role.role}
             thumb={role.thumb}
-            serverUrl={serverUrl}
-            authToken={authToken}
+            serverId={serverId}
           />
         ))}
       </div>
@@ -37,18 +36,11 @@ interface CastMemberProps {
   name: string;
   role?: string;
   thumb?: string;
-  serverUrl: string | undefined;
-  authToken: string | undefined;
+  serverId: string;
 }
 
-function CastMember({
-  name,
-  role,
-  thumb,
-  serverUrl,
-  authToken,
-}: CastMemberProps) {
-  const imageUrl = getPlexImageUrl(thumb, serverUrl, authToken, {
+function CastMember({ name, role, thumb, serverId }: CastMemberProps) {
+  const imageUrl = getPlexImagePath(serverId, thumb, {
     width: 160,
     height: 160,
   });

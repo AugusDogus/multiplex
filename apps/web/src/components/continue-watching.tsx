@@ -3,8 +3,8 @@
 import React, { useState } from "react";
 import {
   getMainTitle,
+  getPosterImagePath,
   getSubtitle,
-  getThumbnailUrl,
   isCompleted,
   toPlayableMetadata,
   type ContinueWatchingItemWithServer,
@@ -19,6 +19,7 @@ import { useVisibilityChange } from "~/hooks/use-visibility-change";
 import { useItemDetailsNavigation } from "~/hooks/use-item-details-navigation";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { isHubQueryLoading } from "~/lib/plex-hub-query-options";
+import { getPlexImagePath } from "~/lib/plex-image";
 import { api } from "~/trpc/api";
 
 /* ────────────────────────────────────────────────────────────
@@ -167,7 +168,11 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
     getItemProgress(item.ratingKey) ?? item.progressPercent ?? 0;
   const isItemCompleted = isCompleted(item);
 
-  const thumbnailUrl = getThumbnailUrl(item, item.serverUrl, item.authToken);
+  const thumbnailUrl = getPlexImagePath(
+    item.serverId,
+    getPosterImagePath(item),
+    { width: 200, height: 300 },
+  );
 
   const canPlay = Boolean(
     toPlayableMetadata(item) && item.serverUrl && item.authToken,

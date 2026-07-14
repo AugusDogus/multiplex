@@ -7,12 +7,13 @@ import { useState } from "react";
 import {
   getHubItemSubtitle,
   getHubItemTitle,
-  getThumbnailUrl,
+  getPosterImagePath,
   type HubItemWithServer,
 } from "@multiplex/plex-query";
 import { MediaProgressBar } from "~/components/media-progress-bar";
 import { Button } from "~/components/ui/button";
 import { getHubItemHref } from "~/lib/plex-routes";
+import { getPlexImagePath } from "~/lib/plex-image";
 import { cn } from "~/lib/utils";
 import { useHubItemPlayback } from "~/hooks/use-hub-item-playback";
 import {
@@ -93,7 +94,10 @@ function resolvePosterCardContent(
     ...detailsRoute,
     title: getHubItemTitle(item),
     subtitle: getHubItemSubtitle(item),
-    thumbnailUrl: getThumbnailUrl(item, item.serverUrl, item.authToken),
+    thumbnailUrl: getPlexImagePath(item.serverId, getPosterImagePath(item), {
+      width: 200,
+      height: 300,
+    }),
   };
 }
 
