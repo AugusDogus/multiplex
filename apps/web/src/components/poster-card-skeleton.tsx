@@ -20,7 +20,7 @@ export function PosterCardSkeleton({ className }: PosterCardSkeletonProps) {
         className,
       )}
     >
-      <Skeleton className="h-[240px] w-[160px] rounded-md shadow-lg" />
+      <Skeleton className="h-[240px] w-[160px] rounded-md" />
       <div className="flex w-[160px] flex-col gap-1">
         <Skeleton
           data-poster-skeleton-title
