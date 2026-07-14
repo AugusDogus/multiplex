@@ -49,6 +49,7 @@ export const deviceSchema = z.object({
 export const authCallbackSchema = z.object({
   id: z.preprocess((value) => parseInt(z.string().parse(value)), z.number()),
   code: z.string(),
+  state: z.string(),
 });
 
 export const sessionsSchema = z.array(deviceSchema);
