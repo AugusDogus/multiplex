@@ -36,7 +36,7 @@ function LibraryCategoriesSkeleton() {
       {Array.from({ length: 6 }).map((_, index) => (
         <div
           key={index}
-          className="bg-muted relative aspect-[16/9] overflow-hidden rounded-lg shadow-md"
+          className="relative aspect-[16/9] overflow-hidden rounded-lg shadow-md"
         >
           <Skeleton className="absolute inset-0 rounded-lg" />
           <div className="absolute inset-0 flex items-center justify-center">
