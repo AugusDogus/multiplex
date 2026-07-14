@@ -5,13 +5,13 @@ import Link from "next/link";
 import { Play } from "lucide-react";
 import {
   formatEpisodeCount,
-  getPlexImageUrl,
   getSeasonPosterImagePath,
   getWatchedPercent,
 } from "@multiplex/plex-query";
 
 import { Badge } from "~/components/ui/badge";
 import { getItemDetailsHref } from "~/lib/plex-routes";
+import { getPlexImagePath } from "~/lib/plex-image";
 
 import type { EnrichedChildMetadata, MediaServerContext } from "./types";
 
@@ -19,12 +19,7 @@ interface SeasonGridProps extends MediaServerContext {
   seasons: EnrichedChildMetadata[];
 }
 
-export function SeasonGrid({
-  seasons,
-  serverId,
-  serverUrl,
-  authToken,
-}: SeasonGridProps) {
+export function SeasonGrid({ seasons, serverId }: SeasonGridProps) {
   return (
     <section className="flex flex-col gap-4">
       <h2 className="text-2xl font-semibold tracking-tight">Seasons</h2>
@@ -34,8 +29,6 @@ export function SeasonGrid({
             key={season.ratingKey}
             season={season}
             serverId={serverId}
-            serverUrl={serverUrl}
-            authToken={authToken}
           />
         ))}
       </div>
@@ -47,16 +40,10 @@ interface SeasonCardProps extends MediaServerContext {
   season: EnrichedChildMetadata;
 }
 
-function SeasonCard({
-  season,
-  serverId,
-  serverUrl,
-  authToken,
-}: SeasonCardProps) {
-  const posterUrl = getPlexImageUrl(
+function SeasonCard({ season, serverId }: SeasonCardProps) {
+  const posterUrl = getPlexImagePath(
+    serverId,
     getSeasonPosterImagePath(season),
-    serverUrl,
-    authToken,
     {
       width: 300,
       height: 450,
