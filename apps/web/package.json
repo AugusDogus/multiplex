@@ -20,7 +20,7 @@
     "test": "bun test",
     "test:e2e": "playwright test",
     "test:e2e:setup": "playwright test --project=setup",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
     "@effect/atom-react": "catalog:",
