@@ -5,7 +5,11 @@ import {
   type PlexUserInfo,
 } from "@multiplex/plex-query";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import type { AuthPluginSchema, BetterAuthPlugin } from "better-auth";
+import {
+  defineErrorCodes,
+  type BetterAuthPlugin,
+  type BetterAuthPluginDBSchema,
+} from "better-auth";
 import { createAuthEndpoint } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import { mergeSchema } from "better-auth/db";
@@ -240,14 +244,14 @@ const authPluginSchema = {
       } as const,
     },
   },
-} satisfies AuthPluginSchema;
+} satisfies BetterAuthPluginDBSchema;
 
 export const plex = () => {
-  const ERROR_CODES = {
+  const ERROR_CODES = defineErrorCodes({
     INVALID_PLEX_AUTH: "Invalid Plex authentication",
     PIN_NOT_AUTHORIZED: "PIN not yet authorized by user",
     UNEXPECTED_ERROR: "Unexpected error",
-  } as const;
+  });
 
   return {
     id: "plex-auth",
@@ -279,7 +283,8 @@ export const plex = () => {
             return ctx.redirect(authUrl);
           } catch (error) {
             throw new APIError("INTERNAL_SERVER_ERROR", {
-              message: error instanceof Error ? error.message : ERROR_CODES.UNEXPECTED_ERROR,
+              message:
+                error instanceof Error ? error.message : ERROR_CODES.UNEXPECTED_ERROR.message,
             });
           }
         },
@@ -309,7 +314,7 @@ export const plex = () => {
 
             if (!callback.success || !attempt || !matchesAuthAttempt(attempt, callback.data)) {
               throw new APIError("UNAUTHORIZED", {
-                message: ERROR_CODES.INVALID_PLEX_AUTH,
+                message: ERROR_CODES.INVALID_PLEX_AUTH.message,
               });
             }
 
@@ -426,7 +431,7 @@ export const plex = () => {
             }
 
             // Create BetterAuth session
-            const session = await ctx.context.internalAdapter.createSession(user.id, ctx);
+            const session = await ctx.context.internalAdapter.createSession(user.id);
 
             if (!session) {
               throw new APIError("INTERNAL_SERVER_ERROR", {
@@ -468,7 +473,7 @@ export const plex = () => {
               message:
                 typeof error === "object" && error !== null && "message" in error
                   ? String(error.message)
-                  : ERROR_CODES.INVALID_PLEX_AUTH,
+                  : ERROR_CODES.INVALID_PLEX_AUTH.message,
             });
           }
         },
