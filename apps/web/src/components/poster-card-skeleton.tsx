@@ -27,17 +27,14 @@ export function PosterCardSkeleton({
         className,
       )}
     >
-      <div className="bg-muted relative h-[240px] w-[160px] overflow-hidden rounded-md shadow-lg">
-        <Skeleton className="absolute inset-0 rounded-md" />
+      <div className="relative h-[240px] w-[160px] overflow-hidden rounded-md shadow-lg">
+        <Skeleton className="size-full rounded-md" />
         {showProgress ? (
-          <>
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-t from-black/60 to-transparent" />
-            <div className="absolute inset-x-0 bottom-0 h-1 bg-black/40">
-              <div
-                className={cn("bg-primary/50 h-full", progressWidthClassName)}
-              />
-            </div>
-          </>
+          <div className="bg-foreground/10 absolute inset-x-0 bottom-0 h-1">
+            <div
+              className={cn("bg-primary/50 h-full", progressWidthClassName)}
+            />
+          </div>
         ) : null}
       </div>
       {/*
