@@ -12,6 +12,7 @@ interface MediaCarouselSkeletonProps {
   header?: ReactNode;
   showTitle?: boolean;
   titleWidthClassName?: string;
+  titleHeightClassName?: string;
   itemCount?: number;
   /** Match loaded MediaCarousel scroll controls (md+). */
   showControls?: boolean;
@@ -32,6 +33,7 @@ export function MediaCarouselSkeleton({
   header,
   showTitle = true,
   titleWidthClassName = "w-48",
+  titleHeightClassName,
   itemCount = POSTER_SKELETON_OVERFLOW_COUNT,
   showControls = true,
   gapClassName = "gap-3 sm:gap-4",
@@ -40,7 +42,12 @@ export function MediaCarouselSkeleton({
   const title =
     header ??
     (showTitle ? (
-      <Skeleton className={cn("h-7 sm:h-8", titleWidthClassName)} />
+      <Skeleton
+        className={cn(
+          titleHeightClassName ?? "h-7 sm:h-8",
+          titleWidthClassName,
+        )}
+      />
     ) : null);
 
   return (
@@ -80,6 +87,8 @@ export function ContinueWatchingSkeleton({
       header={header}
       showTitle={showTitle}
       titleWidthClassName={titleWidthClassName}
+      // Loaded CW title is always text-2xl (32px), including mobile.
+      titleHeightClassName="h-8"
       itemCount={itemCount}
       gapClassName="gap-4"
     />
