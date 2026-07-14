@@ -2,24 +2,17 @@ import { Skeleton } from "~/components/ui/skeleton";
 import { cn } from "~/lib/utils";
 
 interface PosterCardSkeletonProps {
-  /** Show a Continue Watching-style progress bar at the bottom of the poster. */
-  showProgress?: boolean;
-  /** Width class for the progress fill (e.g. `w-2/3`). */
-  progressWidthClassName?: string;
-  /**
-   * Number of subtitle lines. Hub/library cards use 1; Continue Watching
-   * episodes commonly use 2 — match the loaded card height exactly.
-   */
-  subtitleLines?: 1 | 2;
   className?: string;
 }
 
-export function PosterCardSkeleton({
-  showProgress = false,
-  progressWidthClassName = "w-2/3",
-  subtitleLines = 1,
-  className,
-}: PosterCardSkeletonProps) {
+/**
+ * Single poster-card loading placeholder used everywhere (home hubs,
+ * Continue Watching, library grids, virtualized rows).
+ *
+ * Heights match MediaPosterCard with one subtitle line:
+ * 240 poster + 8 gap-2 + 17.5 title + 4 gap-1 + 15 subtitle = 284.5px
+ */
+export function PosterCardSkeleton({ className }: PosterCardSkeletonProps) {
   return (
     <div
       className={cn(
@@ -27,36 +20,16 @@ export function PosterCardSkeleton({
         className,
       )}
     >
-      <div className="relative h-[240px] w-[160px] overflow-hidden rounded-md shadow-lg">
-        <Skeleton className="size-full rounded-md" />
-        {showProgress ? (
-          <div className="bg-foreground/10 absolute inset-x-0 bottom-0 h-1">
-            <div
-              className={cn("bg-primary/50 h-full", progressWidthClassName)}
-            />
-          </div>
-        ) : null}
-      </div>
-      {/*
-        Heights match MediaPosterCard typography:
-        title text-sm leading-tight = 17.5px
-        subtitle text-xs leading-tight = 15px per line
-        meta gap-1 = 4px
-      */}
+      <Skeleton className="h-[240px] w-[160px] rounded-md shadow-lg" />
       <div className="flex w-[160px] flex-col gap-1">
         <Skeleton
           data-poster-skeleton-title
           className="h-[17.5px] w-full rounded-sm"
         />
-        <div className="flex flex-col">
-          <Skeleton
-            data-poster-skeleton-subtitle
-            className="h-[15px] w-2/3 rounded-sm"
-          />
-          {subtitleLines === 2 ? (
-            <Skeleton className="h-[15px] w-1/2 rounded-sm" />
-          ) : null}
-        </div>
+        <Skeleton
+          data-poster-skeleton-subtitle
+          className="h-[15px] w-2/3 rounded-sm"
+        />
       </div>
     </div>
   );
