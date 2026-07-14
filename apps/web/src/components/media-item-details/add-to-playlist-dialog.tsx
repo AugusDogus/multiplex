@@ -42,10 +42,13 @@ export function AddToPlaylistDialog({
   );
 
   const invalidatePlaylists = () =>
-    utils.plex.getItemPlaylists.invalidate({
-      serverId,
-      playlistType,
-    });
+    Promise.all([
+      utils.plex.getItemPlaylists.invalidate({
+        serverId,
+        playlistType,
+      }),
+      utils.plex.getLibraryPlaylists.invalidate(),
+    ]);
 
   const addMutation = api.plex.addItemToPlaylist.useMutation({
     onSuccess: (_result, variables) => {
