@@ -224,6 +224,165 @@ test("server procedures reject unavailable authenticated servers", async () => {
   expect(error).toMatchObject({ code: "SERVICE_UNAVAILABLE" });
 });
 
+test("guide reads return an empty lineup without reloads or timers", async () => {
+  const getChannels = mock().mockResolvedValue({
+    MediaContainer: {
+      Channel: [
+        {
+          id: "channel-1",
+          gridKey: "grid-1",
+          vcn: "1",
+          thumb: "",
+          title: "Channel 1",
+          callSign: "ONE",
+        },
+      ],
+    },
+  });
+  const getGrid = mock().mockResolvedValue({
+    MediaContainer: { Metadata: [] },
+  });
+  const reloadGuide = mock();
+  const reloadAllGuides = mock();
+  const serverClient = {
+    getChannels,
+    getGrid,
+    reloadGuide,
+    reloadAllGuides,
+  } as unknown as PlexServerClient;
+  const plex = {
+    createServerClient: mock(() => serverClient),
+  } as unknown as PlexTvClient;
+  const timeoutSpy = spyOn(globalThis, "setTimeout");
+  getServersQuery.mockResolvedValue([SERVER]);
+
+  try {
+    const result = await makeCaller(plex).getServerChannelsProgramming({
+      machineIdentifier: SERVER.clientIdentifier,
+      providerIdentifier: "tv.plex.providers.epg.xmltv:71",
+      date: "2026-07-14",
+    });
+
+    expect(result).toEqual([
+      {
+        channel: {
+          id: "channel-1",
+          gridKey: "grid-1",
+          vcn: "1",
+          thumb: "",
+          title: "Channel 1",
+          callSign: "ONE",
+        },
+        programs: [],
+      },
+    ]);
+    expect(getChannels).toHaveBeenCalledTimes(1);
+    expect(getGrid).toHaveBeenCalledTimes(1);
+    expect(reloadGuide).not.toHaveBeenCalled();
+    expect(reloadAllGuides).not.toHaveBeenCalled();
+    expect(timeoutSpy).not.toHaveBeenCalled();
+  } finally {
+    timeoutSpy.mockRestore();
+  }
+});
+
+test("reloadServerGuide reloads the DVR matching the authorized provider", async () => {
+  const getDVRs = mock().mockResolvedValue({
+    MediaContainer: {
+      Dvr: [
+        {
+          key: "71",
+          epgIdentifier: "tv.plex.providers.epg.xmltv",
+        },
+      ],
+    },
+  });
+  const reloadGuide = mock().mockResolvedValue(undefined);
+  const reloadAllGuides = mock().mockResolvedValue(undefined);
+  const serverClient = {
+    getDVRs,
+    reloadGuide,
+    reloadAllGuides,
+  } as unknown as PlexServerClient;
+  const createServerClient = mock(() => serverClient);
+  const plex = { createServerClient } as unknown as PlexTvClient;
+  getServersQuery.mockResolvedValue([SERVER]);
+
+  const result = await makeCaller(plex).reloadServerGuide({
+    machineIdentifier: SERVER.clientIdentifier,
+    providerIdentifier: "tv.plex.providers.epg.xmltv:71",
+  });
+
+  expect(result).toEqual({
+    scope: "provider",
+    message: "Guide refresh requested for this Live TV provider.",
+  });
+  expect(createServerClient).toHaveBeenCalledTimes(1);
+  expect(createServerClient).toHaveBeenCalledWith(SERVER);
+  expect(getDVRs).toHaveBeenCalledTimes(1);
+  expect(reloadGuide).toHaveBeenCalledTimes(1);
+  expect(reloadGuide).toHaveBeenCalledWith("71");
+  expect(reloadAllGuides).not.toHaveBeenCalled();
+});
+
+test("reloadServerGuide documents its all-guides fallback", async () => {
+  const reloadAllGuides = mock().mockResolvedValue(undefined);
+  const serverClient = {
+    getDVRs: mock().mockResolvedValue({ MediaContainer: { Dvr: [] } }),
+    reloadGuide: mock(),
+    reloadAllGuides,
+  } as unknown as PlexServerClient;
+  const plex = {
+    createServerClient: mock(() => serverClient),
+  } as unknown as PlexTvClient;
+  getServersQuery.mockResolvedValue([SERVER]);
+
+  const result = await makeCaller(plex).reloadServerGuide({
+    machineIdentifier: SERVER.clientIdentifier,
+    providerIdentifier: "tv.plex.providers.epg.xmltv:71",
+  });
+
+  expect(result).toEqual({
+    scope: "all",
+    message:
+      "This server did not expose a matching DVR, so all Live TV guides were refreshed.",
+  });
+  expect(reloadAllGuides).toHaveBeenCalledTimes(1);
+});
+
+test("reloadServerGuide rejects unknown servers", async () => {
+  const createServerClient = mock();
+  const plex = { createServerClient } as unknown as PlexTvClient;
+  getServersQuery.mockResolvedValue([SERVER]);
+
+  const error = await catchError(
+    makeCaller(plex).reloadServerGuide({
+      machineIdentifier: "unknown-server",
+      providerIdentifier: "tv.plex.providers.epg.xmltv:71",
+    }),
+  );
+
+  expect(error).toMatchObject({ code: "NOT_FOUND" });
+  expect(createServerClient).not.toHaveBeenCalled();
+});
+
+test("reloadServerGuide rejects client-supplied URLs", async () => {
+  const createServerClient = mock();
+  const plex = { createServerClient } as unknown as PlexTvClient;
+  getServersQuery.mockResolvedValue([SERVER]);
+
+  const error = await catchError(
+    makeCaller(plex).reloadServerGuide({
+      machineIdentifier: SERVER.clientIdentifier,
+      providerIdentifier: "https://untrusted.example.test/livetv/dvrs/71",
+      serverUrl: "https://untrusted.example.test",
+    } as never),
+  );
+
+  expect(error).toMatchObject({ code: "BAD_REQUEST" });
+  expect(createServerClient).not.toHaveBeenCalled();
+});
+
 test("protected Plex procedures reject unauthenticated callers", async () => {
   const error = await catchError(makeCaller(null, null).getServers());
 

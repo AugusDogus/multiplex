@@ -54,6 +54,9 @@ export type plexRouterOutputs = inferRouterOutputs<typeof plexRouter>;
 const sectionIdSchema = z.string().regex(/^\d+$/);
 const watchTogetherRoomIdSchema = z.string().regex(/^[A-Za-z0-9]+$/);
 const metadataRatingKeySchema = z.string().regex(/^\d+$/);
+const liveTvProviderIdentifierSchema = z
+  .string()
+  .regex(/^tv\.plex\.providers\.[A-Za-z0-9._-]+(?::[A-Za-z0-9._-]+)*$/);
 const metadataKeySchema = z
   .string()
   .regex(/^\/library\/metadata\/\d+$/)
@@ -478,6 +481,45 @@ export const plexRouter = createTRPCRouter({
         input.startTime,
         input.endTime,
       );
+    }),
+
+  reloadServerGuide: protectedProcedure
+    .input(
+      z
+        .object({
+          machineIdentifier: z.string().min(1),
+          providerIdentifier: liveTvProviderIdentifierSchema,
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { serverClient } = await resolveServer(
+        ctx.plex,
+        input.machineIdentifier,
+      );
+      const dvrs = await serverClient.getDVRs();
+      const providerDvrId = input.providerIdentifier.split(":").at(-1);
+      const matchingDvr = dvrs.MediaContainer.Dvr.find(
+        (dvr) =>
+          dvr.epgIdentifier === input.providerIdentifier ||
+          `${dvr.epgIdentifier}:${dvr.key}` === input.providerIdentifier ||
+          dvr.key === providerDvrId,
+      );
+
+      if (matchingDvr) {
+        await serverClient.reloadGuide(matchingDvr.key);
+        return {
+          scope: "provider" as const,
+          message: "Guide refresh requested for this Live TV provider.",
+        };
+      }
+
+      await serverClient.reloadAllGuides();
+      return {
+        scope: "all" as const,
+        message:
+          "This server did not expose a matching DVR, so all Live TV guides were refreshed.",
+      };
     }),
 
   sendTimeline: protectedProcedure
