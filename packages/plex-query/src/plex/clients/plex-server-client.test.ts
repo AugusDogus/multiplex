@@ -256,11 +256,11 @@ describe("PlexServerClient playlist contracts", () => {
     const { client, fetchSpy } = makeClient(() => Response.json({ MediaContainer: { size: 0 } }));
 
     try {
-      expect(() => client.getPlaylist("42/items")).toThrow(TypeError);
-      expect(() => client.getPlaylistContents("42", { start: -1 })).toThrow(TypeError);
-      expect(() => client.renamePlaylist("42", "   ")).toThrow(TypeError);
-      expect(() => client.movePlaylistItem("42", 1.5)).toThrow(TypeError);
-      expect(() => client.movePlaylistItem("42", 7, 7)).toThrow(TypeError);
+      await expect(client.getPlaylist("42/items")).rejects.toThrow(TypeError);
+      await expect(client.getPlaylistContents("42", { start: -1 })).rejects.toThrow(TypeError);
+      await expect(client.renamePlaylist("42", "   ")).rejects.toThrow(TypeError);
+      await expect(client.movePlaylistItem("42", 1.5)).rejects.toThrow(TypeError);
+      await expect(client.movePlaylistItem("42", 7, 7)).rejects.toThrow(TypeError);
       expect(requests).toHaveLength(0);
     } finally {
       fetchSpy.mockRestore();

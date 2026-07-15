@@ -107,10 +107,12 @@ const sessionAtoms = await import("~/lib/effect/session-atoms");
 await mock.module("next/navigation", () => ({
   useParams: () => ({ roomId: routeRoomId }),
   useRouter: () => ({ replace }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 await mock.module("~/lib/device-identifier", () => ({
   getPlexClientIdentifier: () => "local-device",
+  usePlexClientIdentifier: () => "local-device",
 }));
 
 await mock.module("~/lib/effect/session-atoms", () => ({
@@ -121,6 +123,11 @@ await mock.module("~/lib/effect/session-atoms", () => ({
 
 await mock.module("~/trpc/api", () => ({
   api: {
+    guestWatchTogether: {
+      hostContext: {
+        useQuery: () => ({ data: undefined }),
+      },
+    },
     plex: {
       getWatchTogetherRoom: {
         useQuery: () => ({ data: rooms[routeRoomId] }),

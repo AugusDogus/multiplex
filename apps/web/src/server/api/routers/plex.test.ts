@@ -740,6 +740,59 @@ test("reloadServerGuide documents its all-guides fallback", async () => {
   expect(reloadAllGuides).toHaveBeenCalledTimes(1);
 });
 
+test.each(["getDVRs", "reloadGuide", "reloadAllGuides"] as const)(
+  "reloadServerGuide maps %s failures to service unavailable",
+  async (failingOperation) => {
+    const upstreamError = new Error(`${failingOperation} failed`);
+    const hasMatchingDvr = failingOperation !== "reloadAllGuides";
+    const getDVRs =
+      failingOperation === "getDVRs"
+        ? mock().mockRejectedValue(upstreamError)
+        : mock().mockResolvedValue({
+            MediaContainer: {
+              Dvr: hasMatchingDvr
+                ? [
+                    {
+                      key: "71",
+                      epgIdentifier: "tv.plex.providers.epg.xmltv",
+                    },
+                  ]
+                : [],
+            },
+          });
+    const reloadGuide =
+      failingOperation === "reloadGuide"
+        ? mock().mockRejectedValue(upstreamError)
+        : mock().mockResolvedValue(undefined);
+    const reloadAllGuides =
+      failingOperation === "reloadAllGuides"
+        ? mock().mockRejectedValue(upstreamError)
+        : mock().mockResolvedValue(undefined);
+    const serverClient = {
+      getDVRs,
+      reloadGuide,
+      reloadAllGuides,
+    } as unknown as PlexServerClient;
+    const plex = {
+      createServerClient: mock(() => serverClient),
+    } as unknown as PlexTvClient;
+    getServersQuery.mockResolvedValue([SERVER]);
+
+    const error = await catchError(
+      makeCaller(plex).reloadServerGuide({
+        machineIdentifier: SERVER.clientIdentifier,
+        providerIdentifier: "tv.plex.providers.epg.xmltv:71",
+      }),
+    );
+
+    expect(error).toMatchObject({
+      code: "SERVICE_UNAVAILABLE",
+      message: "Unable to refresh the Live TV guide",
+      cause: upstreamError,
+    });
+  },
+);
+
 test("reloadServerGuide rejects unknown servers", async () => {
   const createServerClient = mock();
   const plex = { createServerClient } as unknown as PlexTvClient;

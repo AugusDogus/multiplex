@@ -166,6 +166,60 @@ describe("Plex image route", () => {
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
   });
 
+  test("falls back through authorized connections in priority order", async () => {
+    const attemptedOrigins: string[] = [];
+    const response = await handlePlexImageRequest(
+      imageRequest(),
+      dependencies({
+        authenticate: () =>
+          Promise.resolve({
+            token: "account-token",
+            servers: [
+              {
+                clientIdentifier: "server-1",
+                accessToken: "server-token",
+                presence: true,
+                connections: [
+                  {
+                    uri: "https://local.example:32400",
+                    local: true,
+                    relay: false,
+                  },
+                  {
+                    uri: "https://remote.example:32400",
+                    local: false,
+                    relay: false,
+                  },
+                ],
+              },
+            ],
+          }),
+        fetch: (input) => {
+          const url = new URL(input);
+          attemptedOrigins.push(url.origin);
+          if (url.hostname === "remote.example") {
+            return Promise.reject(new TypeError("remote connection failed"));
+          }
+          return Promise.resolve(
+            new Response(new Uint8Array([1, 2, 3]), {
+              headers: {
+                "Content-Type": "image/jpeg",
+                "Content-Length": "3",
+              },
+            }),
+          );
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.arrayBuffer()).toHaveLength(3);
+    expect(attemptedOrigins).toEqual([
+      "https://remote.example:32400",
+      "https://local.example:32400",
+    ]);
+  });
+
   test.each([
     [
       "redirect",

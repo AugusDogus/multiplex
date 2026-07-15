@@ -66,7 +66,7 @@ function connectionUrl(connection: PlexImageConnection): URL | null {
   }
 }
 
-function selectConnection(server: PlexImageServer): URL | null {
+function rankedConnections(server: PlexImageServer): URL[] {
   const validConnections = server.connections
     .map((connection) => ({ connection, url: connectionUrl(connection) }))
     .filter(
@@ -85,7 +85,15 @@ function selectConnection(server: PlexImageServer): URL | null {
     return score(left) - score(right);
   });
 
-  return validConnections[0]?.url ?? null;
+  return validConnections.map(({ url }) => url);
+}
+
+async function discardResponse(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // A failed discard must not prevent trying another authorized connection.
+  }
 }
 
 export function buildPlexTranscodeUrl(
@@ -189,13 +197,12 @@ export async function handlePlexImageRequest(
     return errorResponse(503, "Plex server is unavailable");
   }
 
-  const connection = selectConnection(server);
-  if (!connection) {
+  const connections = rankedConnections(server);
+  if (connections.length === 0) {
     return errorResponse(502, "Plex server has no usable connection");
   }
 
   const token = server.accessToken ?? authContext.token;
-  const upstreamUrl = buildPlexTranscodeUrl(connection, token, parsed.value);
   const abortController = new AbortController();
   const deadline = setTimeout(
     () => abortController.abort(),
@@ -209,79 +216,90 @@ export async function handlePlexImageRequest(
     }
   };
 
-  let upstream: Response;
-  try {
-    upstream = await dependencies.fetch(upstreamUrl, {
-      method: "GET",
-      headers: { Accept: "image/*" },
-      redirect: "manual",
-      signal: abortController.signal,
+  let lastFailure = "Plex image request failed";
+
+  for (const connection of connections) {
+    if (abortController.signal.aborted) {
+      clearDeadline();
+      return errorResponse(504, "Plex image request timed out");
+    }
+
+    const upstreamUrl = buildPlexTranscodeUrl(connection, token, parsed.value);
+    let upstream: Response;
+    try {
+      upstream = await dependencies.fetch(upstreamUrl, {
+        method: "GET",
+        headers: { Accept: "image/*" },
+        redirect: "manual",
+        signal: abortController.signal,
+      });
+    } catch {
+      if (abortController.signal.aborted) {
+        clearDeadline();
+        return errorResponse(504, "Plex image request timed out");
+      }
+      lastFailure = "Plex image request failed";
+      continue;
+    }
+
+    if (upstream.status >= 300 && upstream.status < 400) {
+      await discardResponse(upstream);
+      lastFailure = "Plex image redirects are not allowed";
+      continue;
+    }
+
+    if (!upstream.ok) {
+      await discardResponse(upstream);
+      lastFailure = "Plex image request was unsuccessful";
+      continue;
+    }
+
+    const contentType = upstream.headers
+      .get("content-type")
+      ?.split(";", 1)[0]
+      ?.trim();
+    if (
+      !contentType ||
+      !ALLOWED_PLEX_IMAGE_CONTENT_TYPES.has(contentType.toLowerCase())
+    ) {
+      await discardResponse(upstream);
+      lastFailure = "Plex returned an unsupported image response";
+      continue;
+    }
+
+    const contentLength = parseContentLength(
+      upstream.headers.get("content-length"),
+    );
+    if (
+      contentLength === "invalid" ||
+      (contentLength !== null && contentLength > MAX_PLEX_IMAGE_BYTES)
+    ) {
+      await discardResponse(upstream);
+      lastFailure = "Plex image exceeds the byte limit";
+      continue;
+    }
+
+    if (!upstream.body) {
+      lastFailure = "Plex returned an empty image response";
+      continue;
+    }
+
+    const headers = new Headers({
+      "Cache-Control": "private, max-age=3600",
+      "Content-Type": contentType,
+      Vary: "Cookie",
+      "X-Content-Type-Options": "nosniff",
     });
-  } catch {
-    clearDeadline();
-    return errorResponse(
-      abortController.signal.aborted ? 504 : 502,
-      abortController.signal.aborted
-        ? "Plex image request timed out"
-        : "Plex image request failed",
+    if (contentLength !== null) {
+      headers.set("Content-Length", contentLength.toString());
+    }
+
+    return new Response(
+      boundedBody(upstream.body, abortController, clearDeadline),
+      { status: 200, headers },
     );
   }
 
-  if (upstream.status >= 300 && upstream.status < 400) {
-    clearDeadline();
-    await upstream.body?.cancel();
-    return errorResponse(502, "Plex image redirects are not allowed");
-  }
-
-  if (!upstream.ok) {
-    clearDeadline();
-    await upstream.body?.cancel();
-    return errorResponse(502, "Plex image request was unsuccessful");
-  }
-
-  const contentType = upstream.headers
-    .get("content-type")
-    ?.split(";", 1)[0]
-    ?.trim();
-  if (
-    !contentType ||
-    !ALLOWED_PLEX_IMAGE_CONTENT_TYPES.has(contentType.toLowerCase())
-  ) {
-    clearDeadline();
-    await upstream.body?.cancel();
-    return errorResponse(502, "Plex returned an unsupported image response");
-  }
-
-  const contentLength = parseContentLength(
-    upstream.headers.get("content-length"),
-  );
-  if (
-    contentLength === "invalid" ||
-    (contentLength !== null && contentLength > MAX_PLEX_IMAGE_BYTES)
-  ) {
-    abortController.abort();
-    clearDeadline();
-    await upstream.body?.cancel();
-    return errorResponse(502, "Plex image exceeds the byte limit");
-  }
-
-  if (!upstream.body) {
-    clearDeadline();
-    return errorResponse(502, "Plex returned an empty image response");
-  }
-
-  const headers = new Headers({
-    "Cache-Control": "private, max-age=3600",
-    "Content-Type": contentType,
-    Vary: "Cookie",
-    "X-Content-Type-Options": "nosniff",
-  });
-  if (contentLength !== null) {
-    headers.set("Content-Length", contentLength.toString());
-  }
-
-  return new Response(
-    boundedBody(upstream.body, abortController, clearDeadline),
-    { status: 200, headers },
-  );
+  clearDeadline();
+  return errorResponse(502, lastFailure);
 }
