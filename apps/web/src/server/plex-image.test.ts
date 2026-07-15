@@ -58,6 +58,34 @@ function dependencies(
 }
 
 describe("Plex image request parsing", () => {
+  test("preserves public HTTPS metadata artwork outside the PMS proxy", () => {
+    expect(
+      getPlexImagePath(
+        "server-1",
+        "https://metadata-static.plex.tv/people/person.jpg",
+        { width: 160, height: 160 },
+      ),
+    ).toBe("https://metadata-static.plex.tv/people/person.jpg");
+
+    expect(
+      getPlexImagePath(
+        "server-1",
+        "https://image.tmdb.org/t/p/original/poster.jpg?language=en",
+        { width: 200, height: 300 },
+      ),
+    ).toBe("https://image.tmdb.org/t/p/original/poster.jpg?language=en");
+  });
+
+  test.each([
+    "http://metadata-static.plex.tv/people/person.jpg",
+    "https://user:password@example.com/poster.jpg",
+    "javascript:alert(1)",
+  ])("does not render an unsafe absolute artwork URL %s", (path) => {
+    expect(
+      getPlexImagePath("server-1", path, { width: 160, height: 160 }),
+    ).toBeUndefined();
+  });
+
   test("builds a client-safe relative URL and parses allowed artwork", () => {
     const url = getPlexImagePath(
       "server-1",
