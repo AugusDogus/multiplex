@@ -275,6 +275,109 @@ test("rename trims titles and delete reauthorizes the dumb editable playlist", a
   expect(validationError).toMatchObject({ code: "BAD_REQUEST" });
 });
 
+test("rename maps Plex failures to stable tRPC errors", async () => {
+  for (const [failure, expected] of [
+    [
+      new PlexAPIError("Gone", 404),
+      { code: "NOT_FOUND", message: "Playlist not found" },
+    ],
+    [
+      new PlexAPIError("Duplicate", 409),
+      {
+        code: "CONFLICT",
+        message: "A playlist with this name already exists",
+      },
+    ],
+    [
+      new Error("offline"),
+      { code: "SERVICE_UNAVAILABLE", message: "Unable to rename playlist" },
+    ],
+  ] as const) {
+    const { caller } = makePlaylistCaller({
+      renamePlaylist: mock().mockRejectedValue(failure),
+    });
+    const error = await catchError(
+      caller.renamePlaylist({
+        serverId: SERVER.clientIdentifier,
+        playlistRatingKey: "42",
+        title: "New name",
+      }),
+    );
+
+    expect(error).toMatchObject(expected);
+  }
+});
+
+test("playlist writes map stale and unavailable Plex failures", async () => {
+  const deleted = makePlaylistCaller({
+    deletePlaylist: mock().mockRejectedValue(new PlexAPIError("Gone", 404)),
+  });
+  expect(
+    await catchError(
+      deleted.caller.deletePlaylist({
+        serverId: SERVER.clientIdentifier,
+        playlistRatingKey: "42",
+      }),
+    ),
+  ).toMatchObject({ code: "NOT_FOUND", message: "Playlist not found" });
+
+  const moved = makePlaylistCaller({
+    movePlaylistItem: mock().mockRejectedValue(
+      new PlexAPIError("Changed", 409),
+    ),
+  });
+  expect(
+    await catchError(
+      moved.caller.movePlaylistItem({
+        serverId: SERVER.clientIdentifier,
+        playlistRatingKey: "42",
+        playlistItemId: 7002,
+        direction: "down",
+      }),
+    ),
+  ).toMatchObject({
+    code: "CONFLICT",
+    message: "The playlist changed before it could be reordered",
+  });
+
+  const added = makePlaylistCaller({
+    addItemToPlaylist: mock().mockRejectedValue(new Error("offline")),
+  });
+  expect(
+    await catchError(
+      added.caller.addItemToPlaylist({
+        serverId: SERVER.clientIdentifier,
+        playlistRatingKey: "42",
+        ratingKey: "100",
+        key: "/library/metadata/100",
+      }),
+    ),
+  ).toMatchObject({
+    code: "SERVICE_UNAVAILABLE",
+    message: "Unable to add item to playlist",
+  });
+
+  const created = makePlaylistCaller({
+    createPlaylist: mock().mockRejectedValue(
+      new PlexAPIError("Duplicate", 409),
+    ),
+  });
+  expect(
+    await catchError(
+      created.caller.createPlaylistWithItem({
+        serverId: SERVER.clientIdentifier,
+        title: "Road trip",
+        type: "audio",
+        ratingKey: "100",
+        key: "/library/metadata/100",
+      }),
+    ),
+  ).toMatchObject({
+    code: "CONFLICT",
+    message: "A playlist with this name already exists",
+  });
+});
+
 test("all playlist mutations reject smart and provider-readonly playlists", async () => {
   const smart = makePlaylistCaller({
     getPlaylist: mock().mockResolvedValue({ ...PLAYLIST, smart: true }),
@@ -363,6 +466,49 @@ test("reorder validates membership and uses playlist item ids", async () => {
   expect(firstError).toMatchObject({ code: "BAD_REQUEST" });
   expect(lastError).toMatchObject({ code: "BAD_REQUEST" });
   expect(serverClient.movePlaylistItem).toHaveBeenCalledTimes(2);
+});
+
+test("reorder loads every page when Plex omits the playlist item count", async () => {
+  const getPlaylistContents = mock()
+    .mockResolvedValueOnce({
+      MediaContainer: {
+        size: 2,
+        offset: 0,
+        Metadata: PLAYLIST_ITEMS.slice(0, 2),
+      },
+    })
+    .mockResolvedValueOnce({
+      MediaContainer: {
+        size: 1,
+        totalSize: 3,
+        offset: 2,
+        Metadata: PLAYLIST_ITEMS.slice(2),
+      },
+    });
+  const { caller, serverClient } = makePlaylistCaller({
+    getPlaylist: mock().mockResolvedValue({
+      ...PLAYLIST,
+      leafCount: undefined,
+    }),
+    getPlaylistContents,
+  });
+
+  await caller.movePlaylistItem({
+    serverId: SERVER.clientIdentifier,
+    playlistRatingKey: "42",
+    playlistItemId: 7003,
+    direction: "up",
+  });
+
+  expect(getPlaylistContents).toHaveBeenNthCalledWith(1, "42", {
+    start: 0,
+    size: 500,
+  });
+  expect(getPlaylistContents).toHaveBeenNthCalledWith(2, "42", {
+    start: 2,
+    size: 500,
+  });
+  expect(serverClient.movePlaylistItem).toHaveBeenCalledWith("42", 7003, 7001);
 });
 
 test("playlist upstream errors are stable and credential-free", async () => {
