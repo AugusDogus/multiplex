@@ -10,7 +10,6 @@ import {
   type ContinueWatchingItemWithServer,
 } from "@multiplex/plex-query";
 import { playerCommands } from "~/lib/effect/player-atoms";
-import { useProgressStore } from "~/stores/progress-store";
 import { ContinueWatchingDrawer } from "~/components/continue-watching-drawer";
 import { MediaCarousel } from "~/components/media-carousel";
 import { ContinueWatchingSkeleton } from "~/components/media-carousel-skeleton";
@@ -20,6 +19,7 @@ import { useItemDetailsNavigation } from "~/hooks/use-item-details-navigation";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { isHubQueryLoading } from "~/lib/plex-hub-query-options";
 import { getPlexImagePath } from "~/lib/plex-image";
+import { resetContinueWatchingProgress } from "~/lib/continue-watching-progress";
 import { api } from "~/trpc/api";
 
 /* ────────────────────────────────────────────────────────────
@@ -149,10 +149,7 @@ interface ContinueWatchingItemProps {
 
 function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
   const itemDetailsNavigation = useItemDetailsNavigation();
-  const getItemProgress = useProgressStore((state) => state.getItemProgress);
-  const updateItemProgress = useProgressStore(
-    (state) => state.updateItemProgress,
-  );
+  const utils = api.useUtils();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   const mainTitle = getMainTitle(item);
@@ -163,14 +160,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
     ratingKey: item.ratingKey,
   };
 
-  // Use updated progress if available, otherwise use server data
-  const progressPercent: number =
-    getItemProgress({
-      serverId: item.serverId,
-      ratingKey: item.ratingKey,
-    }) ??
-    item.progressPercent ??
-    0;
+  const progressPercent = item.progressPercent ?? 0;
   const isItemCompleted = isCompleted(item);
 
   const thumbnailUrl = getPlexImagePath(
@@ -213,12 +203,11 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
       return;
     }
 
-    updateItemProgress(
-      {
+    utils.plex.getAllContinueWatching.setData(undefined, (items) =>
+      resetContinueWatchingProgress(items, {
         serverId: item.serverId,
         ratingKey: item.ratingKey,
-      },
-      0,
+      }),
     );
 
     setIsDrawerOpen(false);
@@ -231,6 +220,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
           authToken: item.authToken,
         },
       ),
+      { resume: false },
     );
   };
 

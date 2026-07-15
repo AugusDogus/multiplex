@@ -13,10 +13,6 @@ import {
   usePlayerPrefsStore,
   type PlayerPrefsState,
 } from "~/stores/player-prefs-store";
-import {
-  getProgressIdentityKey,
-  useProgressStore,
-} from "~/stores/progress-store";
 import type { MediaPlayerItem, NextEpisodeInfo } from "~/types/media-player";
 
 const directPlayMedia = {
@@ -61,7 +57,6 @@ let player: PlayerServiceShape;
 
 beforeEach(() => {
   player = createPlayerService();
-  useProgressStore.getState().clearAllProgress();
   usePlayerPrefsStore.setState({
     volume: 1,
     isMuted: false,
@@ -79,39 +74,6 @@ describe("openPlayer resume math", () => {
     );
     expect(player.snapshot().currentTime).toBe(0);
     expect(player.snapshot().streamOffset).toBe(0);
-  });
-
-  test("server-scoped progress path seeds currentTime", () => {
-    useProgressStore
-      .getState()
-      .updateItemProgress({ serverId: "server-2", ratingKey: "100" }, 80);
-    useProgressStore
-      .getState()
-      .updateItemProgress({ serverId: "server-1", ratingKey: "100" }, 50);
-    player.openPlayer({ ...sampleItem, Media: [directPlayMedia] });
-    expect(player.snapshot().currentTime).toBe(300);
-    // Direct-play: no stream offset baked in
-    expect(player.snapshot().streamOffset).toBe(0);
-  });
-
-  test("invalid progress falls back to the Plex viewOffset", () => {
-    const identity = { serverId: "server-1", ratingKey: "100" };
-
-    useProgressStore.setState({
-      updatedItemsProgress: {
-        [getProgressIdentityKey(identity)]: Number.NaN,
-      },
-    });
-    player.openPlayer({ ...sampleItem, viewOffset: 90_000 });
-    expect(player.snapshot().currentTime).toBe(90);
-
-    useProgressStore.setState({
-      updatedItemsProgress: {
-        [getProgressIdentityKey(identity)]: Number.POSITIVE_INFINITY,
-      },
-    });
-    player.openPlayer({ ...sampleItem, viewOffset: 120_000 });
-    expect(player.snapshot().currentTime).toBe(120);
   });
 
   test("viewOffset path when no cached progress", () => {

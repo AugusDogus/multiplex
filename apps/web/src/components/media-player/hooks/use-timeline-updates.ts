@@ -3,7 +3,7 @@
 import { useRef } from "react";
 import { usePlayerStateSelector } from "~/lib/effect/player-atoms";
 import { shallow } from "zustand/shallow";
-import { toProgressPercent, useProgressStore } from "~/stores/progress-store";
+import { updateContinueWatchingProgress } from "~/lib/continue-watching-progress";
 import { api } from "~/trpc/api";
 
 /* ────────────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ export function useTimelineUpdates({
       }),
       shallow,
     );
-  const { updateItemProgress } = useProgressStore();
+  const utils = api.useUtils();
 
   const sessionIdRef = useRef<string | null>(null);
   const lastUpdateRef = useRef<{
@@ -127,17 +127,20 @@ export function useTimelineUpdates({
         ratingKey: currentItem.ratingKey,
       };
 
-      // Update progress store for real-time UI
-      const progressPercent = toProgressPercent(timeToUse, duration);
-      if (progressPercent !== null) {
-        updateItemProgress(
+      // Plex accepted the timeline update, so reflect that server state in the
+      // query cache used by Continue Watching. PlayerService remains the sole
+      // owner of the active player's current time.
+      utils.plex.getAllContinueWatching.setData(undefined, (items) =>
+        updateContinueWatchingProgress(
+          items,
           {
             serverId: currentItem.serverId,
             ratingKey: currentItem.ratingKey,
           },
-          progressPercent,
-        );
-      }
+          timeToUse,
+          duration,
+        ),
+      );
       hasLoggedFailureRef.current = false;
     } catch (error) {
       if (!hasLoggedFailureRef.current) {
