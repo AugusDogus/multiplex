@@ -190,12 +190,16 @@ export function getPlaylistHref(
   librarySectionID?: number,
 ): string {
   const pathname = `/server/${encodeURIComponent(machineIdentifier)}/playlist/${encodeURIComponent(playlistRatingKey)}`;
-  if (!Number.isSafeInteger(librarySectionID) || (librarySectionID ?? 0) <= 0) {
+  if (
+    librarySectionID === undefined ||
+    !Number.isSafeInteger(librarySectionID) ||
+    librarySectionID <= 0
+  ) {
     return pathname;
   }
 
   const params = new URLSearchParams({
-    sectionId: librarySectionID!.toString(),
+    sectionId: librarySectionID.toString(),
   });
   return `${pathname}?${params.toString()}`;
 }

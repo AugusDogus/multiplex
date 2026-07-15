@@ -614,29 +614,37 @@ export const plexRouter = createTRPCRouter({
         ctx.plex,
         input.machineIdentifier,
       );
-      const dvrs = await serverClient.getDVRs();
-      const providerDvrId = input.providerIdentifier.split(":").at(-1);
-      const matchingDvr = dvrs.MediaContainer.Dvr.find(
-        (dvr) =>
-          dvr.epgIdentifier === input.providerIdentifier ||
-          `${dvr.epgIdentifier}:${dvr.key}` === input.providerIdentifier ||
-          dvr.key === providerDvrId,
-      );
+      try {
+        const dvrs = await serverClient.getDVRs();
+        const providerDvrId = input.providerIdentifier.split(":").at(-1);
+        const matchingDvr = dvrs.MediaContainer.Dvr.find(
+          (dvr) =>
+            dvr.epgIdentifier === input.providerIdentifier ||
+            `${dvr.epgIdentifier}:${dvr.key}` === input.providerIdentifier ||
+            dvr.key === providerDvrId,
+        );
 
-      if (matchingDvr) {
-        await serverClient.reloadGuide(matchingDvr.key);
+        if (matchingDvr) {
+          await serverClient.reloadGuide(matchingDvr.key);
+          return {
+            scope: "provider" as const,
+            message: "Guide refresh requested for this Live TV provider.",
+          };
+        }
+
+        await serverClient.reloadAllGuides();
         return {
-          scope: "provider" as const,
-          message: "Guide refresh requested for this Live TV provider.",
+          scope: "all" as const,
+          message:
+            "This server did not expose a matching DVR, so all Live TV guides were refreshed.",
         };
+      } catch (cause) {
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "Unable to refresh the Live TV guide",
+          cause,
+        });
       }
-
-      await serverClient.reloadAllGuides();
-      return {
-        scope: "all" as const,
-        message:
-          "This server did not expose a matching DVR, so all Live TV guides were refreshed.",
-      };
     }),
 
   sendTimeline: protectedProcedure
@@ -892,14 +900,14 @@ export const plexRouter = createTRPCRouter({
       const itemIds = (contents.MediaContainer.Metadata ?? []).map(
         (item) => item.playlistItemID,
       );
-      if (itemIds.some((itemId) => itemId === undefined)) {
+      if (!itemIds.every((itemId): itemId is number => itemId !== undefined)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Invalid playlist reorder request",
         });
       }
 
-      const orderedItemIds = itemIds as number[];
+      const orderedItemIds = itemIds;
       const index = orderedItemIds.indexOf(input.playlistItemId);
       const cannotMove =
         index === -1 ||

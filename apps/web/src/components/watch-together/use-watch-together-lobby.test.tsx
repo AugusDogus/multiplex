@@ -139,7 +139,9 @@ const toastError = mock((_message: string) => undefined);
 const sessionAtoms = await import("~/lib/effect/session-atoms");
 
 await mock.module("next/navigation", () => ({
+  useParams: () => ({ roomId: "A" }),
   useRouter: () => ({ push }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 await mock.module("sonner", () => ({
@@ -159,6 +161,7 @@ await mock.module("~/lib/create-media-player-item", () => ({
 
 await mock.module("~/lib/device-identifier", () => ({
   getPlexClientIdentifier: () => "local-device",
+  usePlexClientIdentifier: () => "local-device",
 }));
 
 await mock.module("~/lib/effect/session-atoms", () => ({
@@ -175,6 +178,11 @@ await mock.module("~/lib/effect/session-atoms", () => ({
 
 await mock.module("~/trpc/api", () => ({
   api: {
+    guestWatchTogether: {
+      hostContext: {
+        useQuery: () => ({ data: undefined }),
+      },
+    },
     useUtils: () => ({
       plex: {
         getWatchTogetherRooms: { invalidate: invalidateRooms },

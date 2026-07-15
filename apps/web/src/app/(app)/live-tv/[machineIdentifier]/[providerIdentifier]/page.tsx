@@ -48,7 +48,7 @@ export default async function LiveTvPage({ params }: PageProps) {
     );
   }
 
-  const channelLineups = await api.plex
+  const channelLineupsResult = await api.plex
     .getServerChannelsProgramming({
       machineIdentifier,
       providerIdentifier,
@@ -56,17 +56,25 @@ export default async function LiveTvPage({ params }: PageProps) {
       startTime,
       endTime,
     })
+    .then((lineups) => ({ ok: true as const, lineups }))
     .catch((error) => {
       console.error(
         `Failed to load channels for server ${machineIdentifier}:`,
         error,
       );
-      return [];
+      return { ok: false as const };
     });
 
-  const safeChannelLineups = Array.isArray(channelLineups)
-    ? channelLineups
-    : [];
+  if (!channelLineupsResult.ok) {
+    return (
+      <AppCenteredMessage
+        title="Unable to Load Guide"
+        description="The Live TV guide could not be loaded from Plex. Check the server connection and try again."
+      />
+    );
+  }
+
+  const safeChannelLineups = channelLineupsResult.lineups;
   const needsGuideRefresh =
     safeChannelLineups.length === 0 ||
     safeChannelLineups.every((lineup) => lineup.programs.length === 0);
