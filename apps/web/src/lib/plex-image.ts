@@ -74,6 +74,23 @@ function parseBooleanOption(value: string | null): boolean | null {
   return null;
 }
 
+function getPublicHttpsImageUrl(rawPath: string): string | null {
+  try {
+    const url = new URL(rawPath);
+    if (
+      url.protocol !== "https:" ||
+      url.username.length > 0 ||
+      url.password.length > 0
+    ) {
+      return null;
+    }
+
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 export function isAllowedPlexImagePath(rawPath: string): boolean {
   if (
     rawPath.length === 0 ||
@@ -116,12 +133,24 @@ export function getPlexImagePath(
   options: PlexImageOptions,
 ): string | undefined {
   if (
-    !serverId ||
-    !SERVER_ID_PATTERN.test(serverId) ||
     !rawPath ||
-    !isAllowedPlexImagePath(rawPath) ||
     !isBoundedDimension(options.width) ||
     !isBoundedDimension(options.height)
+  ) {
+    return undefined;
+  }
+
+  // Plex metadata may contain public CDN artwork URLs. Return those directly
+  // so they never enter the authenticated PMS proxy or its SSRF boundary.
+  const publicImageUrl = getPublicHttpsImageUrl(rawPath);
+  if (publicImageUrl) {
+    return publicImageUrl;
+  }
+
+  if (
+    !serverId ||
+    !SERVER_ID_PATTERN.test(serverId) ||
+    !isAllowedPlexImagePath(rawPath)
   ) {
     return undefined;
   }
