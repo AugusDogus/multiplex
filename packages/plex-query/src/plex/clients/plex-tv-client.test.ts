@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-
+import type { PlexDevice } from "../schemas/plex-tv-schemas";
+import type { PlexConfig } from "../types/client-types";
 import { PlexTvClient } from "./plex-tv-client";
 
-const CONFIG = {
+const CONFIG: PlexConfig = {
   product: "Multiplex Test",
+  clientIdentifier: "client-id",
   version: "1.0.0",
-  clientIdentifier: "multiplex-test-client",
   platform: "Web",
 };
 
@@ -19,6 +20,124 @@ function createFetchMock(
 
 afterEach(() => {
   mock.restore();
+});
+
+function makeServer(
+  clientIdentifier: string,
+  options: {
+    accessToken?: string | null;
+    connectionUri?: string;
+    relay?: boolean;
+  } = {},
+): PlexDevice {
+  const connectionUri = options.connectionUri ?? `https://${clientIdentifier}.example.test:32400`;
+  const parsedUrl = new URL(connectionUri);
+
+  return {
+    name: clientIdentifier,
+    product: "Plex Media Server",
+    productVersion: "1.0.0",
+    platform: "Linux",
+    platformVersion: "1.0",
+    device: "PC",
+    clientIdentifier,
+    createdAt: "",
+    lastSeenAt: "",
+    provides: "server",
+    ownerId: null,
+    sourceTitle: null,
+    publicAddress: parsedUrl.hostname,
+    accessToken: options.accessToken ?? null,
+    owned: true,
+    home: false,
+    synced: false,
+    relay: options.relay ?? false,
+    presence: true,
+    httpsRequired: parsedUrl.protocol === "https:",
+    publicAddressMatches: false,
+    connections: [
+      {
+        protocol: parsedUrl.protocol.slice(0, -1),
+        address: parsedUrl.hostname,
+        port: Number.parseInt(parsedUrl.port || "32400", 10),
+        uri: connectionUri,
+        local: false,
+        relay: options.relay ?? false,
+        IPv6: false,
+      },
+    ],
+  };
+}
+
+describe("PlexTvClient server client reuse", () => {
+  test("reuses a client for unchanged metadata and isolates servers", () => {
+    const plex = new PlexTvClient("account-token", CONFIG);
+    const serverA = makeServer("server-a");
+    const serverB = makeServer("server-b");
+
+    expect(plex.createServerClient(serverA)).toBe(plex.createServerClient(serverA));
+    expect(plex.createServerClient(serverA)).not.toBe(plex.createServerClient(serverB));
+  });
+
+  test("replaces a client when its access token changes", () => {
+    const plex = new PlexTvClient("account-token", CONFIG);
+    const original = plex.createServerClient(makeServer("server-a", { accessToken: "token-a" }));
+    const replacement = plex.createServerClient(makeServer("server-a", { accessToken: "token-b" }));
+
+    expect(replacement).not.toBe(original);
+  });
+
+  test("replaces a client when ordered connection routing metadata changes", () => {
+    const plex = new PlexTvClient("account-token", CONFIG);
+    const original = plex.createServerClient(
+      makeServer("server-a", { connectionUri: "https://one.example.test:32400" }),
+    );
+    const replacement = plex.createServerClient(
+      makeServer("server-a", { connectionUri: "https://two.example.test:32400" }),
+    );
+
+    expect(replacement).not.toBe(original);
+  });
+
+  test("avoids repeat probes until the client is invalidated", async () => {
+    const plex = new PlexTvClient("account-token", CONFIG);
+    const server = makeServer("server-a");
+    let identityRequests = 0;
+
+    const fetchImplementation = Object.assign(
+      async (input: URL | RequestInfo): Promise<Response> => {
+        const url =
+          input instanceof URL ? input : new URL(input instanceof Request ? input.url : input);
+        if (url.pathname.endsWith("/identity")) {
+          identityRequests += 1;
+          return new Response(null, { status: 200 });
+        }
+
+        return Response.json({
+          MediaContainer: {
+            size: 0,
+            friendlyName: "Test Server",
+            machineIdentifier: "server-a",
+            MediaProvider: [],
+          },
+        });
+      },
+      { preconnect: () => undefined },
+    );
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(fetchImplementation);
+
+    try {
+      await plex.createServerClient(server).getMediaProviders();
+      await plex.createServerClient(server).getMediaProviders();
+      expect(identityRequests).toBe(1);
+
+      plex.invalidateServerClient(server.clientIdentifier);
+      await plex.createServerClient(server).getMediaProviders();
+      expect(identityRequests).toBe(2);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });
 
 describe("PlexTvClient Plex Home", () => {

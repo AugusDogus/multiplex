@@ -5,11 +5,12 @@ import Image from "next/image";
 import {
   formatMetadataDuration,
   getMetadataTypeLabel,
-  getThumbnailUrl,
+  getPosterImagePath,
   type ProcessedSearchResult,
 } from "@multiplex/plex-query";
 import { Badge } from "~/components/ui/badge";
 import { Calendar, Clock, Star, Server } from "lucide-react";
+import { getPlexImagePath } from "~/lib/plex-image";
 
 interface SearchResultItemProps {
   result: ProcessedSearchResult;
@@ -46,13 +47,13 @@ export function SearchResultItem({ result }: SearchResultItemProps) {
     return null;
   };
 
-  const thumbnailUrl = getThumbnailUrl(
-    {
+  const thumbnailUrl = getPlexImagePath(
+    result.serverId,
+    getPosterImagePath({
       type: result.type,
       thumb: result.thumb,
-    },
-    result.serverUrl,
-    result.authToken,
+    }),
+    { width: 200, height: 300 },
   );
 
   return (

@@ -3,7 +3,7 @@
 import { useRef } from "react";
 import { usePlayerStateSelector } from "~/lib/effect/player-atoms";
 import { shallow } from "zustand/shallow";
-import { useProgressStore } from "~/stores/progress-store";
+import { updateContinueWatchingProgress } from "~/lib/continue-watching-progress";
 import { api } from "~/trpc/api";
 
 /* ────────────────────────────────────────────────────────────
@@ -41,13 +41,14 @@ export function useTimelineUpdates({
       }),
       shallow,
     );
-  const { updateItemProgress } = useProgressStore();
+  const utils = api.useUtils();
 
   const sessionIdRef = useRef<string | null>(null);
   const lastUpdateRef = useRef<{
     currentTime: number;
     state: string;
-    ratingKey?: string;
+    serverId: string;
+    ratingKey: string;
   } | null>(null);
   const lastSentAtRef = useRef<number | null>(null);
   // Best-effort progress reporting; surface a transient failure once rather
@@ -74,7 +75,9 @@ export function useTimelineUpdates({
     const hasStateChanged = lastUpdate?.state !== playbackState;
     const hasTimeChanged =
       !lastUpdate || Math.abs(lastUpdate.currentTime - timeToUse) >= 1;
-    const hasItemChanged = lastUpdate?.ratingKey !== currentItem.ratingKey;
+    const hasItemChanged =
+      lastUpdate?.serverId !== currentItem.serverId ||
+      lastUpdate?.ratingKey !== currentItem.ratingKey;
 
     if (!hasStateChanged && !hasTimeChanged && !hasItemChanged) return;
 
@@ -120,14 +123,24 @@ export function useTimelineUpdates({
       lastUpdateRef.current = {
         currentTime: timeToUse,
         state: playbackState,
+        serverId: currentItem.serverId,
         ratingKey: currentItem.ratingKey,
       };
 
-      // Update progress store for real-time UI
-      updateItemProgress({
-        ratingKey: currentItem.ratingKey,
-        progressPercent: (timeToUse / duration) * 100,
-      });
+      // Plex accepted the timeline update, so reflect that server state in the
+      // query cache used by Continue Watching. PlayerService remains the sole
+      // owner of the active player's current time.
+      utils.plex.getAllContinueWatching.setData(undefined, (items) =>
+        updateContinueWatchingProgress(
+          items,
+          {
+            serverId: currentItem.serverId,
+            ratingKey: currentItem.ratingKey,
+          },
+          timeToUse,
+          duration,
+        ),
+      );
       hasLoggedFailureRef.current = false;
     } catch (error) {
       if (!hasLoggedFailureRef.current) {

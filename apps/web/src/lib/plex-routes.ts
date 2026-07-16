@@ -158,7 +158,12 @@ export function isItemDetailsRouteType(
  */
 export function getHubItemHref(
   machineIdentifier: string,
-  item: { type: string; ratingKey: string; title: string },
+  item: {
+    type: string;
+    ratingKey: string;
+    title: string;
+    librarySectionID?: number;
+  },
 ): string {
   if (item.type === "collection") {
     return getHubHref(
@@ -169,14 +174,34 @@ export function getHubItemHref(
   }
 
   if (item.type === "playlist") {
-    return getHubHref(
+    return getPlaylistHref(
       machineIdentifier,
-      `/playlists/${item.ratingKey}/items`,
-      item.title,
+      item.ratingKey,
+      item.librarySectionID,
     );
   }
 
   return getItemDetailsHref(machineIdentifier, item.type, item.ratingKey);
+}
+
+export function getPlaylistHref(
+  machineIdentifier: string,
+  playlistRatingKey: string,
+  librarySectionID?: number,
+): string {
+  const pathname = `/server/${encodeURIComponent(machineIdentifier)}/playlist/${encodeURIComponent(playlistRatingKey)}`;
+  if (
+    librarySectionID === undefined ||
+    !Number.isSafeInteger(librarySectionID) ||
+    librarySectionID <= 0
+  ) {
+    return pathname;
+  }
+
+  const params = new URLSearchParams({
+    sectionId: librarySectionID.toString(),
+  });
+  return `${pathname}?${params.toString()}`;
 }
 
 export function getHubHref(

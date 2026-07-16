@@ -12,7 +12,6 @@ import {
   buildPlexPlaybackPlan,
   playbackUsesTranscode,
 } from "~/components/media-player/utils/plex-playback-plan";
-import { useProgressStore } from "~/stores/progress-store";
 import type { MediaPlayerItem, NextEpisodeInfo } from "~/types/media-player";
 
 /**
@@ -203,19 +202,15 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
 
     const openPlayer: PlayerServiceShape["openPlayer"] = (item, options) => {
       // Watch Together starts everyone from the beginning (resume === false)
-      // so all participants stay in sync; otherwise resume from cached
-      // progress or the item's viewOffset.
+      // so all participants stay in sync; otherwise resume from the Plex
+      // item's viewOffset supplied at this command boundary.
       const resume = options?.resume ?? true;
-      const progressStore = useProgressStore.getState();
-      const updatedProgressPercent = resume
-        ? progressStore.getItemProgress(item.ratingKey)
-        : undefined;
 
       // Calculate initial currentTime. An explicit `startPositionSeconds`
       // wins (used when joining an in-progress Watch Together session, so
       // the joiner starts at the room's current position instead of 0 and
       // doesn't drag everyone else back to the start). Otherwise resume
-      // from cached progress / viewOffset, or start at 0.
+      // from the server-provided viewOffset, or start at 0.
       const initialCurrentTime =
         options?.startPositionSeconds !== undefined
           ? item.duration
@@ -226,9 +221,7 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
             : Math.max(0, options.startPositionSeconds)
           : !resume
             ? 0
-            : updatedProgressPercent !== undefined && item.duration
-              ? (updatedProgressPercent / 100) * (item.duration / 1000)
-              : Math.floor(item.viewOffset ?? 0) / 1000;
+            : Math.floor(item.viewOffset ?? 0) / 1000;
 
       // Plex's transcoded MP4 stream can't be seeked after load, so for
       // resumed transcoded items we bake the resume position into the

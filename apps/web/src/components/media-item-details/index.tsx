@@ -59,15 +59,9 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
         childItems={children}
         playableChildren={playableChildren}
         serverId={serverId}
-        serverUrl={serverUrl ?? undefined}
-        authToken={authToken ?? undefined}
         onPlay={openForPlayback}
       />
-      <CastGrid
-        item={item}
-        serverUrl={serverUrl ?? undefined}
-        authToken={authToken ?? undefined}
-      />
+      <CastGrid item={item} serverId={serverId} />
     </div>
   );
 }

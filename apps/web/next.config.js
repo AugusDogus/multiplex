@@ -13,22 +13,11 @@ const config = {
   reactCompiler: true,
   cacheComponents: true,
   partialPrefetching: true,
-  allowedDevOrigins: ["multiplex.localhost"],
-  images: {
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "**",
-      },
-      {
-        protocol: "http",
-        hostname: "**",
-      },
-    ],
-    // Plex Media Servers commonly live on LAN/private IPs; the image
-    // optimizer must be allowed to fetch poster art from them.
-    dangerouslyAllowLocalIP: true,
-  },
+  allowedDevOrigins: ["local.augie.haus", "multiplex.localhost"],
+  // Authenticated image routes need the browser's session cookie. Plex already
+  // transcodes artwork to the requested dimensions, so do not proxy it through
+  // Next's optimizer (which intentionally does not forward request headers).
+  images: { unoptimized: true },
 };
 
 export default config;

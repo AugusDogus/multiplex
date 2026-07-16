@@ -21,22 +21,13 @@ export function ItemChildren({
   playableChildren,
   onPlay,
   serverId,
-  serverUrl,
-  authToken,
 }: ItemChildrenProps) {
   if (childItems.length === 0) {
     return null;
   }
 
   if (itemType === "show") {
-    return (
-      <SeasonGrid
-        seasons={childItems}
-        serverId={serverId}
-        serverUrl={serverUrl}
-        authToken={authToken}
-      />
-    );
+    return <SeasonGrid seasons={childItems} serverId={serverId} />;
   }
 
   if (itemType === "season") {
@@ -49,8 +40,6 @@ export function ItemChildren({
         episodes={childItems}
         playableByRatingKey={playableByRatingKey}
         serverId={serverId}
-        serverUrl={serverUrl}
-        authToken={authToken}
         onPlay={onPlay}
       />
     );

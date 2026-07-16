@@ -37,8 +37,14 @@ import {
   type PlayQueueResponse,
 } from "../schemas/play-queue-schemas";
 import {
+  playlistContentsResponseSchema,
+  playlistDetailResponseSchema,
+  playlistProviderAccessResponseSchema,
+  LOCAL_LIBRARY_PROVIDER_IDENTIFIER,
   playlistsResponseSchema,
   type Playlist,
+  type PlaylistContentsResponse,
+  type PlaylistDetail,
   type PlaylistType,
   type PlaylistsResponse,
 } from "../schemas/playlist-schemas";
@@ -51,6 +57,7 @@ import {
 } from "../schemas/search-schemas";
 import {
   PlexAPIError,
+  type DeleteRequestOptions,
   type GetRequestOptions,
   type PlexConfig,
   type PostRequestOptions,
@@ -976,6 +983,98 @@ export class PlexServerClient {
     return response.MediaContainer.Metadata ?? [];
   }
 
+  async getPlaylist(playlistRatingKey: string): Promise<PlaylistDetail | null> {
+    const id = parsePositiveIntegerId(playlistRatingKey, "playlistRatingKey");
+    const response = await this.get({
+      endpoint: `playlists/${id}`,
+      schema: playlistDetailResponseSchema,
+    });
+
+    return response.MediaContainer.Metadata?.[0] ?? null;
+  }
+
+  async getPlaylistProviderAccess(): Promise<{
+    supported: boolean;
+    readOnly: boolean;
+  }> {
+    const response = await this.get({
+      endpoint: "media/providers",
+      schema: playlistProviderAccessResponseSchema,
+    });
+    const libraryProvider = response.MediaContainer.MediaProvider.find(
+      (provider) => provider.identifier === LOCAL_LIBRARY_PROVIDER_IDENTIFIER,
+    );
+    const feature = libraryProvider?.Feature.find((candidate) => candidate.type === "playlist");
+
+    return {
+      supported: feature !== undefined,
+      readOnly: feature?.readonly === true,
+    };
+  }
+
+  async getPlaylistContents(
+    playlistRatingKey: string,
+    params: { start?: number; size?: number } = {},
+  ): Promise<PlaylistContentsResponse> {
+    const id = parsePositiveIntegerId(playlistRatingKey, "playlistRatingKey");
+    const start = parseNonNegativeInteger(params.start ?? 0, "start");
+    const size = parsePositiveInteger(params.size ?? LIBRARY_PAGE_SIZE, "size");
+
+    return await this.get({
+      endpoint: `playlists/${id}/items`,
+      params: {
+        "X-Plex-Container-Start": start,
+        "X-Plex-Container-Size": size,
+      },
+      schema: playlistContentsResponseSchema,
+    });
+  }
+
+  async renamePlaylist(playlistRatingKey: string, title: string): Promise<void> {
+    const id = parsePositiveIntegerId(playlistRatingKey, "playlistRatingKey");
+    const normalizedTitle = title.trim();
+    if (normalizedTitle.length === 0 || normalizedTitle.length > 255) {
+      throw new TypeError("title must contain between 1 and 255 characters");
+    }
+
+    await this.put({
+      endpoint: `playlists/${id}`,
+      params: { title: normalizedTitle },
+      expectEmptyResponse: true,
+    });
+  }
+
+  async deletePlaylist(playlistRatingKey: string): Promise<void> {
+    const id = parsePositiveIntegerId(playlistRatingKey, "playlistRatingKey");
+    await this.delete({
+      endpoint: `playlists/${id}`,
+      expectEmptyResponse: true,
+    });
+  }
+
+  async movePlaylistItem(
+    playlistRatingKey: string,
+    playlistItemId: number,
+    afterPlaylistItemId?: number,
+  ): Promise<PlaylistsResponse> {
+    const playlistId = parsePositiveIntegerId(playlistRatingKey, "playlistRatingKey");
+    const itemId = parsePositiveInteger(playlistItemId, "playlistItemId");
+    const after =
+      afterPlaylistItemId === undefined
+        ? undefined
+        : parsePositiveInteger(afterPlaylistItemId, "afterPlaylistItemId");
+
+    if (after === itemId) {
+      throw new TypeError("afterPlaylistItemId must identify another item");
+    }
+
+    return await this.put({
+      endpoint: `playlists/${playlistId}/items/${itemId}/move`,
+      params: after === undefined ? undefined : { after },
+      schema: playlistsResponseSchema,
+    });
+  }
+
   /**
    * Append an item to an existing playlist.
    *
@@ -1167,9 +1266,13 @@ export class PlexServerClient {
     return this.sendWithoutBody("PUT", options);
   }
 
+  private async delete<T>(options: DeleteRequestOptions<T>): Promise<T> {
+    return this.sendWithoutBody("DELETE", options);
+  }
+
   private async sendWithoutBody<T>(
-    method: "POST" | "PUT",
-    options: PostRequestOptions<T> | PutRequestOptions<T>,
+    method: "POST" | "PUT" | "DELETE",
+    options: PostRequestOptions<T> | PutRequestOptions<T> | DeleteRequestOptions<T>,
   ): Promise<T> {
     const { endpoint, params, schema, expectEmptyResponse = false, xPlexOverrides = {} } = options;
     const maxRetries = 2;
@@ -1321,4 +1424,28 @@ export class PlexServerClient {
       accept: "application/json",
     };
   }
+}
+
+function parsePositiveIntegerId(value: string, name: string): number {
+  if (!/^\d+$/.test(value)) {
+    throw new TypeError(`${name} must be a positive integer`);
+  }
+
+  return parsePositiveInteger(Number(value), name);
+}
+
+function parsePositiveInteger(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new TypeError(`${name} must be a positive integer`);
+  }
+
+  return value;
+}
+
+function parseNonNegativeInteger(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new TypeError(`${name} must be a non-negative integer`);
+  }
+
+  return value;
 }

@@ -4,16 +4,7 @@ import {
   formatRemainingDuration,
   formatSeasonEpisodeLabel,
   getMetadataTypeLabel,
-  getPosterImagePath,
-  type MetadataPosterInput,
 } from "./metadata-utils";
-
-interface PlexImageOptions {
-  width: number;
-  height: number;
-  minSize?: boolean;
-  upscale?: boolean;
-}
 
 /* ────────────────────────────────────────────────────────────
    Continue Watching Item Utilities
@@ -151,70 +142,4 @@ export function getSubtitle(item: ItemMetadata): string {
   }
 
   return "";
-}
-
-/**
- * Get the best thumbnail URL for an item using Plex photo transcoding
- * Returns a 2:3 aspect ratio (200x300) thumbnail URL
- */
-export function getThumbnailUrl(
-  item: MetadataPosterInput,
-  serverUrl?: string,
-  authToken?: string,
-): string | undefined {
-  if (!serverUrl || !authToken) {
-    return undefined;
-  }
-
-  const thumbnailPath = getPosterImagePath(item);
-
-  if (!thumbnailPath) {
-    return undefined;
-  }
-
-  return getPlexImageUrl(thumbnailPath, serverUrl, authToken, {
-    width: 200,
-    height: 300,
-    minSize: true,
-    upscale: true,
-  });
-}
-
-/**
- * Build a Plex photo transcoder URL for any image path on a server.
- */
-export function getPlexImageUrl(
-  imagePath: string | undefined,
-  serverUrl: string | undefined,
-  authToken: string | undefined,
-  options: PlexImageOptions,
-): string | undefined {
-  if (!imagePath || !serverUrl || !authToken) {
-    return undefined;
-  }
-
-  const baseUrl = serverUrl.replace(/\/$/, "");
-  // Some image paths already carry a query string (e.g. collection composite
-  // posters like `/library/collections/1/composite/2?width=400`), so pick the
-  // correct separator instead of always appending `?`.
-  const tokenSeparator = imagePath.includes("?") ? "&" : "?";
-  const imageUrl = imagePath.startsWith("http")
-    ? imagePath
-    : `${imagePath}${tokenSeparator}X-Plex-Token=${authToken}`;
-  const params = new URLSearchParams({
-    width: options.width.toString(),
-    height: options.height.toString(),
-    url: imageUrl,
-    "X-Plex-Token": authToken,
-  });
-
-  if (options.minSize ?? true) {
-    params.set("minSize", "1");
-  }
-
-  if (options.upscale ?? true) {
-    params.set("upscale", "1");
-  }
-
-  return `${baseUrl}/photo/:/transcode?${params.toString()}`;
 }

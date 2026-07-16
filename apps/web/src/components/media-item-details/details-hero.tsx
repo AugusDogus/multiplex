@@ -11,7 +11,6 @@ import {
   getMetadataTypeLabel,
   getPlayButtonLabel,
   getPosterImagePath,
-  getPlexImageUrl,
   type PlayableMetadata,
 } from "@multiplex/plex-query";
 
@@ -28,6 +27,7 @@ import {
   playerCommands,
   usePlayerStateSelector,
 } from "~/lib/effect/player-atoms";
+import { getPlexImagePath } from "~/lib/plex-image";
 import { shallow } from "zustand/shallow";
 import { api } from "~/trpc/api";
 
@@ -72,18 +72,14 @@ export function DetailsHero({
 }: DetailsHeroProps) {
   const imageServerUrl = serverUrl ?? undefined;
   const imageAuthToken = authToken ?? undefined;
-  const posterUrl = getPlexImageUrl(
-    getPosterImagePath(item),
-    imageServerUrl,
-    imageAuthToken,
-    { width: 440, height: 660 },
-  );
-  const backdropUrl = getPlexImageUrl(
-    getBackdropImagePath(item),
-    imageServerUrl,
-    imageAuthToken,
-    { width: 1280, height: 720 },
-  );
+  const posterUrl = getPlexImagePath(serverId, getPosterImagePath(item), {
+    width: 440,
+    height: 660,
+  });
+  const backdropUrl = getPlexImagePath(serverId, getBackdropImagePath(item), {
+    width: 1280,
+    height: 720,
+  });
   const timeRemaining = formatDetailsTimeRemaining(item);
   const secondaryTitle = getDetailsSecondaryTitle(item);
   const canPlay = Boolean(imageServerUrl && imageAuthToken && playTarget);
