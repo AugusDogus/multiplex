@@ -7,7 +7,7 @@
 > in `plans/README.md` — unless a reviewer dispatched you and told you they
 > maintain the index.
 >
-> **Drift check (run first)**: `git diff --stat 3c8182d..HEAD -- apps/web/src/app/login apps/web/src/components/login-form.tsx apps/web/src/components/multiplex-logo.tsx apps/web/src/app/layout.tsx`
+> **Drift check (run first)**: `git diff --stat 43e847c..HEAD -- apps/web/src/app/login apps/web/src/components/login-form.tsx apps/web/src/components/multiplex-logo.tsx apps/web/src/app/layout.tsx`
 > If any in-scope file changed since this plan was written, compare the
 > "Current state" excerpts against the live code before proceeding; on a
 > mismatch, treat it as a STOP condition.
@@ -19,7 +19,7 @@
 - **Risk**: LOW
 - **Depends on**: none
 - **Category**: direction
-- **Planned at**: commit `3c8182d`, 2026-07-15
+- **Planned at**: commit `43e847c`, 2026-07-16 (refreshed; login still scaffold — `Command` + `href="#"` + flat `bg-background`)
 
 ## Why this matters
 

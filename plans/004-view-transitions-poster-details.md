@@ -7,7 +7,7 @@
 > in `plans/README.md` — unless a reviewer dispatched you and told you they
 > maintain the index.
 >
-> **Drift check (run first)**: `git diff --stat 3c8182d..HEAD -- apps/web/next.config.js apps/web/src/hooks/use-item-details-navigation.ts apps/web/src/components/media-poster-card.tsx apps/web/src/components/media-item-details`
+> **Drift check (run first)**: `git diff --stat 43e847c..HEAD -- apps/web/next.config.js apps/web/src/hooks/use-item-details-navigation.ts apps/web/src/components/media-poster-card.tsx apps/web/src/components/media-item-details apps/web/src/lib/plex-image.ts`
 > If any in-scope file changed since this plan was written, compare the
 > "Current state" excerpts against the live code before proceeding; on a
 > mismatch, treat it as a STOP condition.
@@ -19,7 +19,7 @@
 - **Risk**: MED (name collisions, scroll restoration, reduced-motion)
 - **Depends on**: none
 - **Category**: direction
-- **Planned at**: commit `3c8182d`, 2026-07-15
+- **Planned at**: commit `43e847c`, 2026-07-16 (refreshed; still no View Transitions API usage)
 
 ## Why this matters
 
@@ -37,11 +37,13 @@ is done and stable.
   `router.push(getItemDetailsHref(...))`
 - Poster card links: `apps/web/src/components/media-poster-card.tsx` (hover scale
   only; no `view-transition-name`)
-- Details hero poster: under `apps/web/src/components/media-item-details/`
-  (e.g. `details-hero.tsx` — confirm path at execution time with
-  `rg -n 'poster|Poster' apps/web/src/components/media-item-details`)
+- Details hero poster: `apps/web/src/components/media-item-details/details-hero.tsx`
+  uses `next/image` with URLs from `getPlexImagePath` (`~/lib/plex-image`) —
+  shared-element transition must target that poster `Image` (and the matching
+  poster on the card), not a removed raw PMS URL path
 - `apps/web/next.config.js`: Next 16 preview config with `cacheComponents`,
-  `partialPrefetching` — **no** viewTransitions flag yet
+  `partialPrefetching`, `images: { unoptimized: true }` — **no** viewTransitions
+  flag yet
 - App uses App Router under `apps/web/src/app/(app)/…` and item routes via
   `getItemDetailsHref` in `apps/web/src/lib/plex-routes.ts`
 

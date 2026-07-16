@@ -7,7 +7,7 @@
 > in `plans/README.md` — unless a reviewer dispatched you and told you they
 > maintain the index.
 >
-> **Drift check (run first)**: `git diff --stat 3c8182d..HEAD -- apps/web/src/app/(app)/page.tsx apps/web/src/lib/plex-hub-query-options.ts apps/web/src/components/continue-watching.tsx apps/web/src/trpc/query-client.ts AGENTS.md`
+> **Drift check (run first)**: `git diff --stat 43e847c..HEAD -- apps/web/src/app/(app)/page.tsx apps/web/src/lib/plex-hub-query-options.ts apps/web/src/components/continue-watching.tsx apps/web/src/trpc/query-client.ts AGENTS.md`
 > If any in-scope file changed since this plan was written, compare the
 > "Current state" excerpts against the live code before proceeding; on a
 > mismatch, treat it as a STOP condition.
@@ -17,9 +17,9 @@
 - **Priority**: P1
 - **Effort**: M (spike + small wins; not a multi-week rewrite)
 - **Risk**: MED (stale Continue Watching / hubs if caching is too aggressive)
-- **Depends on**: none (001 CI nice-to-have)
+- **Depends on**: none (CI already on main)
 - **Category**: direction / perf
-- **Planned at**: commit `3c8182d`, 2026-07-15
+- **Planned at**: commit `43e847c`, 2026-07-16 (refreshed; was `3c8182d`)
 
 ## Why this matters
 
@@ -82,6 +82,9 @@ Default QueryClient already uses `staleTime: 30_000`
 - Details `staleTime: 5 * 60 * 1000` in `plex-details-query-options.ts`
 - Virtualized poster grids, route `loading.tsx` skeletons
 - Narrow Next `"use cache"` on account-level `get-servers` / `get-user-info` only
+- **New on main**: `6173202` reuses healthy Plex server clients in plex-query —
+  measure whether home latency is still dominated by Multiplex→PMS vs cold
+  TCP; do not treat that commit as finishing this spike
 
 ## Commands you will need
 

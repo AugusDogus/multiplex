@@ -20,15 +20,20 @@
 - **Depends on**: none
 - **Category**: direction / dx
 - **Planned at**: commit `3c8182d`, 2026-07-15
+- **Reconciled**: 2026-07-16 @ `43e847c` — **REJECTED (fixed independently)**
 
 ## Why this matters
 
-There is **no** `.github/workflows` directory and no Dockerfile / Railway /
-preview deploy config. Every PR currently relies on local discipline. The
-maintainer wants PR preview deployments later; those are useless without a
-baseline CI gate. This plan adds a minimal Actions workflow that runs the
-repo's existing `bun run check` and `bun run test` (unit tests only — not
-Playwright e2e, which need live Plex + Chrome + secrets).
+~~There is **no** `.github/workflows` directory…~~ **Superseded.** Main landed
+`da1a10b` (`chore(ci): establish reproducible verification baseline`) with
+`.github/workflows/ci.yml`: Bun 1.3.10, frozen lockfile, generated
+`apps/web/.env` for checks, then `bun run check` + `bun run test`. Do **not**
+execute this plan — leave the file as historical record.
+
+## Original intent (kept for history)
+
+There was no CI; PR previews would have been useless without a gate. The plan
+was to add Actions for `bun run check` + unit tests (not Playwright e2e).
 
 ## Current state
 

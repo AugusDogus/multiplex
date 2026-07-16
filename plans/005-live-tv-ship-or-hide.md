@@ -7,25 +7,27 @@
 > in `plans/README.md` — unless a reviewer dispatched you and told you they
 > maintain the index.
 >
-> **Drift check (run first)**: `git diff --stat 3c8182d..HEAD -- apps/web/src/app/(app)/live-tv apps/web/src/components/tv-guide packages/plex-query/src/plex/utils/plex-utils.ts`
+> **Drift check (run first)**: `git diff --stat 43e847c..HEAD -- apps/web/src/app/(app)/live-tv apps/web/src/components/tv-guide apps/web/src/components/live-tv-guide-refresh.tsx packages/plex-query/src/plex/utils/plex-utils.ts`
 > If any in-scope file changed since this plan was written, compare the
 > "Current state" excerpts against the live code before proceeding; on a
 > mismatch, treat it as a STOP condition.
 
 ## Status
 
-- **Priority**: P2
+- **Priority**: P1 (elevated on reconcile — guide kept improving, playback still absent)
 - **Effort**: S (hide/flag) — **not** the full Live TV player project
 - **Risk**: LOW for hide/flag; HIGH if you expand into full tune + WT
 - **Depends on**: none
 - **Category**: direction
-- **Planned at**: commit `3c8182d`, 2026-07-15
+- **Planned at**: commit `43e847c`, 2026-07-16 (refreshed)
 
 ## Why this matters
 
 Live TV appears as a real nav destination (sidebar routes via
-`plex-utils` → `/live-tv/...`) and renders an EPG `TvGuide`, but program and
-channel clicks are stubs:
+`plex-utils` → `/live-tv/...`) and renders an EPG `TvGuide`. Main recently
+invested in guide performance/UX (`d31df2f` reload out of read path;
+`c340e87` simplify refresh; `live-tv-guide-refresh.tsx`), **but program and
+channel clicks are still stubs**:
 
 ```ts
 // apps/web/src/components/tv-guide/tv-guide.tsx
@@ -48,7 +50,9 @@ operator has separately committed to a Live TV playback spike (not this plan).
 ## Current state
 
 - Routes: `apps/web/src/app/(app)/live-tv/[machineIdentifier]/[providerIdentifier]/page.tsx`
-- Guide UI: `apps/web/src/components/tv-guide/tv-guide.tsx`
+  (now uses `LiveTvGuideRefresh` when the guide is empty)
+- Guide UI: `apps/web/src/components/tv-guide/tv-guide.tsx` (stubs unchanged)
+- Refresh UX: `apps/web/src/components/live-tv-guide-refresh.tsx` (+ unit test)
 - Nav href construction: `packages/plex-query/src/plex/utils/plex-utils.ts`
   (~290–292) for `Live TV & DVR` → `/live-tv/${serverId}/...`
 - EPG client methods live in `packages/plex-query` server client (getChannels /
