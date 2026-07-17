@@ -35,18 +35,18 @@ GitHub Actions              GitHub Actions
 
 ### Railway project (already created for Multiplex)
 
-| | ID |
-|-|----|
-| Project | `c4c3d699-caab-4ce6-928a-d00b41af3c8b` |
+|                                 | ID                                     |
+| ------------------------------- | -------------------------------------- |
+| Project                         | `c4c3d699-caab-4ce6-928a-d00b41af3c8b` |
 | Base environment (`production`) | `710ec0ab-66f4-487d-b6eb-c605aa27e5cb` |
-| Service (`web`) | `cfa2c372-51ef-4a28-8740-3f95b634e4c4` |
+| Service (`web`)                 | `cfa2c372-51ef-4a28-8740-3f95b634e4c4` |
 
 Base env should have at least:
 
-| Variable | Value |
-|----------|--------|
-| `BETTER_AUTH_SECRET` | random 32+ bytes |
-| `DATABASE_URL` | `file:/app/data/db.sqlite` |
+| Variable             | Value                      |
+| -------------------- | -------------------------- |
+| `BETTER_AUTH_SECRET` | random 32+ bytes           |
+| `DATABASE_URL`       | `file:/app/data/db.sqlite` |
 
 `BETTER_AUTH_URL` is set **per PR by Actions** after a domain exists.
 
