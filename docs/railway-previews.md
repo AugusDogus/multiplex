@@ -34,16 +34,22 @@ Service variables on the base env:
 
 `railway.toml` at the repo root selects the Dockerfile builder.
 
-### 2. Enable PR Environments (dashboard)
+### 2. PR Environments (enabled)
 
-1. Open the Railway project → **Settings** → **Environments**
-2. **Enable PR Environments**
-3. Leave **Bot PR Environments** off (Dependabot/etc. won’t get previews)
-4. Optionally enable **Focused PR Environments**
+Already enabled on the `multiplex` project:
 
-Railway will only deploy PRs from users who can access the Railway project
-(fork drive-bys are not deployed). Environments are removed when the PR is
-merged or closed.
+| Setting                       | Value        |
+| ----------------------------- | ------------ |
+| PR Environments (`prDeploys`) | on           |
+| Bot PR Environments           | off          |
+| Focused PR Environments       | on           |
+| Base environment              | `production` |
+
+Railway only deploys PRs from users who can access the project (fork drive-bys
+are skipped). Environments are removed when the PR is merged or closed.
+
+To change these later: Railway → Project Settings → **Environments**, or the
+`projectUpdate` GraphQL mutation.
 
 ### 3. GitHub secrets (optional / unused for native previews)
 
