@@ -1,75 +1,74 @@
-# Railway Docker deploys & PR previews
+# PR previews via GitHub Actions → Railway (Docker)
 
-Multiplex ships a root `Dockerfile` and `railway.toml` so Railway builds with
-Docker (not Railpack). Preview URLs are meant for **manual smoke / login**, not
-full Watch Together e2e (that still needs dual Plex accounts + Chrome).
+**Orchestration lives in GitHub Actions.** The root `Dockerfile` is a normal
+portable image with no Railway-specific behavior. Actions uses the Railway CLI
+to create a per-PR environment, `railway up` the PR head (remote Docker build),
+set `BETTER_AUTH_URL` to that environment’s public domain, and delete the
+environment when the PR closes.
 
-## Prerequisites
+Preview URLs are for **manual smoke / login**, not full Watch Together e2e
+(that still needs dual Plex accounts + Chrome).
 
-1. Railway CLI (local):
+## Architecture
 
-   ```bash
-   curl -fsSL https://railway.com/install.sh | sh
-   export PATH="$HOME/.railway/bin:$PATH"
-   railway login
-   ```
+```text
+PR opened / synced          PR closed
+        │                        │
+        ▼                        ▼
+GitHub Actions              GitHub Actions
+  checkout PR head            railway environment delete pr-N
+  railway environment new
+  ensure public domain
+  set BETTER_AUTH_URL
+  railway up  ──Docker──►  Railway service in env pr-N
+```
 
-2. A Railway project linked to this GitHub repo (service root = repo root so
-   the root `Dockerfile` is detected).
+Do **not** enable Railway’s native “PR Environments” for this repo if you are
+using this workflow — you would get duplicate preview stacks.
 
-3. Service variables on the **base** environment (usually production or a
-   dedicated `preview-base` / staging env that PR environments copy from):
+## One-time setup
+
+### 1. Railway project
+
+1. Create a Railway project with one web service.
+2. Point the service at Docker builds (root `Dockerfile` / `railway.toml`).
+3. On a **base** environment (e.g. `preview-base` or staging), set at least:
 
    | Variable | Value |
    |----------|--------|
-   | `BETTER_AUTH_SECRET` | `openssl rand -hex 32` (shared across previews is fine) |
-   | `DATABASE_URL` | `file:/app/data/db.sqlite` (default in the image) |
-   | `BETTER_AUTH_URL` | optional on Railway — entrypoint sets `https://$RAILWAY_PUBLIC_DOMAIN` when that var exists |
+   | `BETTER_AUTH_SECRET` | `openssl rand -hex 32` |
+   | `DATABASE_URL` | `file:/app/data/db.sqlite` (image default) |
 
-4. Generate a public Railway domain on the service (PR envs get their own
-   domains when the base service has a Railway-provided domain).
+   `BETTER_AUTH_URL` is **set per PR by Actions** after a domain exists — you
+   do not need a stable value on the base env for previews.
 
-## Enable PR Environments (recommended)
+4. Note the **project id**, **base environment id**, and **service id**
+   (Railway dashboard → settings / `railway status --json`).
 
-Railway’s native PR Environments already match the product goals:
+### 2. GitHub configuration
 
-- Created when a PR opens against the linked repo
-- **Deleted when the PR is merged or closed**
-- **Fork PRs are not deployed** unless that GitHub user is invited to the Railway project
-- Bot PRs are off by default (`Enable Bot PR Environments` stays unchecked)
+| Name | Where | Purpose |
+|------|--------|---------|
+| `RAILWAY_TOKEN` | Actions **secret** | Account API token (not a project token) |
+| `RAILWAY_PROJECT_ID` | Actions **variable** | Project id |
+| `RAILWAY_ENVIRONMENT_ID` | Actions **variable** | Base env id to `--copy` |
+| `RAILWAY_SERVICE_ID` | Actions **variable** | Service id to deploy |
 
-Steps:
+Workflow: `.github/workflows/railway-preview.yml`
 
-1. Railway → Project Settings → **Environments** → **Enable PR Environments**
-2. Optionally enable **Focused PR Environments** (watch paths already listed in
-   `railway.toml`)
-3. Leave **Bot PR Environments** disabled unless you want Dependabot/etc. previews
-4. Set the PR base environment to staging/`preview-base` if you do not want
-   production variables as the template
+### 3. Safety defaults (already in the workflow)
 
-No GitHub Actions secret is required for the native path.
+- **Same-repo only** — fork PRs never deploy or destroy
+- **Cleanup on close/merge** — deletes `pr-<number>`
+- **Optional approval** — create a GitHub Environment `railway-preview` with
+  required reviewers and uncomment `environment: railway-preview` in the
+  workflow
 
-## Optional: GitHub Actions + Railway CLI
+Keep Railway’s **Bot PR Environments** disabled; this workflow does not run
+for `pull_request` events from bots unless they open PRs in-repo (still gated
+by your token).
 
-`.github/workflows/railway-preview.yml` is an optional alternative that creates
-`pr-<number>` environments via the CLI and deletes them on close. Use it only if
-you need custom wiring; otherwise prefer native PR Environments.
-
-Required GitHub secrets / variables (Actions path only):
-
-| Name | Type | Purpose |
-|------|------|---------|
-| `RAILWAY_TOKEN` | secret | Account token (not a project token) |
-| `RAILWAY_PROJECT_ID` | variable or secret | Project id |
-| `RAILWAY_ENVIRONMENT_ID` | variable or secret | Base env to `--copy` |
-| `RAILWAY_SERVICE_ID` | variable or secret | Service whose `source.branch` is pointed at the PR |
-
-The workflow **skips fork PRs** and only runs for `pull_request` events on this
-repository. To require human approval as well, add a GitHub Environment named
-`railway-preview` with required reviewers and uncomment the `environment:` key
-in the workflow.
-
-## Local Docker smoke test
+## Local Docker smoke test (no Railway)
 
 ```bash
 docker build -t multiplex:local .
@@ -79,12 +78,11 @@ docker run --rm -p 3000:3000 \
   multiplex:local
 ```
 
-Then open `http://localhost:3000/login`.
+Open `http://localhost:3000/login`.
 
 ## Limits
 
-- SQLite on the container filesystem is **ephemeral** unless you attach a volume
-  at `/app/data`. Previews reset auth/session data on each redeploy without a volume.
-- Plex OAuth still needs outbound access to `plex.tv`.
-- Preview `BETTER_AUTH_URL` must match the public HTTPS hostname (handled by the
-  entrypoint on Railway).
+- SQLite on the container filesystem is ephemeral unless you mount `/app/data`
+- Plex OAuth needs outbound access to `plex.tv`
+- Until the four GitHub secrets/vars above are set, the workflow **skips**
+  with a notice (so open PRs stay green before Railway is wired)
