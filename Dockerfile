@@ -14,10 +14,14 @@ WORKDIR /app
 
 COPY . .
 
-# next.config.js imports env.js; skip validation during image build.
+# next.config.js imports env.js; page data collection also touches the DB
+# client, so provide throwaway values for the build stage only.
 ENV SKIP_ENV_VALIDATION=1
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
+ENV DATABASE_URL=file:/tmp/build.sqlite
+ENV BETTER_AUTH_SECRET=build-time-placeholder-not-used-at-runtime
+ENV BETTER_AUTH_URL=http://localhost:3000
 
 RUN bun run --filter @multiplex/web build
 
