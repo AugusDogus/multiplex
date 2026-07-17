@@ -36,9 +36,9 @@ _This project was initially scaffolded using [create-t3-app](https://create.t3.g
 
 ## Deploy / PR previews
 
-See [docs/railway-previews.md](docs/railway-previews.md). GitHub Actions owns
-PR preview create/deploy/cleanup; the root `Dockerfile` is host-agnostic;
-Railway is only the deploy target via the CLI.
+See [docs/railway-previews.md](docs/railway-previews.md). Root `Dockerfile` is
+host-agnostic; Railway native PR Environments build it from each PR branch
+(no deploy GitHub Action required).
 
 ## Contributing
 
