@@ -21,12 +21,12 @@ export function LoginForm({
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <div className="flex flex-col gap-6">
         <div className="flex flex-col items-center gap-2">
-          <a href="#" className="flex flex-col items-center gap-2 font-medium">
+          <div className="flex flex-col items-center gap-2 font-medium">
             <div className="flex size-8 items-center justify-center rounded-md">
               <Command className="size-6 dark:text-white" />
             </div>
             <span className="sr-only">Multiplex</span>
-          </a>
+          </div>
           <h1 className="text-xl font-bold">Welcome to Multiplex</h1>
           <div className="text-muted-foreground text-center text-sm">
             Sign in with your Plex account to continue

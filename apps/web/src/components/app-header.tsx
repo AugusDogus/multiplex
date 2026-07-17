@@ -1,7 +1,7 @@
+import { Command } from "lucide-react";
 import Link from "next/link";
 import { Fragment, type ReactNode } from "react";
 import { AppHeaderShell } from "~/components/app-header-shell";
-import { MultiplexLogo } from "~/components/multiplex-logo";
 import { SearchWrapper } from "~/components/search-wrapper";
 import {
   Breadcrumb,
@@ -93,7 +93,7 @@ export function AppHeader({
           aria-label="Multiplex home"
           className="flex shrink-0 items-center gap-2 md:hidden"
         >
-          <MultiplexLogo className="size-6" />
+          <Command className="size-6" />
           <span className="text-base font-semibold tracking-tight">
             Multiplex
           </span>
