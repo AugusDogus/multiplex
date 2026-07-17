@@ -53,8 +53,12 @@ jobs:
       - name: Install Railway CLI
         if: steps.config.outputs.configured == 'true'
         run: |
-          curl -fsSL https://railway.com/install.sh | sh
-          echo "$HOME/.railway/bin" >> "$GITHUB_PATH"
+          # Official installer prints success then hits a `Bad substitution` on
+          # dash/sh in CI; verify the binary instead of trusting the exit code.
+          curl -fsSL https://railway.com/install.sh | sh -s -- -y || true
+          test -x "${HOME}/.railway/bin/railway"
+          echo "${HOME}/.railway/bin" >> "$GITHUB_PATH"
+          railway --version
 
       - name: Ensure PR environment
         if: steps.config.outputs.configured == 'true'
@@ -176,8 +180,10 @@ jobs:
       - name: Install Railway CLI
         if: steps.config.outputs.configured == 'true'
         run: |
-          curl -fsSL https://railway.com/install.sh | sh
-          echo "$HOME/.railway/bin" >> "$GITHUB_PATH"
+          curl -fsSL https://railway.com/install.sh | sh -s -- -y || true
+          test -x "${HOME}/.railway/bin/railway"
+          echo "${HOME}/.railway/bin" >> "$GITHUB_PATH"
+          railway --version
 
       - name: Delete PR environment
         if: steps.config.outputs.configured == 'true'
