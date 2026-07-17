@@ -53,13 +53,9 @@ jobs:
       - name: Install Railway CLI
         if: steps.config.outputs.configured == 'true'
         run: |
-          # Official installer prints success then hits a `Bad substitution` on
-          # dash/sh in CI; verify the binary instead of trusting the exit code.
-          # GITHUB_PATH only applies to later steps — use the absolute path here.
-          curl -fsSL https://railway.com/install.sh | sh -s -- -y || true
-          test -x "${HOME}/.railway/bin/railway"
-          echo "${HOME}/.railway/bin" >> "$GITHUB_PATH"
-          "${HOME}/.railway/bin/railway" --version
+          # Pin via npm — the curl installer often fails to fetch GitHub releases in Actions.
+          npm install -g @railway/cli@5.26.2
+          railway --version
 
       - name: Ensure PR environment
         if: steps.config.outputs.configured == 'true'
@@ -184,7 +180,7 @@ jobs:
           curl -fsSL https://railway.com/install.sh | sh -s -- -y || true
           test -x "${HOME}/.railway/bin/railway"
           echo "${HOME}/.railway/bin" >> "$GITHUB_PATH"
-          railway --version
+          "${HOME}/.railway/bin/railway" --version
 
       - name: Delete PR environment
         if: steps.config.outputs.configured == 'true'
