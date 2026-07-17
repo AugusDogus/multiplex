@@ -1,0 +1,29 @@
+# https://docs.railway.com/reference/config-as-code
+# Railway uses the root Dockerfile when present; this pins deploy settings.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+watchPatterns = [
+  "apps/web/**",
+  "packages/**",
+  "package.json",
+  "bun.lock",
+  "Dockerfile",
+  "scripts/docker-entrypoint.sh",
+  "railway.toml",
+]
+
+[deploy]
+# Omit startCommand so the image ENTRYPOINT (scripts/docker-entrypoint.sh)
+# runs db:push + `bun run --filter @multiplex/web start`.
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+# Prefer a static asset that does not require auth cookies.
+healthcheckPath = "/favicon.svg"
+healthcheckTimeout = 300
+
+# Ephemeral PR environments inherit base config; entrypoint still rewrites
+# BETTER_AUTH_URL from RAILWAY_PUBLIC_DOMAIN at boot.
+[environments.pr.deploy]
+restartPolicyType = "ON_FAILURE"

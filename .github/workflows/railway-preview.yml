@@ -1,0 +1,74 @@
+# Optional CLI-managed PR environments.
+# Prefer native Railway PR Environments (see docs/railway-previews.md) unless
+# you need this workflow's custom create/delete wiring.
+name: Railway preview
+
+on:
+  pull_request:
+    types: [opened, reopened, closed]
+
+concurrency:
+  group: railway-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # Same-repo PRs only — forks never create or destroy previews here.
+  # Railway native PR Environments also refuse undeployed fork authors unless
+  # invited to the project; keep both layers.
+  #
+  # Approval gate (optional): create a GitHub Environment named
+  # `railway-preview` with required reviewers, then uncomment `environment:`.
+  manage:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    # environment: railway-preview
+    container: ghcr.io/railwayapp/cli:latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check Railway configuration
+        id: config
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
+          RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
+        run: |
+          if [ -z "${RAILWAY_TOKEN:-}" ] || [ -z "${RAILWAY_PROJECT_ID:-}" ] || [ -z "${RAILWAY_ENVIRONMENT_ID:-}" ] || [ -z "${RAILWAY_SERVICE_ID:-}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "Railway preview secrets/vars not configured — skipping (see docs/railway-previews.md)."
+            exit 0
+          fi
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - name: Link Railway project
+        if: steps.config.outputs.configured == 'true'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
+        run: railway link --project "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT_ID"
+
+      - name: Create PR environment
+        if: >
+          steps.config.outputs.configured == 'true' &&
+          (github.event.action == 'opened' || github.event.action == 'reopened')
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
+          RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
+          PR_ENV: pr-${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          railway environment new "${PR_ENV}" \
+            --copy "${RAILWAY_ENVIRONMENT_ID}" \
+            --service-config "${RAILWAY_SERVICE_ID}" "source.branch" "${HEAD_REF}"
+
+      - name: Delete PR environment
+        if: >
+          steps.config.outputs.configured == 'true' &&
+          github.event.action == 'closed'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          PR_ENV: pr-${{ github.event.pull_request.number }}
+        run: railway environment delete "${PR_ENV}" --yes || true

@@ -34,6 +34,12 @@ _This project was initially scaffolded using [create-t3-app](https://create.t3.g
 3. Set up your environment variables: `cp apps/web/.env.example apps/web/.env`
 4. Run the development server: `bun dev`
 
+## Deploy / PR previews (Railway + Docker)
+
+See [docs/railway-previews.md](docs/railway-previews.md) for the root
+`Dockerfile`, `railway.toml`, enabling Railway PR Environments (auto-cleanup,
+fork-safe), and the optional GitHub Actions CLI workflow.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit issues and pull requests to help improve Multiplex.
