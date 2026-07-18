@@ -24,6 +24,12 @@
 
 Could not measure: official Plex web comparison was not automated in this headless one-off harness, and no stable same-library path was selected during this spike.
 
+## After
+
+- Home cold load: navigation start to first resolved Continue Watching row state was **3804ms**. Within 5s, browser network observed **0** `plex.getHomeHubs`, **0** `plex.getAllContinueWatching`, and **1** `plex.getWatchTogetherRooms` response.
+- Home warm load: reload start to first resolved Continue Watching row state was **3664ms**. Within 5s, browser network observed **0** `plex.getHomeHubs`, **0** `plex.getAllContinueWatching`, and **1** `plex.getWatchTogetherRooms` response.
+- Continue Watching idle polling: over **31000ms**, browser network observed **1** `plex.getAllContinueWatching` response, down from **4** before the timing changes. `plex.getWatchTogetherRooms` remained at **2** responses because it has its own 15s refresh behavior outside this spike's scope.
+
 ## Chosen interventions
 
 1. Raise shared hub `staleTime` to **30000ms** so SSR hydration can avoid the immediate warm-load hub refetch and align with the default QueryClient freshness window.

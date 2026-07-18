@@ -40,7 +40,7 @@ export interface ContinueWatchingProps {
   showTitle?: boolean;
   /** Custom title for the section */
   title?: string;
-  /** Auto-refresh interval in milliseconds (default: 5000ms) */
+  /** Auto-refresh interval in milliseconds (default: 30000ms) */
   refreshInterval?: number;
   /** Whether to enable auto-refresh (default: true) */
   enableAutoRefresh?: boolean;
@@ -49,7 +49,7 @@ export interface ContinueWatchingProps {
 export function ContinueWatching({
   showTitle = true,
   title = "Continue Watching",
-  refreshInterval = 5000,
+  refreshInterval = 30_000,
   enableAutoRefresh = true,
 }: ContinueWatchingProps) {
   const isPageVisible = useVisibilityChange();
@@ -61,7 +61,7 @@ export function ContinueWatching({
     isFetching,
   } = api.plex.getAllContinueWatching.useQuery(undefined, {
     refetchOnWindowFocus: false,
-    staleTime: 0,
+    staleTime: 30_000,
     gcTime: refreshInterval * 4,
     refetchInterval:
       enableAutoRefresh && isPageVisible ? refreshInterval : false,
