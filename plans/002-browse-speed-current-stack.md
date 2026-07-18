@@ -24,7 +24,7 @@
 ## Why this matters
 
 The #1 maintainer goal is “as fast as / faster than official Plex web.” Today
-Multiplex is a Plex *client*: browse data flows **RSC → tRPC → plex-query →
+Multiplex is a Plex _client_: browse data flows **RSC → tRPC → plex-query →
 plex.tv/PMS**, hydrated into TanStack Query. Home **awaits three prefetches**
 before paint, hub queries force `staleTime: 0` (immediate client refetch after
 SSR), and Continue Watching polls every ~5s through Multiplex. A Zero /
@@ -107,14 +107,14 @@ invalidation/`setData` over removing refresh entirely.
 
 ## Commands you will need
 
-| Purpose | Command | Expected on success |
-|---------|---------|---------------------|
-| Install | `bun install` | exit 0 |
-| DB | `bun db:push` | exit 0 |
-| Dev server | `bun dev` | Next on :3000 |
-| Typecheck | `bun run typecheck` | exit 0 |
-| Check | `bun run check` | exit 0 |
-| Unit tests | `bun run test` | exit 0 |
+| Purpose    | Command             | Expected on success |
+| ---------- | ------------------- | ------------------- |
+| Install    | `bun install`       | exit 0              |
+| DB         | `bun db:push`       | exit 0              |
+| Dev server | `bun dev`           | Next on :3000       |
+| Typecheck  | `bun run typecheck` | exit 0              |
+| Check      | `bun run check`     | exit 0              |
+| Unit tests | `bun run test`      | exit 0              |
 
 ## Suggested executor toolkit
 
@@ -127,6 +127,7 @@ invalidation/`setData` over removing refresh entirely.
 ## Scope
 
 **In scope**:
+
 - Measurement notes committed as `plans/002-browse-speed-findings.md` (create)
 - Optional small code tweaks **only** to:
   - `apps/web/src/lib/plex-hub-query-options.ts`
@@ -136,6 +137,7 @@ invalidation/`setData` over removing refresh entirely.
 - `plans/README.md` status row for 002 (skip if reviewer maintains index)
 
 **Out of scope**:
+
 - Zero, Electric, TanStack DB, Replicache, RxDB, or any local catalog replica
 - Rewriting Effect `PlayerService` / Watch Together
 - Client-side transcoding
@@ -161,12 +163,12 @@ Record in `plans/002-browse-speed-findings.md`:
 1. **Home cold load**: time from navigation to first Continue Watching row
    content (or skeleton→content). Note waterfalls: document request to
    Multiplex `/api/trpc/...` vs direct PMS timing if visible.
-   *Fallback if UI login blocked*: time `getHomeHubs`,
+   _Fallback if UI login blocked_: time `getHomeHubs`,
    `getAllContinueWatching`, and `getWatchTogetherRooms` server procedures
    (or their query helpers) under a real plex token session — document method.
 2. **Home warm load** (reload within 30s): does hydrated data stick or do hubs
    immediately refetch (`staleTime: 0`)?
-   *Fallback*: cite the code path that forces refetch and treat as confirmed.
+   _Fallback_: cite the code path that forces refetch and treat as confirmed.
 3. **Continue Watching**: count of `getAllContinueWatching` calls over 30s on
    an idle home tab (expect ~6 at 5s interval if polling).
 4. **Poster → details**: time to interactive details after click when prefetch
@@ -184,12 +186,12 @@ reason.
 
 In the findings doc, pick **at most three** of:
 
-| Candidate | When justified | Risk |
-|-----------|----------------|------|
-| Raise hub `staleTime` (e.g. 30s–2m) so SSR hydrate wins | Warm home always refetches hubs immediately | Stale hubs |
-| Soften Continue Watching poll (longer interval or invalidate-on-focus/play) | Idle tab hammers tRPC | Stale progress bars |
-| Don't `await` all three home prefetches (stream shell / prioritize CW + WT) | Home TTFB dominated by slowest of three | Layout shift / empty WT row |
-| Leave code unchanged | Numbers already acceptable / bottleneck is PMS RTT only | — |
+| Candidate                                                                   | When justified                                          | Risk                        |
+| --------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------- |
+| Raise hub `staleTime` (e.g. 30s–2m) so SSR hydrate wins                     | Warm home always refetches hubs immediately             | Stale hubs                  |
+| Soften Continue Watching poll (longer interval or invalidate-on-focus/play) | Idle tab hammers tRPC                                   | Stale progress bars         |
+| Don't `await` all three home prefetches (stream shell / prioritize CW + WT) | Home TTFB dominated by slowest of three                 | Layout shift / empty WT row |
+| Leave code unchanged                                                        | Numbers already acceptable / bottleneck is PMS RTT only | —                           |
 
 Default recommendation if UI measurement is partial but code evidence is clear:
 raise hub `staleTime` to match the QueryClient default (`30_000`) and lengthen
