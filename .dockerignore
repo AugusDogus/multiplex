@@ -8,9 +8,9 @@
 **/coverage
 **/*.sqlite
 **/*.sqlite-*
-apps/web/.env
-apps/web/.env.local
-apps/web/.env.*.local
+**/.env
+**/.env.*
+!**/.env.example
 plans
 **/.turbo
 **/.cache
