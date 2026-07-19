@@ -12,8 +12,10 @@ import { getUserInfoQuery } from "~/server/queries/get-user-info";
 import { retryAsync } from "~/server/utils/retry";
 
 export const PMS_REQUEST_RETRY_OPTIONS = {
-  attempts: 5,
-  baseDelayMs: 1_000,
+  // Keep the home cold-start budget bounded once PMS fetches abort (~10s).
+  // 5×1s-backoff used to stack with hung Bun fetches into ~minute skeletons.
+  attempts: 3,
+  baseDelayMs: 500,
 } as const;
 
 export interface PlexServerContext {
