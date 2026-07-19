@@ -158,9 +158,13 @@ async function measureMultiplexSoftNavOnce(page) {
   });
   await page.waitForTimeout(1000);
 
-  const libraryLink = page
+  const movies = page
     .locator('a[href*="/media/"][href*="source="]')
+    .filter({ hasText: /^Movies$/i })
     .first();
+  const libraryLink = (await movies.count())
+    ? movies
+    : page.locator('a[href*="/media/"][href*="source="]').first();
   await libraryLink.waitFor({ state: "visible", timeout: 30_000 });
   await libraryLink.hover();
   await page.waitForTimeout(1200);
