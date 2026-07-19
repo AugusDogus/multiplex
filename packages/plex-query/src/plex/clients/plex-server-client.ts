@@ -73,6 +73,55 @@ import { z } from "zod";
 /** Cold starts (fresh browser + server) often need longer than LAN latency. */
 const CONNECTION_TEST_TIMEOUT_MS = 3_000;
 
+/**
+ * Process-wide cache of last-known-good PMS URIs. `"use cache"` and parallel
+ * Suspense lanes each construct fresh `PlexTvClient` instances, so without a
+ * shared cache every lane re-runs /identity discovery (and local-first probing
+ * can burn a full timeout batch before trying remote plex.direct).
+ */
+const workingConnectionCache = new Map<string, { uri: string; connectionsFingerprint: string }>();
+const inflightConnectionDiscovery = new Map<string, Promise<PlexDevice["connections"][0]>>();
+
+function connectionsFingerprint(server: PlexDevice): string {
+  return server.connections
+    .map(
+      (connection) =>
+        `${connection.uri}|${connection.local ? "L" : "R"}|${connection.relay ? "Y" : "N"}`,
+    )
+    .join(";");
+}
+
+/** Test helper / explicit invalidation across PlexTvClient instances. */
+export function clearPlexServerConnectionCache(serverId?: string): void {
+  if (serverId) {
+    workingConnectionCache.delete(serverId);
+    inflightConnectionDiscovery.delete(serverId);
+    return;
+  }
+  workingConnectionCache.clear();
+  inflightConnectionDiscovery.clear();
+}
+
+function readCachedWorkingConnection(server: PlexDevice): PlexDevice["connections"][0] | null {
+  const cached = workingConnectionCache.get(server.clientIdentifier);
+  if (!cached) return null;
+  if (cached.connectionsFingerprint !== connectionsFingerprint(server)) {
+    workingConnectionCache.delete(server.clientIdentifier);
+    return null;
+  }
+  return server.connections.find((connection) => connection.uri === cached.uri) ?? null;
+}
+
+function writeCachedWorkingConnection(
+  server: PlexDevice,
+  connection: PlexDevice["connections"][0],
+): void {
+  workingConnectionCache.set(server.clientIdentifier, {
+    uri: connection.uri,
+    connectionsFingerprint: connectionsFingerprint(server),
+  });
+}
+
 const delegationTokenResponseSchema = z.union([
   z.object({ authToken: z.string().min(1) }),
   z.object({ token: z.string().min(1) }),
@@ -145,6 +194,10 @@ export class PlexServerClient {
     this.token = server.accessToken ?? token;
     this.config = config;
     this.server = server;
+    // Seed from the process-wide cache so a new client instance (common under
+    // Next `"use cache"`) skips a full /identity fan-out when we already know
+    // a working URI for this server + connection list.
+    this.workingConnection = readCachedWorkingConnection(server);
   }
 
   static fromConnectionUri(
@@ -215,32 +268,56 @@ export class PlexServerClient {
    * Find the best working connection by testing them in priority order
    * @returns Promise that resolves to a working connection
    */
+  /**
+   * Best-effort /identity warm so a later request (possibly on another
+   * `PlexTvClient` instance) can join the same in-flight discovery.
+   */
+  async warmConnection(): Promise<void> {
+    try {
+      await this.findWorkingConnection();
+    } catch {
+      // Discovery failures are handled on the real request path.
+    }
+  }
+
   private async findWorkingConnection(): Promise<PlexDevice["connections"][0]> {
-    // If we already have a cached working connection, return it
     if (this.workingConnection) {
       return this.workingConnection;
     }
 
-    // If we're already testing connections, return that promise
-    if (this.connectionTestPromise) {
-      return this.connectionTestPromise;
+    const cached = readCachedWorkingConnection(this.server);
+    if (cached) {
+      this.workingConnection = cached;
+      return cached;
     }
 
-    // Start testing connections
+    const serverId = this.server.clientIdentifier;
+    const sharedInflight = this.connectionTestPromise ?? inflightConnectionDiscovery.get(serverId);
+    if (sharedInflight) {
+      const connection = await sharedInflight;
+      const match =
+        this.server.connections.find((entry) => entry.uri === connection.uri) ?? connection;
+      this.workingConnection = match;
+      return match;
+    }
+
     this.connectionTestPromise = this.testConnections();
+    inflightConnectionDiscovery.set(serverId, this.connectionTestPromise);
 
     try {
       const connection = await this.connectionTestPromise;
       this.workingConnection = connection;
       return connection;
     } finally {
-      // Clear the promise so we can retry if needed
       this.connectionTestPromise = null;
+      inflightConnectionDiscovery.delete(serverId);
     }
   }
 
   /**
-   * Test all connections in priority order until we find one that works
+   * Race every advertised connection and take the first that answers /identity.
+   * Local-first batching used to stall remote-only clients (e.g. cloud deploys)
+   * for a full CONNECTION_TEST_TIMEOUT_MS while LAN URIs timed out.
    */
   private async testConnections(): Promise<PlexDevice["connections"][0]> {
     const connections = [...this.server.connections];
@@ -249,56 +326,49 @@ export class PlexServerClient {
       `Testing connections for server: ${this.server.name} (${connections.length} available)`,
     );
 
-    // Sort connections by priority
+    if (connections.length === 0) {
+      console.log(`❌ ${this.server.name}: No working connections found`);
+      throw new Error(`No working connections found for server ${this.server.name}`);
+    }
+
+    // Prefer remote HTTPS / plex.direct candidates in the race settle order so
+    // that when several succeed near-simultaneously we keep the better URI.
     connections.sort((a, b) => {
-      // For shared servers (not owned), prefer relay connections first
-      if (!this.server.owned) {
-        if (a.relay && !b.relay) return -1;
-        if (!a.relay && b.relay) return 1;
+      if (a.local !== b.local) return a.local ? 1 : -1;
+      if (a.relay !== b.relay) {
+        // Owned: prefer non-relay. Shared: prefer relay.
+        if (this.server.owned) return a.relay ? 1 : -1;
+        return a.relay ? -1 : 1;
       }
-
-      // For owned servers, local connections first
-      if (this.server.owned) {
-        if (a.local && !b.local) return -1;
-        if (!a.local && b.local) return 1;
-      }
-
-      // Among same type, prefer HTTPS
       if (a.protocol === "https" && b.protocol === "http") return -1;
       if (a.protocol === "http" && b.protocol === "https") return 1;
-
       return 0;
     });
 
-    // Test connections in parallel with a slight delay between batches
-    // to avoid overwhelming the server
-    const batchSize = 3;
-    const batchCount = Math.ceil(connections.length / batchSize);
+    const winner = await new Promise<PlexDevice["connections"][0] | null>((resolve) => {
+      let remaining = connections.length;
+      let settled = false;
 
-    for (const batchIndex of Array.from({ length: batchCount }, (_, i) => i)) {
-      const startIndex = batchIndex * batchSize;
-      const batch = connections.slice(startIndex, startIndex + batchSize);
-
-      // Test this batch in parallel
-      const results = await Promise.allSettled(
-        batch.map(async (connection) => {
-          const works = await this.testConnection(connection);
-          return { connection, works };
-        }),
-      );
-
-      // Return the first working connection from this batch
-      for (const result of results) {
-        if (result.status === "fulfilled" && result.value.works) {
-          console.log(`✅ ${this.server.name}: Connected via ${result.value.connection.uri}`);
-          return result.value.connection;
-        }
+      for (const connection of connections) {
+        void this.testConnection(connection).then((works) => {
+          if (settled) return;
+          if (works) {
+            settled = true;
+            resolve(connection);
+            return;
+          }
+          remaining -= 1;
+          if (remaining === 0) {
+            resolve(null);
+          }
+        });
       }
+    });
 
-      // Small delay before trying the next batch
-      if (startIndex + batchSize < connections.length) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
+    if (winner) {
+      writeCachedWorkingConnection(this.server, winner);
+      console.log(`✅ ${this.server.name}: Connected via ${winner.uri}`);
+      return winner;
     }
 
     console.log(`❌ ${this.server.name}: No working connections found`);
@@ -311,6 +381,7 @@ export class PlexServerClient {
   private resetConnection(): void {
     this.workingConnection = null;
     this.connectionTestPromise = null;
+    workingConnectionCache.delete(this.server.clientIdentifier);
   }
 
   /**

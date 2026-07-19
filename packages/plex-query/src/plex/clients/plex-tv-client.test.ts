@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { PlexDevice } from "../schemas/plex-tv-schemas";
 import type { PlexConfig } from "../types/client-types";
+import { clearPlexServerConnectionCache } from "./plex-server-client";
 import { PlexTvClient } from "./plex-tv-client";
 
 const CONFIG: PlexConfig = {
@@ -19,6 +20,7 @@ function createFetchMock(
 }
 
 afterEach(() => {
+  clearPlexServerConnectionCache();
   mock.restore();
 });
 

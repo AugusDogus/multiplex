@@ -9,6 +9,9 @@ import { cache } from "react";
 
 import { auth } from "~/lib/auth/server";
 import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
+import { getAllContinueWatchingQuery } from "~/server/queries/get-all-continue-watching";
+import { getAllServerLibrariesQuery } from "~/server/queries/get-all-server-libraries";
+import { getHomeHubsQuery } from "~/server/queries/get-home-hubs";
 import { getServersQuery } from "~/server/queries/get-servers";
 import { getUserInfoQuery } from "~/server/queries/get-user-info";
 
@@ -51,6 +54,18 @@ export const getAppPlexContext = cache(async (): Promise<AppPlexContext> => {
   if (!userInfo) {
     throw new AppPlexBootstrapError();
   }
+
+  // Overlap PMS discovery + home data fill with the rest of the RSC tree.
+  // Parallel Suspense lanes / `"use cache"` create fresh clients; shared
+  // connection discovery + these warmed caches keep Continue Watching off the
+  // critical path of a second serial round-trip.
+  for (const server of servers) {
+    if (server.presence === false) continue;
+    void plex.createServerClient(server).warmConnection();
+  }
+  void getAllContinueWatchingQuery(plex);
+  void getHomeHubsQuery(plex);
+  void getAllServerLibrariesQuery(plex);
 
   return { session, servers, userInfo };
 });

@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 
+import type { PlexDevice } from "../schemas/plex-tv-schemas";
 import type { PlexConfig } from "../types/client-types";
 import { PlexAPIError } from "../types/client-types";
-import { PlexServerClient } from "./plex-server-client";
+import { clearPlexServerConnectionCache, PlexServerClient } from "./plex-server-client";
+import { PlexTvClient } from "./plex-tv-client";
 
 const CONFIG: PlexConfig = {
   product: "Multiplex Test",
@@ -15,6 +17,7 @@ const requests: Array<{ method: string; url: URL }> = [];
 
 afterEach(() => {
   requests.length = 0;
+  clearPlexServerConnectionCache();
   mock.restore();
 });
 
@@ -288,6 +291,240 @@ describe("PlexServerClient playlist contracts", () => {
     try {
       const error = await client.getPlaylistContents("42").catch((cause: unknown) => cause);
       expect(error).toBeInstanceOf(PlexAPIError);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+});
+
+describe("PlexServerClient connection discovery", () => {
+  test("races remote success ahead of a hanging local connection", async () => {
+    const server: PlexDevice = {
+      name: "Haus",
+      product: "Plex Media Server",
+      productVersion: "1.0.0",
+      platform: "Linux",
+      platformVersion: "1.0",
+      device: "PC",
+      clientIdentifier: "haus",
+      createdAt: "",
+      lastSeenAt: "",
+      provides: "server",
+      ownerId: null,
+      sourceTitle: null,
+      publicAddress: "1.2.3.4",
+      accessToken: "server-token",
+      owned: true,
+      home: false,
+      synced: false,
+      relay: false,
+      presence: true,
+      httpsRequired: true,
+      publicAddressMatches: false,
+      connections: [
+        {
+          protocol: "https",
+          address: "192.168.1.10",
+          port: 32400,
+          uri: "https://192.168.1.10:32400",
+          local: true,
+          relay: false,
+          IPv6: false,
+        },
+        {
+          protocol: "https",
+          address: "remote.plex.direct",
+          port: 32400,
+          uri: "https://remote.plex.direct:32400",
+          local: false,
+          relay: false,
+          IPv6: false,
+        },
+      ],
+    };
+
+    const fetchImplementation = Object.assign(
+      async (input: URL | RequestInfo): Promise<Response> => {
+        const url =
+          input instanceof URL ? input : new URL(input instanceof Request ? input.url : input);
+        if (url.hostname === "192.168.1.10") {
+          // Hang until the 3s identity abort — must not block remote success.
+          return new Promise(() => undefined);
+        }
+        if (url.pathname.endsWith("/identity")) {
+          return new Response(null, { status: 200 });
+        }
+        return Response.json({
+          MediaContainer: {
+            size: 0,
+            friendlyName: "Haus",
+            machineIdentifier: "haus",
+            MediaProvider: [],
+          },
+        });
+      },
+      { preconnect: () => undefined },
+    );
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(fetchImplementation);
+
+    try {
+      const started = Date.now();
+      await new PlexServerClient(server, "account-token", CONFIG).getMediaProviders();
+      expect(Date.now() - started).toBeLessThan(1_000);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test("joins an in-flight discovery started by warmConnection on another client", async () => {
+    const server: PlexDevice = {
+      name: "Haus",
+      product: "Plex Media Server",
+      productVersion: "1.0.0",
+      platform: "Linux",
+      platformVersion: "1.0",
+      device: "PC",
+      clientIdentifier: "haus-inflight",
+      createdAt: "",
+      lastSeenAt: "",
+      provides: "server",
+      ownerId: null,
+      sourceTitle: null,
+      publicAddress: "1.2.3.4",
+      accessToken: "server-token",
+      owned: true,
+      home: false,
+      synced: false,
+      relay: false,
+      presence: true,
+      httpsRequired: true,
+      publicAddressMatches: false,
+      connections: [
+        {
+          protocol: "https",
+          address: "remote.plex.direct",
+          port: 32400,
+          uri: "https://remote.plex.direct:32400",
+          local: false,
+          relay: false,
+          IPv6: false,
+        },
+      ],
+    };
+
+    let identityRequests = 0;
+    let releaseIdentity: (() => void) | undefined;
+    const identityGate = new Promise<void>((resolve) => {
+      releaseIdentity = resolve;
+    });
+
+    const fetchImplementation = Object.assign(
+      async (input: URL | RequestInfo): Promise<Response> => {
+        const url =
+          input instanceof URL ? input : new URL(input instanceof Request ? input.url : input);
+        if (url.pathname.endsWith("/identity")) {
+          identityRequests += 1;
+          await identityGate;
+          return new Response(null, { status: 200 });
+        }
+        return Response.json({
+          MediaContainer: {
+            size: 0,
+            friendlyName: "Haus",
+            machineIdentifier: "haus-inflight",
+            MediaProvider: [],
+          },
+        });
+      },
+      { preconnect: () => undefined },
+    );
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(fetchImplementation);
+
+    try {
+      const warmer = new PlexTvClient("account-token", CONFIG).createServerClient(server);
+      const warmerPromise = warmer.warmConnection();
+      await Promise.resolve();
+      expect(identityRequests).toBe(1);
+
+      const readerPromise = new PlexTvClient("account-token", CONFIG)
+        .createServerClient(server)
+        .getMediaProviders();
+
+      releaseIdentity?.();
+      await Promise.all([warmerPromise, readerPromise]);
+      expect(identityRequests).toBe(1);
+    } finally {
+      releaseIdentity?.();
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test("reuses a working URI across fresh PlexTvClient instances", async () => {
+    const server: PlexDevice = {
+      name: "Haus",
+      product: "Plex Media Server",
+      productVersion: "1.0.0",
+      platform: "Linux",
+      platformVersion: "1.0",
+      device: "PC",
+      clientIdentifier: "haus-shared",
+      createdAt: "",
+      lastSeenAt: "",
+      provides: "server",
+      ownerId: null,
+      sourceTitle: null,
+      publicAddress: "1.2.3.4",
+      accessToken: "server-token",
+      owned: true,
+      home: false,
+      synced: false,
+      relay: false,
+      presence: true,
+      httpsRequired: true,
+      publicAddressMatches: false,
+      connections: [
+        {
+          protocol: "https",
+          address: "remote.plex.direct",
+          port: 32400,
+          uri: "https://remote.plex.direct:32400",
+          local: false,
+          relay: false,
+          IPv6: false,
+        },
+      ],
+    };
+
+    let identityRequests = 0;
+    const fetchImplementation = Object.assign(
+      async (input: URL | RequestInfo): Promise<Response> => {
+        const url =
+          input instanceof URL ? input : new URL(input instanceof Request ? input.url : input);
+        if (url.pathname.endsWith("/identity")) {
+          identityRequests += 1;
+          return new Response(null, { status: 200 });
+        }
+        return Response.json({
+          MediaContainer: {
+            size: 0,
+            friendlyName: "Haus",
+            machineIdentifier: "haus-shared",
+            MediaProvider: [],
+          },
+        });
+      },
+      { preconnect: () => undefined },
+    );
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(fetchImplementation);
+
+    try {
+      await new PlexTvClient("account-token", CONFIG)
+        .createServerClient(server)
+        .getMediaProviders();
+      await new PlexTvClient("account-token", CONFIG)
+        .createServerClient(server)
+        .getMediaProviders();
+      expect(identityRequests).toBe(1);
     } finally {
       fetchSpy.mockRestore();
     }

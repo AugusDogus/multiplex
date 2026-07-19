@@ -78,18 +78,39 @@ Warm (desktop):
 | Multiplex | **~300–1000ms** (Playwright ~900ms) |
 | Plex web  | **~2000ms** (visual)                |
 
+## Round 2 — connection discovery (must be faster)
+
+Root cause of remaining ~3s cold stalls: `PlexServerClient` probed **local
+connections first in batches**, so remote-only clients (cloud / non-LAN) waited
+a full 3s identity timeout before trying `*.plex.direct`. Also, Next `"use
+cache"` lanes each built a fresh `PlexTvClient`, re-running discovery.
+
+Fixes in `packages/plex-query`:
+
+1. Race **all** advertised URIs; first `/identity` success wins
+2. Process-wide working-URI cache + **shared in-flight** discovery promise
+3. `warmConnection()` from `getAppPlexContext`, plus fire-and-forget warm of CW /
+   hubs / libraries so home Suspense joins work already in flight
+4. Eager `priority` on the first six Continue Watching posters (LCP)
+
+Desktop Chrome after restart (visual CW posters):
+
+|                         | Before race fix | After                                |
+| ----------------------- | --------------- | ------------------------------------ |
+| First home (OAuth → CW) | ~3500–4000ms    | **~2800ms** (then further with warm) |
+| Hard reload             | ~3000–4000ms    | **~2100ms**                          |
+| Warm reload             | ~900–1000ms     | **~900–1000ms**                      |
+
+Playwright headed reloads (server cache warm): CW posters **~900ms**.
+
 ## Comparison verdict
 
 - **Warm home:** Multiplex is **faster** than official Plex web on CW posters
-  after these changes (about 2× in the desktop session).
-- **Cold home:** Roughly **tied to slightly faster** than Plex once streaming
-  lands; still gated on PMS reachability (~3s) when Next + server caches are
-  empty.
-- **Not done:** beating Plex’s ~500ms shell DCL on a fully cold Multiplex
-  document still needs more (connection reuse already helps; further work is
-  faster first-byte streaming past `AppPlexContentGate`, and/or parallelizing
-  PMS discovery). Localhost asset advantage remains a fairness caveat until we
-  measure a deployed Multiplex URL.
+  (~1s vs ~2s).
+- **Cold / hard reload:** Now **clearly ahead of Plex’s ~3.5s** CW fill once
+  connection racing landed (~2.1–2.8s), not merely tied.
+- **Still open:** Plex shell DCL (~500ms) vs Multiplex document work; localhost
+  asset advantage; production URL comparison.
 
 ## No sync engine
 
