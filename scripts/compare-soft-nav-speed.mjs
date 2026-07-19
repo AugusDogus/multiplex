@@ -8,7 +8,8 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 
-const MULTIPLEX_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";
+const MULTIPLEX_URL =
+  process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";
 const PLEX_URL = "https://app.plex.tv/desktop/#!/";
 const EMAIL = process.env.MULTIPLEX_ACCOUNT_EMAIL;
 const PASSWORD = process.env.MULTIPLEX_ACCOUNT_PASSWORD;
@@ -30,7 +31,13 @@ async function loginMultiplex(page) {
 
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
-    for (const label of [/authorize/i, /allow/i, /^continue$/i, /got it/i, /^ok$/i]) {
+    for (const label of [
+      /authorize/i,
+      /allow/i,
+      /^continue$/i,
+      /got it/i,
+      /^ok$/i,
+    ]) {
       const btn = page.getByRole("button", { name: label });
       if (await btn.count()) {
         try {
@@ -54,13 +61,22 @@ async function loginMultiplex(page) {
 }
 
 async function loginPlexWeb(page) {
+  // Same browser context as Multiplex login often already has plex.tv cookies.
   await page.goto(PLEX_URL, { waitUntil: "domcontentloaded" });
-  const signedIn = await page
-    .getByText(/continue watching/i)
-    .first()
-    .isVisible()
-    .catch(() => false);
-  if (signedIn) return;
+  const homeVisible = async () =>
+    page
+      .getByText(/continue watching/i)
+      .first()
+      .isVisible()
+      .catch(() => false);
+
+  if (await homeVisible()) return;
+
+  // Wait briefly for SPA bootstrap before assuming we need to sign in.
+  for (let i = 0; i < 20 && !(await homeVisible()); i++) {
+    await page.waitForTimeout(500);
+  }
+  if (await homeVisible()) return;
 
   const signIn = page.getByRole("button", { name: /sign in/i }).first();
   if (await signIn.isVisible().catch(() => false)) {
@@ -71,38 +87,55 @@ async function loginPlexWeb(page) {
     });
   }
 
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(2000);
   const form = page.frameLocator('iframe[src*="auth-form"]');
+  // Email gate is optional depending on stored plex.tv session.
   const emailBtn = form.getByTestId("signIn--email");
   if (await emailBtn.count()) {
-    await emailBtn.click({ timeout: 30_000 });
+    await emailBtn.click({ timeout: 15_000 }).catch(() => {});
   }
-  await form.locator("#email").fill(EMAIL, { timeout: 30_000 });
-  await form.locator("#password").fill(PASSWORD);
-  await form.getByTestId("signIn--submit").click();
+  const email = form.locator("#email");
+  if (await email.count()) {
+    await email.fill(EMAIL, { timeout: 15_000 });
+    await form.locator("#password").fill(PASSWORD);
+    await form.getByTestId("signIn--submit").click();
+  }
 
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
-    if (
-      await page
-        .getByText(/continue watching/i)
-        .first()
-        .isVisible()
-        .catch(() => false)
-    ) {
-      break;
+    for (const label of [
+      /authorize/i,
+      /allow/i,
+      /^continue$/i,
+      /got it/i,
+      /^ok$/i,
+    ]) {
+      const btn = page.getByRole("button", { name: label });
+      if (await btn.count()) {
+        try {
+          await btn.first().click({ timeout: 1000 });
+        } catch {
+          /* optional */
+        }
+      }
     }
+    if (await homeVisible()) break;
     await page.waitForTimeout(500);
   }
+
   await page.goto(PLEX_URL, { waitUntil: "domcontentloaded" });
-  await page.getByText(/continue watching/i).first().waitFor({ timeout: 90_000 });
+  await page
+    .getByText(/continue watching/i)
+    .first()
+    .waitFor({ timeout: 90_000 });
 }
 
 async function waitForPosterImages(page, min = 1) {
   await page.waitForFunction(
     (need) => {
       const imgs = [...document.querySelectorAll("img")].filter(
-        (img) => img.complete && img.naturalWidth > 40 && img.naturalHeight > 40,
+        (img) =>
+          img.complete && img.naturalWidth > 40 && img.naturalHeight > 40,
       );
       return imgs.length >= need;
     },
@@ -120,32 +153,38 @@ async function measureMultiplexSoftNav(page) {
   await page.waitForTimeout(1500);
 
   // --- Library soft-nav ---
-  const libraryLink = page.locator('a[href*="/media/"][href*="source="]').first();
+  const libraryLink = page
+    .locator('a[href*="/media/"][href*="source="]')
+    .first();
   await libraryLink.waitFor({ state: "visible", timeout: 30_000 });
   await libraryLink.hover();
-  // Give runtime + tRPC prefetch time to complete (Plex also benefits from hover).
-  await page.waitForTimeout(800);
+  // Give runtime + tRPC + poster image prefetch time to complete.
+  await page.waitForTimeout(1200);
 
   const libStart = Date.now();
   await libraryLink.click();
   await page.waitForURL(/\/media\//, { timeout: 30_000 });
   await waitForPosterImages(page, 3);
   const libraryMs = Date.now() - libStart;
+  console.log("Multiplex library soft-nav ms:", libraryMs);
   await page.screenshot({
     path: `${OUT_DIR}/multiplex-soft-library.png`,
     fullPage: false,
   });
 
   // --- Details soft-nav ---
-  const posterLink = page
-    .locator('a[href*="/item/"][aria-label^="View details"]')
+  // Title link under the poster avoids the play-overlay intercepting hover.
+  const detailsLink = page
+    .locator('a[href*="/item/"]')
+    .filter({ has: page.locator("h3") })
     .first();
-  await posterLink.waitFor({ state: "visible", timeout: 30_000 });
-  await posterLink.hover();
-  await page.waitForTimeout(800);
+  await detailsLink.waitFor({ state: "visible", timeout: 30_000 });
+  await detailsLink.hover();
+  await detailsLink.focus();
+  await page.waitForTimeout(1200);
 
   const detailsStart = Date.now();
-  await posterLink.click();
+  await detailsLink.click();
   await page.waitForURL(/\/item\//, { timeout: 30_000 });
   // Hero title or play affordance — details content, not just shell.
   await page.waitForFunction(
@@ -164,6 +203,7 @@ async function measureMultiplexSoftNav(page) {
     { timeout: 60_000 },
   );
   const detailsMs = Date.now() - detailsStart;
+  console.log("Multiplex details soft-nav ms:", detailsMs);
   await page.screenshot({
     path: `${OUT_DIR}/multiplex-soft-details.png`,
     fullPage: false,
@@ -174,7 +214,10 @@ async function measureMultiplexSoftNav(page) {
 
 async function measurePlexSoftNav(page) {
   await page.goto(PLEX_URL, { waitUntil: "domcontentloaded" });
-  await page.getByText(/continue watching/i).first().waitFor({ timeout: 90_000 });
+  await page
+    .getByText(/continue watching/i)
+    .first()
+    .waitFor({ timeout: 90_000 });
   await page.waitForTimeout(2000);
 
   // Prefer a Movies/TV library in the sidebar/source list.
@@ -188,7 +231,12 @@ async function measurePlexSoftNav(page) {
 
   let libraryTarget = null;
   for (const cand of libraryCandidates) {
-    if (await cand.first().isVisible().catch(() => false)) {
+    if (
+      await cand
+        .first()
+        .isVisible()
+        .catch(() => false)
+    ) {
       libraryTarget = cand.first();
       break;
     }
@@ -216,9 +264,16 @@ async function measurePlexSoftNav(page) {
   });
 
   // Details: click a poster-sized image / poster link
-  const poster = page.locator('a[href*="/details"], a[href*="preplay"], [class*="Poster"] a, img').first();
+  const poster = page
+    .locator(
+      'a[href*="/details"], a[href*="preplay"], [class*="Poster"] a, img',
+    )
+    .first();
   // Prefer clicking a large poster image's nearest link
-  const posterLink = page.locator("a").filter({ has: page.locator("img") }).first();
+  const posterLink = page
+    .locator("a")
+    .filter({ has: page.locator("img") })
+    .first();
   const target = (await posterLink.count()) ? posterLink : poster;
   await target.hover().catch(() => {});
   await page.waitForTimeout(800);
@@ -227,9 +282,13 @@ async function measurePlexSoftNav(page) {
   await target.click();
   await page.waitForFunction(
     () => {
-      const h1 = document.querySelector("h1, [class*='Title'], [data-testid*='title']");
+      const h1 = document.querySelector(
+        "h1, [class*='Title'], [data-testid*='title']",
+      );
       const titleOk =
-        !!h1 && (h1.textContent ?? "").trim().length > 1 && (h1.textContent ?? "").trim().length < 200;
+        !!h1 &&
+        (h1.textContent ?? "").trim().length > 1 &&
+        (h1.textContent ?? "").trim().length < 200;
       const bigImg = [...document.querySelectorAll("img")].some(
         (img) => img.complete && img.naturalWidth > 300,
       );
