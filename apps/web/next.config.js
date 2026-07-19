@@ -22,7 +22,8 @@ const config = {
       static: 300,
     },
     // Seed the client cache from completed navigations for instant revisits.
-    cachedNavigations: true,
+    // 'allow-runtime' also caches session-bound prerenders (library/details).
+    cachedNavigations: "allow-runtime",
     // Prefetch loading shells once per route pattern.
     appShells: true,
     // Start dynamic/runtime prefetch work on link hover, not only viewport.

@@ -58,6 +58,7 @@ export function SidebarMain({
               <SidebarMenuButton asChild data-active={isActive}>
                 <Link
                   href={source.href}
+                  prefetch
                   onMouseEnter={() => prefetchLibrary(source.href)}
                   onFocus={() => prefetchLibrary(source.href)}
                   onTouchStart={() => prefetchLibrary(source.href)}
