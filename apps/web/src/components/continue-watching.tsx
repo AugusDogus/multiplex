@@ -128,10 +128,11 @@ export function ContinueWatching({
         ) : undefined
       }
     >
-      {items.map((item) => (
+      {items.map((item, index) => (
         <ContinueWatchingItem
           key={`${item.serverId}-${item.ratingKey}`}
           item={item}
+          priority={index < 6}
         />
       ))}
     </MediaCarousel>
@@ -145,9 +146,13 @@ export function ContinueWatching({
 
 interface ContinueWatchingItemProps {
   item: ContinueWatchingItemWithServer;
+  priority?: boolean;
 }
 
-function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
+function ContinueWatchingItem({
+  item,
+  priority = false,
+}: ContinueWatchingItemProps) {
   const itemDetailsNavigation = useItemDetailsNavigation();
   const utils = api.useUtils();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -166,7 +171,10 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
   const thumbnailUrl = getPlexImagePath(
     item.serverId,
     getPosterImagePath(item),
-    { width: 200, height: 300 },
+    {
+      width: 200,
+      height: 300,
+    },
   );
 
   const canPlay = Boolean(
@@ -252,6 +260,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
         onPlay={handlePlay}
         onNavigateClick={handleNavigateClick}
         showMobileMenuHint
+        priority={priority}
       />
 
       <ContinueWatchingDrawer

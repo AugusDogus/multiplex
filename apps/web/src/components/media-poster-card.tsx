@@ -34,6 +34,8 @@ interface MediaPosterCardContentBaseProps {
   onPlay?: () => void;
   onNavigateClick?: (event: React.MouseEvent) => void;
   showMobileMenuHint?: boolean;
+  /** Eager-load above-the-fold posters (Continue Watching LCP). */
+  priority?: boolean;
 }
 
 type PosterCardRouteProps =
@@ -116,6 +118,7 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
     isCompleted = false,
     onNavigateClick,
     showMobileMenuHint = false,
+    priority = false,
   } = resolved;
   const detailsTarget = resolved.detailsTarget;
   const detailsHref = detailsTarget
@@ -143,7 +146,8 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
           src={thumbnailUrl}
           alt={title}
           className="h-full w-full object-cover"
-          loading="lazy"
+          loading={priority ? "eager" : "lazy"}
+          priority={priority}
           width={160}
           height={240}
           onError={() => setImageFailed(true)}

@@ -20,7 +20,7 @@ import {
   PLEX_TV_API_BASE_URL,
   PlexTvBaseClient,
 } from "./plex-tv-base-client";
-import { PlexServerClient } from "./plex-server-client";
+import { clearPlexServerConnectionCache, PlexServerClient } from "./plex-server-client";
 
 /* ────────────────────────────────────────────────────────────
    Plex.tv Client
@@ -268,6 +268,7 @@ export class PlexTvClient extends PlexTvBaseClient {
    */
   invalidateServerClient(serverId: string): void {
     this.serverClients.delete(serverId);
+    clearPlexServerConnectionCache(serverId);
   }
 
   async getFriends(): Promise<PlexFriend[]> {
