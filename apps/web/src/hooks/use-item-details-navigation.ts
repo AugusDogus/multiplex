@@ -21,6 +21,9 @@ export function useItemDetailsNavigation() {
   const utils = api.useUtils();
 
   const prefetch = (target: ItemDetailsNavigationTarget) => {
+    const href = getHref(target);
+    // Warm both the RSC runtime prerender and the TanStack details payload.
+    void router.prefetch(href);
     void utils.plex.getItemDetails.prefetch(
       {
         serverId: target.serverId,

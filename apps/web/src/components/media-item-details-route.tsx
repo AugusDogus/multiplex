@@ -22,7 +22,9 @@ export async function MediaItemDetailsRoute({
     notFound();
   }
 
-  await api.plex.getItemDetails.prefetch({
+  // Do not await: soft-nav should paint from the client TanStack cache filled by
+  // poster hover prefetch. Awaiting here made every details click wait on PMS.
+  void api.plex.getItemDetails.prefetch({
     serverId: machineIdentifier,
     ratingKey,
   });

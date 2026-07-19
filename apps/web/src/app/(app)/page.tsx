@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { parseLibraryItemUri } from "@multiplex/plex-query";
 
 import { AppHeader } from "~/components/app-header";
 import { AppPageContent } from "~/components/app-page-content";
@@ -8,6 +9,9 @@ import { ContinueWatchingSkeleton } from "~/components/media-carousel-skeleton";
 import { MediaHubRowSkeleton } from "~/components/media-hub-row";
 import { WatchTogetherRow } from "~/components/watch-together/watch-together-row";
 import { api, HydrateClient } from "~/trpc/server";
+
+// Prefetch home rows with the session so soft-nav back to `/` is instant.
+export const prefetch = "allow-runtime";
 
 /**
  * Stream each home section independently so Continue Watching is not blocked
@@ -60,6 +64,18 @@ async function PrefetchedHomeHubs() {
 
 async function PrefetchedWatchTogetherRow() {
   await api.plex.getWatchTogetherRooms.prefetch();
+  const rooms = await api.plex.getWatchTogetherRooms();
+  // Collapse the client N+1: each card used to call getItemDetails on mount.
+  await Promise.all(
+    rooms.map((room) => {
+      const source = parseLibraryItemUri(room.sourceUri);
+      if (!source) return Promise.resolve();
+      return api.plex.getItemDetails.prefetch({
+        serverId: source.serverId,
+        ratingKey: source.ratingKey,
+      });
+    }),
+  );
   return (
     <HydrateClient>
       <WatchTogetherRow />

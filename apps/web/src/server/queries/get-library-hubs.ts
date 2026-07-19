@@ -18,7 +18,9 @@ async function fetchLibraryHubs(
   sectionId: string,
 ): Promise<HubWithServer[]> {
   "use cache";
-  cacheLife("seconds");
+  // Minutes (not seconds): runtime/Link prefetch needs stale ≥ 30s, and library
+  // soft-nav revisits should reuse the same hub payload like Plex.
+  cacheLife("minutes");
 
   const plex = new PlexTvClient(token, NEXTJS_PLEX_CONFIG);
   return loadLibraryHubs(plex, machineIdentifier, sectionId);

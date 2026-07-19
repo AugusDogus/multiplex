@@ -8,10 +8,10 @@ App-wide performance work on `cursor/browse-speed-spike-046b` (2026-07-19).
 | ---- | ------------------------------------------------------- | -------- | ------ | ---------- | ------------------------------------------ |
 | 002  | Spike: make browse as fast as Plex web on current stack | P1       | M      | —          | DONE                                       |
 | 006  | Stop AppPlexContentGate from blocking page loading UI   | P1       | S–M    | —          | DONE (nested Suspense in content gate)     |
-| 007  | Stream library page / overlap pivots + hubs             | P1       | M      | 006        | DONE (hubs warm parallel with pivots)      |
+| 007  | Stream library page / overlap pivots + hubs             | P1       | M      | 006        | DONE (hubs stream; pivots cached; runtime prefetch) |
 | 008  | Speed Plex image proxy + stop dual-hero downloads       | P1       | M      | —          | DONE (race image URIs; one hero priority)  |
 | 009  | Lazy-load MediaPlayerModal off root layout              | P1       | S–M    | —          | DONE                                       |
-| 010  | Cut Watch Together + Live TV waterfalls                 | P2       | M      | —          | TODO (follow-up)                           |
+| 010  | Cut Watch Together + Live TV waterfalls                 | P2       | M      | —          | IN PROGRESS (WT details prefetch on home)  |
 | 003  | Polish `/login` to match in-app Multiplex brand         | P2       | S–M    | —          | TODO (not in this PR)                      |
 | 004  | Spike: View Transitions on poster → item details        | P2       | M      | —          | TODO (not in this PR; draft PR #36 exists) |
 | 005  | Ship-or-hide Live TV guide until tune exists            | P1       | S      | —          | TODO (not in this PR)                      |
@@ -28,12 +28,13 @@ Pre-existing:
 - Home Suspense lanes + short `"use cache"` for CW/hubs/libraries
 - Nested content-gate Suspense so route loading can stream
 - Sidebar chrome without awaiting full library provider fan-out
-- Library Recommended hubs overlapped with pivot discovery
-- Library hubs `"use cache"`
+- Library Recommended hubs overlapped with pivot discovery (chrome not blocked on hubs)
+- Library pivots/hubs `"use cache"` (minutes) + sidebar hover prefetch
+- Next soft-nav: `staleTimes.dynamic`, `cachedNavigations`, `appShells`, `dynamicOnHover`, `prefetch = 'allow-runtime'` on home/library/details
 - Image proxy connection race (every poster/backdrop)
-- Details hero: single `priority` backdrop
-- Awaited item-details prefetch for hydrate
+- Details: client cache preferred; void RSC await + poster hover prefetch + `router.prefetch`
 - Lazy `MediaPlayerModal` off initial browse JS
+- Home WT row: batch-prefetch room `getItemDetails` to kill N+1
 
 ## Parked
 
