@@ -182,7 +182,7 @@ describe("Plex image route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.arrayBuffer()).toHaveLength(3);
+    expect((await response.arrayBuffer()).byteLength).toBe(3);
     expect(capturedUrl?.origin).toBe("https://server.example:32400");
     expect(capturedUrl?.pathname).toBe("/photo/:/transcode");
     expect(capturedUrl?.searchParams.get("X-Plex-Token")).toBe("server-token");
@@ -241,7 +241,7 @@ describe("Plex image route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.arrayBuffer()).toHaveLength(3);
+    expect((await response.arrayBuffer()).byteLength).toBe(3);
     expect(new Set(attemptedOrigins)).toEqual(
       new Set(["https://remote.example:32400", "https://local.example:32400"]),
     );
@@ -293,7 +293,7 @@ describe("Plex image route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.arrayBuffer()).toHaveLength(3);
+    expect((await response.arrayBuffer()).byteLength).toBe(3);
     expect(Date.now() - started).toBeLessThan(1_000);
   });
 
