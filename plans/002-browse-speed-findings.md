@@ -1,39 +1,106 @@
 # Plan 002 browse speed findings
 
-## Before
+## Method (corrected)
 
-1. **Home cold load**
-   - Measured with a headless Playwright run against `http://localhost:3000`, logged in via the existing Plex OAuth helper using `MULTIPLEX_ACCOUNT_EMAIL` / `MULTIPLEX_ACCOUNT_PASSWORD`.
-   - Navigation start to first resolved Continue Watching row state: **3725ms**.
-   - Browser-observed post-hydration tRPC response within 5s: one batched `plex.getHomeHubs`, `plex.getAllContinueWatching`, and `plex.getWatchTogetherRooms` request, **200**, **276ms**.
+Desktop Google Chrome on the cloud VM (`DISPLAY=:1`), same Plex account /
+library for both apps. Primary metric: **reload start → Continue Watching
+posters visible** (not Network “Finish”, which includes lazy images and
+dev-module chatter).
 
-2. **Home warm load**
-   - Reloaded the authenticated home page within 30s in the same browser context.
-   - Reload start to first resolved Continue Watching row state: **3477ms**.
-   - Hydrated data did not fully stick: within 5s the browser observed one batched `plex.getHomeHubs`, `plex.getAllContinueWatching`, and `plex.getWatchTogetherRooms` request, **200**, **149ms**.
+Caveats that still apply:
 
-3. **Continue Watching**
-   - On an idle, visible home tab for **31000ms**, browser network events observed **4** `plex.getAllContinueWatching` responses.
-   - The same idle window observed **2** `plex.getWatchTogetherRooms` responses and **0** `plex.getHomeHubs` responses.
+- Multiplex HTML/JS comes from `localhost` (near-zero asset RTT). Official Plex
+  assets come from `app.plex.tv` CDN. That favors Multiplex for shell/JS, not
+  for PMS data.
+- Multiplex still has an extra hop for catalog data: browser → Next → PMS,
+  versus Plex web’s browser → PMS/CDN.
+- “Finish” is a poor metric here (Plex keeps background work; Multiplex dev
+  loads many Turbopack modules).
 
-4. **Poster -> details**
-   - Could not measure: the one-off headless harness did not establish a reliable details-interactive selector for a cold click versus a hover-prefetched click.
-   - Code path confirmed for the hover prefetch trigger: `MediaPosterCard` calls `useItemDetailsNavigation().prefetch()` from poster and metadata `onMouseEnter` / `onFocus`.
+Harness: `scripts/compare-browse-speed.mjs` (headed Chrome + Playwright) plus
+manual DevTools confirmation.
 
-## Official Plex web comparison
+## Baseline (before this PR’s streaming/cache work)
 
-Could not measure: official Plex web comparison was not automated in this headless one-off harness, and no stable same-library path was selected during this spike.
+Headed Playwright, Multiplex only (cache disabled in CDP):
 
-## After
+| Metric                        | Multiplex                       |
+| ----------------------------- | ------------------------------- |
+| CW posters visible (cold)     | **3976ms**                      |
+| CW posters visible (warm)     | **3972ms**                      |
+| Document `responseEnd` (cold) | **3471ms**                      |
+| Top client cost               | `getAllServerLibraries` ~3150ms |
 
-- Home cold load: navigation start to first resolved Continue Watching row state was **3804ms**. Within 5s, browser network observed **0** `plex.getHomeHubs`, **0** `plex.getAllContinueWatching`, and **1** `plex.getWatchTogetherRooms` response.
-- Home warm load: reload start to first resolved Continue Watching row state was **3664ms**. Within 5s, browser network observed **0** `plex.getHomeHubs`, **0** `plex.getAllContinueWatching`, and **1** `plex.getWatchTogetherRooms` response.
-- Continue Watching idle polling: over **31000ms**, browser network observed **1** `plex.getAllContinueWatching` response, down from **4** before the timing changes. `plex.getWatchTogetherRooms` remained at **2** responses because it has its own 15s refresh behavior outside this spike's scope.
+Official Plex (desktop DevTools, visual CW estimate):
 
-## Chosen interventions
+| Metric                  | Plex web         |
+| ----------------------- | ---------------- |
+| CW posters (cold, est.) | **~3500–4000ms** |
+| CW posters (warm, est.) | **~1500–2000ms** |
+| DOMContentLoaded (cold) | **516ms**        |
 
-1. Raise shared hub `staleTime` to **30000ms** so SSR hydration can avoid the immediate warm-load hub refetch and align with the default QueryClient freshness window.
-2. Raise Continue Watching default `refreshInterval` to **30000ms** to reduce idle polling from roughly 4 calls per 31s in this measured session to roughly 1 call per 31s.
-3. Raise Continue Watching `staleTime` to **30000ms** so hydrated Continue Watching data follows the same short freshness window as the app default while existing player `setData` / invalidation paths remain intact.
+Verdict at baseline: Multiplex was **tied or slower** than Plex on CW posters,
+and much slower on warm because every hard reload re-paid full SSR → PMS work.
+Plex’s shell DCL (~500ms) crushed Multiplex’s blocked document (~3500ms).
 
-No sync engine: measurements still show the slow path is Plex/tRPC/PMS fetch behavior, and a local catalog replica would not remove the token-scoped Plex network hop.
+## Interventions landed
+
+1. Stream home sections in independent `Suspense` lanes so CW is not blocked on
+   hubs / Watch Together (`apps/web/src/app/(app)/page.tsx`).
+2. Short Next `"use cache"` (`cacheLife("seconds")`) for Continue Watching and
+   home hubs; `cacheLife("minutes")` for server libraries — keyed by Plex token
+   like existing `get-servers` / `get-user-info`.
+3. Prefetch `getAllServerLibraries` in the sidebar Suspense lane + hydrate, so
+   the media-providers fan-out does not race home CW on the client.
+4. Align Watch Together row `staleTime` / poll to 30s (was `staleTime: 0` /
+   15s).
+5. Earlier in this PR: hub + CW client `staleTime` 30s; CW poll 30s.
+
+## After (headed Playwright, server cache warm)
+
+| Metric                           | Multiplex         |
+| -------------------------------- | ----------------- |
+| CW posters visible (reload)      | **~900–1100ms**   |
+| Document `responseEnd`           | **~600–800ms**    |
+| Client `/api/trpc` after hydrate | **none** observed |
+
+True cold after Next restart (desktop DevTools, visual CW):
+
+| App       | CW posters (est.) | Notes                                    |
+| --------- | ----------------- | ---------------------------------------- |
+| Multiplex | **~3000ms**       | PMS connection discovery still dominates |
+| Plex web  | **~3500ms**       | Shell DCL still ~0.5s; CW fills after    |
+
+Warm (desktop):
+
+| App       | CW posters                          |
+| --------- | ----------------------------------- |
+| Multiplex | **~300–1000ms** (Playwright ~900ms) |
+| Plex web  | **~2000ms** (visual)                |
+
+## Comparison verdict
+
+- **Warm home:** Multiplex is **faster** than official Plex web on CW posters
+  after these changes (about 2× in the desktop session).
+- **Cold home:** Roughly **tied to slightly faster** than Plex once streaming
+  lands; still gated on PMS reachability (~3s) when Next + server caches are
+  empty.
+- **Not done:** beating Plex’s ~500ms shell DCL on a fully cold Multiplex
+  document still needs more (connection reuse already helps; further work is
+  faster first-byte streaming past `AppPlexContentGate`, and/or parallelizing
+  PMS discovery). Localhost asset advantage remains a fairness caveat until we
+  measure a deployed Multiplex URL.
+
+## No sync engine
+
+Still not justified. The slow path is token-scoped PMS work and document
+blocking, not the absence of a local catalog replica. Zero / Electric /
+TanStack DB would not remove the Multiplex→PMS hop and conflict with the
+settled tRPC + TanStack Query ownership model.
+
+## Chosen interventions (final)
+
+1. Stream home Suspense lanes (CW / hubs / Watch Together).
+2. `"use cache"` seconds for CW + hubs; minutes for libraries.
+3. Sidebar-lane library prefetch + hydrate; WT poll/`staleTime` 30s.
+4. Keep prior client `staleTime` / CW poll softenings.

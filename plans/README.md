@@ -30,8 +30,9 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED | REJECTED
 
 ## Dependency notes
 
-- **002 DONE** — findings in `plans/002-browse-speed-findings.md`; hub/CW
-  `staleTime` + CW poll lengthened. Cold SSR TTFB still awaits three
-  prefeches; follow-up if needed. Do not start a sync engine.
+- **002 DONE** — findings in `plans/002-browse-speed-findings.md`. Desktop
+  Chrome comparison vs `app.plex.tv` done; streaming home + short `"use cache"`
+  landed. Warm Multiplex CW now beats Plex; cold roughly tied. Do not start a
+  sync engine.
 - 003 and 004 can parallelize next.
 - 005 is a quick product decision; independent of 002.

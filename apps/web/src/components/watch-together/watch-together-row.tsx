@@ -32,8 +32,9 @@ export function WatchTogetherRow() {
   const { data: rooms = [] } = api.plex.getWatchTogetherRooms.useQuery(
     undefined,
     {
-      refetchInterval: 15_000,
-      staleTime: 0,
+      refetchInterval: 30_000,
+      staleTime: 30_000,
+      refetchOnWindowFocus: false,
     },
   );
 
