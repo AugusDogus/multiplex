@@ -204,11 +204,17 @@ export async function handlePlexImageRequest(
   }
 
   const token = server.accessToken ?? authContext.token;
-  const abortController = new AbortController();
-  const deadline = setTimeout(
-    () => abortController.abort(),
-    dependencies.timeoutMs ?? PLEX_IMAGE_TIMEOUT_MS,
-  );
+  // Deadline aborts every in-flight attempt. Each connection also has its own
+  // controller so losers can be cancelled as soon as a winner settles — without
+  // aborting the winning response body mid-stream.
+  const deadlineController = new AbortController();
+  const attemptControllers = connections.map(() => new AbortController());
+  const deadline = setTimeout(() => {
+    deadlineController.abort();
+    for (const controller of attemptControllers) {
+      controller.abort();
+    }
+  }, dependencies.timeoutMs ?? PLEX_IMAGE_TIMEOUT_MS);
   let deadlineCleared = false;
   const clearDeadline = () => {
     if (!deadlineCleared) {
@@ -224,13 +230,24 @@ export async function handlePlexImageRequest(
         response: Response;
         contentType: string;
         contentLength: number | null;
+        controller: AbortController;
       }
     | { ok: false; failure: string };
 
-  async function attemptConnection(connection: URL): Promise<ImageAttempt> {
-    if (abortController.signal.aborted) {
+  async function attemptConnection(
+    connection: URL,
+    attemptController: AbortController,
+  ): Promise<ImageAttempt> {
+    if (deadlineController.signal.aborted || attemptController.signal.aborted) {
       return { ok: false, failure: "Plex image request timed out" };
     }
+
+    const onDeadlineAbort = () => {
+      attemptController.abort();
+    };
+    deadlineController.signal.addEventListener("abort", onDeadlineAbort, {
+      once: true,
+    });
 
     const upstreamUrl = buildPlexTranscodeUrl(connection, token, imageRequest);
     let upstream: Response;
@@ -239,15 +256,18 @@ export async function handlePlexImageRequest(
         method: "GET",
         headers: { Accept: "image/*" },
         redirect: "manual",
-        signal: abortController.signal,
+        signal: attemptController.signal,
       });
     } catch {
       return {
         ok: false,
-        failure: abortController.signal.aborted
-          ? "Plex image request timed out"
-          : "Plex image request failed",
+        failure:
+          deadlineController.signal.aborted || attemptController.signal.aborted
+            ? "Plex image request timed out"
+            : "Plex image request failed",
       };
+    } finally {
+      deadlineController.signal.removeEventListener("abort", onDeadlineAbort);
     }
 
     if (upstream.status >= 300 && upstream.status < 400) {
@@ -295,6 +315,7 @@ export async function handlePlexImageRequest(
       response: upstream,
       contentType,
       contentLength,
+      controller: attemptController,
     };
   }
 
@@ -303,8 +324,9 @@ export async function handlePlexImageRequest(
     let remaining = connections.length;
     let settled = false;
 
-    for (const connection of connections) {
-      void attemptConnection(connection).then((attempt) => {
+    connections.forEach((connection, index) => {
+      const attemptController = attemptControllers[index]!;
+      void attemptConnection(connection, attemptController).then((attempt) => {
         if (settled) {
           if (attempt.ok) {
             void discardResponse(attempt.response);
@@ -313,6 +335,12 @@ export async function handlePlexImageRequest(
         }
         if (attempt.ok) {
           settled = true;
+          // Cancel still-pending losers so hanging URIs do not hold sockets.
+          for (const [i, controller] of attemptControllers.entries()) {
+            if (i !== index) {
+              controller.abort();
+            }
+          }
           resolve(attempt);
           return;
         }
@@ -322,13 +350,13 @@ export async function handlePlexImageRequest(
           resolve({ ok: false, failure: lastFailure });
         }
       });
-    }
+    });
   });
 
   if (!winner.ok) {
     clearDeadline();
     if (
-      abortController.signal.aborted ||
+      deadlineController.signal.aborted ||
       winner.failure.includes("timed out")
     ) {
       return errorResponse(504, "Plex image request timed out");
@@ -347,7 +375,7 @@ export async function handlePlexImageRequest(
   }
 
   return new Response(
-    boundedBody(winner.response.body!, abortController, clearDeadline),
+    boundedBody(winner.response.body!, winner.controller, clearDeadline),
     { status: 200, headers },
   );
 }
