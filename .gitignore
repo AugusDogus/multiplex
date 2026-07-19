@@ -48,9 +48,7 @@ yarn-error.log*
 llms/
 
 # Ephemeral agent/implementation plans — keep out of the repo.
-# `plans/effect-v4-migration.md` is the tracked exception.
-plans/*
-!plans/effect-v4-migration.md
+plans/
 
 # playwright
 /apps/web/test-results/
