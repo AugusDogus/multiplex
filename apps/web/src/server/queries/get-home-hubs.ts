@@ -1,8 +1,11 @@
+import { cacheLife } from "next/cache";
+import { cache } from "react";
 import {
   filterBrowsableHubs,
+  PlexTvClient,
   type HubWithServer,
-  type PlexTvClient,
 } from "@multiplex/plex-query";
+import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
 import { getServersQuery } from "~/server/queries/get-servers";
 import { getUserInfoQuery } from "~/server/queries/get-user-info";
 import {
@@ -10,9 +13,19 @@ import {
   withPmsRetry,
 } from "~/server/queries/plex-server-context";
 
-export async function getHomeHubsQuery(
-  plex: PlexTvClient,
-): Promise<HubWithServer[]> {
+/**
+ * Home hubs are relatively stable across short navigations. Cache briefly per
+ * token so warm home loads are not gated on another full hubs round-trip.
+ */
+async function fetchHomeHubs(token: string): Promise<HubWithServer[]> {
+  "use cache";
+  cacheLife("seconds");
+
+  const plex = new PlexTvClient(token, NEXTJS_PLEX_CONFIG);
+  return loadHomeHubs(plex);
+}
+
+async function loadHomeHubs(plex: PlexTvClient): Promise<HubWithServer[]> {
   const [servers, userInfo] = await Promise.all([
     getServersQuery(plex),
     getUserInfoQuery(plex),
@@ -45,3 +58,7 @@ export async function getHomeHubsQuery(
     return enrichHubsWithServer(filterBrowsableHubs(response.hubs), context);
   });
 }
+
+export const getHomeHubsQuery = cache(async (plex: PlexTvClient) => {
+  return fetchHomeHubs(plex.getToken());
+});

@@ -1,6 +1,17 @@
-import type { PlexTvClient } from "@multiplex/plex-query";
+import { cacheLife } from "next/cache";
+import { cache } from "react";
+import { PlexTvClient } from "@multiplex/plex-query";
+import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
 
-export async function getAllServerLibrariesQuery(plex: PlexTvClient) {
+async function fetchAllServerLibraries(token: string) {
+  "use cache";
+  cacheLife("minutes");
+
+  const plex = new PlexTvClient(token, NEXTJS_PLEX_CONFIG);
+  return loadAllServerLibraries(plex);
+}
+
+async function loadAllServerLibraries(plex: PlexTvClient) {
   const servers = await plex.getServers();
 
   // Fetch library data for all servers in parallel
@@ -31,7 +42,7 @@ export async function getAllServerLibrariesQuery(plex: PlexTvClient) {
   const settledResults = await Promise.allSettled(serverLibrariesPromises);
 
   // Extract results, handling both fulfilled and rejected promises
-  const results = settledResults.map((result, index) => {
+  return settledResults.map((result, index) => {
     if (result.status === "fulfilled") {
       return result.value;
     } else {
@@ -49,6 +60,8 @@ export async function getAllServerLibrariesQuery(plex: PlexTvClient) {
       };
     }
   });
-
-  return results;
 }
+
+export const getAllServerLibrariesQuery = cache(async (plex: PlexTvClient) => {
+  return fetchAllServerLibraries(plex.getToken());
+});

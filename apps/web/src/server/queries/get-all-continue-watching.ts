@@ -1,15 +1,43 @@
+import { cacheLife } from "next/cache";
+import { cache } from "react";
 import {
   getServerUrl,
+  PlexTvClient,
   type ContinueWatchingResponse,
   type PinnedSource,
   type PlexDevice,
-  type PlexTvClient,
 } from "@multiplex/plex-query";
+import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
 import { getServersQuery } from "~/server/queries/get-servers";
 import { getUserInfoQuery } from "~/server/queries/get-user-info";
 import { withPmsRetry } from "~/server/queries/plex-server-context";
 
-export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
+type ContinueWatchingItemWithServer = ContinueWatchingResponse["items"][0] & {
+  serverUrl: string | undefined;
+  authToken: string | undefined;
+  serverName: string;
+};
+
+/**
+ * Continue Watching changes as users play, but home also hard-reloads often.
+ * Cache briefly per token so warm navigations do not re-pay the full PMS
+ * connection + onDeck fan-out. Client `setData` / invalidation still keep the
+ * row fresh after local playback. Token is part of the cache key (same caveat
+ * as `get-servers` / `get-user-info`).
+ */
+async function fetchAllContinueWatching(
+  token: string,
+): Promise<ContinueWatchingItemWithServer[]> {
+  "use cache";
+  cacheLife("seconds");
+
+  const plex = new PlexTvClient(token, NEXTJS_PLEX_CONFIG);
+  return loadContinueWatching(plex);
+}
+
+async function loadContinueWatching(
+  plex: PlexTvClient,
+): Promise<ContinueWatchingItemWithServer[]> {
   const [servers, userInfo] = await Promise.all([
     getServersQuery(plex),
     getUserInfoQuery(plex),
@@ -80,11 +108,15 @@ export async function getAllContinueWatchingQuery(plex: PlexTvClient) {
     }));
   });
 
-  type ItemWithServer = (typeof allItems)[number];
-
-  return [...allItems].sort((a: ItemWithServer, b: ItemWithServer) => {
-    const aTime = a.lastViewedAt?.getTime() ?? 0;
-    const bTime = b.lastViewedAt?.getTime() ?? 0;
-    return bTime - aTime;
-  });
+  return [...allItems].sort(
+    (a: ContinueWatchingItemWithServer, b: ContinueWatchingItemWithServer) => {
+      const aTime = a.lastViewedAt?.getTime() ?? 0;
+      const bTime = b.lastViewedAt?.getTime() ?? 0;
+      return bTime - aTime;
+    },
+  );
 }
+
+export const getAllContinueWatchingQuery = cache(async (plex: PlexTvClient) => {
+  return fetchAllContinueWatching(plex.getToken());
+});
