@@ -31,7 +31,9 @@ export function MediaItemDetailsPageClient({
     PLEX_DETAILS_QUERY_OPTIONS,
   );
 
-  if ((isPending || isFetching) && !details) {
+  // Prefer cached/prefetched details immediately — never blank the page on a
+  // background refetch when we already have a payload (Plex soft-nav feel).
+  if (!details && (isPending || isFetching)) {
     return (
       <>
         <AppHeader />

@@ -12,7 +12,22 @@ const config = {
   reactStrictMode: true,
   reactCompiler: true,
   cacheComponents: true,
+  // Soft-nav must feel like Plex's SPA: prefetch shells + reuse recent
+  // navigations instead of paying a full RSC round-trip on every click.
   partialPrefetching: true,
+  experimental: {
+    // Keep dynamic segments reusable after the first soft-nav / prefetch.
+    staleTimes: {
+      dynamic: 60,
+      static: 300,
+    },
+    // Seed the client cache from completed navigations for instant revisits.
+    cachedNavigations: true,
+    // Prefetch loading shells once per route pattern.
+    appShells: true,
+    // Start dynamic/runtime prefetch work on link hover, not only viewport.
+    dynamicOnHover: true,
+  },
   allowedDevOrigins: ["local.augie.haus", "multiplex.localhost"],
   // Authenticated image routes need the browser's session cookie. Plex already
   // transcodes artwork to the requested dimensions, so do not proxy it through
