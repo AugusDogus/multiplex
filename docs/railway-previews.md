@@ -17,12 +17,12 @@ right public origin).
 
 Already created for this repo:
 
-|               |                                                      |
-| ------------- | ---------------------------------------------------- |
-| Project       | `multiplex` (`c4c3d699-caab-4ce6-928a-d00b41af3c8b`) |
-| Service       | `web` (`cfa2c372-51ef-4a28-8740-3f95b634e4c4`)       |
-| Base env      | `production` (variable seed only; not auto-deployed) |
-| GitHub source | `AugusDogus/multiplex` (PR Environments only)        |
+|               |                                                       |
+| ------------- | ----------------------------------------------------- |
+| Project       | `multiplex` (`c4c3d699-caab-4ce6-928a-d00b41af3c8b`)  |
+| Service       | `web` (`cfa2c372-51ef-4a28-8740-3f95b634e4c4`)        |
+| Base env      | `production` (variable + networking seed for PR envs) |
+| GitHub source | `AugusDogus/multiplex` @ `main`                       |
 
 Service variables on the base env (copied into each PR environment):
 
@@ -32,40 +32,53 @@ Service variables on the base env (copied into each PR environment):
 | `DATABASE_URL`       | `file:/app/data/db.sqlite`           |
 | `BETTER_AUTH_URL`    | `https://${{RAILWAY_PUBLIC_DOMAIN}}` |
 
-`railway.toml` at the repo root selects the Dockerfile builder.
+`railway.toml` at the repo root selects the Dockerfile builder and healthcheck.
 
-### 2. No production deploy from `main`
+### 2. Base environment must have a public domain
 
-Production is intentionally **not** a live site:
+PR Environments copy networking from the base env. The base `web` service
+**must** have a Railway service domain. Without it:
 
-- Auto-deploy for the production service instance is off
-- The `main` → production GitHub deployment trigger is removed
-- The production public domain is removed
+1. New PR envs get no `RAILWAY_PUBLIC_DOMAIN`
+2. `BETTER_AUTH_URL` becomes `https://` (invalid)
+3. Container startup fails during `db:push` env validation
+4. Railway healthcheck (`/favicon.svg`) never passes
 
-Merges to `main` should not create a public Railway deployment. The production
-environment still exists as the **base** that PR Environments copy variables
-from. Keep the GitHub repo connected on the service so Railway can open
-ephemeral PR environments; do not re-add a `main` branch trigger unless you
-want production deploys again.
+That domain on `production` is a seed for previews. Multiplex is not treated as
+a live production site here — keep the production deployment stopped/failed if
+you do not want a public prod app. Do **not** delete the production domain or
+PR previews will break again.
 
-### 3. PR Environments (enabled)
+### 3. GitHub branch connection
 
-Already enabled on the `multiplex` project:
+The `web` service must stay connected to `AugusDogus/multiplex` on `main`.
+Railway only creates PR Environments when that GitHub source+branch link
+exists. Disabling production autodeploy via the API/UI in a way that
+**disconnects** the branch will also stop PR previews.
+
+Tradeoff: with `main` connected, merges can trigger a production deploy build.
+That is acceptable here as long as production is not the product surface; PR
+previews are.
+
+Railway creates environments on `pull_request` **opened/reopened**. Converting
+draft ↔ ready does not retrigger. Close+reopen if a PR was opened while the
+GitHub source was disconnected.
+
+### 4. PR Environments (enabled)
 
 | Setting                       | Value        |
 | ----------------------------- | ------------ |
 | PR Environments (`prDeploys`) | on           |
-| Bot PR Environments           | off          |
-| Focused PR Environments       | on           |
+| Bot PR Environments           | optional     |
+| Focused PR Environments       | off          |
 | Base environment              | `production` |
 
 Railway only deploys PRs from users who can access the project (fork drive-bys
 are skipped). Environments are removed when the PR is merged or closed.
 
-To change these later: Railway → Project Settings → **Environments**, or the
-`projectUpdate` GraphQL mutation.
+To change these later: Railway → Project Settings → **Environments**.
 
-### 4. Preview access (public URLs)
+### 5. Preview access (public URLs)
 
 Railway does **not** offer Vercel-style password protection on preview URLs.
 Anyone with the `*.up.railway.app` link can hit the HTTP surface. Multiplex
@@ -75,7 +88,7 @@ this project’s risk profile.
 If you later need a hard gate in front of previews, put Cloudflare Access (or
 similar) in front of the Railway domain — that is outside Railway’s product.
 
-### 5. GitHub secrets (optional / unused for native previews)
+### 6. GitHub secrets (optional / unused for native previews)
 
 If you previously set `RAILWAY_TOKEN` / `RAILWAY_API_TOKEN` and the project id
 variables for an Actions-based workflow, you can delete them — native PR
@@ -97,3 +110,4 @@ docker run --rm -p 3000:3000 \
 - Plex OAuth needs outbound access to `plex.tv`
 - Previews are for manual smoke/login, not full Watch Together e2e
 - Preview URLs are public; protect via app auth (or an external edge gate)
+- Base env must keep a service domain or previews fail auth URL validation
