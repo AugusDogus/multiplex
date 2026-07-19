@@ -197,6 +197,7 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
       <div className={cn("group relative", POSTER_SIZE_CLASSNAME)}>
         <Link
           href={detailsHref}
+          prefetch
           aria-label={`View details for ${title}`}
           onClick={onNavigateClick}
           onFocus={prefetchDetails}
@@ -228,6 +229,7 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
 
       <Link
         href={detailsHref}
+        prefetch
         onClick={onNavigateClick}
         onFocus={prefetchDetails}
         onMouseEnter={prefetchDetails}

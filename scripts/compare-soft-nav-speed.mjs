@@ -8,12 +8,12 @@
 import { chromium } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 
-const MULTIPLEX_URL =
-  process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";
+const MULTIPLEX_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";
 const PLEX_URL = "https://app.plex.tv/desktop/#!/";
 const EMAIL = process.env.MULTIPLEX_ACCOUNT_EMAIL;
 const PASSWORD = process.env.MULTIPLEX_ACCOUNT_PASSWORD;
 const OUT_DIR = "/opt/cursor/artifacts/browse-compare";
+const RUNS = 3;
 
 if (!EMAIL || !PASSWORD) {
   throw new Error("Set MULTIPLEX_ACCOUNT_EMAIL and MULTIPLEX_ACCOUNT_PASSWORD");
@@ -31,13 +31,7 @@ async function loginMultiplex(page) {
 
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
-    for (const label of [
-      /authorize/i,
-      /allow/i,
-      /^continue$/i,
-      /got it/i,
-      /^ok$/i,
-    ]) {
+    for (const label of [/authorize/i, /allow/i, /^continue$/i, /got it/i, /^ok$/i]) {
       const btn = page.getByRole("button", { name: label });
       if (await btn.count()) {
         try {
@@ -60,82 +54,87 @@ async function loginMultiplex(page) {
   });
 }
 
-async function loginPlexWeb(page) {
-  // Same browser context as Multiplex login often already has plex.tv cookies.
+async function openPlexYourMedia(page) {
   await page.goto(PLEX_URL, { waitUntil: "domcontentloaded" });
-  const homeVisible = async () =>
+  await page.waitForTimeout(2000);
+
+  // Multiplex OAuth does not always create a full app.plex.tv desktop session.
+  // Sign in first when the chrome still shows Sign In.
+  const signIn = page.getByRole("button", { name: /^sign in$/i }).first();
+  if (await signIn.isVisible().catch(() => false)) {
+    await signIn.click();
+    await page.waitForTimeout(2000);
+    const form = page.frameLocator('iframe[src*="auth-form"]');
+    const emailBtn = form.getByTestId("signIn--email");
+    if (await emailBtn.count()) {
+      await emailBtn.click({ timeout: 15_000 }).catch(() => {});
+    }
+    if (await form.locator("#email").count()) {
+      await form.locator("#email").fill(EMAIL, { timeout: 15_000 });
+      await form.locator("#password").fill(PASSWORD);
+      await form.getByTestId("signIn--submit").click();
+    }
+    const deadline = Date.now() + 90_000;
+    while (Date.now() < deadline) {
+      for (const label of [/authorize/i, /allow/i, /^continue$/i, /got it/i]) {
+        const btn = page.getByRole("button", { name: label });
+        if (await btn.count()) {
+          try {
+            await btn.first().click({ timeout: 1000 });
+          } catch {
+            /* optional */
+          }
+        }
+      }
+      // Signed-in chrome drops the Sign Up CTA.
+      const stillSignedOut = await page
+        .getByRole("button", { name: /^sign up$/i })
+        .first()
+        .isVisible()
+        .catch(() => false);
+      if (!stillSignedOut) break;
+      await page.waitForTimeout(500);
+    }
+    await page.goto(PLEX_URL, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(2000);
+  }
+
+  // Discover home is the default; library soft-nav must start from Your Media.
+  const yourMedia = page.getByRole("link", { name: /your media/i }).or(
+    page.getByText(/^Your Media$/i),
+  );
+  if (await yourMedia.first().isVisible().catch(() => false)) {
+    await yourMedia.first().click();
+    await page.waitForTimeout(2000);
+  }
+
+  const ready = await Promise.race([
     page
       .getByText(/continue watching/i)
       .first()
-      .isVisible()
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 60_000 })
+      .then(() => "cw"),
+    page
+      .getByText(/^Movies$/i)
+      .first()
+      .waitFor({ state: "visible", timeout: 60_000 })
+      .then(() => "lib"),
+  ]).catch(() => null);
 
-  if (await homeVisible()) return;
-
-  // Wait briefly for SPA bootstrap before assuming we need to sign in.
-  for (let i = 0; i < 20 && !(await homeVisible()); i++) {
-    await page.waitForTimeout(500);
-  }
-  if (await homeVisible()) return;
-
-  const signIn = page.getByRole("button", { name: /sign in/i }).first();
-  if (await signIn.isVisible().catch(() => false)) {
-    await signIn.click();
-  } else {
-    await page.goto("https://app.plex.tv/auth/#?", {
-      waitUntil: "domcontentloaded",
+  if (!ready) {
+    await page.screenshot({
+      path: `${OUT_DIR}/plex-your-media-fail.png`,
+      fullPage: false,
     });
+    throw new Error("Plex Your Media did not show Continue Watching or Movies");
   }
-
-  await page.waitForTimeout(2000);
-  const form = page.frameLocator('iframe[src*="auth-form"]');
-  // Email gate is optional depending on stored plex.tv session.
-  const emailBtn = form.getByTestId("signIn--email");
-  if (await emailBtn.count()) {
-    await emailBtn.click({ timeout: 15_000 }).catch(() => {});
-  }
-  const email = form.locator("#email");
-  if (await email.count()) {
-    await email.fill(EMAIL, { timeout: 15_000 });
-    await form.locator("#password").fill(PASSWORD);
-    await form.getByTestId("signIn--submit").click();
-  }
-
-  const deadline = Date.now() + 90_000;
-  while (Date.now() < deadline) {
-    for (const label of [
-      /authorize/i,
-      /allow/i,
-      /^continue$/i,
-      /got it/i,
-      /^ok$/i,
-    ]) {
-      const btn = page.getByRole("button", { name: label });
-      if (await btn.count()) {
-        try {
-          await btn.first().click({ timeout: 1000 });
-        } catch {
-          /* optional */
-        }
-      }
-    }
-    if (await homeVisible()) break;
-    await page.waitForTimeout(500);
-  }
-
-  await page.goto(PLEX_URL, { waitUntil: "domcontentloaded" });
-  await page
-    .getByText(/continue watching/i)
-    .first()
-    .waitFor({ timeout: 90_000 });
 }
 
 async function waitForPosterImages(page, min = 1) {
   await page.waitForFunction(
     (need) => {
       const imgs = [...document.querySelectorAll("img")].filter(
-        (img) =>
-          img.complete && img.naturalWidth > 40 && img.naturalHeight > 40,
+        (img) => img.complete && img.naturalWidth > 40 && img.naturalHeight > 40,
       );
       return imgs.length >= need;
     },
@@ -144,21 +143,26 @@ async function waitForPosterImages(page, min = 1) {
   );
 }
 
-async function measureMultiplexSoftNav(page) {
-  // Ensure home is settled
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? Math.round((sorted[mid - 1] + sorted[mid]) / 2)
+    : sorted[mid];
+}
+
+async function measureMultiplexSoftNavOnce(page) {
   await page.goto(MULTIPLEX_URL, { waitUntil: "domcontentloaded" });
   await page.getByText("Continue Watching", { exact: false }).first().waitFor({
     timeout: 60_000,
   });
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(1000);
 
-  // --- Library soft-nav ---
   const libraryLink = page
     .locator('a[href*="/media/"][href*="source="]')
     .first();
   await libraryLink.waitFor({ state: "visible", timeout: 30_000 });
   await libraryLink.hover();
-  // Give runtime + tRPC + poster image prefetch time to complete.
   await page.waitForTimeout(1200);
 
   const libStart = Date.now();
@@ -166,14 +170,7 @@ async function measureMultiplexSoftNav(page) {
   await page.waitForURL(/\/media\//, { timeout: 30_000 });
   await waitForPosterImages(page, 3);
   const libraryMs = Date.now() - libStart;
-  console.log("Multiplex library soft-nav ms:", libraryMs);
-  await page.screenshot({
-    path: `${OUT_DIR}/multiplex-soft-library.png`,
-    fullPage: false,
-  });
 
-  // --- Details soft-nav ---
-  // Title link under the poster avoids the play-overlay intercepting hover.
   const detailsLink = page
     .locator('a[href*="/item/"]')
     .filter({ has: page.locator("h3") })
@@ -186,7 +183,6 @@ async function measureMultiplexSoftNav(page) {
   const detailsStart = Date.now();
   await detailsLink.click();
   await page.waitForURL(/\/item\//, { timeout: 30_000 });
-  // Hero title or play affordance — details content, not just shell.
   await page.waitForFunction(
     () => {
       const hasHeroImg = [...document.querySelectorAll("img")].some(
@@ -203,24 +199,22 @@ async function measureMultiplexSoftNav(page) {
     { timeout: 60_000 },
   );
   const detailsMs = Date.now() - detailsStart;
-  console.log("Multiplex details soft-nav ms:", detailsMs);
-  await page.screenshot({
-    path: `${OUT_DIR}/multiplex-soft-details.png`,
-    fullPage: false,
-  });
-
   return { libraryMs, detailsMs };
 }
 
-async function measurePlexSoftNav(page) {
-  await page.goto(PLEX_URL, { waitUntil: "domcontentloaded" });
-  await page
-    .getByText(/continue watching/i)
-    .first()
-    .waitFor({ timeout: 90_000 });
-  await page.waitForTimeout(2000);
+async function measurePlexSoftNavOnce(page) {
+  // Return to Your Media home between runs.
+  const home = page.getByText(/^Home$/i).first();
+  if (await home.isVisible().catch(() => false)) {
+    await home.click();
+    await page.waitForTimeout(800);
+  }
+  const yourMedia = page.getByText(/^Your Media$/i).first();
+  if (await yourMedia.isVisible().catch(() => false)) {
+    await yourMedia.click();
+    await page.waitForTimeout(1000);
+  }
 
-  // Prefer a Movies/TV library in the sidebar/source list.
   const libraryCandidates = [
     page.getByRole("link", { name: /^movies$/i }),
     page.getByRole("button", { name: /^movies$/i }),
@@ -231,55 +225,37 @@ async function measurePlexSoftNav(page) {
 
   let libraryTarget = null;
   for (const cand of libraryCandidates) {
-    if (
-      await cand
-        .first()
-        .isVisible()
-        .catch(() => false)
-    ) {
+    if (await cand.first().isVisible().catch(() => false)) {
       libraryTarget = cand.first();
       break;
     }
   }
   if (!libraryTarget) {
-    // Fallback: any source row that is not Home / Live TV
     libraryTarget = page
-      .locator('[class*="Source"], [data-testid*="source"], a, button')
-      .filter({ hasText: /movies|tv shows|library/i })
+      .locator("a, button")
+      .filter({ hasText: /movies|tv shows/i })
       .first();
   }
 
   await libraryTarget.waitFor({ state: "visible", timeout: 30_000 });
   await libraryTarget.hover().catch(() => {});
-  await page.waitForTimeout(800);
+  await page.waitForTimeout(1200);
 
   const libStart = Date.now();
   await libraryTarget.click();
   await page.waitForTimeout(100);
   await waitForPosterImages(page, 3);
   const libraryMs = Date.now() - libStart;
-  await page.screenshot({
-    path: `${OUT_DIR}/plex-soft-library.png`,
-    fullPage: false,
-  });
 
-  // Details: click a poster-sized image / poster link
-  const poster = page
-    .locator(
-      'a[href*="/details"], a[href*="preplay"], [class*="Poster"] a, img',
-    )
-    .first();
-  // Prefer clicking a large poster image's nearest link
   const posterLink = page
     .locator("a")
     .filter({ has: page.locator("img") })
     .first();
-  const target = (await posterLink.count()) ? posterLink : poster;
-  await target.hover().catch(() => {});
-  await page.waitForTimeout(800);
+  await posterLink.hover().catch(() => {});
+  await page.waitForTimeout(1200);
 
   const detailsStart = Date.now();
-  await target.click();
+  await posterLink.click();
   await page.waitForFunction(
     () => {
       const h1 = document.querySelector(
@@ -298,11 +274,6 @@ async function measurePlexSoftNav(page) {
     { timeout: 60_000 },
   );
   const detailsMs = Date.now() - detailsStart;
-  await page.screenshot({
-    path: `${OUT_DIR}/plex-soft-details.png`,
-    fullPage: false,
-  });
-
   return { libraryMs, detailsMs };
 }
 
@@ -320,24 +291,53 @@ async function main() {
   const report = {
     measuredAt: new Date().toISOString(),
     caveat:
-      "Soft-nav after 800ms hover prefetch. Metric is click→content visible. Multiplex on localhost; Plex on CDN.",
-    multiplex: {},
-    plexWeb: {},
+      "Soft-nav after 1200ms hover prefetch; median of runs after 1 warm-up. Multiplex localhost; Plex CDN. Plex measured from Your Media (not Discover).",
+    runs: RUNS,
+    multiplex: { runs: [], libraryMs: null, detailsMs: null },
+    plexWeb: { runs: [], libraryMs: null, detailsMs: null },
   };
 
   const muxPage = await context.newPage();
   console.log("Logging into Multiplex…");
   await loginMultiplex(muxPage);
-  console.log("Multiplex soft-nav…");
-  report.multiplex = await measureMultiplexSoftNav(muxPage);
-  console.log("Multiplex:", report.multiplex);
+  console.log("Warm-up Multiplex soft-nav…");
+  await measureMultiplexSoftNavOnce(muxPage);
+  for (let i = 0; i < RUNS; i++) {
+    const run = await measureMultiplexSoftNavOnce(muxPage);
+    report.multiplex.runs.push(run);
+    console.log(`Multiplex run ${i + 1}:`, run);
+  }
+  report.multiplex.libraryMs = median(
+    report.multiplex.runs.map((r) => r.libraryMs),
+  );
+  report.multiplex.detailsMs = median(
+    report.multiplex.runs.map((r) => r.detailsMs),
+  );
+  await muxPage.screenshot({
+    path: `${OUT_DIR}/multiplex-soft-details.png`,
+    fullPage: false,
+  });
 
   const plexPage = await context.newPage();
-  console.log("Logging into Plex web…");
-  await loginPlexWeb(plexPage);
-  console.log("Plex soft-nav…");
-  report.plexWeb = await measurePlexSoftNav(plexPage);
-  console.log("Plex:", report.plexWeb);
+  console.log("Opening Plex Your Media…");
+  await openPlexYourMedia(plexPage);
+  await plexPage.screenshot({
+    path: `${OUT_DIR}/plex-your-media.png`,
+    fullPage: false,
+  });
+  console.log("Warm-up Plex soft-nav…");
+  await measurePlexSoftNavOnce(plexPage);
+  for (let i = 0; i < RUNS; i++) {
+    const run = await measurePlexSoftNavOnce(plexPage);
+    report.plexWeb.runs.push(run);
+    console.log(`Plex run ${i + 1}:`, run);
+  }
+  report.plexWeb.libraryMs = median(report.plexWeb.runs.map((r) => r.libraryMs));
+  report.plexWeb.detailsMs = median(report.plexWeb.runs.map((r) => r.detailsMs));
+  await plexPage.screenshot({
+    path: `${OUT_DIR}/plex-soft-details.png`,
+    fullPage: false,
+  });
 
   report.comparison = {
     libraryDeltaMs: report.multiplex.libraryMs - report.plexWeb.libraryMs,
