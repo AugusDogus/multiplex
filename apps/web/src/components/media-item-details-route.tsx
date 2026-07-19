@@ -22,7 +22,7 @@ export async function MediaItemDetailsRoute({
     notFound();
   }
 
-  void api.plex.getItemDetails.prefetch({
+  await api.plex.getItemDetails.prefetch({
     serverId: machineIdentifier,
     ratingKey,
   });

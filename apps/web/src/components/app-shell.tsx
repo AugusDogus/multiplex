@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+
 import { AppHeaderSkeleton } from "~/components/app-header-skeleton";
 import { AppSidebar } from "~/components/app-sidebar";
 import { MobileNav } from "~/components/mobile-nav";
@@ -8,9 +10,9 @@ import { api, HydrateClient } from "~/trpc/server";
 
 export async function AppShellSidebar() {
   const { session, servers, userInfo } = await getAppPlexContext();
-  // Prefetch in the sidebar Suspense lane so the 3s+ media-providers fan-out
-  // does not compete with home Continue Watching on the client after paint.
-  await api.plex.getAllServerLibraries.prefetch();
+  // Kick libraries off without blocking chrome — pinned sources render from
+  // userInfo immediately; full provider lists fill when this settles.
+  void api.plex.getAllServerLibraries.prefetch();
 
   return (
     <HydrateClient>
@@ -40,7 +42,9 @@ export async function AppPlexContentGate({
     return <NoPlexServers />;
   }
 
-  return children;
+  // Nested boundary so page RSC work (library hubs, details, etc.) can show
+  // route loading UI instead of extending the shell-gate fallback.
+  return <Suspense fallback={<AppContentGateFallback />}>{children}</Suspense>;
 }
 
 export function AppContentGateFallback() {

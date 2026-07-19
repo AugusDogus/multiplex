@@ -36,6 +36,7 @@ interface PivotContentProps {
   machineIdentifier: string;
   sectionId: string;
   searchParams: Record<string, string | string[] | undefined>;
+  hubsAlreadyPrefetched?: boolean;
 }
 
 function firstParam(value: string | string[] | undefined): string | undefined {
@@ -75,6 +76,19 @@ export default async function MediaLibraryPage({
     );
   }
 
+  // Overlap the default Recommended hubs fetch with pivot discovery so library
+  // open is not pivots-RTT then hubs-RTT.
+  const requestedPivotParam =
+    firstParam(resolvedSearchParams.pivot) ?? "recommended";
+  const hubsWarm =
+    !isSupportedPivot(requestedPivotParam) ||
+    requestedPivotParam === "recommended"
+      ? api.plex.getLibraryHubs.prefetch({
+          machineIdentifier,
+          sectionId: source,
+        })
+      : null;
+
   const { title: librarySectionTitle, pivots } =
     await api.plex.getLibraryPivots({
       machineIdentifier,
@@ -84,13 +98,15 @@ export default async function MediaLibraryPage({
     SUPPORTED_PIVOT_IDS.includes(pivot.id),
   );
 
-  const requestedPivot =
-    firstParam(resolvedSearchParams.pivot) ?? "recommended";
   const activePivot: LibraryPivotId =
-    isSupportedPivot(requestedPivot) &&
-    supportedPivots.some((pivot) => pivot.id === requestedPivot)
-      ? requestedPivot
+    isSupportedPivot(requestedPivotParam) &&
+    supportedPivots.some((pivot) => pivot.id === requestedPivotParam)
+      ? requestedPivotParam
       : "recommended";
+
+  if (hubsWarm && activePivot === "recommended") {
+    await hubsWarm;
+  }
 
   const title = resolveLibraryTitle({
     machineIdentifier,
@@ -121,6 +137,7 @@ export default async function MediaLibraryPage({
           machineIdentifier={machineIdentifier}
           sectionId={source}
           searchParams={resolvedSearchParams}
+          hubsAlreadyPrefetched={activePivot === "recommended"}
         />
       </Suspense>
     </AppPageLayout>
@@ -183,12 +200,12 @@ async function LibraryPivotContent(props: PivotContentProps) {
     }
 
     case "recommended": {
-      await Promise.allSettled([
-        api.plex.getLibraryHubs.prefetch({
+      if (!props.hubsAlreadyPrefetched) {
+        await api.plex.getLibraryHubs.prefetch({
           machineIdentifier,
           sectionId,
-        }),
-      ]);
+        });
+      }
       return (
         <HydrateClient>
           <LibraryRecommended

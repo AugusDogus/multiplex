@@ -170,7 +170,6 @@ export function DetailsHero({
             src={backdropUrl}
             alt=""
             fill
-            priority
             sizes="100vw"
             className="-z-20 object-cover"
           />
