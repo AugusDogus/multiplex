@@ -74,44 +74,6 @@ import { z } from "zod";
 const CONNECTION_TEST_TIMEOUT_MS = 3_000;
 
 /**
- * Deadline for real PMS API calls after /identity succeeds. Without this,
- * a blackholed plex.direct / relay URI can hang Bun `fetch` until the OS
- * gives up (~30–120s), and `withPmsRetry` stacks that into ~minute-long
- * home skeletons on Railway cold starts.
- */
-const PMS_REQUEST_TIMEOUT_MS = 10_000;
-
-/** Test-only override; `null` restores the production deadline. */
-let requestTimeoutMsForTests: number | null = null;
-
-function getPmsRequestTimeoutMs(): number {
-  return requestTimeoutMsForTests ?? PMS_REQUEST_TIMEOUT_MS;
-}
-
-/** Test helper — keep production call sites on {@link PMS_REQUEST_TIMEOUT_MS}. */
-export function setPlexServerRequestTimeoutMsForTests(timeoutMs: number | null): void {
-  requestTimeoutMsForTests = timeoutMs;
-}
-
-function isAbortError(error: unknown): boolean {
-  // Bun's AbortSignal.timeout rejects with a DOMException TimeoutError that is
-  // not always `instanceof Error`. Manual aborts use AbortError.
-  const name =
-    typeof error === "object" && error !== null && "name" in error
-      ? String((error as { name: unknown }).name)
-      : undefined;
-  return name === "AbortError" || name === "TimeoutError";
-}
-
-function shouldRetryPmsTransportError(error: unknown): boolean {
-  if (isAbortError(error)) return true;
-  if (error instanceof PlexAPIError && error.status !== undefined && error.status >= 500) {
-    return true;
-  }
-  return error instanceof TypeError && error.message.includes("fetch");
-}
-
-/**
  * Process-wide cache of last-known-good PMS URIs. `"use cache"` and parallel
  * Suspense lanes each construct fresh `PlexTvClient` instances, so without a
  * shared cache every lane re-runs /identity discovery (and local-first probing
@@ -199,8 +161,6 @@ export class PlexServerClient {
   private readonly server: PlexDevice;
   private workingConnection: PlexDevice["connections"][0] | null = null;
   private connectionTestPromise: Promise<PlexDevice["connections"][0]> | null = null;
-  /** URIs that answered /identity but then timed out / failed transport mid-request. */
-  private excludedConnectionUris = new Set<string>();
 
   /**
    * Mint a short-lived PMS delegation token for the current server identity.
@@ -360,17 +320,7 @@ export class PlexServerClient {
    * for a full CONNECTION_TEST_TIMEOUT_MS while LAN URIs timed out.
    */
   private async testConnections(): Promise<PlexDevice["connections"][0]> {
-    let connections = this.server.connections.filter(
-      (connection) => !this.excludedConnectionUris.has(connection.uri),
-    );
-
-    // Every URI was excluded this request — clear and try the full set once more.
-    if (connections.length === 0 && this.server.connections.length > 0) {
-      this.excludedConnectionUris.clear();
-      connections = [...this.server.connections];
-    } else {
-      connections = [...connections];
-    }
+    const connections = [...this.server.connections];
 
     console.log(
       `Testing connections for server: ${this.server.name} (${connections.length} available)`,
@@ -426,14 +376,9 @@ export class PlexServerClient {
   }
 
   /**
-   * Reset the cached connection (useful when current connection stops working).
-   * When `excludeCurrent` is set, the URI is skipped on the next discovery so a
-   * hung plex.direct winner cannot win the race forever after AbortSignal fires.
+   * Reset the cached connection (useful when current connection stops working)
    */
-  private resetConnection(options?: { excludeCurrent?: boolean }): void {
-    if (options?.excludeCurrent && this.workingConnection) {
-      this.excludedConnectionUris.add(this.workingConnection.uri);
-    }
+  private resetConnection(): void {
     this.workingConnection = null;
     this.connectionTestPromise = null;
     workingConnectionCache.delete(this.server.clientIdentifier);
@@ -1309,7 +1254,6 @@ export class PlexServerClient {
         const response = await fetch(finalUrl, {
           method: "GET",
           headers,
-          signal: AbortSignal.timeout(getPmsRequestTimeoutMs()),
         });
 
         console.log(`Response from ${this.server.name}: ${response.status} ${response.statusText}`);
@@ -1329,7 +1273,6 @@ export class PlexServerClient {
         }
 
         if (options.expectEmptyResponse) {
-          this.excludedConnectionUris.clear();
           return undefined as T;
         }
 
@@ -1337,9 +1280,7 @@ export class PlexServerClient {
 
         if (schema) {
           try {
-            const parsed = schema.parse(data);
-            this.excludedConnectionUris.clear();
-            return parsed;
+            return schema.parse(data);
           } catch (error) {
             throw new PlexAPIError(
               `Invalid response format from Plex Server API: ${error instanceof Error ? error.message : "Unknown error"}`,
@@ -1347,7 +1288,6 @@ export class PlexServerClient {
           }
         }
 
-        this.excludedConnectionUris.clear();
         return data as T;
       } catch (error) {
         const currentError = error instanceof Error ? error : new Error(String(error));
@@ -1363,9 +1303,16 @@ export class PlexServerClient {
           throw currentError;
         }
 
-        // Timeouts / 5xx / network failures: drop the cached URI and retry.
-        if (shouldRetryPmsTransportError(error)) {
-          this.resetConnection({ excludeCurrent: true });
+        // If this was a connection-related error, reset our cached connection
+        // and try again with a different connection
+        if (error instanceof PlexAPIError && error.status && error.status >= 500) {
+          this.resetConnection();
+          continue;
+        }
+
+        // For network errors, also try to reset and retry
+        if (error instanceof TypeError && error.message.includes("fetch")) {
+          this.resetConnection();
           continue;
         }
 
@@ -1462,7 +1409,6 @@ export class PlexServerClient {
         const response = await fetch(url.toString(), {
           method,
           headers,
-          signal: AbortSignal.timeout(getPmsRequestTimeoutMs()),
         });
 
         console.log(`Response from ${this.server.name}: ${response.status} ${response.statusText}`);
@@ -1508,7 +1454,6 @@ export class PlexServerClient {
           }
         }
 
-        this.excludedConnectionUris.clear();
         return data;
       } catch (error) {
         const currentError = error instanceof Error ? error : new Error(String(error));
@@ -1524,8 +1469,16 @@ export class PlexServerClient {
           throw currentError;
         }
 
-        if (shouldRetryPmsTransportError(error)) {
-          this.resetConnection({ excludeCurrent: true });
+        // If this was a connection-related error, reset our cached connection
+        // and try again with a different connection
+        if (error instanceof PlexAPIError && error.status && error.status >= 500) {
+          this.resetConnection();
+          continue;
+        }
+
+        // For network errors, also try to reset and retry
+        if (error instanceof TypeError && error.message.includes("fetch")) {
+          this.resetConnection();
           continue;
         }
 

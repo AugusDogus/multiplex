@@ -45,9 +45,7 @@ export default function Page() {
 }
 
 async function PrefetchedContinueWatching() {
-  // Soft-fail so a dead PMS paints the client row (which can retry) instead of
-  // leaving the Suspense skeleton up for the full retry budget.
-  await api.plex.getAllContinueWatching.prefetch().catch(() => undefined);
+  await api.plex.getAllContinueWatching.prefetch();
   return (
     <HydrateClient>
       <ContinueWatching />
@@ -56,7 +54,7 @@ async function PrefetchedContinueWatching() {
 }
 
 async function PrefetchedHomeHubs() {
-  await api.plex.getHomeHubs.prefetch().catch(() => undefined);
+  await api.plex.getHomeHubs.prefetch();
   return (
     <HydrateClient>
       <HomeHubs />
@@ -65,19 +63,17 @@ async function PrefetchedHomeHubs() {
 }
 
 async function PrefetchedWatchTogetherRow() {
-  await api.plex.getWatchTogetherRooms.prefetch().catch(() => undefined);
-  const rooms = await api.plex.getWatchTogetherRooms().catch(() => []);
+  await api.plex.getWatchTogetherRooms.prefetch();
+  const rooms = await api.plex.getWatchTogetherRooms();
   // Collapse the client N+1: each card used to call getItemDetails on mount.
   await Promise.all(
     rooms.map((room) => {
       const source = parseLibraryItemUri(room.sourceUri);
       if (!source) return Promise.resolve();
-      return api.plex.getItemDetails
-        .prefetch({
-          serverId: source.serverId,
-          ratingKey: source.ratingKey,
-        })
-        .catch(() => undefined);
+      return api.plex.getItemDetails.prefetch({
+        serverId: source.serverId,
+        ratingKey: source.ratingKey,
+      });
     }),
   );
   return (
