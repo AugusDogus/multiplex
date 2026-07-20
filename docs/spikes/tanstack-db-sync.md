@@ -13,12 +13,12 @@ truth**. Multiplex never owns media tables.
 **Use TanStack DB Query Collections + browser OPFS SQLite persistence** as the
 client replica/query layer over existing tRPC→Plex fetches.
 
-| Option | Fit | Why |
-|--------|-----|-----|
-| **TanStack DB + Query Collections + OPFS SQLite** | **Yes** | Works with Plex-via-tRPC; durable local replica; live queries; optimistic writes; no Multiplex-owned DB required |
-| Electric / Zero / PowerSync | **No** | Built to sync **your** Postgres (or equivalent). Multiplex will never own those tables — Plex is always SoT |
-| TinyBase | **No** | Too small for media catalogs / query-driven library browsing |
-| **fate** ([fate.technology](https://fate.technology/)) | **Not for this job** | Relay-style view composition + in-memory normalized cache (+ SSE live views). Explicitly **lacks persistent offline storage** today. Live updates assume *your* server publishes entity changes — Plex does not push into Multiplex |
+| Option                                                 | Fit                  | Why                                                                                                                                                                                                                                 |
+| ------------------------------------------------------ | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TanStack DB + Query Collections + OPFS SQLite**      | **Yes**              | Works with Plex-via-tRPC; durable local replica; live queries; optimistic writes; no Multiplex-owned DB required                                                                                                                    |
+| Electric / Zero / PowerSync                            | **No**               | Built to sync **your** Postgres (or equivalent). Multiplex will never own those tables — Plex is always SoT                                                                                                                         |
+| TinyBase                                               | **No**               | Too small for media catalogs / query-driven library browsing                                                                                                                                                                        |
+| **fate** ([fate.technology](https://fate.technology/)) | **Not for this job** | Relay-style view composition + in-memory normalized cache (+ SSE live views). Explicitly **lacks persistent offline storage** today. Live updates assume _your_ server publishes entity changes — Plex does not push into Multiplex |
 
 Electric/Zero are not a “later” option. They are the wrong shape for a
 Plex-pass-through client.
@@ -26,7 +26,7 @@ Plex-pass-through client.
 ## What the spike implements
 
 1. **OPFS SQLite persistence** via `@tanstack/browser-db-sqlite-persistence`
-   + `BrowserCollectionCoordinator` (multi-tab).
+   - `BrowserCollectionCoordinator` (multi-tab).
 2. **Query Collections** wired to vanilla tRPC for:
    - servers
    - server libraries
@@ -59,13 +59,13 @@ Effect PlayerService / WatchTogetherSession
 
 ### Sync modes
 
-| Collection | Mode | Notes |
-|------------|------|-------|
-| servers, libraries, pinned sources | eager | Shell-critical |
-| continue watching, home hubs | eager + refetchInterval | Background reconcile with Plex |
-| library grids / search | on-demand | Query-driven subsets |
-| item details | on-demand + hover warm | Matches current hover prefetch |
-| Syncplay / ephemeral lobby FSM | Effect runtime | Not a durable Plex row set |
+| Collection                         | Mode                    | Notes                          |
+| ---------------------------------- | ----------------------- | ------------------------------ |
+| servers, libraries, pinned sources | eager                   | Shell-critical                 |
+| continue watching, home hubs       | eager + refetchInterval | Background reconcile with Plex |
+| library grids / search             | on-demand               | Query-driven subsets           |
+| item details                       | on-demand + hover warm  | Matches current hover prefetch |
+| Syncplay / ephemeral lobby FSM     | Effect runtime          | Not a durable Plex row set     |
 
 Note: TanStack blog posts mention `progressive`; installed `@tanstack/db@0.6.16`
 typings only expose `eager` | `on-demand`. Eager + OPFS already gives instant
@@ -77,13 +77,13 @@ Earlier wording (“keep Effect out”) was too blunt.
 
 **Split by kind of state, not by team preference:**
 
-| Kind | Owner | Why |
-|------|-------|-----|
-| Durable Plex facts (servers, libraries, CW, hubs, metadata, playlists, rooms *as Plex records*) | **TanStack DB replica** | Survives reload/offline; one normalized cache; instant nav |
-| Live orchestration (playhead, buffering, Syncplay clock, lobby phase machines, presence) | **Effect services** | Ephemeral, high-frequency, websocket-driven; wrong to treat as OPFS rows of truth |
-| Integration | **Effect adapters call into collections** | `WatchTogetherApi.getItemMetadata` / room list should prefer sync-engine reads (and warm collections on miss) so Effect does not maintain a second cache |
+| Kind                                                                                            | Owner                                     | Why                                                                                                                                                      |
+| ----------------------------------------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Durable Plex facts (servers, libraries, CW, hubs, metadata, playlists, rooms _as Plex records_) | **TanStack DB replica**                   | Survives reload/offline; one normalized cache; instant nav                                                                                               |
+| Live orchestration (playhead, buffering, Syncplay clock, lobby phase machines, presence)        | **Effect services**                       | Ephemeral, high-frequency, websocket-driven; wrong to treat as OPFS rows of truth                                                                        |
+| Integration                                                                                     | **Effect adapters call into collections** | `WatchTogetherApi.getItemMetadata` / room list should prefer sync-engine reads (and warm collections on miss) so Effect does not maintain a second cache |
 
-So: Effect stays the runtime for *session physics*. It should **not** stay on a
+So: Effect stays the runtime for _session physics_. It should **not** stay on a
 parallel tRPC data path for Plex-backed records — those go through the sync
 engine.
 
