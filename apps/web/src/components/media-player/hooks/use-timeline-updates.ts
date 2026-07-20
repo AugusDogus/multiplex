@@ -3,7 +3,7 @@
 import { useRef } from "react";
 import { usePlayerStateSelector } from "~/lib/effect/player-atoms";
 import { shallow } from "zustand/shallow";
-import { updateContinueWatchingProgress } from "~/lib/continue-watching-progress";
+import { patchSyncedContinueWatchingProgress } from "~/lib/sync-engine";
 import { api } from "~/trpc/api";
 
 /* ────────────────────────────────────────────────────────────
@@ -41,8 +41,6 @@ export function useTimelineUpdates({
       }),
       shallow,
     );
-  const utils = api.useUtils();
-
   const sessionIdRef = useRef<string | null>(null);
   const lastUpdateRef = useRef<{
     currentTime: number;
@@ -127,19 +125,15 @@ export function useTimelineUpdates({
         ratingKey: currentItem.ratingKey,
       };
 
-      // Plex accepted the timeline update, so reflect that server state in the
-      // query cache used by Continue Watching. PlayerService remains the sole
-      // owner of the active player's current time.
-      utils.plex.getAllContinueWatching.setData(undefined, (items) =>
-        updateContinueWatchingProgress(
-          items,
-          {
-            serverId: currentItem.serverId,
-            ratingKey: currentItem.ratingKey,
-          },
-          timeToUse,
-          duration,
-        ),
+      // Plex accepted the timeline update — patch the sync-engine replica.
+      // PlayerService remains the sole owner of the active player's current time.
+      patchSyncedContinueWatchingProgress(
+        {
+          serverId: currentItem.serverId,
+          ratingKey: currentItem.ratingKey,
+        },
+        timeToUse,
+        duration,
       );
       hasLoggedFailureRef.current = false;
     } catch (error) {
