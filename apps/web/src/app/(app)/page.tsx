@@ -8,7 +8,16 @@ import { HomeHubs } from "~/components/home-hubs";
 import { ContinueWatchingSkeleton } from "~/components/media-carousel-skeleton";
 import { MediaHubRowSkeleton } from "~/components/media-hub-row";
 import { WatchTogetherRow } from "~/components/watch-together/watch-together-row";
-import { api, HydrateClient } from "~/trpc/server";
+import type { RouterOutputs } from "~/trpc/api";
+import { api, getQueryClient, HydrateClient } from "~/trpc/server";
+
+type WatchTogetherRooms = RouterOutputs["plex"]["getWatchTogetherRooms"];
+
+/** Matches tRPC RSC prefetchQuery key for the no-input rooms procedure. */
+const WATCH_TOGETHER_ROOMS_QUERY_KEY = [
+  ["plex", "getWatchTogetherRooms"],
+  { type: "query" },
+] as const;
 
 // Prefetch home rows with the session so soft-nav back to `/` is instant.
 export const prefetch = "allow-runtime";
@@ -65,8 +74,13 @@ async function PrefetchedHomeHubs() {
 }
 
 async function PrefetchedWatchTogetherRow() {
+  // One procedure call: prefetch seeds HydrateClient; read rooms from that cache
+  // (createHydrationHelpers has no `.fetch()`, unlike the client helpers).
   await api.plex.getWatchTogetherRooms.prefetch().catch(() => undefined);
-  const rooms = await api.plex.getWatchTogetherRooms().catch(() => []);
+  const rooms =
+    getQueryClient().getQueryData<WatchTogetherRooms>(
+      WATCH_TOGETHER_ROOMS_QUERY_KEY,
+    ) ?? [];
   // Collapse the client N+1: each card used to call getItemDetails on mount.
   // allSettled so one bad room cannot block the rest of the row.
   await Promise.allSettled(

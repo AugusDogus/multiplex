@@ -271,14 +271,14 @@ export class PlexServerClient {
     connection: PlexDevice["connections"][0],
     externalSignal?: AbortSignal,
   ): Promise<boolean> {
-    try {
-      const timeoutController = new AbortController();
-      const timeoutId = setTimeout(() => timeoutController.abort(), CONNECTION_TEST_TIMEOUT_MS);
-      const signal =
-        externalSignal !== undefined
-          ? AbortSignal.any([externalSignal, timeoutController.signal])
-          : timeoutController.signal;
+    const timeoutController = new AbortController();
+    const timeoutId = setTimeout(() => timeoutController.abort(), CONNECTION_TEST_TIMEOUT_MS);
+    const signal =
+      externalSignal !== undefined
+        ? AbortSignal.any([externalSignal, timeoutController.signal])
+        : timeoutController.signal;
 
+    try {
       const testUrl = `${connection.uri}/identity`;
 
       const response = await fetch(testUrl, {
@@ -289,10 +289,11 @@ export class PlexServerClient {
         signal,
       });
 
-      clearTimeout(timeoutId);
       return response.ok;
     } catch {
       return false;
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -419,7 +420,7 @@ export class PlexServerClient {
     this.workingConnection = null;
     this.connectionTestPromise = null;
     const cached = workingConnectionCache.get(this.server.clientIdentifier);
-    if (!staleUri || cached?.uri === staleUri) {
+    if (staleUri && cached?.uri === staleUri) {
       workingConnectionCache.delete(this.server.clientIdentifier);
     }
   }
