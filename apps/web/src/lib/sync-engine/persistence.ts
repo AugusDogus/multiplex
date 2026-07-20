@@ -20,7 +20,7 @@ export type SyncEnginePersistence = {
 let persistencePromise: Promise<SyncEnginePersistence> | undefined;
 
 /**
- * Shared OPFS SQLite persistence for all spike collections.
+ * Shared OPFS SQLite persistence for sync-engine collections.
  * Multi-tab safe via BrowserCollectionCoordinator.
  */
 export function getSyncEnginePersistence(): Promise<SyncEnginePersistence> {
