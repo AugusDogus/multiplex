@@ -8,6 +8,7 @@ import { HomeHubs } from "~/components/home-hubs";
 import { ContinueWatchingSkeleton } from "~/components/media-carousel-skeleton";
 import { MediaHubRowSkeleton } from "~/components/media-hub-row";
 import { WatchTogetherRow } from "~/components/watch-together/watch-together-row";
+import { enableHomeLoadDiag, getHomeDiagSpans, withHomeDiagSpan } from "~/server/home-load-diag";
 import { api, HydrateClient } from "~/trpc/server";
 
 // Prefetch home rows with the session so soft-nav back to `/` is instant.
@@ -18,7 +19,13 @@ export const prefetch = "allow-runtime";
  * on hubs / Watch Together (or the slowest of the three). Official Plex paints
  * a shell quickly and fills rows as data arrives — match that shape.
  */
-export default function Page() {
+export default async function Page({ searchParams }: { searchParams: Promise<{ diag?: string }> }) {
+  const params = await searchParams;
+  const diag = params.diag === "1";
+  if (diag) {
+    enableHomeLoadDiag();
+  }
+
   return (
     <>
       <AppHeader />
@@ -39,6 +46,11 @@ export default function Page() {
         >
           <PrefetchedHomeHubs />
         </Suspense>
+        {diag ? (
+          <Suspense fallback={null}>
+            <HomeDiagBeacon />
+          </Suspense>
+        ) : null}
       </AppPageContent>
     </>
   );
@@ -80,5 +92,28 @@ async function PrefetchedWatchTogetherRow() {
     <HydrateClient>
       <WatchTogetherRow />
     </HydrateClient>
+  );
+}
+
+/** Temporary: measure home prefetch lanes when `?diag=1`. */
+async function HomeDiagBeacon() {
+  await Promise.all([
+    withHomeDiagSpan("prefetch.getAllContinueWatching", () =>
+      api.plex.getAllContinueWatching.prefetch(),
+    ),
+    withHomeDiagSpan("prefetch.getHomeHubs", () => api.plex.getHomeHubs.prefetch()),
+    withHomeDiagSpan("prefetch.getWatchTogetherRooms", () =>
+      api.plex.getWatchTogetherRooms.prefetch(),
+    ),
+  ]);
+
+  const spans = getHomeDiagSpans();
+  return (
+    <script
+      id="home-load-diag"
+      type="application/json"
+      // Evidence-only payload for the hang investigation probe.
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(spans) }}
+    />
   );
 }
