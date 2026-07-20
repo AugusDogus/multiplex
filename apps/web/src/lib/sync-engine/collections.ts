@@ -56,7 +56,7 @@ function createPersistedQueryCollection<T extends object>(config: {
     ...config.queryOptions,
   } as never);
   // Cross-package generics (query-collection ↔ sqlite-persistence) disagree on
-  // optional `schema`; spike keeps a single cast at this factory boundary.
+  // optional `schema`; cast once at this factory boundary.
   return createCollection(options as never) as Collection<T, string> & {
     utils: QueryCollectionUtilsLike;
   };
