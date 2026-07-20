@@ -2,7 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { preload } from "react-dom";
-import { getBackdropImagePath, getPosterImagePath, type ItemMetadata } from "@multiplex/plex-query";
+import {
+  getBackdropImagePath,
+  getPosterImagePath,
+  type ItemMetadata,
+} from "@multiplex/plex-query";
 
 import { PLEX_DETAILS_QUERY_OPTIONS } from "~/lib/plex-details-query-options";
 import { getPlexImagePath } from "~/lib/plex-image";
