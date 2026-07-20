@@ -146,9 +146,18 @@ function createHomeHubsCollection(
       queryKey: ["sync-engine", "plex", "getHomeHubs"],
       queryFn: async (): Promise<SanitizedHomeHubRow[]> => {
         const hubs = await trpc.plex.getHomeHubs.query();
-        return hubs.map((hub) =>
-          sanitizeHomeHub(hub as unknown as Record<string, unknown>),
-        );
+        return hubs.map((hub) => {
+          const row = sanitizeHomeHub(
+            hub as unknown as Record<string, unknown>,
+          );
+          for (const item of hub.items) {
+            rememberItemConnection(`${hub.serverId}:${item.ratingKey}`, {
+              serverUrl: item.serverUrl,
+              authToken: item.authToken,
+            });
+          }
+          return row;
+        });
       },
       getKey: (row) => row.id,
       syncMode: "eager",

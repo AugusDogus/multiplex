@@ -73,21 +73,36 @@ export type SanitizedContinueWatchingRow = {
   Media: unknown;
 };
 
+export type SanitizedHomeHubItem = {
+  ratingKey: string;
+  key: string | null;
+  type: string;
+  title: string;
+  thumb: string | null;
+  parentThumb: string | null;
+  grandparentThumb: string | null;
+  year: number | null;
+  parentTitle: string | null;
+  grandparentTitle: string | null;
+  parentIndex: number | null;
+  index: number | null;
+  childCount: number | null;
+  leafCount: number | null;
+  subtype: string | null;
+  playlistType: string | null;
+  composite: string | null;
+};
+
 export type SanitizedHomeHubRow = {
   id: string;
   serverId: string;
   hubKey: string;
-  title: string | null;
+  title: string;
   type: string | null;
   hubIdentifier: string | null;
-  size: number | null;
-  items: Array<{
-    ratingKey: string;
-    type: string | null;
-    title: string | null;
-    thumb: string | null;
-    year: number | null;
-  }>;
+  size: number;
+  more: boolean | null;
+  items: SanitizedHomeHubItem[];
 };
 
 export type SanitizedServerLibraryRow = {
@@ -242,10 +257,11 @@ export function sanitizeHomeHub(hub: LooseRecord): SanitizedHomeHubRow {
     id: `${serverId}:${hubKey}`,
     serverId,
     hubKey,
-    title: asString(hub.title),
+    title: asString(hub.title) ?? hubKey,
     type: asString(hub.type),
     hubIdentifier: asString(hub.hubIdentifier),
-    size: asNumber(hub.size),
+    size: asNumber(hub.size) ?? 0,
+    more: asBoolean(hub.more),
     items: itemsRaw.flatMap((entry) => {
       if (!entry || typeof entry !== "object") return [];
       const item = entry as LooseRecord;
@@ -254,10 +270,22 @@ export function sanitizeHomeHub(hub: LooseRecord): SanitizedHomeHubRow {
       return [
         {
           ratingKey,
-          type: asString(item.type),
-          title: asString(item.title),
+          key: asString(item.key),
+          type: asString(item.type) ?? "movie",
+          title: asString(item.title) ?? ratingKey,
           thumb: asString(item.thumb),
+          parentThumb: asString(item.parentThumb),
+          grandparentThumb: asString(item.grandparentThumb),
           year: asNumber(item.year),
+          parentTitle: asString(item.parentTitle),
+          grandparentTitle: asString(item.grandparentTitle),
+          parentIndex: asNumber(item.parentIndex),
+          index: asNumber(item.index),
+          childCount: asNumber(item.childCount),
+          leafCount: asNumber(item.leafCount),
+          subtype: asString(item.subtype),
+          playlistType: asString(item.playlistType),
+          composite: asString(item.composite),
         },
       ];
     }),

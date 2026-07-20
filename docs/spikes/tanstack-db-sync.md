@@ -138,9 +138,16 @@ Done on this branch:
    session connection overlay for play credentials).
 2. **Sidebar / server libraries** read `useSyncedServerLibraries` (keeps
    `mediaProviders` for source extraction).
-3. **Timeline + restart** patch the sync-engine CW collection (no more
+3. **Home hubs** read `useSyncedHomeHubs`.
+4. **Home RSC no longer awaits Plex prefeches** for those surfaces — soft-nav
+   back from details paints from OPFS instead of Suspense-waiting on PMS.
+5. **Timeline + restart** patch the sync-engine CW collection (no more
    `getAllContinueWatching.setData`).
-4. **Effect `WatchTogetherApi.getItemMetadata`** warms `mediaItems` after fetch.
+6. **Effect `WatchTogetherApi.getItemMetadata`** warms `mediaItems` after fetch.
+
+Why details→home still felt laggy before this: the home page RSC kept
+`await api.plex.*.prefetch()` inside Suspense boundaries even after CW moved
+to the sync engine, so soft-nav waited on Plex before mounting local rows.
 
 Still open:
 

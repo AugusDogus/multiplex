@@ -15,6 +15,7 @@ export {
   resetSyncedContinueWatchingProgress,
 } from "./continue-watching-mutations";
 export { toContinueWatchingItemWithServer } from "./continue-watching-view";
+export { toHubWithServer } from "./home-hubs-view";
 export {
   useSyncedContinueWatching,
   useSyncedHomeHubs,
