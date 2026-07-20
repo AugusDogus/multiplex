@@ -48,33 +48,24 @@ type PosterCardRouteProps =
       detailsTarget: ItemDetailsNavigationTarget;
     };
 
-type MediaPosterCardContentProps = MediaPosterCardContentBaseProps &
-  PosterCardRouteProps;
+type MediaPosterCardContentProps = MediaPosterCardContentBaseProps & PosterCardRouteProps;
 
-type ResolvedPosterCardContentProps = MediaPosterCardContentBaseProps &
-  PosterCardRouteProps;
+type ResolvedPosterCardContentProps = MediaPosterCardContentBaseProps & PosterCardRouteProps;
 
-interface MediaPosterCardFromItemProps
-  extends Omit<
-    MediaPosterCardContentBaseProps,
-    "title" | "subtitle" | "thumbnailUrl"
-  > {
+interface MediaPosterCardFromItemProps extends Omit<
+  MediaPosterCardContentBaseProps,
+  "title" | "subtitle" | "thumbnailUrl"
+> {
   item: HubItemWithServer;
 }
 
-export type MediaPosterCardProps =
-  | MediaPosterCardContentProps
-  | MediaPosterCardFromItemProps;
+export type MediaPosterCardProps = MediaPosterCardContentProps | MediaPosterCardFromItemProps;
 
-function isItemProps(
-  props: MediaPosterCardProps,
-): props is MediaPosterCardFromItemProps {
+function isItemProps(props: MediaPosterCardProps): props is MediaPosterCardFromItemProps {
   return "item" in props;
 }
 
-function resolvePosterCardContent(
-  props: MediaPosterCardProps,
-): ResolvedPosterCardContentProps {
+function resolvePosterCardContent(props: MediaPosterCardProps): ResolvedPosterCardContentProps {
   if (!isItemProps(props)) {
     return props;
   }
@@ -125,8 +116,7 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
     ? itemDetailsNavigation.getHref(detailsTarget)
     : resolved.detailsHref;
 
-  const showPlayOverlay =
-    props.showPlayOverlay ?? (item ? hubPlayback.canPlay : false);
+  const showPlayOverlay = props.showPlayOverlay ?? (item ? hubPlayback.canPlay : false);
   const onPlay = props.onPlay ?? (item ? hubPlayback.play : undefined);
 
   const [imageFailed, setImageFailed] = useState(false);
@@ -146,7 +136,6 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
           src={thumbnailUrl}
           alt={title}
           className="h-full w-full object-cover"
-          loading={priority ? "eager" : "lazy"}
           priority={priority}
           width={160}
           height={240}
