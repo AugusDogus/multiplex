@@ -10,7 +10,6 @@ import {
 import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
 import { getServersQuery } from "~/server/queries/get-servers";
 import { getUserInfoQuery } from "~/server/queries/get-user-info";
-import { isHomeLoadDiagEnabled, recordHomeDiagSpan } from "~/server/home-load-diag";
 import { withPmsRetry } from "~/server/queries/plex-server-context";
 
 type ContinueWatchingItemWithServer = ContinueWatchingResponse["items"][0] & {
@@ -26,7 +25,9 @@ type ContinueWatchingItemWithServer = ContinueWatchingResponse["items"][0] & {
  * row fresh after local playback. Token is part of the cache key (same caveat
  * as `get-servers` / `get-user-info`).
  */
-async function fetchAllContinueWatching(token: string): Promise<ContinueWatchingItemWithServer[]> {
+async function fetchAllContinueWatching(
+  token: string,
+): Promise<ContinueWatchingItemWithServer[]> {
   "use cache";
   cacheLife("seconds");
 
@@ -34,15 +35,13 @@ async function fetchAllContinueWatching(token: string): Promise<ContinueWatching
   return loadContinueWatching(plex);
 }
 
-async function loadContinueWatching(plex: PlexTvClient): Promise<ContinueWatchingItemWithServer[]> {
-  const accountStart = performance.now();
-  const [servers, userInfo] = await Promise.all([getServersQuery(plex), getUserInfoQuery(plex)]);
-  if (isHomeLoadDiagEnabled()) {
-    recordHomeDiagSpan("cw.servers+userInfo", performance.now() - accountStart, {
-      servers: servers?.length ?? 0,
-      pinned: (userInfo?.settings?.sidebarSettings?.pinnedSources ?? []).length,
-    });
-  }
+async function loadContinueWatching(
+  plex: PlexTvClient,
+): Promise<ContinueWatchingItemWithServer[]> {
+  const [servers, userInfo] = await Promise.all([
+    getServersQuery(plex),
+    getUserInfoQuery(plex),
+  ]);
 
   if (!servers || !userInfo) {
     return [];
@@ -65,7 +64,9 @@ async function loadContinueWatching(plex: PlexTvClient): Promise<ContinueWatchin
 
   const serverPromises = Object.entries(sourcesByServer).map(
     async ([machineIdentifier, sources]) => {
-      const server = servers.find((s) => s.clientIdentifier === machineIdentifier);
+      const server = servers.find(
+        (s) => s.clientIdentifier === machineIdentifier,
+      );
 
       if (!server) {
         return null;
@@ -73,24 +74,16 @@ async function loadContinueWatching(plex: PlexTvClient): Promise<ContinueWatchin
 
       const directoryIds = sources.map((source) => source.directoryID);
 
-      const pmsStart = performance.now();
       const response = await withPmsRetry(plex, server, userInfo, (context) =>
         context.serverClient.getContinueWatching(directoryIds),
       );
-      if (isHomeLoadDiagEnabled()) {
-        recordHomeDiagSpan("cw.getContinueWatching", performance.now() - pmsStart, {
-          machineIdentifier,
-          directories: directoryIds.length,
-          connections: server.connections.length,
-        });
-      }
 
       return { response, server };
     },
   );
 
-  const serverResults = (await Promise.allSettled(serverPromises)).flatMap((result) =>
-    result.status === "fulfilled" ? [result.value] : [],
+  const serverResults = (await Promise.allSettled(serverPromises)).flatMap(
+    (result) => (result.status === "fulfilled" ? [result.value] : []),
   );
 
   const successfulResults = serverResults.filter(
