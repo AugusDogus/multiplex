@@ -1,5 +1,5 @@
 /**
- * Stable collection row keys for the TanStack DB sync spike.
+ * Stable collection row keys for the TanStack DB sync engine.
  * Keep these pure so unit tests can cover them without browser APIs.
  */
 

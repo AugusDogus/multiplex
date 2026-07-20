@@ -193,8 +193,8 @@ function createServerLibrariesCollection(
 }
 
 /**
- * On-demand media item cache. Rows are written when the spike demo (or a
- * future hover-prefetch path) calls `warmMediaItem`.
+ * On-demand media item cache. Rows are written when hover-prefetch / Effect
+ * adapters call `warmMediaItem`.
  */
 function createMediaItemsCollection(
   queryClient: QueryClient,
