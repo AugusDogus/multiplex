@@ -4,9 +4,7 @@
 instant navigations and offline reads while **Plex remains the only source of
 truth**. Multiplex never owns media tables.
 
-**Demo route:** `/spike/sync` (authenticated app shell)
-
-**Code:** `apps/web/src/lib/sync-engine/`
+**Code:** `apps/web/src/lib/sync-engine/` (boots in the authenticated app shell)
 
 ## Verdict
 
@@ -36,8 +34,8 @@ Plex-pass-through client.
 3. **Credential stripping** before persistence (`accessToken` / `authToken`
    never written to OPFS).
 4. **Live queries** (`useLiveQuery`) for instant UI reads from local rows.
-5. **Optimistic write path** demo: mark Continue Watching complete →
-   `setItemWatchedState` mutation.
+5. **Optimistic write path** for watched-state updates via collection
+   mutators → `setItemWatchedState`.
 6. **Boot in authenticated shell** (`SyncEngineAppShell` in `(app)/layout`)
    so shell collections preload while browsing.
 
@@ -119,16 +117,17 @@ the durable local replica this spike is about.
    SSR; hydrate from OPFS on the client.
 5. **Artwork / media streams** — separate Cache API / service worker work.
 6. **Migration** — cut components over to collections directly (no feature-flag
-   provider; app is self-hostable). Ship behind the existing spike route until
-   a surface is ready, then switch that surface over.
+   provider; app is self-hostable).
+7. **Offline route navigation** — OPFS holds replica data, but Next App Router
+   still needs RSC flights for uncached navigations. Full offline browsing
+   needs a service worker / navigation cache (not done).
 
-## How to validate the spike
+## How to validate
 
-1. Sign in, open `/spike/sync`, wait until Engine = `ready` and rows populate.
-2. Hard reload — rows should appear from OPFS before/without waiting on PMS.
-3. DevTools → Network → Offline → reload — sanitized rows should still render.
-4. Use “Mark first CW complete” online to exercise optimistic mutation path.
-5. Unit tests: `bun test apps/web/src/lib/sync-engine`
+1. Sign in → home: Continue Watching + hubs + sidebar populate from the replica.
+2. Hard reload — shell rows return from OPFS without waiting on a cold PMS path.
+3. Soft-nav details → home should not Suspense-wait on Plex prefeches.
+4. Unit tests: `bun test apps/web/src/lib/sync-engine`
 
 ## Adoption progress
 
@@ -152,9 +151,10 @@ to the sync engine, so soft-nav waited on Plex before mounting local rows.
 Still open:
 
 1. **Wire `@tanstack/offline-transactions`** for watched/pin/playlist mutations.
-2. **Replace remaining split caches** (poster grids, hubs, details) with
-   collections.
-3. **Retire `/spike/sync`** once remaining shell surfaces are on collections.
+2. **Replace remaining split caches** (poster grids, details, library grids)
+   with collections.
+3. **Service worker / navigation cache** if true offline route browsing is a
+   product goal.
 4. **Do not introduce Electric/Zero / fate for offline.**
 
 ## Package versions spiked
