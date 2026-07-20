@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { preload } from "react-dom";
 
 import { getPosterImagePath, type HubWithServer } from "@multiplex/plex-query";
 import { getPlexImagePath } from "~/lib/plex-image";
@@ -23,9 +24,7 @@ function preloadPosterImages(hubs: HubWithServer[]) {
     if (urls.length >= PREFETCH_POSTER_COUNT) break;
   }
   for (const src of urls) {
-    const img = new Image();
-    img.decoding = "async";
-    img.src = src;
+    preload(src, { as: "image", fetchPriority: "low" });
   }
 }
 

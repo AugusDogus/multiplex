@@ -3,7 +3,11 @@ import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { PlexDevice } from "../schemas/plex-tv-schemas";
 import type { PlexConfig } from "../types/client-types";
 import { PlexAPIError } from "../types/client-types";
-import { clearPlexServerConnectionCache, PlexServerClient } from "./plex-server-client";
+import {
+  clearPlexServerConnectionCache,
+  PlexServerClient,
+  setPlexServerRequestTimeoutMsForTests,
+} from "./plex-server-client";
 import { PlexTvClient } from "./plex-tv-client";
 
 const CONFIG: PlexConfig = {
@@ -18,6 +22,7 @@ const requests: Array<{ method: string; url: URL }> = [];
 afterEach(() => {
   requests.length = 0;
   clearPlexServerConnectionCache();
+  setPlexServerRequestTimeoutMsForTests(null);
   mock.restore();
 });
 
@@ -455,6 +460,101 @@ describe("PlexServerClient connection discovery", () => {
       expect(identityRequests).toBe(1);
     } finally {
       releaseIdentity?.();
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test("aborts a hung PMS GET under the request deadline", async () => {
+    setPlexServerRequestTimeoutMsForTests(50);
+
+    const server: PlexDevice = {
+      name: "Haus",
+      product: "Plex Media Server",
+      productVersion: "1.0.0",
+      platform: "Linux",
+      platformVersion: "1.0",
+      device: "PC",
+      clientIdentifier: "haus-hung-get",
+      createdAt: "",
+      lastSeenAt: "",
+      provides: "server",
+      ownerId: null,
+      sourceTitle: null,
+      publicAddress: "1.2.3.4",
+      accessToken: "server-token",
+      owned: true,
+      home: false,
+      synced: false,
+      relay: false,
+      presence: true,
+      httpsRequired: true,
+      publicAddressMatches: false,
+      connections: [
+        {
+          protocol: "https",
+          address: "bad.plex.direct",
+          port: 32400,
+          uri: "https://bad.plex.direct:32400",
+          local: false,
+          relay: false,
+          IPv6: false,
+        },
+      ],
+    };
+
+    let hubsHits = 0;
+    const fetchImplementation = Object.assign(
+      async (input: URL | RequestInfo, init?: RequestInit): Promise<Response> => {
+        const url =
+          input instanceof URL ? input : new URL(input instanceof Request ? input.url : input);
+        if (url.pathname.endsWith("/identity")) {
+          return new Response(null, { status: 200 });
+        }
+        if (url.pathname.endsWith("/hubs")) {
+          hubsHits += 1;
+          expect(init?.signal).toBeInstanceOf(AbortSignal);
+          return new Promise((_resolve, reject) => {
+            const signal = init?.signal;
+            if (!signal) {
+              reject(new Error("expected AbortSignal on hung PMS GET"));
+              return;
+            }
+            if (signal.aborted) {
+              reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+              return;
+            }
+            signal.addEventListener(
+              "abort",
+              () => {
+                reject(
+                  signal.reason ?? new DOMException("The operation was aborted.", "AbortError"),
+                );
+              },
+              { once: true },
+            );
+          });
+        }
+        return Response.json({
+          MediaContainer: {
+            size: 0,
+            friendlyName: "Haus",
+            machineIdentifier: "haus-hung-get",
+            MediaProvider: [],
+          },
+        });
+      },
+      { preconnect: () => undefined },
+    );
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(fetchImplementation);
+
+    try {
+      const started = Date.now();
+      await expect(
+        new PlexServerClient(server, "account-token", CONFIG).getHubs(),
+      ).rejects.toBeDefined();
+      expect(hubsHits).toBeGreaterThanOrEqual(1);
+      expect(Date.now() - started).toBeLessThan(2_000);
+    } finally {
       fetchSpy.mockRestore();
     }
   });

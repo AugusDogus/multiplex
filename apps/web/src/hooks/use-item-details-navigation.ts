@@ -1,11 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import {
-  getBackdropImagePath,
-  getPosterImagePath,
-  type ItemMetadata,
-} from "@multiplex/plex-query";
+import { preload } from "react-dom";
+import { getBackdropImagePath, getPosterImagePath, type ItemMetadata } from "@multiplex/plex-query";
 
 import { PLEX_DETAILS_QUERY_OPTIONS } from "~/lib/plex-details-query-options";
 import { getPlexImagePath } from "~/lib/plex-image";
@@ -35,9 +32,7 @@ function preloadDetailsImages(serverId: string, item: ItemMetadata) {
   ];
   for (const src of urls) {
     if (!src) continue;
-    const img = new Image();
-    img.decoding = "async";
-    img.src = src;
+    preload(src, { as: "image", fetchPriority: "low" });
   }
 }
 
