@@ -28,6 +28,7 @@ import {
   usePlayerStateSelector,
 } from "~/lib/effect/player-atoms";
 import { getPlexImagePath } from "~/lib/plex-image";
+import { refetchSyncedShellCollections } from "~/lib/sync-engine";
 import { shallow } from "zustand/shallow";
 import { api } from "~/trpc/api";
 
@@ -349,7 +350,7 @@ function HeroActions({
           serverId,
           ratingKey: variables.ratingKey,
         }),
-        utils.plex.getAllContinueWatching.invalidate(),
+        refetchSyncedShellCollections(),
       ]).catch(() => undefined);
     },
   });

@@ -5,6 +5,7 @@ import {
   type PlexUserInfo,
   toPinnedSource,
 } from "@multiplex/plex-query";
+import { refetchSyncedShellCollections } from "~/lib/sync-engine";
 import { api } from "~/trpc/api";
 
 function applyPinnedSourceUpdate(
@@ -65,10 +66,7 @@ export function useSidebarPinning(userInfo: PlexUserInfo) {
     },
     onSuccess: async (updatedUserInfo) => {
       utils.plex.getUserInfo.setData(undefined, updatedUserInfo);
-      await Promise.allSettled([
-        utils.plex.getAllContinueWatching.invalidate(),
-        utils.plex.getHomeHubs.invalidate(),
-      ]);
+      await refetchSyncedShellCollections();
     },
   });
 

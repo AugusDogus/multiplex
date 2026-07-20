@@ -46,6 +46,7 @@ export {
   getActiveSyncEngineCollections,
   setActiveSyncEngineCollections,
 } from "./registry";
+export { refetchSyncedShellCollections } from "./refetch-shell";
 export {
   rowContainsCredentialFields,
   sanitizeContinueWatchingItem,
