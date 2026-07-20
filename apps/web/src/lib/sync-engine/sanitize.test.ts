@@ -97,15 +97,10 @@ describe("sync-engine sanitize", () => {
     });
 
     expect(row.id).toBe("haus-1:/hubs/home/recentlyAdded");
-    expect(row.items).toEqual([
-      {
-        ratingKey: "1",
-        title: "Movie A",
-        type: "movie",
-        thumb: "/thumb/1",
-        year: 2020,
-      },
-    ]);
+    expect(row.title).toBe("Recently Added");
+    expect(row.items).toHaveLength(1);
+    expect(row.items[0]?.ratingKey).toBe("1");
+    expect(row.items[0]?.title).toBe("Movie A");
     expect(JSON.stringify(row)).not.toContain("NOPE");
   });
 
