@@ -2,10 +2,7 @@
 
 import { MediaHubRow, MediaHubRowSkeleton } from "~/components/media-hub-row";
 import { isHubQueryLoading } from "~/lib/plex-hub-query-options";
-import {
-  toHubWithServer,
-  useSyncedHomeHubs,
-} from "~/lib/sync-engine";
+import { toHubWithServer, useSyncedHomeHubs } from "~/lib/sync-engine";
 
 export function HomeHubs() {
   const { data: rows, isLoading, isReady } = useSyncedHomeHubs();
