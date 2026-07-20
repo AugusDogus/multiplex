@@ -33,24 +33,44 @@ export type SanitizedServerRow = {
   }>;
 };
 
+/**
+ * Continue Watching row rich enough for home UI + playback metadata.
+ * Credentials live only in the session connection overlay.
+ */
 export type SanitizedContinueWatchingRow = {
   id: string;
   serverId: string;
   serverName: string | null;
   ratingKey: string;
-  type: string | null;
-  title: string | null;
+  key: string | null;
+  type: string;
+  title: string;
   grandparentTitle: string | null;
   parentTitle: string | null;
+  parentRatingKey: string | null;
+  grandparentRatingKey: string | null;
+  parentIndex: number | null;
+  index: number | null;
   thumb: string | null;
   art: string | null;
+  parentThumb: string | null;
+  grandparentThumb: string | null;
   year: number | null;
+  contentRating: string | null;
   viewOffset: number | null;
   duration: number | null;
   progressPercent: number | null;
   isCompleted: boolean | null;
+  timeRemaining: number | null;
+  /** Unix seconds (Plex) or null. */
+  lastViewedAt: number | null;
   hubTitle: string | null;
   hubType: string | null;
+  librarySectionTitle: string | null;
+  librarySectionID: number | null;
+  librarySectionKey: string | null;
+  /** Stream metadata for toPlayableMetadata — no tokens. */
+  Media: unknown;
 };
 
 export type SanitizedHomeHubRow = {
@@ -61,7 +81,6 @@ export type SanitizedHomeHubRow = {
   type: string | null;
   hubIdentifier: string | null;
   size: number | null;
-  /** Compact item summaries for instant home paint (no tokens). */
   items: Array<{
     ratingKey: string;
     type: string | null;
@@ -77,6 +96,11 @@ export type SanitizedServerLibraryRow = {
   serverName: string;
   serverOwned: boolean;
   error: string | null;
+  /**
+   * Full media-providers payload for sidebar source extraction.
+   * Contains no Plex auth tokens (those live on the device/session).
+   */
+  mediaProviders: unknown;
   libraries: Array<{
     id: string | null;
     key: string | null;
@@ -115,6 +139,12 @@ function asNumber(value: unknown): number | null {
 
 function asBoolean(value: unknown): boolean | null {
   return typeof value === "boolean" ? value : null;
+}
+
+function asUnixSeconds(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (value instanceof Date) return Math.floor(value.getTime() / 1000);
+  return null;
 }
 
 export function sanitizeServer(device: LooseRecord): SanitizedServerRow {
@@ -169,19 +199,33 @@ export function sanitizeContinueWatchingItem(
     serverId,
     serverName: asString(item.serverName),
     ratingKey,
-    type: asString(item.type),
-    title: asString(item.title),
+    key: asString(item.key),
+    type: asString(item.type) ?? "movie",
+    title: asString(item.title) ?? ratingKey,
     grandparentTitle: asString(item.grandparentTitle),
     parentTitle: asString(item.parentTitle),
+    parentRatingKey: asString(item.parentRatingKey),
+    grandparentRatingKey: asString(item.grandparentRatingKey),
+    parentIndex: asNumber(item.parentIndex),
+    index: asNumber(item.index),
     thumb: asString(item.thumb),
     art: asString(item.art),
+    parentThumb: asString(item.parentThumb),
+    grandparentThumb: asString(item.grandparentThumb),
     year: asNumber(item.year),
+    contentRating: asString(item.contentRating),
     viewOffset: asNumber(item.viewOffset),
     duration: asNumber(item.duration),
     progressPercent: asNumber(item.progressPercent),
     isCompleted: asBoolean(item.isCompleted),
+    timeRemaining: asNumber(item.timeRemaining),
+    lastViewedAt: asUnixSeconds(item.lastViewedAt),
     hubTitle: asString(item.hubTitle),
     hubType: asString(item.hubType),
+    librarySectionTitle: asString(item.librarySectionTitle),
+    librarySectionID: asNumber(item.librarySectionID),
+    librarySectionKey: asString(item.librarySectionKey),
+    Media: Array.isArray(item.Media) ? item.Media : null,
   };
 }
 
@@ -252,7 +296,6 @@ function extractLibrariesFromMediaProviders(
         if (!directory || typeof directory !== "object") continue;
         const library = directory as LooseRecord;
         const id = asString(library.id);
-        // Library sections use numeric directory IDs.
         if (!id || Number.isNaN(Number(id))) continue;
         libraries.push({
           id,
@@ -271,6 +314,7 @@ export function sanitizeServerLibrary(
   entry: LooseRecord,
 ): SanitizedServerLibraryRow {
   const serverId = asString(entry.serverId) ?? "unknown";
+  const mediaProviders = entry.mediaProviders ?? null;
 
   return {
     id: serverId,
@@ -278,7 +322,8 @@ export function sanitizeServerLibrary(
     serverName: asString(entry.serverName) ?? serverId,
     serverOwned: asBoolean(entry.serverOwned) ?? false,
     error: asString(entry.error),
-    libraries: extractLibrariesFromMediaProviders(entry.mediaProviders),
+    mediaProviders,
+    libraries: extractLibrariesFromMediaProviders(mediaProviders),
   };
 }
 

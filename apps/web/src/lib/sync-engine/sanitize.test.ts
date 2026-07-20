@@ -66,9 +66,13 @@ describe("sync-engine sanitize", () => {
     });
 
     expect(row.id).toBe("haus-1:100");
+    expect(row.title).toBe("Episode");
     expect(row.progressPercent).toBe(42);
     expect(JSON.stringify(row)).not.toContain("CW_SECRET");
     expect(JSON.stringify(row)).not.toContain("https://pms.example");
+    expect(
+      rowContainsCredentialFields(row as unknown as Record<string, unknown>),
+    ).toEqual([]);
   });
 
   test("compacts hub items without server credentials", () => {
@@ -105,39 +109,41 @@ describe("sync-engine sanitize", () => {
     expect(JSON.stringify(row)).not.toContain("NOPE");
   });
 
-  test("extracts numeric library directories from media providers", () => {
+  test("keeps mediaProviders and extracts numeric library directories", () => {
+    const mediaProviders = {
+      MediaContainer: {
+        MediaProvider: [
+          {
+            Feature: [
+              {
+                Directory: [
+                  {
+                    id: "1",
+                    key: "/library/sections/1",
+                    title: "Movies",
+                    type: "movie",
+                  },
+                  {
+                    id: "live",
+                    key: "/livetv",
+                    title: "Live TV",
+                    type: "live",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    };
     const row = sanitizeServerLibrary({
       serverId: "haus-1",
       serverName: "Haus",
       serverOwned: true,
-      mediaProviders: {
-        MediaContainer: {
-          MediaProvider: [
-            {
-              Feature: [
-                {
-                  Directory: [
-                    {
-                      id: "1",
-                      key: "/library/sections/1",
-                      title: "Movies",
-                      type: "movie",
-                    },
-                    {
-                      id: "live",
-                      key: "/livetv",
-                      title: "Live TV",
-                      type: "live",
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-      },
+      mediaProviders,
     });
 
+    expect(row.mediaProviders).toEqual(mediaProviders);
     expect(row.libraries).toEqual([
       {
         id: "1",

@@ -10,6 +10,7 @@ import type { QueryClient } from "@tanstack/query-core";
 import type { TRPCClient } from "@trpc/client";
 
 import type { AppRouter } from "~/server/api/root";
+import { rememberItemConnection } from "./connection-overlay";
 import { SYNC_ENGINE_SCHEMA_VERSION } from "./persistence";
 import {
   sanitizeContinueWatchingItem,
@@ -99,11 +100,16 @@ function createContinueWatchingCollection(
       queryKey: ["sync-engine", "plex", "getAllContinueWatching"],
       queryFn: async (): Promise<SanitizedContinueWatchingRow[]> => {
         const items = await trpc.plex.getAllContinueWatching.query();
-        return items.map((item) =>
-          sanitizeContinueWatchingItem(
+        return items.map((item) => {
+          const row = sanitizeContinueWatchingItem(
             item as unknown as Record<string, unknown>,
-          ),
-        );
+          );
+          rememberItemConnection(row.id, {
+            serverUrl: item.serverUrl,
+            authToken: item.authToken,
+          });
+          return row;
+        });
       },
       getKey: (row) => row.id,
       syncMode: "eager",

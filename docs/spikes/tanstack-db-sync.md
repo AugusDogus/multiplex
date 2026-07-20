@@ -130,19 +130,25 @@ the durable local replica this spike is about.
 4. Use “Mark first CW complete” online to exercise optimistic mutation path.
 5. Unit tests: `bun test apps/web/src/lib/sync-engine`
 
-## Recommended follow-up (no feature flags)
+## Adoption progress
 
-1. **Cut Continue Watching + sidebar libraries onto collections** — replace
-   those tRPC hooks; remove the parallel cache path for those surfaces.
-2. **Point Effect `WatchTogetherApi` (and similar adapters) at the sync engine**
-   for Plex-backed reads/writes.
-3. **Wire `@tanstack/offline-transactions`** for watched/pin/playlist mutations.
-4. **Replace split caches** (`media-poster-grid` keys, manual `setData`) with
-   collection `writeUpsert` / live queries.
-5. **Do not introduce Electric/Zero** — incompatible with “Plex always SoT /
-   Multiplex never owns tables.”
-6. **Do not adopt fate for offline** — wrong layer; revisit only if you want
-   Relay-style view composition as a separate DX bet.
+Done on this branch:
+
+1. **Continue Watching** reads `useSyncedContinueWatching` (OPFS replica +
+   session connection overlay for play credentials).
+2. **Sidebar / server libraries** read `useSyncedServerLibraries` (keeps
+   `mediaProviders` for source extraction).
+3. **Timeline + restart** patch the sync-engine CW collection (no more
+   `getAllContinueWatching.setData`).
+4. **Effect `WatchTogetherApi.getItemMetadata`** warms `mediaItems` after fetch.
+
+Still open:
+
+1. **Wire `@tanstack/offline-transactions`** for watched/pin/playlist mutations.
+2. **Replace remaining split caches** (poster grids, hubs, details) with
+   collections.
+3. **Retire `/spike/sync`** once remaining shell surfaces are on collections.
+4. **Do not introduce Electric/Zero / fate for offline.**
 
 ## Package versions spiked
 

@@ -5,6 +5,17 @@ export {
 } from "./collections";
 export { useNavigatorOnline } from "./connectivity";
 export {
+  rememberItemConnection,
+  rememberServerConnection,
+  getItemConnection,
+  getServerConnection,
+} from "./connection-overlay";
+export {
+  patchSyncedContinueWatchingProgress,
+  resetSyncedContinueWatchingProgress,
+} from "./continue-watching-mutations";
+export { toContinueWatchingItemWithServer } from "./continue-watching-view";
+export {
   useSyncedContinueWatching,
   useSyncedHomeHubs,
   useSyncedMediaItems,
@@ -30,6 +41,10 @@ export {
   useSyncEngineStatus,
   type SyncEngineStatus,
 } from "./provider";
+export {
+  getActiveSyncEngineCollections,
+  setActiveSyncEngineCollections,
+} from "./registry";
 export {
   rowContainsCredentialFields,
   sanitizeContinueWatchingItem,

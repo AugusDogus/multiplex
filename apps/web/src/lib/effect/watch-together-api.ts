@@ -4,6 +4,10 @@ import { createTRPCClient, type TRPCClient } from "@trpc/client";
 import { Context, Data, Effect, Layer } from "effect";
 
 import type { AppRouter } from "~/server/api/root";
+import {
+  getActiveSyncEngineCollections,
+  sanitizeMediaItemDetails,
+} from "~/lib/sync-engine";
 import { createTrpcClientLinks } from "~/trpc/client-links";
 import type { RouterInputs, RouterOutputs } from "~/trpc/api";
 
@@ -82,7 +86,21 @@ export const makeWatchTogetherApi = (
       client.deleteWatchTogetherRoom.mutate({ roomId }),
     )(),
   getItemMetadata: (input) =>
-    wrap("getItemMetadata", () => client.getItemMetadata.query(input))(),
+    wrap("getItemMetadata", async () => {
+      const result = await client.getItemMetadata.query(input);
+      // Best-effort: keep the durable media-items replica warm for instant nav.
+      const collections = getActiveSyncEngineCollections();
+      if (collections && result) {
+        const row = sanitizeMediaItemDetails(
+          { item: result, serverName: null },
+          input.serverId,
+        );
+        if (row) {
+          collections.mediaItems.utils.writeUpsert?.(row);
+        }
+      }
+      return result;
+    })(),
 });
 
 /**

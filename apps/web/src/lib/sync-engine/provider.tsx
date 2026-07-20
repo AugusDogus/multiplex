@@ -15,6 +15,7 @@ import {
   type SyncEngineCollections,
 } from "./collections";
 import { getSyncEnginePersistence } from "./persistence";
+import { setActiveSyncEngineCollections } from "./registry";
 import { getSyncEngineTrpcClient } from "./trpc-client";
 
 export type SyncEngineStatus =
@@ -59,14 +60,16 @@ export function SyncEngineProvider({ children }: { children: ReactNode }) {
           persistence,
         });
         collectionsRef.current = collections;
+        setActiveSyncEngineCollections(collections);
 
-        // Progressive shell sync so revisits / soft-nav hit warm local rows.
+        // Eager shell sync so revisits / soft-nav hit warm local rows.
         void collections.servers.preload();
         void collections.serverLibraries.preload();
         void collections.continueWatching.preload();
         void collections.homeHubs.preload();
 
         if (cancelled) {
+          setActiveSyncEngineCollections(null);
           await cleanupCollections(collections);
           collectionsRef.current = null;
           return;
@@ -79,6 +82,7 @@ export function SyncEngineProvider({ children }: { children: ReactNode }) {
         });
       } catch (error) {
         if (cancelled) return;
+        setActiveSyncEngineCollections(null);
         setStatus({
           phase: "error",
           error:
@@ -93,6 +97,7 @@ export function SyncEngineProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       const collections = collectionsRef.current;
       collectionsRef.current = null;
+      setActiveSyncEngineCollections(null);
       if (collections) {
         void cleanupCollections(collections);
       }

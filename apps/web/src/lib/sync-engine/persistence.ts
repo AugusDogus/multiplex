@@ -8,7 +8,8 @@ import {
 } from "@tanstack/browser-db-sqlite-persistence";
 
 export const SYNC_ENGINE_DB_NAME = "multiplex-sync-engine";
-export const SYNC_ENGINE_SCHEMA_VERSION = 1;
+/** Bump when persisted row shapes change (clears OPFS and re-syncs). */
+export const SYNC_ENGINE_SCHEMA_VERSION = 2;
 
 export type SyncEnginePersistence = {
   persistence: PersistedCollectionPersistence;
