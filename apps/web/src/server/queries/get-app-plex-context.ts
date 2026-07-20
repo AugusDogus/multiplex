@@ -61,11 +61,19 @@ export const getAppPlexContext = cache(async (): Promise<AppPlexContext> => {
   // critical path of a second serial round-trip.
   for (const server of servers) {
     if (server.presence === false) continue;
-    void plex.createServerClient(server).warmConnection();
+    void plex
+      .createServerClient(server)
+      .warmConnection()
+      .catch(ignoreDetachedWarmFailure);
   }
-  void getAllContinueWatchingQuery(plex);
-  void getHomeHubsQuery(plex);
-  void getAllServerLibrariesQuery(plex);
+  void getAllContinueWatchingQuery(plex).catch(ignoreDetachedWarmFailure);
+  void getHomeHubsQuery(plex).catch(ignoreDetachedWarmFailure);
+  void getAllServerLibrariesQuery(plex).catch(ignoreDetachedWarmFailure);
 
   return { session, servers, userInfo };
 });
+
+/** Fire-and-forget warm paths must not surface as unhandled rejections. */
+function ignoreDetachedWarmFailure(): void {
+  // Real request paths handle Plex/network failures when data is needed.
+}
