@@ -154,6 +154,10 @@ describe("sync-engine sanitize", () => {
       {
         serverName: "Haus",
         authToken: "DETAILS_SECRET",
+        serverUrl: "https://pms.example",
+        playTarget: { ratingKey: "55", title: "Inception" },
+        children: [],
+        playableChildren: [],
         item: {
           ratingKey: "55",
           type: "movie",
@@ -165,23 +169,14 @@ describe("sync-engine sanitize", () => {
       "haus-1",
     );
 
-    expect(row).toEqual({
-      id: "haus-1:55",
-      serverId: "haus-1",
-      serverName: "Haus",
+    expect(row?.id).toBe("haus-1:55");
+    expect(row?.title).toBe("Inception");
+    expect(row?.hasFullDetails).toBe(true);
+    expect(row?.item).toMatchObject({
       ratingKey: "55",
-      type: "movie",
       title: "Inception",
-      summary: "Dreams",
-      thumb: null,
-      art: null,
-      year: 2010,
-      duration: null,
-      viewOffset: null,
-      viewCount: null,
-      leafCount: null,
-      childCount: null,
     });
     expect(JSON.stringify(row)).not.toContain("DETAILS_SECRET");
+    expect(JSON.stringify(row)).not.toContain("https://pms.example");
   });
 });

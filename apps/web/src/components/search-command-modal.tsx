@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogTitle } from "~/components/ui/dialog";
 import type { ProcessedSearchResult } from "@multiplex/plex-query";
 import { SearchResultItem } from "~/components/search-result-item";
 import { useDebounce } from "~/hooks/use-debounce";
-import { api } from "~/trpc/api";
+import { useSyncedSearchResults } from "~/lib/sync-engine";
 
 interface SearchCommandModalProps {
   open: boolean;
@@ -40,13 +40,7 @@ export function SearchCommandModal({
     data: searchResults,
     isLoading,
     error,
-  } = api.plex.search.useQuery(
-    { query: debouncedQuery || "" },
-    {
-      enabled: Boolean(debouncedQuery && debouncedQuery.length > 0),
-      staleTime: 30000, // Cache results for 30 seconds
-    },
-  );
+  } = useSyncedSearchResults(debouncedQuery || "");
 
   // Treat the debounce window as part of "searching" so we don't flash
   // "No results found" while the user is still typing.

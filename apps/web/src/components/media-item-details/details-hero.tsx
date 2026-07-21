@@ -28,7 +28,10 @@ import {
   usePlayerStateSelector,
 } from "~/lib/effect/player-atoms";
 import { getPlexImagePath } from "~/lib/plex-image";
-import { refetchSyncedShellCollections } from "~/lib/sync-engine";
+import {
+  refetchSyncedMediaItem,
+  refetchSyncedShellCollections,
+} from "~/lib/sync-engine";
 import { shallow } from "zustand/shallow";
 import { api } from "~/trpc/api";
 
@@ -283,7 +286,6 @@ function HeroActions({
   authToken,
   playButtonClassName,
 }: HeroActionsProps) {
-  const utils = api.useUtils();
   const { currentPlayerItem, playQueueId } = usePlayerStateSelector(
     (state) => ({
       currentPlayerItem: state.currentItem,
@@ -342,14 +344,7 @@ function HeroActions({
         variables.watched ? "Marked as watched" : "Marked as unwatched",
       );
       void Promise.all([
-        utils.plex.getItemDetails.invalidate({
-          serverId,
-          ratingKey: variables.ratingKey,
-        }),
-        utils.plex.getItemMetadata.invalidate({
-          serverId,
-          ratingKey: variables.ratingKey,
-        }),
+        refetchSyncedMediaItem(serverId, variables.ratingKey),
         refetchSyncedShellCollections(),
       ]).catch(() => undefined);
     },

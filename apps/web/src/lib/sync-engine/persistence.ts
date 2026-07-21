@@ -9,7 +9,7 @@ import {
 
 export const SYNC_ENGINE_DB_NAME = "multiplex-sync-engine";
 /** Bump when persisted row shapes change (clears OPFS and re-syncs). */
-export const SYNC_ENGINE_SCHEMA_VERSION = 3;
+export const SYNC_ENGINE_SCHEMA_VERSION = 4;
 
 export type SyncEnginePersistence = {
   persistence: PersistedCollectionPersistence;

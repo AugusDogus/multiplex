@@ -5,6 +5,12 @@ import { preload } from "react-dom";
 
 import { getPosterImagePath, type HubWithServer } from "@multiplex/plex-query";
 import { getPlexImagePath } from "~/lib/plex-image";
+import {
+  getActiveSyncEngineCollections,
+  getSyncEngineTrpcClient,
+  toHubWithServer,
+  warmLibraryHubs,
+} from "~/lib/sync-engine";
 import { api } from "~/trpc/api";
 
 const PREFETCH_POSTER_COUNT = 8;
@@ -51,18 +57,14 @@ export function useLibraryNavigationPrefetch() {
         machineIdentifier,
         sectionId: source,
       });
-      void utils.plex.getLibraryHubs
-        .prefetch({
-          machineIdentifier,
-          sectionId: source,
-        })
-        .then(() => {
-          const hubs = utils.plex.getLibraryHubs.getData({
-            machineIdentifier,
-            sectionId: source,
-          });
-          if (hubs) preloadPosterImages(hubs);
-        });
+      const collections = getActiveSyncEngineCollections();
+      if (!collections) return;
+      void warmLibraryHubs(collections, getSyncEngineTrpcClient(), {
+        machineIdentifier,
+        sectionId: source,
+      }).then((snapshot) => {
+        preloadPosterImages(snapshot.hubs.map(toHubWithServer));
+      });
     } catch {
       // Ignore malformed hrefs from sidebar data.
     }

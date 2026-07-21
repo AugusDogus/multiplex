@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  browsePageRowKey,
   continueWatchingRowKey,
   homeHubRowKey,
+  libraryHubsSnapshotKey,
   mediaItemRowKey,
   parseCompositeKey,
   serverLibraryRowKey,
@@ -16,6 +18,8 @@ describe("sync-engine keys", () => {
     expect(continueWatchingRowKey("srv", "42")).toBe("srv:42");
     expect(homeHubRowKey("srv", "/hubs/home")).toBe("srv:/hubs/home");
     expect(mediaItemRowKey("srv", "99")).toBe("srv:99");
+    expect(libraryHubsSnapshotKey("srv", "1")).toBe("srv:1");
+    expect(browsePageRowKey("lib-1", 50, 2)).toBe("lib-1:50:2");
   });
 
   test("parseCompositeKey splits on the first colon only", () => {

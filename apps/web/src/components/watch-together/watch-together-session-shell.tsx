@@ -10,6 +10,10 @@ import {
 import { usePlexClientIdentifier } from "~/lib/device-identifier";
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
 import {
+  useSyncedUserInfo,
+  useSyncedWatchTogetherRoom,
+} from "~/lib/sync-engine";
+import {
   getWatchTogetherRoomHref,
   readGuestHostCapability,
   storeGuestHostCapability,
@@ -62,16 +66,10 @@ function useWatchTogetherSessionLifecycle(
   const sessionState = useSessionState();
   const deviceIdentifier = usePlexClientIdentifier();
 
-  const roomQuery = api.plex.getWatchTogetherRoom.useQuery(
-    { roomId: roomId ?? "" },
-    {
-      enabled: roomId !== null,
-      refetchInterval: 10_000,
-    },
-  );
-  const userInfoQuery = api.plex.getUserInfo.useQuery(undefined, {
-    staleTime: 60_000,
+  const roomQuery = useSyncedWatchTogetherRoom(roomId, {
+    enabled: roomId !== null,
   });
+  const userInfoQuery = useSyncedUserInfo();
   const hostContextQuery = api.guestWatchTogether.hostContext.useQuery(
     { capability: guestCapability ?? "" },
     {
@@ -97,7 +95,7 @@ function useWatchTogetherSessionLifecycle(
   // closing the player. Idempotent by room id; no-op while Playing (driver
   // owns the socket) except refreshing the same room object.
   useEffect(() => {
-    const currentRoom = roomQuery.data;
+    const currentRoom = roomQuery.room;
     if (!currentRoom || !localUser || guestCapability === undefined) {
       return;
     }
@@ -126,7 +124,7 @@ function useWatchTogetherSessionLifecycle(
         : {}),
     });
   }, [
-    roomQuery.data,
+    roomQuery.room,
     localUser,
     sessionState._tag,
     guestCapability,

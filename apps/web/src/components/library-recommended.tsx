@@ -1,11 +1,8 @@
 "use client";
 
 import { MediaHubRow, MediaHubRowSkeleton } from "~/components/media-hub-row";
-import {
-  isHubQueryLoading,
-  PLEX_HUB_QUERY_OPTIONS,
-} from "~/lib/plex-hub-query-options";
-import { api } from "~/trpc/api";
+import { isHubQueryLoading } from "~/lib/plex-hub-query-options";
+import { useSyncedLibraryHubs } from "~/lib/sync-engine";
 
 interface LibraryRecommendedProps {
   machineIdentifier: string;
@@ -16,13 +13,9 @@ export function LibraryRecommended({
   machineIdentifier,
   sectionId,
 }: LibraryRecommendedProps) {
-  const {
-    data: hubs = [],
-    isPending,
-    isFetching,
-  } = api.plex.getLibraryHubs.useQuery(
-    { machineIdentifier, sectionId },
-    PLEX_HUB_QUERY_OPTIONS,
+  const { hubs, isPending, isFetching } = useSyncedLibraryHubs(
+    machineIdentifier,
+    sectionId,
   );
 
   if (isHubQueryLoading(isPending, isFetching, hubs.length)) {

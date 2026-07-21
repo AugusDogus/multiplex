@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { getMainTitle } from "@multiplex/plex-query";
+import { getMainTitle, type WatchTogetherRoom } from "@multiplex/plex-query";
 import { Loader2, MoreHorizontal, Play, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 
@@ -22,21 +22,18 @@ import {
   type PlexUserLike,
 } from "~/components/watch-together/plex-user-avatar";
 import { useWatchTogetherRoomMedia } from "~/components/watch-together/use-watch-together-room-media";
+import {
+  refetchSyncedWatchTogetherRooms,
+  removeSyncedWatchTogetherRoom,
+  useSyncedWatchTogetherRooms,
+  useSyncEngineCollections,
+} from "~/lib/sync-engine";
 import { getWatchTogetherRoomHref } from "~/lib/watch-together-source";
 import { cn } from "~/lib/utils";
-import { api, type RouterOutputs } from "~/trpc/api";
-
-type WatchTogetherRoom = RouterOutputs["plex"]["getWatchTogetherRooms"][number];
+import { api } from "~/trpc/api";
 
 export function WatchTogetherRow() {
-  const { data: rooms = [] } = api.plex.getWatchTogetherRooms.useQuery(
-    undefined,
-    {
-      refetchInterval: 30_000,
-      staleTime: 30_000,
-      refetchOnWindowFocus: false,
-    },
-  );
+  const { rooms } = useSyncedWatchTogetherRooms();
 
   if (rooms.length === 0) {
     return null;
@@ -59,14 +56,17 @@ export function WatchTogetherRow() {
 
 function WatchTogetherRoomCard({ room }: { room: WatchTogetherRoom }) {
   const router = useRouter();
-  const utils = api.useUtils();
+  const collections = useSyncEngineCollections();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { item, posterUrl, isPending } = useWatchTogetherRoomMedia(
     room.sourceUri,
   );
   const deleteRoom = api.plex.deleteWatchTogetherRoom.useMutation({
-    onSuccess: async () => {
-      await utils.plex.getWatchTogetherRooms.invalidate();
+    onSuccess: async (_data, variables) => {
+      if (collections) {
+        removeSyncedWatchTogetherRoom(collections, variables.roomId);
+      }
+      await refetchSyncedWatchTogetherRooms();
       toast.success("Watch Together session removed");
     },
     onError: () => {

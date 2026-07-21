@@ -34,6 +34,17 @@ async function cleanupCollections(
     collections.continueWatching.cleanup(),
     collections.homeHubs.cleanup(),
     collections.mediaItems.cleanup(),
+    collections.watchTogetherRooms.cleanup(),
+    collections.userInfo.cleanup(),
+    collections.watchTogetherInvitees.cleanup(),
+    collections.libraryHubs.cleanup(),
+    collections.browsePages.cleanup(),
+    collections.searchResults.cleanup(),
+    collections.playlists.cleanup(),
+    collections.playlistContents.cleanup(),
+    collections.itemPlaylists.cleanup(),
+    collections.libraryFilterValues.cleanup(),
+    collections.playQueues.cleanup(),
   ]);
 }
 
@@ -67,6 +78,8 @@ export function SyncEngineProvider({ children }: { children: ReactNode }) {
         void collections.serverLibraries.preload();
         void collections.continueWatching.preload();
         void collections.homeHubs.preload();
+        void collections.watchTogetherRooms.preload();
+        void collections.userInfo.preload();
 
         if (cancelled) {
           setActiveSyncEngineCollections(null);

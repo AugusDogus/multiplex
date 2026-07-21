@@ -12,6 +12,12 @@ import {
   POSTER_GRID_ROW_CONTENT_HEIGHT_PX,
   POSTER_GRID_ROW_GAP_PX,
 } from "~/lib/poster-grid-layout";
+import {
+  browsePageRowKey,
+  getActiveSyncEngineCollections,
+  toHubItemsWithServer,
+  writeBrowsePage,
+} from "~/lib/sync-engine";
 
 export interface PaginatedPosterResult {
   items: HubItemWithServer[];
@@ -260,16 +266,50 @@ export function MediaPosterGrid({
     queries: neededPages.map((pageIndex) => ({
       queryKey: ["media-poster-grid", contentKey, pageSize, pageIndex],
       queryFn: async () => {
+        const collections = getActiveSyncEngineCollections();
+        const cached = collections?.browsePages.get(
+          browsePageRowKey(contentKey, pageSize, pageIndex),
+        );
+        if (cached) {
+          return {
+            items: toHubItemsWithServer(cached),
+            totalSize: cached.totalSize,
+          };
+        }
+
         const result = await onLoadPage?.({
           start: pageIndex * pageSize,
           size: pageSize,
         });
-        return result ?? EMPTY_PAGE_RESULT;
+        const page = result ?? EMPTY_PAGE_RESULT;
+        if (collections && page.items.length > 0) {
+          writeBrowsePage(collections, {
+            contentKey,
+            pageSize,
+            pageIndex,
+            totalSize: page.totalSize,
+            items: page.items as unknown as Array<Record<string, unknown>>,
+          });
+        }
+        return page;
       },
       staleTime: Infinity,
     })),
     combine: (results) => results.map((result) => result.data),
   });
+
+  // Persist the RSC-provided first page into the durable replica.
+  useLayoutEffect(() => {
+    const collections = getActiveSyncEngineCollections();
+    if (!collections || items.length === 0) return;
+    writeBrowsePage(collections, {
+      contentKey,
+      pageSize,
+      pageIndex: 0,
+      totalSize,
+      items: items as unknown as Array<Record<string, unknown>>,
+    });
+  }, [contentKey, items, pageSize, totalSize]);
 
   const resolvedItems = (() => {
     const resolved: (HubItemWithServer | undefined)[] = Array.from(

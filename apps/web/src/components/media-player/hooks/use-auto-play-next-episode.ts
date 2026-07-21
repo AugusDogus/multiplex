@@ -8,8 +8,8 @@ import {
 } from "~/lib/effect/player-atoms";
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import { shallow } from "zustand/shallow";
+import { useSyncedPlayQueue } from "~/lib/sync-engine";
 import type { NextEpisodeInfo } from "~/types/media-player";
-import { api } from "~/trpc/api";
 
 interface AutoPlayCancellationInput {
   enabled: boolean;
@@ -76,19 +76,14 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
       : null;
 
   // Poll for play queue updates when we have a play queue ID
-  const { data: updatedPlayQueue } = api.plex.getPlayQueue.useQuery(
-    {
-      serverId: currentItem?.serverId ?? "",
-      playQueueId: playQueueId ?? "",
-      includeMarkers: true,
-    },
+  const { data: updatedPlayQueue } = useSyncedPlayQueue(
+    currentItem?.serverId ?? "",
+    playQueueId ?? "",
     {
       enabled: Boolean(
         currentItem?.serverId && playQueueId && currentItem?.type === "episode",
       ),
-      refetchInterval: 30000, // Poll every 30 seconds
-      refetchOnWindowFocus: false,
-      staleTime: 15000, // Consider data stale after 15 seconds
+      refetchIntervalMs: 30_000,
     },
   );
 

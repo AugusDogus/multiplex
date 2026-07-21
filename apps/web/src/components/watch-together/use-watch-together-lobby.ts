@@ -25,6 +25,13 @@ import {
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { usePlexClientIdentifier } from "~/lib/device-identifier";
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
+import {
+  refetchSyncedWatchTogetherRooms,
+  removeSyncedWatchTogetherRoom,
+  useSyncedUserInfo,
+  useSyncedWatchTogetherRoom,
+  useSyncEngineCollections,
+} from "~/lib/sync-engine";
 import { readGuestHostCapability } from "~/lib/watch-together-source";
 import { api } from "~/trpc/api";
 
@@ -76,19 +83,11 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   const sessionState = useSessionState();
   const deviceIdentifier = usePlexClientIdentifier();
 
-  const roomQuery = api.plex.getWatchTogetherRoom.useQuery(
-    { roomId },
-    {
-      // Poll for participant/room updates. Keep polling even after an error so a
-      // transient network hiccup recovers on the next interval (don't latch the
-      // lobby into "room unavailable" on a single failure).
-      refetchInterval: 10_000,
-    },
-  );
-  const userInfoQuery = api.plex.getUserInfo.useQuery(undefined, {
-    staleTime: 60_000,
-  });
-  const room = roomQuery.data;
+  // Rooms collection polls every 10s; warm single-room on miss.
+  const roomQuery = useSyncedWatchTogetherRoom(roomId);
+  const userInfoQuery = useSyncedUserInfo();
+  const collections = useSyncEngineCollections();
+  const room = roomQuery.room;
   const media = useWatchTogetherRoomMedia(room?.sourceUri);
   const source = media.source;
   const localUserId = userInfoQuery.data?.id;
@@ -176,10 +175,12 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     });
   })();
 
-  const utils = api.useUtils();
   const leaveRoom = api.plex.deleteWatchTogetherRoom.useMutation({
     onSuccess: async (_data, variables) => {
-      await utils.plex.getWatchTogetherRooms.invalidate();
+      if (collections) {
+        removeSyncedWatchTogetherRoom(collections, variables.roomId);
+      }
+      await refetchSyncedWatchTogetherRooms();
       try {
         await leaveActiveWatchTogetherSession(variables.roomId);
       } finally {
@@ -262,17 +263,12 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
       ? sessionState.everyonePresentSticky
       : false;
 
-  if (
-    roomQuery.isPending ||
-    userInfoQuery.isPending ||
-    userInfoQuery.isLoading
-  ) {
+  if (roomQuery.isPending || userInfoQuery.isLoading) {
     return { status: "loading" };
   }
 
   if (
     roomQuery.isError ||
-    userInfoQuery.isError ||
     !room ||
     !source ||
     localUserId === undefined ||
