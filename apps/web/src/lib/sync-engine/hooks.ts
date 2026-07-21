@@ -1,5 +1,6 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
 import type { HubWithServer, PlexUserInfo } from "@multiplex/plex-query";
@@ -76,6 +77,8 @@ import { toWatchTogetherRoom } from "./watch-together-view";
 
 type ItemDetails = NonNullable<RouterOutputs["plex"]["getItemDetails"]>;
 
+const WARM_MAX_ATTEMPTS = 3;
+
 function useWarmOnce(
   key: string | null,
   warm: () => Promise<unknown>,
@@ -83,9 +86,13 @@ function useWarmOnce(
 ): { isWarming: boolean; error: Error | null } {
   const [isWarming, setIsWarming] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const [retryNonce, setRetryNonce] = useState(0);
   const warmRef = useRef(warm);
-  // Attempt at most once per key so empty results / 404s do not spin forever.
-  const attemptedKeyRef = useRef<string | null>(null);
+  // Track successful/in-flight key so empty results / 404s do not spin forever.
+  // Failures clear this and bump `retryNonce` (capped) so credential refill can retry.
+  const settledKeyRef = useRef<string | null>(null);
+  const activeKeyRef = useRef<string | null>(null);
+  const attemptCountRef = useRef(0);
 
   useEffect(() => {
     warmRef.current = warm;
@@ -93,18 +100,35 @@ function useWarmOnce(
 
   useEffect(() => {
     if (!enabled || !key) return;
-    if (attemptedKeyRef.current === key) return;
-    attemptedKeyRef.current = key;
+
+    if (activeKeyRef.current !== key) {
+      activeKeyRef.current = key;
+      attemptCountRef.current = 0;
+      settledKeyRef.current = null;
+    }
+
+    if (settledKeyRef.current === key) return;
+    settledKeyRef.current = key;
+
     let cancelled = false;
+    let retryTimer: number | undefined;
     setIsWarming(true);
     setError(null);
     void warmRef
       .current()
       .catch((cause: unknown) => {
-        if (!cancelled) {
-          setError(
-            cause instanceof Error ? cause : new Error("Sync warm failed"),
-          );
+        if (cancelled) return;
+        setError(
+          cause instanceof Error ? cause : new Error("Sync warm failed"),
+        );
+        // Allow retry after overlay refill / transient network errors.
+        settledKeyRef.current = null;
+        if (attemptCountRef.current + 1 < WARM_MAX_ATTEMPTS) {
+          attemptCountRef.current += 1;
+          const delayMs = 400 * attemptCountRef.current;
+          retryTimer = window.setTimeout(() => {
+            if (!cancelled) setRetryNonce((value) => value + 1);
+          }, delayMs);
         }
       })
       .finally(() => {
@@ -112,14 +136,9 @@ function useWarmOnce(
       });
     return () => {
       cancelled = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
-  }, [enabled, key]);
-
-  useEffect(() => {
-    if (!key) {
-      attemptedKeyRef.current = null;
-    }
-  }, [key]);
+  }, [enabled, key, retryNonce]);
 
   return { isWarming, error };
 }
@@ -179,16 +198,29 @@ export function useSyncedServerLibraries(): {
   data: SanitizedServerLibraryRow[];
   isLoading: boolean;
   isReady: boolean;
+  error: Error | null;
 } {
   const collections = useSyncEngineCollections();
   const { data, isLoading } = useCollectionRows<SanitizedServerLibraryRow>(
     collections?.serverLibraries ?? emptyServerLibrariesCollection,
   );
+  // Observe the Query Collection's underlying query without double-fetching.
+  const { error: queryError } = useQuery({
+    queryKey: ["sync-engine", "plex", "getAllServerLibraries"],
+    queryFn: () => Promise.resolve([] as SanitizedServerLibraryRow[]),
+    enabled: false,
+  });
 
   return {
     data: collections ? data : [],
     isLoading: !collections || isLoading,
     isReady: Boolean(collections),
+    error:
+      queryError instanceof Error
+        ? queryError
+        : queryError
+          ? new Error("Failed to sync server libraries")
+          : null,
   };
 }
 
@@ -245,9 +277,11 @@ export function useSyncedWatchTogetherRoom(
       collections?.watchTogetherRooms ?? emptyWatchTogetherRoomsCollection,
       enabled ? roomId : null,
     );
-  const needsWarm = Boolean(enabled && collections && roomId && !row);
+  // Stale-while-revalidate: show cached room immediately, always re-check Plex
+  // before treating the lobby/session as authoritative.
+  const shouldRevalidate = Boolean(enabled && collections && roomId);
   const { isWarming, error } = useWarmOnce(
-    needsWarm ? `room:${roomId}` : null,
+    shouldRevalidate ? `room:${roomId}` : null,
     async () => {
       if (!collections || !roomId) return;
       await warmWatchTogetherRoom(
@@ -256,7 +290,7 @@ export function useSyncedWatchTogetherRoom(
         roomId,
       );
     },
-    needsWarm,
+    shouldRevalidate,
   );
 
   return {
@@ -264,7 +298,7 @@ export function useSyncedWatchTogetherRoom(
     isPending: Boolean(
       enabled && roomId && (!collections || (!row && (isLoading || isWarming))),
     ),
-    isError: Boolean(error),
+    isError: Boolean(error && !row),
   };
 }
 

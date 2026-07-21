@@ -5,6 +5,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -48,21 +49,71 @@ async function cleanupCollections(
   ]);
 }
 
+type SyncEngineProviderProps = {
+  children: ReactNode;
+  /** Better Auth user id — scopes the OPFS database per account. */
+  userId: string | null;
+  isSessionPending?: boolean;
+};
+
 /**
- * Boots OPFS-backed TanStack DB collections once per browser tab.
+ * Boots OPFS-backed TanStack DB collections once per browser tab / account.
  * Keep this under TRPCReactProvider so QueryClient is available.
  */
-export function SyncEngineProvider({ children }: { children: ReactNode }) {
+export function SyncEngineProvider({
+  children,
+  userId,
+  isSessionPending = false,
+}: SyncEngineProviderProps) {
   const queryClient = useQueryClient();
-  const [status, setStatus] = useState<SyncEngineStatus>({ phase: "booting" });
+  const [bootStatus, setBootStatus] = useState<
+    SyncEngineStatus & { userId?: string | null }
+  >({
+    phase: "booting",
+  });
   const collectionsRef = useRef<SyncEngineCollections | null>(null);
+
+  const status = useMemo<SyncEngineStatus>(() => {
+    if (isSessionPending) return { phase: "booting" };
+    if (!userId) {
+      return {
+        phase: "error",
+        error: "Sync engine requires a signed-in session",
+      };
+    }
+    // Avoid briefly exposing the previous account's collections after switch.
+    if (bootStatus.userId && bootStatus.userId !== userId) {
+      return { phase: "booting" };
+    }
+    if (bootStatus.phase === "ready") {
+      return {
+        phase: "ready",
+        collections: bootStatus.collections,
+        bootedAt: bootStatus.bootedAt,
+      };
+    }
+    if (bootStatus.phase === "error") {
+      return { phase: "error", error: bootStatus.error };
+    }
+    return { phase: "booting" };
+  }, [bootStatus, isSessionPending, userId]);
 
   useEffect(() => {
     let cancelled = false;
 
+    if (isSessionPending || !userId) {
+      const collections = collectionsRef.current;
+      collectionsRef.current = null;
+      setActiveSyncEngineCollections(null);
+      if (collections) {
+        void cleanupCollections(collections);
+      }
+      return;
+    }
+
     void (async () => {
       try {
-        const { persistence } = await getSyncEnginePersistence();
+        const { persistence } = await getSyncEnginePersistence(userId);
         if (cancelled) return;
 
         const collections = createSyncEngineCollections({
@@ -102,20 +153,22 @@ export function SyncEngineProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        setStatus({
+        setBootStatus({
           phase: "ready",
           collections,
           bootedAt: Date.now(),
+          userId,
         });
       } catch (error) {
         if (cancelled) return;
         setActiveSyncEngineCollections(null);
-        setStatus({
+        setBootStatus({
           phase: "error",
           error:
             error instanceof Error
               ? error.message
               : "Failed to boot sync engine",
+          userId,
         });
       }
     })();
@@ -129,7 +182,7 @@ export function SyncEngineProvider({ children }: { children: ReactNode }) {
         void cleanupCollections(collections);
       }
     };
-  }, [queryClient]);
+  }, [queryClient, userId, isSessionPending]);
 
   return (
     <SyncEngineContext.Provider value={status}>

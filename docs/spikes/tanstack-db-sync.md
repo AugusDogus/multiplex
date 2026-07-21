@@ -114,7 +114,9 @@ the durable local replica this spike is about.
 1. **Plex is not a sync protocol** — no push deltas. Background refetch /
    invalidation after mutations remains required. Never “mirror Plex into our
    Postgres”; reconcile against Plex APIs.
-2. **Token-bearing payloads** — sanitize at the boundary (`sanitize.ts`).
+2. **Token-bearing payloads** — deep-sanitize at the boundary (`sanitize.ts`);
+   session tokens live only in the connection overlay. Logout clears the
+   overlay and wipes the user-scoped OPFS DB (`clearSyncEngineSession`).
 3. **Offline writes** — optimistic updates + `@tanstack/offline-transactions`
    outbox for durable mutation replay (package installed; outbox not fully wired).
 4. **SSR / RSC** — persistence is browser-first (OPFS). Don’t block on TanStack

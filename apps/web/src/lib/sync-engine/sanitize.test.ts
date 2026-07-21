@@ -7,6 +7,7 @@ import {
   sanitizeMediaItemDetails,
   sanitizeServer,
   sanitizeServerLibrary,
+  stripCredentialsDeep,
 } from "./sanitize";
 
 describe("sync-engine sanitize", () => {
@@ -178,5 +179,39 @@ describe("sync-engine sanitize", () => {
     });
     expect(JSON.stringify(row)).not.toContain("DETAILS_SECRET");
     expect(JSON.stringify(row)).not.toContain("https://pms.example");
+  });
+
+  test("deep-strips nested credentials from Media and playlist-like payloads", () => {
+    const cw = sanitizeContinueWatchingItem({
+      serverId: "haus-1",
+      ratingKey: "100",
+      title: "Episode",
+      Media: [
+        {
+          id: 1,
+          Part: [{ key: "/library/parts/1", authToken: "NESTED_SECRET" }],
+        },
+      ],
+    });
+    expect(JSON.stringify(cw.Media)).not.toContain("NESTED_SECRET");
+    expect(
+      rowContainsCredentialFields(cw as unknown as Record<string, unknown>),
+    ).toEqual([]);
+
+    const playlistPayload = stripCredentialsDeep({
+      ratingKey: "9",
+      items: [
+        {
+          serverId: "haus-1",
+          ratingKey: "1",
+          authToken: "PLAYLIST_SECRET",
+          serverUrl: "https://pms.example",
+          nested: { accessToken: "DEEP_SECRET" },
+        },
+      ],
+    });
+    expect(JSON.stringify(playlistPayload)).not.toContain("PLAYLIST_SECRET");
+    expect(JSON.stringify(playlistPayload)).not.toContain("DEEP_SECRET");
+    expect(JSON.stringify(playlistPayload)).not.toContain("https://pms.example");
   });
 });

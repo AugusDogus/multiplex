@@ -33,7 +33,7 @@ import {
   sanitizeUserInfo,
   sanitizeWatchTogetherInvitee,
   sanitizeWatchTogetherRoom,
-  stripCredentialFields,
+  stripCredentialsDeep,
   type SanitizedBrowsePageRow,
   type SanitizedContinueWatchingRow,
   type SanitizedHomeHubRow,
@@ -484,13 +484,16 @@ export async function warmMediaItem(
   return row;
 }
 
-export async function warmItemMetadata(
+/**
+ * Merge metadata into an existing media-item row without clobbering full details
+ * (children / playTarget / hasFullDetails).
+ */
+export async function writeItemMetadata(
   collections: SyncEngineCollections,
-  trpc: TRPCClient<AppRouter>,
   input: { serverId: string; ratingKey: string },
+  metadata: unknown,
 ): Promise<SanitizedMediaItemRow | null> {
-  const metadata = await trpc.plex.getItemMetadata.query(input);
-  if (!metadata) return null;
+  if (!metadata || typeof metadata !== "object") return null;
   const existing = collections.mediaItems.get(
     mediaItemRowKey(input.serverId, input.ratingKey),
   );
@@ -508,6 +511,15 @@ export async function warmItemMetadata(
   if (!row) return null;
   await upsertRow(collections.mediaItems, row);
   return row;
+}
+
+export async function warmItemMetadata(
+  collections: SyncEngineCollections,
+  trpc: TRPCClient<AppRouter>,
+  input: { serverId: string; ratingKey: string },
+): Promise<SanitizedMediaItemRow | null> {
+  const metadata = await trpc.plex.getItemMetadata.query(input);
+  return writeItemMetadata(collections, input, metadata);
 }
 
 export async function warmWatchTogetherInvitees(
@@ -591,42 +603,6 @@ export function writeBrowsePage(
   return row;
 }
 
-function stripCredentialsDeep(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((entry) => stripCredentialsDeep(entry));
-  }
-  if (!value || typeof value !== "object") {
-    return value;
-  }
-  const record = value as Record<string, unknown>;
-  const serverId = typeof record.serverId === "string" ? record.serverId : null;
-  const ratingKey =
-    typeof record.ratingKey === "string" ? record.ratingKey : null;
-  if (serverId && ratingKey) {
-    rememberItemConnection(`${serverId}:${ratingKey}`, {
-      serverUrl:
-        typeof record.serverUrl === "string" ? record.serverUrl : undefined,
-      authToken:
-        typeof record.authToken === "string" ? record.authToken : undefined,
-    });
-  }
-  const next: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(record)) {
-    if (
-      key === "authToken" ||
-      key === "accessToken" ||
-      key === "serverUrl" ||
-      key === "plexAuthToken" ||
-      key === "token" ||
-      key === "X-Plex-Token"
-    ) {
-      continue;
-    }
-    next[key] = stripCredentialsDeep(entry);
-  }
-  return next;
-}
-
 export async function warmSearchResults(
   collections: SyncEngineCollections,
   trpc: TRPCClient<AppRouter>,
@@ -638,7 +614,7 @@ export async function warmSearchResults(
   const row: SanitizedSearchResultsRow = {
     id: searchResultsRowKey(trimmed),
     query: trimmed,
-    payload: stripCredentialsDeep(results),
+    payload: stripCredentialsDeep(results, rememberItemConnection),
   };
   await upsertRow(collections.searchResults, row);
   return row;
@@ -654,7 +630,7 @@ export async function warmPlaylist(
     id: playlistRowKey(input.serverId, input.playlistRatingKey),
     serverId: input.serverId,
     playlistRatingKey: input.playlistRatingKey,
-    payload: stripCredentialFields(playlist),
+    payload: stripCredentialsDeep(playlist),
   };
   await upsertRow(collections.playlists, row);
   return row;
@@ -682,7 +658,7 @@ export async function warmPlaylistContents(
     playlistRatingKey: input.playlistRatingKey,
     start: input.start,
     size: input.size,
-    payload: stripCredentialFields(contents),
+    payload: stripCredentialsDeep(contents),
   };
   await upsertRow(collections.playlistContents, row);
   return row;
@@ -698,7 +674,7 @@ export async function warmItemPlaylists(
     id: itemPlaylistsRowKey(input.serverId, input.playlistType),
     serverId: input.serverId,
     playlistType: input.playlistType,
-    payload: stripCredentialFields(playlists),
+    payload: stripCredentialsDeep(playlists),
   };
   await upsertRow(collections.itemPlaylists, row);
   return row;
@@ -714,7 +690,9 @@ export async function warmLibraryFilterValues(
     id: libraryFilterValuesRowKey(input.machineIdentifier, input.filterPath),
     machineIdentifier: input.machineIdentifier,
     filterPath: input.filterPath,
-    values: Array.isArray(values) ? values : [],
+    values: Array.isArray(values)
+      ? (stripCredentialsDeep(values) as unknown[])
+      : [],
   };
   await upsertRow(collections.libraryFilterValues, row);
   return row;
@@ -734,7 +712,7 @@ export async function warmPlayQueue(
     id: playQueueRowKey(input.serverId, input.playQueueId),
     serverId: input.serverId,
     playQueueId: input.playQueueId,
-    payload: stripCredentialFields(queue),
+    payload: stripCredentialsDeep(queue),
   };
   await upsertRow(collections.playQueues, row);
   return row;

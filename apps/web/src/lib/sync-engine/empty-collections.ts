@@ -3,8 +3,8 @@
 import { createCollection, localOnlyCollectionOptions } from "@tanstack/db";
 
 /**
- * Stable empty collections so `useLiveQuery` can run before the OPFS engine
- * finishes booting (hooks must not be called conditionally).
+ * Stable empty collections so live subscriptions can run before the OPFS
+ * engine finishes booting (hooks must not be called conditionally).
  */
 function emptyCollection(id: string) {
   return createCollection(

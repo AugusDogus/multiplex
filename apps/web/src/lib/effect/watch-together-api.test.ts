@@ -86,3 +86,24 @@ test("rejections become WatchTogetherApiError on the error channel", async () =>
   const exit = await Effect.runPromiseExit(api.listRooms());
   expectApiError(exit, { operation: "listRooms", cause });
 });
+
+test("getItemMetadata returns the client payload when sync engine is inactive", async () => {
+  const metadata = {
+    ratingKey: "42",
+    type: "movie",
+    title: "Test",
+  } as unknown as Awaited<
+    ReturnType<WatchTogetherTrpcClient["getItemMetadata"]["query"]>
+  >;
+  const client = makeStubClient({
+    getItemMetadata: {
+      query: mock().mockResolvedValue(metadata),
+    },
+  });
+  const api = makeWatchTogetherApi(client);
+
+  const result = await Effect.runPromise(
+    api.getItemMetadata({ serverId: "haus-1", ratingKey: "42" }),
+  );
+  expect(result).toEqual(metadata);
+});
