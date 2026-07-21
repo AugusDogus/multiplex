@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 
@@ -16,7 +17,11 @@ import {
   type SyncEngineCollections,
 } from "./collections";
 import { getSyncEnginePersistence } from "./persistence";
-import { setActiveSyncEngineCollections } from "./registry";
+import {
+  getActiveSyncEngineCollections,
+  setActiveSyncEngineCollections,
+  subscribeActiveSyncEngineCollections,
+} from "./registry";
 import { getSyncEngineTrpcClient } from "./trpc-client";
 
 export type SyncEngineStatus =
@@ -73,6 +78,15 @@ export function SyncEngineProvider({
   });
   const collectionsRef = useRef<SyncEngineCollections | null>(null);
 
+  // Logout calls clearSyncEngineSession() which nulls the registry before the
+  // session cookie flips. Derive status from the registry so React never keeps
+  // handing out disposed collections.
+  const activeCollections = useSyncExternalStore(
+    subscribeActiveSyncEngineCollections,
+    getActiveSyncEngineCollections,
+    () => null,
+  );
+
   const status = useMemo<SyncEngineStatus>(() => {
     if (isSessionPending) return { phase: "booting" };
     if (!userId) {
@@ -81,11 +95,18 @@ export function SyncEngineProvider({
         error: "Sync engine requires a signed-in session",
       };
     }
+    // Registry cleared (logout) while bootStatus may still say ready.
+    if (activeCollections === null) {
+      return { phase: "booting" };
+    }
     // Avoid briefly exposing the previous account's collections after switch.
     if (bootStatus.userId && bootStatus.userId !== userId) {
       return { phase: "booting" };
     }
-    if (bootStatus.phase === "ready") {
+    if (
+      bootStatus.phase === "ready" &&
+      bootStatus.collections === activeCollections
+    ) {
       return {
         phase: "ready",
         collections: bootStatus.collections,
@@ -96,7 +117,7 @@ export function SyncEngineProvider({
       return { phase: "error", error: bootStatus.error };
     }
     return { phase: "booting" };
-  }, [bootStatus, isSessionPending, userId]);
+  }, [activeCollections, bootStatus, isSessionPending, userId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,6 +148,7 @@ export function SyncEngineProvider({
         // Eager shell sync so revisits / soft-nav hit warm local rows.
         // Also preload on-demand collections so writeUpsert has a sync context
         // (otherwise Query Collections throw SyncNotInitializedError).
+        // allSettled swallows individual preload rejections.
         void Promise.allSettled([
           collections.servers.preload(),
           collections.serverLibraries.preload(),
@@ -197,5 +219,13 @@ export function useSyncEngineStatus(): SyncEngineStatus {
 
 export function useSyncEngineCollections(): SyncEngineCollections | null {
   const status = useSyncEngineStatus();
-  return status.phase === "ready" ? status.collections : null;
+  const activeCollections = useSyncExternalStore(
+    subscribeActiveSyncEngineCollections,
+    getActiveSyncEngineCollections,
+    () => null,
+  );
+  if (status.phase !== "ready") return null;
+  // Never return collections after logout teardown cleared the registry.
+  if (activeCollections !== status.collections) return null;
+  return status.collections;
 }
