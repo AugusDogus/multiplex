@@ -212,6 +212,8 @@ describe("sync-engine sanitize", () => {
     });
     expect(JSON.stringify(playlistPayload)).not.toContain("PLAYLIST_SECRET");
     expect(JSON.stringify(playlistPayload)).not.toContain("DEEP_SECRET");
-    expect(JSON.stringify(playlistPayload)).not.toContain("https://pms.example");
+    expect(JSON.stringify(playlistPayload)).not.toContain(
+      "https://pms.example",
+    );
   });
 });

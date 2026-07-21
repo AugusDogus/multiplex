@@ -62,9 +62,11 @@ export function useLibraryNavigationPrefetch() {
       void warmLibraryHubs(collections, getSyncEngineTrpcClient(), {
         machineIdentifier,
         sectionId: source,
-      }).then((snapshot) => {
-        preloadPosterImages(snapshot.hubs.map(toHubWithServer));
-      });
+      })
+        .then((snapshot) => {
+          preloadPosterImages(snapshot.hubs.map(toHubWithServer));
+        })
+        .catch(() => undefined);
     } catch {
       // Ignore malformed hrefs from sidebar data.
     }

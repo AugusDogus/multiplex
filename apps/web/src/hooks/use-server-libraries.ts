@@ -88,7 +88,7 @@ export function useServerLibraries(
     });
 
     const refetch = collections?.serverLibraries.utils.refetch;
-    void Promise.resolve(refetch?.())
+    void Promise.resolve(refetch ? refetch() : undefined)
       .catch((error: Error) => {
         console.error(`Failed to retry server ${serverId}:`, error);
         setRetryErrors((prev) => {

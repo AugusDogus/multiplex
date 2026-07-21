@@ -5,9 +5,9 @@ import { HomeHubs } from "~/components/home-hubs";
 import { WatchTogetherRow } from "~/components/watch-together/watch-together-row";
 
 /**
- * Soft-nav must not await Plex RSC prefeches. Continue Watching + home hubs
- * paint from the TanStack DB sync-engine replica (OPFS); Watch Together still
- * uses a client tRPC query and can fill after first paint.
+ * Soft-nav must not await Plex RSC prefetches. Watch Together, Continue
+ * Watching, and home hubs all paint from the TanStack DB sync-engine
+ * replica (OPFS) and can fill after first paint.
  */
 export const prefetch = "allow-runtime";
 

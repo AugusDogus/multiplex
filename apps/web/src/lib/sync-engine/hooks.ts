@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { HubWithServer, PlexUserInfo } from "@multiplex/plex-query";
 import type { RouterOutputs } from "~/trpc/api";
@@ -252,11 +252,12 @@ export function useSyncedWatchTogetherRooms(): {
     collections?.watchTogetherRooms ?? emptyWatchTogetherRoomsCollection,
   );
 
-  const rows = collections ? data : [];
+  const rows = useMemo(() => (collections ? data : []), [collections, data]);
+  const rooms = useMemo(() => rows.map(toWatchTogetherRoom), [rows]);
 
   return {
     data: rows,
-    rooms: rows.map(toWatchTogetherRoom),
+    rooms,
     isLoading: !collections || isLoading,
     isReady: Boolean(collections),
   };
@@ -293,8 +294,13 @@ export function useSyncedWatchTogetherRoom(
     shouldRevalidate,
   );
 
+  const room = useMemo(
+    () => (row ? toWatchTogetherRoom(row) : undefined),
+    [row],
+  );
+
   return {
-    room: row ? toWatchTogetherRoom(row) : undefined,
+    room,
     isPending: Boolean(
       enabled && roomId && (!collections || (!row && (isLoading || isWarming))),
     ),
@@ -316,14 +322,16 @@ export function useSyncedUserInfo(options?: { initialData?: PlexUserInfo }): {
   useEffect(() => {
     if (!collections || !options?.initialData) return;
     if (row) return;
-    writeSyncedUserInfo(
-      collections,
-      options.initialData as unknown as Record<string, unknown>,
-    );
+    writeSyncedUserInfo(collections, options.initialData);
   }, [collections, options?.initialData, row]);
 
+  const data = useMemo(
+    () => (row ? toPlexUserInfo(row) : options?.initialData),
+    [options?.initialData, row],
+  );
+
   return {
-    data: row ? toPlexUserInfo(row) : options?.initialData,
+    data,
     isLoading: !collections || (isLoading && !row && !options?.initialData),
     isReady: Boolean(collections),
   };
@@ -366,9 +374,14 @@ export function useSyncedItemDetails(
     needsWarm,
   );
 
-  return {
-    details:
+  const details = useMemo(
+    () =>
       hasFullDetails && row ? (toItemDetails(row) ?? undefined) : undefined,
+    [hasFullDetails, row],
+  );
+
+  return {
+    details,
     isPending: Boolean(
       enabled &&
         (!collections ||
@@ -409,8 +422,10 @@ export function useSyncedItemMetadata(
     needsWarm,
   );
 
+  const data = useMemo(() => (row ? toItemMetadata(row) : null), [row]);
+
   return {
-    data: row ? toItemMetadata(row) : null,
+    data,
     refetch: async () => {
       if (!collections || !enabled) {
         return { data: row ? toItemMetadata(row) : null };
@@ -458,8 +473,13 @@ export function useSyncedLibraryHubs(
     Boolean(collections),
   );
 
+  const hubs = useMemo(
+    () => (snapshot ? snapshot.hubs.map(toHubWithServer) : []),
+    [snapshot],
+  );
+
   return {
-    hubs: snapshot ? snapshot.hubs.map(toHubWithServer) : [],
+    hubs,
     isPending: !collections || (!snapshot && (isLoading || isWarming)),
     isFetching: isWarming,
   };
