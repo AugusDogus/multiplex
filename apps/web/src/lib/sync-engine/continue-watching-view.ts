@@ -1,16 +1,16 @@
 import type { ContinueWatchingItemWithServer } from "@multiplex/plex-query";
 
-import { getItemConnection } from "./connection-overlay";
+import { resolveItemCredentials } from "./resolve-connection";
 import type { SanitizedContinueWatchingRow } from "./sanitize";
 
 /**
- * Rehydrate a UI/playable Continue Watching item from a durable row +
- * session-only connection overlay.
+ * Rehydrate a UI/playable Continue Watching item from a durable row
+ * (credentials included) with session/server fallbacks.
  */
 export function toContinueWatchingItemWithServer(
   row: SanitizedContinueWatchingRow,
 ): ContinueWatchingItemWithServer {
-  const connection = getItemConnection(row.id);
+  const connection = resolveItemCredentials(row.id, row);
 
   return {
     ratingKey: row.ratingKey,
@@ -47,7 +47,7 @@ export function toContinueWatchingItemWithServer(
       : undefined,
     serverId: row.serverId,
     serverName: row.serverName ?? undefined,
-    serverUrl: connection?.serverUrl,
-    authToken: connection?.authToken,
+    serverUrl: connection.serverUrl,
+    authToken: connection.authToken,
   };
 }

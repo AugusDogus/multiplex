@@ -7,6 +7,10 @@ export {
   getServerConnection,
 } from "./connection-overlay";
 export {
+  resolveItemCredentials,
+  resolveServerCredentials,
+} from "./resolve-connection";
+export {
   createSyncEngineCollections,
   removeSyncedWatchTogetherRoom,
   upsertRow,

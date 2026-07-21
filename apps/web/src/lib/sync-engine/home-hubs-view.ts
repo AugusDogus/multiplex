@@ -1,11 +1,14 @@
 import type { HubItemWithServer, HubWithServer } from "@multiplex/plex-query";
 
-import { getItemConnection } from "./connection-overlay";
+import { resolveItemCredentials } from "./resolve-connection";
 import type { SanitizedHomeHubRow } from "./sanitize";
 
 export function toHubWithServer(row: SanitizedHomeHubRow): HubWithServer {
   const items: HubItemWithServer[] = row.items.map((item) => {
-    const connection = getItemConnection(`${row.serverId}:${item.ratingKey}`);
+    const connection = resolveItemCredentials(
+      `${row.serverId}:${item.ratingKey}`,
+      { serverId: row.serverId, ...item },
+    );
     return {
       ratingKey: item.ratingKey,
       key: item.key ?? `/library/metadata/${item.ratingKey}`,
@@ -25,8 +28,8 @@ export function toHubWithServer(row: SanitizedHomeHubRow): HubWithServer {
       playlistType: item.playlistType ?? undefined,
       composite: item.composite ?? undefined,
       serverId: row.serverId,
-      serverUrl: connection?.serverUrl,
-      authToken: connection?.authToken,
+      serverUrl: connection.serverUrl,
+      authToken: connection.authToken,
     };
   });
 
