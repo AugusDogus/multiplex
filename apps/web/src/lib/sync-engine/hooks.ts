@@ -38,9 +38,9 @@ import {
   emptyWatchTogetherInviteesCollection,
   emptyWatchTogetherRoomsCollection,
 } from "./empty-collections";
-import { getItemConnection } from "./connection-overlay";
 import { toHubWithServer } from "./home-hubs-view";
 import { toItemDetails, toItemMetadata } from "./item-details-view";
+import { resolveItemCredentials } from "./resolve-connection";
 import {
   itemPlaylistsRowKey,
   libraryFilterValuesRowKey,
@@ -357,8 +357,9 @@ export function useSyncedItemDetails(
   );
 
   const hasFullDetails = Boolean(row?.hasFullDetails && row.item);
-  const missingPlayCredentials = !getItemConnection(id)?.authToken;
-  // Re-warm when OPFS has details but the session overlay lost tokens (reload).
+  const missingPlayCredentials = !resolveItemCredentials(id, row ?? undefined)
+    .authToken;
+  // Re-warm when OPFS has details but credentials are still missing.
   const needsWarm = Boolean(
     enabled && collections && (!hasFullDetails || missingPlayCredentials),
   );

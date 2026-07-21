@@ -1,13 +1,16 @@
 import type { HubItemWithServer } from "@multiplex/plex-query";
 
-import { getItemConnection } from "./connection-overlay";
+import { resolveItemCredentials } from "./resolve-connection";
 import type { SanitizedBrowsePageRow } from "./sanitize";
 
 export function toHubItemsWithServer(
   row: SanitizedBrowsePageRow,
 ): HubItemWithServer[] {
   return row.items.map((item) => {
-    const connection = getItemConnection(`${item.serverId}:${item.ratingKey}`);
+    const connection = resolveItemCredentials(
+      `${item.serverId}:${item.ratingKey}`,
+      item,
+    );
     return {
       ratingKey: item.ratingKey,
       key: item.key ?? `/library/metadata/${item.ratingKey}`,
@@ -27,8 +30,8 @@ export function toHubItemsWithServer(
       playlistType: item.playlistType ?? undefined,
       composite: item.composite ?? undefined,
       serverId: item.serverId,
-      serverUrl: connection?.serverUrl,
-      authToken: connection?.authToken,
+      serverUrl: connection.serverUrl,
+      authToken: connection.authToken,
     };
   });
 }
