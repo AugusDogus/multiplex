@@ -7,6 +7,7 @@ import type { AppRouter } from "~/server/api/root";
 import {
   getActiveSyncEngineCollections,
   sanitizeMediaItemDetails,
+  sanitizeWatchTogetherRoom,
 } from "~/lib/sync-engine";
 import { createTrpcClientLinks } from "~/trpc/client-links";
 import type { RouterInputs, RouterOutputs } from "~/trpc/api";
@@ -78,7 +79,18 @@ const wrap =
 export const makeWatchTogetherApi = (
   client: WatchTogetherTrpcClient = getBrowserTrpcClient(),
 ): WatchTogetherApiShape => ({
-  listRooms: wrap("listRooms", () => client.getWatchTogetherRooms.query()),
+  listRooms: wrap("listRooms", async () => {
+    const rooms = await client.getWatchTogetherRooms.query();
+    const collections = getActiveSyncEngineCollections();
+    if (collections) {
+      for (const room of rooms) {
+        collections.watchTogetherRooms.utils.writeUpsert?.(
+          sanitizeWatchTogetherRoom(room as unknown as Record<string, unknown>),
+        );
+      }
+    }
+    return rooms;
+  }),
   createRoom: (input) =>
     wrap("createRoom", () => client.createWatchTogetherRoom.mutate(input))(),
   deleteRoom: (roomId) =>
@@ -94,6 +106,7 @@ export const makeWatchTogetherApi = (
         const row = sanitizeMediaItemDetails(
           { item: result, serverName: null },
           input.serverId,
+          { hasFullDetails: false },
         );
         if (row) {
           collections.mediaItems.utils.writeUpsert?.(row);

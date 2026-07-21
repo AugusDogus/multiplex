@@ -25,12 +25,13 @@ Plex-pass-through client.
 
 1. **OPFS SQLite persistence** via `@tanstack/browser-db-sqlite-persistence`
    - `BrowserCollectionCoordinator` (multi-tab).
-2. **Query Collections** wired to vanilla tRPC for:
-   - servers
-   - server libraries
-   - continue watching
-   - home hubs
-   - media items (on-demand warm cache)
+2. **Query Collections** wired to vanilla tRPC for the **entire Plex read
+   surface** used by the app:
+   - servers, server libraries, user info (eager)
+   - continue watching, home hubs, Watch Together rooms (eager + poll)
+   - media items / item details (on-demand warm)
+   - library hubs, browse pages, search, playlists, filter values, play queues
+   - Watch Together invitees
 3. **Credential stripping** before persistence (`accessToken` / `authToken`
    never written to OPFS).
 4. **Live queries** (`useLiveQuery`) for instant UI reads from local rows.
@@ -57,13 +58,15 @@ Effect PlayerService / WatchTogetherSession
 
 ### Sync modes
 
-| Collection                         | Mode                    | Notes                          |
-| ---------------------------------- | ----------------------- | ------------------------------ |
-| servers, libraries, pinned sources | eager                   | Shell-critical                 |
-| continue watching, home hubs       | eager + refetchInterval | Background reconcile with Plex |
-| library grids / search             | on-demand               | Query-driven subsets           |
-| item details                       | on-demand + hover warm  | Matches current hover prefetch |
-| Syncplay / ephemeral lobby FSM     | Effect runtime          | Not a durable Plex row set     |
+| Collection                        | Mode                    | Notes                          |
+| --------------------------------- | ----------------------- | ------------------------------ |
+| servers, libraries, user info     | eager                   | Shell-critical                 |
+| continue watching, home hubs      | eager + refetchInterval | Background reconcile with Plex |
+| Watch Together rooms              | eager + 10s poll        | Home row + lobby + session     |
+| library hubs / grids / search     | on-demand               | Query-driven subsets           |
+| item details / metadata           | on-demand + hover warm  | Full details payload in OPFS   |
+| playlists / filters / play queues | on-demand               | Warmed when UI opens           |
+| Syncplay / ephemeral lobby FSM    | Effect runtime          | Not a durable Plex row set     |
 
 Note: TanStack blog posts mention `progressive`; installed `@tanstack/db@0.6.16`
 typings only expose `eager` | `on-demand`. Eager + OPFS already gives instant
@@ -131,31 +134,29 @@ the durable local replica this spike is about.
 
 ## Adoption progress
 
+**All `api.plex.*.useQuery` call sites are cut over** to sync-engine hooks /
+warm helpers. Mutations still use tRPC and patch/refetch collections.
+
 Done on this branch:
 
-1. **Continue Watching** reads `useSyncedContinueWatching` (OPFS replica +
-   session connection overlay for play credentials).
-2. **Sidebar / server libraries** read `useSyncedServerLibraries` (keeps
-   `mediaProviders` for source extraction).
-3. **Home hubs** read `useSyncedHomeHubs`.
-4. **Home RSC no longer awaits Plex prefeches** for those surfaces — soft-nav
-   back from details paints from OPFS instead of Suspense-waiting on PMS.
-5. **Timeline + restart** patch the sync-engine CW collection (no more
-   `getAllContinueWatching.setData`).
-6. **Effect `WatchTogetherApi.getItemMetadata`** warms `mediaItems` after fetch.
-
-Why details→home still felt laggy before this: the home page RSC kept
-`await api.plex.*.prefetch()` inside Suspense boundaries even after CW moved
-to the sync engine, so soft-nav waited on Plex before mounting local rows.
+1. Shell: Continue Watching, home hubs, server libraries, user info / pins.
+2. **Watch Together**: rooms list, single-room lobby/session, invitees, room
+   media (via full `mediaItems` details), create/delete/invite refetch.
+3. **Item details** page + hover prefetch warm full details into OPFS.
+4. Library Recommended hubs, poster-grid browse pages, search, playlists,
+   library filter values, play queues, player item metadata.
+5. Home RSC no longer awaits Plex prefeches for CW/hubs.
+6. Timeline + restart patch the sync-engine CW collection.
+7. Effect `WatchTogetherApi` warms rooms + media items after fetch.
 
 Still open:
 
 1. **Wire `@tanstack/offline-transactions`** for watched/pin/playlist mutations.
-2. **Replace remaining split caches** (poster grids, details, library grids)
-   with collections.
-3. **Service worker / navigation cache** if true offline route browsing is a
-   product goal.
-4. **Do not introduce Electric/Zero / fate for offline.**
+2. **Service worker / navigation cache** if true offline route browsing is a
+   product goal (OPFS holds data; Next still needs RSC flights for routes).
+3. **Do not introduce Electric/Zero / fate for offline.**
+4. RSC/server components may still _prefetch_ some plex procedures for first
+   paint; client re-reads go through the replica.
 
 ## Package versions spiked
 

@@ -8,10 +8,13 @@ import {
   type ItemMetadata,
 } from "@multiplex/plex-query";
 
-import { PLEX_DETAILS_QUERY_OPTIONS } from "~/lib/plex-details-query-options";
 import { getPlexImagePath } from "~/lib/plex-image";
 import { getItemDetailsHref } from "~/lib/plex-routes";
-import { api } from "~/trpc/api";
+import {
+  getActiveSyncEngineCollections,
+  getSyncEngineTrpcClient,
+  warmMediaItem,
+} from "~/lib/sync-engine";
 
 export interface ItemDetailsNavigationTarget {
   serverId: string;
@@ -42,29 +45,21 @@ function preloadDetailsImages(serverId: string, item: ItemMetadata) {
 
 export function useItemDetailsNavigation() {
   const router = useRouter();
-  const utils = api.useUtils();
 
   const prefetch = (target: ItemDetailsNavigationTarget) => {
     const href = getHref(target);
-    // Warm both the RSC runtime prerender and the TanStack details payload.
+    // Warm both the RSC runtime prerender and the sync-engine details payload.
     void router.prefetch(href);
-    void utils.plex.getItemDetails
-      .prefetch(
-        {
-          serverId: target.serverId,
-          ratingKey: target.ratingKey,
-        },
-        PLEX_DETAILS_QUERY_OPTIONS,
-      )
-      .then(() => {
-        const details = utils.plex.getItemDetails.getData({
-          serverId: target.serverId,
-          ratingKey: target.ratingKey,
-        });
-        if (details?.item) {
-          preloadDetailsImages(target.serverId, details.item);
-        }
-      });
+    const collections = getActiveSyncEngineCollections();
+    if (!collections) return;
+    void warmMediaItem(collections, getSyncEngineTrpcClient(), {
+      serverId: target.serverId,
+      ratingKey: target.ratingKey,
+    }).then((row) => {
+      if (row?.item && typeof row.item === "object") {
+        preloadDetailsImages(target.serverId, row.item as ItemMetadata);
+      }
+    });
   };
 
   const navigate = (target: ItemDetailsNavigationTarget) => {

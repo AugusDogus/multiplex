@@ -7,8 +7,7 @@ import {
   getItemDetailsBreadcrumbs,
   type ItemDetailsRouteType,
 } from "~/lib/plex-routes";
-import { PLEX_DETAILS_QUERY_OPTIONS } from "~/lib/plex-details-query-options";
-import { api } from "~/trpc/api";
+import { useSyncedItemDetails } from "~/lib/sync-engine";
 
 interface MediaItemDetailsPageClientProps {
   serverId: string;
@@ -21,14 +20,9 @@ export function MediaItemDetailsPageClient({
   ratingKey,
   itemType,
 }: MediaItemDetailsPageClientProps) {
-  const {
-    data: details,
-    error,
-    isPending,
-    isFetching,
-  } = api.plex.getItemDetails.useQuery(
-    { serverId, ratingKey },
-    PLEX_DETAILS_QUERY_OPTIONS,
+  const { details, error, isPending, isFetching } = useSyncedItemDetails(
+    serverId,
+    ratingKey,
   );
 
   // Prefer cached/prefetched details immediately — never blank the page on a

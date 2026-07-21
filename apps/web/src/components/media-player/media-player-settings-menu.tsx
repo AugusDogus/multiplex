@@ -13,9 +13,9 @@ import {
   playerCommands,
   usePlayerStateSelector,
 } from "~/lib/effect/player-atoms";
+import { useSyncedItemMetadata } from "~/lib/sync-engine";
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import { shallow } from "zustand/shallow";
-import { api } from "~/trpc/api";
 import type { MediaPlayerItem, PlaybackRate } from "~/types/media-player";
 import { CAPTION_SIZE_OPTIONS } from "./utils/caption-size";
 import { playbackUsesTranscode } from "./utils/plex-playback-plan";
@@ -99,18 +99,11 @@ export function MediaPlayerSettingsMenu({
   const metadataRatingKey = currentItem?.ratingKey ?? "";
   const canQueryDetailedMetadata = currentItem?.access !== "guest-transient";
   const { data: detailedItem, refetch: refetchDetailedItem } =
-    api.plex.getItemMetadata.useQuery(
-      {
-        serverId: metadataServerId,
-        ratingKey: metadataRatingKey,
-      },
-      {
-        enabled: Boolean(
-          canQueryDetailedMetadata && metadataServerId && metadataRatingKey,
-        ),
-        staleTime: 5 * 60 * 1000,
-      },
-    );
+    useSyncedItemMetadata(metadataServerId, metadataRatingKey, {
+      enabled: Boolean(
+        canQueryDetailedMetadata && metadataServerId && metadataRatingKey,
+      ),
+    });
 
   // Keep the store's `currentItem` hydrated with expanded stream metadata so
   // playback and the settings menu share one canonical subtitle selection.

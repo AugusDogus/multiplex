@@ -26,6 +26,10 @@ import {
 import { Input } from "~/components/ui/input";
 import { getPlexImagePath } from "~/lib/plex-image";
 import { getItemDetailsHref, getLibraryPivotHref } from "~/lib/plex-routes";
+import {
+  useSyncedPlaylist,
+  useSyncedPlaylistContents,
+} from "~/lib/sync-engine";
 import { api } from "~/trpc/api";
 
 const PAGE_SIZE = 50;
@@ -48,8 +52,8 @@ export function PlaylistManagement({
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const playlistInput = { serverId, playlistRatingKey };
-  const playlistQuery = api.plex.getPlaylist.useQuery(playlistInput);
-  const contentsQuery = api.plex.getPlaylistContents.useQuery({
+  const playlistQuery = useSyncedPlaylist(serverId, playlistRatingKey);
+  const contentsQuery = useSyncedPlaylistContents({
     ...playlistInput,
     start,
     size: PAGE_SIZE,
@@ -57,8 +61,8 @@ export function PlaylistManagement({
 
   const invalidatePlaylistData = async () => {
     await Promise.all([
-      utils.plex.getPlaylist.invalidate(playlistInput),
-      utils.plex.getPlaylistContents.invalidate(),
+      playlistQuery.refetch(),
+      contentsQuery.refetch(),
       utils.plex.getItemPlaylists.invalidate(),
       utils.plex.getLibraryPlaylists.invalidate(),
     ]);

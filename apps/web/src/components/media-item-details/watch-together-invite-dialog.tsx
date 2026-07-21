@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { WatchTogetherInviteePicker } from "~/components/watch-together/watch-together-invitee-picker";
+import { refetchSyncedWatchTogetherRooms } from "~/lib/sync-engine";
 import {
   getWatchTogetherRoomHref,
   storeGuestHostCapability,
@@ -64,7 +65,8 @@ export function WatchTogetherInviteDialog({
   );
   const createRoomMutation = api.plex.createWatchTogetherRoom.useMutation({
     onError: (error) => onFeedback(error.message),
-    onSuccess: (room) => {
+    onSuccess: async (room) => {
+      await refetchSyncedWatchTogetherRooms();
       handleOpenChange(false);
       onFeedback("Watch Together room created");
       router.push(getWatchTogetherRoomHref(room.id));
