@@ -6,9 +6,9 @@ import { Context, Data, Effect, Layer } from "effect";
 import type { AppRouter } from "~/server/api/root";
 import {
   getActiveSyncEngineCollections,
-  sanitizeMediaItemDetails,
   sanitizeWatchTogetherRoom,
   upsertRow,
+  writeItemMetadata,
 } from "~/lib/sync-engine";
 import { createTrpcClientLinks } from "~/trpc/client-links";
 import type { RouterInputs, RouterOutputs } from "~/trpc/api";
@@ -102,17 +102,11 @@ export const makeWatchTogetherApi = (
   getItemMetadata: (input) =>
     wrap("getItemMetadata", async () => {
       const result = await client.getItemMetadata.query(input);
-      // Best-effort: keep the durable media-items replica warm for instant nav.
+      // Best-effort: merge metadata into the durable replica without clobbering
+      // full details (children / playTarget) already warmed for the details page.
       const collections = getActiveSyncEngineCollections();
       if (collections && result) {
-        const row = sanitizeMediaItemDetails(
-          { item: result, serverName: null },
-          input.serverId,
-          { hasFullDetails: false },
-        );
-        if (row) {
-          await upsertRow(collections.mediaItems, row);
-        }
+        await writeItemMetadata(collections, input, result);
       }
       return result;
     })(),

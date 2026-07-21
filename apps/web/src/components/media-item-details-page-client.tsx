@@ -20,7 +20,7 @@ export function MediaItemDetailsPageClient({
   ratingKey,
   itemType,
 }: MediaItemDetailsPageClientProps) {
-  const { details, error, isPending, isFetching } = useSyncedItemDetails(
+  const { details, isPending, isFetching } = useSyncedItemDetails(
     serverId,
     ratingKey,
   );
@@ -38,7 +38,8 @@ export function MediaItemDetailsPageClient({
     );
   }
 
-  if (error || !details) {
+  // Warm/credential-refill failures must not hide a usable OPFS cache.
+  if (!details) {
     return (
       <>
         <AppHeader>Details unavailable</AppHeader>

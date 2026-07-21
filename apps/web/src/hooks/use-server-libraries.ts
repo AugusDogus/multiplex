@@ -29,8 +29,16 @@ export function useServerLibraries(
   const [retryingServers, setRetryingServers] = useState<Set<string>>(
     new Set(),
   );
+  const [retryErrors, setRetryErrors] = useState<Map<string, string>>(
+    new Map(),
+  );
   const collections = useSyncEngineCollections();
-  const { data: libraryRows, isLoading, isReady } = useSyncedServerLibraries();
+  const {
+    data: libraryRows,
+    isLoading,
+    isReady,
+    error: syncError,
+  } = useSyncedServerLibraries();
 
   const serverDataById = new Map<string, ServerLibraryData>();
   for (const row of libraryRows) {
@@ -43,6 +51,8 @@ export function useServerLibraries(
     } as ServerLibraryData);
   }
 
+  const syncErrorMessage = syncError?.message ?? null;
+
   const serverStates = (() => {
     const states = new Map<string, ServerLibraryState>();
 
@@ -50,11 +60,17 @@ export function useServerLibraries(
       const serverId = server.clientIdentifier;
       const isRetrying = retryingServers.has(serverId);
       const serverData = serverDataById.get(serverId);
+      const retryError = retryErrors.get(serverId) ?? null;
+      const error =
+        serverData?.error ??
+        retryError ??
+        (!serverData && syncErrorMessage ? syncErrorMessage : null);
 
       states.set(serverId, {
         data: serverData ?? null,
-        error: serverData?.error ?? null,
-        isLoading: (!isReady || isLoading) && !isRetrying && !serverData,
+        error,
+        isLoading:
+          (!isReady || isLoading) && !isRetrying && !serverData && !error,
         isRetrying,
       });
     }
@@ -64,11 +80,25 @@ export function useServerLibraries(
 
   const retryServer = (serverId: string) => {
     setRetryingServers((prev) => new Set([...prev, serverId]));
+    setRetryErrors((prev) => {
+      if (!prev.has(serverId)) return prev;
+      const next = new Map(prev);
+      next.delete(serverId);
+      return next;
+    });
 
     const refetch = collections?.serverLibraries.utils.refetch;
     void Promise.resolve(refetch?.())
       .catch((error: Error) => {
         console.error(`Failed to retry server ${serverId}:`, error);
+        setRetryErrors((prev) => {
+          const next = new Map(prev);
+          next.set(
+            serverId,
+            error instanceof Error ? error.message : "Failed to load libraries",
+          );
+          return next;
+        });
       })
       .finally(() => {
         setRetryingServers((prev) => {

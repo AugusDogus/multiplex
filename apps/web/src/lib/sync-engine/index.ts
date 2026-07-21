@@ -1,7 +1,16 @@
+export { clearSyncEngineSession } from "./clear-session";
+export {
+  clearConnectionOverlay,
+  rememberItemConnection,
+  rememberServerConnection,
+  getItemConnection,
+  getServerConnection,
+} from "./connection-overlay";
 export {
   createSyncEngineCollections,
   removeSyncedWatchTogetherRoom,
   upsertRow,
+  writeItemMetadata,
   warmItemMetadata,
   warmItemPlaylists,
   warmLibraryFilterValues,
@@ -19,12 +28,6 @@ export {
 } from "./collections";
 export { toHubItemsWithServer } from "./browse-pages-view";
 export { useNavigatorOnline } from "./connectivity";
-export {
-  rememberItemConnection,
-  rememberServerConnection,
-  getItemConnection,
-  getServerConnection,
-} from "./connection-overlay";
 export {
   patchSyncedContinueWatchingProgress,
   resetSyncedContinueWatchingProgress,
@@ -73,7 +76,10 @@ export {
 export {
   SYNC_ENGINE_DB_NAME,
   SYNC_ENGINE_SCHEMA_VERSION,
+  closeAndWipeSyncEnginePersistence,
+  getActiveSyncEngineDatabaseName,
   getSyncEnginePersistence,
+  syncEngineDatabaseName,
 } from "./persistence";
 export {
   SyncEngineProvider,
@@ -103,6 +109,7 @@ export {
   sanitizeWatchTogetherInvitee,
   sanitizeWatchTogetherRoom,
   stripCredentialFields,
+  stripCredentialsDeep,
   type SanitizedBrowsePageRow,
   type SanitizedContinueWatchingRow,
   type SanitizedHomeHubRow,

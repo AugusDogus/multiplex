@@ -280,6 +280,15 @@ function asUnixSeconds(value: unknown): number | null {
   return null;
 }
 
+const CREDENTIAL_KEYS = new Set([
+  "accessToken",
+  "authToken",
+  "plexAuthToken",
+  "token",
+  "X-Plex-Token",
+  "serverUrl",
+]);
+
 /** Drop known credential fields from a top-level object (shallow). */
 export function stripCredentialFields(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -288,19 +297,43 @@ export function stripCredentialFields(value: unknown): unknown {
   const record = value as LooseRecord;
   const next: LooseRecord = {};
   for (const [key, entry] of Object.entries(record)) {
-    if (
-      key === "accessToken" ||
-      key === "authToken" ||
-      key === "plexAuthToken" ||
-      key === "token" ||
-      key === "X-Plex-Token"
-    ) {
-      continue;
-    }
-    if (key === "serverUrl") {
-      continue;
-    }
+    if (CREDENTIAL_KEYS.has(key)) continue;
     next[key] = entry;
+  }
+  return next;
+}
+
+/**
+ * Recursively strip credential fields from nested Plex payloads before OPFS.
+ * Also remembers session connection overlay entries when `serverId`+`ratingKey`
+ * are present alongside tokens (search / hub item walks).
+ */
+export function stripCredentialsDeep(
+  value: unknown,
+  rememberConnection?: (itemId: string, credentials: {
+    serverUrl: string | undefined;
+    authToken: string | undefined;
+  }) => void,
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => stripCredentialsDeep(entry, rememberConnection));
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  const record = value as LooseRecord;
+  const serverId = asString(record.serverId);
+  const ratingKey = asString(record.ratingKey);
+  if (rememberConnection && serverId && ratingKey) {
+    rememberConnection(`${serverId}:${ratingKey}`, {
+      serverUrl: asString(record.serverUrl) ?? undefined,
+      authToken: asString(record.authToken) ?? undefined,
+    });
+  }
+  const next: LooseRecord = {};
+  for (const [key, entry] of Object.entries(record)) {
+    if (CREDENTIAL_KEYS.has(key)) continue;
+    next[key] = stripCredentialsDeep(entry, rememberConnection);
   }
   return next;
 }
@@ -407,7 +440,9 @@ export function sanitizeContinueWatchingItem(
     librarySectionTitle: asString(item.librarySectionTitle),
     librarySectionID: asNumber(item.librarySectionID),
     librarySectionKey: asString(item.librarySectionKey),
-    Media: Array.isArray(item.Media) ? item.Media : null,
+    Media: Array.isArray(item.Media)
+      ? stripCredentialsDeep(item.Media)
+      : null,
   };
 }
 
@@ -508,7 +543,7 @@ export function sanitizeServerLibrary(
     serverName: asString(entry.serverName) ?? serverId,
     serverOwned: asBoolean(entry.serverOwned) ?? false,
     error: asString(entry.error),
-    mediaProviders,
+    mediaProviders: stripCredentialsDeep(mediaProviders),
     libraries: extractLibrariesFromMediaProviders(mediaProviders),
   };
 }
@@ -545,12 +580,12 @@ export function sanitizeMediaItemDetails(
     viewCount: asNumber(metadata.viewCount),
     leafCount: asNumber(metadata.leafCount),
     childCount: asNumber(metadata.childCount),
-    item: stripCredentialFields(metadata),
-    children: children.map((child) => stripCredentialFields(child)),
+    item: stripCredentialsDeep(metadata),
+    children: children.map((child) => stripCredentialsDeep(child)),
     playableChildren: playableChildren.map((child) =>
-      stripCredentialFields(child),
+      stripCredentialsDeep(child),
     ),
-    playTarget: stripCredentialFields(details.playTarget ?? null),
+    playTarget: stripCredentialsDeep(details.playTarget ?? null),
     hasFullDetails: options?.hasFullDetails ?? true,
   };
 }
@@ -564,7 +599,7 @@ export function sanitizeWatchTogetherRoom(
   return {
     id,
     sourceUri: asString(room.sourceUri) ?? "",
-    source: room.source ?? null,
+    source: stripCredentialsDeep(room.source ?? null),
     title: asString(room.title) ?? id,
     type: asString(room.type),
     startsAt: asNumber(room.startsAt),
@@ -599,7 +634,7 @@ export function sanitizeUserInfo(user: LooseRecord): SanitizedUserInfoRow {
     title: asString(user.title),
     email: asString(user.email),
     thumb: asString(user.thumb),
-    payload: stripCredentialFields(user),
+    payload: stripCredentialsDeep(user),
   };
 }
 
@@ -630,7 +665,7 @@ export function sanitizeBrowsePageItems(
   });
 }
 
-/** Defensive check used by tests and boot assertions. */
+/** Defensive check used by tests and boot assertions (deep scan). */
 export function rowContainsCredentialFields(row: LooseRecord): string[] {
   const forbidden = [
     "accessToken",
@@ -639,5 +674,21 @@ export function rowContainsCredentialFields(row: LooseRecord): string[] {
     "token",
     "X-Plex-Token",
   ];
-  return forbidden.filter((key) => key in row && row[key] != null);
+  const found = new Set<string>();
+
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const entry of value) walk(entry);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    const record = value as LooseRecord;
+    for (const key of forbidden) {
+      if (key in record && record[key] != null) found.add(key);
+    }
+    for (const entry of Object.values(record)) walk(entry);
+  };
+
+  walk(row);
+  return [...found];
 }
