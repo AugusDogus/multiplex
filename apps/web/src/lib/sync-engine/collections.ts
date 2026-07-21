@@ -88,9 +88,11 @@ function deleteRow<T extends { id: string }>(
   key: string,
 ): void {
   if (collection.status !== "ready") {
-    void ensureWritable(collection).then(() => {
-      collection.utils.writeDelete(key);
-    });
+    void ensureWritable(collection)
+      .then(() => {
+        collection.utils.writeDelete(key);
+      })
+      .catch(() => undefined);
     return;
   }
   collection.utils.writeDelete(key);
@@ -599,7 +601,7 @@ export function writeBrowsePage(
     totalSize: input.totalSize,
     items: sanitizeBrowsePageItems(input.items),
   };
-  void upsertRow(collections.browsePages, row);
+  void upsertRow(collections.browsePages, row).catch(() => undefined);
   return row;
 }
 
@@ -724,7 +726,7 @@ export function writeSyncedUserInfo(
   user: object,
 ): SanitizedUserInfoRow {
   const row = sanitizeUserInfo(user as Record<string, unknown>);
-  void upsertRow(collections.userInfo, row);
+  void upsertRow(collections.userInfo, row).catch(() => undefined);
   return row;
 }
 

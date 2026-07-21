@@ -90,6 +90,7 @@ export {
 export {
   getActiveSyncEngineCollections,
   setActiveSyncEngineCollections,
+  subscribeActiveSyncEngineCollections,
 } from "./registry";
 export {
   refetchSyncedMediaItem,
