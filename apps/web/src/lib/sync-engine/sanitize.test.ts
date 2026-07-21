@@ -166,13 +166,27 @@ describe("sync-engine sanitize", () => {
 
     expect(row?.id).toBe("haus-1:55");
     expect(row?.title).toBe("Inception");
-    expect(row?.hasFullDetails).toBe(true);
+    // Default is fail-closed when options.hasFullDetails is omitted.
+    expect(row?.hasFullDetails).toBe(false);
     expect(row?.authToken).toBe("DETAILS_SECRET");
     expect(row?.serverUrl).toBe("https://pms.example");
     expect(row?.item).toMatchObject({
       ratingKey: "55",
       title: "Inception",
     });
+
+    const full = sanitizeMediaItemDetails(
+      {
+        serverName: "Haus",
+        playTarget: null,
+        children: [],
+        playableChildren: [],
+        item: { ratingKey: "55", type: "movie", title: "Inception" },
+      },
+      "haus-1",
+      { hasFullDetails: true },
+    );
+    expect(full?.hasFullDetails).toBe(true);
   });
 
   test("deep clone keeps nested credentials for direct PMS access", () => {

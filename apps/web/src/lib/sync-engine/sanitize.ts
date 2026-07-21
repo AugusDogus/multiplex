@@ -586,7 +586,8 @@ export function sanitizeMediaItemDetails(
       stripCredentialsDeep(child),
     ),
     playTarget: stripCredentialsDeep(details.playTarget ?? null),
-    hasFullDetails: options?.hasFullDetails ?? true,
+    // Fail closed: metadata-only writes must not look fully warmed.
+    hasFullDetails: options?.hasFullDetails ?? false,
   };
 }
 
