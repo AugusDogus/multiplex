@@ -34,7 +34,8 @@ Plex-pass-through client.
    - Watch Together invitees
 3. **Credential stripping** before persistence (`accessToken` / `authToken`
    never written to OPFS).
-4. **Live queries** (`useLiveQuery`) for instant UI reads from local rows.
+4. **Live queries** via SSR-safe `useCollectionRows` (TanStack’s `useLiveQuery`
+   omits `getServerSnapshot` and crashes Next App Router SSR).
 5. **Optimistic write path** for watched-state updates via collection
    mutators → `setItemWatchedState`.
 6. **Boot in authenticated shell** (`SyncEngineAppShell` in `(app)/layout`)

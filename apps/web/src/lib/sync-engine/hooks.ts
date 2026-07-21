@@ -1,7 +1,5 @@
 "use client";
 
-import { eq } from "@tanstack/db";
-import { useLiveQuery } from "@tanstack/react-db";
 import { useEffect, useRef, useState } from "react";
 
 import type { HubWithServer, PlexUserInfo } from "@multiplex/plex-query";
@@ -39,6 +37,7 @@ import {
   emptyWatchTogetherInviteesCollection,
   emptyWatchTogetherRoomsCollection,
 } from "./empty-collections";
+import { getItemConnection } from "./connection-overlay";
 import { toHubWithServer } from "./home-hubs-view";
 import { toItemDetails, toItemMetadata } from "./item-details-view";
 import {
@@ -53,6 +52,7 @@ import {
   USER_INFO_ROW_ID,
 } from "./keys";
 import { useSyncEngineCollections } from "./provider";
+import { useCollectionRowById, useCollectionRows } from "./use-collection-live";
 import type {
   SanitizedContinueWatchingRow,
   SanitizedHomeHubRow,
@@ -130,16 +130,12 @@ export function useSyncedServers(): {
   isReady: boolean;
 } {
   const collections = useSyncEngineCollections();
-  const { data = [], isLoading } = useLiveQuery(
-    (q) =>
-      q.from({
-        servers: collections?.servers ?? emptyServersCollection,
-      }),
-    [collections],
+  const { data, isLoading } = useCollectionRows<SanitizedServerRow>(
+    collections?.servers ?? emptyServersCollection,
   );
 
   return {
-    data: collections ? (data as unknown as SanitizedServerRow[]) : [],
+    data: collections ? data : [],
     isLoading: !collections || isLoading,
     isReady: Boolean(collections),
   };
@@ -151,18 +147,12 @@ export function useSyncedContinueWatching(): {
   isReady: boolean;
 } {
   const collections = useSyncEngineCollections();
-  const { data = [], isLoading } = useLiveQuery(
-    (q) =>
-      q.from({
-        items: collections?.continueWatching ?? emptyContinueWatchingCollection,
-      }),
-    [collections],
+  const { data, isLoading } = useCollectionRows<SanitizedContinueWatchingRow>(
+    collections?.continueWatching ?? emptyContinueWatchingCollection,
   );
 
   return {
-    data: collections
-      ? (data as unknown as SanitizedContinueWatchingRow[])
-      : [],
+    data: collections ? data : [],
     isLoading: !collections || isLoading,
     isReady: Boolean(collections),
   };
@@ -174,16 +164,12 @@ export function useSyncedHomeHubs(): {
   isReady: boolean;
 } {
   const collections = useSyncEngineCollections();
-  const { data = [], isLoading } = useLiveQuery(
-    (q) =>
-      q.from({
-        hubs: collections?.homeHubs ?? emptyHomeHubsCollection,
-      }),
-    [collections],
+  const { data, isLoading } = useCollectionRows<SanitizedHomeHubRow>(
+    collections?.homeHubs ?? emptyHomeHubsCollection,
   );
 
   return {
-    data: collections ? (data as unknown as SanitizedHomeHubRow[]) : [],
+    data: collections ? data : [],
     isLoading: !collections || isLoading,
     isReady: Boolean(collections),
   };
@@ -195,17 +181,12 @@ export function useSyncedServerLibraries(): {
   isReady: boolean;
 } {
   const collections = useSyncEngineCollections();
-  const { data = [], isLoading } = useLiveQuery(
-    (q) =>
-      q.from({
-        libraries:
-          collections?.serverLibraries ?? emptyServerLibrariesCollection,
-      }),
-    [collections],
+  const { data, isLoading } = useCollectionRows<SanitizedServerLibraryRow>(
+    collections?.serverLibraries ?? emptyServerLibrariesCollection,
   );
 
   return {
-    data: collections ? (data as unknown as SanitizedServerLibraryRow[]) : [],
+    data: collections ? data : [],
     isLoading: !collections || isLoading,
     isReady: Boolean(collections),
   };
@@ -217,16 +198,12 @@ export function useSyncedMediaItems(): {
   isReady: boolean;
 } {
   const collections = useSyncEngineCollections();
-  const { data = [], isLoading } = useLiveQuery(
-    (q) =>
-      q.from({
-        items: collections?.mediaItems ?? emptyMediaItemsCollection,
-      }),
-    [collections],
+  const { data, isLoading } = useCollectionRows<SanitizedMediaItemRow>(
+    collections?.mediaItems ?? emptyMediaItemsCollection,
   );
 
   return {
-    data: collections ? (data as unknown as SanitizedMediaItemRow[]) : [],
+    data: collections ? data : [],
     isLoading: !collections || isLoading,
     isReady: Boolean(collections),
   };
@@ -239,18 +216,11 @@ export function useSyncedWatchTogetherRooms(): {
   isReady: boolean;
 } {
   const collections = useSyncEngineCollections();
-  const { data = [], isLoading } = useLiveQuery(
-    (q) =>
-      q.from({
-        rooms:
-          collections?.watchTogetherRooms ?? emptyWatchTogetherRoomsCollection,
-      }),
-    [collections],
+  const { data, isLoading } = useCollectionRows<SanitizedWatchTogetherRoomRow>(
+    collections?.watchTogetherRooms ?? emptyWatchTogetherRoomsCollection,
   );
 
-  const rows = collections
-    ? (data as unknown as SanitizedWatchTogetherRoomRow[])
-    : [];
+  const rows = collections ? data : [];
 
   return {
     data: rows,
@@ -270,22 +240,11 @@ export function useSyncedWatchTogetherRoom(
 } {
   const enabled = options?.enabled ?? true;
   const collections = useSyncEngineCollections();
-  const { data, isLoading } = useLiveQuery(
-    (q) => {
-      if (!roomId) return undefined;
-      return q
-        .from({
-          rooms:
-            collections?.watchTogetherRooms ??
-            emptyWatchTogetherRoomsCollection,
-        })
-        .where(({ rooms }) => eq(rooms.id, roomId))
-        .findOne();
-    },
-    [collections, roomId],
-  );
-
-  const row = data as unknown as SanitizedWatchTogetherRoomRow | undefined;
+  const { data: row, isLoading } =
+    useCollectionRowById<SanitizedWatchTogetherRoomRow>(
+      collections?.watchTogetherRooms ?? emptyWatchTogetherRoomsCollection,
+      enabled ? roomId : null,
+    );
   const needsWarm = Boolean(enabled && collections && roomId && !row);
   const { isWarming, error } = useWarmOnce(
     needsWarm ? `room:${roomId}` : null,
@@ -315,18 +274,10 @@ export function useSyncedUserInfo(options?: { initialData?: PlexUserInfo }): {
   isReady: boolean;
 } {
   const collections = useSyncEngineCollections();
-  const { data, isLoading } = useLiveQuery(
-    (q) =>
-      q
-        .from({
-          user: collections?.userInfo ?? emptyUserInfoCollection,
-        })
-        .where(({ user }) => eq(user.id, USER_INFO_ROW_ID))
-        .findOne(),
-    [collections],
+  const { data: row, isLoading } = useCollectionRowById<SanitizedUserInfoRow>(
+    collections?.userInfo ?? emptyUserInfoCollection,
+    USER_INFO_ROW_ID,
   );
-
-  const row = data as unknown as SanitizedUserInfoRow | undefined;
 
   useEffect(() => {
     if (!collections || !options?.initialData) return;
@@ -358,22 +309,17 @@ export function useSyncedItemDetails(
   const enabled = (options?.enabled ?? true) && Boolean(serverId && ratingKey);
   const collections = useSyncEngineCollections();
   const id = mediaItemRowKey(serverId, ratingKey);
-  const { data, isLoading } = useLiveQuery(
-    (q) => {
-      if (!enabled) return undefined;
-      return q
-        .from({
-          items: collections?.mediaItems ?? emptyMediaItemsCollection,
-        })
-        .where(({ items }) => eq(items.id, id))
-        .findOne();
-    },
-    [collections, enabled, id],
+  const { data: row, isLoading } = useCollectionRowById<SanitizedMediaItemRow>(
+    collections?.mediaItems ?? emptyMediaItemsCollection,
+    enabled ? id : null,
   );
 
-  const row = data as unknown as SanitizedMediaItemRow | undefined;
   const hasFullDetails = Boolean(row?.hasFullDetails && row.item);
-  const needsWarm = Boolean(enabled && collections && !hasFullDetails);
+  const missingPlayCredentials = !getItemConnection(id)?.authToken;
+  // Re-warm when OPFS has details but the session overlay lost tokens (reload).
+  const needsWarm = Boolean(
+    enabled && collections && (!hasFullDetails || missingPlayCredentials),
+  );
   const { isWarming, error } = useWarmOnce(
     needsWarm ? `details:${id}` : null,
     async () => {
@@ -391,7 +337,9 @@ export function useSyncedItemDetails(
       hasFullDetails && row ? (toItemDetails(row) ?? undefined) : undefined,
     isPending: Boolean(
       enabled &&
-        (!collections || (!hasFullDetails && (isLoading || isWarming))),
+        (!collections ||
+          (!hasFullDetails && (isLoading || isWarming)) ||
+          (missingPlayCredentials && isWarming && !hasFullDetails)),
     ),
     isFetching: isWarming,
     isError: Boolean(error),
@@ -410,20 +358,10 @@ export function useSyncedItemMetadata(
   const enabled = (options?.enabled ?? true) && Boolean(serverId && ratingKey);
   const collections = useSyncEngineCollections();
   const id = mediaItemRowKey(serverId, ratingKey);
-  const { data } = useLiveQuery(
-    (q) => {
-      if (!enabled) return undefined;
-      return q
-        .from({
-          items: collections?.mediaItems ?? emptyMediaItemsCollection,
-        })
-        .where(({ items }) => eq(items.id, id))
-        .findOne();
-    },
-    [collections, enabled, id],
+  const { data: row } = useCollectionRowById<SanitizedMediaItemRow>(
+    collections?.mediaItems ?? emptyMediaItemsCollection,
+    enabled ? id : null,
   );
-
-  const row = data as unknown as SanitizedMediaItemRow | undefined;
   const needsWarm = Boolean(enabled && collections && !row?.item);
   useWarmOnce(
     needsWarm ? `metadata:${id}` : null,
@@ -466,23 +404,16 @@ export function useSyncedLibraryHubs(
 } {
   const collections = useSyncEngineCollections();
   const id = libraryHubsSnapshotKey(machineIdentifier, sectionId);
-  const { data, isLoading } = useLiveQuery(
-    (q) =>
-      q
-        .from({
-          snapshots: collections?.libraryHubs ?? emptyLibraryHubsCollection,
-        })
-        .where(({ snapshots }) => eq(snapshots.id, id))
-        .findOne(),
-    [collections, id],
-  );
+  const { data: snapshot, isLoading } =
+    useCollectionRowById<SanitizedLibraryHubsSnapshotRow>(
+      collections?.libraryHubs ?? emptyLibraryHubsCollection,
+      id,
+    );
 
-  const snapshot = data as unknown as
-    | SanitizedLibraryHubsSnapshotRow
-    | undefined;
-  const needsWarm = Boolean(collections && !snapshot);
+  // Always reconcile once per section so hub item credentials refill the
+  // session overlay after an OPFS-only reload.
   const { isWarming } = useWarmOnce(
-    needsWarm ? `library-hubs:${id}` : null,
+    collections ? `library-hubs:${id}` : null,
     async () => {
       if (!collections) return;
       await warmLibraryHubs(collections, getSyncEngineTrpcClient(), {
@@ -490,7 +421,7 @@ export function useSyncedLibraryHubs(
         sectionId,
       });
     },
-    needsWarm,
+    Boolean(collections),
   );
 
   return {
@@ -510,27 +441,20 @@ export function useSyncedWatchTogetherInvitees(options?: {
 } {
   const enabled = options?.enabled ?? true;
   const collections = useSyncEngineCollections();
-  const { data = [], isLoading } = useLiveQuery(
-    (q) =>
-      q.from({
-        invitees:
-          collections?.watchTogetherInvitees ??
-          emptyWatchTogetherInviteesCollection,
-      }),
-    [collections],
-  );
+  const { data, isLoading } =
+    useCollectionRows<SanitizedWatchTogetherInviteeRow>(
+      collections?.watchTogetherInvitees ??
+        emptyWatchTogetherInviteesCollection,
+    );
 
-  const rows = collections
-    ? (data as unknown as SanitizedWatchTogetherInviteeRow[])
-    : [];
-  const needsWarm = Boolean(enabled && collections && rows.length === 0);
+  const rows = collections ? data : [];
   const { isWarming, error } = useWarmOnce(
-    needsWarm ? "invitees" : null,
+    enabled && collections ? "invitees" : null,
     async () => {
       if (!collections) return;
       await warmWatchTogetherInvitees(collections, getSyncEngineTrpcClient());
     },
-    needsWarm,
+    Boolean(enabled && collections),
   );
 
   const pending = Boolean(
@@ -554,20 +478,10 @@ export function useSyncedSearchResults(query: string): {
   const collections = useSyncEngineCollections();
   const id = searchResultsRowKey(query);
   const enabled = query.trim().length > 0;
-  const { data } = useLiveQuery(
-    (q) => {
-      if (!enabled) return undefined;
-      return q
-        .from({
-          results: collections?.searchResults ?? emptySearchResultsCollection,
-        })
-        .where(({ results }) => eq(results.id, id))
-        .findOne();
-    },
-    [collections, enabled, id],
+  const { data: row } = useCollectionRowById<SanitizedSearchResultsRow>(
+    collections?.searchResults ?? emptySearchResultsCollection,
+    enabled ? id : null,
   );
-
-  const row = data as unknown as SanitizedSearchResultsRow | undefined;
   const needsWarm = Boolean(enabled && collections && !row);
   const { isWarming, error } = useWarmOnce(
     needsWarm ? `search:${id}` : null,
@@ -598,18 +512,10 @@ export function useSyncedPlaylist(
 } {
   const collections = useSyncEngineCollections();
   const id = playlistRowKey(serverId, playlistRatingKey);
-  const { data } = useLiveQuery(
-    (q) =>
-      q
-        .from({
-          playlists: collections?.playlists ?? emptyPlaylistsCollection,
-        })
-        .where(({ playlists }) => eq(playlists.id, id))
-        .findOne(),
-    [collections, id],
+  const { data: row } = useCollectionRowById<SanitizedPlaylistRow>(
+    collections?.playlists ?? emptyPlaylistsCollection,
+    id,
   );
-
-  const row = data as unknown as SanitizedPlaylistRow | undefined;
   const needsWarm = Boolean(collections && !row);
   const { isWarming, error } = useWarmOnce(
     needsWarm ? `playlist:${id}` : null,
@@ -661,19 +567,10 @@ export function useSyncedPlaylistContents(input: {
     input.start,
     input.size,
   );
-  const { data } = useLiveQuery(
-    (q) =>
-      q
-        .from({
-          contents:
-            collections?.playlistContents ?? emptyPlaylistContentsCollection,
-        })
-        .where(({ contents }) => eq(contents.id, id))
-        .findOne(),
-    [collections, id],
+  const { data: row } = useCollectionRowById<SanitizedPlaylistContentsRow>(
+    collections?.playlistContents ?? emptyPlaylistContentsCollection,
+    id,
   );
-
-  const row = data as unknown as SanitizedPlaylistContentsRow | undefined;
   const needsWarm = Boolean(collections && !row);
   const { isWarming, error } = useWarmOnce(
     needsWarm ? `playlist-contents:${id}` : null,
@@ -721,20 +618,10 @@ export function useSyncedItemPlaylists(
   const enabled = (options?.enabled ?? true) && resolvedType !== null;
   const collections = useSyncEngineCollections();
   const id = itemPlaylistsRowKey(serverId, resolvedType ?? "video");
-  const { data } = useLiveQuery(
-    (q) => {
-      if (!enabled) return undefined;
-      return q
-        .from({
-          playlists: collections?.itemPlaylists ?? emptyItemPlaylistsCollection,
-        })
-        .where(({ playlists }) => eq(playlists.id, id))
-        .findOne();
-    },
-    [collections, enabled, id],
+  const { data: row } = useCollectionRowById<SanitizedItemPlaylistsRow>(
+    collections?.itemPlaylists ?? emptyItemPlaylistsCollection,
+    enabled ? id : null,
   );
-
-  const row = data as unknown as SanitizedItemPlaylistsRow | undefined;
   const needsWarm = Boolean(enabled && collections && !row);
   const { isWarming, error } = useWarmOnce(
     needsWarm ? `item-playlists:${id}` : null,
@@ -776,22 +663,10 @@ export function useSyncedLibraryFilterValues(
   const enabled = options?.enabled ?? true;
   const collections = useSyncEngineCollections();
   const id = libraryFilterValuesRowKey(machineIdentifier, filterPath);
-  const { data } = useLiveQuery(
-    (q) => {
-      if (!enabled) return undefined;
-      return q
-        .from({
-          values:
-            collections?.libraryFilterValues ??
-            emptyLibraryFilterValuesCollection,
-        })
-        .where(({ values }) => eq(values.id, id))
-        .findOne();
-    },
-    [collections, enabled, id],
+  const { data: row } = useCollectionRowById<SanitizedLibraryFilterValuesRow>(
+    collections?.libraryFilterValues ?? emptyLibraryFilterValuesCollection,
+    enabled ? id : null,
   );
-
-  const row = data as unknown as SanitizedLibraryFilterValuesRow | undefined;
   const needsWarm = Boolean(enabled && collections && !row);
   const { isWarming } = useWarmOnce(
     needsWarm ? `filter-values:${id}` : null,
@@ -824,20 +699,10 @@ export function useSyncedPlayQueue(
     (options?.enabled ?? true) && Boolean(serverId && playQueueId);
   const collections = useSyncEngineCollections();
   const id = playQueueRowKey(serverId, playQueueId);
-  const { data } = useLiveQuery(
-    (q) => {
-      if (!enabled) return undefined;
-      return q
-        .from({
-          queues: collections?.playQueues ?? emptyPlayQueuesCollection,
-        })
-        .where(({ queues }) => eq(queues.id, id))
-        .findOne();
-    },
-    [collections, enabled, id],
+  const { data: row } = useCollectionRowById<SanitizedPlayQueueRow>(
+    collections?.playQueues ?? emptyPlayQueuesCollection,
+    enabled ? id : null,
   );
-
-  const row = data as unknown as SanitizedPlayQueueRow | undefined;
 
   useEffect(() => {
     if (!enabled || !collections) return;
