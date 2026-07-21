@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  rowContainsCredentialFields,
   sanitizeContinueWatchingItem,
   sanitizeHomeHub,
   sanitizeMediaItemDetails,
@@ -11,7 +10,7 @@ import {
 } from "./sanitize";
 
 describe("sync-engine sanitize", () => {
-  test("strips accessToken from servers while keeping connection hosts", () => {
+  test("persists accessToken on servers for direct PMS access", () => {
     const row = sanitizeServer({
       name: "Haus",
       product: "Plex Media Server",
@@ -44,14 +43,11 @@ describe("sync-engine sanitize", () => {
     });
 
     expect(row.id).toBe("haus-1");
+    expect(row.accessToken).toBe("SECRET_TOKEN");
     expect(row.connections).toHaveLength(1);
-    expect(
-      rowContainsCredentialFields(row as unknown as Record<string, unknown>),
-    ).toEqual([]);
-    expect(JSON.stringify(row)).not.toContain("SECRET_TOKEN");
   });
 
-  test("strips authToken from continue watching items", () => {
+  test("persists authToken and serverUrl on continue watching items", () => {
     const row = sanitizeContinueWatchingItem({
       serverId: "haus-1",
       serverName: "Haus",
@@ -69,14 +65,11 @@ describe("sync-engine sanitize", () => {
     expect(row.id).toBe("haus-1:100");
     expect(row.title).toBe("Episode");
     expect(row.progressPercent).toBe(42);
-    expect(JSON.stringify(row)).not.toContain("CW_SECRET");
-    expect(JSON.stringify(row)).not.toContain("https://pms.example");
-    expect(
-      rowContainsCredentialFields(row as unknown as Record<string, unknown>),
-    ).toEqual([]);
+    expect(row.authToken).toBe("CW_SECRET");
+    expect(row.serverUrl).toBe("https://pms.example");
   });
 
-  test("compacts hub items without server credentials", () => {
+  test("persists hub item credentials", () => {
     const row = sanitizeHomeHub({
       serverId: "haus-1",
       key: "/hubs/home/recentlyAdded",
@@ -91,7 +84,8 @@ describe("sync-engine sanitize", () => {
           type: "movie",
           thumb: "/thumb/1",
           year: 2020,
-          authToken: "NOPE",
+          authToken: "HUB_SECRET",
+          serverUrl: "https://pms.example",
         },
         { title: "Missing rating key should drop" },
       ],
@@ -101,8 +95,8 @@ describe("sync-engine sanitize", () => {
     expect(row.title).toBe("Recently Added");
     expect(row.items).toHaveLength(1);
     expect(row.items[0]?.ratingKey).toBe("1");
-    expect(row.items[0]?.title).toBe("Movie A");
-    expect(JSON.stringify(row)).not.toContain("NOPE");
+    expect(row.items[0]?.authToken).toBe("HUB_SECRET");
+    expect(row.items[0]?.serverUrl).toBe("https://pms.example");
   });
 
   test("keeps mediaProviders and extracts numeric library directories", () => {
@@ -150,7 +144,7 @@ describe("sync-engine sanitize", () => {
     ]);
   });
 
-  test("sanitizes item details payloads", () => {
+  test("persists credentials on item details payloads", () => {
     const row = sanitizeMediaItemDetails(
       {
         serverName: "Haus",
@@ -173,31 +167,15 @@ describe("sync-engine sanitize", () => {
     expect(row?.id).toBe("haus-1:55");
     expect(row?.title).toBe("Inception");
     expect(row?.hasFullDetails).toBe(true);
+    expect(row?.authToken).toBe("DETAILS_SECRET");
+    expect(row?.serverUrl).toBe("https://pms.example");
     expect(row?.item).toMatchObject({
       ratingKey: "55",
       title: "Inception",
     });
-    expect(JSON.stringify(row)).not.toContain("DETAILS_SECRET");
-    expect(JSON.stringify(row)).not.toContain("https://pms.example");
   });
 
-  test("deep-strips nested credentials from Media and playlist-like payloads", () => {
-    const cw = sanitizeContinueWatchingItem({
-      serverId: "haus-1",
-      ratingKey: "100",
-      title: "Episode",
-      Media: [
-        {
-          id: 1,
-          Part: [{ key: "/library/parts/1", authToken: "NESTED_SECRET" }],
-        },
-      ],
-    });
-    expect(JSON.stringify(cw.Media)).not.toContain("NESTED_SECRET");
-    expect(
-      rowContainsCredentialFields(cw as unknown as Record<string, unknown>),
-    ).toEqual([]);
-
+  test("deep clone keeps nested credentials for direct PMS access", () => {
     const playlistPayload = stripCredentialsDeep({
       ratingKey: "9",
       items: [
@@ -206,14 +184,13 @@ describe("sync-engine sanitize", () => {
           ratingKey: "1",
           authToken: "PLAYLIST_SECRET",
           serverUrl: "https://pms.example",
-          nested: { accessToken: "DEEP_SECRET" },
         },
       ],
-    });
-    expect(JSON.stringify(playlistPayload)).not.toContain("PLAYLIST_SECRET");
-    expect(JSON.stringify(playlistPayload)).not.toContain("DEEP_SECRET");
-    expect(JSON.stringify(playlistPayload)).not.toContain(
-      "https://pms.example",
-    );
+    }) as {
+      items: Array<{ authToken?: string; serverUrl?: string }>;
+    };
+
+    expect(playlistPayload.items[0]?.authToken).toBe("PLAYLIST_SECRET");
+    expect(playlistPayload.items[0]?.serverUrl).toBe("https://pms.example");
   });
 });

@@ -1,6 +1,7 @@
 /**
- * Strip Plex credentials from rows before they enter the durable local replica.
- * OPFS/SQLite persistence must never store access tokens.
+ * Normalize Plex payloads for the durable local replica (OPFS).
+ * PMS credentials are persisted so the client can talk to servers directly
+ * (same model as official Plex); the replica is wiped on logout.
  */
 
 import {
@@ -28,7 +29,8 @@ export type SanitizedServerRow = {
   httpsRequired: boolean | null;
   synced: boolean | null;
   relay: boolean | null;
-  /** Connection hosts only — never tokens. */
+  /** PMS access token — persisted for direct client access; wiped on logout. */
+  accessToken: string | null;
   connections: Array<{
     protocol: string | null;
     address: string | null;
@@ -40,13 +42,15 @@ export type SanitizedServerRow = {
 };
 
 /**
- * Continue Watching row rich enough for home UI + playback metadata.
- * Credentials live only in the session connection overlay.
+ * Continue Watching row rich enough for home UI + playback + direct PMS artwork.
+ * Cleared from OPFS on logout with the rest of the sync engine.
  */
 export type SanitizedContinueWatchingRow = {
   id: string;
   serverId: string;
   serverName: string | null;
+  serverUrl: string | null;
+  authToken: string | null;
   ratingKey: string;
   key: string | null;
   type: string;
@@ -75,7 +79,7 @@ export type SanitizedContinueWatchingRow = {
   librarySectionTitle: string | null;
   librarySectionID: number | null;
   librarySectionKey: string | null;
-  /** Stream metadata for toPlayableMetadata — no tokens. */
+  /** Stream metadata for toPlayableMetadata. */
   Media: unknown;
 };
 
@@ -97,6 +101,8 @@ export type SanitizedHomeHubItem = {
   subtype: string | null;
   playlistType: string | null;
   composite: string | null;
+  serverUrl: string | null;
+  authToken: string | null;
 };
 
 export type SanitizedHomeHubRow = {
@@ -139,13 +145,15 @@ export type SanitizedServerLibraryRow = {
 };
 
 /**
- * Full item-details payload for details pages + WT media, credential-free.
- * `serverUrl` / `authToken` are restored from the session connection overlay.
+ * Full item-details payload for details pages + WT media.
+ * Includes PMS connection credentials for direct artwork/playback (cleared on logout).
  */
 export type SanitizedMediaItemRow = {
   id: string;
   serverId: string;
   serverName: string | null;
+  serverUrl: string | null;
+  authToken: string | null;
   ratingKey: string;
   type: string | null;
   title: string | null;
@@ -280,33 +288,13 @@ function asUnixSeconds(value: unknown): number | null {
   return null;
 }
 
-const CREDENTIAL_KEYS = new Set([
-  "accessToken",
-  "authToken",
-  "plexAuthToken",
-  "token",
-  "X-Plex-Token",
-  "serverUrl",
-]);
-
-/** Drop known credential fields from a top-level object (shallow). */
-export function stripCredentialFields(value: unknown): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return value;
-  }
-  const record = value as LooseRecord;
-  const next: LooseRecord = {};
-  for (const [key, entry] of Object.entries(record)) {
-    if (CREDENTIAL_KEYS.has(key)) continue;
-    next[key] = entry;
-  }
-  return next;
-}
-
 /**
- * Recursively strip credential fields from nested Plex payloads before OPFS.
- * Also remembers session connection overlay entries when `serverId`+`ratingKey`
- * are present alongside tokens (search / hub item walks).
+ * Deep-clone JSON-like payloads for OPFS.
+ * Credentials are intentionally persisted (cleared on logout) so the client can
+ * talk to PMS directly like the official Plex app.
+ *
+ * Optionally remembers session connection overlay entries when
+ * `serverId`+`ratingKey` are present alongside tokens.
  */
 export function stripCredentialsDeep(
   value: unknown,
@@ -337,11 +325,13 @@ export function stripCredentialsDeep(
   }
   const next: LooseRecord = {};
   for (const [key, entry] of Object.entries(record)) {
-    if (CREDENTIAL_KEYS.has(key)) continue;
     next[key] = stripCredentialsDeep(entry, rememberConnection);
   }
   return next;
 }
+
+/** @deprecated Credentials are persisted; kept as a deep clone helper. */
+export const stripCredentialFields = stripCredentialsDeep;
 
 function sanitizeHubItem(item: LooseRecord): SanitizedHomeHubItem | null {
   const ratingKey = asString(item.ratingKey);
@@ -364,6 +354,8 @@ function sanitizeHubItem(item: LooseRecord): SanitizedHomeHubItem | null {
     subtype: asString(item.subtype),
     playlistType: asString(item.playlistType),
     composite: asString(item.composite),
+    serverUrl: asString(item.serverUrl),
+    authToken: asString(item.authToken),
   };
 }
 
@@ -392,6 +384,7 @@ export function sanitizeServer(device: LooseRecord): SanitizedServerRow {
     httpsRequired: asBoolean(device.httpsRequired),
     synced: asBoolean(device.synced),
     relay: asBoolean(device.relay),
+    accessToken: asString(device.accessToken),
     connections: connectionsRaw.flatMap((entry) => {
       if (!entry || typeof entry !== "object") return [];
       const connection = entry as LooseRecord;
@@ -418,6 +411,8 @@ export function sanitizeContinueWatchingItem(
     id: `${serverId}:${ratingKey}`,
     serverId,
     serverName: asString(item.serverName),
+    serverUrl: asString(item.serverUrl),
+    authToken: asString(item.authToken),
     ratingKey,
     key: asString(item.key),
     type: asString(item.type) ?? "movie",
@@ -445,7 +440,7 @@ export function sanitizeContinueWatchingItem(
     librarySectionTitle: asString(item.librarySectionTitle),
     librarySectionID: asNumber(item.librarySectionID),
     librarySectionKey: asString(item.librarySectionKey),
-    Media: Array.isArray(item.Media) ? stripCredentialsDeep(item.Media) : null,
+    Media: Array.isArray(item.Media) ? item.Media : null,
   };
 }
 
@@ -571,6 +566,8 @@ export function sanitizeMediaItemDetails(
     id: mediaItemRowKey(serverId, ratingKey),
     serverId,
     serverName: asString(details.serverName),
+    serverUrl: asString(details.serverUrl),
+    authToken: asString(details.authToken),
     ratingKey,
     type: asString(metadata.type),
     title: asString(metadata.title),
