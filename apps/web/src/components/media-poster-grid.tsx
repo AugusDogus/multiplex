@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import type { HubItemWithServer } from "@multiplex/plex-query";
 import { useAppScrollElement } from "~/components/app-scroll-container";
@@ -16,6 +16,7 @@ import {
   browsePageRowKey,
   getActiveSyncEngineCollections,
   toHubItemsWithServer,
+  useSyncEngineCollections,
   writeBrowsePage,
 } from "~/lib/sync-engine";
 
@@ -298,9 +299,11 @@ export function MediaPosterGrid({
     combine: (results) => results.map((result) => result.data),
   });
 
-  // Persist the RSC-provided first page into the durable replica.
-  useLayoutEffect(() => {
-    const collections = getActiveSyncEngineCollections();
+  const collections = useSyncEngineCollections();
+
+  // Persist the RSC-provided first page into the durable replica once collections
+  // finish booting (reactive — do not rely on a one-shot registry read at mount).
+  useEffect(() => {
     if (!collections || items.length === 0) return;
     writeBrowsePage(collections, {
       contentKey,
@@ -309,7 +312,7 @@ export function MediaPosterGrid({
       totalSize,
       items: items as unknown as Array<Record<string, unknown>>,
     });
-  }, [contentKey, items, pageSize, totalSize]);
+  }, [collections, contentKey, items, pageSize, totalSize]);
 
   const resolvedItems = (() => {
     const resolved: (HubItemWithServer | undefined)[] = Array.from(

@@ -55,11 +55,13 @@ export function useItemDetailsNavigation() {
     void warmMediaItem(collections, getSyncEngineTrpcClient(), {
       serverId: target.serverId,
       ratingKey: target.ratingKey,
-    }).then((row) => {
-      if (row?.item && typeof row.item === "object") {
-        preloadDetailsImages(target.serverId, row.item as ItemMetadata);
-      }
-    });
+    })
+      .then((row) => {
+        if (row?.item && typeof row.item === "object") {
+          preloadDetailsImages(target.serverId, row.item as ItemMetadata);
+        }
+      })
+      .catch(() => undefined);
   };
 
   const navigate = (target: ItemDetailsNavigationTarget) => {

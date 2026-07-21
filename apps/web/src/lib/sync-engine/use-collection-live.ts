@@ -19,6 +19,10 @@ type RowWithId = { id: string };
 type CollectionLike<T extends RowWithId> = {
   startSyncImmediate: () => void;
   subscribeChanges: (callback: () => void) => { unsubscribe: () => void };
+  on?: (
+    event: "status:change",
+    callback: (event: { type: "status:change"; status: string }) => void,
+  ) => () => void;
   values: () => IterableIterator<T>;
   status: string;
 };
@@ -58,23 +62,26 @@ export function useCollectionRows<T extends RowWithId>(
 
       typedCollection.startSyncImmediate();
       let unsubscribed = false;
-      const subscription = typedCollection.subscribeChanges(() => {
+
+      const notify = () => {
         if (unsubscribed) return;
         versionRef.current += 1;
         onStoreChange();
-      });
+      };
+
+      const subscription = typedCollection.subscribeChanges(notify);
+      // Status transitions (idle → loading → ready/error) may not write rows;
+      // subscribe so isLoading can clear even on empty collections.
+      const unsubscribeStatus = typedCollection.on?.("status:change", notify);
 
       if (typedCollection.status === "ready") {
-        queueMicrotask(() => {
-          if (unsubscribed) return;
-          versionRef.current += 1;
-          onStoreChange();
-        });
+        queueMicrotask(notify);
       }
 
       return () => {
         unsubscribed = true;
         subscription.unsubscribe();
+        unsubscribeStatus?.();
       };
     },
     [typedCollection],

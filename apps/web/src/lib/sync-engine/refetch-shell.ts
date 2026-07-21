@@ -10,18 +10,18 @@ export function refetchSyncedShellCollections(): Promise<void> {
   if (!collections) return Promise.resolve();
 
   return Promise.allSettled([
-    collections.continueWatching.utils.refetch?.(),
-    collections.homeHubs.utils.refetch?.(),
-    collections.serverLibraries.utils.refetch?.(),
-    collections.watchTogetherRooms.utils.refetch?.(),
-    collections.userInfo.utils.refetch?.(),
+    collections.continueWatching.utils.refetch(),
+    collections.homeHubs.utils.refetch(),
+    collections.serverLibraries.utils.refetch(),
+    collections.watchTogetherRooms.utils.refetch(),
+    collections.userInfo.utils.refetch(),
   ]).then(() => undefined);
 }
 
 export function refetchSyncedWatchTogetherRooms(): Promise<void> {
   const collections = getActiveSyncEngineCollections();
   if (!collections) return Promise.resolve();
-  return Promise.resolve(collections.watchTogetherRooms.utils.refetch?.()).then(
+  return Promise.resolve(collections.watchTogetherRooms.utils.refetch()).then(
     () => undefined,
   );
 }
@@ -29,7 +29,7 @@ export function refetchSyncedWatchTogetherRooms(): Promise<void> {
 export function refetchSyncedUserInfo(): Promise<void> {
   const collections = getActiveSyncEngineCollections();
   if (!collections) return Promise.resolve();
-  return Promise.resolve(collections.userInfo.utils.refetch?.()).then(
+  return Promise.resolve(collections.userInfo.utils.refetch()).then(
     () => undefined,
   );
 }

@@ -53,9 +53,9 @@ import {
 } from "./sanitize";
 
 type QueryCollectionUtilsLike = {
-  refetch?: () => Promise<unknown>;
-  writeUpsert?: (data: unknown) => void;
-  writeDelete?: (key: string | number) => void;
+  refetch: () => Promise<unknown>;
+  writeUpsert: (data: unknown) => void;
+  writeDelete: (key: string | number) => void;
 };
 
 type SyncedCollection<T extends object> = Collection<T, string> & {
@@ -80,7 +80,7 @@ export async function upsertRow<T extends { id: string }>(
   row: T,
 ): Promise<void> {
   await ensureWritable(collection);
-  collection.utils.writeUpsert?.(row);
+  collection.utils.writeUpsert(row);
 }
 
 function deleteRow<T extends { id: string }>(
@@ -89,11 +89,11 @@ function deleteRow<T extends { id: string }>(
 ): void {
   if (collection.status !== "ready") {
     void ensureWritable(collection).then(() => {
-      collection.utils.writeDelete?.(key);
+      collection.utils.writeDelete(key);
     });
     return;
   }
-  collection.utils.writeDelete?.(key);
+  collection.utils.writeDelete(key);
 }
 
 export type SyncEngineCollections = {
@@ -215,11 +215,11 @@ function createContinueWatchingCollection(
         await Promise.all(
           transaction.mutations.map(async (mutation) => {
             const row = mutation.modified;
-            if (row.isCompleted !== true) return;
+            if (typeof row.isCompleted !== "boolean") return;
             await trpc.plex.setItemWatchedState.mutate({
               serverId: row.serverId,
               ratingKey: row.ratingKey,
-              watched: true,
+              watched: row.isCompleted,
             });
           }),
         );
@@ -720,9 +720,10 @@ export async function warmPlayQueue(
 
 export function writeSyncedUserInfo(
   collections: SyncEngineCollections,
-  user: Record<string, unknown>,
+  // Accept PlexUserInfo (and similar) without forcing call sites through unknown.
+  user: object,
 ): SanitizedUserInfoRow {
-  const row = sanitizeUserInfo(user);
+  const row = sanitizeUserInfo(user as Record<string, unknown>);
   void upsertRow(collections.userInfo, row);
   return row;
 }

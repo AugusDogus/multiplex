@@ -310,13 +310,18 @@ export function stripCredentialFields(value: unknown): unknown {
  */
 export function stripCredentialsDeep(
   value: unknown,
-  rememberConnection?: (itemId: string, credentials: {
-    serverUrl: string | undefined;
-    authToken: string | undefined;
-  }) => void,
+  rememberConnection?: (
+    itemId: string,
+    credentials: {
+      serverUrl: string | undefined;
+      authToken: string | undefined;
+    },
+  ) => void,
 ): unknown {
   if (Array.isArray(value)) {
-    return value.map((entry) => stripCredentialsDeep(entry, rememberConnection));
+    return value.map((entry) =>
+      stripCredentialsDeep(entry, rememberConnection),
+    );
   }
   if (!value || typeof value !== "object") {
     return value;
@@ -440,9 +445,7 @@ export function sanitizeContinueWatchingItem(
     librarySectionTitle: asString(item.librarySectionTitle),
     librarySectionID: asNumber(item.librarySectionID),
     librarySectionKey: asString(item.librarySectionKey),
-    Media: Array.isArray(item.Media)
-      ? stripCredentialsDeep(item.Media)
-      : null,
+    Media: Array.isArray(item.Media) ? stripCredentialsDeep(item.Media) : null,
   };
 }
 

@@ -6,17 +6,23 @@ type Listener = () => void;
 
 const listeners = new Set<Listener>();
 
-function subscribe(listener: Listener): () => void {
-  listeners.add(listener);
-  if (typeof window !== "undefined") {
-    window.addEventListener("online", listener);
-    window.addEventListener("offline", listener);
+function handleConnectionChange(): void {
+  for (const listener of listeners) {
+    listener();
   }
+}
+
+function subscribe(listener: Listener): () => void {
+  if (listeners.size === 0 && typeof window !== "undefined") {
+    window.addEventListener("online", handleConnectionChange);
+    window.addEventListener("offline", handleConnectionChange);
+  }
+  listeners.add(listener);
   return () => {
     listeners.delete(listener);
-    if (typeof window !== "undefined") {
-      window.removeEventListener("online", listener);
-      window.removeEventListener("offline", listener);
+    if (listeners.size === 0 && typeof window !== "undefined") {
+      window.removeEventListener("online", handleConnectionChange);
+      window.removeEventListener("offline", handleConnectionChange);
     }
   };
 }

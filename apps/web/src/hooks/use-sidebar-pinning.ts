@@ -53,27 +53,18 @@ export function useSidebarPinning(userInfo: PlexUserInfo) {
         variables.action,
       );
       if (collections) {
-        writeSyncedUserInfo(
-          collections,
-          next as unknown as Record<string, unknown>,
-        );
+        writeSyncedUserInfo(collections, next);
       }
       return { previousUserInfo };
     },
     onError: (_error, _variables, context) => {
       if (collections && context?.previousUserInfo) {
-        writeSyncedUserInfo(
-          collections,
-          context.previousUserInfo as unknown as Record<string, unknown>,
-        );
+        writeSyncedUserInfo(collections, context.previousUserInfo);
       }
     },
     onSuccess: async (updatedUserInfo) => {
       if (collections) {
-        writeSyncedUserInfo(
-          collections,
-          updatedUserInfo as unknown as Record<string, unknown>,
-        );
+        writeSyncedUserInfo(collections, updatedUserInfo);
       }
       await refetchSyncedShellCollections();
     },
