@@ -1,6 +1,7 @@
 /**
- * Session-only Plex connection credentials.
- * Populated when sync queryFns fetch from the network; never written to OPFS.
+ * Session-warm Plex connection credentials.
+ * Durable copies also live on sync-engine rows (wiped on logout). This map
+ * avoids a servers-collection lookup on hot paths during the current session.
  */
 
 export type PlexConnectionCredentials = {

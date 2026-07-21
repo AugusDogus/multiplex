@@ -9,8 +9,13 @@ import { queryCollectionOptions } from "@tanstack/query-db-collection";
 import type { QueryClient } from "@tanstack/query-core";
 import type { TRPCClient } from "@trpc/client";
 
+import { getServerUrl } from "@multiplex/plex-query";
+
 import type { AppRouter } from "~/server/api/root";
-import { rememberItemConnection } from "./connection-overlay";
+import {
+  rememberItemConnection,
+  rememberServerConnection,
+} from "./connection-overlay";
 import {
   browsePageRowKey,
   itemPlaylistsRowKey,
@@ -172,9 +177,13 @@ function createServersCollection(
       queryKey: ["sync-engine", "plex", "getServers"],
       queryFn: async (): Promise<SanitizedServerRow[]> => {
         const servers = await trpc.plex.getServers.query();
-        return servers.map((server) =>
-          sanitizeServer(server as unknown as Record<string, unknown>),
-        );
+        return servers.map((server) => {
+          rememberServerConnection(server.clientIdentifier, {
+            serverUrl: getServerUrl(server),
+            authToken: server.accessToken ?? undefined,
+          });
+          return sanitizeServer(server as unknown as Record<string, unknown>);
+        });
       },
       getKey: (row) => row.id,
       syncMode: "eager",
@@ -503,6 +512,8 @@ export async function writeItemMetadata(
     {
       item: metadata,
       serverName: existing?.serverName ?? null,
+      serverUrl: existing?.serverUrl ?? null,
+      authToken: existing?.authToken ?? null,
       children: existing?.children ?? [],
       playableChildren: existing?.playableChildren ?? [],
       playTarget: existing?.playTarget ?? null,
