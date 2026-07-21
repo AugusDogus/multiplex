@@ -96,9 +96,11 @@ function resolvePosterCardContent(
     ...detailsRoute,
     title: getHubItemTitle(item),
     subtitle: getHubItemSubtitle(item),
-    thumbnailUrl: getPlexImagePath(item.serverId, getPosterImagePath(item), {
+    thumbnailUrl: getPlexImagePath(getPosterImagePath(item), {
       width: 200,
       height: 300,
+      serverUrl: item.serverUrl,
+      authToken: item.authToken,
     }),
   };
 }

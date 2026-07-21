@@ -139,14 +139,12 @@ function ContinueWatchingItem({
   const progressPercent = item.progressPercent ?? 0;
   const isItemCompleted = isCompleted(item);
 
-  const thumbnailUrl = getPlexImagePath(
-    item.serverId,
-    getPosterImagePath(item),
-    {
-      width: 200,
-      height: 300,
-    },
-  );
+  const thumbnailUrl = getPlexImagePath(getPosterImagePath(item), {
+    width: 200,
+    height: 300,
+    serverUrl: item.serverUrl,
+    authToken: item.authToken,
+  });
 
   const canPlay = Boolean(
     toPlayableMetadata(item) && item.serverUrl && item.authToken,

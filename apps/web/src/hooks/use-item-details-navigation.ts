@@ -26,15 +26,22 @@ function getHref(target: ItemDetailsNavigationTarget) {
   return getItemDetailsHref(target.serverId, target.type, target.ratingKey);
 }
 
-function preloadDetailsImages(serverId: string, item: ItemMetadata) {
+function preloadDetailsImages(
+  item: ItemMetadata,
+  credentials: { serverUrl?: string; authToken?: string },
+) {
   const urls = [
-    getPlexImagePath(serverId, getBackdropImagePath(item), {
+    getPlexImagePath(getBackdropImagePath(item), {
       width: 1280,
       height: 720,
+      serverUrl: credentials.serverUrl,
+      authToken: credentials.authToken,
     }),
-    getPlexImagePath(serverId, getPosterImagePath(item), {
+    getPlexImagePath(getPosterImagePath(item), {
       width: 440,
       height: 660,
+      serverUrl: credentials.serverUrl,
+      authToken: credentials.authToken,
     }),
   ];
   for (const src of urls) {
@@ -58,7 +65,10 @@ export function useItemDetailsNavigation() {
     })
       .then((row) => {
         if (row?.item && typeof row.item === "object") {
-          preloadDetailsImages(target.serverId, row.item as ItemMetadata);
+          preloadDetailsImages(row.item as ItemMetadata, {
+            serverUrl: row.serverUrl ?? undefined,
+            authToken: row.authToken ?? undefined,
+          });
         }
       })
       .catch(() => undefined);

@@ -24,9 +24,11 @@ function getCategoryParams(categoryKey: string): Record<string, string> {
 }
 
 function getCategoryImageUrl(category: CategoryWithServer): string | undefined {
-  return getPlexImagePath(category.serverId, category.thumb, {
+  return getPlexImagePath(category.thumb, {
     width: 640,
     height: 360,
+    serverUrl: category.serverUrl,
+    authToken: category.authToken,
   });
 }
 

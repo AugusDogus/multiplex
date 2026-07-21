@@ -19,7 +19,12 @@ interface SeasonGridProps extends MediaServerContext {
   seasons: EnrichedChildMetadata[];
 }
 
-export function SeasonGrid({ seasons, serverId }: SeasonGridProps) {
+export function SeasonGrid({
+  seasons,
+  serverId,
+  serverUrl,
+  authToken,
+}: SeasonGridProps) {
   return (
     <section className="flex flex-col gap-4">
       <h2 className="text-2xl font-semibold tracking-tight">Seasons</h2>
@@ -29,6 +34,8 @@ export function SeasonGrid({ seasons, serverId }: SeasonGridProps) {
             key={season.ratingKey}
             season={season}
             serverId={serverId}
+            serverUrl={serverUrl}
+            authToken={authToken}
           />
         ))}
       </div>
@@ -40,15 +47,18 @@ interface SeasonCardProps extends MediaServerContext {
   season: EnrichedChildMetadata;
 }
 
-function SeasonCard({ season, serverId }: SeasonCardProps) {
-  const posterUrl = getPlexImagePath(
-    serverId,
-    getSeasonPosterImagePath(season),
-    {
-      width: 300,
-      height: 450,
-    },
-  );
+function SeasonCard({
+  season,
+  serverId,
+  serverUrl,
+  authToken,
+}: SeasonCardProps) {
+  const posterUrl = getPlexImagePath(getSeasonPosterImagePath(season), {
+    width: 300,
+    height: 450,
+    serverUrl,
+    authToken,
+  });
   const watchedPercent = getWatchedPercent(season);
 
   return (
