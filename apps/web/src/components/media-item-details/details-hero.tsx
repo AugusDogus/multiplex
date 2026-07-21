@@ -350,7 +350,9 @@ function HeroActions({
       void Promise.all([
         refetchSyncedMediaItem(serverId, variables.ratingKey),
         refetchSyncedShellCollections(),
-      ]).catch(() => undefined);
+      ]).catch((error: unknown) => {
+        console.error("Failed to resync after watched-state change:", error);
+      });
     },
   });
 
