@@ -20,9 +20,11 @@ function preloadPosterImages(hubs: HubWithServer[]) {
   for (const hub of hubs) {
     for (const item of hub.items) {
       // Match MediaPosterCard dimensions so the browser HTTP cache hits on paint.
-      const src = getPlexImagePath(item.serverId, getPosterImagePath(item), {
+      const src = getPlexImagePath(getPosterImagePath(item), {
         width: 200,
         height: 300,
+        serverUrl: item.serverUrl,
+        authToken: item.authToken,
       });
       if (src) urls.push(src);
       if (urls.length >= PREFETCH_POSTER_COUNT) break;

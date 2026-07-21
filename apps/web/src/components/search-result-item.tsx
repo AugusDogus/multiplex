@@ -48,12 +48,16 @@ export function SearchResultItem({ result }: SearchResultItemProps) {
   };
 
   const thumbnailUrl = getPlexImagePath(
-    result.serverId,
     getPosterImagePath({
       type: result.type,
       thumb: result.thumb,
     }),
-    { width: 200, height: 300 },
+    {
+      width: 200,
+      height: 300,
+      serverUrl: result.serverUrl,
+      authToken: result.authToken,
+    },
   );
 
   return (

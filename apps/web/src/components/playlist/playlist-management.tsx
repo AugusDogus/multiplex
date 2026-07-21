@@ -27,6 +27,7 @@ import { Input } from "~/components/ui/input";
 import { getPlexImagePath } from "~/lib/plex-image";
 import { getItemDetailsHref, getLibraryPivotHref } from "~/lib/plex-routes";
 import {
+  resolveServerCredentials,
   useSyncedPlaylist,
   useSyncedPlaylistContents,
 } from "~/lib/sync-engine";
@@ -122,6 +123,7 @@ export function PlaylistManagement({
   const playlist = playlistQuery.data;
   const contents = contentsQuery.data;
   const items = contents?.items ?? [];
+  const serverConnection = resolveServerCredentials(serverId);
   const totalSize = contents?.totalSize ?? playlist.leafCount;
   const editable = !playlist.readOnly;
   const normalizedRenameTitle = renameTitle.trim();
@@ -244,9 +246,11 @@ export function PlaylistManagement({
           </p>
         ) : (
           items.map((item, index) => {
-            const thumbnailUrl = getPlexImagePath(serverId, item.thumb, {
+            const thumbnailUrl = getPlexImagePath(item.thumb, {
               width: 96,
               height: 144,
+              serverUrl: serverConnection?.serverUrl,
+              authToken: serverConnection?.authToken,
             });
             const canReorder = editable && item.playlistItemID !== undefined;
 

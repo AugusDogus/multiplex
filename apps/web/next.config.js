@@ -35,9 +35,8 @@ const config = {
     "127.0.0.1",
     "localhost",
   ],
-  // Authenticated image routes need the browser's session cookie. Plex already
-  // transcodes artwork to the requested dimensions, so do not proxy it through
-  // Next's optimizer (which intentionally does not forward request headers).
+  // Artwork loads directly from PMS (`/photo/:/transcode` with X-Plex-Token).
+  // Keep Next's optimizer off so cross-origin plex.direct URLs are not rewritten.
   images: { unoptimized: true },
 };
 

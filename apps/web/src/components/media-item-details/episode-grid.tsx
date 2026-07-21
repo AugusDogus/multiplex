@@ -30,6 +30,8 @@ export function EpisodeGrid({
   episodes,
   playableByRatingKey,
   serverId,
+  serverUrl,
+  authToken,
   onPlay,
 }: EpisodeGridProps) {
   return (
@@ -45,6 +47,8 @@ export function EpisodeGrid({
             episode={episode}
             playable={playableByRatingKey.get(episode.ratingKey)}
             serverId={serverId}
+            serverUrl={serverUrl}
+            authToken={authToken}
             onPlay={onPlay}
           />
         ))}
@@ -57,6 +61,8 @@ export function EpisodeGrid({
             episode={episode}
             playable={playableByRatingKey.get(episode.ratingKey)}
             serverId={serverId}
+            serverUrl={serverUrl}
+            authToken={authToken}
             onPlay={onPlay}
           />
         ))}
@@ -75,11 +81,15 @@ function MobileEpisodeRow({
   episode,
   playable,
   serverId,
+  serverUrl,
+  authToken,
   onPlay,
 }: EpisodeCardProps) {
-  const thumbnailUrl = getPlexImagePath(serverId, episode.thumb, {
+  const thumbnailUrl = getPlexImagePath(episode.thumb, {
     width: 320,
     height: 180,
+    serverUrl,
+    authToken,
   });
   const progressPercent = getProgressPercent(episode);
   const detailsHref = getItemDetailsHref(
@@ -157,11 +167,15 @@ function EpisodeCard({
   episode,
   playable,
   serverId,
+  serverUrl,
+  authToken,
   onPlay,
 }: EpisodeCardProps) {
-  const thumbnailUrl = getPlexImagePath(serverId, episode.thumb, {
+  const thumbnailUrl = getPlexImagePath(episode.thumb, {
     width: 480,
     height: 270,
+    serverUrl,
+    authToken,
   });
   const progressPercent = getProgressPercent(episode);
   const detailsHref = getItemDetailsHref(

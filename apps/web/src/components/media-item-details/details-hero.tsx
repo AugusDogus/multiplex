@@ -76,13 +76,17 @@ export function DetailsHero({
 }: DetailsHeroProps) {
   const imageServerUrl = serverUrl ?? undefined;
   const imageAuthToken = authToken ?? undefined;
-  const posterUrl = getPlexImagePath(serverId, getPosterImagePath(item), {
+  const posterUrl = getPlexImagePath(getPosterImagePath(item), {
     width: 440,
     height: 660,
+    serverUrl: imageServerUrl,
+    authToken: imageAuthToken,
   });
-  const backdropUrl = getPlexImagePath(serverId, getBackdropImagePath(item), {
+  const backdropUrl = getPlexImagePath(getBackdropImagePath(item), {
     width: 1280,
     height: 720,
+    serverUrl: imageServerUrl,
+    authToken: imageAuthToken,
   });
   const timeRemaining = formatDetailsTimeRemaining(item);
   const secondaryTitle = getDetailsSecondaryTitle(item);

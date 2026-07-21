@@ -47,15 +47,19 @@ export function useWatchTogetherRoomMedia(
   const details = detailsQuery.details;
   const item = details?.item;
   const posterUrl = item
-    ? getPlexImagePath(source?.serverId, getPosterImagePath(item), {
+    ? getPlexImagePath(getPosterImagePath(item), {
         width: 320,
         height: 480,
+        serverUrl: details?.serverUrl,
+        authToken: details?.authToken,
       })
     : undefined;
   const backdropUrl = item
-    ? getPlexImagePath(source?.serverId, getBackdropImagePath(item), {
+    ? getPlexImagePath(getBackdropImagePath(item), {
         width: 1280,
         height: 720,
+        serverUrl: details?.serverUrl,
+        authToken: details?.authToken,
       })
     : undefined;
 
