@@ -8,6 +8,7 @@ import {
   getActiveSyncEngineCollections,
   sanitizeMediaItemDetails,
   sanitizeWatchTogetherRoom,
+  upsertRow,
 } from "~/lib/sync-engine";
 import { createTrpcClientLinks } from "~/trpc/client-links";
 import type { RouterInputs, RouterOutputs } from "~/trpc/api";
@@ -84,7 +85,8 @@ export const makeWatchTogetherApi = (
     const collections = getActiveSyncEngineCollections();
     if (collections) {
       for (const room of rooms) {
-        collections.watchTogetherRooms.utils.writeUpsert?.(
+        await upsertRow(
+          collections.watchTogetherRooms,
           sanitizeWatchTogetherRoom(room as unknown as Record<string, unknown>),
         );
       }
@@ -109,7 +111,7 @@ export const makeWatchTogetherApi = (
           { hasFullDetails: false },
         );
         if (row) {
-          collections.mediaItems.utils.writeUpsert?.(row);
+          await upsertRow(collections.mediaItems, row);
         }
       }
       return result;

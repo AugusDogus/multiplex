@@ -62,6 +62,40 @@ type SyncedCollection<T extends object> = Collection<T, string> & {
   utils: QueryCollectionUtilsLike;
 };
 
+/**
+ * Query-collection write helpers throw SyncNotInitializedError until sync has
+ * started. Preload (even for enabled:false on-demand collections) initializes
+ * the write context.
+ */
+async function ensureWritable(collection: {
+  status: string;
+  preload: () => Promise<unknown>;
+}): Promise<void> {
+  if (collection.status === "ready") return;
+  await collection.preload();
+}
+
+export async function upsertRow<T extends { id: string }>(
+  collection: SyncedCollection<T>,
+  row: T,
+): Promise<void> {
+  await ensureWritable(collection);
+  collection.utils.writeUpsert?.(row);
+}
+
+function deleteRow<T extends { id: string }>(
+  collection: SyncedCollection<T>,
+  key: string,
+): void {
+  if (collection.status !== "ready") {
+    void ensureWritable(collection).then(() => {
+      collection.utils.writeDelete?.(key);
+    });
+    return;
+  }
+  collection.utils.writeDelete?.(key);
+}
+
 export type SyncEngineCollections = {
   servers: SyncedCollection<SanitizedServerRow>;
   continueWatching: SyncedCollection<SanitizedContinueWatchingRow>;
@@ -446,7 +480,7 @@ export async function warmMediaItem(
     { hasFullDetails: true },
   );
   if (!row) return null;
-  collections.mediaItems.utils.writeUpsert?.(row);
+  await upsertRow(collections.mediaItems, row);
   return row;
 }
 
@@ -472,7 +506,7 @@ export async function warmItemMetadata(
     { hasFullDetails: existing?.hasFullDetails ?? false },
   );
   if (!row) return null;
-  collections.mediaItems.utils.writeUpsert?.(row);
+  await upsertRow(collections.mediaItems, row);
   return row;
 }
 
@@ -485,7 +519,7 @@ export async function warmWatchTogetherInvitees(
     sanitizeWatchTogetherInvitee(invitee as unknown as Record<string, unknown>),
   );
   for (const row of rows) {
-    collections.watchTogetherInvitees.utils.writeUpsert?.(row);
+    await upsertRow(collections.watchTogetherInvitees, row);
   }
   return rows;
 }
@@ -500,7 +534,7 @@ export async function warmWatchTogetherRoom(
   const row = sanitizeWatchTogetherRoom(
     room as unknown as Record<string, unknown>,
   );
-  collections.watchTogetherRooms.utils.writeUpsert?.(row);
+  await upsertRow(collections.watchTogetherRooms, row);
   return row;
 }
 
@@ -516,7 +550,7 @@ export async function warmLibraryHubs(
     input.sectionId,
     hubs as unknown as Record<string, unknown>[],
   );
-  collections.libraryHubs.utils.writeUpsert?.(row);
+  await upsertRow(collections.libraryHubs, row);
   return row;
 }
 
@@ -553,7 +587,7 @@ export function writeBrowsePage(
     totalSize: input.totalSize,
     items: sanitizeBrowsePageItems(input.items),
   };
-  collections.browsePages.utils.writeUpsert?.(row);
+  void upsertRow(collections.browsePages, row);
   return row;
 }
 
@@ -606,7 +640,7 @@ export async function warmSearchResults(
     query: trimmed,
     payload: stripCredentialsDeep(results),
   };
-  collections.searchResults.utils.writeUpsert?.(row);
+  await upsertRow(collections.searchResults, row);
   return row;
 }
 
@@ -622,7 +656,7 @@ export async function warmPlaylist(
     playlistRatingKey: input.playlistRatingKey,
     payload: stripCredentialFields(playlist),
   };
-  collections.playlists.utils.writeUpsert?.(row);
+  await upsertRow(collections.playlists, row);
   return row;
 }
 
@@ -650,7 +684,7 @@ export async function warmPlaylistContents(
     size: input.size,
     payload: stripCredentialFields(contents),
   };
-  collections.playlistContents.utils.writeUpsert?.(row);
+  await upsertRow(collections.playlistContents, row);
   return row;
 }
 
@@ -666,7 +700,7 @@ export async function warmItemPlaylists(
     playlistType: input.playlistType,
     payload: stripCredentialFields(playlists),
   };
-  collections.itemPlaylists.utils.writeUpsert?.(row);
+  await upsertRow(collections.itemPlaylists, row);
   return row;
 }
 
@@ -682,7 +716,7 @@ export async function warmLibraryFilterValues(
     filterPath: input.filterPath,
     values: Array.isArray(values) ? values : [],
   };
-  collections.libraryFilterValues.utils.writeUpsert?.(row);
+  await upsertRow(collections.libraryFilterValues, row);
   return row;
 }
 
@@ -702,7 +736,7 @@ export async function warmPlayQueue(
     playQueueId: input.playQueueId,
     payload: stripCredentialFields(queue),
   };
-  collections.playQueues.utils.writeUpsert?.(row);
+  await upsertRow(collections.playQueues, row);
   return row;
 }
 
@@ -711,7 +745,7 @@ export function writeSyncedUserInfo(
   user: Record<string, unknown>,
 ): SanitizedUserInfoRow {
   const row = sanitizeUserInfo(user);
-  collections.userInfo.utils.writeUpsert?.(row);
+  void upsertRow(collections.userInfo, row);
   return row;
 }
 
@@ -719,5 +753,5 @@ export function removeSyncedWatchTogetherRoom(
   collections: SyncEngineCollections,
   roomId: string,
 ): void {
-  collections.watchTogetherRooms.utils.writeDelete?.(roomId);
+  deleteRow(collections.watchTogetherRooms, roomId);
 }

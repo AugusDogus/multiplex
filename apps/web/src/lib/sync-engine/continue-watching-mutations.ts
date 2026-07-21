@@ -5,6 +5,7 @@ import {
   updateContinueWatchingProgress,
 } from "~/lib/continue-watching-progress";
 
+import { upsertRow } from "./collections";
 import { getActiveSyncEngineCollections } from "./registry";
 import type { SanitizedContinueWatchingRow } from "./sanitize";
 
@@ -43,7 +44,7 @@ export function patchSyncedContinueWatchingProgress(
     ) ?? [];
   if (!updated) return;
 
-  collections.continueWatching.utils.writeUpsert?.({
+  void upsertRow(collections.continueWatching, {
     ...current,
     duration: updated.duration ?? null,
     viewOffset: updated.viewOffset ?? null,
@@ -70,7 +71,7 @@ export function resetSyncedContinueWatchingProgress(identity: {
     resetContinueWatchingProgress([toProgressItem(current)], identity) ?? [];
   if (!updated) return;
 
-  collections.continueWatching.utils.writeUpsert?.({
+  void upsertRow(collections.continueWatching, {
     ...current,
     duration: updated.duration ?? null,
     viewOffset: updated.viewOffset ?? null,

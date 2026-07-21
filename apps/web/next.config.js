@@ -29,7 +29,12 @@ const config = {
     // Start dynamic/runtime prefetch work on link hover, not only viewport.
     dynamicOnHover: true,
   },
-  allowedDevOrigins: ["local.augie.haus", "multiplex.localhost"],
+  allowedDevOrigins: [
+    "local.augie.haus",
+    "multiplex.localhost",
+    "127.0.0.1",
+    "localhost",
+  ],
   // Authenticated image routes need the browser's session cookie. Plex already
   // transcodes artwork to the requested dimensions, so do not proxy it through
   // Next's optimizer (which intentionally does not forward request headers).

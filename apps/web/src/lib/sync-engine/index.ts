@@ -1,6 +1,7 @@
 export {
   createSyncEngineCollections,
   removeSyncedWatchTogetherRoom,
+  upsertRow,
   warmItemMetadata,
   warmItemPlaylists,
   warmLibraryFilterValues,

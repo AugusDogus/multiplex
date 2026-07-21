@@ -74,12 +74,26 @@ export function SyncEngineProvider({ children }: { children: ReactNode }) {
         setActiveSyncEngineCollections(collections);
 
         // Eager shell sync so revisits / soft-nav hit warm local rows.
-        void collections.servers.preload();
-        void collections.serverLibraries.preload();
-        void collections.continueWatching.preload();
-        void collections.homeHubs.preload();
-        void collections.watchTogetherRooms.preload();
-        void collections.userInfo.preload();
+        // Also preload on-demand collections so writeUpsert has a sync context
+        // (otherwise Query Collections throw SyncNotInitializedError).
+        void Promise.allSettled([
+          collections.servers.preload(),
+          collections.serverLibraries.preload(),
+          collections.continueWatching.preload(),
+          collections.homeHubs.preload(),
+          collections.watchTogetherRooms.preload(),
+          collections.userInfo.preload(),
+          collections.mediaItems.preload(),
+          collections.libraryHubs.preload(),
+          collections.browsePages.preload(),
+          collections.watchTogetherInvitees.preload(),
+          collections.searchResults.preload(),
+          collections.playlists.preload(),
+          collections.playlistContents.preload(),
+          collections.itemPlaylists.preload(),
+          collections.libraryFilterValues.preload(),
+          collections.playQueues.preload(),
+        ]);
 
         if (cancelled) {
           setActiveSyncEngineCollections(null);
