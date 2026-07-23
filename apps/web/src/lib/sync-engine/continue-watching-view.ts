@@ -36,7 +36,9 @@ export function toContinueWatchingItemWithServer(
     isCompleted: row.isCompleted ?? undefined,
     timeRemaining: row.timeRemaining ?? undefined,
     lastViewedAt:
-      row.lastViewedAt != null ? new Date(row.lastViewedAt * 1000) : undefined,
+      typeof row.lastViewedAt === "number"
+        ? new Date(row.lastViewedAt * 1000)
+        : undefined,
     hubTitle: row.hubTitle ?? "",
     hubType: row.hubType ?? "",
     librarySectionTitle: row.librarySectionTitle ?? "",

@@ -15,7 +15,6 @@ function emptyCollection(id: string) {
   );
 }
 
-export const emptyServersCollection = emptyCollection("servers");
 export const emptyContinueWatchingCollection =
   emptyCollection("continue-watching");
 export const emptyHomeHubsCollection = emptyCollection("home-hubs");
@@ -30,7 +29,6 @@ export const emptyWatchTogetherInviteesCollection = emptyCollection(
   "watch-together-invitees",
 );
 export const emptyLibraryHubsCollection = emptyCollection("library-hubs");
-export const emptyBrowsePagesCollection = emptyCollection("browse-pages");
 export const emptySearchResultsCollection = emptyCollection("search-results");
 export const emptyPlaylistsCollection = emptyCollection("playlists");
 export const emptyPlaylistContentsCollection =

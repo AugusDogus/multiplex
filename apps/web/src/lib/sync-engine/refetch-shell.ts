@@ -26,14 +26,6 @@ export function refetchSyncedWatchTogetherRooms(): Promise<void> {
   );
 }
 
-export function refetchSyncedUserInfo(): Promise<void> {
-  const collections = getActiveSyncEngineCollections();
-  if (!collections) return Promise.resolve();
-  return Promise.resolve(collections.userInfo.utils.refetch()).then(
-    () => undefined,
-  );
-}
-
 export function refetchSyncedMediaItem(
   serverId: string,
   ratingKey: string,

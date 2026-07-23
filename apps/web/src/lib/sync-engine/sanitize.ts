@@ -330,9 +330,6 @@ export function stripCredentialsDeep(
   return next;
 }
 
-/** @deprecated Credentials are persisted; kept as a deep clone helper. */
-export const stripCredentialFields = stripCredentialsDeep;
-
 function sanitizeHubItem(item: LooseRecord): SanitizedHomeHubItem | null {
   const ratingKey = asString(item.ratingKey);
   if (!ratingKey) return null;
@@ -664,32 +661,4 @@ export function sanitizeBrowsePageItems(
     const serverId = asString(entry.serverId) ?? "unknown";
     return [{ ...item, serverId }];
   });
-}
-
-/** Defensive check used by tests and boot assertions (deep scan). */
-export function rowContainsCredentialFields(row: LooseRecord): string[] {
-  const forbidden = [
-    "accessToken",
-    "authToken",
-    "plexAuthToken",
-    "token",
-    "X-Plex-Token",
-  ];
-  const found = new Set<string>();
-
-  const walk = (value: unknown): void => {
-    if (Array.isArray(value)) {
-      for (const entry of value) walk(entry);
-      return;
-    }
-    if (!value || typeof value !== "object") return;
-    const record = value as LooseRecord;
-    for (const key of forbidden) {
-      if (key in record && record[key] != null) found.add(key);
-    }
-    for (const entry of Object.values(record)) walk(entry);
-  };
-
-  walk(row);
-  return [...found];
 }
