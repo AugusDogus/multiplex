@@ -493,6 +493,13 @@ function useMediaPlayerVideoController(
     } else if (ref) {
       ref.current = node;
     }
+    // Start from the imperative play() path instead of the autoPlay attribute
+    // so audible playback stays under player/Syncplay control.
+    if (node) {
+      void node.play().catch(() => {
+        // Autoplay can still be blocked by the browser; controls retry.
+      });
+    }
   };
 
   // A Watch Together session forces normal speed (an unsynced local rate would
@@ -693,7 +700,6 @@ export const MediaPlayerVideo = forwardRef<
       <video
         key={`${streamSessionId}:${sourceGeneration}`}
         ref={videoRefCallback}
-        autoPlay
         src={videoSrc}
         className="pointer-events-none h-full w-full object-contain"
         onError={handleVideoError}
