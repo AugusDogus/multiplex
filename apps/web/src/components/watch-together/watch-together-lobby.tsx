@@ -15,10 +15,8 @@ import { toast } from "sonner";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
-import {
-  getPlexUserName,
-  PlexUserAvatar,
-} from "~/components/watch-together/plex-user-avatar";
+import { getPlexUserName } from "~/components/watch-together/plex-user";
+import { PlexUserAvatar } from "~/components/watch-together/plex-user-avatar";
 import { WatchTogetherLobbyInviteDialog } from "~/components/watch-together/watch-together-lobby-invite-dialog";
 import { useWatchTogetherLobby } from "~/components/watch-together/use-watch-together-lobby";
 import { cn } from "~/lib/utils";

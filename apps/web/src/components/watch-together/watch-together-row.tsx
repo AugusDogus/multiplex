@@ -17,10 +17,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
-import {
-  PlexUserAvatarStack,
-  type PlexUserLike,
-} from "~/components/watch-together/plex-user-avatar";
+import type { PlexUserLike } from "~/components/watch-together/plex-user";
+import { PlexUserAvatarStack } from "~/components/watch-together/plex-user-avatar";
 import { useWatchTogetherRoomMedia } from "~/components/watch-together/use-watch-together-room-media";
 import {
   refetchSyncedWatchTogetherRooms,

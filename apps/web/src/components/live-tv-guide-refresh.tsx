@@ -4,34 +4,12 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, RefreshCw } from "lucide-react";
 
+import {
+  requestLiveTvGuideRefresh,
+  type LiveTvGuideRefreshState,
+} from "~/components/live-tv-guide-refresh-request";
 import { Button } from "~/components/ui/button";
 import { api } from "~/trpc/api";
-
-export type LiveTvGuideRefreshState =
-  | { status: "idle" }
-  | { status: "requesting" }
-  | { status: "error"; message: string };
-
-type LiveTvGuideRefreshResult =
-  | { ok: true; message: string }
-  | { ok: false; message: string };
-
-export async function requestLiveTvGuideRefresh(
-  requestReload: () => Promise<{ message: string }>,
-): Promise<LiveTvGuideRefreshResult> {
-  try {
-    const result = await requestReload();
-    return { ok: true, message: result.message };
-  } catch (error) {
-    return {
-      ok: false,
-      message:
-        error instanceof Error
-          ? error.message
-          : "The guide refresh could not be requested.",
-    };
-  }
-}
 
 interface LiveTvGuideRefreshProps {
   machineIdentifier: string;
