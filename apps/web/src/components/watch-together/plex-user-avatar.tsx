@@ -43,7 +43,7 @@ export function PlexUserAvatar({
 }
 
 interface PlexUserAvatarStackProps {
-  users: PlexUserLike[];
+  users: Array<PlexUserLike & { id: number }>;
   max?: number;
   className?: string;
   avatarClassName?: string;
@@ -66,7 +66,7 @@ export function PlexUserAvatarStack({
     <div className={cn("flex items-center -space-x-2", className)}>
       {visible.map((user) => (
         <PlexUserAvatar
-          key={user.id ?? user.username ?? user.thumb ?? getPlexUserName(user)}
+          key={user.id}
           user={user}
           className={cn(
             "ring-background size-7 shadow-sm ring-2",
