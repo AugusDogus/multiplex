@@ -27,10 +27,6 @@ export function syncEngineDatabaseName(userId: string): string {
   return `${SYNC_ENGINE_DB_NAME}-${safe || "anonymous"}`;
 }
 
-export function getActiveSyncEngineDatabaseName(): string | undefined {
-  return activeDatabaseName;
-}
-
 async function removeOpfsEntryBestEffort(
   root: FileSystemDirectoryHandle,
   name: string,
@@ -150,10 +146,4 @@ export async function closeAndWipeSyncEnginePersistence(): Promise<void> {
   }
   // Also wipe legacy unscoped name.
   await removeSyncEngineOpfsFiles(SYNC_ENGINE_DB_NAME);
-}
-
-/** Test / HMR helper. */
-export function resetSyncEnginePersistenceForTests(): void {
-  persistencePromise = undefined;
-  activeDatabaseName = undefined;
 }

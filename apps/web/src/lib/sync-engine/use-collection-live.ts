@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useSyncExternalStore } from "react";
+import { useRef, useSyncExternalStore } from "react";
 
 /**
  * SSR-safe subscription to a TanStack DB collection.
  *
- * `@tanstack/react-db`'s `useLiveQuery` calls `useSyncExternalStore` without
+ * TanStack's stock `useLiveQuery` calls `useSyncExternalStore` without
  * `getServerSnapshot`, which crashes Next.js App Router SSR ("Missing
  * getServerSnapshot"). Collections are browser/OPFS-only anyway, so the server
  * snapshot is always empty / loading.
@@ -33,6 +33,22 @@ type Snapshot<T extends RowWithId> = {
   rows: T[];
 };
 
+const SERVER_SNAPSHOT: Snapshot<RowWithId> = Object.freeze({
+  collection: undefined,
+  version: -1,
+  rows: EMPTY_ROWS as { id: string }[],
+});
+
+function subscribeStatusChange(
+  collection: CollectionLike<RowWithId>,
+  notify: () => void,
+): () => void {
+  if (typeof collection.on !== "function") {
+    return () => undefined;
+  }
+  return collection.on("status:change", notify);
+}
+
 export function useCollectionRows<T extends RowWithId>(
   // Empty placeholder collections are typed as `{ id: string }` only.
   // Callers pass an explicit type argument for the real row shape.
@@ -45,49 +61,37 @@ export function useCollectionRows<T extends RowWithId>(
   const versionRef = useRef(0);
   const snapshotRef = useRef<Snapshot<T> | null>(null);
 
-  const serverSnapshot = useMemo(
-    (): Snapshot<T> => ({
-      collection: undefined,
-      version: -1,
-      rows: EMPTY_ROWS as T[],
-    }),
-    [],
-  );
+  const subscribe = (onStoreChange: () => void) => {
+    if (!typedCollection) {
+      return () => undefined;
+    }
 
-  const subscribe = useCallback(
-    (onStoreChange: () => void) => {
-      if (!typedCollection) {
-        return () => undefined;
-      }
+    typedCollection.startSyncImmediate();
+    let unsubscribed = false;
 
-      typedCollection.startSyncImmediate();
-      let unsubscribed = false;
+    const notify = () => {
+      if (unsubscribed) return;
+      versionRef.current += 1;
+      onStoreChange();
+    };
 
-      const notify = () => {
-        if (unsubscribed) return;
-        versionRef.current += 1;
-        onStoreChange();
-      };
+    const subscription = typedCollection.subscribeChanges(notify);
+    // Status transitions (idle → loading → ready/error) may not write rows;
+    // subscribe so isLoading can clear even on empty collections.
+    const unsubscribeStatus = subscribeStatusChange(typedCollection, notify);
 
-      const subscription = typedCollection.subscribeChanges(notify);
-      // Status transitions (idle → loading → ready/error) may not write rows;
-      // subscribe so isLoading can clear even on empty collections.
-      const unsubscribeStatus = typedCollection.on?.("status:change", notify);
+    if (typedCollection.status === "ready") {
+      queueMicrotask(notify);
+    }
 
-      if (typedCollection.status === "ready") {
-        queueMicrotask(notify);
-      }
+    return () => {
+      unsubscribed = true;
+      subscription.unsubscribe();
+      unsubscribeStatus();
+    };
+  };
 
-      return () => {
-        unsubscribed = true;
-        subscription.unsubscribe();
-        unsubscribeStatus?.();
-      };
-    },
-    [typedCollection],
-  );
-
-  const getSnapshot = useCallback(() => {
+  const getSnapshot = () => {
     const version = versionRef.current;
     if (
       snapshotRef.current &&
@@ -106,9 +110,9 @@ export function useCollectionRows<T extends RowWithId>(
     };
     snapshotRef.current = next;
     return next;
-  }, [typedCollection]);
+  };
 
-  const getServerSnapshot = useCallback(() => serverSnapshot, [serverSnapshot]);
+  const getServerSnapshot = () => SERVER_SNAPSHOT as Snapshot<T>;
 
   const snapshot = useSyncExternalStore(
     subscribe,
@@ -133,10 +137,7 @@ export function useCollectionRowById<T extends RowWithId>(
   isLoading: boolean;
 } {
   const { data: rows, isLoading } = useCollectionRows<T>(collection);
-  const data = useMemo(() => {
-    if (!id) return undefined;
-    return rows.find((row) => row.id === id);
-  }, [id, rows]);
+  const data = id ? rows.find((row) => row.id === id) : undefined;
 
   return { data, isLoading };
 }

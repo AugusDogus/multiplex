@@ -49,6 +49,3 @@ export function clearConnectionOverlay(): void {
   byServerId.clear();
   byItemId.clear();
 }
-
-/** @deprecated Prefer `clearConnectionOverlay`. */
-export const clearConnectionOverlayForTests = clearConnectionOverlay;

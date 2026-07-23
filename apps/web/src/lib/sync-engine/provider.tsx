@@ -5,7 +5,6 @@ import {
   createContext,
   useContext,
   useEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -87,7 +86,7 @@ export function SyncEngineProvider({
     () => null,
   );
 
-  const status = useMemo<SyncEngineStatus>(() => {
+  const status: SyncEngineStatus = (() => {
     if (isSessionPending) return { phase: "booting" };
     if (!userId) {
       return {
@@ -117,7 +116,7 @@ export function SyncEngineProvider({
       return { phase: "error", error: bootStatus.error };
     }
     return { phase: "booting" };
-  }, [activeCollections, bootStatus, isSessionPending, userId]);
+  })();
 
   useEffect(() => {
     let cancelled = false;

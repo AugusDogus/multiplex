@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import type { HubWithServer, PlexUserInfo } from "@multiplex/plex-query";
 import type { RouterOutputs } from "~/trpc/api";
@@ -21,7 +21,6 @@ import {
   writeSyncedUserInfo,
 } from "./collections";
 import {
-  emptyBrowsePagesCollection,
   emptyContinueWatchingCollection,
   emptyHomeHubsCollection,
   emptyItemPlaylistsCollection,
@@ -33,7 +32,6 @@ import {
   emptyPlayQueuesCollection,
   emptySearchResultsCollection,
   emptyServerLibrariesCollection,
-  emptyServersCollection,
   emptyUserInfoCollection,
   emptyWatchTogetherInviteesCollection,
   emptyWatchTogetherRoomsCollection,
@@ -66,7 +64,6 @@ import type {
   SanitizedPlaylistRow,
   SanitizedSearchResultsRow,
   SanitizedServerLibraryRow,
-  SanitizedServerRow,
   SanitizedUserInfoRow,
   SanitizedWatchTogetherInviteeRow,
   SanitizedWatchTogetherRoomRow,
@@ -87,16 +84,12 @@ function useWarmOnce(
   const [isWarming, setIsWarming] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
-  const warmRef = useRef(warm);
+  const warmEvent = useEffectEvent(warm);
   // Track successful/in-flight key so empty results / 404s do not spin forever.
   // Failures clear this and bump `retryNonce` (capped) so credential refill can retry.
   const settledKeyRef = useRef<string | null>(null);
   const activeKeyRef = useRef<string | null>(null);
   const attemptCountRef = useRef(0);
-
-  useEffect(() => {
-    warmRef.current = warm;
-  }, [warm]);
 
   useEffect(() => {
     if (!enabled || !key) return;
@@ -114,8 +107,7 @@ function useWarmOnce(
     let retryTimer: number | undefined;
     setIsWarming(true);
     setError(null);
-    void warmRef
-      .current()
+    void warmEvent()
       .catch((cause: unknown) => {
         if (cancelled) return;
         setError(
@@ -141,23 +133,6 @@ function useWarmOnce(
   }, [enabled, key, retryNonce]);
 
   return { isWarming, error };
-}
-
-export function useSyncedServers(): {
-  data: SanitizedServerRow[];
-  isLoading: boolean;
-  isReady: boolean;
-} {
-  const collections = useSyncEngineCollections();
-  const { data, isLoading } = useCollectionRows<SanitizedServerRow>(
-    collections?.servers ?? emptyServersCollection,
-  );
-
-  return {
-    data: collections ? data : [],
-    isLoading: !collections || isLoading,
-    isReady: Boolean(collections),
-  };
 }
 
 export function useSyncedContinueWatching(): {
@@ -224,23 +199,6 @@ export function useSyncedServerLibraries(): {
   };
 }
 
-export function useSyncedMediaItems(): {
-  data: SanitizedMediaItemRow[];
-  isLoading: boolean;
-  isReady: boolean;
-} {
-  const collections = useSyncEngineCollections();
-  const { data, isLoading } = useCollectionRows<SanitizedMediaItemRow>(
-    collections?.mediaItems ?? emptyMediaItemsCollection,
-  );
-
-  return {
-    data: collections ? data : [],
-    isLoading: !collections || isLoading,
-    isReady: Boolean(collections),
-  };
-}
-
 export function useSyncedWatchTogetherRooms(): {
   data: SanitizedWatchTogetherRoomRow[];
   rooms: ReturnType<typeof toWatchTogetherRoom>[];
@@ -252,8 +210,8 @@ export function useSyncedWatchTogetherRooms(): {
     collections?.watchTogetherRooms ?? emptyWatchTogetherRoomsCollection,
   );
 
-  const rows = useMemo(() => (collections ? data : []), [collections, data]);
-  const rooms = useMemo(() => rows.map(toWatchTogetherRoom), [rows]);
+  const rows = collections ? data : [];
+  const rooms = rows.map(toWatchTogetherRoom);
 
   return {
     data: rows,
@@ -294,10 +252,7 @@ export function useSyncedWatchTogetherRoom(
     shouldRevalidate,
   );
 
-  const room = useMemo(
-    () => (row ? toWatchTogetherRoom(row) : undefined),
-    [row],
-  );
+  const room = row ? toWatchTogetherRoom(row) : undefined;
 
   return {
     room,
@@ -325,10 +280,7 @@ export function useSyncedUserInfo(options?: { initialData?: PlexUserInfo }): {
     writeSyncedUserInfo(collections, options.initialData);
   }, [collections, options?.initialData, row]);
 
-  const data = useMemo(
-    () => (row ? toPlexUserInfo(row) : options?.initialData),
-    [options?.initialData, row],
-  );
+  const data = row ? toPlexUserInfo(row) : options?.initialData;
 
   return {
     data,
@@ -375,11 +327,8 @@ export function useSyncedItemDetails(
     needsWarm,
   );
 
-  const details = useMemo(
-    () =>
-      hasFullDetails && row ? (toItemDetails(row) ?? undefined) : undefined,
-    [hasFullDetails, row],
-  );
+  const details =
+    hasFullDetails && row ? (toItemDetails(row) ?? undefined) : undefined;
 
   return {
     details,
@@ -423,7 +372,7 @@ export function useSyncedItemMetadata(
     needsWarm,
   );
 
-  const data = useMemo(() => (row ? toItemMetadata(row) : null), [row]);
+  const data = row ? toItemMetadata(row) : null;
 
   return {
     data,
@@ -474,10 +423,7 @@ export function useSyncedLibraryHubs(
     Boolean(collections),
   );
 
-  const hubs = useMemo(
-    () => (snapshot ? snapshot.hubs.map(toHubWithServer) : []),
-    [snapshot],
-  );
+  const hubs = snapshot ? snapshot.hubs.map(toHubWithServer) : [];
 
   return {
     hubs,
@@ -790,10 +736,4 @@ export function useSyncedPlayQueue(
   return {
     data: row?.payload as RouterOutputs["plex"]["getPlayQueue"] | undefined,
   };
-}
-
-/** Expose empty browse collection for MediaPosterGrid live reads. */
-export function useSyncedBrowsePagesCollection() {
-  const collections = useSyncEngineCollections();
-  return collections?.browsePages ?? emptyBrowsePagesCollection;
 }

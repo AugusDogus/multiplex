@@ -31,7 +31,6 @@ export {
   type SyncEngineCollections,
 } from "./collections";
 export { toHubItemsWithServer } from "./browse-pages-view";
-export { useNavigatorOnline } from "./connectivity";
 export {
   patchSyncedContinueWatchingProgress,
   resetSyncedContinueWatchingProgress,
@@ -39,7 +38,6 @@ export {
 export { toContinueWatchingItemWithServer } from "./continue-watching-view";
 export { toHubWithServer } from "./home-hubs-view";
 export {
-  useSyncedBrowsePagesCollection,
   useSyncedContinueWatching,
   useSyncedHomeHubs,
   useSyncedItemDetails,
@@ -47,13 +45,11 @@ export {
   useSyncedItemPlaylists,
   useSyncedLibraryFilterValues,
   useSyncedLibraryHubs,
-  useSyncedMediaItems,
   useSyncedPlaylist,
   useSyncedPlaylistContents,
   useSyncedPlayQueue,
   useSyncedSearchResults,
   useSyncedServerLibraries,
-  useSyncedServers,
   useSyncedUserInfo,
   useSyncedWatchTogetherInvitees,
   useSyncedWatchTogetherRoom,
@@ -81,7 +77,6 @@ export {
   SYNC_ENGINE_DB_NAME,
   SYNC_ENGINE_SCHEMA_VERSION,
   closeAndWipeSyncEnginePersistence,
-  getActiveSyncEngineDatabaseName,
   getSyncEnginePersistence,
   syncEngineDatabaseName,
 } from "./persistence";
@@ -99,11 +94,9 @@ export {
 export {
   refetchSyncedMediaItem,
   refetchSyncedShellCollections,
-  refetchSyncedUserInfo,
   refetchSyncedWatchTogetherRooms,
 } from "./refetch-shell";
 export {
-  rowContainsCredentialFields,
   sanitizeContinueWatchingItem,
   sanitizeHomeHub,
   sanitizeLibraryHubsSnapshot,
@@ -113,7 +106,6 @@ export {
   sanitizeUserInfo,
   sanitizeWatchTogetherInvitee,
   sanitizeWatchTogetherRoom,
-  stripCredentialFields,
   stripCredentialsDeep,
   type SanitizedBrowsePageRow,
   type SanitizedContinueWatchingRow,
