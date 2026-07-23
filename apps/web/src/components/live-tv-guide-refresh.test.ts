@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import { requestLiveTvGuideRefresh } from "./live-tv-guide-refresh";
+import { requestLiveTvGuideRefresh } from "./live-tv-guide-refresh-request";
 
 describe("requestLiveTvGuideRefresh", () => {
   test("returns the acknowledged message from Plex", async () => {

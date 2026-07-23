@@ -8,10 +8,8 @@ import type {
 import { toast } from "sonner";
 
 import { formatTime } from "~/components/media-player/utils/playback-time-utils";
-import {
-  getPlexUserName,
-  PlexUserAvatar,
-} from "~/components/watch-together/plex-user-avatar";
+import { getPlexUserName } from "~/components/watch-together/plex-user";
+import { PlexUserAvatar } from "~/components/watch-together/plex-user-avatar";
 
 // Participants reported right after we connect (via the initial List) are the
 // session's starting cohort, not fresh joins — their later ready-up is just
