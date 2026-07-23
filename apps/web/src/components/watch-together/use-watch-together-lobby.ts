@@ -180,12 +180,10 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
       if (collections) {
         removeSyncedWatchTogetherRoom(collections, variables.roomId);
       }
-      await refetchSyncedWatchTogetherRooms();
+      await refetchSyncedWatchTogetherRooms().catch(() => undefined);
       await leaveActiveWatchTogetherSession(variables.roomId).catch(
         () => undefined,
       );
-      // Always leave the lobby UI even if session teardown rejects — the
-      // server room is already gone after a successful delete.
       router.push("/");
     },
     onError: async (_error, variables) => {
