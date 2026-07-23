@@ -6,6 +6,7 @@ import {
   sanitizeMediaItemDetails,
   sanitizeServer,
   sanitizeServerLibrary,
+  sanitizeWatchTogetherRoom,
   stripCredentialsDeep,
 } from "./sanitize";
 
@@ -206,5 +207,23 @@ describe("sync-engine sanitize", () => {
 
     expect(playlistPayload.items[0]?.authToken).toBe("PLAYLIST_SECRET");
     expect(playlistPayload.items[0]?.serverUrl).toBe("https://pms.example");
+  });
+
+  test("persists Watch Together listIndex from the rooms response", () => {
+    const row = sanitizeWatchTogetherRoom(
+      {
+        id: "room-1",
+        sourceUri: "server://haus/1",
+        title: "Movie Night",
+        type: "watching",
+        syncplayHost: "syncplay.example",
+        syncplayPort: 8999,
+        users: [],
+      },
+      { listIndex: 3 },
+    );
+
+    expect(row.id).toBe("room-1");
+    expect(row.listIndex).toBe(3);
   });
 });

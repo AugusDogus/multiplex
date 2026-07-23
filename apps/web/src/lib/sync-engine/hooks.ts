@@ -70,7 +70,10 @@ import type {
 } from "./sanitize";
 import { getSyncEngineTrpcClient } from "./trpc-client";
 import { toPlexUserInfo } from "./user-info-view";
-import { toWatchTogetherRoom } from "./watch-together-view";
+import {
+  sortWatchTogetherRoomRows,
+  toWatchTogetherRoom,
+} from "./watch-together-view";
 
 type ItemDetails = NonNullable<RouterOutputs["plex"]["getItemDetails"]>;
 
@@ -210,7 +213,7 @@ export function useSyncedWatchTogetherRooms(): {
     collections?.watchTogetherRooms ?? emptyWatchTogetherRoomsCollection,
   );
 
-  const rows = collections ? data : [];
+  const rows = collections ? sortWatchTogetherRoomRows(data) : [];
   const rooms = rows.map(toWatchTogetherRoom);
 
   return {

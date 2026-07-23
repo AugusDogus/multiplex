@@ -311,8 +311,12 @@ function createWatchTogetherRoomsCollection(
       queryKey: ["sync-engine", "plex", "getWatchTogetherRooms"],
       queryFn: async (): Promise<SanitizedWatchTogetherRoomRow[]> => {
         const rooms = await trpc.plex.getWatchTogetherRooms.query();
-        return rooms.map((room) =>
-          sanitizeWatchTogetherRoom(room as unknown as Record<string, unknown>),
+        // Capture API order — TanStack DB stores rows in a key-sorted map.
+        return rooms.map((room, listIndex) =>
+          sanitizeWatchTogetherRoom(
+            room as unknown as Record<string, unknown>,
+            { listIndex },
+          ),
         );
       },
       getKey: (row) => row.id,
@@ -556,8 +560,12 @@ export async function warmWatchTogetherRoom(
 ): Promise<SanitizedWatchTogetherRoomRow | null> {
   const room = await trpc.plex.getWatchTogetherRoom.query({ roomId });
   if (!room) return null;
+  const existing = collections.watchTogetherRooms.get(roomId) as
+    | SanitizedWatchTogetherRoomRow
+    | undefined;
   const row = sanitizeWatchTogetherRoom(
     room as unknown as Record<string, unknown>,
+    { listIndex: existing?.listIndex ?? null },
   );
   await upsertRow(collections.watchTogetherRooms, row);
   return row;

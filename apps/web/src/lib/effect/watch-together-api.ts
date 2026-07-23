@@ -85,11 +85,12 @@ export const makeWatchTogetherApi = (
     const collections = getActiveSyncEngineCollections();
     if (collections) {
       await Promise.all(
-        rooms.map((room) =>
+        rooms.map((room, listIndex) =>
           upsertRow(
             collections.watchTogetherRooms,
             sanitizeWatchTogetherRoom(
               room as unknown as Record<string, unknown>,
+              { listIndex },
             ),
           ),
         ),

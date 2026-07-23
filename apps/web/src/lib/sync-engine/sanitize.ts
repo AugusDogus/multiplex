@@ -184,6 +184,12 @@ export type SanitizedWatchTogetherRoomRow = {
   startsAt: number | null;
   endsAt: number | null;
   updatedAt: number | null;
+  /**
+   * Position in the together.plex.tv `/rooms` response. The durable collection
+   * stores rooms in a key-sorted map, so the home row re-applies this index to
+   * match the official Plex app order.
+   */
+  listIndex: number | null;
   syncplayHost: string | null;
   syncplayPort: number | null;
   users: Array<{
@@ -590,9 +596,14 @@ export function sanitizeMediaItemDetails(
 
 export function sanitizeWatchTogetherRoom(
   room: LooseRecord,
+  options?: { listIndex?: number | null },
 ): SanitizedWatchTogetherRoomRow {
   const id = asString(room.id) ?? "unknown";
   const usersRaw = Array.isArray(room.users) ? room.users : [];
+  const listIndex =
+    options && "listIndex" in options
+      ? (options.listIndex ?? null)
+      : asNumber(room.listIndex);
 
   return {
     id,
@@ -603,6 +614,7 @@ export function sanitizeWatchTogetherRoom(
     startsAt: asNumber(room.startsAt),
     endsAt: asNumber(room.endsAt),
     updatedAt: asNumber(room.updatedAt),
+    listIndex,
     syncplayHost: asString(room.syncplayHost),
     syncplayPort: asNumber(room.syncplayPort),
     users: usersRaw.flatMap((entry) => {
