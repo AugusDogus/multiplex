@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useSyncExternalStore, type ReactNode } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   MULTIPLEX_SYNCPLAY_DEVICE_NAME,
@@ -31,7 +36,6 @@ export function WatchTogetherSessionShell({
   children: ReactNode;
 }) {
   const params = useParams();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const roomId = typeof params.roomId === "string" ? params.roomId : null;
   const queryCapability = searchParams.get("guest");
@@ -43,12 +47,16 @@ export function WatchTogetherSessionShell({
   const guestCapability = queryCapability ?? storedCapability;
 
   useEffect(() => {
-    if (!roomId) return;
-    if (queryCapability) {
-      storeGuestHostCapability(roomId, queryCapability);
-      router.replace(getWatchTogetherRoomHref(roomId));
+    if (!roomId || !queryCapability) return;
+    storeGuestHostCapability(roomId, queryCapability);
+    if (window.location.search.includes("guest=")) {
+      window.history.replaceState(
+        window.history.state,
+        "",
+        getWatchTogetherRoomHref(roomId),
+      );
     }
-  }, [queryCapability, roomId, router]);
+  }, [queryCapability, roomId]);
 
   useWatchTogetherSessionLifecycle(roomId, guestCapability);
   return children;
@@ -143,9 +151,12 @@ function useWatchTogetherSessionLifecycle(
     };
   }, [roomId]);
 
-  // Session.room is canonical. Soft-nav the App Router segment to match so
-  // Leave / close land on the live lobby. Safe now that lifecycle lives here
-  // instead of the remounting [roomId] page.
+  // Keep the App Router segment aligned with Session.room so Leave / close
+  // land on the live lobby after episode rotation.
+  const replaceRoomPath = useEffectEvent((href: string) => {
+    router.replace(href);
+  });
+
   useEffect(() => {
     if (sessionState._tag !== "Playing") {
       return;
@@ -154,6 +165,6 @@ function useWatchTogetherSessionLifecycle(
     if (window.location.pathname === href) {
       return;
     }
-    router.replace(href);
-  }, [router, sessionState]);
+    replaceRoomPath(href);
+  }, [sessionState]);
 }
