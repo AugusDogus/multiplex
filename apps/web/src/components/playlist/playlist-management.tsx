@@ -1,31 +1,14 @@
 "use client";
 
-import Image from "next/image";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import {
-  ArrowDown,
-  ArrowUp,
-  Loader2,
-  Lock,
-  Pencil,
-  Trash2,
-} from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { Button } from "~/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "~/components/ui/dialog";
-import { Input } from "~/components/ui/input";
-import { getPlexImagePath } from "~/lib/plex-image";
-import { getItemDetailsHref, getLibraryPivotHref } from "~/lib/plex-routes";
+import { PlaylistDeleteDialog } from "~/components/playlist/playlist-delete-dialog";
+import { PlaylistItemsSection } from "~/components/playlist/playlist-items-section";
+import { PlaylistManagementHeader } from "~/components/playlist/playlist-management-header";
+import { getLibraryPivotHref } from "~/lib/plex-routes";
 import {
   resolveServerCredentials,
   useSyncedPlaylist,
@@ -164,214 +147,45 @@ export function PlaylistManagement({
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-      <section className="flex flex-col gap-4 rounded-xl border p-4 sm:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="truncate text-2xl font-semibold">
-                {playlist.title}
-              </h1>
-              {playlist.readOnly && (
-                <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
-                  <Lock className="size-3" /> Read-only
-                </span>
-              )}
-            </div>
-            <p className="text-muted-foreground mt-1 text-sm">
-              {totalSize} item{totalSize === 1 ? "" : "s"}
-              {playlist.smart ? " · Smart playlist" : ""}
-            </p>
-          </div>
+      <PlaylistManagementHeader
+        playlist={playlist}
+        totalSize={totalSize}
+        editable={editable}
+        busy={busy}
+        renameTitle={renameTitle}
+        renamePending={renameMutation.isPending}
+        onRenameTitleChange={setRenameTitle}
+        onSubmitRename={submitRename}
+        onDeleteClick={() => setDeleteOpen(true)}
+      />
 
-          <Button
-            type="button"
-            variant="destructive"
-            onClick={() => setDeleteOpen(true)}
-            disabled={!editable || busy}
-          >
-            <Trash2 /> Delete playlist
-          </Button>
-        </div>
+      <PlaylistItemsSection
+        items={items}
+        serverId={serverId}
+        serverUrl={serverConnection?.serverUrl}
+        authToken={serverConnection?.authToken}
+        start={start}
+        totalSize={totalSize}
+        pageSize={PAGE_SIZE}
+        editable={editable}
+        busy={busy}
+        isError={contentsQuery.isError}
+        isFetching={contentsQuery.isFetching}
+        onRetry={() => void contentsQuery.refetch()}
+        onMove={moveItem}
+        onPreviousPage={() =>
+          setStart((value) => Math.max(0, value - PAGE_SIZE))
+        }
+        onNextPage={() => setStart((value) => value + PAGE_SIZE)}
+      />
 
-        <form
-          className="flex max-w-xl flex-col gap-2 sm:flex-row"
-          onSubmit={(event) => {
-            event.preventDefault();
-            submitRename();
-          }}
-        >
-          <Input
-            value={renameTitle}
-            onChange={(event) => setRenameTitle(event.target.value)}
-            placeholder={playlist.title}
-            aria-label="New playlist name"
-            maxLength={255}
-            disabled={!editable || busy}
-          />
-          <Button
-            type="submit"
-            variant="secondary"
-            disabled={
-              !editable ||
-              busy ||
-              normalizedRenameTitle.length === 0 ||
-              normalizedRenameTitle === playlist.title
-            }
-          >
-            {renameMutation.isPending ? (
-              <Loader2 className="animate-spin" />
-            ) : (
-              <Pencil />
-            )}
-            Rename
-          </Button>
-        </form>
-      </section>
-
-      <section aria-label="Playlist contents" className="flex flex-col gap-2">
-        {contentsQuery.isError ? (
-          <div className="rounded-lg border p-6 text-sm">
-            <p className="text-destructive">Could not load playlist items.</p>
-            <Button
-              className="mt-3"
-              variant="outline"
-              onClick={() => void contentsQuery.refetch()}
-            >
-              Try again
-            </Button>
-          </div>
-        ) : items.length === 0 ? (
-          <p className="text-muted-foreground rounded-lg border p-6 text-sm">
-            This playlist is empty.
-          </p>
-        ) : (
-          items.map((item, index) => {
-            const thumbnailUrl = getPlexImagePath(item.thumb, {
-              width: 96,
-              height: 144,
-              serverUrl: serverConnection?.serverUrl,
-              authToken: serverConnection?.authToken,
-            });
-            const canReorder = editable && item.playlistItemID !== undefined;
-
-            return (
-              <article
-                key={item.playlistItemID ?? `${item.ratingKey}-${index}`}
-                className="bg-card flex items-center gap-3 rounded-lg border p-3"
-              >
-                {thumbnailUrl ? (
-                  <Image
-                    src={thumbnailUrl}
-                    alt=""
-                    width={48}
-                    height={72}
-                    className="h-14 w-10 rounded object-cover"
-                  />
-                ) : (
-                  <div className="bg-muted h-14 w-10 shrink-0 rounded" />
-                )}
-
-                <div className="min-w-0 flex-1">
-                  <Link
-                    href={getItemDetailsHref(
-                      serverId,
-                      item.type,
-                      item.ratingKey,
-                    )}
-                    className="hover:underline"
-                  >
-                    <span className="line-clamp-1 font-medium">
-                      {item.title}
-                    </span>
-                  </Link>
-                  <p className="text-muted-foreground line-clamp-1 text-xs">
-                    {item.grandparentTitle ?? item.parentTitle ?? item.type}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-1">
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    aria-label={`Move ${item.title} up`}
-                    onClick={() => moveItem(index, "up")}
-                    disabled={!canReorder || busy || start + index === 0}
-                  >
-                    <ArrowUp />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    aria-label={`Move ${item.title} down`}
-                    onClick={() => moveItem(index, "down")}
-                    disabled={
-                      !canReorder || busy || start + index >= totalSize - 1
-                    }
-                  >
-                    <ArrowDown />
-                  </Button>
-                </div>
-              </article>
-            );
-          })
-        )}
-      </section>
-
-      {totalSize > PAGE_SIZE && (
-        <nav aria-label="Playlist pages" className="flex justify-between gap-3">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={start === 0 || contentsQuery.isFetching}
-            onClick={() => setStart((value) => Math.max(0, value - PAGE_SIZE))}
-          >
-            Previous
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={
-              start + PAGE_SIZE >= totalSize || contentsQuery.isFetching
-            }
-            onClick={() => setStart((value) => value + PAGE_SIZE)}
-          >
-            Next
-          </Button>
-        </nav>
-      )}
-
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete “{playlist.title}”?</DialogTitle>
-            <DialogDescription>
-              This permanently deletes the entire playlist. Your media files are
-              not deleted.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setDeleteOpen(false)}
-              disabled={deleteMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={() => deleteMutation.mutate(playlistInput)}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending && <Loader2 className="animate-spin" />}
-              Delete playlist
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <PlaylistDeleteDialog
+        open={deleteOpen}
+        title={playlist.title}
+        pending={deleteMutation.isPending}
+        onOpenChange={setDeleteOpen}
+        onConfirm={() => deleteMutation.mutate(playlistInput)}
+      />
     </div>
   );
 }
