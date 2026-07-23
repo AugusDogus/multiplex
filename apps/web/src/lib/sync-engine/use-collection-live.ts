@@ -61,7 +61,7 @@ export function useCollectionRows<T extends RowWithId>(
   const versionRef = useRef(0);
   const snapshotRef = useRef<Snapshot<T> | null>(null);
 
-  const subscribe = (onStoreChange: () => void) => {
+  const subscribe = (onStoreChange: () => void): (() => void) => {
     if (!typedCollection) {
       return () => undefined;
     }
@@ -91,7 +91,7 @@ export function useCollectionRows<T extends RowWithId>(
     };
   };
 
-  const getSnapshot = () => {
+  const getSnapshot = (): Snapshot<T> => {
     const version = versionRef.current;
     if (
       snapshotRef.current &&
@@ -112,7 +112,7 @@ export function useCollectionRows<T extends RowWithId>(
     return next;
   };
 
-  const getServerSnapshot = () => SERVER_SNAPSHOT as Snapshot<T>;
+  const getServerSnapshot = (): Snapshot<T> => SERVER_SNAPSHOT as Snapshot<T>;
 
   const snapshot = useSyncExternalStore(
     subscribe,
