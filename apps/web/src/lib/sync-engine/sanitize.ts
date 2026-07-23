@@ -74,6 +74,11 @@ export type SanitizedContinueWatchingRow = {
   timeRemaining: number | null;
   /** Unix seconds (Plex) or null. */
   lastViewedAt: number | null;
+  /**
+   * Position in the `getAllContinueWatching` response. Restores carousel order
+   * after TanStack DB yields rows by lexicographic `id`.
+   */
+  listIndex: number | null;
   hubTitle: string | null;
   hubType: string | null;
   librarySectionTitle: string | null;
@@ -401,6 +406,7 @@ export function sanitizeServer(device: LooseRecord): SanitizedServerRow {
 
 export function sanitizeContinueWatchingItem(
   item: LooseRecord,
+  options?: { listIndex?: number | null },
 ): SanitizedContinueWatchingRow {
   const serverId = asString(item.serverId) ?? "unknown";
   const ratingKey = asString(item.ratingKey) ?? "unknown";
@@ -432,6 +438,7 @@ export function sanitizeContinueWatchingItem(
     isCompleted: asBoolean(item.isCompleted),
     timeRemaining: asNumber(item.timeRemaining),
     lastViewedAt: asUnixSeconds(item.lastViewedAt),
+    listIndex: asNumber(options?.listIndex),
     hubTitle: asString(item.hubTitle),
     hubType: asString(item.hubType),
     librarySectionTitle: asString(item.librarySectionTitle),

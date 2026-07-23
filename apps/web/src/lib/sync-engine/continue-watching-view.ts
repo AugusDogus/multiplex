@@ -4,6 +4,30 @@ import { resolveItemCredentials } from "./resolve-connection";
 import type { SanitizedContinueWatchingRow } from "./sanitize";
 
 /**
+ * Restore the order from `getAllContinueWatching` after TanStack DB yields rows
+ * by lexicographic `id`. Prefer `listIndex`; fall back to newest `lastViewedAt`.
+ */
+export function sortContinueWatchingRows(
+  rows: readonly SanitizedContinueWatchingRow[],
+): SanitizedContinueWatchingRow[] {
+  return [...rows].sort((a, b) => {
+    const aIndex = a.listIndex;
+    const bIndex = b.listIndex;
+    if (aIndex != null && bIndex != null && aIndex !== bIndex) {
+      return aIndex - bIndex;
+    }
+    if (aIndex != null && bIndex == null) return -1;
+    if (aIndex == null && bIndex != null) return 1;
+
+    const aTime = a.lastViewedAt ?? 0;
+    const bTime = b.lastViewedAt ?? 0;
+    if (aTime !== bTime) return bTime - aTime;
+
+    return a.id.localeCompare(b.id);
+  });
+}
+
+/**
  * Rehydrate a UI/playable Continue Watching item from a durable row
  * (credentials included) with session/server fallbacks.
  */

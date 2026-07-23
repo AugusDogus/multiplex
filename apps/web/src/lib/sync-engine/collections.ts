@@ -206,9 +206,10 @@ function createContinueWatchingCollection(
       queryKey: ["sync-engine", "plex", "getAllContinueWatching"],
       queryFn: async (): Promise<SanitizedContinueWatchingRow[]> => {
         const items = await trpc.plex.getAllContinueWatching.query();
-        return items.map((item) => {
+        return items.map((item, listIndex) => {
           const row = sanitizeContinueWatchingItem(
             item as unknown as Record<string, unknown>,
+            { listIndex },
           );
           rememberItemConnection(row.id, {
             serverUrl: item.serverUrl,

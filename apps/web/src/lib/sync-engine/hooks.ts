@@ -36,6 +36,7 @@ import {
   emptyWatchTogetherInviteesCollection,
   emptyWatchTogetherRoomsCollection,
 } from "./empty-collections";
+import { sortContinueWatchingRows } from "./continue-watching-view";
 import { toHubWithServer } from "./home-hubs-view";
 import { toItemDetails, toItemMetadata } from "./item-details-view";
 import { resolveItemCredentials } from "./resolve-connection";
@@ -146,7 +147,7 @@ export function useSyncedContinueWatching(): {
   );
 
   return {
-    data: collections ? data : [],
+    data: collections ? sortContinueWatchingRows(data) : [],
     isLoading: !collections || isLoading,
     isReady: Boolean(collections),
   };
