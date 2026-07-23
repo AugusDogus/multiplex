@@ -22,7 +22,7 @@ export function TvGuideChannelButton({
   const displayTitle = channel.title.replace(channel.vcn, "").trim();
 
   return (
-    <div className="flex min-h-16 flex-grow">
+    <div className="flex min-h-16 grow">
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
@@ -34,7 +34,7 @@ export function TvGuideChannelButton({
             onClick={handleClick}
           >
             {/* Channel Icon/Logo */}
-            <div className="mr-3 h-10 w-10 flex-shrink-0">
+            <div className="mr-3 h-10 w-10 shrink-0">
               {channel.thumb ? (
                 <Image
                   src={channel.thumb}
@@ -55,7 +55,7 @@ export function TvGuideChannelButton({
             </div>
 
             {/* Channel Name/Number */}
-            <div className="min-w-0 flex-grow">
+            <div className="min-w-0 grow">
               <div className="truncate text-sm font-medium">
                 {isCompact ? channel.vcn : channel.title}
               </div>

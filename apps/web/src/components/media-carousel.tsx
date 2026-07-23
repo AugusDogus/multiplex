@@ -146,9 +146,9 @@ export function MediaCarousel({
           gapClassName,
         )}
       >
-        {slides.map((slide, index) => (
+        {slides.map((slide) => (
           <div
-            key={isValidElement(slide) ? (slide.key ?? index) : index}
+            key={isValidElement(slide) ? slide.key : undefined}
             className="min-w-0 shrink-0"
           >
             {slide}
