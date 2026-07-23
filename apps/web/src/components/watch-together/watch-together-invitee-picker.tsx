@@ -39,16 +39,20 @@ export function WatchTogetherInviteePicker({
   const inviteesQuery = useSyncedWatchTogetherInvitees({ enabled });
 
   const excludeSet = new Set(excludeUserIds ?? []);
-  const invitees = inviteesQuery.data
-    .filter((invitee) => !excludeSet.has(invitee.plexUserId))
-    .map((invitee) => ({
-      id: invitee.plexUserId,
-      uuid: invitee.uuid ?? undefined,
-      title: invitee.title,
-      username: invitee.username,
-      thumb: invitee.thumb ?? undefined,
-      restricted: invitee.restricted,
-    }));
+  const invitees = inviteesQuery.data.flatMap((invitee) =>
+    excludeSet.has(invitee.plexUserId)
+      ? []
+      : [
+          {
+            id: invitee.plexUserId,
+            uuid: invitee.uuid ?? undefined,
+            title: invitee.title,
+            username: invitee.username,
+            thumb: invitee.thumb ?? undefined,
+            restricted: invitee.restricted,
+          },
+        ],
+  );
   const selectedSet = new Set(selectedUserIds);
   const selectedInvitees = invitees.filter((invitee) =>
     selectedSet.has(invitee.id),
