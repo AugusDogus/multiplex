@@ -152,9 +152,6 @@ export function MediaPlayerProgress({
     }
   }, [isDragging]);
 
-  const progressWidth = `${progressPercent}%`;
-  const bufferedWidth = `${bufferedPercent}%`;
-
   return (
     <div className={`flex items-center gap-3 ${className}`}>
       {/* Current Time */}
@@ -181,14 +178,14 @@ export function MediaPlayerProgress({
         >
           {/* Buffered Progress */}
           <div
-            className="absolute top-0 left-0 h-full rounded-full bg-white/30 transition-[width] duration-300 ease-out"
-            style={{ width: bufferedWidth }}
+            className="absolute top-0 left-0 h-full w-full origin-left rounded-full bg-white/30 transition-transform duration-300 ease-out"
+            style={{ transform: `scaleX(${bufferedPercent / 100})` }}
           />
 
           {/* Current Progress */}
           <div
-            className={`absolute top-0 left-0 h-full rounded-full bg-white ${isDragging ? "" : "transition-[width] duration-300 ease-out"}`}
-            style={{ width: progressWidth }}
+            className={`absolute top-0 left-0 h-full w-full origin-left rounded-full bg-white ${isDragging ? "" : "transition-transform duration-300 ease-out"}`}
+            style={{ transform: `scaleX(${progressPercent / 100})` }}
           />
 
           {/* Hover Time Tooltip */}

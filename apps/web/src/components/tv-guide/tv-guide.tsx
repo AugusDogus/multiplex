@@ -318,30 +318,27 @@ export function TvGuide({
         {/* Current Time Indicator */}
         {currentTimeProgress >= 0 && (
           <>
-            {/* Time Label */}
             <div
-              className="absolute top-0 z-20 transition-all duration-500 ease-linear"
-              style={{
-                left: `calc(${isCompact ? "5rem" : "12rem"} + ${currentTimeProgress}%)`,
-              }}
+              className="pointer-events-none absolute inset-y-0 top-0 right-0 z-20"
+              style={{ left: isCompact ? "5rem" : "12rem" }}
               suppressHydrationWarning
             >
               <div
+                className="absolute inset-0 transition-transform duration-500 ease-linear"
+                style={{
+                  transform: `translateX(${currentTimeProgress}%)`,
+                }}
                 suppressHydrationWarning
-                className="bg-primary text-primary-foreground relative min-w-12 -translate-x-1/2 translate-y-1/4 transform rounded px-2 py-1 text-center text-xs"
               >
-                {currentTimeLabel}
+                <div
+                  suppressHydrationWarning
+                  className="bg-primary text-primary-foreground absolute top-0 left-0 min-w-12 -translate-x-1/2 translate-y-1/4 rounded px-2 py-1 text-center text-xs"
+                >
+                  {currentTimeLabel}
+                </div>
+                <div className="bg-primary absolute top-7 bottom-1 left-0 w-0.5" />
               </div>
             </div>
-
-            {/* Vertical Line */}
-            <div
-              className="bg-primary absolute top-7 bottom-1 z-10 w-0.5 transition-all duration-500 ease-linear"
-              style={{
-                left: `calc(${isCompact ? "5rem" : "12rem"} + ${currentTimeProgress}%)`,
-              }}
-              suppressHydrationWarning
-            />
           </>
         )}
       </CardContent>

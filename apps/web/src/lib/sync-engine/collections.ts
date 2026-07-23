@@ -543,9 +543,9 @@ export async function warmWatchTogetherInvitees(
   const rows = invitees.map((invitee) =>
     sanitizeWatchTogetherInvitee(invitee as unknown as Record<string, unknown>),
   );
-  for (const row of rows) {
-    await upsertRow(collections.watchTogetherInvitees, row);
-  }
+  await Promise.all(
+    rows.map((row) => upsertRow(collections.watchTogetherInvitees, row)),
+  );
   return rows;
 }
 
