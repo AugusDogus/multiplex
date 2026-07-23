@@ -67,6 +67,20 @@ describe("sync-engine sanitize", () => {
     expect(row.progressPercent).toBe(42);
     expect(row.authToken).toBe("CW_SECRET");
     expect(row.serverUrl).toBe("https://pms.example");
+    expect(row.listIndex).toBeNull();
+  });
+
+  test("persists listIndex for continue watching carousel order", () => {
+    const row = sanitizeContinueWatchingItem(
+      {
+        serverId: "haus-1",
+        ratingKey: "100",
+        title: "Episode",
+      },
+      { listIndex: 3 },
+    );
+
+    expect(row.listIndex).toBe(3);
   });
 
   test("persists hub item credentials", () => {
