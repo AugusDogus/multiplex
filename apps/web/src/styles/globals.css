@@ -284,3 +284,28 @@
     }
   }
 }
+
+/*
+ * Library pivot tabs — shared-element active pill.
+ * React <ViewTransition share="library-tab-pill"> morphs the indicator between
+ * tabs; keep the root snapshot static so only the pill slides.
+ */
+html:active-view-transition-type(library-tab)::view-transition-old(root),
+html:active-view-transition-type(library-tab)::view-transition-new(root) {
+  animation: none;
+}
+
+::view-transition-group(.library-tab-pill) {
+  animation-duration: 220ms;
+  animation-timing-function: var(--ease-in-out);
+  z-index: 1;
+}
+
+/* Avoid the default snapshot crossfade/zoom when tab widths differ — let the
+   group handle position + size so the pill reads as one sliding surface. */
+::view-transition-old(.library-tab-pill),
+::view-transition-new(.library-tab-pill) {
+  height: 100%;
+  width: 100%;
+  object-fit: fill;
+}
