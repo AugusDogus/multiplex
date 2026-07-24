@@ -9,7 +9,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, type ComponentType } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  ViewTransition,
+  type ComponentType,
+} from "react";
+import type {} from "react/canary";
 import type { LibraryPivot } from "@multiplex/plex-query";
 import {
   SUPPORTED_PIVOT_LABELS,
@@ -24,6 +31,9 @@ const PIVOT_ICONS: Record<string, ComponentType<{ className?: string }>> = {
   categories: LayoutGrid,
   playlists: ListVideo,
 };
+
+/** Shared view-transition name so the active pill morphs between tabs. */
+const LIBRARY_TAB_INDICATOR = "library-tab-indicator";
 
 interface LibraryTabsProps {
   pivots: LibraryPivot[];
@@ -101,29 +111,45 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
           params.set("pivot", pivot.id);
         }
         const isActive = activePivot === pivot.id;
+        const label = isSupportedPivot(pivot.id)
+          ? SUPPORTED_PIVOT_LABELS[pivot.id]
+          : pivot.title;
 
         return (
           <Link
             key={pivot.id}
             href={`${pathname}?${params.toString()}`}
+            transitionTypes={["library-tab"]}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              "flex shrink-0 items-center rounded-lg border px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-all md:rounded-full md:border-0 @5xl/appheader:gap-2 @5xl/appheader:px-4",
+              "relative flex shrink-0 items-center rounded-lg border border-transparent px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors duration-200 ease-out md:rounded-full md:border-0 @5xl/appheader:gap-2 @5xl/appheader:px-4",
               "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
               isActive
-                ? "border-border bg-muted text-foreground md:bg-background shadow-sm"
-                : "text-muted-foreground hover:border-border/60 hover:bg-muted/50 hover:text-foreground border-transparent md:hover:bg-transparent",
+                ? "text-foreground"
+                : "text-muted-foreground hover:border-border/60 hover:bg-muted/50 hover:text-foreground md:hover:bg-transparent",
             )}
           >
-            <Icon
-              className={cn(
-                "hidden size-4 shrink-0 transition-colors @5xl/appheader:block",
-                isActive ? "text-foreground" : "text-muted-foreground",
-              )}
-            />
-            {isSupportedPivot(pivot.id)
-              ? SUPPORTED_PIVOT_LABELS[pivot.id]
-              : pivot.title}
+            {isActive ? (
+              <ViewTransition
+                name={LIBRARY_TAB_INDICATOR}
+                share="library-tab-pill"
+                default="none"
+              >
+                <span
+                  aria-hidden
+                  className="border-border bg-muted absolute inset-0 rounded-lg border shadow-sm md:rounded-full md:border-0 md:bg-background"
+                />
+              </ViewTransition>
+            ) : null}
+            <span className="relative inline-flex items-center @5xl/appheader:gap-2">
+              <Icon
+                className={cn(
+                  "hidden size-4 shrink-0 transition-colors duration-200 ease-out @5xl/appheader:block",
+                  isActive ? "text-foreground" : "text-muted-foreground",
+                )}
+              />
+              {label}
+            </span>
           </Link>
         );
       })}
