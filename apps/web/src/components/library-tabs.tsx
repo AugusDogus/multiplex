@@ -199,7 +199,17 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
                 style={{ viewTransitionName: LIBRARY_TAB_INDICATOR }}
               />
             ) : null}
-            <span className="relative inline-flex items-center @5xl/appheader:gap-2">
+            {/*
+              Each label gets its own view-transition-name so it stays in the
+              VT layer above the sliding pill (avoids the opaque snapshot
+              covering text, without hiding the pill under root).
+            */}
+            <span
+              className="library-tab-label relative inline-flex items-center @5xl/appheader:gap-2"
+              style={{
+                viewTransitionName: `library-tab-label-${pivot.id}`,
+              }}
+            >
               <Icon
                 className={cn(
                   "hidden size-4 shrink-0 transition-colors duration-200 ease-out @5xl/appheader:block",

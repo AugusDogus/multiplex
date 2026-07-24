@@ -297,26 +297,37 @@
  * The active indicator uses view-transition-name: library-tab-indicator; tab
  * clicks call document.startViewTransition so the pill morphs between tabs.
  *
- * Keep root above the pill group so labels stay readable while the frosted
- * pill slides underneath (otherwise the snapshot paints over white text).
+ * Labels use view-transition-class so they stack above the sliding pill
+ * (putting root above the pill hid it entirely under the opaque page snapshot).
  */
 html[data-library-tab-vt="true"]::view-transition-old(root),
 html[data-library-tab-vt="true"]::view-transition-new(root),
+html[data-library-tab-vt="true"]::view-transition-group(root),
 html:active-view-transition-type(library-tab)::view-transition-old(root),
-html:active-view-transition-type(library-tab)::view-transition-new(root) {
+html:active-view-transition-type(library-tab)::view-transition-new(root),
+html:active-view-transition-type(library-tab)::view-transition-group(root) {
   animation: none !important;
 }
 
-html[data-library-tab-vt="true"]::view-transition-group(root),
-html:active-view-transition-type(library-tab)::view-transition-group(root) {
-  animation: none !important;
-  z-index: 1;
+.library-tab-label {
+  view-transition-class: library-tab-label;
 }
 
 ::view-transition-group(library-tab-indicator) {
   animation-duration: 280ms;
   animation-timing-function: var(--ease-in-out);
-  z-index: 0;
+  z-index: 1;
+}
+
+::view-transition-group(.library-tab-label) {
+  z-index: 2;
+  animation: none;
+}
+
+::view-transition-old(.library-tab-label),
+::view-transition-new(.library-tab-label) {
+  /* Labels stay put above the pill; color snaps with the live DOM after. */
+  animation: none !important;
 }
 
 /* Disable the default old/new crossfade so the group morph (position + width)
