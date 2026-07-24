@@ -47,9 +47,22 @@ function startLibraryTabTransition(update: () => void) {
   }
 
   // jhey-style same-document VT: snapshot → sync DOM update → morph the named
-  // active pill. Tag the transition so CSS can suppress the root crossfade.
-  const transition = document.startViewTransition(update);
-  transition.types?.add("library-tab");
+  // active pill. Mark the document so CSS can suppress the root crossfade
+  // (types alone are easy to miss depending on browser timing).
+  const root = document.documentElement;
+  root.dataset.libraryTabVt = "true";
+  const clear = () => {
+    delete root.dataset.libraryTabVt;
+  };
+
+  try {
+    const transition = document.startViewTransition(update);
+    transition.types?.add("library-tab");
+    void transition.finished.then(clear, clear);
+  } catch {
+    clear();
+    update();
+  }
 }
 
 export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
@@ -182,7 +195,7 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
             {isActive ? (
               <span
                 aria-hidden
-                className="border-border bg-muted absolute inset-0 rounded-lg border shadow-sm md:rounded-full md:border-0 md:bg-background"
+                className="border-border/60 bg-muted/80 md:bg-background/75 absolute inset-0 rounded-lg border shadow-sm backdrop-blur-md md:rounded-full md:border-0"
                 style={{ viewTransitionName: LIBRARY_TAB_INDICATOR }}
               />
             ) : null}
