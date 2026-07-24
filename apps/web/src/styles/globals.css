@@ -296,22 +296,35 @@
  * Library pivot tabs — shared-element active pill (View Transitions API).
  * The active indicator uses view-transition-name: library-tab-indicator; tab
  * clicks call document.startViewTransition so the pill morphs between tabs.
+ *
+ * Keep root above the pill group so labels stay readable while the frosted
+ * pill slides underneath (otherwise the snapshot paints over white text).
  */
+html[data-library-tab-vt="true"]::view-transition-old(root),
+html[data-library-tab-vt="true"]::view-transition-new(root),
 html:active-view-transition-type(library-tab)::view-transition-old(root),
 html:active-view-transition-type(library-tab)::view-transition-new(root) {
-  animation: none;
+  animation: none !important;
 }
 
-::view-transition-group(library-tab-indicator) {
-  animation-duration: 220ms;
-  animation-timing-function: var(--ease-in-out);
+html[data-library-tab-vt="true"]::view-transition-group(root),
+html:active-view-transition-type(library-tab)::view-transition-group(root) {
+  animation: none !important;
   z-index: 1;
 }
 
-/* Prefer size/position morph over crossfading two pill snapshots when widths
-   differ, so it reads as one sliding surface. */
+::view-transition-group(library-tab-indicator) {
+  animation-duration: 280ms;
+  animation-timing-function: var(--ease-in-out);
+  z-index: 0;
+}
+
+/* Disable the default old/new crossfade so the group morph (position + width)
+   reads as one sliding pill instead of two fading snapshots. */
 ::view-transition-old(library-tab-indicator),
 ::view-transition-new(library-tab-indicator) {
+  animation: none !important;
+  mix-blend-mode: normal;
   height: 100%;
   width: 100%;
   object-fit: fill;
