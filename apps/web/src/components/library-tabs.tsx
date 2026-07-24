@@ -11,12 +11,12 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ComponentType,
   type MouseEvent,
 } from "react";
-import { flushSync } from "react-dom";
 import type { LibraryPivot } from "@multiplex/plex-query";
 import {
   SUPPORTED_PIVOT_LABELS,
@@ -32,37 +32,17 @@ const PIVOT_ICONS: Record<string, ComponentType<{ className?: string }>> = {
   playlists: ListVideo,
 };
 
-/** Shared view-transition name so the active pill morphs between tabs. */
-const LIBRARY_TAB_INDICATOR = "library-tab-indicator";
-
 interface LibraryTabsProps {
   pivots: LibraryPivot[];
   className?: string;
 }
 
-function startLibraryTabTransition(update: () => void) {
-  if (typeof document === "undefined" || !("startViewTransition" in document)) {
-    update();
-    return;
-  }
-
-  // jhey-style same-document VT: snapshot → sync DOM update → morph the named
-  // active pill. Mark the document so CSS can suppress the root crossfade
-  // (types alone are easy to miss depending on browser timing).
-  const root = document.documentElement;
-  root.dataset.libraryTabVt = "true";
-  const clear = () => {
-    delete root.dataset.libraryTabVt;
-  };
-
-  try {
-    const transition = document.startViewTransition(update);
-    transition.types?.add("library-tab");
-    void transition.finished.then(clear, clear);
-  } catch {
-    clear();
-    update();
-  }
+interface PillMetrics {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  ready: boolean;
 }
 
 export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
@@ -71,7 +51,15 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
   const searchParams = useSearchParams();
   const source = searchParams.get("source");
   const scrollRef = useRef<HTMLElement>(null);
+  const tabRefs = useRef(new Map<string, HTMLAnchorElement>());
   const [alignTabs, setAlignTabs] = useState<"center" | "start">("center");
+  const [pill, setPill] = useState<PillMetrics>({
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+    ready: false,
+  });
 
   const tabs = pivots.filter((pivot) => isSupportedPivot(pivot.id));
   const tabIds = tabs.map((pivot) => pivot.id).join(",");
@@ -83,9 +71,8 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
     ? requestedPivot
     : "recommended";
 
-  // Optimistic active tab so the pill can morph inside startViewTransition
-  // before the App Router search-param update lands. Sync from the URL during
-  // render when the route changes (back/forward or external navigation).
+  // Optimistic active tab so the pill can slide before the App Router
+  // search-param update lands. Sync from the URL during render on back/forward.
   const [activePivot, setActivePivot] = useState(urlPivot);
   const [prevUrlPivot, setPrevUrlPivot] = useState(urlPivot);
   if (urlPivot !== prevUrlPivot) {
@@ -123,6 +110,41 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
     };
   }, [tabIds]);
 
+  // Measure the active tab and drive a single underlay pill with transform.
+  // Live DOM (not View Transition snapshots) so frost/blur and text stacking
+  // stay correct while it slides.
+  useLayoutEffect(() => {
+    const nav = scrollRef.current;
+    const activeTab = tabRefs.current.get(activePivot);
+    if (!nav || !activeTab) {
+      return;
+    }
+
+    const updatePill = () => {
+      const navRect = nav.getBoundingClientRect();
+      const tabRect = activeTab.getBoundingClientRect();
+      setPill({
+        x: tabRect.left - navRect.left + nav.scrollLeft,
+        y: tabRect.top - navRect.top + nav.scrollTop,
+        width: tabRect.width,
+        height: tabRect.height,
+        ready: true,
+      });
+    };
+
+    updatePill();
+
+    const observer = new ResizeObserver(updatePill);
+    observer.observe(nav);
+    observer.observe(activeTab);
+    window.addEventListener("resize", updatePill);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updatePill);
+    };
+  }, [activePivot, tabIds]);
+
   if (tabs.length <= 1) {
     return null;
   }
@@ -132,11 +154,24 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
       ref={scrollRef}
       aria-label="Library views"
       className={cn(
-        "scrollbar-hide md:bg-muted/70 flex w-full max-w-full min-w-0 items-center justify-start gap-2 overflow-x-auto py-0.5 md:w-fit md:gap-1 md:rounded-full md:p-1",
+        "scrollbar-hide md:bg-muted/70 relative flex w-full max-w-full min-w-0 items-center justify-start gap-2 overflow-x-auto py-0.5 md:w-fit md:gap-1 md:rounded-full md:p-1",
         alignTabs === "center" ? "md:justify-center" : "md:justify-start",
         className,
       )}
     >
+      <span
+        aria-hidden
+        className={cn(
+          "border-border/50 bg-muted/90 md:bg-background/80 pointer-events-none absolute top-0 left-0 z-0 rounded-lg border shadow-sm backdrop-blur-md md:rounded-full md:border-0",
+          "transition-[transform,width,height] duration-[280ms] ease-in-out motion-reduce:transition-none",
+          pill.ready ? "opacity-100" : "opacity-0",
+        )}
+        style={{
+          width: pill.width,
+          height: pill.height,
+          transform: `translate(${pill.x}px, ${pill.y}px)`,
+        }}
+      />
       {tabs.map((pivot) => {
         const Icon = PIVOT_ICONS[pivot.id] ?? Sparkles;
         const params = new URLSearchParams();
@@ -166,53 +201,32 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
           }
 
           event.preventDefault();
-          startLibraryTabTransition(() => {
-            flushSync(() => {
-              setActivePivot(pivot.id);
-            });
-          });
-          router.push(href, {
-            scroll: false,
-            transitionTypes: ["library-tab"],
-          });
+          setActivePivot(pivot.id);
+          router.push(href, { scroll: false });
         };
 
         return (
           <Link
             key={pivot.id}
+            ref={(node) => {
+              if (node) {
+                tabRefs.current.set(pivot.id, node);
+              } else {
+                tabRefs.current.delete(pivot.id);
+              }
+            }}
             href={href}
             onClick={onClick}
-            transitionTypes={["library-tab"]}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              "relative flex shrink-0 items-center rounded-lg border border-transparent px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors duration-200 ease-out md:rounded-full md:border-0 @5xl/appheader:gap-2 @5xl/appheader:px-4",
+              "relative z-10 flex shrink-0 items-center rounded-lg border border-transparent px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors duration-200 ease-out md:rounded-full md:border-0 @5xl/appheader:gap-2 @5xl/appheader:px-4",
               "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none",
               isActive
                 ? "text-foreground"
                 : "text-muted-foreground hover:border-border/60 hover:bg-muted/50 hover:text-foreground md:hover:bg-transparent",
             )}
           >
-            {isActive ? (
-              <span
-                aria-hidden
-                // Avoid backdrop-blur on the named VT element — snapshots flatten
-                // without the live backdrop, so the pill reads as invisible mid-slide.
-                // Soft fill still reads frosted against the muted track.
-                className="border-border/50 bg-muted md:bg-background/90 absolute inset-0 rounded-lg border shadow-sm md:rounded-full md:border-0"
-                style={{ viewTransitionName: LIBRARY_TAB_INDICATOR }}
-              />
-            ) : null}
-            {/*
-              Each label gets its own view-transition-name so it stays in the
-              VT layer above the sliding pill (avoids the opaque snapshot
-              covering text, without hiding the pill under root).
-            */}
-            <span
-              className="library-tab-label relative inline-flex items-center @5xl/appheader:gap-2"
-              style={{
-                viewTransitionName: `library-tab-label-${pivot.id}`,
-              }}
-            >
+            <span className="inline-flex items-center @5xl/appheader:gap-2">
               <Icon
                 className={cn(
                   "hidden size-4 shrink-0 transition-colors duration-200 ease-out @5xl/appheader:block",
