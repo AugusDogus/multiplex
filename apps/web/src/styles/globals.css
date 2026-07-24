@@ -330,13 +330,19 @@ html:active-view-transition-type(library-tab)::view-transition-group(root) {
   animation: none !important;
 }
 
-/* Disable the default old/new crossfade so the group morph (position + width)
-   reads as one sliding pill instead of two fading snapshots. */
+/* Morph position/size only — no crossfade. Keep both snapshots fully opaque
+   so a translucent/frosted fill cannot vanish mid-transition. */
+::view-transition-image-pair(library-tab-indicator) {
+  isolation: isolate;
+}
+
 ::view-transition-old(library-tab-indicator),
 ::view-transition-new(library-tab-indicator) {
   animation: none !important;
   mix-blend-mode: normal;
+  opacity: 1;
   height: 100%;
   width: 100%;
   object-fit: fill;
+  overflow: clip;
 }

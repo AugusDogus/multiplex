@@ -195,7 +195,10 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
             {isActive ? (
               <span
                 aria-hidden
-                className="border-border/60 bg-muted/80 md:bg-background/75 absolute inset-0 rounded-lg border shadow-sm backdrop-blur-md md:rounded-full md:border-0"
+                // Avoid backdrop-blur on the named VT element — snapshots flatten
+                // without the live backdrop, so the pill reads as invisible mid-slide.
+                // Soft fill still reads frosted against the muted track.
+                className="border-border/50 bg-muted md:bg-background/90 absolute inset-0 rounded-lg border shadow-sm md:rounded-full md:border-0"
                 style={{ viewTransitionName: LIBRARY_TAB_INDICATOR }}
               />
             ) : null}
