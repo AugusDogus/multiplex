@@ -19,6 +19,7 @@ import {
   type MouseEvent,
   type TransitionEvent,
 } from "react";
+import { flushSync } from "react-dom";
 import type { LibraryPivot } from "@multiplex/plex-query";
 import {
   SUPPORTED_PIVOT_LABELS,
@@ -57,8 +58,8 @@ const EMPTY_PILL: PillMetrics = {
 
 /**
  * Soft-nav can remount this client tree when the pivot search param changes.
- * Remember the last pill geometry per library so a remount can keep sliding
- * from the previous tab instead of vanishing and popping in.
+ * Remember pill geometry per library so a remount can continue from the
+ * in-flight visual position instead of jumping.
  */
 const pillMemory = new Map<string, PillMetrics>();
 
@@ -84,6 +85,36 @@ function readTabMetrics(tab: HTMLElement): PillMetrics {
   };
 }
 
+/** Where the pill is on screen right now — including mid-transition. */
+function readPillVisualMetrics(pill: HTMLElement): PillMetrics | null {
+  const style = getComputedStyle(pill);
+  if (style.transform === "none") {
+    return null;
+  }
+
+  const matrix = new DOMMatrixReadOnly(style.transform);
+  const width = Number.parseFloat(style.width);
+  const height = Number.parseFloat(style.height);
+  if (
+    !Number.isFinite(matrix.m41) ||
+    !Number.isFinite(matrix.m42) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+
+  return {
+    x: matrix.m41,
+    y: matrix.m42,
+    width,
+    height,
+    ready: true,
+  };
+}
+
 export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -91,10 +122,14 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
   const source = searchParams.get("source");
   const key = memoryKey(pathname, source);
   const scrollRef = useRef<HTMLElement>(null);
+  const pillRef = useRef<HTMLSpanElement>(null);
   const tabRefs = useRef(new Map<string, HTMLAnchorElement>());
   const slidingRef = useRef(false);
-  const hasMeasuredRef = useRef(false);
-  const restoredFromMemoryRef = useRef(Boolean(pillMemory.get(key)?.ready));
+  const moveRafRef = useRef(0);
+  const clickDrivenRef = useRef(false);
+  const restoredFromMemory = Boolean(pillMemory.get(key)?.ready);
+  const restoredFromMemoryRef = useRef(restoredFromMemory);
+  const hasMeasuredRef = useRef(restoredFromMemory);
   const [alignTabs, setAlignTabs] = useState<"center" | "start">("center");
   const [pill, setPill] = useState<PillMetrics>(
     () => pillMemory.get(key) ?? EMPTY_PILL,
@@ -118,6 +153,60 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
     setPrevUrlPivot(urlPivot);
     setActivePivot(urlPivot);
   }
+
+  const persistPill = (metrics: PillMetrics) => {
+    setPill(metrics);
+    pillMemory.set(key, metrics);
+  };
+
+  /**
+   * Retarget the pill from its live visual position to a tab. Capturing the
+   * computed transform (not the destination tab box) keeps mid-flight clicks
+   * interruptible — CSS continues from where the pill actually is.
+   */
+  const movePillToTab = (pivotId: string, options?: { snap?: boolean }) => {
+    const targetTab = tabRefs.current.get(pivotId);
+    if (!targetTab) {
+      return;
+    }
+
+    cancelAnimationFrame(moveRafRef.current);
+
+    const target = readTabMetrics(targetTab);
+    const pillElement = pillRef.current;
+    const visual =
+      pillElement && hasMeasuredRef.current
+        ? readPillVisualMetrics(pillElement)
+        : null;
+
+    if (options?.snap || !visual || !pillElement) {
+      hasMeasuredRef.current = true;
+      slidingRef.current = false;
+      persistPill(target);
+      return;
+    }
+
+    // Freeze at the current computed geometry (no transition), sync React,
+    // then aim at the new tab so an in-flight slide can reverse/retarget.
+    const previousTransition = pillElement.style.transition;
+    pillElement.style.transition = "none";
+    pillElement.style.width = `${visual.width}px`;
+    pillElement.style.height = `${visual.height}px`;
+    pillElement.style.transform = `translate3d(${visual.x}px, ${visual.y}px, 0)`;
+    void pillElement.offsetWidth;
+    pillElement.style.transition = previousTransition;
+
+    flushSync(() => {
+      setPill(visual);
+    });
+    pillMemory.set(key, visual);
+    slidingRef.current = true;
+    hasMeasuredRef.current = true;
+
+    moveRafRef.current = requestAnimationFrame(() => {
+      setPill(target);
+    });
+  };
 
   useEffect(() => {
     const updateAlignment = () => {
@@ -156,54 +245,45 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
       return;
     }
 
-    const measure = () => readTabMetrics(activeTab);
+    // Clicks drive the pill themselves so rapid re-clicks stay interruptible.
+    if (clickDrivenRef.current) {
+      clickDrivenRef.current = false;
+    } else if (!hasMeasuredRef.current && !restoredFromMemoryRef.current) {
+      movePillToTab(activePivot, { snap: true });
+    } else {
+      movePillToTab(activePivot);
+    }
 
-    const persistIdle = (metrics: PillMetrics) => {
-      setPill(metrics);
-      if (!slidingRef.current) {
-        pillMemory.set(key, metrics);
+    const onScrollOrResize = () => {
+      if (slidingRef.current) {
+        return;
+      }
+      const tab = tabRefs.current.get(activePivot);
+      if (tab) {
+        persistPill(readTabMetrics(tab));
       }
     };
 
-    let raf1 = 0;
-    let raf2 = 0;
-
-    // First layout without memory: snap before paint (no 0,0 → tab animation).
-    // With memory (or later updates): retarget after paint so CSS can slide.
-    if (!hasMeasuredRef.current && !restoredFromMemoryRef.current) {
-      hasMeasuredRef.current = true;
-      const metrics = measure();
-      setPill(metrics);
-      pillMemory.set(key, metrics);
-    } else {
-      hasMeasuredRef.current = true;
-      slidingRef.current = true;
-      raf1 = requestAnimationFrame(() => {
-        raf2 = requestAnimationFrame(() => {
-          setPill(measure());
-        });
-      });
-    }
-
-    const observer = new ResizeObserver(() => {
-      persistIdle(measure());
-    });
+    const observer = new ResizeObserver(onScrollOrResize);
     observer.observe(nav);
     observer.observe(activeTab);
-    const onScrollOrResize = () => {
-      persistIdle(measure());
-    };
     nav.addEventListener("scroll", onScrollOrResize, { passive: true });
     window.addEventListener("resize", onScrollOrResize);
 
     return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
       observer.disconnect();
       nav.removeEventListener("scroll", onScrollOrResize);
       window.removeEventListener("resize", onScrollOrResize);
     };
+    // movePillToTab closes over key/refs; activePivot/tabIds/key are the signals.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
   }, [activePivot, tabIds, key]);
+
+  useEffect(() => {
+    return () => {
+      cancelAnimationFrame(moveRafRef.current);
+    };
+  }, []);
 
   const onPillTransitionEnd = (event: TransitionEvent<HTMLSpanElement>) => {
     if (event.propertyName !== "transform") {
@@ -231,6 +311,7 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
       )}
     >
       <span
+        ref={pillRef}
         aria-hidden
         onTransitionEnd={onPillTransitionEnd}
         className={cn(
@@ -269,16 +350,9 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
           }
 
           event.preventDefault();
-          // Freeze the current geometry as the transition origin before the
-          // active tab (and possibly this component instance) changes.
-          const currentTab = tabRefs.current.get(activePivot);
-          if (currentTab) {
-            pillMemory.set(key, readTabMetrics(currentTab));
-          } else if (pill.ready) {
-            pillMemory.set(key, pill);
-          }
-          slidingRef.current = true;
+          clickDrivenRef.current = true;
           setActivePivot(pivot.id);
+          movePillToTab(pivot.id);
           router.push(href, { scroll: false });
         };
 
