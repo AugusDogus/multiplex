@@ -28,9 +28,6 @@ const config = {
     appShells: true,
     // Start dynamic/runtime prefetch work on link hover, not only viewport.
     dynamicOnHover: true,
-    // Opt into React <ViewTransition> during App Router navigations (library
-    // pivot tabs morph the active pill between selections).
-    viewTransition: true,
   },
   allowedDevOrigins: [
     "local.augie.haus",
