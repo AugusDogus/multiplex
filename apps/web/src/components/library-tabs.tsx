@@ -48,6 +48,8 @@ interface PillMetrics {
   ready: boolean;
 }
 
+type PillMemory = PillMetrics & { pivot: string };
+
 const EMPTY_PILL: PillMetrics = {
   x: 0,
   y: 0,
@@ -61,7 +63,7 @@ const EMPTY_PILL: PillMetrics = {
  * Remember pill geometry per library so a remount can continue from the
  * in-flight visual position instead of jumping.
  */
-const pillMemory = new Map<string, PillMetrics>();
+const pillMemory = new Map<string, PillMemory>();
 
 function memoryKey(pathname: string, source: string | null) {
   return `${pathname}?source=${source ?? ""}`;
@@ -127,13 +129,7 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
   const slidingRef = useRef(false);
   const moveRafRef = useRef(0);
   const clickDrivenRef = useRef(false);
-  const restoredFromMemory = Boolean(pillMemory.get(key)?.ready);
-  const restoredFromMemoryRef = useRef(restoredFromMemory);
-  const hasMeasuredRef = useRef(restoredFromMemory);
-  const [alignTabs, setAlignTabs] = useState<"center" | "start">("center");
-  const [pill, setPill] = useState<PillMetrics>(
-    () => pillMemory.get(key) ?? EMPTY_PILL,
-  );
+  const enableMotionRafRef = useRef(0);
 
   const tabs = pivots.filter((pivot) => isSupportedPivot(pivot.id));
   const tabIds = tabs.map((pivot) => pivot.id).join(",");
@@ -145,6 +141,26 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
     ? requestedPivot
     : "recommended";
 
+  const remembered = pillMemory.get(key);
+  // Deep links / first paint: no memory → snap with motion off.
+  // Soft-nav remount mid-slide: memory for a different pivot → keep sliding.
+  const restoreForSlide = Boolean(
+    remembered?.ready && remembered.pivot !== urlPivot,
+  );
+  const restoreOnTarget = Boolean(
+    remembered?.ready && remembered.pivot === urlPivot,
+  );
+
+  const [pill, setPill] = useState<PillMetrics>(() =>
+    remembered?.ready ? remembered : EMPTY_PILL,
+  );
+  // Only enable CSS transitions after the first correct paint (or when
+  // continuing an in-flight slide across a remount).
+  const [motionEnabled, setMotionEnabled] = useState(restoreForSlide);
+  const hasMeasuredRef = useRef(restoreForSlide || restoreOnTarget);
+  const restoreForSlideRef = useRef(restoreForSlide);
+  const restoreOnTargetRef = useRef(restoreOnTarget);
+
   // Optimistic active tab so the pill can slide before the App Router
   // search-param update lands. Sync from the URL during render on back/forward.
   const [activePivot, setActivePivot] = useState(urlPivot);
@@ -154,9 +170,20 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
     setActivePivot(urlPivot);
   }
 
-  const persistPill = (metrics: PillMetrics) => {
+  const [alignTabs, setAlignTabs] = useState<"center" | "start">("center");
+
+  const persistPill = (metrics: PillMetrics, pivotId: string) => {
     setPill(metrics);
-    pillMemory.set(key, metrics);
+    pillMemory.set(key, { ...metrics, pivot: pivotId });
+  };
+
+  const enableMotionAfterPaint = () => {
+    cancelAnimationFrame(enableMotionRafRef.current);
+    enableMotionRafRef.current = requestAnimationFrame(() => {
+      enableMotionRafRef.current = requestAnimationFrame(() => {
+        setMotionEnabled(true);
+      });
+    });
   };
 
   /**
@@ -182,7 +209,19 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
     if (options?.snap || !visual || !pillElement) {
       hasMeasuredRef.current = true;
       slidingRef.current = false;
-      persistPill(target);
+
+      // Snap must not use CSS transitions (cold load / deep link).
+      if (pillElement) {
+        pillElement.style.transition = "none";
+      }
+      flushSync(() => {
+        persistPill(target, pivotId);
+      });
+      if (pillElement) {
+        void pillElement.offsetWidth;
+        pillElement.style.transition = "";
+      }
+      enableMotionAfterPaint();
       return;
     }
 
@@ -199,9 +238,10 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
     flushSync(() => {
       setPill(visual);
     });
-    pillMemory.set(key, visual);
+    pillMemory.set(key, { ...visual, pivot: pivotId });
     slidingRef.current = true;
     hasMeasuredRef.current = true;
+    setMotionEnabled(true);
 
     moveRafRef.current = requestAnimationFrame(() => {
       setPill(target);
@@ -248,9 +288,16 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
     // Clicks drive the pill themselves so rapid re-clicks stay interruptible.
     if (clickDrivenRef.current) {
       clickDrivenRef.current = false;
-    } else if (!hasMeasuredRef.current && !restoredFromMemoryRef.current) {
+    } else if (restoreForSlideRef.current) {
+      // Soft-nav remount: memory is the previous tab; slide to the URL pivot.
+      restoreForSlideRef.current = false;
+      movePillToTab(activePivot);
+    } else if (!hasMeasuredRef.current || restoreOnTargetRef.current) {
+      // Cold load / deep link / remount already on the URL tab: no animation.
+      restoreOnTargetRef.current = false;
       movePillToTab(activePivot, { snap: true });
     } else {
+      // In-session URL sync (back/forward): animate to the new pivot.
       movePillToTab(activePivot);
     }
 
@@ -260,7 +307,7 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
       }
       const tab = tabRefs.current.get(activePivot);
       if (tab) {
-        persistPill(readTabMetrics(tab));
+        persistPill(readTabMetrics(tab), activePivot);
       }
     };
 
@@ -282,6 +329,7 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
   useEffect(() => {
     return () => {
       cancelAnimationFrame(moveRafRef.current);
+      cancelAnimationFrame(enableMotionRafRef.current);
     };
   }, []);
 
@@ -292,7 +340,10 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
     slidingRef.current = false;
     const activeTab = tabRefs.current.get(activePivot);
     if (activeTab) {
-      pillMemory.set(key, readTabMetrics(activeTab));
+      pillMemory.set(key, {
+        ...readTabMetrics(activeTab),
+        pivot: activePivot,
+      });
     }
   };
 
@@ -316,7 +367,8 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
         onTransitionEnd={onPillTransitionEnd}
         className={cn(
           "border-border/60 bg-muted md:bg-background pointer-events-none absolute top-0 left-0 z-0 rounded-lg border shadow-sm md:rounded-full md:border-0 md:shadow-sm",
-          "transition-[transform,width,height] duration-[280ms] ease-in-out motion-reduce:transition-none",
+          motionEnabled &&
+            "transition-[transform,width,height] duration-[280ms] ease-in-out motion-reduce:transition-none",
           pill.ready ? "opacity-100" : "opacity-0",
         )}
         style={pillStyle(pill)}
