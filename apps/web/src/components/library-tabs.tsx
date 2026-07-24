@@ -15,7 +15,9 @@ import {
   useRef,
   useState,
   type ComponentType,
+  type CSSProperties,
   type MouseEvent,
+  type TransitionEvent,
 } from "react";
 import type { LibraryPivot } from "@multiplex/plex-query";
 import {
@@ -45,21 +47,58 @@ interface PillMetrics {
   ready: boolean;
 }
 
+const EMPTY_PILL: PillMetrics = {
+  x: 0,
+  y: 0,
+  width: 0,
+  height: 0,
+  ready: false,
+};
+
+/**
+ * Soft-nav can remount this client tree when the pivot search param changes.
+ * Remember the last pill geometry per library so a remount can keep sliding
+ * from the previous tab instead of vanishing and popping in.
+ */
+const pillMemory = new Map<string, PillMetrics>();
+
+function memoryKey(pathname: string, source: string | null) {
+  return `${pathname}?source=${source ?? ""}`;
+}
+
+function pillStyle(metrics: PillMetrics): CSSProperties {
+  return {
+    width: metrics.width,
+    height: metrics.height,
+    transform: `translate3d(${metrics.x}px, ${metrics.y}px, 0)`,
+  };
+}
+
+function readTabMetrics(tab: HTMLElement): PillMetrics {
+  return {
+    x: tab.offsetLeft,
+    y: tab.offsetTop,
+    width: tab.offsetWidth,
+    height: tab.offsetHeight,
+    ready: true,
+  };
+}
+
 export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
   const source = searchParams.get("source");
+  const key = memoryKey(pathname, source);
   const scrollRef = useRef<HTMLElement>(null);
   const tabRefs = useRef(new Map<string, HTMLAnchorElement>());
+  const slidingRef = useRef(false);
+  const hasMeasuredRef = useRef(false);
+  const restoredFromMemoryRef = useRef(Boolean(pillMemory.get(key)?.ready));
   const [alignTabs, setAlignTabs] = useState<"center" | "start">("center");
-  const [pill, setPill] = useState<PillMetrics>({
-    x: 0,
-    y: 0,
-    width: 0,
-    height: 0,
-    ready: false,
-  });
+  const [pill, setPill] = useState<PillMetrics>(
+    () => pillMemory.get(key) ?? EMPTY_PILL,
+  );
 
   const tabs = pivots.filter((pivot) => isSupportedPivot(pivot.id));
   const tabIds = tabs.map((pivot) => pivot.id).join(",");
@@ -110,9 +149,6 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
     };
   }, [tabIds]);
 
-  // Measure the active tab and drive a single underlay pill with transform.
-  // Live DOM (not View Transition snapshots) so frost/blur and text stacking
-  // stay correct while it slides.
   useLayoutEffect(() => {
     const nav = scrollRef.current;
     const activeTab = tabRefs.current.get(activePivot);
@@ -120,30 +156,65 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
       return;
     }
 
-    const updatePill = () => {
-      // offset* is relative to the positioned nav and stays correct while the
-      // row scrolls horizontally (getBoundingClientRect + scrollLeft can drift).
-      setPill({
-        x: activeTab.offsetLeft,
-        y: activeTab.offsetTop,
-        width: activeTab.offsetWidth,
-        height: activeTab.offsetHeight,
-        ready: true,
-      });
+    const measure = () => readTabMetrics(activeTab);
+
+    const persistIdle = (metrics: PillMetrics) => {
+      setPill(metrics);
+      if (!slidingRef.current) {
+        pillMemory.set(key, metrics);
+      }
     };
 
-    updatePill();
+    let raf1 = 0;
+    let raf2 = 0;
 
-    const observer = new ResizeObserver(updatePill);
+    // First layout without memory: snap before paint (no 0,0 → tab animation).
+    // With memory (or later updates): retarget after paint so CSS can slide.
+    if (!hasMeasuredRef.current && !restoredFromMemoryRef.current) {
+      hasMeasuredRef.current = true;
+      const metrics = measure();
+      setPill(metrics);
+      pillMemory.set(key, metrics);
+    } else {
+      hasMeasuredRef.current = true;
+      slidingRef.current = true;
+      raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => {
+          setPill(measure());
+        });
+      });
+    }
+
+    const observer = new ResizeObserver(() => {
+      persistIdle(measure());
+    });
     observer.observe(nav);
     observer.observe(activeTab);
-    window.addEventListener("resize", updatePill);
+    const onScrollOrResize = () => {
+      persistIdle(measure());
+    };
+    nav.addEventListener("scroll", onScrollOrResize, { passive: true });
+    window.addEventListener("resize", onScrollOrResize);
 
     return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
       observer.disconnect();
-      window.removeEventListener("resize", updatePill);
+      nav.removeEventListener("scroll", onScrollOrResize);
+      window.removeEventListener("resize", onScrollOrResize);
     };
-  }, [activePivot, tabIds]);
+  }, [activePivot, tabIds, key]);
+
+  const onPillTransitionEnd = (event: TransitionEvent<HTMLSpanElement>) => {
+    if (event.propertyName !== "transform") {
+      return;
+    }
+    slidingRef.current = false;
+    const activeTab = tabRefs.current.get(activePivot);
+    if (activeTab) {
+      pillMemory.set(key, readTabMetrics(activeTab));
+    }
+  };
 
   if (tabs.length <= 1) {
     return null;
@@ -154,23 +225,20 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
       ref={scrollRef}
       aria-label="Library views"
       className={cn(
-        "scrollbar-hide md:bg-muted/70 relative flex w-full max-w-full min-w-0 items-center justify-start gap-2 overflow-x-auto py-0.5 md:w-fit md:gap-1 md:rounded-full md:p-1",
+        "scrollbar-hide md:bg-muted relative flex w-full max-w-full min-w-0 items-center justify-start gap-2 overflow-x-auto bg-transparent py-0.5 md:w-fit md:gap-1 md:rounded-full md:p-1",
         alignTabs === "center" ? "md:justify-center" : "md:justify-start",
         className,
       )}
     >
       <span
         aria-hidden
+        onTransitionEnd={onPillTransitionEnd}
         className={cn(
           "border-border/60 bg-muted md:bg-background pointer-events-none absolute top-0 left-0 z-0 rounded-lg border shadow-sm md:rounded-full md:border-0 md:shadow-sm",
           "transition-[transform,width,height] duration-[280ms] ease-in-out motion-reduce:transition-none",
           pill.ready ? "opacity-100" : "opacity-0",
         )}
-        style={{
-          width: pill.width,
-          height: pill.height,
-          transform: `translate3d(${pill.x}px, ${pill.y}px, 0)`,
-        }}
+        style={pillStyle(pill)}
       />
       {tabs.map((pivot) => {
         const Icon = PIVOT_ICONS[pivot.id] ?? Sparkles;
@@ -201,6 +269,15 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
           }
 
           event.preventDefault();
+          // Freeze the current geometry as the transition origin before the
+          // active tab (and possibly this component instance) changes.
+          const currentTab = tabRefs.current.get(activePivot);
+          if (currentTab) {
+            pillMemory.set(key, readTabMetrics(currentTab));
+          } else if (pill.ready) {
+            pillMemory.set(key, pill);
+          }
+          slidingRef.current = true;
           setActivePivot(pivot.id);
           router.push(href, { scroll: false });
         };
