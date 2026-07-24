@@ -121,13 +121,13 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
     }
 
     const updatePill = () => {
-      const navRect = nav.getBoundingClientRect();
-      const tabRect = activeTab.getBoundingClientRect();
+      // offset* is relative to the positioned nav and stays correct while the
+      // row scrolls horizontally (getBoundingClientRect + scrollLeft can drift).
       setPill({
-        x: tabRect.left - navRect.left + nav.scrollLeft,
-        y: tabRect.top - navRect.top + nav.scrollTop,
-        width: tabRect.width,
-        height: tabRect.height,
+        x: activeTab.offsetLeft,
+        y: activeTab.offsetTop,
+        width: activeTab.offsetWidth,
+        height: activeTab.offsetHeight,
         ready: true,
       });
     };
@@ -162,14 +162,14 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
       <span
         aria-hidden
         className={cn(
-          "border-border/50 bg-muted/90 md:bg-background/80 pointer-events-none absolute top-0 left-0 z-0 rounded-lg border shadow-sm backdrop-blur-md md:rounded-full md:border-0",
+          "border-border/60 bg-muted md:bg-background pointer-events-none absolute top-0 left-0 z-0 rounded-lg border shadow-sm md:rounded-full md:border-0 md:shadow-sm",
           "transition-[transform,width,height] duration-[280ms] ease-in-out motion-reduce:transition-none",
           pill.ready ? "opacity-100" : "opacity-0",
         )}
         style={{
           width: pill.width,
           height: pill.height,
-          transform: `translate(${pill.x}px, ${pill.y}px)`,
+          transform: `translate3d(${pill.x}px, ${pill.y}px, 0)`,
         }}
       />
       {tabs.map((pivot) => {
