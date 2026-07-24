@@ -8,15 +8,15 @@ import {
   Sparkles,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   useEffect,
   useRef,
   useState,
-  ViewTransition,
   type ComponentType,
+  type MouseEvent,
 } from "react";
-import type {} from "react/canary";
+import { flushSync } from "react-dom";
 import type { LibraryPivot } from "@multiplex/plex-query";
 import {
   SUPPORTED_PIVOT_LABELS,
@@ -40,8 +40,21 @@ interface LibraryTabsProps {
   className?: string;
 }
 
+function startLibraryTabTransition(update: () => void) {
+  if (typeof document === "undefined" || !("startViewTransition" in document)) {
+    update();
+    return;
+  }
+
+  // jhey-style same-document VT: snapshot → sync DOM update → morph the named
+  // active pill. Tag the transition so CSS can suppress the root crossfade.
+  const transition = document.startViewTransition(update);
+  transition.types?.add("library-tab");
+}
+
 export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const source = searchParams.get("source");
   const scrollRef = useRef<HTMLElement>(null);
@@ -49,6 +62,23 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
 
   const tabs = pivots.filter((pivot) => isSupportedPivot(pivot.id));
   const tabIds = tabs.map((pivot) => pivot.id).join(",");
+
+  // Mirror the page's fallback: an unknown/unsupported pivot renders the
+  // Recommended content, so highlight Recommended rather than no tab.
+  const requestedPivot = searchParams.get("pivot") ?? "recommended";
+  const urlPivot = tabs.some((pivot) => pivot.id === requestedPivot)
+    ? requestedPivot
+    : "recommended";
+
+  // Optimistic active tab so the pill can morph inside startViewTransition
+  // before the App Router search-param update lands. Sync from the URL during
+  // render when the route changes (back/forward or external navigation).
+  const [activePivot, setActivePivot] = useState(urlPivot);
+  const [prevUrlPivot, setPrevUrlPivot] = useState(urlPivot);
+  if (urlPivot !== prevUrlPivot) {
+    setPrevUrlPivot(urlPivot);
+    setActivePivot(urlPivot);
+  }
 
   useEffect(() => {
     const updateAlignment = () => {
@@ -84,13 +114,6 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
     return null;
   }
 
-  // Mirror the page's fallback: an unknown/unsupported pivot renders the
-  // Recommended content, so highlight Recommended rather than no tab.
-  const requestedPivot = searchParams.get("pivot") ?? "recommended";
-  const activePivot = tabs.some((pivot) => pivot.id === requestedPivot)
-    ? requestedPivot
-    : "recommended";
-
   return (
     <nav
       ref={scrollRef}
@@ -110,15 +133,42 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
         if (pivot.id !== "recommended") {
           params.set("pivot", pivot.id);
         }
+        const href = `${pathname}?${params.toString()}`;
         const isActive = activePivot === pivot.id;
         const label = isSupportedPivot(pivot.id)
           ? SUPPORTED_PIVOT_LABELS[pivot.id]
           : pivot.title;
 
+        const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
+          if (
+            isActive ||
+            event.defaultPrevented ||
+            event.button !== 0 ||
+            event.metaKey ||
+            event.altKey ||
+            event.ctrlKey ||
+            event.shiftKey
+          ) {
+            return;
+          }
+
+          event.preventDefault();
+          startLibraryTabTransition(() => {
+            flushSync(() => {
+              setActivePivot(pivot.id);
+            });
+          });
+          router.push(href, {
+            scroll: false,
+            transitionTypes: ["library-tab"],
+          });
+        };
+
         return (
           <Link
             key={pivot.id}
-            href={`${pathname}?${params.toString()}`}
+            href={href}
+            onClick={onClick}
             transitionTypes={["library-tab"]}
             aria-current={isActive ? "page" : undefined}
             className={cn(
@@ -130,16 +180,11 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
             )}
           >
             {isActive ? (
-              <ViewTransition
-                name={LIBRARY_TAB_INDICATOR}
-                share="library-tab-pill"
-                default="none"
-              >
-                <span
-                  aria-hidden
-                  className="border-border bg-muted absolute inset-0 rounded-lg border shadow-sm md:rounded-full md:border-0 md:bg-background"
-                />
-              </ViewTransition>
+              <span
+                aria-hidden
+                className="border-border bg-muted absolute inset-0 rounded-lg border shadow-sm md:rounded-full md:border-0 md:bg-background"
+                style={{ viewTransitionName: LIBRARY_TAB_INDICATOR }}
+              />
             ) : null}
             <span className="relative inline-flex items-center @5xl/appheader:gap-2">
               <Icon
