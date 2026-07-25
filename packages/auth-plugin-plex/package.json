@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     "./client": "./src/client.ts",
-    "./server": "./src/server.ts"
+    "./server": "./src/server.ts",
+    "./return-to": "./src/return-to.ts"
   },
   "scripts": {
     "test": "bun test",

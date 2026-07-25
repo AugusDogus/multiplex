@@ -8,8 +8,6 @@ import {
   LogOut,
   Sparkles,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
-
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import {
   DropdownMenu,
@@ -41,7 +39,6 @@ export function NavUser({
   userInfo: PlexUserInfo;
 }) {
   const { isMobile } = useSidebar();
-  const router = useRouter();
   const initials = user.name
     .split(" ")
     .map((name) => name[0])
@@ -141,7 +138,8 @@ export function NavUser({
             <DropdownMenuItem
               onClick={async () => {
                 await signOut();
-                router.replace("/login");
+                // Full navigation: avoid flashing the signed-in shell on the way out.
+                window.location.replace("/login");
               }}
             >
               <LogOut />
