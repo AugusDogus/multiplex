@@ -3,14 +3,20 @@ import packageJson from "~/../package.json";
 import { Command } from "lucide-react";
 import Link from "next/link";
 
+import { SidebarUserSlot } from "~/components/sidebar-user-slot";
 import { Skeleton } from "~/components/ui/skeleton";
 import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "~/components/ui/sidebar";
+import type { AuthHint } from "~/lib/auth/auth-hint";
 
-export function AppSidebarSkeleton() {
+export function AppSidebarSkeleton({
+  hint = null,
+}: {
+  hint?: AuthHint | null;
+}) {
   return (
     <div
       className="group peer text-sidebar-foreground hidden md:block"
@@ -46,10 +52,15 @@ export function AppSidebarSkeleton() {
             </SidebarMenuItem>
           </SidebarMenu>
 
-          <div className="flex flex-col gap-2 px-2 pt-2">
+          <div className="flex flex-1 flex-col gap-2 px-2 pt-2">
             {Array.from({ length: 7 }).map((_, i) => (
               <Skeleton key={i} className="h-8 w-full" />
             ))}
+          </div>
+
+          {/* Profile chrome from the auth hint — same slot the real NavUser fills. */}
+          <div className="mt-auto">
+            <SidebarUserSlot hint={hint} />
           </div>
         </div>
       </div>
