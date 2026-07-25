@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { base64UrlToUtf8, utf8ToBase64Url } from "~/lib/auth/base64url";
+
 /** Non-HttpOnly hint for optimistic identity paint. Never an authority. */
 export const AUTH_HINT_COOKIE = "multiplex.auth_hint";
 
@@ -20,7 +22,7 @@ export function serializeAuthHint(hint: Omit<AuthHint, "v">): string {
     ...(hint.image ? { image: hint.image } : {}),
   };
 
-  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return utf8ToBase64Url(JSON.stringify(payload));
 }
 
 /** Schema-validate on read; malformed → absent. */
@@ -30,8 +32,7 @@ export function parseAuthHint(value: unknown): AuthHint | null {
   }
 
   try {
-    const json = Buffer.from(value, "base64url").toString("utf8");
-    const parsed = authHintSchema.safeParse(JSON.parse(json));
+    const parsed = authHintSchema.safeParse(JSON.parse(base64UrlToUtf8(value)));
     return parsed.success ? parsed.data : null;
   } catch {
     return null;

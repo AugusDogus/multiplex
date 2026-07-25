@@ -5,11 +5,9 @@ import { type NextRequest, NextResponse } from "next/server";
 import { authHintFromUser, serializeAuthHint } from "~/lib/auth/auth-hint";
 import { isDocumentNavigation } from "~/lib/auth/document-request";
 import {
-  applySetCookieHeaders,
   clearAuthCookies,
   setAuthHintCookie,
 } from "~/lib/auth/session-cookies";
-import { auth } from "~/lib/auth/server";
 
 function isPublicPath(pathname: string): boolean {
   return (
@@ -53,12 +51,58 @@ function withAuthHint(
   return response;
 }
 
+type SessionProbe = {
+  session: { token?: string } | null;
+  user: {
+    name?: string | null;
+    email?: string | null;
+    image?: string | null;
+  } | null;
+} | null;
+
+/**
+ * Validate via Better Auth's HTTP get-session without importing the DB-backed
+ * auth server into the proxy bundle. Forwards Set-Cookie (cache refresh /
+ * clears) onto the gate response.
+ */
+async function probeSession(
+  request: NextRequest,
+): Promise<{ session: SessionProbe; setCookieHeaders: string[] }> {
+  const url = new URL("/api/auth/get-session", request.nextUrl.origin);
+  const headers = new Headers({
+    accept: "application/json",
+    cookie: request.headers.get("cookie") ?? "",
+  });
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers,
+    cache: "no-store",
+  });
+
+  const setCookieHeaders =
+    typeof response.headers.getSetCookie === "function"
+      ? response.headers.getSetCookie()
+      : [];
+
+  if (!response.ok) {
+    return { session: null, setCookieHeaders };
+  }
+
+  const body = (await response.json()) as SessionProbe;
+  if (!body?.session || !body.user) {
+    return { session: null, setCookieHeaders };
+  }
+
+  return { session: body, setCookieHeaders };
+}
+
 /**
  * Document-navigation session gate.
  *
  * 1. Verify the signed cookie cache locally when present (no DB).
- * 2. If only a session token remains, ask Better Auth — persist any rotation /
- *    cache refresh Set-Cookie headers on the allow response.
+ * 2. If only a session token remains, probe `/api/auth/get-session` and
+ *    persist any rotation / cache refresh Set-Cookie headers.
  * 3. On failure, clear carriers + hint and 302 to `/login?returnTo=…`.
  * Failures collapse to signed-out; never 500.
  */
@@ -87,20 +131,19 @@ export async function gateDocumentSession(
       }
     }
 
-    const result = await auth.api.getSession({
-      headers: request.headers,
-      returnHeaders: true,
-    });
-
-    const session = result.response;
-    if (!session) {
+    const { session, setCookieHeaders } = await probeSession(request);
+    if (!session?.user) {
       const response = redirectToLogin(request);
-      applySetCookieHeaders(response, result.headers);
+      for (const cookie of setCookieHeaders) {
+        response.headers.append("set-cookie", cookie);
+      }
       return response;
     }
 
     const response = NextResponse.next();
-    applySetCookieHeaders(response, result.headers);
+    for (const cookie of setCookieHeaders) {
+      response.headers.append("set-cookie", cookie);
+    }
     return withAuthHint(response, session.user, request);
   } catch {
     return redirectToLogin(request);

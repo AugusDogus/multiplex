@@ -8,16 +8,17 @@ export const authClient = createAuthClient({
   plugins: [plex()],
 });
 
-const authSignOut = authClient.signOut.bind(authClient);
-
 /**
  * Sign out and drop session-scoped sync state (connection overlay + OPFS replica)
  * so the next account in this tab cannot reuse credentials or cached rows.
+ *
+ * Do not use `authClient.signOut.bind(...)` — better-auth's client is a path
+ * proxy, so `.bind` is treated as another route segment and fires a bogus fetch.
  */
 export async function signOut(
-  ...args: Parameters<typeof authSignOut>
-): Promise<ReturnType<typeof authSignOut>> {
+  ...args: Parameters<typeof authClient.signOut>
+): Promise<ReturnType<typeof authClient.signOut>> {
   clearAuthHintCookie();
   await clearSyncEngineSession().catch(() => undefined);
-  return authSignOut(...args);
+  return authClient.signOut(...args);
 }
