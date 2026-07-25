@@ -1,13 +1,14 @@
 "use client";
 
 import { Command } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "~/components/ui/button";
 import { authClient } from "~/lib/auth/client";
 import { cn } from "~/lib/utils";
 
-async function handlePlexLogin() {
+async function handlePlexLogin(returnTo: string | null) {
   try {
-    await authClient.plex.signIn();
+    await authClient.plex.signIn(returnTo ? { returnTo } : undefined);
   } catch (cause) {
     console.error("Failed to initiate Plex authentication:", cause);
   }
@@ -17,6 +18,9 @@ export function LoginForm({
   className,
   ...props
 }: React.ComponentProps<"div">) {
+  const searchParams = useSearchParams();
+  const returnTo = searchParams.get("returnTo");
+
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <div className="flex flex-col gap-6">
@@ -34,7 +38,11 @@ export function LoginForm({
         </div>
 
         <div className="flex flex-col gap-4">
-          <Button onClick={handlePlexLogin} className="w-full" size="lg">
+          <Button
+            onClick={() => void handlePlexLogin(returnTo)}
+            className="w-full"
+            size="lg"
+          >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 24 24"

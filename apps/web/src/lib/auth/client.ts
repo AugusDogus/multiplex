@@ -1,6 +1,7 @@
 import { createAuthClient } from "better-auth/react";
 import { plex } from "@multiplex/auth-plugin-plex/client";
 
+import { clearAuthHintCookie } from "~/lib/auth/clear-auth-hint";
 import { clearSyncEngineSession } from "~/lib/sync-engine/clear-session";
 
 export const authClient = createAuthClient({
@@ -16,6 +17,7 @@ const authSignOut = authClient.signOut.bind(authClient);
 export async function signOut(
   ...args: Parameters<typeof authSignOut>
 ): Promise<ReturnType<typeof authSignOut>> {
+  clearAuthHintCookie();
   await clearSyncEngineSession().catch(() => undefined);
   return authSignOut(...args);
 }

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { PlexTvAuthService, type PlexUserInfo } from "@multiplex/plex-query";
 import { createEndpoint } from "better-call";
+import { decodeOAuthState } from "./return-to";
 import { plex } from "./server";
 
 const AUTH_BASE_URL = "https://multiplex.example/api/auth";
@@ -183,11 +184,16 @@ function requireResponse(value: unknown): Response {
   return value;
 }
 
-async function initiate(jar: CookieJar, context: ReturnType<typeof createContext>["context"]) {
+async function initiate(
+  jar: CookieJar,
+  context: ReturnType<typeof createContext>["context"],
+  query: Record<string, unknown> = {},
+) {
   const response = requireResponse(
     await plex().endpoints.initiatePlexAuth({
       asResponse: true,
       context,
+      query,
     } as never),
   );
   jar.apply(response.headers);
@@ -282,7 +288,9 @@ describe("Plex authentication attempt binding", () => {
     expect(callbackUrl.pathname).toBe("/api/auth/plex/auth/callback");
     expect(callbackUrl.searchParams.get("id")).toBe(String(pinResponse.id));
     expect(callbackUrl.searchParams.get("code")).toBe(pinResponse.code);
-    expect(callbackUrl.searchParams.get("state")).toHaveLength(43);
+    const state = callbackUrl.searchParams.get("state");
+    expect(state).toBeTruthy();
+    expect(decodeOAuthState(state)).toMatchObject({ returnTo: "/" });
     expect(setCookie).toContain("HttpOnly");
     expect(setCookie).toContain("SameSite=Lax");
     expect(setCookie).toContain("Secure");
@@ -309,6 +317,39 @@ describe("Plex authentication attempt binding", () => {
     expect(calls.updateUser).toBe(1);
     expect(calls.createAccount).toBe(1);
     expect(calls.createSession).toBe(1);
+  });
+
+  test("redirects to a sanitized returnTo carried in OAuth state", async () => {
+    const jar = new CookieJar();
+    const { context } = createContext();
+    const { callback: callbackUrl } = await initiate(jar, context, {
+      returnTo: "/watch-together/room-42",
+    });
+
+    expect(decodeOAuthState(callbackUrl.searchParams.get("state"))).toEqual({
+      nonce: expect.any(String),
+      returnTo: "/watch-together/room-42",
+    });
+
+    const response = await callback(jar, context, Object.fromEntries(callbackUrl.searchParams));
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/watch-together/room-42");
+  });
+
+  test("forged off-origin returnTo lands on / after a successful callback", async () => {
+    const jar = new CookieJar();
+    const { context } = createContext();
+    const { callback: callbackUrl } = await initiate(jar, context, {
+      returnTo: "https://evil.example/phish",
+    });
+
+    expect(decodeOAuthState(callbackUrl.searchParams.get("state"))?.returnTo).toBe("/");
+
+    const response = await callback(jar, context, Object.fromEntries(callbackUrl.searchParams));
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/");
   });
 
   test("rejects a callback from a foreign browser before downstream work", async () => {

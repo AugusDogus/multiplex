@@ -17,6 +17,8 @@ import type { User } from "better-auth/types";
 import { APIError } from "better-call";
 import { z } from "zod";
 
+import { decodeOAuthState, encodeOAuthState, sanitizeReturnTo } from "./return-to";
+
 const PLEX_AUTH_ATTEMPT_COOKIE = "multiplex.plex_auth_attempt";
 const PLEX_AUTH_ATTEMPT_VERSION = 1;
 const PLEX_AUTH_ATTEMPT_TTL_SECONDS = 10 * 60;
@@ -105,10 +107,17 @@ function getAttemptExpiry(auth: z.infer<typeof authSchema>, now: number): number
   return Number.isFinite(plexExpiry) ? Math.min(plexExpiry, maximumExpiry) : maximumExpiry;
 }
 
-function createAuthAttempt(auth: z.infer<typeof authSchema>, now = Date.now()): AuthAttempt {
+function createAuthAttempt(
+  auth: z.infer<typeof authSchema>,
+  returnTo = "/",
+  now = Date.now(),
+): AuthAttempt {
   return {
     version: PLEX_AUTH_ATTEMPT_VERSION,
-    state: randomBytes(32).toString("base64url"),
+    state: encodeOAuthState({
+      nonce: randomBytes(32).toString("base64url"),
+      returnTo: sanitizeReturnTo(returnTo),
+    }),
     id: auth.id,
     code: auth.code,
     expiresAt: getAttemptExpiry(auth, now),
@@ -262,11 +271,15 @@ export const plex = () => {
         "/plex/auth/initiate",
         {
           method: "GET",
+          query: z.object({
+            returnTo: z.string().optional(),
+          }),
         },
         async (ctx) => {
           try {
             const auth = await getAuth();
-            const attempt = createAuthAttempt(auth);
+            const returnTo = sanitizeReturnTo(ctx.query?.returnTo);
+            const attempt = createAuthAttempt(auth, returnTo);
             const callbackUrl = getTrustedCallbackUrl(ctx.context.baseURL);
             const cookieOptions = getAttemptCookieOptions(ctx.context.baseURL);
             await ctx.setSignedCookie(
@@ -442,8 +455,9 @@ export const plex = () => {
             // Set session cookie using BetterAuth helper
             await setSessionCookie(ctx, { session, user });
 
-            // Redirect to success page or dashboard
-            return ctx.redirect("/");
+            // returnTo rides in OAuth state (CSRF-bound via the attempt cookie).
+            const decoded = decodeOAuthState(attempt.state);
+            return ctx.redirect(decoded?.returnTo ?? "/");
           } catch (error) {
             console.error("Plex auth error:", error);
 
