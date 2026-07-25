@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
 const getSessionCookie = mock((_request: unknown) => null as string | null);
@@ -9,28 +9,15 @@ const getCookieCache = mock(
       user: { name: string; email?: string; image?: string };
     },
 );
-const getSession = mock(async (_args: unknown) => ({
-  headers: new Headers(),
-  response: null as null | {
-    session: { token: string };
-    user: { name: string; email?: string; image?: string };
-  },
-}));
 
 await mock.module("better-auth/cookies", () => ({
   getSessionCookie,
   getCookieCache,
 }));
 
-await mock.module("~/lib/auth/server", () => ({
-  auth: {
-    api: {
-      getSession,
-    },
-  },
-}));
-
 const { gateDocumentSession } = await import("./session-gate");
+
+const originalFetch = globalThis.fetch;
 
 function documentRequest(path: string, cookie?: string): NextRequest {
   return new NextRequest(new URL(path, "http://localhost:3000"), {
@@ -57,14 +44,14 @@ describe("gateDocumentSession", () => {
   beforeEach(() => {
     getSessionCookie.mockReset();
     getCookieCache.mockReset();
-    getSession.mockReset();
     getSessionCookie.mockImplementation(() => null);
     getCookieCache.mockImplementation(async () => null);
-    getSession.mockImplementation(async () => ({
-      headers: new Headers(),
-      response: null,
-    }));
     process.env.BETTER_AUTH_SECRET = "test-secret-with-sufficient-length";
+    globalThis.fetch = originalFetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
   });
 
   test("does not gate non-document requests", async () => {
@@ -112,11 +99,18 @@ describe("gateDocumentSession", () => {
       user: { name: "Augie", email: "a@example.com" },
     }));
 
+    const fetchMock = mock(async () => {
+      throw new Error("get-session should not be called when cache is valid");
+    });
+    globalThis.fetch = Object.assign(fetchMock, {
+      preconnect: originalFetch.preconnect.bind(originalFetch),
+    });
+
     const response = await gateDocumentSession(documentRequest("/"));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("location")).toBeNull();
-    expect(getSession).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
 
     const setCookies = response.headers.getSetCookie();
     expect(
@@ -124,18 +118,21 @@ describe("gateDocumentSession", () => {
     ).toBe(true);
   });
 
-  test("clears invalid carriers when getSession returns null", async () => {
+  test("clears invalid carriers when get-session returns null", async () => {
     getSessionCookie.mockImplementation(() => "stale-token");
     getCookieCache.mockImplementation(async () => null);
-    const clearHeaders = new Headers();
-    clearHeaders.append(
-      "set-cookie",
-      "better-auth.session_token=; Max-Age=0; Path=/",
-    );
-    getSession.mockImplementation(async () => ({
-      headers: clearHeaders,
-      response: null,
-    }));
+
+    const fetchMock = mock(async () => {
+      const headers = new Headers();
+      headers.append(
+        "set-cookie",
+        "better-auth.session_token=; Max-Age=0; Path=/",
+      );
+      return new Response(JSON.stringify(null), { status: 200, headers });
+    });
+    globalThis.fetch = Object.assign(fetchMock, {
+      preconnect: originalFetch.preconnect.bind(originalFetch),
+    });
 
     const response = await gateDocumentSession(documentRequest("/media/abc"));
 
@@ -146,6 +143,7 @@ describe("gateDocumentSession", () => {
     );
     expect(location.pathname).toBe("/login");
     expect(location.searchParams.get("returnTo")).toBe("/media/abc");
+    expect(fetchMock).toHaveBeenCalled();
     expect(
       response.headers
         .getSetCookie()
