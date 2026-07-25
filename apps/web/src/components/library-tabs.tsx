@@ -65,7 +65,7 @@ const EMPTY_PILL: PillMetrics = {
  */
 const pillMemory = new Map<string, PillMemory>();
 
-function memoryKey(pathname: string, source: string | null) {
+function memoryKey(pathname: string, source: string | null): string {
   return `${pathname}?source=${source ?? ""}`;
 }
 
@@ -238,13 +238,23 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
     flushSync(() => {
       setPill(visual);
     });
+    // Keep memory at the visual origin until the target lands. When no
+    // transform transition will run, transitionend never fires — finalize
+    // sliding/memory in the RAF instead of waiting on onPillTransitionEnd.
     pillMemory.set(key, { ...visual, pivot: pivotId });
-    slidingRef.current = true;
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const willAnimate = motionEnabled && !prefersReducedMotion;
+    slidingRef.current = willAnimate;
     hasMeasuredRef.current = true;
     setMotionEnabled(true);
 
     moveRafRef.current = requestAnimationFrame(() => {
-      setPill(target);
+      persistPill(target, pivotId);
+      if (!willAnimate) {
+        slidingRef.current = false;
+      }
     });
   };
 
@@ -382,7 +392,8 @@ export function LibraryTabs({ pivots, className }: LibraryTabsProps) {
         if (pivot.id !== "recommended") {
           params.set("pivot", pivot.id);
         }
-        const href = `${pathname}?${params.toString()}`;
+        const query = params.toString();
+        const href = query ? `${pathname}?${query}` : pathname;
         const isActive = activePivot === pivot.id;
         const label = isSupportedPivot(pivot.id)
           ? SUPPORTED_PIVOT_LABELS[pivot.id]
