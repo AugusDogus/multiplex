@@ -137,12 +137,10 @@ export function NavUser({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={async () => {
-                try {
-                  await signOut();
-                } finally {
-                  // Full navigation: avoid flashing the signed-in shell on the way out.
-                  window.location.replace("/login");
-                }
+                // Always leave even if signOut rejects (document gate clears junk).
+                await signOut().catch(() => undefined);
+                // Full navigation: avoid flashing the signed-in shell on the way out.
+                window.location.replace("/login");
               }}
             >
               <LogOut />
