@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /**
  * Same-origin relative path validation for post-auth redirects.
  *
@@ -18,6 +20,8 @@ export function sanitizeReturnTo(value: unknown): string {
   if (
     value === "/api" ||
     value.startsWith("/api/") ||
+    value.startsWith("/api?") ||
+    value.startsWith("/api#") ||
     value === "/login" ||
     value.startsWith("/login?") ||
     value.startsWith("/login#")
@@ -27,6 +31,11 @@ export function sanitizeReturnTo(value: unknown): string {
 
   return value;
 }
+
+const oauthStatePayloadSchema = z.object({
+  nonce: z.string().min(1),
+  returnTo: z.string().optional(),
+});
 
 /** Encode OAuth `state` as base64url(JSON { nonce, returnTo }). */
 export function encodeOAuthState(input: { nonce: string; returnTo: string }): string {
@@ -47,23 +56,14 @@ export function decodeOAuthState(state: unknown): { nonce: string; returnTo: str
 
   try {
     const json = Buffer.from(state, "base64url").toString("utf8");
-    const parsed: unknown = JSON.parse(json);
-    if (
-      typeof parsed !== "object" ||
-      parsed === null ||
-      !("nonce" in parsed) ||
-      typeof (parsed as { nonce: unknown }).nonce !== "string" ||
-      (parsed as { nonce: string }).nonce.length === 0
-    ) {
+    const parsed = oauthStatePayloadSchema.safeParse(JSON.parse(json));
+    if (!parsed.success) {
       return null;
     }
 
-    const returnTo =
-      "returnTo" in parsed ? sanitizeReturnTo((parsed as { returnTo: unknown }).returnTo) : "/";
-
     return {
-      nonce: (parsed as { nonce: string }).nonce,
-      returnTo,
+      nonce: parsed.data.nonce,
+      returnTo: sanitizeReturnTo(parsed.data.returnTo),
     };
   } catch {
     return null;

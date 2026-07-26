@@ -1,4 +1,5 @@
 import { expect, test, type APIResponse, type Page } from "@playwright/test";
+import { z } from "zod";
 
 /**
  * Behavior tests for the no-ui-flash document gate.
@@ -19,7 +20,7 @@ function setCookieHeaders(response: APIResponse): string[] {
     .map((header) => header.value);
 }
 
-function expectClearedAuthCookies(setCookies: string[]) {
+function expectClearedAuthCookies(setCookies: string[]): void {
   expect(
     setCookies.some(
       (value) =>
@@ -50,14 +51,19 @@ function oauthStateFromPlexLocation(location: string): string | null {
   }
 }
 
+const statePayloadSchema = z.object({
+  nonce: z.string().optional(),
+  returnTo: z.string().optional(),
+});
+
 function decodeStatePayload(
   state: string,
 ): { nonce?: string; returnTo?: string } | null {
   try {
-    return JSON.parse(Buffer.from(state, "base64url").toString("utf8")) as {
-      nonce?: string;
-      returnTo?: string;
-    };
+    const parsed = statePayloadSchema.safeParse(
+      JSON.parse(Buffer.from(state, "base64url").toString("utf8")),
+    );
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }

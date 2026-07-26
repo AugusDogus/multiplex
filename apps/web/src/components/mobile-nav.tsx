@@ -274,9 +274,12 @@ function YouDrawer({ open, onOpenChange, user, userInfo }: YouDrawerProps) {
     : "https://www.plex.tv/plans/";
 
   async function handleSignOut() {
-    await signOut();
-    // Full navigation: avoid flashing the signed-in shell on the way out.
-    window.location.replace("/login");
+    try {
+      await signOut();
+    } finally {
+      // Full navigation: avoid flashing the signed-in shell on the way out.
+      window.location.replace("/login");
+    }
   }
 
   return (
