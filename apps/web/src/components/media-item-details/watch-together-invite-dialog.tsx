@@ -11,6 +11,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
 } from "~/components/ui/dialog";
 import { WatchTogetherInviteePicker } from "~/components/watch-together/watch-together-invitee-picker";
@@ -81,13 +82,15 @@ export function WatchTogetherInviteDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <WatchTogetherInviteePicker
-          enabled={open}
-          selectedUserIds={selectedUsers}
-          onSelectedUserIdsChange={setSelectedUsers}
-          disabled={createRoomMutation.isPending}
-          emptyHint="No Plex friends found. You can still create a room for yourself."
-        />
+        <DialogPanel>
+          <WatchTogetherInviteePicker
+            enabled={open}
+            selectedUserIds={selectedUsers}
+            onSelectedUserIdsChange={setSelectedUsers}
+            disabled={createRoomMutation.isPending}
+            emptyHint="No Plex friends found. You can still create a room for yourself."
+          />
+        </DialogPanel>
 
         <DialogFooter>
           <Button

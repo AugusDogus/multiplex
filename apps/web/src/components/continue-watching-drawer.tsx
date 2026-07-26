@@ -18,8 +18,8 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import {
   Drawer,
-  DrawerContent,
   DrawerDescription,
+  DrawerPopup,
   DrawerTitle,
 } from "~/components/ui/drawer";
 
@@ -65,7 +65,7 @@ export function ContinueWatchingDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} modal>
-      <DrawerContent className="max-h-[min(88vh,720px)]">
+      <DrawerPopup className="max-h-[min(88vh,720px)]" showBar>
         <DrawerTitle className="sr-only">{mainTitle}</DrawerTitle>
         <DrawerDescription className="sr-only">
           Continue watching options for {mainTitle}
@@ -199,7 +199,7 @@ export function ContinueWatchingDrawer({
             </p>
           )}
         </div>
-      </DrawerContent>
+      </DrawerPopup>
     </Drawer>
   );
 }

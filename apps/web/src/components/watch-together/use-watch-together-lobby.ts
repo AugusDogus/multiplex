@@ -15,9 +15,8 @@ import {
   type SyncplayUser,
   type WatchTogetherRoom,
 } from "@multiplex/plex-query";
-import { toast } from "sonner";
-
 import { useWatchTogetherRoomMedia } from "~/components/watch-together/use-watch-together-room-media";
+import { toastManager } from "~/components/ui/toast";
 import {
   isSessionForRoom,
   resolveLobbyLeaveTarget,
@@ -172,7 +171,10 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
         await leaveActiveWatchTogetherSession(variables.roomId);
       } finally {
         router.push("/");
-        toast.error("Couldn't remove the session, but you've left it.");
+        toastManager.add({
+          title: "Couldn't remove the session, but you've left it.",
+          type: "error",
+        });
       }
     },
   });

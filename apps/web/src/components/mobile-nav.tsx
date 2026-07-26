@@ -24,9 +24,9 @@ import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { Button } from "~/components/ui/button";
 import {
   Drawer,
-  DrawerContent,
   DrawerDescription,
   DrawerHeader,
+  DrawerPopup,
   DrawerTitle,
 } from "~/components/ui/drawer";
 import { SearchCommandModal } from "~/components/search-command-modal";
@@ -281,7 +281,7 @@ function YouDrawer({ open, onOpenChange, user, userInfo }: YouDrawerProps) {
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[85vh]">
+      <DrawerPopup className="max-h-[85vh]" showBar>
         <DrawerHeader className="sr-only">
           <DrawerTitle>Your account</DrawerTitle>
           <DrawerDescription>
@@ -345,7 +345,7 @@ function YouDrawer({ open, onOpenChange, user, userInfo }: YouDrawerProps) {
             Log out
           </Button>
         </div>
-      </DrawerContent>
+      </DrawerPopup>
     </Drawer>
   );
 }

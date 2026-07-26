@@ -9,7 +9,9 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
 } from "~/components/ui/dialog";
 
@@ -43,7 +45,7 @@ export function MediaInfoDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[60vh] overflow-y-auto px-6 py-4">
+        <DialogPanel className="py-4">
           {versions.length === 0 ? (
             <p className="text-muted-foreground text-sm">
               No media information is available for this item.
@@ -87,17 +89,19 @@ export function MediaInfoDialog({
               ))}
             </div>
           )}
-        </div>
+        </DialogPanel>
 
         {xmlUrl && (
-          <div className="flex justify-end border-t p-4">
-            <Button variant="outline" size="sm" asChild>
-              <a href={xmlUrl} target="_blank" rel="noreferrer">
-                <ExternalLink data-icon="inline-start" />
-                View XML
-              </a>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              render={<a href={xmlUrl} target="_blank" rel="noreferrer" />}
+            >
+              <ExternalLink data-icon="inline-start" />
+              View XML
             </Button>
-          </div>
+          </DialogFooter>
         )}
       </DialogContent>
     </Dialog>

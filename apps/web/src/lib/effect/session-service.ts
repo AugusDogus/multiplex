@@ -64,7 +64,10 @@ import {
   type WatchTogetherApiShape,
 } from "./watch-together-api";
 
-export type { MakeSessionController, SessionControllerLike } from "./session-connection";
+export type {
+  MakeSessionController,
+  SessionControllerLike,
+} from "./session-connection";
 
 export type StartPlaybackInput = {
   readonly room: WatchTogetherRoom;

@@ -2,15 +2,16 @@
 
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
-import { toast } from "sonner";
 
 import { Button } from "~/components/ui/button";
+import { toastManager } from "~/components/ui/toast";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
 } from "~/components/ui/dialog";
 import { WatchTogetherInviteePicker } from "~/components/watch-together/watch-together-invitee-picker";
@@ -40,15 +41,20 @@ export function WatchTogetherLobbyInviteDialog({
   const inviteUsers = api.plex.inviteWatchTogetherUsers.useMutation({
     onSuccess: async (_data, variables) => {
       await utils.plex.getWatchTogetherRoom.invalidate({ roomId });
-      toast.success(
-        variables.users.length === 1
-          ? "Invited 1 friend"
-          : `Invited ${variables.users.length} friends`,
-      );
+      toastManager.add({
+        title:
+          variables.users.length === 1
+            ? "Invited 1 friend"
+            : `Invited ${variables.users.length} friends`,
+        type: "success",
+      });
       handleOpenChange(false);
     },
     onError: () => {
-      toast.error("Couldn't send the invite");
+      toastManager.add({
+        title: "Couldn't send the invite",
+        type: "error",
+      });
     },
   });
 
@@ -76,14 +82,16 @@ export function WatchTogetherLobbyInviteDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <WatchTogetherInviteePicker
-          enabled={open}
-          selectedUserIds={selectedUsers}
-          onSelectedUserIdsChange={setSelectedUsers}
-          excludeUserIds={existingUserIds}
-          disabled={inviteUsers.isPending}
-          emptyHint="Everyone you can invite is already in this session."
-        />
+        <DialogPanel>
+          <WatchTogetherInviteePicker
+            enabled={open}
+            selectedUserIds={selectedUsers}
+            onSelectedUserIdsChange={setSelectedUsers}
+            excludeUserIds={existingUserIds}
+            disabled={inviteUsers.isPending}
+            emptyHint="Everyone you can invite is already in this session."
+          />
+        </DialogPanel>
 
         <DialogFooter>
           <Button

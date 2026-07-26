@@ -6,16 +6,16 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { getMainTitle } from "@multiplex/plex-query";
 import { Loader2, MoreHorizontal, Play, Trash2, Users } from "lucide-react";
-import { toast } from "sonner";
 
 import { MediaCarousel } from "~/components/media-carousel";
 import { Button } from "~/components/ui/button";
+import { toastManager } from "~/components/ui/toast";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "~/components/ui/dropdown-menu";
+} from "~/components/ui/menu";
 import {
   PlexUserAvatarStack,
   type PlexUserLike,
@@ -65,10 +65,16 @@ function WatchTogetherRoomCard({ room }: { room: WatchTogetherRoom }) {
   const deleteRoom = api.plex.deleteWatchTogetherRoom.useMutation({
     onSuccess: async () => {
       await utils.plex.getWatchTogetherRooms.invalidate();
-      toast.success("Watch Together session removed");
+      toastManager.add({
+        title: "Watch Together session removed",
+        type: "success",
+      });
     },
     onError: () => {
-      toast.error("Couldn't remove the Watch Together session");
+      toastManager.add({
+        title: "Couldn't remove the Watch Together session",
+        type: "error",
+      });
     },
   });
   // Fall back to the room's own title if metadata is unavailable or yields an
@@ -149,29 +155,31 @@ function WatchTogetherRoomCard({ room }: { room: WatchTogetherRoom }) {
         )}
       >
         <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label={`Watch Together options for ${title}`}
-              className="size-7 rounded-full bg-black/55 text-white backdrop-blur-sm hover:bg-black/70 hover:text-white"
-            >
-              {deleteRoom.isPending ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <MoreHorizontal className="size-4" />
-              )}
-            </Button>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={`Watch Together options for ${title}`}
+                className="size-7 rounded-full bg-black/55 text-white backdrop-blur-sm hover:bg-black/70 hover:text-white"
+              />
+            }
+          >
+            {deleteRoom.isPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <MoreHorizontal className="size-4" />
+            )}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={() => router.push(roomHref)}>
+            <DropdownMenuItem onClick={() => router.push(roomHref)}>
               <Play />
               Join
             </DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"
               disabled={deleteRoom.isPending}
-              onSelect={() => deleteRoom.mutate({ roomId: room.id })}
+              onClick={() => deleteRoom.mutate({ roomId: room.id })}
             >
               <Trash2 />
               Remove

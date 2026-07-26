@@ -14,7 +14,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-} from "~/components/ui/dropdown-menu";
+} from "~/components/ui/menu";
 import { getTypeNumber } from "~/lib/library-browse-params";
 import { POSTER_GRID_INSET_CLASSNAME } from "~/lib/poster-grid-layout";
 import { cn } from "~/lib/utils";
@@ -139,7 +139,7 @@ export function LibraryControls({
         <DropdownMenuContent align="start" className="max-h-[60vh]">
           <DropdownMenuCheckboxItem
             checked={!hasActiveFilters}
-            onSelect={() => clearFilters()}
+            onClick={() => clearFilters()}
           >
             All
           </DropdownMenuCheckboxItem>
@@ -147,7 +147,7 @@ export function LibraryControls({
             <DropdownMenuCheckboxItem
               key={filter.filter}
               checked={Boolean(filters[filter.filter])}
-              onSelect={() => toggleBooleanFilter(filter.filter)}
+              onClick={() => toggleBooleanFilter(filter.filter)}
             >
               {filter.title}
             </DropdownMenuCheckboxItem>
@@ -180,7 +180,7 @@ export function LibraryControls({
                 <DropdownMenuCheckboxItem
                   key={type.key}
                   checked={typeNumber === activeTypeNumber}
-                  onSelect={() => {
+                  onClick={() => {
                     if (typeNumber) {
                       selectType(typeNumber);
                     }
@@ -210,7 +210,7 @@ export function LibraryControls({
             return (
               <DropdownMenuItem
                 key={entry.key}
-                onSelect={() =>
+                onClick={() =>
                   selectSort(entry.key, entry.defaultDirection ?? "asc")
                 }
                 className={cn("flex items-center justify-between gap-4")}
@@ -274,7 +274,7 @@ function FilterSubmenu({
           <DropdownMenuCheckboxItem
             key={value.key}
             checked={activeValue === value.key}
-            onSelect={() => onSelectValue(value.key)}
+            onClick={() => onSelectValue(value.key)}
           >
             {value.title}
           </DropdownMenuCheckboxItem>

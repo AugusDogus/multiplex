@@ -32,10 +32,10 @@ import {
 } from "~/components/ui/collapsible";
 import {
   Drawer,
-  DrawerContent,
   DrawerDescription,
   DrawerFooter,
   DrawerHeader,
+  DrawerPopup,
   DrawerTitle,
 } from "~/components/ui/drawer";
 import {
@@ -94,7 +94,7 @@ export function LibraryPickerDrawer({
 
   return (
     <Drawer open={open} onOpenChange={handleOpenChange}>
-      <DrawerContent className="max-h-[85vh]">
+      <DrawerPopup className="max-h-[85vh]" showBar>
         {view === "favorites" ? (
           <FavoritesView
             sidebarSources={sidebarSources}
@@ -118,7 +118,7 @@ export function LibraryPickerDrawer({
             onBack={() => setView("favorites")}
           />
         )}
-      </DrawerContent>
+      </DrawerPopup>
     </Drawer>
   );
 }
@@ -327,24 +327,19 @@ function MobileServerGroup({
     <Collapsible open={open} onOpenChange={setOpen}>
       <div className="flex items-center justify-between px-3 py-1">
         <CollapsibleTrigger
-          asChild
+          render={<button type="button" />}
           className="flex flex-1 items-center gap-2 text-left"
         >
-          <button type="button" className="flex items-center gap-2">
-            <ChevronDown
-              className={cn(
-                "size-4 transition-transform",
-                !open && "-rotate-90",
-              )}
-            />
-            <span className="text-sm font-medium">{server.name}</span>
-            {isLoading && (
-              <Loader2 className="text-muted-foreground size-3 animate-spin" />
-            )}
-            {isError && (
-              <TriangleAlert className="text-muted-foreground size-3.5" />
-            )}
-          </button>
+          <ChevronDown
+            className={cn("size-4 transition-transform", !open && "-rotate-90")}
+          />
+          <span className="text-sm font-medium">{server.name}</span>
+          {isLoading && (
+            <Loader2 className="text-muted-foreground size-3 animate-spin" />
+          )}
+          {isError && (
+            <TriangleAlert className="text-muted-foreground size-3.5" />
+          )}
         </CollapsibleTrigger>
         {isError && (
           <button

@@ -207,37 +207,39 @@ export function TvGuideItem({
       ) : (
         // Use standard tooltip for normal-width programs
         <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label={
-                program.grandparentTitle ?? program.title ?? "Program"
-              }
-              className={cn(
-                "border-card absolute flex min-h-16 flex-col items-start justify-start rounded-md border-2",
-                "cursor-pointer overflow-hidden transition-colors duration-200 ease-out",
-                colorClass,
-                // Use minimal spacing for very short programs to prevent overlap
-                isVeryShort ? "m-0 p-1" : "m-0.5 p-2",
-                className,
-              )}
-              style={{ left, width }}
-              onClick={handleClick}
-            >
-              {/* Show Title */}
-              <div className="w-full text-sm leading-tight font-semibold text-nowrap text-white drop-shadow-sm">
-                {program.grandparentTitle ?? program.title ?? "Unknown Program"}
-              </div>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label={
+                  program.grandparentTitle ?? program.title ?? "Program"
+                }
+                className={cn(
+                  "border-card absolute flex min-h-16 flex-col items-start justify-start rounded-md border-2",
+                  "cursor-pointer overflow-hidden transition-colors duration-200 ease-out",
+                  colorClass,
+                  // Use minimal spacing for very short programs to prevent overlap
+                  isVeryShort ? "m-0 p-1" : "m-0.5 p-2",
+                  className,
+                )}
+                style={{ left, width }}
+                onClick={handleClick}
+              />
+            }
+          >
+            {/* Show Title */}
+            <div className="w-full text-sm leading-tight font-semibold text-nowrap text-white drop-shadow-sm">
+              {program.grandparentTitle ?? program.title ?? "Unknown Program"}
+            </div>
 
-              {/* Season and Episode */}
-              {(hasParentIndex || hasEpisodeIndex) && (
-                <div className="w-full text-xs leading-tight text-nowrap text-white/90 drop-shadow-sm">
-                  {hasParentIndex && `S${program.parentIndex}`}
-                  {hasParentIndex && hasEpisodeIndex && " · "}
-                  {hasEpisodeIndex && `E${program.index}`}
-                </div>
-              )}
-            </button>
+            {/* Season and Episode */}
+            {(hasParentIndex || hasEpisodeIndex) && (
+              <div className="w-full text-xs leading-tight text-nowrap text-white/90 drop-shadow-sm">
+                {hasParentIndex && `S${program.parentIndex}`}
+                {hasParentIndex && hasEpisodeIndex && " · "}
+                {hasEpisodeIndex && `E${program.index}`}
+              </div>
+            )}
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-sm">
             {tooltipContent()}
