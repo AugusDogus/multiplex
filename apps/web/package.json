@@ -19,6 +19,7 @@
     "start": "next start",
     "test": "bun test",
     "test:e2e": "playwright test",
+    "test:e2e:auth-gate": "playwright test --project=auth-gate",
     "test:e2e:setup": "playwright test --project=setup",
     "typecheck": "next typegen && tsc --noEmit"
   },
