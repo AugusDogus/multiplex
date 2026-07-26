@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 
 const BREAKPOINTS = {
   "2xl": 1536,
@@ -34,8 +34,8 @@ function parseQuery(
 ): string {
   if (typeof query !== "string") {
     const parts: string[] = [];
-    if (query.min != null) parts.push(resolveMin(query.min));
-    if (query.max != null) parts.push(resolveMax(query.max));
+    if (query.min !== undefined) parts.push(resolveMin(query.min));
+    if (query.max !== undefined) parts.push(resolveMax(query.max));
     if (query.pointer === "coarse") parts.push("(pointer: coarse)");
     if (query.pointer === "fine") parts.push("(pointer: fine)");
     if (parts.length === 0) return "(min-width: 0px)";
@@ -73,20 +73,17 @@ export function useMediaQuery(
 ): boolean {
   const mediaQuery = parseQuery(query);
 
-  const subscribe = useCallback(
-    (callback: () => void) => {
-      if (typeof window === "undefined") return () => undefined;
-      const mql = window.matchMedia(mediaQuery);
-      mql.addEventListener("change", callback);
-      return () => mql.removeEventListener("change", callback);
-    },
-    [mediaQuery],
-  );
+  const subscribe = (callback: () => void) => {
+    if (typeof window === "undefined") return () => undefined;
+    const mql = window.matchMedia(mediaQuery);
+    mql.addEventListener("change", callback);
+    return () => mql.removeEventListener("change", callback);
+  };
 
-  const getSnapshot = useCallback(() => {
+  const getSnapshot = () => {
     if (typeof window === "undefined") return false;
     return window.matchMedia(mediaQuery).matches;
-  }, [mediaQuery]);
+  };
 
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }

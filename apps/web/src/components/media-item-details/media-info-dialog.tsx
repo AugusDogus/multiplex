@@ -96,7 +96,14 @@ export function MediaInfoDialog({
             <Button
               variant="outline"
               size="sm"
-              render={<a href={xmlUrl} target="_blank" rel="noreferrer" />}
+              render={
+                <a
+                  href={xmlUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label="View Plex XML"
+                />
+              }
             >
               <ExternalLink data-icon="inline-start" />
               View XML

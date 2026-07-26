@@ -424,7 +424,14 @@ function SetupMessage({
       </div>
       {href ? (
         <Button
-          render={<a href={href} target="_blank" rel="noreferrer" />}
+          render={
+            <a
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={action}
+            />
+          }
           type="button"
           variant="outline"
           size="sm"

@@ -104,6 +104,7 @@ export function NavUser({
                     href={subscriptionUrl}
                     target="_blank"
                     rel="noopener noreferrer"
+                    aria-label={subscriptionText ?? "Plex subscription"}
                   />
                 }
               >
@@ -119,6 +120,7 @@ export function NavUser({
                     href="https://app.plex.tv/desktop/#!/settings/account"
                     target="_blank"
                     rel="noopener noreferrer"
+                    aria-label="Account"
                   />
                 }
               >
@@ -131,6 +133,7 @@ export function NavUser({
                     href="https://clients.plex.tv/users/payments"
                     target="_blank"
                     rel="noopener noreferrer"
+                    aria-label="Billing"
                   />
                 }
               >
