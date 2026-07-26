@@ -9,6 +9,8 @@ describe("sanitizeReturnTo", () => {
     expect(sanitizeReturnTo("/\\evil.example")).toBe("/");
     expect(sanitizeReturnTo("/api/auth/plex/auth/callback")).toBe("/");
     expect(sanitizeReturnTo("/api")).toBe("/");
+    expect(sanitizeReturnTo("/api?x=1")).toBe("/");
+    expect(sanitizeReturnTo("/api#x")).toBe("/");
     expect(sanitizeReturnTo("/login")).toBe("/");
     expect(sanitizeReturnTo(null)).toBe("/");
     expect(sanitizeReturnTo("")).toBe("/");

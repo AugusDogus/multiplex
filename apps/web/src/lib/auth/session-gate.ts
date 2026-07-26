@@ -1,6 +1,7 @@
 import { sanitizeReturnTo } from "@multiplex/auth-plugin-plex/return-to";
 import { getCookieCache, getSessionCookie } from "better-auth/cookies";
 import { type NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 
 import { authHintFromUser, serializeAuthHint } from "~/lib/auth/auth-hint";
 import { isDocumentNavigation } from "~/lib/auth/document-request";
@@ -51,14 +52,20 @@ function withAuthHint(
   return response;
 }
 
-type SessionProbe = {
-  session: { token?: string } | null;
-  user: {
-    name?: string | null;
-    email?: string | null;
-    image?: string | null;
-  } | null;
-} | null;
+const sessionProbeSchema = z
+  .object({
+    session: z.object({ token: z.string().optional() }).nullable(),
+    user: z
+      .object({
+        name: z.string().nullable().optional(),
+        email: z.string().nullable().optional(),
+        image: z.string().nullable().optional(),
+      })
+      .nullable(),
+  })
+  .nullable();
+
+type SessionProbe = z.infer<typeof sessionProbeSchema>;
 
 /**
  * Validate via Better Auth's HTTP get-session without importing the DB-backed
@@ -89,12 +96,19 @@ async function probeSession(
     return { session: null, setCookieHeaders };
   }
 
-  const body = (await response.json()) as SessionProbe;
-  if (!body?.session || !body.user) {
+  let raw: unknown;
+  try {
+    raw = await response.json();
+  } catch {
     return { session: null, setCookieHeaders };
   }
 
-  return { session: body, setCookieHeaders };
+  const parsed = sessionProbeSchema.safeParse(raw);
+  if (!parsed.success || !parsed.data?.session || !parsed.data.user) {
+    return { session: null, setCookieHeaders };
+  }
+
+  return { session: parsed.data, setCookieHeaders };
 }
 
 /**
