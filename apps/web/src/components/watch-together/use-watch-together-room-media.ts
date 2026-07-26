@@ -2,12 +2,13 @@
 
 import {
   getBackdropImagePath,
-  getPlexImageUrl,
   getPosterImagePath,
   parseLibraryItemUri,
 } from "@multiplex/plex-query";
 
-import { api, type RouterOutputs } from "~/trpc/api";
+import { useSyncedItemDetails } from "~/lib/sync-engine";
+import { getPlexImagePath } from "~/lib/plex-image";
+import type { RouterOutputs } from "~/trpc/api";
 
 type ItemDetails = NonNullable<RouterOutputs["plex"]["getItemDetails"]>;
 
@@ -28,12 +29,8 @@ interface WatchTogetherRoomMedia {
 /**
  * Resolves the media behind a Watch Together room (which only carries a
  * `sourceUri`) into the poster/backdrop art and full metadata used across the
- * home row and lobby. The underlying `getItemDetails` query is cached per
- * server+item, so the home row card and lobby share the same fetch (navigating
- * into the lobby is instant). The row only needs the poster, so it over-fetches
- * `playTarget`/`serverName` here; that is accepted in exchange for the shared
- * cache. Rooms are created from a play target (movie/episode), so the heavier
- * show/season children fetch inside `getItemDetails` is not triggered.
+ * home row and lobby. Reads/warms the sync-engine `mediaItems` collection so
+ * the home row card and lobby share one durable cache.
  */
 export function useWatchTogetherRoomMedia(
   sourceUri: string | undefined,
@@ -41,31 +38,28 @@ export function useWatchTogetherRoomMedia(
 ): WatchTogetherRoomMedia {
   const source = sourceUri ? parseLibraryItemUri(sourceUri) : null;
 
-  const detailsQuery = api.plex.getItemDetails.useQuery(
-    {
-      serverId: source?.serverId ?? "",
-      ratingKey: source?.ratingKey ?? "",
-    },
-    {
-      enabled: enabled && Boolean(source),
-      staleTime: 60_000,
-    },
+  const detailsQuery = useSyncedItemDetails(
+    source?.serverId ?? "",
+    source?.ratingKey ?? "",
+    { enabled: enabled && Boolean(source) },
   );
 
-  const details = detailsQuery.data ?? undefined;
+  const details = detailsQuery.details;
   const item = details?.item;
-  const serverUrl = details?.serverUrl ?? undefined;
-  const authToken = details?.authToken ?? undefined;
   const posterUrl = item
-    ? getPlexImageUrl(getPosterImagePath(item), serverUrl, authToken, {
+    ? getPlexImagePath(getPosterImagePath(item), {
         width: 320,
         height: 480,
+        serverUrl: details?.serverUrl,
+        authToken: details?.authToken,
       })
     : undefined;
   const backdropUrl = item
-    ? getPlexImageUrl(getBackdropImagePath(item), serverUrl, authToken, {
+    ? getPlexImagePath(getBackdropImagePath(item), {
         width: 1280,
         height: 720,
+        serverUrl: details?.serverUrl,
+        authToken: details?.authToken,
       })
     : undefined;
 

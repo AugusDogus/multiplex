@@ -26,15 +26,6 @@ async function mapWithConcurrency<T extends object, R>(
   return results;
 }
 
-/**
- * Extract DVR ID from provider identifier
- * Example: "tv.plex.providers.epg.xmltv:73" -> "73"
- */
-function extractDvrIdFromProvider(providerIdentifier: string): string | null {
-  const match = /:(\d+)$/.exec(providerIdentifier);
-  return match?.[1] ?? null;
-}
-
 export type ChannelLineup = {
   channel: {
     id: string;
@@ -359,68 +350,13 @@ export async function getServerChannelsProgrammingQuery(
   const serverClient = plex.createServerClient(targetServer);
   const requiredDates = getRequiredDates(date, startTime, endTime);
 
-  // First attempt to get programming data
-  const initialChannelLineups = await fetchChannelLineupsForDates(
+  return fetchChannelLineupsForDates(
     serverClient,
     providerIdentifier,
     requiredDates,
     startTime,
     endTime,
   );
-
-  // Check if we got any programming data
-  const hasAnyPrograms = initialChannelLineups.some(
-    (lineup) => lineup.programs.length > 0,
-  );
-
-  // If we have programs or no channels, return the initial data
-  if (hasAnyPrograms || initialChannelLineups.length === 0) {
-    return initialChannelLineups;
-  }
-
-  // No programming data but channels exist - try to reload guide
-  console.log(
-    `No programming data found for server ${targetServer.name}, attempting to reload guide...`,
-  );
-
-  try {
-    // Extract DVR ID from provider identifier for targeted reload
-    const dvrId = extractDvrIdFromProvider(providerIdentifier);
-
-    if (dvrId) {
-      console.log(`Reloading guide for specific DVR ID: ${dvrId}`);
-      await serverClient.reloadGuide(dvrId);
-      console.log(
-        `Guide reloaded successfully for DVR ${dvrId} on server ${targetServer.name}`,
-      );
-    } else {
-      console.log(
-        `Could not extract DVR ID from provider identifier, falling back to reload all guides`,
-      );
-      await serverClient.reloadAllGuides();
-      console.log(
-        `All guides reloaded successfully for server ${targetServer.name}`,
-      );
-    }
-
-    // Give it a moment for the guide to be processed
-    await new Promise((resolve) => setTimeout(resolve, 5000));
-
-    // Try to get programming data again
-    return await fetchChannelLineupsForDates(
-      serverClient,
-      providerIdentifier,
-      requiredDates,
-      startTime,
-      endTime,
-    );
-  } catch (error) {
-    console.warn(
-      `Failed to reload guide for server ${targetServer.name}:`,
-      error,
-    );
-    return initialChannelLineups;
-  }
 }
 
 /**

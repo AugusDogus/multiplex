@@ -25,6 +25,7 @@ import {
   rotationRoomKnown,
   swapPlayingRoom,
   type ParticipantMap,
+  type LobbyStartPolicy,
   type PlayingItem,
   type RotationDecision,
   type SessionState,
@@ -114,6 +115,7 @@ export type RotationContext = {
 export type EnterLobbyInput = {
   readonly room: WatchTogetherRoom;
   readonly localUser: SyncplayUser;
+  readonly startPolicy?: LobbyStartPolicy;
 };
 
 /**
@@ -604,7 +606,10 @@ export const makeWatchTogetherSession = (
               user.id,
             );
 
-            if (everyoneNow) {
+            if (
+              session.startPolicy._tag === "AllInvitedPresent" &&
+              everyoneNow
+            ) {
               yield* interruptChild(graceFiber);
               graceFiber = null;
               if (!session.everyonePresentSticky) {
@@ -616,7 +621,7 @@ export const makeWatchTogetherSession = (
                     : s,
                 );
               }
-            } else {
+            } else if (session.startPolicy._tag === "AllInvitedPresent") {
               if (session.everyonePresentSticky && !graceFiber) {
                 graceFiber = yield* Effect.forkIn(
                   Effect.gen(function* () {
@@ -648,15 +653,31 @@ export const makeWatchTogetherSession = (
             const suppressed = suppressedRoomId === session.room.id;
             const positionOk =
               !someoneElseWatching || session.roomPositionSeconds !== null;
+            const policy = session.startPolicy;
+            const hostReady =
+              policy._tag === "HostControlled" &&
+              policy.localRole === "Guest" &&
+              Object.values(session.participants).some(
+                (participant) =>
+                  participant.user.id === policy.hostUserId &&
+                  participant.isReady === true,
+              );
             const armed =
-              sticky &&
-              everyoneNow &&
-              canStart &&
-              !suppressed &&
-              session.room.users.length > 1 &&
-              !ctx.leaving &&
-              !started &&
-              positionOk;
+              session.startPolicy._tag === "HostControlled"
+                ? hostReady &&
+                  canStart &&
+                  !suppressed &&
+                  !ctx.leaving &&
+                  !started &&
+                  session.roomPositionSeconds !== null
+                : sticky &&
+                  everyoneNow &&
+                  canStart &&
+                  !suppressed &&
+                  session.room.users.length > 1 &&
+                  !ctx.leaving &&
+                  !started &&
+                  positionOk;
 
             const now = yield* Ref.get(clockMs);
             if (armed) {
@@ -664,7 +685,7 @@ export const makeWatchTogetherSession = (
               if (since === null) {
                 yield* Ref.set(presentSinceMs, now);
               }
-            } else if (sticky && everyoneNow) {
+            } else {
               // Conditions not fully met yet (media pending, unknown position,
               // etc.) — keep sticky but don't accumulate delay until armed.
               yield* Ref.set(presentSinceMs, null);
@@ -685,6 +706,7 @@ export const makeWatchTogetherSession = (
               leaving: ctx.leaving,
               hasAutoStarted: started,
               roomPositionSeconds: session.roomPositionSeconds,
+              startPolicy: session.startPolicy,
             });
 
             switch (decision.kind) {
@@ -781,6 +803,7 @@ export const makeWatchTogetherSession = (
           yield* SubscriptionRef.set(state, {
             ...current,
             room: input.room,
+            startPolicy: input.startPolicy ?? current.startPolicy,
           });
           localUser = input.localUser;
           return;
@@ -796,6 +819,7 @@ export const makeWatchTogetherSession = (
             room: input.room,
             participants: {},
             roomPositionSeconds: null,
+            startPolicy: input.startPolicy,
           }),
         );
         yield* startLobbyFiber(input.room, input.localUser, generation);
@@ -1490,6 +1514,16 @@ export const makeWatchTogetherSession = (
         if (!user) return;
         const session = yield* SubscriptionRef.get(state);
         if (session._tag !== "Playing") return;
+        if (
+          session.startPolicy._tag === "HostControlled" &&
+          session.startPolicy.localRole === "Guest"
+        ) {
+          yield* interruptRotation();
+          if (session.rotation._tag !== "None") {
+            yield* updateRotationPhase(() => RotationNone);
+          }
+          return;
+        }
         const ctx = yield* Ref.get(rotationContext);
         if (!ctx.autoPlayEnabled || !ctx.nextEpisode) {
           yield* interruptRotation();
@@ -1535,6 +1569,8 @@ export const makeWatchTogetherSession = (
           room: input.room,
           item: toPlayingItem(input.item),
           participants: {},
+          startPolicy:
+            current._tag === "Lobby" ? current.startPolicy : undefined,
         });
         yield* SubscriptionRef.set(state, next);
 

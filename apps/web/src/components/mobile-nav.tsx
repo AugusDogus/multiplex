@@ -12,7 +12,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   type PlexDevice,
@@ -265,7 +265,6 @@ interface YouDrawerProps {
 }
 
 function YouDrawer({ open, onOpenChange, user, userInfo }: YouDrawerProps) {
-  const router = useRouter();
   const hasPlexPass = userInfo.subscription?.active ?? false;
   const subscriptionText = hasPlexPass
     ? userInfo.subscriptionDescription
@@ -275,8 +274,10 @@ function YouDrawer({ open, onOpenChange, user, userInfo }: YouDrawerProps) {
     : "https://www.plex.tv/plans/";
 
   async function handleSignOut() {
-    await signOut();
-    router.replace("/login");
+    // Always leave even if signOut rejects (document gate clears junk).
+    await signOut().catch(() => undefined);
+    // Full navigation: avoid flashing the signed-in shell on the way out.
+    window.location.replace("/login");
   }
 
   return (

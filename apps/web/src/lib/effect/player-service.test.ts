@@ -13,7 +13,6 @@ import {
   usePlayerPrefsStore,
   type PlayerPrefsState,
 } from "~/stores/player-prefs-store";
-import { useProgressStore } from "~/stores/progress-store";
 import type { MediaPlayerItem, NextEpisodeInfo } from "~/types/media-player";
 
 const directPlayMedia = {
@@ -58,7 +57,6 @@ let player: PlayerServiceShape;
 
 beforeEach(() => {
   player = createPlayerService();
-  useProgressStore.getState().clearAllProgress();
   usePlayerPrefsStore.setState({
     volume: 1,
     isMuted: false,
@@ -75,17 +73,6 @@ describe("openPlayer resume math", () => {
       { resume: false },
     );
     expect(player.snapshot().currentTime).toBe(0);
-    expect(player.snapshot().streamOffset).toBe(0);
-  });
-
-  test("progress-store percent path seeds currentTime", () => {
-    useProgressStore.getState().updateItemProgress({
-      ratingKey: "100",
-      progressPercent: 50,
-    });
-    player.openPlayer({ ...sampleItem, Media: [directPlayMedia] });
-    expect(player.snapshot().currentTime).toBe(300);
-    // Direct-play: no stream offset baked in
     expect(player.snapshot().streamOffset).toBe(0);
   });
 
@@ -413,6 +400,19 @@ describe("applyPlaybackMetadata", () => {
 });
 
 describe("auto-play + close", () => {
+  test("cancelAutoPlay resets countdown and next-episode intent", () => {
+    player.openPlayer(sampleItem, { resume: false });
+    player.startAutoPlayCountdown(nextEpisode);
+
+    player.cancelAutoPlay();
+
+    expect(player.snapshot().autoPlay).toEqual({
+      isCountingDown: false,
+      countdownSeconds: 0,
+      nextEpisode: null,
+    });
+  });
+
   test("triggerAutoPlay builds next item and resets countdown", () => {
     player.openPlayer(sampleItem, { resume: false });
     player.startAutoPlayCountdown(nextEpisode);

@@ -29,9 +29,24 @@ function LibraryGridSkeleton() {
 
 function LibraryCategoriesSkeleton() {
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div
+      aria-hidden="true"
+      className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+    >
       {Array.from({ length: 6 }).map((_, index) => (
-        <Skeleton key={index} className="aspect-video rounded-lg" />
+        <div
+          key={index}
+          className="relative aspect-[16/9] overflow-hidden rounded-lg shadow-md"
+        >
+          <Skeleton className="absolute inset-0 rounded-lg" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Skeleton
+              className={`h-6 rounded-sm ${
+                index % 3 === 0 ? "w-1/3" : index % 3 === 1 ? "w-2/5" : "w-1/4"
+              }`}
+            />
+          </div>
+        </div>
       ))}
     </div>
   );

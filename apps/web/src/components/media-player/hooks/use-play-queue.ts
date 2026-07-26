@@ -15,7 +15,10 @@ import { api } from "~/trpc/api";
  * @param item - Current media item
  * @returns Play queue management functions and data
  */
-export function usePlayQueue(item: MediaPlayerItem | null) {
+export function usePlayQueue(
+  item: MediaPlayerItem | null,
+  { enabled = true }: { enabled?: boolean } = {},
+) {
   const lastItemRef = useRef<string | null>(null);
 
   // Create play queue mutation
@@ -26,6 +29,24 @@ export function usePlayQueue(item: MediaPlayerItem | null) {
    */
   useEffect(() => {
     const playbackIdentity = playerCommands.playbackIdentity();
+
+    if (!enabled) {
+      const disabledItemKey = playbackIdentity
+        ? `${playbackIdentity.streamSessionId}-guest-transient`
+        : "guest-transient-no-playback";
+      if (lastItemRef.current === disabledItemKey) {
+        return;
+      }
+      lastItemRef.current = disabledItemKey;
+      if (playbackIdentity) {
+        playerCommands.updatePlaybackStateFor(playbackIdentity, {
+          playQueue: null,
+          playQueueId: null,
+          markers: [],
+        });
+      }
+      return;
+    }
 
     if (item && item.serverId && item.librarySectionID && item.ratingKey) {
       if (
@@ -97,7 +118,7 @@ export function usePlayQueue(item: MediaPlayerItem | null) {
         });
       }
     }
-  }, [item, createPlayQueueMutation]);
+  }, [item, enabled, createPlayQueueMutation]);
 
   return {
     isCreating: createPlayQueueMutation.isPending,

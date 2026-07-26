@@ -52,7 +52,7 @@ export function MediaPlayerAutoPlayOverlay({
         PLAYER_OVERLAY_BOTTOM_COMPACT_CONTROLS,
       )}
     >
-      <div className="animate-in fade-in-0 slide-in-from-bottom-2 w-full max-w-md rounded-lg bg-black/90 p-4 backdrop-blur-sm duration-200 ease-out">
+      <div className="animate-in fade-in-0 slide-in-from-bottom-2 w-full max-w-md rounded-lg bg-black/90 p-4 backdrop-blur-sm">
         <div className="mb-3 flex items-center justify-between">
           <div className="flex-1">
             <h3 className="text-sm font-medium text-white">Up Next</h3>

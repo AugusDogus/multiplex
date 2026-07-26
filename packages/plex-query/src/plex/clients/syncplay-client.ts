@@ -428,7 +428,14 @@ export class SyncplayClient {
       const user = decodeSyncplayUser(payload.ready.username);
       if (user) {
         this.knownParticipants.set(user.deviceIdentifier, user);
-        this.onParticipant({ user, isReady: payload.ready.isReady });
+        // A ready update can only be emitted by a connected room member. Plex's
+        // Syncplay service does not consistently precede it with a joined/List
+        // frame, so it is also authoritative presence evidence.
+        this.onParticipant({
+          user,
+          isPresent: true,
+          isReady: payload.ready.isReady,
+        });
       }
     }
 

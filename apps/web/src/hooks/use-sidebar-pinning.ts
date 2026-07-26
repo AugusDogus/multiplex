@@ -5,6 +5,12 @@ import {
   type PlexUserInfo,
   toPinnedSource,
 } from "@multiplex/plex-query";
+import {
+  refetchSyncedShellCollections,
+  useSyncedUserInfo,
+  useSyncEngineCollections,
+  writeSyncedUserInfo,
+} from "~/lib/sync-engine";
 import { api } from "~/trpc/api";
 
 function applyPinnedSourceUpdate(
@@ -33,42 +39,34 @@ function applyPinnedSourceUpdate(
 }
 
 export function useSidebarPinning(userInfo: PlexUserInfo) {
-  const userInfoQuery = api.plex.getUserInfo.useQuery(undefined, {
-    initialData: userInfo,
-    staleTime: 60_000,
-  });
-  const currentUserInfo = userInfoQuery.data;
-  const utils = api.useUtils();
+  const collections = useSyncEngineCollections();
+  const userInfoQuery = useSyncedUserInfo({ initialData: userInfo });
+  const currentUserInfo = userInfoQuery.data ?? userInfo;
 
   const togglePinnedSourceMutation = api.plex.togglePinnedSource.useMutation({
     scope: { id: "sidebar-pinning" },
     onMutate: async (variables) => {
-      await utils.plex.getUserInfo.cancel();
-
-      const previousUserInfo = utils.plex.getUserInfo.getData();
-      utils.plex.getUserInfo.setData(
-        undefined,
-        applyPinnedSourceUpdate(
-          previousUserInfo ?? userInfo,
-          variables.source,
-          variables.action,
-        ),
+      const previousUserInfo = currentUserInfo;
+      const next = applyPinnedSourceUpdate(
+        previousUserInfo,
+        variables.source,
+        variables.action,
       );
-
+      if (collections) {
+        writeSyncedUserInfo(collections, next);
+      }
       return { previousUserInfo };
     },
     onError: (_error, _variables, context) => {
-      utils.plex.getUserInfo.setData(
-        undefined,
-        context?.previousUserInfo ?? userInfo,
-      );
+      if (collections && context?.previousUserInfo) {
+        writeSyncedUserInfo(collections, context.previousUserInfo);
+      }
     },
     onSuccess: async (updatedUserInfo) => {
-      utils.plex.getUserInfo.setData(undefined, updatedUserInfo);
-      await Promise.allSettled([
-        utils.plex.getAllContinueWatching.invalidate(),
-        utils.plex.getHomeHubs.invalidate(),
-      ]);
+      if (collections) {
+        writeSyncedUserInfo(collections, updatedUserInfo);
+      }
+      await refetchSyncedShellCollections();
     },
   });
 

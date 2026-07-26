@@ -5,15 +5,17 @@
   "type": "module",
   "exports": {
     "./client": "./src/client.ts",
-    "./server": "./src/server.ts"
+    "./server": "./src/server.ts",
+    "./return-to": "./src/return-to.ts"
   },
   "scripts": {
+    "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@multiplex/plex-query": "workspace:*",
     "better-auth": "catalog:",
-    "better-call": "^1.0.9",
+    "better-call": "1.3.5",
     "zod": "catalog:"
   },
   "devDependencies": {

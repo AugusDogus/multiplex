@@ -17,8 +17,8 @@ import {
 } from "~/components/ui/menu";
 import { getTypeNumber } from "~/lib/library-browse-params";
 import { POSTER_GRID_INSET_CLASSNAME } from "~/lib/poster-grid-layout";
+import { useSyncedLibraryFilterValues } from "~/lib/sync-engine";
 import { cn } from "~/lib/utils";
-import { api } from "~/trpc/api";
 
 interface LibraryControlsProps {
   machineIdentifier: string;
@@ -253,13 +253,10 @@ function FilterSubmenu({
   prefetch,
   onSelectValue,
 }: FilterSubmenuProps) {
-  const { data: values, isLoading } = api.plex.getLibraryFilterValues.useQuery(
-    { machineIdentifier, filterPath: filter.key },
-    {
-      enabled: prefetch,
-      staleTime: 5 * 60 * 1000,
-      refetchOnWindowFocus: false,
-    },
+  const { data: values, isLoading } = useSyncedLibraryFilterValues(
+    machineIdentifier,
+    filter.key,
+    { enabled: prefetch },
   );
 
   return (

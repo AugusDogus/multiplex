@@ -8,8 +8,29 @@ import {
 } from "~/lib/effect/player-atoms";
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import { shallow } from "zustand/shallow";
+import { useSyncedPlayQueue } from "~/lib/sync-engine";
 import type { NextEpisodeInfo } from "~/types/media-player";
-import { api } from "~/trpc/api";
+
+interface AutoPlayCancellationInput {
+  enabled: boolean;
+  autoPlayEnabled: boolean;
+  hasNextEpisode: boolean;
+  isCountingDown: boolean;
+  hasPendingEpisode: boolean;
+}
+
+export function shouldCancelAutoPlay({
+  enabled,
+  autoPlayEnabled,
+  hasNextEpisode,
+  isCountingDown,
+  hasPendingEpisode,
+}: AutoPlayCancellationInput): boolean {
+  const hasPendingAutoPlay = isCountingDown || hasPendingEpisode;
+  return (
+    hasPendingAutoPlay && (!enabled || !autoPlayEnabled || !hasNextEpisode)
+  );
+}
 
 /* ────────────────────────────────────────────────────────────
    Auto-Play Next Episode Hook
@@ -55,19 +76,14 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
       : null;
 
   // Poll for play queue updates when we have a play queue ID
-  const { data: updatedPlayQueue } = api.plex.getPlayQueue.useQuery(
-    {
-      serverId: currentItem?.serverId ?? "",
-      playQueueId: playQueueId ?? "",
-      includeMarkers: true,
-    },
+  const { data: updatedPlayQueue } = useSyncedPlayQueue(
+    currentItem?.serverId ?? "",
+    playQueueId ?? "",
     {
       enabled: Boolean(
         currentItem?.serverId && playQueueId && currentItem?.type === "episode",
       ),
-      refetchInterval: 30000, // Poll every 30 seconds
-      refetchOnWindowFocus: false,
-      staleTime: 15000, // Consider data stale after 15 seconds
+      refetchIntervalMs: 30_000,
     },
   );
 
@@ -150,19 +166,21 @@ export function useAutoPlayNextEpisode(options: { enabled?: boolean } = {}) {
 
   // Auto-play logic - event-driven by video time
   useEffect(() => {
-    if (!enabled) {
-      if (autoPlay.isCountingDown || autoPlay.nextEpisode) {
-        playerCommands.cancelAutoPlay();
-      }
+    if (
+      shouldCancelAutoPlay({
+        enabled,
+        autoPlayEnabled,
+        hasNextEpisode: nextEpisode !== null,
+        isCountingDown: autoPlay.isCountingDown,
+        hasPendingEpisode: autoPlay.nextEpisode !== null,
+      })
+    ) {
+      playerCommands.cancelAutoPlay();
       return;
     }
 
-    if (!autoPlayEnabled) {
-      return;
-    }
-
-    // Don't trigger if no next episode found
-    if (!nextEpisode) {
+    // Don't trigger while disabled or when no next episode is available.
+    if (!enabled || !autoPlayEnabled || !nextEpisode) {
       return;
     }
 

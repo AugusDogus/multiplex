@@ -4,7 +4,7 @@ import { type Metadata } from "next";
 import { Geist } from "next/font/google";
 import { StrictMode } from "react";
 
-import { MediaPlayerModal } from "~/components/media-player";
+import { MediaPlayerModalLazy } from "~/components/media-player-modal-lazy";
 import { ThemeProvider } from "~/components/theme-provider";
 import { ToastProvider } from "~/components/ui/toast";
 import { TooltipProvider } from "~/components/ui/tooltip";
@@ -40,7 +40,7 @@ export default function RootLayout({
                 <ToastProvider>
                   <TooltipProvider>
                     {children}
-                    <MediaPlayerModal />
+                    <MediaPlayerModalLazy />
                   </TooltipProvider>
                 </ToastProvider>
               </ThemeProvider>

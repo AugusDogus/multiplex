@@ -1,18 +1,14 @@
 "use client";
 
 import { MediaHubRow, MediaHubRowSkeleton } from "~/components/media-hub-row";
-import {
-  isHubQueryLoading,
-  PLEX_HUB_QUERY_OPTIONS,
-} from "~/lib/plex-hub-query-options";
-import { api } from "~/trpc/api";
+import { isHubQueryLoading } from "~/lib/plex-hub-query-options";
+import { toHubWithServer, useSyncedHomeHubs } from "~/lib/sync-engine";
 
 export function HomeHubs() {
-  const {
-    data: hubs = [],
-    isPending,
-    isFetching,
-  } = api.plex.getHomeHubs.useQuery(undefined, PLEX_HUB_QUERY_OPTIONS);
+  const { data: rows, isLoading, isReady } = useSyncedHomeHubs();
+  const hubs = rows.map(toHubWithServer);
+  const isPending = !isReady || (isLoading && hubs.length === 0);
+  const isFetching = Boolean(isLoading && hubs.length > 0);
 
   if (isHubQueryLoading(isPending, isFetching, hubs.length)) {
     return (

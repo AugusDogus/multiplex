@@ -314,7 +314,8 @@ function usePlaybackSessionController({
   const playerItemRatingKey = currentItem?.ratingKey ?? null;
   const streamServerUrl = currentItem?.serverUrl;
   const streamAuthToken = currentItem?.authToken;
-  const timeline = useTimelineUpdates();
+  const isGuestTransient = currentItem?.access === "guest-transient";
+  const timeline = useTimelineUpdates({ enabled: !isGuestTransient });
 
   useEffect(() => {
     if (
@@ -388,7 +389,7 @@ function usePlaybackSessionController({
     enabled: !isWatchTogetherSession,
   });
   const watchTogetherAutoAdvance = useWatchTogetherRotation({
-    enabled: isWatchTogetherSession,
+    enabled: isWatchTogetherSession && !isGuestTransient,
     nextEpisode,
   });
 
@@ -433,6 +434,14 @@ function usePlaybackSessionController({
       return;
     }
     return () => {
+      // Stop the one stream we know is active without first listing sessions.
+      // This keepalive request can survive an abrupt tab/browser close; the
+      // broader prefix cleanup below remains useful for any older seek stream.
+      void stopTranscodeSession(
+        streamServerUrl,
+        streamAuthToken,
+        `${streamSessionId}-${Math.floor(previousStreamRef.current.offset)}`,
+      );
       void stopPlaybackTranscodeSessions(
         streamServerUrl,
         streamAuthToken,
@@ -532,7 +541,9 @@ export function MediaPlayerModal() {
     isOpen,
     showControls,
   });
-  usePlayQueue(currentItem);
+  usePlayQueue(currentItem, {
+    enabled: currentItem?.access !== "guest-transient",
+  });
 
   const {
     autoPlayProps,
@@ -558,7 +569,10 @@ export function MediaPlayerModal() {
     // Commit the live room before leave → Idle. WatchTogetherSessionShell
     // soft-navs during Playing; this covers close if the segment still lags.
     const session = sessionCommands.snapshot();
-    if (session._tag === "Playing" || session._tag === "Lobby") {
+    if (
+      currentItem?.access !== "guest-transient" &&
+      (session._tag === "Playing" || session._tag === "Lobby")
+    ) {
       const href = getWatchTogetherRoomHref(session.room.id);
       if (window.location.pathname !== href) {
         router.replace(href);

@@ -1,10 +1,16 @@
 import { useState } from "react";
 import type { PlexDevice } from "@multiplex/plex-query";
 import type { plexRouterOutputs } from "~/server/api/routers/plex";
-import { api } from "~/trpc/api";
+import {
+  useSyncedServerLibraries,
+  useSyncEngineCollections,
+} from "~/lib/sync-engine";
+
+export type ServerLibraryData =
+  plexRouterOutputs["getAllServerLibraries"][number];
 
 export interface ServerLibraryState {
-  data: plexRouterOutputs["getAllServerLibraries"][number] | null;
+  data: ServerLibraryData | null;
   error: string | null;
   isLoading: boolean;
   isRetrying: boolean;
@@ -23,42 +29,48 @@ export function useServerLibraries(
   const [retryingServers, setRetryingServers] = useState<Set<string>>(
     new Set(),
   );
-
-  // Use the consolidated getAllServerLibraries query
-  const allServerLibrariesQuery = api.plex.getAllServerLibraries.useQuery(
-    undefined,
-    {
-      staleTime: 5 * 60 * 1000,
-      retry: 1,
-      retryDelay: 1000,
-    },
+  const [retryErrors, setRetryErrors] = useState<Map<string, string>>(
+    new Map(),
   );
-  const { refetch: refetchAllServerLibraries } = allServerLibrariesQuery;
+  const collections = useSyncEngineCollections();
+  const {
+    data: libraryRows,
+    isLoading,
+    isReady,
+    error: syncError,
+  } = useSyncedServerLibraries();
 
-  // Transform the consolidated results into individual server states
+  const serverDataById = new Map<string, ServerLibraryData>();
+  for (const row of libraryRows) {
+    serverDataById.set(row.serverId, {
+      serverId: row.serverId,
+      serverName: row.serverName,
+      serverOwned: row.serverOwned,
+      mediaProviders: row.mediaProviders,
+      error: row.error ?? undefined,
+    } as ServerLibraryData);
+  }
+
+  const syncErrorMessage = syncError?.message ?? null;
+
   const serverStates = (() => {
     const states = new Map<string, ServerLibraryState>();
-    const serverDataById = new Map<
-      string,
-      plexRouterOutputs["getAllServerLibraries"][number]
-    >();
-    for (const result of allServerLibrariesQuery.data ?? []) {
-      serverDataById.set(result.serverId, result);
-    }
 
-    // Initialize states for all servers
     for (const server of servers) {
       const serverId = server.clientIdentifier;
       const isRetrying = retryingServers.has(serverId);
-
-      // Find this server's data in the consolidated response
       const serverData = serverDataById.get(serverId);
+      const retryError = retryErrors.get(serverId) ?? null;
+      const error =
+        serverData?.error ??
+        retryError ??
+        (!serverData && syncErrorMessage ? syncErrorMessage : null);
 
       states.set(serverId, {
         data: serverData ?? null,
-        error:
-          serverData?.error ?? allServerLibrariesQuery.error?.message ?? null,
-        isLoading: allServerLibrariesQuery.isLoading && !isRetrying,
+        error,
+        isLoading:
+          (!isReady || isLoading) && !isRetrying && !serverData && !error,
         isRetrying,
       });
     }
@@ -68,17 +80,31 @@ export function useServerLibraries(
 
   const retryServer = (serverId: string) => {
     setRetryingServers((prev) => new Set([...prev, serverId]));
+    setRetryErrors((prev) => {
+      if (!prev.has(serverId)) return prev;
+      const next = new Map(prev);
+      next.delete(serverId);
+      return next;
+    });
 
-    // Retry the entire query since we can't retry individual servers
-    refetchAllServerLibraries({ throwOnError: true })
+    const refetch = collections?.serverLibraries.utils.refetch;
+    void Promise.resolve(refetch ? refetch() : undefined)
       .catch((error: Error) => {
         console.error(`Failed to retry server ${serverId}:`, error);
+        setRetryErrors((prev) => {
+          const next = new Map(prev);
+          next.set(
+            serverId,
+            error instanceof Error ? error.message : "Failed to load libraries",
+          );
+          return next;
+        });
       })
       .finally(() => {
         setRetryingServers((prev) => {
-          const newSet = new Set(prev);
-          newSet.delete(serverId);
-          return newSet;
+          const next = new Set(prev);
+          next.delete(serverId);
+          return next;
         });
       });
   };

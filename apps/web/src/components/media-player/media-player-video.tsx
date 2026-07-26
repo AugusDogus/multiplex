@@ -26,6 +26,7 @@ import { usePlexSubtitleTrack } from "./hooks/use-plex-subtitle-track";
 import { useResumePlayback } from "./hooks/use-resume-playback";
 import { useSeekOverlay } from "./hooks/use-seek-overlay";
 import { buildPlexPlaybackPlan } from "./utils/plex-playback-plan";
+import { shouldClaimDirectSyncplaySeek } from "./utils/syncplay-seek-origin";
 import { getVideoElementError } from "./utils/media-player-utils";
 import { generatePlexStreamUrl } from "./utils/plex-stream-urls";
 import { useSuppressNativeLongPress } from "./hooks/use-suppress-native-long-press";
@@ -341,7 +342,13 @@ function useMediaPlayerVideoController(
 
     // Claim direct-play seeks before Syncplay can reapply the old room
     // position while the browser is still fetching the target byte range.
-    if (!usesOffsetTimeline && videoElementRef.current) {
+    if (
+      shouldClaimDirectSyncplaySeek({
+        usesOffsetTimeline,
+        hasPendingResume: hasPendingResume(),
+      }) &&
+      videoElementRef.current
+    ) {
       onVideoSeeking?.(videoElementRef.current.currentTime);
     }
   };
@@ -485,6 +492,13 @@ function useMediaPlayerVideoController(
       ref(node);
     } else if (ref) {
       ref.current = node;
+    }
+    // Start from the imperative play() path instead of the autoPlay attribute
+    // so audible playback stays under player/Syncplay control.
+    if (node) {
+      void node.play().catch(() => {
+        // Autoplay can still be blocked by the browser; controls retry.
+      });
     }
   };
 
@@ -686,7 +700,6 @@ export const MediaPlayerVideo = forwardRef<
       <video
         key={`${streamSessionId}:${sourceGeneration}`}
         ref={videoRefCallback}
-        autoPlay
         src={videoSrc}
         className="pointer-events-none h-full w-full object-contain"
         onError={handleVideoError}

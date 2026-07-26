@@ -1,3 +1,7 @@
+import {
+  PosterCardSkeleton,
+  POSTER_SKELETON_OVERFLOW_COUNT,
+} from "~/components/poster-card-skeleton";
 import { Skeleton } from "~/components/ui/skeleton";
 import type { ItemDetailsRouteType } from "~/lib/plex-routes";
 
@@ -67,10 +71,16 @@ function DetailsSynopsisSkeleton() {
 
 function TechnicalDetailsSkeleton() {
   return (
-    <section className="bg-card grid gap-3 rounded-xl border p-4 text-sm sm:grid-cols-3">
+    <section
+      aria-hidden="true"
+      className="bg-card grid gap-3 rounded-xl border p-4 text-sm sm:grid-cols-3"
+    >
       {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="flex flex-col gap-1">
-          <Skeleton className="h-4 w-16" />
+        <div key={i} className="flex flex-col gap-1.5">
+          <Skeleton className="h-3.5 w-16" />
+          <Skeleton
+            className={`h-4 ${i % 3 === 0 ? "w-28" : i % 3 === 1 ? "w-20" : "w-24"}`}
+          />
         </div>
       ))}
     </section>
@@ -79,18 +89,18 @@ function TechnicalDetailsSkeleton() {
 
 function CastGridSkeleton() {
   return (
-    <section className="flex flex-col gap-4">
+    <section className="flex flex-col gap-4" aria-hidden="true">
       <Skeleton className="h-8 w-40" />
-      <div className="scrollbar-hide -mx-4 flex gap-4 overflow-x-auto px-4 pb-2 md:mx-0 md:px-0">
-        {Array.from({ length: 8 }).map((_, i) => (
+      <div className="flex gap-4 overflow-hidden pb-2">
+        {Array.from({ length: 12 }).map((_, i) => (
           <div
             key={i}
             className="flex w-32 shrink-0 flex-col items-center gap-3 text-center"
           >
             <Skeleton className="size-20 rounded-full" />
-            <div className="flex min-h-20 w-full flex-col gap-2">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-3 w-4/5" />
+            <div className="flex w-full flex-col gap-2">
+              <Skeleton className="h-4 w-full rounded-sm" />
+              <Skeleton className="h-3 w-4/5 rounded-sm" />
             </div>
           </div>
         ))}
@@ -101,17 +111,11 @@ function CastGridSkeleton() {
 
 function SeasonGridSkeleton() {
   return (
-    <section className="flex flex-col gap-4">
+    <section className="flex flex-col gap-4" aria-hidden="true">
       <Skeleton className="h-8 w-28" />
-      <div className="scrollbar-hide -mx-4 flex gap-4 overflow-x-auto px-4 pb-2 md:mx-0 md:px-0">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="flex w-40 shrink-0 flex-col gap-3">
-            <Skeleton className="aspect-2/3 rounded-xl" />
-            <div className="flex flex-col gap-2">
-              <Skeleton className="h-4 w-28" />
-              <Skeleton className="h-3 w-20" />
-            </div>
-          </div>
+      <div className="flex gap-4 overflow-hidden pb-2">
+        {Array.from({ length: POSTER_SKELETON_OVERFLOW_COUNT }).map((_, i) => (
+          <PosterCardSkeleton key={i} />
         ))}
       </div>
     </section>
@@ -120,28 +124,28 @@ function SeasonGridSkeleton() {
 
 function EpisodeGridSkeleton() {
   return (
-    <section className="flex flex-col gap-4">
+    <section className="flex flex-col gap-4" aria-hidden="true">
       <Skeleton className="h-8 w-32" />
       <div className="hidden gap-5 sm:grid sm:grid-cols-2 xl:grid-cols-3">
-        {Array.from({ length: 6 }).map((_, i) => (
+        {Array.from({ length: 9 }).map((_, i) => (
           <div key={i} className="flex min-w-0 flex-col gap-3">
             <Skeleton className="aspect-video rounded-xl" />
             <div className="flex flex-col gap-2">
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-3 w-24" />
-              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-4 w-3/4 rounded-sm" />
+              <Skeleton className="h-3 w-24 rounded-sm" />
+              <Skeleton className="h-3 w-full rounded-sm" />
             </div>
           </div>
         ))}
       </div>
       <div className="flex flex-col gap-3 sm:hidden">
-        {Array.from({ length: 4 }).map((_, i) => (
+        {Array.from({ length: 6 }).map((_, i) => (
           <div key={i} className="flex gap-3">
             <Skeleton className="aspect-video w-[132px] shrink-0 rounded-lg" />
             <div className="flex flex-1 flex-col justify-center gap-2">
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-3 w-20" />
-              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-4 w-3/4 rounded-sm" />
+              <Skeleton className="h-3 w-20 rounded-sm" />
+              <Skeleton className="h-3 w-full rounded-sm" />
             </div>
           </div>
         ))}

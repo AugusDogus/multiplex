@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
+import { useSyncedItemPlaylists } from "~/lib/sync-engine";
 import { api } from "~/trpc/api";
 
 import type { ItemDetails } from "./types";
@@ -37,16 +38,15 @@ export function AddToPlaylistDialog({
   const playlistType = getPlaylistTypeForItemType(item.type);
   const [newTitle, setNewTitle] = useState("");
 
-  const playlistsQuery = api.plex.getItemPlaylists.useQuery(
-    { serverId, playlistType },
-    { enabled: open, staleTime: 30_000 },
-  );
+  const playlistsQuery = useSyncedItemPlaylists(serverId, playlistType, {
+    enabled: open && Boolean(playlistType),
+  });
 
   const invalidatePlaylists = () =>
-    utils.plex.getItemPlaylists.invalidate({
-      serverId,
-      playlistType,
-    });
+    Promise.all([
+      playlistsQuery.refetch(),
+      utils.plex.getLibraryPlaylists.invalidate(),
+    ]);
 
   const addMutation = api.plex.addItemToPlaylist.useMutation({
     onSuccess: (_result, variables) => {

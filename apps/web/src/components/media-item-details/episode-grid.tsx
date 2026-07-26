@@ -6,13 +6,13 @@ import { Play } from "lucide-react";
 import {
   formatEpisodeCount,
   formatEpisodeListLabel,
-  getPlexImageUrl,
   getProgressPercent,
 } from "@multiplex/plex-query";
 
 import { MediaProgressBar } from "~/components/media-progress-bar";
 import { Button } from "~/components/ui/button";
 import { getItemDetailsHref } from "~/lib/plex-routes";
+import { getPlexImagePath } from "~/lib/plex-image";
 
 import type {
   EnrichedChildMetadata,
@@ -85,9 +85,11 @@ function MobileEpisodeRow({
   authToken,
   onPlay,
 }: EpisodeCardProps) {
-  const thumbnailUrl = getPlexImageUrl(episode.thumb, serverUrl, authToken, {
+  const thumbnailUrl = getPlexImagePath(episode.thumb, {
     width: 320,
     height: 180,
+    serverUrl,
+    authToken,
   });
   const progressPercent = getProgressPercent(episode);
   const detailsHref = getItemDetailsHref(
@@ -169,9 +171,11 @@ function EpisodeCard({
   authToken,
   onPlay,
 }: EpisodeCardProps) {
-  const thumbnailUrl = getPlexImageUrl(episode.thumb, serverUrl, authToken, {
+  const thumbnailUrl = getPlexImagePath(episode.thumb, {
     width: 480,
     height: 270,
+    serverUrl,
+    authToken,
   });
   const progressPercent = getProgressPercent(episode);
   const detailsHref = getItemDetailsHref(

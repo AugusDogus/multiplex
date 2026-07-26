@@ -11,7 +11,6 @@ import {
   getMetadataTypeLabel,
   getPlayButtonLabel,
   getPosterImagePath,
-  getPlexImageUrl,
   type PlayableMetadata,
 } from "@multiplex/plex-query";
 
@@ -28,6 +27,11 @@ import {
   playerCommands,
   usePlayerStateSelector,
 } from "~/lib/effect/player-atoms";
+import { getPlexImagePath } from "~/lib/plex-image";
+import {
+  refetchSyncedMediaItem,
+  refetchSyncedShellCollections,
+} from "~/lib/sync-engine";
 import { shallow } from "zustand/shallow";
 import { api } from "~/trpc/api";
 
@@ -72,18 +76,18 @@ export function DetailsHero({
 }: DetailsHeroProps) {
   const imageServerUrl = serverUrl ?? undefined;
   const imageAuthToken = authToken ?? undefined;
-  const posterUrl = getPlexImageUrl(
-    getPosterImagePath(item),
-    imageServerUrl,
-    imageAuthToken,
-    { width: 440, height: 660 },
-  );
-  const backdropUrl = getPlexImageUrl(
-    getBackdropImagePath(item),
-    imageServerUrl,
-    imageAuthToken,
-    { width: 1280, height: 720 },
-  );
+  const posterUrl = getPlexImagePath(getPosterImagePath(item), {
+    width: 440,
+    height: 660,
+    serverUrl: imageServerUrl,
+    authToken: imageAuthToken,
+  });
+  const backdropUrl = getPlexImagePath(getBackdropImagePath(item), {
+    width: 1280,
+    height: 720,
+    serverUrl: imageServerUrl,
+    authToken: imageAuthToken,
+  });
   const timeRemaining = formatDetailsTimeRemaining(item);
   const secondaryTitle = getDetailsSecondaryTitle(item);
   const canPlay = Boolean(imageServerUrl && imageAuthToken && playTarget);
@@ -174,7 +178,6 @@ export function DetailsHero({
             src={backdropUrl}
             alt=""
             fill
-            priority
             sizes="100vw"
             className="-z-20 object-cover"
           />
@@ -287,7 +290,6 @@ function HeroActions({
   authToken,
   playButtonClassName,
 }: HeroActionsProps) {
-  const utils = api.useUtils();
   const { currentPlayerItem, playQueueId } = usePlayerStateSelector(
     (state) => ({
       currentPlayerItem: state.currentItem,
@@ -346,16 +348,11 @@ function HeroActions({
         variables.watched ? "Marked as watched" : "Marked as unwatched",
       );
       void Promise.all([
-        utils.plex.getItemDetails.invalidate({
-          serverId,
-          ratingKey: variables.ratingKey,
-        }),
-        utils.plex.getItemMetadata.invalidate({
-          serverId,
-          ratingKey: variables.ratingKey,
-        }),
-        utils.plex.getAllContinueWatching.invalidate(),
-      ]).catch(() => undefined);
+        refetchSyncedMediaItem(serverId, variables.ratingKey),
+        refetchSyncedShellCollections(),
+      ]).catch((error: unknown) => {
+        console.error("Failed to resync after watched-state change:", error);
+      });
     },
   });
 

@@ -141,7 +141,7 @@ export function MediaPlayerControls({
 
   return (
     <div
-      className={`relative w-full bg-linear-to-t from-black/90 via-black/60 to-transparent px-6 py-4 transition-all duration-300 ${className}`}
+      className={`relative w-full bg-linear-to-t from-black/90 via-black/60 to-transparent px-6 py-4 transition-opacity duration-300 ${className}`}
     >
       <div className="space-y-3">
         {/* Progress Bar */}
@@ -230,9 +230,9 @@ export function MediaPlayerControls({
                     onKeyDown={handleVolumeKeyDown}
                   >
                     <div
-                      className="h-full rounded-full bg-white transition-all duration-200"
+                      className="h-full origin-left rounded-full bg-white transition-transform duration-200"
                       style={{
-                        width: `${isMuted ? 0 : volume * 100}%`,
+                        transform: `scaleX(${isMuted ? 0 : volume})`,
                       }}
                     />
                   </div>

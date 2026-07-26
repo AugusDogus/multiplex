@@ -1,5 +1,6 @@
 export type {
   IdleSession,
+  LobbyStartPolicy,
   LobbySession,
   ParticipantMap,
   PlayingItem,
@@ -8,6 +9,7 @@ export type {
   SessionState,
 } from "./session-state";
 export {
+  AllInvitedPresent,
   Idle,
   lobby,
   playing,

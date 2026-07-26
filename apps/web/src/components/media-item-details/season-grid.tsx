@@ -5,13 +5,13 @@ import Link from "next/link";
 import { Play } from "lucide-react";
 import {
   formatEpisodeCount,
-  getPlexImageUrl,
   getSeasonPosterImagePath,
   getWatchedPercent,
 } from "@multiplex/plex-query";
 
 import { Badge } from "~/components/ui/badge";
 import { getItemDetailsHref } from "~/lib/plex-routes";
+import { getPlexImagePath } from "~/lib/plex-image";
 
 import type { EnrichedChildMetadata, MediaServerContext } from "./types";
 
@@ -53,15 +53,12 @@ function SeasonCard({
   serverUrl,
   authToken,
 }: SeasonCardProps) {
-  const posterUrl = getPlexImageUrl(
-    getSeasonPosterImagePath(season),
+  const posterUrl = getPlexImagePath(getSeasonPosterImagePath(season), {
+    width: 300,
+    height: 450,
     serverUrl,
     authToken,
-    {
-      width: 300,
-      height: 450,
-    },
-  );
+  });
   const watchedPercent = getWatchedPercent(season);
 
   return (

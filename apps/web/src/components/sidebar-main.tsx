@@ -8,6 +8,7 @@ import {
   SidebarMenuItem,
 } from "~/components/ui/sidebar";
 import { getPinnedSourceIdentity } from "@multiplex/plex-query";
+import { useLibraryNavigationPrefetch } from "~/hooks/use-library-navigation-prefetch";
 import type { SidebarSource } from "~/hooks/use-sidebar-sources";
 import { SidebarSourceActionsMenu } from "./sidebar-source-actions-menu";
 import { getSourceIcon, isUrlActive } from "./sidebar-utils";
@@ -30,6 +31,7 @@ export function SidebarMain({
 }: SidebarMainProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { prefetchLibrary } = useLibraryNavigationPrefetch();
 
   return (
     <SidebarGroup>
@@ -55,7 +57,15 @@ export function SidebarMain({
           return (
             <SidebarMenuItem key={source.key}>
               <SidebarMenuButton
-                render={<Link href={source.href} />}
+                render={
+                  <Link
+                    href={source.href}
+                    prefetch
+                    onMouseEnter={() => prefetchLibrary(source.href)}
+                    onFocus={() => prefetchLibrary(source.href)}
+                    onTouchStart={() => prefetchLibrary(source.href)}
+                  />
+                }
                 isActive={isActive}
               >
                 <Icon />

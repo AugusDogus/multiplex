@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   MULTIPLEX_SYNCPLAY_DEVICE_NAME,
   allInvitedPresent,
@@ -22,8 +22,16 @@ import {
   resolveLobbyLeaveTarget,
 } from "~/components/watch-together/watch-together-lobby-leave";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
-import { getPlexClientIdentifier } from "~/lib/device-identifier";
+import { usePlexClientIdentifier } from "~/lib/device-identifier";
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
+import {
+  refetchSyncedWatchTogetherRooms,
+  removeSyncedWatchTogetherRoom,
+  useSyncedUserInfo,
+  useSyncedWatchTogetherRoom,
+  useSyncEngineCollections,
+} from "~/lib/sync-engine";
+import { readGuestHostCapability } from "~/lib/watch-together-source";
 import { api } from "~/trpc/api";
 
 async function leaveActiveWatchTogetherSession(
@@ -47,6 +55,11 @@ export type LobbyViewModel =
       readonly localUserId: number;
       readonly media: ReturnType<typeof useWatchTogetherRoomMedia>;
       readonly participantsByUserId: Map<number, SyncplayParticipantState>;
+      readonly participantDevices: ParticipantMap;
+      readonly guestLink: null | {
+        readonly joinPath: string;
+        readonly guestUserId: number;
+      };
       readonly canStart: boolean;
       readonly isSoloRoom: boolean;
       readonly someoneElseWatching: boolean;
@@ -65,33 +78,42 @@ export type LobbyViewModel =
  */
 export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const sessionState = useSessionState();
+  const deviceIdentifier = usePlexClientIdentifier();
 
-  const roomQuery = api.plex.getWatchTogetherRoom.useQuery(
-    { roomId },
-    {
-      // Poll for participant/room updates. Keep polling even after an error so a
-      // transient network hiccup recovers on the next interval (don't latch the
-      // lobby into "room unavailable" on a single failure).
-      refetchInterval: 10_000,
-    },
-  );
-  const userInfoQuery = api.plex.getUserInfo.useQuery(undefined, {
-    staleTime: 60_000,
-  });
-  const room = roomQuery.data;
+  // Rooms collection polls every 10s; warm single-room on miss.
+  const roomQuery = useSyncedWatchTogetherRoom(roomId);
+  const userInfoQuery = useSyncedUserInfo();
+  const collections = useSyncEngineCollections();
+  const room = roomQuery.room;
   const media = useWatchTogetherRoomMedia(room?.sourceUri);
   const source = media.source;
   const localUserId = userInfoQuery.data?.id;
   const pendingStartRoomIdRef = useRef<string | null>(null);
+  const queryCapability = searchParams.get("guest");
+  const storedGuestCapability = useSyncExternalStore<string | null | undefined>(
+    subscribeGuestCapability,
+    () => readGuestHostCapability(roomId),
+    () => undefined,
+  );
+  const guestCapability = queryCapability ?? storedGuestCapability;
+  const hostContextQuery = api.guestWatchTogether.hostContext.useQuery(
+    { capability: guestCapability ?? "" },
+    {
+      enabled: typeof guestCapability === "string",
+      staleTime: 30_000,
+      retry: false,
+    },
+  );
 
   const localUser: SyncplayUser | null = (() => {
-    if (localUserId === undefined) {
+    if (localUserId === undefined || !deviceIdentifier) {
       return null;
     }
     return {
       id: localUserId,
-      deviceIdentifier: getPlexClientIdentifier(),
+      deviceIdentifier,
       deviceName: MULTIPLEX_SYNCPLAY_DEVICE_NAME,
     };
   })();
@@ -152,30 +174,28 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     });
   })();
 
-  const utils = api.useUtils();
   const leaveRoom = api.plex.deleteWatchTogetherRoom.useMutation({
     onSuccess: async (_data, variables) => {
-      await utils.plex.getWatchTogetherRooms.invalidate();
-      try {
-        await leaveActiveWatchTogetherSession(variables.roomId);
-      } finally {
-        // Always leave the lobby UI even if session teardown rejects — the
-        // server room is already gone after a successful delete.
-        router.push("/");
+      if (collections) {
+        removeSyncedWatchTogetherRoom(collections, variables.roomId);
       }
+      await refetchSyncedWatchTogetherRooms().catch(() => undefined);
+      await leaveActiveWatchTogetherSession(variables.roomId).catch(
+        () => undefined,
+      );
+      router.push("/");
     },
     onError: async (_error, variables) => {
       // Delete may fail because rotation already removed the room — still leave
       // when the mutation targeted a live session room.
-      try {
-        await leaveActiveWatchTogetherSession(variables.roomId);
-      } finally {
-        router.push("/");
-        toastManager.add({
-          title: "Couldn't remove the session, but you've left it.",
-          type: "error",
-        });
-      }
+      await leaveActiveWatchTogetherSession(variables.roomId).catch(
+        () => undefined,
+      );
+      router.push("/");
+      toastManager.add({
+        title: "Couldn't remove the session, but you've left it.",
+        type: "error",
+      });
     },
   });
   const leaving = leaveRoom.isPending;
@@ -241,17 +261,12 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
       ? sessionState.everyonePresentSticky
       : false;
 
-  if (
-    roomQuery.isPending ||
-    userInfoQuery.isPending ||
-    userInfoQuery.isLoading
-  ) {
+  if (roomQuery.isPending || userInfoQuery.isLoading) {
     return { status: "loading" };
   }
 
   if (
     roomQuery.isError ||
-    userInfoQuery.isError ||
     !room ||
     !source ||
     localUserId === undefined ||
@@ -277,6 +292,13 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     someoneElseWatching: someoneElse,
     isSoloRoom: solo,
   });
+  const guestLink =
+    hostContextQuery.data?.valid && hostContextQuery.data.roomId === roomId
+      ? {
+          joinPath: hostContextQuery.data.joinPath,
+          guestUserId: hostContextQuery.data.guestUserId,
+        }
+      : null;
 
   return {
     status: "ready",
@@ -284,14 +306,22 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     localUserId,
     media,
     participantsByUserId,
+    participantDevices: sessionParticipants,
+    guestLink,
     canStart,
     isSoloRoom: solo,
     someoneElseWatching: someoneElse,
     roomPositionKnown,
     leaving,
-    lobbyHint,
+    lobbyHint: guestLink
+      ? "You control when playback starts. Guests will follow automatically."
+      : lobbyHint,
     startPlayback,
     leaveLobby,
     getParticipantStatus,
   };
+}
+
+function subscribeGuestCapability(): () => void {
+  return () => undefined;
 }

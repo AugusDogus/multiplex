@@ -1,27 +1,9 @@
-import { getSessionCookie } from "better-auth/cookies";
-import { type NextRequest, NextResponse } from "next/server";
+import { type NextRequest } from "next/server";
 
-function isPublicPath(pathname: string) {
-  return (
-    pathname === "/login" ||
-    pathname.startsWith("/api/") ||
-    pathname.startsWith("/_next/") ||
-    pathname === "/favicon.ico" ||
-    pathname === "/favicon.svg"
-  );
-}
+import { gateDocumentSession } from "~/lib/auth/session-gate";
 
 export function proxy(request: NextRequest) {
-  if (isPublicPath(request.nextUrl.pathname)) {
-    return NextResponse.next();
-  }
-
-  const sessionCookie = getSessionCookie(request);
-  if (!sessionCookie) {
-    return NextResponse.redirect(new URL("/login", request.url));
-  }
-
-  return NextResponse.next();
+  return gateDocumentSession(request);
 }
 
 export const config = {

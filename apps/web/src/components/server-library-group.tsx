@@ -146,7 +146,7 @@ export function ServerLibraryGroup({
             return (
               <SidebarMenuItem key={source.key}>
                 <SidebarMenuButton
-                  render={<Link href={source.href} />}
+                  render={<Link href={source.href} prefetch />}
                   isActive={isActive}
                 >
                   <Icon />

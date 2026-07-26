@@ -7,12 +7,13 @@ import { useState } from "react";
 import {
   getHubItemSubtitle,
   getHubItemTitle,
-  getThumbnailUrl,
+  getPosterImagePath,
   type HubItemWithServer,
 } from "@multiplex/plex-query";
 import { MediaProgressBar } from "~/components/media-progress-bar";
 import { Button } from "~/components/ui/button";
 import { getHubItemHref } from "~/lib/plex-routes";
+import { getPlexImagePath } from "~/lib/plex-image";
 import { cn } from "~/lib/utils";
 import { useHubItemPlayback } from "~/hooks/use-hub-item-playback";
 import {
@@ -33,6 +34,8 @@ interface MediaPosterCardContentBaseProps {
   onPlay?: () => void;
   onNavigateClick?: (event: React.MouseEvent) => void;
   showMobileMenuHint?: boolean;
+  /** Eager-load above-the-fold posters (Continue Watching LCP). */
+  priority?: boolean;
 }
 
 type PosterCardRouteProps =
@@ -93,7 +96,12 @@ function resolvePosterCardContent(
     ...detailsRoute,
     title: getHubItemTitle(item),
     subtitle: getHubItemSubtitle(item),
-    thumbnailUrl: getThumbnailUrl(item, item.serverUrl, item.authToken),
+    thumbnailUrl: getPlexImagePath(getPosterImagePath(item), {
+      width: 200,
+      height: 300,
+      serverUrl: item.serverUrl,
+      authToken: item.authToken,
+    }),
   };
 }
 
@@ -112,6 +120,7 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
     isCompleted = false,
     onNavigateClick,
     showMobileMenuHint = false,
+    priority = false,
   } = resolved;
   const detailsTarget = resolved.detailsTarget;
   const detailsHref = detailsTarget
@@ -139,7 +148,7 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
           src={thumbnailUrl}
           alt={title}
           className="h-full w-full object-cover"
-          loading="lazy"
+          priority={priority}
           width={160}
           height={240}
           onError={() => setImageFailed(true)}
@@ -189,6 +198,7 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
       <div className={cn("group relative", POSTER_SIZE_CLASSNAME)}>
         <Link
           href={detailsHref}
+          prefetch
           aria-label={`View details for ${title}`}
           onClick={onNavigateClick}
           onFocus={prefetchDetails}
@@ -220,6 +230,7 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
 
       <Link
         href={detailsHref}
+        prefetch
         onClick={onNavigateClick}
         onFocus={prefetchDetails}
         onMouseEnter={prefetchDetails}

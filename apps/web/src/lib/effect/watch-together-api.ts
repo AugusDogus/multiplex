@@ -4,6 +4,12 @@ import { createTRPCClient, type TRPCClient } from "@trpc/client";
 import { Context, Data, Effect, Layer } from "effect";
 
 import type { AppRouter } from "~/server/api/root";
+import {
+  getActiveSyncEngineCollections,
+  sanitizeWatchTogetherRoom,
+  upsertRow,
+  writeItemMetadata,
+} from "~/lib/sync-engine";
 import { createTrpcClientLinks } from "~/trpc/client-links";
 import type { RouterInputs, RouterOutputs } from "~/trpc/api";
 
@@ -74,7 +80,23 @@ const wrap =
 export const makeWatchTogetherApi = (
   client: WatchTogetherTrpcClient = getBrowserTrpcClient(),
 ): WatchTogetherApiShape => ({
-  listRooms: wrap("listRooms", () => client.getWatchTogetherRooms.query()),
+  listRooms: wrap("listRooms", async () => {
+    const rooms = await client.getWatchTogetherRooms.query();
+    const collections = getActiveSyncEngineCollections();
+    if (collections) {
+      await Promise.all(
+        rooms.map((room) =>
+          upsertRow(
+            collections.watchTogetherRooms,
+            sanitizeWatchTogetherRoom(
+              room as unknown as Record<string, unknown>,
+            ),
+          ),
+        ),
+      );
+    }
+    return rooms;
+  }),
   createRoom: (input) =>
     wrap("createRoom", () => client.createWatchTogetherRoom.mutate(input))(),
   deleteRoom: (roomId) =>
@@ -82,7 +104,16 @@ export const makeWatchTogetherApi = (
       client.deleteWatchTogetherRoom.mutate({ roomId }),
     )(),
   getItemMetadata: (input) =>
-    wrap("getItemMetadata", () => client.getItemMetadata.query(input))(),
+    wrap("getItemMetadata", async () => {
+      const result = await client.getItemMetadata.query(input);
+      // Best-effort: merge metadata into the durable replica without clobbering
+      // full details (children / playTarget) already warmed for the details page.
+      const collections = getActiveSyncEngineCollections();
+      if (collections && result) {
+        await writeItemMetadata(collections, input, result);
+      }
+      return result;
+    })(),
 });
 
 /**

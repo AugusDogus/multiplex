@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import type { HubItemWithServer } from "@multiplex/plex-query";
 import { useAppScrollElement } from "~/components/app-scroll-container";
@@ -12,6 +12,13 @@ import {
   POSTER_GRID_ROW_CONTENT_HEIGHT_PX,
   POSTER_GRID_ROW_GAP_PX,
 } from "~/lib/poster-grid-layout";
+import {
+  browsePageRowKey,
+  getActiveSyncEngineCollections,
+  toHubItemsWithServer,
+  useSyncEngineCollections,
+  writeBrowsePage,
+} from "~/lib/sync-engine";
 
 export interface PaginatedPosterResult {
   items: HubItemWithServer[];
@@ -260,16 +267,52 @@ export function MediaPosterGrid({
     queries: neededPages.map((pageIndex) => ({
       queryKey: ["media-poster-grid", contentKey, pageSize, pageIndex],
       queryFn: async () => {
+        const collections = getActiveSyncEngineCollections();
+        const cached = collections?.browsePages.get(
+          browsePageRowKey(contentKey, pageSize, pageIndex),
+        );
+        if (cached) {
+          return {
+            items: toHubItemsWithServer(cached),
+            totalSize: cached.totalSize,
+          };
+        }
+
         const result = await onLoadPage?.({
           start: pageIndex * pageSize,
           size: pageSize,
         });
-        return result ?? EMPTY_PAGE_RESULT;
+        const page = result ?? EMPTY_PAGE_RESULT;
+        if (collections && page.items.length > 0) {
+          writeBrowsePage(collections, {
+            contentKey,
+            pageSize,
+            pageIndex,
+            totalSize: page.totalSize,
+            items: page.items as unknown as Array<Record<string, unknown>>,
+          });
+        }
+        return page;
       },
       staleTime: Infinity,
     })),
     combine: (results) => results.map((result) => result.data),
   });
+
+  const collections = useSyncEngineCollections();
+
+  // Persist the RSC-provided first page into the durable replica once collections
+  // finish booting (reactive — do not rely on a one-shot registry read at mount).
+  useEffect(() => {
+    if (!collections || items.length === 0) return;
+    writeBrowsePage(collections, {
+      contentKey,
+      pageSize,
+      pageIndex: 0,
+      totalSize,
+      items: items as unknown as Array<Record<string, unknown>>,
+    });
+  }, [collections, contentKey, items, pageSize, totalSize]);
 
   const resolvedItems = (() => {
     const resolved: (HubItemWithServer | undefined)[] = Array.from(

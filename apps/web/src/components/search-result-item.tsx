@@ -5,11 +5,12 @@ import Image from "next/image";
 import {
   formatMetadataDuration,
   getMetadataTypeLabel,
-  getThumbnailUrl,
+  getPosterImagePath,
   type ProcessedSearchResult,
 } from "@multiplex/plex-query";
 import { Badge } from "~/components/ui/badge";
 import { Calendar, Clock, Star, Server } from "lucide-react";
+import { getPlexImagePath } from "~/lib/plex-image";
 
 interface SearchResultItemProps {
   result: ProcessedSearchResult;
@@ -46,19 +47,23 @@ export function SearchResultItem({ result }: SearchResultItemProps) {
     return null;
   };
 
-  const thumbnailUrl = getThumbnailUrl(
-    {
+  const thumbnailUrl = getPlexImagePath(
+    getPosterImagePath({
       type: result.type,
       thumb: result.thumb,
+    }),
+    {
+      width: 200,
+      height: 300,
+      serverUrl: result.serverUrl,
+      authToken: result.authToken,
     },
-    result.serverUrl,
-    result.authToken,
   );
 
   return (
     <div className="flex w-full items-center gap-3 p-2">
       {/* Thumbnail placeholder */}
-      <div className="bg-muted relative flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-md">
+      <div className="bg-muted relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md">
         {thumbnailUrl ? (
           <Image
             src={thumbnailUrl}
@@ -121,7 +126,7 @@ export function SearchResultItem({ result }: SearchResultItemProps) {
           </div>
 
           {/* Server info */}
-          <div className="text-muted-foreground flex flex-shrink-0 items-center gap-1 text-xs">
+          <div className="text-muted-foreground flex shrink-0 items-center gap-1 text-xs">
             <Server className="h-3 w-3" />
             <span className="max-w-20 truncate" title={result.serverName}>
               {result.serverName}

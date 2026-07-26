@@ -23,6 +23,10 @@ import { getAppPlexContext } from "~/server/queries/get-app-plex-context";
 import { resolveLibraryTitle } from "~/server/queries/resolve-library-title";
 import { api, HydrateClient } from "~/trpc/server";
 
+// Session-bound library chrome + hubs: prefetch with cookies on Link hover so
+// soft-nav paints from a warm runtime prerender instead of a click-time PMS wait.
+export const prefetch = "allow-runtime";
+
 interface PageProps {
   params: Promise<{
     machineIdentifier: string;
@@ -49,7 +53,30 @@ export default async function MediaLibraryPage({
   const { machineIdentifier } = await params;
   const resolvedSearchParams = await searchParams;
   const source = firstParam(resolvedSearchParams.source);
-  const { servers, userInfo } = await getAppPlexContext();
+  const requestedPivotParam =
+    firstParam(resolvedSearchParams.pivot) ?? "recommended";
+
+  // Overlap account bootstrap with library data — do not serialize
+  // getAppPlexContext → pivots → hubs on the soft-nav critical path.
+  const contextPromise = getAppPlexContext();
+  const pivotsPromise = source
+    ? api.plex.getLibraryPivots({
+        machineIdentifier,
+        sectionId: source,
+      })
+    : null;
+  if (
+    source &&
+    (!isSupportedPivot(requestedPivotParam) ||
+      requestedPivotParam === "recommended")
+  ) {
+    void api.plex.getLibraryHubs.prefetch({
+      machineIdentifier,
+      sectionId: source,
+    });
+  }
+
+  const { servers, userInfo } = await contextPromise;
 
   const currentServer = servers.find(
     (server) => server.clientIdentifier === machineIdentifier,
@@ -65,7 +92,7 @@ export default async function MediaLibraryPage({
     );
   }
 
-  if (!source) {
+  if (!source || !pivotsPromise) {
     return (
       <AppPageLayout title="Library">
         <p className="text-muted-foreground text-sm">
@@ -75,21 +102,15 @@ export default async function MediaLibraryPage({
     );
   }
 
-  const { title: librarySectionTitle, pivots } =
-    await api.plex.getLibraryPivots({
-      machineIdentifier,
-      sectionId: source,
-    });
+  const { title: librarySectionTitle, pivots } = await pivotsPromise;
   const supportedPivots = pivots.filter((pivot) =>
     SUPPORTED_PIVOT_IDS.includes(pivot.id),
   );
 
-  const requestedPivot =
-    firstParam(resolvedSearchParams.pivot) ?? "recommended";
   const activePivot: LibraryPivotId =
-    isSupportedPivot(requestedPivot) &&
-    supportedPivots.some((pivot) => pivot.id === requestedPivot)
-      ? requestedPivot
+    isSupportedPivot(requestedPivotParam) &&
+    supportedPivots.some((pivot) => pivot.id === requestedPivotParam)
+      ? requestedPivotParam
       : "recommended";
 
   const title = resolveLibraryTitle({
@@ -183,12 +204,10 @@ async function LibraryPivotContent(props: PivotContentProps) {
     }
 
     case "recommended": {
-      await Promise.allSettled([
-        api.plex.getLibraryHubs.prefetch({
-          machineIdentifier,
-          sectionId,
-        }),
-      ]);
+      await api.plex.getLibraryHubs.prefetch({
+        machineIdentifier,
+        sectionId,
+      });
       return (
         <HydrateClient>
           <LibraryRecommended

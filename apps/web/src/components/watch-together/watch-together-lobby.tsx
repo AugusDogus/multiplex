@@ -9,14 +9,14 @@ import {
   getMetadataTypeLabel,
   type ParticipantStatus,
 } from "@multiplex/plex-query";
-import { Loader2, LogOut, Play, UserPlus, Users } from "lucide-react";
+import { Copy, Loader2, LogOut, Play, UserPlus, Users } from "lucide-react";
 
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import {
-  getPlexUserName,
-  PlexUserAvatar,
-} from "~/components/watch-together/plex-user-avatar";
+import { Skeleton } from "~/components/ui/skeleton";
+import { toastManager } from "~/components/ui/toast";
+import { getPlexUserName } from "~/components/watch-together/plex-user";
+import { PlexUserAvatar } from "~/components/watch-together/plex-user-avatar";
 import { WatchTogetherLobbyInviteDialog } from "~/components/watch-together/watch-together-lobby-invite-dialog";
 import { useWatchTogetherLobby } from "~/components/watch-together/use-watch-together-lobby";
 import { cn } from "~/lib/utils";
@@ -42,6 +42,8 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
     localUserId,
     media,
     participantsByUserId,
+    participantDevices,
+    guestLink,
     canStart,
     isSoloRoom,
     someoneElseWatching,
@@ -57,6 +59,31 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
   const title = item ? getMainTitle(item) : room.title;
   const secondaryTitle = item ? getDetailsSecondaryTitle(item) : undefined;
   const summaryLines = item ? getMetadataSummaryLines(item) : [];
+  const guestDevices = guestLink
+    ? Object.entries(participantDevices).filter(
+        ([, participant]) =>
+          participant.user.id === guestLink.guestUserId &&
+          participant.isPresent === true,
+      )
+    : [];
+
+  const copyGuestLink = async () => {
+    if (!guestLink) return;
+    try {
+      await navigator.clipboard.writeText(
+        new URL(guestLink.joinPath, window.location.origin).toString(),
+      );
+      toastManager.add({
+        title: "Guest link copied",
+        type: "success",
+      });
+    } catch {
+      toastManager.add({
+        title: "Couldn't copy the Guest link.",
+        type: "error",
+      });
+    }
+  };
 
   return (
     <section className="mx-auto flex w-full max-w-5xl flex-col gap-6">
@@ -85,13 +112,10 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
                 sizes="160px"
                 className="object-cover"
               />
+            ) : media.isPending ? (
+              <Skeleton className="absolute inset-0 rounded-xl" />
             ) : (
-              <div
-                className={cn(
-                  "flex size-full items-center justify-center",
-                  media.isPending && "animate-pulse",
-                )}
-              >
+              <div className="flex size-full items-center justify-center">
                 <Play className="text-muted-foreground size-10" />
               </div>
             )}
@@ -133,7 +157,17 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
               {/* Plex only lets you invite from the pre-playback lobby; once
                   someone is watching there's nothing to invite into, so hide
                   it and let the user join instead. */}
-              {!someoneElseWatching && (
+              {guestLink ? (
+                <Button
+                  variant="outline"
+                  disabled={leaving}
+                  onClick={copyGuestLink}
+                  aria-label="Copy Guest Watch Together link"
+                >
+                  <Copy data-icon="inline-start" />
+                  Copy guest link
+                </Button>
+              ) : !someoneElseWatching ? (
                 <Button
                   variant="outline"
                   disabled={leaving}
@@ -143,7 +177,7 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
                   <UserPlus data-icon="inline-start" />
                   Invite
                 </Button>
-              )}
+              ) : null}
               <Button
                 variant="outline"
                 disabled={leaving}
@@ -197,11 +231,16 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
         <div className="mb-4 flex items-center justify-between gap-4">
           <h2 className="text-xl font-semibold">Participants</h2>
           <span className="text-muted-foreground text-sm">
-            {room.users.length} invited
+            {guestLink
+              ? `${guestDevices.length} guest device${guestDevices.length === 1 ? "" : "s"}`
+              : `${room.users.length} invited`}
           </span>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {room.users.map((user) => {
+            if (guestLink?.guestUserId === user.id) {
+              return null;
+            }
             const participant = participantsByUserId.get(user.id);
             const isLocal = user.id === localUserId;
             const status = getParticipantStatus(participant, isLocal);
@@ -238,15 +277,50 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
               </div>
             );
           })}
+          {guestLink && guestDevices.length === 0 ? (
+            <div className="bg-card flex items-center gap-3 rounded-xl border border-dashed p-3">
+              <div className="bg-muted-foreground/40 size-3 rounded-full" />
+              <div className="min-w-0">
+                <p className="font-medium">Guest link</p>
+                <p className="text-muted-foreground text-sm">
+                  Waiting for a guest
+                </p>
+              </div>
+            </div>
+          ) : null}
+          {guestDevices.map(([deviceId, participant]) => (
+            <div
+              key={deviceId}
+              className="bg-card flex items-center gap-3 rounded-xl border p-3"
+            >
+              <div className="bg-primary/10 relative flex size-11 shrink-0 items-center justify-center rounded-full">
+                <Users className="text-primary size-5" />
+                <span className="ring-card bg-primary absolute -right-0.5 -bottom-0.5 size-3 rounded-full ring-2" />
+              </div>
+              <div className="min-w-0">
+                <p className="line-clamp-1 font-medium">
+                  {participant.user.deviceName.replace(
+                    /^Multiplex Guest ·\s*/,
+                    "",
+                  ) || "Guest"}
+                </p>
+                <p className="text-muted-foreground text-sm">
+                  {participant.isReady ? "Watching" : "In lobby"}
+                </p>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
-      <WatchTogetherLobbyInviteDialog
-        roomId={roomId}
-        existingUserIds={room.users.map((user) => user.id)}
-        open={inviteOpen}
-        onOpenChange={setInviteOpen}
-      />
+      {!guestLink ? (
+        <WatchTogetherLobbyInviteDialog
+          roomId={roomId}
+          existingUserIds={room.users.map((user) => user.id)}
+          open={inviteOpen}
+          onOpenChange={setInviteOpen}
+        />
+      ) : null}
     </section>
   );
 }

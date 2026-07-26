@@ -47,6 +47,9 @@ yarn-error.log*
 # llms
 llms/
 
+# Ephemeral agent/implementation plans — keep out of the repo.
+plans/
+
 # playwright
 /apps/web/test-results/
 /apps/web/playwright-report/

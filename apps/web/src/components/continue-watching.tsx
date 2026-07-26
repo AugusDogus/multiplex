@@ -3,26 +3,31 @@
 import React, { useState } from "react";
 import {
   getMainTitle,
+  getPosterImagePath,
   getSubtitle,
-  getThumbnailUrl,
   isCompleted,
   toPlayableMetadata,
   type ContinueWatchingItemWithServer,
 } from "@multiplex/plex-query";
 import { playerCommands } from "~/lib/effect/player-atoms";
-import { useProgressStore } from "~/stores/progress-store";
 import { ContinueWatchingDrawer } from "~/components/continue-watching-drawer";
 import { MediaCarousel } from "~/components/media-carousel";
+import { ContinueWatchingSkeleton } from "~/components/media-carousel-skeleton";
 import { MediaPosterCard } from "~/components/media-poster-card";
-import { useVisibilityChange } from "~/hooks/use-visibility-change";
 import { useItemDetailsNavigation } from "~/hooks/use-item-details-navigation";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { isHubQueryLoading } from "~/lib/plex-hub-query-options";
-import { api } from "~/trpc/api";
+import { getPlexImagePath } from "~/lib/plex-image";
+import {
+  resetSyncedContinueWatchingProgress,
+  toContinueWatchingItemWithServer,
+  useSyncedContinueWatching,
+} from "~/lib/sync-engine";
 
 /* ────────────────────────────────────────────────────────────
    Continue Watching Component
    Horizontal slider of poster items with progress
+   Reads from the TanStack DB sync-engine replica (OPFS-backed).
    ──────────────────────────────────────────────────────────── */
 
 interface SectionWrapperProps {
@@ -38,7 +43,7 @@ export interface ContinueWatchingProps {
   showTitle?: boolean;
   /** Custom title for the section */
   title?: string;
-  /** Auto-refresh interval in milliseconds (default: 5000ms) */
+  /** Auto-refresh interval in milliseconds (default: 30000ms) */
   refreshInterval?: number;
   /** Whether to enable auto-refresh (default: true) */
   enableAutoRefresh?: boolean;
@@ -47,61 +52,28 @@ export interface ContinueWatchingProps {
 export function ContinueWatching({
   showTitle = true,
   title = "Continue Watching",
-  refreshInterval = 5000,
-  enableAutoRefresh = true,
+  // Kept for API compatibility; sync-engine collection owns the 30s refetch.
+  refreshInterval: _refreshInterval = 30_000,
+  enableAutoRefresh: _enableAutoRefresh = true,
 }: ContinueWatchingProps) {
-  const isPageVisible = useVisibilityChange();
+  void _refreshInterval;
+  void _enableAutoRefresh;
+  const { data: rows, isLoading, isReady } = useSyncedContinueWatching();
 
-  const {
-    data: items = [],
-    error,
-    isPending,
-    isFetching,
-  } = api.plex.getAllContinueWatching.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    staleTime: 0,
-    gcTime: refreshInterval * 4,
-    refetchInterval:
-      enableAutoRefresh && isPageVisible ? refreshInterval : false,
-    retry: (failureCount: number, error: unknown) => {
-      if (failureCount >= 3) return false;
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes("401") || errorMessage.includes("403"))
-        return false;
-      return true;
-    },
-    retryDelay: (attemptIndex: number) =>
-      Math.min(1000 * 2 ** attemptIndex, 30000),
-  });
+  const items = rows.map(toContinueWatchingItemWithServer);
+  const isPending = !isReady || (isLoading && items.length === 0);
+  const isFetching = Boolean(isLoading && items.length > 0);
 
-  if (isHubQueryLoading(isPending, isFetching, items.length) && !error) {
+  if (isHubQueryLoading(isPending, isFetching, items.length)) {
     return (
-      <SectionWrapper>
-        {showTitle ? (
-          <h2 className="px-4 text-2xl font-semibold tracking-tight md:px-8">
-            {title}
-          </h2>
-        ) : null}
-        <div className="text-muted-foreground px-4 text-sm md:px-8">
-          Loading Continue Watching…
-        </div>
-      </SectionWrapper>
-    );
-  }
-
-  if (error && items.length === 0) {
-    return (
-      <SectionWrapper>
-        {showTitle ? (
-          <h2 className="px-4 text-2xl font-semibold tracking-tight md:px-8">
-            {title}
-          </h2>
-        ) : null}
-        <div className="text-muted-foreground px-4 text-sm md:px-8">
-          Failed to load Continue Watching data
-        </div>
-      </SectionWrapper>
+      <ContinueWatchingSkeleton
+        header={
+          showTitle ? (
+            <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
+          ) : undefined
+        }
+        showTitle={false}
+      />
     );
   }
 
@@ -128,10 +100,11 @@ export function ContinueWatching({
         ) : undefined
       }
     >
-      {items.map((item) => (
+      {items.map((item, index) => (
         <ContinueWatchingItem
           key={`${item.serverId}-${item.ratingKey}`}
           item={item}
+          priority={index < 6}
         />
       ))}
     </MediaCarousel>
@@ -145,14 +118,14 @@ export function ContinueWatching({
 
 interface ContinueWatchingItemProps {
   item: ContinueWatchingItemWithServer;
+  priority?: boolean;
 }
 
-function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
+function ContinueWatchingItem({
+  item,
+  priority = false,
+}: ContinueWatchingItemProps) {
   const itemDetailsNavigation = useItemDetailsNavigation();
-  const getItemProgress = useProgressStore((state) => state.getItemProgress);
-  const updateItemProgress = useProgressStore(
-    (state) => state.updateItemProgress,
-  );
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   const mainTitle = getMainTitle(item);
@@ -163,12 +136,15 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
     ratingKey: item.ratingKey,
   };
 
-  // Use updated progress if available, otherwise use server data
-  const progressPercent: number =
-    getItemProgress(item.ratingKey) ?? item.progressPercent ?? 0;
+  const progressPercent = item.progressPercent ?? 0;
   const isItemCompleted = isCompleted(item);
 
-  const thumbnailUrl = getThumbnailUrl(item, item.serverUrl, item.authToken);
+  const thumbnailUrl = getPlexImagePath(getPosterImagePath(item), {
+    width: 200,
+    height: 300,
+    serverUrl: item.serverUrl,
+    authToken: item.authToken,
+  });
 
   const canPlay = Boolean(
     toPlayableMetadata(item) && item.serverUrl && item.authToken,
@@ -204,9 +180,9 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
       return;
     }
 
-    updateItemProgress({
+    resetSyncedContinueWatchingProgress({
+      serverId: item.serverId,
       ratingKey: item.ratingKey,
-      progressPercent: 0,
     });
 
     setIsDrawerOpen(false);
@@ -219,6 +195,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
           authToken: item.authToken,
         },
       ),
+      { resume: false },
     );
   };
 
@@ -250,6 +227,7 @@ function ContinueWatchingItem({ item }: ContinueWatchingItemProps) {
         onPlay={handlePlay}
         onNavigateClick={handleNavigateClick}
         showMobileMenuHint
+        priority={priority}
       />
 
       <ContinueWatchingDrawer

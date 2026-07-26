@@ -1,6 +1,6 @@
 import type { SyncplayParticipantState } from "../plex/clients/syncplay-client";
 import type { WatchTogetherRoom } from "../plex/schemas/watch-together-schemas";
-import type { ParticipantMap } from "./session-state";
+import type { LobbyStartPolicy, ParticipantMap } from "./session-state";
 
 /**
  * Short settle delay before auto-starting once everyone has joined, so a
@@ -156,6 +156,8 @@ export type DecideLobbyAutoStartInput = {
    * Join-in-progress requires a known position so we don't reset the room to 0.
    */
   readonly roomPositionSeconds: number | null;
+  /** Defaults to Plex's ordinary all-invited-present behavior. */
+  readonly startPolicy?: LobbyStartPolicy;
 };
 
 /**
@@ -165,6 +167,31 @@ export type DecideLobbyAutoStartInput = {
  * and join-in-progress position gating. Side effects are the caller's job.
  */
 export function decideLobbyAutoStart(input: DecideLobbyAutoStartInput): LobbyAutoStartDecision {
+  if (input.startPolicy?._tag === "HostControlled") {
+    if (input.startPolicy.localRole === "Host") {
+      return { kind: "wait" };
+    }
+
+    const host = participantsByUserId(input.participants).get(input.startPolicy.hostUserId);
+    if (!host?.isReady) {
+      return { kind: "rearm" };
+    }
+    if (
+      !input.canStart ||
+      input.autoStartSuppressed ||
+      input.leaving ||
+      input.hasAutoStarted ||
+      input.roomPositionSeconds === null ||
+      input.presentStableMs < AUTO_START_DELAY_MS
+    ) {
+      return { kind: "wait" };
+    }
+    return {
+      kind: "start",
+      startPositionSeconds: input.roomPositionSeconds,
+    };
+  }
+
   if (!input.everyonePresentSticky) {
     return { kind: "rearm" };
   }

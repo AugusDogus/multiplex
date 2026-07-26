@@ -1,15 +1,32 @@
+import { cacheLife } from "next/cache";
+import { cache } from "react";
 import {
   filterNonEmptyHubs,
+  PlexTvClient,
   type HubWithServer,
-  type PlexTvClient,
 } from "@multiplex/plex-query";
+import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
 import {
   enrichHubsWithServer,
   resolvePlexServerContext,
   withPmsRetry,
 } from "~/server/queries/plex-server-context";
 
-export async function getLibraryHubsQuery(
+async function fetchLibraryHubs(
+  token: string,
+  machineIdentifier: string,
+  sectionId: string,
+): Promise<HubWithServer[]> {
+  "use cache";
+  // Minutes (not seconds): runtime/Link prefetch needs stale ≥ 30s, and library
+  // soft-nav revisits should reuse the same hub payload like Plex.
+  cacheLife("minutes");
+
+  const plex = new PlexTvClient(token, NEXTJS_PLEX_CONFIG);
+  return loadLibraryHubs(plex, machineIdentifier, sectionId);
+}
+
+async function loadLibraryHubs(
   plex: PlexTvClient,
   machineIdentifier: string,
   sectionId: string,
@@ -33,3 +50,13 @@ export async function getLibraryHubsQuery(
     },
   );
 }
+
+export const getLibraryHubsQuery = cache(
+  async (
+    plex: PlexTvClient,
+    machineIdentifier: string,
+    sectionId: string,
+  ): Promise<HubWithServer[]> => {
+    return fetchLibraryHubs(plex.getToken(), machineIdentifier, sectionId);
+  },
+);

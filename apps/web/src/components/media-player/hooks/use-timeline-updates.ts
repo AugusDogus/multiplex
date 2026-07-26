@@ -3,7 +3,7 @@
 import { useRef } from "react";
 import { usePlayerStateSelector } from "~/lib/effect/player-atoms";
 import { shallow } from "zustand/shallow";
-import { useProgressStore } from "~/stores/progress-store";
+import { patchSyncedContinueWatchingProgress } from "~/lib/sync-engine";
 import { api } from "~/trpc/api";
 
 /* ────────────────────────────────────────────────────────────
@@ -28,7 +28,9 @@ function getOrCreateSessionId(ref: { current: string | null }) {
  * Hook to manage timeline updates to Plex server during media playback
  * Uses video events directly instead of intervals
  */
-export function useTimelineUpdates() {
+export function useTimelineUpdates({
+  enabled = true,
+}: { enabled?: boolean } = {}) {
   const { currentItem, currentTime, duration, isPlaying } =
     usePlayerStateSelector(
       (state) => ({
@@ -39,13 +41,12 @@ export function useTimelineUpdates() {
       }),
       shallow,
     );
-  const { updateItemProgress } = useProgressStore();
-
   const sessionIdRef = useRef<string | null>(null);
   const lastUpdateRef = useRef<{
     currentTime: number;
     state: string;
-    ratingKey?: string;
+    serverId: string;
+    ratingKey: string;
   } | null>(null);
   const lastSentAtRef = useRef<number | null>(null);
   // Best-effort progress reporting; surface a transient failure once rather
@@ -62,7 +63,7 @@ export function useTimelineUpdates() {
     playbackState: "playing" | "paused" | "stopped",
     timeOverride?: number,
   ) => {
-    if (!currentItem) return;
+    if (!enabled || !currentItem) return;
 
     const sessionId = getSessionId();
     const timeToUse = timeOverride ?? currentTime;
@@ -72,7 +73,9 @@ export function useTimelineUpdates() {
     const hasStateChanged = lastUpdate?.state !== playbackState;
     const hasTimeChanged =
       !lastUpdate || Math.abs(lastUpdate.currentTime - timeToUse) >= 1;
-    const hasItemChanged = lastUpdate?.ratingKey !== currentItem.ratingKey;
+    const hasItemChanged =
+      lastUpdate?.serverId !== currentItem.serverId ||
+      lastUpdate?.ratingKey !== currentItem.ratingKey;
 
     if (!hasStateChanged && !hasTimeChanged && !hasItemChanged) return;
 
@@ -118,14 +121,20 @@ export function useTimelineUpdates() {
       lastUpdateRef.current = {
         currentTime: timeToUse,
         state: playbackState,
+        serverId: currentItem.serverId,
         ratingKey: currentItem.ratingKey,
       };
 
-      // Update progress store for real-time UI
-      updateItemProgress({
-        ratingKey: currentItem.ratingKey,
-        progressPercent: (timeToUse / duration) * 100,
-      });
+      // Plex accepted the timeline update — patch the sync-engine replica.
+      // PlayerService remains the sole owner of the active player's current time.
+      patchSyncedContinueWatchingProgress(
+        {
+          serverId: currentItem.serverId,
+          ratingKey: currentItem.ratingKey,
+        },
+        timeToUse,
+        duration,
+      );
       hasLoggedFailureRef.current = false;
     } catch (error) {
       if (!hasLoggedFailureRef.current) {

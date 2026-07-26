@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { CategoryWithServer } from "@multiplex/plex-query";
+import { getPlexImagePath } from "~/lib/plex-image";
 import { getLibraryPivotHref } from "~/lib/plex-routes";
 
 interface LibraryCategoriesProps {
@@ -23,13 +24,12 @@ function getCategoryParams(categoryKey: string): Record<string, string> {
 }
 
 function getCategoryImageUrl(category: CategoryWithServer): string | undefined {
-  if (!category.thumb || !category.serverUrl || !category.authToken) {
-    return undefined;
-  }
-
-  const base = category.serverUrl.replace(/\/$/, "");
-  const separator = category.thumb.includes("?") ? "&" : "?";
-  return `${base}${category.thumb}${separator}X-Plex-Token=${category.authToken}`;
+  return getPlexImagePath(category.thumb, {
+    width: 640,
+    height: 360,
+    serverUrl: category.serverUrl,
+    authToken: category.authToken,
+  });
 }
 
 export function LibraryCategories({

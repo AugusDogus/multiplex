@@ -4,8 +4,8 @@ export * from "./types";
 export * from "./utils";
 
 // Export legacy imports for backward compatibility
-export { PlexServerClient } from "./clients/plex-server-client";
-export { SyncplayClient } from "./clients/syncplay-client";
+export { clearPlexServerConnectionCache, PlexServerClient } from "./clients/plex-server-client";
+export { decodeSyncplayUser, encodeSyncplayUser, SyncplayClient } from "./clients/syncplay-client";
 export type {
   SyncplayClientOptions,
   SyncplayParticipantState,

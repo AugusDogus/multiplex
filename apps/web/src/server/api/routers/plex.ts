@@ -11,14 +11,14 @@ import {
   buildLibraryItemUri,
   enrichMetadataChildren,
   getPlayableChildren,
-  playlistTypes,
   resolvePlayTarget,
-  type PlexTvClient,
   WatchTogetherClient,
 } from "@multiplex/plex-query";
 import { z } from "zod";
 
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { playlistProcedures } from "~/server/api/routers/plex-playlist-procedures";
+import { resolveServer } from "~/server/api/routers/plex-server";
 import { getAllContinueWatchingQuery } from "~/server/queries/get-all-continue-watching";
 import { getAllServerLibrariesQuery } from "~/server/queries/get-all-server-libraries";
 import { getAllChannelsProgrammingQuery } from "~/server/queries/get-all-channels-programming";
@@ -54,6 +54,9 @@ export type plexRouterOutputs = inferRouterOutputs<typeof plexRouter>;
 const sectionIdSchema = z.string().regex(/^\d+$/);
 const watchTogetherRoomIdSchema = z.string().regex(/^[A-Za-z0-9]+$/);
 const metadataRatingKeySchema = z.string().regex(/^\d+$/);
+const liveTvProviderIdentifierSchema = z
+  .string()
+  .regex(/^tv\.plex\.providers\.[A-Za-z0-9._-]+(?::[A-Za-z0-9._-]+)*$/);
 const metadataKeySchema = z
   .string()
   .regex(/^\/library\/metadata\/\d+$/)
@@ -62,47 +65,8 @@ const metadataKeySchema = z
 const watchTogetherClientForToken = (token: string) =>
   new WatchTogetherClient(token, getPlexConfig());
 
-const resolveServer = async (plex: PlexTvClient, serverId: string) => {
-  let servers: Awaited<ReturnType<typeof getServersQuery>>;
-
-  try {
-    servers = await getServersQuery(plex);
-  } catch (cause) {
-    throw new TRPCError({
-      code: "SERVICE_UNAVAILABLE",
-      message: "Unable to load Plex servers",
-      cause,
-    });
-  }
-
-  const server = servers.find(
-    (candidate) => candidate.clientIdentifier === serverId,
-  );
-
-  if (!server) {
-    throw new TRPCError({
-      code: "NOT_FOUND",
-      message: `Server with ID ${serverId} not found`,
-    });
-  }
-
-  if (
-    !server.presence ||
-    !server.connections.some((connection) => connection.uri.trim().length > 0)
-  ) {
-    throw new TRPCError({
-      code: "SERVICE_UNAVAILABLE",
-      message: `Server with ID ${serverId} is unavailable`,
-    });
-  }
-
-  return {
-    server,
-    serverClient: plex.createServerClient(server),
-  };
-};
-
 export const plexRouter = createTRPCRouter({
+  ...playlistProcedures,
   getServers: protectedProcedure.query(async ({ ctx }) => {
     return getServersQuery(ctx.plex);
   }),
@@ -480,6 +444,53 @@ export const plexRouter = createTRPCRouter({
       );
     }),
 
+  reloadServerGuide: protectedProcedure
+    .input(
+      z
+        .object({
+          machineIdentifier: z.string().min(1),
+          providerIdentifier: liveTvProviderIdentifierSchema,
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { serverClient } = await resolveServer(
+        ctx.plex,
+        input.machineIdentifier,
+      );
+      try {
+        const dvrs = await serverClient.getDVRs();
+        const providerDvrId = input.providerIdentifier.split(":").at(-1);
+        const matchingDvr = dvrs.MediaContainer.Dvr.find(
+          (dvr) =>
+            dvr.epgIdentifier === input.providerIdentifier ||
+            `${dvr.epgIdentifier}:${dvr.key}` === input.providerIdentifier ||
+            dvr.key === providerDvrId,
+        );
+
+        if (matchingDvr) {
+          await serverClient.reloadGuide(matchingDvr.key);
+          return {
+            scope: "provider" as const,
+            message: "Guide refresh requested for this Live TV provider.",
+          };
+        }
+
+        await serverClient.reloadAllGuides();
+        return {
+          scope: "all" as const,
+          message:
+            "This server did not expose a matching DVR, so all Live TV guides were refreshed.",
+        };
+      } catch (cause) {
+        throw new TRPCError({
+          code: "SERVICE_UNAVAILABLE",
+          message: "Unable to refresh the Live TV guide",
+          cause,
+        });
+      }
+    }),
+
   sendTimeline: protectedProcedure
     .input(
       z.object({
@@ -598,83 +609,6 @@ export const plexRouter = createTRPCRouter({
         uri: buildLibraryItemUri(input.serverId, input.ratingKey, input.key),
         next: input.next,
       });
-    }),
-
-  getItemPlaylists: protectedProcedure
-    .input(
-      z.object({
-        serverId: z.string(),
-        playlistType: z.enum(playlistTypes),
-      }),
-    )
-    .query(async ({ ctx, input }) => {
-      const { serverClient } = await resolveServer(ctx.plex, input.serverId);
-
-      const playlists = await serverClient.getPlaylistsByType(
-        input.playlistType,
-      );
-
-      // Smart playlists are rule-driven, so Plex rejects manual appends; hide
-      // them from the picker to match Plex Web.
-      return playlists.flatMap((playlist) =>
-        playlist.smart
-          ? []
-          : [
-              {
-                ratingKey: playlist.ratingKey,
-                title: playlist.title,
-                leafCount: playlist.leafCount ?? 0,
-              },
-            ],
-      );
-    }),
-
-  addItemToPlaylist: protectedProcedure
-    .input(
-      z.object({
-        serverId: z.string(),
-        playlistRatingKey: z.string(),
-        // Carried through only so the client can show "Added to <name>"; the
-        // server identifies the playlist by `playlistRatingKey`.
-        playlistTitle: z.string().optional(),
-        ratingKey: z.string(),
-        key: z.string(),
-      }),
-    )
-    .mutation(async ({ ctx, input }) => {
-      const { serverClient } = await resolveServer(ctx.plex, input.serverId);
-
-      const response = await serverClient.addItemToPlaylist(
-        input.playlistRatingKey,
-        buildLibraryItemUri(input.serverId, input.ratingKey, input.key),
-      );
-
-      return { leafCountAdded: response.MediaContainer.leafCountAdded ?? 0 };
-    }),
-
-  createPlaylistWithItem: protectedProcedure
-    .input(
-      z.object({
-        serverId: z.string(),
-        title: z.string().trim().min(1).max(255),
-        type: z.enum(playlistTypes),
-        ratingKey: z.string(),
-        key: z.string(),
-      }),
-    )
-    .mutation(async ({ ctx, input }) => {
-      const { serverClient } = await resolveServer(ctx.plex, input.serverId);
-
-      const response = await serverClient.createPlaylist({
-        title: input.title,
-        type: input.type,
-        uri: buildLibraryItemUri(input.serverId, input.ratingKey, input.key),
-      });
-
-      return {
-        ratingKey: response.MediaContainer.Metadata?.[0]?.ratingKey ?? null,
-        title: response.MediaContainer.Metadata?.[0]?.title ?? input.title,
-      };
     }),
 
   getItemMetadata: protectedProcedure

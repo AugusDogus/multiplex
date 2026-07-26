@@ -266,7 +266,10 @@ export async function stopTranscodeSession(
     );
     applyClientHeaders(stopUrl, authToken);
     stopUrl.searchParams.set("session", sessionKey);
-    await fetch(stopUrl.toString());
+    // Keep the request alive when the player is being torn down by a tab or
+    // browser close. Without this, the abandoned transcode occupies the
+    // server's limited slots until Plex times it out.
+    await fetch(stopUrl.toString(), { keepalive: true });
   } catch {
     // Best-effort.
   }

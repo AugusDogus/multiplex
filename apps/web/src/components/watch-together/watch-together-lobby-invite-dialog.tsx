@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { WatchTogetherInviteePicker } from "~/components/watch-together/watch-together-invitee-picker";
+import { refetchSyncedWatchTogetherRooms } from "~/lib/sync-engine";
 import { api } from "~/trpc/api";
 
 interface WatchTogetherLobbyInviteDialogProps {
@@ -37,10 +38,9 @@ export function WatchTogetherLobbyInviteDialog({
   onOpenChange,
 }: WatchTogetherLobbyInviteDialogProps) {
   const [selectedUsers, setSelectedUsers] = useState<number[]>([]);
-  const utils = api.useUtils();
   const inviteUsers = api.plex.inviteWatchTogetherUsers.useMutation({
     onSuccess: async (_data, variables) => {
-      await utils.plex.getWatchTogetherRoom.invalidate({ roomId });
+      await refetchSyncedWatchTogetherRooms();
       toastManager.add({
         title:
           variables.users.length === 1

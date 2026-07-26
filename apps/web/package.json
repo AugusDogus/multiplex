@@ -19,16 +19,21 @@
     "start": "next start",
     "test": "bun test",
     "test:e2e": "playwright test",
+    "test:e2e:auth-gate": "playwright test --project=auth-gate",
     "test:e2e:setup": "playwright test --project=setup",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
     "@effect/atom-react": "catalog:",
+    "@journeyapps/wa-sqlite": "1.7.2",
     "@libsql/client": "^0.14.0",
     "@multiplex/auth-plugin-plex": "workspace:*",
     "@multiplex/plex-query": "workspace:*",
     "@t3-oss/env-nextjs": "^0.12.0",
+    "@tanstack/browser-db-sqlite-persistence": "0.2.8",
+    "@tanstack/db": "0.6.16",
+    "@tanstack/query-db-collection": "1.1.0",
     "@tanstack/react-query": "^5.69.0",
     "@trpc/client": "^11.0.0",
     "@trpc/react-query": "^11.0.0",

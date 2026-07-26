@@ -7,8 +7,8 @@ import {
   PlexUserAvatar,
   PlexUserAvatarStack,
 } from "~/components/watch-together/plex-user-avatar";
+import { useSyncedWatchTogetherInvitees } from "~/lib/sync-engine";
 import { cn } from "~/lib/utils";
-import { api } from "~/trpc/api";
 
 interface WatchTogetherInviteePickerProps {
   /** Gate the invitees query to when the picker is actually shown. */
@@ -36,14 +36,22 @@ export function WatchTogetherInviteePicker({
   disabled = false,
   emptyHint = "No Plex friends found.",
 }: WatchTogetherInviteePickerProps) {
-  const inviteesQuery = api.plex.getWatchTogetherInvitees.useQuery(undefined, {
-    enabled,
-    staleTime: 60_000,
-  });
+  const inviteesQuery = useSyncedWatchTogetherInvitees({ enabled });
 
   const excludeSet = new Set(excludeUserIds ?? []);
-  const invitees = (inviteesQuery.data ?? []).filter(
-    (invitee) => !excludeSet.has(invitee.id),
+  const invitees = inviteesQuery.data.flatMap((invitee) =>
+    excludeSet.has(invitee.plexUserId)
+      ? []
+      : [
+          {
+            id: invitee.plexUserId,
+            uuid: invitee.uuid ?? undefined,
+            title: invitee.title,
+            username: invitee.username,
+            thumb: invitee.thumb ?? undefined,
+            restricted: invitee.restricted,
+          },
+        ],
   );
   const selectedSet = new Set(selectedUserIds);
   const selectedInvitees = invitees.filter((invitee) =>

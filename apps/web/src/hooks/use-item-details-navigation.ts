@@ -1,10 +1,20 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { preload } from "react-dom";
+import {
+  getBackdropImagePath,
+  getPosterImagePath,
+  type ItemMetadata,
+} from "@multiplex/plex-query";
 
-import { PLEX_DETAILS_QUERY_OPTIONS } from "~/lib/plex-details-query-options";
+import { getPlexImagePath } from "~/lib/plex-image";
 import { getItemDetailsHref } from "~/lib/plex-routes";
-import { api } from "~/trpc/api";
+import {
+  getActiveSyncEngineCollections,
+  getSyncEngineTrpcClient,
+  warmMediaItem,
+} from "~/lib/sync-engine";
 
 export interface ItemDetailsNavigationTarget {
   serverId: string;
@@ -16,18 +26,52 @@ function getHref(target: ItemDetailsNavigationTarget) {
   return getItemDetailsHref(target.serverId, target.type, target.ratingKey);
 }
 
+function preloadDetailsImages(
+  item: ItemMetadata,
+  credentials: { serverUrl?: string; authToken?: string },
+) {
+  const urls = [
+    getPlexImagePath(getBackdropImagePath(item), {
+      width: 1280,
+      height: 720,
+      serverUrl: credentials.serverUrl,
+      authToken: credentials.authToken,
+    }),
+    getPlexImagePath(getPosterImagePath(item), {
+      width: 440,
+      height: 660,
+      serverUrl: credentials.serverUrl,
+      authToken: credentials.authToken,
+    }),
+  ];
+  for (const src of urls) {
+    if (!src) continue;
+    preload(src, { as: "image", fetchPriority: "low" });
+  }
+}
+
 export function useItemDetailsNavigation() {
   const router = useRouter();
-  const utils = api.useUtils();
 
   const prefetch = (target: ItemDetailsNavigationTarget) => {
-    void utils.plex.getItemDetails.prefetch(
-      {
-        serverId: target.serverId,
-        ratingKey: target.ratingKey,
-      },
-      PLEX_DETAILS_QUERY_OPTIONS,
-    );
+    const href = getHref(target);
+    // Warm both the RSC runtime prerender and the sync-engine details payload.
+    void router.prefetch(href);
+    const collections = getActiveSyncEngineCollections();
+    if (!collections) return;
+    void warmMediaItem(collections, getSyncEngineTrpcClient(), {
+      serverId: target.serverId,
+      ratingKey: target.ratingKey,
+    })
+      .then((row) => {
+        if (row?.item && typeof row.item === "object") {
+          preloadDetailsImages(row.item as ItemMetadata, {
+            serverUrl: row.serverUrl ?? undefined,
+            authToken: row.authToken ?? undefined,
+          });
+        }
+      })
+      .catch(() => undefined);
   };
 
   const navigate = (target: ItemDetailsNavigationTarget) => {

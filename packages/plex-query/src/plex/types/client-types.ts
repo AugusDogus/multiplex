@@ -71,6 +71,8 @@ export interface PostRequestOptions<T> {
 
 export interface PutRequestOptions<T> extends PostRequestOptions<T> {}
 
+export interface DeleteRequestOptions<T> extends PostRequestOptions<T> {}
+
 /**
  * Custom error class for Plex API errors
  */

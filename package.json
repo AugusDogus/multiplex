@@ -25,12 +25,15 @@
     "oxfmt": "^0.26.0",
     "oxlint": "^1.41.0"
   },
+  "overrides": {
+    "defu": ">=6.1.5 <7"
+  },
   "catalog": {
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "better-auth": "^1.2.9",
+    "better-auth": "1.6.13",
     "typescript": "^5.8.3",
     "zod": "^3.24.2",
     "effect": "4.0.0-beta.59",

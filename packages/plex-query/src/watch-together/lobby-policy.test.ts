@@ -307,6 +307,61 @@ describe("allInvitedPresent / isSomeoneElseWatching / isSoloRoom", () => {
 });
 
 describe("decideLobbyAutoStart", () => {
+  test("never auto-starts for a host-controlled host", () => {
+    expect(
+      decideLobbyAutoStart(
+        baseDecide({
+          startPolicy: {
+            _tag: "HostControlled",
+            localRole: "Host",
+            hostUserId: 1,
+            guestUserId: 2,
+          },
+        }),
+      ),
+    ).toEqual({ kind: "wait" });
+  });
+
+  test("a host-controlled guest follows the ready host at the observed position", () => {
+    const startPolicy = {
+      _tag: "HostControlled" as const,
+      localRole: "Guest" as const,
+      hostUserId: 1,
+      guestUserId: 2,
+    };
+    const participants: ParticipantMap = {
+      host: participant(1, { isPresent: true, isReady: true }),
+    };
+
+    expect(
+      decideLobbyAutoStart(
+        baseDecide({
+          startPolicy,
+          participants,
+          roomPositionSeconds: 37,
+        }),
+      ),
+    ).toEqual({ kind: "start", startPositionSeconds: 37 });
+    expect(
+      decideLobbyAutoStart(
+        baseDecide({
+          startPolicy,
+          participants: {},
+          roomPositionSeconds: 37,
+        }),
+      ),
+    ).toEqual({ kind: "rearm" });
+    expect(
+      decideLobbyAutoStart(
+        baseDecide({
+          startPolicy,
+          participants,
+          roomPositionSeconds: null,
+        }),
+      ),
+    ).toEqual({ kind: "wait" });
+  });
+
   test("starts a fresh gathering at null position once stable", () => {
     expect(decideLobbyAutoStart(baseDecide())).toEqual({
       kind: "start",

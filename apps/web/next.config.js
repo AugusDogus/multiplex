@@ -12,23 +12,32 @@ const config = {
   reactStrictMode: true,
   reactCompiler: true,
   cacheComponents: true,
+  // Soft-nav must feel like Plex's SPA: prefetch shells + reuse recent
+  // navigations instead of paying a full RSC round-trip on every click.
   partialPrefetching: true,
-  allowedDevOrigins: ["local.augie.haus"],
-  images: {
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "**",
-      },
-      {
-        protocol: "http",
-        hostname: "**",
-      },
-    ],
-    // Plex Media Servers commonly live on LAN/private IPs; the image
-    // optimizer must be allowed to fetch poster art from them.
-    dangerouslyAllowLocalIP: true,
+  experimental: {
+    // Keep dynamic segments reusable after the first soft-nav / prefetch.
+    staleTimes: {
+      dynamic: 60,
+      static: 300,
+    },
+    // Seed the client cache from completed navigations for instant revisits.
+    // 'allow-runtime' also caches session-bound prerenders (library/details).
+    cachedNavigations: "allow-runtime",
+    // Prefetch loading shells once per route pattern.
+    appShells: true,
+    // Start dynamic/runtime prefetch work on link hover, not only viewport.
+    dynamicOnHover: true,
   },
+  allowedDevOrigins: [
+    "local.augie.haus",
+    "multiplex.localhost",
+    "127.0.0.1",
+    "localhost",
+  ],
+  // Artwork loads directly from PMS (`/photo/:/transcode` with X-Plex-Token).
+  // Keep Next's optimizer off so cross-origin plex.direct URLs are not rewritten.
+  images: { unoptimized: true },
 };
 
 export default config;

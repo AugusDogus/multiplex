@@ -37,8 +37,14 @@ import {
   type PlayQueueResponse,
 } from "../schemas/play-queue-schemas";
 import {
+  playlistContentsResponseSchema,
+  playlistDetailResponseSchema,
+  playlistProviderAccessResponseSchema,
+  LOCAL_LIBRARY_PROVIDER_IDENTIFIER,
   playlistsResponseSchema,
   type Playlist,
+  type PlaylistContentsResponse,
+  type PlaylistDetail,
   type PlaylistType,
   type PlaylistsResponse,
 } from "../schemas/playlist-schemas";
@@ -51,11 +57,13 @@ import {
 } from "../schemas/search-schemas";
 import {
   PlexAPIError,
+  type DeleteRequestOptions,
   type GetRequestOptions,
   type PlexConfig,
   type PostRequestOptions,
   type PutRequestOptions,
 } from "../types/client-types";
+import { z } from "zod";
 
 /* ────────────────────────────────────────────────────────────
    Plex Server Client
@@ -64,6 +72,91 @@ import {
 
 /** Cold starts (fresh browser + server) often need longer than LAN latency. */
 const CONNECTION_TEST_TIMEOUT_MS = 3_000;
+
+/** Deadline for PMS API calls after a working connection is selected. */
+const PMS_REQUEST_TIMEOUT_MS = 10_000;
+
+/** Test-only override; `null` restores the production deadline. */
+let requestTimeoutMsForTests: number | null = null;
+
+function getPmsRequestTimeoutMs(): number {
+  return requestTimeoutMsForTests ?? PMS_REQUEST_TIMEOUT_MS;
+}
+
+/** Test helper — keep production call sites on {@link PMS_REQUEST_TIMEOUT_MS}. */
+export function setPlexServerRequestTimeoutMsForTests(timeoutMs: number | null): void {
+  requestTimeoutMsForTests = timeoutMs;
+}
+
+function isAbortOrTimeoutError(error: unknown): boolean {
+  // Bun's AbortSignal.timeout rejects with a DOMException TimeoutError that is
+  // not always `instanceof Error`. Manual aborts use AbortError.
+  const name =
+    typeof error === "object" && error !== null && "name" in error
+      ? String((error as { name: unknown }).name)
+      : undefined;
+  return name === "AbortError" || name === "TimeoutError";
+}
+
+/**
+ * Process-wide cache of last-known-good PMS URIs. `"use cache"` and parallel
+ * Suspense lanes each construct fresh `PlexTvClient` instances, so without a
+ * shared cache every lane re-runs /identity discovery (and local-first probing
+ * can burn a full timeout batch before trying remote plex.direct).
+ */
+const workingConnectionCache = new Map<string, { uri: string; connectionsFingerprint: string }>();
+const inflightConnectionDiscovery = new Map<string, Promise<PlexDevice["connections"][0]>>();
+
+function connectionsFingerprint(server: PlexDevice): string {
+  return server.connections
+    .map(
+      (connection) =>
+        `${connection.uri}|${connection.local ? "L" : "R"}|${connection.relay ? "Y" : "N"}`,
+    )
+    .join(";");
+}
+
+/** Test helper / explicit invalidation across PlexTvClient instances. */
+export function clearPlexServerConnectionCache(serverId?: string): void {
+  if (serverId) {
+    workingConnectionCache.delete(serverId);
+    inflightConnectionDiscovery.delete(serverId);
+    return;
+  }
+  workingConnectionCache.clear();
+  inflightConnectionDiscovery.clear();
+}
+
+function readCachedWorkingConnection(server: PlexDevice): PlexDevice["connections"][0] | null {
+  const cached = workingConnectionCache.get(server.clientIdentifier);
+  if (!cached) return null;
+  if (cached.connectionsFingerprint !== connectionsFingerprint(server)) {
+    workingConnectionCache.delete(server.clientIdentifier);
+    return null;
+  }
+  return server.connections.find((connection) => connection.uri === cached.uri) ?? null;
+}
+
+function writeCachedWorkingConnection(
+  server: PlexDevice,
+  connection: PlexDevice["connections"][0],
+): void {
+  workingConnectionCache.set(server.clientIdentifier, {
+    uri: connection.uri,
+    connectionsFingerprint: connectionsFingerprint(server),
+  });
+}
+
+const delegationTokenResponseSchema = z.union([
+  z.object({ authToken: z.string().min(1) }),
+  z.object({ token: z.string().min(1) }),
+  z.object({
+    MediaContainer: z.union([
+      z.object({ authToken: z.string().min(1) }),
+      z.object({ token: z.string().min(1) }),
+    ]),
+  }),
+]);
 
 function createConnectionFromUri(uri: string): PlexDevice["connections"][0] {
   const parsedUrl = new URL(uri);
@@ -95,6 +188,28 @@ export class PlexServerClient {
   private connectionTestPromise: Promise<PlexDevice["connections"][0]> | null = null;
 
   /**
+   * Mint a short-lived PMS delegation token for the current server identity.
+   * Callers must treat the returned value as a browser-visible credential.
+   */
+  async issueTransientToken(): Promise<string> {
+    const response = await this.post({
+      endpoint: "security/token",
+      params: {
+        type: "delegation",
+        scope: "all",
+      },
+      schema: delegationTokenResponseSchema,
+    });
+
+    if ("authToken" in response) return response.authToken;
+    if ("token" in response) return response.token;
+    if ("authToken" in response.MediaContainer) {
+      return response.MediaContainer.authToken;
+    }
+    return response.MediaContainer.token;
+  }
+
+  /**
    * @param server - Plex Media Server device information
    * @param token - Plex authentication token
    * @param config - Client configuration
@@ -104,6 +219,10 @@ export class PlexServerClient {
     this.token = server.accessToken ?? token;
     this.config = config;
     this.server = server;
+    // Seed from the process-wide cache so a new client instance (common under
+    // Next `"use cache"`) skips a full /identity fan-out when we already know
+    // a working URI for this server + connection list.
+    this.workingConnection = readCachedWorkingConnection(server);
   }
 
   static fromConnectionUri(
@@ -148,11 +267,18 @@ export class PlexServerClient {
    * @param connection - Connection to test
    * @returns Promise that resolves if connection works, rejects if not
    */
-  private async testConnection(connection: PlexDevice["connections"][0]): Promise<boolean> {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), CONNECTION_TEST_TIMEOUT_MS);
+  private async testConnection(
+    connection: PlexDevice["connections"][0],
+    externalSignal?: AbortSignal,
+  ): Promise<boolean> {
+    const timeoutController = new AbortController();
+    const timeoutId = setTimeout(() => timeoutController.abort(), CONNECTION_TEST_TIMEOUT_MS);
+    const signal =
+      externalSignal !== undefined
+        ? AbortSignal.any([externalSignal, timeoutController.signal])
+        : timeoutController.signal;
 
+    try {
       const testUrl = `${connection.uri}/identity`;
 
       const response = await fetch(testUrl, {
@@ -160,13 +286,14 @@ export class PlexServerClient {
         headers: {
           "X-Plex-Token": this.token,
         },
-        signal: controller.signal,
+        signal,
       });
 
-      clearTimeout(timeoutId);
       return response.ok;
     } catch {
       return false;
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -174,32 +301,56 @@ export class PlexServerClient {
    * Find the best working connection by testing them in priority order
    * @returns Promise that resolves to a working connection
    */
+  /**
+   * Best-effort /identity warm so a later request (possibly on another
+   * `PlexTvClient` instance) can join the same in-flight discovery.
+   */
+  async warmConnection(): Promise<void> {
+    try {
+      await this.findWorkingConnection();
+    } catch {
+      // Discovery failures are handled on the real request path.
+    }
+  }
+
   private async findWorkingConnection(): Promise<PlexDevice["connections"][0]> {
-    // If we already have a cached working connection, return it
     if (this.workingConnection) {
       return this.workingConnection;
     }
 
-    // If we're already testing connections, return that promise
-    if (this.connectionTestPromise) {
-      return this.connectionTestPromise;
+    const cached = readCachedWorkingConnection(this.server);
+    if (cached) {
+      this.workingConnection = cached;
+      return cached;
     }
 
-    // Start testing connections
+    const serverId = this.server.clientIdentifier;
+    const sharedInflight = this.connectionTestPromise ?? inflightConnectionDiscovery.get(serverId);
+    if (sharedInflight) {
+      const connection = await sharedInflight;
+      const match =
+        this.server.connections.find((entry) => entry.uri === connection.uri) ?? connection;
+      this.workingConnection = match;
+      return match;
+    }
+
     this.connectionTestPromise = this.testConnections();
+    inflightConnectionDiscovery.set(serverId, this.connectionTestPromise);
 
     try {
       const connection = await this.connectionTestPromise;
       this.workingConnection = connection;
       return connection;
     } finally {
-      // Clear the promise so we can retry if needed
       this.connectionTestPromise = null;
+      inflightConnectionDiscovery.delete(serverId);
     }
   }
 
   /**
-   * Test all connections in priority order until we find one that works
+   * Race every advertised connection and take the first that answers /identity.
+   * Local-first batching used to stall remote-only clients (e.g. cloud deploys)
+   * for a full CONNECTION_TEST_TIMEOUT_MS while LAN URIs timed out.
    */
   private async testConnections(): Promise<PlexDevice["connections"][0]> {
     const connections = [...this.server.connections];
@@ -208,56 +359,51 @@ export class PlexServerClient {
       `Testing connections for server: ${this.server.name} (${connections.length} available)`,
     );
 
-    // Sort connections by priority
+    if (connections.length === 0) {
+      console.log(`❌ ${this.server.name}: No working connections found`);
+      throw new Error(`No working connections found for server ${this.server.name}`);
+    }
+
+    // Prefer remote HTTPS / plex.direct candidates in the race settle order so
+    // that when several succeed near-simultaneously we keep the better URI.
     connections.sort((a, b) => {
-      // For shared servers (not owned), prefer relay connections first
-      if (!this.server.owned) {
-        if (a.relay && !b.relay) return -1;
-        if (!a.relay && b.relay) return 1;
+      if (a.local !== b.local) return a.local ? 1 : -1;
+      if (a.relay !== b.relay) {
+        // Owned: prefer non-relay. Shared: prefer relay.
+        if (this.server.owned) return a.relay ? 1 : -1;
+        return a.relay ? -1 : 1;
       }
-
-      // For owned servers, local connections first
-      if (this.server.owned) {
-        if (a.local && !b.local) return -1;
-        if (!a.local && b.local) return 1;
-      }
-
-      // Among same type, prefer HTTPS
       if (a.protocol === "https" && b.protocol === "http") return -1;
       if (a.protocol === "http" && b.protocol === "https") return 1;
-
       return 0;
     });
 
-    // Test connections in parallel with a slight delay between batches
-    // to avoid overwhelming the server
-    const batchSize = 3;
-    const batchCount = Math.ceil(connections.length / batchSize);
+    const raceController = new AbortController();
+    const winner = await new Promise<PlexDevice["connections"][0] | null>((resolve) => {
+      let remaining = connections.length;
+      let settled = false;
 
-    for (const batchIndex of Array.from({ length: batchCount }, (_, i) => i)) {
-      const startIndex = batchIndex * batchSize;
-      const batch = connections.slice(startIndex, startIndex + batchSize);
-
-      // Test this batch in parallel
-      const results = await Promise.allSettled(
-        batch.map(async (connection) => {
-          const works = await this.testConnection(connection);
-          return { connection, works };
-        }),
-      );
-
-      // Return the first working connection from this batch
-      for (const result of results) {
-        if (result.status === "fulfilled" && result.value.works) {
-          console.log(`✅ ${this.server.name}: Connected via ${result.value.connection.uri}`);
-          return result.value.connection;
-        }
+      for (const connection of connections) {
+        void this.testConnection(connection, raceController.signal).then((works) => {
+          if (settled) return;
+          if (works) {
+            settled = true;
+            raceController.abort();
+            resolve(connection);
+            return;
+          }
+          remaining -= 1;
+          if (remaining === 0) {
+            resolve(null);
+          }
+        });
       }
+    });
 
-      // Small delay before trying the next batch
-      if (startIndex + batchSize < connections.length) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
+    if (winner) {
+      writeCachedWorkingConnection(this.server, winner);
+      console.log(`✅ ${this.server.name}: Connected via ${winner.uri}`);
+      return winner;
     }
 
     console.log(`❌ ${this.server.name}: No working connections found`);
@@ -265,11 +411,18 @@ export class PlexServerClient {
   }
 
   /**
-   * Reset the cached connection (useful when current connection stops working)
+   * Reset the cached connection (useful when current connection stops working).
+   * Only evicts the process-wide cache entry when it still points at this
+   * instance's failing URI, so a concurrent discovery win is not discarded.
    */
   private resetConnection(): void {
+    const staleUri = this.workingConnection?.uri;
     this.workingConnection = null;
     this.connectionTestPromise = null;
+    const cached = workingConnectionCache.get(this.server.clientIdentifier);
+    if (staleUri && cached?.uri === staleUri) {
+      workingConnectionCache.delete(this.server.clientIdentifier);
+    }
   }
 
   /**
@@ -942,6 +1095,98 @@ export class PlexServerClient {
     return response.MediaContainer.Metadata ?? [];
   }
 
+  async getPlaylist(playlistRatingKey: string): Promise<PlaylistDetail | null> {
+    const id = parsePositiveIntegerId(playlistRatingKey, "playlistRatingKey");
+    const response = await this.get({
+      endpoint: `playlists/${id}`,
+      schema: playlistDetailResponseSchema,
+    });
+
+    return response.MediaContainer.Metadata?.[0] ?? null;
+  }
+
+  async getPlaylistProviderAccess(): Promise<{
+    supported: boolean;
+    readOnly: boolean;
+  }> {
+    const response = await this.get({
+      endpoint: "media/providers",
+      schema: playlistProviderAccessResponseSchema,
+    });
+    const libraryProvider = response.MediaContainer.MediaProvider.find(
+      (provider) => provider.identifier === LOCAL_LIBRARY_PROVIDER_IDENTIFIER,
+    );
+    const feature = libraryProvider?.Feature.find((candidate) => candidate.type === "playlist");
+
+    return {
+      supported: feature !== undefined,
+      readOnly: feature?.readonly === true,
+    };
+  }
+
+  async getPlaylistContents(
+    playlistRatingKey: string,
+    params: { start?: number; size?: number } = {},
+  ): Promise<PlaylistContentsResponse> {
+    const id = parsePositiveIntegerId(playlistRatingKey, "playlistRatingKey");
+    const start = parseNonNegativeInteger(params.start ?? 0, "start");
+    const size = parsePositiveInteger(params.size ?? LIBRARY_PAGE_SIZE, "size");
+
+    return await this.get({
+      endpoint: `playlists/${id}/items`,
+      params: {
+        "X-Plex-Container-Start": start,
+        "X-Plex-Container-Size": size,
+      },
+      schema: playlistContentsResponseSchema,
+    });
+  }
+
+  async renamePlaylist(playlistRatingKey: string, title: string): Promise<void> {
+    const id = parsePositiveIntegerId(playlistRatingKey, "playlistRatingKey");
+    const normalizedTitle = title.trim();
+    if (normalizedTitle.length === 0 || normalizedTitle.length > 255) {
+      throw new TypeError("title must contain between 1 and 255 characters");
+    }
+
+    await this.put({
+      endpoint: `playlists/${id}`,
+      params: { title: normalizedTitle },
+      expectEmptyResponse: true,
+    });
+  }
+
+  async deletePlaylist(playlistRatingKey: string): Promise<void> {
+    const id = parsePositiveIntegerId(playlistRatingKey, "playlistRatingKey");
+    await this.delete({
+      endpoint: `playlists/${id}`,
+      expectEmptyResponse: true,
+    });
+  }
+
+  async movePlaylistItem(
+    playlistRatingKey: string,
+    playlistItemId: number,
+    afterPlaylistItemId?: number,
+  ): Promise<PlaylistsResponse> {
+    const playlistId = parsePositiveIntegerId(playlistRatingKey, "playlistRatingKey");
+    const itemId = parsePositiveInteger(playlistItemId, "playlistItemId");
+    const after =
+      afterPlaylistItemId === undefined
+        ? undefined
+        : parsePositiveInteger(afterPlaylistItemId, "afterPlaylistItemId");
+
+    if (after === itemId) {
+      throw new TypeError("afterPlaylistItemId must identify another item");
+    }
+
+    return await this.put({
+      endpoint: `playlists/${playlistId}/items/${itemId}/move`,
+      params: after === undefined ? undefined : { after },
+      schema: playlistsResponseSchema,
+    });
+  }
+
   /**
    * Append an item to an existing playlist.
    *
@@ -1050,6 +1295,7 @@ export class PlexServerClient {
         const response = await fetch(finalUrl, {
           method: "GET",
           headers,
+          signal: AbortSignal.timeout(getPmsRequestTimeoutMs()),
         });
 
         console.log(`Response from ${this.server.name}: ${response.status} ${response.statusText}`);
@@ -1106,8 +1352,11 @@ export class PlexServerClient {
           continue;
         }
 
-        // For network errors, also try to reset and retry
-        if (error instanceof TypeError && error.message.includes("fetch")) {
+        // Timeouts / aborts / network errors: drop the cached URI and retry.
+        if (
+          isAbortOrTimeoutError(error) ||
+          (error instanceof TypeError && error.message.includes("fetch"))
+        ) {
           this.resetConnection();
           continue;
         }
@@ -1133,9 +1382,13 @@ export class PlexServerClient {
     return this.sendWithoutBody("PUT", options);
   }
 
+  private async delete<T>(options: DeleteRequestOptions<T>): Promise<T> {
+    return this.sendWithoutBody("DELETE", options);
+  }
+
   private async sendWithoutBody<T>(
-    method: "POST" | "PUT",
-    options: PostRequestOptions<T> | PutRequestOptions<T>,
+    method: "POST" | "PUT" | "DELETE",
+    options: PostRequestOptions<T> | PutRequestOptions<T> | DeleteRequestOptions<T>,
   ): Promise<T> {
     const { endpoint, params, schema, expectEmptyResponse = false, xPlexOverrides = {} } = options;
     const maxRetries = 2;
@@ -1201,6 +1454,7 @@ export class PlexServerClient {
         const response = await fetch(url.toString(), {
           method,
           headers,
+          signal: AbortSignal.timeout(getPmsRequestTimeoutMs()),
         });
 
         console.log(`Response from ${this.server.name}: ${response.status} ${response.statusText}`);
@@ -1268,8 +1522,10 @@ export class PlexServerClient {
           continue;
         }
 
-        // For network errors, also try to reset and retry
-        if (error instanceof TypeError && error.message.includes("fetch")) {
+        if (
+          isAbortOrTimeoutError(error) ||
+          (error instanceof TypeError && error.message.includes("fetch"))
+        ) {
           this.resetConnection();
           continue;
         }
@@ -1287,4 +1543,28 @@ export class PlexServerClient {
       accept: "application/json",
     };
   }
+}
+
+function parsePositiveIntegerId(value: string, name: string): number {
+  if (!/^\d+$/.test(value)) {
+    throw new TypeError(`${name} must be a positive integer`);
+  }
+
+  return parsePositiveInteger(Number(value), name);
+}
+
+function parsePositiveInteger(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new TypeError(`${name} must be a positive integer`);
+  }
+
+  return value;
+}
+
+function parseNonNegativeInteger(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new TypeError(`${name} must be a non-negative integer`);
+  }
+
+  return value;
 }
