@@ -24,6 +24,10 @@ const TOAST_ICONS = {
   warning: TriangleAlertIcon,
 } as const;
 
+function isKnownToastType(type: string): type is keyof typeof TOAST_ICONS {
+  return Object.hasOwn(TOAST_ICONS, type);
+}
+
 type SwipeDirection = "up" | "down" | "left" | "right";
 
 type ToastData = {
@@ -90,9 +94,10 @@ function Toasts({
         data-slot="toast-viewport"
       >
         {toasts.map((toast) => {
-          const Icon = toast.type
-            ? TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS]
-            : null;
+          const Icon =
+            toast.type && isKnownToastType(toast.type)
+              ? TOAST_ICONS[toast.type]
+              : null;
           const toastData = toast.data as ToastData | undefined;
 
           return (
@@ -200,9 +205,10 @@ function AnchoredToasts({
         data-slot="toast-viewport-anchored"
       >
         {toasts.map((toast) => {
-          const Icon = toast.type
-            ? TOAST_ICONS[toast.type as keyof typeof TOAST_ICONS]
-            : null;
+          const Icon =
+            toast.type && isKnownToastType(toast.type)
+              ? TOAST_ICONS[toast.type]
+              : null;
           const toastData = toast.data as ToastData | undefined;
           const tooltipStyle = toastData?.tooltipStyle ?? false;
           const positionerProps = toast.positionerProps;

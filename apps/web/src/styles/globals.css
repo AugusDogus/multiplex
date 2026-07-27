@@ -7,6 +7,7 @@
   --font-sans:
     var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-heading: var(--font-sans);
 
   /* Shared motion curves. Strong variants of the standard easings — the
      built-in CSS curves are too weak to feel intentional. Overriding the
