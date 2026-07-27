@@ -177,6 +177,10 @@ if rg -q 'underruns=[1-9][0-9]*' "$log"; then
   rg 'audio.*underruns=' "$log" >&2
   exit 1
 fi
+if [ "$(line_count "playback=playing clock=audio")" -lt 2 ]; then
+  echo "Video playback did not use the AESND sample clock across resume." >&2
+  exit 1
+fi
 
 sh "$script_dir/check-dolphin-log.sh"
-echo "Dolphin player smoke passed: navigation, clocked 720x480 MPEG-2/MP2 playback, 60 fps presentation, pause/resume, and clean memory log."
+echo "Dolphin player smoke passed: navigation, audio-mastered 720x480 MPEG-2/MP2 playback, 60 fps presentation, pause/resume, and clean memory log."

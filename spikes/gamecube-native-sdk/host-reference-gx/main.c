@@ -31,8 +31,10 @@
 #define VIDEO_DECODER_STACK_SIZE (256 * 1024)
 #define VIDEO_WIDTH 720
 #define VIDEO_HEIGHT 480
-#define VIDEO_FRAME_INTERVAL_US 33367
 #define VIDEO_PROFILE_FRAMES 60
+#define AUDIO_SAMPLE_RATE 48000
+#define VIDEO_RATE_NUMERATOR 30000
+#define VIDEO_RATE_DENOMINATOR 1001
 
 typedef struct {
   uint32_t render_us;
@@ -64,11 +66,11 @@ static uint32_t presentation_started;
 static uint32_t profile_stage_started;
 static uint32_t profile_stage_current;
 static uint32_t profile_stage_us[7];
-static uint32_t video_frame_index;
 static uint32_t video_frame_count;
 static uint32_t video_frame_started;
-static uint64_t video_next_decode_time;
-static bool video_clock_started;
+static uint64_t video_audio_start_samples;
+static uint32_t video_audio_start_completions;
+static bool video_audio_clock_started;
 static uint32_t video_decode_total_us;
 static uint32_t video_decode_max_us;
 static uint32_t video_codec_total_us;
@@ -264,7 +266,6 @@ static void *run_video_decoder(void *unused) {
       video_decode_ready_us = decode_us;
       video_codec_ready_us = codec_us;
       video_upload_ready_us = upload_us;
-      video_frame_index += 1;
       video_decode_completion_count += 1;
       if (video_decode_completion_count % 30u == 0u) {
         SYS_Report(
@@ -585,7 +586,7 @@ static void draw_video_surface(void) {
   if (multiplex_native_video_surface(&video_surface) == 0 ||
       video_surface.width <= 0 || video_surface.height <= 0) {
     audio_aesnd_update(audio_output, false);
-    video_clock_started = false;
+    video_audio_clock_started = false;
     video_was_playing = false;
     return;
   }
@@ -601,7 +602,7 @@ static void draw_video_surface(void) {
     video_codec_max_us = 0;
     video_upload_total_us = 0;
     video_upload_max_us = 0;
-    video_clock_started = false;
+    video_audio_clock_started = false;
     video_was_playing = playing;
   }
 
@@ -631,34 +632,40 @@ static void draw_video_surface(void) {
     profile_decoded_frame(completed_decode_us, completed_codec_us,
                           completed_upload_us);
   }
-  const uint64_t now = gettime();
-  if (playing && !video_clock_started) {
-    video_next_decode_time = now;
-    video_clock_started = true;
+  const uint64_t audio_samples = audio_aesnd_samples_played(audio_output);
+  if (playing && !video_audio_clock_started) {
+    video_audio_start_samples = audio_samples;
+    video_audio_start_completions = video_decode_completion_count;
+    video_audio_clock_started = true;
+  }
+  LWP_MutexLock(video_decoder_mutex);
+  uint32_t desired_completions = video_decode_completion_count;
+  if (playing) {
+    const uint64_t elapsed_samples =
+        audio_samples - video_audio_start_samples;
+    desired_completions =
+        video_audio_start_completions + 1u +
+        (uint32_t)((elapsed_samples * VIDEO_RATE_NUMERATOR) /
+                   (AUDIO_SAMPLE_RATE * VIDEO_RATE_DENOMINATOR));
   }
   const bool cadence_due =
       !video_texture_ready ||
-      (playing && now >= video_next_decode_time);
-  LWP_MutexLock(video_decoder_mutex);
+      (playing && video_decode_completion_count < desired_completions);
   if (cadence_due && !video_decode_running && !video_decode_ready &&
       !video_decode_failed) {
     video_decode_running = true;
     video_decode_requested = true;
     video_decode_request_count += 1;
-    if (playing) {
-      video_next_decode_time +=
-          microsecs_to_ticks(VIDEO_FRAME_INTERVAL_US);
-    }
     LWP_CondSignal(video_decoder_condition);
   }
   decoder_failed = video_decode_failed;
   if (playback_changed) {
     SYS_Report(
-        "REFERENCE GX: playback=%s decoder requests=%u completed=%u "
-        "running=%u ready=%u\n",
-        playing ? "playing" : "paused", video_decode_request_count,
-        video_decode_completion_count, video_decode_running,
-        video_decode_ready);
+        "REFERENCE GX: playback=%s clock=audio samples=%llu target=%u "
+        "decoder requests=%u completed=%u running=%u ready=%u\n",
+        playing ? "playing" : "paused", audio_samples, desired_completions,
+        video_decode_request_count, video_decode_completion_count,
+        video_decode_running, video_decode_ready);
   }
   LWP_MutexUnlock(video_decoder_mutex);
 

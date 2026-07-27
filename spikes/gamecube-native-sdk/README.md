@@ -98,13 +98,14 @@ full home and details repaints measured about 0.37 and 0.33 seconds. The memo
 has a 4 MiB hard limit and peaked at 4,093 KiB in the home/details flow.
 RGBA-to-GX conversion remains about 10 ms and the retained frame presents at a
 measured 60.4 progressive frames per second when video is paused. The current
-DVD-resolution stream follows its 29.97 fps monotonic clock and returns to
-60.4 presentation fps after long MPEG I-frames. Average decode plus tiled
-upload is about 8.2 ms; the fast MPEG-2 path lowers the I-frame maximum to
-about 35.3 ms, and the clock catches up immediately after a missed VBlank. The
-audio ran without an underrun through the automated pause/resume flow. The
-media boundary is now real; the next Dolphin gate is a shared A/V clock and
-program-stream demux rather than another placeholder texture.
+DVD-resolution stream derives its 30000/1001 cadence from AESND's completed
+PCM bursts, with interpolation inside the active burst. It returns to 60.4
+presentation fps after long MPEG I-frames. Average decode plus tiled upload is
+about 8.2 ms; the fast MPEG-2 path lowers the I-frame maximum to about 35.3 ms,
+and the audio clock schedules a catch-up frame after a missed VBlank. Audio
+ran without an underrun through the automated pause/resume flow. The media
+boundary is now real; the next Dolphin gate is program-stream demux rather
+than another placeholder texture.
 
 The isolated Dolphin profile uses the DSP LLE recompiler. Dolphin 2606's HLE
 does not recognize current libogc2's yield/resume AESND ucode and falls back

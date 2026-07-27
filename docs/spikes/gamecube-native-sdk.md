@@ -165,9 +165,9 @@ automated smoke traverses pairing → home → details → player, waits for a
 five-second pause, resumes, and runs the invalid-access and DSP-ucode gates.
 
 The embedded clip is generated test material rather than an encrypted DVD
-image. Optical-disc filesystem, CSS, program-stream demux, subtitles, and a
-shared A/V master clock remain separate layers; the spike now proves the
-expensive video/audio codec and output boundaries at DVD media parameters.
+image. Optical-disc filesystem, CSS, program-stream demux, and subtitles
+remain separate layers; the spike now proves the expensive video/audio codec,
+output, and shared-clock boundaries at DVD media parameters.
 
 ## Invalid-access investigation
 
@@ -249,15 +249,17 @@ stable across cold and warm renders.
 RGBA-to-tiled-GX conversion remains about 10.3 ms per changed UI frame. Idle
 frames do not rerender; in NTSC 480p the guest measured 120 paused
 presentations in 1,985,316 microseconds, or 60.4 progressive frames per
-second. For the current DVD-resolution clip, a steady 60-frame profile
-measured 29.7–29.9 decoded frames per second against a 29.97 fps monotonic
-clock. MPlayer CE's fast MPEG-2 intra path is enabled. Codec work averaged 6.7
-ms with a 33.7 ms maximum; planar tiled upload averaged 1.5 ms. Long MPEG
-I-frames can miss a VBlank, after which the clock immediately schedules a
-catch-up decode; presentation returns to 60.4 fps rather than permanently
-slowing the media clock. The square-fill fast path keeps player UI state
-rerenders near 0.275 seconds. Two Dolphin window captures taken a second apart
-while paused were byte-identical.
+second. For the current DVD-resolution clip, steady 60-frame profiles measured
+29.7–30.2 decoded frames per second around the 29.97 fps target. AESND
+callbacks count completed 1,440-sample PCM bursts, and the clock interpolates
+within the active burst; video requests derive directly from that sample
+position rather than an independent wall clock. MPlayer CE's fast MPEG-2 intra
+path is enabled. Codec work averaged 6.7 ms with a 33.7 ms maximum; planar
+tiled upload averaged 1.5 ms. Long MPEG I-frames can miss a VBlank, after which
+the audio clock immediately schedules a catch-up decode; presentation returns
+to 60.4 fps rather than permanently slowing the media clock. The square-fill
+fast path keeps player UI state rerenders near 0.275 seconds. Two Dolphin
+window captures taken a second apart while paused were byte-identical.
 
 The same smoke run decoded MP2 continuously into AESND with zero buffer
 underruns. Its sample counter was unchanged across the five-second pause and
@@ -279,8 +281,8 @@ not as the committed GameCube renderer yet.
 
 Next Dolphin milestones:
 
-1. make decoded audio the A/V master clock, then replace the two elementary
-   test streams with MPEG-2/MP2 program-stream demux;
+1. replace the two elementary test streams with MPEG-2/MP2 program-stream
+   demux and use its timestamps to establish the initial audio/video epoch;
 2. add a minimal HTTP client and feed a directly playable URL;
 3. connect pairing/library data to a Multiplex gateway;
 4. decide whether to repair raylib/OpenGX or extract a smaller portable

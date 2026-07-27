@@ -11,7 +11,9 @@
 #include <aesndlib.h>
 #include <gccore.h>
 #include <malloc.h>
+#include <ogc/irq.h>
 #include <ogc/lwp.h>
+#include <ogc/lwp_watchdog.h>
 #include <ogc/message.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -23,6 +25,9 @@
 #define AUDIO_DECODER_STACK_SIZE (128 * 1024)
 #define AUDIO_CHANNELS 2
 #define AUDIO_BYTES_PER_SAMPLE 2
+#define AUDIO_SAMPLE_RATE 48000
+#define AUDIO_SAMPLES_PER_BUFFER \
+  (AUDIO_BURST_SIZE / (AUDIO_CHANNELS * AUDIO_BYTES_PER_SAMPLE))
 
 struct AudioAesnd {
   Mp2Decoder *decoder;
@@ -38,6 +43,8 @@ struct AudioAesnd {
   volatile bool active;
   bool playing;
   void *active_buffer;
+  volatile uint32_t active_buffer_started;
+  volatile uint32_t paused_partial_samples;
   volatile uint32_t completed_buffers;
   volatile uint32_t underruns;
 };
@@ -72,6 +79,8 @@ static void audio_callback(AESNDPB *voice, u32 state) {
   if (MQ_Receive(audio->ready_buffers, &ready, MQ_MSG_NOBLOCK) &&
       ready != NULL) {
     audio->active_buffer = ready;
+    audio->active_buffer_started = gettick();
+    audio->paused_partial_samples = 0;
     AESND_SetVoiceBuffer(voice, ready, AUDIO_BURST_SIZE);
     return;
   }
@@ -118,6 +127,8 @@ static bool start_voice_if_ready(AudioAesnd *audio) {
     return false;
   }
   audio->active_buffer = ready;
+  audio->active_buffer_started = gettick();
+  audio->paused_partial_samples = 0;
   AESND_SetVoiceBuffer(audio->voice, ready, AUDIO_BURST_SIZE);
   AESND_SetVoiceStop(audio->voice, false);
   audio->active = true;
@@ -172,7 +183,7 @@ AudioAesnd *audio_aesnd_create(const uint8_t *stream, size_t stream_size) {
     return NULL;
   }
   AESND_SetVoiceFormat(audio->voice, VOICE_STEREO16);
-  AESND_SetVoiceFrequency(audio->voice, 48000);
+  AESND_SetVoiceFrequency(audio->voice, AUDIO_SAMPLE_RATE);
   AESND_SetVoiceVolume(audio->voice, 0xff, 0xff);
   AESND_SetVoiceStream(audio->voice, true);
   AESND_SetVoiceStop(audio->voice, true);
@@ -232,19 +243,25 @@ void audio_aesnd_update(AudioAesnd *audio, bool playing) {
   }
 
   if (playing != audio->playing) {
-    audio->playing = playing;
     if (!playing) {
       AESND_Pause(true);
+      const uint64_t transition_samples = audio_aesnd_samples_played(audio);
+      audio->paused_partial_samples =
+          (uint32_t)(transition_samples % AUDIO_SAMPLES_PER_BUFFER);
+      audio->playing = false;
       SYS_Report(
           "REFERENCE GX: audio=paused samples=%llu buffers=%u underruns=%u\n",
-          audio_aesnd_samples_played(audio), audio->completed_buffers,
+          transition_samples, audio->completed_buffers,
           audio->underruns);
     } else {
       start_voice_if_ready(audio);
+      const uint64_t transition_samples = audio_aesnd_samples_played(audio);
+      audio->active_buffer_started = gettick();
+      audio->playing = true;
       AESND_Pause(false);
       SYS_Report(
           "REFERENCE GX: audio=playing samples=%llu buffers=%u underruns=%u\n",
-          audio_aesnd_samples_played(audio), audio->completed_buffers,
+          transition_samples, audio->completed_buffers,
           audio->underruns);
     }
   } else if (playing && !audio->active && start_voice_if_ready(audio)) {
@@ -270,8 +287,25 @@ uint64_t audio_aesnd_samples_played(const AudioAesnd *audio) {
   if (audio == NULL) {
     return 0;
   }
-  return ((uint64_t)audio->completed_buffers * AUDIO_BURST_SIZE) /
-         (AUDIO_CHANNELS * AUDIO_BYTES_PER_SAMPLE);
+
+  const uint32_t level = IRQ_Disable();
+  const uint32_t completed_buffers = audio->completed_buffers;
+  uint32_t partial_samples = audio->paused_partial_samples;
+  if (audio->playing && audio->active) {
+    const uint32_t elapsed_us = (uint32_t)ticks_to_microsecs(
+        (uint32_t)(gettick() - audio->active_buffer_started));
+    const uint32_t elapsed_samples =
+        (elapsed_us * (AUDIO_SAMPLE_RATE / 1000u)) / 1000u;
+    if (elapsed_samples < AUDIO_SAMPLES_PER_BUFFER - partial_samples) {
+      partial_samples += elapsed_samples;
+    } else {
+      partial_samples = AUDIO_SAMPLES_PER_BUFFER - 1u;
+    }
+  }
+  IRQ_Restore(level);
+
+  return (uint64_t)completed_buffers * AUDIO_SAMPLES_PER_BUFFER +
+         partial_samples;
 }
 
 uint32_t audio_aesnd_underruns(const AudioAesnd *audio) {
