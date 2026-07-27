@@ -5,9 +5,13 @@ import type {
   StreamType as PlexStream,
 } from "@multiplex/plex-query";
 import { Check, ChevronLeft, ChevronRight, Settings } from "lucide-react";
-import { Popover as PopoverPrimitive } from "radix-ui";
 import { useEffect, useState } from "react";
 import { Button } from "~/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "~/components/ui/popover";
 import { cn } from "~/lib/utils";
 import {
   playerCommands,
@@ -232,103 +236,101 @@ export function MediaPlayerSettingsMenu({
   };
 
   return (
-    <PopoverPrimitive.Root open={open} onOpenChange={handleOpenChange}>
-      <PopoverPrimitive.Trigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-white hover:bg-white/20"
-          disabled={disabled}
-          aria-label="Playback settings"
-        >
-          <Settings className="h-5 w-5" />
-        </Button>
-      </PopoverPrimitive.Trigger>
+    <Popover open={open} onOpenChange={handleOpenChange}>
+      <PopoverTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-white hover:bg-white/20"
+            disabled={disabled}
+            aria-label="Playback settings"
+          />
+        }
+      >
+        <Settings className="h-5 w-5" />
+      </PopoverTrigger>
 
-      <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Content
-          side="top"
-          align="end"
-          sideOffset={12}
-          className="data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 z-50 w-72 overflow-hidden rounded-lg border border-white/10 bg-black/90 p-1.5 text-white backdrop-blur-md"
-        >
-          {pane === "root" ? (
-            <div className="flex flex-col">
-              <ReadOnlyRow label="Quality" value={qualityLabel} />
-              {!isWatchTogetherActive && (
-                <NavRow
-                  label="Playback Speed"
-                  value={formatPlaybackRate(playbackRate)}
-                  onClick={() => setPane("speed")}
-                />
-              )}
-              <ReadOnlyRow label="Audio Stream" value={audioLabel} />
+      <PopoverContent
+        side="top"
+        align="end"
+        sideOffset={12}
+        className="w-72 overflow-hidden border-white/10 bg-black/90 text-white backdrop-blur-md [&>[data-slot=popover-viewport]]:p-1.5"
+      >
+        {pane === "root" ? (
+          <div className="flex flex-col">
+            <ReadOnlyRow label="Quality" value={qualityLabel} />
+            {!isWatchTogetherActive && (
               <NavRow
-                label="Subtitles"
-                value={subtitleLabel}
-                onClick={() => setPane("subtitles")}
-                disabled={!hasSubtitles || isUpdatingSubtitle}
+                label="Playback Speed"
+                value={formatPlaybackRate(playbackRate)}
+                onClick={() => setPane("speed")}
               />
+            )}
+            <ReadOnlyRow label="Audio Stream" value={audioLabel} />
+            <NavRow
+              label="Subtitles"
+              value={subtitleLabel}
+              onClick={() => setPane("subtitles")}
+              disabled={!hasSubtitles || isUpdatingSubtitle}
+            />
 
-              <Separator />
+            <Separator />
 
-              <ToggleRow
-                label="Auto Play"
-                checked={autoPlayEnabled}
-                onChange={setAutoPlayEnabled}
-              />
-            </div>
-          ) : pane === "speed" ? (
-            <Pane title="Playback Speed" onBack={() => setPane("root")}>
-              {PLAYBACK_RATE_OPTIONS.map((option) => (
-                <SelectRow
-                  key={option.value}
-                  label={option.label}
-                  selected={option.value === playbackRate}
-                  onClick={() => {
-                    setPlaybackRate(option.value);
-                    setPane("root");
-                  }}
-                />
-              ))}
-            </Pane>
-          ) : (
-            <Pane title="Subtitles" onBack={() => setPane("root")}>
+            <ToggleRow
+              label="Auto Play"
+              checked={autoPlayEnabled}
+              onChange={setAutoPlayEnabled}
+            />
+          </div>
+        ) : pane === "speed" ? (
+          <Pane title="Playback Speed" onBack={() => setPane("root")}>
+            {PLAYBACK_RATE_OPTIONS.map((option) => (
               <SelectRow
-                label="None"
-                selected={selectedSubtitleStreamId === null}
-                onClick={() => void handleSubtitleSelection(null)}
+                key={option.value}
+                label={option.label}
+                selected={option.value === playbackRate}
+                onClick={() => {
+                  setPlaybackRate(option.value);
+                  setPane("root");
+                }}
+              />
+            ))}
+          </Pane>
+        ) : (
+          <Pane title="Subtitles" onBack={() => setPane("root")}>
+            <SelectRow
+              label="None"
+              selected={selectedSubtitleStreamId === null}
+              onClick={() => void handleSubtitleSelection(null)}
+              disabled={isUpdatingSubtitle}
+            />
+            {subtitleStreams.map((stream) => (
+              <SelectRow
+                key={stream.id}
+                label={getStreamLabel(stream, "Subtitle")}
+                selected={stream.id === selectedSubtitleStreamId}
+                onClick={() => void handleSubtitleSelection(stream.id)}
                 disabled={isUpdatingSubtitle}
               />
-              {subtitleStreams.map((stream) => (
-                <SelectRow
-                  key={stream.id}
-                  label={getStreamLabel(stream, "Subtitle")}
-                  selected={stream.id === selectedSubtitleStreamId}
-                  onClick={() => void handleSubtitleSelection(stream.id)}
-                  disabled={isUpdatingSubtitle}
-                />
-              ))}
-              {subtitleError && (
-                <p className="px-3 py-2 text-xs text-red-300">
-                  {subtitleError}
-                </p>
-              )}
-              <Separator />
-              <p className="px-3 py-1 text-xs text-white/50">Subtitle Size</p>
-              {CAPTION_SIZE_OPTIONS.map((option) => (
-                <SelectRow
-                  key={option.value}
-                  label={option.label}
-                  selected={option.value === captionSize}
-                  onClick={() => setCaptionSize(option.value)}
-                />
-              ))}
-            </Pane>
-          )}
-        </PopoverPrimitive.Content>
-      </PopoverPrimitive.Portal>
-    </PopoverPrimitive.Root>
+            ))}
+            {subtitleError && (
+              <p className="px-3 py-2 text-xs text-red-300">{subtitleError}</p>
+            )}
+            <Separator />
+            <p className="px-3 py-1 text-xs text-white/50">Subtitle Size</p>
+            {CAPTION_SIZE_OPTIONS.map((option) => (
+              <SelectRow
+                key={option.value}
+                label={option.label}
+                selected={option.value === captionSize}
+                onClick={() => setCaptionSize(option.value)}
+              />
+            ))}
+          </Pane>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 

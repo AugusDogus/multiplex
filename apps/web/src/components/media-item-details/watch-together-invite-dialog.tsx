@@ -11,6 +11,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
 } from "~/components/ui/dialog";
 import { WatchTogetherInviteePicker } from "~/components/watch-together/watch-together-invitee-picker";
@@ -148,49 +149,53 @@ export function WatchTogetherInviteDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div
-          className="grid grid-cols-2 gap-2"
-          role="group"
-          aria-label="Invite type"
-        >
-          <InviteModeButton
-            active={mode === "plex-friends"}
-            disabled={pending}
-            icon={Users}
-            title="Plex friends"
-            description="Invite known accounts"
-            onClick={() => setMode("plex-friends")}
-          />
-          <InviteModeButton
-            active={mode === "guest-link"}
-            disabled={pending}
-            icon={Link2}
-            title="Guest link"
-            description="No Plex account needed"
-            onClick={() => setMode("guest-link")}
-          />
-        </div>
+        <DialogPanel className="flex flex-col gap-4">
+          <div
+            className="grid grid-cols-2 gap-2"
+            role="group"
+            aria-label="Invite type"
+          >
+            <InviteModeButton
+              active={mode === "plex-friends"}
+              disabled={pending}
+              icon={Users}
+              title="Plex friends"
+              description="Invite known accounts"
+              onClick={() => setMode("plex-friends")}
+            />
+            <InviteModeButton
+              active={mode === "guest-link"}
+              disabled={pending}
+              icon={Link2}
+              title="Guest link"
+              description="No Plex account needed"
+              onClick={() => setMode("guest-link")}
+            />
+          </div>
 
-        {mode === "plex-friends" ? (
-          <WatchTogetherInviteePicker
-            enabled={open}
-            selectedUserIds={selectedUsers}
-            onSelectedUserIdsChange={setSelectedUsers}
-            disabled={pending}
-            emptyHint="No Plex friends found. You can still create a room for yourself."
-          />
-        ) : (
-          <GuestLinkSetup
-            eligibility={eligibilityQuery.data}
-            checking={eligibilityQuery.isPending || eligibilityQuery.isFetching}
-            enabling={enableGuestMutation.isPending}
-            confirmEnable={confirmGuestEnable}
-            onReviewEnable={() => setConfirmGuestEnable(true)}
-            onCancelEnable={() => setConfirmGuestEnable(false)}
-            onEnable={() => enableGuestMutation.mutate()}
-            onRetry={() => eligibilityQuery.refetch()}
-          />
-        )}
+          {mode === "plex-friends" ? (
+            <WatchTogetherInviteePicker
+              enabled={open}
+              selectedUserIds={selectedUsers}
+              onSelectedUserIdsChange={setSelectedUsers}
+              disabled={pending}
+              emptyHint="No Plex friends found. You can still create a room for yourself."
+            />
+          ) : (
+            <GuestLinkSetup
+              eligibility={eligibilityQuery.data}
+              checking={
+                eligibilityQuery.isPending || eligibilityQuery.isFetching
+              }
+              enabling={enableGuestMutation.isPending}
+              confirmEnable={confirmGuestEnable}
+              onReviewEnable={() => setConfirmGuestEnable(true)}
+              onCancelEnable={() => setConfirmGuestEnable(false)}
+              onEnable={() => enableGuestMutation.mutate()}
+              onRetry={() => eligibilityQuery.refetch()}
+            />
+          )}
+        </DialogPanel>
 
         <DialogFooter>
           <Button
@@ -418,11 +423,21 @@ function SetupMessage({
         <p className="text-muted-foreground mt-1 text-sm">{description}</p>
       </div>
       {href ? (
-        <Button asChild type="button" variant="outline" size="sm">
-          <a href={href} target="_blank" rel="noreferrer">
-            {action}
-            <ExternalLink data-icon="inline-end" />
-          </a>
+        <Button
+          render={
+            <a
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={action}
+            />
+          }
+          type="button"
+          variant="outline"
+          size="sm"
+        >
+          {action}
+          <ExternalLink data-icon="inline-end" />
         </Button>
       ) : (
         <Button type="button" variant="outline" size="sm" onClick={onAction}>

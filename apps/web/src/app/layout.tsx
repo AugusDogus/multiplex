@@ -6,7 +6,7 @@ import { StrictMode } from "react";
 
 import { MediaPlayerModalLazy } from "~/components/media-player-modal-lazy";
 import { ThemeProvider } from "~/components/theme-provider";
-import { Toaster } from "~/components/ui/sonner";
+import { ToastProvider } from "~/components/ui/toast";
 import { TooltipProvider } from "~/components/ui/tooltip";
 import { EffectRegistryProvider } from "~/lib/effect";
 import { TRPCReactProvider } from "~/trpc/react";
@@ -37,11 +37,12 @@ export default function RootLayout({
                 enableSystem
                 disableTransitionOnChange
               >
-                <TooltipProvider>
-                  {children}
-                  <MediaPlayerModalLazy />
-                  <Toaster />
-                </TooltipProvider>
+                <ToastProvider>
+                  <TooltipProvider>
+                    {children}
+                    <MediaPlayerModalLazy />
+                  </TooltipProvider>
+                </ToastProvider>
               </ThemeProvider>
             </EffectRegistryProvider>
           </TRPCReactProvider>

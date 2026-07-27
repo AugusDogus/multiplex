@@ -58,10 +58,11 @@ export function AppHeader({
         {index > 0 && <BreadcrumbSeparator />}
         <BreadcrumbItem className="max-w-[34vw] shrink-0 truncate sm:max-w-none">
           {crumb.href ? (
-            <BreadcrumbLink asChild>
-              <Link href={crumb.href} className="block truncate">
-                {crumb.label}
-              </Link>
+            <BreadcrumbLink
+              render={<Link href={crumb.href} />}
+              className="block truncate"
+            >
+              {crumb.label}
             </BreadcrumbLink>
           ) : (
             <BreadcrumbPage className="block truncate">

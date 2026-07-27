@@ -10,11 +10,11 @@ import {
   type ParticipantStatus,
 } from "@multiplex/plex-query";
 import { Copy, Loader2, LogOut, Play, UserPlus, Users } from "lucide-react";
-import { toast } from "sonner";
 
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
+import { toastManager } from "~/components/ui/toast-manager";
 import { getPlexUserName } from "~/components/watch-together/plex-user";
 import { PlexUserAvatar } from "~/components/watch-together/plex-user-avatar";
 import { WatchTogetherLobbyInviteDialog } from "~/components/watch-together/watch-together-lobby-invite-dialog";
@@ -73,9 +73,15 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
       await navigator.clipboard.writeText(
         new URL(guestLink.joinPath, window.location.origin).toString(),
       );
-      toast.success("Guest link copied");
+      toastManager.add({
+        title: "Guest link copied",
+        type: "success",
+      });
     } catch {
-      toast.error("Couldn't copy the Guest link.");
+      toastManager.add({
+        title: "Couldn't copy the Guest link.",
+        type: "error",
+      });
     }
   };
 

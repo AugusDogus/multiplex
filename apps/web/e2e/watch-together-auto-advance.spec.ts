@@ -236,7 +236,7 @@ test("a session auto-advances both viewers to the next episode without leaving t
     for (;;) {
       for (const page of [host, guest]) {
         const texts = await page
-          .locator("[data-sonner-toast]")
+          .locator('[data-slot="toast-root"]')
           .allTextContents()
           .catch(() => []);
         for (const text of texts) {

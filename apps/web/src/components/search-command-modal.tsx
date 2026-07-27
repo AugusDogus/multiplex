@@ -1,14 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { Command as CommandPrimitive } from "cmdk";
 import { Search } from "lucide-react";
 import {
   Command,
-  CommandList,
   CommandEmpty,
   CommandGroup,
+  CommandGroupLabel,
+  CommandInput,
   CommandItem,
+  CommandList,
 } from "~/components/ui/command";
 import { Dialog, DialogContent, DialogTitle } from "~/components/ui/dialog";
 import type { ProcessedSearchResult } from "@multiplex/plex-query";
@@ -114,16 +115,19 @@ export function SearchCommandModal({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="top-[15%] max-h-[80dvh] translate-y-0 overflow-hidden rounded-xl p-0 sm:max-w-[640px]"
+        bottomStickOnMobile={false}
+        className="max-h-[80dvh] overflow-hidden sm:max-w-[640px]"
       >
         <DialogTitle className="sr-only">Search Plex Media</DialogTitle>
-        <Command shouldFilter={false}>
-          <div className="flex items-center justify-between gap-3 border-b p-3">
-            <CommandPrimitive.Input
+        <Command
+          mode="none"
+          value={searchQuery}
+          onValueChange={(value) => setSearchQuery(value)}
+        >
+          <div className="flex items-center justify-between gap-3 border-b pr-3">
+            <CommandInput
               placeholder="What are you searching for?"
-              value={searchQuery}
-              onValueChange={setSearchQuery}
-              className="placeholder:text-muted-foreground h-7 flex-1 bg-transparent text-base outline-hidden sm:text-lg"
+              className="flex-1 text-base sm:text-lg"
             />
             <button
               type="button"
@@ -181,16 +185,13 @@ export function SearchCommandModal({
             )}
 
             {searchGroups.map((group) => (
-              <CommandGroup
-                key={group.type}
-                heading={group.label}
-                className="p-0 **:[[cmdk-group-heading]]:flex **:[[cmdk-group-heading]]:h-10 **:[[cmdk-group-heading]]:items-center **:[[cmdk-group-heading]]:px-2 **:[[cmdk-group-heading]]:text-[13px]"
-              >
+              <CommandGroup key={group.type} className="p-0">
+                <CommandGroupLabel>{group.label}</CommandGroupLabel>
                 {group.results.map((result) => (
                   <CommandItem
                     key={`${result.type}-${result.serverId}-${result.ratingKey}`}
                     value={`${result.title} ${result.type} ${result.serverName}`}
-                    onSelect={() => handleResultSelect(result)}
+                    onClick={() => handleResultSelect(result)}
                     className="min-h-16 cursor-pointer scroll-my-2 gap-3 rounded-md px-2 py-1 sm:min-h-12"
                   >
                     <SearchResultItem result={result} />

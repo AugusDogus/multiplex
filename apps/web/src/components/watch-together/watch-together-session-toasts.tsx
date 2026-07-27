@@ -5,9 +5,8 @@ import type {
   WatchTogetherRoom,
   WatchTogetherUser,
 } from "@multiplex/plex-query";
-import { toast } from "sonner";
-
 import { formatTime } from "~/components/media-player/utils/playback-time-utils";
+import { toastManager } from "~/components/ui/toast-manager";
 import { getPlexUserName } from "~/components/watch-together/plex-user";
 import { PlexUserAvatar } from "~/components/watch-together/plex-user-avatar";
 
@@ -58,7 +57,7 @@ export interface WatchTogetherSessionToastsOptions {
    * not look like they left the party. Pause/resume/seek still toast.
    */
   isPresenceHandoff?: () => boolean;
-  /** Test seams; production uses sonner and the real clock. */
+  /** Test seams; production uses the Coss toast manager and the real clock. */
   showToast?: (
     user: WatchTogetherUser | undefined,
     name: string,
@@ -94,7 +93,9 @@ function showSessionToast(
   name: string,
   text: string,
 ): void {
-  toast(<SessionToast user={user} name={name} text={text} />);
+  toastManager.add({
+    title: <SessionToast user={user} name={name} text={text} />,
+  });
 }
 
 /**

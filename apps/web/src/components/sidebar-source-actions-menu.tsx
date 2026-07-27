@@ -6,7 +6,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "~/components/ui/dropdown-menu";
+} from "~/components/ui/menu";
 import { SidebarMenuAction } from "~/components/ui/sidebar";
 import type { SidebarSource } from "~/hooks/use-sidebar-sources";
 
@@ -34,21 +34,19 @@ export function SidebarSourceActionsMenu({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <SidebarMenuAction
-          showOnHover={showOnHover}
-          disabled={isPending}
-          aria-label={`${source.title} options`}
-        >
-          {isPending ? (
-            <Loader2 className="animate-spin" />
-          ) : (
-            <MoreHorizontal />
-          )}
-        </SidebarMenuAction>
+      <DropdownMenuTrigger
+        render={
+          <SidebarMenuAction
+            showOnHover={showOnHover}
+            disabled={isPending}
+            aria-label={`${source.title} options`}
+          />
+        }
+      >
+        {isPending ? <Loader2 className="animate-spin" /> : <MoreHorizontal />}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onSelect={handleTogglePinnedSource}>
+        <DropdownMenuItem onClick={handleTogglePinnedSource}>
           {isPinned ? <PinOff /> : <Pin />}
           <span>{isPinned ? "Unpin" : "Pin"}</span>
         </DropdownMenuItem>

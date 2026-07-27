@@ -89,7 +89,7 @@ test("an unauthenticated guest does not request protected player metadata", asyn
       const captured: string[] = [];
       const captureToasts = () => {
         for (const element of document.querySelectorAll(
-          "[data-sonner-toast]",
+          '[data-slot="toast-root"]',
         )) {
           const text = element.textContent?.trim();
           if (text && !captured.includes(text)) captured.push(text);
