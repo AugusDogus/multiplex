@@ -91,6 +91,12 @@ press() {
 }
 
 wait_for_new "signature=fa6601eb" 0 120
+wait_for_new "demux=mpeg-ps" 0 120
+if ! rg -q 'demux=mpeg-ps .*pts-delta=902' "$log"; then
+  echo "MPEG-PS demux did not preserve the expected initial PTS delta." >&2
+  rg 'demux=mpeg-ps' "$log" >&2 || true
+  exit 1
+fi
 wait_for_new "audio=ffmpeg-mplayer-ce codec=mp2 output=ai-dma" 0 120
 exec 3>"$pipe"
 pipe_open=1
@@ -119,6 +125,10 @@ press A
 wait_for_new "signature=f3bd7219" "$player_count" 120
 wait_for_new "playback=playing" "$playing_count" 80
 wait_for_new "audio=playing" "$audio_playing_count" 80
+if ! rg -q 'playback=playing .*pts-offset-samples=481' "$log"; then
+  echo "Video scheduler did not apply the MPEG-PS timestamp offset." >&2
+  exit 1
+fi
 
 decoder_count=$(line_count "decoder=60 frames/")
 wait_for_new "decoder=60 frames/" "$decoder_count" 120
@@ -183,4 +193,4 @@ if [ "$(line_count "playback=playing clock=audio")" -lt 2 ]; then
 fi
 
 sh "$script_dir/check-dolphin-log.sh"
-echo "Dolphin player smoke passed: navigation, audio-mastered 720x480 MPEG-2/MP2 playback, 60 fps presentation, pause/resume, and clean memory log."
+echo "Dolphin player smoke passed: navigation, timestamped MPEG-PS playback, 60 fps presentation, pause/resume, and clean memory log."

@@ -1,8 +1,8 @@
 #include "audio_dma.h"
 #include "native_ui.h"
 #include "mpeg2_decoder.h"
-#include "multiplex-dvd-demo-audio.h"
-#include "multiplex-dvd-demo.h"
+#include "mpeg_ps_demux.h"
+#include "multiplex-dvd-demo-program.h"
 #include "yuv420_gx.h"
 
 #include <gccore.h>
@@ -33,6 +33,7 @@
 #define VIDEO_HEIGHT 480
 #define VIDEO_PROFILE_FRAMES 60
 #define AUDIO_SAMPLE_RATE 48000
+#define MPEG_PTS_RATE 90000
 #define VIDEO_RATE_NUMERATOR 30000
 #define VIDEO_RATE_DENOMINATOR 1001
 
@@ -71,6 +72,7 @@ static uint32_t video_frame_started;
 static uint64_t video_audio_start_samples;
 static uint32_t video_audio_start_completions;
 static bool video_audio_clock_started;
+static int64_t video_pts_offset_samples;
 static uint32_t video_decode_total_us;
 static uint32_t video_decode_max_us;
 static uint32_t video_codec_total_us;
@@ -282,10 +284,8 @@ static void *run_video_decoder(void *unused) {
 
 static void stop_video_decoder(void);
 
-static bool start_video_decoder(void) {
-  video_decoder =
-      mpeg2_decoder_create(multiplex_dvd_demo_m2v,
-                           (size_t)multiplex_dvd_demo_m2v_size);
+static bool start_video_decoder(const uint8_t *stream, size_t stream_size) {
+  video_decoder = mpeg2_decoder_create(stream, stream_size);
   if (video_decoder == NULL) {
     SYS_Report("REFERENCE GX: MPEG-2 decoder initialization failed\n");
     return false;
@@ -328,7 +328,7 @@ static bool start_video_decoder(void) {
   SYS_Report(
       "REFERENCE GX: decoder=ffmpeg-mplayer-ce codec=mpeg2video "
       "input=%ux%u pixel-format=yuv420p rate=30000/1001 fps size=%u bytes\n",
-      VIDEO_WIDTH, VIDEO_HEIGHT, multiplex_dvd_demo_m2v_size);
+      VIDEO_WIDTH, VIDEO_HEIGHT, (unsigned)stream_size);
   return true;
 }
 
@@ -602,7 +602,6 @@ static void draw_video_surface(void) {
     video_codec_max_us = 0;
     video_upload_total_us = 0;
     video_upload_max_us = 0;
-    video_audio_clock_started = false;
     video_was_playing = playing;
   }
 
@@ -640,16 +639,21 @@ static void draw_video_surface(void) {
   }
   LWP_MutexLock(video_decoder_mutex);
   uint32_t desired_completions = video_decode_completion_count;
-  if (playing) {
-    const uint64_t elapsed_samples =
-        audio_samples - video_audio_start_samples;
+  int64_t media_elapsed_samples = -video_pts_offset_samples;
+  if (video_audio_clock_started) {
+    media_elapsed_samples +=
+        (int64_t)(audio_samples - video_audio_start_samples);
+  }
+  if (playing && media_elapsed_samples >= 0) {
     desired_completions =
         video_audio_start_completions + 1u +
-        (uint32_t)((elapsed_samples * VIDEO_RATE_NUMERATOR) /
+        (uint32_t)(((uint64_t)media_elapsed_samples *
+                    VIDEO_RATE_NUMERATOR) /
                    (AUDIO_SAMPLE_RATE * VIDEO_RATE_DENOMINATOR));
   }
   const bool cadence_due =
-      !video_texture_ready ||
+      (!video_texture_ready &&
+       (!playing || media_elapsed_samples >= 0)) ||
       (playing && video_decode_completion_count < desired_completions);
   if (cadence_due && !video_decode_running && !video_decode_ready &&
       !video_decode_failed) {
@@ -661,11 +665,14 @@ static void draw_video_surface(void) {
   decoder_failed = video_decode_failed;
   if (playback_changed) {
     SYS_Report(
-        "REFERENCE GX: playback=%s clock=audio samples=%llu target=%u "
-        "decoder requests=%u completed=%u running=%u ready=%u\n",
-        playing ? "playing" : "paused", audio_samples, desired_completions,
-        video_decode_request_count, video_decode_completion_count,
-        video_decode_running, video_decode_ready);
+        "REFERENCE GX: playback=%s clock=audio samples=%llu "
+        "pts-offset-samples=%lld target=%u decoder requests=%u "
+        "completed=%u running=%u ready=%u\n",
+        playing ? "playing" : "paused", audio_samples,
+        video_pts_offset_samples, desired_completions,
+        video_decode_request_count,
+        video_decode_completion_count, video_decode_running,
+        video_decode_ready);
   }
   LWP_MutexUnlock(video_decoder_mutex);
 
@@ -710,18 +717,53 @@ static void present_frame(void) {
   }
 }
 
+static void pause_audio_for_player_input(uint32_t pressed) {
+  if ((pressed & (PAD_BUTTON_A | PAD_BUTTON_B)) != 0) {
+    MultiplexVideoSurface current_surface;
+    memset(&current_surface, 0, sizeof(current_surface));
+    if (multiplex_native_video_surface(&current_surface) != 0) {
+      /*
+       * The exact player repaint takes longer than one VBlank. Stop the media
+       * clock before dispatching pause/resume/exit; resume stays paused until
+       * the new UI frame is ready and draw_video_surface restarts both clocks.
+       */
+      audio_dma_update(audio_output, false);
+    }
+  }
+}
+
 static void *run_app(void *unused) {
   (void)unused;
   initialize_video_and_gx();
   if (!allocate_buffers()) {
     return (void *)(uintptr_t)1;
   }
-  if (!start_video_decoder()) {
+  MpegPsDemux *demux = mpeg_ps_demux_create(
+      multiplex_dvd_demo_mpg, (size_t)multiplex_dvd_demo_mpg_size);
+  if (demux == NULL) {
+    SYS_Report("REFERENCE GX: MPEG-PS demux initialization failed\n");
     return (void *)(uintptr_t)1;
   }
-  audio_output =
-      audio_dma_create(multiplex_dvd_demo_mp2,
-                       (size_t)multiplex_dvd_demo_mp2_size);
+  const int64_t pts_delta =
+      mpeg_ps_demux_first_video_pts90k(demux) -
+      mpeg_ps_demux_first_audio_pts90k(demux);
+  if (pts_delta >= 0) {
+    video_pts_offset_samples =
+        (pts_delta * AUDIO_SAMPLE_RATE + MPEG_PTS_RATE / 2) /
+        MPEG_PTS_RATE;
+  } else {
+    video_pts_offset_samples =
+        -((-pts_delta * AUDIO_SAMPLE_RATE + MPEG_PTS_RATE / 2) /
+          MPEG_PTS_RATE);
+  }
+  if (!start_video_decoder(mpeg_ps_demux_video_data(demux),
+                           mpeg_ps_demux_video_size(demux))) {
+    mpeg_ps_demux_destroy(demux);
+    return (void *)(uintptr_t)1;
+  }
+  audio_output = audio_dma_create(mpeg_ps_demux_audio_data(demux),
+                                  mpeg_ps_demux_audio_size(demux));
+  mpeg_ps_demux_destroy(demux);
   if (audio_output == NULL) {
     SYS_Report("REFERENCE GX: audio initialization failed\n");
     stop_video_decoder();
@@ -741,20 +783,25 @@ static void *run_app(void *unused) {
     if (pressed != 0) {
       SYS_Report("REFERENCE GX: controller buttons %08x\n", pressed);
     }
+    pause_audio_for_player_input(pressed);
+    bool app_changed = false;
     if ((pressed & (PAD_BUTTON_LEFT | PAD_BUTTON_UP)) != 0 &&
         multiplex_native_app_input(0) != 0) {
-      native_frame_dirty = true;
+      app_changed = true;
     }
     if ((pressed & (PAD_BUTTON_RIGHT | PAD_BUTTON_DOWN)) != 0 &&
         multiplex_native_app_input(1) != 0) {
-      native_frame_dirty = true;
+      app_changed = true;
     }
     if ((pressed & PAD_BUTTON_A) != 0 &&
         multiplex_native_app_input(2) != 0) {
-      native_frame_dirty = true;
+      app_changed = true;
     }
     if ((pressed & PAD_BUTTON_B) != 0 &&
         multiplex_native_app_input(3) != 0) {
+      app_changed = true;
+    }
+    if (app_changed) {
       native_frame_dirty = true;
     }
     if ((pressed & PAD_BUTTON_START) != 0) {

@@ -26,6 +26,7 @@ restricted TypeScript model
   -> Native SDK layout and display list
   -> reference RGBA framebuffer
   -> small C ABI + Native SDK media-surface geometry
+  -> MPEG-2 Program Stream PES/PTS demux
   -> MPlayer CE FFmpeg MPEG-2/MP2 decode
   -> tiled GX UI + planar-YUV TEV presentation + direct AI DMA audio
 ```
@@ -141,24 +142,31 @@ The player view is authored with Native SDK's real `<video>` element. During
 layout, the Zig adapter locates its `media_surface` widget and exports the
 resolved rectangle and TypeScript-owned play state through the C ABI.
 
-The DOL embeds a one-second MPEG-2 elementary stream at 720x480, YUV420P, and
-30000/1001 fps. A narrow wrapper registers only the pinned MPlayer CE FFmpeg
-MPEG-2 decoder and emits display-order planar frames. A lower-priority LWP
-copies Y, U, and V directly into two sets of GX I8 textures. The GX TEV stages
-perform limited-range BT.601 YUV-to-RGB conversion and scale the result into
-Native SDK's resolved media rectangle. This is the same fundamental
+The DOL embeds a one-second MPEG-2 Program Stream containing 720x480 YUV420P
+video at 30000/1001 fps and 192 kbps MP2 audio. A narrow in-memory demuxer
+walks MPEG-2 pack and PES headers, selects the first MPEG video (`0xE0`) and
+audio (`0xC0`) streams, concatenates their elementary payloads, and preserves
+their first 90 kHz PTS values. The generated stream starts audio at `47101`
+and video at `48003`: a 902-tick or 10.022 ms delta, rounded to 481 samples at
+48 kHz. The scheduler applies that offset once when it establishes the audio
+clock epoch.
+
+A narrow wrapper registers only the pinned MPlayer CE FFmpeg MPEG-2 decoder
+and emits display-order planar frames. A lower-priority LWP copies Y, U, and V
+directly into two sets of GX I8 textures. The GX TEV stages perform
+limited-range BT.601 YUV-to-RGB conversion and scale the result into Native
+SDK's resolved media rectangle. This is the same fundamental
 decoder-to-planar-YUV-to-GX architecture used by MPlayer CE; unlike the
 discarded NanoJPEG experiment, it has no CPU-side RGB conversion or
 low-resolution intermediate.
 
-The DOL also embeds a one-second, 192 kbps MP2 elementary stream. MPlayer CE's
-fixed-point FFmpeg decoder fills 48 kHz, stereo, native-endian S16 PCM on a
-second producer LWP. Eighteen aligned 5,760-byte buffers feed a direct Audio
-Interface DMA path adapted from WiiMC-GCN's `ao_gekko` driver. The
-interrupt-side callback distinguishes the block currently being read from the
-one already queued in the hardware's second slot, and the decoder only claims
-free buffers. The callback never blocks on UI or video work, and the tested
-flow reports zero underruns.
+MPlayer CE's fixed-point FFmpeg MP2 decoder fills 48 kHz, stereo,
+native-endian S16 PCM on a second producer LWP. Eighteen aligned 5,760-byte
+buffers feed a direct Audio Interface DMA path adapted from WiiMC-GCN's
+`ao_gekko` driver. The interrupt-side callback distinguishes the block
+currently being read from the one already queued in the hardware's second
+slot, and the decoder only claims free buffers. The callback never blocks on
+UI or video work, and the tested flow reports zero underruns.
 
 The view/focus behavior, media geometry, and play state remain Native
 SDK-owned. Decode is independent of UI rerenders; pause holds the last YUV
@@ -168,9 +176,10 @@ automated smoke traverses pairing → home → details → player, waits for a
 five-second pause, resumes, and runs the invalid-access and DSP-ucode gates.
 
 The embedded clip is generated test material rather than an encrypted DVD
-image. Optical-disc filesystem, CSS, program-stream demux, and subtitles
-remain separate layers; the spike now proves the expensive video/audio codec,
-output, and shared-clock boundaries at DVD media parameters.
+image. Optical-disc filesystem, CSS, additional stream selection, and
+subtitles remain separate layers; the spike now proves the container,
+timestamp, video/audio codec, output, and shared-clock boundaries at DVD media
+parameters.
 
 ## Invalid-access investigation
 
@@ -219,8 +228,9 @@ The current build is approximately:
 | Audio decoder thread stack     | 128 KiB, dynamically allocated                |
 | Pairing view                   | 10 widgets, 1 handler                         |
 | Home view                      | 17 widgets, 3 handlers, 17 layout nodes       |
-| Embedded MPEG-2 clip           | 720x480 YUV420P / 125 KiB                     |
-| Embedded MP2 clip              | 48 kHz stereo, 192 kbps / 24 KiB              |
+| Embedded MPEG-2 Program Stream | 720x480 video + stereo MP2 / 152 KiB          |
+| Extracted MPEG-2 payload       | 720x480 YUV420P / 125 KiB                     |
+| Extracted MP2 payload          | 48 kHz stereo, 192 kbps / 24 KiB              |
 | Audio Interface DMA pool       | 18 x 5,760-byte aligned PCM buffers           |
 | Double-buffered YUV textures   | 720x480 + 2x360x240 / 1,012.5 KiB             |
 
@@ -257,7 +267,9 @@ second. For the current DVD-resolution clip, steady 60-frame profiles measured
 Interface DMA callbacks advance completed 1,440-sample PCM bursts after the
 hardware's initial request for its second buffer, and the clock interpolates
 within the current burst; video requests derive directly from that sample
-position rather than an independent wall clock. MPlayer CE's fast MPEG-2 intra
+position rather than an independent wall clock. The initial program-stream
+PTS delta delays the first video target by 481 audio samples. MPlayer CE's
+fast MPEG-2 intra
 path is enabled. Codec work averaged 6.7 ms with a 33.7 ms maximum; planar
 tiled upload averaged 1.5 ms. Long MPEG I-frames can miss a VBlank, after which
 the audio clock immediately schedules a catch-up decode; presentation returns
@@ -285,11 +297,9 @@ not as the committed GameCube renderer yet.
 
 Next Dolphin milestones:
 
-1. replace the two elementary test streams with MPEG-2/MP2 program-stream
-   demux and use its timestamps to establish the initial audio/video epoch;
-2. add a minimal HTTP client and feed a directly playable URL;
-3. connect pairing/library data to a Multiplex gateway;
-4. decide whether to repair raylib/OpenGX or extract a smaller portable
+1. add a minimal HTTP client and feed a directly playable URL;
+2. connect pairing/library data to a Multiplex gateway;
+3. decide whether to repair raylib/OpenGX or extract a smaller portable
    framebuffer/presenter interface before the Dreamcast pass.
 
 Hardware profiling remains deferred until the Dolphin app is materially

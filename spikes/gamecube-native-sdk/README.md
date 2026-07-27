@@ -48,6 +48,8 @@ The controller profile attaches a standard controller to SI port 1 and is backed
 - `host-reference-gx/mpeg2_decoder.c`: narrow wrapper around MPlayer CE's
   bundled FFmpeg MPEG-2 decoder
 - `host-reference-gx/mp2_decoder.c`: fixed-point MPlayer CE FFmpeg MP2 decoder
+- `host-reference-gx/mpeg_ps_demux.c`: MPEG-2 Program Stream PES extraction
+  and initial 90 kHz PTS preservation
 - `host-reference-gx/audio_dma.c`: buffered Audio Interface DMA output adapted
   from WiiMC-GCN's `ao_gekko` driver
 - `host-reference-gx/yuv420_gx.c`: tiled planar-YUV upload and GX TEV
@@ -58,8 +60,8 @@ The controller profile attaches a standard controller to SI port 1 and is backed
 - `host-raylib/main.c`: experimental raylib/OpenGX presenter
 - `scripts/generate-font-atlas.py`: converts Native SDK's bundled Geist Regular
   to an antialiased, GX-tiled I8 atlas
-- `scripts/generate-demo-mpeg2.sh`: regenerates the embedded 720x480,
-  30000/1001 fps MPEG-2 video and 48 kHz stereo MP2 audio streams
+- `scripts/generate-demo-mpeg2.sh`: regenerates the embedded MPEG-2 Program
+  Stream with 720x480, 30000/1001 fps video and 48 kHz stereo MP2 audio
 - `patches/native-sdk-single-threaded-canvas.patch`: the two small portability
   changes applied to the pinned Native SDK checkout
 - `patches/native-sdk-reference-render-fast-paths.patch`: exact-output
@@ -73,17 +75,21 @@ the 640x480 RGBA frame into sixteen 160x120 GX RGBA8 textures and presents them
 through double-buffered XFBs. A real Native SDK `<video>` element exposes its
 laid-out media-surface rectangle over the C ABI; the GX host composites a
 decoded 720x480 frame into that exact rectangle. The DOL embeds a 30-frame
-MPEG-2 elementary stream generated at NTSC DVD resolution and 30000/1001 fps.
-MPlayer CE's pinned, GameCube-optimized FFmpeg decodes it to YUV420P on a
-worker LWP. The host tiles those three planes into double-buffered GX I8
-textures, and a fixed-function TEV pipeline performs limited-range BT.601
-YUV-to-RGB conversion and scaling. There is no CPU RGB conversion or
-low-resolution intermediate. A second lower-priority producer decodes 48 kHz
-stereo MP2 into 5,760-byte PCM bursts, with 18 aligned buffers handed directly
-to the GameCube Audio Interface DMA. Buffer ownership explicitly distinguishes
-the currently playing and hardware-queued blocks; the decoder producer never
-touches either one. Play/Pause holds and resumes both pipelines without
-rerasterizing video into the UI framebuffer.
+MPEG-2 Program Stream generated at NTSC DVD resolution and 30000/1001 fps,
+with a 48 kHz stereo MP2 track. The in-DOL demuxer extracts the first `0xE0`
+video and `0xC0` audio PES payloads and preserves their initial 90 kHz PTS
+values. The deterministic asset starts video 902 ticks (481 audio samples)
+after audio, and that offset establishes the shared clock epoch. MPlayer CE's
+pinned, GameCube-optimized FFmpeg decodes video to YUV420P on a worker LWP.
+The host tiles those three planes into double-buffered GX I8 textures, and a
+fixed-function TEV pipeline performs limited-range BT.601 YUV-to-RGB
+conversion and scaling. There is no CPU RGB conversion or low-resolution
+intermediate. A second lower-priority producer decodes MP2 into 5,760-byte PCM
+bursts, with 18 aligned buffers handed directly to the GameCube Audio
+Interface DMA. Buffer ownership explicitly distinguishes the currently
+playing and hardware-queued blocks; the decoder producer never touches either
+one. Play/Pause holds and resumes both pipelines without rerasterizing video
+into the UI framebuffer.
 
 The reference render now uses one pass rather than rendering the same pixels
 three times. Exact-output scanline fast paths avoid walking the empty interior
@@ -105,8 +111,8 @@ presentation fps after long MPEG I-frames. Average decode plus tiled upload is
 about 8.2 ms; the fast MPEG-2 path lowers the I-frame maximum to about 35.3 ms,
 and the audio clock schedules a catch-up frame after a missed VBlank. Audio
 ran without an underrun through the automated pause/resume flow. The media
-boundary is now real; the next Dolphin gate is program-stream demux rather
-than another placeholder texture.
+boundary now includes a timestamped container; the next Dolphin gate is
+streaming that container from a directly playable HTTP URL.
 
 The isolated Dolphin profile uses its normal DSP HLE mode. Movie audio follows
 WiiMC-GCN's `ao_gekko` design and streams decoded stereo PCM directly through

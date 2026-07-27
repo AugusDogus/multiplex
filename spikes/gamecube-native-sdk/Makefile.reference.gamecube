@@ -32,7 +32,7 @@ export DEPSDIR := $(SPIKE_ROOT)/$(BUILD)
 
 CFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(SPIKE_ROOT)/$(dir)/*.c)))
 OFILES_SOURCES := $(CFILES:.c=.o)
-OFILES_ASSETS := multiplex-dvd-demo.o multiplex-dvd-demo-audio.o
+OFILES_ASSETS := multiplex-dvd-demo-program.o
 export CORE_LIBRARY := $(SPIKE_ROOT)/zig-out/lib/libmultiplex-gamecube-core.a
 export OFILES := $(OFILES_SOURCES) $(OFILES_ASSETS)
 
@@ -67,19 +67,13 @@ else
 
 DEPENDS := $(OFILES_SOURCES:.o=.d)
 
-multiplex-dvd-demo.s: $(SPIKE_ROOT)/assets/multiplex-dvd-demo.m2v
+multiplex-dvd-demo-program.s: $(SPIKE_ROOT)/assets/multiplex-dvd-demo.mpg
 	$(SILENTMSG) embedding ... $(notdir $<)
-	$(SILENTCMD)bin2s -H multiplex-dvd-demo.h $< > $@
+	$(SILENTCMD)bin2s -H multiplex-dvd-demo-program.h $< > $@
 
-multiplex-dvd-demo.h: multiplex-dvd-demo.s
+multiplex-dvd-demo-program.h: multiplex-dvd-demo-program.s
 
-multiplex-dvd-demo-audio.s: $(SPIKE_ROOT)/assets/multiplex-dvd-demo.mp2
-	$(SILENTMSG) embedding ... $(notdir $<)
-	$(SILENTCMD)bin2s -H multiplex-dvd-demo-audio.h $< > $@
-
-multiplex-dvd-demo-audio.h: multiplex-dvd-demo-audio.s
-
-main.o: multiplex-dvd-demo.h multiplex-dvd-demo-audio.h
+main.o: multiplex-dvd-demo-program.h
 
 $(OUTPUT).dol: $(OUTPUT).elf
 $(OUTPUT).elf: $(OFILES) $(CORE_LIBRARY)
