@@ -545,6 +545,7 @@ export function DrawerMenuCheckboxItem({
         <>
           <CheckboxPrimitive.Indicator className="col-start-1">
             <svg
+              aria-hidden="true"
               fill="none"
               height="24"
               stroke="currentColor"
@@ -601,6 +602,7 @@ export function DrawerMenuRadioItem({
     >
       <RadioPrimitive.Indicator className="col-start-1">
         <svg
+          aria-hidden="true"
           fill="none"
           height="24"
           stroke="currentColor"
