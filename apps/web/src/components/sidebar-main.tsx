@@ -38,11 +38,12 @@ export function SidebarMain({
       <SidebarMenu>
         {/* Home Item */}
         <SidebarMenuItem>
-          <SidebarMenuButton asChild data-active={pathname === "/"}>
-            <Link href="/">
-              <Home />
-              <span>Home</span>
-            </Link>
+          <SidebarMenuButton
+            render={<Link href="/" />}
+            isActive={pathname === "/"}
+          >
+            <Home />
+            <span>Home</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
 
@@ -55,17 +56,20 @@ export function SidebarMain({
 
           return (
             <SidebarMenuItem key={source.key}>
-              <SidebarMenuButton asChild data-active={isActive}>
-                <Link
-                  href={source.href}
-                  prefetch
-                  onMouseEnter={() => prefetchLibrary(source.href)}
-                  onFocus={() => prefetchLibrary(source.href)}
-                  onTouchStart={() => prefetchLibrary(source.href)}
-                >
-                  <Icon />
-                  <span>{source.title}</span>
-                </Link>
+              <SidebarMenuButton
+                render={
+                  <Link
+                    href={source.href}
+                    prefetch
+                    onMouseEnter={() => prefetchLibrary(source.href)}
+                    onFocus={() => prefetchLibrary(source.href)}
+                    onTouchStart={() => prefetchLibrary(source.href)}
+                  />
+                }
+                isActive={isActive}
+              >
+                <Icon />
+                <span>{source.title}</span>
               </SidebarMenuButton>
               <SidebarSourceActionsMenu
                 source={source}

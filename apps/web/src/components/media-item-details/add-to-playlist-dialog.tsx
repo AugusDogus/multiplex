@@ -10,6 +10,7 @@ import {
   DialogContent,
   DialogDescription,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
@@ -112,7 +113,7 @@ export function AddToPlaylistDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4">
+        <DialogPanel className="flex flex-col gap-4">
           <form
             className="flex items-center gap-2"
             onSubmit={(event) => {
@@ -176,7 +177,7 @@ export function AddToPlaylistDialog({
               ))
             )}
           </div>
-        </div>
+        </DialogPanel>
       </DialogContent>
     </Dialog>
   );

@@ -54,7 +54,7 @@ import { shallow } from "zustand/shallow";
 
 /* ────────────────────────────────────────────────────────────
    Media Player Modal
-   Main modal container using shadcn Dialog
+   Main modal container using the Coss Dialog primitives
    ──────────────────────────────────────────────────────────── */
 
 const MOBILE_CONTROLS_HIDE_DELAY_MS = 3000;

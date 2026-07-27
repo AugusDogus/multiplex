@@ -22,7 +22,7 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "~/components/ui/dropdown-menu";
+} from "~/components/ui/menu";
 import {
   playerCommands,
   usePlayerStateSelector,
@@ -555,15 +555,17 @@ function HeroMoreActions({
 }: HeroMoreActionsProps) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="icon" aria-label="More actions">
-          <MoreHorizontal />
-        </Button>
+      <DropdownMenuTrigger
+        render={
+          <Button variant="outline" size="icon" aria-label="More actions" />
+        }
+      >
+        <MoreHorizontal />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuGroup>
           <DropdownMenuItem
-            onSelect={onWatchTogether}
+            onClick={onWatchTogether}
             disabled={!canWatchTogether}
             aria-label={
               canWatchTogether
@@ -578,7 +580,7 @@ function HeroMoreActions({
             Watch Together...
           </DropdownMenuItem>
           <DropdownMenuItem
-            onSelect={() => onUpdateActiveQueue(true)}
+            onClick={() => onUpdateActiveQueue(true)}
             disabled={Boolean(queueActionDisabledReason)}
             aria-label={
               queueActionDisabledReason
@@ -593,7 +595,7 @@ function HeroMoreActions({
             Play Next
           </DropdownMenuItem>
           <DropdownMenuItem
-            onSelect={() => onUpdateActiveQueue(false)}
+            onClick={() => onUpdateActiveQueue(false)}
             disabled={Boolean(queueActionDisabledReason)}
             aria-label={
               queueActionDisabledReason
@@ -607,7 +609,7 @@ function HeroMoreActions({
           >
             Add to Queue
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={onAddToPlaylist}>
+          <DropdownMenuItem onClick={onAddToPlaylist}>
             Add to...
           </DropdownMenuItem>
           <DropdownMenuItem
@@ -621,7 +623,7 @@ function HeroMoreActions({
             Report Issue...
           </DropdownMenuItem>
           <DropdownMenuItem
-            onSelect={onMediaInfo}
+            onClick={onMediaInfo}
             disabled={!hasMediaInfo}
             aria-label={
               hasMediaInfo

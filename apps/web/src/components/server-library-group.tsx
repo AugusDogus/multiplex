@@ -75,10 +75,8 @@ export function ServerLibraryGroup({
           <SidebarGroupLabel className="flex items-center gap-2">
             {server.name}
             <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex">
-                  <TriangleAlert className="text-muted-foreground h-3.5 w-3.5" />
-                </span>
+              <TooltipTrigger render={<span className="inline-flex" />}>
+                <TriangleAlert className="text-muted-foreground h-3.5 w-3.5" />
               </TooltipTrigger>
               <TooltipContent>
                 <p>Server offline</p>
@@ -87,24 +85,26 @@ export function ServerLibraryGroup({
             <span className="sr-only">Server offline</span>
           </SidebarGroupLabel>
           <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => onRetry(server.clientIdentifier)}
-                disabled={state.isRetrying}
-                className="text-muted-foreground hover:bg-accent hover:text-foreground flex h-6 w-6 items-center justify-center rounded-md disabled:opacity-50"
-                aria-label={
-                  state.isRetrying
-                    ? "Reconnecting to server"
-                    : "Retry server connection"
-                }
-              >
-                {state.isRetrying ? (
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-4 w-4" />
-                )}
-              </button>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  onClick={() => onRetry(server.clientIdentifier)}
+                  disabled={state.isRetrying}
+                  className="text-muted-foreground hover:bg-accent hover:text-foreground flex h-6 w-6 items-center justify-center rounded-md disabled:opacity-50"
+                  aria-label={
+                    state.isRetrying
+                      ? "Reconnecting to server"
+                      : "Retry server connection"
+                  }
+                />
+              }
+            >
+              {state.isRetrying ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
             </TooltipTrigger>
             <TooltipContent>
               <p>{state.isRetrying ? "Reconnecting..." : "Retry connection"}</p>
@@ -145,11 +145,12 @@ export function ServerLibraryGroup({
 
             return (
               <SidebarMenuItem key={source.key}>
-                <SidebarMenuButton asChild data-active={isActive}>
-                  <Link href={source.href} prefetch>
-                    <Icon />
-                    <span>{source.title}</span>
-                  </Link>
+                <SidebarMenuButton
+                  render={<Link href={source.href} prefetch />}
+                  isActive={isActive}
+                >
+                  <Icon />
+                  <span>{source.title}</span>
                 </SidebarMenuButton>
                 <SidebarSourceActionsMenu
                   source={source}

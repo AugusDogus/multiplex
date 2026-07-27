@@ -3,11 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
-import { toast } from "sonner";
 
 import { PlaylistDeleteDialog } from "~/components/playlist/playlist-delete-dialog";
 import { PlaylistItemsSection } from "~/components/playlist/playlist-items-section";
 import { PlaylistManagementHeader } from "~/components/playlist/playlist-management-header";
+import { toastManager } from "~/components/ui/toast-manager";
 import { getLibraryPivotHref } from "~/lib/plex-routes";
 import {
   resolveServerCredentials,
@@ -56,16 +56,26 @@ export function PlaylistManagement({
     onSuccess: async (_result, variables) => {
       await invalidatePlaylistData();
       setRenameTitle("");
-      toast.success(`Renamed playlist to “${variables.title}”`);
+      toastManager.add({
+        title: `Renamed playlist to “${variables.title}”`,
+        type: "success",
+      });
     },
-    onError: () => toast.error("Couldn't rename the playlist"),
+    onError: () =>
+      toastManager.add({
+        title: "Couldn't rename the playlist",
+        type: "error",
+      }),
   });
 
   const deleteMutation = api.plex.deletePlaylist.useMutation({
     onSuccess: async () => {
       await invalidatePlaylistData();
       setDeleteOpen(false);
-      toast.success("Playlist deleted");
+      toastManager.add({
+        title: "Playlist deleted",
+        type: "success",
+      });
       router.push(
         librarySectionId
           ? getLibraryPivotHref({
@@ -76,7 +86,11 @@ export function PlaylistManagement({
           : "/",
       );
     },
-    onError: () => toast.error("Couldn't delete the playlist"),
+    onError: () =>
+      toastManager.add({
+        title: "Couldn't delete the playlist",
+        type: "error",
+      }),
   });
 
   const moveMutation = api.plex.movePlaylistItem.useMutation({
@@ -84,7 +98,10 @@ export function PlaylistManagement({
       await invalidatePlaylistData();
     },
     onError: () => {
-      toast.error("Couldn't reorder the playlist");
+      toastManager.add({
+        title: "Couldn't reorder the playlist",
+        type: "error",
+      });
       void contentsQuery.refetch();
     },
   });
