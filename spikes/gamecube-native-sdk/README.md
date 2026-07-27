@@ -47,6 +47,9 @@ The controller profile attaches a standard controller to SI port 1 and is backed
 - `host-reference-gx/main.c`: reference framebuffer and direct-GX presenter
 - `host-reference-gx/mpeg2_decoder.c`: narrow wrapper around MPlayer CE's
   bundled FFmpeg MPEG-2 decoder
+- `host-reference-gx/mp2_decoder.c`: fixed-point MPlayer CE FFmpeg MP2 decoder
+- `host-reference-gx/audio_aesnd.c`: buffered AESND output adapted from
+  MPlayer CE
 - `host-reference-gx/yuv420_gx.c`: tiled planar-YUV upload and GX TEV
   conversion/scaling
 - `scripts/smoke-dolphin-player.sh`: player navigation, animation,
@@ -56,7 +59,7 @@ The controller profile attaches a standard controller to SI port 1 and is backed
 - `scripts/generate-font-atlas.py`: converts Native SDK's bundled Geist Regular
   to an antialiased, GX-tiled I8 atlas
 - `scripts/generate-demo-mpeg2.sh`: regenerates the embedded 720x480,
-  30000/1001 fps MPEG-2 validation stream
+  30000/1001 fps MPEG-2 video and 48 kHz stereo MP2 audio streams
 - `patches/native-sdk-single-threaded-canvas.patch`: the two small portability
   changes applied to the pinned Native SDK checkout
 - `patches/native-sdk-reference-render-fast-paths.patch`: exact-output
@@ -75,8 +78,11 @@ MPlayer CE's pinned, GameCube-optimized FFmpeg decodes it to YUV420P on a
 worker LWP. The host tiles those three planes into double-buffered GX I8
 textures, and a fixed-function TEV pipeline performs limited-range BT.601
 YUV-to-RGB conversion and scaling. There is no CPU RGB conversion or
-low-resolution intermediate. Play/Pause holds and resumes the decoded frame
-without rerasterizing video into the UI framebuffer.
+low-resolution intermediate. A second lower-priority producer decodes 48 kHz
+stereo MP2 into the same 5,760-byte AESND bursts used by MPlayer CE, with 18
+aligned buffers exchanged through nonblocking libogc queues. Play/Pause holds
+and resumes both pipelines without rerasterizing video into the UI
+framebuffer.
 
 The reference render now uses one pass rather than rendering the same pixels
 three times. Exact-output scanline fast paths avoid walking the empty interior
@@ -96,8 +102,16 @@ DVD-resolution stream follows its 29.97 fps monotonic clock and returns to
 60.4 presentation fps after long MPEG I-frames. Average decode plus tiled
 upload is about 8.2 ms; the fast MPEG-2 path lowers the I-frame maximum to
 about 35.3 ms, and the clock catches up immediately after a missed VBlank. The
-media boundary is now real; the next Dolphin gate is demuxed audio/video
-rather than another placeholder texture.
+audio ran without an underrun through the automated pause/resume flow. The
+media boundary is now real; the next Dolphin gate is a shared A/V clock and
+program-stream demux rather than another placeholder texture.
+
+The isolated Dolphin profile uses the DSP LLE recompiler. Dolphin 2606's HLE
+does not recognize current libogc2's yield/resume AESND ucode and falls back
+to the incompatible AX mixer. Older AESND and current ASND revisions are
+recognized, so LLE is not a general homebrew requirement; it is the accurate
+and fastest stable option for this exact audio stack. The launcher passes LLE
+explicitly, and an unknown-ucode/AX fallback remains a hard log-check failure.
 
 The linked decoder comes from MPlayer CE's historical FFmpeg tree. Its source
 and license files remain in the pinned ignored checkout, and the bootstrap

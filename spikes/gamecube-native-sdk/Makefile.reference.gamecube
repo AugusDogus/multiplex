@@ -22,7 +22,7 @@ INCLUDES := host host-reference-gx
 CFLAGS := -g -O2 -Wall -Wextra $(MACHDEP) $(INCLUDE)
 CXXFLAGS := $(CFLAGS)
 LDFLAGS := -g $(MACHDEP) -Wl,-Map,$(notdir $@).map
-LIBS := $(CORE_LIBRARY) -lavcodec -lavutil -logc -lm
+LIBS := $(CORE_LIBRARY) -lavcodec -lavutil -laesnd -logc -lm
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 
@@ -32,7 +32,7 @@ export DEPSDIR := $(SPIKE_ROOT)/$(BUILD)
 
 CFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(SPIKE_ROOT)/$(dir)/*.c)))
 OFILES_SOURCES := $(CFILES:.c=.o)
-OFILES_ASSETS := multiplex-dvd-demo.o
+OFILES_ASSETS := multiplex-dvd-demo.o multiplex-dvd-demo-audio.o
 export CORE_LIBRARY := $(SPIKE_ROOT)/zig-out/lib/libmultiplex-gamecube-core.a
 export OFILES := $(OFILES_SOURCES) $(OFILES_ASSETS)
 
@@ -73,7 +73,13 @@ multiplex-dvd-demo.s: $(SPIKE_ROOT)/assets/multiplex-dvd-demo.m2v
 
 multiplex-dvd-demo.h: multiplex-dvd-demo.s
 
-main.o: multiplex-dvd-demo.h
+multiplex-dvd-demo-audio.s: $(SPIKE_ROOT)/assets/multiplex-dvd-demo.mp2
+	$(SILENTMSG) embedding ... $(notdir $<)
+	$(SILENTCMD)bin2s -H multiplex-dvd-demo-audio.h $< > $@
+
+multiplex-dvd-demo-audio.h: multiplex-dvd-demo-audio.s
+
+main.o: multiplex-dvd-demo.h multiplex-dvd-demo-audio.h
 
 $(OUTPUT).dol: $(OUTPUT).elf
 $(OUTPUT).elf: $(OFILES) $(CORE_LIBRARY)

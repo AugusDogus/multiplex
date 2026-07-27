@@ -26,8 +26,8 @@ restricted TypeScript model
   -> Native SDK layout and display list
   -> reference RGBA framebuffer
   -> small C ABI + Native SDK media-surface geometry
-  -> MPlayer CE FFmpeg MPEG-2 decode to YUV420P
-  -> tiled GX UI plus planar-YUV TEV presentation
+  -> MPlayer CE FFmpeg MPEG-2/MP2 decode
+  -> tiled GX UI + planar-YUV TEV presentation + AESND audio
 ```
 
 It is not a screenshot or a separately recreated C menu. `core.ts` owns the
@@ -41,8 +41,8 @@ Verified interactions:
 - D-pad changes Native SDK focus between Previous, Open, and Next.
 - A on Open shows the details view.
 - Play opens a Native SDK `<video>` player surface.
-- A pauses/resumes DVD-resolution MPEG-2 playback; B unwinds player → details
-  → library.
+- A pauses/resumes DVD-resolution MPEG-2 video and stereo MP2 audio; B unwinds
+  player → details → library.
 
 ## Reproduce
 
@@ -75,6 +75,16 @@ The profile enables Dolphin's component-capable output and the presenter
 selects the matching progressive mode. This avoids the alternating-field
 vertical jitter of 480i; composite-only hardware keeps the preferred
 interlaced fallback.
+
+The profile explicitly uses Dolphin's DSP LLE recompiler. The current libogc2
+pin's yield/resume AESND ucode is newer than Dolphin 2606's recognized HLE
+revisions; HLE warns and incorrectly falls back to the AX mixer. Existing
+homebrew built with recognized ASND/AESND revisions can stay on HLE, so this
+is not a general GameCube-homebrew requirement. A tested attempt to reverse
+the AESND task protocol was flaky across pause/resume, and current ASND HLE
+ran substantially below real time. Current AESND plus LLE was the only
+combination that passed three consecutive full player smokes at speed. The
+smoke test rejects unknown-ucode/AX fallback warnings.
 
 ## Native SDK patches
 
@@ -141,17 +151,23 @@ decoder-to-planar-YUV-to-GX architecture used by MPlayer CE; unlike the
 discarded NanoJPEG experiment, it has no CPU-side RGB conversion or
 low-resolution intermediate.
 
+The DOL also embeds a one-second, 192 kbps MP2 elementary stream. MPlayer CE's
+fixed-point FFmpeg decoder fills 48 kHz, stereo, native-endian S16 PCM on a
+second producer LWP. Its 18-buffer queue and 5,760-byte bursts follow MPlayer
+CE's AESND output path. The callback never blocks on UI or video work, and the
+tested flow reports zero underruns.
+
 The view/focus behavior, media geometry, and play state remain Native
 SDK-owned. Decode is independent of UI rerenders; pause holds the last YUV
-textures and resume restarts requests. The automated smoke traverses pairing
-→ home → details → player, waits for a 60-frame decoder profile, verifies no
-profile advances during a five-second pause, resumes, and runs the
-invalid-access gate.
+textures and freezes AESND, then resume continues both pipelines. The
+automated smoke traverses pairing → home → details → player, waits for a
+60-frame decoder profile, verifies neither video nor audio advances during a
+five-second pause, resumes, and runs the invalid-access and DSP-ucode gates.
 
 The embedded clip is generated test material rather than an encrypted DVD
-image. Optical-disc filesystem, CSS, demux, audio, subtitle, and A/V clock
-work remain separate layers; the spike now proves the expensive video codec
-and presentation boundary at the DVD raster size.
+image. Optical-disc filesystem, CSS, program-stream demux, subtitles, and a
+shared A/V master clock remain separate layers; the spike now proves the
+expensive video/audio codec and output boundaries at DVD media parameters.
 
 ## Invalid-access investigation
 
@@ -191,15 +207,18 @@ The current build is approximately:
 
 | Property                       | Current result                                |
 | ------------------------------ | --------------------------------------------- |
-| Reference DOL                  | 1.36 MiB                                      |
+| Reference DOL                  | 1.64 MiB                                      |
 | ELF target                     | 32-bit, big-endian PowerPC, statically linked |
 | ELF text / data / BSS          | 846 KiB / 549 KiB / 5.25 MiB                  |
 | TypeScript runtime reservation | 128 KiB frame + two 256 KiB model heaps       |
 | App/render thread stack        | 512 KiB, dynamically allocated                |
-| Decoder thread stack           | 256 KiB, dynamically allocated                |
+| Video decoder thread stack     | 256 KiB, dynamically allocated                |
+| Audio decoder thread stack     | 128 KiB, dynamically allocated                |
 | Pairing view                   | 10 widgets, 1 handler                         |
 | Home view                      | 17 widgets, 3 handlers, 17 layout nodes       |
 | Embedded MPEG-2 clip           | 720x480 YUV420P / 125 KiB                     |
+| Embedded MP2 clip              | 48 kHz stereo, 192 kbps / 24 KiB              |
+| AESND queue                    | 18 x 5,760-byte aligned PCM buffers           |
 | Double-buffered YUV textures   | 720x480 + 2x360x240 / 1,012.5 KiB             |
 
 The ELF footprint excludes the two XFB framebuffers and libogc/runtime dynamic
@@ -240,6 +259,12 @@ slowing the media clock. The square-fill fast path keeps player UI state
 rerenders near 0.275 seconds. Two Dolphin window captures taken a second apart
 while paused were byte-identical.
 
+The same smoke run decoded MP2 continuously into AESND with zero buffer
+underruns. Its sample counter was unchanged across the five-second pause and
+resumed from the exact logged count. Three consecutive Dolphin DSP LLE
+recompiler runs completed the full flow without an AX fallback, invalid
+access, or timing failure.
+
 The console spike is intentionally GPL-2.0-or-later so it can directly reuse
 MPlayer CE's proven GameCube work. Native SDK remains Apache-2.0 and the
 bundled FFmpeg subset is LGPL-2.1-or-later; their notices and source remain in
@@ -254,8 +279,8 @@ not as the committed GameCube renderer yet.
 
 Next Dolphin milestones:
 
-1. decode an MPEG-2/MP2 program stream, add audio output, and keep A/V clocks
-   stable under pause/resume;
+1. make decoded audio the A/V master clock, then replace the two elementary
+   test streams with MPEG-2/MP2 program-stream demux;
 2. add a minimal HTTP client and feed a directly playable URL;
 3. connect pairing/library data to a Multiplex gateway;
 4. decide whether to repair raylib/OpenGX or extract a smaller portable

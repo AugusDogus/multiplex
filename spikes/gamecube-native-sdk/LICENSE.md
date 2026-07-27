@@ -4,10 +4,11 @@ The console runtime in this directory is licensed under the GNU General
 Public License, version 2 or (at your option) any later version
 (`GPL-2.0-or-later`).
 
-This choice is intentional: the GX YUV presentation path adapts MPlayer CE
-code, and the resulting statically linked DOL can directly benefit from
-MPlayer CE's GameCube work. The complete GPL version 2 text is available in
-the pinned MPlayer CE checkout at `.mplayer-ce-libogc2/mplayer/LICENSE` and at
+This choice is intentional: the GX YUV presentation and AESND streaming paths
+adapt MPlayer CE code, and the resulting statically linked DOL can directly
+benefit from MPlayer CE's GameCube work. The complete GPL version 2 text is
+available in the pinned MPlayer CE checkout at
+`.mplayer-ce-libogc2/mplayer/LICENSE` and at
 <https://www.gnu.org/licenses/old-licenses/gpl-2.0.html>.
 
 Third-party components retain their own licenses:

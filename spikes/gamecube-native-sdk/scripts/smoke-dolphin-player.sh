@@ -91,6 +91,7 @@ press() {
 }
 
 wait_for_new "signature=fa6601eb" 0 120
+wait_for_new "audio=ffmpeg-mplayer-ce codec=mp2 output=aesnd" 0 120
 exec 3>"$pipe"
 pipe_open=1
 sleep 0.5
@@ -113,9 +114,11 @@ wait_for_new "signature=c3a0002e" "$details_focus_count" 80
 
 player_count=$(line_count "signature=f3bd7219")
 playing_count=$(line_count "playback=playing")
+audio_playing_count=$(line_count "audio=playing")
 press A
 wait_for_new "signature=f3bd7219" "$player_count" 120
 wait_for_new "playback=playing" "$playing_count" 80
+wait_for_new "audio=playing" "$audio_playing_count" 80
 
 decoder_count=$(line_count "decoder=60 frames/")
 wait_for_new "decoder=60 frames/" "$decoder_count" 120
@@ -133,9 +136,11 @@ if [ "$(line_count "decoder=60 frames/")" -ne "$decoder_count" ]; then
 fi
 
 playing_count=$(line_count "playback=playing")
+audio_playing_count=$(line_count "audio=playing")
 presentation_count=$(line_count "presentation=120 frames/1985316us (60.4 fps)")
 press A
 wait_for_new "playback=playing" "$playing_count" 80
+wait_for_new "audio=playing" "$audio_playing_count" 80
 wait_for_new "decoder=60 frames/" "$decoder_count" 140
 wait_for_new "presentation=120 frames/1985316us (60.4 fps)" \
   "$presentation_count" 100
@@ -152,5 +157,26 @@ if [ -z "$decoder_fps_tenths" ] ||
   exit 1
 fi
 
+paused_audio_samples=$(
+  rg 'audio=paused samples=' "$log" |
+    tail -1 |
+    sed -n 's/.*samples=\([0-9][0-9]*\).*/\1/p'
+)
+resumed_audio_samples=$(
+  rg 'audio=playing samples=' "$log" |
+    tail -1 |
+    sed -n 's/.*samples=\([0-9][0-9]*\).*/\1/p'
+)
+if [ -z "$paused_audio_samples" ] ||
+  [ "$paused_audio_samples" != "$resumed_audio_samples" ]; then
+  echo "AESND audio advanced while paused: paused=${paused_audio_samples:-missing} resumed=${resumed_audio_samples:-missing}." >&2
+  exit 1
+fi
+if rg -q 'underruns=[1-9][0-9]*' "$log"; then
+  echo "AESND audio buffer underrun detected." >&2
+  rg 'audio.*underruns=' "$log" >&2
+  exit 1
+fi
+
 sh "$script_dir/check-dolphin-log.sh"
-echo "Dolphin player smoke passed: navigation, clocked 720x480 MPEG-2 decode, 60 fps presentation, pause/resume, and clean memory log."
+echo "Dolphin player smoke passed: navigation, clocked 720x480 MPEG-2/MP2 playback, 60 fps presentation, pause/resume, and clean memory log."
