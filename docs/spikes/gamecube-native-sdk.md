@@ -159,9 +159,21 @@ The Native reference path now renders exactly once per state change; the
 former three-pass convergence loop produced identical signatures and only
 tripled startup latency. In the observed Dolphin run, the 11-command pairing
 view retained signature `fa6601eb` and rendered in about 0.55 seconds. The
-24-command home view takes about 7.08 seconds for a full repaint. Focus-only
-changes use Native SDK's render-state dirty bounds and rendered in about
-0.225 and 0.191 seconds—roughly a 97% reduction from the full home raster.
+24-command home view takes about 7.08 seconds for its first full repaint.
+Focus-only changes use Native SDK's render-state dirty bounds and rendered in
+about 0.225 and 0.191 seconds—roughly a 97% reduction from the cold home
+raster.
+
+The renderer also attaches Native SDK's exact `ReferenceRenderMemo` through a
+GameCube allocator with a 4 MiB hard ceiling. The allocator uses ordinary
+`malloc`, aligns returned views without `memalign`, and accounts every live
+memo byte. In the exercised pairing → home → details flow, three expensive
+commands populated 1,893 KiB for home and the combined cache peaked at
+4,093 KiB. A subsequent full home state change hit all three entries and
+rendered in 0.638 seconds; revisiting details likewise hit three entries and
+rendered in 0.524 seconds instead of 8.02 seconds. Repeated signatures stayed
+identical (`3bd78327` for the measured home state and `61c89beb` for details).
+
 RGBA-to-tiled-GX conversion remains about 10.3 ms per changed frame. Idle
 frames do not rerender; in NTSC 480p the guest measured 120 presentations in
 1,985,316 microseconds, or 60.4 progressive frames per second.
@@ -174,10 +186,9 @@ not as the committed GameCube renderer yet.
 
 Before media integration:
 
-1. attach a bounded `ReferenceRenderMemo` (or equivalent retained-layer
-   cache) so full home-state changes do not rerasterize stable expensive
-   layers;
-2. verify the scripted controller flow and 512 KiB stack margin on hardware;
+1. reduce or prewarm the 7–8 second cold render when a screen first appears;
+2. verify the scripted controller flow, 4 MiB memo ceiling, and 512 KiB stack
+   margin on hardware;
 3. profile the same build on hardware and measure Arena1/Arena2 peaks;
 4. decide whether to repair raylib/OpenGX or extract a smaller portable
    framebuffer/presenter interface;

@@ -19,6 +19,7 @@ const ui_arena_capacity = 256 * 1024;
 const reference_width: usize = 640;
 const reference_height: usize = 480;
 const reference_pixel_bytes: usize = reference_width * reference_height * 4;
+const reference_memo_budget_bytes: usize = 4 * 1024 * 1024;
 var ui_arena: [ui_arena_capacity]u8 = undefined;
 var layout_nodes: [256]canvas.WidgetLayoutNode = undefined;
 var display_commands: [512]canvas.CanvasCommand = undefined;
@@ -32,8 +33,98 @@ var reference_render_stage: u32 = 0;
 var reference_full_repaint = true;
 var previous_render_state: canvas.WidgetRenderState = .{};
 var previous_render_state_valid = false;
+var reference_memo_allocator: BoundedMemoAllocator = .{};
+var reference_render_memo: canvas.ReferenceRenderMemo = undefined;
+var reference_render_memo_initialized = false;
 
 extern fn multiplex_native_profile_mark(stage: u32) callconv(.c) void;
+extern fn multiplex_native_cache_alloc(len: u32, alignment: u32) callconv(.c) ?[*]u8;
+extern fn multiplex_native_cache_free(memory: [*]u8) callconv(.c) void;
+
+const BoundedMemoAllocator = struct {
+    bytes_in_use: usize = 0,
+    peak_bytes: usize = 0,
+
+    const vtable: std.mem.Allocator.VTable = .{
+        .alloc = alloc,
+        .resize = resize,
+        .remap = remap,
+        .free = free,
+    };
+
+    fn allocator(self: *BoundedMemoAllocator) std.mem.Allocator {
+        return .{ .ptr = self, .vtable = &vtable };
+    }
+
+    fn alloc(
+        context: *anyopaque,
+        len: usize,
+        alignment: std.mem.Alignment,
+        return_address: usize,
+    ) ?[*]u8 {
+        _ = return_address;
+        const self: *BoundedMemoAllocator = @ptrCast(@alignCast(context));
+        if (len == 0 or len > reference_memo_budget_bytes -| self.bytes_in_use) return null;
+        const memory = multiplex_native_cache_alloc(
+            @intCast(len),
+            @intCast(alignment.toByteUnits()),
+        ) orelse return null;
+        self.bytes_in_use += len;
+        self.peak_bytes = @max(self.peak_bytes, self.bytes_in_use);
+        return memory;
+    }
+
+    fn resize(
+        context: *anyopaque,
+        memory: []u8,
+        alignment: std.mem.Alignment,
+        new_len: usize,
+        return_address: usize,
+    ) bool {
+        _ = context;
+        _ = memory;
+        _ = alignment;
+        _ = new_len;
+        _ = return_address;
+        return false;
+    }
+
+    fn remap(
+        context: *anyopaque,
+        memory: []u8,
+        alignment: std.mem.Alignment,
+        new_len: usize,
+        return_address: usize,
+    ) ?[*]u8 {
+        _ = context;
+        _ = memory;
+        _ = alignment;
+        _ = new_len;
+        _ = return_address;
+        return null;
+    }
+
+    fn free(
+        context: *anyopaque,
+        memory: []u8,
+        alignment: std.mem.Alignment,
+        return_address: usize,
+    ) void {
+        _ = alignment;
+        _ = return_address;
+        const self: *BoundedMemoAllocator = @ptrCast(@alignCast(context));
+        self.bytes_in_use -|= memory.len;
+        multiplex_native_cache_free(memory.ptr);
+    }
+};
+
+fn referenceRenderMemo() *canvas.ReferenceRenderMemo {
+    if (!reference_render_memo_initialized) {
+        reference_render_memo = canvas.ReferenceRenderMemo.init(reference_memo_allocator.allocator());
+        reference_render_memo_initialized = true;
+    }
+    return &reference_render_memo;
+}
 
 pub const GxCommand = extern struct {
     kind: u32 = 0,
@@ -330,6 +421,22 @@ export fn multiplex_native_reference_render_stage() callconv(.c) u32 {
     return reference_render_stage;
 }
 
+export fn multiplex_native_reference_memo_hits() callconv(.c) u32 {
+    return if (reference_render_memo_initialized) @truncate(reference_render_memo.hits) else 0;
+}
+
+export fn multiplex_native_reference_memo_misses() callconv(.c) u32 {
+    return if (reference_render_memo_initialized) @truncate(reference_render_memo.misses) else 0;
+}
+
+export fn multiplex_native_reference_memo_bytes() callconv(.c) u32 {
+    return @intCast(reference_memo_allocator.bytes_in_use);
+}
+
+export fn multiplex_native_reference_memo_peak_bytes() callconv(.c) u32 {
+    return @intCast(reference_memo_allocator.peak_bytes);
+}
+
 fn renderReference(
     model: *const core.Model,
     pixels_ptr: [*]u8,
@@ -403,7 +510,7 @@ fn renderReference(
 
     const pixels = pixels_ptr[0..reference_pixel_bytes];
     const scratch = scratch_ptr[0..reference_pixel_bytes];
-    const surface = canvas.ReferenceRenderSurface.initWithScratch(
+    const surface = (canvas.ReferenceRenderSurface.initWithScratch(
         reference_width,
         reference_height,
         pixels,
@@ -411,7 +518,7 @@ fn renderReference(
     ) catch {
         reference_render_stage = 0x107;
         return 0;
-    };
+    }).withRenderMemo(referenceRenderMemo());
     reference_render_stage = 6;
     multiplex_native_profile_mark(reference_render_stage);
     const full_repaint = reference_full_repaint or !previous_render_state_valid;

@@ -28,6 +28,8 @@ typedef struct {
   uint32_t commands;
   uint32_t passes;
   uint32_t signature;
+  uint32_t memo_hits;
+  uint32_t memo_misses;
 } FrameProfile;
 
 static GXRModeObj *video_mode;
@@ -52,6 +54,34 @@ static uint32_t profile_stage_us[7];
 
 static uint32_t elapsed_us(uint32_t started) {
   return (uint32_t)ticks_to_microsecs((uint32_t)(gettick() - started));
+}
+
+void *multiplex_native_cache_alloc(uint32_t len, uint32_t alignment) {
+  if (len == 0 || alignment == 0 || (alignment & (alignment - 1u)) != 0) {
+    return NULL;
+  }
+  if (alignment < sizeof(void *)) {
+    alignment = sizeof(void *);
+  }
+  const uint32_t overhead = alignment - 1u + sizeof(void *);
+  if (len > UINT32_MAX - overhead) {
+    return NULL;
+  }
+  uint8_t *allocation = malloc(len + overhead);
+  if (allocation == NULL) {
+    return NULL;
+  }
+  const uintptr_t aligned =
+      ((uintptr_t)allocation + sizeof(void *) + alignment - 1u) &
+      ~(uintptr_t)(alignment - 1u);
+  ((void **)aligned)[-1] = allocation;
+  return (void *)aligned;
+}
+
+void multiplex_native_cache_free(void *memory) {
+  if (memory != NULL) {
+    free(((void **)memory)[-1]);
+  }
 }
 
 void multiplex_native_profile_mark(uint32_t stage) {
@@ -153,6 +183,9 @@ static void convert_reference_to_rgba8_tiles(void) {
 
 static bool refresh_reference_frame(bool initialize) {
   const uint32_t render_started = gettick();
+  const uint32_t memo_hits_before = multiplex_native_reference_memo_hits();
+  const uint32_t memo_misses_before =
+      multiplex_native_reference_memo_misses();
   memset(profile_stage_us, 0, sizeof(profile_stage_us));
   profile_stage_current = 0;
 
@@ -179,6 +212,10 @@ static bool refresh_reference_frame(bool initialize) {
   profile.passes = 1;
   profile.signature = hash_bytes(reference_pixels, reference_bytes);
   profile.render_us = elapsed_us(render_started);
+  profile.memo_hits =
+      multiplex_native_reference_memo_hits() - memo_hits_before;
+  profile.memo_misses =
+      multiplex_native_reference_memo_misses() - memo_misses_before;
 
   const uint32_t upload_started = gettick();
   convert_reference_to_rgba8_tiles();
@@ -186,11 +223,14 @@ static bool refresh_reference_frame(bool initialize) {
   native_frame_dirty = false;
   SYS_Report(
       "REFERENCE GX: commands=%u passes=%u signature=%08x render=%uus "
-      "conversion=%uus stages=%u/%u/%u/%u/%u/%uus\n",
+      "conversion=%uus stages=%u/%u/%u/%u/%u/%uus memo=%u/%u "
+      "cache=%u/%uKiB\n",
       profile.commands, profile.passes, profile.signature, profile.render_us,
       profile.upload_us, profile_stage_us[1], profile_stage_us[2],
       profile_stage_us[3], profile_stage_us[4], profile_stage_us[5],
-      profile_stage_us[6]);
+      profile_stage_us[6], profile.memo_hits, profile.memo_misses,
+      multiplex_native_reference_memo_bytes() / 1024u,
+      multiplex_native_reference_memo_peak_bytes() / 1024u);
   return true;
 }
 

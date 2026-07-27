@@ -63,10 +63,14 @@ The reference render now uses one pass rather than rendering the same pixels
 three times. The pairing frame costs about 0.55 seconds in Dolphin and
 RGBA-to-GX conversion costs about 10 ms. Focus-only home-screen changes use
 Native SDK dirty bounds and cost about 0.19–0.23 seconds instead of the
-7.08-second full home raster. The retained frame still presents at a measured
-60.4 progressive frames per second. This remains a fidelity baseline rather
-than a production renderer; the next renderer gate is caching the expensive
-stable home layers without changing the reference pixels.
+7.08-second full home raster. A bounded reference-render memo retains three
+expensive stable layers: warmed full home repaints cost about 0.64 seconds and
+warmed details repaints about 0.52 seconds, with byte-identical signatures.
+The memo has a 4 MiB hard limit and peaked at 4,093 KiB in the home/details
+flow. The retained frame still presents at a measured 60.4 progressive frames
+per second. This remains a fidelity baseline rather than a production
+renderer; the next renderer gate is reducing the 7–8 second cold render the
+first time a screen appears.
 
 Large CPU-side buffers deliberately use ordinary `malloc`. During the raylib
 experiment, large `memalign` calls returned corrupt pointers and produced
