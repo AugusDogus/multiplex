@@ -70,9 +70,10 @@ selects the matching progressive mode. This avoids the alternating-field
 vertical jitter of 480i; composite-only hardware keeps the preferred
 interlaced fallback.
 
-## Native SDK portability patch
+## Native SDK patches
 
-The bootstrap applies one narrow patch to its ignored, pinned Native SDK clone:
+The bootstrap applies two narrow patches to its ignored, pinned Native SDK
+clone. The portability patch:
 
 - the text-measure generation counter is non-atomic for a single-threaded
   target;
@@ -80,7 +81,18 @@ The bootstrap applies one narrow patch to its ignored, pinned Native SDK clone:
   single-threaded.
 
 This removes two desktop assumptions without adding GameCube branches to
-Native SDK's renderer.
+Native SDK's renderer. The renderer patch adds platform-neutral,
+byte-preserving fast paths:
+
+- rounded fills evaluate exact signed-distance coverage only along each row's
+  short edge ramps, then blend the full-coverage interior as a span;
+- rounded strokes skip the broad area where both inner and outer coverage are
+  one and their difference is zero;
+- shadows prepare normalized geometry once per command and reuse the exact
+  source-over result across identical destination pixels inside the shape.
+
+The general algorithms stay in Native SDK's reference renderer; the GameCube
+adapter contains no visual approximation or console-specific primitive.
 
 ## Renderer comparison
 
@@ -143,9 +155,9 @@ The current build is approximately:
 
 | Property                       | Current result                                |
 | ------------------------------ | --------------------------------------------- |
-| Reference DOL                  | 888 KiB                                       |
+| Reference DOL                  | 894 KiB                                       |
 | ELF target                     | 32-bit, big-endian PowerPC, statically linked |
-| ELF text / data / BSS          | 544 KiB / 344 KiB / 5.22 MiB                  |
+| ELF text / data / BSS          | 548 KiB / 346 KiB / 5.22 MiB                  |
 | TypeScript runtime reservation | 128 KiB frame + two 256 KiB model heaps       |
 | App/render thread stack        | 512 KiB, dynamically allocated                |
 | Pairing view                   | 10 widgets, 1 handler                         |
@@ -157,22 +169,24 @@ to approve alongside artwork, networking, audio, and video decode.
 
 The Native reference path now renders exactly once per state change; the
 former three-pass convergence loop produced identical signatures and only
-tripled startup latency. In the observed Dolphin run, the 11-command pairing
-view retained signature `fa6601eb` and rendered in about 0.55 seconds. The
-24-command home view takes about 7.08 seconds for its first full repaint.
-Focus-only changes use Native SDK's render-state dirty bounds and rendered in
-about 0.225 and 0.191 seconds—roughly a 97% reduction from the cold home
-raster.
+tripled startup latency. The three remaining cold hotspots were the large
+panel's shadow, rounded fill, and rounded stroke. Exact scanline/solid-blend
+fast paths reduced the 11-command pairing view from about 0.55 to 0.326
+seconds, the 24-command cold home view from 7.13 to 0.490 seconds, and cold
+details from 8.02 to 0.453 seconds. This is a 93–94% reduction for the two
+large screens. The known pairing and initial-home signatures remained
+`fa6601eb` and `4dcbccff`; Native SDK's host tests also pass. Focus-only home
+changes now render in about 0.068 seconds.
 
 The renderer also attaches Native SDK's exact `ReferenceRenderMemo` through a
 GameCube allocator with a 4 MiB hard ceiling. The allocator uses ordinary
 `malloc`, aligns returned views without `memalign`, and accounts every live
 memo byte. In the exercised pairing → home → details flow, three expensive
 commands populated 1,893 KiB for home and the combined cache peaked at
-4,093 KiB. A subsequent full home state change hit all three entries and
-rendered in 0.638 seconds; revisiting details likewise hit three entries and
-rendered in 0.524 seconds instead of 8.02 seconds. Repeated signatures stayed
-identical (`3bd78327` for the measured home state and `61c89beb` for details).
+4,093 KiB. With the fast paths, a subsequent full home repaint hit all three
+entries and rendered in 0.373 seconds; revisiting details likewise hit three
+entries and rendered in 0.328 seconds. Repeated command-state signatures stay
+stable across cold and warm renders.
 
 RGBA-to-tiled-GX conversion remains about 10.3 ms per changed frame. Idle
 frames do not rerender; in NTSC 480p the guest measured 120 presentations in
@@ -186,13 +200,12 @@ not as the committed GameCube renderer yet.
 
 Before media integration:
 
-1. reduce or prewarm the 7–8 second cold render when a screen first appears;
-2. verify the scripted controller flow, 4 MiB memo ceiling, and 512 KiB stack
+1. verify the scripted controller flow, 4 MiB memo ceiling, and 512 KiB stack
    margin on hardware;
-3. profile the same build on hardware and measure Arena1/Arena2 peaks;
-4. decide whether to repair raylib/OpenGX or extract a smaller portable
+2. profile the same build on hardware and measure Arena1/Arena2 peaks;
+3. decide whether to repair raylib/OpenGX or extract a smaller portable
    framebuffer/presenter interface;
-5. connect a GameCube media surface to the known-good MPlayer CE path, ideally
+4. connect a GameCube media surface to the known-good MPlayer CE path, ideally
    with planar YUV or a GX texture rather than RGBA copies.
 
 The Wii fast-follow should share the TypeScript, markup, Native SDK adapter,

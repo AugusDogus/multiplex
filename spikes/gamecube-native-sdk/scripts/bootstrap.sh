@@ -27,15 +27,21 @@ if [ "$actual_commit" != "$NATIVE_SDK_COMMIT" ]; then
   exit 1
 fi
 
-canvas_patch="$spike_dir/patches/native-sdk-single-threaded-canvas.patch"
-if git -C "$sdk_dir" apply --unidiff-zero --reverse --check "$canvas_patch" >/dev/null 2>&1; then
-  :
-elif git -C "$sdk_dir" apply --unidiff-zero --check "$canvas_patch"; then
-  git -C "$sdk_dir" apply --unidiff-zero "$canvas_patch"
-else
-  echo "Native SDK GameCube canvas patch does not apply cleanly." >&2
+apply_sdk_patch() {
+  patch_file=$1
+  if git -C "$sdk_dir" apply --unidiff-zero --reverse --check "$patch_file" >/dev/null 2>&1; then
+    return
+  fi
+  if git -C "$sdk_dir" apply --unidiff-zero --check "$patch_file"; then
+    git -C "$sdk_dir" apply --unidiff-zero "$patch_file"
+    return
+  fi
+  echo "Native SDK patch does not apply cleanly: $patch_file" >&2
   exit 1
-fi
+}
+
+apply_sdk_patch "$spike_dir/patches/native-sdk-single-threaded-canvas.patch"
+apply_sdk_patch "$spike_dir/patches/native-sdk-reference-render-fast-paths.patch"
 
 actual_zig=$(zig version)
 if [ "$actual_zig" != "$ZIG_VERSION" ]; then

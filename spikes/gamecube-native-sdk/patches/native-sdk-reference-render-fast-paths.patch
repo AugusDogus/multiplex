@@ -1,0 +1,382 @@
+diff --git a/src/primitives/canvas/reference.zig b/src/primitives/canvas/reference.zig
+index bbf819b5..8c9d3f69 100644
+--- a/src/primitives/canvas/reference.zig
++++ b/src/primitives/canvas/reference.zig
+@@ -342,18 +342,41 @@ pub const ReferenceRenderSurface = struct {
+         // test (bit-identical on integer bounds); rounded fills take
+         // the anti-aliased signed-distance coverage.
+         const binary = referenceRadiusIsZero(radius);
++        const shape = ReferenceRoundedRect.init(rect, radius);
+         var y = pixel_rect.y;
+         while (y < pixel_rect.y + pixel_rect.height) : (y += 1) {
++            const x_end = pixel_rect.x + pixel_rect.width;
+             var x = pixel_rect.x;
+-            while (x < pixel_rect.x + pixel_rect.width) : (x += 1) {
+-                const point = referencePixelCenter(x, y);
+-                if (binary) {
++            if (binary) {
++                while (x < x_end) : (x += 1) {
++                    const point = referencePixelCenter(x, y);
+                     if (referencePointInRoundedRect(point, rect, radius)) self.blendPixel(@intCast(x), @intCast(y), referenceSampleFill(value.fill, command.transform, point), command.opacity);
+-                    continue;
+                 }
+-                const coverage = referenceRoundedRectCoverage(point, rect, radius);
++                continue;
++            }
++
++            // A rounded rect's coverage on one scanline is a contiguous
++            // full-coverage span between two short edge ramps. Evaluate
++            // the exact signed-distance field only until each ramp reaches
++            // one, then blend the (usually very wide) interior directly.
++            while (x < x_end) : (x += 1) {
++                const point = referencePixelCenter(x, y);
++                const coverage = shape.coverage(point);
++                if (coverage >= 1) break;
+                 if (coverage > 0) self.blendPixelCoverage(@intCast(x), @intCast(y), referenceSampleFill(value.fill, command.transform, point), coverage, command.opacity, .linear_light);
+             }
++            if (x == x_end) continue;
++
++            var right = x_end;
++            while (right > x) {
++                const candidate = right - 1;
++                const point = referencePixelCenter(candidate, y);
++                const coverage = shape.coverage(point);
++                if (coverage >= 1) break;
++                if (coverage > 0) self.blendPixelCoverage(@intCast(candidate), @intCast(y), referenceSampleFill(value.fill, command.transform, point), coverage, command.opacity, .linear_light);
++                right = candidate;
++            }
++            self.blendFullCoverageSpan(y, x, right, value.fill, command.transform, command.opacity);
+         }
+         self.memoStore(probe, pixel_rect);
+     }
+@@ -383,22 +406,48 @@ pub const ReferenceRenderSurface = struct {
+         // (the inner edge stays in the field even when the inset
+         // radius bottoms out at a square corner).
+         const binary = referenceRadiusIsZero(radius);
++        const outer_shape = ReferenceRoundedRect.init(outer, outer_radius);
++        const inner_shape = ReferenceRoundedRect.init(inner, inner_radius);
+         var y = pixel_rect.y;
+         while (y < pixel_rect.y + pixel_rect.height) : (y += 1) {
++            const x_end = pixel_rect.x + pixel_rect.width;
+             var x = pixel_rect.x;
+-            while (x < pixel_rect.x + pixel_rect.width) : (x += 1) {
+-                const point = referencePixelCenter(x, y);
+-                if (binary) {
++            if (binary) {
++                while (x < x_end) : (x += 1) {
++                    const point = referencePixelCenter(x, y);
+                     if (referencePointInRoundedRect(point, outer, outer_radius) and !referencePointInRoundedRect(point, inner, inner_radius)) {
+                         self.blendPixel(@intCast(x), @intCast(y), referenceSampleFill(value.stroke.fill, command.transform, point), command.opacity);
+                     }
+-                    continue;
+                 }
+-                const coverage = std.math.clamp(referenceRoundedRectCoverage(point, outer, outer_radius) - referenceRoundedRectCoverage(point, inner, inner_radius), 0, 1);
++                continue;
++            }
++
++            // Once the inner shape reaches full coverage, outer-inner is
++            // exactly zero until its opposite edge. Skip that broad empty
++            // center instead of evaluating both distance fields there.
++            while (x < x_end) : (x += 1) {
++                const point = referencePixelCenter(x, y);
++                const inner_coverage = inner_shape.coverage(point);
++                if (inner_coverage >= 1) break;
++                const coverage = std.math.clamp(outer_shape.coverage(point) - inner_coverage, 0, 1);
+                 if (coverage > 0) {
+                     self.blendPixelCoverage(@intCast(x), @intCast(y), referenceSampleFill(value.stroke.fill, command.transform, point), coverage, command.opacity, .linear_light);
+                 }
+             }
++            if (x == x_end) continue;
++
++            var right = x_end;
++            while (right > x) {
++                const candidate = right - 1;
++                const point = referencePixelCenter(candidate, y);
++                const inner_coverage = inner_shape.coverage(point);
++                if (inner_coverage >= 1) break;
++                const coverage = std.math.clamp(outer_shape.coverage(point) - inner_coverage, 0, 1);
++                if (coverage > 0) {
++                    self.blendPixelCoverage(@intCast(candidate), @intCast(y), referenceSampleFill(value.stroke.fill, command.transform, point), coverage, command.opacity, .linear_light);
++                }
++                right = candidate;
++            }
+         }
+         self.memoStore(probe, pixel_rect);
+     }
+@@ -655,15 +704,41 @@ pub const ReferenceRenderSurface = struct {
+         const probe = self.memoProbe(pixel_rect, 0, referenceMemoParamsHash(3, command, value));
+         if (self.memoReplay(probe, pixel_rect)) return;
+ 
++        const shape = ReferenceRoundedRect.init(shadow_rect, shadow_radius);
++        var inside_blend_cache = ReferenceSolidBlendCache{};
+         var y = pixel_rect.y;
+         while (y < pixel_rect.y + pixel_rect.height) : (y += 1) {
++            const x_end = pixel_rect.x + pixel_rect.width;
+             var x = pixel_rect.x;
+-            while (x < pixel_rect.x + pixel_rect.width) : (x += 1) {
++            while (x < x_end) : (x += 1) {
+                 const point = referencePixelCenter(x, y);
+-                const distance = referenceDistanceToRoundedRect(point, shadow_rect, shadow_radius);
++                if (shape.contains(point)) break;
++                const distance = shape.distance(point);
+                 const alpha = referenceShadowFalloff(distance, blur_radius);
+                 if (alpha > 0) self.blendPixel(@intCast(x), @intCast(y), referenceScaleColorAlpha(value.color, alpha), command.opacity);
+             }
++            if (x == x_end) continue;
++
++            var right = x_end;
++            while (right > x) {
++                const candidate = right - 1;
++                const point = referencePixelCenter(candidate, y);
++                if (shape.contains(point)) break;
++                const distance = shape.distance(point);
++                const alpha = referenceShadowFalloff(distance, blur_radius);
++                if (alpha > 0) self.blendPixel(@intCast(candidate), @intCast(y), referenceScaleColorAlpha(value.color, alpha), command.opacity);
++                right = candidate;
++            }
++
++            // The whole interval inside the rounded rect has distance zero,
++            // hence one constant source color. Reuse the exact blend result
++            // while the destination bytes repeat (the common cleared-panel
++            // case) instead of rerunning floating-point source-over per pixel.
++            const inside_color = referenceScaleColorAlpha(value.color, referenceShadowFalloff(0, blur_radius));
++            var inside_x = x;
++            while (inside_x < right) : (inside_x += 1) {
++                self.blendPixelCached(inside_x, y, inside_color, command.opacity, &inside_blend_cache);
++            }
+         }
+ 
+         self.memoStore(probe, pixel_rect);
+@@ -947,11 +1022,68 @@ pub const ReferenceRenderSurface = struct {
+         self.pixels[index + 3] = out[3];
+     }
+ 
++    fn blendFullCoverageSpan(self: ReferenceRenderSurface, y: usize, x_start: usize, x_end: usize, fill: Fill, transform: Affine, opacity: f32) void {
++        if (x_start >= x_end) return;
++        switch (fill) {
++            .color => |color| {
++                const source_alpha = std.math.clamp(color.a, 0, 1) * std.math.clamp(opacity, 0, 1);
++                if (source_alpha >= 1) {
++                    const pixel = colorToRgba8(color);
++                    var x = x_start;
++                    while (x < x_end) : (x += 1) {
++                        const index = (y * self.width + x) * 4;
++                        self.pixels[index + 0] = pixel[0];
++                        self.pixels[index + 1] = pixel[1];
++                        self.pixels[index + 2] = pixel[2];
++                        self.pixels[index + 3] = pixel[3];
++                    }
++                    return;
++                }
++                var x = x_start;
++                while (x < x_end) : (x += 1) self.blendPixel(x, y, color, opacity);
++            },
++            .linear_gradient => {
++                var x = x_start;
++                while (x < x_end) : (x += 1) {
++                    const point = referencePixelCenter(x, y);
++                    self.blendPixel(x, y, referenceSampleFill(fill, transform, point), opacity);
++                }
++            },
++        }
++    }
++
++    fn blendPixelCached(self: ReferenceRenderSurface, x: usize, y: usize, color: Color, opacity: f32, cache: *ReferenceSolidBlendCache) void {
++        const index = (y * self.width + x) * 4;
++        const dst = [4]u8{
++            self.pixels[index + 0],
++            self.pixels[index + 1],
++            self.pixels[index + 2],
++            self.pixels[index + 3],
++        };
++        const hit = cache.valid and
++            cache.dst[0] == dst[0] and cache.dst[1] == dst[1] and
++            cache.dst[2] == dst[2] and cache.dst[3] == dst[3];
++        const out = if (hit) cache.out else blendRgba8(dst, color, opacity);
++        if (!hit) {
++            cache.* = .{ .valid = true, .dst = dst, .out = out };
++        }
++        self.pixels[index + 0] = out[0];
++        self.pixels[index + 1] = out[1];
++        self.pixels[index + 2] = out[2];
++        self.pixels[index + 3] = out[3];
++    }
++
+     fn findImage(self: ReferenceRenderSurface, id: ImageId) ?ReferenceImage {
+         return findReferenceImage(self.images, id);
+     }
+ };
+ 
++const ReferenceSolidBlendCache = struct {
++    valid: bool = false,
++    dst: [4]u8 = .{ 0, 0, 0, 0 },
++    out: [4]u8 = .{ 0, 0, 0, 0 },
++};
++
+ /// Which space a shape's fractional edge coverage blends in.
+ ///
+ /// GEOMETRY — rounded rects, filled/stroked paths, icons, chart marks —
+@@ -1124,7 +1256,6 @@ fn referenceScaleRect(rect: geometry.RectF, scale: f32) geometry.RectF {
+     return geometry.RectF.init(rect.x * scale, rect.y * scale, rect.width * scale, rect.height * scale);
+ }
+ 
+-
+ fn referencePixelCenter(x: usize, y: usize) geometry.PointF {
+     return geometry.PointF.init(@as(f32, @floatFromInt(x)) + 0.5, @as(f32, @floatFromInt(y)) + 0.5);
+ }
+@@ -1247,33 +1378,7 @@ fn referenceSpreadRadius(radius: Radius, spread: f32) Radius {
+ }
+ 
+ fn referenceDistanceToRoundedRect(point: geometry.PointF, rect: geometry.RectF, radius: Radius) f32 {
+-    if (referencePointInRoundedRect(point, rect, radius)) return 0;
+-
+-    const normalized = rect.normalized();
+-    if (normalized.isEmpty()) return 0;
+-
+-    const max_radius = @min(normalized.width, normalized.height) * 0.5;
+-    const top_left = std.math.clamp(nonNegative(radius.top_left), 0, max_radius);
+-    const top_right = std.math.clamp(nonNegative(radius.top_right), 0, max_radius);
+-    const bottom_right = std.math.clamp(nonNegative(radius.bottom_right), 0, max_radius);
+-    const bottom_left = std.math.clamp(nonNegative(radius.bottom_left), 0, max_radius);
+-
+-    if (point.x < normalized.x + top_left and point.y < normalized.y + top_left) {
+-        return referenceDistanceToCircle(point, geometry.PointF.init(normalized.x + top_left, normalized.y + top_left), top_left);
+-    }
+-    if (point.x >= normalized.maxX() - top_right and point.y < normalized.y + top_right) {
+-        return referenceDistanceToCircle(point, geometry.PointF.init(normalized.maxX() - top_right, normalized.y + top_right), top_right);
+-    }
+-    if (point.x >= normalized.maxX() - bottom_right and point.y >= normalized.maxY() - bottom_right) {
+-        return referenceDistanceToCircle(point, geometry.PointF.init(normalized.maxX() - bottom_right, normalized.maxY() - bottom_right), bottom_right);
+-    }
+-    if (point.x < normalized.x + bottom_left and point.y >= normalized.maxY() - bottom_left) {
+-        return referenceDistanceToCircle(point, geometry.PointF.init(normalized.x + bottom_left, normalized.maxY() - bottom_left), bottom_left);
+-    }
+-
+-    const dx = @max(@max(normalized.x - point.x, 0), point.x - normalized.maxX());
+-    const dy = @max(@max(normalized.y - point.y, 0), point.y - normalized.maxY());
+-    return @sqrt(dx * dx + dy * dy);
++    return ReferenceRoundedRect.init(rect, radius).distance(point);
+ }
+ 
+ fn referenceDistanceToCircle(point: geometry.PointF, center: geometry.PointF, radius: f32) f32 {
+@@ -1550,35 +1655,93 @@ fn referenceRadiusIsZero(radius: Radius) bool {
+ /// short circuits keep the square root off interior and far-apron
+ /// pixels; the exact form runs only near the boundary band.
+ fn referenceRoundedRectCoverage(point: geometry.PointF, rect: geometry.RectF, radius: Radius) f32 {
+-    const normalized = rect.normalized();
+-    if (normalized.isEmpty()) return 0;
+-    const max_radius = @min(normalized.width, normalized.height) * 0.5;
+-
+-    const half_width = normalized.width * 0.5;
+-    const half_height = normalized.height * 0.5;
+-    const dx = point.x - (normalized.x + half_width);
+-    const dy = point.y - (normalized.y + half_height);
+-    const corner_radius = std.math.clamp(nonNegative(if (dx < 0)
+-        (if (dy < 0) radius.top_left else radius.bottom_left)
+-    else
+-        (if (dy < 0) radius.top_right else radius.bottom_right)), 0, max_radius);
+-
+-    const qx = @abs(dx) - half_width + corner_radius;
+-    const qy = @abs(dy) - half_height + corner_radius;
+-    // Fully inside: with both components non-positive the distance is
+-    // `max(qx, qy) - r`, so anything at least half a pixel inside the
+-    // radius-inset cross is full coverage.
+-    if (@max(qx, qy) <= -0.5) return 1;
+-    // Fully outside: the distance is at least `qx - r` (and `qy - r`),
+-    // so anything at least half a pixel beyond the bounding box is
+-    // zero coverage.
+-    if (qx - corner_radius >= 0.5 or qy - corner_radius >= 0.5) return 0;
+-    const mx = @max(qx, 0);
+-    const my = @max(qy, 0);
+-    const distance = @sqrt(mx * mx + my * my) + @min(@max(qx, qy), 0) - corner_radius;
+-    return std.math.clamp(0.5 - distance, 0, 1);
++    return ReferenceRoundedRect.init(rect, radius).coverage(point);
+ }
+ 
++/// Axis-aligned rounded-rect geometry with normalization and clamped
++/// per-corner radii prepared once per command instead of once per pixel.
++const ReferenceRoundedRect = struct {
++    rect: geometry.RectF,
++    half_width: f32,
++    half_height: f32,
++    top_left: f32,
++    top_right: f32,
++    bottom_right: f32,
++    bottom_left: f32,
++
++    fn init(rect: geometry.RectF, radius: Radius) ReferenceRoundedRect {
++        const normalized = rect.normalized();
++        const max_radius = @min(normalized.width, normalized.height) * 0.5;
++        return .{
++            .rect = normalized,
++            .half_width = normalized.width * 0.5,
++            .half_height = normalized.height * 0.5,
++            .top_left = std.math.clamp(nonNegative(radius.top_left), 0, max_radius),
++            .top_right = std.math.clamp(nonNegative(radius.top_right), 0, max_radius),
++            .bottom_right = std.math.clamp(nonNegative(radius.bottom_right), 0, max_radius),
++            .bottom_left = std.math.clamp(nonNegative(radius.bottom_left), 0, max_radius),
++        };
++    }
++
++    fn cornerRadius(self: ReferenceRoundedRect, dx: f32, dy: f32) f32 {
++        return if (dx < 0)
++            (if (dy < 0) self.top_left else self.bottom_left)
++        else
++            (if (dy < 0) self.top_right else self.bottom_right);
++    }
++
++    fn coverage(self: ReferenceRoundedRect, point: geometry.PointF) f32 {
++        if (self.rect.isEmpty()) return 0;
++        const dx = point.x - (self.rect.x + self.half_width);
++        const dy = point.y - (self.rect.y + self.half_height);
++        const corner_radius = self.cornerRadius(dx, dy);
++        const qx = @abs(dx) - self.half_width + corner_radius;
++        const qy = @abs(dy) - self.half_height + corner_radius;
++        if (@max(qx, qy) <= -0.5) return 1;
++        if (qx - corner_radius >= 0.5 or qy - corner_radius >= 0.5) return 0;
++        const mx = @max(qx, 0);
++        const my = @max(qy, 0);
++        const signed_distance = @sqrt(mx * mx + my * my) + @min(@max(qx, qy), 0) - corner_radius;
++        return std.math.clamp(0.5 - signed_distance, 0, 1);
++    }
++
++    fn contains(self: ReferenceRoundedRect, point: geometry.PointF) bool {
++        if (!self.rect.containsPoint(point)) return false;
++        if (point.x < self.rect.x + self.top_left and point.y < self.rect.y + self.top_left) {
++            return referencePointInCorner(point, geometry.PointF.init(self.rect.x + self.top_left, self.rect.y + self.top_left), self.top_left);
++        }
++        if (point.x >= self.rect.maxX() - self.top_right and point.y < self.rect.y + self.top_right) {
++            return referencePointInCorner(point, geometry.PointF.init(self.rect.maxX() - self.top_right, self.rect.y + self.top_right), self.top_right);
++        }
++        if (point.x >= self.rect.maxX() - self.bottom_right and point.y >= self.rect.maxY() - self.bottom_right) {
++            return referencePointInCorner(point, geometry.PointF.init(self.rect.maxX() - self.bottom_right, self.rect.maxY() - self.bottom_right), self.bottom_right);
++        }
++        if (point.x < self.rect.x + self.bottom_left and point.y >= self.rect.maxY() - self.bottom_left) {
++            return referencePointInCorner(point, geometry.PointF.init(self.rect.x + self.bottom_left, self.rect.maxY() - self.bottom_left), self.bottom_left);
++        }
++        return true;
++    }
++
++    fn distance(self: ReferenceRoundedRect, point: geometry.PointF) f32 {
++        if (self.contains(point) or self.rect.isEmpty()) return 0;
++        if (point.x < self.rect.x + self.top_left and point.y < self.rect.y + self.top_left) {
++            return referenceDistanceToCircle(point, geometry.PointF.init(self.rect.x + self.top_left, self.rect.y + self.top_left), self.top_left);
++        }
++        if (point.x >= self.rect.maxX() - self.top_right and point.y < self.rect.y + self.top_right) {
++            return referenceDistanceToCircle(point, geometry.PointF.init(self.rect.maxX() - self.top_right, self.rect.y + self.top_right), self.top_right);
++        }
++        if (point.x >= self.rect.maxX() - self.bottom_right and point.y >= self.rect.maxY() - self.bottom_right) {
++            return referenceDistanceToCircle(point, geometry.PointF.init(self.rect.maxX() - self.bottom_right, self.rect.maxY() - self.bottom_right), self.bottom_right);
++        }
++        if (point.x < self.rect.x + self.bottom_left and point.y >= self.rect.maxY() - self.bottom_left) {
++            return referenceDistanceToCircle(point, geometry.PointF.init(self.rect.x + self.bottom_left, self.rect.maxY() - self.bottom_left), self.bottom_left);
++        }
++        const dx = @max(@max(self.rect.x - point.x, 0), point.x - self.rect.maxX());
++        const dy = @max(@max(self.rect.y - point.y, 0), point.y - self.rect.maxY());
++        return @sqrt(dx * dx + dy * dy);
++    }
++};
++
+ fn referencePointInCorner(point: geometry.PointF, center: geometry.PointF, radius: f32) bool {
+     if (radius <= 0) return false;
+     const dx = point.x - center.x;

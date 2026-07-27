@@ -50,6 +50,8 @@ The controller profile attaches a standard controller to SI port 1 and is backed
   to an antialiased, GX-tiled I8 atlas
 - `patches/native-sdk-single-threaded-canvas.patch`: the two small portability
   changes applied to the pinned Native SDK checkout
+- `patches/native-sdk-reference-render-fast-paths.patch`: exact-output
+  scanline and solid-blend fast paths for rounded fills, borders, and shadows
 
 ## Current boundary
 
@@ -60,17 +62,19 @@ through double-buffered XFBs. Its pixel-center projection covers every EFB row
 without leaving uninitialized edge pixels.
 
 The reference render now uses one pass rather than rendering the same pixels
-three times. The pairing frame costs about 0.55 seconds in Dolphin and
-RGBA-to-GX conversion costs about 10 ms. Focus-only home-screen changes use
-Native SDK dirty bounds and cost about 0.19–0.23 seconds instead of the
-7.08-second full home raster. A bounded reference-render memo retains three
-expensive stable layers: warmed full home repaints cost about 0.64 seconds and
-warmed details repaints about 0.52 seconds, with byte-identical signatures.
-The memo has a 4 MiB hard limit and peaked at 4,093 KiB in the home/details
-flow. The retained frame still presents at a measured 60.4 progressive frames
-per second. This remains a fidelity baseline rather than a production
-renderer; the next renderer gate is reducing the 7–8 second cold render the
-first time a screen appears.
+three times. Exact-output scanline fast paths avoid walking the empty interior
+of rounded borders, evaluate rounded coverage only at edge ramps, and reuse
+the constant shadow blend across matching destination pixels. In Dolphin this
+reduced pairing from about 0.55 to 0.33 seconds, cold home from 7.13 to 0.49
+seconds, and cold details from 8.02 to 0.45 seconds without changing their
+framebuffer signatures. Focus-only home changes cost about 0.068 seconds.
+A bounded reference-render memo retains three expensive stable layers; warmed
+full home and details repaints measured about 0.37 and 0.33 seconds. The memo
+has a 4 MiB hard limit and peaked at 4,093 KiB in the home/details flow.
+RGBA-to-GX conversion remains about 10 ms and the retained frame presents at a
+measured 60.4 progressive frames per second. This remains a fidelity baseline
+rather than a production renderer; the next performance gate is real-hardware
+profiling under the full memory and media workload.
 
 Large CPU-side buffers deliberately use ordinary `malloc`. During the raylib
 experiment, large `memalign` calls returned corrupt pointers and produced
