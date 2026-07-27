@@ -16,7 +16,7 @@ import {
   type WatchTogetherRoom,
 } from "@multiplex/plex-query";
 import { useWatchTogetherRoomMedia } from "~/components/watch-together/use-watch-together-room-media";
-import { toastManager } from "~/components/ui/toast";
+import { toastManager } from "~/components/ui/toast-manager";
 import {
   isSessionForRoom,
   resolveLobbyLeaveTarget,

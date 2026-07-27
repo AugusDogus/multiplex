@@ -6,7 +6,7 @@ import type {
   WatchTogetherUser,
 } from "@multiplex/plex-query";
 import { formatTime } from "~/components/media-player/utils/playback-time-utils";
-import { toastManager } from "~/components/ui/toast";
+import { toastManager } from "~/components/ui/toast-manager";
 import { getPlexUserName } from "~/components/watch-together/plex-user";
 import { PlexUserAvatar } from "~/components/watch-together/plex-user-avatar";
 

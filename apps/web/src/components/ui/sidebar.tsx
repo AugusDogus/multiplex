@@ -12,6 +12,11 @@ import { Input } from "~/components/ui/input";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Separator } from "~/components/ui/separator";
 import {
+  SidebarContext,
+  type SidebarContextProps,
+  useSidebar,
+} from "~/components/ui/sidebar-context";
+import {
   Sheet,
   SheetDescription,
   SheetHeader,
@@ -49,28 +54,6 @@ const sidebarMenuButtonVariants = cva(
     },
   },
 );
-
-export type SidebarContextProps = {
-  state: "expanded" | "collapsed";
-  open: boolean;
-  setOpen: (open: boolean) => void;
-  openMobile: boolean;
-  setOpenMobile: (open: boolean) => void;
-  isMobile: boolean;
-  toggleSidebar: () => void;
-};
-
-export const SidebarContext: React.Context<SidebarContextProps | null> =
-  React.createContext<SidebarContextProps | null>(null);
-
-export function useSidebar(): SidebarContextProps {
-  const context = React.useContext(SidebarContext);
-  if (!context) {
-    throw new Error("useSidebar must be used within a SidebarProvider.");
-  }
-
-  return context;
-}
 
 export function SidebarProvider({
   defaultOpen = true,

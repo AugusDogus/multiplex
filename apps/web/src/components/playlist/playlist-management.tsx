@@ -7,7 +7,7 @@ import { Loader2 } from "lucide-react";
 import { PlaylistDeleteDialog } from "~/components/playlist/playlist-delete-dialog";
 import { PlaylistItemsSection } from "~/components/playlist/playlist-items-section";
 import { PlaylistManagementHeader } from "~/components/playlist/playlist-management-header";
-import { toastManager } from "~/components/ui/toast";
+import { toastManager } from "~/components/ui/toast-manager";
 import { getLibraryPivotHref } from "~/lib/plex-routes";
 import {
   resolveServerCredentials,

@@ -9,9 +9,6 @@ import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import { ScrollArea } from "~/components/ui/scroll-area";
 
-export const DialogCreateHandle: typeof DialogPrimitive.createHandle =
-  DialogPrimitive.createHandle;
-
 export const Dialog: typeof DialogPrimitive.Root = DialogPrimitive.Root;
 
 export const DialogPortal: typeof DialogPrimitive.Portal =
@@ -237,8 +234,4 @@ export function MediaPlayerDialogContent({
   );
 }
 
-export {
-  DialogPrimitive,
-  DialogBackdrop as DialogOverlay,
-  DialogPopup as DialogContent,
-};
+export { DialogBackdrop as DialogOverlay, DialogPopup as DialogContent };

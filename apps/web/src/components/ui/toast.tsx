@@ -10,7 +10,11 @@ import {
 } from "lucide-react";
 import type React from "react";
 import { cn } from "~/lib/utils";
-import { buttonVariants } from "~/components/ui/button";
+import { buttonVariants } from "~/components/ui/button-variants";
+import {
+  anchoredToastManager,
+  toastManager,
+} from "~/components/ui/toast-manager";
 
 const TOAST_ICONS = {
   error: CircleAlertIcon,
@@ -273,12 +277,6 @@ function AnchoredToasts({
   );
 }
 
-export const toastManager: ReturnType<typeof Toast.createToastManager> =
-  Toast.createToastManager();
-
-export const anchoredToastManager: ReturnType<typeof Toast.createToastManager> =
-  Toast.createToastManager();
-
 export type ToastPosition =
   | "top-left"
   | "top-center"
@@ -322,5 +320,3 @@ export function AnchoredToastProvider({
     </Toast.Provider>
   );
 }
-
-export { Toast as ToastPrimitive };

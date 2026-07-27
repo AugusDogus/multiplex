@@ -14,7 +14,7 @@ import { Copy, Loader2, LogOut, Play, UserPlus, Users } from "lucide-react";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
-import { toastManager } from "~/components/ui/toast";
+import { toastManager } from "~/components/ui/toast-manager";
 import { getPlexUserName } from "~/components/watch-together/plex-user";
 import { PlexUserAvatar } from "~/components/watch-together/plex-user-avatar";
 import { WatchTogetherLobbyInviteDialog } from "~/components/watch-together/watch-together-lobby-invite-dialog";

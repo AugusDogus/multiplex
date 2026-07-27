@@ -16,7 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "~/components/ui/menu";
 import { Skeleton } from "~/components/ui/skeleton";
-import { toastManager } from "~/components/ui/toast";
+import { toastManager } from "~/components/ui/toast-manager";
 import type { PlexUserLike } from "~/components/watch-together/plex-user";
 import { PlexUserAvatarStack } from "~/components/watch-together/plex-user-avatar";
 import { useWatchTogetherRoomMedia } from "~/components/watch-together/use-watch-together-room-media";

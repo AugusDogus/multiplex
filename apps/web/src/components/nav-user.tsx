@@ -22,8 +22,8 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  useSidebar,
 } from "~/components/ui/sidebar";
+import { useSidebar } from "~/components/ui/sidebar-context";
 import type { PlexUserInfo } from "@multiplex/plex-query";
 import { signOut } from "~/lib/auth/client";
 
