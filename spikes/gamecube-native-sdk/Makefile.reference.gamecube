@@ -1,0 +1,68 @@
+# GameCube host that presents Native SDK's reference-rendered RGBA framebuffer
+# directly with GX. This intentionally remains separate from the command-based
+# approximation and the experimental raylib/OpenGX presenter.
+
+.SUFFIXES:
+
+ifeq ($(strip $(DEVKITPPC)),)
+$(error "DEVKITPPC must point to the devkitPPC toolchain")
+endif
+
+SPIKE_ROOT := $(abspath $(dir $(firstword $(MAKEFILE_LIST))))
+
+include $(DEVKITPRO)/libogc2/gamecube_rules
+
+TARGET := multiplex-gamecube-native-reference
+BUILD := build-native-reference
+SOURCES := host-reference-gx
+INCLUDES := host
+
+CFLAGS := -g -O2 -Wall -Wextra $(MACHDEP) $(INCLUDE)
+CXXFLAGS := $(CFLAGS)
+LDFLAGS := -g $(MACHDEP) -Wl,-Map,$(notdir $@).map
+LIBS := $(CORE_LIBRARY) -logc -lm
+LIBDIRS :=
+
+ifneq ($(BUILD),$(notdir $(CURDIR)))
+
+export OUTPUT := $(SPIKE_ROOT)/$(TARGET)
+export VPATH := $(foreach dir,$(SOURCES),$(SPIKE_ROOT)/$(dir))
+export DEPSDIR := $(SPIKE_ROOT)/$(BUILD)
+
+CFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(SPIKE_ROOT)/$(dir)/*.c)))
+OFILES_SOURCES := $(CFILES:.c=.o)
+export CORE_LIBRARY := $(SPIKE_ROOT)/zig-out/lib/libmultiplex-gamecube-core.a
+export OFILES := $(OFILES_SOURCES)
+
+export INCLUDE := $(foreach dir,$(INCLUDES),-I$(SPIKE_ROOT)/$(dir)) \
+	-I$(SPIKE_ROOT)/$(BUILD) \
+	-I$(LIBOGC_INC)
+export LIBPATHS := -L$(LIBOGC_LIB) $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
+export LD := $(CC)
+
+.PHONY: all clean $(BUILD)
+
+all: $(BUILD)
+
+$(BUILD): $(CORE_LIBRARY)
+	@[ -d $@ ] || mkdir -p $@
+	@$(MAKE) --no-print-directory -C $(BUILD) -f $(SPIKE_ROOT)/Makefile.reference.gamecube
+
+$(CORE_LIBRARY):
+	@echo "Missing $@; run bun run spike:gamecube:check first." >&2
+	@false
+
+clean:
+	@echo clean ...
+	@rm -rf $(BUILD) $(OUTPUT).elf $(OUTPUT).dol
+
+else
+
+DEPENDS := $(OFILES_SOURCES:.o=.d)
+
+$(OUTPUT).dol: $(OUTPUT).elf
+$(OUTPUT).elf: $(OFILES) $(CORE_LIBRARY)
+
+-include $(DEPENDS)
+
+endif

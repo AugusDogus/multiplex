@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "exactOptionalPropertyTypes": true,
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
+    "strict": true,
+    "target": "ES2023",
+    "useUnknownInCatchVariables": true,
+    "baseUrl": ".",
+    "paths": {
+      "@native-sdk/core": [".native-sdk/packages/core/sdk/core.ts"],
+      "@native-sdk/core/events": [".native-sdk/packages/core/sdk/events.ts"],
+      "@native-sdk/core/text": [".native-sdk/packages/core/sdk/text.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

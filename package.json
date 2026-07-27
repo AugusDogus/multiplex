@@ -19,7 +19,16 @@
     "db:generate": "bun --filter @multiplex/web db:generate",
     "db:migrate": "bun --filter @multiplex/web db:migrate",
     "db:push": "bun --filter @multiplex/web db:push",
-    "db:studio": "bun --filter @multiplex/web db:studio"
+    "db:studio": "bun --filter @multiplex/web db:studio",
+    "spike:gamecube:bootstrap": "sh spikes/gamecube-native-sdk/scripts/bootstrap.sh",
+    "spike:gamecube:check": "sh spikes/gamecube-native-sdk/scripts/check.sh",
+    "spike:gamecube:dol": "sh spikes/gamecube-native-sdk/scripts/build-dol.sh",
+    "spike:gamecube:run": "sh spikes/gamecube-native-sdk/scripts/run-dolphin.sh",
+    "spike:gamecube:reference:dol": "sh spikes/gamecube-native-sdk/scripts/build-native-reference-dol.sh",
+    "spike:gamecube:reference:run": "sh spikes/gamecube-native-sdk/scripts/run-dolphin.sh spikes/gamecube-native-sdk/multiplex-gamecube-native-reference.dol",
+    "spike:gamecube:reference:log-check": "sh spikes/gamecube-native-sdk/scripts/check-dolphin-log.sh",
+    "spike:gamecube:raylib:dol": "sh spikes/gamecube-native-sdk/scripts/build-raylib-reference-dol.sh",
+    "spike:gamecube:raylib:run": "sh spikes/gamecube-native-sdk/scripts/run-dolphin.sh spikes/gamecube-native-sdk/multiplex-gamecube-raylib-reference.dol"
   },
   "devDependencies": {
     "oxfmt": "^0.26.0",

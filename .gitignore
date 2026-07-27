@@ -41,6 +41,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 
+# local compiler caches
+.zig-cache/
+
 # idea files
 .idea
 

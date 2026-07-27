@@ -1,0 +1,17 @@
+.native-sdk/
+.libogc2/
+.libogc2-stage/
+.opengx/
+.opengx-build/
+.raylib/
+.dolphin-user/
+.zig-cache/
+build/
+build-raylib-reference/
+build-native-reference/
+generated/
+*.dol
+*.elf
+node_modules/
+__pycache__/
+zig-out/

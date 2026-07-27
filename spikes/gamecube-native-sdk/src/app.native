@@ -1,0 +1,47 @@
+<column padding="24" gap="16" background="background">
+  <row cross="center">
+    <text size="heading">Multiplex</text>
+    <spacer grow="1" />
+    <badge variant="secondary">GameCube spike</badge>
+  </row>
+  <separator />
+
+  <if test="{screen == 'pairing'}">
+    <column grow="1" main="center" cross="center" gap="12" label="Pair with Multiplex">
+      <text size="heading">Connect to your Multiplex gateway</text>
+      <text foreground="text_muted">The production client will show a short pairing code here.</text>
+      <button variant="primary" on-press="connect_demo">Use demo library</button>
+    </column>
+  </if>
+
+  <if test="{screen == 'home'}">
+    <column grow="1" gap="14">
+      <text size="heading">Continue Watching</text>
+      <panel grow="1" padding="20" background="surface" border-color="border" radius="lg" label="{selectedTitle}">
+        <column grow="1" main="center" cross="center" gap="8">
+          <badge variant="secondary">Selection {selectionNumber} of 4</badge>
+          <text size="heading">{selectedTitle}</text>
+          <text foreground="text_muted">Poster artwork will enter through the console image host.</text>
+        </column>
+      </panel>
+      <row gap="10" main="center">
+        <button variant="secondary" on-press="previous">Previous</button>
+        <button variant="primary" on-press="open">Open</button>
+        <button variant="secondary" on-press="next">Next</button>
+      </row>
+    </column>
+  </if>
+
+  <if test="{screen == 'details'}">
+    <column grow="1" gap="14">
+      <button width="90" variant="ghost" on-press="back">Back</button>
+      <panel grow="1" padding="24" background="surface" border-color="border" radius="lg">
+        <column grow="1" main="center" cross="center" gap="10">
+          <text size="heading">{selectedTitle}</text>
+          <text foreground="text_muted">The next milestone connects Play to MPlayer CE.</text>
+          <button variant="primary" on-press="back">Return to library</button>
+        </column>
+      </panel>
+    </column>
+  </if>
+</column>

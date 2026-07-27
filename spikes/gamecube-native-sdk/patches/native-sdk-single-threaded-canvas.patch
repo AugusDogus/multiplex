@@ -1,0 +1,33 @@
+diff --git a/src/primitives/canvas/lazy_tls.zig b/src/primitives/canvas/lazy_tls.zig
+index e033f57d..bd1d841b 100644
+--- a/src/primitives/canvas/lazy_tls.zig
++++ b/src/primitives/canvas/lazy_tls.zig
+@@ -27,0 +28 @@ const std = @import("std");
++const builtin = @import("builtin");
+@@ -31,0 +33,2 @@ pub fn LazyTls(comptime T: type) type {
++        var single_thread_instance: T = undefined;
++        var single_thread_initialized = false;
+@@ -36,0 +40 @@ pub fn LazyTls(comptime T: type) type {
++            if (comptime builtin.single_threaded) return getSingleThreaded();
+@@ -42,0 +47,3 @@ pub fn LazyTls(comptime T: type) type {
++            if (comptime builtin.single_threaded) {
++                return if (single_thread_initialized) &single_thread_instance else null;
++            }
+@@ -54,0 +62,10 @@ pub fn LazyTls(comptime T: type) type {
++
++        fn getSingleThreaded() *T {
++            if (!single_thread_initialized) {
++                inline for (@typeInfo(T).@"struct".fields) |field| {
++                    if (comptime field.defaultValue()) |value| @field(single_thread_instance, field.name) = value;
++                }
++                single_thread_initialized = true;
++            }
++            return &single_thread_instance;
++        }
+diff --git a/src/primitives/canvas/text_measure_cache.zig b/src/primitives/canvas/text_measure_cache.zig
+index 8fbcf249..13d93fd0 100644
+--- a/src/primitives/canvas/text_measure_cache.zig
++++ b/src/primitives/canvas/text_measure_cache.zig
+@@ -90 +90 @@ pub const max_batched_advance_run_bytes: usize = 32768;
+-const generation_needs_atomic = !builtin.target.cpu.arch.isWasm();
++const generation_needs_atomic = !builtin.single_threaded and !builtin.target.cpu.arch.isWasm();
