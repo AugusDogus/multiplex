@@ -91,7 +91,7 @@ press() {
 }
 
 wait_for_new "signature=fa6601eb" 0 120
-wait_for_new "audio=ffmpeg-mplayer-ce codec=mp2 output=aesnd" 0 120
+wait_for_new "audio=ffmpeg-mplayer-ce codec=mp2 output=ai-dma" 0 120
 exec 3>"$pipe"
 pipe_open=1
 sleep 0.5
@@ -169,16 +169,16 @@ resumed_audio_samples=$(
 )
 if [ -z "$paused_audio_samples" ] ||
   [ "$paused_audio_samples" != "$resumed_audio_samples" ]; then
-  echo "AESND audio advanced while paused: paused=${paused_audio_samples:-missing} resumed=${resumed_audio_samples:-missing}." >&2
+  echo "AI DMA audio advanced while paused: paused=${paused_audio_samples:-missing} resumed=${resumed_audio_samples:-missing}." >&2
   exit 1
 fi
 if rg -q 'underruns=[1-9][0-9]*' "$log"; then
-  echo "AESND audio buffer underrun detected." >&2
+  echo "AI DMA audio buffer underrun detected." >&2
   rg 'audio.*underruns=' "$log" >&2
   exit 1
 fi
 if [ "$(line_count "playback=playing clock=audio")" -lt 2 ]; then
-  echo "Video playback did not use the AESND sample clock across resume." >&2
+  echo "Video playback did not use the AI DMA sample clock across resume." >&2
   exit 1
 fi
 

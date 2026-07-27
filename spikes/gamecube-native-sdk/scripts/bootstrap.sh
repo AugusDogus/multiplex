@@ -69,8 +69,7 @@ if [ "$actual_libogc2_commit" != "$LIBOGC2_COMMIT" ]; then
   exit 1
 fi
 
-if [ ! -s "$libogc2_stage/opt/devkitpro/libogc2/gamecube/lib/libogc.a" ] ||
-  [ ! -s "$libogc2_stage/opt/devkitpro/libogc2/gamecube/lib/libaesnd.a" ]; then
+if [ ! -s "$libogc2_stage/opt/devkitpro/libogc2/gamecube/lib/libogc.a" ]; then
   if ! command -v podman >/dev/null 2>&1; then
     echo "Podman is required to build the pinned libogc2 runtime." >&2
     exit 1

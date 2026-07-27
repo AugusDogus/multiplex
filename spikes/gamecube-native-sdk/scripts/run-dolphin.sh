@@ -56,7 +56,7 @@ echo "$$" >"$pid_file"
 
 exec dolphin-emu --batch \
   --user="$user_dir" \
-  --audio_emulation=LLE \
+  --audio_emulation=HLE \
   --config=SYSCONF.IPL.PGS=True \
   --config=GFX.Hacks.SafeTextureCacheColorSamples=0 \
   --config=GFX.Hacks.EFBToTextureEnable=False \

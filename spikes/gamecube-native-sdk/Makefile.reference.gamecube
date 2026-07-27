@@ -22,7 +22,7 @@ INCLUDES := host host-reference-gx
 CFLAGS := -g -O2 -Wall -Wextra $(MACHDEP) $(INCLUDE)
 CXXFLAGS := $(CFLAGS)
 LDFLAGS := -g $(MACHDEP) -Wl,-Map,$(notdir $@).map
-LIBS := $(CORE_LIBRARY) -lavcodec -lavutil -laesnd -logc -lm
+LIBS := $(CORE_LIBRARY) -lavcodec -lavutil -logc -lm
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 

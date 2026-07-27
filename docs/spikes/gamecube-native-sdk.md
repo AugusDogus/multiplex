@@ -27,7 +27,7 @@ restricted TypeScript model
   -> reference RGBA framebuffer
   -> small C ABI + Native SDK media-surface geometry
   -> MPlayer CE FFmpeg MPEG-2/MP2 decode
-  -> tiled GX UI + planar-YUV TEV presentation + AESND audio
+  -> tiled GX UI + planar-YUV TEV presentation + direct AI DMA audio
 ```
 
 It is not a screenshot or a separately recreated C menu. `core.ts` owns the
@@ -76,15 +76,15 @@ selects the matching progressive mode. This avoids the alternating-field
 vertical jitter of 480i; composite-only hardware keeps the preferred
 interlaced fallback.
 
-The profile explicitly uses Dolphin's DSP LLE recompiler. The current libogc2
-pin's yield/resume AESND ucode is newer than Dolphin 2606's recognized HLE
-revisions; HLE warns and incorrectly falls back to the AX mixer. Existing
-homebrew built with recognized ASND/AESND revisions can stay on HLE, so this
-is not a general GameCube-homebrew requirement. A tested attempt to reverse
-the AESND task protocol was flaky across pause/resume, and current ASND HLE
-ran substantially below real time. Current AESND plus LLE was the only
-combination that passed three consecutive full player smokes at speed. The
-smoke test rejects unknown-ucode/AX fallback warnings.
+The profile uses Dolphin's normal DSP HLE mode. WiiMC-GCN's working
+`ao_gekko` path showed that stereo movie output does not need ASND or AESND:
+it can hand decoded PCM straight to the GameCube Audio Interface with
+`AUDIO_InitDMA`. The spike now follows that design and does not upload a DSP
+mixer ucode. The previous LLE profile was valid for its AESND implementation,
+but the requirement was self-inflicted: Dolphin 2606 did not recognize that
+libogc2 revision's yield/resume ucode and fell back to AX under HLE. Direct AI
+DMA removes the mismatch, and the smoke test still rejects unknown-ucode/AX
+fallback warnings.
 
 ## Native SDK patches
 
@@ -153,13 +153,16 @@ low-resolution intermediate.
 
 The DOL also embeds a one-second, 192 kbps MP2 elementary stream. MPlayer CE's
 fixed-point FFmpeg decoder fills 48 kHz, stereo, native-endian S16 PCM on a
-second producer LWP. Its 18-buffer queue and 5,760-byte bursts follow MPlayer
-CE's AESND output path. The callback never blocks on UI or video work, and the
-tested flow reports zero underruns.
+second producer LWP. Eighteen aligned 5,760-byte buffers feed a direct Audio
+Interface DMA path adapted from WiiMC-GCN's `ao_gekko` driver. The
+interrupt-side callback distinguishes the block currently being read from the
+one already queued in the hardware's second slot, and the decoder only claims
+free buffers. The callback never blocks on UI or video work, and the tested
+flow reports zero underruns.
 
 The view/focus behavior, media geometry, and play state remain Native
 SDK-owned. Decode is independent of UI rerenders; pause holds the last YUV
-textures and freezes AESND, then resume continues both pipelines. The
+textures and freezes Audio Interface DMA, then resume continues both pipelines. The
 automated smoke traverses pairing → home → details → player, waits for a
 60-frame decoder profile, verifies neither video nor audio advances during a
 five-second pause, resumes, and runs the invalid-access and DSP-ucode gates.
@@ -207,7 +210,7 @@ The current build is approximately:
 
 | Property                       | Current result                                |
 | ------------------------------ | --------------------------------------------- |
-| Reference DOL                  | 1.64 MiB                                      |
+| Reference DOL                  | 1.63 MiB                                      |
 | ELF target                     | 32-bit, big-endian PowerPC, statically linked |
 | ELF text / data / BSS          | 846 KiB / 549 KiB / 5.25 MiB                  |
 | TypeScript runtime reservation | 128 KiB frame + two 256 KiB model heaps       |
@@ -218,7 +221,7 @@ The current build is approximately:
 | Home view                      | 17 widgets, 3 handlers, 17 layout nodes       |
 | Embedded MPEG-2 clip           | 720x480 YUV420P / 125 KiB                     |
 | Embedded MP2 clip              | 48 kHz stereo, 192 kbps / 24 KiB              |
-| AESND queue                    | 18 x 5,760-byte aligned PCM buffers           |
+| Audio Interface DMA pool       | 18 x 5,760-byte aligned PCM buffers           |
 | Double-buffered YUV textures   | 720x480 + 2x360x240 / 1,012.5 KiB             |
 
 The ELF footprint excludes the two XFB framebuffers and libogc/runtime dynamic
@@ -250,9 +253,10 @@ RGBA-to-tiled-GX conversion remains about 10.3 ms per changed UI frame. Idle
 frames do not rerender; in NTSC 480p the guest measured 120 paused
 presentations in 1,985,316 microseconds, or 60.4 progressive frames per
 second. For the current DVD-resolution clip, steady 60-frame profiles measured
-29.7–30.2 decoded frames per second around the 29.97 fps target. AESND
-callbacks count completed 1,440-sample PCM bursts, and the clock interpolates
-within the active burst; video requests derive directly from that sample
+29.7–30.2 decoded frames per second around the 29.97 fps target. Audio
+Interface DMA callbacks advance completed 1,440-sample PCM bursts after the
+hardware's initial request for its second buffer, and the clock interpolates
+within the current burst; video requests derive directly from that sample
 position rather than an independent wall clock. MPlayer CE's fast MPEG-2 intra
 path is enabled. Codec work averaged 6.7 ms with a 33.7 ms maximum; planar
 tiled upload averaged 1.5 ms. Long MPEG I-frames can miss a VBlank, after which
@@ -261,11 +265,11 @@ to 60.4 fps rather than permanently slowing the media clock. The square-fill
 fast path keeps player UI state rerenders near 0.275 seconds. Two Dolphin
 window captures taken a second apart while paused were byte-identical.
 
-The same smoke run decoded MP2 continuously into AESND with zero buffer
-underruns. Its sample counter was unchanged across the five-second pause and
-resumed from the exact logged count. Three consecutive Dolphin DSP LLE
-recompiler runs completed the full flow without an AX fallback, invalid
-access, or timing failure.
+The same smoke run decoded MP2 continuously into direct Audio Interface DMA
+with zero buffer underruns. Its sample counter was unchanged across the
+five-second pause and resumed from the exact logged count. Repeated Dolphin
+DSP HLE runs completed the full flow without loading a DSP ucode, falling back
+to AX, reporting an invalid access, or missing the timing gate.
 
 The console spike is intentionally GPL-2.0-or-later so it can directly reuse
 MPlayer CE's proven GameCube work. Native SDK remains Apache-2.0 and the

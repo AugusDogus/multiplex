@@ -1,4 +1,4 @@
-#include "audio_aesnd.h"
+#include "audio_dma.h"
 #include "native_ui.h"
 #include "mpeg2_decoder.h"
 #include "multiplex-dvd-demo-audio.h"
@@ -95,7 +95,7 @@ static uint32_t video_decode_request_count;
 static uint32_t video_decode_completion_count;
 static bool video_texture_ready;
 static bool video_was_playing;
-static AudioAesnd *audio_output;
+static AudioDma *audio_output;
 
 static uint32_t elapsed_us(uint32_t started) {
   return (uint32_t)ticks_to_microsecs((uint32_t)(gettick() - started));
@@ -585,14 +585,14 @@ static void draw_video_surface(void) {
   memset(&video_surface, 0, sizeof(video_surface));
   if (multiplex_native_video_surface(&video_surface) == 0 ||
       video_surface.width <= 0 || video_surface.height <= 0) {
-    audio_aesnd_update(audio_output, false);
+    audio_dma_update(audio_output, false);
     video_audio_clock_started = false;
     video_was_playing = false;
     return;
   }
 
   const bool playing = video_surface.playing != 0;
-  audio_aesnd_update(audio_output, playing);
+  audio_dma_update(audio_output, playing);
   const bool playback_changed = playing != video_was_playing;
   if (playback_changed) {
     video_frame_count = 0;
@@ -632,7 +632,7 @@ static void draw_video_surface(void) {
     profile_decoded_frame(completed_decode_us, completed_codec_us,
                           completed_upload_us);
   }
-  const uint64_t audio_samples = audio_aesnd_samples_played(audio_output);
+  const uint64_t audio_samples = audio_dma_samples_played(audio_output);
   if (playing && !video_audio_clock_started) {
     video_audio_start_samples = audio_samples;
     video_audio_start_completions = video_decode_completion_count;
@@ -720,8 +720,8 @@ static void *run_app(void *unused) {
     return (void *)(uintptr_t)1;
   }
   audio_output =
-      audio_aesnd_create(multiplex_dvd_demo_mp2,
-                         (size_t)multiplex_dvd_demo_mp2_size);
+      audio_dma_create(multiplex_dvd_demo_mp2,
+                       (size_t)multiplex_dvd_demo_mp2_size);
   if (audio_output == NULL) {
     SYS_Report("REFERENCE GX: audio initialization failed\n");
     stop_video_decoder();
@@ -729,7 +729,7 @@ static void *run_app(void *unused) {
   }
   initialize_textures();
   if (!refresh_reference_frame(true)) {
-    audio_aesnd_destroy(audio_output);
+    audio_dma_destroy(audio_output);
     audio_output = NULL;
     stop_video_decoder();
     return (void *)(uintptr_t)1;
@@ -763,7 +763,7 @@ static void *run_app(void *unused) {
     present_frame();
   }
 
-  audio_aesnd_destroy(audio_output);
+  audio_dma_destroy(audio_output);
   audio_output = NULL;
   stop_video_decoder();
   return NULL;
