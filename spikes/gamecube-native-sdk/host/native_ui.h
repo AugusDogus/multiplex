@@ -35,8 +35,18 @@ typedef struct {
   float font_size;
 } MultiplexGxCommand;
 
+typedef struct {
+  uint32_t visible;
+  uint32_t playing;
+  float x;
+  float y;
+  float width;
+  float height;
+} MultiplexVideoSurface;
+
 void multiplex_native_app_init(void);
 uint32_t multiplex_native_app_input(uint32_t action);
+uint32_t multiplex_native_video_surface(MultiplexVideoSurface *output);
 uint32_t multiplex_native_app_render(MultiplexGxCommand *output,
                                      uint32_t capacity);
 uint32_t multiplex_native_reference_pixel_bytes(void);

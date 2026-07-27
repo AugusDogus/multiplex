@@ -1,8 +1,8 @@
 diff --git a/src/primitives/canvas/reference.zig b/src/primitives/canvas/reference.zig
-index bbf819b5..8c9d3f69 100644
+index bbf819b5..05ec5173 100644
 --- a/src/primitives/canvas/reference.zig
 +++ b/src/primitives/canvas/reference.zig
-@@ -342,18 +342,41 @@ pub const ReferenceRenderSurface = struct {
+@@ -342,18 +342,50 @@ pub const ReferenceRenderSurface = struct {
          // test (bit-identical on integer bounds); rounded fills take
          // the anti-aliased signed-distance coverage.
          const binary = referenceRadiusIsZero(radius);
@@ -14,13 +14,23 @@ index bbf819b5..8c9d3f69 100644
 -            while (x < pixel_rect.x + pixel_rect.width) : (x += 1) {
 -                const point = referencePixelCenter(x, y);
 -                if (binary) {
+-                    if (referencePointInRoundedRect(point, rect, radius)) self.blendPixel(@intCast(x), @intCast(y), referenceSampleFill(value.fill, command.transform, point), command.opacity);
+-                    continue;
 +            if (binary) {
 +                while (x < x_end) : (x += 1) {
 +                    const point = referencePixelCenter(x, y);
-                     if (referencePointInRoundedRect(point, rect, radius)) self.blendPixel(@intCast(x), @intCast(y), referenceSampleFill(value.fill, command.transform, point), command.opacity);
--                    continue;
++                    if (referencePointInRoundedRect(point, rect, radius)) break;
                  }
 -                const coverage = referenceRoundedRectCoverage(point, rect, radius);
++                if (x == x_end) continue;
++                var right = x_end;
++                while (right > x) {
++                    const candidate = right - 1;
++                    const point = referencePixelCenter(candidate, y);
++                    if (referencePointInRoundedRect(point, rect, radius)) break;
++                    right = candidate;
++                }
++                self.blendFullCoverageSpan(y, x, right, value.fill, command.transform, command.opacity);
 +                continue;
 +            }
 +
@@ -49,7 +59,7 @@ index bbf819b5..8c9d3f69 100644
          }
          self.memoStore(probe, pixel_rect);
      }
-@@ -383,22 +406,48 @@ pub const ReferenceRenderSurface = struct {
+@@ -383,22 +415,48 @@ pub const ReferenceRenderSurface = struct {
          // (the inner edge stays in the field even when the inset
          // radius bottoms out at a square corner).
          const binary = referenceRadiusIsZero(radius);
@@ -103,7 +113,7 @@ index bbf819b5..8c9d3f69 100644
          }
          self.memoStore(probe, pixel_rect);
      }
-@@ -655,15 +704,41 @@ pub const ReferenceRenderSurface = struct {
+@@ -655,15 +713,41 @@ pub const ReferenceRenderSurface = struct {
          const probe = self.memoProbe(pixel_rect, 0, referenceMemoParamsHash(3, command, value));
          if (self.memoReplay(probe, pixel_rect)) return;
  
@@ -147,7 +157,7 @@ index bbf819b5..8c9d3f69 100644
          }
  
          self.memoStore(probe, pixel_rect);
-@@ -947,11 +1022,68 @@ pub const ReferenceRenderSurface = struct {
+@@ -947,11 +1031,68 @@ pub const ReferenceRenderSurface = struct {
          self.pixels[index + 3] = out[3];
      }
  
@@ -216,7 +226,7 @@ index bbf819b5..8c9d3f69 100644
  /// Which space a shape's fractional edge coverage blends in.
  ///
  /// GEOMETRY — rounded rects, filled/stroked paths, icons, chart marks —
-@@ -1124,7 +1256,6 @@ fn referenceScaleRect(rect: geometry.RectF, scale: f32) geometry.RectF {
+@@ -1124,7 +1265,6 @@ fn referenceScaleRect(rect: geometry.RectF, scale: f32) geometry.RectF {
      return geometry.RectF.init(rect.x * scale, rect.y * scale, rect.width * scale, rect.height * scale);
  }
  
@@ -224,7 +234,7 @@ index bbf819b5..8c9d3f69 100644
  fn referencePixelCenter(x: usize, y: usize) geometry.PointF {
      return geometry.PointF.init(@as(f32, @floatFromInt(x)) + 0.5, @as(f32, @floatFromInt(y)) + 0.5);
  }
-@@ -1247,33 +1378,7 @@ fn referenceSpreadRadius(radius: Radius, spread: f32) Radius {
+@@ -1247,33 +1387,7 @@ fn referenceSpreadRadius(radius: Radius, spread: f32) Radius {
  }
  
  fn referenceDistanceToRoundedRect(point: geometry.PointF, rect: geometry.RectF, radius: Radius) f32 {
@@ -259,7 +269,7 @@ index bbf819b5..8c9d3f69 100644
  }
  
  fn referenceDistanceToCircle(point: geometry.PointF, center: geometry.PointF, radius: f32) f32 {
-@@ -1550,35 +1655,93 @@ fn referenceRadiusIsZero(radius: Radius) bool {
+@@ -1550,35 +1664,93 @@ fn referenceRadiusIsZero(radius: Radius) bool {
  /// short circuits keep the square root off interior and far-apron
  /// pixels; the exact form runs only near the boundary band.
  fn referenceRoundedRectCoverage(point: geometry.PointF, rect: geometry.RectF, radius: Radius) f32 {

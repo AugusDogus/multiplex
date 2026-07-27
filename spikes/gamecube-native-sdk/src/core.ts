@@ -1,6 +1,6 @@
 import { asciiBytes } from "@native-sdk/core";
 
-export type Screen = "pairing" | "home" | "details";
+export type Screen = "pairing" | "home" | "details" | "player";
 
 export interface Model {
   readonly screen: Screen;
@@ -8,6 +8,7 @@ export interface Model {
   readonly selectedIndex: number;
   readonly selectionNumber: number;
   readonly selectedTitle: Uint8Array;
+  readonly playing: boolean;
 }
 
 export type Msg =
@@ -15,6 +16,8 @@ export type Msg =
   | { readonly kind: "previous" }
   | { readonly kind: "next" }
   | { readonly kind: "open" }
+  | { readonly kind: "play" }
+  | { readonly kind: "toggle_playback" }
   | { readonly kind: "back" };
 
 export function initialModel(): Model {
@@ -24,6 +27,7 @@ export function initialModel(): Model {
     selectedIndex: 0,
     selectionNumber: 1,
     selectedTitle: asciiBytes("The Fifth Element"),
+    playing: false,
   };
 }
 
@@ -66,8 +70,19 @@ export function update(model: Model, msg: Msg): Model {
     case "open":
       if (!model.gatewayConnected) return model;
       return { ...model, screen: "details" };
+    case "play":
+      if (model.screen !== "details") return model;
+      return { ...model, screen: "player", playing: true };
+    case "toggle_playback":
+      if (model.screen !== "player") return model;
+      return { ...model, playing: !model.playing };
     case "back":
-      if (model.screen === "details") return { ...model, screen: "home" };
+      if (model.screen === "player") {
+        return { ...model, screen: "details", playing: false };
+      }
+      if (model.screen === "details") {
+        return { ...model, screen: "home", playing: false };
+      }
       return model;
   }
 }

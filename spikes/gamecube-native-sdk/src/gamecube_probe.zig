@@ -36,6 +36,7 @@ var previous_render_state_valid = false;
 var reference_memo_allocator: BoundedMemoAllocator = .{};
 var reference_render_memo: canvas.ReferenceRenderMemo = undefined;
 var reference_render_memo_initialized = false;
+var video_surface: VideoSurface = .{};
 
 extern fn multiplex_native_profile_mark(stage: u32) callconv(.c) void;
 extern fn multiplex_native_cache_alloc(len: u32, alignment: u32) callconv(.c) ?[*]u8;
@@ -146,6 +147,15 @@ pub const GxCommand = extern struct {
     text_len: u32 = 0,
     glyph_id: u32 = 0,
     font_size: f32 = 0,
+};
+
+pub const VideoSurface = extern struct {
+    visible: u32 = 0,
+    playing: u32 = 0,
+    x: f32 = 0,
+    y: f32 = 0,
+    width: f32 = 0,
+    height: f32 = 0,
 };
 
 const gx_fill_rect: u32 = 1;
@@ -270,6 +280,7 @@ fn initializeApp() void {
     reference_full_repaint = true;
     previous_render_state = .{};
     previous_render_state_valid = false;
+    video_surface = .{};
 }
 
 export fn multiplex_native_app_init() callconv(.c) void {
@@ -327,6 +338,11 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
     return 1;
 }
 
+export fn multiplex_native_video_surface(output: *VideoSurface) callconv(.c) u32 {
+    output.* = video_surface;
+    return video_surface.visible;
+}
+
 /// Build the current live app frame and lower Native SDK's GPU packet into
 /// the deliberately small command ABI consumed by the libogc GX presenter.
 export fn multiplex_native_app_render(output: [*]GxCommand, capacity: u32) callconv(.c) u32 {
@@ -345,6 +361,7 @@ export fn multiplex_native_app_render(output: [*]GxCommand, capacity: u32) callc
         tokens,
         &layout_nodes,
     ) catch return 0;
+    captureVideoSurface(layout.nodes, model);
 
     var press_ids: [16]canvas.ObjectId = undefined;
     var press_count: usize = 0;
@@ -471,6 +488,7 @@ fn renderReference(
         reference_render_stage = 0x104;
         return 0;
     };
+    captureVideoSurface(layout.nodes, model);
     reference_render_stage = 3;
     multiplex_native_profile_mark(reference_render_stage);
 
@@ -548,6 +566,24 @@ fn renderReference(
     previous_render_state_valid = true;
     reference_full_repaint = false;
     return @intCast(render_plan.commands.len);
+}
+
+fn captureVideoSurface(nodes: []const canvas.WidgetLayoutNode, model: *const core.Model) void {
+    video_surface = .{};
+    for (nodes) |node| {
+        if (node.widget.kind != .media_surface) continue;
+        const frame = node.frame.normalized();
+        if (frame.isEmpty()) continue;
+        video_surface = .{
+            .visible = 1,
+            .playing = @intFromBool(model.playing),
+            .x = frame.x,
+            .y = frame.y,
+            .width = frame.width,
+            .height = frame.height,
+        };
+        return;
+    }
 }
 
 export fn multiplex_native_app_render_reference(

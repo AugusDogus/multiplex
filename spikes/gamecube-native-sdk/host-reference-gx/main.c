@@ -21,6 +21,10 @@
 #define BUFFER_GUARD_BYTES 64
 #define BUFFER_GUARD_VALUE 0xa5
 #define APP_STACK_SIZE (512 * 1024)
+#define VIDEO_TEXTURE_WIDTH 320
+#define VIDEO_TEXTURE_HEIGHT 180
+#define VIDEO_TEXTURE_BYTES \
+  (VIDEO_TEXTURE_WIDTH * VIDEO_TEXTURE_HEIGHT * 4)
 
 typedef struct {
   uint32_t render_us;
@@ -42,8 +46,12 @@ static uint8_t *reference_pixels;
 static uint8_t *reference_scratch;
 static uint8_t *texture_pixels_allocation;
 static uint8_t *texture_pixels;
+static uint8_t *video_texture_allocation;
+static uint8_t *video_texture_pixels;
 static uint32_t reference_bytes;
 static GXTexObj textures[TILE_COUNT];
+static GXTexObj video_texture;
+static MultiplexVideoSurface video_surface;
 static bool native_frame_dirty = true;
 static FrameProfile profile;
 static uint32_t presentation_frames;
@@ -51,6 +59,11 @@ static uint32_t presentation_started;
 static uint32_t profile_stage_started;
 static uint32_t profile_stage_current;
 static uint32_t profile_stage_us[7];
+static uint32_t video_frame_index;
+static uint32_t video_frame_count;
+static uint32_t video_frame_started;
+static uint32_t video_present_divider;
+static bool video_texture_ready;
 
 static uint32_t elapsed_us(uint32_t started) {
   return (uint32_t)ticks_to_microsecs((uint32_t)(gettick() - started));
@@ -127,9 +140,10 @@ static bool allocate_buffers(void) {
   reference_pixels_allocation = malloc(guarded_bytes);
   reference_scratch_allocation = malloc(guarded_bytes);
   texture_pixels_allocation = malloc(TILE_COUNT * TILE_BYTES + 31u);
+  video_texture_allocation = malloc(VIDEO_TEXTURE_BYTES + 31u);
   if (reference_pixels_allocation == NULL ||
       reference_scratch_allocation == NULL ||
-      texture_pixels_allocation == NULL) {
+      texture_pixels_allocation == NULL || video_texture_allocation == NULL) {
     SYS_Report("REFERENCE GX: buffer allocation failed\n");
     return false;
   }
@@ -139,12 +153,81 @@ static bool allocate_buffers(void) {
   texture_pixels =
       (uint8_t *)(((uintptr_t)texture_pixels_allocation + 31u) &
                   ~(uintptr_t)31u);
+  video_texture_pixels =
+      (uint8_t *)(((uintptr_t)video_texture_allocation + 31u) &
+                  ~(uintptr_t)31u);
   memset(reference_pixels_allocation, BUFFER_GUARD_VALUE, guarded_bytes);
   memset(reference_scratch_allocation, BUFFER_GUARD_VALUE, guarded_bytes);
   memset(reference_pixels, 0, reference_bytes);
   memset(reference_scratch, 0, reference_bytes);
   memset(texture_pixels, 0, TILE_COUNT * TILE_BYTES);
+  memset(video_texture_pixels, 0, VIDEO_TEXTURE_BYTES);
   return true;
+}
+
+static void write_video_texel(unsigned x, unsigned y, uint8_t red,
+                              uint8_t green, uint8_t blue) {
+  const unsigned blocks_per_row = VIDEO_TEXTURE_WIDTH / 4;
+  const unsigned block_index = (y / 4) * blocks_per_row + (x / 4);
+  uint8_t *block = video_texture_pixels + block_index * 64;
+  const unsigned plane_offset = ((y & 3u) * 4u + (x & 3u)) * 2u;
+  block[plane_offset] = 255;
+  block[plane_offset + 1] = red;
+  block[32 + plane_offset] = green;
+  block[32 + plane_offset + 1] = blue;
+}
+
+static void generate_video_frame(void) {
+  const unsigned sweep =
+      (video_frame_index * 3u) % (VIDEO_TEXTURE_WIDTH + 48u);
+  for (unsigned y = 0; y < VIDEO_TEXTURE_HEIGHT; ++y) {
+    for (unsigned x = 0; x < VIDEO_TEXTURE_WIDTH; ++x) {
+      const unsigned column = x * 6u / VIDEO_TEXTURE_WIDTH;
+      static const uint8_t bars[6][3] = {
+          {239, 71, 111}, {249, 115, 22}, {250, 204, 21},
+          {34, 197, 94},  {59, 130, 246}, {168, 85, 247},
+      };
+      uint8_t red = (uint8_t)((bars[column][0] * (110u + y)) / 289u);
+      uint8_t green =
+          (uint8_t)((bars[column][1] * (110u + y)) / 289u);
+      uint8_t blue = (uint8_t)((bars[column][2] * (110u + y)) / 289u);
+
+      const int distance = (int)x - (int)sweep + 24;
+      if (distance >= 0 && distance < 48) {
+        const unsigned glow =
+            48u - (unsigned)(distance > 24 ? distance - 24 : 24 - distance);
+        red = (uint8_t)(red + ((255u - red) * glow) / 96u);
+        green = (uint8_t)(green + ((255u - green) * glow) / 96u);
+        blue = (uint8_t)(blue + ((255u - blue) * glow) / 96u);
+      }
+
+      if (((x / 20u) + (y / 20u) + video_frame_index / 8u) % 2u == 0u) {
+        red = (uint8_t)((red * 7u) / 8u);
+        green = (uint8_t)((green * 7u) / 8u);
+        blue = (uint8_t)((blue * 7u) / 8u);
+      }
+      write_video_texel(x, y, red, green, blue);
+    }
+  }
+  DCFlushRange(video_texture_pixels, VIDEO_TEXTURE_BYTES);
+  GX_InvalidateTexAll();
+  video_texture_ready = true;
+  video_frame_index += 1;
+
+  if (video_frame_count == 0) {
+    video_frame_started = gettick();
+  }
+  video_frame_count += 1;
+  if (video_frame_count == 120) {
+    const uint32_t measured_us = elapsed_us(video_frame_started);
+    const uint32_t fps_tenths =
+        measured_us == 0
+            ? 0
+            : (uint32_t)((120ull * 10000000ull) / measured_us);
+    SYS_Report("REFERENCE GX: video=120 frames/%uus (%u.%u fps)\n",
+               measured_us, fps_tenths / 10, fps_tenths % 10);
+    video_frame_count = 0;
+  }
 }
 
 static void convert_reference_to_rgba8_tiles(void) {
@@ -342,6 +425,11 @@ static void initialize_textures(void) {
     GX_InitTexObjLOD(&textures[index], GX_NEAR, GX_NEAR, 0, 0, 0, GX_FALSE,
                      GX_FALSE, GX_ANISO_1);
   }
+  GX_InitTexObj(&video_texture, video_texture_pixels, VIDEO_TEXTURE_WIDTH,
+                VIDEO_TEXTURE_HEIGHT, GX_TF_RGBA8, GX_CLAMP, GX_CLAMP,
+                GX_FALSE);
+  GX_InitTexObjLOD(&video_texture, GX_LINEAR, GX_LINEAR, 0, 0, 0, GX_FALSE,
+                   GX_FALSE, GX_ANISO_1);
 }
 
 static void texture_vertex(float x, float y, float u, float v) {
@@ -370,12 +458,39 @@ static void draw_reference_frame(void) {
   }
 }
 
+static void draw_video_surface(void) {
+  memset(&video_surface, 0, sizeof(video_surface));
+  if (multiplex_native_video_surface(&video_surface) == 0 ||
+      video_surface.width <= 0 || video_surface.height <= 0) {
+    video_present_divider = 0;
+    return;
+  }
+
+  if (!video_texture_ready ||
+      (video_surface.playing != 0 && video_present_divider++ % 2u == 0u)) {
+    generate_video_frame();
+  }
+
+  const float left = video_surface.x;
+  const float top = video_surface.y;
+  const float right = left + video_surface.width;
+  const float bottom = top + video_surface.height;
+  GX_LoadTexObj(&video_texture, GX_TEXMAP0);
+  GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+  texture_vertex(left, top, 0.0f, 0.0f);
+  texture_vertex(right, top, 1.0f, 0.0f);
+  texture_vertex(right, bottom, 1.0f, 1.0f);
+  texture_vertex(left, bottom, 0.0f, 1.0f);
+  GX_End();
+}
+
 static void present_frame(void) {
   if (native_frame_dirty && !refresh_reference_frame(false)) {
     native_frame_dirty = false;
   }
 
   draw_reference_frame();
+  draw_video_surface();
   GX_CopyDisp(framebuffers[framebuffer_index], GX_TRUE);
   GX_DrawDone();
   VIDEO_SetNextFramebuffer(framebuffers[framebuffer_index]);

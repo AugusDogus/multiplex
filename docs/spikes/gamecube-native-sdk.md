@@ -25,8 +25,8 @@ restricted TypeScript model
   -> compiled .native view
   -> Native SDK layout and display list
   -> reference RGBA framebuffer
-  -> small C ABI
-  -> tiled GX texture presenter
+  -> small C ABI + Native SDK media-surface geometry
+  -> tiled GX UI and producer textures
 ```
 
 It is not a screenshot or a separately recreated C menu. `core.ts` owns the
@@ -39,7 +39,8 @@ Verified interactions:
 - A activates the focused pairing handler and opens the library.
 - D-pad changes Native SDK focus between Previous, Open, and Next.
 - A on Open shows the details view.
-- B returns from details to the library.
+- Play opens a Native SDK `<video>` player surface.
+- A pauses/resumes its 30 fps producer; B unwinds player → details → library.
 
 ## Reproduce
 
@@ -52,6 +53,7 @@ bun run spike:gamecube:check
 bun run spike:gamecube:reference:dol
 bun run spike:gamecube:reference:run
 bun run spike:gamecube:reference:log-check
+bun run spike:gamecube:reference:smoke-player
 ```
 
 The build pins Native SDK commit
@@ -90,6 +92,8 @@ byte-preserving fast paths:
   one and their difference is zero;
 - shadows prepare normalized geometry once per command and reuse the exact
   source-over result across identical destination pixels inside the shape.
+- square-cornered rounded-fill commands, including media placeholders, blend
+  their contiguous interior as a span instead of rechecking every pixel.
 
 The general algorithms stay in Native SDK's reference renderer; the GameCube
 adapter contains no visual approximation or console-specific primitive.
@@ -116,6 +120,27 @@ The reference presenter uses Native SDK's own bundled Geist assets and
 reference text pipeline. GX does not rerasterize or reinterpret text, so the
 small copy and the top-right badge match the SDK output rather than the older
 four-size atlas approximation.
+
+### Media surface
+
+The player view is authored with Native SDK's real `<video>` element. During
+layout, the Zig adapter locates its `media_surface` widget and exports the
+resolved rectangle and TypeScript-owned play state through the C ABI. The GX
+host produces a 320x180 RGBA8 test stream directly in GameCube-tiled texture
+memory and composites it into that rectangle after drawing the retained UI.
+
+This deliberately stops one layer short of pretending to decode video:
+
+- the view and focus/handler behavior are real Native SDK;
+- the media rectangle is the layout engine's result, not duplicated host
+  geometry;
+- frame production is independent of UI rerenders;
+- pause holds the last texture and resume restarts production;
+- the current colorful test stream is generated, not read from a media file.
+
+The automated smoke traverses pairing → home → details → player, waits for a
+measured 30 fps report, verifies no frame report advances during a five-second
+pause, resumes, and runs the invalid-access gate.
 
 ## Invalid-access investigation
 
@@ -153,15 +178,16 @@ also eliminates the previously untouched green row at the top of the EFB.
 
 The current build is approximately:
 
-| Property                       | Current result                                |
-| ------------------------------ | --------------------------------------------- |
-| Reference DOL                  | 894 KiB                                       |
-| ELF target                     | 32-bit, big-endian PowerPC, statically linked |
-| ELF text / data / BSS          | 548 KiB / 346 KiB / 5.22 MiB                  |
-| TypeScript runtime reservation | 128 KiB frame + two 256 KiB model heaps       |
-| App/render thread stack        | 512 KiB, dynamically allocated                |
-| Pairing view                   | 10 widgets, 1 handler                         |
-| Home view                      | 17 widgets, 3 handlers, 17 layout nodes       |
+| Property                       | Current result                                 |
+| ------------------------------ | ---------------------------------------------- |
+| Reference DOL                  | 912 KiB                                        |
+| ELF target                     | 32-bit, big-endian PowerPC, statically linked  |
+| ELF text / data / BSS          | 560 KiB / 351 KiB / 5.22 MiB                   |
+| TypeScript runtime reservation | 128 KiB frame + two 256 KiB model heaps        |
+| App/render thread stack        | 512 KiB, dynamically allocated                 |
+| Pairing view                   | 10 widgets, 1 handler                          |
+| Home view                      | 17 widgets, 3 handlers, 17 layout nodes        |
+| Producer texture               | 320x180 RGBA8 / 225 KiB, dynamically allocated |
 
 The ELF footprint excludes the two XFB framebuffers and libogc/runtime dynamic
 allocations. The memory result is acceptable for a proof, but it is too early
@@ -190,7 +216,11 @@ stable across cold and warm renders.
 
 RGBA-to-tiled-GX conversion remains about 10.3 ms per changed frame. Idle
 frames do not rerender; in NTSC 480p the guest measured 120 presentations in
-1,985,316 microseconds, or 60.4 progressive frames per second.
+1,985,316 microseconds, or 60.4 progressive frames per second. The independent
+test media producer measured 120 frames in 3,950,235 microseconds (30.3 fps).
+The square-fill fast path reduced player UI state rerenders from 2.56 seconds
+to 0.275 seconds. Two Dolphin window captures taken a second apart while
+paused were byte-identical.
 
 ## Decision
 
@@ -198,15 +228,18 @@ Continue with Native SDK for the GameCube prototype. Keep the direct GX
 presenter as the parity oracle and treat raylib as a portability experiment,
 not as the committed GameCube renderer yet.
 
-Before media integration:
+Next Dolphin milestones:
 
-1. verify the scripted controller flow, 4 MiB memo ceiling, and 512 KiB stack
-   margin on hardware;
-2. profile the same build on hardware and measure Arena1/Arena2 peaks;
-3. decide whether to repair raylib/OpenGX or extract a smaller portable
-   framebuffer/presenter interface;
-4. connect a GameCube media surface to the known-good MPlayer CE path, ideally
-   with planar YUV or a GX texture rather than RGBA copies.
+1. replace the generated producer with a small decoded local clip while
+   retaining the same Native SDK surface ABI;
+2. add audio output and keep A/V clocks stable under pause/resume;
+3. add a minimal HTTP client and feed a directly playable URL;
+4. connect pairing/library data to a Multiplex gateway;
+5. decide whether to repair raylib/OpenGX or extract a smaller portable
+   framebuffer/presenter interface before the Dreamcast pass.
+
+Hardware profiling remains deferred until the Dolphin app is materially
+useful; it is not a gate on these milestones.
 
 The Wii fast-follow should share the TypeScript, markup, Native SDK adapter,
 and most GX code. Platform differences should stay in video mode, input,

@@ -38,10 +38,31 @@
       <panel grow="1" padding="24" background="surface" border-color="border" radius="lg">
         <column grow="1" main="center" cross="center" gap="10">
           <text size="heading">{selectedTitle}</text>
-          <text foreground="text_muted">The next milestone connects Play to MPlayer CE.</text>
-          <button variant="primary" on-press="back">Return to library</button>
+          <text foreground="text_muted">Native SDK owns this view; the console host supplies video frames.</text>
+          <row gap="10">
+            <button variant="primary" on-press="play">Play</button>
+            <button variant="secondary" on-press="back">Return to library</button>
+          </row>
         </column>
       </panel>
+    </column>
+  </if>
+
+  <if test="{screen == 'player'}">
+    <column grow="1" gap="12">
+      <row cross="center">
+        <column gap="2">
+          <text size="heading">{selectedTitle}</text>
+          <text foreground="text_muted">Live GameCube media surface</text>
+        </column>
+        <spacer grow="1" />
+        <badge variant="secondary">Dolphin demo stream</badge>
+      </row>
+      <video src="demo://multiplex-test-card" autoplay loop muted grow="1" label="{selectedTitle}"/>
+      <row gap="10" main="center">
+        <button variant="primary" on-press="toggle_playback">Play / Pause</button>
+        <button variant="secondary" on-press="back">Back to details</button>
+      </row>
     </column>
   </if>
 </column>
