@@ -12,7 +12,7 @@ fi
 
 failures=$(
   rg -n -i \
-    'invalid (read|write)|buffer guard overwritten|reference render failed|texture allocation failed' \
+    'invalid (read|write)|buffer guard overwritten|reference render failed|texture allocation failed|decoder failure|decoder initialization failed|MPEG-2 decode failed|MPEG-2 decoder made no input progress|MPEG-2 decoder exceeded progress limit|unexpected MPEG-2 frame|YUV texture allocation failed' \
     "$log" || true
 )
 if [ -n "$failures" ]; then
@@ -26,4 +26,4 @@ if ! rg -q 'REFERENCE GX: commands=' "$log"; then
   exit 1
 fi
 
-echo "Dolphin reference log is clean (no invalid reads, invalid writes, guard failures, or render failures)."
+echo "Dolphin reference log is clean (no invalid accesses, guard failures, render failures, or decoder failures)."

@@ -15,13 +15,14 @@ include $(DEVKITPRO)/libogc2/gamecube_rules
 TARGET := multiplex-gamecube-native-reference
 BUILD := build-native-reference
 SOURCES := host-reference-gx
-INCLUDES := host
+MPLAYER_ROOT := $(SPIKE_ROOT)/.mplayer-ce-libogc2/mplayer
+FFMPEG_ROOT := $(MPLAYER_ROOT)/ffmpeg
+INCLUDES := host host-reference-gx
 
 CFLAGS := -g -O2 -Wall -Wextra $(MACHDEP) $(INCLUDE)
 CXXFLAGS := $(CFLAGS)
 LDFLAGS := -g $(MACHDEP) -Wl,-Map,$(notdir $@).map
-LIBS := $(CORE_LIBRARY) -logc -lm
-LIBDIRS :=
+LIBS := $(CORE_LIBRARY) -lavcodec -lavutil -logc -lm
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 
@@ -31,13 +32,17 @@ export DEPSDIR := $(SPIKE_ROOT)/$(BUILD)
 
 CFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(SPIKE_ROOT)/$(dir)/*.c)))
 OFILES_SOURCES := $(CFILES:.c=.o)
+OFILES_ASSETS := multiplex-dvd-demo.o
 export CORE_LIBRARY := $(SPIKE_ROOT)/zig-out/lib/libmultiplex-gamecube-core.a
-export OFILES := $(OFILES_SOURCES)
+export OFILES := $(OFILES_SOURCES) $(OFILES_ASSETS)
 
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(SPIKE_ROOT)/$(dir)) \
+	-I$(FFMPEG_ROOT) \
 	-I$(SPIKE_ROOT)/$(BUILD) \
 	-I$(LIBOGC_INC)
-export LIBPATHS := -L$(LIBOGC_LIB) $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
+export LIBPATHS := -L$(LIBOGC_LIB) \
+	-L$(FFMPEG_ROOT)/libavcodec \
+	-L$(FFMPEG_ROOT)/libavutil
 export LD := $(CC)
 
 .PHONY: all clean $(BUILD)
@@ -58,7 +63,17 @@ clean:
 
 else
 
+.DEFAULT_GOAL := $(OUTPUT).dol
+
 DEPENDS := $(OFILES_SOURCES:.o=.d)
+
+multiplex-dvd-demo.s: $(SPIKE_ROOT)/assets/multiplex-dvd-demo.m2v
+	$(SILENTMSG) embedding ... $(notdir $<)
+	$(SILENTCMD)bin2s -H multiplex-dvd-demo.h $< > $@
+
+multiplex-dvd-demo.h: multiplex-dvd-demo.s
+
+main.o: multiplex-dvd-demo.h
 
 $(OUTPUT).dol: $(OUTPUT).elf
 $(OUTPUT).elf: $(OFILES) $(CORE_LIBRARY)

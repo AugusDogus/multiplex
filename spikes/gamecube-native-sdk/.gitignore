@@ -1,6 +1,7 @@
 .native-sdk/
 .libogc2/
 .libogc2-stage/
+.mplayer-ce-libogc2/
 .opengx/
 .opengx-build/
 .raylib/

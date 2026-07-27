@@ -81,4 +81,35 @@ if [ ! -s "$libogc2_stage/opt/devkitpro/libogc2/gamecube/lib/libogc.a" ]; then
     sh -c 'export DEVKITPRO="/opt/devkitpro"; export DEVKITPPC="/opt/devkitpro/devkitPPC"; make cube; stage="/workspace/.libogc2-stage/opt/devkitpro/libogc2"; mkdir -p "$stage/gamecube/lib"; cp -R include "$stage/gamecube/"; cp lib/cube/*.a "$stage/gamecube/lib/"; cp *_license.txt *_rules "$stage/"'
 fi
 
-echo "Native SDK $NATIVE_SDK_COMMIT, libogc2 $LIBOGC2_COMMIT, and Zig $ZIG_VERSION are ready."
+mplayer_dir="$spike_dir/.mplayer-ce-libogc2"
+mplayer_url="https://github.com/SuperrSonic/mplayer-ce-libogc2.git"
+if [ ! -d "$mplayer_dir/.git" ]; then
+  if [ -e "$mplayer_dir" ]; then
+    echo "$mplayer_dir exists but is not an MPlayer CE git checkout" >&2
+    exit 1
+  fi
+  git clone --filter=blob:none --no-checkout "$mplayer_url" "$mplayer_dir"
+  git -C "$mplayer_dir" checkout --detach "$MPLAYER_CE_LIBOGC2_COMMIT"
+fi
+
+actual_mplayer_commit=$(git -C "$mplayer_dir" rev-parse HEAD)
+if [ "$actual_mplayer_commit" != "$MPLAYER_CE_LIBOGC2_COMMIT" ]; then
+  echo "MPlayer CE checkout is at $actual_mplayer_commit; expected $MPLAYER_CE_LIBOGC2_COMMIT" >&2
+  exit 1
+fi
+
+avcodec_library="$mplayer_dir/mplayer/ffmpeg/libavcodec/libavcodec.a"
+avutil_library="$mplayer_dir/mplayer/ffmpeg/libavutil/libavutil.a"
+if [ ! -s "$avcodec_library" ] || [ ! -s "$avutil_library" ]; then
+  if ! command -v podman >/dev/null 2>&1; then
+    echo "Podman is required to build the pinned MPlayer CE decoder." >&2
+    exit 1
+  fi
+  podman run --rm \
+    --volume "$spike_dir:/workspace:Z" \
+    --workdir /workspace/.mplayer-ce-libogc2/mplayer \
+    "$DEVKITPPC_IMAGE" \
+    sh -c 'export DEVKITPRO="/workspace/.libogc2-stage/opt/devkitpro"; export DEVKITPPC="/opt/devkitpro/devkitPPC"; export PATH="$DEVKITPPC/bin:/opt/devkitpro/tools/bin:$PATH"; make -j2 ffmpeg/libavcodec/libavcodec.a ffmpeg/libavutil/libavutil.a'
+fi
+
+echo "Native SDK $NATIVE_SDK_COMMIT, libogc2 $LIBOGC2_COMMIT, MPlayer CE $MPLAYER_CE_LIBOGC2_COMMIT, and Zig $ZIG_VERSION are ready."

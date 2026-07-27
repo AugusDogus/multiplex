@@ -45,12 +45,18 @@ The controller profile attaches a standard controller to SI port 1 and is backed
 - `src/gamecube_probe.zig`: compiled view, layout, focus/handler resolution,
   GPU-packet translation, and C ABI
 - `host-reference-gx/main.c`: reference framebuffer and direct-GX presenter
+- `host-reference-gx/mpeg2_decoder.c`: narrow wrapper around MPlayer CE's
+  bundled FFmpeg MPEG-2 decoder
+- `host-reference-gx/yuv420_gx.c`: tiled planar-YUV upload and GX TEV
+  conversion/scaling
 - `scripts/smoke-dolphin-player.sh`: player navigation, animation,
   pause/resume, and invalid-access assertions
 - `host/main.c`: earlier command-to-GX approximation
 - `host-raylib/main.c`: experimental raylib/OpenGX presenter
 - `scripts/generate-font-atlas.py`: converts Native SDK's bundled Geist Regular
   to an antialiased, GX-tiled I8 atlas
+- `scripts/generate-demo-mpeg2.sh`: regenerates the embedded 720x480,
+  30000/1001 fps MPEG-2 validation stream
 - `patches/native-sdk-single-threaded-canvas.patch`: the two small portability
   changes applied to the pinned Native SDK checkout
 - `patches/native-sdk-reference-render-fast-paths.patch`: exact-output
@@ -63,10 +69,14 @@ antialiasing, rounded corners, strokes, shadows, and compositing. It divides
 the 640x480 RGBA frame into sixteen 160x120 GX RGBA8 textures and presents them
 through double-buffered XFBs. A real Native SDK `<video>` element exposes its
 laid-out media-surface rectangle over the C ABI; the GX host composites a
-320x180 producer texture into that exact rectangle. The current producer is an
-animated test stream, not a decoder, but it exercises the eventual decoder
-boundary at 30.3 fps while presentation remains 60.4 fps. Play/Pause freezes
-and resumes production without rerasterizing video into the UI framebuffer.
+decoded 720x480 frame into that exact rectangle. The DOL embeds a 30-frame
+MPEG-2 elementary stream generated at NTSC DVD resolution and 30000/1001 fps.
+MPlayer CE's pinned, GameCube-optimized FFmpeg decodes it to YUV420P on a
+worker LWP. The host tiles those three planes into double-buffered GX I8
+textures, and a fixed-function TEV pipeline performs limited-range BT.601
+YUV-to-RGB conversion and scaling. There is no CPU RGB conversion or
+low-resolution intermediate. Play/Pause holds and resumes the decoded frame
+without rerasterizing video into the UI framebuffer.
 
 The reference render now uses one pass rather than rendering the same pixels
 three times. Exact-output scanline fast paths avoid walking the empty interior
@@ -81,10 +91,19 @@ A bounded reference-render memo retains three expensive stable layers; warmed
 full home and details repaints measured about 0.37 and 0.33 seconds. The memo
 has a 4 MiB hard limit and peaked at 4,093 KiB in the home/details flow.
 RGBA-to-GX conversion remains about 10 ms and the retained frame presents at a
-measured 60.4 progressive frames per second. This remains a fidelity baseline
-rather than a production renderer; the next Dolphin gate is replacing the
-test-card producer with decoded local media while retaining the same surface
-ABI.
+measured 60.4 progressive frames per second when video is paused. The current
+DVD-resolution stream follows its 29.97 fps monotonic clock and returns to
+60.4 presentation fps after long MPEG I-frames. Average decode plus tiled
+upload is about 8.2 ms; the fast MPEG-2 path lowers the I-frame maximum to
+about 35.3 ms, and the clock catches up immediately after a missed VBlank. The
+media boundary is now real; the next Dolphin gate is demuxed audio/video
+rather than another placeholder texture.
+
+The linked decoder comes from MPlayer CE's historical FFmpeg tree. Its source
+and license files remain in the pinned ignored checkout, and the bootstrap
+rebuilds the static libraries. The console runtime is intentionally
+GPL-2.0-or-later so it can directly use MPlayer CE's proven GX and codec work;
+this does not change the licensing of the separate Multiplex web application.
 
 Large CPU-side buffers deliberately use ordinary `malloc`. During the raylib
 experiment, large `memalign` calls returned corrupt pointers and produced

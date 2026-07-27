@@ -26,7 +26,8 @@ restricted TypeScript model
   -> Native SDK layout and display list
   -> reference RGBA framebuffer
   -> small C ABI + Native SDK media-surface geometry
-  -> tiled GX UI and producer textures
+  -> MPlayer CE FFmpeg MPEG-2 decode to YUV420P
+  -> tiled GX UI plus planar-YUV TEV presentation
 ```
 
 It is not a screenshot or a separately recreated C menu. `core.ts` owns the
@@ -40,7 +41,8 @@ Verified interactions:
 - D-pad changes Native SDK focus between Previous, Open, and Next.
 - A on Open shows the details view.
 - Play opens a Native SDK `<video>` player surface.
-- A pauses/resumes its 30 fps producer; B unwinds player → details → library.
+- A pauses/resumes DVD-resolution MPEG-2 playback; B unwinds player → details
+  → library.
 
 ## Reproduce
 
@@ -57,8 +59,10 @@ bun run spike:gamecube:reference:smoke-player
 ```
 
 The build pins Native SDK commit
-`a7509a7fa6c467eaed021250538b482886f1c6bf` and the devkitPPC container by
-digest. It emits:
+`a7509a7fa6c467eaed021250538b482886f1c6bf`, MPlayer CE/libogc2 commit
+`b070e11903f5c0eee02fe3577a1aa8856c71af81`, and the devkitPPC container by
+digest. It builds MPlayer CE's bundled FFmpeg libraries without patching the
+upstream checkout and emits:
 
 ```text
 spikes/gamecube-native-sdk/multiplex-gamecube-native-reference.dol
@@ -125,22 +129,29 @@ four-size atlas approximation.
 
 The player view is authored with Native SDK's real `<video>` element. During
 layout, the Zig adapter locates its `media_surface` widget and exports the
-resolved rectangle and TypeScript-owned play state through the C ABI. The GX
-host produces a 320x180 RGBA8 test stream directly in GameCube-tiled texture
-memory and composites it into that rectangle after drawing the retained UI.
+resolved rectangle and TypeScript-owned play state through the C ABI.
 
-This deliberately stops one layer short of pretending to decode video:
+The DOL embeds a one-second MPEG-2 elementary stream at 720x480, YUV420P, and
+30000/1001 fps. A narrow wrapper registers only the pinned MPlayer CE FFmpeg
+MPEG-2 decoder and emits display-order planar frames. A lower-priority LWP
+copies Y, U, and V directly into two sets of GX I8 textures. The GX TEV stages
+perform limited-range BT.601 YUV-to-RGB conversion and scale the result into
+Native SDK's resolved media rectangle. This is the same fundamental
+decoder-to-planar-YUV-to-GX architecture used by MPlayer CE; unlike the
+discarded NanoJPEG experiment, it has no CPU-side RGB conversion or
+low-resolution intermediate.
 
-- the view and focus/handler behavior are real Native SDK;
-- the media rectangle is the layout engine's result, not duplicated host
-  geometry;
-- frame production is independent of UI rerenders;
-- pause holds the last texture and resume restarts production;
-- the current colorful test stream is generated, not read from a media file.
+The view/focus behavior, media geometry, and play state remain Native
+SDK-owned. Decode is independent of UI rerenders; pause holds the last YUV
+textures and resume restarts requests. The automated smoke traverses pairing
+→ home → details → player, waits for a 60-frame decoder profile, verifies no
+profile advances during a five-second pause, resumes, and runs the
+invalid-access gate.
 
-The automated smoke traverses pairing → home → details → player, waits for a
-measured 30 fps report, verifies no frame report advances during a five-second
-pause, resumes, and runs the invalid-access gate.
+The embedded clip is generated test material rather than an encrypted DVD
+image. Optical-disc filesystem, CSS, demux, audio, subtitle, and A/V clock
+work remain separate layers; the spike now proves the expensive video codec
+and presentation boundary at the DVD raster size.
 
 ## Invalid-access investigation
 
@@ -178,16 +189,18 @@ also eliminates the previously untouched green row at the top of the EFB.
 
 The current build is approximately:
 
-| Property                       | Current result                                 |
-| ------------------------------ | ---------------------------------------------- |
-| Reference DOL                  | 912 KiB                                        |
-| ELF target                     | 32-bit, big-endian PowerPC, statically linked  |
-| ELF text / data / BSS          | 560 KiB / 351 KiB / 5.22 MiB                   |
-| TypeScript runtime reservation | 128 KiB frame + two 256 KiB model heaps        |
-| App/render thread stack        | 512 KiB, dynamically allocated                 |
-| Pairing view                   | 10 widgets, 1 handler                          |
-| Home view                      | 17 widgets, 3 handlers, 17 layout nodes        |
-| Producer texture               | 320x180 RGBA8 / 225 KiB, dynamically allocated |
+| Property                       | Current result                                |
+| ------------------------------ | --------------------------------------------- |
+| Reference DOL                  | 1.36 MiB                                      |
+| ELF target                     | 32-bit, big-endian PowerPC, statically linked |
+| ELF text / data / BSS          | 846 KiB / 549 KiB / 5.25 MiB                  |
+| TypeScript runtime reservation | 128 KiB frame + two 256 KiB model heaps       |
+| App/render thread stack        | 512 KiB, dynamically allocated                |
+| Decoder thread stack           | 256 KiB, dynamically allocated                |
+| Pairing view                   | 10 widgets, 1 handler                         |
+| Home view                      | 17 widgets, 3 handlers, 17 layout nodes       |
+| Embedded MPEG-2 clip           | 720x480 YUV420P / 125 KiB                     |
+| Double-buffered YUV textures   | 720x480 + 2x360x240 / 1,012.5 KiB             |
 
 The ELF footprint excludes the two XFB framebuffers and libogc/runtime dynamic
 allocations. The memory result is acceptable for a proof, but it is too early
@@ -214,13 +227,24 @@ entries and rendered in 0.373 seconds; revisiting details likewise hit three
 entries and rendered in 0.328 seconds. Repeated command-state signatures stay
 stable across cold and warm renders.
 
-RGBA-to-tiled-GX conversion remains about 10.3 ms per changed frame. Idle
-frames do not rerender; in NTSC 480p the guest measured 120 presentations in
-1,985,316 microseconds, or 60.4 progressive frames per second. The independent
-test media producer measured 120 frames in 3,950,235 microseconds (30.3 fps).
-The square-fill fast path reduced player UI state rerenders from 2.56 seconds
-to 0.275 seconds. Two Dolphin window captures taken a second apart while
-paused were byte-identical.
+RGBA-to-tiled-GX conversion remains about 10.3 ms per changed UI frame. Idle
+frames do not rerender; in NTSC 480p the guest measured 120 paused
+presentations in 1,985,316 microseconds, or 60.4 progressive frames per
+second. For the current DVD-resolution clip, a steady 60-frame profile
+measured 29.7–29.9 decoded frames per second against a 29.97 fps monotonic
+clock. MPlayer CE's fast MPEG-2 intra path is enabled. Codec work averaged 6.7
+ms with a 33.7 ms maximum; planar tiled upload averaged 1.5 ms. Long MPEG
+I-frames can miss a VBlank, after which the clock immediately schedules a
+catch-up decode; presentation returns to 60.4 fps rather than permanently
+slowing the media clock. The square-fill fast path keeps player UI state
+rerenders near 0.275 seconds. Two Dolphin window captures taken a second apart
+while paused were byte-identical.
+
+The console spike is intentionally GPL-2.0-or-later so it can directly reuse
+MPlayer CE's proven GameCube work. Native SDK remains Apache-2.0 and the
+bundled FFmpeg subset is LGPL-2.1-or-later; their notices and source remain in
+the pinned checkouts. This console-specific choice does not relicense the
+separate Multiplex web application.
 
 ## Decision
 
@@ -230,12 +254,11 @@ not as the committed GameCube renderer yet.
 
 Next Dolphin milestones:
 
-1. replace the generated producer with a small decoded local clip while
-   retaining the same Native SDK surface ABI;
-2. add audio output and keep A/V clocks stable under pause/resume;
-3. add a minimal HTTP client and feed a directly playable URL;
-4. connect pairing/library data to a Multiplex gateway;
-5. decide whether to repair raylib/OpenGX or extract a smaller portable
+1. decode an MPEG-2/MP2 program stream, add audio output, and keep A/V clocks
+   stable under pause/resume;
+2. add a minimal HTTP client and feed a directly playable URL;
+3. connect pairing/library data to a Multiplex gateway;
+4. decide whether to repair raylib/OpenGX or extract a smaller portable
    framebuffer/presenter interface before the Dreamcast pass.
 
 Hardware profiling remains deferred until the Dolphin app is materially
