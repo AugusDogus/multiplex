@@ -165,12 +165,28 @@ wait_log() {
 
 press() {
   button=$1
+  previous=$(grep -c "controller buttons" "$log" 2>/dev/null || true)
+  attempt=0
+  while [ "$attempt" -lt 16 ]; do
+    printf 'RELEASE %s\n' "$button" >&3
+    sleep 0.05
+    printf 'PRESS %s\n' "$button" >&3
+    poll=0
+    while [ "$poll" -lt 5 ]; do
+      current=$(grep -c "controller buttons" "$log" 2>/dev/null || true)
+      if [ "$current" -gt "$previous" ]; then
+        printf 'RELEASE %s\n' "$button" >&3
+        sleep 0.2
+        return
+      fi
+      sleep 0.1
+      poll=$((poll + 1))
+    done
+    attempt=$((attempt + 1))
+  done
   printf 'RELEASE %s\n' "$button" >&3
-  sleep 0.1
-  printf 'PRESS %s\n' "$button" >&3
-  sleep 0.2
-  printf 'RELEASE %s\n' "$button" >&3
-  sleep 0.3
+  echo "Timed out waiting for Dolphin to sample controller button: $button" >&2
+  exit 1
 }
 
 wait_log "signature=fa6601eb" 600
