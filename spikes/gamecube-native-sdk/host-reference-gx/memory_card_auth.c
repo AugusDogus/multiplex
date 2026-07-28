@@ -355,6 +355,39 @@ MultiplexMemoryCardResult multiplex_memory_card_save_auth(
   return fallback;
 }
 
+MultiplexMemoryCardResult multiplex_memory_card_delete_auth(
+    MultiplexMemoryCardLocation *location) {
+  if (location == NULL ||
+      (location->slot != CARD_SLOTA && location->slot != CARD_SLOTB)) {
+    return MULTIPLEX_MEMORY_CARD_NOT_FOUND;
+  }
+  MultiplexMemoryCardResult result = initialize_card_api();
+  if (result != MULTIPLEX_MEMORY_CARD_OK) {
+    return result;
+  }
+  int sector_size = 0;
+  result = mount_slot(location->slot, &sector_size);
+  if (result != MULTIPLEX_MEMORY_CARD_OK) {
+    return result;
+  }
+  (void)sector_size;
+  const int card_result =
+      CARD_Delete(location->slot, MULTIPLEX_CARD_FILENAME);
+  CARD_Unmount(location->slot);
+  result = map_card_error(card_result);
+  if (result == MULTIPLEX_MEMORY_CARD_OK ||
+      result == MULTIPLEX_MEMORY_CARD_NOT_FOUND) {
+    SYS_Report("REFERENCE GX: memory-card auth deleted slot=%c result=%d\n",
+               location->slot == CARD_SLOTA ? 'A' : 'B', card_result);
+    location->slot = -1;
+    location->generation = 0;
+    return MULTIPLEX_MEMORY_CARD_OK;
+  }
+  SYS_Report("REFERENCE GX: memory-card auth delete failed slot=%c result=%d\n",
+             location->slot == CARD_SLOTA ? 'A' : 'B', card_result);
+  return result;
+}
+
 const char *multiplex_memory_card_result_message(
     MultiplexMemoryCardResult result) {
   switch (result) {

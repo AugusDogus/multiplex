@@ -24,6 +24,8 @@ MultiplexMemoryCardResult multiplex_memory_card_load_auth(
 MultiplexMemoryCardResult multiplex_memory_card_save_auth(
     const MultiplexAuthCredentials *credentials,
     MultiplexMemoryCardLocation *location);
+MultiplexMemoryCardResult multiplex_memory_card_delete_auth(
+    MultiplexMemoryCardLocation *location);
 const char *multiplex_memory_card_result_message(
     MultiplexMemoryCardResult result);
 

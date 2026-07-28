@@ -2342,6 +2342,7 @@ static void *run_app(void *unused) {
     return (void *)(uintptr_t)1;
   }
   bool pairing_linked = device_auth.status == MULTIPLEX_DEVICE_AUTH_LINKED;
+  bool auth_reset_latched = false;
   uint32_t pairing_poll_frames = 0;
   if (pairing_linked && !has_catalog &&
       multiplex_plex_load_catalog(&auth_credentials, &catalog)) {
@@ -2452,10 +2453,48 @@ static void *run_app(void *unused) {
       }
     }
 #endif
-    const uint32_t pressed = PAD_ButtonsDown(0);
+    uint32_t pressed = PAD_ButtonsDown(0);
     if (pressed != 0) {
       SYS_Report("REFERENCE GX: controller buttons %08x\n", pressed);
     }
+#if MULTIPLEX_PAIRING_ENABLED
+    const uint32_t auth_reset_buttons =
+        PAD_TRIGGER_L | PAD_TRIGGER_R | PAD_TRIGGER_Z;
+    const bool auth_reset_held =
+        (PAD_ButtonsHeld(0) & auth_reset_buttons) == auth_reset_buttons;
+    if (pairing_linked && auth_reset_held && !auth_reset_latched) {
+      auth_reset_latched = true;
+      stop_direct_poster_loader(&direct_home_poster_loader);
+      stop_direct_poster_loader(&direct_page_poster_loader);
+      const MultiplexMemoryCardResult deleted =
+          multiplex_memory_card_delete_auth(&auth_location);
+      SYS_Report("REFERENCE GX: linked-account reset=%s\n",
+                 multiplex_memory_card_result_message(deleted));
+      if (deleted == MULTIPLEX_MEMORY_CARD_OK) {
+        pairing_linked = false;
+        has_catalog = false;
+        memset(&auth_credentials, 0, sizeof(auth_credentials));
+        memset(&device_auth, 0, sizeof(device_auth));
+        if (!multiplex_device_auth_begin(MULTIPLEX_BASE_URL, &device_auth)) {
+          device_auth.status = MULTIPLEX_DEVICE_AUTH_UNAVAILABLE;
+        }
+        if (multiplex_native_app_pairing_status(
+                device_auth.status, (const uint8_t *)device_auth.user_code,
+                strlen(device_auth.user_code),
+                (const uint8_t *)device_auth.link_url,
+                strlen(device_auth.link_url)) == 0) {
+          SYS_Report(
+              "REFERENCE GX: failed to bind reset authorization status\n");
+          break;
+        }
+        pairing_poll_frames = 0;
+        native_frame_dirty = true;
+        pressed = 0;
+      }
+    } else if (!auth_reset_held) {
+      auth_reset_latched = false;
+    }
+#endif
     pause_audio_for_player_input(pressed, &playback_manifest);
     bool app_changed = false;
     if ((pressed & PAD_BUTTON_LEFT) != 0 &&
