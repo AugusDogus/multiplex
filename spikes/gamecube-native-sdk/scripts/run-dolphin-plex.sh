@@ -223,24 +223,37 @@ press() {
   exit 1
 }
 
-wait_log "gateway-catalog version=1" 600
+wait_log "gateway-catalog version=2" 600
+wait_log "gateway-artwork .*loaded=1" 1200
 wait_log "signature=" 600
 exec 3>"$pipe"
 pipe_open=1
 signature_count=$(line_count "signature=")
 press A
 wait_for_new "signature=" "$signature_count"
-signature_count=$(line_count "signature=")
-press D_RIGHT
-wait_for_new "signature=" "$signature_count"
+for move in 1 2 3 4 5; do
+  signature_count=$(line_count "signature=")
+  press D_RIGHT
+  wait_for_new "signature=" "$signature_count"
+done
 signature_count=$(line_count "signature=")
 press A
 wait_for_new "signature=" "$signature_count"
 signature_count=$(line_count "signature=")
 press D_RIGHT
 wait_for_new "signature=" "$signature_count"
+signature_count=$(line_count "signature=")
 press A
-wait_log "playback=playing" 1200
+wait_for_new "signature=" "$signature_count"
+playing_count=$(line_count "playback=playing")
+paused_count=$(line_count "playback=paused")
+wait_for_new "playback=playing" "$playing_count" 1200
+sleep 1
+if [ "$(line_count "playback=paused")" -gt "$paused_count" ]; then
+  playing_count=$(line_count "playback=playing")
+  press A
+  wait_for_new "playback=playing" "$playing_count" 120
+fi
 
 echo "Playing Plex item '$title' in Dolphin ($container_bytes-byte GameCube stream)."
 if [ -n "$mute_pid" ]; then

@@ -28,6 +28,12 @@ var render_commands: [512]canvas.RenderCommand = undefined;
 var gpu_commands: [512]canvas.CanvasGpuCommand = undefined;
 var app_model: *const core.Model = undefined;
 var app_initialized = false;
+var staged_gateway_name: []const u8 = &.{};
+var staged_rows: [3]core.CatalogRow = undefined;
+var staged_row_ptrs: [3]*const core.CatalogRow = undefined;
+var staged_items: [12]core.CatalogItem = undefined;
+var staged_item_ptrs: [12]*const core.CatalogItem = undefined;
+var staged_row_count: usize = 0;
 var focused_handler: usize = 0;
 var reference_render_stage: u32 = 0;
 var reference_full_repaint = true;
@@ -37,6 +43,8 @@ var reference_memo_allocator: BoundedMemoAllocator = .{};
 var reference_render_memo: canvas.ReferenceRenderMemo = undefined;
 var reference_render_memo_initialized = false;
 var video_surface: VideoSurface = .{};
+var poster_surfaces: [4]PosterSurface = [_]PosterSurface{.{}} ** 4;
+var poster_surface_count: u32 = 0;
 
 extern fn multiplex_native_profile_mark(stage: u32) callconv(.c) void;
 extern fn multiplex_native_cache_alloc(len: u32, alignment: u32) callconv(.c) ?[*]u8;
@@ -158,6 +166,14 @@ pub const VideoSurface = extern struct {
     height: f32 = 0,
 };
 
+pub const PosterSurface = extern struct {
+    image_id: u32 = 0,
+    x: f32 = 0,
+    y: f32 = 0,
+    width: f32 = 0,
+    height: f32 = 0,
+};
+
 const gx_fill_rect: u32 = 1;
 const gx_fill_rounded_rect: u32 = 2;
 const gx_stroke_rect: u32 = 3;
@@ -179,8 +195,8 @@ export fn multiplex_core_selection_after_next() callconv(.c) i64 {
     core.rt.resetAll();
     const initial = core.initialModel();
     const connected = core.update(initial, .connect_demo);
-    const next = core.update(connected, .next);
-    return next.selectedIndex;
+    const next = core.update(connected, .next_row);
+    return next.rowIndex;
 }
 
 /// Build the authored `.native` document on the target CPU and return its
@@ -281,36 +297,80 @@ fn initializeApp() void {
     previous_render_state = .{};
     previous_render_state_valid = false;
     video_surface = .{};
+    poster_surfaces = [_]PosterSurface{.{}} ** 4;
+    poster_surface_count = 0;
 }
 
 export fn multiplex_native_app_init() callconv(.c) void {
     initializeApp();
 }
 
-export fn multiplex_native_app_set_gateway(
+export fn multiplex_native_app_catalog_begin(
     server_name: [*]const u8,
     server_name_length: u32,
-    item_count: u32,
+    row_count: u32,
 ) callconv(.c) u32 {
-    if (!app_initialized or server_name_length == 0 or item_count == 0) return 0;
-    app_model = core.commitModelRoot(core.update(app_model, .{ .gateway_ready = .{
-        .itemCount = @intCast(item_count),
-        .serverName = server_name[0..server_name_length],
-    } }));
-    reference_full_repaint = true;
+    if (!app_initialized or server_name_length == 0 or row_count == 0 or row_count > 3) return 0;
+    staged_gateway_name = server_name[0..server_name_length];
+    staged_row_count = row_count;
     return 1;
 }
 
-export fn multiplex_native_app_set_catalog_item(
-    index: u32,
+export fn multiplex_native_app_catalog_row(
+    row_index: u32,
     title: [*]const u8,
     title_length: u32,
+    item_count: u32,
 ) callconv(.c) u32 {
-    if (!app_initialized or index >= 4 or title_length == 0) return 0;
-    app_model = core.commitModelRoot(core.update(app_model, .{ .catalog_item = .{
-        .index = @intCast(index),
+    if (row_index >= staged_row_count or title_length == 0 or item_count == 0 or item_count > 4) return 0;
+    const row: usize = row_index;
+    const offset = row * 4;
+    staged_rows[row] = .{
+        .id = @intCast(row_index),
         .title = title[0..title_length],
-    } }));
+        .items = staged_item_ptrs[offset .. offset + item_count],
+    };
+    staged_row_ptrs[row] = &staged_rows[row];
+    return 1;
+}
+
+export fn multiplex_native_app_catalog_item(
+    row_index: u32,
+    item_index: u32,
+    rating_key: u32,
+    title: [*]const u8,
+    title_length: u32,
+    subtitle: [*]const u8,
+    subtitle_length: u32,
+    artwork_slot: u32,
+    duration_ms: u32,
+    view_offset_ms: u32,
+    progress_percent: u32,
+) callconv(.c) u32 {
+    if (row_index >= staged_row_count or item_index >= 4 or title_length == 0) return 0;
+    const flat: usize = @as(usize, row_index) * 4 + item_index;
+    staged_items[flat] = .{
+        .id = @intCast(item_index),
+        .ratingKey = @intCast(rating_key),
+        .title = title[0..title_length],
+        .subtitle = subtitle[0..subtitle_length],
+        .imageId = @intCast(artwork_slot + 1),
+        .durationMs = @intCast(duration_ms),
+        .viewOffsetMs = @intCast(view_offset_ms),
+        .progressPercent = @intCast(progress_percent),
+    };
+    staged_item_ptrs[flat] = &staged_items[flat];
+    return 1;
+}
+
+export fn multiplex_native_app_catalog_commit() callconv(.c) u32 {
+    if (!app_initialized or staged_row_count == 0) return 0;
+    app_model = core.commitModelRoot(core.loadCatalog(
+        app_model,
+        staged_gateway_name,
+        staged_row_ptrs[0..staged_row_count],
+    ));
+    focused_handler = 0;
     reference_full_repaint = true;
     return 1;
 }
@@ -371,6 +431,12 @@ export fn multiplex_native_video_surface(output: *VideoSurface) callconv(.c) u32
     return video_surface.visible;
 }
 
+export fn multiplex_native_poster_surfaces(output: [*]PosterSurface, capacity: u32) callconv(.c) u32 {
+    const count = @min(capacity, poster_surface_count);
+    @memcpy(output[0..count], poster_surfaces[0..count]);
+    return count;
+}
+
 /// Build the current live app frame and lower Native SDK's GPU packet into
 /// the deliberately small command ABI consumed by the libogc GX presenter.
 export fn multiplex_native_app_render(output: [*]GxCommand, capacity: u32) callconv(.c) u32 {
@@ -390,6 +456,7 @@ export fn multiplex_native_app_render(output: [*]GxCommand, capacity: u32) callc
         &layout_nodes,
     ) catch return 0;
     captureVideoSurface(layout.nodes, model);
+    capturePosterSurfaces(layout.nodes);
 
     var press_ids: [16]canvas.ObjectId = undefined;
     var press_count: usize = 0;
@@ -517,6 +584,7 @@ fn renderReference(
         return 0;
     };
     captureVideoSurface(layout.nodes, model);
+    capturePosterSurfaces(layout.nodes);
     reference_render_stage = 3;
     multiplex_native_profile_mark(reference_render_stage);
 
@@ -611,6 +679,24 @@ fn captureVideoSurface(nodes: []const canvas.WidgetLayoutNode, model: *const cor
             .height = frame.height,
         };
         return;
+    }
+}
+
+fn capturePosterSurfaces(nodes: []const canvas.WidgetLayoutNode) void {
+    poster_surfaces = [_]PosterSurface{.{}} ** 4;
+    poster_surface_count = 0;
+    for (nodes) |node| {
+        if (node.widget.kind != .image or node.widget.image_id == 0) continue;
+        const frame = node.frame.normalized();
+        if (frame.isEmpty() or poster_surface_count >= poster_surfaces.len) continue;
+        poster_surfaces[poster_surface_count] = .{
+            .image_id = @intCast(node.widget.image_id),
+            .x = frame.x,
+            .y = frame.y,
+            .width = frame.width,
+            .height = frame.height,
+        };
+        poster_surface_count += 1;
     }
 }
 

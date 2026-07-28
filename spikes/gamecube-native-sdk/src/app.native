@@ -15,20 +15,33 @@
   </if>
 
   <if test="{screen == 'home'}">
-    <column grow="1" gap="14">
-      <text size="heading">Continue Watching</text>
-      <panel grow="1" padding="20" background="surface" border-color="border" radius="lg" label="{selectedTitle}">
-        <column grow="1" main="center" cross="center" gap="8">
-          <badge variant="secondary">Selection {selectionNumber} of {itemCount}</badge>
-          <text size="heading">{selectedTitle}</text>
-          <text foreground="text_muted">Loaded from {gatewayName}</text>
+    <column grow="1" gap="8">
+      <row cross="center">
+        <column gap="1">
+          <text size="heading">{visibleRowTitle}</text>
+          <text size="sm" foreground="text_muted">{gatewayName}</text>
         </column>
-      </panel>
-      <row gap="10" main="center">
-        <button variant="secondary" on-press="previous">Previous</button>
-        <button variant="primary" on-press="open">Open</button>
-        <button variant="secondary" on-press="next">Next</button>
+        <spacer grow="1" />
+        <badge variant="secondary">Row {rowNumber} of {rowCount}</badge>
       </row>
+      <row grow="1" gap="8">
+        <for each="visibleItems" as="item" key="ratingKey">
+          <panel width="140" grow="1" padding="7" background="surface" border-color="border" radius="lg" on-press="open_item:{item.id}" label="{item.title}">
+            <column grow="1" gap="4">
+              <image image="{item.imageId}" width="126" height="190" label="{item.title}" />
+              <progress value="{item.progressPercent}" height="4" />
+              <text size="sm" wrap="false">{item.title}</text>
+              <text size="sm" foreground="text_muted" wrap="false">{item.subtitle}</text>
+            </column>
+          </panel>
+        </for>
+      </row>
+      <if test="{hasMultipleRows}">
+        <row gap="8" main="center">
+          <button variant="secondary" on-press="previous_row">Previous row</button>
+          <button variant="secondary" on-press="next_row">Next row</button>
+        </row>
+      </if>
     </column>
   </if>
 
@@ -39,6 +52,9 @@
         <column grow="1" main="center" cross="center" gap="10">
           <text size="heading">{selectedTitle}</text>
           <text foreground="text_muted">Native SDK owns this view; the console host supplies video frames.</text>
+          <if test="{hasResume}">
+            <badge variant="secondary">Resume available</badge>
+          </if>
           <row gap="10">
             <button variant="primary" on-press="play">Play</button>
             <button variant="secondary" on-press="back">Return to library</button>

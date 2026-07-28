@@ -23,7 +23,7 @@
 #define HTTP_HOST_LIMIT 64
 #define HTTP_PATH_LIMIT 512
 #define HTTP_MAX_MEDIA_SIZE UINT32_MAX
-#define HTTP_CACHE_SIZE 1024u
+#define HTTP_CACHE_SIZE 4096u
 
 typedef struct {
   unsigned status;
@@ -427,9 +427,11 @@ static bool stream_read(HttpClient *client, uint8_t *destination,
   }
   while (copied < size) {
     const size_t remaining = size - copied;
+    const size_t request_size =
+        remaining < HTTP_CACHE_SIZE ? remaining : HTTP_CACHE_SIZE;
     const int result = net_recv(client->socket, destination + copied,
-                                remaining, 0);
-    if (result <= 0 || (size_t)result > remaining) {
+                                request_size, 0);
+    if (result <= 0 || (size_t)result > request_size) {
       return false;
     }
     client->stream_position += (size_t)result;

@@ -44,15 +44,32 @@ typedef struct {
   float height;
 } MultiplexVideoSurface;
 
+typedef struct {
+  uint32_t image_id;
+  float x;
+  float y;
+  float width;
+  float height;
+} MultiplexPosterSurface;
+
 void multiplex_native_app_init(void);
-uint32_t multiplex_native_app_set_gateway(const uint8_t *server_name,
-                                          uint32_t server_name_length,
+uint32_t multiplex_native_app_catalog_begin(const uint8_t *server_name,
+                                            uint32_t server_name_length,
+                                            uint32_t row_count);
+uint32_t multiplex_native_app_catalog_row(uint32_t row_index,
+                                          const uint8_t *title,
+                                          uint32_t title_length,
                                           uint32_t item_count);
-uint32_t multiplex_native_app_set_catalog_item(uint32_t index,
-                                               const uint8_t *title,
-                                               uint32_t title_length);
+uint32_t multiplex_native_app_catalog_item(
+    uint32_t row_index, uint32_t item_index, uint32_t rating_key,
+    const uint8_t *title, uint32_t title_length, const uint8_t *subtitle,
+    uint32_t subtitle_length, uint32_t artwork_slot, uint32_t duration_ms,
+    uint32_t view_offset_ms, uint32_t progress_percent);
+uint32_t multiplex_native_app_catalog_commit(void);
 uint32_t multiplex_native_app_input(uint32_t action);
 uint32_t multiplex_native_video_surface(MultiplexVideoSurface *output);
+uint32_t multiplex_native_poster_surfaces(MultiplexPosterSurface *output,
+                                          uint32_t capacity);
 uint32_t multiplex_native_app_render(MultiplexGxCommand *output,
                                      uint32_t capacity);
 uint32_t multiplex_native_reference_pixel_bytes(void);

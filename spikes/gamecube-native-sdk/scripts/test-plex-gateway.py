@@ -43,6 +43,34 @@ class CatalogContractTest(unittest.TestCase):
         self.assertLessEqual(server_length, gateway.MAX_SERVER_NAME_BYTES)
         encoded[12 : 12 + server_length].decode("utf-8")
 
+    def test_encodes_home_rows_with_progress_and_artwork_slots(self) -> None:
+        rows = [
+            gateway.HomeRow(
+                "Continue Watching",
+                [
+                    gateway.HomeItem(
+                        99,
+                        200_000,
+                        50_000,
+                        "A Show",
+                        "Pilot · S01 E01",
+                        "/poster.jpg",
+                    )
+                ],
+            )
+        ]
+        encoded = gateway.encode_home_catalog("Plex", rows)
+        magic, version, row_count, server_length, _ = struct.unpack(
+            ">4sHHHH", encoded[:12]
+        )
+        self.assertEqual((magic, version, row_count), (b"MPXG", 2, 1))
+        cursor = 12 + server_length
+        row_title_length, item_count = struct.unpack(">HH", encoded[cursor : cursor + 4])
+        cursor += 4 + row_title_length
+        item = struct.unpack(">IIIHBBHH", encoded[cursor : cursor + 20])
+        self.assertEqual(item[:6], (99, 200_000, 50_000, 0, 25, 0))
+        self.assertEqual(item_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

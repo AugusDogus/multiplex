@@ -6,6 +6,7 @@
 #include "mpeg2_decoder.h"
 #include "mpeg_ps_demux.h"
 #include "multiplex-dvd-demo-program.h"
+#include "poster_jpeg.h"
 #include "yuv420_gx.h"
 
 #include <gccore.h>
@@ -41,6 +42,7 @@
 #define VIDEO_RATE_DENOMINATOR 1001
 #define VIDEO_PREBUFFER_BYTES (256u * 1024u)
 #define AUDIO_PREBUFFER_BYTES (32u * 1024u)
+#define POSTER_JPEG_CAPACITY (256u * 1024u)
 
 typedef struct {
   uint32_t render_us;
@@ -64,6 +66,9 @@ static uint8_t *texture_pixels_allocation;
 static uint8_t *texture_pixels;
 static uint32_t reference_bytes;
 static GXTexObj textures[TILE_COUNT];
+static GXTexObj poster_textures[MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS];
+static uint8_t *poster_texture_pixels;
+static uint16_t poster_texture_count;
 static MultiplexVideoSurface video_surface;
 static bool native_frame_dirty = true;
 static FrameProfile profile;
@@ -576,6 +581,48 @@ static void initialize_textures(void) {
   }
 }
 
+static bool initialize_poster_textures(const char *gateway_url,
+                                       uint16_t item_count) {
+  if (gateway_url == NULL || item_count == 0 ||
+      item_count > MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS) {
+    return false;
+  }
+  const size_t total_bytes =
+      (size_t)item_count * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+  uint8_t *encoded = calloc(1, POSTER_JPEG_CAPACITY + 64u);
+  poster_texture_pixels = multiplex_native_cache_alloc(total_bytes, 32);
+  size_t encoded_size = 0;
+  if (encoded == NULL || poster_texture_pixels == NULL ||
+      !multiplex_gateway_load_artwork(gateway_url, encoded,
+                                     POSTER_JPEG_CAPACITY, &encoded_size) ||
+      !poster_jpeg_decode(encoded, encoded_size, item_count,
+                          poster_texture_pixels, total_bytes)) {
+    free(encoded);
+    multiplex_native_cache_free(poster_texture_pixels);
+    poster_texture_pixels = NULL;
+    return false;
+  }
+
+  for (uint16_t item = 0; item < item_count; ++item) {
+    uint8_t *destination = poster_texture_pixels +
+                           (size_t)item *
+                               MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+    GX_InitTexObj(&poster_textures[item], destination,
+                  MULTIPLEX_GATEWAY_ARTWORK_WIDTH,
+                  MULTIPLEX_GATEWAY_ARTWORK_HEIGHT, GX_TF_RGB565, GX_CLAMP,
+                  GX_CLAMP, GX_FALSE);
+    GX_InitTexObjLOD(&poster_textures[item], GX_LINEAR, GX_LINEAR, 0, 0, 0,
+                     GX_FALSE, GX_FALSE, GX_ANISO_1);
+  }
+  free(encoded);
+  DCFlushRange(poster_texture_pixels, total_bytes);
+  poster_texture_count = item_count;
+  SYS_Report("REFERENCE GX: poster-textures count=%u size=%ux%u\n",
+             item_count, MULTIPLEX_GATEWAY_ARTWORK_WIDTH,
+             MULTIPLEX_GATEWAY_ARTWORK_HEIGHT);
+  return true;
+}
+
 static void texture_vertex(float x, float y, float u, float v) {
   GX_Position3f32(x, y, 0.0f);
   GX_Color4u8(255, 255, 255, 255);
@@ -600,6 +647,29 @@ static void draw_reference_frame(void) {
       texture_vertex(left, bottom, 0.0f, 1.0f);
       GX_End();
     }
+  }
+}
+
+static void draw_poster_surfaces(void) {
+  if (poster_texture_count == 0) {
+    return;
+  }
+  MultiplexPosterSurface surfaces[4];
+  const uint32_t count = multiplex_native_poster_surfaces(surfaces, 4);
+  configure_ui_pipeline();
+  for (uint32_t index = 0; index < count; ++index) {
+    const MultiplexPosterSurface *surface = &surfaces[index];
+    if (surface->image_id == 0 || surface->image_id > poster_texture_count) {
+      continue;
+    }
+    GX_LoadTexObj(&poster_textures[surface->image_id - 1u], GX_TEXMAP0);
+    GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+    texture_vertex(surface->x, surface->y, 0.0f, 0.0f);
+    texture_vertex(surface->x + surface->width, surface->y, 1.0f, 0.0f);
+    texture_vertex(surface->x + surface->width,
+                   surface->y + surface->height, 1.0f, 1.0f);
+    texture_vertex(surface->x, surface->y + surface->height, 0.0f, 1.0f);
+    GX_End();
   }
 }
 
@@ -725,6 +795,7 @@ static void present_frame(void) {
   }
 
   draw_reference_frame();
+  draw_poster_surfaces();
   draw_video_surface();
   GX_CopyDisp(framebuffers[framebuffer_index], GX_TRUE);
   GX_DrawDone();
@@ -789,21 +860,46 @@ static void *run_app(void *unused) {
   const bool has_catalog =
       MULTIPLEX_GATEWAY_URL[0] != '\0' &&
       multiplex_gateway_load_catalog(MULTIPLEX_GATEWAY_URL, &catalog);
+  if (has_catalog &&
+      !initialize_poster_textures(MULTIPLEX_GATEWAY_URL,
+                                  catalog.total_item_count)) {
+    SYS_Report("REFERENCE GX: gateway artwork unavailable; using placeholders\n");
+  }
   multiplex_native_app_init();
   if (has_catalog) {
-    if (multiplex_native_app_set_gateway(
+    if (multiplex_native_app_catalog_begin(
             (const uint8_t *)catalog.server_name,
-            catalog.server_name_length, catalog.item_count) == 0) {
+            catalog.server_name_length, catalog.row_count) == 0) {
       SYS_Report("REFERENCE GX: failed to bind gateway catalog to app\n");
       return (void *)(uintptr_t)1;
     }
-    for (uint16_t index = 0; index < catalog.item_count; ++index) {
-      const MultiplexGatewayItem *item = &catalog.items[index];
-      if (multiplex_native_app_set_catalog_item(
-              index, (const uint8_t *)item->title, item->title_length) == 0) {
-        SYS_Report("REFERENCE GX: failed to bind catalog item %u\n", index);
+    for (uint16_t row_index = 0; row_index < catalog.row_count; ++row_index) {
+      const MultiplexGatewayRow *row = &catalog.rows[row_index];
+      if (multiplex_native_app_catalog_row(
+              row_index, (const uint8_t *)row->title, row->title_length,
+              row->item_count) == 0) {
+        SYS_Report("REFERENCE GX: failed to bind catalog row %u\n", row_index);
         return (void *)(uintptr_t)1;
       }
+      for (uint16_t item_index = 0; item_index < row->item_count;
+           ++item_index) {
+        const MultiplexGatewayItem *item =
+            &catalog.items[row->item_offset + item_index];
+        if (multiplex_native_app_catalog_item(
+                row_index, item_index, item->rating_key,
+                (const uint8_t *)item->title, item->title_length,
+                (const uint8_t *)item->subtitle, item->subtitle_length,
+                item->artwork_slot, item->duration_ms, item->view_offset_ms,
+                item->progress_percent) == 0) {
+          SYS_Report("REFERENCE GX: failed to bind catalog item %u/%u\n",
+                     row_index, item_index);
+          return (void *)(uintptr_t)1;
+        }
+      }
+    }
+    if (multiplex_native_app_catalog_commit() == 0) {
+      SYS_Report("REFERENCE GX: failed to commit gateway catalog\n");
+      return (void *)(uintptr_t)1;
     }
   }
   if (MULTIPLEX_MEDIA_URL[0] != '\0') {
@@ -946,6 +1042,9 @@ static void *run_app(void *unused) {
   mpeg_ps_demux_destroy(demux);
   media_demux = NULL;
   http_client_destroy(client);
+  multiplex_native_cache_free(poster_texture_pixels);
+  poster_texture_pixels = NULL;
+  poster_texture_count = 0;
   return NULL;
 }
 

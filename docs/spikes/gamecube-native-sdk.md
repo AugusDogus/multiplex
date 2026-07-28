@@ -26,6 +26,7 @@ restricted TypeScript model
   -> Native SDK layout and display list
   -> reference RGBA framebuffer
   -> small C ABI + Native SDK media-surface geometry
+  -> versioned Plex home hubs + JPEG artwork atlas
   -> MPEG-2 Program Stream PES/PTS demux
   -> MPlayer CE FFmpeg MPEG-2/MP2 decode
   -> tiled GX UI + planar-YUV TEV presentation + direct AI DMA audio
@@ -186,7 +187,7 @@ parameters.
 The same media pipeline can source its program stream from a directly
 playable HTTP URL. A small blocking libogc2 client initializes the BBA with
 DHCP, validates `206`, `Content-Length`, and `Content-Range`, and exposes a
-seekable 1 KiB range cache for metadata inspection. Playback then changes to a
+seekable 4 KiB range cache for metadata inspection. Playback then changes to a
 single forward-only HTTP GET owned by a producer LWP. The demux feeds a fixed
 320 KiB video queue and 64 KiB audio queue; the MPEG-2 and MP2 adapters retain
 only 32 KiB and 8 KiB compressed input windows. Container-sized and
@@ -195,32 +196,50 @@ the same demux, decode, audio, navigation, pause/resume, timing, and
 invalid-access gates as the embedded build.
 
 The Plex runner now starts a persistent, versioned Multiplex console gateway
-instead of exposing a bare fixture file. `GET /v1/catalog.bin` is a bounded,
-big-endian contract designed to be parsed without JSON or heap allocation on
-the console:
+instead of exposing a bare fixture file. `GET /v2/catalog.bin` is a bounded,
+big-endian contract designed to be parsed without JSON or unbounded allocation
+on the console:
 
 ```text
-"MPXG" | u16 version | u16 item count | u16 server bytes | u16 reserved
+"MPXG" | u16 version | u16 row count | u16 server bytes | u16 reserved
 server UTF-8 bytes
-repeated item count times:
-  u32 rating key | u32 duration ms | u32 view offset ms |
-  u16 title bytes | u16 flags | title UTF-8 bytes
+repeated row count times:
+  u16 row-title bytes | u16 item count | row-title UTF-8 bytes
+  repeated item count times:
+    u32 rating key | u32 duration ms | u32 view offset ms |
+    u16 artwork slot | u8 progress percent | u8 flags |
+    u16 title bytes | u16 subtitle bytes | title/subtitle UTF-8 bytes
 ```
 
-Version 1 limits the snapshot to four items, 63 server-name bytes, 95 title
-bytes, and a 1 KiB response. The GameCube fetches it through the same BBA HTTP
-client, validates every length and version, stores it in fixed C buffers, and
-dispatches server/item messages into the TypeScript-authored model before the
-first Native SDK render. `/v1/health` supports host orchestration and
+Version 2 limits the snapshot to three rows of four items, 63 server-name
+bytes, and 95 bytes per label. The gateway applies the web home ordering:
+Continue Watching first, excludes duplicate On Deck content, then adds recent
+browsable hubs. The GameCube fetches it through the same BBA HTTP client,
+validates every length and version, stores it in fixed C buffers, and dispatches
+row/item messages into the TypeScript-authored model before the first Native
+SDK render. `/v1/health` supports host orchestration and
 `/v1/media/current.mpg` serves the prepared MPEG-2/MP2 stream with byte ranges.
-The demonstrated screen is therefore driven by the real Plex server name and
-recent titles rather than the previous static demo catalog.
+The demonstrated screen is therefore driven by the real Plex server name,
+Continue Watching state, recent titles, episode subtitles, and progress rather
+than the previous static demo catalog.
+
+`GET /v2/artwork.jpg` serves the twelve possible posters as one 320x360 JPEG
+contact sheet. The host downsizes and letterboxes Plex artwork into 80x120
+cells. The GameCube registers only MPlayer CE FFmpeg's MJPEG decoder, decodes
+the sheet as planar YUV420, converts each cell directly to `GX_TF_RGB565` 4x4
+texture order, and overlays the textures at the exact Native SDK-resolved
+`<image>` rectangles. In the real-server run, eleven raw RGB565 posters would
+have required 211 KiB; the JPEG was 33,200 bytes and decoded all eleven cells
+in 35 ms. Dolphin's TAP BBA remains reliable with 4 KiB ranges but stalls on a
+16 KiB range, so the smaller transport materially improves startup without
+depending on an emulator-only socket assumption.
 
 For gateway-prepared media, the host supplies selected stream sizes and first
 PTS in the generated build header. This avoids scanning an entire multi-MiB
-file through 1 KiB BBA ranges. The first real Plex run discovered PMS
-1.43.3 on the LAN, downloaded a segment of a library movie, and converted it
-to a 3,743,744-byte 720x480 MPEG-2/MP2 program stream. Dolphin needed one
+file through 4 KiB BBA ranges. The real Plex run discovered PMS
+1.43.3 on the LAN, loaded three home hubs with eleven items, downloaded a
+segment of `Fresh`, and converted it to a 15,597,568-byte 720x480 MPEG-2/MP2
+program stream. Dolphin needed one
 metadata range request before the sequential GET. It decoded two measured
 60-frame intervals at 29.9 fps, presented retained frames at 60.4 fps, paused
 and resumed on the AI DMA clock with zero underruns, and passed the invalid
@@ -281,7 +300,7 @@ The current build is approximately:
 
 | Property                       | Current result                                |
 | ------------------------------ | --------------------------------------------- |
-| Reference DOL                  | 1.63 MiB                                      |
+| Reference DOL                  | 1.65 MiB                                      |
 | ELF target                     | 32-bit, big-endian PowerPC, statically linked |
 | ELF text / data / BSS          | 846 KiB / 549 KiB / 5.25 MiB                  |
 | TypeScript runtime reservation | 128 KiB frame + two 256 KiB model heaps       |
@@ -292,7 +311,8 @@ The current build is approximately:
 | Compressed video/audio queues  | 320 KiB / 64 KiB                              |
 | Codec compressed input windows | 32 KiB / 8 KiB                                |
 | Pairing view                   | 10 widgets, 1 handler                         |
-| Home view                      | 17 widgets, 3 handlers, 17 layout nodes       |
+| Home snapshot                  | Up to 3 rows x 4 real Plex items              |
+| Poster textures                | Up to 12 x 80x120 RGB565 / 225 KiB            |
 | Embedded MPEG-2 Program Stream | 720x480 video + stereo MP2 / 152 KiB          |
 | Extracted MPEG-2 payload       | 720x480 YUV420P / 125 KiB                     |
 | Extracted MP2 payload          | 48 kHz stereo, 192 kbps / 24 KiB              |
@@ -364,8 +384,8 @@ not as the committed GameCube renderer yet.
 
 Next Dolphin milestones:
 
-1. add artwork and the web app's Continue Watching/recent hub structure to the
-   catalog contract and controller navigation;
+1. add the remaining web browse and search surfaces on the versioned catalog
+   and artwork primitives;
 2. turn the host-prepared Plex segment into an on-demand, seekable full-item
    session with progress persistence;
 3. add player controls and Watch Together state through the same gateway;

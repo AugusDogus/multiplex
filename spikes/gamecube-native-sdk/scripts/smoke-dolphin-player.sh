@@ -7,6 +7,12 @@ dol="$spike_dir/multiplex-gamecube-native-reference.dol"
 user_dir="$spike_dir/.dolphin-user"
 log="$user_dir/Logs/dolphin.log"
 pipe="$user_dir/Pipes/multiplex1"
+expected_media_source=${GAMECUBE_EXPECT_MEDIA_SOURCE:-embedded}
+
+if [ "$expected_media_source" = embedded ]; then
+  GAMECUBE_MEDIA_URL= GAMECUBE_GATEWAY_URL= \
+    sh "$script_dir/build-native-reference-dol.sh" >/dev/null
+fi
 
 if [ ! -s "$dol" ]; then
   echo "Missing $dol; run bun run spike:gamecube:reference:dol first." >&2
@@ -137,7 +143,6 @@ press() {
   exit 1
 }
 
-expected_media_source=${GAMECUBE_EXPECT_MEDIA_SOURCE:-embedded}
 expected_media_bytes=${GAMECUBE_EXPECT_MEDIA_BYTES:-155648}
 case "$expected_media_source" in
   embedded)
