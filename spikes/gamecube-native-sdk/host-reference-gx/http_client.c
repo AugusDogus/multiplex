@@ -55,6 +55,7 @@ struct HttpClient {
   size_t stream_prefetch_offset;
   size_t stream_prefetch_size;
   uint8_t *small_media;
+  volatile bool stopping;
 };
 
 static bool network_initialized;
@@ -439,6 +440,9 @@ static bool fetch_cache(HttpClient *client, size_t start) {
 }
 
 static bool start_stream_response(HttpClient *client, size_t start) {
+  if (client->stopping) {
+    return false;
+  }
   disconnect_client(client);
   if (!connect_client(client, false)) {
     return false;
@@ -497,6 +501,9 @@ static bool stream_read(HttpClient *client, uint8_t *destination,
     copied += chunk;
   }
   while (copied < size) {
+    if (client->stopping) {
+      return false;
+    }
     const size_t remaining = size - copied;
     const size_t request_size =
         remaining < HTTP_CACHE_SIZE ? remaining : HTTP_CACHE_SIZE;
@@ -518,6 +525,9 @@ static bool stream_read(HttpClient *client, uint8_t *destination,
 static bool stream_read_at(HttpClient *client, size_t offset,
                            uint8_t *destination, size_t size) {
   for (unsigned attempt = 1; attempt <= HTTP_RANGE_ATTEMPTS; ++attempt) {
+    if (client->stopping) {
+      return false;
+    }
     if (client->socket < 0 || offset < client->stream_position) {
       if (!start_stream_response(client, offset)) {
         disconnect_client(client);
@@ -540,7 +550,7 @@ static bool stream_read_at(HttpClient *client, size_t offset,
       return true;
     }
     disconnect_client(client);
-    if (attempt != HTTP_RANGE_ATTEMPTS) {
+    if (!client->stopping && attempt != HTTP_RANGE_ATTEMPTS) {
       SYS_Report(
           "REFERENCE GX: HTTP stream retry offset=%u attempt=%u/%u\n",
           (unsigned)offset, attempt + 1u, HTTP_RANGE_ATTEMPTS);
@@ -586,10 +596,19 @@ void http_client_release_connection(HttpClient *client) {
   client->cache_size = 0;
 }
 
+void http_client_request_stop(HttpClient *client) {
+  if (client == NULL) {
+    return;
+  }
+  client->stopping = true;
+  disconnect_client(client);
+}
+
 void http_client_begin_stream(HttpClient *client) {
   if (client == NULL) {
     return;
   }
+  client->stopping = false;
   if (client->total_size <= HTTP_SMALL_MEDIA_CACHE_SIZE) {
     uint8_t *small_media = malloc(client->total_size);
     size_t offset = 0;

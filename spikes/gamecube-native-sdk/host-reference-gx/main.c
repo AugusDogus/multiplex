@@ -42,6 +42,7 @@
 #define VIDEO_RATE_DENOMINATOR 1001
 #define VIDEO_PREBUFFER_BYTES (128u * 1024u)
 #define AUDIO_PREBUFFER_BYTES (32u * 1024u)
+#define SEGMENT_HANDOFF_MARGIN_MS 64u
 #define POSTER_JPEG_CAPACITY (256u * 1024u)
 #define HOME_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS
 #define BROWSE_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_ITEMS
@@ -858,6 +859,7 @@ static void close_media_session(HttpClient **client, MpegPsDemux **demux) {
     audio_dma_request_stop(audio_output);
   }
   request_video_decoder_stop();
+  http_client_request_stop(*client);
   if (*demux != NULL) {
     mpeg_ps_demux_stop(*demux);
   }
@@ -1383,7 +1385,7 @@ static bool continue_playback_if_needed(
   const uint64_t segment_end =
       (uint64_t)active_manifest->segment_start_ms +
       active_manifest->segment_duration_ms;
-  if ((uint64_t)position_ms < segment_end) {
+  if ((uint64_t)position_ms + SEGMENT_HANDOFF_MARGIN_MS < segment_end) {
     return true;
   }
   audio_dma_update(audio_output, false);

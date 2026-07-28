@@ -155,6 +155,10 @@ unrelated user seek. Dolphin confirms the next file is ready before the
 boundary; the remaining multi-second gap is in guest-side HTTP teardown and
 session startup, so eliminating it requires a guest-side staged session rather
 than more host transcoder work.
+Intentional session replacement now cancels the old resumable HTTP reader
+instead of waiting through its outage-retry budget. A 64 ms handoff margin
+also stops the finite audio stream before its final DMA request; the repeated
+accelerated-boundary run returned to zero underruns and a clean memory log.
 A bounded reference-render memo retains three expensive stable layers; warmed
 full home and details repaints measured about 0.37 and 0.33 seconds. The memo
 has a 4 MiB hard limit and peaked at 4,093 KiB in the home/details flow.

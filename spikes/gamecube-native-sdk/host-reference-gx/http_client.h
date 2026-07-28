@@ -8,6 +8,7 @@
 typedef struct HttpClient HttpClient;
 
 HttpClient *http_client_open(const char *url);
+void http_client_request_stop(HttpClient *client);
 void http_client_begin_stream(HttpClient *client);
 void http_client_release_connection(HttpClient *client);
 void http_client_destroy(HttpClient *client);
