@@ -10,7 +10,11 @@ import { and, count, eq, gt, gte, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "~/server/db";
-import { consoleDevice, consolePairingClaimAttempt } from "~/server/db/schema";
+import {
+  consoleDevice,
+  consolePairingClaimAttempt,
+  user,
+} from "~/server/db/schema";
 
 const PAIRING_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const PAIRING_CODE_LENGTH = 4;
@@ -37,6 +41,8 @@ export const pollConsolePairingSchema = z.object({
   deviceId: z.string().uuid(),
   deviceSecret: z.string().min(32).max(128),
 });
+
+export const consoleDeviceCredentialSchema = pollConsolePairingSchema;
 
 export const claimConsolePairingSchema = z.object({
   code: z.string().transform(normalizePairingCode).pipe(z.string().length(4)),
@@ -79,6 +85,19 @@ export type ConsolePairingClaim =
   | { status: "invalid-code" }
   | { status: "rate-limited" };
 
+export interface AuthenticatedConsoleDevice {
+  device: {
+    id: string;
+    name: string;
+    platform: ConsolePlatform;
+    credentialExpiresAt: Date;
+  };
+  user: {
+    id: string;
+    plexAuthToken: string | null;
+  };
+}
+
 export function normalizePairingCode(value: string): string {
   return value.toUpperCase().replaceAll(/[^A-Z0-9]/g, "");
 }
@@ -95,6 +114,78 @@ export function generatePairingCode(
 
 export function hashConsoleCredential(secret: string): string {
   return createHash("sha256").update(secret, "utf8").digest("hex");
+}
+
+export function parseConsoleDeviceAuthorization(
+  authorization: string | null,
+): z.infer<typeof consoleDeviceCredentialSchema> | null {
+  if (!authorization) return null;
+  const separator = authorization.indexOf(" ");
+  if (
+    separator <= 0 ||
+    authorization.slice(0, separator).toLowerCase() !== "multiplexdevice"
+  ) {
+    return null;
+  }
+  const credential = authorization.slice(separator + 1).trim();
+  const credentialSeparator = credential.indexOf(":");
+  if (credentialSeparator <= 0) return null;
+  const parsed = consoleDeviceCredentialSchema.safeParse({
+    deviceId: credential.slice(0, credentialSeparator),
+    deviceSecret: credential.slice(credentialSeparator + 1),
+  });
+  return parsed.success ? parsed.data : null;
+}
+
+export async function authenticateConsoleDevice(
+  input: z.infer<typeof consoleDeviceCredentialSchema>,
+  dependencies: PairingDependencies = {},
+): Promise<AuthenticatedConsoleDevice | null> {
+  const database = dependencies.database ?? db;
+  const now = dependencies.now ?? new Date();
+  const [result] = await database
+    .select({
+      deviceId: consoleDevice.id,
+      deviceName: consoleDevice.name,
+      platform: consoleDevice.platform,
+      credentialHash: consoleDevice.credentialHash,
+      credentialExpiresAt: consoleDevice.credentialExpiresAt,
+      linkedAt: consoleDevice.linkedAt,
+      revokedAt: consoleDevice.revokedAt,
+      userId: user.id,
+      plexAuthToken: user.plexAuthToken,
+    })
+    .from(consoleDevice)
+    .innerJoin(user, eq(consoleDevice.userId, user.id))
+    .where(eq(consoleDevice.id, input.deviceId))
+    .limit(1);
+
+  if (
+    !result?.linkedAt ||
+    result.revokedAt ||
+    result.credentialExpiresAt <= now ||
+    !credentialsMatch(input.deviceSecret, result.credentialHash)
+  ) {
+    return null;
+  }
+
+  await database
+    .update(consoleDevice)
+    .set({ lastSeenAt: now, updatedAt: now })
+    .where(eq(consoleDevice.id, result.deviceId));
+
+  return {
+    device: {
+      id: result.deviceId,
+      name: result.deviceName,
+      platform: result.platform,
+      credentialExpiresAt: result.credentialExpiresAt,
+    },
+    user: {
+      id: result.userId,
+      plexAuthToken: result.plexAuthToken,
+    },
+  };
 }
 
 export async function createConsolePairing(

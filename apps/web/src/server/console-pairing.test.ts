@@ -10,11 +10,13 @@ import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 
 import {
+  authenticateConsoleDevice,
   claimConsolePairing,
   createConsolePairing,
   generatePairingCode,
   hashConsoleCredential,
   normalizePairingCode,
+  parseConsoleDeviceAuthorization,
   pollConsolePairing,
 } from "~/server/console-pairing";
 import * as schema from "~/server/db/schema";
@@ -31,7 +33,8 @@ describe("console pairing", () => {
     await client.batch(
       [
         `CREATE TABLE multiplex_user (
-          id TEXT PRIMARY KEY NOT NULL
+          id TEXT PRIMARY KEY NOT NULL,
+          plex_auth_token TEXT
         )`,
         `CREATE TABLE multiplex_console_device (
           id TEXT PRIMARY KEY NOT NULL,
@@ -55,7 +58,8 @@ describe("console pairing", () => {
           attempted_at INTEGER NOT NULL,
           user_id TEXT NOT NULL REFERENCES multiplex_user(id) ON DELETE CASCADE
         )`,
-        `INSERT INTO multiplex_user (id) VALUES ('${userId}')`,
+        `INSERT INTO multiplex_user (id, plex_auth_token)
+          VALUES ('${userId}', 'account-token')`,
       ],
       "write",
     );
@@ -121,6 +125,23 @@ describe("console pairing", () => {
       credentialExpiresAt: "2026-10-26T14:00:00.000Z",
     });
     expect(
+      await authenticateConsoleDevice(
+        { deviceId, deviceSecret },
+        { database, now: claimedAt },
+      ),
+    ).toEqual({
+      device: {
+        id: deviceId,
+        name: "Nintendo GameCube",
+        platform: "gamecube",
+        credentialExpiresAt: new Date("2026-10-26T14:00:00.000Z"),
+      },
+      user: {
+        id: userId,
+        plexAuthToken: "account-token",
+      },
+    });
+    expect(
       await claimConsolePairing(userId, "GCN4", {
         database,
         now: claimedAt,
@@ -183,6 +204,20 @@ describe("console pairing", () => {
 test("pairing codes use the unambiguous 32-character alphabet", () => {
   expect(generatePairingCode((maximum) => maximum - 1)).toBe("ZZZZ");
   expect(normalizePairingCode(" gc-n4 ")).toBe("GCN4");
+});
+
+test("device authorization uses an opaque HTTP authorization credential", () => {
+  expect(
+    parseConsoleDeviceAuthorization(
+      `MultiplexDevice ${deviceId}:${deviceSecret}`,
+    ),
+  ).toEqual({ deviceId, deviceSecret });
+  expect(
+    parseConsoleDeviceAuthorization(`Bearer ${deviceId}:${deviceSecret}`),
+  ).toBeNull();
+  expect(
+    parseConsoleDeviceAuthorization("MultiplexDevice malformed"),
+  ).toBeNull();
 });
 
 async function createPairing(): Promise<void> {
