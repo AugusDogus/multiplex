@@ -163,6 +163,44 @@ def _plex_xml(base_url: str, path: str, token: str | None) -> ET.Element:
         return ET.fromstring(response.read())
 
 
+def report_timeline(
+    base_url: str,
+    token: str | None,
+    session_id: str,
+    rating_key: int,
+    position_ms: int,
+    duration_ms: int,
+    state: str,
+) -> None:
+    parameters = {
+        "ratingKey": str(rating_key),
+        "key": f"/library/metadata/{rating_key}",
+        "playbackTime": str(position_ms),
+        "time": str(position_ms),
+        "duration": str(duration_ms),
+        "state": state,
+        "hasMDE": "1",
+        "context": "home:hub.continueWatching&row=0&col=0",
+        "X-Plex-Product": "Multiplex",
+        "X-Plex-Version": "1.0.0",
+        "X-Plex-Client-Identifier": "multiplex-gamecube",
+        "X-Plex-Platform": "GameCube",
+        "X-Plex-Device": "GameCube",
+        "X-Plex-Device-Name": "Multiplex GameCube",
+        "X-Plex-Language": "en",
+        "X-Plex-Playback-Session-Id": session_id,
+    }
+    url = f"{base_url.rstrip('/')}/:/timeline?{urllib.parse.urlencode(parameters)}"
+    if token:
+        url = f"{url}&{urllib.parse.urlencode({'X-Plex-Token': token})}"
+    request = urllib.request.Request(
+        url,
+        headers={"Accept": "application/xml", "X-Plex-Product": "Multiplex"},
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        response.read()
+
+
 def fetch_catalog(base_url: str, token: str | None) -> tuple[str, list[CatalogItem]]:
     root = _plex_xml(base_url, "/", token)
     server_name = root.get("friendlyName") or root.get("machineIdentifier") or "Plex"
@@ -606,6 +644,7 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
     playback_cache_lock = threading.Lock()
     playback_preparing: dict[tuple[int, int], threading.Event] = {}
     segment_duration_seconds = 120.0
+    playback_session_id = "multiplex-gamecube"
     plex_base_url: str
     plex_token: str | None
     libraries: dict[int, LibrarySection]
@@ -997,6 +1036,33 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
             # otherwise the preparation lock could delay the current media.
             self._prefetch_playback(playback[0])
             self._send_media(playback[1])
+        elif path == "/v4/timeline":
+            rating_key_value = query.get("ratingKey", [""])[0]
+            position_value = query.get("positionMs", [""])[0]
+            duration_value = query.get("durationMs", [""])[0]
+            state = query.get("state", [""])[0]
+            if (
+                not rating_key_value.isdigit()
+                or not position_value.isdigit()
+                or not duration_value.isdigit()
+                or state not in {"playing", "paused", "stopped"}
+            ):
+                self.send_error(400)
+                return
+            try:
+                report_timeline(
+                    self.plex_base_url,
+                    self.plex_token,
+                    self.playback_session_id,
+                    int(rating_key_value),
+                    int(position_value),
+                    int(duration_value),
+                    state,
+                )
+            except (OSError, urllib.error.HTTPError):
+                self.send_error(502)
+                return
+            self._send_bytes(b"\x01", "application/octet-stream")
         elif path == "/v1/media/current.mpg":
             self._send_media()
         else:
@@ -1032,6 +1098,7 @@ def main() -> None:
     GatewayHandler.plex_base_url = arguments.plex_base_url
     GatewayHandler.plex_token = arguments.token
     GatewayHandler.segment_duration_seconds = arguments.segment_duration
+    GatewayHandler.playback_session_id = f"multiplex-gamecube-{os.getpid()}"
     GatewayHandler.libraries = {library.section_id: library for library in libraries}
     if arguments.media_metadata is not None:
         media_metadata = json.loads(arguments.media_metadata.read_text(encoding="utf-8"))

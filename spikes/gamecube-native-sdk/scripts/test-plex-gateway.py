@@ -5,6 +5,8 @@ import pathlib
 import struct
 import sys
 import unittest
+import urllib.parse
+from unittest import mock
 
 
 MODULE_PATH = pathlib.Path(__file__).with_name("plex-gateway.py")
@@ -16,6 +18,30 @@ SPEC.loader.exec_module(gateway)
 
 
 class CatalogContractTest(unittest.TestCase):
+    def test_reports_web_parity_timeline_contract(self) -> None:
+        with mock.patch.object(gateway.urllib.request, "urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = b""
+            gateway.report_timeline(
+                "http://plex.test:32400",
+                "secret",
+                "gamecube-session",
+                42,
+                31_000,
+                120_000,
+                "playing",
+            )
+
+        request = urlopen.call_args.args[0]
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
+        self.assertEqual(query["ratingKey"], ["42"])
+        self.assertEqual(query["key"], ["/library/metadata/42"])
+        self.assertEqual(query["playbackTime"], ["31000"])
+        self.assertEqual(query["time"], ["31000"])
+        self.assertEqual(query["duration"], ["120000"])
+        self.assertEqual(query["state"], ["playing"])
+        self.assertEqual(query["X-Plex-Playback-Session-Id"], ["gamecube-session"])
+        self.assertEqual(query["X-Plex-Token"], ["secret"])
+
     def test_encodes_versioned_big_endian_catalog(self) -> None:
         encoded = gateway.encode_catalog(
             "Living Room",
