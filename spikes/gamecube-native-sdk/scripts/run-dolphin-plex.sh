@@ -50,12 +50,6 @@ fi
 
 title=$(jq -r '.title' "$metadata")
 container_bytes=$(jq -r '.container_bytes' "$metadata")
-video_bytes=$(jq -r '.video_bytes' "$metadata")
-audio_bytes=$(jq -r '.audio_bytes' "$metadata")
-video_packets=$(jq -r '.video_packets' "$metadata")
-audio_packets=$(jq -r '.audio_packets' "$metadata")
-video_pts=$(jq -r '.video_pts90k' "$metadata")
-audio_pts=$(jq -r '.audio_pts90k' "$metadata")
 
 cleanup() {
   if [ "$pipe_open" -eq 1 ]; then
@@ -82,10 +76,12 @@ trap cleanup EXIT INT TERM
 if [ -n "${PLEX_TOKEN:-}" ]; then
   python3 "$script_dir/plex-gateway.py" "$port" "$media" \
     --plex-base-url "$plex_base_url" --token "$PLEX_TOKEN" \
+    --media-metadata "$metadata" \
     >"$cache_dir/http.log" 2>&1 &
 else
   python3 "$script_dir/plex-gateway.py" "$port" "$media" \
-    --plex-base-url "$plex_base_url" >"$cache_dir/http.log" 2>&1 &
+    --plex-base-url "$plex_base_url" --media-metadata "$metadata" \
+    >"$cache_dir/http.log" 2>&1 &
 fi
 server_pid=$!
 attempt=0
@@ -105,15 +101,7 @@ if [ -z "$gateway" ]; then
   exit 1
 fi
 gateway_url="http://$gateway:$port"
-media_url="$gateway_url/v1/media/current.mpg"
-GAMECUBE_MEDIA_URL="$media_url" \
 GAMECUBE_GATEWAY_URL="$gateway_url" \
-GAMECUBE_MEDIA_VIDEO_BYTES="$video_bytes" \
-GAMECUBE_MEDIA_AUDIO_BYTES="$audio_bytes" \
-GAMECUBE_MEDIA_VIDEO_PACKETS="$video_packets" \
-GAMECUBE_MEDIA_AUDIO_PACKETS="$audio_packets" \
-GAMECUBE_MEDIA_VIDEO_PTS90K="$video_pts" \
-GAMECUBE_MEDIA_AUDIO_PTS90K="$audio_pts" \
   sh "$script_dir/build-native-reference-dol.sh"
 
 user_dir="$spike_dir/.dolphin-user"

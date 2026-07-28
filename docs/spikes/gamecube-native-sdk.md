@@ -299,9 +299,21 @@ in 35 ms. Dolphin's TAP BBA remains reliable with 4 KiB ranges but stalls on a
 16 KiB range, so the smaller transport materially improves startup without
 depending on an emulator-only socket assumption.
 
-For gateway-prepared media, the host supplies selected stream sizes and first
-PTS in the generated build header. This avoids scanning an entire multi-MiB
-file through 4 KiB BBA ranges. The real Plex run discovered PMS
+Gateway-prepared media is no longer coupled into the generated build header.
+At startup the GameCube requests `GET /v4/playback.bin`:
+
+```text
+"MPXP" | u16 version | u16 flags | u32 rating key |
+u32 container/video/audio bytes | u32 video/audio packet counts |
+i64 first video/audio PTS90k | u16 media-path bytes | media path
+```
+
+The guest validates the bounded manifest, resolves its media path against the
+gateway URL, and uses the supplied stream sizes and first PTS without scanning
+an entire multi-MiB file through 4 KiB BBA ranges. Embedded and direct-URL
+smokes retain separate fallbacks, while a gateway build fails closed when its
+manifest is unavailable. The passing DOL contained none of the Plex media URL,
+sizes, packet counts, or timestamps. The real Plex run discovered PMS
 1.43.3 on the LAN, loaded three home hubs with eleven items, downloaded a
 segment of `Fresh`, and converted it to a 15,597,568-byte 720x480 MPEG-2/MP2
 program stream. Dolphin needed one
@@ -452,8 +464,8 @@ not as the committed GameCube renderer yet.
 
 Next Dolphin milestones:
 
-1. turn the host-prepared Plex segment into an on-demand, seekable full-item
-   session with progress persistence;
+1. key playback manifests by the selected item and generate/cache a seekable
+   full-item stream on demand with progress persistence;
 2. add player controls and Watch Together state through the same gateway;
 3. decide whether to repair raylib/OpenGX or extract a smaller portable
    framebuffer/presenter interface before the Dreamcast pass.

@@ -25,6 +25,7 @@ BOOTSTRAP_CATALOG_VERSION = 3
 BROWSE_CATALOG_VERSION = 1
 SEARCH_CATALOG_VERSION = 1
 DETAILS_CATALOG_VERSION = 1
+PLAYBACK_MANIFEST_VERSION = 1
 MAX_ITEMS = 4
 MAX_ROWS = 3
 MAX_SERVER_NAME_BYTES = 63
@@ -97,6 +98,19 @@ class DetailsPage:
     summary: str
     genres: str
     directors: str
+
+
+@dataclass(frozen=True)
+class PlaybackManifest:
+    rating_key: int
+    container_bytes: int
+    video_bytes: int
+    audio_bytes: int
+    video_packets: int
+    audio_packets: int
+    video_pts90k: int
+    audio_pts90k: int
+    media_path: str
 
 
 def _bounded_utf8(value: str, maximum: int) -> bytes:
@@ -513,6 +527,27 @@ def encode_details_page(page: DetailsPage) -> bytes:
     return bytes(body)
 
 
+def encode_playback_manifest(manifest: PlaybackManifest) -> bytes:
+    path = _bounded_utf8(manifest.media_path, 127)
+    if not path.startswith(b"/"):
+        raise ValueError("playback media path must be absolute")
+    return struct.pack(
+        ">4sHHIIIIIIqqH",
+        b"MPXP",
+        PLAYBACK_MANIFEST_VERSION,
+        1,
+        manifest.rating_key,
+        manifest.container_bytes,
+        manifest.video_bytes,
+        manifest.audio_bytes,
+        manifest.video_packets,
+        manifest.audio_packets,
+        manifest.video_pts90k,
+        manifest.audio_pts90k,
+        len(path),
+    ) + path
+
+
 def _plex_bytes(base_url: str, path: str, token: str | None) -> bytes:
     url = f"{base_url.rstrip('/')}{path}"
     if token:
@@ -556,6 +591,7 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
     bootstrap_catalog_bytes: bytes
     artwork_bytes: bytes
     health_bytes: bytes
+    playback_manifest_bytes: bytes | None = None
     plex_base_url: str
     plex_token: str | None
     libraries: dict[int, LibrarySection]
@@ -751,6 +787,11 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
                 self.send_error(404)
                 return
             self._send_bytes(payload, "application/octet-stream")
+        elif path == "/v4/playback.bin":
+            if self.playback_manifest_bytes is None:
+                self.send_error(404)
+                return
+            self._send_bytes(self.playback_manifest_bytes, "application/octet-stream")
         elif path == "/v1/media/current.mpg":
             self._send_media()
         else:
@@ -766,6 +807,7 @@ def main() -> None:
     parser.add_argument("media", type=pathlib.Path)
     parser.add_argument("--plex-base-url", required=True)
     parser.add_argument("--token")
+    parser.add_argument("--media-metadata", type=pathlib.Path)
     arguments = parser.parse_args()
 
     server_name, items = fetch_catalog(arguments.plex_base_url, arguments.token)
@@ -781,6 +823,23 @@ def main() -> None:
     GatewayHandler.plex_base_url = arguments.plex_base_url
     GatewayHandler.plex_token = arguments.token
     GatewayHandler.libraries = {library.section_id: library for library in libraries}
+    if arguments.media_metadata is not None:
+        media_metadata = json.loads(arguments.media_metadata.read_text(encoding="utf-8"))
+        GatewayHandler.playback_manifest_bytes = encode_playback_manifest(
+            PlaybackManifest(
+                rating_key=int(media_metadata["rating_key"]),
+                container_bytes=int(media_metadata["container_bytes"]),
+                video_bytes=int(media_metadata["video_bytes"]),
+                audio_bytes=int(media_metadata["audio_bytes"]),
+                video_packets=int(media_metadata["video_packets"]),
+                audio_packets=int(media_metadata["audio_packets"]),
+                video_pts90k=int(media_metadata["video_pts90k"]),
+                audio_pts90k=int(media_metadata["audio_pts90k"]),
+                media_path="/v1/media/current.mpg",
+            )
+        )
+    else:
+        GatewayHandler.playback_manifest_bytes = None
     GatewayHandler.health_bytes = json.dumps(
         {
             "contractVersion": BOOTSTRAP_CATALOG_VERSION,

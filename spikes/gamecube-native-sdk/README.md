@@ -149,12 +149,13 @@ inspection uses a seekable 1 KiB range cache; playback switches to one
 forward-only GET on a producer LWP. The MPEG-PS producer fills fixed 320 KiB
 video and 64 KiB audio rings, while the codecs retain only 32 KiB and 8 KiB
 compressed input windows. No container or elementary stream is allocated at
-its full length. A host-prepared stream can provide its sizes and first PTS at
-build time, reducing the real 3.74 MB Plex-derived smoke from a full scan to
-one range request before sequential playback. That run decoded at 29.9 fps,
-presented at 60.4 fps, completed pause/resume with zero underruns, and produced
-a clean Dolphin memory log. Dolphin 2606's BuiltIn HLE backend still stalls
-after its first responses; TAP remains the passing low-level BBA control.
+its full length. A host-prepared stream now exposes its URL, sizes, packet
+counts, and first PTS through a bounded runtime playback manifest, reducing the
+real Plex-derived smoke from a full scan to one range request before sequential
+playback without compiling session data into the DOL. That run decoded at 29.9
+fps, presented at 60.4 fps, completed pause/resume with zero underruns, and
+produced a clean Dolphin memory log. Dolphin 2606's BuiltIn HLE backend still
+stalls after its first responses; TAP remains the passing low-level BBA control.
 
 The isolated Dolphin profile uses its normal DSP HLE mode. Movie audio follows
 WiiMC-GCN's `ao_gekko` design and streams decoded stereo PCM directly through

@@ -1062,6 +1062,8 @@ static void *run_app(void *unused) {
 
   MpegPsDemux *demux = NULL;
   HttpClient *client = NULL;
+  MultiplexGatewayPlaybackManifest playback_manifest;
+  memset(&playback_manifest, 0, sizeof(playback_manifest));
   MultiplexGatewayCatalog catalog;
   memset(&catalog, 0, sizeof(catalog));
   const bool has_catalog =
@@ -1119,22 +1121,41 @@ static void *run_app(void *unused) {
       return (void *)(uintptr_t)1;
     }
   }
-  if (MULTIPLEX_MEDIA_URL[0] != '\0') {
-    client = http_client_open(MULTIPLEX_MEDIA_URL);
+  const bool has_playback_manifest =
+      MULTIPLEX_GATEWAY_URL[0] != '\0' &&
+      multiplex_gateway_load_playback_manifest(MULTIPLEX_GATEWAY_URL,
+                                               &playback_manifest);
+  const char *remote_media_url = has_playback_manifest
+                                     ? playback_manifest.media_url
+                                     : MULTIPLEX_MEDIA_URL;
+  if (remote_media_url[0] != '\0') {
+    client = http_client_open(remote_media_url);
     if (client == NULL) {
       SYS_Report("REFERENCE GX: HTTP media initialization failed\n");
       return (void *)(uintptr_t)1;
     }
-    if (MULTIPLEX_MEDIA_HAS_INFO != 0) {
+    if (has_playback_manifest || MULTIPLEX_MEDIA_HAS_INFO != 0) {
       const MpegPsInfo info = {
           .video_stream_id = 0xe0,
           .audio_stream_id = 0xc0,
-          .video_size = MULTIPLEX_MEDIA_VIDEO_BYTES,
-          .audio_size = MULTIPLEX_MEDIA_AUDIO_BYTES,
-          .video_packets = MULTIPLEX_MEDIA_VIDEO_PACKETS,
-          .audio_packets = MULTIPLEX_MEDIA_AUDIO_PACKETS,
-          .first_video_pts90k = MULTIPLEX_MEDIA_VIDEO_PTS90K,
-          .first_audio_pts90k = MULTIPLEX_MEDIA_AUDIO_PTS90K,
+          .video_size = has_playback_manifest
+                            ? playback_manifest.video_bytes
+                            : MULTIPLEX_MEDIA_VIDEO_BYTES,
+          .audio_size = has_playback_manifest
+                            ? playback_manifest.audio_bytes
+                            : MULTIPLEX_MEDIA_AUDIO_BYTES,
+          .video_packets = has_playback_manifest
+                               ? playback_manifest.video_packets
+                               : MULTIPLEX_MEDIA_VIDEO_PACKETS,
+          .audio_packets = has_playback_manifest
+                               ? playback_manifest.audio_packets
+                               : MULTIPLEX_MEDIA_AUDIO_PACKETS,
+          .first_video_pts90k = has_playback_manifest
+                                    ? playback_manifest.first_video_pts90k
+                                    : MULTIPLEX_MEDIA_VIDEO_PTS90K,
+          .first_audio_pts90k = has_playback_manifest
+                                    ? playback_manifest.first_audio_pts90k
+                                    : MULTIPLEX_MEDIA_AUDIO_PTS90K,
       };
       demux = mpeg_ps_demux_create_reader_with_info(
           client, http_client_size(client), read_http_program, &info);
@@ -1143,13 +1164,18 @@ static void *run_app(void *unused) {
           client, http_client_size(client), read_http_program);
     }
     SYS_Report(
-        "REFERENCE GX: media-source=http host=%s port=%u bytes=%u ranges=%u\n",
+        "REFERENCE GX: media-source=http rating-key=%u host=%s port=%u bytes=%u ranges=%u\n",
+        has_playback_manifest ? playback_manifest.rating_key : 0,
         http_client_host(client), http_client_port(client),
         (unsigned)http_client_size(client),
         http_client_range_count(client));
     /* libogc network waits are LWP-local; the producer opens a streaming GET. */
     http_client_begin_stream(client);
   } else {
+    if (MULTIPLEX_GATEWAY_URL[0] != '\0') {
+      SYS_Report("REFERENCE GX: gateway playback manifest unavailable\n");
+      return (void *)(uintptr_t)1;
+    }
     SYS_Report("REFERENCE GX: media-source=embedded bytes=%u\n",
                multiplex_dvd_demo_mpg_size);
     demux = mpeg_ps_demux_create(

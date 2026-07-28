@@ -10,6 +10,7 @@
 #define BROWSE_HEADER_BYTES 16u
 #define SEARCH_HEADER_BYTES 10u
 #define DETAILS_HEADER_BYTES 40u
+#define PLAYBACK_HEADER_BYTES 50u
 #define CATALOG_ITEM_HEADER_BYTES 20u
 #define CATALOG_MAX_BYTES 2048u
 #define GATEWAY_URL_CAPACITY 768u
@@ -25,6 +26,12 @@ static uint16_t read_be16(const uint8_t *bytes) {
 static uint32_t read_be32(const uint8_t *bytes) {
   return ((uint32_t)bytes[0] << 24u) | ((uint32_t)bytes[1] << 16u) |
          ((uint32_t)bytes[2] << 8u) | bytes[3];
+}
+
+static int64_t read_be64_signed(const uint8_t *bytes) {
+  const uint64_t value = ((uint64_t)read_be32(bytes) << 32u) |
+                         (uint64_t)read_be32(bytes + 4);
+  return (int64_t)value;
 }
 
 static bool parse_item(const uint8_t *bytes, size_t size, size_t *cursor,
@@ -241,6 +248,44 @@ static bool parse_details(const uint8_t *bytes, size_t size,
                             sizeof(details->directors),
                             details->directors_length) &&
          cursor == size;
+}
+
+static bool parse_playback_manifest(
+    const uint8_t *bytes, size_t size, const char *base_url,
+    MultiplexGatewayPlaybackManifest *manifest) {
+  if (size < PLAYBACK_HEADER_BYTES || memcmp(bytes, "MPXP", 4) != 0) {
+    return false;
+  }
+  memset(manifest, 0, sizeof(*manifest));
+  manifest->version = read_be16(bytes + 4);
+  manifest->flags = read_be16(bytes + 6);
+  manifest->rating_key = read_be32(bytes + 8);
+  manifest->container_bytes = read_be32(bytes + 12);
+  manifest->video_bytes = read_be32(bytes + 16);
+  manifest->audio_bytes = read_be32(bytes + 20);
+  manifest->video_packets = read_be32(bytes + 24);
+  manifest->audio_packets = read_be32(bytes + 28);
+  manifest->first_video_pts90k = read_be64_signed(bytes + 32);
+  manifest->first_audio_pts90k = read_be64_signed(bytes + 40);
+  const uint16_t path_length = read_be16(bytes + 48);
+  if (manifest->version != 1 || (manifest->flags & 1u) == 0 ||
+      manifest->rating_key == 0 || manifest->container_bytes == 0 ||
+      manifest->video_bytes == 0 || manifest->audio_bytes == 0 ||
+      manifest->first_video_pts90k < 0 ||
+      manifest->first_audio_pts90k < 0 || path_length == 0 ||
+      PLAYBACK_HEADER_BYTES + path_length != size ||
+      bytes[PLAYBACK_HEADER_BYTES] != '/') {
+    return false;
+  }
+  const size_t base_length = strlen(base_url);
+  const bool base_has_slash =
+      base_length > 0 && base_url[base_length - 1] == '/';
+  const uint16_t skipped = base_has_slash ? 1u : 0u;
+  const int written = snprintf(
+      manifest->media_url, sizeof(manifest->media_url), "%s%.*s", base_url,
+      path_length - skipped,
+      (const char *)(bytes + PLAYBACK_HEADER_BYTES + skipped));
+  return written > 0 && (size_t)written < sizeof(manifest->media_url);
 }
 
 static bool encode_query(const char *query, uint16_t query_length,
@@ -518,5 +563,35 @@ bool multiplex_gateway_load_details(const char *base_url, uint32_t rating_key,
       "REFERENCE GX: gateway-details rating-key=%u title=%s playable=%u loaded=%u\n",
       rating_key, loaded ? details->title : "",
       loaded ? (details->flags & 1u) != 0 : 0, loaded);
+  return loaded;
+}
+
+bool multiplex_gateway_load_playback_manifest(
+    const char *base_url, MultiplexGatewayPlaybackManifest *manifest) {
+  if (base_url == NULL || base_url[0] == '\0' || manifest == NULL) {
+    return false;
+  }
+  const size_t base_length = strlen(base_url);
+  const bool has_slash = base_length > 0 && base_url[base_length - 1] == '/';
+  char url[GATEWAY_URL_CAPACITY];
+  const int written = snprintf(url, sizeof(url), "%s%sv4/playback.bin",
+                               base_url, has_slash ? "" : "/");
+  if (written < 0 || (size_t)written >= sizeof(url)) {
+    return false;
+  }
+  HttpClient *client = http_client_open(url);
+  if (client == NULL) {
+    return false;
+  }
+  const size_t size = http_client_size(client);
+  uint8_t bytes[CATALOG_MAX_BYTES];
+  const bool loaded = size > 0 && size <= sizeof(bytes) &&
+                      http_client_read_at(client, 0, bytes, size) &&
+                      parse_playback_manifest(bytes, size, base_url, manifest);
+  http_client_destroy(client);
+  SYS_Report(
+      "REFERENCE GX: gateway-playback rating-key=%u bytes=%u loaded=%u\n",
+      loaded ? manifest->rating_key : 0,
+      loaded ? manifest->container_bytes : 0, loaded);
   return loaded;
 }
