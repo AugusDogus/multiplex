@@ -83,6 +83,29 @@ export const verification = createTable("verification", {
   ),
 });
 
+export const deviceCode = createTable(
+  "device_code",
+  {
+    id: text("id").primaryKey(),
+    deviceCode: text("device_code").notNull(),
+    userCode: text("user_code").notNull(),
+    userId: text("user_id").references(() => user.id, {
+      onDelete: "cascade",
+    }),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    status: text("status").notNull(),
+    lastPolledAt: integer("last_polled_at", { mode: "timestamp" }),
+    pollingInterval: integer("polling_interval"),
+    clientId: text("client_id"),
+    scope: text("scope"),
+  },
+  (table) => [
+    uniqueIndex("device_code_device_code_unique").on(table.deviceCode),
+    uniqueIndex("device_code_user_code_unique").on(table.userCode),
+    index("device_code_expires_at_idx").on(table.expiresAt),
+  ],
+);
+
 export const consoleDevice = createTable(
   "console_device",
   {

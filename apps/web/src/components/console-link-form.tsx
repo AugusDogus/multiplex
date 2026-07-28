@@ -2,7 +2,6 @@
 
 import { Check, Gamepad2, Link2 } from "lucide-react";
 import { useRef, useState } from "react";
-import { z } from "zod";
 
 import { Button } from "~/components/ui/button";
 import {
@@ -13,30 +12,20 @@ import {
   CardTitle,
 } from "~/components/ui/card";
 import { Input } from "~/components/ui/input";
-
-const linkResponseSchema = z.discriminatedUnion("status", [
-  z.object({
-    status: z.literal("linked"),
-    device: z.object({
-      id: z.string(),
-      name: z.string(),
-      platform: z.enum(["gamecube", "wii", "dreamcast", "xbox", "ps2"]),
-    }),
-  }),
-  z.object({ status: z.literal("invalid-code") }),
-  z.object({ status: z.literal("rate-limited") }),
-  z.object({ status: z.literal("invalid-request") }),
-  z.object({ status: z.literal("unauthorized") }),
-]);
+import { authClient } from "~/lib/auth/client";
 
 type LinkState =
   | { status: "ready" }
   | { status: "submitting" }
   | { status: "error"; message: string }
-  | { status: "linked"; deviceName: string };
+  | { status: "linked" };
 
-export function ConsoleLinkForm() {
-  const [code, setCode] = useState("");
+export function ConsoleLinkForm({
+  initialCode = "",
+}: {
+  initialCode?: string;
+}) {
+  const [code, setCode] = useState(initialCode);
   const [state, setState] = useState<LinkState>({ status: "ready" });
   const inputRef = useRef<HTMLInputElement>(null);
   const isSubmitting = state.status === "submitting";
@@ -47,34 +36,26 @@ export function ConsoleLinkForm() {
 
     setState({ status: "submitting" });
     try {
-      const response = await fetch("/api/console/pairings/claim", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
+      const verification = await authClient.device({
+        query: { user_code: code },
       });
-      const parsed = linkResponseSchema.safeParse(await response.json());
-      if (response.ok && parsed.success && parsed.data.status === "linked") {
-        setState({
-          status: "linked",
-          deviceName: parsed.data.device.name,
-        });
-        return;
+      if (verification.error || verification.data?.status !== "pending") {
+        throw new Error("Device code could not be claimed");
       }
 
-      setState({
-        status: "error",
-        message:
-          response.status === 401
-            ? "Your session expired. Refresh this page and sign in again."
-            : response.status === 429
-              ? "Too many attempts. Wait a few minutes, then use a new code from the console."
-              : "That code is invalid or has expired. Check the console and try again.",
+      const approval = await authClient.device.approve({
+        userCode: code,
       });
-      requestAnimationFrame(() => inputRef.current?.select());
+      if (approval.error || !approval.data?.success) {
+        throw new Error("Device code could not be approved");
+      }
+
+      setState({ status: "linked" });
     } catch {
       setState({
         status: "error",
-        message: "Multiplex could not link the console. Try again in a moment.",
+        message:
+          "That code is invalid or has expired. Check the console and try again.",
       });
       requestAnimationFrame(() => inputRef.current?.select());
     }
@@ -92,8 +73,8 @@ export function ConsoleLinkForm() {
               Console linked
             </h1>
             <p className="text-muted-foreground max-w-xs text-sm leading-6">
-              {state.deviceName} can now use your Multiplex account. You can
-              return to the console.
+              Your console can now use your Multiplex account. You can return to
+              the console.
             </p>
           </div>
         </CardPanel>
@@ -190,8 +171,8 @@ export function ConsoleLinkForm() {
       </Card>
 
       <p className="text-muted-foreground mt-5 text-center text-xs leading-5">
-        Linking grants this console access to Multiplex. Your Plex password and
-        account token are never sent to it.
+        Linking grants this console access to Multiplex. Your Plex password is
+        never sent to it.
       </p>
     </div>
   );
