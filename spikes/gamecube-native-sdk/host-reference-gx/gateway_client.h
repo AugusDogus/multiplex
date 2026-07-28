@@ -13,6 +13,7 @@
 #define MULTIPLEX_GATEWAY_SERVER_CAPACITY 64
 #define MULTIPLEX_GATEWAY_TITLE_CAPACITY 96
 #define MULTIPLEX_GATEWAY_SUBTITLE_CAPACITY 96
+#define MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY 25
 #define MULTIPLEX_GATEWAY_ARTWORK_WIDTH 80
 #define MULTIPLEX_GATEWAY_ARTWORK_HEIGHT 120
 #define MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES \
@@ -67,6 +68,14 @@ typedef struct {
   MultiplexGatewayItem items[MULTIPLEX_GATEWAY_MAX_ITEMS];
 } MultiplexGatewayBrowsePage;
 
+typedef struct {
+  uint16_t version;
+  uint16_t item_count;
+  char query[MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY];
+  uint16_t query_length;
+  MultiplexGatewayItem items[MULTIPLEX_GATEWAY_MAX_ITEMS];
+} MultiplexGatewaySearchPage;
+
 bool multiplex_gateway_load_catalog(const char *base_url,
                                     MultiplexGatewayCatalog *catalog);
 bool multiplex_gateway_load_artwork(const char *base_url,
@@ -77,6 +86,12 @@ bool multiplex_gateway_load_browse(const char *base_url, uint16_t section_id,
                                    MultiplexGatewayBrowsePage *page);
 bool multiplex_gateway_load_browse_artwork(
     const char *base_url, uint16_t section_id, uint16_t start,
+    uint8_t *destination, size_t capacity, size_t *encoded_size);
+bool multiplex_gateway_load_search(const char *base_url, const char *query,
+                                   uint16_t query_length,
+                                   MultiplexGatewaySearchPage *page);
+bool multiplex_gateway_load_search_artwork(
+    const char *base_url, const char *query, uint16_t query_length,
     uint8_t *destination, size_t capacity, size_t *encoded_size);
 
 #endif

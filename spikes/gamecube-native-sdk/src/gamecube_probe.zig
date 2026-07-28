@@ -489,6 +489,62 @@ export fn multiplex_native_app_browse_commit() callconv(.c) u32 {
     return 1;
 }
 
+export fn multiplex_native_app_search_request(output: [*]u8, capacity: u32) callconv(.c) u32 {
+    const query = core.searchRequestQuery(app_model);
+    if (query.len == 0 or query.len > capacity) return 0;
+    @memcpy(output[0..query.len], query);
+    return @intCast(query.len);
+}
+
+export fn multiplex_native_app_search_begin(
+    query: [*]const u8,
+    query_length: u32,
+    item_count: u32,
+) callconv(.c) u32 {
+    if (!app_initialized or query_length == 0 or item_count > 4) return 0;
+    staged_browse_title = query[0..query_length];
+    staged_browse_item_count = item_count;
+    return 1;
+}
+
+export fn multiplex_native_app_search_item(
+    item_index: u32,
+    rating_key: u32,
+    title: [*]const u8,
+    title_length: u32,
+    subtitle: [*]const u8,
+    subtitle_length: u32,
+    artwork_slot: u32,
+    duration_ms: u32,
+    view_offset_ms: u32,
+    progress_percent: u32,
+) callconv(.c) u32 {
+    return multiplex_native_app_browse_item(
+        item_index,
+        rating_key,
+        title,
+        title_length,
+        subtitle,
+        subtitle_length,
+        artwork_slot,
+        duration_ms,
+        view_offset_ms,
+        progress_percent,
+    );
+}
+
+export fn multiplex_native_app_search_commit() callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    app_model = core.commitModelRoot(core.loadSearch(
+        app_model,
+        staged_browse_title,
+        staged_browse_item_ptrs[0..staged_browse_item_count],
+    ));
+    focused_handler = 0;
+    reference_full_repaint = true;
+    return 1;
+}
+
 /// 0/1 move focus backward/forward, 2 activates the focused `.native`
 /// handler, and 3 dispatches the console Back message.
 export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
@@ -509,24 +565,33 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         return 1;
     }
     if (action == 6) {
-        app_model = core.commitModelRoot(core.update(model, .browse_next));
+        const message: core.Msg = if (model.screen == .search) .search_submit else .browse_next;
+        app_model = core.commitModelRoot(core.update(model, message));
         focused_handler = 0;
         reference_full_repaint = true;
-        multiplex_native_input_trace(action, 0, 0, 7);
+        multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 16 else 7);
         return 1;
     }
     if (action == 7) {
-        app_model = core.commitModelRoot(core.update(model, .browse_previous));
+        const message: core.Msg = if (model.screen == .search) .search_delete else .browse_previous;
+        app_model = core.commitModelRoot(core.update(model, message));
         focused_handler = 0;
         reference_full_repaint = true;
-        multiplex_native_input_trace(action, 0, 0, 6);
+        multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 15 else 6);
+        return 1;
+    }
+    if (action == 10) {
+        app_model = core.commitModelRoot(core.update(model, .open_search));
+        focused_handler = 0;
+        reference_full_repaint = true;
+        multiplex_native_input_trace(action, 0, 0, 13);
         return 1;
     }
     var fixed = std.heap.FixedBufferAllocator.init(&ui_arena);
     var ui = CompiledView.Ui.init(fixed.allocator());
     const tree = ui.finalizeWithTokens(CompiledView.build(&ui, model), .{}) catch return 0;
 
-    var press_ids: [16]canvas.ObjectId = undefined;
+    var press_ids: [32]canvas.ObjectId = undefined;
     var press_count: usize = 0;
     for (tree.handlers) |handler| {
         if (tree.msgFor(handler.id, .press) == null) continue;
@@ -560,9 +625,29 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
             focused_handler = (focused_handler + 1) % press_count;
             reference_full_repaint = false;
         },
+        8 => {
+            focused_handler = if (model.screen == .search)
+                (if (focused_handler < 9) focused_handler else focused_handler - 9)
+            else if (focused_handler == 0)
+                press_count - 1
+            else
+                focused_handler - 1;
+            reference_full_repaint = false;
+        },
+        9 => {
+            focused_handler = if (model.screen == .search)
+                @min(focused_handler + 9, press_count - 1)
+            else
+                (focused_handler + 1) % press_count;
+            reference_full_repaint = false;
+        },
         2 => {
             traced_focus = focused_handler;
             const msg = tree.msgFor(press_ids[focused_handler], .press) orelse return 0;
+            const keep_focus = switch (msg) {
+                .search_key => true,
+                else => false,
+            };
             message_kind = switch (msg) {
                 .connect_demo => 1,
                 .previous_row => 2,
@@ -571,13 +656,17 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .open_library => 5,
                 .browse_previous => 6,
                 .browse_next => 7,
+                .open_search => 13,
+                .search_key => 14,
+                .search_delete => 15,
+                .search_submit => 16,
                 .open_item => 8,
                 .play => 9,
                 .toggle_playback => 10,
                 .back => 11,
             };
             app_model = core.commitModelRoot(core.update(model, msg));
-            focused_handler = 0;
+            if (!keep_focus) focused_handler = 0;
             reference_full_repaint = true;
         },
         else => return 0,
@@ -618,7 +707,7 @@ export fn multiplex_native_app_render(output: [*]GxCommand, capacity: u32) callc
     captureVideoSurface(layout.nodes, model);
     capturePosterSurfaces(layout.nodes);
 
-    var press_ids: [16]canvas.ObjectId = undefined;
+    var press_ids: [32]canvas.ObjectId = undefined;
     var press_count: usize = 0;
     for (tree.handlers) |handler| {
         if (tree.msgFor(handler.id, .press) == null) continue;
@@ -748,7 +837,7 @@ fn renderReference(
     reference_render_stage = 3;
     multiplex_native_profile_mark(reference_render_stage);
 
-    var press_ids: [16]canvas.ObjectId = undefined;
+    var press_ids: [32]canvas.ObjectId = undefined;
     var press_count: usize = 0;
     for (tree.handlers) |handler| {
         if (tree.msgFor(handler.id, .press) == null) continue;

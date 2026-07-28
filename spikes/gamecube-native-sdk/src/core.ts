@@ -1,6 +1,14 @@
 import { asciiBytes } from "@native-sdk/core";
 
-export type Screen = "pairing" | "home" | "libraries" | "browse" | "details" | "player";
+export type Screen =
+  | "pairing"
+  | "home"
+  | "libraries"
+  | "browse"
+  | "search"
+  | "search_results"
+  | "details"
+  | "player";
 
 export interface CatalogItem {
   readonly id: number;
@@ -27,6 +35,12 @@ export interface LibrarySection {
   readonly typeLabel: Uint8Array;
 }
 
+export interface KeyboardKey {
+  readonly id: number;
+  readonly label: Uint8Array;
+  readonly value: number;
+}
+
 export interface Model {
   readonly screen: Screen;
   readonly gatewayConnected: boolean;
@@ -48,6 +62,10 @@ export interface Model {
   readonly browsePageCount: number;
   readonly browseTotal: number;
   readonly browseLoaded: boolean;
+  readonly searchQuery: Uint8Array;
+  readonly searchItems: readonly CatalogItem[];
+  readonly searchLoaded: boolean;
+  readonly selectedFromSearch: boolean;
   readonly playing: boolean;
 }
 
@@ -59,6 +77,10 @@ export type Msg =
   | { readonly kind: "open_library"; readonly index: number }
   | { readonly kind: "browse_previous" }
   | { readonly kind: "browse_next" }
+  | { readonly kind: "open_search" }
+  | { readonly kind: "search_key"; readonly index: number }
+  | { readonly kind: "search_delete" }
+  | { readonly kind: "search_submit" }
   | { readonly kind: "open_item"; readonly index: number }
   | { readonly kind: "play" }
   | { readonly kind: "toggle_playback" }
@@ -121,6 +143,72 @@ const demoLibraries: readonly LibrarySection[] = [
   },
 ];
 
+const keyboardKeys: readonly KeyboardKey[] = [
+  { id: 0, label: asciiBytes("A"), value: 65 },
+  { id: 1, label: asciiBytes("B"), value: 66 },
+  { id: 2, label: asciiBytes("C"), value: 67 },
+  { id: 3, label: asciiBytes("D"), value: 68 },
+  { id: 4, label: asciiBytes("E"), value: 69 },
+  { id: 5, label: asciiBytes("F"), value: 70 },
+  { id: 6, label: asciiBytes("G"), value: 71 },
+  { id: 7, label: asciiBytes("H"), value: 72 },
+  { id: 8, label: asciiBytes("I"), value: 73 },
+  { id: 9, label: asciiBytes("J"), value: 74 },
+  { id: 10, label: asciiBytes("K"), value: 75 },
+  { id: 11, label: asciiBytes("L"), value: 76 },
+  { id: 12, label: asciiBytes("M"), value: 77 },
+  { id: 13, label: asciiBytes("N"), value: 78 },
+  { id: 14, label: asciiBytes("O"), value: 79 },
+  { id: 15, label: asciiBytes("P"), value: 80 },
+  { id: 16, label: asciiBytes("Q"), value: 81 },
+  { id: 17, label: asciiBytes("R"), value: 82 },
+  { id: 18, label: asciiBytes("S"), value: 83 },
+  { id: 19, label: asciiBytes("T"), value: 84 },
+  { id: 20, label: asciiBytes("U"), value: 85 },
+  { id: 21, label: asciiBytes("V"), value: 86 },
+  { id: 22, label: asciiBytes("W"), value: 87 },
+  { id: 23, label: asciiBytes("X"), value: 88 },
+  { id: 24, label: asciiBytes("Y"), value: 89 },
+  { id: 25, label: asciiBytes("Z"), value: 90 },
+];
+
+const keyboardRowOneKeys: readonly KeyboardKey[] = [
+  { id: 0, label: asciiBytes("A"), value: 65 },
+  { id: 1, label: asciiBytes("B"), value: 66 },
+  { id: 2, label: asciiBytes("C"), value: 67 },
+  { id: 3, label: asciiBytes("D"), value: 68 },
+  { id: 4, label: asciiBytes("E"), value: 69 },
+  { id: 5, label: asciiBytes("F"), value: 70 },
+  { id: 6, label: asciiBytes("G"), value: 71 },
+  { id: 7, label: asciiBytes("H"), value: 72 },
+  { id: 8, label: asciiBytes("I"), value: 73 },
+];
+
+const keyboardRowTwoKeys: readonly KeyboardKey[] = [
+  { id: 9, label: asciiBytes("J"), value: 74 },
+  { id: 10, label: asciiBytes("K"), value: 75 },
+  { id: 11, label: asciiBytes("L"), value: 76 },
+  { id: 12, label: asciiBytes("M"), value: 77 },
+  { id: 13, label: asciiBytes("N"), value: 78 },
+  { id: 14, label: asciiBytes("O"), value: 79 },
+  { id: 15, label: asciiBytes("P"), value: 80 },
+  { id: 16, label: asciiBytes("Q"), value: 81 },
+  { id: 17, label: asciiBytes("R"), value: 82 },
+];
+
+const keyboardRowThreeKeys: readonly KeyboardKey[] = [
+  { id: 18, label: asciiBytes("S"), value: 83 },
+  { id: 19, label: asciiBytes("T"), value: 84 },
+  { id: 20, label: asciiBytes("U"), value: 85 },
+  { id: 21, label: asciiBytes("V"), value: 86 },
+  { id: 22, label: asciiBytes("W"), value: 87 },
+  { id: 23, label: asciiBytes("X"), value: 88 },
+  { id: 24, label: asciiBytes("Y"), value: 89 },
+  { id: 25, label: asciiBytes("Z"), value: 90 },
+];
+
+const emptySearchPrompt = asciiBytes("Choose letters with A");
+
 export function initialModel(): Model {
   return {
     screen: "pairing",
@@ -143,6 +231,10 @@ export function initialModel(): Model {
     browsePageCount: 1,
     browseTotal: demoItems.length,
     browseLoaded: true,
+    searchQuery: new Uint8Array(0),
+    searchItems: [],
+    searchLoaded: true,
+    selectedFromSearch: false,
     playing: false,
   };
 }
@@ -192,6 +284,11 @@ export function loadBrowse(
   };
 }
 
+export function loadSearch(model: Model, query: Uint8Array, items: readonly CatalogItem[]): Model {
+  if (model.screen !== "search_results" || query.length === 0) return model;
+  return { ...model, searchQuery: query, searchItems: items, searchLoaded: true };
+}
+
 export function visibleItems(model: Model): readonly CatalogItem[] {
   return model.rows[model.rowIndex].items;
 }
@@ -236,6 +333,51 @@ export function browseRequestStart(model: Model): number {
   return model.browseStart;
 }
 
+export function searchPrompt(model: Model): Uint8Array {
+  return model.searchQuery.length === 0 ? emptySearchPrompt : model.searchQuery;
+}
+
+export function keyboardRowOne(_model: Model): readonly KeyboardKey[] {
+  return keyboardRowOneKeys;
+}
+
+export function keyboardRowTwo(_model: Model): readonly KeyboardKey[] {
+  return keyboardRowTwoKeys;
+}
+
+export function keyboardRowThree(_model: Model): readonly KeyboardKey[] {
+  return keyboardRowThreeKeys;
+}
+
+export function searchHasQuery(model: Model): boolean {
+  return model.searchQuery.length > 0;
+}
+
+export function searchLoading(model: Model): boolean {
+  return !model.searchLoaded;
+}
+
+export function searchHasResults(model: Model): boolean {
+  return model.searchLoaded && model.searchItems.length > 0;
+}
+
+export function searchNoResults(model: Model): boolean {
+  return model.searchLoaded && model.searchItems.length === 0;
+}
+
+export function searchRequestQuery(model: Model): Uint8Array {
+  if (model.screen !== "search_results" || model.searchLoaded) return new Uint8Array(0);
+  return model.searchQuery;
+}
+
+function appendSearchKey(query: Uint8Array, value: number): Uint8Array {
+  if (query.length >= 24) return query;
+  const result = new Uint8Array(query.length + 1);
+  result.set(query, 0);
+  result[query.length] = value;
+  return result;
+}
+
 export function update(model: Model, msg: Msg): Model {
   switch (msg.kind) {
     case "connect_demo":
@@ -275,9 +417,36 @@ export function update(model: Model, msg: Msg): Model {
       if (model.screen !== "browse" || !browseHasNext(model)) return model;
       return { ...model, browseStart: model.browseStart + 4, browseLoaded: false };
     }
+    case "open_search":
+      return {
+        ...model,
+        screen: "search",
+        searchQuery: new Uint8Array(0),
+        searchItems: [],
+        searchLoaded: true,
+      };
+    case "search_key": {
+      if (model.screen !== "search" || msg.index < 0 || msg.index >= keyboardKeys.length) {
+        return model;
+      }
+      return {
+        ...model,
+        searchQuery: appendSearchKey(model.searchQuery, keyboardKeys[msg.index].value),
+      };
+    }
+    case "search_delete":
+      if (model.screen !== "search" || model.searchQuery.length === 0) return model;
+      return { ...model, searchQuery: model.searchQuery.slice(0, model.searchQuery.length - 1) };
+    case "search_submit":
+      if (model.screen !== "search" || model.searchQuery.length === 0) return model;
+      return { ...model, screen: "search_results", searchItems: [], searchLoaded: false };
     case "open_item": {
       const items =
-        model.screen === "browse" ? model.browseItems : model.rows[model.rowIndex].items;
+        model.screen === "browse"
+          ? model.browseItems
+          : model.screen === "search_results"
+            ? model.searchItems
+            : model.rows[model.rowIndex].items;
       if (msg.index < 0 || msg.index >= items.length) return model;
       const item = items[msg.index];
       return {
@@ -288,6 +457,7 @@ export function update(model: Model, msg: Msg): Model {
         selectedDurationMs: item.durationMs,
         selectedViewOffsetMs: item.viewOffsetMs,
         selectedFromBrowse: model.screen === "browse",
+        selectedFromSearch: model.screen === "search_results",
       };
     }
     case "play":
@@ -303,9 +473,19 @@ export function update(model: Model, msg: Msg): Model {
       if (model.screen === "details") {
         return {
           ...model,
-          screen: model.selectedFromBrowse ? "browse" : "home",
+          screen: model.selectedFromBrowse
+            ? "browse"
+            : model.selectedFromSearch
+              ? "search_results"
+              : "home",
           playing: false,
         };
+      }
+      if (model.screen === "search_results") {
+        return { ...model, screen: "search", playing: false };
+      }
+      if (model.screen === "search") {
+        return { ...model, screen: "home", playing: false };
       }
       if (model.screen === "browse") {
         return { ...model, screen: "libraries", playing: false };

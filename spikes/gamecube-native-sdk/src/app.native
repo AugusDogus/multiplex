@@ -43,6 +43,7 @@
           <if test="{hasLibraries}">
             <button variant="primary" on-press="open_libraries">Libraries</button>
           </if>
+          <button variant="secondary" on-press="open_search">Search</button>
         </row>
       </if>
     </column>
@@ -56,6 +57,8 @@
           <text size="heading">Libraries</text>
           <text size="sm" foreground="text_muted">{gatewayName}</text>
         </column>
+        <spacer grow="1" />
+        <button variant="secondary" on-press="open_search">Search</button>
       </row>
       <row grow="1" gap="10" cross="center">
         <for each="libraries" as="library" key="id">
@@ -68,6 +71,84 @@
           </panel>
         </for>
       </row>
+    </column>
+  </if>
+
+  <if test="{screen == 'search'}">
+    <column grow="1" gap="12">
+      <row cross="center">
+        <button width="90" variant="ghost" on-press="back">Home</button>
+        <column gap="1">
+          <text size="heading">Search Plex</text>
+          <text size="sm" foreground="text_muted">Across {gatewayName}</text>
+        </column>
+        <spacer grow="1" />
+        <badge variant="secondary">Z opens search</badge>
+      </row>
+      <panel padding="14" background="surface" border-color="border" radius="lg">
+        <row cross="center" gap="10">
+          <text size="heading">{searchPrompt}</text>
+          <spacer grow="1" />
+          <badge variant="secondary">L delete</badge>
+          <badge variant="primary">R search</badge>
+        </row>
+      </panel>
+      <column grow="1" main="center" gap="8">
+        <row gap="6" main="center">
+          <for each="keyboardRowOne" as="key" key="id">
+            <button width="54" variant="secondary" on-press="search_key:{key.id}">{key.label}</button>
+          </for>
+        </row>
+        <row gap="6" main="center">
+          <for each="keyboardRowTwo" as="key" key="id">
+            <button width="54" variant="secondary" on-press="search_key:{key.id}">{key.label}</button>
+          </for>
+        </row>
+        <row gap="6" main="center">
+          <for each="keyboardRowThree" as="key" key="id">
+            <button width="54" variant="secondary" on-press="search_key:{key.id}">{key.label}</button>
+          </for>
+        </row>
+      </column>
+      <row main="center" gap="8">
+        <text size="sm" foreground="text_muted">D-pad moves · A enters · B cancels · L deletes · R searches</text>
+      </row>
+    </column>
+  </if>
+
+  <if test="{screen == 'search_results'}">
+    <column grow="1" gap="8">
+      <row cross="center">
+        <button width="90" variant="ghost" on-press="back">Search</button>
+        <column gap="1">
+          <text size="heading">Results for {searchQuery}</text>
+          <text size="sm" foreground="text_muted">Movies, TV, music, people, and collections</text>
+        </column>
+      </row>
+      <if test="{searchHasResults}">
+        <row grow="1" gap="8">
+          <for each="searchItems" as="item" key="ratingKey">
+            <panel width="140" grow="1" padding="7" background="surface" border-color="border" radius="lg" on-press="open_item:{item.id}" label="{item.title}">
+              <column grow="1" gap="4">
+                <image image="{item.imageId}" width="126" height="190" label="{item.title}" />
+                <text size="sm" wrap="false">{item.title}</text>
+                <text size="sm" foreground="text_muted" wrap="false">{item.subtitle}</text>
+              </column>
+            </panel>
+          </for>
+        </row>
+      </if>
+      <if test="{searchLoading}">
+        <column grow="1" main="center" cross="center">
+          <text foreground="text_muted">Searching all Plex libraries...</text>
+        </column>
+      </if>
+      <if test="{searchNoResults}">
+        <column grow="1" main="center" cross="center" gap="8">
+          <text size="heading">No results</text>
+          <text foreground="text_muted">Try another title, person, or collection.</text>
+        </column>
+      </if>
     </column>
   </if>
 

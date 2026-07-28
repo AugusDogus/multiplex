@@ -99,6 +99,16 @@ class CatalogContractTest(unittest.TestCase):
         header = struct.unpack(">4sHHHHHH", encoded[:16])
         self.assertEqual(header, (b"MPXB", 1, 4, 1, 4, 50, 5))
 
+    def test_encodes_search_page_with_shared_item_records(self) -> None:
+        page = gateway.SearchPage(
+            "Fresh",
+            [gateway.HomeItem(416284, 6_851_264, 0, "Fresh", "2022", None)],
+        )
+        encoded = gateway.encode_search_page(page)
+        header = struct.unpack(">4sHHH", encoded[:10])
+        self.assertEqual(header, (b"MPXS", 1, 1, 5))
+        self.assertEqual(encoded[10:15], b"Fresh")
+
 
 if __name__ == "__main__":
     unittest.main()

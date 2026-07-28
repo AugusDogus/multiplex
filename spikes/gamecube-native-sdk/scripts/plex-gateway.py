@@ -22,6 +22,7 @@ CATALOG_VERSION = 1
 HOME_CATALOG_VERSION = 2
 BOOTSTRAP_CATALOG_VERSION = 3
 BROWSE_CATALOG_VERSION = 1
+SEARCH_CATALOG_VERSION = 1
 MAX_ITEMS = 4
 MAX_ROWS = 3
 MAX_SERVER_NAME_BYTES = 63
@@ -67,6 +68,12 @@ class BrowsePage:
     section: LibrarySection
     start: int
     total_size: int
+    items: list[HomeItem]
+
+
+@dataclass(frozen=True)
+class SearchPage:
+    query: str
     items: list[HomeItem]
 
 
@@ -244,6 +251,50 @@ def fetch_browse_page(
     return BrowsePage(section, start, total_size, items)
 
 
+def fetch_search_page(base_url: str, token: str | None, search_query: str) -> SearchPage:
+    query = urllib.parse.urlencode(
+        {
+            "query": search_query,
+            "limit": 40,
+            "searchTypes": "movies,music,people,tv",
+            "includeCollections": 1,
+            "includeExternalMedia": 1,
+        }
+    )
+    root = _plex_xml(base_url, f"/library/search?{query}", token)
+    items: list[HomeItem] = []
+    for result in root.findall("SearchResult"):
+        element = next(iter(result), None)
+        if element is None:
+            continue
+        raw_key = element.get("ratingKey") or element.get("id") or ""
+        title = element.get("title") or element.get("tag") or ""
+        if not raw_key.isdigit() or not title:
+            continue
+        media_type = element.get("type", "Media").replace("_", " ").title()
+        if element.get("type") == "episode" and element.get("grandparentTitle"):
+            season = int(element.get("parentIndex", "0") or 0)
+            episode = int(element.get("index", "0") or 0)
+            subtitle = f"{element.get('grandparentTitle')} · S{season:02d} E{episode:02d}"
+        elif element.get("type") == "person":
+            subtitle = f"Person · {element.get('count', '0')} appearances"
+        else:
+            subtitle = element.get("year") or media_type
+        items.append(
+            HomeItem(
+                rating_key=int(raw_key),
+                duration_ms=int(element.get("duration", "0") or 0),
+                view_offset_ms=int(element.get("viewOffset", "0") or 0),
+                title=title,
+                subtitle=subtitle,
+                artwork_path=element.get("grandparentThumb") or element.get("thumb"),
+            )
+        )
+        if len(items) == MAX_ITEMS:
+            break
+    return SearchPage(search_query, items)
+
+
 def encode_home_catalog(server_name: str, rows: list[HomeRow]) -> bytes:
     server = _bounded_utf8(server_name, MAX_SERVER_NAME_BYTES)
     bounded_rows = rows[:MAX_ROWS]
@@ -341,6 +392,34 @@ def encode_browse_page(page: BrowsePage) -> bytes:
     return bytes(body)
 
 
+def encode_search_page(page: SearchPage) -> bytes:
+    query = _bounded_utf8(page.query, 24)
+    body = bytearray(
+        struct.pack(">4sHHH", b"MPXS", SEARCH_CATALOG_VERSION, len(page.items), len(query))
+    )
+    body.extend(query)
+    for artwork_slot, item in enumerate(page.items):
+        item_title = _bounded_utf8(item.title, MAX_TITLE_BYTES)
+        subtitle = _bounded_utf8(item.subtitle, MAX_SUBTITLE_BYTES)
+        progress = 0 if item.duration_ms <= 0 else min(100, item.view_offset_ms * 100 // item.duration_ms)
+        body.extend(
+            struct.pack(
+                ">IIIHBBHH",
+                item.rating_key,
+                item.duration_ms,
+                item.view_offset_ms,
+                artwork_slot,
+                progress,
+                0,
+                len(item_title),
+                len(subtitle),
+            )
+        )
+        body.extend(item_title)
+        body.extend(subtitle)
+    return bytes(body)
+
+
 def _plex_bytes(base_url: str, path: str, token: str | None) -> bytes:
     url = f"{base_url.rstrip('/')}{path}"
     if token:
@@ -389,6 +468,8 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
     libraries: dict[int, LibrarySection]
     browse_cache: dict[tuple[int, int], tuple[bytes, bytes]] = {}
     browse_cache_lock = threading.Lock()
+    search_cache: dict[str, tuple[bytes, bytes]] = {}
+    search_cache_lock = threading.Lock()
 
     @classmethod
     def _browse_payload(cls, section_id: int, start: int) -> tuple[bytes, bytes] | None:
@@ -408,6 +489,26 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
                 [HomeRow(section.title, page.items)],
             )
             cls.browse_cache[cache_key] = (catalog, artwork)
+            return catalog, artwork
+
+    @classmethod
+    def _search_payload(cls, query: str) -> tuple[bytes, bytes] | None:
+        normalized = query.strip()[:24]
+        if not normalized:
+            return None
+        cache_key = normalized.casefold()
+        with cls.search_cache_lock:
+            cached = cls.search_cache.get(cache_key)
+            if cached is not None:
+                return cached
+            page = fetch_search_page(cls.plex_base_url, cls.plex_token, normalized)
+            catalog = encode_search_page(page)
+            artwork = build_artwork_atlas(
+                cls.plex_base_url,
+                cls.plex_token,
+                [HomeRow(f"Search: {normalized}", page.items)],
+            )
+            cls.search_cache[cache_key] = (catalog, artwork)
             return catalog, artwork
 
     def _send_bytes(self, body: bytes, content_type: str) -> None:
@@ -514,6 +615,16 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
             payload = self._browse_payload(int(section_value), int(start_value))
             if payload is None:
                 self.send_error(404)
+                return
+            if path.endswith(".bin"):
+                self._send_bytes(payload[0], "application/octet-stream")
+            else:
+                self._send_bytes(payload[1], "image/jpeg")
+        elif path in {"/v3/search.bin", "/v3/search.jpg"}:
+            search_value = query.get("q", [""])[0]
+            payload = self._search_payload(search_value)
+            if payload is None:
+                self.send_error(400)
                 return
             if path.endswith(".bin"):
                 self._send_bytes(payload[0], "application/octet-stream")

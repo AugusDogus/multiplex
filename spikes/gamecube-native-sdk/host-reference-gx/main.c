@@ -704,6 +704,78 @@ static bool load_browse_page(const char *gateway_url) {
   return true;
 }
 
+static bool load_search_page(const char *gateway_url) {
+  char query[MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY] = {0};
+  const uint32_t query_length = multiplex_native_app_search_request(
+      (uint8_t *)query, sizeof(query) - 1u);
+  if (query_length == 0) {
+    return true;
+  }
+  if (query_length >= sizeof(query)) {
+    return false;
+  }
+
+  MultiplexGatewaySearchPage page;
+  if (!multiplex_gateway_load_search(gateway_url, query,
+                                     (uint16_t)query_length, &page)) {
+    return false;
+  }
+
+  uint8_t *browse_pixels =
+      poster_texture_pixels +
+      (size_t)HOME_POSTER_COUNT * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+  if (page.item_count > 0) {
+    uint8_t *encoded = calloc(1, POSTER_JPEG_CAPACITY + 64u);
+    size_t encoded_size = 0;
+    const size_t search_bytes =
+        (size_t)page.item_count * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+    if (encoded == NULL || poster_texture_pixels == NULL ||
+        !multiplex_gateway_load_search_artwork(
+            gateway_url, query, (uint16_t)query_length, encoded,
+            POSTER_JPEG_CAPACITY, &encoded_size) ||
+        !poster_jpeg_decode(encoded, encoded_size, page.item_count,
+                            browse_pixels, search_bytes)) {
+      free(encoded);
+      return false;
+    }
+    free(encoded);
+    for (uint16_t item = 0; item < page.item_count; ++item) {
+      uint8_t *pixels =
+          browse_pixels +
+          (size_t)item * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+      GX_InitTexObj(&poster_textures[HOME_POSTER_COUNT + item], pixels,
+                    MULTIPLEX_GATEWAY_ARTWORK_WIDTH,
+                    MULTIPLEX_GATEWAY_ARTWORK_HEIGHT, GX_TF_RGB565, GX_CLAMP,
+                    GX_CLAMP, GX_FALSE);
+      GX_InitTexObjLOD(&poster_textures[HOME_POSTER_COUNT + item], GX_LINEAR,
+                       GX_LINEAR, 0, 0, 0, GX_FALSE, GX_FALSE, GX_ANISO_1);
+    }
+    DCFlushRange(browse_pixels, search_bytes);
+  }
+
+  if (multiplex_native_app_search_begin(
+          (const uint8_t *)page.query, page.query_length, page.item_count) ==
+      0) {
+    return false;
+  }
+  for (uint16_t index = 0; index < page.item_count; ++index) {
+    const MultiplexGatewayItem *item = &page.items[index];
+    if (multiplex_native_app_search_item(
+            index, item->rating_key, (const uint8_t *)item->title,
+            item->title_length, (const uint8_t *)item->subtitle,
+            item->subtitle_length, item->artwork_slot, item->duration_ms,
+            item->view_offset_ms, item->progress_percent) == 0) {
+      return false;
+    }
+  }
+  if (multiplex_native_app_search_commit() == 0) {
+    return false;
+  }
+  SYS_Report("REFERENCE GX: search-page ready query=%.*s items=%u\n",
+             page.query_length, page.query, page.item_count);
+  return true;
+}
+
 static void texture_vertex(float x, float y, float u, float v) {
   GX_Position3f32(x, y, 0.0f);
   GX_Color4u8(255, 255, 255, 255);
@@ -1097,12 +1169,20 @@ static void *run_app(void *unused) {
     }
     pause_audio_for_player_input(pressed);
     bool app_changed = false;
-    if ((pressed & (PAD_BUTTON_LEFT | PAD_BUTTON_UP)) != 0 &&
+    if ((pressed & PAD_BUTTON_LEFT) != 0 &&
         multiplex_native_app_input(0) != 0) {
       app_changed = true;
     }
-    if ((pressed & (PAD_BUTTON_RIGHT | PAD_BUTTON_DOWN)) != 0 &&
+    if ((pressed & PAD_BUTTON_RIGHT) != 0 &&
         multiplex_native_app_input(1) != 0) {
+      app_changed = true;
+    }
+    if ((pressed & PAD_BUTTON_UP) != 0 &&
+        multiplex_native_app_input(8) != 0) {
+      app_changed = true;
+    }
+    if ((pressed & PAD_BUTTON_DOWN) != 0 &&
+        multiplex_native_app_input(9) != 0) {
       app_changed = true;
     }
     if ((pressed & PAD_BUTTON_A) != 0 &&
@@ -1129,10 +1209,18 @@ static void *run_app(void *unused) {
         multiplex_native_app_input(7) != 0) {
       app_changed = true;
     }
+    if ((pressed & PAD_TRIGGER_Z) != 0 &&
+        multiplex_native_app_input(10) != 0) {
+      app_changed = true;
+    }
     if (app_changed) {
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
           !load_browse_page(MULTIPLEX_GATEWAY_URL)) {
         SYS_Report("REFERENCE GX: browse-page load failed\n");
+      }
+      if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
+          !load_search_page(MULTIPLEX_GATEWAY_URL)) {
+        SYS_Report("REFERENCE GX: search-page load failed\n");
       }
       native_frame_dirty = true;
     }

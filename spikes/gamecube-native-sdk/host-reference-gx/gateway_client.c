@@ -8,6 +8,7 @@
 
 #define CATALOG_HEADER_BYTES 12u
 #define BROWSE_HEADER_BYTES 16u
+#define SEARCH_HEADER_BYTES 10u
 #define CATALOG_ITEM_HEADER_BYTES 20u
 #define CATALOG_MAX_BYTES 2048u
 #define GATEWAY_URL_CAPACITY 768u
@@ -153,6 +154,63 @@ static bool parse_browse(const uint8_t *bytes, size_t size,
   return cursor == size;
 }
 
+static bool parse_search(const uint8_t *bytes, size_t size,
+                         MultiplexGatewaySearchPage *page) {
+  if (size < SEARCH_HEADER_BYTES || memcmp(bytes, "MPXS", 4) != 0) {
+    return false;
+  }
+  memset(page, 0, sizeof(*page));
+  page->version = read_be16(bytes + 4);
+  page->item_count = read_be16(bytes + 6);
+  page->query_length = read_be16(bytes + 8);
+  if (page->version != 1 ||
+      page->item_count > MULTIPLEX_GATEWAY_MAX_ITEMS ||
+      page->query_length == 0 ||
+      page->query_length >= MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY ||
+      SEARCH_HEADER_BYTES + page->query_length > size) {
+    return false;
+  }
+  size_t cursor = SEARCH_HEADER_BYTES;
+  memcpy(page->query, bytes + cursor, page->query_length);
+  cursor += page->query_length;
+  for (uint16_t index = 0; index < page->item_count; ++index) {
+    if (!parse_item(bytes, size, &cursor, &page->items[index])) {
+      return false;
+    }
+  }
+  return cursor == size;
+}
+
+static bool encode_query(const char *query, uint16_t query_length,
+                         char *encoded, size_t capacity) {
+  static const char hex[] = "0123456789ABCDEF";
+  if (query == NULL || query_length == 0 ||
+      query_length >= MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY) {
+    return false;
+  }
+  size_t cursor = 0;
+  for (uint16_t index = 0; index < query_length; ++index) {
+    const uint8_t value = (uint8_t)query[index];
+    const bool unreserved =
+        (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z') ||
+        (value >= '0' && value <= '9') || value == '-' || value == '_' ||
+        value == '.' || value == '~';
+    const size_t required = unreserved ? 1u : 3u;
+    if (cursor + required >= capacity) {
+      return false;
+    }
+    if (unreserved) {
+      encoded[cursor++] = (char)value;
+    } else {
+      encoded[cursor++] = '%';
+      encoded[cursor++] = hex[value >> 4u];
+      encoded[cursor++] = hex[value & 15u];
+    }
+  }
+  encoded[cursor] = '\0';
+  return true;
+}
+
 bool multiplex_gateway_load_catalog(const char *base_url,
                                     MultiplexGatewayCatalog *catalog) {
   if (base_url == NULL || base_url[0] == '\0' || catalog == NULL) {
@@ -289,6 +347,82 @@ bool multiplex_gateway_load_browse_artwork(
   SYS_Report(
       "REFERENCE GX: gateway-browse-artwork section=%u start=%u bytes=%u loaded=%u\n",
       section_id, start, (unsigned)size, loaded);
+  http_client_destroy(client);
+  return loaded;
+}
+
+bool multiplex_gateway_load_search(const char *base_url, const char *query,
+                                   uint16_t query_length,
+                                   MultiplexGatewaySearchPage *page) {
+  if (base_url == NULL || page == NULL) {
+    return false;
+  }
+  char encoded_query[MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY * 3u];
+  if (!encode_query(query, query_length, encoded_query,
+                    sizeof(encoded_query))) {
+    return false;
+  }
+  const size_t base_length = strlen(base_url);
+  const bool has_slash = base_length > 0 && base_url[base_length - 1] == '/';
+  char url[GATEWAY_URL_CAPACITY];
+  const int written = snprintf(url, sizeof(url), "%s%sv3/search.bin?q=%s",
+                               base_url, has_slash ? "" : "/",
+                               encoded_query);
+  if (written < 0 || (size_t)written >= sizeof(url)) {
+    return false;
+  }
+  HttpClient *client = http_client_open(url);
+  if (client == NULL) {
+    return false;
+  }
+  const size_t size = http_client_size(client);
+  uint8_t bytes[CATALOG_MAX_BYTES];
+  const bool loaded = size > 0 && size <= sizeof(bytes) &&
+                      http_client_read_at(client, 0, bytes, size) &&
+                      parse_search(bytes, size, page) &&
+                      page->query_length == query_length &&
+                      memcmp(page->query, query, query_length) == 0;
+  http_client_destroy(client);
+  SYS_Report(
+      "REFERENCE GX: gateway-search query=%.*s items=%u loaded=%u\n",
+      query_length, query, loaded ? page->item_count : 0, loaded);
+  return loaded;
+}
+
+bool multiplex_gateway_load_search_artwork(
+    const char *base_url, const char *query, uint16_t query_length,
+    uint8_t *destination, size_t capacity, size_t *encoded_size) {
+  if (base_url == NULL || destination == NULL || encoded_size == NULL) {
+    return false;
+  }
+  char encoded_query[MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY * 3u];
+  if (!encode_query(query, query_length, encoded_query,
+                    sizeof(encoded_query))) {
+    return false;
+  }
+  const size_t base_length = strlen(base_url);
+  const bool has_slash = base_length > 0 && base_url[base_length - 1] == '/';
+  char url[GATEWAY_URL_CAPACITY];
+  const int written = snprintf(url, sizeof(url), "%s%sv3/search.jpg?q=%s",
+                               base_url, has_slash ? "" : "/",
+                               encoded_query);
+  if (written < 0 || (size_t)written >= sizeof(url)) {
+    return false;
+  }
+  HttpClient *client = http_client_open(url);
+  if (client == NULL) {
+    return false;
+  }
+  const size_t size = http_client_size(client);
+  if (size == 0 || size > capacity) {
+    http_client_destroy(client);
+    return false;
+  }
+  const bool loaded = http_client_read_at(client, 0, destination, size);
+  *encoded_size = loaded ? size : 0;
+  SYS_Report(
+      "REFERENCE GX: gateway-search-artwork query=%.*s bytes=%u loaded=%u\n",
+      query_length, query, (unsigned)size, loaded);
   http_client_destroy(client);
   return loaded;
 }

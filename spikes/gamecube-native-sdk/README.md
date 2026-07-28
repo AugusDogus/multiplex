@@ -55,14 +55,15 @@ The spike retains three separate artifacts:
 The controller profile attaches a standard controller to SI port 1 and is
 backed by `.dolphin-user/Pipes/multiplex1`. Dolphin pipe commands such as
 `PRESS A`, `RELEASE A`, and `PRESS D_RIGHT` drive the automated player smoke
-test. In the app, Y opens Libraries, X advances the home hub, and L/R page a
-library backward/forward without walking focus through every poster.
+test. In the app, Z opens Search, Y opens Libraries, X advances the home hub,
+and L/R either delete/submit the on-screen search query or page a library
+backward/forward without walking focus through every poster.
 
 ## Source map
 
 - `src/core.ts`: application model and update function
-- `src/app.native`: declarative pairing, home, library browser, details, and
-  player views
+- `src/app.native`: declarative pairing, home, search, library browser,
+  details, and player views
 - `src/gamecube_probe.zig`: compiled view, layout, focus/handler resolution,
   GPU-packet translation, and C ABI
 - `host-reference-gx/main.c`: reference framebuffer and direct-GX presenter
@@ -83,8 +84,8 @@ library backward/forward without walking focus through every poster.
   harness for exercising Dolphin's low-level BBA emulation without sudo
 - `scripts/run-dolphin-plex.sh`: real Plex item → GameCube transcode gateway →
   muted Dolphin runner
-- `scripts/plex-gateway.py`: bounded binary home/library metadata and JPEG
-  artwork gateway backed by the real Plex server
+- `scripts/plex-gateway.py`: bounded binary home/search/library metadata and
+  JPEG artwork gateway backed by the real Plex server
 - `host/main.c`: earlier command-to-GX approximation
 - `host-raylib/main.c`: experimental raylib/OpenGX presenter
 - `scripts/generate-font-atlas.py`: converts Native SDK's bundled Geist Regular

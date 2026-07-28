@@ -178,7 +178,7 @@ line_count() {
 wait_for_new() {
   pattern=$1
   previous=$2
-  attempts=${3:-120}
+  attempts=${3:-1200}
   attempt=0
   while [ "$attempt" -lt "$attempts" ]; do
     current=$(line_count "$pattern")
@@ -232,15 +232,97 @@ signature_count=$(line_count "signature=")
 press A
 wait_for_new "signature=" "$signature_count"
 
+# Search is fully controller-authored. Type FRESH on the 9-column keyboard:
+# Z opens it, A enters the focused letter, and R submits the query.
+signature_count=$(line_count "signature=")
+press Z
+wait_for_new "signature=" "$signature_count"
+for move in 1 2 3 4 5 6; do
+  signature_count=$(line_count "signature=")
+  press D_RIGHT
+  wait_for_new "signature=" "$signature_count"
+done
+signature_count=$(line_count "signature=")
+press A
+wait_for_new "signature=" "$signature_count"
+signature_count=$(line_count "signature=")
+press D_DOWN
+wait_for_new "signature=" "$signature_count"
+for move in 1 2 3; do
+  signature_count=$(line_count "signature=")
+  press D_RIGHT
+  wait_for_new "signature=" "$signature_count"
+done
+signature_count=$(line_count "signature=")
+press A
+wait_for_new "signature=" "$signature_count"
+signature_count=$(line_count "signature=")
+press D_UP
+wait_for_new "signature=" "$signature_count"
+for move in 1 2 3 4; do
+  signature_count=$(line_count "signature=")
+  press D_LEFT
+  wait_for_new "signature=" "$signature_count"
+done
+signature_count=$(line_count "signature=")
+press A
+wait_for_new "signature=" "$signature_count"
+for move in 1 2; do
+  signature_count=$(line_count "signature=")
+  press D_DOWN
+  wait_for_new "signature=" "$signature_count"
+done
+for move in 1 2 3 4; do
+  signature_count=$(line_count "signature=")
+  press D_LEFT
+  wait_for_new "signature=" "$signature_count"
+done
+signature_count=$(line_count "signature=")
+press A
+wait_for_new "signature=" "$signature_count"
+for move in 1 2; do
+  signature_count=$(line_count "signature=")
+  press D_UP
+  wait_for_new "signature=" "$signature_count"
+done
+for move in 1 2 3 4 5 6 7; do
+  signature_count=$(line_count "signature=")
+  press D_RIGHT
+  wait_for_new "signature=" "$signature_count"
+done
+signature_count=$(line_count "signature=")
+press A
+wait_for_new "signature=" "$signature_count"
+search_count=$(line_count "search-page ready query=FRESH")
+signature_count=$(line_count "signature=")
+press R
+wait_for_new "search-page ready query=FRESH" "$search_count" 1200
+wait_for_new "signature=" "$signature_count"
+
+# Open the top result to prove search-detail origin, then unwind to Home.
+signature_count=$(line_count "signature=")
+press D_RIGHT
+wait_for_new "signature=" "$signature_count"
+signature_count=$(line_count "signature=")
+press A
+wait_for_new "signature=" "$signature_count"
+for back in 1 2 3; do
+  signature_count=$(line_count "signature=")
+  press B
+  wait_for_new "signature=" "$signature_count"
+done
+
 # Y is the console-native shortcut to the real Plex library picker.
 signature_count=$(line_count "signature=")
 press Y
 wait_for_new "signature=" "$signature_count"
 
-# The picker starts on Home; the next handler is the first real library.
-signature_count=$(line_count "signature=")
-press D_RIGHT
-wait_for_new "signature=" "$signature_count"
+# The picker starts on Back, followed by Search, then the real libraries.
+for move in 1 2; do
+  signature_count=$(line_count "signature=")
+  press D_RIGHT
+  wait_for_new "signature=" "$signature_count"
+done
 first_browse_count=$(line_count "browse-page ready")
 signature_count=$(line_count "signature=")
 press A

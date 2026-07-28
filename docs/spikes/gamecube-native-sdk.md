@@ -26,7 +26,7 @@ restricted TypeScript model
   -> Native SDK layout and display list
   -> reference RGBA framebuffer
   -> small C ABI + Native SDK media-surface geometry
-  -> versioned Plex home hubs and paged libraries + JPEG artwork atlases
+  -> versioned Plex home, search, and paged-library data + JPEG artwork atlases
   -> MPEG-2 Program Stream PES/PTS demux
   -> MPlayer CE FFmpeg MPEG-2/MP2 decode
   -> tiled GX UI + planar-YUV TEV presentation + direct AI DMA audio
@@ -40,6 +40,8 @@ compositing. The GX host only converts and presents the completed pixels.
 Verified interactions:
 
 - A activates the focused pairing handler and opens the library.
+- Z opens Search; a three-row on-screen keyboard authors a query with the
+  D-pad/A, L deletes, and R submits it to the real Plex server.
 - Y opens the real Plex library picker; D-pad and A select a library.
 - D-pad changes Native SDK focus and L/R page four library items at a time.
 - A on a home or browse poster shows the details view.
@@ -253,6 +255,22 @@ Audiobooks, opened Movies (785 items), rendered pages starting at 0 and 4,
 then returned through Libraries to Home. R/L expose direct page actions for
 normal console navigation and deterministic Dolphin automation.
 
+Search uses `GET /v3/search.bin?q=Q`, another fixed-boundary response:
+
+```text
+"MPXS" | u16 version | u16 item count | u16 query bytes | query UTF-8 bytes
+repeated item count times: the same bounded v2 item record
+```
+
+The gateway queries Plex `/library/search` across movie, TV, music, people,
+and collections, retains Plex relevance order, and caps the GameCube result
+grid at four entries. `/v3/search.jpg` reuses the 320x120 four-poster contact
+sheet and the browse texture slots. The TypeScript model owns query editing,
+loading/results/empty states, and the details return origin. The automated
+Dolphin route typed `FRESH` entirely through the emulated controller, loaded
+four real results and posters, opened the top result, and returned through
+Results and Search to Home before continuing into paged browsing and playback.
+
 `GET /v2/artwork.jpg` serves the twelve possible posters as one 320x360 JPEG
 contact sheet. The host downsizes and letterboxes Plex artwork into 80x120
 cells. The GameCube registers only MPlayer CE FFmpeg's MJPEG decoder, decodes
@@ -342,6 +360,7 @@ The current build is approximately:
 | Codec compressed input windows | 32 KiB / 8 KiB                                |
 | Pairing view                   | 10 widgets, 1 handler                         |
 | Home snapshot                  | Up to 3 rows x 4 real Plex items              |
+| Search result page             | 4 relevance-ordered real Plex items           |
 | Library browse page            | 4 of up to 65,535 real Plex items             |
 | Poster textures                | 12 home + 4 browse x 80x120 RGB565 / 300 KiB  |
 | Embedded MPEG-2 Program Stream | 720x480 video + stereo MP2 / 152 KiB          |
@@ -415,7 +434,7 @@ not as the committed GameCube renderer yet.
 
 Next Dolphin milestones:
 
-1. add search and richer filters on the versioned browse/artwork primitives;
+1. add richer item metadata and action semantics to the details view;
 2. turn the host-prepared Plex segment into an on-demand, seekable full-item
    session with progress persistence;
 3. add player controls and Watch Together state through the same gateway;
