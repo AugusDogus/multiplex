@@ -40,7 +40,74 @@
         <row gap="8" main="center">
           <button variant="secondary" on-press="previous_row">Previous row</button>
           <button variant="secondary" on-press="next_row">Next row</button>
+          <if test="{hasLibraries}">
+            <button variant="primary" on-press="open_libraries">Libraries</button>
+          </if>
         </row>
+      </if>
+    </column>
+  </if>
+
+  <if test="{screen == 'libraries'}">
+    <column grow="1" gap="14">
+      <row cross="center">
+        <button width="90" variant="ghost" on-press="back">Home</button>
+        <column gap="1">
+          <text size="heading">Libraries</text>
+          <text size="sm" foreground="text_muted">{gatewayName}</text>
+        </column>
+      </row>
+      <row grow="1" gap="10" cross="center">
+        <for each="libraries" as="library" key="id">
+          <panel width="138" grow="1" padding="16" background="surface" border-color="border" radius="lg" on-press="open_library:{library.id}" label="{library.title}">
+            <column grow="1" main="center" cross="center" gap="8">
+              <badge variant="secondary">{library.typeLabel}</badge>
+              <text size="heading">{library.title}</text>
+              <text size="sm" foreground="text_muted">Browse all</text>
+            </column>
+          </panel>
+        </for>
+      </row>
+    </column>
+  </if>
+
+  <if test="{screen == 'browse'}">
+    <column grow="1" gap="8">
+      <row cross="center">
+        <button width="90" variant="ghost" on-press="back">Libraries</button>
+        <column gap="1">
+          <text size="heading">{selectedLibraryTitle}</text>
+          <text size="sm" foreground="text_muted">{browseTotal} items</text>
+        </column>
+        <spacer grow="1" />
+        <badge variant="secondary">Page {browsePageNumber} of {browsePageCount}</badge>
+      </row>
+      <if test="{browseLoaded}">
+        <row grow="1" gap="8">
+          <for each="browseItems" as="item" key="ratingKey">
+            <panel width="140" grow="1" padding="7" background="surface" border-color="border" radius="lg" on-press="open_item:{item.id}" label="{item.title}">
+              <column grow="1" gap="4">
+                <image image="{item.imageId}" width="126" height="190" label="{item.title}" />
+                <progress value="{item.progressPercent}" height="4" />
+                <text size="sm" wrap="false">{item.title}</text>
+                <text size="sm" foreground="text_muted" wrap="false">{item.subtitle}</text>
+              </column>
+            </panel>
+          </for>
+        </row>
+        <row gap="8" main="center">
+          <if test="{browseHasPrevious}">
+            <button variant="secondary" on-press="browse_previous">Previous page</button>
+          </if>
+          <if test="{browseHasNext}">
+            <button variant="primary" on-press="browse_next">Next page</button>
+          </if>
+        </row>
+      </if>
+      <if test="{browseLoading}">
+        <column grow="1" main="center" cross="center">
+          <text foreground="text_muted">Loading library page...</text>
+        </column>
       </if>
     </column>
   </if>

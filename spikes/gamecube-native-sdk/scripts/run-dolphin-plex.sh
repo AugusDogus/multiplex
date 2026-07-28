@@ -223,7 +223,7 @@ press() {
   exit 1
 }
 
-wait_log "gateway-catalog version=2" 600
+wait_log "gateway-catalog version=3" 600
 wait_log "gateway-artwork .*loaded=1" 1200
 wait_log "signature=" 600
 exec 3>"$pipe"
@@ -231,22 +231,52 @@ pipe_open=1
 signature_count=$(line_count "signature=")
 press A
 wait_for_new "signature=" "$signature_count"
-for move in 1 2 3 4 5; do
-  signature_count=$(line_count "signature=")
-  press D_RIGHT
-  wait_for_new "signature=" "$signature_count"
-done
+
+# Y is the console-native shortcut to the real Plex library picker.
+signature_count=$(line_count "signature=")
+press Y
+wait_for_new "signature=" "$signature_count"
+
+# The picker starts on Home; the next handler is the first real library.
+signature_count=$(line_count "signature=")
+press D_RIGHT
+wait_for_new "signature=" "$signature_count"
+first_browse_count=$(line_count "browse-page ready")
+signature_count=$(line_count "signature=")
+press A
+wait_for_new "browse-page ready" "$first_browse_count" 1200
+wait_for_new "signature=" "$signature_count"
+
+# R pages forward directly, matching a console media browser and avoiding a
+# focus walk through every poster during the automated smoke path.
+second_browse_count=$(line_count "browse-page ready")
+signature_count=$(line_count "signature=")
+press R
+wait_for_new "browse-page ready" "$second_browse_count" 1200
+wait_for_new "signature=" "$signature_count"
+
+# Back to the library picker, then Home.
+signature_count=$(line_count "signature=")
+press B
+wait_for_new "signature=" "$signature_count"
+signature_count=$(line_count "signature=")
+press B
+wait_for_new "signature=" "$signature_count"
+
+# X cycles to the next hub row; its first item is the same Fresh item prepared
+# above by the gateway runner.
+signature_count=$(line_count "signature=")
+press X
+wait_for_new "signature=" "$signature_count"
 signature_count=$(line_count "signature=")
 press A
 wait_for_new "signature=" "$signature_count"
 signature_count=$(line_count "signature=")
 press D_RIGHT
 wait_for_new "signature=" "$signature_count"
-signature_count=$(line_count "signature=")
-press A
-wait_for_new "signature=" "$signature_count"
 playing_count=$(line_count "playback=playing")
 paused_count=$(line_count "playback=paused")
+press A
 wait_for_new "playback=playing" "$playing_count" 1200
 sleep 1
 if [ "$(line_count "playback=paused")" -gt "$paused_count" ]; then

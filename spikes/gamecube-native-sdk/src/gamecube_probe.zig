@@ -34,6 +34,16 @@ var staged_row_ptrs: [3]*const core.CatalogRow = undefined;
 var staged_items: [12]core.CatalogItem = undefined;
 var staged_item_ptrs: [12]*const core.CatalogItem = undefined;
 var staged_row_count: usize = 0;
+var staged_libraries: [8]core.LibrarySection = undefined;
+var staged_library_ptrs: [8]*const core.LibrarySection = undefined;
+var staged_library_count: usize = 0;
+var staged_browse_title: []const u8 = &.{};
+var staged_browse_section_id: u32 = 0;
+var staged_browse_start: u32 = 0;
+var staged_browse_total: u32 = 0;
+var staged_browse_items: [4]core.CatalogItem = undefined;
+var staged_browse_item_ptrs: [4]*const core.CatalogItem = undefined;
+var staged_browse_item_count: usize = 0;
 var focused_handler: usize = 0;
 var reference_render_stage: u32 = 0;
 var reference_full_repaint = true;
@@ -47,6 +57,7 @@ var poster_surfaces: [4]PosterSurface = [_]PosterSurface{.{}} ** 4;
 var poster_surface_count: u32 = 0;
 
 extern fn multiplex_native_profile_mark(stage: u32) callconv(.c) void;
+extern fn multiplex_native_input_trace(action: u32, focus: u32, count: u32, message: u32) callconv(.c) void;
 extern fn multiplex_native_cache_alloc(len: u32, alignment: u32) callconv(.c) ?[*]u8;
 extern fn multiplex_native_cache_free(memory: [*]u8) callconv(.c) void;
 
@@ -309,10 +320,42 @@ export fn multiplex_native_app_catalog_begin(
     server_name: [*]const u8,
     server_name_length: u32,
     row_count: u32,
+    library_count: u32,
 ) callconv(.c) u32 {
-    if (!app_initialized or server_name_length == 0 or row_count == 0 or row_count > 3) return 0;
+    if (!app_initialized or server_name_length == 0 or row_count == 0 or row_count > 3 or library_count > 8) return 0;
     staged_gateway_name = server_name[0..server_name_length];
     staged_row_count = row_count;
+    staged_library_count = library_count;
+    return 1;
+}
+
+fn libraryTypeLabel(media_type: u32) []const u8 {
+    return switch (media_type) {
+        1 => "Movies",
+        2 => "TV Shows",
+        3 => "Music",
+        4 => "Photos",
+        else => "Library",
+    };
+}
+
+export fn multiplex_native_app_catalog_library(
+    index: u32,
+    section_id: u32,
+    media_type: u32,
+    title: [*]const u8,
+    title_length: u32,
+) callconv(.c) u32 {
+    if (index >= staged_library_count or section_id == 0 or title_length == 0) return 0;
+    const slot: usize = index;
+    staged_libraries[slot] = .{
+        .id = @intCast(index),
+        .sectionId = @floatFromInt(section_id),
+        .title = title[0..title_length],
+        .mediaType = @intCast(media_type),
+        .typeLabel = libraryTypeLabel(media_type),
+    };
+    staged_library_ptrs[slot] = &staged_libraries[slot];
     return 1;
 }
 
@@ -369,6 +412,77 @@ export fn multiplex_native_app_catalog_commit() callconv(.c) u32 {
         app_model,
         staged_gateway_name,
         staged_row_ptrs[0..staged_row_count],
+        staged_library_ptrs[0..staged_library_count],
+    ));
+    focused_handler = 0;
+    reference_full_repaint = true;
+    return 1;
+}
+
+export fn multiplex_native_app_browse_request(section_id: *u32, start: *u32) callconv(.c) u32 {
+    const requested = core.browseRequestSection(app_model);
+    if (requested == 0) return 0;
+    section_id.* = @intFromFloat(requested);
+    start.* = @intFromFloat(core.browseRequestStart(app_model));
+    return 1;
+}
+
+export fn multiplex_native_app_browse_begin(
+    section_id: u32,
+    title: [*]const u8,
+    title_length: u32,
+    start: u32,
+    total: u32,
+    item_count: u32,
+) callconv(.c) u32 {
+    if (!app_initialized or section_id == 0 or title_length == 0 or item_count == 0 or item_count > 4) return 0;
+    staged_browse_section_id = section_id;
+    staged_browse_title = title[0..title_length];
+    staged_browse_start = start;
+    staged_browse_total = total;
+    staged_browse_item_count = item_count;
+    return 1;
+}
+
+export fn multiplex_native_app_browse_item(
+    item_index: u32,
+    rating_key: u32,
+    title: [*]const u8,
+    title_length: u32,
+    subtitle: [*]const u8,
+    subtitle_length: u32,
+    artwork_slot: u32,
+    duration_ms: u32,
+    view_offset_ms: u32,
+    progress_percent: u32,
+) callconv(.c) u32 {
+    if (item_index >= staged_browse_item_count or title_length == 0 or artwork_slot >= 4) return 0;
+    const slot: usize = item_index;
+    staged_browse_items[slot] = .{
+        .id = @intCast(item_index),
+        .ratingKey = @intCast(rating_key),
+        .title = title[0..title_length],
+        .subtitle = subtitle[0..subtitle_length],
+        .imageId = @intCast(13 + artwork_slot),
+        .durationMs = @intCast(duration_ms),
+        .viewOffsetMs = @intCast(view_offset_ms),
+        .progressPercent = @intCast(progress_percent),
+    };
+    staged_browse_item_ptrs[slot] = &staged_browse_items[slot];
+    return 1;
+}
+
+export fn multiplex_native_app_browse_commit() callconv(.c) u32 {
+    if (!app_initialized or staged_browse_item_count == 0) return 0;
+    app_model = core.commitModelRoot(core.loadBrowse(
+        app_model,
+        @as(f64, @floatFromInt(staged_browse_section_id)),
+        staged_browse_title,
+        @as(f64, @floatFromInt(staged_browse_start)),
+        staged_browse_total,
+        staged_browse_start / 4 + 1,
+        if (staged_browse_total == 0) 1 else (staged_browse_total - 1) / 4 + 1,
+        staged_browse_item_ptrs[0..staged_browse_item_count],
     ));
     focused_handler = 0;
     reference_full_repaint = true;
@@ -380,6 +494,34 @@ export fn multiplex_native_app_catalog_commit() callconv(.c) u32 {
 export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
     if (!app_initialized) return 0;
     const model = app_model;
+    if (action == 4) {
+        app_model = core.commitModelRoot(core.update(model, .open_libraries));
+        focused_handler = 0;
+        reference_full_repaint = true;
+        multiplex_native_input_trace(action, 0, 0, 4);
+        return 1;
+    }
+    if (action == 5) {
+        app_model = core.commitModelRoot(core.update(model, .next_row));
+        focused_handler = 0;
+        reference_full_repaint = true;
+        multiplex_native_input_trace(action, 0, 0, 3);
+        return 1;
+    }
+    if (action == 6) {
+        app_model = core.commitModelRoot(core.update(model, .browse_next));
+        focused_handler = 0;
+        reference_full_repaint = true;
+        multiplex_native_input_trace(action, 0, 0, 7);
+        return 1;
+    }
+    if (action == 7) {
+        app_model = core.commitModelRoot(core.update(model, .browse_previous));
+        focused_handler = 0;
+        reference_full_repaint = true;
+        multiplex_native_input_trace(action, 0, 0, 6);
+        return 1;
+    }
     var fixed = std.heap.FixedBufferAllocator.init(&ui_arena);
     var ui = CompiledView.Ui.init(fixed.allocator());
     const tree = ui.finalizeWithTokens(CompiledView.build(&ui, model), .{}) catch return 0;
@@ -401,11 +543,14 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         app_model = core.commitModelRoot(core.update(model, .back));
         focused_handler = 0;
         reference_full_repaint = true;
+        multiplex_native_input_trace(action, 0, @intCast(press_count), 12);
         return 1;
     }
     if (press_count == 0) return 0;
     if (focused_handler >= press_count) focused_handler = 0;
 
+    var message_kind: u32 = 0;
+    var traced_focus = focused_handler;
     switch (action) {
         0 => {
             focused_handler = if (focused_handler == 0) press_count - 1 else focused_handler - 1;
@@ -416,13 +561,28 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
             reference_full_repaint = false;
         },
         2 => {
+            traced_focus = focused_handler;
             const msg = tree.msgFor(press_ids[focused_handler], .press) orelse return 0;
+            message_kind = switch (msg) {
+                .connect_demo => 1,
+                .previous_row => 2,
+                .next_row => 3,
+                .open_libraries => 4,
+                .open_library => 5,
+                .browse_previous => 6,
+                .browse_next => 7,
+                .open_item => 8,
+                .play => 9,
+                .toggle_playback => 10,
+                .back => 11,
+            };
             app_model = core.commitModelRoot(core.update(model, msg));
             focused_handler = 0;
             reference_full_repaint = true;
         },
         else => return 0,
     }
+    multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), message_kind);
     return 1;
 }
 

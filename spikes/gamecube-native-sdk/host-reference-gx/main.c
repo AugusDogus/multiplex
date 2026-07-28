@@ -43,6 +43,9 @@
 #define VIDEO_PREBUFFER_BYTES (256u * 1024u)
 #define AUDIO_PREBUFFER_BYTES (32u * 1024u)
 #define POSTER_JPEG_CAPACITY (256u * 1024u)
+#define HOME_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS
+#define BROWSE_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_ITEMS
+#define POSTER_TEXTURE_COUNT (HOME_POSTER_COUNT + BROWSE_POSTER_COUNT)
 
 typedef struct {
   uint32_t render_us;
@@ -66,7 +69,7 @@ static uint8_t *texture_pixels_allocation;
 static uint8_t *texture_pixels;
 static uint32_t reference_bytes;
 static GXTexObj textures[TILE_COUNT];
-static GXTexObj poster_textures[MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS];
+static GXTexObj poster_textures[POSTER_TEXTURE_COUNT];
 static uint8_t *poster_texture_pixels;
 static uint16_t poster_texture_count;
 static MultiplexVideoSurface video_surface;
@@ -112,6 +115,13 @@ static MpegPsDemux *media_demux;
 
 static uint32_t elapsed_us(uint32_t started) {
   return (uint32_t)ticks_to_microsecs((uint32_t)(gettick() - started));
+}
+
+void multiplex_native_input_trace(uint32_t action, uint32_t focus,
+                                  uint32_t count, uint32_t message) {
+  SYS_Report(
+      "REFERENCE GX: input action=%u focus=%u count=%u message=%u\n", action,
+      focus, count, message);
 }
 
 void *multiplex_native_cache_alloc(uint32_t len, uint32_t alignment) {
@@ -587,8 +597,10 @@ static bool initialize_poster_textures(const char *gateway_url,
       item_count > MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS) {
     return false;
   }
-  const size_t total_bytes =
+  const size_t home_bytes =
       (size_t)item_count * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+  const size_t total_bytes =
+      (size_t)POSTER_TEXTURE_COUNT * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
   uint8_t *encoded = calloc(1, POSTER_JPEG_CAPACITY + 64u);
   poster_texture_pixels = multiplex_native_cache_alloc(total_bytes, 32);
   size_t encoded_size = 0;
@@ -596,7 +608,7 @@ static bool initialize_poster_textures(const char *gateway_url,
       !multiplex_gateway_load_artwork(gateway_url, encoded,
                                      POSTER_JPEG_CAPACITY, &encoded_size) ||
       !poster_jpeg_decode(encoded, encoded_size, item_count,
-                          poster_texture_pixels, total_bytes)) {
+                          poster_texture_pixels, home_bytes)) {
     free(encoded);
     multiplex_native_cache_free(poster_texture_pixels);
     poster_texture_pixels = NULL;
@@ -615,11 +627,80 @@ static bool initialize_poster_textures(const char *gateway_url,
                      GX_FALSE, GX_FALSE, GX_ANISO_1);
   }
   free(encoded);
-  DCFlushRange(poster_texture_pixels, total_bytes);
-  poster_texture_count = item_count;
+  DCFlushRange(poster_texture_pixels, home_bytes);
+  poster_texture_count = POSTER_TEXTURE_COUNT;
   SYS_Report("REFERENCE GX: poster-textures count=%u size=%ux%u\n",
              item_count, MULTIPLEX_GATEWAY_ARTWORK_WIDTH,
              MULTIPLEX_GATEWAY_ARTWORK_HEIGHT);
+  return true;
+}
+
+static bool load_browse_page(const char *gateway_url) {
+  uint32_t requested_section = 0;
+  uint32_t requested_start = 0;
+  if (multiplex_native_app_browse_request(&requested_section,
+                                          &requested_start) == 0) {
+    return true;
+  }
+  if (requested_section > UINT16_MAX || requested_start > UINT16_MAX) {
+    return false;
+  }
+
+  MultiplexGatewayBrowsePage page;
+  if (!multiplex_gateway_load_browse(gateway_url, (uint16_t)requested_section,
+                                     (uint16_t)requested_start, &page)) {
+    return false;
+  }
+  uint8_t *encoded = calloc(1, POSTER_JPEG_CAPACITY + 64u);
+  size_t encoded_size = 0;
+  uint8_t *browse_pixels =
+      poster_texture_pixels +
+      (size_t)HOME_POSTER_COUNT * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+  const size_t browse_bytes =
+      (size_t)page.item_count * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+  if (encoded == NULL || poster_texture_pixels == NULL ||
+      !multiplex_gateway_load_browse_artwork(
+          gateway_url, page.section_id, page.start, encoded,
+          POSTER_JPEG_CAPACITY, &encoded_size) ||
+      !poster_jpeg_decode(encoded, encoded_size, page.item_count,
+                          browse_pixels, browse_bytes)) {
+    free(encoded);
+    return false;
+  }
+  free(encoded);
+  for (uint16_t item = 0; item < page.item_count; ++item) {
+    uint8_t *pixels =
+        browse_pixels +
+        (size_t)item * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+    GX_InitTexObj(&poster_textures[HOME_POSTER_COUNT + item], pixels,
+                  MULTIPLEX_GATEWAY_ARTWORK_WIDTH,
+                  MULTIPLEX_GATEWAY_ARTWORK_HEIGHT, GX_TF_RGB565, GX_CLAMP,
+                  GX_CLAMP, GX_FALSE);
+    GX_InitTexObjLOD(&poster_textures[HOME_POSTER_COUNT + item], GX_LINEAR,
+                     GX_LINEAR, 0, 0, 0, GX_FALSE, GX_FALSE, GX_ANISO_1);
+  }
+  DCFlushRange(browse_pixels, browse_bytes);
+
+  if (multiplex_native_app_browse_begin(
+          page.section_id, (const uint8_t *)page.title, page.title_length,
+          page.start, page.total_size, page.item_count) == 0) {
+    return false;
+  }
+  for (uint16_t index = 0; index < page.item_count; ++index) {
+    const MultiplexGatewayItem *item = &page.items[index];
+    if (multiplex_native_app_browse_item(
+            index, item->rating_key, (const uint8_t *)item->title,
+            item->title_length, (const uint8_t *)item->subtitle,
+            item->subtitle_length, item->artwork_slot, item->duration_ms,
+            item->view_offset_ms, item->progress_percent) == 0) {
+      return false;
+    }
+  }
+  if (multiplex_native_app_browse_commit() == 0) {
+    return false;
+  }
+  SYS_Report("REFERENCE GX: browse-page ready section=%u start=%u items=%u\n",
+             page.section_id, page.start, page.item_count);
   return true;
 }
 
@@ -869,9 +950,19 @@ static void *run_app(void *unused) {
   if (has_catalog) {
     if (multiplex_native_app_catalog_begin(
             (const uint8_t *)catalog.server_name,
-            catalog.server_name_length, catalog.row_count) == 0) {
+            catalog.server_name_length, catalog.row_count,
+            catalog.library_count) == 0) {
       SYS_Report("REFERENCE GX: failed to bind gateway catalog to app\n");
       return (void *)(uintptr_t)1;
+    }
+    for (uint16_t index = 0; index < catalog.library_count; ++index) {
+      const MultiplexGatewayLibrary *library = &catalog.libraries[index];
+      if (multiplex_native_app_catalog_library(
+              index, library->section_id, library->media_type,
+              (const uint8_t *)library->title, library->title_length) == 0) {
+        SYS_Report("REFERENCE GX: failed to bind library %u\n", index);
+        return (void *)(uintptr_t)1;
+      }
     }
     for (uint16_t row_index = 0; row_index < catalog.row_count; ++row_index) {
       const MultiplexGatewayRow *row = &catalog.rows[row_index];
@@ -1022,7 +1113,27 @@ static void *run_app(void *unused) {
         multiplex_native_app_input(3) != 0) {
       app_changed = true;
     }
+    if ((pressed & PAD_BUTTON_Y) != 0 &&
+        multiplex_native_app_input(4) != 0) {
+      app_changed = true;
+    }
+    if ((pressed & PAD_BUTTON_X) != 0 &&
+        multiplex_native_app_input(5) != 0) {
+      app_changed = true;
+    }
+    if ((pressed & PAD_TRIGGER_R) != 0 &&
+        multiplex_native_app_input(6) != 0) {
+      app_changed = true;
+    }
+    if ((pressed & PAD_TRIGGER_L) != 0 &&
+        multiplex_native_app_input(7) != 0) {
+      app_changed = true;
+    }
     if (app_changed) {
+      if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
+          !load_browse_page(MULTIPLEX_GATEWAY_URL)) {
+        SYS_Report("REFERENCE GX: browse-page load failed\n");
+      }
       native_frame_dirty = true;
     }
     if ((pressed & PAD_BUTTON_START) != 0) {

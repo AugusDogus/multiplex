@@ -26,7 +26,7 @@ restricted TypeScript model
   -> Native SDK layout and display list
   -> reference RGBA framebuffer
   -> small C ABI + Native SDK media-surface geometry
-  -> versioned Plex home hubs + JPEG artwork atlas
+  -> versioned Plex home hubs and paged libraries + JPEG artwork atlases
   -> MPEG-2 Program Stream PES/PTS demux
   -> MPlayer CE FFmpeg MPEG-2/MP2 decode
   -> tiled GX UI + planar-YUV TEV presentation + direct AI DMA audio
@@ -40,8 +40,9 @@ compositing. The GX host only converts and presents the completed pixels.
 Verified interactions:
 
 - A activates the focused pairing handler and opens the library.
-- D-pad changes Native SDK focus between Previous, Open, and Next.
-- A on Open shows the details view.
+- Y opens the real Plex library picker; D-pad and A select a library.
+- D-pad changes Native SDK focus and L/R page four library items at a time.
+- A on a home or browse poster shows the details view.
 - Play opens a Native SDK `<video>` player surface.
 - A pauses/resumes DVD-resolution MPEG-2 video and stereo MP2 audio; B unwinds
   player → details → library.
@@ -211,7 +212,7 @@ repeated row count times:
     u16 title bytes | u16 subtitle bytes | title/subtitle UTF-8 bytes
 ```
 
-Version 2 limits the snapshot to three rows of four items, 63 server-name
+Version 2 limits the home snapshot to three rows of four items, 63 server-name
 bytes, and 95 bytes per label. The gateway applies the web home ordering:
 Continue Watching first, excludes duplicate On Deck content, then adds recent
 browsable hubs. The GameCube fetches it through the same BBA HTTP client,
@@ -222,6 +223,35 @@ SDK render. `/v1/health` supports host orchestration and
 The demonstrated screen is therefore driven by the real Plex server name,
 Continue Watching state, recent titles, episode subtitles, and progress rather
 than the previous static demo catalog.
+
+Version 3 preserves that complete v2 prefix, uses the formerly reserved header
+field as a library count, and appends the real Plex library sections:
+
+```text
+repeated library count times:
+  u16 section id | u8 media type | u8 reserved |
+  u16 title bytes | title UTF-8 bytes
+```
+
+Paged browsing uses a separate bounded response at
+`GET /v3/browse.bin?section=S&start=N`:
+
+```text
+"MPXB" | u16 version | u16 section id | u16 item count |
+u16 start | u16 total | u16 library-title bytes | title UTF-8 bytes
+repeated item count times: the same bounded v2 item record
+```
+
+The gateway queries Plex's `/library/sections/{id}/all` endpoint in
+title-sort order and caps each page at four items. Its paired
+`/v3/browse.jpg` contact sheet is 320x120, so the existing JPEG decoder and
+four fixed browse texture slots are reused. The TypeScript model owns the
+Libraries and Browse screens, paging state, details origin, and Back behavior;
+the C boundary only validates/fetches the requested page and stages it into
+that model. The real-server run discovered Movies, Anime, TV Shows, and
+Audiobooks, opened Movies (785 items), rendered pages starting at 0 and 4,
+then returned through Libraries to Home. R/L expose direct page actions for
+normal console navigation and deterministic Dolphin automation.
 
 `GET /v2/artwork.jpg` serves the twelve possible posters as one 320x360 JPEG
 contact sheet. The host downsizes and letterboxes Plex artwork into 80x120
@@ -312,7 +342,8 @@ The current build is approximately:
 | Codec compressed input windows | 32 KiB / 8 KiB                                |
 | Pairing view                   | 10 widgets, 1 handler                         |
 | Home snapshot                  | Up to 3 rows x 4 real Plex items              |
-| Poster textures                | Up to 12 x 80x120 RGB565 / 225 KiB            |
+| Library browse page            | 4 of up to 65,535 real Plex items             |
+| Poster textures                | 12 home + 4 browse x 80x120 RGB565 / 300 KiB  |
 | Embedded MPEG-2 Program Stream | 720x480 video + stereo MP2 / 152 KiB          |
 | Extracted MPEG-2 payload       | 720x480 YUV420P / 125 KiB                     |
 | Extracted MP2 payload          | 48 kHz stereo, 192 kbps / 24 KiB              |
@@ -384,8 +415,7 @@ not as the committed GameCube renderer yet.
 
 Next Dolphin milestones:
 
-1. add the remaining web browse and search surfaces on the versioned catalog
-   and artwork primitives;
+1. add search and richer filters on the versioned browse/artwork primitives;
 2. turn the host-prepared Plex segment into an on-demand, seekable full-item
    session with progress persistence;
 3. add player controls and Watch Together state through the same gateway;

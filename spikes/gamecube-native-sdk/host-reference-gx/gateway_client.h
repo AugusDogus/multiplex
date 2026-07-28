@@ -9,6 +9,7 @@
 #define MULTIPLEX_GATEWAY_MAX_ROWS 3
 #define MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS \
   (MULTIPLEX_GATEWAY_MAX_ITEMS * MULTIPLEX_GATEWAY_MAX_ROWS)
+#define MULTIPLEX_GATEWAY_MAX_LIBRARIES 8
 #define MULTIPLEX_GATEWAY_SERVER_CAPACITY 64
 #define MULTIPLEX_GATEWAY_TITLE_CAPACITY 96
 #define MULTIPLEX_GATEWAY_SUBTITLE_CAPACITY 96
@@ -37,19 +38,45 @@ typedef struct {
 } MultiplexGatewayRow;
 
 typedef struct {
+  uint16_t section_id;
+  uint8_t media_type;
+  char title[MULTIPLEX_GATEWAY_TITLE_CAPACITY];
+  uint16_t title_length;
+} MultiplexGatewayLibrary;
+
+typedef struct {
   uint16_t version;
   uint16_t row_count;
   uint16_t total_item_count;
+  uint16_t library_count;
   char server_name[MULTIPLEX_GATEWAY_SERVER_CAPACITY];
   uint16_t server_name_length;
   MultiplexGatewayRow rows[MULTIPLEX_GATEWAY_MAX_ROWS];
   MultiplexGatewayItem items[MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS];
+  MultiplexGatewayLibrary libraries[MULTIPLEX_GATEWAY_MAX_LIBRARIES];
 } MultiplexGatewayCatalog;
+
+typedef struct {
+  uint16_t version;
+  uint16_t section_id;
+  uint16_t item_count;
+  uint16_t start;
+  uint16_t total_size;
+  char title[MULTIPLEX_GATEWAY_TITLE_CAPACITY];
+  uint16_t title_length;
+  MultiplexGatewayItem items[MULTIPLEX_GATEWAY_MAX_ITEMS];
+} MultiplexGatewayBrowsePage;
 
 bool multiplex_gateway_load_catalog(const char *base_url,
                                     MultiplexGatewayCatalog *catalog);
 bool multiplex_gateway_load_artwork(const char *base_url,
                                     uint8_t *destination, size_t capacity,
                                     size_t *encoded_size);
+bool multiplex_gateway_load_browse(const char *base_url, uint16_t section_id,
+                                   uint16_t start,
+                                   MultiplexGatewayBrowsePage *page);
+bool multiplex_gateway_load_browse_artwork(
+    const char *base_url, uint16_t section_id, uint16_t start,
+    uint8_t *destination, size_t capacity, size_t *encoded_size);
 
 #endif

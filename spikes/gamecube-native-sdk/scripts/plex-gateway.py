@@ -10,6 +10,7 @@ import io
 import json
 import pathlib
 import struct
+import threading
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -19,6 +20,8 @@ from dataclasses import dataclass
 CATALOG_MAGIC = b"MPXG"
 CATALOG_VERSION = 1
 HOME_CATALOG_VERSION = 2
+BOOTSTRAP_CATALOG_VERSION = 3
+BROWSE_CATALOG_VERSION = 1
 MAX_ITEMS = 4
 MAX_ROWS = 3
 MAX_SERVER_NAME_BYTES = 63
@@ -49,6 +52,21 @@ class HomeItem:
 @dataclass(frozen=True)
 class HomeRow:
     title: str
+    items: list[HomeItem]
+
+
+@dataclass(frozen=True)
+class LibrarySection:
+    section_id: int
+    title: str
+    media_type: str
+
+
+@dataclass(frozen=True)
+class BrowsePage:
+    section: LibrarySection
+    start: int
+    total_size: int
     items: list[HomeItem]
 
 
@@ -180,6 +198,52 @@ def fetch_home_catalog(base_url: str, token: str | None) -> tuple[str, list[Home
     return server_name, rows
 
 
+def fetch_library_sections(base_url: str, token: str | None) -> list[LibrarySection]:
+    root = _plex_xml(base_url, "/library/sections", token)
+    sections: list[LibrarySection] = []
+    for directory in root.findall("Directory"):
+        key = directory.get("key", "")
+        title = directory.get("title", "")
+        media_type = directory.get("type", "")
+        if not key.isdigit() or not title or not media_type:
+            continue
+        sections.append(LibrarySection(int(key), title, media_type))
+    return sections[:8]
+
+
+def fetch_browse_page(
+    base_url: str,
+    token: str | None,
+    section: LibrarySection,
+    start: int,
+) -> BrowsePage:
+    query = urllib.parse.urlencode(
+        {
+            "sort": "titleSort:asc",
+            "X-Plex-Container-Start": start,
+            "X-Plex-Container-Size": MAX_ITEMS,
+        }
+    )
+    root = _plex_xml(base_url, f"/library/sections/{section.section_id}/all?{query}", token)
+    items: list[HomeItem] = []
+    for element in list(root)[:MAX_ITEMS]:
+        rating_key = element.get("ratingKey", "")
+        if not rating_key.isdigit():
+            continue
+        items.append(
+            HomeItem(
+                rating_key=int(rating_key),
+                duration_ms=int(element.get("duration", "0") or 0),
+                view_offset_ms=int(element.get("viewOffset", "0") or 0),
+                title=_item_title(element),
+                subtitle=_item_subtitle(element),
+                artwork_path=element.get("grandparentThumb") or element.get("thumb"),
+            )
+        )
+    total_size = int(root.get("totalSize") or root.get("size") or len(items))
+    return BrowsePage(section, start, total_size, items)
+
+
 def encode_home_catalog(server_name: str, rows: list[HomeRow]) -> bytes:
     server = _bounded_utf8(server_name, MAX_SERVER_NAME_BYTES)
     bounded_rows = rows[:MAX_ROWS]
@@ -216,6 +280,67 @@ def encode_home_catalog(server_name: str, rows: list[HomeRow]) -> bytes:
     return bytes(body)
 
 
+def encode_bootstrap_catalog(
+    server_name: str,
+    rows: list[HomeRow],
+    libraries: list[LibrarySection],
+) -> bytes:
+    body = bytearray(encode_home_catalog(server_name, rows))
+    struct.pack_into(">H", body, 4, BOOTSTRAP_CATALOG_VERSION)
+    struct.pack_into(">H", body, 10, len(libraries))
+    media_types = {"movie": 1, "show": 2, "artist": 3, "photo": 4}
+    for library in libraries:
+        title = _bounded_utf8(library.title, MAX_TITLE_BYTES)
+        body.extend(
+            struct.pack(
+                ">HBBH",
+                min(library.section_id, 0xFFFF),
+                media_types.get(library.media_type, 0),
+                0,
+                len(title),
+            )
+        )
+        body.extend(title)
+    return bytes(body)
+
+
+def encode_browse_page(page: BrowsePage) -> bytes:
+    title = _bounded_utf8(page.section.title, MAX_TITLE_BYTES)
+    body = bytearray(
+        struct.pack(
+            ">4sHHHHHH",
+            b"MPXB",
+            BROWSE_CATALOG_VERSION,
+            min(page.section.section_id, 0xFFFF),
+            len(page.items),
+            min(page.start, 0xFFFF),
+            min(page.total_size, 0xFFFF),
+            len(title),
+        )
+    )
+    body.extend(title)
+    for artwork_slot, item in enumerate(page.items):
+        item_title = _bounded_utf8(item.title, MAX_TITLE_BYTES)
+        subtitle = _bounded_utf8(item.subtitle, MAX_SUBTITLE_BYTES)
+        progress = 0 if item.duration_ms <= 0 else min(100, item.view_offset_ms * 100 // item.duration_ms)
+        body.extend(
+            struct.pack(
+                ">IIIHBBHH",
+                item.rating_key,
+                item.duration_ms,
+                item.view_offset_ms,
+                artwork_slot,
+                progress,
+                0,
+                len(item_title),
+                len(subtitle),
+            )
+        )
+        body.extend(item_title)
+        body.extend(subtitle)
+    return bytes(body)
+
+
 def _plex_bytes(base_url: str, path: str, token: str | None) -> bytes:
     url = f"{base_url.rstrip('/')}{path}"
     if token:
@@ -228,7 +353,8 @@ def _plex_bytes(base_url: str, path: str, token: str | None) -> bytes:
 def build_artwork_atlas(base_url: str, token: str | None, rows: list[HomeRow]) -> bytes:
     from PIL import Image, ImageOps
 
-    atlas = Image.new("RGB", (ARTWORK_WIDTH * MAX_ITEMS, ARTWORK_HEIGHT * MAX_ROWS))
+    atlas_rows = max(1, min(MAX_ROWS, len(rows)))
+    atlas = Image.new("RGB", (ARTWORK_WIDTH * MAX_ITEMS, ARTWORK_HEIGHT * atlas_rows))
     slot = 0
     for row in rows[:MAX_ROWS]:
         for item in row.items[:MAX_ITEMS]:
@@ -255,8 +381,34 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
     media_path: pathlib.Path
     catalog_bytes: bytes
     home_catalog_bytes: bytes
+    bootstrap_catalog_bytes: bytes
     artwork_bytes: bytes
     health_bytes: bytes
+    plex_base_url: str
+    plex_token: str | None
+    libraries: dict[int, LibrarySection]
+    browse_cache: dict[tuple[int, int], tuple[bytes, bytes]] = {}
+    browse_cache_lock = threading.Lock()
+
+    @classmethod
+    def _browse_payload(cls, section_id: int, start: int) -> tuple[bytes, bytes] | None:
+        section = cls.libraries.get(section_id)
+        if section is None or start < 0 or start > 0xFFFF:
+            return None
+        cache_key = (section_id, start)
+        with cls.browse_cache_lock:
+            cached = cls.browse_cache.get(cache_key)
+            if cached is not None:
+                return cached
+            page = fetch_browse_page(cls.plex_base_url, cls.plex_token, section, start)
+            catalog = encode_browse_page(page)
+            artwork = build_artwork_atlas(
+                cls.plex_base_url,
+                cls.plex_token,
+                [HomeRow(section.title, page.items)],
+            )
+            cls.browse_cache[cache_key] = (catalog, artwork)
+            return catalog, artwork
 
     def _send_bytes(self, body: bytes, content_type: str) -> None:
         start = 0
@@ -340,7 +492,9 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
             self.close_connection = True
 
     def do_GET(self) -> None:
-        path = urllib.parse.urlsplit(self.path).path
+        parsed = urllib.parse.urlsplit(self.path)
+        path = parsed.path
+        query = urllib.parse.parse_qs(parsed.query)
         if path == "/v1/health":
             self._send_bytes(self.health_bytes, "application/json")
         elif path == "/v1/catalog.bin":
@@ -349,6 +503,22 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
             self._send_bytes(self.home_catalog_bytes, "application/octet-stream")
         elif path == "/v2/artwork.jpg":
             self._send_bytes(self.artwork_bytes, "image/jpeg")
+        elif path == "/v3/catalog.bin":
+            self._send_bytes(self.bootstrap_catalog_bytes, "application/octet-stream")
+        elif path in {"/v3/browse.bin", "/v3/browse.jpg"}:
+            section_value = query.get("section", [""])[0]
+            start_value = query.get("start", ["0"])[0]
+            if not section_value.isdigit() or not start_value.isdigit():
+                self.send_error(400)
+                return
+            payload = self._browse_payload(int(section_value), int(start_value))
+            if payload is None:
+                self.send_error(404)
+                return
+            if path.endswith(".bin"):
+                self._send_bytes(payload[0], "application/octet-stream")
+            else:
+                self._send_bytes(payload[1], "image/jpeg")
         elif path == "/v1/media/current.mpg":
             self._send_media()
         else:
@@ -368,26 +538,35 @@ def main() -> None:
 
     server_name, items = fetch_catalog(arguments.plex_base_url, arguments.token)
     home_server_name, rows = fetch_home_catalog(arguments.plex_base_url, arguments.token)
+    libraries = fetch_library_sections(arguments.plex_base_url, arguments.token)
     GatewayHandler.media_path = arguments.media
     GatewayHandler.catalog_bytes = encode_catalog(server_name, items)
     GatewayHandler.home_catalog_bytes = encode_home_catalog(home_server_name, rows)
+    GatewayHandler.bootstrap_catalog_bytes = encode_bootstrap_catalog(
+        home_server_name, rows, libraries
+    )
     GatewayHandler.artwork_bytes = build_artwork_atlas(arguments.plex_base_url, arguments.token, rows)
+    GatewayHandler.plex_base_url = arguments.plex_base_url
+    GatewayHandler.plex_token = arguments.token
+    GatewayHandler.libraries = {library.section_id: library for library in libraries}
     GatewayHandler.health_bytes = json.dumps(
         {
-            "contractVersion": HOME_CATALOG_VERSION,
+            "contractVersion": BOOTSTRAP_CATALOG_VERSION,
             "server": server_name,
             "rows": len(rows),
             "items": sum(len(row.items) for row in rows),
             "artworkBytes": len(GatewayHandler.artwork_bytes),
+            "libraries": len(libraries),
             "mediaBytes": arguments.media.stat().st_size,
         },
         separators=(",", ":"),
     ).encode("utf-8")
     server = http.server.ThreadingHTTPServer(("0.0.0.0", arguments.port), GatewayHandler)
     print(
-        f"Multiplex console gateway v{HOME_CATALOG_VERSION}: "
+        f"Multiplex console gateway v{BOOTSTRAP_CATALOG_VERSION}: "
         f"server={server_name!r} rows={len(rows)} "
-        f"items={sum(len(row.items) for row in rows)} port={arguments.port}",
+        f"items={sum(len(row.items) for row in rows)} "
+        f"libraries={len(libraries)} port={arguments.port}",
         flush=True,
     )
     server.serve_forever()

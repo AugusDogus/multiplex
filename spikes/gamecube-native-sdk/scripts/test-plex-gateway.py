@@ -71,6 +71,34 @@ class CatalogContractTest(unittest.TestCase):
         self.assertEqual(item[:6], (99, 200_000, 50_000, 0, 25, 0))
         self.assertEqual(item_count, 1)
 
+    def test_encodes_v3_bootstrap_libraries(self) -> None:
+        rows = [
+            gateway.HomeRow(
+                "Recently Added",
+                [gateway.HomeItem(7, 1000, 0, "Movie", "2026", "/thumb.jpg")],
+            )
+        ]
+        libraries = [gateway.LibrarySection(1, "Movies", "movie")]
+        encoded = gateway.encode_bootstrap_catalog("Plex", rows, libraries)
+        magic, version, row_count, server_length, library_count = struct.unpack(
+            ">4sHHHH", encoded[:12]
+        )
+        self.assertEqual((magic, version, row_count, library_count), (b"MPXG", 3, 1, 1))
+        self.assertEqual(encoded[-12:], struct.pack(">HBBH", 1, 1, 0, 6) + b"Movies")
+        self.assertEqual(encoded[12 : 12 + server_length], b"Plex")
+
+    def test_encodes_browse_page_bounds(self) -> None:
+        section = gateway.LibrarySection(4, "Anime", "show")
+        page = gateway.BrowsePage(
+            section,
+            4,
+            50,
+            [gateway.HomeItem(99, 200_000, 50_000, "A Show", "2026", None)],
+        )
+        encoded = gateway.encode_browse_page(page)
+        header = struct.unpack(">4sHHHHHH", encoded[:16])
+        self.assertEqual(header, (b"MPXB", 1, 4, 1, 4, 50, 5))
+
 
 if __name__ == "__main__":
     unittest.main()
