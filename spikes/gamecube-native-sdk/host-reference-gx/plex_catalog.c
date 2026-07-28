@@ -16,7 +16,9 @@
 
 #define PLEX_HUB_RESPONSE_CAPACITY (128u * 1024u)
 #define PLEX_LIBRARY_RESPONSE_CAPACITY (8u * 1024u)
+#define PLEX_BROWSE_RESPONSE_CAPACITY (64u * 1024u)
 #define PLEX_CATALOG_URL_CAPACITY 1280u
+#define PLEX_REQUEST_ATTEMPTS 4u
 
 typedef struct {
   const char *begin;
@@ -420,6 +422,57 @@ bool multiplex_plex_catalog_parse_libraries(const char *json, size_t size,
   return catalog->library_count != 0;
 }
 
+bool multiplex_plex_catalog_parse_browse(
+    const char *json, size_t size, const MultiplexGatewayLibrary *library,
+    uint16_t start, MultiplexGatewayBrowsePage *page) {
+  if (json == NULL || size == 0 || library == NULL ||
+      library->section_id == 0 || library->title_length == 0 || page == NULL) {
+    return false;
+  }
+  JsonSpan document = {.begin = json, .end = json + size};
+  const char *array = NULL;
+  if (!json_value(document, "Metadata", &array) || *array != '[') {
+    return false;
+  }
+  memset(page, 0, sizeof(*page));
+  page->version = 1;
+  page->section_id = library->section_id;
+  page->start = start;
+  memcpy(page->title, library->title, library->title_length);
+  page->title[library->title_length] = '\0';
+  page->title_length = library->title_length;
+
+  uint32_t total_size = 0;
+  json_unsigned(document, "totalSize", &total_size);
+  if (total_size > UINT16_MAX) {
+    total_size = UINT16_MAX;
+  }
+  page->total_size = (uint16_t)total_size;
+
+  const char *cursor = array + 1;
+  while (cursor < document.end &&
+         page->item_count < MULTIPLEX_GATEWAY_MAX_ITEMS) {
+    cursor = skip_space(cursor, document.end);
+    if (cursor < document.end && *cursor == ']') {
+      break;
+    }
+    JsonSpan object;
+    const char *next = NULL;
+    if (!json_object(cursor, document.end, &object, &next)) {
+      return false;
+    }
+    MultiplexGatewayItem *item = &page->items[page->item_count];
+    if (parse_item(object, item, page->item_count)) {
+      ++page->item_count;
+    }
+    cursor = next;
+  }
+  if (page->total_size == 0) {
+    page->total_size = (uint16_t)(start + page->item_count);
+  }
+  return page->item_count != 0;
+}
+
 static bool request_plex_json(const MultiplexAuthCredentials *credentials,
                               const char *path, char *destination,
                               size_t capacity, size_t *body_size) {
@@ -445,15 +498,21 @@ static bool request_plex_json(const MultiplexAuthCredentials *credentials,
       {.name = "X-Plex-Client-Identifier",
        .value = credentials->plex_client_id},
   };
-  HttpJsonResponse response;
-  if (!http_client_request_with_headers(
-          "GET", url, headers, sizeof(headers) / sizeof(headers[0]), NULL,
-          destination, capacity, &response) ||
-      response.status != 200) {
-    return false;
+  for (unsigned attempt = 1; attempt <= PLEX_REQUEST_ATTEMPTS; ++attempt) {
+    HttpJsonResponse response;
+    if (http_client_request_with_headers(
+            "GET", url, headers, sizeof(headers) / sizeof(headers[0]), NULL,
+            destination, capacity, &response) &&
+        response.status == 200) {
+      *body_size = response.body_size;
+      return true;
+    }
+    if (attempt != PLEX_REQUEST_ATTEMPTS) {
+      SYS_Report("REFERENCE GX: direct Plex request retry attempt=%u/%u\n",
+                 attempt + 1u, PLEX_REQUEST_ATTEMPTS);
+    }
   }
-  *body_size = response.body_size;
-  return true;
+  return false;
 }
 
 bool multiplex_plex_load_catalog(
@@ -500,6 +559,40 @@ bool multiplex_plex_load_catalog(
       "REFERENCE GX: direct Plex catalog rows=%u items=%u libraries=%u\n",
       catalog->row_count, catalog->total_item_count, catalog->library_count);
   return true;
+}
+
+bool multiplex_plex_load_browse(
+    const MultiplexAuthCredentials *credentials,
+    const MultiplexGatewayLibrary *library, uint16_t start,
+    MultiplexGatewayBrowsePage *page) {
+  if (credentials == NULL || library == NULL || library->section_id == 0 ||
+      page == NULL) {
+    return false;
+  }
+  char path[256];
+  const int path_size = snprintf(
+      path, sizeof(path),
+      "library/sections/%u/all?sort=addedAt%%3Adesc&"
+      "X-Plex-Container-Start=%u&X-Plex-Container-Size=%u",
+      library->section_id, start, MULTIPLEX_GATEWAY_MAX_ITEMS);
+  if (path_size <= 0 || (size_t)path_size >= sizeof(path)) {
+    return false;
+  }
+  char *response = malloc(PLEX_BROWSE_RESPONSE_CAPACITY);
+  size_t response_size = 0;
+  const bool loaded =
+      response != NULL &&
+      request_plex_json(credentials, path, response,
+                        PLEX_BROWSE_RESPONSE_CAPACITY, &response_size) &&
+      multiplex_plex_catalog_parse_browse(response, response_size, library,
+                                          start, page);
+  free(response);
+  if (loaded) {
+    SYS_Report(
+        "REFERENCE GX: direct Plex browse section=%u start=%u items=%u/%u\n",
+        library->section_id, start, page->item_count, page->total_size);
+  }
+  return loaded;
 }
 
 static bool encode_url_value(const char *value, char *destination,

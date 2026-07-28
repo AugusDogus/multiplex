@@ -60,9 +60,41 @@ static void test_parses_libraries(void) {
   assert(catalog.libraries[2].media_type == 3);
 }
 
+static void test_parses_browse_page(void) {
+  static const char browse[] =
+      "{\"MediaContainer\":{\"size\":2,\"totalSize\":17,\"Metadata\":["
+      "{\"ratingKey\":\"22\",\"type\":\"movie\",\"title\":\"Newest Movie\","
+      "\"year\":2026,\"duration\":7200000,\"viewOffset\":1800000,"
+      "\"thumb\":\"/library/metadata/22/thumb/1\"},"
+      "{\"ratingKey\":\"23\",\"type\":\"show\",\"title\":\"A Series\","
+      "\"year\":2024,\"duration\":0,"
+      "\"thumb\":\"/library/metadata/23/thumb/1\"}]}}";
+  const MultiplexGatewayLibrary library = {
+      .section_id = 3,
+      .media_type = 1,
+      .title = "Movies",
+      .title_length = 6,
+  };
+  MultiplexGatewayBrowsePage page = {0};
+
+  assert(multiplex_plex_catalog_parse_browse(
+      browse, strlen(browse), &library, 4, &page));
+  assert(page.version == 1);
+  assert(page.section_id == 3);
+  assert(page.start == 4);
+  assert(page.total_size == 17);
+  assert(page.item_count == 2);
+  assert(strcmp(page.title, "Movies") == 0);
+  assert(strcmp(page.items[0].title, "Newest Movie") == 0);
+  assert(strcmp(page.items[0].subtitle, "2026") == 0);
+  assert(page.items[0].progress_percent == 25);
+  assert(page.items[1].artwork_slot == 1);
+}
+
 int main(void) {
   test_parses_home_rows();
   test_parses_libraries();
+  test_parses_browse_page();
   puts("GameCube direct Plex catalog tests passed.");
   return 0;
 }
