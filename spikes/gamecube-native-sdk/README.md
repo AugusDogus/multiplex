@@ -148,8 +148,13 @@ The AI DMA sample clock drives a lightweight GX progress bar without repainting
 the Native SDK tree. It also requests the next segment at the current boundary;
 the accelerated Dolphin run crossed consecutive real Plex segments with zero
 invalid accesses and zero audio underruns. Cold preparation is still
-synchronous and caused an approximately seven-second boundary gap, which makes
-background prefetch the next player milestone.
+expensive and originally caused an approximately seven-second boundary gap.
+The gateway now performs the one-segment-ahead encode concurrently and
+coordinates duplicate requests per timeline key, without serializing an
+unrelated user seek. Dolphin confirms the next file is ready before the
+boundary; the remaining multi-second gap is in guest-side HTTP teardown and
+session startup, so eliminating it requires a guest-side staged session rather
+than more host transcoder work.
 A bounded reference-render memo retains three expensive stable layers; warmed
 full home and details repaints measured about 0.37 and 0.33 seconds. The memo
 has a 4 MiB hard limit and peaked at 4,093 KiB in the home/details flow.

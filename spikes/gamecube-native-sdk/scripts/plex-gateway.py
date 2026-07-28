@@ -604,6 +604,7 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
     playback_rating_key: int = 0
     playback_cache: dict[tuple[int, int], tuple[bytes, pathlib.Path]] = {}
     playback_cache_lock = threading.Lock()
+    playback_preparing: dict[tuple[int, int], threading.Event] = {}
     segment_duration_seconds = 120.0
     plex_base_url: str
     plex_token: str | None
@@ -682,88 +683,147 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
             or offset_ms > 0xFFFFFFFF
         ):
             return None
+        cache_key = (rating_key, offset_ms)
         with cls.playback_cache_lock:
-            cache_key = (rating_key, offset_ms)
             cached = cls.playback_cache.get(cache_key)
             if cached is not None:
                 return cached
-            session_dir = cls.media_path.parent / "sessions"
-            session_dir.mkdir(parents=True, exist_ok=True)
-            duration_key = round(cls.segment_duration_seconds * 1000)
-            session_name = f"{rating_key}-{offset_ms}-{duration_key}"
-            media_path = session_dir / f"{session_name}.mpg"
-            metadata_path = session_dir / f"{session_name}.json"
-            try:
-                if media_path.is_file() and metadata_path.is_file():
-                    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-                else:
-                    temporary_media = session_dir / f"{session_name}.tmp.mpg"
-                    environment = os.environ.copy()
-                    if cls.plex_token:
-                        environment["PLEX_TOKEN"] = cls.plex_token
-                    command = [
-                        sys.executable,
-                        str(pathlib.Path(__file__).with_name("prepare-plex-media.py")),
-                        cls.plex_base_url,
-                        str(temporary_media),
-                        "--rating-key",
-                        str(rating_key),
-                        "--offset",
-                        str(offset_ms / 1000),
-                        "--duration",
-                        str(cls.segment_duration_seconds),
-                    ]
-                    result = subprocess.run(
-                        command,
-                        check=True,
-                        capture_output=True,
-                        text=True,
-                        env=environment,
-                        timeout=300,
-                    )
-                    metadata = json.loads(result.stdout)
-                    temporary_media.replace(media_path)
-                    metadata_path.write_text(
-                        json.dumps(metadata, separators=(",", ":")), encoding="utf-8"
-                    )
-                if int(metadata["rating_key"]) != rating_key:
-                    raise ValueError("prepared playback rating key did not match request")
-                if int(metadata["segment_start_ms"]) != offset_ms:
-                    raise ValueError("prepared playback offset did not match request")
-                manifest = encode_playback_manifest(
-                    PlaybackManifest(
-                        rating_key=int(metadata["rating_key"]),
-                        media_duration_ms=int(metadata["media_duration_ms"]),
-                        segment_start_ms=int(metadata["segment_start_ms"]),
-                        segment_duration_ms=int(metadata["segment_duration_ms"]),
-                        container_bytes=int(metadata["container_bytes"]),
-                        video_bytes=int(metadata["video_bytes"]),
-                        audio_bytes=int(metadata["audio_bytes"]),
-                        video_packets=int(metadata["video_packets"]),
-                        audio_packets=int(metadata["audio_packets"]),
-                        video_pts90k=int(metadata["video_pts90k"]),
-                        audio_pts90k=int(metadata["audio_pts90k"]),
-                        media_path=f"/v4/media/{rating_key}/{offset_ms}.mpg",
-                    )
-                )
-            except (
-                OSError,
-                ValueError,
-                KeyError,
-                json.JSONDecodeError,
-                subprocess.SubprocessError,
-            ) as error:
+            preparation = cls.playback_preparing.get(cache_key)
+            owns_preparation = preparation is None
+            if preparation is None:
+                preparation = threading.Event()
+                cls.playback_preparing[cache_key] = preparation
+        if not owns_preparation:
+            if not preparation.wait(timeout=300):
+                return None
+            with cls.playback_cache_lock:
+                return cls.playback_cache.get(cache_key)
+
+        payload = None
+        try:
+            payload = cls._prepare_playback_payload(rating_key, offset_ms)
+            return payload
+        finally:
+            with cls.playback_cache_lock:
+                if payload is not None:
+                    cls.playback_cache[cache_key] = payload
+                cls.playback_preparing.pop(cache_key, None)
+                preparation.set()
+
+    @classmethod
+    def _prepare_playback_payload(
+        cls, rating_key: int, offset_ms: int
+    ) -> tuple[bytes, pathlib.Path] | None:
+        session_dir = cls.media_path.parent / "sessions"
+        session_dir.mkdir(parents=True, exist_ok=True)
+        duration_key = round(cls.segment_duration_seconds * 1000)
+        session_name = f"{rating_key}-{offset_ms}-{duration_key}"
+        media_path = session_dir / f"{session_name}.mpg"
+        metadata_path = session_dir / f"{session_name}.json"
+        try:
+            if media_path.is_file() and metadata_path.is_file():
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            else:
                 temporary_media = session_dir / f"{session_name}.tmp.mpg"
-                temporary_media.unlink(missing_ok=True)
+                environment = os.environ.copy()
+                if cls.plex_token:
+                    environment["PLEX_TOKEN"] = cls.plex_token
+                command = [
+                    sys.executable,
+                    str(pathlib.Path(__file__).with_name("prepare-plex-media.py")),
+                    cls.plex_base_url,
+                    str(temporary_media),
+                    "--rating-key",
+                    str(rating_key),
+                    "--offset",
+                    str(offset_ms / 1000),
+                    "--duration",
+                    str(cls.segment_duration_seconds),
+                ]
+                result = subprocess.run(
+                    command,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    env=environment,
+                    timeout=300,
+                )
+                metadata = json.loads(result.stdout)
+                temporary_media.replace(media_path)
+                metadata_path.write_text(
+                    json.dumps(metadata, separators=(",", ":")), encoding="utf-8"
+                )
+            if int(metadata["rating_key"]) != rating_key:
+                raise ValueError("prepared playback rating key did not match request")
+            if int(metadata["segment_start_ms"]) != offset_ms:
+                raise ValueError("prepared playback offset did not match request")
+            manifest = encode_playback_manifest(
+                PlaybackManifest(
+                    rating_key=int(metadata["rating_key"]),
+                    media_duration_ms=int(metadata["media_duration_ms"]),
+                    segment_start_ms=int(metadata["segment_start_ms"]),
+                    segment_duration_ms=int(metadata["segment_duration_ms"]),
+                    container_bytes=int(metadata["container_bytes"]),
+                    video_bytes=int(metadata["video_bytes"]),
+                    audio_bytes=int(metadata["audio_bytes"]),
+                    video_packets=int(metadata["video_packets"]),
+                    audio_packets=int(metadata["audio_packets"]),
+                    video_pts90k=int(metadata["video_pts90k"]),
+                    audio_pts90k=int(metadata["audio_pts90k"]),
+                    media_path=f"/v4/media/{rating_key}/{offset_ms}.mpg",
+                )
+            )
+        except (
+            OSError,
+            ValueError,
+            KeyError,
+            json.JSONDecodeError,
+            subprocess.SubprocessError,
+        ) as error:
+            temporary_media = session_dir / f"{session_name}.tmp.mpg"
+            temporary_media.unlink(missing_ok=True)
+            print(
+                f"Playback preparation failed for rating key {rating_key}: {error}",
+                file=sys.stderr,
+                flush=True,
+            )
+            return None
+        return manifest, media_path
+
+    @staticmethod
+    def _next_playback_segment(manifest: bytes) -> tuple[int, int] | None:
+        if len(manifest) < 24 or manifest[:4] != b"MPXP":
+            return None
+        rating_key, media_duration_ms, segment_start_ms, segment_duration_ms = (
+            struct.unpack_from(">IIII", manifest, 8)
+        )
+        next_offset_ms = segment_start_ms + segment_duration_ms
+        if rating_key == 0 or segment_duration_ms == 0 or next_offset_ms >= media_duration_ms:
+            return None
+        return rating_key, next_offset_ms
+
+    @classmethod
+    def _prefetch_playback(cls, manifest: bytes) -> None:
+        next_segment = cls._next_playback_segment(manifest)
+        if next_segment is None:
+            return
+        with cls.playback_cache_lock:
+            if (
+                next_segment in cls.playback_cache
+                or next_segment in cls.playback_preparing
+            ):
+                return
+
+        def prepare() -> None:
+            prepared = cls._playback_payload(*next_segment)
+            if prepared is not None:
                 print(
-                    f"Playback preparation failed for rating key {rating_key}: {error}",
-                    file=sys.stderr,
+                    f"Prefetched playback rating key {next_segment[0]} "
+                    f"at {next_segment[1]}ms",
                     flush=True,
                 )
-                return None
-            payload = (manifest, media_path)
-            cls.playback_cache[cache_key] = payload
-            return payload
+
+        threading.Thread(target=prepare, daemon=True).start()
 
     def _send_bytes(self, body: bytes, content_type: str) -> None:
         start = 0
@@ -933,6 +993,9 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
             if playback is None:
                 self.send_error(404)
                 return
+            # Start N+1 only after this request has resolved N from the cache;
+            # otherwise the preparation lock could delay the current media.
+            self._prefetch_playback(playback[0])
             self._send_media(playback[1])
         elif path == "/v1/media/current.mpg":
             self._send_media()
@@ -1005,6 +1068,7 @@ def main() -> None:
         GatewayHandler.playback_manifest_bytes = None
         GatewayHandler.playback_rating_key = 0
         GatewayHandler.playback_cache = {}
+    GatewayHandler.playback_preparing = {}
     GatewayHandler.health_bytes = json.dumps(
         {
             "contractVersion": BOOTSTRAP_CATALOG_VERSION,

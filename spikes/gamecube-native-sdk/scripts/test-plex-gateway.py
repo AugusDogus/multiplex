@@ -153,6 +153,45 @@ class CatalogContractTest(unittest.TestCase):
         self.assertEqual(header[7:12], (15_597_568, 13_584_755, 1_920_000, 3596, 5000))
         self.assertEqual(encoded[62:], b"/v1/media/current.mpg")
 
+    def test_finds_following_playback_segment(self) -> None:
+        manifest = gateway.PlaybackManifest(
+            42,
+            6_851_264,
+            60_000,
+            120_000,
+            1_000_000,
+            800_000,
+            150_000,
+            3600,
+            4600,
+            45_000,
+            43_200,
+            "/v4/media/42/60000.mpg",
+        )
+        encoded = gateway.encode_playback_manifest(manifest)
+        self.assertEqual(
+            gateway.GatewayHandler._next_playback_segment(encoded),
+            (42, 180_000),
+        )
+
+    def test_does_not_prefetch_past_media_end(self) -> None:
+        manifest = gateway.PlaybackManifest(
+            42,
+            170_000,
+            60_000,
+            120_000,
+            1_000_000,
+            800_000,
+            150_000,
+            3600,
+            4600,
+            45_000,
+            43_200,
+            "/v4/media/42/60000.mpg",
+        )
+        encoded = gateway.encode_playback_manifest(manifest)
+        self.assertIsNone(gateway.GatewayHandler._next_playback_segment(encoded))
+
 
 if __name__ == "__main__":
     unittest.main()
