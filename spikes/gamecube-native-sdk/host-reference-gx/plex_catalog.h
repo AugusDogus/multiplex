@@ -14,6 +14,8 @@ bool multiplex_plex_catalog_parse_libraries(const char *json, size_t size,
 bool multiplex_plex_catalog_parse_browse(
     const char *json, size_t size, const MultiplexGatewayLibrary *library,
     uint16_t start, MultiplexGatewayBrowsePage *page);
+bool multiplex_plex_catalog_parse_details(const char *json, size_t size,
+                                          MultiplexGatewayDetails *details);
 bool multiplex_plex_load_catalog(
     const MultiplexAuthCredentials *credentials,
     MultiplexGatewayCatalog *catalog);
@@ -21,6 +23,9 @@ bool multiplex_plex_load_browse(
     const MultiplexAuthCredentials *credentials,
     const MultiplexGatewayLibrary *library, uint16_t start,
     MultiplexGatewayBrowsePage *page);
+bool multiplex_plex_load_details(
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
+    MultiplexGatewayDetails *details);
 bool multiplex_plex_load_artwork(
     const MultiplexAuthCredentials *credentials, const char *artwork_path,
     uint8_t *destination, size_t capacity, size_t *encoded_size);

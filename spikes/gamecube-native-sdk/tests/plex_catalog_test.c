@@ -91,10 +91,41 @@ static void test_parses_browse_page(void) {
   assert(page.items[1].artwork_slot == 1);
 }
 
+static void test_parses_item_details(void) {
+  static const char json[] =
+      "{\"MediaContainer\":{\"Metadata\":[{"
+      "\"ratingKey\":\"44\",\"type\":\"movie\",\"title\":\"A Film\","
+      "\"tagline\":\"The useful tagline\",\"librarySectionTitle\":\"Movies\","
+      "\"contentRating\":\"PG-13\",\"summary\":\"A concise summary.\","
+      "\"duration\":7260000,\"viewOffset\":60000,\"year\":2025,"
+      "\"rating\":8.65,\"Genre\":[{\"tag\":\"Drama\"},{\"tag\":\"Mystery\"}],"
+      "\"Director\":[{\"tag\":\"A. Director\"}],"
+      "\"Media\":[{\"videoResolution\":\"1080\"}]"
+      "}]}}";
+  MultiplexGatewayDetails details = {0};
+
+  assert(multiplex_plex_catalog_parse_details(
+      json, strlen(json), &details));
+  assert(details.version == 1);
+  assert(details.rating_key == 44);
+  assert(strcmp(details.title, "A Film") == 0);
+  assert(strcmp(details.secondary, "The useful tagline") == 0);
+  assert(strcmp(details.media_type, "Movie") == 0);
+  assert(strcmp(details.library, "Movies") == 0);
+  assert(strcmp(details.content_rating, "PG-13") == 0);
+  assert(strcmp(details.summary, "A concise summary.") == 0);
+  assert(strcmp(details.genres, "Drama, Mystery") == 0);
+  assert(strcmp(details.directors, "A. Director") == 0);
+  assert(details.year == 2025);
+  assert(details.rating_tenths == 87);
+  assert((details.flags & 1u) != 0);
+}
+
 int main(void) {
   test_parses_home_rows();
   test_parses_libraries();
   test_parses_browse_page();
+  test_parses_item_details();
   puts("GameCube direct Plex catalog tests passed.");
   return 0;
 }

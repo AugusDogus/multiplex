@@ -17,6 +17,7 @@
 #define PLEX_HUB_RESPONSE_CAPACITY (128u * 1024u)
 #define PLEX_LIBRARY_RESPONSE_CAPACITY (8u * 1024u)
 #define PLEX_BROWSE_RESPONSE_CAPACITY (64u * 1024u)
+#define PLEX_DETAILS_RESPONSE_CAPACITY (64u * 1024u)
 #define PLEX_CATALOG_URL_CAPACITY 1280u
 #define PLEX_REQUEST_ATTEMPTS 4u
 
@@ -139,6 +140,37 @@ static bool json_unsigned(JsonSpan span, const char *key,
     return false;
   }
   *destination = value;
+  return true;
+}
+
+static bool json_decimal_tenths(JsonSpan span, const char *key,
+                                uint16_t *destination) {
+  const char *cursor = NULL;
+  if (!json_value(span, key, &cursor) || cursor == span.end ||
+      *cursor < '0' || *cursor > '9') {
+    return false;
+  }
+  uint32_t whole = 0;
+  while (cursor < span.end && *cursor >= '0' && *cursor <= '9') {
+    whole = whole * 10u + (uint32_t)(*cursor++ - '0');
+    if (whole > 10u) {
+      return false;
+    }
+  }
+  uint32_t tenths = whole * 10u;
+  if (cursor < span.end && *cursor == '.') {
+    ++cursor;
+    if (cursor < span.end && *cursor >= '0' && *cursor <= '9') {
+      tenths += (uint32_t)(*cursor++ - '0');
+      if (cursor < span.end && *cursor >= '5' && *cursor <= '9') {
+        ++tenths;
+      }
+    }
+  }
+  if (tenths > 100u) {
+    tenths = 100u;
+  }
+  *destination = (uint16_t)tenths;
   return true;
 }
 
@@ -473,6 +505,121 @@ bool multiplex_plex_catalog_parse_browse(
   return page->item_count != 0;
 }
 
+static void capitalize_first(char *value) {
+  if (value[0] >= 'a' && value[0] <= 'z') {
+    value[0] = (char)(value[0] - 'a' + 'A');
+  }
+}
+
+static bool json_tag_list(JsonSpan object, const char *key, char *destination,
+                          size_t capacity) {
+  const char *array = NULL;
+  if (capacity == 0) {
+    return false;
+  }
+  destination[0] = '\0';
+  if (!json_value(object, key, &array) || *array != '[') {
+    return true;
+  }
+  size_t used = 0;
+  const char *cursor = array + 1;
+  while (cursor < object.end) {
+    cursor = skip_space(cursor, object.end);
+    if (cursor < object.end && *cursor == ']') {
+      return true;
+    }
+    JsonSpan tag_object;
+    const char *next = NULL;
+    if (!json_object(cursor, object.end, &tag_object, &next)) {
+      return false;
+    }
+    char tag[64];
+    if (json_string(tag_object, "tag", tag, sizeof(tag)) && tag[0] != '\0') {
+      const size_t tag_size = strlen(tag);
+      const size_t separator = used == 0 ? 0u : 2u;
+      if (used + separator + tag_size >= capacity) {
+        return true;
+      }
+      if (separator != 0) {
+        memcpy(destination + used, ", ", separator);
+        used += separator;
+      }
+      memcpy(destination + used, tag, tag_size);
+      used += tag_size;
+      destination[used] = '\0';
+    }
+    cursor = next;
+  }
+  return false;
+}
+
+bool multiplex_plex_catalog_parse_details(const char *json, size_t size,
+                                          MultiplexGatewayDetails *details) {
+  if (json == NULL || size == 0 || details == NULL) {
+    return false;
+  }
+  JsonSpan document = {.begin = json, .end = json + size};
+  const char *array = NULL;
+  if (!json_value(document, "Metadata", &array) || *array != '[') {
+    return false;
+  }
+  JsonSpan object;
+  const char *next = NULL;
+  if (!json_object(array + 1, document.end, &object, &next)) {
+    return false;
+  }
+  memset(details, 0, sizeof(*details));
+  details->version = 1;
+  uint32_t year = 0;
+  if (!json_unsigned(object, "ratingKey", &details->rating_key) ||
+      details->rating_key == 0 ||
+      !json_string(object, "title", details->title,
+                   sizeof(details->title)) ||
+      !json_string(object, "type", details->media_type,
+                   sizeof(details->media_type))) {
+    return false;
+  }
+  capitalize_first(details->media_type);
+  if (!json_string(object, "grandparentTitle", details->secondary,
+                   sizeof(details->secondary))) {
+    json_string(object, "tagline", details->secondary,
+                sizeof(details->secondary));
+  }
+  json_string(object, "librarySectionTitle", details->library,
+              sizeof(details->library));
+  json_string(object, "contentRating", details->content_rating,
+              sizeof(details->content_rating));
+  json_string(object, "summary", details->summary, sizeof(details->summary));
+  json_unsigned(object, "duration", &details->duration_ms);
+  json_unsigned(object, "viewOffset", &details->view_offset_ms);
+  if (json_unsigned(object, "year", &year) && year <= 9999u) {
+    details->year = (uint16_t)year;
+  }
+  json_decimal_tenths(object, "rating", &details->rating_tenths);
+  if (!json_tag_list(object, "Genre", details->genres,
+                     sizeof(details->genres)) ||
+      !json_tag_list(object, "Director", details->directors,
+                     sizeof(details->directors))) {
+    return false;
+  }
+  const char *media = NULL;
+  if (json_value(object, "Media", &media) && *media == '[' &&
+      skip_space(media + 1, object.end) < object.end &&
+      *skip_space(media + 1, object.end) != ']') {
+    details->flags |= 1u;
+  }
+  details->title_length = (uint16_t)strlen(details->title);
+  details->secondary_length = (uint16_t)strlen(details->secondary);
+  details->media_type_length = (uint16_t)strlen(details->media_type);
+  details->library_length = (uint16_t)strlen(details->library);
+  details->content_rating_length =
+      (uint16_t)strlen(details->content_rating);
+  details->summary_length = (uint16_t)strlen(details->summary);
+  details->genres_length = (uint16_t)strlen(details->genres);
+  details->directors_length = (uint16_t)strlen(details->directors);
+  return details->title_length != 0 && details->media_type_length != 0;
+}
+
 static bool request_plex_json(const MultiplexAuthCredentials *credentials,
                               const char *path, char *destination,
                               size_t capacity, size_t *body_size) {
@@ -591,6 +738,34 @@ bool multiplex_plex_load_browse(
     SYS_Report(
         "REFERENCE GX: direct Plex browse section=%u start=%u items=%u/%u\n",
         library->section_id, start, page->item_count, page->total_size);
+  }
+  return loaded;
+}
+
+bool multiplex_plex_load_details(
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
+    MultiplexGatewayDetails *details) {
+  if (credentials == NULL || rating_key == 0 || details == NULL) {
+    return false;
+  }
+  char path[96];
+  const int path_size =
+      snprintf(path, sizeof(path), "library/metadata/%u", rating_key);
+  if (path_size <= 0 || (size_t)path_size >= sizeof(path)) {
+    return false;
+  }
+  char *response = malloc(PLEX_DETAILS_RESPONSE_CAPACITY);
+  size_t response_size = 0;
+  const bool loaded =
+      response != NULL &&
+      request_plex_json(credentials, path, response,
+                        PLEX_DETAILS_RESPONSE_CAPACITY, &response_size) &&
+      multiplex_plex_catalog_parse_details(response, response_size, details) &&
+      details->rating_key == rating_key;
+  free(response);
+  if (loaded) {
+    SYS_Report("REFERENCE GX: direct Plex details rating-key=%u\n",
+               rating_key);
   }
   return loaded;
 }

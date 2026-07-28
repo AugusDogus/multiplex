@@ -181,6 +181,7 @@ typedef struct {
   volatile bool item_decoded;
   volatile bool complete;
   volatile bool stopping;
+  bool pending;
   volatile uint16_t item_index;
   volatile uint16_t decoded_count;
   uint16_t item_count;
@@ -771,10 +772,48 @@ static void *run_direct_poster_loader(void *context) {
   return NULL;
 }
 
-static bool start_direct_poster_loader(
+static bool launch_direct_poster_loader(DirectPosterLoader *loader) {
+  if (loader == NULL || !loader->pending ||
+      loader->thread != LWP_THREAD_NULL) {
+    return false;
+  }
+  loader->complete = false;
+  loader->stopping = false;
+  loader->item_ready = false;
+  loader->decoded_count = 0;
+  loader->decoded_pixels =
+      memalign(32, MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
+  loader->stack = malloc(POSTER_LOADER_STACK_SIZE);
+  if (loader->decoded_pixels == NULL || loader->stack == NULL) {
+    free(loader->decoded_pixels);
+    loader->decoded_pixels = NULL;
+    free(loader->stack);
+    loader->stack = NULL;
+    loader->pending = false;
+    return false;
+  }
+  if (LWP_CreateThread(&loader->thread, run_direct_poster_loader, loader,
+                       loader->stack, POSTER_LOADER_STACK_SIZE,
+                       LWP_PRIO_NORMAL / 2) != 0) {
+    free(loader->decoded_pixels);
+    loader->decoded_pixels = NULL;
+    free(loader->stack);
+    loader->stack = NULL;
+    loader->thread = LWP_THREAD_NULL;
+    loader->pending = false;
+    return false;
+  }
+  loader->pending = false;
+  SYS_Report(
+      "REFERENCE GX: direct Plex poster loader started items=%u offset=%u\n",
+      loader->item_count, loader->texture_offset);
+  return true;
+}
+
+static bool queue_direct_poster_loader(
     DirectPosterLoader *loader, const MultiplexAuthCredentials *credentials,
     const MultiplexGatewayItem *items, uint16_t item_count,
-    uint16_t texture_offset) {
+    uint16_t texture_offset, bool launch_now) {
   if (loader == NULL || credentials == NULL || items == NULL ||
       loader->thread != LWP_THREAD_NULL || item_count == 0 ||
       item_count > MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS ||
@@ -816,36 +855,13 @@ static bool start_direct_poster_loader(
   if (texture_count > poster_texture_count) {
     poster_texture_count = texture_count;
   }
-
   loader->credentials = credentials;
   memcpy(loader->items, items,
          (size_t)item_count * sizeof(MultiplexGatewayItem));
   loader->item_count = item_count;
   loader->texture_offset = texture_offset;
-  loader->decoded_pixels =
-      memalign(32, MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
-  loader->stack = malloc(POSTER_LOADER_STACK_SIZE);
-  if (loader->decoded_pixels == NULL || loader->stack == NULL) {
-    free(loader->decoded_pixels);
-    loader->decoded_pixels = NULL;
-    free(loader->stack);
-    loader->stack = NULL;
-    return false;
-  }
-  if (LWP_CreateThread(&loader->thread, run_direct_poster_loader, loader,
-                       loader->stack, POSTER_LOADER_STACK_SIZE,
-                       LWP_PRIO_NORMAL / 2) != 0) {
-    free(loader->decoded_pixels);
-    loader->decoded_pixels = NULL;
-    free(loader->stack);
-    loader->stack = NULL;
-    loader->thread = LWP_THREAD_NULL;
-    return false;
-  }
-  SYS_Report(
-      "REFERENCE GX: direct Plex poster loader started items=%u offset=%u\n",
-      item_count, texture_offset);
-  return true;
+  loader->pending = true;
+  return !launch_now || launch_direct_poster_loader(loader);
 }
 
 static void poll_direct_poster_loader(DirectPosterLoader *loader) {
@@ -886,6 +902,7 @@ static void stop_direct_poster_loader(DirectPosterLoader *loader) {
     return;
   }
   loader->stopping = true;
+  loader->pending = false;
   if (loader->thread != LWP_THREAD_NULL) {
     LWP_JoinThread(loader->thread, NULL);
     loader->thread = LWP_THREAD_NULL;
@@ -993,11 +1010,14 @@ static bool load_direct_browse_page(
   }
   MultiplexGatewayBrowsePage page;
   if (!multiplex_plex_load_browse(credentials, library,
-                                  (uint16_t)requested_start, &page) ||
-      !start_direct_poster_loader(
-          poster_loader, credentials, page.items, page.item_count,
-          HOME_POSTER_COUNT)) {
+                                  (uint16_t)requested_start, &page)) {
     return false;
+  }
+  if (!queue_direct_poster_loader(
+          poster_loader, credentials, page.items, page.item_count,
+          HOME_POSTER_COUNT, false)) {
+    SYS_Report(
+        "REFERENCE GX: direct browse artwork deferred; using placeholders\n");
   }
   return bind_browse_page(&page);
 }
@@ -1073,6 +1093,54 @@ static bool load_search_page(const char *gateway_url) {
   return true;
 }
 
+static bool fail_item_details(uint32_t rating_key) {
+  if (multiplex_native_app_details_fail() == 0) {
+    return false;
+  }
+  SYS_Report("REFERENCE GX: details-page unavailable rating-key=%u\n",
+             rating_key);
+  return true;
+}
+
+static bool bind_item_details(const MultiplexGatewayDetails *details) {
+  char facts[MULTIPLEX_GATEWAY_DETAIL_SHORT_CAPACITY] = {0};
+  const uint32_t minutes =
+      details->duration_ms == 0 ? 0 : (details->duration_ms + 30000u) / 60000u;
+  int facts_length = 0;
+  if (details->year != 0 && minutes != 0 && details->rating_tenths != 0) {
+    facts_length = snprintf(
+        facts, sizeof(facts), "%u | %u min | Rating %u.%u/10", details->year,
+        minutes, details->rating_tenths / 10u, details->rating_tenths % 10u);
+  } else if (details->year != 0 && minutes != 0) {
+    facts_length = snprintf(facts, sizeof(facts), "%u | %u min",
+                            details->year, minutes);
+  } else if (minutes != 0) {
+    facts_length = snprintf(facts, sizeof(facts), "%u min", minutes);
+  } else if (details->year != 0) {
+    facts_length = snprintf(facts, sizeof(facts), "%u", details->year);
+  }
+  if (facts_length < 0 || (size_t)facts_length >= sizeof(facts)) {
+    return false;
+  }
+
+  if (multiplex_native_app_details_commit(
+          (const uint8_t *)details->title, details->title_length,
+          (const uint8_t *)details->secondary, details->secondary_length,
+          (const uint8_t *)details->media_type, details->media_type_length,
+          (const uint8_t *)details->library, details->library_length,
+          (const uint8_t *)details->content_rating,
+          details->content_rating_length, (const uint8_t *)facts,
+          (uint32_t)facts_length, (const uint8_t *)details->summary,
+          details->summary_length, (const uint8_t *)details->genres,
+          details->genres_length, (const uint8_t *)details->directors,
+          details->directors_length, (details->flags & 1u) != 0) == 0) {
+    return false;
+  }
+  SYS_Report("REFERENCE GX: details-page ready rating-key=%u title=%s\n",
+             details->rating_key, details->title);
+  return true;
+}
+
 static bool load_item_details(const char *gateway_url) {
   const uint32_t rating_key = multiplex_native_app_details_request();
   if (rating_key == 0) {
@@ -1080,50 +1148,22 @@ static bool load_item_details(const char *gateway_url) {
   }
   MultiplexGatewayDetails details;
   if (!multiplex_gateway_load_details(gateway_url, rating_key, &details)) {
-    if (multiplex_native_app_details_fail() == 0) {
-      return false;
-    }
-    SYS_Report("REFERENCE GX: details-page unavailable rating-key=%u\n",
-               rating_key);
+    return fail_item_details(rating_key);
+  }
+  return bind_item_details(&details);
+}
+
+static bool load_direct_item_details(
+    const MultiplexAuthCredentials *credentials) {
+  const uint32_t rating_key = multiplex_native_app_details_request();
+  if (rating_key == 0) {
     return true;
   }
-
-  char facts[MULTIPLEX_GATEWAY_DETAIL_SHORT_CAPACITY] = {0};
-  const uint32_t minutes =
-      details.duration_ms == 0 ? 0 : (details.duration_ms + 30000u) / 60000u;
-  int facts_length = 0;
-  if (details.year != 0 && minutes != 0 && details.rating_tenths != 0) {
-    facts_length = snprintf(
-        facts, sizeof(facts), "%u | %u min | Rating %u.%u/10", details.year,
-        minutes, details.rating_tenths / 10u, details.rating_tenths % 10u);
-  } else if (details.year != 0 && minutes != 0) {
-    facts_length =
-        snprintf(facts, sizeof(facts), "%u | %u min", details.year, minutes);
-  } else if (minutes != 0) {
-    facts_length = snprintf(facts, sizeof(facts), "%u min", minutes);
-  } else if (details.year != 0) {
-    facts_length = snprintf(facts, sizeof(facts), "%u", details.year);
+  MultiplexGatewayDetails details;
+  if (!multiplex_plex_load_details(credentials, rating_key, &details)) {
+    return fail_item_details(rating_key);
   }
-  if (facts_length < 0 || (size_t)facts_length >= sizeof(facts)) {
-    return false;
-  }
-
-  if (multiplex_native_app_details_commit(
-          (const uint8_t *)details.title, details.title_length,
-          (const uint8_t *)details.secondary, details.secondary_length,
-          (const uint8_t *)details.media_type, details.media_type_length,
-          (const uint8_t *)details.library, details.library_length,
-          (const uint8_t *)details.content_rating,
-          details.content_rating_length, (const uint8_t *)facts,
-          (uint32_t)facts_length, (const uint8_t *)details.summary,
-          details.summary_length, (const uint8_t *)details.genres,
-          details.genres_length, (const uint8_t *)details.directors,
-          details.directors_length, (details.flags & 1u) != 0) == 0) {
-    return false;
-  }
-  SYS_Report("REFERENCE GX: details-page ready rating-key=%u title=%s\n",
-             rating_key, details.title);
-  return true;
+  return bind_item_details(&details);
 }
 
 static void close_media_session(HttpClient **client, MpegPsDemux **demux) {
@@ -2148,9 +2188,9 @@ static void *run_app(void *unused) {
   if (has_catalog && MULTIPLEX_GATEWAY_URL[0] == '\0' &&
       poster_texture_pixels == NULL) {
     present_frame(&playback_manifest);
-    if (!start_direct_poster_loader(
+    if (!queue_direct_poster_loader(
             &direct_home_poster_loader, &auth_credentials, catalog.items,
-            catalog.total_item_count, 0)) {
+            catalog.total_item_count, 0, true)) {
       SYS_Report(
           "REFERENCE GX: direct Plex artwork unavailable; using placeholders\n");
     }
@@ -2160,6 +2200,12 @@ static void *run_app(void *unused) {
   while (SYS_MainLoop()) {
     poll_direct_poster_loader(&direct_home_poster_loader);
     poll_direct_poster_loader(&direct_page_poster_loader);
+    if (direct_home_poster_loader.thread == LWP_THREAD_NULL &&
+        !direct_home_poster_loader.pending &&
+        direct_page_poster_loader.pending &&
+        direct_page_poster_loader.thread == LWP_THREAD_NULL) {
+      launch_direct_poster_loader(&direct_page_poster_loader);
+    }
     if (demux != NULL && mpeg_ps_demux_failed(demux)) {
       SYS_Report("REFERENCE GX: media producer failure\n");
       break;
@@ -2199,9 +2245,9 @@ static void *run_app(void *unused) {
               multiplex_plex_load_catalog(&auth_credentials, &catalog)) {
             has_catalog = bind_catalog_to_app(&catalog);
             if (has_catalog) {
-              start_direct_poster_loader(
+              queue_direct_poster_loader(
                   &direct_home_poster_loader, &auth_credentials, catalog.items,
-                  catalog.total_item_count, 0);
+                  catalog.total_item_count, 0, true);
             }
           }
         }
@@ -2280,6 +2326,12 @@ static void *run_app(void *unused) {
           !load_item_details(MULTIPLEX_GATEWAY_URL)) {
         SYS_Report("REFERENCE GX: details-page load failed\n");
       }
+#if MULTIPLEX_PAIRING_ENABLED
+      if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked &&
+          !load_direct_item_details(&auth_credentials)) {
+        SYS_Report("REFERENCE GX: direct details-page load failed\n");
+      }
+#endif
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
           multiplex_native_app_playback_request() != 0) {
         discard_staged_media_session(&staged_media);
