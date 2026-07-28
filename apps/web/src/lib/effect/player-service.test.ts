@@ -325,11 +325,10 @@ describe("applyPlaybackMetadata", () => {
     const identity = player.playbackIdentity()!;
     const beforeGeneration = player.snapshot().sourceGeneration;
 
-    player.applyPlaybackMetadata(
-      identity,
-      withSubtitleSelection(item, true),
-      { reloadVideo: true, previousVideoUsesTranscode: true },
-    );
+    player.applyPlaybackMetadata(identity, withSubtitleSelection(item, true), {
+      reloadVideo: true,
+      previousVideoUsesTranscode: true,
+    });
 
     const state = player.snapshot();
     expect(player.playbackIdentity()).toEqual(identity);
@@ -354,15 +353,11 @@ describe("applyPlaybackMetadata", () => {
     const identity = player.playbackIdentity()!;
     const beforeGeneration = player.snapshot().sourceGeneration;
 
-    player.applyPlaybackMetadata(
-      identity,
-      withSubtitleSelection(item, false),
-      {
-        preserveCurrentTime: 40,
-        reloadVideo: true,
-        previousVideoUsesTranscode: true,
-      },
-    );
+    player.applyPlaybackMetadata(identity, withSubtitleSelection(item, false), {
+      preserveCurrentTime: 40,
+      reloadVideo: true,
+      previousVideoUsesTranscode: true,
+    });
 
     const state = player.snapshot();
     expect(player.playbackIdentity()).toEqual(identity);
