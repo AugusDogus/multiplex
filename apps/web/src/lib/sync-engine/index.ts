@@ -1,4 +1,5 @@
 export { clearSyncEngineSession } from "./clear-session";
+export { type SyncEngineStatus } from "./collection-access";
 export {
   clearConnectionOverlay,
   rememberItemConnection,
@@ -84,7 +85,6 @@ export {
   SyncEngineProvider,
   useSyncEngineCollections,
   useSyncEngineStatus,
-  type SyncEngineStatus,
 } from "./provider";
 export {
   getActiveSyncEngineCollections,

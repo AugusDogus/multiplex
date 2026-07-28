@@ -12,6 +12,10 @@ import {
 } from "react";
 
 import {
+  resolveSyncEngineCollections,
+  type SyncEngineStatus,
+} from "./collection-access";
+import {
   createSyncEngineCollections,
   type SyncEngineCollections,
 } from "./collections";
@@ -22,11 +26,6 @@ import {
   subscribeActiveSyncEngineCollections,
 } from "./registry";
 import { getSyncEngineTrpcClient } from "./trpc-client";
-
-export type SyncEngineStatus =
-  | { phase: "booting" }
-  | { phase: "ready"; collections: SyncEngineCollections; bootedAt: number }
-  | { phase: "error"; error: string };
 
 const SyncEngineContext = createContext<SyncEngineStatus | null>(null);
 
@@ -214,19 +213,6 @@ export function SyncEngineProvider({
 
 export function useSyncEngineStatus(): SyncEngineStatus {
   return useContext(SyncEngineContext) ?? { phase: "booting" };
-}
-
-export function resolveSyncEngineCollections(
-  status: SyncEngineStatus | null,
-  activeCollections: SyncEngineCollections | null,
-): SyncEngineCollections | null {
-  // Root-level consumers such as the global media player are siblings of the
-  // authenticated app shell. They use the account-scoped registry populated by
-  // SyncEngineProvider; guest routes have no active registry and remain null.
-  if (status === null) return activeCollections;
-  if (status.phase !== "ready") return null;
-  if (activeCollections !== status.collections) return null;
-  return status.collections;
 }
 
 export function useSyncEngineCollections(): SyncEngineCollections | null {

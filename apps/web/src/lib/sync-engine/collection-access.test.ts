@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { SyncEngineCollections } from "./collections";
-import { resolveSyncEngineCollections } from "./provider";
+import { resolveSyncEngineCollections } from "./collection-access";
 
 const collections = {} as SyncEngineCollections;
 const otherCollections = {} as SyncEngineCollections;
