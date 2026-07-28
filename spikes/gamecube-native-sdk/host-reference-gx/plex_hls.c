@@ -199,6 +199,39 @@ bool multiplex_plex_hls_refresh(
   return loaded;
 }
 
+bool multiplex_plex_hls_stream_segment(
+    const MultiplexAuthCredentials *credentials,
+    const MultiplexPlexHlsSession *session, const HlsSegment *segment,
+    HttpBodyWrite write, void *write_context, size_t *body_size) {
+  if (credentials == NULL || session == NULL || segment == NULL ||
+      write == NULL || body_size == NULL || !session->started) {
+    return false;
+  }
+  char url[MULTIPLEX_PLEX_HLS_URL_CAPACITY];
+  if (!hls_playlist_resolve_url(session->variant_url, segment->uri, url,
+                                sizeof(url))) {
+    return false;
+  }
+  HttpRequestHeader headers[8];
+  const size_t header_count =
+      control_headers(credentials, session, false, headers);
+  HttpJsonResponse response;
+  const bool streamed = http_client_stream_get_with_headers(
+      url, headers, header_count, write, write_context, &response);
+  if (!streamed || response.status != 200 || response.body_size == 0) {
+    SYS_Report(
+        "REFERENCE GX: Plex HLS segment failed sequence=%u status=%u "
+        "bytes=%u\n",
+        segment->sequence, response.status, (unsigned)response.body_size);
+    return false;
+  }
+  *body_size = response.body_size;
+  SYS_Report(
+      "REFERENCE GX: Plex HLS segment sequence=%u duration=%u bytes=%u\n",
+      segment->sequence, segment->duration_ms, (unsigned)*body_size);
+  return true;
+}
+
 void multiplex_plex_hls_stop(const MultiplexAuthCredentials *credentials,
                              MultiplexPlexHlsSession *session) {
   if (credentials == NULL || session == NULL || !session->started) {

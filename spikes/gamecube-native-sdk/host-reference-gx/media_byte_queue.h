@@ -23,5 +23,6 @@ size_t media_byte_queue_contiguous_space(MediaByteQueue *queue);
 /* Blocks only while the queue is empty; a closed and drained queue returns 0. */
 size_t media_byte_queue_read(MediaByteQueue *queue, uint8_t *destination,
                              size_t size);
+size_t media_byte_queue_size(MediaByteQueue *queue);
 
 #endif

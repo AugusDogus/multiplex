@@ -3,6 +3,7 @@
 
 #include "auth_record.h"
 #include "hls_playlist.h"
+#include "http_client.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -25,6 +26,10 @@ bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
 bool multiplex_plex_hls_refresh(
     const MultiplexAuthCredentials *credentials,
     MultiplexPlexHlsSession *session, HlsMediaPlaylist *playlist);
+bool multiplex_plex_hls_stream_segment(
+    const MultiplexAuthCredentials *credentials,
+    const MultiplexPlexHlsSession *session, const HlsSegment *segment,
+    HttpBodyWrite write, void *write_context, size_t *body_size);
 void multiplex_plex_hls_stop(const MultiplexAuthCredentials *credentials,
                              MultiplexPlexHlsSession *session);
 

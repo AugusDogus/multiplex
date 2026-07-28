@@ -193,3 +193,13 @@ size_t media_byte_queue_read(MediaByteQueue *queue, uint8_t *destination,
   LWP_MutexUnlock(queue->mutex);
   return copied;
 }
+
+size_t media_byte_queue_size(MediaByteQueue *queue) {
+  if (queue == NULL || !queue->mutex_ready) {
+    return 0;
+  }
+  LWP_MutexLock(queue->mutex);
+  const size_t size = queue->size;
+  LWP_MutexUnlock(queue->mutex);
+  return size;
+}
