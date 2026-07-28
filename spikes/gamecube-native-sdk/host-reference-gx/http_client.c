@@ -8,6 +8,7 @@
  */
 
 #include "http_client.h"
+#include "tls_client.h"
 
 #include <gccore.h>
 #include <network.h>
@@ -26,8 +27,9 @@
 #define HTTP_ADDITIONAL_HEADERS_LIMIT 1536
 #define HTTP_MAX_MEDIA_SIZE UINT32_MAX
 #define HTTP_CACHE_SIZE (32u * 1024u)
+#define HTTP_BODY_STREAM_CHUNK_SIZE (4u * 1024u)
 #define HTTP_SMALL_MEDIA_CACHE_SIZE (256u * 1024u)
-#define HTTP_IO_TIMEOUT_SECONDS 8
+#define HTTP_IO_TIMEOUT_SECONDS 30
 #define HTTP_STREAM_TIMEOUT_SECONDS 2
 #define HTTP_RANGE_ATTEMPTS 4
 #define HTTP_JSON_REQUEST_LIMIT 4096
@@ -48,6 +50,8 @@ struct HttpClient {
   char additional_headers[HTTP_ADDITIONAL_HEADERS_LIMIT];
   uint16_t port;
   int socket;
+  bool secure;
+  MultiplexTlsClient *tls;
   uint8_t cache[HTTP_CACHE_SIZE];
   size_t cache_start;
   size_t cache_size;
@@ -63,6 +67,7 @@ struct HttpClient {
 };
 
 static bool network_initialized;
+static char network_gateway[16];
 
 static bool parse_port(const char *begin, const char *end, uint16_t *port) {
   if (begin == end) {
@@ -86,12 +91,24 @@ static bool parse_port(const char *begin, const char *end, uint16_t *port) {
 }
 
 static bool parse_url(const char *url, HttpClient *client) {
-  static const char prefix[] = "http://";
-  if (url == NULL || strncmp(url, prefix, sizeof(prefix) - 1u) != 0) {
+  static const char http_prefix[] = "http://";
+  static const char https_prefix[] = "https://";
+  size_t prefix_size = 0;
+  if (url != NULL &&
+      strncmp(url, http_prefix, sizeof(http_prefix) - 1u) == 0) {
+    prefix_size = sizeof(http_prefix) - 1u;
+    client->secure = false;
+    client->port = 80;
+  } else if (url != NULL &&
+             strncmp(url, https_prefix, sizeof(https_prefix) - 1u) == 0) {
+    prefix_size = sizeof(https_prefix) - 1u;
+    client->secure = true;
+    client->port = 443;
+  } else {
     return false;
   }
 
-  const char *authority = url + sizeof(prefix) - 1u;
+  const char *authority = url + prefix_size;
   const char *path = strchr(authority, '/');
   const char *authority_end = path == NULL ? url + strlen(url) : path;
   const char *port_separator = NULL;
@@ -111,19 +128,25 @@ static bool parse_url(const char *url, HttpClient *client) {
 
   memcpy(client->host, authority, host_size);
   client->host[host_size] = '\0';
+  for (size_t index = 0; index < host_size; ++index) {
+    const char character = client->host[index];
+    if (!((character >= 'A' && character <= 'Z') ||
+          (character >= 'a' && character <= 'z') ||
+          (character >= '0' && character <= '9') || character == '.' ||
+          character == '-')) {
+      return false;
+    }
+  }
   if (path == NULL) {
     strcpy(client->path, "/");
   } else {
     memcpy(client->path, path, path_size + 1u);
   }
-  client->port = 80;
   if (port_separator != NULL &&
       !parse_port(port_separator + 1, authority_end, &client->port)) {
     return false;
   }
-
-  struct in_addr address;
-  return inet_aton(client->host, &address) != 0;
+  return true;
 }
 
 static bool format_additional_headers(HttpClient *client,
@@ -165,10 +188,13 @@ static bool initialize_network(void) {
   }
   SYS_Report("REFERENCE GX: network=bba ip=%s netmask=%s gateway=%s\n",
              local_ip, netmask, gateway);
+  strcpy(network_gateway, gateway);
   return true;
 }
 
 static void disconnect_client(HttpClient *client) {
+  multiplex_tls_client_destroy(client->tls);
+  client->tls = NULL;
   if (client->socket >= 0) {
     net_close(client->socket);
     client->socket = -1;
@@ -180,14 +206,35 @@ static bool connect_client(HttpClient *client, bool initial_connection) {
   if (client->socket < 0) {
     return false;
   }
+  const int no_delay = 1;
+  if (net_setsockopt(client->socket, IPPROTO_TCP, TCP_NODELAY, &no_delay,
+                     sizeof(no_delay)) < 0) {
+    disconnect_client(client);
+    return false;
+  }
 
   struct sockaddr_in address;
   memset(&address, 0, sizeof(address));
   address.sin_family = AF_INET;
   address.sin_len = sizeof(address);
   address.sin_port = htons(client->port);
-  if (inet_aton(client->host, &address.sin_addr) == 0 ||
-      net_connect(client->socket, (struct sockaddr *)&address,
+  if (inet_aton(client->host, &address.sin_addr) == 0) {
+    const size_t host_size = strlen(client->host);
+    static const char localhost_suffix[] = ".localhost";
+    const size_t suffix_size = sizeof(localhost_suffix) - 1u;
+    if (host_size <= suffix_size ||
+        strcmp(client->host + host_size - suffix_size, localhost_suffix) !=
+            0 ||
+        inet_aton(network_gateway, &address.sin_addr) == 0) {
+      SYS_Report("REFERENCE GX: HTTP hostname unresolved host=%s\n",
+                 client->host);
+      disconnect_client(client);
+      return false;
+    }
+    SYS_Report("REFERENCE GX: HTTP emulator host=%s gateway=%s\n",
+               client->host, network_gateway);
+  }
+  if (net_connect(client->socket, (struct sockaddr *)&address,
                   sizeof(address)) < 0) {
     disconnect_client(client);
     return false;
@@ -198,23 +245,34 @@ static bool connect_client(HttpClient *client, bool initial_connection) {
     SYS_Report("REFERENCE GX: HTTP connected host=%s port=%u\n", client->host,
                client->port);
   }
+  if (client->secure) {
+    client->tls = multiplex_tls_client_connect(client->socket, client->host);
+    if (client->tls == NULL) {
+      disconnect_client(client);
+      return false;
+    }
+  }
   return true;
 }
 
-static bool write_all(int socket, const uint8_t *bytes, size_t size) {
+static bool write_all(HttpClient *client, const uint8_t *bytes, size_t size) {
+  if (client->tls != NULL) {
+    return multiplex_tls_client_write_all(client->tls, bytes, size);
+  }
   size_t written = 0;
   while (written < size) {
     fd_set writable;
     FD_ZERO(&writable);
-    FD_SET(socket, &writable);
+    FD_SET(client->socket, &writable);
     struct timeval timeout = {
         .tv_sec = HTTP_IO_TIMEOUT_SECONDS,
         .tv_usec = 0,
     };
-    if (net_select(socket + 1, NULL, &writable, NULL, &timeout) <= 0) {
+    if (net_select(client->socket + 1, NULL, &writable, NULL, &timeout) <= 0) {
       return false;
     }
-    const int result = net_write(socket, bytes + written, size - written);
+    const int result =
+        net_write(client->socket, bytes + written, size - written);
     if (result <= 0) {
       return false;
     }
@@ -223,23 +281,27 @@ static bool write_all(int socket, const uint8_t *bytes, size_t size) {
   return true;
 }
 
-static int read_available_with_timeout(int socket, void *destination,
+static int read_available_with_timeout(HttpClient *client, void *destination,
                                        size_t size, unsigned timeout_seconds) {
+  if (client->tls != NULL) {
+    return multiplex_tls_client_read(client->tls, destination, size,
+                                     timeout_seconds);
+  }
   fd_set readable;
   FD_ZERO(&readable);
-  FD_SET(socket, &readable);
+  FD_SET(client->socket, &readable);
   struct timeval timeout = {
       .tv_sec = timeout_seconds,
       .tv_usec = 0,
   };
-  if (net_select(socket + 1, &readable, NULL, NULL, &timeout) <= 0) {
+  if (net_select(client->socket + 1, &readable, NULL, NULL, &timeout) <= 0) {
     return -1;
   }
-  return net_recv(socket, destination, size, 0);
+  return net_recv(client->socket, destination, size, 0);
 }
 
-static int read_available(int socket, void *destination, size_t size) {
-  return read_available_with_timeout(socket, destination, size,
+static int read_available(HttpClient *client, void *destination, size_t size) {
+  return read_available_with_timeout(client, destination, size,
                                      HTTP_IO_TIMEOUT_SECONDS);
 }
 
@@ -249,7 +311,7 @@ static bool read_headers(HttpClient *client, char *headers, size_t capacity,
   while (used + 1u < capacity) {
     const size_t previous = used;
     const int result =
-        read_available(client->socket, headers + used, capacity - used - 1u);
+        read_available(client, headers + used, capacity - used - 1u);
     if (result <= 0) {
       return false;
     }
@@ -466,7 +528,7 @@ static bool read_body(HttpClient *client, uint8_t *destination, size_t size) {
   size_t received = 0;
   while (received < size) {
     const int result =
-        read_available(client->socket, destination + received, size - received);
+        read_available(client, destination + received, size - received);
     if (result <= 0 || (size_t)result > size - received) {
       return false;
     }
@@ -501,8 +563,7 @@ static bool fetch_cache_once(HttpClient *client, size_t start) {
       client->path, client->host, client->additional_headers, (unsigned)start,
       (unsigned)end);
   if (request_size <= 0 || (size_t)request_size >= sizeof(request) ||
-      !write_all(client->socket, (const uint8_t *)request,
-                 (size_t)request_size)) {
+      !write_all(client, (const uint8_t *)request, (size_t)request_size)) {
     SYS_Report("REFERENCE GX: HTTP range request failed offset=%u\n",
                (unsigned)start);
     return false;
@@ -584,8 +645,7 @@ static bool start_stream_response(HttpClient *client, size_t start) {
       client->path, client->host, client->additional_headers, (unsigned)start,
       (unsigned)(client->total_size - 1u));
   if (request_size <= 0 || (size_t)request_size >= sizeof(request) ||
-      !write_all(client->socket, (const uint8_t *)request,
-                 (size_t)request_size)) {
+      !write_all(client, (const uint8_t *)request, (size_t)request_size)) {
     return false;
   }
 
@@ -633,9 +693,9 @@ static bool stream_read(HttpClient *client, uint8_t *destination, size_t size) {
     const size_t remaining = size - copied;
     const size_t request_size =
         remaining < HTTP_CACHE_SIZE ? remaining : HTTP_CACHE_SIZE;
-    const int result =
-        read_available_with_timeout(client->socket, destination + copied,
-                                    request_size, HTTP_STREAM_TIMEOUT_SECONDS);
+    const int result = read_available_with_timeout(
+        client, destination + copied, request_size,
+        HTTP_STREAM_TIMEOUT_SECONDS);
     if (result <= 0 || (size_t)result > request_size) {
       return false;
     }
@@ -875,7 +935,7 @@ static int body_reader_read_some(HttpBodyReader *reader, uint8_t *destination,
     reader->prefetched_offset += copied;
     return (int)copied;
   }
-  return read_available(reader->client->socket, destination, size);
+  return read_available(reader->client, destination, size);
 }
 
 static bool body_reader_read_exact(HttpBodyReader *reader,
@@ -963,7 +1023,7 @@ static bool write_body(HttpBodyWrite write, void *context,
 
 static bool stream_content_length(HttpBodyReader *reader, size_t size,
                                   HttpBodyWrite write, void *context) {
-  uint8_t buffer[HTTP_CACHE_SIZE];
+  uint8_t buffer[HTTP_BODY_STREAM_CHUNK_SIZE];
   size_t read = 0;
   while (read < size) {
     const size_t remaining = size - read;
@@ -1006,7 +1066,7 @@ static bool parse_chunk_size(const char *line, size_t *size) {
 
 static bool stream_chunked(HttpBodyReader *reader, HttpBodyWrite write,
                            void *context, size_t *body_size) {
-  uint8_t buffer[HTTP_CACHE_SIZE];
+  uint8_t buffer[HTTP_BODY_STREAM_CHUNK_SIZE];
   char line[128];
   *body_size = 0;
   for (;;) {
@@ -1048,7 +1108,7 @@ static bool stream_chunked(HttpBodyReader *reader, HttpBodyWrite write,
 
 static bool stream_until_close(HttpBodyReader *reader, HttpBodyWrite write,
                                void *context, size_t *body_size) {
-  uint8_t buffer[HTTP_CACHE_SIZE];
+  uint8_t buffer[HTTP_BODY_STREAM_CHUNK_SIZE];
   *body_size = 0;
   for (;;) {
     const int received =
@@ -1126,11 +1186,10 @@ bool http_client_stream_get_with_headers(
   }
   memcpy(request + request_used, tail, sizeof(tail) - 1u);
   request_used += sizeof(tail) - 1u;
-  if (!write_all(client->socket, (const uint8_t *)request, request_used)) {
+  if (!write_all(client, (const uint8_t *)request, request_used)) {
     http_client_destroy(client);
     return false;
   }
-
   char response_headers[HTTP_HEADER_LIMIT];
   size_t header_size = 0;
   size_t response_size = 0;
@@ -1251,11 +1310,10 @@ bool http_client_request_with_headers(const char *method, const char *url,
     return false;
   }
   request_used += (size_t)tail_size;
-  if (!write_all(client->socket, (const uint8_t *)request, request_used)) {
+  if (!write_all(client, (const uint8_t *)request, request_used)) {
     http_client_destroy(client);
     return false;
   }
-
   char response_headers[HTTP_HEADER_LIMIT];
   size_t header_size = 0;
   size_t response_size = 0;
@@ -1308,8 +1366,8 @@ bool http_client_request_with_headers(const char *method, const char *url,
   memcpy(encoded, response_headers + header_size, prefetched);
   size_t encoded_size = prefetched;
   while (encoded_size < encoded_capacity) {
-    const int received = read_available(client->socket, encoded + encoded_size,
-                                        encoded_capacity - encoded_size);
+    const int received = read_available(
+        client, encoded + encoded_size, encoded_capacity - encoded_size);
     if (received <= 0) {
       break;
     }

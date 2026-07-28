@@ -17,12 +17,14 @@ BUILD := build-native-reference
 SOURCES := host-reference-gx
 MPLAYER_ROOT := $(SPIKE_ROOT)/.mplayer-ce-libogc2/mplayer
 FFMPEG_ROOT := $(MPLAYER_ROOT)/ffmpeg
+MBEDTLS_ROOT := $(SPIKE_ROOT)/.mbedtls-stage
 INCLUDES := host host-reference-gx
 
 CFLAGS := -g -O2 -Wall -Wextra $(MACHDEP) $(INCLUDE)
 CXXFLAGS := $(CFLAGS)
 LDFLAGS := -g $(MACHDEP) -Wl,-Map,$(notdir $@).map
-LIBS := $(CORE_LIBRARY) -lavcodec -lavutil -lbba -logc -lm
+LIBS := $(CORE_LIBRARY) -lavcodec -lavutil -lmbedtls -lmbedx509 \
+	-lmbedcrypto -lbba -logc -lm
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 
@@ -38,11 +40,13 @@ export OFILES := $(OFILES_SOURCES) $(OFILES_ASSETS)
 
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(SPIKE_ROOT)/$(dir)) \
 	-I$(FFMPEG_ROOT) \
+	-I$(MBEDTLS_ROOT)/include \
 	-I$(SPIKE_ROOT)/$(BUILD) \
 	-I$(LIBOGC_INC)
 export LIBPATHS := -L$(LIBOGC_LIB) \
 	-L$(FFMPEG_ROOT)/libavcodec \
-	-L$(FFMPEG_ROOT)/libavutil
+	-L$(FFMPEG_ROOT)/libavutil \
+	-L$(MBEDTLS_ROOT)/lib
 export LD := $(CC)
 
 .PHONY: all clean $(BUILD)
@@ -65,7 +69,10 @@ else
 
 .DEFAULT_GOAL := $(OUTPUT).dol
 
-DEPENDS := $(OFILES_SOURCES:.o=.d)
+# OFILES is exported by the outer make. OFILES_SOURCES is not, so deriving
+# dependencies from it here silently produced an empty list and allowed stale
+# objects after shared header changes.
+DEPENDS := $(OFILES:.o=.d)
 
 multiplex-dvd-demo-program.s: $(SPIKE_ROOT)/assets/multiplex-dvd-demo.mpg
 	$(SILENTMSG) embedding ... $(notdir $<)
@@ -74,13 +81,21 @@ multiplex-dvd-demo-program.s: $(SPIKE_ROOT)/assets/multiplex-dvd-demo.mpg
 multiplex-dvd-demo-program.h: multiplex-dvd-demo-program.s
 
 main.o: media-source.h multiplex-dvd-demo-program.h
+tls_client.o: tls-ca.h
 
 media-source.h:
 	@echo "Missing $@; run scripts/build-native-reference-dol.sh." >&2
 	@false
 
+tls-ca.h:
+	@echo "Missing $@; run scripts/build-native-reference-dol.sh." >&2
+	@false
+
 $(OUTPUT).dol: $(OUTPUT).elf
-$(OUTPUT).elf: $(OFILES) $(CORE_LIBRARY) $(LIBOGC_LIB)/libbba.a
+$(OUTPUT).elf: $(OFILES) $(CORE_LIBRARY) $(LIBOGC_LIB)/libbba.a \
+	$(MBEDTLS_ROOT)/lib/libmbedtls.a \
+	$(MBEDTLS_ROOT)/lib/libmbedx509.a \
+	$(MBEDTLS_ROOT)/lib/libmbedcrypto.a
 
 -include $(DEPENDS)
 

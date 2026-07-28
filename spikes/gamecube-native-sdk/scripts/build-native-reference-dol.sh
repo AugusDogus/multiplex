@@ -16,12 +16,18 @@ if [ ! -s "$spike_dir/.libogc2-stage/opt/devkitpro/libogc2/gamecube/lib/libogc.a
   echo "Missing the pinned libogc2 runtime; run bun run spike:gamecube:bootstrap first." >&2
   exit 1
 fi
+if [ ! -s "$spike_dir/.mbedtls-stage/lib/libmbedtls.a" ]; then
+  echo "Missing the pinned Mbed TLS runtime; run bun run spike:gamecube:bootstrap first." >&2
+  exit 1
+fi
 
 sh "$script_dir/check.sh"
 
 mkdir -p "$spike_dir/build-native-reference"
 sh "$script_dir/generate-media-source-header.sh" \
   "$spike_dir/build-native-reference/media-source.h"
+sh "$script_dir/generate-tls-ca-header.sh" \
+  "$spike_dir/build-native-reference/tls-ca.h"
 
 podman run --rm \
   --volume "$spike_dir:/workspace:Z" \

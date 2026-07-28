@@ -32,8 +32,24 @@ if [ "$actual_commit" != "$PASST_COMMIT" ]; then
   exit 1
 fi
 
-if [ ! -x "$passt_dir/passt" ]; then
+passt_patch="$spike_dir/patches/passt-dolphin-bba-rtt.patch"
+if git -C "$passt_dir" apply --reverse --check "$passt_patch" >/dev/null 2>&1; then
+  :
+elif git -C "$passt_dir" apply --check "$passt_patch"; then
+  git -C "$passt_dir" apply "$passt_patch"
+else
+  echo "passt patch does not apply cleanly: $passt_patch" >&2
+  exit 1
+fi
+
+passt_input="$PASST_COMMIT $(cksum "$passt_patch")"
+passt_stamp="$passt_dir/.multiplex-build-input"
+if [ ! -x "$passt_dir/pasta" ] ||
+  [ ! -f "$passt_stamp" ] ||
+  [ "$(sed -n '1p' "$passt_stamp")" != "$passt_input" ]; then
+  make -C "$passt_dir" clean
   make -C "$passt_dir" pasta
+  printf '%s\n' "$passt_input" >"$passt_stamp"
 fi
 
 test -x "$passt_dir/pasta"

@@ -5,6 +5,8 @@
 .plex-cache/
 .http-fixture.log
 .mplayer-ce-libogc2/
+.mbedtls/
+.mbedtls-stage/
 .opengx/
 .opengx-build/
 .raylib/

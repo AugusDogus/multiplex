@@ -1,0 +1,236 @@
+#include "tls_client.h"
+
+#include "tls-ca.h"
+
+#include <gccore.h>
+#include <network.h>
+#include <ogc/lwp_watchdog.h>
+
+#include <mbedtls/ctr_drbg.h>
+#include <mbedtls/entropy.h>
+#include <mbedtls/error.h>
+#include <mbedtls/platform_time.h>
+#include <mbedtls/ssl.h>
+#include <mbedtls/x509_crt.h>
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define TLS_IO_TIMEOUT_SECONDS 30u
+/*
+ * libogc2's unscaled receive window can shrink Portless/Node's advertised
+ * peer window below one TLS record. Small writes plus an explicit flush keep
+ * the request moving while the old lwIP stack reopens that window.
+ */
+#define TLS_GAMECUBE_WRITE_CHUNK 128u
+
+struct MultiplexTlsClient {
+  int socket;
+  unsigned io_timeout_seconds;
+  uint64_t entropy_state;
+  mbedtls_ssl_context ssl;
+  mbedtls_ssl_config config;
+  mbedtls_x509_crt ca;
+  mbedtls_entropy_context entropy;
+  mbedtls_ctr_drbg_context random;
+};
+
+mbedtls_ms_time_t mbedtls_ms_time(void) {
+  return (mbedtls_ms_time_t)ticks_to_millisecs(gettime());
+}
+
+static uint64_t mix64(uint64_t value) {
+  value ^= value >> 30u;
+  value *= UINT64_C(0xbf58476d1ce4e5b9);
+  value ^= value >> 27u;
+  value *= UINT64_C(0x94d049bb133111eb);
+  return value ^ (value >> 31u);
+}
+
+static int gamecube_entropy(void *context, unsigned char *output, size_t size,
+                            size_t *written) {
+  uint64_t *state = context;
+  uint8_t mac[6] = {0};
+  net_get_mac_address(mac);
+  uint64_t value = *state ^ (uint64_t)gettime() ^
+                   (uint64_t)(uintptr_t)output ^ (uint64_t)(uintptr_t)&state;
+  for (unsigned index = 0; index < sizeof(mac); ++index) {
+    value = mix64(value ^ ((uint64_t)mac[index] << (index * 8u)));
+  }
+  for (size_t index = 0; index < size; ++index) {
+    if ((index & 7u) == 0) {
+      value = mix64(value + gettime() + index);
+    }
+    output[index] = (uint8_t)(value >> ((index & 7u) * 8u));
+  }
+  *state = mix64(value + size + gettime());
+  *written = size;
+  return 0;
+}
+
+static int wait_socket(int socket, bool write, unsigned timeout_seconds) {
+  fd_set readable;
+  fd_set writable;
+  FD_ZERO(&readable);
+  FD_ZERO(&writable);
+  if (write) {
+    FD_SET(socket, &writable);
+  } else {
+    FD_SET(socket, &readable);
+  }
+  struct timeval timeout = {
+      .tv_sec = timeout_seconds,
+      .tv_usec = 0,
+  };
+  return net_select(socket + 1, write ? NULL : &readable,
+                    write ? &writable : NULL, NULL, &timeout);
+}
+
+static int tls_send(void *context, const unsigned char *bytes, size_t size) {
+  MultiplexTlsClient *client = context;
+  if (wait_socket(client->socket, true, client->io_timeout_seconds) <= 0) {
+    return MBEDTLS_ERR_SSL_WANT_WRITE;
+  }
+  const int result = net_write(client->socket, bytes, size);
+  return result < 0 ? MBEDTLS_ERR_SSL_INTERNAL_ERROR : result;
+}
+
+static int tls_receive(void *context, unsigned char *bytes, size_t size) {
+  MultiplexTlsClient *client = context;
+  if (wait_socket(client->socket, false, client->io_timeout_seconds) <= 0) {
+    return MBEDTLS_ERR_SSL_WANT_READ;
+  }
+  const int result = net_recv(client->socket, bytes, size, 0);
+  return result < 0 ? MBEDTLS_ERR_SSL_INTERNAL_ERROR : result;
+}
+
+static void report_tls_error(const char *operation, int error) {
+  char message[128];
+  mbedtls_strerror(error, message, sizeof(message));
+  SYS_Report("REFERENCE GX: TLS %s failed error=-%04x message=%s\n", operation,
+             (unsigned)-error, message);
+}
+
+MultiplexTlsClient *multiplex_tls_client_connect(int socket,
+                                                 const char *hostname) {
+  if (socket < 0 || hostname == NULL || hostname[0] == '\0' ||
+      multiplex_tls_ca_pem_size == 0) {
+    SYS_Report("REFERENCE GX: TLS configuration unavailable\n");
+    return NULL;
+  }
+  MultiplexTlsClient *client = calloc(1, sizeof(*client));
+  if (client == NULL) {
+    return NULL;
+  }
+  client->socket = socket;
+  client->io_timeout_seconds = TLS_IO_TIMEOUT_SECONDS;
+  mbedtls_ssl_init(&client->ssl);
+  mbedtls_ssl_config_init(&client->config);
+  mbedtls_x509_crt_init(&client->ca);
+  mbedtls_entropy_init(&client->entropy);
+  mbedtls_ctr_drbg_init(&client->random);
+
+  client->entropy_state =
+      mix64((uint64_t)gettime() ^ (uint64_t)(uintptr_t)client);
+  int result = mbedtls_entropy_add_source(
+      &client->entropy, gamecube_entropy, &client->entropy_state, 32,
+      MBEDTLS_ENTROPY_SOURCE_STRONG);
+  static const unsigned char personalization[] = "Multiplex GameCube TLS";
+  if (result == 0) {
+    result = mbedtls_ctr_drbg_seed(
+        &client->random, mbedtls_entropy_func, &client->entropy,
+        personalization, sizeof(personalization) - 1u);
+  }
+  if (result == 0) {
+    result = mbedtls_x509_crt_parse(
+        &client->ca, (const unsigned char *)multiplex_tls_ca_pem,
+        multiplex_tls_ca_pem_size);
+  }
+  if (result == 0) {
+    result = mbedtls_ssl_config_defaults(
+        &client->config, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
+        MBEDTLS_SSL_PRESET_DEFAULT);
+  }
+  if (result == 0) {
+    mbedtls_ssl_conf_authmode(&client->config, MBEDTLS_SSL_VERIFY_REQUIRED);
+    mbedtls_ssl_conf_ca_chain(&client->config, &client->ca, NULL);
+    mbedtls_ssl_conf_rng(&client->config, mbedtls_ctr_drbg_random,
+                         &client->random);
+    result = mbedtls_ssl_setup(&client->ssl, &client->config);
+  }
+  if (result == 0) {
+    result = mbedtls_ssl_set_hostname(&client->ssl, hostname);
+  }
+  if (result == 0) {
+    mbedtls_ssl_set_bio(&client->ssl, client, tls_send, tls_receive, NULL);
+    result = mbedtls_ssl_handshake(&client->ssl);
+  }
+  if (result == 0 && mbedtls_ssl_get_verify_result(&client->ssl) != 0) {
+    result = MBEDTLS_ERR_X509_CERT_VERIFY_FAILED;
+  }
+  if (result != 0) {
+    report_tls_error("handshake", result);
+    multiplex_tls_client_destroy(client);
+    return NULL;
+  }
+  SYS_Report("REFERENCE GX: TLS connected host=%s version=%s cipher=%s\n",
+             hostname, mbedtls_ssl_get_version(&client->ssl),
+             mbedtls_ssl_get_ciphersuite(&client->ssl));
+  return client;
+}
+
+bool multiplex_tls_client_write_all(MultiplexTlsClient *client,
+                                    const uint8_t *bytes, size_t size) {
+  if (client == NULL || (size != 0 && bytes == NULL)) {
+    return false;
+  }
+  size_t written = 0;
+  while (written < size) {
+    const size_t remaining = size - written;
+    const size_t chunk_size =
+        remaining < TLS_GAMECUBE_WRITE_CHUNK ? remaining
+                                             : TLS_GAMECUBE_WRITE_CHUNK;
+    const int result =
+        mbedtls_ssl_write(&client->ssl, bytes + written, chunk_size);
+    if (result <= 0) {
+      report_tls_error("write", result);
+      return false;
+    }
+    if (net_flush(client->socket) < 0) {
+      SYS_Report("REFERENCE GX: TLS transport flush failed\n");
+      return false;
+    }
+    written += (size_t)result;
+  }
+  return true;
+}
+
+int multiplex_tls_client_read(MultiplexTlsClient *client, uint8_t *destination,
+                              size_t size, unsigned timeout_seconds) {
+  if (client == NULL || destination == NULL || size == 0) {
+    return -1;
+  }
+  client->io_timeout_seconds = timeout_seconds;
+  const int result = mbedtls_ssl_read(&client->ssl, destination, size);
+  if (result == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
+    return 0;
+  }
+  if (result < 0) {
+    report_tls_error("read", result);
+  }
+  return result;
+}
+
+void multiplex_tls_client_destroy(MultiplexTlsClient *client) {
+  if (client == NULL) {
+    return;
+  }
+  mbedtls_ssl_free(&client->ssl);
+  mbedtls_ssl_config_free(&client->config);
+  mbedtls_x509_crt_free(&client->ca);
+  mbedtls_ctr_drbg_free(&client->random);
+  mbedtls_entropy_free(&client->entropy);
+  free(client);
+}

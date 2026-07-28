@@ -1,0 +1,13 @@
+diff --git a/tcp_conn.h b/tcp_conn.h
+index 77a04a0..115626d 100644
+--- a/tcp_conn.h
++++ b/tcp_conn.h
+@@ -57,7 +57,7 @@ struct tcp_tap_conn {
+ #define RTT_EXP_BITS			4
+ 	unsigned int	rtt_exp		:RTT_EXP_BITS;
+ #define RTT_EXP_MAX			MAX_FROM_BITS(RTT_EXP_BITS)
+-#define RTT_STORE_MIN			100 /* us, minimum representable */
++#define RTT_STORE_MIN			20000 /* us, paced Dolphin BBA minimum */
+ #define RTT_STORE_MAX			((long)(RTT_STORE_MIN << RTT_EXP_MAX))
+ #define RTT_SET(conn, rtt)						\
+ 	(conn->rtt_exp = MIN(RTT_EXP_MAX,				\

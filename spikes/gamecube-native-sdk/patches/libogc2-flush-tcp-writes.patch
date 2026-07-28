@@ -1,0 +1,52 @@
+diff --git a/include/network.h b/include/network.h
+index 8f6a829..12abfea 100644
+--- a/include/network.h
++++ b/include/network.h
+@@ -291,6 +291,7 @@ s32 net_listen(s32 s,u32 backlog);
+ s32 net_accept(s32 s,struct sockaddr *addr,socklen_t *addrlen);
+ s32 net_connect(s32 s,struct sockaddr *name,socklen_t namelen);
+ s32 net_write(s32 s,const void *data,size_t size);
++s32 net_flush(s32 s);
+ s32 net_send(s32 s,const void *data,size_t size,u32 flags);
+ s32 net_sendto(s32 s,const void *data,size_t len,u32 flags,struct sockaddr *to,socklen_t tolen);
+ s32 net_recv(s32 s,void *mem,size_t len,u32 flags);
+diff --git a/lwip/network.c b/lwip/network.c
+index d7fb983..f04d359 100644
+--- a/lwip/network.c
++++ b/lwip/network.c
+@@ -1216,8 +1216,12 @@ static void do_write(struct apimsg_msg *msg)
+ 				break;
+ 			case NETCONN_TCP:
+ 				err = tcp_write(msg->conn->pcb.tcp,msg->msg.w.dataptr,msg->msg.w.len,msg->msg.w.copy);
+-				if(err==ERR_OK && (!msg->conn->pcb.tcp->unacked || (msg->conn->pcb.tcp->flags&TF_NODELAY)
+-					|| msg->conn->pcb.tcp->snd_queuelen>1)) {
++				if(err==ERR_OK) {
++					/*
++					 * A blocking socket write promises to hand the bytes to TCP
++					 * immediately. Deferring tcp_output here can strand a small
++					 * request after a TLS handshake until unrelated data is sent.
++					 */
+ 					LWIP_DEBUGF(API_MSG_DEBUG, ("api_msg: TCP write: tcp_output.\n"));
+ 					tcp_output(msg->conn->pcb.tcp);
+ 				}
+@@ -1954,6 +1958,20 @@ s32 net_write(s32 s,const void *data,size_t size)
+ 	return net_send(s,data,size,0);
+ }
+ 
++static void flush_tcp_output(void *context)
++{
++	struct netconn *conn = context;
++	if(conn && conn->type==NETCONN_TCP && conn->pcb.tcp)
++		tcp_output(conn->pcb.tcp);
++}
++
++s32 net_flush(s32 s)
++{
++	struct netsocket *sock = get_socket(s);
++	if(!sock) return -EBADF;
++	return net_callback(flush_tcp_output,sock->conn);
++}
++
+ s32 net_connect(s32 s,struct sockaddr *name,socklen_t namelen)
+ {
+ 	struct netsocket *sock;

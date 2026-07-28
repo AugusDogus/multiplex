@@ -61,6 +61,15 @@ exec "$pasta_bin" $pasta_logging --config-net --ipv4-only --mtu 1500 \
           if ip link show "$tap" >/dev/null 2>&1; then
             ip link set "$tap" master "$bridge"
             ip link set "$tap" up
+            # pasta can enqueue a complete TCP window into the TAP in a few
+            # microseconds. The emulated BBA has a finite receive FIFO,
+            # just like the hardware, so an unpaced host-side burst can drop
+            # the first payload and trigger an endless duplicate-ACK loop.
+            # A netem rate still releases timer-sized bursts, which can
+            # overrun the emulated BBA receive ring. TBF spaces packets
+            # and limits each release to one Ethernet frame.
+            tc qdisc replace dev "$tap" root tbf \
+              rate 3mbit burst 1540 latency 500ms
             exit 0
           fi
         done

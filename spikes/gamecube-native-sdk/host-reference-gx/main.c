@@ -2495,6 +2495,18 @@ static void *run_app(void *unused) {
       auth_reset_latched = false;
     }
 #endif
+    /*
+     * libogc2's BBA stack is reliable with one foreground HTTP transaction,
+     * but concurrent poster and navigation requests can consume each other's
+     * receive progress and leave both waiting for a timeout. Give activation
+     * priority to the user before opening details or starting playback.
+     */
+#if MULTIPLEX_PAIRING_ENABLED
+    if (pairing_linked && (pressed & PAD_BUTTON_A) != 0) {
+      stop_direct_poster_loader(&direct_home_poster_loader);
+      stop_direct_poster_loader(&direct_page_poster_loader);
+    }
+#endif
     pause_audio_for_player_input(pressed, &playback_manifest);
     bool app_changed = false;
     if ((pressed & PAD_BUTTON_LEFT) != 0 &&
