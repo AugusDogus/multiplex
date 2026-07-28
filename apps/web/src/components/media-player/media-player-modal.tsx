@@ -41,9 +41,11 @@ import { MediaPlayerAutoPlayOverlay } from "./media-player-autoplay-overlay";
 import { MediaPlayerVideo } from "./media-player-video";
 import type { MediaPlayerSeekFeedbackHandle } from "./media-player-video";
 import {
+  buildPlexTranscodeSessionKey,
   stopPlaybackTranscodeSessions,
   stopTranscodeSession,
 } from "./utils/plex-stream-urls";
+import { buildPlexPlaybackPlan } from "./utils/plex-playback-plan";
 import { mediaPlayerControlsTransition } from "./utils/media-player-controls-transition";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
@@ -300,6 +302,7 @@ interface PlaybackSessionControllerOptions {
   isOpen: boolean;
   streamOffset: number;
   streamSessionId: string;
+  transcodeSessionKey: string | null;
 }
 
 function usePlaybackSessionController({
@@ -308,6 +311,7 @@ function usePlaybackSessionController({
   isOpen,
   streamOffset,
   streamSessionId,
+  transcodeSessionKey,
 }: PlaybackSessionControllerOptions) {
   const sessionState = useSessionState();
   const playerItemServerId = currentItem?.serverId ?? null;
@@ -396,6 +400,7 @@ function usePlaybackSessionController({
   const previousStreamRef = useRef({
     sessionId: streamSessionId,
     offset: streamOffset,
+    transcodeSessionKey,
   });
   useEffect(() => {
     const previousStream = previousStreamRef.current;
@@ -403,30 +408,38 @@ function usePlaybackSessionController({
       previousStreamRef.current = {
         sessionId: streamSessionId,
         offset: streamOffset,
+        transcodeSessionKey,
       };
       return;
     }
-    if (streamOffset === previousStream.offset) {
-      return;
-    }
+
     previousStreamRef.current = {
       sessionId: streamSessionId,
       offset: streamOffset,
+      transcodeSessionKey,
     };
-    onSyncplayLocalSeeked(streamOffset);
-    if (streamSessionId && streamServerUrl && streamAuthToken) {
+
+    if (streamOffset !== previousStream.offset) {
+      onSyncplayLocalSeeked(streamOffset);
+    }
+    if (
+      previousStream.transcodeSessionKey &&
+      previousStream.transcodeSessionKey !== transcodeSessionKey &&
+      streamServerUrl &&
+      streamAuthToken
+    ) {
       void stopTranscodeSession(
         streamServerUrl,
         streamAuthToken,
-        `${streamSessionId}-${Math.floor(previousStream.offset)}`,
+        previousStream.transcodeSessionKey,
       );
     }
   }, [
     streamOffset,
     streamSessionId,
+    transcodeSessionKey,
     streamServerUrl,
     streamAuthToken,
-    currentItem,
   ]);
 
   useEffect(() => {
@@ -437,18 +450,20 @@ function usePlaybackSessionController({
       // Stop the one stream we know is active without first listing sessions.
       // This keepalive request can survive an abrupt tab/browser close; the
       // broader prefix cleanup below remains useful for any older seek stream.
-      void stopTranscodeSession(
-        streamServerUrl,
-        streamAuthToken,
-        `${streamSessionId}-${Math.floor(previousStreamRef.current.offset)}`,
-      );
+      if (previousStreamRef.current.transcodeSessionKey) {
+        void stopTranscodeSession(
+          streamServerUrl,
+          streamAuthToken,
+          previousStreamRef.current.transcodeSessionKey,
+        );
+      }
       void stopPlaybackTranscodeSessions(
         streamServerUrl,
         streamAuthToken,
         streamSessionId,
       );
     };
-  }, [streamSessionId, streamServerUrl, streamAuthToken, currentItem]);
+  }, [streamSessionId, streamServerUrl, streamAuthToken]);
 
   return {
     autoPlayProps: {
@@ -544,6 +559,15 @@ export function MediaPlayerModal() {
   usePlayQueue(currentItem, {
     enabled: currentItem?.access !== "guest-transient",
   });
+  const playbackPlan = currentItem ? buildPlexPlaybackPlan(currentItem) : null;
+  const transcodeSessionKey =
+    playbackPlan?.videoUsesTranscode && streamSessionId
+      ? buildPlexTranscodeSessionKey(
+          streamSessionId,
+          streamOffset,
+          playbackPlan.burnedSubtitleIndex,
+        )
+      : null;
 
   const {
     autoPlayProps,
@@ -563,6 +587,7 @@ export function MediaPlayerModal() {
     isOpen,
     streamOffset,
     streamSessionId,
+    transcodeSessionKey,
   });
 
   const handleClose = () => {

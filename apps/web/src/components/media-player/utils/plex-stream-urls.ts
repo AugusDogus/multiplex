@@ -40,7 +40,8 @@ function applyUniversalTranscodeParams(
   url: URL,
   item: MediaPlayerItem,
   protocol: "dash" | "http",
-  session: string,
+  transcodeSessionKey: string,
+  playbackSessionId: string,
 ): void {
   if (!item.key) throw new Error("No metadata key found for item");
 
@@ -55,7 +56,11 @@ function applyUniversalTranscodeParams(
   url.searchParams.set("audioBoost", "100");
   url.searchParams.set("subtitleSize", "100");
   url.searchParams.set("location", "lan");
-  url.searchParams.set("session", session);
+  url.searchParams.set("session", transcodeSessionKey);
+  // Plex tracks the individual transcoder process with `session`, while this
+  // identifier owns the longer-lived client playback. Keep it stable when a
+  // seek or subtitle change replaces the underlying transcode.
+  url.searchParams.set("X-Plex-Session-Identifier", playbackSessionId);
 }
 
 function applyUniversalTranscodeProfile(
@@ -112,16 +117,19 @@ function buildDirectStreamUrl(
   const baseUrl = getBaseServerUrl(serverUrl);
   const streamUrl = new URL(`${baseUrl}/video/:/transcode/universal/start.mp4`);
   // Session = a fresh per-playback id (so two viewers / repeat plays never
-  // collide) PLUS the offset. The offset matters because we reload the
-  // transcode to seek (Plex's universal MP4 stream isn't seekable in-place); a
-  // reload at a new offset must use a distinct session or it races the still-
-  // running one on the same session and Plex rejects it (HTTP 400 -> the
-  // "video source not supported" failure). Old offset sessions are short-lived
-  // and the server times them out.
-  const session = `${sessionId}-${Math.floor(offsetSeconds)}`;
+  // collide) PLUS the offset and subtitle selection. Those values matter
+  // because seeking and changing burn-in both reload Plex's universal MP4
+  // stream. A reload must use a distinct session or it can race/reuse the
+  // still-running session with incompatible parameters. Old sessions are
+  // short-lived and the server times them out.
+  const session = buildPlexTranscodeSessionKey(
+    sessionId,
+    offsetSeconds,
+    selectedSubtitleStreamIndex,
+  );
 
   applyClientHeaders(streamUrl, authToken);
-  applyUniversalTranscodeParams(streamUrl, item, "http", session);
+  applyUniversalTranscodeParams(streamUrl, item, "http", session, sessionId);
   if (selectedSubtitleStreamIndex === null) {
     streamUrl.searchParams.set("subtitles", "none");
   } else {
@@ -141,6 +149,15 @@ function buildDirectStreamUrl(
   applyUniversalTranscodeProfile(streamUrl, "http");
 
   return streamUrl.toString();
+}
+
+export function buildPlexTranscodeSessionKey(
+  sessionId: string,
+  offsetSeconds: number,
+  selectedSubtitleStreamIndex: number | null,
+): string {
+  const subtitleSessionKey = selectedSubtitleStreamIndex ?? "n";
+  return `${sessionId}-${Math.floor(offsetSeconds)}-s${subtitleSessionKey}`;
 }
 
 export function buildPlexSubtitleSelectionUrl(
@@ -178,7 +195,7 @@ export function generatePlexSubtitleTrackUrl(
   const session = `multiplex-subtitles-${selectedSubtitleStreamIndex}-${Date.now()}`;
 
   applyClientHeaders(subtitleUrl, authToken);
-  applyUniversalTranscodeParams(subtitleUrl, item, "dash", session);
+  applyUniversalTranscodeParams(subtitleUrl, item, "dash", session, session);
   subtitleUrl.searchParams.set("transcodeSessionId", session);
   subtitleUrl.searchParams.set("hasMDE", "1");
   subtitleUrl.searchParams.set("location", "wan");

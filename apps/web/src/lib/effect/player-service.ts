@@ -240,10 +240,10 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
         markers: [],
         currentTime: initialCurrentTime,
         streamOffset: initialStreamOffset,
-        // Fresh, unique transcode session per playback (stable across seeks)
-        // so two viewers — and repeat plays of the same item — never collide
-        // on one Plex transcode session (which returns HTTP 400 / no source).
-        streamSessionId: `multiplex-${crypto.randomUUID()}`,
+        // Plex Web uses compact alphanumeric identifiers for client playback
+        // sessions. Keep this stable across source replacements; the transcode
+        // session key separately identifies each seek/subtitle variant.
+        streamSessionId: crypto.randomUUID().replaceAll("-", "").slice(0, 24),
         sourceGeneration: current.sourceGeneration + 1,
         isLoading: true,
         error: null,

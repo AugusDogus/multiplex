@@ -14,6 +14,7 @@ import {
   type PlayerPrefsState,
 } from "~/stores/player-prefs-store";
 import type { MediaPlayerItem, NextEpisodeInfo } from "~/types/media-player";
+import { buildPlexPlaybackPlan } from "~/components/media-player/utils/plex-playback-plan";
 
 const directPlayMedia = {
   audioCodec: "aac",
@@ -66,6 +67,58 @@ beforeEach(() => {
   });
 });
 
+function createTranscodedSubtitleItem(selected: boolean): MediaPlayerItem {
+  return {
+    ...sampleItem,
+    Media: [
+      {
+        ...directPlayMedia,
+        audioCodec: "eac3",
+        container: "mkv",
+        Part: [
+          {
+            ...directPlayMedia.Part?.[0],
+            Stream: [
+              ...(directPlayMedia.Part?.[0]?.Stream ?? []),
+              {
+                id: 3,
+                index: 2,
+                streamType: 3,
+                codec: "srt",
+                selected,
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  } as MediaPlayerItem;
+}
+
+function withSubtitleSelection(
+  item: MediaPlayerItem,
+  selected: boolean,
+): ItemMetadata {
+  return {
+    ...item,
+    Media: [
+      {
+        ...item.Media?.[0],
+        Part: [
+          {
+            ...item.Media?.[0]?.Part?.[0],
+            Stream: [
+              ...(item.Media?.[0]?.Part?.[0]?.Stream ?? []).map((stream) =>
+                stream.streamType === 3 ? { ...stream, selected } : stream,
+              ),
+            ],
+          },
+        ],
+      },
+    ],
+  } as ItemMetadata;
+}
+
 describe("openPlayer resume math", () => {
   test("resume === false starts at 0", () => {
     player.openPlayer(
@@ -113,7 +166,7 @@ describe("openPlayer resume math", () => {
   test("assigns a fresh streamSessionId", () => {
     player.openPlayer(sampleItem, { resume: false });
     const first = player.snapshot().streamSessionId;
-    expect(first.startsWith("multiplex-")).toBe(true);
+    expect(first).toMatch(/^[0-9a-f]{24}$/);
     player.openPlayer(sampleItem, { resume: false });
     expect(player.snapshot().streamSessionId).not.toBe(first);
   });
@@ -263,6 +316,67 @@ describe("applyPlaybackMetadata", () => {
     expect(state.isLoading).toBe(true);
     expect(state.canPlay).toBe(false);
     expect(state.sourceGeneration).toBe(beforeGeneration + 1);
+  });
+
+  test("enables burned subtitles without changing playback position", () => {
+    const item = createTranscodedSubtitleItem(false);
+    player.openPlayer(item, { resume: false });
+    player.updatePlaybackState({ currentTime: 40 });
+    const identity = player.playbackIdentity()!;
+    const beforeGeneration = player.snapshot().sourceGeneration;
+
+    player.applyPlaybackMetadata(
+      identity,
+      withSubtitleSelection(item, true),
+      { reloadVideo: true, previousVideoUsesTranscode: true },
+    );
+
+    const state = player.snapshot();
+    expect(player.playbackIdentity()).toEqual(identity);
+    expect(state.sourceGeneration).toBe(beforeGeneration + 1);
+    expect(state.currentTime).toBe(40);
+    expect(state.streamOffset).toBe(40);
+    expect(buildPlexPlaybackPlan(state.currentItem!).subtitle).toEqual({
+      kind: "burnIn",
+      index: 2,
+    });
+    expect(
+      state.currentItem?.Media?.[0]?.Part?.[0]?.Stream?.find(
+        (stream) => stream.streamType === 3,
+      )?.selected,
+    ).toBe(true);
+  });
+
+  test("disables burned subtitles without changing playback position", () => {
+    const item = createTranscodedSubtitleItem(true);
+    player.openPlayer(item, { resume: false });
+    player.updatePlaybackState({ currentTime: 40 });
+    const identity = player.playbackIdentity()!;
+    const beforeGeneration = player.snapshot().sourceGeneration;
+
+    player.applyPlaybackMetadata(
+      identity,
+      withSubtitleSelection(item, false),
+      {
+        preserveCurrentTime: 40,
+        reloadVideo: true,
+        previousVideoUsesTranscode: true,
+      },
+    );
+
+    const state = player.snapshot();
+    expect(player.playbackIdentity()).toEqual(identity);
+    expect(state.sourceGeneration).toBe(beforeGeneration + 1);
+    expect(state.currentTime).toBe(40);
+    expect(state.streamOffset).toBe(40);
+    expect(buildPlexPlaybackPlan(state.currentItem!).subtitle).toEqual({
+      kind: "none",
+    });
+    expect(
+      state.currentItem?.Media?.[0]?.Part?.[0]?.Stream?.find(
+        (stream) => stream.streamType === 3,
+      )?.selected,
+    ).toBe(false);
   });
 
   test("bumps when reloadVideo reloads without changing streamOffset", () => {
