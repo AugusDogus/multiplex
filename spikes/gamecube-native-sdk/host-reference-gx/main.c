@@ -37,6 +37,8 @@
 #define TIMELINE_REPORT_STACK_SIZE (128 * 1024)
 #define TIMELINE_REPORT_INTERVAL_MS 10000u
 #define PAIRING_POLL_INTERVAL_FRAMES 60u
+#define MEDIA_STARTUP_STALL_TIMEOUT_US 5000000u
+#define MEDIA_STARTUP_RESTART_LIMIT 2u
 #define VIDEO_WIDTH 720
 #define VIDEO_HEIGHT 480
 #define VIDEO_PROFILE_FRAMES 60
@@ -45,7 +47,12 @@
 #define VIDEO_RATE_NUMERATOR 30000
 #define VIDEO_RATE_DENOMINATOR 1001
 #define VIDEO_PREBUFFER_BYTES (128u * 1024u)
-#define AUDIO_PREBUFFER_BYTES (32u * 1024u)
+/*
+ * Keep this below half of the 64 KiB compressed-audio queue. MPEG-PS packets
+ * are interleaved, so waiting for exactly 32 KiB can leave the producer
+ * blocked on a full video queue with audio only a few bytes short.
+ */
+#define AUDIO_PREBUFFER_BYTES (24u * 1024u)
 #define SEGMENT_HANDOFF_MARGIN_MS 64u
 #define POSTER_JPEG_CAPACITY (256u * 1024u)
 #define HOME_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS
@@ -146,8 +153,20 @@ typedef struct {
   const char *last_state;
 } TimelineReporter;
 
+typedef struct {
+  uint32_t rating_key;
+  uint32_t segment_start_ms;
+  uint32_t started_tick;
+  uint32_t last_video_bytes;
+  uint32_t last_audio_bytes;
+  unsigned restart_count;
+  bool timing;
+  bool playback_started;
+} MediaStartupWatchdog;
+
 static bool read_http_program(void *context, size_t offset,
                               uint8_t *destination, size_t size);
+static void discard_staged_media_session(StagedMediaSession *staged);
 
 static uint32_t elapsed_us(uint32_t started) {
   return (uint32_t)ticks_to_microsecs((uint32_t)(gettick() - started));
@@ -1001,6 +1020,84 @@ static bool open_media_session(
   return true;
 }
 
+static bool recover_stalled_media_startup(
+    MediaStartupWatchdog *watchdog,
+    const MultiplexGatewayPlaybackManifest *manifest, HttpClient **client,
+    MpegPsDemux **demux, StagedMediaSession *staged) {
+  if (watchdog == NULL || manifest == NULL || client == NULL || demux == NULL) {
+    return false;
+  }
+  if (*demux == NULL || manifest->rating_key == 0 ||
+      video_surface.visible == 0) {
+    watchdog->timing = false;
+    return true;
+  }
+
+  if (watchdog->rating_key != manifest->rating_key ||
+      watchdog->segment_start_ms != manifest->segment_start_ms) {
+    memset(watchdog, 0, sizeof(*watchdog));
+    watchdog->rating_key = manifest->rating_key;
+    watchdog->segment_start_ms = manifest->segment_start_ms;
+  }
+
+  const size_t video_bytes = mpeg_ps_demux_video_bytes_pumped(*demux);
+  const size_t audio_bytes = mpeg_ps_demux_audio_bytes_pumped(*demux);
+  if (video_was_playing) {
+    watchdog->playback_started = true;
+    watchdog->timing = false;
+    return true;
+  }
+  if (watchdog->playback_started) {
+    return true;
+  }
+  if (video_bytes != watchdog->last_video_bytes ||
+      audio_bytes != watchdog->last_audio_bytes) {
+    watchdog->last_video_bytes = (uint32_t)video_bytes;
+    watchdog->last_audio_bytes = (uint32_t)audio_bytes;
+    watchdog->started_tick = gettick();
+    watchdog->timing = true;
+    return true;
+  }
+  if (!watchdog->timing) {
+    watchdog->started_tick = gettick();
+    watchdog->timing = true;
+    return true;
+  }
+  if (elapsed_us(watchdog->started_tick) < MEDIA_STARTUP_STALL_TIMEOUT_US) {
+    return true;
+  }
+  if (watchdog->restart_count >= MEDIA_STARTUP_RESTART_LIMIT) {
+    SYS_Report(
+        "REFERENCE GX: media startup recovery exhausted rating-key=%u "
+        "offset=%u attempts=%u\n",
+        manifest->rating_key, manifest->segment_start_ms,
+        watchdog->restart_count);
+    return false;
+  }
+
+  watchdog->restart_count += 1;
+  SYS_Report(
+      "REFERENCE GX: media startup made no progress rating-key=%u offset=%u "
+      "retry=%u/%u\n",
+      manifest->rating_key, manifest->segment_start_ms,
+      watchdog->restart_count, MEDIA_STARTUP_RESTART_LIMIT);
+  discard_staged_media_session(staged);
+  close_media_session(client, demux);
+  if (!open_media_session(manifest, client, demux)) {
+    SYS_Report(
+        "REFERENCE GX: media startup recovery failed rating-key=%u "
+        "offset=%u retry=%u\n",
+        manifest->rating_key, manifest->segment_start_ms,
+        watchdog->restart_count);
+    return false;
+  }
+  watchdog->started_tick = gettick();
+  watchdog->last_video_bytes = 0;
+  watchdog->last_audio_bytes = 0;
+  watchdog->timing = true;
+  return true;
+}
+
 static bool open_initial_media_session(HttpClient **client_out,
                                        MpegPsDemux **demux_out) {
   HttpClient *client = NULL;
@@ -1697,6 +1794,8 @@ static void *run_app(void *unused) {
   reset_staged_media_session(&staged_media);
   TimelineReporter timeline_reporter;
   initialize_timeline_reporter(&timeline_reporter);
+  MediaStartupWatchdog media_startup_watchdog;
+  memset(&media_startup_watchdog, 0, sizeof(media_startup_watchdog));
   bool timeline_player_visible = false;
   bool timeline_started = false;
   MultiplexGatewayCatalog catalog;
@@ -1907,6 +2006,11 @@ static void *run_app(void *unused) {
       break;
     }
     present_frame(&playback_manifest);
+    if (!recover_stalled_media_startup(
+            &media_startup_watchdog, &playback_manifest, &client, &demux,
+            &staged_media)) {
+      break;
+    }
     if (video_surface.visible != 0) {
       const uint32_t position_ms = playback_position_ms(&playback_manifest);
       if (video_surface.playing == 0) {

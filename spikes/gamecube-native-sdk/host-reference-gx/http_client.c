@@ -383,7 +383,7 @@ static bool fetch_cache_once(HttpClient *client, size_t start) {
   size_t response_size = 0;
   if (!read_headers(client, headers, sizeof(headers), &header_size,
                     &response_size)) {
-    SYS_Report("REFERENCE GX: HTTP response header failed offset=%u\n",
+    SYS_Report("REFERENCE GX: HTTP response header unavailable offset=%u\n",
                (unsigned)start);
     return false;
   }
