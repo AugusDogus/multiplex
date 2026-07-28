@@ -1,4 +1,10 @@
-import { integer, sqliteTableCreator, text } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  sqliteTableCreator,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 /**
  * This is an example of how to use the multi-project schema feature of Drizzle ORM. Use the same
@@ -76,3 +82,51 @@ export const verification = createTable("verification", {
     () => /* @__PURE__ */ new Date(),
   ),
 });
+
+export const consoleDevice = createTable(
+  "console_device",
+  {
+    id: text("id").primaryKey(),
+    platform: text("platform", {
+      enum: ["gamecube", "wii", "dreamcast", "xbox", "ps2"],
+    }).notNull(),
+    name: text("name").notNull(),
+    pairingCode: text("pairing_code"),
+    credentialHash: text("credential_hash").notNull(),
+    pairingExpiresAt: integer("pairing_expires_at", {
+      mode: "timestamp",
+    }).notNull(),
+    credentialExpiresAt: integer("credential_expires_at", {
+      mode: "timestamp",
+    }).notNull(),
+    linkedAt: integer("linked_at", { mode: "timestamp" }),
+    lastSeenAt: integer("last_seen_at", { mode: "timestamp" }),
+    revokedAt: integer("revoked_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+    userId: text("user_id").references(() => user.id, {
+      onDelete: "cascade",
+    }),
+  },
+  (table) => [
+    uniqueIndex("console_device_pairing_code_unique").on(table.pairingCode),
+    index("console_device_user_id_idx").on(table.userId),
+  ],
+);
+
+export const consolePairingClaimAttempt = createTable(
+  "console_pairing_claim_attempt",
+  {
+    id: text("id").primaryKey(),
+    attemptedAt: integer("attempted_at", { mode: "timestamp" }).notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    index("console_pairing_claim_attempt_user_time_idx").on(
+      table.userId,
+      table.attemptedAt,
+    ),
+  ],
+);
