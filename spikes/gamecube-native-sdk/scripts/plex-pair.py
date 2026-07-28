@@ -23,7 +23,7 @@ PRODUCT = "Multiplex GameCube"
 PINS_URL = "https://clients.plex.tv/api/v2/pins"
 NONCE_URL = "https://clients.plex.tv/api/v2/auth/nonce"
 TOKEN_URL = "https://clients.plex.tv/api/v2/auth/token"
-RESOURCES_URL = "https://plex.tv/api/v2/resources"
+RESOURCES_URL = "https://clients.plex.tv/api/v2/resources"
 REFRESH_WINDOW_SECONDS = 24 * 60 * 60
 DEVICE_SCOPES = (
     "username",
@@ -109,6 +109,10 @@ def auth_url(code: str) -> str:
     return f"https://app.plex.tv/auth#?{fragment}"
 
 
+def pms_auth_url(code: str) -> str:
+    return f"https://plex.tv/link/?{urllib.parse.urlencode({'pin': code})}"
+
+
 def request_json(request: urllib.request.Request) -> dict[str, object]:
     with urllib.request.urlopen(request, timeout=15) as response:
         value = json.loads(response.read())
@@ -163,16 +167,17 @@ def start_pairing(path: pathlib.Path) -> dict[str, object]:
 
 
 def start_pms_pairing(path: pathlib.Path) -> dict[str, object]:
-    request = urllib.request.Request(
-        PINS_URL,
-        method="POST",
-        data=urllib.parse.urlencode({"strong": "true"}).encode("ascii"),
-        headers={
-            "Accept": "application/json",
-            "Content-Type": "application/x-www-form-urlencoded",
+    query = urllib.parse.urlencode(
+        {
+            "strong": "false",
             "X-Plex-Product": PRODUCT,
             "X-Plex-Client-Identifier": CLIENT_IDENTIFIER,
-        },
+        }
+    )
+    request = urllib.request.Request(
+        f"{PINS_URL}?{query}",
+        method="POST",
+        headers={"Accept": "application/json"},
     )
     response = request_json(request)
     pin_id = response.get("id")
@@ -183,8 +188,10 @@ def start_pms_pairing(path: pathlib.Path) -> dict[str, object]:
     state["pmsPinId"] = pin_id
     state["pmsCode"] = code
     state["pmsCreatedAt"] = int(time.time())
+    state.pop("pmsAuthToken", None)
+    state.pop("pmsClaimedAt", None)
     save_state(path, state)
-    return {"status": "waiting", "code": code, "url": auth_url(code)}
+    return {"status": "waiting", "code": code, "url": pms_auth_url(code)}
 
 
 def poll_pairing(path: pathlib.Path) -> dict[str, object]:
@@ -212,19 +219,21 @@ def poll_pairing(path: pathlib.Path) -> dict[str, object]:
 def poll_pms_pairing(path: pathlib.Path) -> dict[str, object]:
     state = load_state(path)
     pin_id = int(state["pmsPinId"])
-    request = urllib.request.Request(
-        f"{PINS_URL}/{pin_id}",
-        headers={
-            "Accept": "application/json",
-            "X-Plex-Product": PRODUCT,
+    query = urllib.parse.urlencode(
+        {
+            "code": state["pmsCode"],
             "X-Plex-Client-Identifier": CLIENT_IDENTIFIER,
-        },
+        }
+    )
+    request = urllib.request.Request(
+        f"{PINS_URL}/{pin_id}?{query}",
+        headers={"Accept": "application/json"},
     )
     response = request_json(request)
     token = response.get("authToken") or response.get("auth_token")
     if not isinstance(token, str) or not token:
         code = str(state["pmsCode"])
-        return {"status": "waiting", "code": code, "url": auth_url(code)}
+        return {"status": "waiting", "code": code, "url": pms_auth_url(code)}
     state["pmsAuthToken"] = token
     state["pmsClaimedAt"] = int(time.time())
     save_state(path, state)
@@ -319,11 +328,8 @@ def ensure_token(
 def server_token(path: pathlib.Path, base_url: str, now: int | None = None) -> str:
     state = load_state(path)
     pms_account_token = state.get("pmsAuthToken")
-    account_token = (
-        pms_account_token
-        if isinstance(pms_account_token, str) and pms_account_token
-        else ensure_token(path, now=now)
-    )
+    has_pms_token = isinstance(pms_account_token, str) and bool(pms_account_token)
+    account_token = pms_account_token if has_pms_token else ensure_token(path, now=now)
     identity_request = urllib.request.Request(
         f"{base_url.rstrip('/')}/identity",
         headers={"Accept": "application/xml"},
@@ -339,6 +345,24 @@ def server_token(path: pathlib.Path, base_url: str, now: int | None = None) -> s
     if identifier_end < 0:
         raise RuntimeError("Plex server identity has an invalid machine identifier")
     machine_identifier = identity[identifier_start:identifier_end]
+
+    if has_pms_token:
+        direct_request = urllib.request.Request(
+            f"{base_url.rstrip('/')}/library/sections",
+            headers={
+                "Accept": "application/xml",
+                "X-Plex-Product": PRODUCT,
+                "X-Plex-Client-Identifier": CLIENT_IDENTIFIER,
+                "X-Plex-Token": str(pms_account_token),
+            },
+        )
+        try:
+            with urllib.request.urlopen(direct_request, timeout=10) as response:
+                response.read(1)
+            return str(pms_account_token)
+        except urllib.error.HTTPError as error:
+            if error.code not in {401, 403}:
+                raise
 
     query = urllib.parse.urlencode({"includeHttps": 1, "includeRelay": 1})
     resources_request = urllib.request.Request(

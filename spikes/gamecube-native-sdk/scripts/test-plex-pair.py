@@ -49,6 +49,49 @@ class PlexPairTest(unittest.TestCase):
         self.assertEqual(fragment["code"], ["abc123"])
         self.assertEqual(fragment["context[device][product]"], [pair.PRODUCT])
 
+    def test_pms_auth_url_uses_four_character_link_page(self) -> None:
+        url = urllib.parse.urlparse(pair.pms_auth_url("A1B2"))
+        self.assertEqual(url.scheme, "https")
+        self.assertEqual(url.netloc, "plex.tv")
+        self.assertEqual(url.path, "/link/")
+        self.assertEqual(urllib.parse.parse_qs(url.query)["pin"], ["A1B2"])
+
+    def test_start_pms_pairing_requests_weak_pin_and_clears_stale_token(self) -> None:
+        state = {
+            "version": 1,
+            "pmsAuthToken": "stale",
+            "pmsClaimedAt": 1_600_000_000,
+        }
+        with mock.patch.object(pair, "request_json", return_value={"id": 42, "code": "A1B2"}) as request:
+            with mock.patch.object(pair, "load_state", return_value=state):
+                with mock.patch.object(pair, "save_state") as save:
+                    with mock.patch.object(pathlib.Path, "exists", return_value=True):
+                        result = pair.start_pms_pairing(pathlib.Path("auth.json"))
+
+        created_request = request.call_args.args[0]
+        parsed = urllib.parse.urlparse(created_request.full_url)
+        query = urllib.parse.parse_qs(parsed.query)
+        self.assertEqual(created_request.method, "POST")
+        self.assertEqual(query["strong"], ["false"])
+        self.assertEqual(query["X-Plex-Client-Identifier"], [pair.CLIENT_IDENTIFIER])
+        self.assertEqual(result["url"], "https://plex.tv/link/?pin=A1B2")
+        saved_state = save.call_args.args[1]
+        self.assertNotIn("pmsAuthToken", saved_state)
+        self.assertNotIn("pmsClaimedAt", saved_state)
+
+    def test_poll_pms_pairing_sends_code_and_stores_claimed_token(self) -> None:
+        state = {"pmsPinId": 42, "pmsCode": "A1B2"}
+        with mock.patch.object(pair, "load_state", return_value=state):
+            with mock.patch.object(pair, "request_json", return_value={"authToken": "claimed"}) as request:
+                with mock.patch.object(pair, "save_state") as save:
+                    result = pair.poll_pms_pairing(pathlib.Path("auth.json"))
+
+        parsed = urllib.parse.urlparse(request.call_args.args[0].full_url)
+        self.assertEqual(parsed.path, "/api/v2/pins/42")
+        self.assertEqual(urllib.parse.parse_qs(parsed.query)["code"], ["A1B2"])
+        self.assertEqual(result, {"status": "claimed"})
+        self.assertEqual(save.call_args.args[1]["pmsAuthToken"], "claimed")
+
     def test_signed_refresh_jwt_carries_nonce(self) -> None:
         private_key, jwk = pair.device_key()
         state = {
@@ -99,16 +142,6 @@ class PlexPairTest(unittest.TestCase):
         refresh.assert_called_once_with(pathlib.Path("auth.json"), now=1_700_000_000)
 
     def test_server_token_matches_local_machine_identifier(self) -> None:
-        resources = [
-            {
-                "clientIdentifier": "other",
-                "accessToken": "wrong",
-            },
-            {
-                "clientIdentifier": "server-id",
-                "accessToken": "server-secret",
-            },
-        ]
         responses = [
             mock.MagicMock(
                 __enter__=lambda value: value,
@@ -120,7 +153,7 @@ class PlexPairTest(unittest.TestCase):
             mock.MagicMock(
                 __enter__=lambda value: value,
                 __exit__=mock.Mock(return_value=False),
-                read=mock.Mock(return_value=json.dumps(resources).encode("utf-8")),
+                read=mock.Mock(return_value=b"<"),
             ),
         ]
         with mock.patch.object(
@@ -138,7 +171,7 @@ class PlexPairTest(unittest.TestCase):
                     "http://plex:32400",
                     now=1_700_000_000,
                 )
-        self.assertEqual(token, "server-secret")
+        self.assertEqual(token, "legacy-account-secret")
 
     def test_server_token_rejects_current_jwt_resource_response(self) -> None:
         resources = [
