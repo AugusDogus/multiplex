@@ -321,10 +321,10 @@ fi
 
 selected_rating_key=$(sed -n 's/.*playback-session ready rating-key=\([0-9][0-9]*\).*/\1/p' "$log" | tail -1)
 initial_offset=$(sed -n 's/.*playback-session ready rating-key=[0-9][0-9]* offset=\([0-9][0-9]*\).*/\1/p' "$log" | tail -1)
-switch_count=$(line_count "playback-session switched")
+switch_count=$(line_count "playback-session .*switch")
 playing_count=$(line_count "playback=playing")
 press R
-wait_for_new "playback-session switched" "$switch_count" 3600
+wait_for_new "playback-session .*switch" "$switch_count" 3600
 wait_for_new "playback=playing" "$playing_count" 1200
 seek_offset=$(sed -n "s/.*playback-session ready rating-key=$selected_rating_key offset=\([0-9][0-9]*\).*/\1/p" "$log" | tail -1)
 minimum_seek_offset=$((initial_offset + 30000))
@@ -337,10 +337,10 @@ fi
 
 if [ "$expect_continuation" -eq 1 ]; then
   continuation_count=$(line_count "playback-continuation requested")
-  switch_count=$(line_count "playback-session switched")
+  switch_count=$(line_count "playback-session .*switch")
   playing_count=$(line_count "playback=playing")
   wait_for_new "playback-continuation requested" "$continuation_count" 1200
-  wait_for_new "playback-session switched" "$switch_count" 3600
+  wait_for_new "playback-session .*switch" "$switch_count" 3600
   wait_for_new "playback=playing" "$playing_count" 1200
   continuation_offset=$(sed -n 's/.*playback-continuation requested rating-key=[0-9][0-9]* offset=\([0-9][0-9]*\).*/\1/p' "$log" | tail -1)
   if ! grep -q "playback-session ready rating-key=$selected_rating_key offset=$continuation_offset" "$log"; then

@@ -33,6 +33,7 @@
 #define BUFFER_GUARD_VALUE 0xa5
 #define APP_STACK_SIZE (512 * 1024)
 #define VIDEO_DECODER_STACK_SIZE (256 * 1024)
+#define MEDIA_PREFETCH_STACK_SIZE (256 * 1024)
 #define VIDEO_WIDTH 720
 #define VIDEO_HEIGHT 480
 #define VIDEO_PROFILE_FRAMES 60
@@ -113,6 +114,19 @@ static bool video_texture_ready;
 static bool video_was_playing;
 static AudioDma *audio_output;
 static MpegPsDemux *media_demux;
+
+typedef struct {
+  const char *gateway_url;
+  uint32_t rating_key;
+  uint32_t offset_ms;
+  MultiplexGatewayPlaybackManifest manifest;
+  HttpClient *client;
+  MpegPsDemux *demux;
+  lwp_t thread;
+  void *stack;
+  volatile bool ready;
+  volatile bool failed;
+} StagedMediaSession;
 
 static bool read_http_program(void *context, size_t offset,
                               uint8_t *destination, size_t size);
@@ -877,7 +891,8 @@ static void close_media_session(HttpClient **client, MpegPsDemux **demux) {
   *client = NULL;
 }
 
-static bool start_media_pipeline(MpegPsDemux *demux, uint32_t rating_key) {
+static bool start_media_pipeline(MpegPsDemux *demux, uint32_t rating_key,
+                                 bool start_demux) {
   const int64_t pts_delta =
       mpeg_ps_demux_first_video_pts90k(demux) -
       mpeg_ps_demux_first_audio_pts90k(demux);
@@ -900,7 +915,7 @@ static bool start_media_pipeline(MpegPsDemux *demux, uint32_t rating_key) {
     stop_video_decoder();
     return false;
   }
-  if (!mpeg_ps_demux_start(demux)) {
+  if (start_demux && !mpeg_ps_demux_start(demux)) {
     SYS_Report("REFERENCE GX: media producer initialization failed rating-key=%u\n",
                rating_key);
     audio_dma_destroy(audio_output);
@@ -912,7 +927,7 @@ static bool start_media_pipeline(MpegPsDemux *demux, uint32_t rating_key) {
   return true;
 }
 
-static bool open_media_session(
+static bool prepare_media_source(
     const MultiplexGatewayPlaybackManifest *manifest, HttpClient **client_out,
     MpegPsDemux **demux_out) {
   HttpClient *client = http_client_open(manifest->media_url);
@@ -945,7 +960,20 @@ static bool open_media_session(
       manifest->rating_key, http_client_host(client), http_client_port(client),
       (unsigned)http_client_size(client), http_client_range_count(client));
   http_client_begin_stream(client);
-  if (!start_media_pipeline(demux, manifest->rating_key)) {
+  *client_out = client;
+  *demux_out = demux;
+  return true;
+}
+
+static bool open_media_session(
+    const MultiplexGatewayPlaybackManifest *manifest, HttpClient **client_out,
+    MpegPsDemux **demux_out) {
+  HttpClient *client = NULL;
+  MpegPsDemux *demux = NULL;
+  if (!prepare_media_source(manifest, &client, &demux)) {
+    return false;
+  }
+  if (!start_media_pipeline(demux, manifest->rating_key, true)) {
     mpeg_ps_demux_destroy(demux);
     http_client_destroy(client);
     return false;
@@ -1003,7 +1031,7 @@ static bool open_initial_media_session(HttpClient **client_out,
     http_client_destroy(client);
     return false;
   }
-  if (!start_media_pipeline(demux, 0)) {
+  if (!start_media_pipeline(demux, 0, true)) {
     mpeg_ps_demux_destroy(demux);
     http_client_destroy(client);
     return false;
@@ -1011,6 +1039,80 @@ static bool open_initial_media_session(HttpClient **client_out,
   *client_out = client;
   *demux_out = demux;
   return true;
+}
+
+static void reset_staged_media_session(StagedMediaSession *staged) {
+  memset(staged, 0, sizeof(*staged));
+  staged->thread = LWP_THREAD_NULL;
+}
+
+static void *prepare_staged_media_session(void *argument) {
+  StagedMediaSession *staged = argument;
+  if (!multiplex_gateway_load_playback_manifest(
+          staged->gateway_url, staged->rating_key, staged->offset_ms,
+          &staged->manifest) ||
+      !prepare_media_source(&staged->manifest, &staged->client,
+                            &staged->demux) ||
+      !mpeg_ps_demux_start(staged->demux)) {
+    staged->failed = true;
+    return NULL;
+  }
+  staged->ready = true;
+  SYS_Report(
+      "REFERENCE GX: playback-session staged rating-key=%u offset=%u\n",
+      staged->rating_key, staged->offset_ms);
+  return NULL;
+}
+
+static bool start_staged_media_session(
+    StagedMediaSession *staged, const char *gateway_url,
+    const MultiplexGatewayPlaybackManifest *active_manifest) {
+  if (staged->thread != LWP_THREAD_NULL || gateway_url == NULL ||
+      active_manifest == NULL || active_manifest->rating_key == 0) {
+    return false;
+  }
+  const uint64_t next_offset =
+      (uint64_t)active_manifest->segment_start_ms +
+      active_manifest->segment_duration_ms;
+  if (next_offset >= active_manifest->media_duration_ms) {
+    return false;
+  }
+  staged->gateway_url = gateway_url;
+  staged->rating_key = active_manifest->rating_key;
+  staged->offset_ms = (uint32_t)next_offset;
+  staged->stack = malloc(MEDIA_PREFETCH_STACK_SIZE);
+  if (staged->stack == NULL ||
+      LWP_CreateThread(&staged->thread, prepare_staged_media_session, staged,
+                       staged->stack, MEDIA_PREFETCH_STACK_SIZE,
+                       LWP_PRIO_NORMAL / 2) != 0) {
+    free(staged->stack);
+    reset_staged_media_session(staged);
+    return false;
+  }
+  SYS_Report(
+      "REFERENCE GX: playback-session staging rating-key=%u offset=%u\n",
+      staged->rating_key, staged->offset_ms);
+  return true;
+}
+
+static void join_staged_media_session(StagedMediaSession *staged) {
+  if (staged->thread != LWP_THREAD_NULL) {
+    LWP_JoinThread(staged->thread, NULL);
+    staged->thread = LWP_THREAD_NULL;
+  }
+  free(staged->stack);
+  staged->stack = NULL;
+}
+
+static void discard_staged_media_session(StagedMediaSession *staged) {
+  join_staged_media_session(staged);
+  http_client_request_stop(staged->client);
+  if (staged->demux != NULL) {
+    mpeg_ps_demux_stop(staged->demux);
+    mpeg_ps_demux_destroy(staged->demux);
+  }
+  http_client_destroy(staged->client);
+  reset_staged_media_session(staged);
 }
 
 static bool load_selected_playback(
@@ -1372,10 +1474,49 @@ static void pause_audio_for_player_input(
   }
 }
 
+static bool activate_staged_media_session(
+    StagedMediaSession *staged,
+    MultiplexGatewayPlaybackManifest *active_manifest, HttpClient **client,
+    MpegPsDemux **demux) {
+  join_staged_media_session(staged);
+  if (!staged->ready || staged->failed || staged->client == NULL ||
+      staged->demux == NULL) {
+    discard_staged_media_session(staged);
+    return false;
+  }
+  const uint32_t previous_rating_key = active_manifest->rating_key;
+  close_media_session(client, demux);
+  if (!start_media_pipeline(staged->demux, staged->manifest.rating_key,
+                            false)) {
+    discard_staged_media_session(staged);
+    return false;
+  }
+  *active_manifest = staged->manifest;
+  *client = staged->client;
+  *demux = staged->demux;
+  staged->client = NULL;
+  staged->demux = NULL;
+  reset_staged_media_session(staged);
+  if (multiplex_native_app_playback_commit() == 0) {
+    return false;
+  }
+  SYS_Report(
+      "REFERENCE GX: playback-session staged-switch previous=%u active=%u "
+      "offset=%u video-buffered=%u audio-buffered=%u\n",
+      previous_rating_key, active_manifest->rating_key,
+      active_manifest->segment_start_ms,
+      mpeg_ps_demux_video_bytes_pumped(*demux),
+      mpeg_ps_demux_audio_bytes_pumped(*demux));
+  SYS_Report("REFERENCE GX: playback-session ready rating-key=%u offset=%u\n",
+             active_manifest->rating_key,
+             active_manifest->segment_start_ms);
+  return true;
+}
+
 static bool continue_playback_if_needed(
     const char *gateway_url,
     MultiplexGatewayPlaybackManifest *active_manifest, HttpClient **client,
-    MpegPsDemux **demux) {
+    MpegPsDemux **demux, StagedMediaSession *staged) {
   if (gateway_url == NULL || gateway_url[0] == '\0' || active_manifest == NULL ||
       active_manifest->rating_key == 0 || !video_was_playing ||
       audio_output == NULL) {
@@ -1407,11 +1548,31 @@ static bool continue_playback_if_needed(
   SYS_Report(
       "REFERENCE GX: playback-continuation requested rating-key=%u offset=%u\n",
       active_manifest->rating_key, next_offset_ms);
+  if (staged != NULL && staged->rating_key == active_manifest->rating_key &&
+      staged->offset_ms == next_offset_ms &&
+      activate_staged_media_session(staged, active_manifest, client, demux)) {
+    native_frame_dirty = true;
+    return true;
+  }
+  if (staged != NULL) {
+    discard_staged_media_session(staged);
+  }
   if (!load_selected_playback(gateway_url, active_manifest, client, demux)) {
     return false;
   }
   native_frame_dirty = true;
   return true;
+}
+
+static void stage_following_media_if_due(
+    StagedMediaSession *staged, const char *gateway_url,
+    const MultiplexGatewayPlaybackManifest *active_manifest) {
+  if (!video_was_playing || audio_output == NULL || staged == NULL ||
+      staged->thread != LWP_THREAD_NULL || staged->ready || staged->failed ||
+      active_manifest == NULL || active_manifest->rating_key == 0) {
+    return;
+  }
+  start_staged_media_session(staged, gateway_url, active_manifest);
 }
 
 static bool read_http_program(void *context, size_t offset,
@@ -1430,6 +1591,8 @@ static void *run_app(void *unused) {
   HttpClient *client = NULL;
   MultiplexGatewayPlaybackManifest playback_manifest;
   memset(&playback_manifest, 0, sizeof(playback_manifest));
+  StagedMediaSession staged_media;
+  reset_staged_media_session(&staged_media);
   MultiplexGatewayCatalog catalog;
   memset(&catalog, 0, sizeof(catalog));
   const bool has_catalog =
@@ -1574,6 +1737,10 @@ static void *run_app(void *unused) {
         SYS_Report("REFERENCE GX: details-page load failed\n");
       }
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
+          multiplex_native_app_playback_request() != 0) {
+        discard_staged_media_session(&staged_media);
+      }
+      if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
           !load_selected_playback(MULTIPLEX_GATEWAY_URL,
                                   &playback_manifest, &client, &demux)) {
         SYS_Report("REFERENCE GX: playback-session load failed\n");
@@ -1584,13 +1751,17 @@ static void *run_app(void *unused) {
       break;
     }
     present_frame(&playback_manifest);
+    stage_following_media_if_due(&staged_media, MULTIPLEX_GATEWAY_URL,
+                                 &playback_manifest);
     if (!continue_playback_if_needed(MULTIPLEX_GATEWAY_URL,
-                                     &playback_manifest, &client, &demux)) {
+                                     &playback_manifest, &client, &demux,
+                                     &staged_media)) {
       SYS_Report("REFERENCE GX: playback continuation failed\n");
       break;
     }
   }
 
+  discard_staged_media_session(&staged_media);
   close_media_session(&client, &demux);
   multiplex_native_cache_free(poster_texture_pixels);
   poster_texture_pixels = NULL;

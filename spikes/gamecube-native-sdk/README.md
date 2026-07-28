@@ -152,9 +152,10 @@ expensive and originally caused an approximately seven-second boundary gap.
 The gateway now performs the one-segment-ahead encode concurrently and
 coordinates duplicate requests per timeline key, without serializing an
 unrelated user seek. Dolphin confirms the next file is ready before the
-boundary; the remaining multi-second gap is in guest-side HTTP teardown and
-session startup, so eliminating it requires a guest-side staged session rather
-than more host transcoder work.
+boundary. The guest concurrently opens that HTTP source and fills a second
+bounded demux session, then transfers it to the codecs after cancelling the old
+reader. In the 12-second accelerated run, three consecutive staged ownership
+swaps took 17–23 ms and resumed playback in roughly 0.3–0.4 seconds.
 Intentional session replacement now cancels the old resumable HTTP reader
 instead of waiting through its outage-retry budget. A 64 ms handoff margin
 also stops the finite audio stream before its final DMA request; the repeated
