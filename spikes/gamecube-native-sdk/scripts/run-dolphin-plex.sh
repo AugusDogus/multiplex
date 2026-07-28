@@ -191,8 +191,9 @@ wait_for_new() {
 press() {
   button=$1
   previous=$(grep -c "controller buttons" "$log" 2>/dev/null || true)
+  max_attempts=${GAMECUBE_CONTROLLER_ATTEMPTS:-60}
   attempt=0
-  while [ "$attempt" -lt 16 ]; do
+  while [ "$attempt" -lt "$max_attempts" ]; do
     printf 'RELEASE %s\n' "$button" >&3
     sleep 0.05
     printf 'PRESS %s\n' "$button" >&3
@@ -204,13 +205,19 @@ press() {
         sleep 0.2
         return
       fi
+      if ! kill -0 "$launcher_pid" 2>/dev/null; then
+        printf 'RELEASE %s\n' "$button" >&3
+        echo "Dolphin exited while waiting to sample controller button: $button" >&2
+        exit 1
+      fi
       sleep 0.1
       poll=$((poll + 1))
     done
     attempt=$((attempt + 1))
   done
   printf 'RELEASE %s\n' "$button" >&3
-  echo "Timed out waiting for Dolphin to sample controller button: $button" >&2
+  echo "Timed out after $max_attempts attempts waiting for Dolphin to sample controller button: $button" >&2
+  tail -60 "$log" >&2 || true
   exit 1
 }
 
