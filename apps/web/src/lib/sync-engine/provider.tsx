@@ -28,7 +28,7 @@ export type SyncEngineStatus =
   | { phase: "ready"; collections: SyncEngineCollections; bootedAt: number }
   | { phase: "error"; error: string };
 
-const SyncEngineContext = createContext<SyncEngineStatus>({ phase: "booting" });
+const SyncEngineContext = createContext<SyncEngineStatus | null>(null);
 
 async function cleanupCollections(
   collections: SyncEngineCollections,
@@ -213,18 +213,28 @@ export function SyncEngineProvider({
 }
 
 export function useSyncEngineStatus(): SyncEngineStatus {
-  return useContext(SyncEngineContext);
+  return useContext(SyncEngineContext) ?? { phase: "booting" };
+}
+
+export function resolveSyncEngineCollections(
+  status: SyncEngineStatus | null,
+  activeCollections: SyncEngineCollections | null,
+): SyncEngineCollections | null {
+  // Root-level consumers such as the global media player are siblings of the
+  // authenticated app shell. They use the account-scoped registry populated by
+  // SyncEngineProvider; guest routes have no active registry and remain null.
+  if (status === null) return activeCollections;
+  if (status.phase !== "ready") return null;
+  if (activeCollections !== status.collections) return null;
+  return status.collections;
 }
 
 export function useSyncEngineCollections(): SyncEngineCollections | null {
-  const status = useSyncEngineStatus();
+  const status = useContext(SyncEngineContext);
   const activeCollections = useSyncExternalStore(
     subscribeActiveSyncEngineCollections,
     getActiveSyncEngineCollections,
     () => null,
   );
-  if (status.phase !== "ready") return null;
-  // Never return collections after logout teardown cleared the registry.
-  if (activeCollections !== status.collections) return null;
-  return status.collections;
+  return resolveSyncEngineCollections(status, activeCollections);
 }

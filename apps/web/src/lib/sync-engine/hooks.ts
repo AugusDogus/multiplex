@@ -360,12 +360,9 @@ export function useSyncedItemMetadata(
     collections?.mediaItems ?? emptyMediaItemsCollection,
     enabled ? id : null,
   );
-  // A cached media-item row may come from a shallow hub payload or an earlier
-  // hover prefetch. Always revalidate the expanded metadata once per mount so
-  // the player receives the current audio and subtitle stream selections.
-  const shouldRevalidate = Boolean(enabled && collections);
+  const needsWarm = Boolean(enabled && collections && !row?.item);
   useWarmOnce(
-    shouldRevalidate ? `metadata:${id}` : null,
+    needsWarm ? `metadata:${id}` : null,
     async () => {
       if (!collections) return;
       await warmItemMetadata(collections, getSyncEngineTrpcClient(), {
@@ -373,7 +370,7 @@ export function useSyncedItemMetadata(
         ratingKey,
       });
     },
-    shouldRevalidate,
+    needsWarm,
   );
 
   const data = row ? toItemMetadata(row) : null;
