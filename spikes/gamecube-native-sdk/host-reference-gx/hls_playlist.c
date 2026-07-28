@@ -218,8 +218,10 @@ bool hls_playlist_parse_master(const char *text, size_t size,
   return false;
 }
 
-bool hls_playlist_parse_media(const char *text, size_t size,
-                              HlsMediaPlaylist *playlist) {
+bool hls_playlist_parse_media_window(const char *text, size_t size,
+                                     uint32_t minimum_sequence,
+                                     uint32_t start_offset_ms,
+                                     HlsMediaPlaylist *playlist) {
   if (text == NULL || size == 0 || playlist == NULL) {
     return false;
   }
@@ -232,6 +234,8 @@ bool hls_playlist_parse_media(const char *text, size_t size,
   }
   uint32_t pending_duration = 0;
   bool has_pending_duration = false;
+  uint32_t segment_index = 0;
+  uint64_t elapsed_ms = 0;
 
   while (next_line(&cursor, end, &line)) {
     static const char media_sequence_tag[] = "#EXT-X-MEDIA-SEQUENCE:";
@@ -264,17 +268,26 @@ bool hls_playlist_parse_media(const char *text, size_t size,
       playlist->end_list = true;
     } else if (line.begin != line.end && *line.begin != '#') {
       if (!has_pending_duration ||
-          playlist->segment_count >= HLS_MAX_SEGMENTS) {
+          segment_index > UINT32_MAX - playlist->media_sequence) {
         return false;
       }
-      HlsSegment *segment = &playlist->segments[playlist->segment_count];
-      if (!copy_span(line, segment->uri, sizeof(segment->uri))) {
-        return false;
+      const uint32_t sequence = playlist->media_sequence + segment_index;
+      const bool reached_sequence = sequence >= minimum_sequence;
+      const bool reached_offset =
+          start_offset_ms == 0 ||
+          elapsed_ms + pending_duration > start_offset_ms;
+      if (reached_sequence && reached_offset &&
+          playlist->segment_count < HLS_MAX_SEGMENTS) {
+        HlsSegment *segment = &playlist->segments[playlist->segment_count];
+        if (!copy_span(line, segment->uri, sizeof(segment->uri))) {
+          return false;
+        }
+        segment->duration_ms = pending_duration;
+        segment->sequence = sequence;
+        ++playlist->segment_count;
       }
-      segment->duration_ms = pending_duration;
-      segment->sequence =
-          playlist->media_sequence + (uint32_t)playlist->segment_count;
-      ++playlist->segment_count;
+      elapsed_ms += pending_duration;
+      ++segment_index;
       has_pending_duration = false;
     }
   }
@@ -282,16 +295,30 @@ bool hls_playlist_parse_media(const char *text, size_t size,
          playlist->target_duration_seconds != 0;
 }
 
+bool hls_playlist_parse_media(const char *text, size_t size,
+                              HlsMediaPlaylist *playlist) {
+  return hls_playlist_parse_media_window(text, size, 0, 0, playlist);
+}
+
 bool hls_playlist_resolve_url(const char *base_url, const char *uri,
                               char *destination, size_t capacity) {
-  static const char scheme[] = "http://";
+  static const char http_scheme[] = "http://";
+  static const char https_scheme[] = "https://";
+  size_t scheme_size = 0;
   if (base_url == NULL || uri == NULL || destination == NULL ||
-      capacity == 0 || strncmp(base_url, scheme, sizeof(scheme) - 1u) != 0 ||
-      uri[0] == '\0' || strstr(uri, "..") != NULL ||
+      capacity == 0 || uri[0] == '\0' || strstr(uri, "..") != NULL ||
       strchr(uri, '\r') != NULL || strchr(uri, '\n') != NULL) {
     return false;
   }
-  if (strncmp(uri, scheme, sizeof(scheme) - 1u) == 0) {
+  if (strncmp(base_url, http_scheme, sizeof(http_scheme) - 1u) == 0) {
+    scheme_size = sizeof(http_scheme) - 1u;
+  } else if (strncmp(base_url, https_scheme, sizeof(https_scheme) - 1u) == 0) {
+    scheme_size = sizeof(https_scheme) - 1u;
+  } else {
+    return false;
+  }
+  if (strncmp(uri, http_scheme, sizeof(http_scheme) - 1u) == 0 ||
+      strncmp(uri, https_scheme, sizeof(https_scheme) - 1u) == 0) {
     const size_t size = strlen(uri);
     if (size >= capacity) {
       return false;
@@ -300,7 +327,7 @@ bool hls_playlist_resolve_url(const char *base_url, const char *uri,
     return true;
   }
 
-  const char *authority = base_url + sizeof(scheme) - 1u;
+  const char *authority = base_url + scheme_size;
   const char *path = strchr(authority, '/');
   const char *prefix_end = NULL;
   if (uri[0] == '/') {

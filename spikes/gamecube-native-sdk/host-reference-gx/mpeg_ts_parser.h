@@ -17,6 +17,15 @@ typedef enum {
 typedef bool (*MpegTsWrite)(void *context, MpegTsStream stream,
                             const uint8_t *bytes, size_t size);
 
+typedef enum {
+  MPEG_TS_ERROR_NONE = 0,
+  MPEG_TS_ERROR_TRANSPORT = 1,
+  MPEG_TS_ERROR_PAT = 2,
+  MPEG_TS_ERROR_PMT = 3,
+  MPEG_TS_ERROR_PES = 4,
+  MPEG_TS_ERROR_OUTPUT = 5,
+} MpegTsError;
+
 typedef struct {
   uint16_t pmt_pid;
   uint16_t video_pid;
@@ -37,6 +46,10 @@ typedef struct {
   MpegTsInfo info;
   uint8_t pending[MPEG_TS_PACKET_SIZE];
   size_t pending_size;
+  uint32_t packet_index;
+  uint32_t error_packet_index;
+  uint16_t error_pid;
+  MpegTsError error;
 } MpegTsParser;
 
 void mpeg_ts_parser_init(MpegTsParser *parser, MpegTsWrite write,
@@ -45,5 +58,7 @@ bool mpeg_ts_parser_push(MpegTsParser *parser, const uint8_t *bytes,
                          size_t size);
 bool mpeg_ts_parser_finish(const MpegTsParser *parser);
 const MpegTsInfo *mpeg_ts_parser_info(const MpegTsParser *parser);
+MpegTsError mpeg_ts_parser_error(const MpegTsParser *parser,
+                                 uint32_t *packet_index, uint16_t *pid);
 
 #endif

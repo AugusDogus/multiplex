@@ -16,6 +16,7 @@ typedef struct {
   char master_url[MULTIPLEX_PLEX_HLS_URL_CAPACITY];
   char variant_url[MULTIPLEX_PLEX_HLS_URL_CAPACITY];
   HlsVariant variant;
+  uint32_t start_offset_ms;
   uint32_t next_sequence;
   bool started;
 } MultiplexPlexHlsSession;

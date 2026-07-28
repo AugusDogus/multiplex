@@ -164,15 +164,18 @@ static bool forward_pes(MpegTsParser *parser,
   if (payload->payload_unit_start) {
     if (size < 9u || bytes[0] != 0 || bytes[1] != 0 || bytes[2] != 1u ||
         (bytes[6] & 0xc0u) != 0x80u) {
+      parser->error = MPEG_TS_ERROR_PES;
       return false;
     }
     const size_t optional_size = bytes[8];
     const size_t header_size = 9u + optional_size;
     if (header_size > size) {
+      parser->error = MPEG_TS_ERROR_PES;
       return false;
     }
     if ((bytes[7] & 0x80u) != 0 &&
         (optional_size < 5u || !read_pts90k(bytes + 9u, &pts90k))) {
+      parser->error = MPEG_TS_ERROR_PES;
       return false;
     }
     bytes += header_size;
@@ -193,23 +196,38 @@ static bool forward_pes(MpegTsParser *parser,
     parser->info.audio_packets += 1u;
     parser->info.audio_bytes += size;
   }
-  return size == 0 || parser->write == NULL ||
-         parser->write(parser->write_context, stream, bytes, size);
+  if (size != 0 && parser->write != NULL &&
+      !parser->write(parser->write_context, stream, bytes, size)) {
+    parser->error = MPEG_TS_ERROR_OUTPUT;
+    return false;
+  }
+  return true;
 }
 
 static bool parse_packet(MpegTsParser *parser, const uint8_t *packet) {
   TransportPayload payload;
   if (!transport_payload(packet, &payload)) {
+    parser->error = MPEG_TS_ERROR_TRANSPORT;
+    parser->error_pid = MPEG_TS_NO_PID;
     return false;
   }
+  parser->error_pid = payload.pid;
   if (payload.size == 0) {
     return true;
   }
   if (payload.pid == MPEG_TS_PAT_PID) {
-    return !payload.payload_unit_start || parse_pat(parser, &payload);
+    if (payload.payload_unit_start && !parse_pat(parser, &payload)) {
+      parser->error = MPEG_TS_ERROR_PAT;
+      return false;
+    }
+    return true;
   }
   if (payload.pid == parser->info.pmt_pid) {
-    return !payload.payload_unit_start || parse_pmt(parser, &payload);
+    if (payload.payload_unit_start && !parse_pmt(parser, &payload)) {
+      parser->error = MPEG_TS_ERROR_PMT;
+      return false;
+    }
+    return true;
   }
   if (payload.pid == parser->info.video_pid) {
     return forward_pes(parser, &payload, MPEG_TS_STREAM_VIDEO);
@@ -245,9 +263,12 @@ bool mpeg_ts_parser_push(MpegTsParser *parser, const uint8_t *bytes,
     bytes += copied;
     size -= copied;
     if (parser->pending_size == MPEG_TS_PACKET_SIZE) {
+      parser->error = MPEG_TS_ERROR_NONE;
+      parser->error_packet_index = parser->packet_index;
       if (!parse_packet(parser, parser->pending)) {
         return false;
       }
+      ++parser->packet_index;
       parser->pending_size = 0;
     }
   }
@@ -263,4 +284,18 @@ bool mpeg_ts_parser_finish(const MpegTsParser *parser) {
 
 const MpegTsInfo *mpeg_ts_parser_info(const MpegTsParser *parser) {
   return parser == NULL ? NULL : &parser->info;
+}
+
+MpegTsError mpeg_ts_parser_error(const MpegTsParser *parser,
+                                 uint32_t *packet_index, uint16_t *pid) {
+  if (parser == NULL) {
+    return MPEG_TS_ERROR_TRANSPORT;
+  }
+  if (packet_index != NULL) {
+    *packet_index = parser->error_packet_index;
+  }
+  if (pid != NULL) {
+    *pid = parser->error_pid;
+  }
+  return parser->error;
 }

@@ -15,9 +15,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define PLEX_HLS_MASTER_CAPACITY 2048u
 #define PLEX_HLS_MEDIA_PLAYLIST_CAPACITY (16u * 1024u)
+#define PLEX_HLS_START_ATTEMPTS 4u
+#define PLEX_HLS_START_RETRY_US 1000000u
 #define PLEX_HLS_PROFILE \
   "add-transcode-target(type=videoProfile&context=streaming&protocol=hls&" \
   "container=mpegts&videoCodec=h264&audioCodec=aac&replace=true)"
@@ -117,6 +120,7 @@ bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
                        sizeof(session->session_id))) {
     return false;
   }
+  session->start_offset_ms = offset_ms;
 
   char offset_query[32] = {0};
   if (offset_ms != 0) {
@@ -133,7 +137,7 @@ bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
       "path=%%2Flibrary%%2Fmetadata%%2F%u&mediaIndex=0&partIndex=0&"
       "protocol=hls&fastSeek=1&directPlay=0&directStream=0&"
       "directStreamAudio=0&videoQuality=100&videoResolution=720x480&"
-      "maxVideoBitrate=2500&subtitles=none&location=lan&hasMDE=1&"
+      "maxVideoBitrate=700&subtitles=none&location=lan&hasMDE=1&"
       "session=%s%s",
       rating_key, session->session_id, offset_query);
   if (path_size <= 0 || (size_t)path_size >= sizeof(path) ||
@@ -147,17 +151,33 @@ bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
   const size_t header_count =
       control_headers(credentials, session, true, headers);
   HttpJsonResponse response;
-  if (!http_client_request_with_headers(
-          "GET", session->master_url, headers, header_count, NULL, master,
-          sizeof(master), &response) ||
-      response.status != 200 ||
+  bool requested = false;
+  for (unsigned attempt = 1; attempt <= PLEX_HLS_START_ATTEMPTS; ++attempt) {
+    memset(master, 0, sizeof(master));
+    memset(&response, 0, sizeof(response));
+    requested = http_client_request_with_headers(
+                    "GET", session->master_url, headers, header_count, NULL,
+                    master, sizeof(master), &response) &&
+                response.status == 200;
+    if (requested) {
+      break;
+    }
+    SYS_Report(
+        "REFERENCE GX: Plex HLS start retry attempt=%u/%u status=%u\n",
+        attempt, PLEX_HLS_START_ATTEMPTS, response.status);
+    if (attempt < PLEX_HLS_START_ATTEMPTS) {
+      usleep(PLEX_HLS_START_RETRY_US);
+    }
+  }
+  if (!requested ||
       !hls_playlist_parse_master(master, response.body_size,
                                  &session->variant) ||
       !hls_playlist_resolve_url(session->master_url, session->variant.uri,
                                 session->variant_url,
                                 sizeof(session->variant_url))) {
-    SYS_Report("REFERENCE GX: Plex HLS start failed rating-key=%u\n",
-               rating_key);
+    SYS_Report(
+        "REFERENCE GX: Plex HLS start failed rating-key=%u status=%u body=%.*s\n",
+        rating_key, response.status, (int)response.body_size, master);
     return false;
   }
   session->started = true;
@@ -186,17 +206,33 @@ bool multiplex_plex_hls_refresh(
   const size_t header_count =
       control_headers(credentials, session, false, headers);
   HttpJsonResponse response;
-  const bool loaded =
-      http_client_request_with_headers(
-          "GET", session->variant_url, headers, header_count, NULL,
-          response_body, PLEX_HLS_MEDIA_PLAYLIST_CAPACITY, &response) &&
-      response.status == 200 &&
-      hls_playlist_parse_media(response_body, response.body_size, playlist);
+  memset(&response, 0, sizeof(response));
+  const bool requested = http_client_request_with_headers(
+      "GET", session->variant_url, headers, header_count, NULL, response_body,
+      PLEX_HLS_MEDIA_PLAYLIST_CAPACITY, &response);
+  const bool parsed =
+      requested && response.status == 200 &&
+      hls_playlist_parse_media_window(
+          response_body, response.body_size, session->next_sequence,
+          session->next_sequence == 0 ? session->start_offset_ms : 0,
+          playlist);
+  if (!parsed) {
+    SYS_Report(
+        "REFERENCE GX: Plex HLS playlist failed request=%u status=%u "
+        "bytes=%u\n",
+        requested ? 1u : 0u, response.status, (unsigned)response.body_size);
+  } else {
+    SYS_Report(
+        "REFERENCE GX: Plex HLS playlist segments=%u first=%u next=%u "
+        "offset=%u\n",
+        (unsigned)playlist->segment_count, playlist->segments[0].sequence,
+        session->next_sequence, session->start_offset_ms);
+  }
   free(response_body);
-  if (loaded && session->next_sequence < playlist->media_sequence) {
+  if (parsed && session->next_sequence < playlist->media_sequence) {
     session->next_sequence = playlist->media_sequence;
   }
-  return loaded;
+  return parsed;
 }
 
 bool multiplex_plex_hls_stream_segment(

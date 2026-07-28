@@ -140,9 +140,41 @@ static void test_rejects_truncated_packet(void) {
   assert(!mpeg_ts_parser_finish(&parser));
 }
 
-int main(void) {
+static int inspect_transport_file(const char *path) {
+  FILE *file = fopen(path, "rb");
+  if (file == NULL) {
+    return 2;
+  }
+  MpegTsParser parser;
+  mpeg_ts_parser_init(&parser, NULL, NULL);
+  uint8_t bytes[4096];
+  bool parsed = true;
+  size_t size = 0;
+  while (parsed && (size = fread(bytes, 1, sizeof(bytes), file)) != 0) {
+    parsed = mpeg_ts_parser_push(&parser, bytes, size);
+  }
+  fclose(file);
+  uint32_t packet_index = 0;
+  uint16_t pid = MPEG_TS_NO_PID;
+  const MpegTsError error =
+      mpeg_ts_parser_error(&parser, &packet_index, &pid);
+  const MpegTsInfo *info = mpeg_ts_parser_info(&parser);
+  printf(
+      "parsed=%u complete=%u packet=%u pid=%u error=%u video-pid=%u "
+      "audio-pid=%u video-bytes=%llu audio-bytes=%llu\n",
+      parsed ? 1u : 0u, mpeg_ts_parser_finish(&parser) ? 1u : 0u,
+      packet_index, pid, error, info->video_pid, info->audio_pid,
+      (unsigned long long)info->video_bytes,
+      (unsigned long long)info->audio_bytes);
+  return parsed ? 0 : 1;
+}
+
+int main(int argc, char **argv) {
   test_extracts_h264_and_aac();
   test_rejects_truncated_packet();
+  if (argc == 2) {
+    return inspect_transport_file(argv[1]);
+  }
   puts("GameCube MPEG-TS parser tests passed.");
   return 0;
 }

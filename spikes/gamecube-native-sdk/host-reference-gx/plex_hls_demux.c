@@ -65,8 +65,21 @@ static bool queue_elementary(void *context, MpegTsStream stream,
 static bool parse_transport(void *context, const uint8_t *bytes,
                             size_t size) {
   PlexHlsDemux *demux = context;
-  return !demux->stopping &&
-         mpeg_ts_parser_push(&demux->parser, bytes, size);
+  if (demux->stopping) {
+    return false;
+  }
+  if (mpeg_ts_parser_push(&demux->parser, bytes, size)) {
+    return true;
+  }
+  uint32_t packet_index = 0;
+  uint16_t pid = MPEG_TS_NO_PID;
+  const MpegTsError error =
+      mpeg_ts_parser_error(&demux->parser, &packet_index, &pid);
+  SYS_Report(
+      "REFERENCE GX: MPEG-TS rejected packet=%u pid=%u error=%u "
+      "sync=%02x\n",
+      packet_index, pid, error, demux->parser.pending[0]);
+  return false;
 }
 
 static const HlsSegment *next_segment(const MultiplexPlexHlsSession *session,

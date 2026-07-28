@@ -44,6 +44,37 @@ static void test_parses_growing_media_playlist(void) {
   assert(media.segments[1].duration_ms == 4171);
 }
 
+static void test_windows_long_vod_playlist_at_resume_offset(void) {
+  char playlist[8192];
+  size_t size = (size_t)snprintf(
+      playlist, sizeof(playlist),
+      "#EXTM3U\n#EXT-X-TARGETDURATION:8\n#EXT-X-MEDIA-SEQUENCE:0\n");
+  for (unsigned index = 0; index < 100; ++index) {
+    const int written =
+        snprintf(playlist + size, sizeof(playlist) - size,
+                 "#EXTINF:8, nodesc\n%05u.ts\n", index);
+    assert(written > 0);
+    size += (size_t)written;
+    assert(size < sizeof(playlist));
+  }
+  const int end_written =
+      snprintf(playlist + size, sizeof(playlist) - size, "#EXT-X-ENDLIST\n");
+  assert(end_written > 0);
+  size += (size_t)end_written;
+
+  HlsMediaPlaylist media;
+  assert(hls_playlist_parse_media_window(playlist, size, 0, 537000, &media));
+  assert(media.segment_count == HLS_MAX_SEGMENTS);
+  assert(media.segments[0].sequence == 67);
+  assert(strcmp(media.segments[0].uri, "00067.ts") == 0);
+  assert(media.segments[HLS_MAX_SEGMENTS - 1].sequence == 98);
+  assert(media.end_list);
+
+  assert(hls_playlist_parse_media_window(playlist, size, 99, 0, &media));
+  assert(media.segment_count == 1);
+  assert(media.segments[0].sequence == 99);
+}
+
 static void test_resolves_plex_urls(void) {
   static const char master[] =
       "http://192.168.86.245:32400/video/:/transcode/universal/"
@@ -77,6 +108,7 @@ static void test_resolves_plex_urls(void) {
 int main(void) {
   test_parses_plex_master();
   test_parses_growing_media_playlist();
+  test_windows_long_vod_playlist_at_resume_offset();
   test_resolves_plex_urls();
   puts("GameCube HLS playlist tests passed.");
   return 0;

@@ -12,3 +12,6 @@ cc -std=c11 -Wall -Wextra -Werror \
   "$spike_dir/tests/mpeg_ts_parser_test.c" \
   -o "$test_binary"
 "$test_binary"
+if [ "$#" -eq 1 ]; then
+  "$test_binary" "$1"
+fi

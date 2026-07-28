@@ -34,10 +34,13 @@ bool hls_playlist_parse_master(const char *text, size_t size,
                                HlsVariant *variant);
 bool hls_playlist_parse_media(const char *text, size_t size,
                               HlsMediaPlaylist *playlist);
+bool hls_playlist_parse_media_window(const char *text, size_t size,
+                                     uint32_t minimum_sequence,
+                                     uint32_t start_offset_ms,
+                                     HlsMediaPlaylist *playlist);
 
 /*
- * Resolves HTTP, root-relative, and same-directory HLS URIs. HTTPS is
- * intentionally rejected because libogc2's BBA client currently speaks HTTP.
+ * Resolves HTTP(S), root-relative, and same-directory HLS URIs.
  */
 bool hls_playlist_resolve_url(const char *base_url, const char *uri,
                               char *destination, size_t capacity);
