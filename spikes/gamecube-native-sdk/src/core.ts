@@ -78,6 +78,7 @@ export interface Model {
   readonly detailsSummary: Uint8Array;
   readonly detailsGenres: Uint8Array;
   readonly detailsDirectors: Uint8Array;
+  readonly playbackLoaded: boolean;
   readonly playing: boolean;
 }
 
@@ -265,6 +266,7 @@ export function initialModel(): Model {
     ),
     detailsGenres: new Uint8Array(0),
     detailsDirectors: new Uint8Array(0),
+    playbackLoaded: true,
     playing: false,
   };
 }
@@ -366,6 +368,16 @@ export function failDetails(model: Model): Model {
   };
 }
 
+export function loadPlayback(model: Model): Model {
+  if (model.screen !== "player") return model;
+  return { ...model, playbackLoaded: true, playing: true };
+}
+
+export function failPlayback(model: Model): Model {
+  if (model.screen !== "player") return model;
+  return { ...model, screen: "details", playbackLoaded: false, playing: false };
+}
+
 export function visibleItems(model: Model): readonly CatalogItem[] {
   return model.rows[model.rowIndex].items;
 }
@@ -392,6 +404,14 @@ export function detailsRequestRatingKey(model: Model): number {
 
 export function detailsLoading(model: Model): boolean {
   return !model.detailsLoaded;
+}
+
+export function playbackRequestRatingKey(model: Model): number {
+  return model.screen === "player" && !model.playbackLoaded ? model.selectedRatingKey : 0;
+}
+
+export function playbackLoading(model: Model): boolean {
+  return model.screen === "player" && !model.playbackLoaded;
 }
 
 export function detailsUnplayable(model: Model): boolean {
@@ -579,9 +599,14 @@ export function update(model: Model, msg: Msg): Model {
     case "play":
       if (model.screen !== "details" || !model.detailsLoaded || !model.detailsPlayable)
         return model;
-      return { ...model, screen: "player", playing: true };
+      return {
+        ...model,
+        screen: "player",
+        playbackLoaded: !model.gatewayConnected,
+        playing: !model.gatewayConnected,
+      };
     case "toggle_playback":
-      if (model.screen !== "player") return model;
+      if (model.screen !== "player" || !model.playbackLoaded) return model;
       return { ...model, playing: !model.playing };
     case "back":
       if (model.screen === "player") {

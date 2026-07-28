@@ -830,6 +830,40 @@ static bool load_item_details(const char *gateway_url) {
   return true;
 }
 
+static bool load_selected_playback(
+    const char *gateway_url,
+    const MultiplexGatewayPlaybackManifest *active_manifest) {
+  const uint32_t rating_key = multiplex_native_app_playback_request();
+  if (rating_key == 0) {
+    return true;
+  }
+  MultiplexGatewayPlaybackManifest requested;
+  if (!multiplex_gateway_load_playback_manifest(gateway_url, rating_key,
+                                                &requested)) {
+    if (multiplex_native_app_playback_fail() == 0) {
+      return false;
+    }
+    SYS_Report("REFERENCE GX: playback-session unavailable rating-key=%u\n",
+               rating_key);
+    return true;
+  }
+  if (active_manifest->rating_key != requested.rating_key) {
+    if (multiplex_native_app_playback_fail() == 0) {
+      return false;
+    }
+    SYS_Report(
+        "REFERENCE GX: playback-session switch pending active=%u requested=%u\n",
+        active_manifest->rating_key, requested.rating_key);
+    return true;
+  }
+  if (multiplex_native_app_playback_commit() == 0) {
+    return false;
+  }
+  SYS_Report("REFERENCE GX: playback-session ready rating-key=%u\n",
+             requested.rating_key);
+  return true;
+}
+
 static void texture_vertex(float x, float y, float u, float v) {
   GX_Position3f32(x, y, 0.0f);
   GX_Color4u8(255, 255, 255, 255);
@@ -1123,7 +1157,7 @@ static void *run_app(void *unused) {
   }
   const bool has_playback_manifest =
       MULTIPLEX_GATEWAY_URL[0] != '\0' &&
-      multiplex_gateway_load_playback_manifest(MULTIPLEX_GATEWAY_URL,
+      multiplex_gateway_load_playback_manifest(MULTIPLEX_GATEWAY_URL, 0,
                                                &playback_manifest);
   const char *remote_media_url = has_playback_manifest
                                      ? playback_manifest.media_url
@@ -1305,6 +1339,11 @@ static void *run_app(void *unused) {
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
           !load_item_details(MULTIPLEX_GATEWAY_URL)) {
         SYS_Report("REFERENCE GX: details-page load failed\n");
+      }
+      if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
+          !load_selected_playback(MULTIPLEX_GATEWAY_URL,
+                                  &playback_manifest)) {
+        SYS_Report("REFERENCE GX: playback-session load failed\n");
       }
       native_frame_dirty = true;
     }

@@ -140,6 +140,7 @@ bool multiplex_gateway_load_search_artwork(
 bool multiplex_gateway_load_details(const char *base_url, uint32_t rating_key,
                                     MultiplexGatewayDetails *details);
 bool multiplex_gateway_load_playback_manifest(
-    const char *base_url, MultiplexGatewayPlaybackManifest *manifest);
+    const char *base_url, uint32_t rating_key,
+    MultiplexGatewayPlaybackManifest *manifest);
 
 #endif

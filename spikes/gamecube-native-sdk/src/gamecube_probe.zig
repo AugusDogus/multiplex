@@ -624,6 +624,29 @@ export fn multiplex_native_app_details_fail() callconv(.c) u32 {
     return 1;
 }
 
+export fn multiplex_native_app_playback_request() callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    const rating_key = core.playbackRequestRatingKey(app_model);
+    if (rating_key <= 0 or rating_key > std.math.maxInt(u32)) return 0;
+    return @intCast(rating_key);
+}
+
+export fn multiplex_native_app_playback_commit() callconv(.c) u32 {
+    if (!app_initialized or core.playbackRequestRatingKey(app_model) == 0) return 0;
+    app_model = core.commitModelRoot(core.loadPlayback(app_model));
+    focused_handler = 0;
+    reference_full_repaint = true;
+    return 1;
+}
+
+export fn multiplex_native_app_playback_fail() callconv(.c) u32 {
+    if (!app_initialized or core.playbackRequestRatingKey(app_model) == 0) return 0;
+    app_model = core.commitModelRoot(core.failPlayback(app_model));
+    focused_handler = 0;
+    reference_full_repaint = true;
+    return 1;
+}
+
 /// 0/1 move focus backward/forward, 2 activates the focused `.native`
 /// handler, and 3 dispatches the console Back message.
 export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {

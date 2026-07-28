@@ -323,6 +323,16 @@ and resumed on the AI DMA clock with zero underruns, and passed the invalid
 read/write gate. The repeatable runner keeps Dolphin muted at the PipeWire
 sink-input layer without muting the emulated application.
 
+Play is also gated by selection identity now. The TypeScript model enters a
+preparing state and exposes the selected rating key through the native ABI.
+The host requests `/v4/playback.bin?ratingKey=K`; the gateway returns 404 for a
+different prepared item, the C parser independently verifies the manifest key,
+and only an exact match commits the model to a visible/playing video surface.
+The Dolphin route proved both the startup manifest and a second selected-key
+request for `416284` before audio/video started. A different key currently
+fails closed back to details; replacing that deliberate boundary with an
+on-demand transcode and media-session swap is the next increment.
+
 The low-level control uses Dolphin's TAP BBA inside an unprivileged network
 namespace. A pinned `pasta` process supplies DHCP and rootless host networking;
 the harness translates only the outer Ethernet source/destination MAC at its

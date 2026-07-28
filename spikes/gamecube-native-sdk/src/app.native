@@ -266,11 +266,19 @@
         <spacer grow="1" />
         <badge variant="secondary">Streaming from {gatewayName}</badge>
       </row>
-      <video src="demo://multiplex-test-card" autoplay loop muted grow="1" label="{selectedTitle}"/>
-      <row gap="10" main="center">
-        <button variant="primary" on-press="toggle_playback">Play / Pause</button>
-        <button variant="secondary" on-press="back">Back to details</button>
-      </row>
+      <if test="{playbackLoading}">
+        <column grow="1" main="center" cross="center" gap="8">
+          <text size="heading">Preparing playback...</text>
+          <text foreground="text_muted">Requesting the selected Plex session.</text>
+        </column>
+      </if>
+      <if test="{playbackLoaded}">
+        <video src="demo://multiplex-test-card" autoplay loop muted grow="1" label="{selectedTitle}"/>
+        <row gap="10" main="center">
+          <button variant="primary" on-press="toggle_playback">Play / Pause</button>
+          <button variant="secondary" on-press="back">Back to details</button>
+        </row>
+      </if>
     </column>
   </if>
 </column>

@@ -592,6 +592,7 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
     artwork_bytes: bytes
     health_bytes: bytes
     playback_manifest_bytes: bytes | None = None
+    playback_rating_key: int = 0
     plex_base_url: str
     plex_token: str | None
     libraries: dict[int, LibrarySection]
@@ -791,6 +792,14 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
             if self.playback_manifest_bytes is None:
                 self.send_error(404)
                 return
+            rating_key_value = query.get("ratingKey", [""])[0]
+            if rating_key_value:
+                if (
+                    not rating_key_value.isdigit()
+                    or int(rating_key_value) != self.playback_rating_key
+                ):
+                    self.send_error(404)
+                    return
             self._send_bytes(self.playback_manifest_bytes, "application/octet-stream")
         elif path == "/v1/media/current.mpg":
             self._send_media()
@@ -838,8 +847,10 @@ def main() -> None:
                 media_path="/v1/media/current.mpg",
             )
         )
+        GatewayHandler.playback_rating_key = int(media_metadata["rating_key"])
     else:
         GatewayHandler.playback_manifest_bytes = None
+        GatewayHandler.playback_rating_key = 0
     GatewayHandler.health_bytes = json.dumps(
         {
             "contractVersion": BOOTSTRAP_CATALOG_VERSION,

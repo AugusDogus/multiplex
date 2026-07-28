@@ -348,7 +348,9 @@ press D_RIGHT
 wait_for_new "signature=" "$signature_count"
 playing_count=$(line_count "playback=playing")
 paused_count=$(line_count "playback=paused")
+playback_session_count=$(line_count "playback-session ready")
 press A
+wait_for_new "playback-session ready" "$playback_session_count" 1200
 wait_for_new "playback=playing" "$playing_count" 1200
 sleep 1
 if [ "$(line_count "playback=paused")" -gt "$paused_count" ]; then

@@ -134,6 +134,9 @@ Real cards now load a bounded full-metadata response on demand. The Native SDK
 details view renders the selected poster, badges, title/tagline, year/runtime/
 rating facts, directors, genres, wrapped synopsis, resume state, and playable
 action without adding a JSON parser to the GameCube runtime.
+Play enters a preparing view and requests the manifest for the selected rating
+key; the video surface becomes visible only after the gateway and guest both
+validate an exact session match.
 A bounded reference-render memo retains three expensive stable layers; warmed
 full home and details repaints measured about 0.37 and 0.33 seconds. The memo
 has a 4 MiB hard limit and peaked at 4,093 KiB in the home/details flow.

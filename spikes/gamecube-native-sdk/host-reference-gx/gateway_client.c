@@ -567,15 +567,21 @@ bool multiplex_gateway_load_details(const char *base_url, uint32_t rating_key,
 }
 
 bool multiplex_gateway_load_playback_manifest(
-    const char *base_url, MultiplexGatewayPlaybackManifest *manifest) {
+    const char *base_url, uint32_t rating_key,
+    MultiplexGatewayPlaybackManifest *manifest) {
   if (base_url == NULL || base_url[0] == '\0' || manifest == NULL) {
     return false;
   }
   const size_t base_length = strlen(base_url);
   const bool has_slash = base_length > 0 && base_url[base_length - 1] == '/';
   char url[GATEWAY_URL_CAPACITY];
-  const int written = snprintf(url, sizeof(url), "%s%sv4/playback.bin",
-                               base_url, has_slash ? "" : "/");
+  const int written = rating_key == 0
+                          ? snprintf(url, sizeof(url), "%s%sv4/playback.bin",
+                                     base_url, has_slash ? "" : "/")
+                          : snprintf(url, sizeof(url),
+                                     "%s%sv4/playback.bin?ratingKey=%u",
+                                     base_url, has_slash ? "" : "/",
+                                     rating_key);
   if (written < 0 || (size_t)written >= sizeof(url)) {
     return false;
   }
@@ -587,7 +593,8 @@ bool multiplex_gateway_load_playback_manifest(
   uint8_t bytes[CATALOG_MAX_BYTES];
   const bool loaded = size > 0 && size <= sizeof(bytes) &&
                       http_client_read_at(client, 0, bytes, size) &&
-                      parse_playback_manifest(bytes, size, base_url, manifest);
+                      parse_playback_manifest(bytes, size, base_url, manifest) &&
+                      (rating_key == 0 || manifest->rating_key == rating_key);
   http_client_destroy(client);
   SYS_Report(
       "REFERENCE GX: gateway-playback rating-key=%u bytes=%u loaded=%u\n",

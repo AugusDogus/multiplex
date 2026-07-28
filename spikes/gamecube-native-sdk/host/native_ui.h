@@ -103,6 +103,9 @@ uint32_t multiplex_native_app_details_commit(
     const uint8_t *genres, uint32_t genres_length, const uint8_t *directors,
     uint32_t directors_length, uint32_t playable);
 uint32_t multiplex_native_app_details_fail(void);
+uint32_t multiplex_native_app_playback_request(void);
+uint32_t multiplex_native_app_playback_commit(void);
+uint32_t multiplex_native_app_playback_fail(void);
 uint32_t multiplex_native_app_input(uint32_t action);
 uint32_t multiplex_native_video_surface(MultiplexVideoSurface *output);
 uint32_t multiplex_native_poster_surfaces(MultiplexPosterSurface *output,
