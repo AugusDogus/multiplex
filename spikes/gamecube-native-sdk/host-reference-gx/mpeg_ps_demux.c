@@ -8,11 +8,10 @@
  */
 
 #include "mpeg_ps_demux.h"
+#include "media_byte_queue.h"
 
 #include <gccore.h>
-#include <ogc/cond.h>
 #include <ogc/lwp.h>
-#include <ogc/mutex.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -58,26 +57,11 @@ typedef struct {
   int64_t first_audio_pts90k;
 } ProgramScan;
 
-typedef struct {
-  uint8_t *data;
-  size_t capacity;
-  size_t read_offset;
-  size_t write_offset;
-  size_t size;
-  mutex_t mutex;
-  cond_t can_read;
-  cond_t can_write;
-  bool mutex_ready;
-  bool read_condition_ready;
-  bool write_condition_ready;
-  bool closed;
-} ByteQueue;
-
 struct MpegPsDemux {
   ProgramReader reader;
   ProgramScan scan;
-  ByteQueue video;
-  ByteQueue audio;
+  MediaByteQueue *video;
+  MediaByteQueue *audio;
   bool started;
   volatile bool stopped;
   volatile bool failed;
@@ -384,127 +368,6 @@ static bool scan_program(ProgramReader *reader, ProgramScan *scan) {
          scan->first_audio_pts90k != MPEG_NO_PTS;
 }
 
-static bool queue_initialize(ByteQueue *queue, size_t capacity) {
-  queue->data = malloc(capacity);
-  queue->capacity = capacity;
-  if (queue->data == NULL || LWP_MutexInit(&queue->mutex, false) != 0) {
-    return false;
-  }
-  queue->mutex_ready = true;
-  if (LWP_CondInit(&queue->can_read) != 0) {
-    return false;
-  }
-  queue->read_condition_ready = true;
-  if (LWP_CondInit(&queue->can_write) != 0) {
-    return false;
-  }
-  queue->write_condition_ready = true;
-  return true;
-}
-
-static void queue_close(ByteQueue *queue) {
-  if (!queue->mutex_ready) {
-    return;
-  }
-  LWP_MutexLock(queue->mutex);
-  queue->closed = true;
-  if (queue->read_condition_ready) {
-    LWP_CondBroadcast(queue->can_read);
-  }
-  if (queue->write_condition_ready) {
-    LWP_CondBroadcast(queue->can_write);
-  }
-  LWP_MutexUnlock(queue->mutex);
-}
-
-static void queue_destroy(ByteQueue *queue) {
-  queue_close(queue);
-  if (queue->write_condition_ready) {
-    LWP_CondDestroy(queue->can_write);
-  }
-  if (queue->read_condition_ready) {
-    LWP_CondDestroy(queue->can_read);
-  }
-  if (queue->mutex_ready) {
-    LWP_MutexDestroy(queue->mutex);
-  }
-  free(queue->data);
-  memset(queue, 0, sizeof(*queue));
-}
-
-static size_t queue_write_available(ByteQueue *queue, const uint8_t *source,
-                                    size_t size) {
-  LWP_MutexLock(queue->mutex);
-  if (queue->closed || queue->size == queue->capacity) {
-    LWP_MutexUnlock(queue->mutex);
-    return 0;
-  }
-  size_t chunk = size;
-  const size_t free_space = queue->capacity - queue->size;
-  const size_t contiguous = queue->capacity - queue->write_offset;
-  if (chunk > free_space) {
-    chunk = free_space;
-  }
-  if (chunk > contiguous) {
-    chunk = contiguous;
-  }
-  memcpy(queue->data + queue->write_offset, source, chunk);
-  queue->write_offset = (queue->write_offset + chunk) % queue->capacity;
-  queue->size += chunk;
-  LWP_CondSignal(queue->can_read);
-  LWP_MutexUnlock(queue->mutex);
-  return chunk;
-}
-
-static size_t queue_contiguous_space(ByteQueue *queue) {
-  LWP_MutexLock(queue->mutex);
-  size_t space = 0;
-  if (!queue->closed) {
-    space = queue->capacity - queue->size;
-    const size_t contiguous = queue->capacity - queue->write_offset;
-    if (space > contiguous) {
-      space = contiguous;
-    }
-  }
-  LWP_MutexUnlock(queue->mutex);
-  return space;
-}
-
-static size_t queue_read(ByteQueue *queue, uint8_t *destination,
-                         size_t size) {
-  if (destination == NULL || size == 0 || !queue->mutex_ready) {
-    return 0;
-  }
-
-  LWP_MutexLock(queue->mutex);
-  while (queue->size == 0 && !queue->closed) {
-    LWP_CondWait(queue->can_read, queue->mutex);
-  }
-  if (queue->size == 0) {
-    LWP_MutexUnlock(queue->mutex);
-    return 0;
-  }
-
-  size_t copied = 0;
-  while (copied < size && queue->size != 0) {
-    size_t chunk = size - copied;
-    const size_t contiguous = queue->capacity - queue->read_offset;
-    if (chunk > queue->size) {
-      chunk = queue->size;
-    }
-    if (chunk > contiguous) {
-      chunk = contiguous;
-    }
-    memcpy(destination + copied, queue->data + queue->read_offset, chunk);
-    queue->read_offset = (queue->read_offset + chunk) % queue->capacity;
-    queue->size -= chunk;
-    copied += chunk;
-  }
-  LWP_CondSignal(queue->can_write);
-  LWP_MutexUnlock(queue->mutex);
-  return copied;
-}
-
 static MpegPsDemux *create_reader(void *context, size_t program_size,
                                   MpegPsReadAt read_at,
                                   const ProgramScan *known_scan) {
@@ -545,8 +408,9 @@ static MpegPsDemux *create_reader(void *context, size_t program_size,
   }
   demux->reader = reader;
   demux->scan = scan;
-  if (!queue_initialize(&demux->video, VIDEO_QUEUE_SIZE) ||
-      !queue_initialize(&demux->audio, AUDIO_QUEUE_SIZE)) {
+  demux->video = media_byte_queue_create(VIDEO_QUEUE_SIZE);
+  demux->audio = media_byte_queue_create(AUDIO_QUEUE_SIZE);
+  if (demux->video == NULL || demux->audio == NULL) {
     SYS_Report("REFERENCE GX: MPEG-PS queue allocation failed\n");
     mpeg_ps_demux_destroy(demux);
     return NULL;
@@ -600,8 +464,8 @@ void mpeg_ps_demux_destroy(MpegPsDemux *demux) {
     return;
   }
   mpeg_ps_demux_stop(demux);
-  queue_destroy(&demux->audio);
-  queue_destroy(&demux->video);
+  media_byte_queue_destroy(demux->audio);
+  media_byte_queue_destroy(demux->video);
   free(demux);
 }
 
@@ -610,8 +474,8 @@ void mpeg_ps_demux_stop(MpegPsDemux *demux) {
     return;
   }
   demux->stopped = true;
-  queue_close(&demux->video);
-  queue_close(&demux->audio);
+  media_byte_queue_close(demux->video);
+  media_byte_queue_close(demux->audio);
   if (demux->producer_thread != LWP_THREAD_NULL) {
     LWP_JoinThread(demux->producer_thread, NULL);
     demux->producer_thread = LWP_THREAD_NULL;
@@ -669,14 +533,14 @@ bool mpeg_ps_demux_pump(MpegPsDemux *demux, unsigned max_chunks) {
       demux->has_pending_packet = true;
     }
 
-    ByteQueue *queue =
+    MediaByteQueue *queue =
         demux->pending_packet.stream_id == demux->scan.video_stream_id
-            ? &demux->video
-            : &demux->audio;
+            ? demux->video
+            : demux->audio;
     const size_t remaining =
         demux->pending_packet.payload_size - demux->pending_offset;
     size_t wanted = remaining < sizeof(bytes) ? remaining : sizeof(bytes);
-    const size_t queue_space = queue_contiguous_space(queue);
+    const size_t queue_space = media_byte_queue_contiguous_space(queue);
     if (queue_space == 0) {
       return true;
     }
@@ -690,12 +554,13 @@ bool mpeg_ps_demux_pump(MpegPsDemux *demux, unsigned max_chunks) {
       demux->failed = true;
       return false;
     }
-    const size_t written = queue_write_available(queue, bytes, wanted);
+    const size_t written =
+        media_byte_queue_write_available(queue, bytes, wanted);
     if (written == 0) {
       return true;
     }
     demux->pending_offset += written;
-    if (queue == &demux->video) {
+    if (queue == demux->video) {
       demux->video_bytes_pumped += (uint32_t)written;
     } else {
       demux->audio_bytes_pumped += (uint32_t)written;
@@ -723,13 +588,17 @@ static void *run_producer(void *context) {
 size_t mpeg_ps_demux_read_video(void *context, uint8_t *destination,
                                 size_t size) {
   MpegPsDemux *demux = context;
-  return demux == NULL ? 0 : queue_read(&demux->video, destination, size);
+  return demux == NULL
+             ? 0
+             : media_byte_queue_read(demux->video, destination, size);
 }
 
 size_t mpeg_ps_demux_read_audio(void *context, uint8_t *destination,
                                 size_t size) {
   MpegPsDemux *demux = context;
-  return demux == NULL ? 0 : queue_read(&demux->audio, destination, size);
+  return demux == NULL
+             ? 0
+             : media_byte_queue_read(demux->audio, destination, size);
 }
 
 size_t mpeg_ps_demux_video_size(const MpegPsDemux *demux) {
