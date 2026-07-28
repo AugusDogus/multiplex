@@ -27,6 +27,15 @@ class PairingStatus:
     plex_linked: bool = False
 
 
+@dataclass(frozen=True)
+class ConsolePlexServer:
+    server_id: str
+    name: str
+    owned: bool
+    presence: bool
+    relay: bool
+
+
 class MultiplexPairingClient:
     def __init__(
         self,
@@ -57,6 +66,49 @@ class MultiplexPairingClient:
                     self._cached.expires_at,
                 )
             return self._cached
+
+    def load_plex_servers(self) -> list[ConsolePlexServer]:
+        with self._lock:
+            state = self._load_state()
+            if state is None or state.get("status") != "linked":
+                return []
+            device_id = _required_string(state, "deviceId")
+            device_secret = _required_string(state, "deviceSecret")
+            request = urllib.request.Request(
+                self._url("/api/console/plex/servers"),
+                method="GET",
+                headers={
+                    "Accept": "application/json",
+                    "Authorization": (
+                        f"MultiplexDevice {device_id}:{device_secret}"
+                    ),
+                },
+            )
+            response = _request_json(request)
+            if (
+                response.get("apiVersion") != 1
+                or response.get("status") != "ready"
+            ):
+                raise ValueError(
+                    "Multiplex returned an invalid Plex server response"
+                )
+            values = response.get("servers")
+            if not isinstance(values, list):
+                raise ValueError("Multiplex Plex server response is incomplete")
+            servers: list[ConsolePlexServer] = []
+            for value in values:
+                if not isinstance(value, dict):
+                    raise ValueError("Multiplex returned an invalid Plex server")
+                servers.append(
+                    ConsolePlexServer(
+                        _required_string(value, "id"),
+                        _required_string(value, "name"),
+                        _required_bool(value, "owned"),
+                        _required_bool(value, "presence"),
+                        _required_bool(value, "relay"),
+                    )
+                )
+            return servers
 
     def _refresh(self) -> PairingStatus:
         state = self._load_state()

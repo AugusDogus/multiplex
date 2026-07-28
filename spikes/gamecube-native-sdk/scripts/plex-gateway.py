@@ -1165,6 +1165,35 @@ def main() -> None:
             + (f" code={pairing.code} url={pairing.link_url}" if pairing.code else ""),
             flush=True,
         )
+        if pairing.status == "linked" and pairing.plex_linked:
+            try:
+                console_servers = (
+                    GatewayHandler.pairing_client.load_plex_servers()
+                )
+                available_servers = [
+                    server
+                    for server in console_servers
+                    if server.presence
+                ]
+                selected_server = next(
+                    (
+                        server
+                        for server in available_servers
+                        if server.owned
+                    ),
+                    available_servers[0] if available_servers else None,
+                )
+                print(
+                    f"Multiplex Plex servers={len(console_servers)}"
+                    + (
+                        f" selected={selected_server.name}"
+                        if selected_server is not None
+                        else " selected=none"
+                    ),
+                    flush=True,
+                )
+            except (OSError, ValueError, KeyError, json.JSONDecodeError):
+                print("Multiplex Plex server discovery unavailable", flush=True)
     if arguments.media_metadata is not None:
         media_metadata = json.loads(arguments.media_metadata.read_text(encoding="utf-8"))
         GatewayHandler.playback_manifest_bytes = encode_playback_manifest(

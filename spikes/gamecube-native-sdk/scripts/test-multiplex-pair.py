@@ -139,23 +139,41 @@ class MultiplexPairingClientTest(unittest.TestCase):
             with mock.patch.object(
                 pair.urllib.request,
                 "urlopen",
-                return_value=self._response(
-                    {
-                        "apiVersion": 1,
-                        "status": "ready",
-                        "device": {
-                            "id": (
-                                "123e4567-e89b-42d3-a456-426614174000"
-                            ),
-                            "credentialExpiresAt": (
-                                "2026-10-26T14:00:00.000Z"
-                            ),
+                side_effect=[
+                    self._response(
+                        {
+                            "apiVersion": 1,
+                            "status": "ready",
+                            "device": {
+                                "id": (
+                                    "123e4567-e89b-42d3-a456-426614174000"
+                                ),
+                                "credentialExpiresAt": (
+                                    "2026-10-26T14:00:00.000Z"
+                                ),
+                            },
+                            "account": {"plexLinked": True},
                         },
-                        "account": {"plexLinked": True},
-                    }
-                ),
+                    ),
+                    self._response(
+                        {
+                            "apiVersion": 1,
+                            "status": "ready",
+                            "servers": [
+                                {
+                                    "id": "server-1",
+                                    "name": "Living Room Plex",
+                                    "owned": True,
+                                    "presence": True,
+                                    "relay": False,
+                                }
+                            ],
+                        }
+                    ),
+                ],
             ) as urlopen:
                 result = client.refresh(force=True)
+                servers = client.load_plex_servers()
 
             self.assertEqual(
                 result,
@@ -163,9 +181,27 @@ class MultiplexPairingClientTest(unittest.TestCase):
             )
             self.assertEqual(
                 urllib.parse.urlparse(
-                    urlopen.call_args.args[0].full_url
+                    urlopen.call_args_list[0].args[0].full_url
                 ).path,
                 "/api/console/bootstrap",
+            )
+            self.assertEqual(
+                servers,
+                [
+                    pair.ConsolePlexServer(
+                        "server-1",
+                        "Living Room Plex",
+                        True,
+                        True,
+                        False,
+                    )
+                ],
+            )
+            self.assertEqual(
+                urllib.parse.urlparse(
+                    urlopen.call_args_list[1].args[0].full_url
+                ).path,
+                "/api/console/plex/servers",
             )
 
     def test_replaces_an_expired_pairing(self) -> None:
