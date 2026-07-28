@@ -107,21 +107,15 @@ static size_t control_headers(const MultiplexAuthCredentials *credentials,
   return count;
 }
 
-bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
-                              uint32_t rating_key, uint32_t offset_ms,
-                              MultiplexPlexHlsSession *session) {
-  if (credentials == NULL || session == NULL || rating_key == 0 ||
-      credentials->plex_server_url[0] == '\0' ||
-      credentials->plex_server_token[0] == '\0') {
-    return false;
-  }
+static bool configure_hls_session(
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
+    uint32_t offset_ms, MultiplexPlexHlsSession *session) {
   memset(session, 0, sizeof(*session));
   if (!make_session_id(credentials, session->session_id,
                        sizeof(session->session_id))) {
     return false;
   }
   session->start_offset_ms = offset_ms;
-
   char offset_query[32] = {0};
   if (offset_ms != 0) {
     const int offset_size = snprintf(offset_query, sizeof(offset_query),
@@ -137,36 +131,61 @@ bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
       "path=%%2Flibrary%%2Fmetadata%%2F%u&mediaIndex=0&partIndex=0&"
       "protocol=hls&fastSeek=1&directPlay=0&directStream=0&"
       "directStreamAudio=0&videoQuality=100&videoResolution=720x480&"
-      "maxVideoBitrate=700&subtitles=none&location=lan&hasMDE=1&"
+      "maxVideoBitrate=350&subtitles=none&location=lan&hasMDE=1&"
       "session=%s%s",
       rating_key, session->session_id, offset_query);
-  if (path_size <= 0 || (size_t)path_size >= sizeof(path) ||
-      !server_url(credentials, path, session->master_url,
-                  sizeof(session->master_url))) {
+  return path_size > 0 && (size_t)path_size < sizeof(path) &&
+         server_url(credentials, path, session->master_url,
+                    sizeof(session->master_url));
+}
+
+bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
+                              uint32_t rating_key, uint32_t offset_ms,
+                              MultiplexPlexHlsSession *session) {
+  if (credentials == NULL || session == NULL || rating_key == 0 ||
+      credentials->plex_server_url[0] == '\0' ||
+      credentials->plex_server_token[0] == '\0') {
+    return false;
+  }
+  if (!configure_hls_session(credentials, rating_key, offset_ms, session)) {
     return false;
   }
 
   char master[PLEX_HLS_MASTER_CAPACITY];
-  HttpRequestHeader headers[9];
-  const size_t header_count =
-      control_headers(credentials, session, true, headers);
   HttpJsonResponse response;
   bool requested = false;
-  for (unsigned attempt = 1; attempt <= PLEX_HLS_START_ATTEMPTS; ++attempt) {
-    memset(master, 0, sizeof(master));
-    memset(&response, 0, sizeof(response));
-    requested = http_client_request_with_headers(
-                    "GET", session->master_url, headers, header_count, NULL,
-                    master, sizeof(master), &response) &&
-                response.status == 200;
+  const unsigned start_modes = offset_ms == 0 ? 1u : 2u;
+  for (unsigned mode = 0; mode < start_modes && !requested; ++mode) {
+    if (mode != 0) {
+      SYS_Report(
+          "REFERENCE GX: Plex HLS resume rejected; retrying from beginning\n");
+      if (!configure_hls_session(credentials, rating_key, 0, session)) {
+        return false;
+      }
+    }
+    HttpRequestHeader headers[9];
+    const size_t header_count =
+        control_headers(credentials, session, true, headers);
+    for (unsigned attempt = 1; attempt <= PLEX_HLS_START_ATTEMPTS;
+         ++attempt) {
+      memset(master, 0, sizeof(master));
+      memset(&response, 0, sizeof(response));
+      requested = http_client_request_with_headers(
+                      "GET", session->master_url, headers, header_count, NULL,
+                      master, sizeof(master), &response) &&
+                  response.status == 200;
+      if (requested) {
+        break;
+      }
+      SYS_Report(
+          "REFERENCE GX: Plex HLS start retry attempt=%u/%u status=%u\n",
+          attempt, PLEX_HLS_START_ATTEMPTS, response.status);
+      if (attempt < PLEX_HLS_START_ATTEMPTS) {
+        usleep(PLEX_HLS_START_RETRY_US);
+      }
+    }
     if (requested) {
       break;
-    }
-    SYS_Report(
-        "REFERENCE GX: Plex HLS start retry attempt=%u/%u status=%u\n",
-        attempt, PLEX_HLS_START_ATTEMPTS, response.status);
-    if (attempt < PLEX_HLS_START_ATTEMPTS) {
-      usleep(PLEX_HLS_START_RETRY_US);
     }
   }
   if (!requested ||
