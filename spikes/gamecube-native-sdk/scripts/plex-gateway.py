@@ -1157,6 +1157,11 @@ def main() -> None:
         pairing = GatewayHandler.pairing_client.refresh(force=True)
         print(
             f"Multiplex device pairing status={pairing.status}"
+            + (
+                f" plex-linked={int(pairing.plex_linked)}"
+                if pairing.status == "linked"
+                else ""
+            )
             + (f" code={pairing.code} url={pairing.link_url}" if pairing.code else ""),
             flush=True,
         )

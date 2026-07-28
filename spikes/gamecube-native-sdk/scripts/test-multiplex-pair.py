@@ -38,6 +38,21 @@ class MultiplexPairingClientTest(unittest.TestCase):
                         "credentialExpiresAt": "2026-10-26T14:00:00.000Z",
                     }
                 ),
+                self._response(
+                    {
+                        "apiVersion": 1,
+                        "status": "ready",
+                        "device": {
+                            "id": "123e4567-e89b-42d3-a456-426614174000",
+                            "name": "Nintendo GameCube",
+                            "platform": "gamecube",
+                            "credentialExpiresAt": (
+                                "2026-10-26T14:00:00.000Z"
+                            ),
+                        },
+                        "account": {"plexLinked": True},
+                    }
+                ),
             ]
             with mock.patch.object(
                 pair.urllib.request,
@@ -56,7 +71,10 @@ class MultiplexPairingClientTest(unittest.TestCase):
                     "2026-07-28T14:05:00.000Z",
                 ),
             )
-            self.assertEqual(linked, pair.PairingStatus("linked"))
+            self.assertEqual(
+                linked,
+                pair.PairingStatus("linked", plex_linked=True),
+            )
             create_request = urlopen.call_args_list[0].args[0]
             self.assertEqual(
                 urllib.parse.urlparse(create_request.full_url).path,
@@ -75,10 +93,80 @@ class MultiplexPairingClientTest(unittest.TestCase):
                 json.loads(poll_request.data)["deviceSecret"],
                 "device-secret-with-at-least-32-characters",
             )
+            bootstrap_request = urlopen.call_args_list[2].args[0]
+            self.assertEqual(
+                urllib.parse.urlparse(bootstrap_request.full_url).path,
+                "/api/console/bootstrap",
+            )
+            self.assertEqual(
+                bootstrap_request.headers["Authorization"],
+                (
+                    "MultiplexDevice "
+                    "123e4567-e89b-42d3-a456-426614174000:"
+                    "device-secret-with-at-least-32-characters"
+                ),
+            )
             state = json.loads(state_path.read_text(encoding="utf-8"))
             self.assertEqual(state["status"], "linked")
+            self.assertTrue(state["plexLinked"])
             self.assertNotIn("code", state)
             self.assertEqual(stat.S_IMODE(state_path.stat().st_mode), 0o600)
+
+    def test_bootstraps_an_existing_linked_device(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            state_path = pathlib.Path(temporary) / "device.json"
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "baseUrl": "http://multiplex.test:3000",
+                        "deviceId": (
+                            "123e4567-e89b-42d3-a456-426614174000"
+                        ),
+                        "deviceSecret": (
+                            "device-secret-with-at-least-32-characters"
+                        ),
+                        "status": "linked",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            client = pair.MultiplexPairingClient(
+                "http://multiplex.test:3000",
+                state_path,
+                poll_interval=0,
+            )
+            with mock.patch.object(
+                pair.urllib.request,
+                "urlopen",
+                return_value=self._response(
+                    {
+                        "apiVersion": 1,
+                        "status": "ready",
+                        "device": {
+                            "id": (
+                                "123e4567-e89b-42d3-a456-426614174000"
+                            ),
+                            "credentialExpiresAt": (
+                                "2026-10-26T14:00:00.000Z"
+                            ),
+                        },
+                        "account": {"plexLinked": True},
+                    }
+                ),
+            ) as urlopen:
+                result = client.refresh(force=True)
+
+            self.assertEqual(
+                result,
+                pair.PairingStatus("linked", plex_linked=True),
+            )
+            self.assertEqual(
+                urllib.parse.urlparse(
+                    urlopen.call_args.args[0].full_url
+                ).path,
+                "/api/console/bootstrap",
+            )
 
     def test_replaces_an_expired_pairing(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -24,6 +24,7 @@ class PairingStatus:
     code: str = ""
     link_url: str = ""
     expires_at: str = ""
+    plex_linked: bool = False
 
 
 class MultiplexPairingClient:
@@ -61,6 +62,13 @@ class MultiplexPairingClient:
         state = self._load_state()
         if state is None:
             return self._create()
+        if state.get("status") == "linked":
+            try:
+                return self._bootstrap(state)
+            except urllib.error.HTTPError as error:
+                if error.code == 401:
+                    return self._create()
+                raise
 
         request = urllib.request.Request(
             self._url("/api/console/pairings/poll"),
@@ -93,7 +101,7 @@ class MultiplexPairingClient:
             state.pop("code", None)
             state.pop("expiresAt", None)
             self._save_state(state)
-            return PairingStatus("linked")
+            return self._bootstrap(state)
         if status == "waiting":
             expires_at = _required_string(response, "expiresAt")
             state["status"] = "waiting"
@@ -108,6 +116,37 @@ class MultiplexPairingClient:
         if status == "expired":
             return self._create()
         raise ValueError("Multiplex returned an unknown pairing status")
+
+    def _bootstrap(self, state: dict[str, object]) -> PairingStatus:
+        device_id = _required_string(state, "deviceId")
+        device_secret = _required_string(state, "deviceSecret")
+        request = urllib.request.Request(
+            self._url("/api/console/bootstrap"),
+            method="GET",
+            headers={
+                "Accept": "application/json",
+                "Authorization": (
+                    f"MultiplexDevice {device_id}:{device_secret}"
+                ),
+            },
+        )
+        response = _request_json(request)
+        if response.get("apiVersion") != 1 or response.get("status") != "ready":
+            raise ValueError("Multiplex returned an invalid console bootstrap")
+        device = response.get("device")
+        account = response.get("account")
+        if not isinstance(device, dict) or not isinstance(account, dict):
+            raise ValueError("Multiplex console bootstrap is incomplete")
+        if _required_string(device, "id") != device_id:
+            raise ValueError("Multiplex console bootstrap changed device identity")
+        credential_expires_at = _required_string(
+            device, "credentialExpiresAt"
+        )
+        plex_linked = _required_bool(account, "plexLinked")
+        state["credentialExpiresAt"] = credential_expires_at
+        state["plexLinked"] = plex_linked
+        self._save_state(state)
+        return PairingStatus("linked", plex_linked=plex_linked)
 
     def _create(self) -> PairingStatus:
         request = urllib.request.Request(
@@ -180,5 +219,12 @@ def _request_json(request: urllib.request.Request) -> dict[str, object]:
 def _required_string(value: dict[str, object], key: str) -> str:
     field = value.get(key)
     if not isinstance(field, str) or not field:
+        raise ValueError(f"Multiplex pairing response is missing {key}")
+    return field
+
+
+def _required_bool(value: dict[str, object], key: str) -> bool:
+    field = value.get(key)
+    if not isinstance(field, bool):
         raise ValueError(f"Multiplex pairing response is missing {key}")
     return field
