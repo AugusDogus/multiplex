@@ -84,11 +84,18 @@ static void audio_dma_callback(void) {
 
   audio->current_buffer = audio->queued_buffer;
   audio->queued_buffer = -1;
-  if (!audio->playing || audio->current_buffer < 0) {
-    AUDIO_StopDMA();
-    if (audio->playing) {
-      audio->underruns += 1;
+  if (!audio->playing) {
+    if (audio->current_buffer >= 0) {
+      audio->buffer_states[audio->current_buffer] = AUDIO_BUFFER_READY;
+      audio->current_buffer = -1;
     }
+    audio->paused_partial_samples = 0;
+    AUDIO_StopDMA();
+    return;
+  }
+  if (audio->current_buffer < 0) {
+    AUDIO_StopDMA();
+    audio->underruns += 1;
     return;
   }
 
@@ -292,12 +299,35 @@ void audio_dma_update(AudioDma *audio, bool playing) {
   if (playing != audio->playing) {
     if (!playing) {
       const uint32_t level = IRQ_Disable();
-      const uint64_t transition_samples = samples_played_locked(audio);
-      audio->paused_partial_samples =
-          (uint32_t)(transition_samples % AUDIO_SAMPLES_PER_BUFFER);
       audio->playing = false;
-      AUDIO_StopDMA();
       IRQ_Restore(level);
+
+      /*
+       * Let the current 30 ms block reach its normal DMA interrupt. The
+       * callback returns the already-queued block to the ready pool and stops
+       * at an exact sample-clock boundary. Dolphin and hardware both restart
+       * this full-block shape reliably; a stopped partial DMA did not.
+       */
+      unsigned attempts = 0;
+      while (AUDIO_GetDMAEnableFlag() != 0 && attempts < 100u) {
+        usleep(1000);
+        attempts += 1;
+      }
+      const uint32_t stopped_level = IRQ_Disable();
+      if (AUDIO_GetDMAEnableFlag() != 0) {
+        AUDIO_StopDMA();
+      }
+      if (audio->current_buffer >= 0) {
+        audio->buffer_states[audio->current_buffer] = AUDIO_BUFFER_READY;
+        audio->current_buffer = -1;
+      }
+      if (audio->queued_buffer >= 0) {
+        audio->buffer_states[audio->queued_buffer] = AUDIO_BUFFER_READY;
+        audio->queued_buffer = -1;
+      }
+      audio->paused_partial_samples = 0;
+      const uint64_t transition_samples = samples_played_locked(audio);
+      IRQ_Restore(stopped_level);
       SYS_Report(
           "REFERENCE GX: audio=paused samples=%llu buffers=%u underruns=%u\n",
           transition_samples, audio->completed_buffers, audio->underruns);
@@ -305,33 +335,7 @@ void audio_dma_update(AudioDma *audio, bool playing) {
       const uint32_t level = IRQ_Disable();
       const uint64_t transition_samples = samples_played_locked(audio);
       audio->playing = true;
-      if (audio->current_buffer >= 0) {
-        /*
-         * Starting a stopped AI DMA transfer asks for its second buffer
-         * immediately instead of resuming the old internal pipeline. Rebuild
-         * that pipeline from the current block's aligned PCM offset, then let
-         * the normal first callback promote it to current again.
-         */
-        if (audio->queued_buffer >= 0) {
-          audio->buffer_states[audio->queued_buffer] = AUDIO_BUFFER_READY;
-          audio->queued_buffer = -1;
-        }
-        const uint32_t resume_bytes =
-            (audio->paused_partial_samples *
-             AUDIO_CHANNELS * AUDIO_BYTES_PER_SAMPLE) &
-            ~31u;
-        audio->buffer_states[audio->current_buffer] =
-            AUDIO_BUFFER_QUEUED;
-        audio->queued_buffer = audio->current_buffer;
-        audio->queued_partial_samples = audio->paused_partial_samples;
-        audio->current_buffer = -1;
-        AUDIO_InitDMA(
-            (uint32_t)audio->buffers[audio->queued_buffer] + resume_bytes,
-            AUDIO_BURST_SIZE - resume_bytes);
-        AUDIO_StartDMA();
-      } else {
-        start_dma_if_ready(audio);
-      }
+      start_dma_if_ready(audio);
       IRQ_Restore(level);
       SYS_Report(
           "REFERENCE GX: audio=playing samples=%llu buffers=%u underruns=%u\n",
