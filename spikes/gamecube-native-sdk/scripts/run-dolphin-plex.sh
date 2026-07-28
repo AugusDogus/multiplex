@@ -4,6 +4,7 @@ set -eu
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 spike_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 cache_dir="$spike_dir/.plex-cache"
+auth_state=${GAMECUBE_PLEX_AUTH_STATE:-"$cache_dir/auth.json"}
 media="$cache_dir/media.mpg"
 metadata="$cache_dir/media.json"
 port=${GAMECUBE_PLEX_PORT:-18992}
@@ -41,6 +42,12 @@ if [ -z "$plex_base_url" ]; then
 fi
 
 mkdir -p "$cache_dir"
+if [ -z "${PLEX_TOKEN:-}" ] && [ -f "$auth_state" ]; then
+  PLEX_TOKEN=$(python3 "$script_dir/plex-pair.py" server-token \
+    "$auth_state" "$plex_base_url")
+  export PLEX_TOKEN
+  echo "Loaded the approved access token for the selected Plex server."
+fi
 if [ -n "$rating_key" ]; then
   python3 "$script_dir/prepare-plex-media.py" "$plex_base_url" "$media" \
     --offset "$offset" --duration "$duration" \
@@ -75,17 +82,10 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-if [ -n "${PLEX_TOKEN:-}" ]; then
-  python3 "$script_dir/plex-gateway.py" "$port" "$media" \
-    --plex-base-url "$plex_base_url" --token "$PLEX_TOKEN" \
-    --media-metadata "$metadata" --segment-duration "$segment_duration" \
-    >"$cache_dir/http.log" 2>&1 &
-else
-  python3 "$script_dir/plex-gateway.py" "$port" "$media" \
-    --plex-base-url "$plex_base_url" --media-metadata "$metadata" \
-    --segment-duration "$segment_duration" \
-    >"$cache_dir/http.log" 2>&1 &
-fi
+python3 "$script_dir/plex-gateway.py" "$port" "$media" \
+  --plex-base-url "$plex_base_url" --media-metadata "$metadata" \
+  --segment-duration "$segment_duration" \
+  >"$cache_dir/http.log" 2>&1 &
 server_pid=$!
 attempt=0
 while ! curl --noproxy '*' --fail --silent --output /dev/null \

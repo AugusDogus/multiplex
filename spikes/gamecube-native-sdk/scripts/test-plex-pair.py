@@ -7,6 +7,8 @@ import pathlib
 import sys
 import unittest
 import urllib.parse
+import urllib.request
+from unittest import mock
 
 
 MODULE_PATH = pathlib.Path(__file__).with_name("plex-pair.py")
@@ -46,6 +48,144 @@ class PlexPairTest(unittest.TestCase):
         self.assertEqual(fragment["clientID"], [pair.CLIENT_IDENTIFIER])
         self.assertEqual(fragment["code"], ["abc123"])
         self.assertEqual(fragment["context[device][product]"], [pair.PRODUCT])
+
+    def test_signed_refresh_jwt_carries_nonce(self) -> None:
+        private_key, jwk = pair.device_key()
+        state = {
+            "privateKey": pair.private_key_bytes(private_key),
+            "kid": jwk["kid"],
+        }
+        token = pair.signed_device_jwt(
+            state,
+            now=1_700_000_000,
+            nonce="once",
+            scopes=pair.DEVICE_SCOPES,
+        )
+        payload_part = token.split(".")[1]
+        raw = base64.urlsafe_b64decode(payload_part + "=" * (-len(payload_part) % 4))
+        payload = json.loads(raw)
+        self.assertEqual(payload["nonce"], "once")
+        self.assertEqual(payload["scope"], ",".join(pair.DEVICE_SCOPES))
+
+    def test_token_expiry_validates_plex_identity(self) -> None:
+        payload = {
+            "iss": "plex.tv",
+            "aud": ["plex.tv", pair.CLIENT_IDENTIFIER],
+            "exp": 1_700_604_800,
+        }
+        encoded = pair.base64url(json.dumps(payload).encode("utf-8"))
+        self.assertEqual(pair.token_expiry(f"x.{encoded}.x"), 1_700_604_800)
+
+    def test_ensure_keeps_token_outside_refresh_window(self) -> None:
+        token = self._token(expiry=1_700_604_800)
+        with mock.patch.object(pair, "load_state", return_value={"authToken": token}):
+            with mock.patch.object(pair, "refresh_pairing") as refresh:
+                self.assertEqual(pair.ensure_token(pathlib.Path("auth.json"), 1_700_000_000), token)
+        refresh.assert_not_called()
+
+    def test_ensure_refreshes_expiring_token(self) -> None:
+        old_token = self._token(expiry=1_700_000_001)
+        new_token = self._token(expiry=1_700_604_800)
+        with mock.patch.object(pair, "load_state", return_value={"authToken": old_token}):
+            with mock.patch.object(
+                pair,
+                "refresh_pairing",
+                return_value={"authToken": new_token},
+            ) as refresh:
+                self.assertEqual(
+                    pair.ensure_token(pathlib.Path("auth.json"), 1_700_000_000),
+                    new_token,
+                )
+        refresh.assert_called_once_with(pathlib.Path("auth.json"), now=1_700_000_000)
+
+    def test_server_token_matches_local_machine_identifier(self) -> None:
+        resources = [
+            {
+                "clientIdentifier": "other",
+                "accessToken": "wrong",
+            },
+            {
+                "clientIdentifier": "server-id",
+                "accessToken": "server-secret",
+            },
+        ]
+        responses = [
+            mock.MagicMock(
+                __enter__=lambda value: value,
+                __exit__=mock.Mock(return_value=False),
+                read=mock.Mock(
+                    return_value=b'<MediaContainer machineIdentifier="server-id"/>'
+                ),
+            ),
+            mock.MagicMock(
+                __enter__=lambda value: value,
+                __exit__=mock.Mock(return_value=False),
+                read=mock.Mock(return_value=json.dumps(resources).encode("utf-8")),
+            ),
+        ]
+        with mock.patch.object(
+            pair,
+            "load_state",
+            return_value={"pmsAuthToken": "legacy-account-secret"},
+        ):
+            with mock.patch.object(
+                urllib.request,
+                "urlopen",
+                side_effect=responses,
+            ):
+                token = pair.server_token(
+                    pathlib.Path("auth.json"),
+                    "http://plex:32400",
+                    now=1_700_000_000,
+                )
+        self.assertEqual(token, "server-secret")
+
+    def test_server_token_rejects_current_jwt_resource_response(self) -> None:
+        resources = [
+            {
+                "clientIdentifier": "server-id",
+                "accessToken": "header.payload.signature",
+            },
+        ]
+        responses = [
+            mock.MagicMock(
+                __enter__=lambda value: value,
+                __exit__=mock.Mock(return_value=False),
+                read=mock.Mock(
+                    return_value=b'<MediaContainer machineIdentifier="server-id"/>'
+                ),
+            ),
+            mock.MagicMock(
+                __enter__=lambda value: value,
+                __exit__=mock.Mock(return_value=False),
+                read=mock.Mock(return_value=json.dumps(resources).encode("utf-8")),
+            ),
+        ]
+        with mock.patch.object(pair, "load_state", return_value={"authToken": "jwt"}):
+            with mock.patch.object(pair, "ensure_token", return_value="account-jwt"):
+                with mock.patch.object(
+                    urllib.request,
+                    "urlopen",
+                    side_effect=responses,
+                ):
+                    with self.assertRaisesRegex(
+                        RuntimeError,
+                        "account JWT instead of a PMS access token",
+                    ):
+                        pair.server_token(
+                            pathlib.Path("auth.json"),
+                            "http://plex:32400",
+                            now=1_700_000_000,
+                        )
+
+    @staticmethod
+    def _token(expiry: int) -> str:
+        payload = {
+            "iss": "plex.tv",
+            "aud": ["plex.tv", pair.CLIENT_IDENTIFIER],
+            "exp": expiry,
+        }
+        return f"x.{pair.base64url(json.dumps(payload).encode('utf-8'))}.x"
 
 
 if __name__ == "__main__":

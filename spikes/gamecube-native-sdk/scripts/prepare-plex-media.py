@@ -7,6 +7,7 @@ import json
 import os
 import pathlib
 import subprocess
+import sys
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -155,7 +156,12 @@ def main() -> None:
             "-y",
         ]
     )
-    subprocess.run(command, check=True)
+    result = subprocess.run(command, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg could not read or encode the selected Plex media "
+            f"(exit {result.returncode})"
+        )
 
     metadata: dict[str, str | int] = packet_metadata(arguments.output)
     metadata["title"] = video.get("title", "Untitled Plex item")
@@ -166,4 +172,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as error:
+        print(f"Plex media preparation failed: {error}", file=sys.stderr)
+        raise SystemExit(1) from None

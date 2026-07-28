@@ -1077,7 +1077,11 @@ def main() -> None:
     parser.add_argument("port", type=int)
     parser.add_argument("media", type=pathlib.Path)
     parser.add_argument("--plex-base-url", required=True)
-    parser.add_argument("--token")
+    parser.add_argument(
+        "--token",
+        help=argparse.SUPPRESS,
+        default=os.environ.get("PLEX_TOKEN"),
+    )
     parser.add_argument("--media-metadata", type=pathlib.Path)
     parser.add_argument("--segment-duration", type=float, default=120.0)
     arguments = parser.parse_args()

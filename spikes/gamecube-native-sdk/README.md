@@ -40,7 +40,13 @@ two-minute segment to the bounded GameCube MPEG-2/MP2 profile, and opens it in
 Dolphin through the same rootless BBA path. Set `GAMECUBE_PLEX_RATING_KEY`,
 `GAMECUBE_PLEX_OFFSET`, or `GAMECUBE_PLEX_DURATION` to choose the item or
 segment. `PLEX_TOKEN` is supported for servers that require LAN
-authentication. The runner auto-navigates to the player and mutes only
+authentication. After `scripts/plex-pair.py` has claimed a PIN into the
+default ignored `.plex-cache/auth.json`, the runner loads that device session
+automatically. Plex's July 2026 resource-directory implementation currently
+returns the account JWT where current PMS expects a traditional server token,
+so `pms-start`/`pms-poll` add that compatibility credential to the same
+ignored state. `PLEX_TOKEN` remains an explicit development override. The
+runner auto-navigates to the player and mutes only
 Dolphin's PipeWire sink input; AI DMA remains active inside the emulator.
 Set `GAMECUBE_PLEX_SEGMENT_DURATION=8` and
 `GAMECUBE_PLEX_EXPECT_CONTINUATION=1` for the accelerated timeline-boundary
@@ -49,10 +55,12 @@ smoke test.
 `scripts/plex-pair.py` implements Plex's current device-key PIN flow without
 placing an account password or long-lived legacy token on the console. `start`
 creates an Ed25519 device identity and strong PIN, `poll` exchanges a claimed
-PIN for Plex's seven-day JWT, and `token` prints the claimed token for gateway
-injection. Its state file is mode `0600` and belongs under the ignored
-`.plex-cache` directory. Gateway startup integration and token refresh remain
-before this replaces the development LAN bootstrap.
+PIN for Plex's seven-day JWT, and `ensure` renews a token within one day of
+expiry using Plex's nonce exchange. Its state file is mode `0600` and belongs
+under the ignored `.plex-cache` directory. The gateway receives the ensured
+server-specific access token through its process environment, never through
+command-line arguments; the account JWT is used only with Plex's resource
+directory and future account-backed features.
 
 The spike retains three separate artifacts:
 
