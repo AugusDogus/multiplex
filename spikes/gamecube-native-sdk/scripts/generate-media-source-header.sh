@@ -22,6 +22,11 @@ if [ -n "$gateway_url" ] &&
   echo "GAMECUBE_GATEWAY_URL contains unsupported characters." >&2
   exit 1
 fi
+if [ -n "$multiplex_base_url" ] &&
+  printf '%s' "$multiplex_base_url" | LC_ALL=C grep -q '[^A-Za-z0-9:/?&=._%+~-]'; then
+  echo "MULTIPLEX_BASE_URL contains unsupported characters." >&2
+  exit 1
+fi
 
 for value in "$video_bytes" "$audio_bytes" "$video_packets" "$audio_packets"; do
   case "$value" in
@@ -58,6 +63,7 @@ trap 'rm -f "$temporary"' EXIT INT TERM
   printf '%s\n' '#define MULTIPLEX_MEDIA_SOURCE_H'
   printf '#define MULTIPLEX_MEDIA_URL "%s"\n' "$media_url"
   printf '#define MULTIPLEX_GATEWAY_URL "%s"\n' "$gateway_url"
+  printf '#define MULTIPLEX_BASE_URL "%s"\n' "$multiplex_base_url"
   printf '#define MULTIPLEX_PAIRING_ENABLED %s\n' "$pairing_enabled"
   printf '#define MULTIPLEX_MEDIA_HAS_INFO %s\n' "$has_info"
   printf '#define MULTIPLEX_MEDIA_VIDEO_BYTES %su\n' "$video_bytes"

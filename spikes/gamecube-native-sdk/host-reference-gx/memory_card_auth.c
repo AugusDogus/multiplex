@@ -1,14 +1,18 @@
 #include "memory_card_auth.h"
 
+#include <gccore.h>
 #include <malloc.h>
 #include <ogc/card.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define MULTIPLEX_CARD_FILENAME "Multiplex"
 #define MULTIPLEX_CARD_SECTORS 2u
+#define MULTIPLEX_CARD_READY_ATTEMPTS 50u
+#define MULTIPLEX_CARD_READY_RETRY_US 20000u
 
 static uint8_t card_workarea[CARD_WORKAREA] __attribute__((aligned(32)));
 static bool card_initialized;
@@ -49,8 +53,19 @@ static MultiplexMemoryCardResult initialize_card_api(void) {
 static MultiplexMemoryCardResult mount_slot(int slot, int *sector_size) {
   int memory_size = 0;
   int probed_sector_size = 0;
-  int result = CARD_ProbeEx(slot, &memory_size, &probed_sector_size);
+  int result = CARD_ERROR_BUSY;
+  for (unsigned attempt = 0;
+       attempt < MULTIPLEX_CARD_READY_ATTEMPTS &&
+       result == CARD_ERROR_BUSY;
+       ++attempt) {
+    result = CARD_ProbeEx(slot, &memory_size, &probed_sector_size);
+    if (result == CARD_ERROR_BUSY) {
+      usleep(MULTIPLEX_CARD_READY_RETRY_US);
+    }
+  }
   if (result < CARD_ERROR_READY) {
+    SYS_Report("REFERENCE GX: memory-card probe slot=%c result=%d\n",
+               slot == CARD_SLOTA ? 'A' : 'B', result);
     return map_card_error(result);
   }
   if (probed_sector_size < (int)CARD_READSIZE ||
@@ -59,6 +74,11 @@ static MultiplexMemoryCardResult mount_slot(int slot, int *sector_size) {
   }
   result = CARD_Mount(slot, card_workarea, NULL);
   if (result < CARD_ERROR_READY) {
+    SYS_Report(
+        "REFERENCE GX: memory-card mount slot=%c result=%d size=%d "
+        "sector=%d\n",
+        slot == CARD_SLOTA ? 'A' : 'B', result, memory_size,
+        probed_sector_size);
     return map_card_error(result);
   }
   *sector_size = probed_sector_size;
@@ -102,6 +122,8 @@ static MultiplexMemoryCardResult load_from_slot(
   int sector_size = 0;
   MultiplexMemoryCardResult result = mount_slot(slot, &sector_size);
   if (result != MULTIPLEX_MEMORY_CARD_OK) {
+    SYS_Report("REFERENCE GX: memory-card load slot=%c mount=%d\n",
+               slot == CARD_SLOTA ? 'A' : 'B', result);
     return result;
   }
 
@@ -109,10 +131,13 @@ static MultiplexMemoryCardResult load_from_slot(
   bool is_open = false;
   int card_result = CARD_Open(slot, MULTIPLEX_CARD_FILENAME, &file);
   if (card_result < CARD_ERROR_READY) {
+    SYS_Report("REFERENCE GX: memory-card load slot=%c open=%d\n",
+               slot == CARD_SLOTA ? 'A' : 'B', card_result);
     CARD_Unmount(slot);
     return map_card_error(card_result);
   }
   is_open = true;
+  const int file_size = file.len;
 
   uint8_t *first = memalign(32, (size_t)sector_size);
   uint8_t *second = memalign(32, (size_t)sector_size);
@@ -125,12 +150,21 @@ static MultiplexMemoryCardResult load_from_slot(
 
   result = read_records(&file, sector_size, first, second);
   uint32_t generation = 0;
-  if (result == MULTIPLEX_MEMORY_CARD_OK &&
-      multiplex_auth_record_select(first, (size_t)sector_size, second,
-                                   (size_t)sector_size, credentials,
-                                   &generation) ==
-          MULTIPLEX_AUTH_RECORD_NONE) {
-    result = MULTIPLEX_MEMORY_CARD_CORRUPT;
+  if (result == MULTIPLEX_MEMORY_CARD_OK) {
+    const MultiplexAuthRecordSelection selection =
+        multiplex_auth_record_select(first, (size_t)sector_size, second,
+                                     (size_t)sector_size, credentials,
+                                     &generation);
+    if (selection == MULTIPLEX_AUTH_RECORD_NONE) {
+      result = MULTIPLEX_MEMORY_CARD_CORRUPT;
+    }
+    SYS_Report(
+        "REFERENCE GX: memory-card load slot=%c bytes=%d selection=%d "
+        "generation=%u\n",
+        slot == CARD_SLOTA ? 'A' : 'B', file_size, selection, generation);
+  } else {
+    SYS_Report("REFERENCE GX: memory-card load slot=%c read=%d bytes=%d\n",
+               slot == CARD_SLOTA ? 'A' : 'B', result, file_size);
   }
 
   free(first);

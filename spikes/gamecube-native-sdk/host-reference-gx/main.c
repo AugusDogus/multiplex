@@ -1,6 +1,8 @@
 #include "audio_dma.h"
+#include "device_auth.h"
 #include "gateway_client.h"
 #include "http_client.h"
+#include "memory_card_auth.h"
 #include "media-source.h"
 #include "native_ui.h"
 #include "mpeg2_decoder.h"
@@ -1856,20 +1858,34 @@ static void *run_app(void *unused) {
     }
   }
 #if MULTIPLEX_PAIRING_ENABLED
-  MultiplexGatewayPairing pairing;
-  memset(&pairing, 0, sizeof(pairing));
-  pairing.status = 3;
-  if (!multiplex_gateway_load_pairing(MULTIPLEX_GATEWAY_URL, &pairing)) {
-    SYS_Report("REFERENCE GX: gateway-pairing initial load unavailable\n");
+  MultiplexAuthCredentials auth_credentials;
+  memset(&auth_credentials, 0, sizeof(auth_credentials));
+  MultiplexMemoryCardLocation auth_location = {
+      .slot = -1,
+      .generation = 0,
+  };
+  const MultiplexMemoryCardResult stored_auth =
+      multiplex_memory_card_load_auth(&auth_credentials, &auth_location);
+  MultiplexDeviceAuth device_auth;
+  memset(&device_auth, 0, sizeof(device_auth));
+  if (stored_auth == MULTIPLEX_MEMORY_CARD_OK) {
+    device_auth.status = MULTIPLEX_DEVICE_AUTH_LINKED;
+    SYS_Report("REFERENCE GX: auth restored slot=%c generation=%u\n",
+               auth_location.slot == 0 ? 'A' : 'B',
+               auth_location.generation);
+  } else if (!multiplex_device_auth_begin(MULTIPLEX_BASE_URL, &device_auth)) {
+    device_auth.status = MULTIPLEX_DEVICE_AUTH_UNAVAILABLE;
+    SYS_Report("REFERENCE GX: device authorization unavailable card=%s\n",
+               multiplex_memory_card_result_message(stored_auth));
   }
   if (multiplex_native_app_pairing_status(
-          pairing.status, (const uint8_t *)pairing.code,
-          pairing.code_length, (const uint8_t *)pairing.link_url,
-          pairing.link_url_length) == 0) {
-    SYS_Report("REFERENCE GX: failed to bind gateway pairing status\n");
+          device_auth.status, (const uint8_t *)device_auth.user_code,
+          strlen(device_auth.user_code), (const uint8_t *)device_auth.link_url,
+          strlen(device_auth.link_url)) == 0) {
+    SYS_Report("REFERENCE GX: failed to bind device authorization status\n");
     return (void *)(uintptr_t)1;
   }
-  bool pairing_linked = pairing.status == 2;
+  bool pairing_linked = device_auth.status == MULTIPLEX_DEVICE_AUTH_LINKED;
   uint32_t pairing_poll_frames = 0;
 #endif
   const bool has_playback_manifest =
@@ -1897,31 +1913,33 @@ static void *run_app(void *unused) {
     PAD_ScanPads();
 #if MULTIPLEX_PAIRING_ENABLED
     if (!pairing_linked &&
-        ++pairing_poll_frames >= PAIRING_POLL_INTERVAL_FRAMES) {
+        device_auth.status == MULTIPLEX_DEVICE_AUTH_WAITING &&
+        ++pairing_poll_frames >=
+            (uint32_t)device_auth.interval_seconds *
+                PAIRING_POLL_INTERVAL_FRAMES) {
       pairing_poll_frames = 0;
-      MultiplexGatewayPairing next_pairing;
-      memset(&next_pairing, 0, sizeof(next_pairing));
-      next_pairing.status = 3;
-      if (!multiplex_gateway_load_pairing(MULTIPLEX_GATEWAY_URL,
-                                          &next_pairing)) {
-        SYS_Report("REFERENCE GX: gateway-pairing poll unavailable\n");
+      const MultiplexDeviceAuthStatus previous_status = device_auth.status;
+      if (!multiplex_device_auth_poll(MULTIPLEX_BASE_URL, &device_auth,
+                                      &auth_credentials)) {
+        SYS_Report("REFERENCE GX: device authorization poll unavailable\n");
       }
-      const bool pairing_changed =
-          next_pairing.status != pairing.status ||
-          next_pairing.code_length != pairing.code_length ||
-          next_pairing.link_url_length != pairing.link_url_length ||
-          memcmp(next_pairing.code, pairing.code,
-                 next_pairing.code_length) != 0 ||
-          memcmp(next_pairing.link_url, pairing.link_url,
-                 next_pairing.link_url_length) != 0;
-      if (pairing_changed) {
-        pairing = next_pairing;
-        pairing_linked = pairing.status == 2;
+      if (device_auth.status != previous_status) {
+        pairing_linked =
+            device_auth.status == MULTIPLEX_DEVICE_AUTH_LINKED;
+        if (pairing_linked) {
+          const MultiplexMemoryCardResult saved =
+              multiplex_memory_card_save_auth(&auth_credentials,
+                                              &auth_location);
+          SYS_Report("REFERENCE GX: auth persistence=%s\n",
+                     multiplex_memory_card_result_message(saved));
+        }
         if (multiplex_native_app_pairing_status(
-                pairing.status, (const uint8_t *)pairing.code,
-                pairing.code_length, (const uint8_t *)pairing.link_url,
-                pairing.link_url_length) == 0) {
-          SYS_Report("REFERENCE GX: failed to update gateway pairing status\n");
+                device_auth.status, (const uint8_t *)device_auth.user_code,
+                strlen(device_auth.user_code),
+                (const uint8_t *)device_auth.link_url,
+                strlen(device_auth.link_url)) == 0) {
+          SYS_Report(
+              "REFERENCE GX: failed to update device authorization status\n");
           break;
         }
         native_frame_dirty = true;

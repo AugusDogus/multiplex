@@ -29,6 +29,8 @@
 #define HTTP_IO_TIMEOUT_SECONDS 8
 #define HTTP_STREAM_TIMEOUT_SECONDS 2
 #define HTTP_RANGE_ATTEMPTS 4
+#define HTTP_JSON_REQUEST_LIMIT 2048
+#define HTTP_JSON_FRAMING_ALLOWANCE 2048
 
 typedef struct {
   unsigned status;
@@ -331,6 +333,105 @@ static bool parse_stream_headers(char *headers, size_t expected_start,
   return expected_start < expected_size && range_start == expected_start &&
          range_end == expected_size - 1u && range_total == expected_size &&
          content_length == expected_size - expected_start;
+}
+
+static bool parse_json_headers(char *headers, HttpJsonResponse *response,
+                               size_t *content_length, bool *chunked) {
+  memset(response, 0, sizeof(*response));
+  *content_length = 0;
+  *chunked = false;
+  if (sscanf(headers, "HTTP/%*u.%*u %u", &response->status) != 1 ||
+      response->status < 100 || response->status > 599) {
+    return false;
+  }
+
+  char *line = strstr(headers, "\r\n");
+  while (line != NULL && line[2] != '\r' && line[2] != '\0') {
+    line += 2;
+    char *line_end = strstr(line, "\r\n");
+    if (line_end == NULL) {
+      return false;
+    }
+    if (strncasecmp(line, "Content-Length:", 15) == 0) {
+      char *value = line + 15;
+      while (*value == ' ' || *value == '\t') {
+        ++value;
+      }
+      char *end = NULL;
+      const unsigned long parsed = strtoul(value, &end, 10);
+      if (end == value || end > line_end) {
+        return false;
+      }
+      *content_length = (size_t)parsed;
+    } else if (strncasecmp(line, "Transfer-Encoding:", 18) == 0) {
+      const char *encoding = strstr(line + 18, "chunked");
+      if (encoding != NULL && encoding < line_end) {
+        *chunked = true;
+      }
+    }
+    line = line_end;
+  }
+  return *chunked || *content_length != 0;
+}
+
+static bool decode_chunked_body(const uint8_t *encoded, size_t encoded_size,
+                                char *destination, size_t capacity,
+                                size_t *decoded_size) {
+  size_t input = 0;
+  size_t output = 0;
+  while (input < encoded_size) {
+    size_t chunk_size = 0;
+    bool saw_digit = false;
+    while (input < encoded_size && encoded[input] != '\r') {
+      const uint8_t value = encoded[input++];
+      unsigned digit = 0;
+      if (value >= '0' && value <= '9') {
+        digit = value - '0';
+      } else if (value >= 'a' && value <= 'f') {
+        digit = value - 'a' + 10u;
+      } else if (value >= 'A' && value <= 'F') {
+        digit = value - 'A' + 10u;
+      } else if (value == ';') {
+        while (input < encoded_size && encoded[input] != '\r') {
+          ++input;
+        }
+        break;
+      } else {
+        return false;
+      }
+      saw_digit = true;
+      if (chunk_size > (SIZE_MAX - digit) / 16u) {
+        return false;
+      }
+      chunk_size = chunk_size * 16u + digit;
+    }
+    if (!saw_digit || input + 2u > encoded_size ||
+        encoded[input] != '\r' || encoded[input + 1u] != '\n') {
+      return false;
+    }
+    input += 2u;
+    if (chunk_size == 0) {
+      if (output >= capacity) {
+        return false;
+      }
+      destination[output] = '\0';
+      *decoded_size = output;
+      return true;
+    }
+    if (chunk_size > encoded_size - input ||
+        chunk_size >= capacity - output) {
+      return false;
+    }
+    memcpy(destination + output, encoded + input, chunk_size);
+    input += chunk_size;
+    output += chunk_size;
+    if (input + 2u > encoded_size || encoded[input] != '\r' ||
+        encoded[input + 1u] != '\n') {
+      return false;
+    }
+    input += 2u;
+  }
+  return false;
 }
 
 static bool read_body(HttpClient *client, uint8_t *destination, size_t size) {
@@ -693,4 +794,119 @@ const char *http_client_host(const HttpClient *client) {
 
 uint16_t http_client_port(const HttpClient *client) {
   return client == NULL ? 0 : client->port;
+}
+
+bool http_client_request_json(const char *method, const char *url,
+                              const char *bearer_token, const char *body,
+                              char *destination, size_t capacity,
+                              HttpJsonResponse *response) {
+  if (method == NULL || url == NULL || destination == NULL || capacity < 2 ||
+      response == NULL) {
+    return false;
+  }
+
+  HttpClient *client = calloc(1, sizeof(*client));
+  if (client == NULL) {
+    return false;
+  }
+  client->socket = -1;
+  if (!parse_url(url, client)) {
+    free(client);
+    return false;
+  }
+  if (!network_initialized) {
+    if (!initialize_network()) {
+      free(client);
+      return false;
+    }
+    network_initialized = true;
+  }
+  if (!connect_client(client, false)) {
+    free(client);
+    return false;
+  }
+
+  const char *request_body = body == NULL ? "" : body;
+  const size_t body_size = strlen(request_body);
+  const char *authorization =
+      bearer_token == NULL || bearer_token[0] == '\0' ? "" : bearer_token;
+  char request[HTTP_JSON_REQUEST_LIMIT];
+  const int request_size = snprintf(
+      request, sizeof(request),
+      "%s %s HTTP/1.1\r\nHost: %s\r\n"
+      "User-Agent: Multiplex-GameCube/0\r\nAccept: application/json\r\n"
+      "Content-Type: application/json\r\nContent-Length: %u\r\n"
+      "%s%s%sConnection: close\r\n\r\n%s",
+      method, client->path, client->host, (unsigned)body_size,
+      authorization[0] == '\0' ? "" : "Authorization: Bearer ",
+      authorization, authorization[0] == '\0' ? "" : "\r\n", request_body);
+  if (request_size <= 0 || (size_t)request_size >= sizeof(request) ||
+      !write_all(client->socket, (const uint8_t *)request,
+                 (size_t)request_size)) {
+    http_client_destroy(client);
+    return false;
+  }
+
+  char headers[HTTP_HEADER_LIMIT];
+  size_t header_size = 0;
+  size_t response_size = 0;
+  if (!read_headers(client, headers, sizeof(headers), &header_size,
+                    &response_size)) {
+    http_client_destroy(client);
+    return false;
+  }
+  const char first_body_byte = headers[header_size];
+  headers[header_size] = '\0';
+  size_t content_length = 0;
+  bool chunked = false;
+  const bool valid_headers =
+      parse_json_headers(headers, response, &content_length, &chunked);
+  headers[header_size] = first_body_byte;
+  if (!valid_headers) {
+    http_client_destroy(client);
+    return false;
+  }
+
+  const size_t prefetched = response_size - header_size;
+  if (!chunked) {
+    if (content_length >= capacity || prefetched > content_length) {
+      http_client_destroy(client);
+      return false;
+    }
+    memcpy(destination, headers + header_size, prefetched);
+    const bool read =
+        read_body(client, (uint8_t *)destination + prefetched,
+                  content_length - prefetched);
+    if (read) {
+      destination[content_length] = '\0';
+      response->body_size = content_length;
+    }
+    http_client_destroy(client);
+    return read;
+  }
+
+  const size_t encoded_capacity = capacity + HTTP_JSON_FRAMING_ALLOWANCE;
+  uint8_t *encoded = malloc(encoded_capacity);
+  if (encoded == NULL || prefetched > encoded_capacity) {
+    free(encoded);
+    http_client_destroy(client);
+    return false;
+  }
+  memcpy(encoded, headers + header_size, prefetched);
+  size_t encoded_size = prefetched;
+  while (encoded_size < encoded_capacity) {
+    const int received =
+        read_available(client->socket, encoded + encoded_size,
+                       encoded_capacity - encoded_size);
+    if (received <= 0) {
+      break;
+    }
+    encoded_size += (size_t)received;
+  }
+  const bool decoded =
+      decode_chunked_body(encoded, encoded_size, destination, capacity,
+                          &response->body_size);
+  free(encoded);
+  http_client_destroy(client);
+  return decoded;
 }

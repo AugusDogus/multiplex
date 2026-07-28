@@ -7,6 +7,11 @@
 
 typedef struct HttpClient HttpClient;
 
+typedef struct {
+  unsigned status;
+  size_t body_size;
+} HttpJsonResponse;
+
 HttpClient *http_client_open(const char *url);
 void http_client_request_stop(HttpClient *client);
 void http_client_begin_stream(HttpClient *client);
@@ -19,5 +24,9 @@ size_t http_client_size(const HttpClient *client);
 unsigned http_client_range_count(const HttpClient *client);
 const char *http_client_host(const HttpClient *client);
 uint16_t http_client_port(const HttpClient *client);
+bool http_client_request_json(const char *method, const char *url,
+                              const char *bearer_token, const char *body,
+                              char *destination, size_t capacity,
+                              HttpJsonResponse *response);
 
 #endif
