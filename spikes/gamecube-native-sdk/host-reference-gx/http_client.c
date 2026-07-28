@@ -857,6 +857,331 @@ static bool header_is_safe(const HttpRequestHeader *header) {
          strchr(header->value, '\n') == NULL;
 }
 
+typedef struct {
+  HttpClient *client;
+  const uint8_t *prefetched;
+  size_t prefetched_size;
+  size_t prefetched_offset;
+} HttpBodyReader;
+
+static int body_reader_read_some(HttpBodyReader *reader, uint8_t *destination,
+                                 size_t size) {
+  if (reader->prefetched_offset < reader->prefetched_size) {
+    const size_t available =
+        reader->prefetched_size - reader->prefetched_offset;
+    const size_t copied = available < size ? available : size;
+    memcpy(destination, reader->prefetched + reader->prefetched_offset,
+           copied);
+    reader->prefetched_offset += copied;
+    return (int)copied;
+  }
+  return read_available(reader->client->socket, destination, size);
+}
+
+static bool body_reader_read_exact(HttpBodyReader *reader,
+                                   uint8_t *destination, size_t size) {
+  size_t read = 0;
+  while (read < size) {
+    const int received =
+        body_reader_read_some(reader, destination + read, size - read);
+    if (received <= 0 || (size_t)received > size - read) {
+      return false;
+    }
+    read += (size_t)received;
+  }
+  return true;
+}
+
+static bool body_reader_line(HttpBodyReader *reader, char *line,
+                             size_t capacity) {
+  size_t used = 0;
+  while (used + 1u < capacity) {
+    uint8_t byte = 0;
+    if (!body_reader_read_exact(reader, &byte, 1)) {
+      return false;
+    }
+    if (byte == '\n') {
+      if (used != 0 && line[used - 1u] == '\r') {
+        --used;
+      }
+      line[used] = '\0';
+      return true;
+    }
+    line[used++] = (char)byte;
+  }
+  return false;
+}
+
+static bool parse_stream_request_headers(char *headers,
+                                         HttpJsonResponse *response,
+                                         size_t *content_length,
+                                         bool *has_content_length,
+                                         bool *chunked) {
+  memset(response, 0, sizeof(*response));
+  *content_length = 0;
+  *has_content_length = false;
+  *chunked = false;
+  if (sscanf(headers, "HTTP/%*u.%*u %u", &response->status) != 1 ||
+      response->status < 100 || response->status > 599) {
+    return false;
+  }
+
+  char *line = strstr(headers, "\r\n");
+  while (line != NULL && line[2] != '\r' && line[2] != '\0') {
+    line += 2;
+    char *line_end = strstr(line, "\r\n");
+    if (line_end == NULL) {
+      return false;
+    }
+    if (strncasecmp(line, "Content-Length:", 15) == 0) {
+      char *value = line + 15;
+      while (*value == ' ' || *value == '\t') {
+        ++value;
+      }
+      char *end = NULL;
+      const unsigned long parsed = strtoul(value, &end, 10);
+      if (end == value || end > line_end || parsed > SIZE_MAX) {
+        return false;
+      }
+      *content_length = (size_t)parsed;
+      *has_content_length = true;
+    } else if (strncasecmp(line, "Transfer-Encoding:", 18) == 0) {
+      const char *encoding = strstr(line + 18, "chunked");
+      if (encoding != NULL && encoding < line_end) {
+        *chunked = true;
+      }
+    }
+    line = line_end;
+  }
+  return !*chunked || !*has_content_length;
+}
+
+static bool write_body(HttpBodyWrite write, void *context,
+                       const uint8_t *bytes, size_t size) {
+  return size == 0 || write == NULL || write(context, bytes, size);
+}
+
+static bool stream_content_length(HttpBodyReader *reader, size_t size,
+                                  HttpBodyWrite write, void *context) {
+  uint8_t buffer[HTTP_CACHE_SIZE];
+  size_t read = 0;
+  while (read < size) {
+    const size_t remaining = size - read;
+    const size_t chunk = remaining < sizeof(buffer) ? remaining
+                                                    : sizeof(buffer);
+    if (!body_reader_read_exact(reader, buffer, chunk) ||
+        !write_body(write, context, buffer, chunk)) {
+      return false;
+    }
+    read += chunk;
+    LWP_YieldThread();
+  }
+  return true;
+}
+
+static bool parse_chunk_size(const char *line, size_t *size) {
+  size_t parsed = 0;
+  bool saw_digit = false;
+  for (const char *cursor = line; *cursor != '\0' && *cursor != ';';
+       ++cursor) {
+    unsigned digit = 0;
+    if (*cursor >= '0' && *cursor <= '9') {
+      digit = (unsigned)(*cursor - '0');
+    } else if (*cursor >= 'a' && *cursor <= 'f') {
+      digit = (unsigned)(*cursor - 'a') + 10u;
+    } else if (*cursor >= 'A' && *cursor <= 'F') {
+      digit = (unsigned)(*cursor - 'A') + 10u;
+    } else {
+      return false;
+    }
+    saw_digit = true;
+    if (parsed > (SIZE_MAX - digit) / 16u) {
+      return false;
+    }
+    parsed = parsed * 16u + digit;
+  }
+  *size = parsed;
+  return saw_digit;
+}
+
+static bool stream_chunked(HttpBodyReader *reader, HttpBodyWrite write,
+                           void *context, size_t *body_size) {
+  uint8_t buffer[HTTP_CACHE_SIZE];
+  char line[128];
+  *body_size = 0;
+  for (;;) {
+    size_t chunk_size = 0;
+    if (!body_reader_line(reader, line, sizeof(line)) ||
+        !parse_chunk_size(line, &chunk_size)) {
+      return false;
+    }
+    if (chunk_size == 0) {
+      do {
+        if (!body_reader_line(reader, line, sizeof(line))) {
+          return false;
+        }
+      } while (line[0] != '\0');
+      return true;
+    }
+    if (chunk_size > SIZE_MAX - *body_size) {
+      return false;
+    }
+    size_t remaining = chunk_size;
+    while (remaining != 0) {
+      const size_t part =
+          remaining < sizeof(buffer) ? remaining : sizeof(buffer);
+      if (!body_reader_read_exact(reader, buffer, part) ||
+          !write_body(write, context, buffer, part)) {
+        return false;
+      }
+      remaining -= part;
+      LWP_YieldThread();
+    }
+    uint8_t terminator[2];
+    if (!body_reader_read_exact(reader, terminator, sizeof(terminator)) ||
+        terminator[0] != '\r' || terminator[1] != '\n') {
+      return false;
+    }
+    *body_size += chunk_size;
+  }
+}
+
+static bool stream_until_close(HttpBodyReader *reader, HttpBodyWrite write,
+                               void *context, size_t *body_size) {
+  uint8_t buffer[HTTP_CACHE_SIZE];
+  *body_size = 0;
+  for (;;) {
+    const int received =
+        body_reader_read_some(reader, buffer, sizeof(buffer));
+    if (received == 0) {
+      return true;
+    }
+    if (received < 0 ||
+        !write_body(write, context, buffer, (size_t)received) ||
+        *body_size > SIZE_MAX - (size_t)received) {
+      return false;
+    }
+    *body_size += (size_t)received;
+    LWP_YieldThread();
+  }
+}
+
+bool http_client_stream_get_with_headers(
+    const char *url, const HttpRequestHeader *headers, size_t header_count,
+    HttpBodyWrite write, void *write_context, HttpJsonResponse *response) {
+  if (url == NULL || response == NULL ||
+      (header_count != 0 && headers == NULL)) {
+    return false;
+  }
+  HttpClient *client = calloc(1, sizeof(*client));
+  if (client == NULL) {
+    return false;
+  }
+  client->socket = -1;
+  if (!parse_url(url, client)) {
+    free(client);
+    return false;
+  }
+  if (!network_initialized) {
+    if (!initialize_network()) {
+      free(client);
+      return false;
+    }
+    network_initialized = true;
+  }
+  if (!connect_client(client, false)) {
+    free(client);
+    return false;
+  }
+
+  char request[HTTP_JSON_REQUEST_LIMIT];
+  int request_size = snprintf(
+      request, sizeof(request),
+      "GET %s HTTP/1.1\r\nHost: %s:%u\r\n"
+      "User-Agent: Multiplex-GameCube/0\r\nAccept: */*\r\n",
+      client->path, client->host, client->port);
+  if (request_size <= 0 || (size_t)request_size >= sizeof(request)) {
+    http_client_destroy(client);
+    return false;
+  }
+  size_t request_used = (size_t)request_size;
+  for (size_t index = 0; index < header_count; ++index) {
+    if (!header_is_safe(&headers[index])) {
+      http_client_destroy(client);
+      return false;
+    }
+    const int written = snprintf(
+        request + request_used, sizeof(request) - request_used, "%s: %s\r\n",
+        headers[index].name, headers[index].value);
+    if (written <= 0 || (size_t)written >= sizeof(request) - request_used) {
+      http_client_destroy(client);
+      return false;
+    }
+    request_used += (size_t)written;
+  }
+  static const char tail[] = "Connection: close\r\n\r\n";
+  if (sizeof(tail) > sizeof(request) - request_used) {
+    http_client_destroy(client);
+    return false;
+  }
+  memcpy(request + request_used, tail, sizeof(tail) - 1u);
+  request_used += sizeof(tail) - 1u;
+  if (!write_all(client->socket, (const uint8_t *)request, request_used)) {
+    http_client_destroy(client);
+    return false;
+  }
+
+  char response_headers[HTTP_HEADER_LIMIT];
+  size_t header_size = 0;
+  size_t response_size = 0;
+  if (!read_headers(client, response_headers, sizeof(response_headers),
+                    &header_size, &response_size)) {
+    http_client_destroy(client);
+    return false;
+  }
+  const char first_body_byte = response_headers[header_size];
+  response_headers[header_size] = '\0';
+  size_t content_length = 0;
+  bool has_content_length = false;
+  bool chunked = false;
+  const bool valid_headers = parse_stream_request_headers(
+      response_headers, response, &content_length, &has_content_length,
+      &chunked);
+  response_headers[header_size] = first_body_byte;
+  if (!valid_headers) {
+    http_client_destroy(client);
+    return false;
+  }
+
+  HttpBodyReader reader = {
+      .client = client,
+      .prefetched = (const uint8_t *)response_headers + header_size,
+      .prefetched_size = response_size - header_size,
+      .prefetched_offset = 0,
+  };
+  bool streamed = false;
+  if (chunked) {
+    streamed = stream_chunked(&reader, write, write_context,
+                              &response->body_size);
+  } else if (has_content_length) {
+    streamed = stream_content_length(&reader, content_length, write,
+                                     write_context);
+    if (streamed) {
+      response->body_size = content_length;
+    }
+  } else {
+    streamed = stream_until_close(&reader, write, write_context,
+                                  &response->body_size);
+  }
+  SYS_Report(
+      "REFERENCE GX: HTTP stream status=%u bytes=%u framing=%s valid=%u\n",
+      response->status, (unsigned)response->body_size,
+      chunked ? "chunked" : has_content_length ? "length" : "close",
+      streamed ? 1u : 0u);
+  http_client_destroy(client);
+  return streamed;
+}
+
 bool http_client_request_with_headers(const char *method, const char *url,
                                       const HttpRequestHeader *headers,
                                       size_t header_count, const char *body,

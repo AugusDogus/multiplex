@@ -17,6 +17,9 @@ typedef struct {
   const char *value;
 } HttpRequestHeader;
 
+typedef bool (*HttpBodyWrite)(void *context, const uint8_t *bytes,
+                              size_t size);
+
 HttpClient *http_client_open(const char *url);
 HttpClient *http_client_open_with_headers(const char *url,
                                           const HttpRequestHeader *headers,
@@ -41,5 +44,8 @@ bool http_client_request_with_headers(const char *method, const char *url,
                                       size_t header_count, const char *body,
                                       char *destination, size_t capacity,
                                       HttpJsonResponse *response);
+bool http_client_stream_get_with_headers(
+    const char *url, const HttpRequestHeader *headers, size_t header_count,
+    HttpBodyWrite write, void *write_context, HttpJsonResponse *response);
 
 #endif
