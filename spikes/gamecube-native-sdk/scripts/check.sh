@@ -12,6 +12,7 @@ python3 "$script_dir/test-plex-pair.py"
 sh "$script_dir/test-auth-record.sh"
 sh "$script_dir/test-plex-server-directory.sh"
 sh "$script_dir/test-plex-catalog.sh"
+sh "$script_dir/test-mpeg-ts-parser.sh"
 
 cd "$spike_dir"
 
