@@ -10,6 +10,7 @@
 #include "native_ui.h"
 #include "plex_bootstrap.h"
 #include "plex_catalog.h"
+#include "plex_hls_demux.h"
 #include "poster_jpeg.h"
 #include "yuv420_gx.h"
 
@@ -133,6 +134,7 @@ static uint32_t video_rate_millihertz =
     (VIDEO_RATE_NUMERATOR * 1000u) / VIDEO_RATE_DENOMINATOR;
 static AudioDma *audio_output;
 static MpegPsDemux *media_demux;
+static PlexHlsDemux *direct_hls_demux;
 
 typedef struct {
   const char *gateway_url;
@@ -1220,6 +1222,9 @@ static void close_media_session(HttpClient **client, MpegPsDemux **demux) {
   if (*demux != NULL) {
     mpeg_ps_demux_stop(*demux);
   }
+  if (direct_hls_demux != NULL) {
+    plex_hls_demux_stop(direct_hls_demux);
+  }
   audio_dma_destroy(audio_output);
   audio_output = NULL;
   stop_video_decoder();
@@ -1230,6 +1235,18 @@ static void close_media_session(HttpClient **client, MpegPsDemux **demux) {
     *demux = NULL;
   }
   media_demux = NULL;
+  if (direct_hls_demux != NULL) {
+    SYS_Report(
+        "REFERENCE GX: HLS producer segments=%u video=%u audio=%u "
+        "complete=%u failed=%u\n",
+        plex_hls_demux_segment_count(direct_hls_demux),
+        plex_hls_demux_video_bytes(direct_hls_demux),
+        plex_hls_demux_audio_bytes(direct_hls_demux),
+        plex_hls_demux_complete(direct_hls_demux) ? 1u : 0u,
+        plex_hls_demux_failed(direct_hls_demux) ? 1u : 0u);
+    plex_hls_demux_destroy(direct_hls_demux);
+    direct_hls_demux = NULL;
+  }
   http_client_destroy(*client);
   *client = NULL;
 }
@@ -1270,6 +1287,59 @@ static bool start_media_pipeline(MpegPsDemux *demux, uint32_t rating_key,
     return false;
   }
   media_demux = demux;
+  return true;
+}
+
+static bool start_hls_pipeline(PlexHlsDemux *demux, uint32_t rating_key) {
+  const int64_t pts_delta = plex_hls_demux_first_video_pts90k(demux) -
+                            plex_hls_demux_first_audio_pts90k(demux);
+  if (pts_delta >= 0) {
+    video_pts_offset_samples =
+        (pts_delta * AUDIO_SAMPLE_RATE + MPEG_PTS_RATE / 2) / MPEG_PTS_RATE;
+  } else {
+    video_pts_offset_samples =
+        -((-pts_delta * AUDIO_SAMPLE_RATE + MPEG_PTS_RATE / 2) /
+          MPEG_PTS_RATE);
+  }
+  if (!start_video_decoder(
+          VIDEO_CODEC_H264, demux, plex_hls_demux_read_video,
+          plex_hls_demux_width(demux), plex_hls_demux_height(demux),
+          plex_hls_demux_frame_rate_millihertz(demux), 0)) {
+    SYS_Report("REFERENCE GX: H.264 initialization failed rating-key=%u\n",
+               rating_key);
+    return false;
+  }
+  audio_output =
+      audio_dma_create(AUDIO_CODEC_AAC, demux, plex_hls_demux_read_audio);
+  if (audio_output == NULL) {
+    SYS_Report("REFERENCE GX: AAC initialization failed rating-key=%u\n",
+               rating_key);
+    stop_video_decoder();
+    return false;
+  }
+  direct_hls_demux = demux;
+  SYS_Report(
+      "REFERENCE GX: direct playback pipeline rating-key=%u "
+      "pts-delta=%lld pts-offset-samples=%lld\n",
+      rating_key, pts_delta, video_pts_offset_samples);
+  return true;
+}
+
+static bool open_direct_hls_session(
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
+    uint32_t offset_ms, PlexHlsDemux **demux_out) {
+  PlexHlsDemux *demux =
+      plex_hls_demux_create(credentials, rating_key, offset_ms);
+  if (demux == NULL || !plex_hls_demux_start(demux) ||
+      !plex_hls_demux_wait_ready(demux, VIDEO_PREBUFFER_BYTES,
+                                 AUDIO_PREBUFFER_BYTES, 30000u) ||
+      !start_hls_pipeline(demux, rating_key)) {
+    SYS_Report("REFERENCE GX: direct HLS unavailable rating-key=%u\n",
+               rating_key);
+    plex_hls_demux_destroy(demux);
+    return false;
+  }
+  *demux_out = demux;
   return true;
 }
 
@@ -1672,6 +1742,63 @@ load_selected_playback(const char *gateway_url,
   return true;
 }
 
+static bool load_selected_direct_playback(
+    const MultiplexAuthCredentials *credentials,
+    MultiplexGatewayPlaybackManifest *active_manifest, HttpClient **client,
+    MpegPsDemux **demux) {
+  const uint32_t rating_key = multiplex_native_app_playback_request();
+  if (rating_key == 0) {
+    return true;
+  }
+  const uint32_t requested_offset =
+      multiplex_native_app_playback_offset_request();
+  MultiplexGatewayDetails details;
+  if (!multiplex_plex_load_details(credentials, rating_key, &details) ||
+      details.duration_ms == 0) {
+    if (multiplex_native_app_playback_fail() == 0) {
+      return false;
+    }
+    SYS_Report("REFERENCE GX: direct playback metadata unavailable "
+               "rating-key=%u\n",
+               rating_key);
+    return true;
+  }
+  const uint32_t offset_ms =
+      requested_offset < details.duration_ms ? requested_offset : 0;
+  const bool same_session =
+      direct_hls_demux != NULL && active_manifest->rating_key == rating_key &&
+      active_manifest->segment_start_ms == offset_ms;
+  if (!same_session) {
+    const uint32_t previous_rating_key = active_manifest->rating_key;
+    close_media_session(client, demux);
+    PlexHlsDemux *hls = NULL;
+    if (!open_direct_hls_session(credentials, rating_key, offset_ms, &hls)) {
+      if (multiplex_native_app_playback_fail() == 0) {
+        return false;
+      }
+      SYS_Report("REFERENCE GX: direct playback switch failed requested=%u\n",
+                 rating_key);
+      return true;
+    }
+    memset(active_manifest, 0, sizeof(*active_manifest));
+    active_manifest->version = 1;
+    active_manifest->rating_key = rating_key;
+    active_manifest->media_duration_ms = details.duration_ms;
+    active_manifest->segment_start_ms = offset_ms;
+    active_manifest->segment_duration_ms = details.duration_ms - offset_ms;
+    SYS_Report(
+        "REFERENCE GX: direct playback activated previous=%u active=%u "
+        "offset=%u duration=%u\n",
+        previous_rating_key, rating_key, offset_ms, details.duration_ms);
+  }
+  if (multiplex_native_app_playback_commit() == 0) {
+    return false;
+  }
+  SYS_Report("REFERENCE GX: direct playback ready rating-key=%u offset=%u\n",
+             rating_key, offset_ms);
+  return true;
+}
+
 static uint32_t
 playback_position_ms(const MultiplexGatewayPlaybackManifest *manifest) {
   if (manifest == NULL || manifest->rating_key == 0 || audio_output == NULL) {
@@ -1944,6 +2071,12 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
             playback_manifest->segment_start_ms,
             playback_manifest->segment_duration_ms);
       }
+    } else if (direct_hls_demux != NULL) {
+      SYS_Report(
+          "REFERENCE GX: HLS progress segments=%u video=%u audio=%u\n",
+          plex_hls_demux_segment_count(direct_hls_demux),
+          plex_hls_demux_video_bytes(direct_hls_demux),
+          plex_hls_demux_audio_bytes(direct_hls_demux));
     }
     presentation_frames = 0;
   }
@@ -2260,6 +2393,11 @@ static void *run_app(void *unused) {
       SYS_Report("REFERENCE GX: media producer failure\n");
       break;
     }
+    if (direct_hls_demux != NULL &&
+        plex_hls_demux_failed(direct_hls_demux)) {
+      SYS_Report("REFERENCE GX: HLS media producer failure\n");
+      break;
+    }
     const uint32_t connected_pads = PAD_ScanPads();
     if (!controller_status_reported) {
       uint32_t controller_type = 0;
@@ -2398,6 +2536,14 @@ static void *run_app(void *unused) {
                                   &client, &demux)) {
         SYS_Report("REFERENCE GX: playback-session load failed\n");
       }
+#if MULTIPLEX_PAIRING_ENABLED
+      if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked &&
+          !load_selected_direct_playback(&auth_credentials,
+                                         &playback_manifest, &client,
+                                         &demux)) {
+        SYS_Report("REFERENCE GX: direct playback-session load failed\n");
+      }
+#endif
       native_frame_dirty = true;
     }
     if ((pressed & PAD_BUTTON_START) != 0) {
