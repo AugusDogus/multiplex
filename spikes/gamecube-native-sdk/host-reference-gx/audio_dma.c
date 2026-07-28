@@ -135,7 +135,9 @@ static void *run_audio_decoder(void *argument) {
 
     void *buffer = audio->buffers[free_buffer];
     if (!mp2_decoder_read_pcm(audio->decoder, buffer, AUDIO_BURST_SIZE)) {
-      SYS_Report("REFERENCE GX: audio decoder failure\n");
+      if (!audio->stopping) {
+        SYS_Report("REFERENCE GX: audio decoder failure\n");
+      }
       audio->stopping = true;
       break;
     }
@@ -195,7 +197,7 @@ static uint64_t samples_played_locked(const AudioDma *audio) {
          partial_samples;
 }
 
-AudioDma *audio_dma_create(const uint8_t *stream, size_t stream_size) {
+AudioDma *audio_dma_create(void *reader_context, MediaRead read) {
   if (active_audio != NULL) {
     return NULL;
   }
@@ -207,7 +209,7 @@ AudioDma *audio_dma_create(const uint8_t *stream, size_t stream_size) {
   audio->decoder_thread = LWP_THREAD_NULL;
   audio->current_buffer = -1;
   audio->queued_buffer = -1;
-  audio->decoder = mp2_decoder_create(stream, stream_size);
+  audio->decoder = mp2_decoder_create(reader_context, read);
   if (audio->decoder == NULL) {
     audio_dma_destroy(audio);
     return NULL;
@@ -247,12 +249,18 @@ AudioDma *audio_dma_create(const uint8_t *stream, size_t stream_size) {
   return audio;
 }
 
+void audio_dma_request_stop(AudioDma *audio) {
+  if (audio != NULL) {
+    audio->stopping = true;
+  }
+}
+
 void audio_dma_destroy(AudioDma *audio) {
   if (audio == NULL) {
     return;
   }
 
-  audio->stopping = true;
+  audio_dma_request_stop(audio);
   if (audio->decoder_thread != LWP_THREAD_NULL) {
     LWP_JoinThread(audio->decoder_thread, NULL);
   }
@@ -340,10 +348,9 @@ void audio_dma_update(AudioDma *audio, bool playing) {
       reported_buffers = audio->completed_buffers;
       SYS_Report(
           "REFERENCE GX: audio-progress buffers=%u samples=%llu "
-          "decoder-frames=%u loops=%u underruns=%u\n",
+          "decoder-frames=%u underruns=%u\n",
           audio->completed_buffers, audio_dma_samples_played(audio),
-          mp2_decoder_frame_count(audio->decoder),
-          mp2_decoder_loop_count(audio->decoder), audio->underruns);
+          mp2_decoder_frame_count(audio->decoder), audio->underruns);
     }
   }
 }

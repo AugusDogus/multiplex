@@ -38,6 +38,8 @@
 #define MPEG_PTS_RATE 90000
 #define VIDEO_RATE_NUMERATOR 30000
 #define VIDEO_RATE_DENOMINATOR 1001
+#define VIDEO_PREBUFFER_BYTES (256u * 1024u)
+#define AUDIO_PREBUFFER_BYTES (32u * 1024u)
 
 typedef struct {
   uint32_t render_us;
@@ -100,6 +102,7 @@ static uint32_t video_decode_completion_count;
 static bool video_texture_ready;
 static bool video_was_playing;
 static AudioDma *audio_output;
+static MpegPsDemux *media_demux;
 
 static uint32_t elapsed_us(uint32_t started) {
   return (uint32_t)ticks_to_microsecs((uint32_t)(gettick() - started));
@@ -265,17 +268,15 @@ static void *run_video_decoder(void *unused) {
 
     LWP_MutexLock(video_decoder_mutex);
     video_decode_running = false;
+    if (video_decoder_stopping) {
+      continue;
+    }
     if (decoded) {
       video_decode_ready = true;
       video_decode_ready_us = decode_us;
       video_codec_ready_us = codec_us;
       video_upload_ready_us = upload_us;
       video_decode_completion_count += 1;
-      if (video_decode_completion_count % 30u == 0u) {
-        SYS_Report(
-            "REFERENCE GX: MPEG-2 progress=%u frames last-decode=%uus\n",
-            video_decode_completion_count, decode_us);
-      }
     } else {
       video_decode_failed = true;
     }
@@ -286,8 +287,20 @@ static void *run_video_decoder(void *unused) {
 
 static void stop_video_decoder(void);
 
-static bool start_video_decoder(const uint8_t *stream, size_t stream_size) {
-  video_decoder = mpeg2_decoder_create(stream, stream_size);
+static void request_video_decoder_stop(void) {
+  if (video_decoder_thread == LWP_THREAD_NULL ||
+      !video_decoder_sync_ready) {
+    return;
+  }
+  LWP_MutexLock(video_decoder_mutex);
+  video_decoder_stopping = true;
+  LWP_CondSignal(video_decoder_condition);
+  LWP_MutexUnlock(video_decoder_mutex);
+}
+
+static bool start_video_decoder(void *reader_context, MediaRead read,
+                                size_t stream_size) {
+  video_decoder = mpeg2_decoder_create(reader_context, read);
   if (video_decoder == NULL) {
     SYS_Report("REFERENCE GX: MPEG-2 decoder initialization failed\n");
     return false;
@@ -336,10 +349,7 @@ static bool start_video_decoder(const uint8_t *stream, size_t stream_size) {
 
 static void stop_video_decoder(void) {
   if (video_decoder_thread != LWP_THREAD_NULL) {
-    LWP_MutexLock(video_decoder_mutex);
-    video_decoder_stopping = true;
-    LWP_CondSignal(video_decoder_condition);
-    LWP_MutexUnlock(video_decoder_mutex);
+    request_video_decoder_stop();
     LWP_JoinThread(video_decoder_thread, NULL);
     video_decoder_thread = LWP_THREAD_NULL;
   }
@@ -593,7 +603,17 @@ static void draw_video_surface(void) {
     return;
   }
 
-  const bool playing = video_surface.playing != 0;
+  const size_t video_size = mpeg_ps_demux_video_size(media_demux);
+  const size_t audio_size = mpeg_ps_demux_audio_size(media_demux);
+  const size_t video_prebuffer =
+      video_size < VIDEO_PREBUFFER_BYTES ? video_size : VIDEO_PREBUFFER_BYTES;
+  const size_t audio_prebuffer =
+      audio_size < AUDIO_PREBUFFER_BYTES ? audio_size : AUDIO_PREBUFFER_BYTES;
+  const bool source_ready =
+      media_demux == NULL ||
+      (mpeg_ps_demux_video_bytes_pumped(media_demux) >= video_prebuffer &&
+       mpeg_ps_demux_audio_bytes_pumped(media_demux) >= audio_prebuffer);
+  const bool playing = video_surface.playing != 0 && source_ready;
   audio_dma_update(audio_output, playing);
   const bool playback_changed = playing != video_was_playing;
   if (playback_changed) {
@@ -715,6 +735,12 @@ static void present_frame(void) {
             : (uint32_t)((120ull * 10000000ull) / measured_us);
     SYS_Report("REFERENCE GX: presentation=120 frames/%uus (%u.%u fps)\n",
                measured_us, fps_tenths / 10, fps_tenths % 10);
+    if (media_demux != NULL) {
+      SYS_Report("REFERENCE GX: stream-progress video=%u audio=%u loops=%u\n",
+                 mpeg_ps_demux_video_bytes_pumped(media_demux),
+                 mpeg_ps_demux_audio_bytes_pumped(media_demux),
+                 mpeg_ps_demux_loop_count(media_demux));
+    }
     presentation_frames = 0;
   }
 }
@@ -747,20 +773,37 @@ static void *run_app(void *unused) {
   }
 
   MpegPsDemux *demux = NULL;
+  HttpClient *client = NULL;
   if (MULTIPLEX_MEDIA_URL[0] != '\0') {
-    HttpClient *client = http_client_open(MULTIPLEX_MEDIA_URL);
+    client = http_client_open(MULTIPLEX_MEDIA_URL);
     if (client == NULL) {
       SYS_Report("REFERENCE GX: HTTP media initialization failed\n");
       return (void *)(uintptr_t)1;
     }
-    demux = mpeg_ps_demux_create_reader(
-        client, http_client_size(client), read_http_program);
+    if (MULTIPLEX_MEDIA_HAS_INFO != 0) {
+      const MpegPsInfo info = {
+          .video_stream_id = 0xe0,
+          .audio_stream_id = 0xc0,
+          .video_size = MULTIPLEX_MEDIA_VIDEO_BYTES,
+          .audio_size = MULTIPLEX_MEDIA_AUDIO_BYTES,
+          .video_packets = MULTIPLEX_MEDIA_VIDEO_PACKETS,
+          .audio_packets = MULTIPLEX_MEDIA_AUDIO_PACKETS,
+          .first_video_pts90k = MULTIPLEX_MEDIA_VIDEO_PTS90K,
+          .first_audio_pts90k = MULTIPLEX_MEDIA_AUDIO_PTS90K,
+      };
+      demux = mpeg_ps_demux_create_reader_with_info(
+          client, http_client_size(client), read_http_program, &info);
+    } else {
+      demux = mpeg_ps_demux_create_reader(
+          client, http_client_size(client), read_http_program);
+    }
     SYS_Report(
         "REFERENCE GX: media-source=http host=%s port=%u bytes=%u ranges=%u\n",
         http_client_host(client), http_client_port(client),
         (unsigned)http_client_size(client),
         http_client_range_count(client));
-    http_client_destroy(client);
+    /* libogc network waits are LWP-local; the producer opens a streaming GET. */
+    http_client_begin_stream(client);
   } else {
     SYS_Report("REFERENCE GX: media-source=embedded bytes=%u\n",
                multiplex_dvd_demo_mpg_size);
@@ -770,6 +813,7 @@ static void *run_app(void *unused) {
 
   if (demux == NULL) {
     SYS_Report("REFERENCE GX: MPEG-PS demux initialization failed\n");
+    http_client_destroy(client);
     return (void *)(uintptr_t)1;
   }
   const int64_t pts_delta =
@@ -784,28 +828,49 @@ static void *run_app(void *unused) {
         -((-pts_delta * AUDIO_SAMPLE_RATE + MPEG_PTS_RATE / 2) /
           MPEG_PTS_RATE);
   }
-  if (!start_video_decoder(mpeg_ps_demux_video_data(demux),
+  if (!start_video_decoder(demux, mpeg_ps_demux_read_video,
                            mpeg_ps_demux_video_size(demux))) {
     mpeg_ps_demux_destroy(demux);
+    http_client_destroy(client);
     return (void *)(uintptr_t)1;
   }
-  audio_output = audio_dma_create(mpeg_ps_demux_audio_data(demux),
-                                  mpeg_ps_demux_audio_size(demux));
-  mpeg_ps_demux_destroy(demux);
+  audio_output = audio_dma_create(demux, mpeg_ps_demux_read_audio);
   if (audio_output == NULL) {
     SYS_Report("REFERENCE GX: audio initialization failed\n");
     stop_video_decoder();
+    mpeg_ps_demux_destroy(demux);
+    http_client_destroy(client);
     return (void *)(uintptr_t)1;
   }
-  initialize_textures();
-  if (!refresh_reference_frame(true)) {
+  if (!mpeg_ps_demux_start(demux)) {
+    SYS_Report("REFERENCE GX: media producer initialization failed\n");
     audio_dma_destroy(audio_output);
     audio_output = NULL;
     stop_video_decoder();
+    mpeg_ps_demux_destroy(demux);
+    http_client_destroy(client);
+    return (void *)(uintptr_t)1;
+  }
+  media_demux = demux;
+  initialize_textures();
+  if (!refresh_reference_frame(true)) {
+    audio_dma_request_stop(audio_output);
+    request_video_decoder_stop();
+    mpeg_ps_demux_stop(demux);
+    audio_dma_destroy(audio_output);
+    audio_output = NULL;
+    stop_video_decoder();
+    mpeg_ps_demux_destroy(demux);
+    media_demux = NULL;
+    http_client_destroy(client);
     return (void *)(uintptr_t)1;
   }
 
   while (SYS_MainLoop()) {
+    if (mpeg_ps_demux_failed(demux)) {
+      SYS_Report("REFERENCE GX: media producer failure\n");
+      break;
+    }
     PAD_ScanPads();
     const uint32_t pressed = PAD_ButtonsDown(0);
     if (pressed != 0) {
@@ -838,9 +903,17 @@ static void *run_app(void *unused) {
     present_frame();
   }
 
+  audio_dma_request_stop(audio_output);
+  request_video_decoder_stop();
+  mpeg_ps_demux_stop(demux);
   audio_dma_destroy(audio_output);
   audio_output = NULL;
   stop_video_decoder();
+  SYS_Report("REFERENCE GX: media producer loops=%u\n",
+             mpeg_ps_demux_loop_count(demux));
+  mpeg_ps_demux_destroy(demux);
+  media_demux = NULL;
+  http_client_destroy(client);
   return NULL;
 }
 

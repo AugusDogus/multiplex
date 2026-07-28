@@ -2,8 +2,8 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Small seekable HTTP byte-range reader for the first GameCube network
- * boundary. One persistent libogc2/BBA TCP connection backs a 1 KiB cache, so
- * callers can parse a large container without allocating the whole response.
+ * boundary. A 1 KiB range cache supports metadata inspection. Playback then
+ * switches to a forward-only HTTP response read in the same bounded chunks.
  */
 
 #include "http_client.h"
@@ -44,6 +44,11 @@ struct HttpClient {
   size_t cache_size;
   size_t total_size;
   unsigned ranges;
+  bool streaming;
+  size_t stream_position;
+  uint8_t stream_prefetch[HTTP_HEADER_LIMIT];
+  size_t stream_prefetch_offset;
+  size_t stream_prefetch_size;
 };
 
 static bool parse_port(const char *begin, const char *end, uint16_t *port) {
@@ -123,7 +128,14 @@ static bool initialize_network(void) {
   return true;
 }
 
-static bool connect_client(HttpClient *client) {
+static void disconnect_client(HttpClient *client) {
+  if (client->socket >= 0) {
+    net_close(client->socket);
+    client->socket = -1;
+  }
+}
+
+static bool connect_client(HttpClient *client, bool initial_connection) {
   client->socket = net_socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
   if (client->socket < 0) {
     return false;
@@ -140,10 +152,12 @@ static bool connect_client(HttpClient *client) {
     return false;
   }
 
-  /* Match Dolphin's own GameCube HTTP regression test connection grace. */
-  sleep(3);
-  SYS_Report("REFERENCE GX: HTTP connected host=%s port=%u\n", client->host,
-             client->port);
+  if (initial_connection) {
+    /* Match Dolphin's own GameCube HTTP regression test connection grace. */
+    sleep(3);
+    SYS_Report("REFERENCE GX: HTTP connected host=%s port=%u\n", client->host,
+               client->port);
+  }
   return true;
 }
 
@@ -232,6 +246,37 @@ static bool parse_headers(char *headers, HttpResponse *response) {
              response->content_length;
 }
 
+static bool parse_stream_headers(char *headers, size_t expected_size) {
+  unsigned status = 0;
+  if (sscanf(headers, "HTTP/%*u.%*u %u", &status) != 1 || status != 200) {
+    return false;
+  }
+
+  size_t content_length = 0;
+  char *line = strstr(headers, "\r\n");
+  while (line != NULL && line[2] != '\r' && line[2] != '\0') {
+    line += 2;
+    char *line_end = strstr(line, "\r\n");
+    if (line_end == NULL) {
+      return false;
+    }
+    if (strncasecmp(line, "Content-Length:", 15) == 0) {
+      char *value = line + 15;
+      while (*value == ' ' || *value == '\t') {
+        value += 1;
+      }
+      char *end = NULL;
+      const unsigned long parsed = strtoul(value, &end, 10);
+      if (end == value || end > line_end || parsed > HTTP_MAX_MEDIA_SIZE) {
+        return false;
+      }
+      content_length = (size_t)parsed;
+    }
+    line = line_end;
+  }
+  return content_length == expected_size;
+}
+
 static bool read_body(HttpClient *client, uint8_t *destination, size_t size) {
   size_t received = 0;
   while (received < size) {
@@ -241,12 +286,18 @@ static bool read_body(HttpClient *client, uint8_t *destination, size_t size) {
       return false;
     }
     received += (size_t)result;
+    if (received < size) {
+      LWP_YieldThread();
+    }
   }
   return true;
 }
 
 static bool fetch_cache(HttpClient *client, size_t start) {
   if (client->total_size != 0 && start >= client->total_size) {
+    return false;
+  }
+  if (client->socket < 0 && !connect_client(client, false)) {
     return false;
   }
   size_t end = start + HTTP_CACHE_SIZE - 1u;
@@ -312,6 +363,98 @@ static bool fetch_cache(HttpClient *client, size_t start) {
   return true;
 }
 
+static bool start_stream_response(HttpClient *client) {
+  disconnect_client(client);
+  if (!connect_client(client, false)) {
+    return false;
+  }
+
+  char request[HTTP_REQUEST_LIMIT];
+  const int request_size = snprintf(
+      request, sizeof(request),
+      "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: Multiplex-GameCube/0\r\n"
+      "Connection: close\r\n\r\n",
+      client->path, client->host);
+  if (request_size <= 0 || (size_t)request_size >= sizeof(request) ||
+      !write_all(client->socket, (const uint8_t *)request,
+                 (size_t)request_size)) {
+    return false;
+  }
+
+  char headers[HTTP_HEADER_LIMIT];
+  size_t header_size = 0;
+  size_t response_size = 0;
+  if (!read_headers(client, headers, sizeof(headers), &header_size,
+                    &response_size)) {
+    return false;
+  }
+  const char first_body_byte = headers[header_size];
+  headers[header_size] = '\0';
+  const bool valid = parse_stream_headers(headers, client->total_size);
+  headers[header_size] = first_body_byte;
+  const size_t prefetched = response_size - header_size;
+  if (!valid || prefetched > sizeof(client->stream_prefetch) ||
+      prefetched > client->total_size) {
+    return false;
+  }
+  memcpy(client->stream_prefetch, headers + header_size, prefetched);
+  client->stream_prefetch_offset = 0;
+  client->stream_prefetch_size = prefetched;
+  client->stream_position = 0;
+  return true;
+}
+
+static bool stream_read(HttpClient *client, uint8_t *destination,
+                        size_t size) {
+  size_t copied = 0;
+  while (copied < size &&
+         client->stream_prefetch_offset < client->stream_prefetch_size) {
+    const size_t available =
+        client->stream_prefetch_size - client->stream_prefetch_offset;
+    const size_t remaining = size - copied;
+    const size_t chunk = available < remaining ? available : remaining;
+    memcpy(destination + copied,
+           client->stream_prefetch + client->stream_prefetch_offset, chunk);
+    client->stream_prefetch_offset += chunk;
+    client->stream_position += chunk;
+    copied += chunk;
+  }
+  while (copied < size) {
+    const size_t remaining = size - copied;
+    const int result = net_recv(client->socket, destination + copied,
+                                remaining, 0);
+    if (result <= 0 || (size_t)result > remaining) {
+      return false;
+    }
+    client->stream_position += (size_t)result;
+    copied += (size_t)result;
+    if (copied < size) {
+      LWP_YieldThread();
+    }
+  }
+  return true;
+}
+
+static bool stream_read_at(HttpClient *client, size_t offset,
+                           uint8_t *destination, size_t size) {
+  if (client->socket < 0 || offset < client->stream_position) {
+    if (!start_stream_response(client)) {
+      return false;
+    }
+  }
+  uint8_t discard[HTTP_CACHE_SIZE];
+  while (client->stream_position < offset) {
+    const size_t remaining = offset - client->stream_position;
+    const size_t chunk = remaining < sizeof(discard) ? remaining
+                                                      : sizeof(discard);
+    if (!stream_read(client, discard, chunk)) {
+      return false;
+    }
+  }
+  return offset == client->stream_position &&
+         stream_read(client, destination, size);
+}
+
 HttpClient *http_client_open(const char *url) {
   HttpClient *client = calloc(1, sizeof(*client));
   if (client == NULL) {
@@ -323,7 +466,7 @@ HttpClient *http_client_open(const char *url) {
     http_client_destroy(client);
     return NULL;
   }
-  if (!initialize_network() || !connect_client(client) ||
+  if (!initialize_network() || !connect_client(client, true) ||
       !fetch_cache(client, 0)) {
     SYS_Report("REFERENCE GX: HTTP open failed host=%s port=%u\n",
                client->host, client->port);
@@ -333,13 +476,30 @@ HttpClient *http_client_open(const char *url) {
   return client;
 }
 
+void http_client_release_connection(HttpClient *client) {
+  if (client == NULL) {
+    return;
+  }
+  disconnect_client(client);
+  client->cache_size = 0;
+}
+
+void http_client_begin_stream(HttpClient *client) {
+  if (client == NULL) {
+    return;
+  }
+  http_client_release_connection(client);
+  client->streaming = true;
+  client->stream_position = 0;
+  client->stream_prefetch_offset = 0;
+  client->stream_prefetch_size = 0;
+}
+
 void http_client_destroy(HttpClient *client) {
   if (client == NULL) {
     return;
   }
-  if (client->socket >= 0) {
-    net_close(client->socket);
-  }
+  http_client_release_connection(client);
   free(client);
 }
 
@@ -348,6 +508,9 @@ bool http_client_read_at(HttpClient *client, size_t offset,
   if (client == NULL || destination == NULL ||
       offset > client->total_size || size > client->total_size - offset) {
     return false;
+  }
+  if (client->streaming) {
+    return stream_read_at(client, offset, destination, size);
   }
 
   size_t copied = 0;

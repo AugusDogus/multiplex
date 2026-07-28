@@ -19,14 +19,18 @@
 
 #define MP2_CHANNELS 2
 #define MP2_SAMPLE_RATE 48000
+#define MP2_INPUT_SIZE (8 * 1024)
 
 extern AVCodec ff_mp2_decoder;
 extern AVCodecParser ff_mpegaudio_parser;
 
 struct Mp2Decoder {
-  uint8_t *stream;
-  size_t stream_size;
-  size_t stream_offset;
+  void *reader_context;
+  MediaRead read;
+  uint8_t *input;
+  size_t input_size;
+  size_t input_offset;
+  uint64_t stream_offset;
   AVCodec *codec;
   AVCodecContext *context;
   AVCodecParserContext *parser;
@@ -34,31 +38,31 @@ struct Mp2Decoder {
   size_t decoded_size;
   size_t decoded_offset;
   uint32_t decoded_frames;
-  uint32_t loops;
 };
 
-static bool rewind_decoder(Mp2Decoder *decoder) {
-  avcodec_flush_buffers(decoder->context);
-  av_parser_close(decoder->parser);
-  decoder->parser = av_parser_init(CODEC_ID_MP2);
-  if (decoder->parser == NULL) {
-    SYS_Report("REFERENCE GX: MP2 parser reset failed\n");
+static bool refill_input(Mp2Decoder *decoder) {
+  decoder->input_size = decoder->read(
+      decoder->reader_context, decoder->input, MP2_INPUT_SIZE);
+  decoder->input_offset = 0;
+  if (decoder->input_size == 0 || decoder->input_size > MP2_INPUT_SIZE) {
     return false;
   }
-  decoder->stream_offset = 0;
-  decoder->decoded_size = 0;
-  decoder->decoded_offset = 0;
-  decoder->loops += 1;
+  memset(decoder->input + decoder->input_size, 0,
+         FF_INPUT_BUFFER_PADDING_SIZE);
   return true;
 }
 
 static bool decode_frame(Mp2Decoder *decoder) {
   for (unsigned attempts = 0; attempts < 64; ++attempts) {
-    const bool at_end = decoder->stream_offset >= decoder->stream_size;
-    const uint8_t *input =
-        at_end ? NULL : decoder->stream + decoder->stream_offset;
+    if (decoder->input_offset >= decoder->input_size &&
+        !refill_input(decoder)) {
+      SYS_Report("REFERENCE GX: MP2 input stopped at byte %llu\n",
+                 decoder->stream_offset);
+      return false;
+    }
+    const uint8_t *input = decoder->input + decoder->input_offset;
     const int input_size =
-        at_end ? 0 : (int)(decoder->stream_size - decoder->stream_offset);
+        (int)(decoder->input_size - decoder->input_offset);
     uint8_t *frame_data = NULL;
     int frame_size = 0;
     const int parsed = av_parser_parse2(
@@ -70,12 +74,10 @@ static bool decode_frame(Mp2Decoder *decoder) {
                  (unsigned)decoder->stream_offset);
       return false;
     }
-    decoder->stream_offset += (size_t)parsed;
+    decoder->input_offset += (size_t)parsed;
+    decoder->stream_offset += (uint64_t)parsed;
 
     if (frame_size == 0) {
-      if (at_end && !rewind_decoder(decoder)) {
-        return false;
-      }
       continue;
     }
 
@@ -123,9 +125,8 @@ static bool decode_frame(Mp2Decoder *decoder) {
   return false;
 }
 
-Mp2Decoder *mp2_decoder_create(const uint8_t *stream, size_t stream_size) {
-  if (stream == NULL || stream_size == 0 ||
-      stream_size > SIZE_MAX - FF_INPUT_BUFFER_PADDING_SIZE) {
+Mp2Decoder *mp2_decoder_create(void *reader_context, MediaRead read) {
+  if (reader_context == NULL || read == NULL) {
     return NULL;
   }
 
@@ -133,15 +134,15 @@ Mp2Decoder *mp2_decoder_create(const uint8_t *stream, size_t stream_size) {
   if (decoder == NULL) {
     return NULL;
   }
-  decoder->stream = memalign(32, stream_size + FF_INPUT_BUFFER_PADDING_SIZE);
+  decoder->reader_context = reader_context;
+  decoder->read = read;
+  decoder->input =
+      memalign(32, MP2_INPUT_SIZE + FF_INPUT_BUFFER_PADDING_SIZE);
   decoder->decoded = memalign(32, AVCODEC_MAX_AUDIO_FRAME_SIZE);
-  if (decoder->stream == NULL || decoder->decoded == NULL) {
+  if (decoder->input == NULL || decoder->decoded == NULL) {
     mp2_decoder_destroy(decoder);
     return NULL;
   }
-  memcpy(decoder->stream, stream, stream_size);
-  memset(decoder->stream + stream_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
-  decoder->stream_size = stream_size;
 
   avcodec_init();
   avcodec_register(&ff_mp2_decoder);
@@ -180,7 +181,7 @@ void mp2_decoder_destroy(Mp2Decoder *decoder) {
     av_free(decoder->context);
   }
   free(decoder->decoded);
-  free(decoder->stream);
+  free(decoder->input);
   free(decoder);
 }
 
@@ -212,8 +213,4 @@ bool mp2_decoder_read_pcm(Mp2Decoder *decoder, void *destination,
 
 uint32_t mp2_decoder_frame_count(const Mp2Decoder *decoder) {
   return decoder == NULL ? 0 : decoder->decoded_frames;
-}
-
-uint32_t mp2_decoder_loop_count(const Mp2Decoder *decoder) {
-  return decoder == NULL ? 0 : decoder->loops;
 }

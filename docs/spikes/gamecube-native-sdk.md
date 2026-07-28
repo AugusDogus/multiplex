@@ -143,10 +143,10 @@ layout, the Zig adapter locates its `media_surface` widget and exports the
 resolved rectangle and TypeScript-owned play state through the C ABI.
 
 The DOL embeds a one-second MPEG-2 Program Stream containing 720x480 YUV420P
-video at 30000/1001 fps and 192 kbps MP2 audio. A narrow in-memory demuxer
+video at 30000/1001 fps and 192 kbps MP2 audio. A narrow incremental demuxer
 walks MPEG-2 pack and PES headers, selects the first MPEG video (`0xE0`) and
-audio (`0xC0`) streams, concatenates their elementary payloads, and preserves
-their first 90 kHz PTS values. The generated stream starts audio at `47101`
+audio (`0xC0`) streams, feeds bounded codec queues, and preserves their first
+90 kHz PTS values. The generated stream starts audio at `47101`
 and video at `48003`: a 902-tick or 10.022 ms delta, rounded to 481 samples at
 48 kHz. The scheduler applies that offset once when it establishes the audio
 clock epoch.
@@ -185,15 +185,25 @@ parameters.
 
 The same media pipeline can source its program stream from a directly
 playable HTTP URL. A small blocking libogc2 client initializes the BBA with
-DHCP, opens one TCP connection, validates `206`, `Content-Length`, and
-`Content-Range`, and exposes a seekable 1 KiB range cache. The MPEG-PS scan and
-extraction consume that reader directly, so the 155,648-byte fixture is never
-held in a whole-container network allocation. The two passes used 230 cache
-fills in the measured smoke. The full player smoke then exercises the same
-demux, decode, audio, navigation, pause/resume, timing, and invalid-access
-gates as the embedded build. The extracted video and audio elementary streams
-remain whole-stream allocations; replacing those with bounded queues is the
-next memory boundary.
+DHCP, validates `206`, `Content-Length`, and `Content-Range`, and exposes a
+seekable 1 KiB range cache for metadata inspection. Playback then changes to a
+single forward-only HTTP GET owned by a producer LWP. The demux feeds a fixed
+320 KiB video queue and 64 KiB audio queue; the MPEG-2 and MP2 adapters retain
+only 32 KiB and 8 KiB compressed input windows. Container-sized and
+elementary-stream-sized allocations are gone. The full player smoke exercises
+the same demux, decode, audio, navigation, pause/resume, timing, and
+invalid-access gates as the embedded build.
+
+For gateway-prepared media, the host supplies selected stream sizes and first
+PTS in the generated build header. This avoids scanning an entire multi-MiB
+file through 1 KiB BBA ranges. The first real Plex run discovered PMS
+1.43.3 on the LAN, downloaded a segment of a library movie, and converted it
+to a 3,743,744-byte 720x480 MPEG-2/MP2 program stream. Dolphin needed one
+metadata range request before the sequential GET. It decoded two measured
+60-frame intervals at 29.9 fps, presented retained frames at 60.4 fps, paused
+and resumed on the AI DMA clock with zero underruns, and passed the invalid
+read/write gate. The repeatable runner keeps Dolphin muted at the PipeWire
+sink-input layer without muting the emulated application.
 
 The low-level control uses Dolphin's TAP BBA inside an unprivileged network
 namespace. A pinned `pasta` process supplies DHCP and rootless host networking;
@@ -204,8 +214,8 @@ June 11, 2026 `pasta` silently discarded the GameCube's padded 60-byte TCP SYN;
 upstream commit `f072bc0` fixed that exact class of frame on June 16 and is
 pinned by the spike bootstrap.
 
-With the fixed helper, Dolphin's TAP backend completes all 230 cached range
-responses and the clean playback smoke. Dolphin 2606's BuiltIn HLE backend can serve the
+With the fixed helper, Dolphin's TAP backend completes the clean playback
+smokes. Dolphin 2606's BuiltIn HLE backend can serve the
 first responses but stalls under the repeated transfer. The passing TAP test
 therefore demonstrates that the app/libogc2 BBA path works and isolates the
 remaining failure to Dolphin's BuiltIn HLE translation, not to a requirement
@@ -256,6 +266,9 @@ The current build is approximately:
 | App/render thread stack        | 512 KiB, dynamically allocated                |
 | Video decoder thread stack     | 256 KiB, dynamically allocated                |
 | Audio decoder thread stack     | 128 KiB, dynamically allocated                |
+| Network/demux producer stack   | 128 KiB, dynamically allocated                |
+| Compressed video/audio queues  | 320 KiB / 64 KiB                              |
+| Codec compressed input windows | 32 KiB / 8 KiB                                |
 | Pairing view                   | 10 widgets, 1 handler                         |
 | Home view                      | 17 widgets, 3 handlers, 17 layout nodes       |
 | Embedded MPEG-2 Program Stream | 720x480 video + stereo MP2 / 152 KiB          |
@@ -328,7 +341,7 @@ not as the committed GameCube renderer yet.
 Next Dolphin milestones:
 
 1. connect pairing/library data to a Multiplex gateway;
-2. replace the whole-file HTTP bootstrap with an incremental media reader;
+2. turn the host-prepared Plex segment into an on-demand seekable session;
 3. decide whether to repair raylib/OpenGX or extract a smaller portable
    framebuffer/presenter interface before the Dreamcast pass.
 

@@ -14,26 +14,58 @@ if [ ! -s "$dol" ]; then
 fi
 
 launcher_pid=
+mute_pid=
 pipe_open=0
+stop_launcher() {
+  signal=$1
+  if command -v setsid >/dev/null 2>&1; then
+    /bin/kill "-$signal" -- "-$launcher_pid" 2>/dev/null || true
+  else
+    kill "-$signal" "$launcher_pid" 2>/dev/null || true
+  fi
+}
+
 cleanup() {
   if [ "$pipe_open" -eq 1 ]; then
     exec 3>&-
     pipe_open=0
   fi
+  if [ -n "$mute_pid" ] && kill -0 "$mute_pid" 2>/dev/null; then
+    kill -TERM "$mute_pid" 2>/dev/null || true
+    wait "$mute_pid" 2>/dev/null || true
+  fi
   if [ -n "$launcher_pid" ] && kill -0 "$launcher_pid" 2>/dev/null; then
-    kill -TERM "$launcher_pid" 2>/dev/null || true
+    stop_launcher TERM
     attempt=0
     while kill -0 "$launcher_pid" 2>/dev/null && [ "$attempt" -lt 30 ]; do
       sleep 0.1
       attempt=$((attempt + 1))
     done
     if kill -0 "$launcher_pid" 2>/dev/null; then
-      kill -KILL "$launcher_pid" 2>/dev/null || true
+      stop_launcher KILL
     fi
     wait "$launcher_pid" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT INT TERM
+
+mute_dolphin_host_audio() {
+  attempt=0
+  while [ "$attempt" -lt 200 ]; do
+    sink_inputs=$(
+      pactl -f json list sink-inputs 2>/dev/null |
+        jq -r '.[] | select(.properties["application.process.binary"] == "dolphin-emu") | .index' 2>/dev/null || true
+    )
+    if [ -n "$sink_inputs" ]; then
+      for sink_input in $sink_inputs; do
+        pactl set-sink-input-mute "$sink_input" 1 2>/dev/null || true
+      done
+      return
+    fi
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+}
 
 # Clear the current-run path before the asynchronous launcher starts. Without
 # this handoff, the first wait can briefly match a completed run immediately
@@ -42,8 +74,16 @@ if [ -f "$log" ]; then
   mv -f "$log" "$user_dir/Logs/dolphin.previous.log"
 fi
 
-sh "$script_dir/run-dolphin.sh" "$dol" >/dev/null 2>&1 &
+if command -v setsid >/dev/null 2>&1; then
+  setsid sh "$script_dir/run-dolphin.sh" "$dol" >/dev/null 2>&1 &
+else
+  sh "$script_dir/run-dolphin.sh" "$dol" >/dev/null 2>&1 &
+fi
 launcher_pid=$!
+if command -v pactl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+  mute_dolphin_host_audio &
+  mute_pid=$!
+fi
 
 line_count() {
   if [ ! -f "$log" ]; then
@@ -103,12 +143,14 @@ case "$expected_media_source" in
   embedded)
     media_attempts=120
     decoder_attempts=120
+    playback_attempts=80
     expected_pts_delta=902
     expected_pts_offset_samples=481
     ;;
   http)
-    media_attempts=1200
+    media_attempts=${GAMECUBE_MEDIA_ATTEMPTS:-1200}
     decoder_attempts=300
+    playback_attempts=200
     expected_pts_delta=902
     expected_pts_offset_samples=481
     ;;
@@ -156,8 +198,8 @@ playing_count=$(line_count "playback=playing")
 audio_playing_count=$(line_count "audio=playing")
 press A
 wait_for_new "signature=f3bd7219" "$player_count" 120
-wait_for_new "playback=playing" "$playing_count" 80
-wait_for_new "audio=playing" "$audio_playing_count" 80
+wait_for_new "playback=playing" "$playing_count" "$playback_attempts"
+wait_for_new "audio=playing" "$audio_playing_count" "$playback_attempts"
 if ! rg -q "playback=playing .*pts-offset-samples=$expected_pts_offset_samples" "$log"; then
   echo "Video scheduler did not apply the MPEG-PS timestamp offset." >&2
   exit 1

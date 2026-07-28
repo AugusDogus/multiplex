@@ -2,6 +2,7 @@
 .libogc2/
 .libogc2-stage/
 .passt/
+.plex-cache/
 .http-fixture.log
 .mplayer-ce-libogc2/
 .opengx/

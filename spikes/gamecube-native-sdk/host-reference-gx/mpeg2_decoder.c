@@ -1,6 +1,7 @@
 #include "mpeg2_decoder.h"
 
 #include <gccore.h>
+#include <malloc.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -18,16 +19,19 @@
  */
 extern AVCodec ff_mpeg2video_decoder;
 
+#define MPEG2_INPUT_SIZE (32 * 1024)
+
 struct Mpeg2Decoder {
-  uint8_t *stream;
-  size_t stream_size;
-  size_t stream_offset;
+  void *reader_context;
+  MediaRead read;
+  uint8_t *input;
+  size_t input_size;
+  size_t input_offset;
+  uint64_t stream_offset;
   AVCodec *codec;
   AVCodecContext *context;
   AVFrame *picture;
-  bool flushing;
   uint32_t decoded_frames;
-  uint32_t loops;
 };
 
 static void report_ffmpeg(void *context, int level, const char *format,
@@ -65,23 +69,24 @@ static bool open_decoder(Mpeg2Decoder *decoder) {
     SYS_Report("REFERENCE GX: MPEG-2 decoder open failed\n");
     return false;
   }
-  decoder->stream_offset = 0;
-  decoder->flushing = false;
   return true;
 }
 
-static void rewind_decoder(Mpeg2Decoder *decoder) {
-  avcodec_flush_buffers(decoder->context);
-  decoder->stream_offset = 0;
-  decoder->flushing = false;
-  decoder->loops += 1;
-  SYS_Report("REFERENCE GX: MPEG-2 stream loop=%u decoded=%u frames\n",
-             decoder->loops, decoder->decoded_frames);
+static bool refill_input(Mpeg2Decoder *decoder) {
+  decoder->input_size = decoder->read(
+      decoder->reader_context, decoder->input, MPEG2_INPUT_SIZE);
+  decoder->input_offset = 0;
+  if (decoder->input_size == 0 ||
+      decoder->input_size > MPEG2_INPUT_SIZE) {
+    return false;
+  }
+  memset(decoder->input + decoder->input_size, 0,
+         FF_INPUT_BUFFER_PADDING_SIZE);
+  return true;
 }
 
-Mpeg2Decoder *mpeg2_decoder_create(const uint8_t *stream, size_t stream_size) {
-  if (stream == NULL || stream_size == 0 ||
-      stream_size > SIZE_MAX - FF_INPUT_BUFFER_PADDING_SIZE) {
+Mpeg2Decoder *mpeg2_decoder_create(void *reader_context, MediaRead read) {
+  if (reader_context == NULL || read == NULL) {
     return NULL;
   }
 
@@ -89,14 +94,14 @@ Mpeg2Decoder *mpeg2_decoder_create(const uint8_t *stream, size_t stream_size) {
   if (decoder == NULL) {
     return NULL;
   }
-  decoder->stream = malloc(stream_size + FF_INPUT_BUFFER_PADDING_SIZE);
-  if (decoder->stream == NULL) {
+  decoder->reader_context = reader_context;
+  decoder->read = read;
+  decoder->input =
+      memalign(32, MPEG2_INPUT_SIZE + FF_INPUT_BUFFER_PADDING_SIZE);
+  if (decoder->input == NULL) {
     free(decoder);
     return NULL;
   }
-  memcpy(decoder->stream, stream, stream_size);
-  memset(decoder->stream + stream_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
-  decoder->stream_size = stream_size;
 
   avcodec_init();
   avcodec_register(&ff_mpeg2video_decoder);
@@ -121,7 +126,7 @@ void mpeg2_decoder_destroy(Mpeg2Decoder *decoder) {
   if (decoder->picture != NULL) {
     av_free(decoder->picture);
   }
-  free(decoder->stream);
+  free(decoder->input);
   free(decoder);
 }
 
@@ -131,16 +136,17 @@ bool mpeg2_decoder_next_frame(Mpeg2Decoder *decoder, Mpeg2Frame *frame) {
   }
 
   for (unsigned attempts = 0; attempts < 256; ++attempts) {
+    if (decoder->input_offset >= decoder->input_size &&
+        !refill_input(decoder)) {
+      SYS_Report("REFERENCE GX: MPEG-2 input stopped at byte %llu\n",
+                 decoder->stream_offset);
+      return false;
+    }
+
     AVPacket packet;
     av_init_packet(&packet);
-    if (decoder->stream_offset < decoder->stream_size) {
-      packet.data = decoder->stream + decoder->stream_offset;
-      packet.size = (int)(decoder->stream_size - decoder->stream_offset);
-    } else {
-      packet.data = NULL;
-      packet.size = 0;
-      decoder->flushing = true;
-    }
+    packet.data = decoder->input + decoder->input_offset;
+    packet.size = (int)(decoder->input_size - decoder->input_offset);
 
     int got_picture = 0;
     const int consumed = avcodec_decode_video2(
@@ -151,12 +157,9 @@ bool mpeg2_decoder_next_frame(Mpeg2Decoder *decoder, Mpeg2Frame *frame) {
           (unsigned)decoder->stream_offset, decoder->decoded_frames);
       return false;
     }
-    if (!decoder->flushing) {
-      if (consumed == 0) {
-        SYS_Report("REFERENCE GX: MPEG-2 decoder made no input progress\n");
-        return false;
-      }
-      decoder->stream_offset += (size_t)consumed;
+    if (consumed != 0) {
+      decoder->input_offset += (size_t)consumed;
+      decoder->stream_offset += (uint64_t)consumed;
     }
 
     if (got_picture != 0) {
@@ -181,9 +184,9 @@ bool mpeg2_decoder_next_frame(Mpeg2Decoder *decoder, Mpeg2Frame *frame) {
       decoder->decoded_frames += 1;
       return true;
     }
-
-    if (decoder->flushing) {
-      rewind_decoder(decoder);
+    if (consumed == 0) {
+      SYS_Report("REFERENCE GX: MPEG-2 decoder made no input progress\n");
+      return false;
     }
   }
 

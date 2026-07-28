@@ -3,17 +3,21 @@
  *
  * Narrow MPEG-2 Program Stream demuxer for the GameCube media spike. The
  * parser operates on a seekable reader, so HTTP containers do not need a
- * whole-file buffer. It extracts the first MPEG video and audio streams and
- * preserves their initial 90 kHz presentation timestamps.
+ * whole-file buffer. The app LWP cooperatively walks selected PES packets and
+ * feeds bounded audio/video queues consumed by the codec threads.
  */
 
 #include "mpeg_ps_demux.h"
 
 #include <gccore.h>
+#include <ogc/cond.h>
+#include <ogc/lwp.h>
+#include <ogc/mutex.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define MPEG_START_CODE_PREFIX 0x000001u
 #define MPEG_PACK_HEADER 0xbau
@@ -21,6 +25,9 @@
 #define MPEG_NO_STREAM 0xffu
 #define MPEG_NO_PTS (-1)
 #define PROGRAM_CACHE_SIZE 1024u
+#define VIDEO_QUEUE_SIZE (320 * 1024u)
+#define AUDIO_QUEUE_SIZE (64 * 1024u)
+#define PRODUCER_STACK_SIZE (128 * 1024u)
 
 typedef struct {
   void *context;
@@ -52,27 +59,48 @@ typedef struct {
 } ProgramScan;
 
 typedef struct {
-  const uint8_t *data;
+  uint8_t *data;
+  size_t capacity;
+  size_t read_offset;
+  size_t write_offset;
   size_t size;
-} MemoryProgram;
+  mutex_t mutex;
+  cond_t can_read;
+  cond_t can_write;
+  bool mutex_ready;
+  bool read_condition_ready;
+  bool write_condition_ready;
+  bool closed;
+} ByteQueue;
 
 struct MpegPsDemux {
-  uint8_t *video;
-  size_t video_size;
-  uint8_t *audio;
-  size_t audio_size;
-  int64_t first_video_pts90k;
-  int64_t first_audio_pts90k;
+  ProgramReader reader;
+  ProgramScan scan;
+  ByteQueue video;
+  ByteQueue audio;
+  bool started;
+  volatile bool stopped;
+  volatile bool failed;
+  lwp_t producer_thread;
+  void *producer_stack;
+  size_t program_offset;
+  PesPacket pending_packet;
+  size_t pending_offset;
+  bool has_pending_packet;
+  volatile uint32_t loops;
+  volatile uint32_t video_bytes_pumped;
+  volatile uint32_t audio_bytes_pumped;
 };
+
+static void *run_producer(void *context);
 
 static bool memory_read_at(void *context, size_t offset,
                            uint8_t *destination, size_t size) {
-  const MemoryProgram *memory = context;
-  if (memory == NULL || destination == NULL || offset > memory->size ||
-      size > memory->size - offset) {
+  const uint8_t *memory = context;
+  if (memory == NULL || destination == NULL) {
     return false;
   }
-  memcpy(destination, memory->data + offset, size);
+  memcpy(destination, memory + offset, size);
   return true;
 }
 
@@ -356,51 +384,139 @@ static bool scan_program(ProgramReader *reader, ProgramScan *scan) {
          scan->first_audio_pts90k != MPEG_NO_PTS;
 }
 
-static bool extract_streams(ProgramReader *reader, const ProgramScan *scan,
-                            MpegPsDemux *demux) {
-  reader->cache_valid = false;
-  size_t offset = 0;
-  size_t video_offset = 0;
-  size_t audio_offset = 0;
-  bool finished = false;
-  while (!finished) {
-    PesPacket pes;
-    if (!next_pes_packet(reader, &offset, &pes, &finished)) {
-      return false;
-    }
-    if (finished) {
-      break;
-    }
-
-    uint8_t *destination = NULL;
-    size_t *destination_offset = NULL;
-    size_t destination_size = 0;
-    if (pes.stream_id == scan->video_stream_id) {
-      destination = demux->video;
-      destination_offset = &video_offset;
-      destination_size = demux->video_size;
-    } else if (pes.stream_id == scan->audio_stream_id) {
-      destination = demux->audio;
-      destination_offset = &audio_offset;
-      destination_size = demux->audio_size;
-    } else {
-      continue;
-    }
-    if (*destination_offset > destination_size ||
-        pes.payload_size > destination_size - *destination_offset ||
-        !reader_read(reader, pes.payload_offset,
-                     destination + *destination_offset, pes.payload_size)) {
-      return false;
-    }
-    *destination_offset += pes.payload_size;
+static bool queue_initialize(ByteQueue *queue, size_t capacity) {
+  queue->data = malloc(capacity);
+  queue->capacity = capacity;
+  if (queue->data == NULL || LWP_MutexInit(&queue->mutex, false) != 0) {
+    return false;
   }
-  return video_offset == demux->video_size &&
-         audio_offset == demux->audio_size;
+  queue->mutex_ready = true;
+  if (LWP_CondInit(&queue->can_read) != 0) {
+    return false;
+  }
+  queue->read_condition_ready = true;
+  if (LWP_CondInit(&queue->can_write) != 0) {
+    return false;
+  }
+  queue->write_condition_ready = true;
+  return true;
 }
 
-MpegPsDemux *mpeg_ps_demux_create_reader(void *context, size_t program_size,
-                                         MpegPsReadAt read_at) {
-  if (context == NULL || read_at == NULL || program_size < 16) {
+static void queue_close(ByteQueue *queue) {
+  if (!queue->mutex_ready) {
+    return;
+  }
+  LWP_MutexLock(queue->mutex);
+  queue->closed = true;
+  if (queue->read_condition_ready) {
+    LWP_CondBroadcast(queue->can_read);
+  }
+  if (queue->write_condition_ready) {
+    LWP_CondBroadcast(queue->can_write);
+  }
+  LWP_MutexUnlock(queue->mutex);
+}
+
+static void queue_destroy(ByteQueue *queue) {
+  queue_close(queue);
+  if (queue->write_condition_ready) {
+    LWP_CondDestroy(queue->can_write);
+  }
+  if (queue->read_condition_ready) {
+    LWP_CondDestroy(queue->can_read);
+  }
+  if (queue->mutex_ready) {
+    LWP_MutexDestroy(queue->mutex);
+  }
+  free(queue->data);
+  memset(queue, 0, sizeof(*queue));
+}
+
+static size_t queue_write_available(ByteQueue *queue, const uint8_t *source,
+                                    size_t size) {
+  LWP_MutexLock(queue->mutex);
+  if (queue->closed || queue->size == queue->capacity) {
+    LWP_MutexUnlock(queue->mutex);
+    return 0;
+  }
+  size_t chunk = size;
+  const size_t free_space = queue->capacity - queue->size;
+  const size_t contiguous = queue->capacity - queue->write_offset;
+  if (chunk > free_space) {
+    chunk = free_space;
+  }
+  if (chunk > contiguous) {
+    chunk = contiguous;
+  }
+  memcpy(queue->data + queue->write_offset, source, chunk);
+  queue->write_offset = (queue->write_offset + chunk) % queue->capacity;
+  queue->size += chunk;
+  LWP_CondSignal(queue->can_read);
+  LWP_MutexUnlock(queue->mutex);
+  return chunk;
+}
+
+static size_t queue_contiguous_space(ByteQueue *queue) {
+  LWP_MutexLock(queue->mutex);
+  size_t space = 0;
+  if (!queue->closed) {
+    space = queue->capacity - queue->size;
+    const size_t contiguous = queue->capacity - queue->write_offset;
+    if (space > contiguous) {
+      space = contiguous;
+    }
+  }
+  LWP_MutexUnlock(queue->mutex);
+  return space;
+}
+
+static size_t queue_read(ByteQueue *queue, uint8_t *destination,
+                         size_t size) {
+  if (destination == NULL || size == 0 || !queue->mutex_ready) {
+    return 0;
+  }
+
+  LWP_MutexLock(queue->mutex);
+  while (queue->size == 0 && !queue->closed) {
+    LWP_CondWait(queue->can_read, queue->mutex);
+  }
+  if (queue->size == 0) {
+    LWP_MutexUnlock(queue->mutex);
+    return 0;
+  }
+
+  size_t copied = 0;
+  while (copied < size && queue->size != 0) {
+    size_t chunk = size - copied;
+    const size_t contiguous = queue->capacity - queue->read_offset;
+    if (chunk > queue->size) {
+      chunk = queue->size;
+    }
+    if (chunk > contiguous) {
+      chunk = contiguous;
+    }
+    memcpy(destination + copied, queue->data + queue->read_offset, chunk);
+    queue->read_offset = (queue->read_offset + chunk) % queue->capacity;
+    queue->size -= chunk;
+    copied += chunk;
+  }
+  LWP_CondSignal(queue->can_write);
+  LWP_MutexUnlock(queue->mutex);
+  return copied;
+}
+
+static MpegPsDemux *create_reader(void *context, size_t program_size,
+                                  MpegPsReadAt read_at,
+                                  const ProgramScan *known_scan) {
+  if (context == NULL || read_at == NULL || program_size < 16 ||
+      (known_scan != NULL &&
+       (known_scan->video_stream_id < 0xe0u ||
+        known_scan->video_stream_id > 0xefu ||
+        known_scan->audio_stream_id < 0xc0u ||
+        known_scan->audio_stream_id > 0xdfu || known_scan->video_size == 0 ||
+        known_scan->audio_size == 0 ||
+        known_scan->first_video_pts90k == MPEG_NO_PTS ||
+        known_scan->first_audio_pts90k == MPEG_NO_PTS))) {
     return NULL;
   }
   ProgramReader reader = {
@@ -408,30 +524,30 @@ MpegPsDemux *mpeg_ps_demux_create_reader(void *context, size_t program_size,
       .size = program_size,
       .read_at = read_at,
   };
-  ProgramScan scan = {
-      .video_stream_id = MPEG_NO_STREAM,
-      .audio_stream_id = MPEG_NO_STREAM,
-      .first_video_pts90k = MPEG_NO_PTS,
-      .first_audio_pts90k = MPEG_NO_PTS,
-  };
-  if (!scan_program(&reader, &scan)) {
-    SYS_Report("REFERENCE GX: MPEG-PS demux scan failed\n");
-    return NULL;
+  ProgramScan scan;
+  if (known_scan != NULL) {
+    scan = *known_scan;
+  } else {
+    memset(&scan, 0, sizeof(scan));
+    scan.video_stream_id = MPEG_NO_STREAM;
+    scan.audio_stream_id = MPEG_NO_STREAM;
+    scan.first_video_pts90k = MPEG_NO_PTS;
+    scan.first_audio_pts90k = MPEG_NO_PTS;
+    if (!scan_program(&reader, &scan)) {
+      SYS_Report("REFERENCE GX: MPEG-PS demux scan failed\n");
+      return NULL;
+    }
   }
 
   MpegPsDemux *demux = calloc(1, sizeof(*demux));
   if (demux == NULL) {
     return NULL;
   }
-  demux->video = malloc(scan.video_size);
-  demux->audio = malloc(scan.audio_size);
-  demux->video_size = scan.video_size;
-  demux->audio_size = scan.audio_size;
-  demux->first_video_pts90k = scan.first_video_pts90k;
-  demux->first_audio_pts90k = scan.first_audio_pts90k;
-  if (demux->video == NULL || demux->audio == NULL ||
-      !extract_streams(&reader, &scan, demux)) {
-    SYS_Report("REFERENCE GX: MPEG-PS demux extraction failed\n");
+  demux->reader = reader;
+  demux->scan = scan;
+  if (!queue_initialize(&demux->video, VIDEO_QUEUE_SIZE) ||
+      !queue_initialize(&demux->audio, AUDIO_QUEUE_SIZE)) {
+    SYS_Report("REFERENCE GX: MPEG-PS queue allocation failed\n");
     mpeg_ps_demux_destroy(demux);
     return NULL;
   }
@@ -446,47 +562,204 @@ MpegPsDemux *mpeg_ps_demux_create_reader(void *context, size_t program_size,
   return demux;
 }
 
+MpegPsDemux *mpeg_ps_demux_create_reader(void *context, size_t program_size,
+                                         MpegPsReadAt read_at) {
+  return create_reader(context, program_size, read_at, NULL);
+}
+
+MpegPsDemux *mpeg_ps_demux_create_reader_with_info(
+    void *context, size_t program_size, MpegPsReadAt read_at,
+    const MpegPsInfo *info) {
+  if (info == NULL) {
+    return NULL;
+  }
+  const ProgramScan scan = {
+      .video_stream_id = info->video_stream_id,
+      .audio_stream_id = info->audio_stream_id,
+      .video_size = info->video_size,
+      .audio_size = info->audio_size,
+      .video_packets = info->video_packets,
+      .audio_packets = info->audio_packets,
+      .first_video_pts90k = info->first_video_pts90k,
+      .first_audio_pts90k = info->first_audio_pts90k,
+  };
+  return create_reader(context, program_size, read_at, &scan);
+}
+
 MpegPsDemux *mpeg_ps_demux_create(const uint8_t *program,
                                   size_t program_size) {
   if (program == NULL) {
     return NULL;
   }
-  MemoryProgram memory = {
-      .data = program,
-      .size = program_size,
-  };
-  return mpeg_ps_demux_create_reader(&memory, program_size, memory_read_at);
+  return mpeg_ps_demux_create_reader((void *)program, program_size,
+                                     memory_read_at);
 }
 
 void mpeg_ps_demux_destroy(MpegPsDemux *demux) {
   if (demux == NULL) {
     return;
   }
-  free(demux->audio);
-  free(demux->video);
+  mpeg_ps_demux_stop(demux);
+  queue_destroy(&demux->audio);
+  queue_destroy(&demux->video);
   free(demux);
 }
 
-const uint8_t *mpeg_ps_demux_video_data(const MpegPsDemux *demux) {
-  return demux == NULL ? NULL : demux->video;
+void mpeg_ps_demux_stop(MpegPsDemux *demux) {
+  if (demux == NULL || demux->stopped) {
+    return;
+  }
+  demux->stopped = true;
+  queue_close(&demux->video);
+  queue_close(&demux->audio);
+  if (demux->producer_thread != LWP_THREAD_NULL) {
+    LWP_JoinThread(demux->producer_thread, NULL);
+    demux->producer_thread = LWP_THREAD_NULL;
+  }
+  free(demux->producer_stack);
+  demux->producer_stack = NULL;
+}
+
+bool mpeg_ps_demux_start(MpegPsDemux *demux) {
+  if (demux == NULL || demux->started) {
+    return false;
+  }
+  demux->started = true;
+  demux->producer_stack = malloc(PRODUCER_STACK_SIZE);
+  if (demux->producer_stack == NULL ||
+      LWP_CreateThread(&demux->producer_thread, run_producer, demux,
+                       demux->producer_stack, PRODUCER_STACK_SIZE,
+                       LWP_PRIO_NORMAL) != 0) {
+    free(demux->producer_stack);
+    demux->producer_stack = NULL;
+    demux->started = false;
+    return false;
+  }
+  SYS_Report("REFERENCE GX: demux-queues video=%uKiB audio=%uKiB\n",
+             VIDEO_QUEUE_SIZE / 1024u, AUDIO_QUEUE_SIZE / 1024u);
+  return true;
+}
+
+bool mpeg_ps_demux_pump(MpegPsDemux *demux, unsigned max_chunks) {
+  if (demux == NULL || !demux->started || demux->stopped || demux->failed ||
+      max_chunks == 0) {
+    return demux != NULL && !demux->failed;
+  }
+
+  uint8_t bytes[PROGRAM_CACHE_SIZE];
+  for (unsigned chunk_index = 0; chunk_index < max_chunks; ++chunk_index) {
+    if (!demux->has_pending_packet) {
+      bool finished = false;
+      if (!next_pes_packet(&demux->reader, &demux->program_offset,
+                           &demux->pending_packet, &finished)) {
+        demux->failed = true;
+        return false;
+      }
+      if (finished) {
+        demux->loops += 1;
+        demux->program_offset = 0;
+        demux->reader.cache_valid = false;
+        continue;
+      }
+      if (demux->pending_packet.stream_id != demux->scan.video_stream_id &&
+          demux->pending_packet.stream_id != demux->scan.audio_stream_id) {
+        continue;
+      }
+      demux->pending_offset = 0;
+      demux->has_pending_packet = true;
+    }
+
+    ByteQueue *queue =
+        demux->pending_packet.stream_id == demux->scan.video_stream_id
+            ? &demux->video
+            : &demux->audio;
+    const size_t remaining =
+        demux->pending_packet.payload_size - demux->pending_offset;
+    size_t wanted = remaining < sizeof(bytes) ? remaining : sizeof(bytes);
+    const size_t queue_space = queue_contiguous_space(queue);
+    if (queue_space == 0) {
+      return true;
+    }
+    if (wanted > queue_space) {
+      wanted = queue_space;
+    }
+    if (!reader_read(&demux->reader,
+                     demux->pending_packet.payload_offset +
+                         demux->pending_offset,
+                     bytes, wanted)) {
+      demux->failed = true;
+      return false;
+    }
+    const size_t written = queue_write_available(queue, bytes, wanted);
+    if (written == 0) {
+      return true;
+    }
+    demux->pending_offset += written;
+    if (queue == &demux->video) {
+      demux->video_bytes_pumped += (uint32_t)written;
+    } else {
+      demux->audio_bytes_pumped += (uint32_t)written;
+    }
+    if (demux->pending_offset == demux->pending_packet.payload_size) {
+      demux->has_pending_packet = false;
+    }
+  }
+  return true;
+}
+
+static void *run_producer(void *context) {
+  MpegPsDemux *demux = context;
+  while (!demux->stopped && !demux->failed) {
+    if (!mpeg_ps_demux_pump(demux, 1)) {
+      demux->failed = true;
+      break;
+    }
+    /* Yield when a bounded queue is full and let its codec consumer run. */
+    usleep(1000);
+  }
+  return NULL;
+}
+
+size_t mpeg_ps_demux_read_video(void *context, uint8_t *destination,
+                                size_t size) {
+  MpegPsDemux *demux = context;
+  return demux == NULL ? 0 : queue_read(&demux->video, destination, size);
+}
+
+size_t mpeg_ps_demux_read_audio(void *context, uint8_t *destination,
+                                size_t size) {
+  MpegPsDemux *demux = context;
+  return demux == NULL ? 0 : queue_read(&demux->audio, destination, size);
 }
 
 size_t mpeg_ps_demux_video_size(const MpegPsDemux *demux) {
-  return demux == NULL ? 0 : demux->video_size;
-}
-
-const uint8_t *mpeg_ps_demux_audio_data(const MpegPsDemux *demux) {
-  return demux == NULL ? NULL : demux->audio;
+  return demux == NULL ? 0 : demux->scan.video_size;
 }
 
 size_t mpeg_ps_demux_audio_size(const MpegPsDemux *demux) {
-  return demux == NULL ? 0 : demux->audio_size;
+  return demux == NULL ? 0 : demux->scan.audio_size;
 }
 
 int64_t mpeg_ps_demux_first_video_pts90k(const MpegPsDemux *demux) {
-  return demux == NULL ? MPEG_NO_PTS : demux->first_video_pts90k;
+  return demux == NULL ? MPEG_NO_PTS : demux->scan.first_video_pts90k;
 }
 
 int64_t mpeg_ps_demux_first_audio_pts90k(const MpegPsDemux *demux) {
-  return demux == NULL ? MPEG_NO_PTS : demux->first_audio_pts90k;
+  return demux == NULL ? MPEG_NO_PTS : demux->scan.first_audio_pts90k;
+}
+
+uint32_t mpeg_ps_demux_loop_count(const MpegPsDemux *demux) {
+  return demux == NULL ? 0 : demux->loops;
+}
+
+uint32_t mpeg_ps_demux_video_bytes_pumped(const MpegPsDemux *demux) {
+  return demux == NULL ? 0 : demux->video_bytes_pumped;
+}
+
+uint32_t mpeg_ps_demux_audio_bytes_pumped(const MpegPsDemux *demux) {
+  return demux == NULL ? 0 : demux->audio_bytes_pumped;
+}
+
+bool mpeg_ps_demux_failed(const MpegPsDemux *demux) {
+  return demux == NULL || demux->failed;
 }

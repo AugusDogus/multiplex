@@ -5,9 +5,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "media_reader.h"
+
 typedef struct AudioDma AudioDma;
 
-AudioDma *audio_dma_create(const uint8_t *stream, size_t stream_size);
+AudioDma *audio_dma_create(void *reader_context, MediaRead read);
+void audio_dma_request_stop(AudioDma *audio);
 void audio_dma_destroy(AudioDma *audio);
 
 /* Call once per presentation frame with the Native SDK playback state. */
