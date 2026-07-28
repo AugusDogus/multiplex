@@ -44,6 +44,15 @@ var staged_browse_total: u32 = 0;
 var staged_browse_items: [4]core.CatalogItem = undefined;
 var staged_browse_item_ptrs: [4]*const core.CatalogItem = undefined;
 var staged_browse_item_count: usize = 0;
+var details_title_buffer: [96]u8 = undefined;
+var details_secondary_buffer: [96]u8 = undefined;
+var details_type_buffer: [32]u8 = undefined;
+var details_library_buffer: [96]u8 = undefined;
+var details_content_rating_buffer: [32]u8 = undefined;
+var details_facts_buffer: [128]u8 = undefined;
+var details_summary_buffer: [384]u8 = undefined;
+var details_genres_buffer: [128]u8 = undefined;
+var details_directors_buffer: [128]u8 = undefined;
 var focused_handler: usize = 0;
 var reference_render_stage: u32 = 0;
 var reference_full_repaint = true;
@@ -540,6 +549,76 @@ export fn multiplex_native_app_search_commit() callconv(.c) u32 {
         staged_browse_title,
         staged_browse_item_ptrs[0..staged_browse_item_count],
     ));
+    focused_handler = 0;
+    reference_full_repaint = true;
+    return 1;
+}
+
+export fn multiplex_native_app_details_request() callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    const rating_key = core.detailsRequestRatingKey(app_model);
+    if (rating_key <= 0 or rating_key > std.math.maxInt(u32)) return 0;
+    return @intCast(rating_key);
+}
+
+fn copyDetailsString(destination: []u8, source: [*]const u8, length: u32) ?[]const u8 {
+    if (length >= destination.len) return null;
+    @memcpy(destination[0..length], source[0..length]);
+    return destination[0..length];
+}
+
+export fn multiplex_native_app_details_commit(
+    title: [*]const u8,
+    title_length: u32,
+    secondary: [*]const u8,
+    secondary_length: u32,
+    media_type: [*]const u8,
+    media_type_length: u32,
+    library: [*]const u8,
+    library_length: u32,
+    content_rating: [*]const u8,
+    content_rating_length: u32,
+    facts: [*]const u8,
+    facts_length: u32,
+    summary: [*]const u8,
+    summary_length: u32,
+    genres: [*]const u8,
+    genres_length: u32,
+    directors: [*]const u8,
+    directors_length: u32,
+    playable: u32,
+) callconv(.c) u32 {
+    if (!app_initialized or title_length == 0) return 0;
+    const stored_title = copyDetailsString(&details_title_buffer, title, title_length) orelse return 0;
+    const stored_secondary = copyDetailsString(&details_secondary_buffer, secondary, secondary_length) orelse return 0;
+    const stored_media_type = copyDetailsString(&details_type_buffer, media_type, media_type_length) orelse return 0;
+    const stored_library = copyDetailsString(&details_library_buffer, library, library_length) orelse return 0;
+    const stored_content_rating = copyDetailsString(&details_content_rating_buffer, content_rating, content_rating_length) orelse return 0;
+    const stored_facts = copyDetailsString(&details_facts_buffer, facts, facts_length) orelse return 0;
+    const stored_summary = copyDetailsString(&details_summary_buffer, summary, summary_length) orelse return 0;
+    const stored_genres = copyDetailsString(&details_genres_buffer, genres, genres_length) orelse return 0;
+    const stored_directors = copyDetailsString(&details_directors_buffer, directors, directors_length) orelse return 0;
+    app_model = core.commitModelRoot(core.loadDetails(
+        app_model,
+        stored_title,
+        stored_secondary,
+        stored_media_type,
+        stored_library,
+        stored_content_rating,
+        stored_facts,
+        stored_summary,
+        stored_genres,
+        stored_directors,
+        playable != 0,
+    ));
+    focused_handler = 0;
+    reference_full_repaint = true;
+    return 1;
+}
+
+export fn multiplex_native_app_details_fail() callconv(.c) u32 {
+    if (!app_initialized or core.detailsRequestRatingKey(app_model) == 0) return 0;
+    app_model = core.commitModelRoot(core.failDetails(app_model));
     focused_handler = 0;
     reference_full_repaint = true;
     return 1;

@@ -9,6 +9,7 @@
 #define CATALOG_HEADER_BYTES 12u
 #define BROWSE_HEADER_BYTES 16u
 #define SEARCH_HEADER_BYTES 10u
+#define DETAILS_HEADER_BYTES 40u
 #define CATALOG_ITEM_HEADER_BYTES 20u
 #define CATALOG_MAX_BYTES 2048u
 #define GATEWAY_URL_CAPACITY 768u
@@ -179,6 +180,67 @@ static bool parse_search(const uint8_t *bytes, size_t size,
     }
   }
   return cursor == size;
+}
+
+static bool copy_detail_string(const uint8_t *bytes, size_t size,
+                               size_t *cursor, char *destination,
+                               size_t capacity, uint16_t length) {
+  if (length >= capacity || *cursor + length > size) {
+    return false;
+  }
+  memcpy(destination, bytes + *cursor, length);
+  *cursor += length;
+  return true;
+}
+
+static bool parse_details(const uint8_t *bytes, size_t size,
+                          MultiplexGatewayDetails *details) {
+  if (size < DETAILS_HEADER_BYTES || memcmp(bytes, "MPXD", 4) != 0) {
+    return false;
+  }
+  memset(details, 0, sizeof(*details));
+  details->version = read_be16(bytes + 4);
+  details->flags = read_be16(bytes + 6);
+  details->rating_key = read_be32(bytes + 8);
+  details->duration_ms = read_be32(bytes + 12);
+  details->view_offset_ms = read_be32(bytes + 16);
+  details->year = read_be16(bytes + 20);
+  details->rating_tenths = read_be16(bytes + 22);
+  details->title_length = read_be16(bytes + 24);
+  details->secondary_length = read_be16(bytes + 26);
+  details->media_type_length = read_be16(bytes + 28);
+  details->library_length = read_be16(bytes + 30);
+  details->content_rating_length = read_be16(bytes + 32);
+  details->summary_length = read_be16(bytes + 34);
+  details->genres_length = read_be16(bytes + 36);
+  details->directors_length = read_be16(bytes + 38);
+  if (details->version != 1 || details->rating_key == 0 ||
+      details->title_length == 0 || details->year > 9999u ||
+      details->rating_tenths > 100u) {
+    return false;
+  }
+  size_t cursor = DETAILS_HEADER_BYTES;
+  return copy_detail_string(bytes, size, &cursor, details->title,
+                            sizeof(details->title), details->title_length) &&
+         copy_detail_string(bytes, size, &cursor, details->secondary,
+                            sizeof(details->secondary),
+                            details->secondary_length) &&
+         copy_detail_string(bytes, size, &cursor, details->media_type,
+                            sizeof(details->media_type),
+                            details->media_type_length) &&
+         copy_detail_string(bytes, size, &cursor, details->library,
+                            sizeof(details->library), details->library_length) &&
+         copy_detail_string(bytes, size, &cursor, details->content_rating,
+                            sizeof(details->content_rating),
+                            details->content_rating_length) &&
+         copy_detail_string(bytes, size, &cursor, details->summary,
+                            sizeof(details->summary), details->summary_length) &&
+         copy_detail_string(bytes, size, &cursor, details->genres,
+                            sizeof(details->genres), details->genres_length) &&
+         copy_detail_string(bytes, size, &cursor, details->directors,
+                            sizeof(details->directors),
+                            details->directors_length) &&
+         cursor == size;
 }
 
 static bool encode_query(const char *query, uint16_t query_length,
@@ -424,5 +486,37 @@ bool multiplex_gateway_load_search_artwork(
       "REFERENCE GX: gateway-search-artwork query=%.*s bytes=%u loaded=%u\n",
       query_length, query, (unsigned)size, loaded);
   http_client_destroy(client);
+  return loaded;
+}
+
+bool multiplex_gateway_load_details(const char *base_url, uint32_t rating_key,
+                                    MultiplexGatewayDetails *details) {
+  if (base_url == NULL || rating_key == 0 || details == NULL) {
+    return false;
+  }
+  const size_t base_length = strlen(base_url);
+  const bool has_slash = base_length > 0 && base_url[base_length - 1] == '/';
+  char url[GATEWAY_URL_CAPACITY];
+  const int written = snprintf(url, sizeof(url),
+                               "%s%sv3/details.bin?ratingKey=%u", base_url,
+                               has_slash ? "" : "/", rating_key);
+  if (written < 0 || (size_t)written >= sizeof(url)) {
+    return false;
+  }
+  HttpClient *client = http_client_open(url);
+  if (client == NULL) {
+    return false;
+  }
+  const size_t size = http_client_size(client);
+  uint8_t bytes[CATALOG_MAX_BYTES];
+  const bool loaded = size > 0 && size <= sizeof(bytes) &&
+                      http_client_read_at(client, 0, bytes, size) &&
+                      parse_details(bytes, size, details) &&
+                      details->rating_key == rating_key;
+  http_client_destroy(client);
+  SYS_Report(
+      "REFERENCE GX: gateway-details rating-key=%u title=%s playable=%u loaded=%u\n",
+      rating_key, loaded ? details->title : "",
+      loaded ? (details->flags & 1u) != 0 : 0, loaded);
   return loaded;
 }

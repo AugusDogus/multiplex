@@ -304,7 +304,9 @@ signature_count=$(line_count "signature=")
 press D_RIGHT
 wait_for_new "signature=" "$signature_count"
 signature_count=$(line_count "signature=")
+details_count=$(line_count "details-page ready")
 press A
+wait_for_new "details-page ready" "$details_count" 1200
 wait_for_new "signature=" "$signature_count"
 for back in 1 2 3; do
   signature_count=$(line_count "signature=")

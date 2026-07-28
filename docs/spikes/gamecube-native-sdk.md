@@ -44,7 +44,8 @@ Verified interactions:
   D-pad/A, L deletes, and R submits it to the real Plex server.
 - Y opens the real Plex library picker; D-pad and A select a library.
 - D-pad changes Native SDK focus and L/R page four library items at a time.
-- A on a home or browse poster shows the details view.
+- A on a home, search, or browse poster fetches and renders its full Plex
+  metadata, including resume state and a context-sensitive play action.
 - Play opens a Native SDK `<video>` player surface.
 - A pauses/resumes DVD-resolution MPEG-2 video and stereo MP2 audio; B unwinds
   player → details → library.
@@ -264,12 +265,28 @@ repeated item count times: the same bounded v2 item record
 
 The gateway queries Plex `/library/search` across movie, TV, music, people,
 and collections, retains Plex relevance order, and caps the GameCube result
-grid at four entries. `/v3/search.jpg` reuses the 320x120 four-poster contact
-sheet and the browse texture slots. The TypeScript model owns query editing,
-loading/results/empty states, and the details return origin. The automated
+grid at four metadata-addressable entries. Person tag records are excluded
+until the console has a dedicated person-results view because their numeric
+tag ids are not Plex metadata rating keys. `/v3/search.jpg` reuses the 320x120
+four-poster contact sheet and the browse texture slots. The TypeScript model
+owns query editing, loading/results/empty states, and the details return origin. The automated
 Dolphin route typed `FRESH` entirely through the emulated controller, loaded
 four real results and posters, opened the top result, and returned through
 Results and Search to Home before continuing into paged browsing and playback.
+
+Opening a metadata-addressable card requests
+`GET /v3/details.bin?ratingKey=K`. Its bounded `MPXD` payload carries the
+rating key, duration, view offset, year, rating, playable flag, and length-
+prefixed title, secondary title, media type, library, content rating, synopsis,
+genres, and directors. The largest synopsis is 383 UTF-8 bytes and the entire
+response remains below the existing 2 KiB console buffer. The GameCube owns
+persistent copies of every returned string before the Native SDK model is
+updated; this avoids retaining slices into a reclaimed C request stack. The
+verified `Fresh` view renders its poster, Movie/Movies/R badges, tagline,
+`2022 | 114 min | Rating 8.2/10`, director, genres, wrapped synopsis, resume
+state, and Play/Return actions. Unavailable metadata fails closed to a
+non-playable result view rather than accidentally opening an unrelated numeric
+tag id.
 
 `GET /v2/artwork.jpg` serves the twelve possible posters as one 320x360 JPEG
 contact sheet. The host downsizes and letterboxes Plex artwork into 80x120
@@ -361,6 +378,7 @@ The current build is approximately:
 | Pairing view                   | 10 widgets, 1 handler                         |
 | Home snapshot                  | Up to 3 rows x 4 real Plex items              |
 | Search result page             | 4 relevance-ordered real Plex items           |
+| Item details response          | Bounded metadata and synopsis below 2 KiB     |
 | Library browse page            | 4 of up to 65,535 real Plex items             |
 | Poster textures                | 12 home + 4 browse x 80x120 RGB565 / 300 KiB  |
 | Embedded MPEG-2 Program Stream | 720x480 video + stereo MP2 / 152 KiB          |
@@ -434,11 +452,10 @@ not as the committed GameCube renderer yet.
 
 Next Dolphin milestones:
 
-1. add richer item metadata and action semantics to the details view;
-2. turn the host-prepared Plex segment into an on-demand, seekable full-item
+1. turn the host-prepared Plex segment into an on-demand, seekable full-item
    session with progress persistence;
-3. add player controls and Watch Together state through the same gateway;
-4. decide whether to repair raylib/OpenGX or extract a smaller portable
+2. add player controls and Watch Together state through the same gateway;
+3. decide whether to repair raylib/OpenGX or extract a smaller portable
    framebuffer/presenter interface before the Dreamcast pass.
 
 Hardware profiling remains deferred until the Dolphin app is materially

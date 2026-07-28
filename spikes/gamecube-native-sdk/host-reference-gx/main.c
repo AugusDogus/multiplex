@@ -776,6 +776,60 @@ static bool load_search_page(const char *gateway_url) {
   return true;
 }
 
+static bool load_item_details(const char *gateway_url) {
+  const uint32_t rating_key = multiplex_native_app_details_request();
+  if (rating_key == 0) {
+    return true;
+  }
+  MultiplexGatewayDetails details;
+  if (!multiplex_gateway_load_details(gateway_url, rating_key, &details)) {
+    if (multiplex_native_app_details_fail() == 0) {
+      return false;
+    }
+    SYS_Report("REFERENCE GX: details-page unavailable rating-key=%u\n",
+               rating_key);
+    return true;
+  }
+
+  char facts[MULTIPLEX_GATEWAY_DETAIL_SHORT_CAPACITY] = {0};
+  const uint32_t minutes =
+      details.duration_ms == 0 ? 0 : (details.duration_ms + 30000u) / 60000u;
+  int facts_length = 0;
+  if (details.year != 0 && minutes != 0 && details.rating_tenths != 0) {
+    facts_length = snprintf(facts, sizeof(facts),
+                            "%u | %u min | Rating %u.%u/10", details.year,
+                            minutes, details.rating_tenths / 10u,
+                            details.rating_tenths % 10u);
+  } else if (details.year != 0 && minutes != 0) {
+    facts_length = snprintf(facts, sizeof(facts), "%u | %u min", details.year,
+                            minutes);
+  } else if (minutes != 0) {
+    facts_length = snprintf(facts, sizeof(facts), "%u min", minutes);
+  } else if (details.year != 0) {
+    facts_length = snprintf(facts, sizeof(facts), "%u", details.year);
+  }
+  if (facts_length < 0 || (size_t)facts_length >= sizeof(facts)) {
+    return false;
+  }
+
+  if (multiplex_native_app_details_commit(
+          (const uint8_t *)details.title, details.title_length,
+          (const uint8_t *)details.secondary, details.secondary_length,
+          (const uint8_t *)details.media_type, details.media_type_length,
+          (const uint8_t *)details.library, details.library_length,
+          (const uint8_t *)details.content_rating,
+          details.content_rating_length, (const uint8_t *)facts,
+          (uint32_t)facts_length, (const uint8_t *)details.summary,
+          details.summary_length, (const uint8_t *)details.genres,
+          details.genres_length, (const uint8_t *)details.directors,
+          details.directors_length, (details.flags & 1u) != 0) == 0) {
+    return false;
+  }
+  SYS_Report("REFERENCE GX: details-page ready rating-key=%u title=%s\n",
+             rating_key, details.title);
+  return true;
+}
+
 static void texture_vertex(float x, float y, float u, float v) {
   GX_Position3f32(x, y, 0.0f);
   GX_Color4u8(255, 255, 255, 255);
@@ -1221,6 +1275,10 @@ static void *run_app(void *unused) {
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
           !load_search_page(MULTIPLEX_GATEWAY_URL)) {
         SYS_Report("REFERENCE GX: search-page load failed\n");
+      }
+      if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
+          !load_item_details(MULTIPLEX_GATEWAY_URL)) {
+        SYS_Report("REFERENCE GX: details-page load failed\n");
       }
       native_frame_dirty = true;
     }

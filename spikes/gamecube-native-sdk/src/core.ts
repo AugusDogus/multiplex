@@ -50,6 +50,8 @@ export interface Model {
   readonly rowIndex: number;
   readonly rowNumber: number;
   readonly selectedIndex: number;
+  readonly selectedRatingKey: number;
+  readonly selectedImageId: number;
   readonly selectedTitle: Uint8Array;
   readonly selectedDurationMs: number;
   readonly selectedViewOffsetMs: number;
@@ -66,6 +68,16 @@ export interface Model {
   readonly searchItems: readonly CatalogItem[];
   readonly searchLoaded: boolean;
   readonly selectedFromSearch: boolean;
+  readonly detailsLoaded: boolean;
+  readonly detailsPlayable: boolean;
+  readonly detailsSecondary: Uint8Array;
+  readonly detailsType: Uint8Array;
+  readonly detailsLibrary: Uint8Array;
+  readonly detailsContentRating: Uint8Array;
+  readonly detailsFacts: Uint8Array;
+  readonly detailsSummary: Uint8Array;
+  readonly detailsGenres: Uint8Array;
+  readonly detailsDirectors: Uint8Array;
   readonly playing: boolean;
 }
 
@@ -208,6 +220,10 @@ const keyboardRowThreeKeys: readonly KeyboardKey[] = [
 ];
 
 const emptySearchPrompt = asciiBytes("Choose letters with A");
+const unavailableDetailsType = asciiBytes("Plex result");
+const unavailableDetailsSummary = asciiBytes(
+  "Full metadata is not available for this result yet. Return and choose a playable library item.",
+);
 
 export function initialModel(): Model {
   return {
@@ -219,6 +235,8 @@ export function initialModel(): Model {
     rowIndex: 0,
     rowNumber: 1,
     selectedIndex: 0,
+    selectedRatingKey: demoItems[0].ratingKey,
+    selectedImageId: demoItems[0].imageId,
     selectedTitle: demoItems[0].title,
     selectedDurationMs: 0,
     selectedViewOffsetMs: 0,
@@ -235,6 +253,18 @@ export function initialModel(): Model {
     searchItems: [],
     searchLoaded: true,
     selectedFromSearch: false,
+    detailsLoaded: true,
+    detailsPlayable: true,
+    detailsSecondary: asciiBytes("Native SDK media prototype"),
+    detailsType: asciiBytes("Movie"),
+    detailsLibrary: asciiBytes("Demo library"),
+    detailsContentRating: new Uint8Array(0),
+    detailsFacts: new Uint8Array(0),
+    detailsSummary: asciiBytes(
+      "Console-native media details rendered by the shared Native SDK view.",
+    ),
+    detailsGenres: new Uint8Array(0),
+    detailsDirectors: new Uint8Array(0),
     playing: false,
   };
 }
@@ -289,6 +319,53 @@ export function loadSearch(model: Model, query: Uint8Array, items: readonly Cata
   return { ...model, searchQuery: query, searchItems: items, searchLoaded: true };
 }
 
+export function loadDetails(
+  model: Model,
+  title: Uint8Array,
+  secondary: Uint8Array,
+  mediaType: Uint8Array,
+  library: Uint8Array,
+  contentRating: Uint8Array,
+  facts: Uint8Array,
+  summary: Uint8Array,
+  genres: Uint8Array,
+  directors: Uint8Array,
+  playable: boolean,
+): Model {
+  if (model.screen !== "details") return model;
+  return {
+    ...model,
+    selectedTitle: title,
+    detailsLoaded: true,
+    detailsPlayable: playable,
+    detailsSecondary: secondary,
+    detailsType: mediaType,
+    detailsLibrary: library,
+    detailsContentRating: contentRating,
+    detailsFacts: facts,
+    detailsSummary: summary,
+    detailsGenres: genres,
+    detailsDirectors: directors,
+  };
+}
+
+export function failDetails(model: Model): Model {
+  if (model.screen !== "details") return model;
+  return {
+    ...model,
+    detailsLoaded: true,
+    detailsPlayable: false,
+    detailsSecondary: new Uint8Array(0),
+    detailsType: unavailableDetailsType,
+    detailsLibrary: model.gatewayName,
+    detailsContentRating: new Uint8Array(0),
+    detailsFacts: new Uint8Array(0),
+    detailsSummary: unavailableDetailsSummary,
+    detailsGenres: new Uint8Array(0),
+    detailsDirectors: new Uint8Array(0),
+  };
+}
+
 export function visibleItems(model: Model): readonly CatalogItem[] {
   return model.rows[model.rowIndex].items;
 }
@@ -307,6 +384,42 @@ export function hasMultipleRows(model: Model): boolean {
 
 export function hasResume(model: Model): boolean {
   return model.selectedViewOffsetMs > 0;
+}
+
+export function detailsRequestRatingKey(model: Model): number {
+  return model.screen === "details" && !model.detailsLoaded ? model.selectedRatingKey : 0;
+}
+
+export function detailsLoading(model: Model): boolean {
+  return !model.detailsLoaded;
+}
+
+export function detailsUnplayable(model: Model): boolean {
+  return model.detailsLoaded && !model.detailsPlayable;
+}
+
+export function detailsHasSecondary(model: Model): boolean {
+  return model.detailsSecondary.length > 0;
+}
+
+export function detailsHasContentRating(model: Model): boolean {
+  return model.detailsContentRating.length > 0;
+}
+
+export function detailsHasSummary(model: Model): boolean {
+  return model.detailsSummary.length > 0;
+}
+
+export function detailsHasGenres(model: Model): boolean {
+  return model.detailsGenres.length > 0;
+}
+
+export function detailsHasDirectors(model: Model): boolean {
+  return model.detailsDirectors.length > 0;
+}
+
+export function detailsHasFacts(model: Model): boolean {
+  return model.detailsFacts.length > 0;
 }
 
 export function hasLibraries(model: Model): boolean {
@@ -381,7 +494,7 @@ function appendSearchKey(query: Uint8Array, value: number): Uint8Array {
 export function update(model: Model, msg: Msg): Model {
   switch (msg.kind) {
     case "connect_demo":
-      return { ...model, screen: "home", gatewayConnected: true };
+      return { ...model, screen: "home" };
     case "previous_row": {
       const rowIndex = model.rowIndex === 0 ? model.rows.length - 1 : model.rowIndex - 1;
       return { ...model, rowIndex: rowIndex, rowNumber: rowIndex + 1 };
@@ -453,15 +566,19 @@ export function update(model: Model, msg: Msg): Model {
         ...model,
         screen: "details",
         selectedIndex: msg.index,
+        selectedRatingKey: item.ratingKey,
+        selectedImageId: item.imageId,
         selectedTitle: item.title,
         selectedDurationMs: item.durationMs,
         selectedViewOffsetMs: item.viewOffsetMs,
         selectedFromBrowse: model.screen === "browse",
         selectedFromSearch: model.screen === "search_results",
+        detailsLoaded: !model.gatewayConnected,
       };
     }
     case "play":
-      if (model.screen !== "details") return model;
+      if (model.screen !== "details" || !model.detailsLoaded || !model.detailsPlayable)
+        return model;
       return { ...model, screen: "player", playing: true };
     case "toggle_playback":
       if (model.screen !== "player") return model;

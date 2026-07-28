@@ -109,6 +109,28 @@ class CatalogContractTest(unittest.TestCase):
         self.assertEqual(header, (b"MPXS", 1, 1, 5))
         self.assertEqual(encoded[10:15], b"Fresh")
 
+    def test_encodes_bounded_item_details(self) -> None:
+        page = gateway.DetailsPage(
+            416284,
+            6_851_264,
+            50_000,
+            2022,
+            82,
+            True,
+            "Fresh",
+            "It's not for everyone.",
+            "Movie",
+            "Movies",
+            "R",
+            "A" * 500,
+            "Thriller · Horror · Comedy",
+            "Directed by Mimi Cave",
+        )
+        encoded = gateway.encode_details_page(page)
+        header = struct.unpack(">4sHHIIIHHHHHHHHHH", encoded[:40])
+        self.assertEqual(header[:8], (b"MPXD", 1, 1, 416284, 6_851_264, 50_000, 2022, 82))
+        self.assertEqual(header[13], gateway.MAX_DETAIL_SUMMARY_BYTES)
+
 
 if __name__ == "__main__":
     unittest.main()

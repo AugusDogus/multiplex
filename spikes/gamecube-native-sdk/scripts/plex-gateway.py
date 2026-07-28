@@ -11,6 +11,7 @@ import json
 import pathlib
 import struct
 import threading
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -23,11 +24,14 @@ HOME_CATALOG_VERSION = 2
 BOOTSTRAP_CATALOG_VERSION = 3
 BROWSE_CATALOG_VERSION = 1
 SEARCH_CATALOG_VERSION = 1
+DETAILS_CATALOG_VERSION = 1
 MAX_ITEMS = 4
 MAX_ROWS = 3
 MAX_SERVER_NAME_BYTES = 63
 MAX_TITLE_BYTES = 95
 MAX_SUBTITLE_BYTES = 95
+MAX_DETAIL_SHORT_BYTES = 127
+MAX_DETAIL_SUMMARY_BYTES = 383
 ARTWORK_WIDTH = 80
 ARTWORK_HEIGHT = 120
 
@@ -75,6 +79,24 @@ class BrowsePage:
 class SearchPage:
     query: str
     items: list[HomeItem]
+
+
+@dataclass(frozen=True)
+class DetailsPage:
+    rating_key: int
+    duration_ms: int
+    view_offset_ms: int
+    year: int
+    rating_tenths: int
+    playable: bool
+    title: str
+    secondary: str
+    media_type: str
+    library: str
+    content_rating: str
+    summary: str
+    genres: str
+    directors: str
 
 
 def _bounded_utf8(value: str, maximum: int) -> bytes:
@@ -267,7 +289,9 @@ def fetch_search_page(base_url: str, token: str | None, search_query: str) -> Se
         element = next(iter(result), None)
         if element is None:
             continue
-        raw_key = element.get("ratingKey") or element.get("id") or ""
+        # Person directories expose tag-database ids rather than metadata
+        # rating keys; treating one as a rating key can open unrelated media.
+        raw_key = element.get("ratingKey") or ""
         title = element.get("title") or element.get("tag") or ""
         if not raw_key.isdigit() or not title:
             continue
@@ -293,6 +317,44 @@ def fetch_search_page(base_url: str, token: str | None, search_query: str) -> Se
         if len(items) == MAX_ITEMS:
             break
     return SearchPage(search_query, items)
+
+
+def fetch_details_page(base_url: str, token: str | None, rating_key: int) -> DetailsPage:
+    root = _plex_xml(base_url, f"/library/metadata/{rating_key}", token)
+    element = next(iter(root), None)
+    if element is None or element.get("ratingKey") != str(rating_key):
+        raise RuntimeError(f"Plex metadata did not contain rating key {rating_key}")
+    media_type = element.get("type", "media").replace("_", " ").title()
+    raw_type = element.get("type", "")
+    secondary = element.get("tagline", "")
+    if raw_type == "episode":
+        show = element.get("grandparentTitle", "")
+        season = int(element.get("parentIndex", "0") or 0)
+        episode = int(element.get("index", "0") or 0)
+        secondary = f"{show} · S{season:02d} E{episode:02d}" if show else secondary
+    genres = " · ".join(child.get("tag", "") for child in element.findall("Genre")[:3])
+    director_names = [child.get("tag", "") for child in element.findall("Director")[:2]]
+    directors = f"Directed by {', '.join(director_names)}" if director_names else ""
+    try:
+        rating_tenths = round(float(element.get("rating", "0") or 0) * 10)
+    except ValueError:
+        rating_tenths = 0
+    return DetailsPage(
+        rating_key=rating_key,
+        duration_ms=int(element.get("duration", "0") or 0),
+        view_offset_ms=int(element.get("viewOffset", "0") or 0),
+        year=int(element.get("year", "0") or 0),
+        rating_tenths=max(0, min(rating_tenths, 100)),
+        playable=raw_type in {"movie", "episode", "track", "clip"},
+        title=element.get("title", "Untitled"),
+        secondary=secondary,
+        media_type=media_type,
+        library=element.get("librarySectionTitle", "Plex"),
+        content_rating=element.get("contentRating", ""),
+        summary=element.get("summary", ""),
+        genres=genres,
+        directors=directors,
+    )
 
 
 def encode_home_catalog(server_name: str, rows: list[HomeRow]) -> bytes:
@@ -420,6 +482,37 @@ def encode_search_page(page: SearchPage) -> bytes:
     return bytes(body)
 
 
+def encode_details_page(page: DetailsPage) -> bytes:
+    values = [
+        _bounded_utf8(page.title, MAX_TITLE_BYTES),
+        _bounded_utf8(page.secondary, MAX_SUBTITLE_BYTES),
+        _bounded_utf8(page.media_type, 31),
+        _bounded_utf8(page.library, MAX_TITLE_BYTES),
+        _bounded_utf8(page.content_rating, 31),
+        _bounded_utf8(page.summary, MAX_DETAIL_SUMMARY_BYTES),
+        _bounded_utf8(page.genres, MAX_DETAIL_SHORT_BYTES),
+        _bounded_utf8(page.directors, MAX_DETAIL_SHORT_BYTES),
+    ]
+    flags = 1 if page.playable else 0
+    body = bytearray(
+        struct.pack(
+            ">4sHHIIIHHHHHHHHHH",
+            b"MPXD",
+            DETAILS_CATALOG_VERSION,
+            flags,
+            page.rating_key,
+            page.duration_ms,
+            page.view_offset_ms,
+            page.year,
+            page.rating_tenths,
+            *(len(value) for value in values),
+        )
+    )
+    for value in values:
+        body.extend(value)
+    return bytes(body)
+
+
 def _plex_bytes(base_url: str, path: str, token: str | None) -> bytes:
     url = f"{base_url.rstrip('/')}{path}"
     if token:
@@ -470,6 +563,8 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
     browse_cache_lock = threading.Lock()
     search_cache: dict[str, tuple[bytes, bytes]] = {}
     search_cache_lock = threading.Lock()
+    details_cache: dict[int, bytes] = {}
+    details_cache_lock = threading.Lock()
 
     @classmethod
     def _browse_payload(cls, section_id: int, start: int) -> tuple[bytes, bytes] | None:
@@ -510,6 +605,22 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
             )
             cls.search_cache[cache_key] = (catalog, artwork)
             return catalog, artwork
+
+    @classmethod
+    def _details_payload(cls, rating_key: int) -> bytes | None:
+        if rating_key <= 0 or rating_key > 0xFFFFFFFF:
+            return None
+        with cls.details_cache_lock:
+            cached = cls.details_cache.get(rating_key)
+            if cached is not None:
+                return cached
+            try:
+                details = fetch_details_page(cls.plex_base_url, cls.plex_token, rating_key)
+            except (RuntimeError, urllib.error.HTTPError):
+                return None
+            payload = encode_details_page(details)
+            cls.details_cache[rating_key] = payload
+            return payload
 
     def _send_bytes(self, body: bytes, content_type: str) -> None:
         start = 0
@@ -630,6 +741,16 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
                 self._send_bytes(payload[0], "application/octet-stream")
             else:
                 self._send_bytes(payload[1], "image/jpeg")
+        elif path == "/v3/details.bin":
+            rating_key_value = query.get("ratingKey", [""])[0]
+            if not rating_key_value.isdigit():
+                self.send_error(400)
+                return
+            payload = self._details_payload(int(rating_key_value))
+            if payload is None:
+                self.send_error(404)
+                return
+            self._send_bytes(payload, "application/octet-stream")
         elif path == "/v1/media/current.mpg":
             self._send_media()
         else:

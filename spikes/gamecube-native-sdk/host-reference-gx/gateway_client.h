@@ -14,6 +14,9 @@
 #define MULTIPLEX_GATEWAY_TITLE_CAPACITY 96
 #define MULTIPLEX_GATEWAY_SUBTITLE_CAPACITY 96
 #define MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY 25
+#define MULTIPLEX_GATEWAY_DETAIL_TYPE_CAPACITY 32
+#define MULTIPLEX_GATEWAY_DETAIL_SHORT_CAPACITY 128
+#define MULTIPLEX_GATEWAY_DETAIL_SUMMARY_CAPACITY 384
 #define MULTIPLEX_GATEWAY_ARTWORK_WIDTH 80
 #define MULTIPLEX_GATEWAY_ARTWORK_HEIGHT 120
 #define MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES \
@@ -76,6 +79,32 @@ typedef struct {
   MultiplexGatewayItem items[MULTIPLEX_GATEWAY_MAX_ITEMS];
 } MultiplexGatewaySearchPage;
 
+typedef struct {
+  uint16_t version;
+  uint16_t flags;
+  uint32_t rating_key;
+  uint32_t duration_ms;
+  uint32_t view_offset_ms;
+  uint16_t year;
+  uint16_t rating_tenths;
+  char title[MULTIPLEX_GATEWAY_TITLE_CAPACITY];
+  uint16_t title_length;
+  char secondary[MULTIPLEX_GATEWAY_SUBTITLE_CAPACITY];
+  uint16_t secondary_length;
+  char media_type[MULTIPLEX_GATEWAY_DETAIL_TYPE_CAPACITY];
+  uint16_t media_type_length;
+  char library[MULTIPLEX_GATEWAY_TITLE_CAPACITY];
+  uint16_t library_length;
+  char content_rating[MULTIPLEX_GATEWAY_DETAIL_TYPE_CAPACITY];
+  uint16_t content_rating_length;
+  char summary[MULTIPLEX_GATEWAY_DETAIL_SUMMARY_CAPACITY];
+  uint16_t summary_length;
+  char genres[MULTIPLEX_GATEWAY_DETAIL_SHORT_CAPACITY];
+  uint16_t genres_length;
+  char directors[MULTIPLEX_GATEWAY_DETAIL_SHORT_CAPACITY];
+  uint16_t directors_length;
+} MultiplexGatewayDetails;
+
 bool multiplex_gateway_load_catalog(const char *base_url,
                                     MultiplexGatewayCatalog *catalog);
 bool multiplex_gateway_load_artwork(const char *base_url,
@@ -93,5 +122,7 @@ bool multiplex_gateway_load_search(const char *base_url, const char *query,
 bool multiplex_gateway_load_search_artwork(
     const char *base_url, const char *query, uint16_t query_length,
     uint8_t *destination, size_t capacity, size_t *encoded_size);
+bool multiplex_gateway_load_details(const char *base_url, uint32_t rating_key,
+                                    MultiplexGatewayDetails *details);
 
 #endif

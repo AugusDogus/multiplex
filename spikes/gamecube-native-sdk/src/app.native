@@ -122,7 +122,7 @@
         <button width="90" variant="ghost" on-press="back">Search</button>
         <column gap="1">
           <text size="heading">Results for {searchQuery}</text>
-          <text size="sm" foreground="text_muted">Movies, TV, music, people, and collections</text>
+          <text size="sm" foreground="text_muted">Movies, TV, music, and collections</text>
         </column>
       </row>
       <if test="{searchHasResults}">
@@ -194,21 +194,65 @@
   </if>
 
   <if test="{screen == 'details'}">
-    <column grow="1" gap="14">
-      <button width="90" variant="ghost" on-press="back">Back</button>
-      <panel grow="1" padding="24" background="surface" border-color="border" radius="lg">
-        <column grow="1" main="center" cross="center" gap="10">
+    <column grow="1" gap="10">
+      <row cross="center">
+        <button width="90" variant="ghost" on-press="back">Back</button>
+        <spacer grow="1" />
+        <badge variant="secondary">{gatewayName}</badge>
+      </row>
+      <if test="{detailsLoading}">
+        <column grow="1" main="center" cross="center" gap="8">
           <text size="heading">{selectedTitle}</text>
-          <text foreground="text_muted">Native SDK owns this view; the console host supplies video frames.</text>
-          <if test="{hasResume}">
-            <badge variant="secondary">Resume available</badge>
-          </if>
-          <row gap="10">
-            <button variant="primary" on-press="play">Play</button>
-            <button variant="secondary" on-press="back">Return to library</button>
-          </row>
+          <text foreground="text_muted">Loading full Plex details...</text>
         </column>
-      </panel>
+      </if>
+      <if test="{detailsLoaded}">
+        <panel grow="1" padding="16" background="surface" border-color="border" radius="lg">
+          <row grow="1" gap="18">
+            <column width="160" gap="8">
+              <image image="{selectedImageId}" width="160" height="240" label="{selectedTitle}" />
+              <if test="{hasResume}">
+                <badge variant="secondary">Resume available</badge>
+              </if>
+            </column>
+            <column grow="1" gap="8">
+              <row gap="6" cross="center">
+                <badge variant="secondary">{detailsType}</badge>
+                <badge variant="outline">{detailsLibrary}</badge>
+                <if test="{detailsHasContentRating}">
+                  <badge variant="outline">{detailsContentRating}</badge>
+                </if>
+              </row>
+              <text size="heading">{selectedTitle}</text>
+              <if test="{detailsHasSecondary}">
+                <text foreground="text_muted">{detailsSecondary}</text>
+              </if>
+              <if test="{detailsHasFacts}">
+                <text size="sm" foreground="text_muted">{detailsFacts}</text>
+              </if>
+              <if test="{detailsHasDirectors}">
+                <text size="sm">{detailsDirectors}</text>
+              </if>
+              <if test="{detailsHasGenres}">
+                <text size="sm" foreground="text_muted">{detailsGenres}</text>
+              </if>
+              <if test="{detailsHasSummary}">
+                <text size="sm" foreground="text_muted" wrap="true">{detailsSummary}</text>
+              </if>
+              <spacer grow="1" />
+              <row gap="10">
+                <if test="{detailsPlayable}">
+                  <button variant="primary" on-press="play">Play</button>
+                </if>
+                <if test="{detailsUnplayable}">
+                  <badge variant="secondary">Choose a playable child</badge>
+                </if>
+                <button variant="secondary" on-press="back">Return</button>
+              </row>
+            </column>
+          </row>
+        </panel>
+      </if>
     </column>
   </if>
 

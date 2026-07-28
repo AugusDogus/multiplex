@@ -130,6 +130,10 @@ media fills use the same span path. In Dolphin this reduced pairing from about
 from 8.02 to 0.45 seconds without changing their framebuffer signatures.
 Player UI changes render in about 0.275 seconds and focus-only home changes
 cost about 0.068 seconds.
+Real cards now load a bounded full-metadata response on demand. The Native SDK
+details view renders the selected poster, badges, title/tagline, year/runtime/
+rating facts, directors, genres, wrapped synopsis, resume state, and playable
+action without adding a JSON parser to the GameCube runtime.
 A bounded reference-render memo retains three expensive stable layers; warmed
 full home and details repaints measured about 0.37 and 0.33 seconds. The memo
 has a 4 MiB hard limit and peaked at 4,093 KiB in the home/details flow.
