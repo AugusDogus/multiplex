@@ -4,7 +4,7 @@
 #include "http_client.h"
 #include "media-source.h"
 #include "memory_card_auth.h"
-#include "mpeg2_decoder.h"
+#include "video_decoder.h"
 #include "mpeg_ps_demux.h"
 #include "multiplex-dvd-demo-program.h"
 #include "native_ui.h"
@@ -111,7 +111,7 @@ static uint32_t video_codec_total_us;
 static uint32_t video_codec_max_us;
 static uint32_t video_upload_total_us;
 static uint32_t video_upload_max_us;
-static Mpeg2Decoder *video_decoder;
+static VideoDecoder *video_decoder;
 static lwp_t video_decoder_thread = LWP_THREAD_NULL;
 static void *video_decoder_stack;
 static mutex_t video_decoder_mutex;
@@ -349,8 +349,8 @@ static void *run_video_decoder(void *unused) {
     LWP_MutexUnlock(video_decoder_mutex);
 
     const uint32_t decode_started = gettick();
-    Mpeg2Frame frame;
-    const bool frame_decoded = mpeg2_decoder_next_frame(video_decoder, &frame);
+    VideoFrame frame;
+    const bool frame_decoded = video_decoder_next_frame(video_decoder, &frame);
     const uint32_t codec_us = elapsed_us(decode_started);
     const uint32_t upload_started = gettick();
     const bool decoded = frame_decoded && yuv420_gx_upload_back(&frame);
@@ -410,21 +410,22 @@ static bool start_video_decoder(void *reader_context, MediaRead read,
   video_codec_max_us = 0;
   video_upload_total_us = 0;
   video_upload_max_us = 0;
-  video_decoder = mpeg2_decoder_create(reader_context, read);
+  video_decoder =
+      video_decoder_create(VIDEO_CODEC_MPEG2, reader_context, read);
   if (video_decoder == NULL) {
     SYS_Report("REFERENCE GX: MPEG-2 decoder initialization failed\n");
     return false;
   }
   if (!yuv420_gx_initialize(VIDEO_WIDTH, VIDEO_HEIGHT)) {
     SYS_Report("REFERENCE GX: YUV texture allocation failed\n");
-    mpeg2_decoder_destroy(video_decoder);
+    video_decoder_destroy(video_decoder);
     video_decoder = NULL;
     return false;
   }
   if (LWP_MutexInit(&video_decoder_mutex, false) != 0) {
     SYS_Report("REFERENCE GX: decoder failure: mutex init\n");
     yuv420_gx_destroy();
-    mpeg2_decoder_destroy(video_decoder);
+    video_decoder_destroy(video_decoder);
     video_decoder = NULL;
     return false;
   }
@@ -432,7 +433,7 @@ static bool start_video_decoder(void *reader_context, MediaRead read,
     LWP_MutexDestroy(video_decoder_mutex);
     SYS_Report("REFERENCE GX: decoder failure: condition init\n");
     yuv420_gx_destroy();
-    mpeg2_decoder_destroy(video_decoder);
+    video_decoder_destroy(video_decoder);
     video_decoder = NULL;
     return false;
   }
@@ -471,7 +472,7 @@ static void stop_video_decoder(void) {
     video_decoder_sync_ready = false;
   }
   yuv420_gx_destroy();
-  mpeg2_decoder_destroy(video_decoder);
+  video_decoder_destroy(video_decoder);
   video_decoder = NULL;
 }
 
@@ -1236,7 +1237,8 @@ static bool start_media_pipeline(MpegPsDemux *demux, uint32_t rating_key,
                            mpeg_ps_demux_video_size(demux))) {
     return false;
   }
-  audio_output = audio_dma_create(demux, mpeg_ps_demux_read_audio);
+  audio_output =
+      audio_dma_create(AUDIO_CODEC_MP2, demux, mpeg_ps_demux_read_audio);
   if (audio_output == NULL) {
     SYS_Report("REFERENCE GX: audio initialization failed rating-key=%u\n",
                rating_key);

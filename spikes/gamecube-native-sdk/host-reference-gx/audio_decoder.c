@@ -1,11 +1,11 @@
 /*
  * SPDX-License-Identifier: GPL-2.0-or-later
  *
- * Thin GameCube adapter around the fixed-point MP2 decoder bundled by the
+ * Thin GameCube adapter around the fixed-point audio decoders bundled by the
  * pinned MPlayer CE tree.
  */
 
-#include "mp2_decoder.h"
+#include "audio_decoder.h"
 
 #include <gccore.h>
 #include <malloc.h>
@@ -17,14 +17,17 @@
 #include <libavcodec/avcodec.h>
 #include <libavutil/mem.h>
 
-#define MP2_CHANNELS 2
-#define MP2_SAMPLE_RATE 48000
-#define MP2_INPUT_SIZE (8 * 1024)
+#define AUDIO_CHANNELS 2
+#define AUDIO_SAMPLE_RATE 48000
+#define AUDIO_INPUT_SIZE (8 * 1024)
 
 extern AVCodec ff_mp2_decoder;
 extern AVCodecParser ff_mpegaudio_parser;
+extern AVCodec ff_aac_decoder;
+extern AVCodecParser ff_aac_parser;
 
-struct Mp2Decoder {
+struct AudioDecoder {
+  AudioCodec selected_codec;
   void *reader_context;
   MediaRead read;
   uint8_t *input;
@@ -40,11 +43,19 @@ struct Mp2Decoder {
   uint32_t decoded_frames;
 };
 
-static bool refill_input(Mp2Decoder *decoder) {
+const char *audio_codec_name(AudioCodec codec) {
+  return codec == AUDIO_CODEC_AAC ? "aac" : "mp2";
+}
+
+static enum CodecID ffmpeg_codec_id(AudioCodec codec) {
+  return codec == AUDIO_CODEC_AAC ? CODEC_ID_AAC : CODEC_ID_MP2;
+}
+
+static bool refill_input(AudioDecoder *decoder) {
   decoder->input_size = decoder->read(
-      decoder->reader_context, decoder->input, MP2_INPUT_SIZE);
+      decoder->reader_context, decoder->input, AUDIO_INPUT_SIZE);
   decoder->input_offset = 0;
-  if (decoder->input_size == 0 || decoder->input_size > MP2_INPUT_SIZE) {
+  if (decoder->input_size == 0 || decoder->input_size > AUDIO_INPUT_SIZE) {
     return false;
   }
   memset(decoder->input + decoder->input_size, 0,
@@ -52,11 +63,12 @@ static bool refill_input(Mp2Decoder *decoder) {
   return true;
 }
 
-static bool decode_frame(Mp2Decoder *decoder) {
+static bool decode_frame(AudioDecoder *decoder) {
   for (unsigned attempts = 0; attempts < 64; ++attempts) {
     if (decoder->input_offset >= decoder->input_size &&
         !refill_input(decoder)) {
-      SYS_Report("REFERENCE GX: MP2 input stopped at byte %llu\n",
+      SYS_Report("REFERENCE GX: %s input stopped at byte %llu\n",
+                 audio_codec_name(decoder->selected_codec),
                  decoder->stream_offset);
       return false;
     }
@@ -70,7 +82,8 @@ static bool decode_frame(Mp2Decoder *decoder) {
         input_size, AV_NOPTS_VALUE, AV_NOPTS_VALUE,
         (int64_t)decoder->stream_offset);
     if (parsed < 0 || parsed > input_size) {
-      SYS_Report("REFERENCE GX: MP2 parser failed at byte %u\n",
+      SYS_Report("REFERENCE GX: %s parser failed at byte %u\n",
+                 audio_codec_name(decoder->selected_codec),
                  (unsigned)decoder->stream_offset);
       return false;
     }
@@ -89,14 +102,15 @@ static bool decode_frame(Mp2Decoder *decoder) {
     const int consumed = avcodec_decode_audio3(
         decoder->context, (int16_t *)decoder->decoded, &output_size, &packet);
     if (consumed < 0) {
-      SYS_Report("REFERENCE GX: MP2 decode failed at byte %u frame=%u\n",
+      SYS_Report("REFERENCE GX: %s decode failed at byte %u frame=%u\n",
+                 audio_codec_name(decoder->selected_codec),
                  (unsigned)decoder->stream_offset, decoder->decoded_frames);
       return false;
     }
     if (consumed != frame_size) {
       SYS_Report(
-          "REFERENCE GX: MP2 decoder consumed %d of %d parsed bytes\n",
-          consumed, frame_size);
+          "REFERENCE GX: %s decoder consumed %d of %d parsed bytes\n",
+          audio_codec_name(decoder->selected_codec), consumed, frame_size);
       return false;
     }
 
@@ -104,13 +118,14 @@ static bool decode_frame(Mp2Decoder *decoder) {
       continue;
     }
     if (output_size < 0 || output_size > AVCODEC_MAX_AUDIO_FRAME_SIZE ||
-        decoder->context->sample_rate != MP2_SAMPLE_RATE ||
-        decoder->context->channels != MP2_CHANNELS ||
+        decoder->context->sample_rate != AUDIO_SAMPLE_RATE ||
+        decoder->context->channels != AUDIO_CHANNELS ||
         decoder->context->sample_fmt != AV_SAMPLE_FMT_S16) {
       SYS_Report(
-          "REFERENCE GX: unexpected MP2 frame bytes=%d rate=%d channels=%d "
+          "REFERENCE GX: unexpected %s frame bytes=%d rate=%d channels=%d "
           "format=%d\n",
-          output_size, decoder->context->sample_rate,
+          audio_codec_name(decoder->selected_codec), output_size,
+          decoder->context->sample_rate,
           decoder->context->channels, decoder->context->sample_fmt);
       return false;
     }
@@ -121,55 +136,65 @@ static bool decode_frame(Mp2Decoder *decoder) {
     return true;
   }
 
-  SYS_Report("REFERENCE GX: MP2 decoder exceeded progress limit\n");
+  SYS_Report("REFERENCE GX: %s decoder exceeded progress limit\n",
+             audio_codec_name(decoder->selected_codec));
   return false;
 }
 
-Mp2Decoder *mp2_decoder_create(void *reader_context, MediaRead read) {
+AudioDecoder *audio_decoder_create(AudioCodec codec, void *reader_context,
+                                   MediaRead read) {
   if (reader_context == NULL || read == NULL) {
     return NULL;
   }
 
-  Mp2Decoder *decoder = calloc(1, sizeof(*decoder));
+  AudioDecoder *decoder = calloc(1, sizeof(*decoder));
   if (decoder == NULL) {
     return NULL;
   }
+  decoder->selected_codec = codec;
   decoder->reader_context = reader_context;
   decoder->read = read;
   decoder->input =
-      memalign(32, MP2_INPUT_SIZE + FF_INPUT_BUFFER_PADDING_SIZE);
+      memalign(32, AUDIO_INPUT_SIZE + FF_INPUT_BUFFER_PADDING_SIZE);
   decoder->decoded = memalign(32, AVCODEC_MAX_AUDIO_FRAME_SIZE);
   if (decoder->input == NULL || decoder->decoded == NULL) {
-    mp2_decoder_destroy(decoder);
+    audio_decoder_destroy(decoder);
     return NULL;
   }
 
   avcodec_init();
-  avcodec_register(&ff_mp2_decoder);
-  av_register_codec_parser(&ff_mpegaudio_parser);
-  decoder->codec = avcodec_find_decoder(CODEC_ID_MP2);
+  if (codec == AUDIO_CODEC_AAC) {
+    avcodec_register(&ff_aac_decoder);
+    av_register_codec_parser(&ff_aac_parser);
+  } else {
+    avcodec_register(&ff_mp2_decoder);
+    av_register_codec_parser(&ff_mpegaudio_parser);
+  }
+  decoder->codec = avcodec_find_decoder(ffmpeg_codec_id(codec));
   decoder->context = avcodec_alloc_context();
   if (decoder->codec == NULL || decoder->context == NULL) {
-    mp2_decoder_destroy(decoder);
+    audio_decoder_destroy(decoder);
     return NULL;
   }
   decoder->context->codec_type = AVMEDIA_TYPE_AUDIO;
-  decoder->context->codec_id = CODEC_ID_MP2;
+  decoder->context->codec_id = ffmpeg_codec_id(codec);
   if (avcodec_open(decoder->context, decoder->codec) < 0) {
-    SYS_Report("REFERENCE GX: MP2 decoder open failed\n");
-    mp2_decoder_destroy(decoder);
+    SYS_Report("REFERENCE GX: %s decoder open failed\n",
+               audio_codec_name(codec));
+    audio_decoder_destroy(decoder);
     return NULL;
   }
-  decoder->parser = av_parser_init(CODEC_ID_MP2);
+  decoder->parser = av_parser_init(ffmpeg_codec_id(codec));
   if (decoder->parser == NULL) {
-    SYS_Report("REFERENCE GX: MP2 parser initialization failed\n");
-    mp2_decoder_destroy(decoder);
+    SYS_Report("REFERENCE GX: %s parser initialization failed\n",
+               audio_codec_name(codec));
+    audio_decoder_destroy(decoder);
     return NULL;
   }
   return decoder;
 }
 
-void mp2_decoder_destroy(Mp2Decoder *decoder) {
+void audio_decoder_destroy(AudioDecoder *decoder) {
   if (decoder == NULL) {
     return;
   }
@@ -185,8 +210,8 @@ void mp2_decoder_destroy(Mp2Decoder *decoder) {
   free(decoder);
 }
 
-bool mp2_decoder_read_pcm(Mp2Decoder *decoder, void *destination,
-                          size_t destination_size) {
+bool audio_decoder_read_pcm(AudioDecoder *decoder, void *destination,
+                            size_t destination_size) {
   if (decoder == NULL || destination == NULL || destination_size == 0) {
     return false;
   }
@@ -211,6 +236,6 @@ bool mp2_decoder_read_pcm(Mp2Decoder *decoder, void *destination,
   return true;
 }
 
-uint32_t mp2_decoder_frame_count(const Mp2Decoder *decoder) {
+uint32_t audio_decoder_frame_count(const AudioDecoder *decoder) {
   return decoder == NULL ? 0 : decoder->decoded_frames;
 }

@@ -108,7 +108,7 @@ void yuv420_gx_destroy(void) {
   initialized = false;
 }
 
-bool yuv420_gx_upload_back(const Mpeg2Frame *frame) {
+bool yuv420_gx_upload_back(const VideoFrame *frame) {
   if (!initialized || frame == NULL || frame->width != luma_width ||
       frame->height != luma_height) {
     return false;

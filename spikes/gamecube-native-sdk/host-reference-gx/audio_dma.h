@@ -5,11 +5,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "audio_decoder.h"
 #include "media_reader.h"
 
 typedef struct AudioDma AudioDma;
 
-AudioDma *audio_dma_create(void *reader_context, MediaRead read);
+AudioDma *audio_dma_create(AudioCodec codec, void *reader_context,
+                           MediaRead read);
 void audio_dma_request_stop(AudioDma *audio);
 void audio_dma_destroy(AudioDma *audio);
 

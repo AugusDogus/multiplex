@@ -7,7 +7,7 @@
  */
 
 #include "audio_dma.h"
-#include "mp2_decoder.h"
+#include "audio_decoder.h"
 
 #include <gccore.h>
 #include <malloc.h>
@@ -37,7 +37,8 @@ typedef enum {
 } AudioBufferState;
 
 struct AudioDma {
-  Mp2Decoder *decoder;
+  AudioCodec codec;
+  AudioDecoder *decoder;
   void *buffers[AUDIO_BUFFER_COUNT];
   volatile AudioBufferState buffer_states[AUDIO_BUFFER_COUNT];
   lwp_t decoder_thread;
@@ -141,7 +142,7 @@ static void *run_audio_decoder(void *argument) {
     }
 
     void *buffer = audio->buffers[free_buffer];
-    if (!mp2_decoder_read_pcm(audio->decoder, buffer, AUDIO_BURST_SIZE)) {
+    if (!audio_decoder_read_pcm(audio->decoder, buffer, AUDIO_BURST_SIZE)) {
       if (!audio->stopping) {
         SYS_Report("REFERENCE GX: audio decoder failure\n");
       }
@@ -204,7 +205,8 @@ static uint64_t samples_played_locked(const AudioDma *audio) {
          partial_samples;
 }
 
-AudioDma *audio_dma_create(void *reader_context, MediaRead read) {
+AudioDma *audio_dma_create(AudioCodec codec, void *reader_context,
+                           MediaRead read) {
   if (active_audio != NULL) {
     return NULL;
   }
@@ -216,7 +218,8 @@ AudioDma *audio_dma_create(void *reader_context, MediaRead read) {
   audio->decoder_thread = LWP_THREAD_NULL;
   audio->current_buffer = -1;
   audio->queued_buffer = -1;
-  audio->decoder = mp2_decoder_create(reader_context, read);
+  audio->codec = codec;
+  audio->decoder = audio_decoder_create(codec, reader_context, read);
   if (audio->decoder == NULL) {
     audio_dma_destroy(audio);
     return NULL;
@@ -250,9 +253,9 @@ AudioDma *audio_dma_create(void *reader_context, MediaRead read) {
   }
 
   SYS_Report(
-      "REFERENCE GX: audio=ffmpeg-mplayer-ce codec=mp2 output=ai-dma "
+      "REFERENCE GX: audio=ffmpeg-mplayer-ce codec=%s output=ai-dma "
       "rate=48000 channels=2 format=s16 buffers=%u burst=%u bytes\n",
-      AUDIO_BUFFER_COUNT, AUDIO_BURST_SIZE);
+      audio_codec_name(codec), AUDIO_BUFFER_COUNT, AUDIO_BURST_SIZE);
   return audio;
 }
 
@@ -287,7 +290,7 @@ void audio_dma_destroy(AudioDma *audio) {
     free(audio->buffers[index]);
   }
   free(audio->decoder_stack);
-  mp2_decoder_destroy(audio->decoder);
+  audio_decoder_destroy(audio->decoder);
   free(audio);
 }
 
@@ -354,7 +357,7 @@ void audio_dma_update(AudioDma *audio, bool playing) {
           "REFERENCE GX: audio-progress buffers=%u samples=%llu "
           "decoder-frames=%u underruns=%u\n",
           audio->completed_buffers, audio_dma_samples_played(audio),
-          mp2_decoder_frame_count(audio->decoder), audio->underruns);
+          audio_decoder_frame_count(audio->decoder), audio->underruns);
     }
   }
 }
