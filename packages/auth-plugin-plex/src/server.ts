@@ -136,9 +136,11 @@ function matchesAuthAttempt(
 }
 
 // Plex configuration
+export const PLEX_AUTH_CLIENT_IDENTIFIER = "multiplex-app";
+
 const config: PlexConfig = {
   product: "Multiplex",
-  clientIdentifier: "multiplex-app",
+  clientIdentifier: PLEX_AUTH_CLIENT_IDENTIFIER,
   version: "1.0.0",
   platform: "Web",
 };
