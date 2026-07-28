@@ -145,5 +145,8 @@ bool multiplex_gateway_load_details(const char *base_url, uint32_t rating_key,
 bool multiplex_gateway_load_playback_manifest(
     const char *base_url, uint32_t rating_key, uint32_t offset_ms,
     MultiplexGatewayPlaybackManifest *manifest);
+bool multiplex_gateway_report_timeline(
+    const char *base_url, uint32_t rating_key, uint32_t position_ms,
+    uint32_t duration_ms, const char *state);
 
 #endif

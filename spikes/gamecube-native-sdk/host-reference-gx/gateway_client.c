@@ -610,3 +610,39 @@ bool multiplex_gateway_load_playback_manifest(
       loaded ? manifest->container_bytes : 0, loaded);
   return loaded;
 }
+
+bool multiplex_gateway_report_timeline(
+    const char *base_url, uint32_t rating_key, uint32_t position_ms,
+    uint32_t duration_ms, const char *state) {
+  if (base_url == NULL || base_url[0] == '\0' || rating_key == 0 ||
+      duration_ms == 0 || state == NULL ||
+      (strcmp(state, "playing") != 0 && strcmp(state, "paused") != 0 &&
+       strcmp(state, "stopped") != 0)) {
+    return false;
+  }
+  const size_t base_length = strlen(base_url);
+  const bool has_slash = base_length > 0 && base_url[base_length - 1] == '/';
+  char url[GATEWAY_URL_CAPACITY];
+  const int written = snprintf(
+      url, sizeof(url),
+      "%s%sv4/timeline?ratingKey=%u&positionMs=%u&durationMs=%u&state=%s",
+      base_url, has_slash ? "" : "/", rating_key, position_ms, duration_ms,
+      state);
+  if (written < 0 || (size_t)written >= sizeof(url)) {
+    return false;
+  }
+  HttpClient *client = http_client_open(url);
+  if (client == NULL) {
+    return false;
+  }
+  uint8_t acknowledgment = 0;
+  const bool reported = http_client_size(client) == 1 &&
+                        http_client_read_at(client, 0, &acknowledgment, 1) &&
+                        acknowledgment == 1;
+  http_client_destroy(client);
+  SYS_Report(
+      "REFERENCE GX: gateway-timeline rating-key=%u position=%u state=%s "
+      "reported=%u\n",
+      rating_key, position_ms, state, reported);
+  return reported;
+}

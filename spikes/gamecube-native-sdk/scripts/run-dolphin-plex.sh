@@ -349,11 +349,24 @@ if [ "$expect_continuation" -eq 1 ]; then
   fi
   echo "Automatically continued selected Plex item $selected_rating_key from ${seek_offset}ms to ${continuation_offset}ms."
 fi
+
+# Prove deliberate player state edges reach Plex as well as periodic progress.
+paused_count=$(line_count "playback=paused")
+paused_timeline_count=$(line_count "gateway-timeline .*state=paused reported=1")
+press A
+wait_for_new "playback=paused" "$paused_count" 120
+wait_for_new "gateway-timeline .*state=paused reported=1" "$paused_timeline_count" 600
+playing_count=$(line_count "playback=playing")
+playing_timeline_count=$(line_count "gateway-timeline .*state=playing reported=1")
+press A
+wait_for_new "playback=playing" "$playing_count" 120
+wait_for_new "gateway-timeline .*state=playing reported=1" "$playing_timeline_count" 600
 sleep 12
 if grep -Eq 'underruns=[1-9][0-9]*' "$log"; then
   echo "Selected Plex seek produced an audio underrun." >&2
   exit 1
 fi
+wait_log "gateway-timeline rating-key=$selected_rating_key .*state=playing reported=1" 600
 sh "$script_dir/check-dolphin-log.sh" "$log"
 
 echo "Playing selected Plex item $selected_rating_key at ${seek_offset}ms in Dolphin (startup fixture '$title' is $container_bytes bytes)."

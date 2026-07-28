@@ -34,6 +34,8 @@
 #define APP_STACK_SIZE (512 * 1024)
 #define VIDEO_DECODER_STACK_SIZE (256 * 1024)
 #define MEDIA_PREFETCH_STACK_SIZE (256 * 1024)
+#define TIMELINE_REPORT_STACK_SIZE (128 * 1024)
+#define TIMELINE_REPORT_INTERVAL_MS 10000u
 #define VIDEO_WIDTH 720
 #define VIDEO_HEIGHT 480
 #define VIDEO_PROFILE_FRAMES 60
@@ -127,6 +129,21 @@ typedef struct {
   volatile bool ready;
   volatile bool failed;
 } StagedMediaSession;
+
+typedef struct {
+  const char *gateway_url;
+  uint32_t rating_key;
+  uint32_t position_ms;
+  uint32_t duration_ms;
+  const char *state;
+  lwp_t thread;
+  void *stack;
+  volatile bool complete;
+  volatile bool succeeded;
+  uint32_t last_rating_key;
+  uint32_t last_position_ms;
+  const char *last_state;
+} TimelineReporter;
 
 static bool read_http_program(void *context, size_t offset,
                               uint8_t *destination, size_t size);
@@ -1115,6 +1132,90 @@ static void discard_staged_media_session(StagedMediaSession *staged) {
   reset_staged_media_session(staged);
 }
 
+static void initialize_timeline_reporter(TimelineReporter *reporter) {
+  memset(reporter, 0, sizeof(*reporter));
+  reporter->thread = LWP_THREAD_NULL;
+}
+
+static void *run_timeline_report(void *argument) {
+  TimelineReporter *reporter = argument;
+  reporter->succeeded = multiplex_gateway_report_timeline(
+      reporter->gateway_url, reporter->rating_key, reporter->position_ms,
+      reporter->duration_ms, reporter->state);
+  reporter->complete = true;
+  return NULL;
+}
+
+static void finish_timeline_report(TimelineReporter *reporter) {
+  if (reporter->thread != LWP_THREAD_NULL) {
+    LWP_JoinThread(reporter->thread, NULL);
+    reporter->thread = LWP_THREAD_NULL;
+  }
+  free(reporter->stack);
+  reporter->stack = NULL;
+  reporter->complete = false;
+}
+
+static bool schedule_timeline_report(
+    TimelineReporter *reporter, const char *gateway_url, uint32_t rating_key,
+    uint32_t position_ms, uint32_t duration_ms, const char *state,
+    bool force) {
+  if (reporter->thread != LWP_THREAD_NULL && reporter->complete) {
+    finish_timeline_report(reporter);
+  }
+  if (reporter->thread != LWP_THREAD_NULL || gateway_url == NULL ||
+      gateway_url[0] == '\0' || rating_key == 0 || duration_ms == 0) {
+    return false;
+  }
+  const bool same_item = reporter->last_rating_key == rating_key;
+  const bool same_state = reporter->last_state != NULL &&
+                          strcmp(reporter->last_state, state) == 0;
+  const bool periodic_due =
+      strcmp(state, "playing") == 0 && same_item && same_state &&
+      position_ms >= reporter->last_position_ms + TIMELINE_REPORT_INTERVAL_MS;
+  if (!force && same_item && same_state && !periodic_due) {
+    return false;
+  }
+  reporter->gateway_url = gateway_url;
+  reporter->rating_key = rating_key;
+  reporter->position_ms = position_ms;
+  reporter->duration_ms = duration_ms;
+  reporter->state = state;
+  reporter->stack = malloc(TIMELINE_REPORT_STACK_SIZE);
+  if (reporter->stack == NULL ||
+      LWP_CreateThread(&reporter->thread, run_timeline_report, reporter,
+                       reporter->stack, TIMELINE_REPORT_STACK_SIZE,
+                       LWP_PRIO_NORMAL / 2) != 0) {
+    free(reporter->stack);
+    reporter->stack = NULL;
+    reporter->thread = LWP_THREAD_NULL;
+    return false;
+  }
+  reporter->last_rating_key = rating_key;
+  reporter->last_position_ms = position_ms;
+  reporter->last_state = state;
+  SYS_Report(
+      "REFERENCE GX: timeline-report queued rating-key=%u position=%u "
+      "state=%s\n",
+      rating_key, position_ms, state);
+  return true;
+}
+
+static void flush_timeline_report(
+    TimelineReporter *reporter, const char *gateway_url,
+    const MultiplexGatewayPlaybackManifest *manifest, uint32_t position_ms,
+    const char *state) {
+  finish_timeline_report(reporter);
+  if (manifest == NULL || manifest->rating_key == 0) {
+    return;
+  }
+  if (schedule_timeline_report(
+          reporter, gateway_url, manifest->rating_key, position_ms,
+          manifest->media_duration_ms, state, true)) {
+    finish_timeline_report(reporter);
+  }
+}
+
 static bool load_selected_playback(
     const char *gateway_url,
     MultiplexGatewayPlaybackManifest *active_manifest, HttpClient **client,
@@ -1593,6 +1694,10 @@ static void *run_app(void *unused) {
   memset(&playback_manifest, 0, sizeof(playback_manifest));
   StagedMediaSession staged_media;
   reset_staged_media_session(&staged_media);
+  TimelineReporter timeline_reporter;
+  initialize_timeline_reporter(&timeline_reporter);
+  bool timeline_player_visible = false;
+  bool timeline_started = false;
   MultiplexGatewayCatalog catalog;
   memset(&catalog, 0, sizeof(catalog));
   const bool has_catalog =
@@ -1751,6 +1856,29 @@ static void *run_app(void *unused) {
       break;
     }
     present_frame(&playback_manifest);
+    if (video_surface.visible != 0) {
+      const uint32_t position_ms = playback_position_ms(&playback_manifest);
+      if (video_surface.playing == 0) {
+        timeline_started |= schedule_timeline_report(
+            &timeline_reporter, MULTIPLEX_GATEWAY_URL,
+            playback_manifest.rating_key, position_ms,
+            playback_manifest.media_duration_ms, "paused", false);
+      } else if (video_was_playing) {
+        timeline_started |= schedule_timeline_report(
+            &timeline_reporter, MULTIPLEX_GATEWAY_URL,
+            playback_manifest.rating_key, position_ms,
+            playback_manifest.media_duration_ms, "playing", false);
+      }
+      timeline_player_visible = true;
+    } else if (timeline_player_visible) {
+      if (schedule_timeline_report(
+              &timeline_reporter, MULTIPLEX_GATEWAY_URL,
+              playback_manifest.rating_key,
+              playback_position_ms(&playback_manifest),
+              playback_manifest.media_duration_ms, "stopped", false)) {
+        timeline_player_visible = false;
+      }
+    }
     stage_following_media_if_due(&staged_media, MULTIPLEX_GATEWAY_URL,
                                  &playback_manifest);
     if (!continue_playback_if_needed(MULTIPLEX_GATEWAY_URL,
@@ -1762,6 +1890,13 @@ static void *run_app(void *unused) {
   }
 
   discard_staged_media_session(&staged_media);
+  if (timeline_started) {
+    flush_timeline_report(
+        &timeline_reporter, MULTIPLEX_GATEWAY_URL, &playback_manifest,
+        playback_position_ms(&playback_manifest), "stopped");
+  } else {
+    finish_timeline_report(&timeline_reporter);
+  }
   close_media_session(&client, &demux);
   multiplex_native_cache_free(poster_texture_pixels);
   poster_texture_pixels = NULL;

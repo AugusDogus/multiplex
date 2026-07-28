@@ -160,6 +160,12 @@ Intentional session replacement now cancels the old resumable HTTP reader
 instead of waiting through its outage-retry budget. A 64 ms handoff margin
 also stops the finite audio stream before its final DMA request; the repeated
 accelerated-boundary run returned to zero underruns and a clean memory log.
+The console reports the same Plex `/:/timeline` contract as the web player
+through a token-holding gateway proxy. A dedicated LWP sends play/pause/stop
+edges immediately and playing progress every ten seconds, so Plex latency
+cannot stall GX or AI DMA. The controller smoke confirmed real playing,
+paused, resumed, and periodic progress acknowledgements while staged playback
+remained clean.
 A bounded reference-render memo retains three expensive stable layers; warmed
 full home and details repaints measured about 0.37 and 0.33 seconds. The memo
 has a 4 MiB hard limit and peaked at 4,093 KiB in the home/details flow.
