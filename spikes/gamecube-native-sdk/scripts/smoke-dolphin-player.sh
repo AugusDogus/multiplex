@@ -35,6 +35,13 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# Clear the current-run path before the asynchronous launcher starts. Without
+# this handoff, the first wait can briefly match a completed run immediately
+# before run-dolphin.sh archives that same log.
+if [ -f "$log" ]; then
+  mv -f "$log" "$user_dir/Logs/dolphin.previous.log"
+fi
+
 sh "$script_dir/run-dolphin.sh" "$dol" >/dev/null 2>&1 &
 launcher_pid=$!
 
@@ -90,9 +97,35 @@ press() {
   exit 1
 }
 
+expected_media_source=${GAMECUBE_EXPECT_MEDIA_SOURCE:-embedded}
+expected_media_bytes=${GAMECUBE_EXPECT_MEDIA_BYTES:-155648}
+case "$expected_media_source" in
+  embedded)
+    media_attempts=120
+    decoder_attempts=120
+    expected_pts_delta=902
+    expected_pts_offset_samples=481
+    ;;
+  http)
+    media_attempts=1200
+    decoder_attempts=300
+    expected_pts_delta=902
+    expected_pts_offset_samples=481
+    ;;
+  *)
+    echo "Unsupported GAMECUBE_EXPECT_MEDIA_SOURCE: $expected_media_source" >&2
+    exit 1
+    ;;
+esac
+wait_for_new "media-source=$expected_media_source" 0 "$media_attempts"
+if ! rg -q "media-source=$expected_media_source .*bytes=$expected_media_bytes" "$log"; then
+  echo "Unexpected $expected_media_source media payload." >&2
+  rg 'media-source=' "$log" >&2 || true
+  exit 1
+fi
 wait_for_new "signature=fa6601eb" 0 120
 wait_for_new "demux=mpeg-ps" 0 120
-if ! rg -q 'demux=mpeg-ps .*pts-delta=902' "$log"; then
+if ! rg -q "demux=mpeg-ps .*pts-delta=$expected_pts_delta" "$log"; then
   echo "MPEG-PS demux did not preserve the expected initial PTS delta." >&2
   rg 'demux=mpeg-ps' "$log" >&2 || true
   exit 1
@@ -125,13 +158,13 @@ press A
 wait_for_new "signature=f3bd7219" "$player_count" 120
 wait_for_new "playback=playing" "$playing_count" 80
 wait_for_new "audio=playing" "$audio_playing_count" 80
-if ! rg -q 'playback=playing .*pts-offset-samples=481' "$log"; then
+if ! rg -q "playback=playing .*pts-offset-samples=$expected_pts_offset_samples" "$log"; then
   echo "Video scheduler did not apply the MPEG-PS timestamp offset." >&2
   exit 1
 fi
 
 decoder_count=$(line_count "decoder=60 frames/")
-wait_for_new "decoder=60 frames/" "$decoder_count" 120
+wait_for_new "decoder=60 frames/" "$decoder_count" "$decoder_attempts"
 
 paused_count=$(line_count "signature=f3bd7219")
 playback_paused_count=$(line_count "playback=paused")
@@ -193,4 +226,4 @@ if [ "$(line_count "playback=playing clock=audio")" -lt 2 ]; then
 fi
 
 sh "$script_dir/check-dolphin-log.sh"
-echo "Dolphin player smoke passed: navigation, timestamped MPEG-PS playback, 60 fps presentation, pause/resume, and clean memory log."
+echo "Dolphin player smoke passed with $expected_media_source media: navigation, timestamped MPEG-PS playback, 60 fps presentation, pause/resume, and clean memory log."

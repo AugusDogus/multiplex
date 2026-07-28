@@ -1,6 +1,8 @@
 .native-sdk/
 .libogc2/
 .libogc2-stage/
+.passt/
+.http-fixture.log
 .mplayer-ce-libogc2/
 .opengx/
 .opengx-build/

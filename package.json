@@ -28,6 +28,8 @@
     "spike:gamecube:reference:run": "sh spikes/gamecube-native-sdk/scripts/run-dolphin.sh spikes/gamecube-native-sdk/multiplex-gamecube-native-reference.dol",
     "spike:gamecube:reference:log-check": "sh spikes/gamecube-native-sdk/scripts/check-dolphin-log.sh",
     "spike:gamecube:reference:smoke-player": "sh spikes/gamecube-native-sdk/scripts/smoke-dolphin-player.sh",
+    "spike:gamecube:reference:smoke-http": "sh spikes/gamecube-native-sdk/scripts/smoke-dolphin-http-player.sh",
+    "spike:gamecube:reference:smoke-http-tap": "GAMECUBE_DOLPHIN_ROOTLESS_TAP=1 sh spikes/gamecube-native-sdk/scripts/smoke-dolphin-http-player.sh",
     "spike:gamecube:raylib:dol": "sh spikes/gamecube-native-sdk/scripts/build-raylib-reference-dol.sh",
     "spike:gamecube:raylib:run": "sh spikes/gamecube-native-sdk/scripts/run-dolphin.sh spikes/gamecube-native-sdk/multiplex-gamecube-raylib-reference.dol"
   },

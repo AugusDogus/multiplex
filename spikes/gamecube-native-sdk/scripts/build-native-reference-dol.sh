@@ -19,6 +19,10 @@ fi
 
 sh "$script_dir/check.sh"
 
+mkdir -p "$spike_dir/build-native-reference"
+sh "$script_dir/generate-media-source-header.sh" \
+  "$spike_dir/build-native-reference/media-source.h"
+
 podman run --rm \
   --volume "$spike_dir:/workspace:Z" \
   --workdir /workspace \

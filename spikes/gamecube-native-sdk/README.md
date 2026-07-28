@@ -17,6 +17,7 @@ bun run spike:gamecube:reference:dol
 bun run spike:gamecube:reference:run
 bun run spike:gamecube:reference:log-check
 bun run spike:gamecube:reference:smoke-player
+bun run spike:gamecube:reference:smoke-http-tap
 ```
 
 `spike:gamecube:reference:run` uses an isolated Dolphin profile and replaces
@@ -24,6 +25,13 @@ its previous recorded process, keeping one emulator instance open. The managed
 profile exposes a component-capable output, so the presenter selects 640x480
 progressive scan; composite-only hardware falls back to the preferred
 interlaced mode.
+
+`spike:gamecube:reference:smoke-http-tap` builds the DOL with a local HTTP
+media URL, creates an unprivileged network namespace, and connects Dolphin's
+low-level emulated BBA to a rootless `pasta` Ethernet uplink. It does not
+modify the host's physical network and does not require sudo. The bootstrap
+pins a `pasta` revision containing its June 2026 fix for padded minimum-size
+IPv4 frames; older releases silently drop the GameCube TCP SYN.
 
 The spike retains three separate artifacts:
 
@@ -52,10 +60,13 @@ The controller profile attaches a standard controller to SI port 1 and is backed
   and initial 90 kHz PTS preservation
 - `host-reference-gx/audio_dma.c`: buffered Audio Interface DMA output adapted
   from WiiMC-GCN's `ao_gekko` driver
+- `host-reference-gx/http_client.c`: libogc2/BBA HTTP byte-range downloader
 - `host-reference-gx/yuv420_gx.c`: tiled planar-YUV upload and GX TEV
   conversion/scaling
 - `scripts/smoke-dolphin-player.sh`: player navigation, animation,
   pause/resume, and invalid-access assertions
+- `scripts/run-dolphin-rootless-tap.sh`: isolated TAP-to-`pasta` Ethernet
+  harness for exercising Dolphin's low-level BBA emulation without sudo
 - `host/main.c`: earlier command-to-GX approximation
 - `host-raylib/main.c`: experimental raylib/OpenGX presenter
 - `scripts/generate-font-atlas.py`: converts Native SDK's bundled Geist Regular
@@ -110,9 +121,13 @@ Interface PCM bursts, with interpolation inside the active burst. It returns to 
 presentation fps after long MPEG I-frames. Average decode plus tiled upload is
 about 8.2 ms; the fast MPEG-2 path lowers the I-frame maximum to about 35.3 ms,
 and the audio clock schedules a catch-up frame after a missed VBlank. Audio
-ran without an underrun through the automated pause/resume flow. The media
-boundary now includes a timestamped container; the next Dolphin gate is
-streaming that container from a directly playable HTTP URL.
+ran without an underrun through the automated pause/resume flow. A blocking
+libogc2 client can also download the same container from a directly playable
+HTTP URL as 1 KiB byte ranges over one persistent connection. The rootless TAP
+smoke transferred all 155,648 bytes, decoded and played them, completed the
+same interaction/timing gates, and produced a clean memory log. Dolphin 2606's
+BuiltIn HLE backend still stalls after its first responses; the passing TAP
+control isolates that behavior to HLE rather than the app's BBA path.
 
 The isolated Dolphin profile uses its normal DSP HLE mode. Movie audio follows
 WiiMC-GCN's `ao_gekko` design and streams decoded stereo PCM directly through

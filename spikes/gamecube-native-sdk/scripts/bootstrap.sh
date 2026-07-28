@@ -69,7 +69,16 @@ if [ "$actual_libogc2_commit" != "$LIBOGC2_COMMIT" ]; then
   exit 1
 fi
 
-if [ ! -s "$libogc2_stage/opt/devkitpro/libogc2/gamecube/lib/libogc.a" ]; then
+if ! git -C "$libogc2_dir" diff --quiet; then
+  echo "libogc2 checkout has local changes; expected the pinned upstream tree" >&2
+  exit 1
+fi
+
+libogc2_input=$LIBOGC2_COMMIT
+libogc2_stamp="$libogc2_stage/.build-input"
+if [ ! -s "$libogc2_stage/opt/devkitpro/libogc2/gamecube/lib/libogc.a" ] ||
+  [ ! -f "$libogc2_stamp" ] ||
+  [ "$(sed -n '1p' "$libogc2_stamp")" != "$libogc2_input" ]; then
   if ! command -v podman >/dev/null 2>&1; then
     echo "Podman is required to build the pinned libogc2 runtime." >&2
     exit 1
@@ -78,7 +87,8 @@ if [ ! -s "$libogc2_stage/opt/devkitpro/libogc2/gamecube/lib/libogc.a" ]; then
     --volume "$spike_dir:/workspace:Z" \
     --workdir /workspace/.libogc2 \
     "$DEVKITPPC_IMAGE" \
-    sh -c 'export DEVKITPRO="/opt/devkitpro"; export DEVKITPPC="/opt/devkitpro/devkitPPC"; make cube; stage="/workspace/.libogc2-stage/opt/devkitpro/libogc2"; mkdir -p "$stage/gamecube/lib"; cp -R include "$stage/gamecube/"; cp lib/cube/*.a "$stage/gamecube/lib/"; cp *_license.txt *_rules "$stage/"'
+    sh -c 'export DEVKITPRO="/opt/devkitpro"; export DEVKITPPC="/opt/devkitpro/devkitPPC"; make clean; make cube; stage="/workspace/.libogc2-stage/opt/devkitpro/libogc2"; mkdir -p "$stage/gamecube/lib"; cp -R include "$stage/gamecube/"; cp lib/cube/*.a "$stage/gamecube/lib/"; cp *_license.txt *_rules "$stage/"'
+  printf '%s\n' "$libogc2_input" >"$libogc2_stamp"
 fi
 
 mplayer_dir="$spike_dir/.mplayer-ce-libogc2"

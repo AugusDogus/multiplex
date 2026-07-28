@@ -6,9 +6,15 @@ spike_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 user_dir="$spike_dir/.dolphin-user"
 pid_file="$user_dir/dolphin.pid"
 dol="${1:-$spike_dir/multiplex-gamecube-spike.dol}"
+dolphin_emu="${DOLPHIN_EMU:-dolphin-emu}"
+config_profile=${DOLPHIN_CONFIG_PROFILE:-"$spike_dir/dolphin/Dolphin.ini"}
 
 if [ ! -s "$dol" ]; then
   echo "Missing $dol; run bun run spike:gamecube:dol first." >&2
+  exit 1
+fi
+if [ ! -s "$config_profile" ]; then
+  echo "Missing Dolphin config profile at $config_profile." >&2
   exit 1
 fi
 
@@ -38,7 +44,7 @@ if [ -f "$pid_file" ]; then
 fi
 
 mkdir -p "$user_dir/Config" "$user_dir/Pipes"
-cp "$spike_dir/dolphin/Dolphin.ini" "$user_dir/Config/Dolphin.ini"
+cp "$config_profile" "$user_dir/Config/Dolphin.ini"
 cp "$spike_dir/dolphin/GCPadNew.ini" "$user_dir/Config/GCPadNew.ini"
 cp "$spike_dir/dolphin/GFX.ini" "$user_dir/Config/GFX.ini"
 cp "$spike_dir/dolphin/Logger.ini" "$user_dir/Config/Logger.ini"
@@ -54,9 +60,10 @@ if [ ! -p "$user_dir/Pipes/multiplex1" ]; then
 fi
 echo "$$" >"$pid_file"
 
-exec dolphin-emu --batch \
+exec "$dolphin_emu" --batch \
   --user="$user_dir" \
   --audio_emulation=HLE \
+  --config=Interface.ConfirmStop=False \
   --config=SYSCONF.IPL.PGS=True \
   --config=GFX.Hacks.SafeTextureCacheColorSamples=0 \
   --config=GFX.Hacks.EFBToTextureEnable=False \

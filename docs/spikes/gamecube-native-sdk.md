@@ -181,6 +181,31 @@ subtitles remain separate layers; the spike now proves the container,
 timestamp, video/audio codec, output, and shared-clock boundaries at DVD media
 parameters.
 
+### HTTP and BBA
+
+The same media pipeline can source its program stream from a directly
+playable HTTP URL. A small blocking libogc2 client initializes the BBA with
+DHCP, opens one TCP connection, validates `206`, `Content-Length`, and
+`Content-Range`, and downloads the 155,648-byte fixture in 1 KiB ranges. The
+full player smoke then exercises the same demux, decode, audio, navigation,
+pause/resume, timing, and invalid-access gates as the embedded build.
+
+The low-level control uses Dolphin's TAP BBA inside an unprivileged network
+namespace. A pinned `pasta` process supplies DHCP and rootless host networking;
+the harness translates only the outer Ethernet source/destination MAC at its
+bridge boundary, leaving the GameCube's ARP, IP, and TCP payloads unchanged.
+No sudo or physical-interface reconfiguration is required. The host's packaged
+June 11, 2026 `pasta` silently discarded the GameCube's padded 60-byte TCP SYN;
+upstream commit `f072bc0` fixed that exact class of frame on June 16 and is
+pinned by the spike bootstrap.
+
+With the fixed helper, Dolphin's TAP backend completes all 152 range responses
+and the clean playback smoke. Dolphin 2606's BuiltIn HLE backend can serve the
+first responses but stalls under the repeated transfer. The passing TAP test
+therefore demonstrates that the app/libogc2 BBA path works and isolates the
+remaining failure to Dolphin's BuiltIn HLE translation, not to a requirement
+that would affect a physical GameCube BBA.
+
 ## Invalid-access investigation
 
 Dolphin reported multiple invalid reads and writes during the raylib/OpenGX
@@ -297,8 +322,8 @@ not as the committed GameCube renderer yet.
 
 Next Dolphin milestones:
 
-1. add a minimal HTTP client and feed a directly playable URL;
-2. connect pairing/library data to a Multiplex gateway;
+1. connect pairing/library data to a Multiplex gateway;
+2. replace the whole-file HTTP bootstrap with an incremental media reader;
 3. decide whether to repair raylib/OpenGX or extract a smaller portable
    framebuffer/presenter interface before the Dreamcast pass.
 

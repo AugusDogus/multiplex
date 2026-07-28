@@ -1,4 +1,6 @@
 #include "audio_dma.h"
+#include "http_client.h"
+#include "media-source.h"
 #include "native_ui.h"
 #include "mpeg2_decoder.h"
 #include "mpeg_ps_demux.h"
@@ -738,10 +740,27 @@ static void *run_app(void *unused) {
   if (!allocate_buffers()) {
     return (void *)(uintptr_t)1;
   }
-  MpegPsDemux *demux = mpeg_ps_demux_create(
-      multiplex_dvd_demo_mpg, (size_t)multiplex_dvd_demo_mpg_size);
+
+  const uint8_t *program = multiplex_dvd_demo_mpg;
+  size_t program_size = (size_t)multiplex_dvd_demo_mpg_size;
+  HttpDownload download;
+  memset(&download, 0, sizeof(download));
+  if (MULTIPLEX_MEDIA_URL[0] != '\0') {
+    if (!http_client_download(MULTIPLEX_MEDIA_URL, &download)) {
+      SYS_Report("REFERENCE GX: HTTP media initialization failed\n");
+      return (void *)(uintptr_t)1;
+    }
+    program = download.data;
+    program_size = download.size;
+  } else {
+    SYS_Report("REFERENCE GX: media-source=embedded bytes=%u\n",
+               (unsigned)program_size);
+  }
+
+  MpegPsDemux *demux = mpeg_ps_demux_create(program, program_size);
   if (demux == NULL) {
     SYS_Report("REFERENCE GX: MPEG-PS demux initialization failed\n");
+    http_client_download_destroy(&download);
     return (void *)(uintptr_t)1;
   }
   const int64_t pts_delta =
@@ -759,11 +778,13 @@ static void *run_app(void *unused) {
   if (!start_video_decoder(mpeg_ps_demux_video_data(demux),
                            mpeg_ps_demux_video_size(demux))) {
     mpeg_ps_demux_destroy(demux);
+    http_client_download_destroy(&download);
     return (void *)(uintptr_t)1;
   }
   audio_output = audio_dma_create(mpeg_ps_demux_audio_data(demux),
                                   mpeg_ps_demux_audio_size(demux));
   mpeg_ps_demux_destroy(demux);
+  http_client_download_destroy(&download);
   if (audio_output == NULL) {
     SYS_Report("REFERENCE GX: audio initialization failed\n");
     stop_video_decoder();
