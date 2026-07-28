@@ -9,6 +9,7 @@ sh "$script_dir/bootstrap.sh"
 python3 "$script_dir/test-plex-gateway.py"
 python3 "$script_dir/test-multiplex-pair.py"
 python3 "$script_dir/test-plex-pair.py"
+sh "$script_dir/test-auth-record.sh"
 
 cd "$spike_dir"
 
