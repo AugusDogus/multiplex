@@ -46,6 +46,14 @@ Set `GAMECUBE_PLEX_SEGMENT_DURATION=8` and
 `GAMECUBE_PLEX_EXPECT_CONTINUATION=1` for the accelerated timeline-boundary
 smoke test.
 
+`scripts/plex-pair.py` implements Plex's current device-key PIN flow without
+placing an account password or long-lived legacy token on the console. `start`
+creates an Ed25519 device identity and strong PIN, `poll` exchanges a claimed
+PIN for Plex's seven-day JWT, and `token` prints the claimed token for gateway
+injection. Its state file is mode `0600` and belongs under the ignored
+`.plex-cache` directory. Gateway startup integration and token refresh remain
+before this replaces the development LAN bootstrap.
+
 The spike retains three separate artifacts:
 
 - `multiplex-gamecube-native-reference.dol`: exact Native SDK reference pixels
