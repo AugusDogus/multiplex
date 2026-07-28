@@ -13,7 +13,7 @@
     "typecheck": "bun --filter '*' typecheck",
     "check": "bun run lint && bun run format:check && bun run typecheck",
     "test": "bun --filter '*' test",
-    "dev": "PORTLESS_LAN=1 PORTLESS_HTTPS=0 portless multiplex bun run dev:app",
+    "dev": "portless multiplex bun run dev:app",
     "dev:app": "bun --filter @multiplex/web dev",
     "build": "bun --filter @multiplex/web build",
     "start": "bun --filter @multiplex/web start",

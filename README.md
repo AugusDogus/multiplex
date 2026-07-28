@@ -32,14 +32,9 @@ _This project was initially scaffolded using [create-t3-app](https://create.t3.g
 1. Clone the repository
 2. Install dependencies: `bun install`
 3. Set up your environment variables: `cp apps/web/.env.example apps/web/.env`
-4. Install the Portless LAN proxy:
-   `sudo portless service install --lan --no-tls`
-5. Run the development server: `bun dev`
+4. Run the development server: `bun dev`
 
-The app is available at `http://multiplex.local`. LAN mode makes the same
-portless URL reachable by console clients and other devices on the network.
-Plain HTTP is intentional for homebrew clients that do not yet ship a TLS
-stack.
+The app is available at `https://multiplex.localhost` through Portless.
 
 ## Contributing
 
