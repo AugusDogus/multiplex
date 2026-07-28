@@ -2,6 +2,7 @@
 
 #include "http_client.h"
 
+#include <gccore.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -9,7 +10,7 @@
 #include <time.h>
 
 #define AUTH_URL_CAPACITY 512
-#define AUTH_RESPONSE_CAPACITY 1024
+#define AUTH_RESPONSE_CAPACITY 2048
 #define DEVICE_GRANT_TYPE "urn:ietf:params:oauth:grant-type:device_code"
 
 static bool build_auth_url(const char *base_url, const char *path, char *url,
@@ -104,6 +105,46 @@ static bool json_unsigned(const char *json, const char *key,
   } while (*cursor >= '0' && *cursor <= '9');
   *destination = value;
   return true;
+}
+
+static uint64_t identifier_hash(const char *value) {
+  uint64_t hash = UINT64_C(1469598103934665603);
+  while (*value != '\0') {
+    hash ^= (uint8_t)*value++;
+    hash *= UINT64_C(1099511628211);
+  }
+  return hash;
+}
+
+static bool fetch_plex_token(const char *base_url,
+                             MultiplexAuthCredentials *credentials) {
+  char url[AUTH_URL_CAPACITY];
+  if (!build_auth_url(base_url, "api/auth/get-session", url, sizeof(url))) {
+    return false;
+  }
+  char response_body[AUTH_RESPONSE_CAPACITY];
+  HttpJsonResponse response;
+  return http_client_request_json(
+             "GET", url, credentials->session_token, NULL, response_body,
+             sizeof(response_body), &response) &&
+         response.status == 200 &&
+         json_string(response_body, "plexAuthToken", credentials->plex_token,
+                     sizeof(credentials->plex_token));
+}
+
+bool multiplex_device_auth_refresh_credentials(
+    const char *base_url, MultiplexAuthCredentials *credentials) {
+  if (credentials == NULL || credentials->session_token[0] == '\0') {
+    return false;
+  }
+  if (credentials->plex_client_id[0] == '\0') {
+    const uint64_t client_hash = identifier_hash(credentials->session_token);
+    snprintf(credentials->plex_client_id,
+             sizeof(credentials->plex_client_id),
+             "multiplex-gamecube-%08x%08x", (unsigned)(client_hash >> 32u),
+             (unsigned)client_hash);
+  }
+  return fetch_plex_token(base_url, credentials);
 }
 
 bool multiplex_device_auth_begin(const char *base_url,
@@ -207,6 +248,9 @@ bool multiplex_device_auth_poll(const char *base_url,
   const time_t now = time(NULL);
   credentials->session_expires_at_unix =
       now > 0 ? (uint64_t)now + expires_in : 0;
+  if (!multiplex_device_auth_refresh_credentials(base_url, credentials)) {
+    SYS_Report("REFERENCE GX: Plex credential bootstrap unavailable\n");
+  }
   authorization->status = MULTIPLEX_DEVICE_AUTH_LINKED;
   return true;
 }

@@ -29,5 +29,7 @@ bool multiplex_device_auth_begin(const char *base_url,
 bool multiplex_device_auth_poll(const char *base_url,
                                 MultiplexDeviceAuth *authorization,
                                 MultiplexAuthCredentials *credentials);
+bool multiplex_device_auth_refresh_credentials(
+    const char *base_url, MultiplexAuthCredentials *credentials);
 
 #endif

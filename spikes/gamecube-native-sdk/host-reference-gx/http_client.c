@@ -863,6 +863,7 @@ bool http_client_request_json(const char *method, const char *url,
       parse_json_headers(headers, response, &content_length, &chunked);
   headers[header_size] = first_body_byte;
   if (!valid_headers) {
+    SYS_Report("REFERENCE GX: HTTP JSON headers invalid\n");
     http_client_destroy(client);
     return false;
   }
@@ -881,6 +882,9 @@ bool http_client_request_json(const char *method, const char *url,
       destination[content_length] = '\0';
       response->body_size = content_length;
     }
+    SYS_Report(
+        "REFERENCE GX: HTTP JSON status=%u framing=length bytes=%u read=%u\n",
+        response->status, (unsigned)content_length, read ? 1u : 0u);
     http_client_destroy(client);
     return read;
   }
@@ -906,7 +910,13 @@ bool http_client_request_json(const char *method, const char *url,
   const bool decoded =
       decode_chunked_body(encoded, encoded_size, destination, capacity,
                           &response->body_size);
+  SYS_Report(
+      "REFERENCE GX: HTTP JSON status=%u framing=chunked encoded=%u "
+      "decoded=%u valid=%u\n",
+      response->status, (unsigned)encoded_size, (unsigned)response->body_size,
+      decoded ? 1u : 0u);
   free(encoded);
   http_client_destroy(client);
+  SYS_Report("REFERENCE GX: HTTP JSON connection closed\n");
   return decoded;
 }

@@ -1873,6 +1873,19 @@ static void *run_app(void *unused) {
     SYS_Report("REFERENCE GX: auth restored slot=%c generation=%u\n",
                auth_location.slot == 0 ? 'A' : 'B',
                auth_location.generation);
+    if (auth_credentials.plex_token[0] == '\0') {
+      const bool credentials_refreshed =
+          multiplex_device_auth_refresh_credentials(auth_credentials.origin,
+                                                    &auth_credentials);
+      SYS_Report("REFERENCE GX: Plex credential refresh=%u\n",
+                 credentials_refreshed ? 1u : 0u);
+      if (credentials_refreshed) {
+        const MultiplexMemoryCardResult refreshed =
+            multiplex_memory_card_save_auth(&auth_credentials, &auth_location);
+        SYS_Report("REFERENCE GX: Plex credential persistence=%s\n",
+                   multiplex_memory_card_result_message(refreshed));
+      }
+    }
   } else if (!multiplex_device_auth_begin(MULTIPLEX_BASE_URL, &device_auth)) {
     device_auth.status = MULTIPLEX_DEVICE_AUTH_UNAVAILABLE;
     SYS_Report("REFERENCE GX: device authorization unavailable card=%s\n",
