@@ -59,6 +59,7 @@
 #define AUDIO_PREBUFFER_BYTES (24u * 1024u)
 #define SEGMENT_HANDOFF_MARGIN_MS 64u
 #define POSTER_JPEG_CAPACITY (256u * 1024u)
+#define PLEX_POSTER_JPEG_CAPACITY (32u * 1024u)
 #define HOME_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS
 #define BROWSE_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_ITEMS
 #define POSTER_TEXTURE_COUNT (HOME_POSTER_COUNT + BROWSE_POSTER_COUNT)
@@ -697,6 +698,75 @@ static bool initialize_poster_textures(const char *gateway_url,
   SYS_Report("REFERENCE GX: poster-textures count=%u size=%ux%u\n", item_count,
              MULTIPLEX_GATEWAY_ARTWORK_WIDTH, MULTIPLEX_GATEWAY_ARTWORK_HEIGHT);
   return true;
+}
+
+static void fill_poster_fallback(uint8_t *pixels, uint32_t rating_key) {
+  const uint8_t red = (uint8_t)(rating_key * 29u);
+  const uint8_t green = (uint8_t)(rating_key * 53u);
+  const uint8_t blue = (uint8_t)(rating_key * 97u);
+  const uint16_t color =
+      (uint16_t)(((uint16_t)(red & 0xf8u) << 8u) |
+                 ((uint16_t)(green & 0xfcu) << 3u) | (blue >> 3u));
+  for (size_t offset = 0;
+       offset < MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES; offset += 2u) {
+    pixels[offset] = (uint8_t)(color >> 8u);
+    pixels[offset + 1u] = (uint8_t)color;
+  }
+}
+
+static bool initialize_direct_poster_textures(
+    const MultiplexAuthCredentials *credentials,
+    const MultiplexGatewayCatalog *catalog) {
+  if (credentials == NULL || catalog == NULL ||
+      catalog->total_item_count == 0 ||
+      catalog->total_item_count > MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS) {
+    return false;
+  }
+  const size_t texture_bytes =
+      (size_t)catalog->total_item_count *
+      MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+  poster_texture_pixels = multiplex_native_cache_alloc(texture_bytes, 32);
+  uint8_t *encoded = calloc(1, PLEX_POSTER_JPEG_CAPACITY + 64u);
+  if (poster_texture_pixels == NULL || encoded == NULL) {
+    multiplex_native_cache_free(poster_texture_pixels);
+    poster_texture_pixels = NULL;
+    free(encoded);
+    return false;
+  }
+
+  uint16_t decoded_count = 0;
+  for (uint16_t index = 0; index < catalog->total_item_count; ++index) {
+    const MultiplexGatewayItem *item = &catalog->items[index];
+    uint8_t *pixels =
+        poster_texture_pixels +
+        (size_t)index * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+    size_t encoded_size = 0;
+    const bool decoded =
+        item->artwork_path[0] != '\0' &&
+        multiplex_plex_load_artwork(
+            credentials, item->artwork_path, encoded,
+            PLEX_POSTER_JPEG_CAPACITY, &encoded_size) &&
+        poster_jpeg_decode_single(
+            encoded, encoded_size, pixels,
+            MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
+    if (decoded) {
+      ++decoded_count;
+    } else {
+      fill_poster_fallback(pixels, item->rating_key);
+    }
+    GX_InitTexObj(&poster_textures[index], pixels,
+                  MULTIPLEX_GATEWAY_ARTWORK_WIDTH,
+                  MULTIPLEX_GATEWAY_ARTWORK_HEIGHT, GX_TF_RGB565, GX_CLAMP,
+                  GX_CLAMP, GX_FALSE);
+    GX_InitTexObjLOD(&poster_textures[index], GX_LINEAR, GX_LINEAR, 0, 0, 0,
+                     GX_FALSE, GX_FALSE, GX_ANISO_1);
+  }
+  free(encoded);
+  DCFlushRange(poster_texture_pixels, texture_bytes);
+  poster_texture_count = catalog->total_item_count;
+  SYS_Report("REFERENCE GX: direct Plex posters decoded=%u/%u\n",
+             decoded_count, catalog->total_item_count);
+  return decoded_count != 0;
 }
 
 static bool load_browse_page(const char *gateway_url) {
@@ -1901,6 +1971,16 @@ static void *run_app(void *unused) {
     close_media_session(&client, &demux);
     return (void *)(uintptr_t)1;
   }
+#if MULTIPLEX_PAIRING_ENABLED
+  if (has_catalog && MULTIPLEX_GATEWAY_URL[0] == '\0' &&
+      poster_texture_pixels == NULL) {
+    present_frame(&playback_manifest);
+    if (!initialize_direct_poster_textures(&auth_credentials, &catalog)) {
+      SYS_Report(
+          "REFERENCE GX: direct Plex artwork unavailable; using placeholders\n");
+    }
+  }
+#endif
 
   while (SYS_MainLoop()) {
     if (demux != NULL && mpeg_ps_demux_failed(demux)) {
@@ -1932,6 +2012,9 @@ static void *run_app(void *unused) {
           if (!has_catalog &&
               multiplex_plex_load_catalog(&auth_credentials, &catalog)) {
             has_catalog = bind_catalog_to_app(&catalog);
+            if (has_catalog) {
+              initialize_direct_poster_textures(&auth_credentials, &catalog);
+            }
           }
         }
         if (multiplex_native_app_pairing_status(

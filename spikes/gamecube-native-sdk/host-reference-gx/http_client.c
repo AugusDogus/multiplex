@@ -20,9 +20,10 @@
 #include <unistd.h>
 
 #define HTTP_HEADER_LIMIT 4096
-#define HTTP_REQUEST_LIMIT 768
+#define HTTP_REQUEST_LIMIT 4096
 #define HTTP_HOST_LIMIT 128
-#define HTTP_PATH_LIMIT 512
+#define HTTP_PATH_LIMIT 1024
+#define HTTP_ADDITIONAL_HEADERS_LIMIT 1536
 #define HTTP_MAX_MEDIA_SIZE UINT32_MAX
 #define HTTP_CACHE_SIZE (32u * 1024u)
 #define HTTP_SMALL_MEDIA_CACHE_SIZE (256u * 1024u)
@@ -44,6 +45,7 @@ typedef struct {
 struct HttpClient {
   char host[HTTP_HOST_LIMIT];
   char path[HTTP_PATH_LIMIT];
+  char additional_headers[HTTP_ADDITIONAL_HEADERS_LIMIT];
   uint16_t port;
   int socket;
   uint8_t cache[HTTP_CACHE_SIZE];
@@ -122,6 +124,33 @@ static bool parse_url(const char *url, HttpClient *client) {
 
   struct in_addr address;
   return inet_aton(client->host, &address) != 0;
+}
+
+static bool format_additional_headers(HttpClient *client,
+                                      const HttpRequestHeader *headers,
+                                      size_t header_count) {
+  if (header_count != 0 && headers == NULL) {
+    return false;
+  }
+  size_t used = 0;
+  for (size_t index = 0; index < header_count; ++index) {
+    const char *name = headers[index].name;
+    const char *value = headers[index].value;
+    if (name == NULL || value == NULL || name[0] == '\0' ||
+        strchr(name, ':') != NULL || strpbrk(name, "\r\n") != NULL ||
+        strpbrk(value, "\r\n") != NULL) {
+      return false;
+    }
+    const int size = snprintf(client->additional_headers + used,
+                              sizeof(client->additional_headers) - used,
+                              "%s: %s\r\n", name, value);
+    if (size <= 0 ||
+        (size_t)size >= sizeof(client->additional_headers) - used) {
+      return false;
+    }
+    used += (size_t)size;
+  }
+  return true;
 }
 
 static bool initialize_network(void) {
@@ -468,8 +497,9 @@ static bool fetch_cache_once(HttpClient *client, size_t start) {
   const int request_size = snprintf(
       request, sizeof(request),
       "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: Multiplex-GameCube/0\r\n"
-      "Range: bytes=%u-%u\r\nConnection: keep-alive\r\n\r\n",
-      client->path, client->host, (unsigned)start, (unsigned)end);
+      "%sRange: bytes=%u-%u\r\nConnection: keep-alive\r\n\r\n",
+      client->path, client->host, client->additional_headers, (unsigned)start,
+      (unsigned)end);
   if (request_size <= 0 || (size_t)request_size >= sizeof(request) ||
       !write_all(client->socket, (const uint8_t *)request,
                  (size_t)request_size)) {
@@ -550,8 +580,8 @@ static bool start_stream_response(HttpClient *client, size_t start) {
   const int request_size = snprintf(
       request, sizeof(request),
       "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: Multiplex-GameCube/0\r\n"
-      "Range: bytes=%u-%u\r\nConnection: close\r\n\r\n",
-      client->path, client->host, (unsigned)start,
+      "%sRange: bytes=%u-%u\r\nConnection: close\r\n\r\n",
+      client->path, client->host, client->additional_headers, (unsigned)start,
       (unsigned)(client->total_size - 1u));
   if (request_size <= 0 || (size_t)request_size >= sizeof(request) ||
       !write_all(client->socket, (const uint8_t *)request,
@@ -655,13 +685,16 @@ static bool stream_read_at(HttpClient *client, size_t offset,
   return false;
 }
 
-HttpClient *http_client_open(const char *url) {
+HttpClient *http_client_open_with_headers(const char *url,
+                                          const HttpRequestHeader *headers,
+                                          size_t header_count) {
   HttpClient *client = calloc(1, sizeof(*client));
   if (client == NULL) {
     return NULL;
   }
   client->socket = -1;
-  if (!parse_url(url, client)) {
+  if (!parse_url(url, client) ||
+      !format_additional_headers(client, headers, header_count)) {
     SYS_Report("REFERENCE GX: HTTP URL parse failed\n");
     http_client_destroy(client);
     return NULL;
@@ -681,6 +714,10 @@ HttpClient *http_client_open(const char *url) {
     return NULL;
   }
   return client;
+}
+
+HttpClient *http_client_open(const char *url) {
+  return http_client_open_with_headers(url, NULL, 0);
 }
 
 void http_client_release_connection(HttpClient *client) {

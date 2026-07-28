@@ -18,6 +18,9 @@ typedef struct {
 } HttpRequestHeader;
 
 HttpClient *http_client_open(const char *url);
+HttpClient *http_client_open_with_headers(const char *url,
+                                          const HttpRequestHeader *headers,
+                                          size_t header_count);
 void http_client_request_stop(HttpClient *client);
 void http_client_begin_stream(HttpClient *client);
 void http_client_release_connection(HttpClient *client);

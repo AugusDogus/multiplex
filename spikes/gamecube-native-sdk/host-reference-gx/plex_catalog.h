@@ -14,5 +14,8 @@ bool multiplex_plex_catalog_parse_libraries(const char *json, size_t size,
 bool multiplex_plex_load_catalog(
     const MultiplexAuthCredentials *credentials,
     MultiplexGatewayCatalog *catalog);
+bool multiplex_plex_load_artwork(
+    const MultiplexAuthCredentials *credentials, const char *artwork_path,
+    uint8_t *destination, size_t capacity, size_t *encoded_size);
 
 #endif

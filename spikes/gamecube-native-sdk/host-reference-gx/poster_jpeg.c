@@ -48,11 +48,14 @@ static uint16_t yuv_to_rgb565(uint8_t y, uint8_t u, uint8_t v,
 }
 
 static void convert_cell(const AVFrame *picture, uint16_t item,
-                         bool full_range, uint8_t *destination) {
+                         unsigned columns, unsigned crop_x, unsigned crop_y,
+                         int chroma_h_shift, int chroma_v_shift,
+                         bool full_range,
+                         uint8_t *destination) {
   const unsigned cell_x =
-      (item % ATLAS_COLUMNS) * MULTIPLEX_GATEWAY_ARTWORK_WIDTH;
+      crop_x + (item % columns) * MULTIPLEX_GATEWAY_ARTWORK_WIDTH;
   const unsigned cell_y =
-      (item / ATLAS_COLUMNS) * MULTIPLEX_GATEWAY_ARTWORK_HEIGHT;
+      crop_y + (item / columns) * MULTIPLEX_GATEWAY_ARTWORK_HEIGHT;
   for (unsigned y = 0; y < MULTIPLEX_GATEWAY_ARTWORK_HEIGHT; ++y) {
     for (unsigned x = 0; x < MULTIPLEX_GATEWAY_ARTWORK_WIDTH; ++x) {
       const unsigned source_x = cell_x + x;
@@ -60,9 +63,11 @@ static void convert_cell(const AVFrame *picture, uint16_t item,
       const uint8_t luma =
           picture->data[0][source_y * picture->linesize[0] + source_x];
       const uint8_t chroma_u = picture->data[1][
-          (source_y / 2u) * picture->linesize[1] + source_x / 2u];
+          (source_y >> chroma_v_shift) * picture->linesize[1] +
+          (source_x >> chroma_h_shift)];
       const uint8_t chroma_v = picture->data[2][
-          (source_y / 2u) * picture->linesize[2] + source_x / 2u];
+          (source_y >> chroma_v_shift) * picture->linesize[2] +
+          (source_x >> chroma_h_shift)];
       const uint16_t pixel =
           yuv_to_rgb565(luma, chroma_u, chroma_v, full_range);
       const size_t tile =
@@ -76,13 +81,15 @@ static void convert_cell(const AVFrame *picture, uint16_t item,
   }
 }
 
-bool poster_jpeg_decode(const uint8_t *encoded, size_t encoded_size,
-                        uint16_t item_count, uint8_t *texture_pixels,
+static bool decode_jpeg(const uint8_t *encoded, size_t encoded_size,
+                        uint16_t item_count, unsigned columns,
+                        bool allow_center_crop, uint8_t *texture_pixels,
                         size_t texture_capacity) {
   const size_t required =
       (size_t)item_count * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
   if (encoded == NULL || encoded_size == 0 || item_count == 0 ||
-      item_count > MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS ||
+      item_count > MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS || columns == 0 ||
+      columns > ATLAS_COLUMNS ||
       texture_pixels == NULL || texture_capacity < required ||
       encoded_size > INT32_MAX) {
     return false;
@@ -108,16 +115,28 @@ bool poster_jpeg_decode(const uint8_t *encoded, size_t encoded_size,
   const int consumed =
       avcodec_decode_video2(context, picture, &got_picture, &packet);
   const unsigned expected_width =
-      ATLAS_COLUMNS * MULTIPLEX_GATEWAY_ARTWORK_WIDTH;
+      columns * MULTIPLEX_GATEWAY_ARTWORK_WIDTH;
   const unsigned expected_rows =
-      (item_count + ATLAS_COLUMNS - 1u) / ATLAS_COLUMNS;
+      (item_count + columns - 1u) / columns;
   const unsigned expected_height =
       expected_rows * MULTIPLEX_GATEWAY_ARTWORK_HEIGHT;
-  if (consumed < 0 || got_picture == 0 ||
-      context->width != (int)expected_width ||
-      context->height != (int)expected_height ||
-      (context->pix_fmt != PIX_FMT_YUVJ420P &&
-       context->pix_fmt != PIX_FMT_YUV420P) ||
+  const bool dimensions_match =
+      allow_center_crop
+          ? context->width >= (int)expected_width &&
+                context->height >= (int)expected_height
+          : context->width == (int)expected_width &&
+                context->height == (int)expected_height;
+  const bool full_range =
+      context->pix_fmt == PIX_FMT_YUVJ420P ||
+      context->pix_fmt == PIX_FMT_YUVJ422P ||
+      context->pix_fmt == PIX_FMT_YUVJ444P ||
+      context->pix_fmt == PIX_FMT_YUVJ440P;
+  const bool planar_yuv =
+      full_range || context->pix_fmt == PIX_FMT_YUV420P ||
+      context->pix_fmt == PIX_FMT_YUV422P ||
+      context->pix_fmt == PIX_FMT_YUV444P ||
+      context->pix_fmt == PIX_FMT_YUV440P;
+  if (consumed < 0 || got_picture == 0 || !dimensions_match || !planar_yuv ||
       picture->data[0] == NULL || picture->data[1] == NULL ||
       picture->data[2] == NULL) {
     SYS_Report(
@@ -127,9 +146,21 @@ bool poster_jpeg_decode(const uint8_t *encoded, size_t encoded_size,
     goto cleanup;
   }
 
-  const bool full_range = context->pix_fmt == PIX_FMT_YUVJ420P;
+  int chroma_h_shift = 0;
+  int chroma_v_shift = 0;
+  avcodec_get_chroma_sub_sample(context->pix_fmt, &chroma_h_shift,
+                                &chroma_v_shift);
+  const unsigned crop_x =
+      allow_center_crop
+          ? ((unsigned)context->width - expected_width) / 2u
+          : 0u;
+  const unsigned crop_y =
+      allow_center_crop
+          ? ((unsigned)context->height - expected_height) / 2u
+          : 0u;
   for (uint16_t item = 0; item < item_count; ++item) {
-    convert_cell(picture, item, full_range,
+    convert_cell(picture, item, columns, crop_x, crop_y, chroma_h_shift,
+                 chroma_v_shift, full_range,
                  texture_pixels +
                      (size_t)item * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
   }
@@ -148,4 +179,18 @@ cleanup:
     av_free(picture);
   }
   return decoded;
+}
+
+bool poster_jpeg_decode(const uint8_t *encoded, size_t encoded_size,
+                        uint16_t item_count, uint8_t *texture_pixels,
+                        size_t texture_capacity) {
+  return decode_jpeg(encoded, encoded_size, item_count, ATLAS_COLUMNS, false,
+                     texture_pixels, texture_capacity);
+}
+
+bool poster_jpeg_decode_single(const uint8_t *encoded, size_t encoded_size,
+                               uint8_t *texture_pixels,
+                               size_t texture_capacity) {
+  return decode_jpeg(encoded, encoded_size, 1, 1, true, texture_pixels,
+                     texture_capacity);
 }

@@ -16,7 +16,7 @@
 
 #define PLEX_HUB_RESPONSE_CAPACITY (128u * 1024u)
 #define PLEX_LIBRARY_RESPONSE_CAPACITY (8u * 1024u)
-#define PLEX_CATALOG_URL_CAPACITY 768u
+#define PLEX_CATALOG_URL_CAPACITY 1280u
 
 typedef struct {
   const char *begin;
@@ -231,6 +231,11 @@ static bool parse_item(JsonSpan object, MultiplexGatewayItem *item,
     return false;
   }
   item->title_length = (uint16_t)strlen(item->title);
+  if (!json_string(object, "grandparentThumb", item->artwork_path,
+                   sizeof(item->artwork_path))) {
+    json_string(object, "thumb", item->artwork_path,
+                sizeof(item->artwork_path));
+  }
   json_unsigned(object, "duration", &item->duration_ms);
   json_unsigned(object, "viewOffset", &item->view_offset_ms);
   item->artwork_slot = artwork_slot;
@@ -495,4 +500,84 @@ bool multiplex_plex_load_catalog(
       "REFERENCE GX: direct Plex catalog rows=%u items=%u libraries=%u\n",
       catalog->row_count, catalog->total_item_count, catalog->library_count);
   return true;
+}
+
+static bool encode_url_value(const char *value, char *destination,
+                             size_t capacity) {
+  static const char hex[] = "0123456789ABCDEF";
+  size_t output = 0;
+  for (const uint8_t *cursor = (const uint8_t *)value; *cursor != 0;
+       ++cursor) {
+    const bool unreserved =
+        (*cursor >= 'A' && *cursor <= 'Z') ||
+        (*cursor >= 'a' && *cursor <= 'z') ||
+        (*cursor >= '0' && *cursor <= '9') || *cursor == '-' ||
+        *cursor == '_' || *cursor == '.' || *cursor == '~';
+    const size_t required = unreserved ? 1u : 3u;
+    if (output + required >= capacity) {
+      return false;
+    }
+    if (unreserved) {
+      destination[output++] = (char)*cursor;
+    } else {
+      destination[output++] = '%';
+      destination[output++] = hex[*cursor >> 4u];
+      destination[output++] = hex[*cursor & 15u];
+    }
+  }
+  destination[output] = '\0';
+  return true;
+}
+
+bool multiplex_plex_load_artwork(
+    const MultiplexAuthCredentials *credentials, const char *artwork_path,
+    uint8_t *destination, size_t capacity, size_t *encoded_size) {
+  if (credentials == NULL || credentials->plex_server_url[0] == '\0' ||
+      credentials->plex_server_token[0] == '\0' || artwork_path == NULL ||
+      artwork_path[0] != '/' || destination == NULL || capacity == 0 ||
+      encoded_size == NULL) {
+    return false;
+  }
+  char encoded_path[MULTIPLEX_GATEWAY_ARTWORK_PATH_CAPACITY * 3u];
+  if (!encode_url_value(artwork_path, encoded_path, sizeof(encoded_path))) {
+    return false;
+  }
+  const size_t base_size = strlen(credentials->plex_server_url);
+  char url[PLEX_CATALOG_URL_CAPACITY];
+  const int url_size =
+      snprintf(url, sizeof(url),
+               "%s%sphoto/:/transcode?width=%u&height=%u&minSize=1&upscale=1&"
+               "url=%s",
+               credentials->plex_server_url,
+               base_size != 0 &&
+                       credentials->plex_server_url[base_size - 1u] == '/'
+                   ? ""
+                   : "/",
+               MULTIPLEX_GATEWAY_ARTWORK_WIDTH,
+               MULTIPLEX_GATEWAY_ARTWORK_HEIGHT, encoded_path);
+  if (url_size <= 0 || (size_t)url_size >= sizeof(url)) {
+    return false;
+  }
+  const HttpRequestHeader headers[] = {
+      {.name = "X-Plex-Token", .value = credentials->plex_server_token},
+      {.name = "X-Plex-Product", .value = "Multiplex"},
+      {.name = "X-Plex-Version", .value = "0.1.0"},
+      {.name = "X-Plex-Platform", .value = "GameCube"},
+      {.name = "X-Plex-Client-Identifier",
+       .value = credentials->plex_client_id},
+  };
+  HttpClient *client = http_client_open_with_headers(
+      url, headers, sizeof(headers) / sizeof(headers[0]));
+  if (client == NULL) {
+    return false;
+  }
+  const size_t size = http_client_size(client);
+  const bool loaded =
+      size != 0 && size <= capacity &&
+      http_client_read_at(client, 0, destination, size);
+  http_client_destroy(client);
+  if (loaded) {
+    *encoded_size = size;
+  }
+  return loaded;
 }

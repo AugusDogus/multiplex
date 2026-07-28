@@ -11,7 +11,7 @@ static void test_parses_home_rows(void) {
       "\"Metadata\":[{\"ratingKey\":\"10\",\"type\":\"episode\","
       "\"title\":\"Pilot\",\"grandparentTitle\":\"A Show\","
       "\"parentIndex\":1,\"index\":2,\"duration\":1000,"
-      "\"viewOffset\":250}]},"
+      "\"viewOffset\":250,\"grandparentThumb\":\"/show/poster\"}]},"
       "{\"hubIdentifier\":\"home.ondeck\",\"title\":\"On Deck\","
       "\"Metadata\":[{\"ratingKey\":\"11\",\"type\":\"movie\","
       "\"title\":\"Skipped\",\"year\":2020,\"duration\":1000}]},"
@@ -34,6 +34,7 @@ static void test_parses_home_rows(void) {
   assert(strcmp(catalog.rows[0].title, "Continue Watching") == 0);
   assert(strcmp(catalog.items[0].title, "A Show") == 0);
   assert(strcmp(catalog.items[0].subtitle, "Pilot - S01 E02") == 0);
+  assert(strcmp(catalog.items[0].artwork_path, "/show/poster") == 0);
   assert(catalog.items[0].progress_percent == 25);
   assert(strcmp(catalog.rows[1].title, "Recently Added Movies") == 0);
   assert(strcmp(catalog.items[1].subtitle, "2026") == 0);
