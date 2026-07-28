@@ -27,6 +27,7 @@
 #define HTTP_CACHE_SIZE (32u * 1024u)
 #define HTTP_SMALL_MEDIA_CACHE_SIZE (256u * 1024u)
 #define HTTP_IO_TIMEOUT_SECONDS 8
+#define HTTP_STREAM_TIMEOUT_SECONDS 2
 #define HTTP_RANGE_ATTEMPTS 4
 
 typedef struct {
@@ -190,18 +191,24 @@ static bool write_all(int socket, const uint8_t *bytes, size_t size) {
   return true;
 }
 
-static int read_available(int socket, void *destination, size_t size) {
+static int read_available_with_timeout(int socket, void *destination,
+                                       size_t size, unsigned timeout_seconds) {
   fd_set readable;
   FD_ZERO(&readable);
   FD_SET(socket, &readable);
   struct timeval timeout = {
-      .tv_sec = HTTP_IO_TIMEOUT_SECONDS,
+      .tv_sec = timeout_seconds,
       .tv_usec = 0,
   };
   if (net_select(socket + 1, &readable, NULL, NULL, &timeout) <= 0) {
     return -1;
   }
   return net_recv(socket, destination, size, 0);
+}
+
+static int read_available(int socket, void *destination, size_t size) {
+  return read_available_with_timeout(socket, destination, size,
+                                     HTTP_IO_TIMEOUT_SECONDS);
 }
 
 static bool read_headers(HttpClient *client, char *headers, size_t capacity,
@@ -493,8 +500,9 @@ static bool stream_read(HttpClient *client, uint8_t *destination,
     const size_t remaining = size - copied;
     const size_t request_size =
         remaining < HTTP_CACHE_SIZE ? remaining : HTTP_CACHE_SIZE;
-    const int result = read_available(client->socket, destination + copied,
-                                      request_size);
+    const int result = read_available_with_timeout(
+        client->socket, destination + copied, request_size,
+        HTTP_STREAM_TIMEOUT_SECONDS);
     if (result <= 0 || (size_t)result > request_size) {
       return false;
     }

@@ -674,19 +674,29 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         return 1;
     }
     if (action == 6) {
-        const message: core.Msg = if (model.screen == .search) .search_submit else .browse_next;
+        const message: core.Msg = if (model.screen == .search)
+            .search_submit
+        else if (model.screen == .player)
+            .seek_forward
+        else
+            .browse_next;
         app_model = core.commitModelRoot(core.update(model, message));
         focused_handler = 0;
         reference_full_repaint = true;
-        multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 16 else 7);
+        multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 16 else if (model.screen == .player) 18 else 7);
         return 1;
     }
     if (action == 7) {
-        const message: core.Msg = if (model.screen == .search) .search_delete else .browse_previous;
+        const message: core.Msg = if (model.screen == .search)
+            .search_delete
+        else if (model.screen == .player)
+            .seek_backward
+        else
+            .browse_previous;
         app_model = core.commitModelRoot(core.update(model, message));
         focused_handler = 0;
         reference_full_repaint = true;
-        multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 15 else 6);
+        multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 15 else if (model.screen == .player) 17 else 6);
         return 1;
     }
     if (action == 10) {
@@ -771,6 +781,8 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .search_submit => 16,
                 .open_item => 8,
                 .play => 9,
+                .seek_backward => 17,
+                .seek_forward => 18,
                 .toggle_playback => 10,
                 .back => 11,
             };

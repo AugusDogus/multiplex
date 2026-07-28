@@ -287,48 +287,9 @@ press R
 wait_for_new "search-page ready query=FRESH" "$search_count" 1200
 wait_for_new "signature=" "$signature_count"
 
-# Open the top result to prove search-detail origin, then unwind to Home.
-signature_count=$(line_count "signature=")
-press D_RIGHT
-wait_for_new "signature=" "$signature_count"
-signature_count=$(line_count "signature=")
-details_count=$(line_count "details-page ready")
-press A
-wait_for_new "details-page ready" "$details_count" 1200
-wait_for_new "signature=" "$signature_count"
-for back in 1 2 3; do
-  signature_count=$(line_count "signature=")
-  press B
-  wait_for_new "signature=" "$signature_count"
-done
-
-# Y is the console-native shortcut to the real Plex library picker.
-signature_count=$(line_count "signature=")
-press Y
-wait_for_new "signature=" "$signature_count"
-
-# The picker starts on Back, followed by Search, then the real libraries.
-for move in 1 2; do
-  signature_count=$(line_count "signature=")
-  press D_RIGHT
-  wait_for_new "signature=" "$signature_count"
-done
-first_browse_count=$(line_count "browse-page ready")
-signature_count=$(line_count "signature=")
-press A
-wait_for_new "browse-page ready" "$first_browse_count" 1200
-wait_for_new "signature=" "$signature_count"
-
-# R pages forward directly, matching a console media browser and avoiding a
-# focus walk through every poster during the automated smoke path.
-second_browse_count=$(line_count "browse-page ready")
-signature_count=$(line_count "signature=")
-press R
-wait_for_new "browse-page ready" "$second_browse_count" 1200
-wait_for_new "signature=" "$signature_count"
-
-# Open the first item on page two. This deliberately differs from the startup
-# fixture and proves the gateway can prepare and activate the selected session.
+# Open the top real search result and exercise playback from that origin. The
+# browse paging route has its own committed coverage; keeping it out of this
+# player smoke avoids unrelated poster transfers before every seek test.
 signature_count=$(line_count "signature=")
 press D_RIGHT
 wait_for_new "signature=" "$signature_count"
@@ -356,7 +317,24 @@ if [ "$(line_count "playback=paused")" -gt "$paused_count" ]; then
 fi
 
 selected_rating_key=$(sed -n 's/.*playback-session ready rating-key=\([0-9][0-9]*\).*/\1/p' "$log" | tail -1)
-echo "Playing selected Plex item $selected_rating_key in Dolphin (startup fixture '$title' is $container_bytes bytes)."
+initial_offset=$(sed -n 's/.*playback-session ready rating-key=[0-9][0-9]* offset=\([0-9][0-9]*\).*/\1/p' "$log" | tail -1)
+seek_offset=$((initial_offset + 30000))
+switch_count=$(line_count "playback-session switched")
+playing_count=$(line_count "playback=playing")
+press R
+wait_for_new "playback-session switched" "$switch_count" 3600
+wait_for_new "playback=playing" "$playing_count" 1200
+if ! grep -q "playback-session ready rating-key=$selected_rating_key offset=$seek_offset" "$log"; then
+  echo "Selected Plex seek did not activate expected offset $seek_offset." >&2
+  exit 1
+fi
+sleep 12
+if grep -Eq 'underruns=[1-9][0-9]*' "$log"; then
+  echo "Selected Plex seek produced an audio underrun." >&2
+  exit 1
+fi
+
+echo "Playing selected Plex item $selected_rating_key at ${seek_offset}ms in Dolphin (startup fixture '$title' is $container_bytes bytes)."
 if [ -n "$mute_pid" ]; then
   wait "$mute_pid" 2>/dev/null || true
   mute_pid=

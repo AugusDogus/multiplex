@@ -78,6 +78,7 @@ export interface Model {
   readonly detailsSummary: Uint8Array;
   readonly detailsGenres: Uint8Array;
   readonly detailsDirectors: Uint8Array;
+  readonly playbackOffsetMs: number;
   readonly playbackLoaded: boolean;
   readonly playing: boolean;
 }
@@ -96,6 +97,8 @@ export type Msg =
   | { readonly kind: "search_submit" }
   | { readonly kind: "open_item"; readonly index: number }
   | { readonly kind: "play" }
+  | { readonly kind: "seek_backward" }
+  | { readonly kind: "seek_forward" }
   | { readonly kind: "toggle_playback" }
   | { readonly kind: "back" };
 
@@ -266,6 +269,7 @@ export function initialModel(): Model {
     ),
     detailsGenres: new Uint8Array(0),
     detailsDirectors: new Uint8Array(0),
+    playbackOffsetMs: 0,
     playbackLoaded: true,
     playing: false,
   };
@@ -412,7 +416,7 @@ export function playbackRequestRatingKey(model: Model): number {
 
 export function playbackRequestOffsetMs(model: Model): number {
   if (playbackRequestRatingKey(model) === 0 || model.selectedDurationMs <= 1) return 0;
-  return Math.min(model.selectedViewOffsetMs, model.selectedDurationMs - 1);
+  return Math.min(model.playbackOffsetMs, model.selectedDurationMs - 1);
 }
 
 export function playbackLoading(model: Model): boolean {
@@ -607,9 +611,38 @@ export function update(model: Model, msg: Msg): Model {
       return {
         ...model,
         screen: "player",
+        playbackOffsetMs: Math.min(
+          model.selectedViewOffsetMs,
+          Math.max(0, model.selectedDurationMs - 1),
+        ),
         playbackLoaded: !model.gatewayConnected,
         playing: !model.gatewayConnected,
       };
+    case "seek_backward": {
+      if (model.screen !== "player" || !model.playbackLoaded) return model;
+      const playbackOffsetMs = Math.max(0, model.playbackOffsetMs - 30_000);
+      if (playbackOffsetMs === model.playbackOffsetMs) return model;
+      return {
+        ...model,
+        playbackOffsetMs: playbackOffsetMs,
+        playbackLoaded: false,
+        playing: false,
+      };
+    }
+    case "seek_forward": {
+      if (model.screen !== "player" || !model.playbackLoaded) return model;
+      const playbackOffsetMs = Math.min(
+        Math.max(0, model.selectedDurationMs - 1),
+        model.playbackOffsetMs + 30_000,
+      );
+      if (playbackOffsetMs === model.playbackOffsetMs) return model;
+      return {
+        ...model,
+        playbackOffsetMs: playbackOffsetMs,
+        playbackLoaded: false,
+        playing: false,
+      };
+    }
     case "toggle_playback":
       if (model.screen !== "player" || !model.playbackLoaded) return model;
       return { ...model, playing: !model.playing };

@@ -40,7 +40,7 @@
 #define MPEG_PTS_RATE 90000
 #define VIDEO_RATE_NUMERATOR 30000
 #define VIDEO_RATE_DENOMINATOR 1001
-#define VIDEO_PREBUFFER_BYTES (256u * 1024u)
+#define VIDEO_PREBUFFER_BYTES (128u * 1024u)
 #define AUDIO_PREBUFFER_BYTES (32u * 1024u)
 #define POSTER_JPEG_CAPACITY (256u * 1024u)
 #define HOME_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS
@@ -1268,7 +1268,8 @@ static void present_frame(void) {
 }
 
 static void pause_audio_for_player_input(uint32_t pressed) {
-  if ((pressed & (PAD_BUTTON_A | PAD_BUTTON_B)) != 0) {
+  if ((pressed &
+       (PAD_BUTTON_A | PAD_BUTTON_B | PAD_TRIGGER_L | PAD_TRIGGER_R)) != 0) {
     MultiplexVideoSurface current_surface;
     memset(&current_surface, 0, sizeof(current_surface));
     if (multiplex_native_video_surface(&current_surface) != 0) {

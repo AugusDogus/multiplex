@@ -277,6 +277,7 @@
         <row gap="10" main="center">
           <button variant="primary" on-press="toggle_playback">Play / Pause</button>
           <button variant="secondary" on-press="back">Back to details</button>
+          <badge variant="outline">L -30s · R +30s</badge>
         </row>
       </if>
     </column>
