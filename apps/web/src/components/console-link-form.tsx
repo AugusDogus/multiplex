@@ -107,7 +107,7 @@ export function ConsoleLinkForm({
             Pairing code
           </CardTitle>
           <CardDescription>
-            Codes contain four letters or numbers and expire after five minutes.
+            Codes contain four letters or numbers and expire after 30 minutes.
           </CardDescription>
         </CardHeader>
         <CardPanel>

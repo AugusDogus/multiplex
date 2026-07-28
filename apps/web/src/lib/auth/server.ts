@@ -38,7 +38,7 @@ export const auth = betterAuth({
   plugins: [
     plex(),
     deviceAuthorization({
-      expiresIn: "5m",
+      expiresIn: "30m",
       interval: "5s",
       userCodeLength: 4,
       verificationUri: "/link",
