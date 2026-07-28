@@ -49,6 +49,7 @@ def packet_metadata(media_path: pathlib.Path) -> dict[str, int]:
             "-v",
             "error",
             "-show_packets",
+            "-show_format",
             "-show_entries",
             "packet=codec_type,pts,size",
             "-of",
@@ -59,7 +60,8 @@ def packet_metadata(media_path: pathlib.Path) -> dict[str, int]:
         capture_output=True,
         text=True,
     )
-    packets = json.loads(result.stdout)["packets"]
+    result_data = json.loads(result.stdout)
+    packets = result_data["packets"]
     output: dict[str, int] = {}
     for codec_type in ("video", "audio"):
         selected = [packet for packet in packets if packet.get("codec_type") == codec_type]
@@ -70,6 +72,7 @@ def packet_metadata(media_path: pathlib.Path) -> dict[str, int]:
         output[f"{codec_type}_packets"] = len(selected)
         output[f"{codec_type}_pts90k"] = pts
     output["container_bytes"] = media_path.stat().st_size
+    output["segment_duration_ms"] = round(float(result_data["format"]["duration"]) * 1000)
     return output
 
 
@@ -157,6 +160,8 @@ def main() -> None:
     metadata: dict[str, str | int] = packet_metadata(arguments.output)
     metadata["title"] = video.get("title", "Untitled Plex item")
     metadata["rating_key"] = video.get("ratingKey", "")
+    metadata["media_duration_ms"] = int(video.get("duration", "0") or 0)
+    metadata["segment_start_ms"] = round(arguments.offset * 1000)
     print(json.dumps(metadata))
 
 

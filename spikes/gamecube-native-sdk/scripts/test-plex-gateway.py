@@ -134,6 +134,9 @@ class CatalogContractTest(unittest.TestCase):
     def test_encodes_playback_manifest(self) -> None:
         manifest = gateway.PlaybackManifest(
             416284,
+            6_851_264,
+            60_000,
+            120_000,
             15_597_568,
             13_584_755,
             1_920_000,
@@ -144,10 +147,11 @@ class CatalogContractTest(unittest.TestCase):
             "/v1/media/current.mpg",
         )
         encoded = gateway.encode_playback_manifest(manifest)
-        header = struct.unpack(">4sHHIIIIIIqqH", encoded[:50])
-        self.assertEqual(header[:4], (b"MPXP", 1, 1, 416284))
-        self.assertEqual(header[4:9], (15_597_568, 13_584_755, 1_920_000, 3596, 5000))
-        self.assertEqual(encoded[50:], b"/v1/media/current.mpg")
+        header = struct.unpack(">4sHHIIIIIIIIIqqH", encoded[:62])
+        self.assertEqual(header[:4], (b"MPXP", 2, 1, 416284))
+        self.assertEqual(header[4:7], (6_851_264, 60_000, 120_000))
+        self.assertEqual(header[7:12], (15_597_568, 13_584_755, 1_920_000, 3596, 5000))
+        self.assertEqual(encoded[62:], b"/v1/media/current.mpg")
 
 
 if __name__ == "__main__":

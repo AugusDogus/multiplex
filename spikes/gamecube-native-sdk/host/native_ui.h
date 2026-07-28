@@ -104,6 +104,7 @@ uint32_t multiplex_native_app_details_commit(
     uint32_t directors_length, uint32_t playable);
 uint32_t multiplex_native_app_details_fail(void);
 uint32_t multiplex_native_app_playback_request(void);
+uint32_t multiplex_native_app_playback_offset_request(void);
 uint32_t multiplex_native_app_playback_commit(void);
 uint32_t multiplex_native_app_playback_fail(void);
 uint32_t multiplex_native_app_input(uint32_t action);

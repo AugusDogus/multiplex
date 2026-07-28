@@ -148,12 +148,14 @@ presentation fps after long MPEG I-frames. Average decode plus tiled upload is
 about 8.2 ms; the fast MPEG-2 path lowers the I-frame maximum to about 35.3 ms,
 and the audio clock schedules a catch-up frame after a missed VBlank. Audio
 ran without an underrun through the automated pause/resume flow. HTTP metadata
-inspection uses a seekable 32 KiB range cache; playback switches to one
-forward-only GET on a producer LWP. The MPEG-PS producer fills fixed 320 KiB
+inspection uses a seekable 32 KiB range cache; playback uses resumable byte
+ranges on a producer LWP, with a bounded 256 KiB cache for tiny looping media.
+The MPEG-PS producer fills fixed 320 KiB
 video and 64 KiB audio rings, while the codecs retain only 32 KiB and 8 KiB
 compressed input windows. No container or elementary stream is allocated at
-its full length. A host-prepared stream now exposes its URL, sizes, packet
-counts, and first PTS through a bounded runtime playback manifest, reducing the
+its full length. A versioned host-prepared stream now exposes its URL, full
+duration, segment start/duration, sizes, packet counts, and first PTS through a
+bounded runtime playback manifest, reducing the
 real Plex-derived smoke from a full scan to one range request before sequential
 playback without compiling session data into the DOL. That run decoded at 29.9
 fps, presented at 60.4 fps, completed pause/resume with zero underruns, and

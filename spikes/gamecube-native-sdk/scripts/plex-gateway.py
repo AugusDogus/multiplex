@@ -28,7 +28,7 @@ BOOTSTRAP_CATALOG_VERSION = 3
 BROWSE_CATALOG_VERSION = 1
 SEARCH_CATALOG_VERSION = 1
 DETAILS_CATALOG_VERSION = 1
-PLAYBACK_MANIFEST_VERSION = 1
+PLAYBACK_MANIFEST_VERSION = 2
 MAX_ITEMS = 4
 MAX_ROWS = 3
 MAX_SERVER_NAME_BYTES = 63
@@ -106,6 +106,9 @@ class DetailsPage:
 @dataclass(frozen=True)
 class PlaybackManifest:
     rating_key: int
+    media_duration_ms: int
+    segment_start_ms: int
+    segment_duration_ms: int
     container_bytes: int
     video_bytes: int
     audio_bytes: int
@@ -535,11 +538,14 @@ def encode_playback_manifest(manifest: PlaybackManifest) -> bytes:
     if not path.startswith(b"/"):
         raise ValueError("playback media path must be absolute")
     return struct.pack(
-        ">4sHHIIIIIIqqH",
+        ">4sHHIIIIIIIIIqqH",
         b"MPXP",
         PLAYBACK_MANIFEST_VERSION,
         1,
         manifest.rating_key,
+        manifest.media_duration_ms,
+        manifest.segment_start_ms,
+        manifest.segment_duration_ms,
         manifest.container_bytes,
         manifest.video_bytes,
         manifest.audio_bytes,
@@ -596,7 +602,7 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
     health_bytes: bytes
     playback_manifest_bytes: bytes | None = None
     playback_rating_key: int = 0
-    playback_cache: dict[int, tuple[bytes, pathlib.Path]] = {}
+    playback_cache: dict[tuple[int, int], tuple[bytes, pathlib.Path]] = {}
     playback_cache_lock = threading.Lock()
     plex_base_url: str
     plex_token: str | None
@@ -665,22 +671,31 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
             return payload
 
     @classmethod
-    def _playback_payload(cls, rating_key: int) -> tuple[bytes, pathlib.Path] | None:
-        if rating_key <= 0 or rating_key > 0xFFFFFFFF:
+    def _playback_payload(
+        cls, rating_key: int, offset_ms: int
+    ) -> tuple[bytes, pathlib.Path] | None:
+        if (
+            rating_key <= 0
+            or rating_key > 0xFFFFFFFF
+            or offset_ms < 0
+            or offset_ms > 0xFFFFFFFF
+        ):
             return None
         with cls.playback_cache_lock:
-            cached = cls.playback_cache.get(rating_key)
+            cache_key = (rating_key, offset_ms)
+            cached = cls.playback_cache.get(cache_key)
             if cached is not None:
                 return cached
             session_dir = cls.media_path.parent / "sessions"
             session_dir.mkdir(parents=True, exist_ok=True)
-            media_path = session_dir / f"{rating_key}.mpg"
-            metadata_path = session_dir / f"{rating_key}.json"
+            session_name = f"{rating_key}-{offset_ms}"
+            media_path = session_dir / f"{session_name}.mpg"
+            metadata_path = session_dir / f"{session_name}.json"
             try:
                 if media_path.is_file() and metadata_path.is_file():
                     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
                 else:
-                    temporary_media = session_dir / f"{rating_key}.tmp.mpg"
+                    temporary_media = session_dir / f"{session_name}.tmp.mpg"
                     environment = os.environ.copy()
                     if cls.plex_token:
                         environment["PLEX_TOKEN"] = cls.plex_token
@@ -691,6 +706,8 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
                         str(temporary_media),
                         "--rating-key",
                         str(rating_key),
+                        "--offset",
+                        str(offset_ms / 1000),
                     ]
                     result = subprocess.run(
                         command,
@@ -707,9 +724,14 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
                     )
                 if int(metadata["rating_key"]) != rating_key:
                     raise ValueError("prepared playback rating key did not match request")
+                if int(metadata["segment_start_ms"]) != offset_ms:
+                    raise ValueError("prepared playback offset did not match request")
                 manifest = encode_playback_manifest(
                     PlaybackManifest(
                         rating_key=int(metadata["rating_key"]),
+                        media_duration_ms=int(metadata["media_duration_ms"]),
+                        segment_start_ms=int(metadata["segment_start_ms"]),
+                        segment_duration_ms=int(metadata["segment_duration_ms"]),
                         container_bytes=int(metadata["container_bytes"]),
                         video_bytes=int(metadata["video_bytes"]),
                         audio_bytes=int(metadata["audio_bytes"]),
@@ -717,7 +739,7 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
                         audio_packets=int(metadata["audio_packets"]),
                         video_pts90k=int(metadata["video_pts90k"]),
                         audio_pts90k=int(metadata["audio_pts90k"]),
-                        media_path=f"/v4/media/{rating_key}.mpg",
+                        media_path=f"/v4/media/{rating_key}/{offset_ms}.mpg",
                     )
                 )
             except (
@@ -727,7 +749,7 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
                 json.JSONDecodeError,
                 subprocess.SubprocessError,
             ) as error:
-                temporary_media = session_dir / f"{rating_key}.tmp.mpg"
+                temporary_media = session_dir / f"{session_name}.tmp.mpg"
                 temporary_media.unlink(missing_ok=True)
                 print(
                     f"Playback preparation failed for rating key {rating_key}: {error}",
@@ -736,7 +758,7 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
                 )
                 return None
             payload = (manifest, media_path)
-            cls.playback_cache[rating_key] = payload
+            cls.playback_cache[cache_key] = payload
             return payload
 
     def _send_bytes(self, body: bytes, content_type: str) -> None:
@@ -878,7 +900,13 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
                 if not rating_key_value.isdigit():
                     self.send_error(404)
                     return
-                playback = self._playback_payload(int(rating_key_value))
+                offset_value = query.get("offsetMs", ["0"])[0]
+                if not offset_value.isdigit():
+                    self.send_error(404)
+                    return
+                playback = self._playback_payload(
+                    int(rating_key_value), int(offset_value)
+                )
                 if playback is None:
                     self.send_error(404)
                     return
@@ -886,11 +914,18 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
             else:
                 self._send_bytes(self.playback_manifest_bytes, "application/octet-stream")
         elif path.startswith("/v4/media/") and path.endswith(".mpg"):
-            rating_key_value = path.removeprefix("/v4/media/").removesuffix(".mpg")
-            if not rating_key_value.isdigit():
+            media_key = path.removeprefix("/v4/media/").removesuffix(".mpg")
+            rating_key_value, separator, offset_value = media_key.partition("/")
+            if (
+                separator != "/"
+                or not rating_key_value.isdigit()
+                or not offset_value.isdigit()
+            ):
                 self.send_error(404)
                 return
-            playback = self._playback_payload(int(rating_key_value))
+            playback = self._playback_payload(
+                int(rating_key_value), int(offset_value)
+            )
             if playback is None:
                 self.send_error(404)
                 return
@@ -931,6 +966,9 @@ def main() -> None:
         GatewayHandler.playback_manifest_bytes = encode_playback_manifest(
             PlaybackManifest(
                 rating_key=int(media_metadata["rating_key"]),
+                media_duration_ms=int(media_metadata["media_duration_ms"]),
+                segment_start_ms=int(media_metadata["segment_start_ms"]),
+                segment_duration_ms=int(media_metadata["segment_duration_ms"]),
                 container_bytes=int(media_metadata["container_bytes"]),
                 video_bytes=int(media_metadata["video_bytes"]),
                 audio_bytes=int(media_metadata["audio_bytes"]),
@@ -938,12 +976,18 @@ def main() -> None:
                 audio_packets=int(media_metadata["audio_packets"]),
                 video_pts90k=int(media_metadata["video_pts90k"]),
                 audio_pts90k=int(media_metadata["audio_pts90k"]),
-                media_path=f"/v4/media/{int(media_metadata['rating_key'])}.mpg",
+                media_path=(
+                    f"/v4/media/{int(media_metadata['rating_key'])}/"
+                    f"{int(media_metadata['segment_start_ms'])}.mpg"
+                ),
             )
         )
         GatewayHandler.playback_rating_key = int(media_metadata["rating_key"])
         GatewayHandler.playback_cache = {
-            GatewayHandler.playback_rating_key: (
+            (
+                GatewayHandler.playback_rating_key,
+                int(media_metadata["segment_start_ms"]),
+            ): (
                 GatewayHandler.playback_manifest_bytes,
                 arguments.media,
             )

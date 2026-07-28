@@ -1019,8 +1019,10 @@ static bool load_selected_playback(
   if (rating_key == 0) {
     return true;
   }
+  const uint32_t offset_ms = multiplex_native_app_playback_offset_request();
   MultiplexGatewayPlaybackManifest requested;
   if (!multiplex_gateway_load_playback_manifest(gateway_url, rating_key,
+                                                offset_ms,
                                                 &requested)) {
     if (multiplex_native_app_playback_fail() == 0) {
       return false;
@@ -1029,7 +1031,8 @@ static bool load_selected_playback(
                rating_key);
     return true;
   }
-  if (*demux == NULL || active_manifest->rating_key != requested.rating_key) {
+  if (*demux == NULL || active_manifest->rating_key != requested.rating_key ||
+      active_manifest->segment_start_ms != requested.segment_start_ms) {
     const uint32_t previous_rating_key = active_manifest->rating_key;
     const bool replacing_session = *demux != NULL;
     close_media_session(client, demux);
@@ -1044,18 +1047,20 @@ static bool load_selected_playback(
     *active_manifest = requested;
     if (replacing_session) {
       SYS_Report(
-          "REFERENCE GX: playback-session switched previous=%u active=%u\n",
-          previous_rating_key, requested.rating_key);
+          "REFERENCE GX: playback-session switched previous=%u active=%u offset=%u\n",
+          previous_rating_key, requested.rating_key,
+          requested.segment_start_ms);
     } else {
-      SYS_Report("REFERENCE GX: playback-session activated rating-key=%u\n",
-                 requested.rating_key);
+      SYS_Report(
+          "REFERENCE GX: playback-session activated rating-key=%u offset=%u\n",
+          requested.rating_key, requested.segment_start_ms);
     }
   }
   if (multiplex_native_app_playback_commit() == 0) {
     return false;
   }
-  SYS_Report("REFERENCE GX: playback-session ready rating-key=%u\n",
-             requested.rating_key);
+  SYS_Report("REFERENCE GX: playback-session ready rating-key=%u offset=%u\n",
+             requested.rating_key, requested.segment_start_ms);
   return true;
 }
 
@@ -1353,7 +1358,7 @@ static void *run_app(void *unused) {
   const bool has_playback_manifest =
       MULTIPLEX_GATEWAY_URL[0] != '\0' &&
       multiplex_gateway_load_playback_manifest(MULTIPLEX_GATEWAY_URL, 0,
-                                               &playback_manifest);
+                                               0, &playback_manifest);
   if (has_playback_manifest) {
     SYS_Report(
         "REFERENCE GX: playback-session deferred rating-key=%u until selected\n",

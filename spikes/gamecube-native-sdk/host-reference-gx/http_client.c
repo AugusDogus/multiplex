@@ -25,6 +25,7 @@
 #define HTTP_PATH_LIMIT 512
 #define HTTP_MAX_MEDIA_SIZE UINT32_MAX
 #define HTTP_CACHE_SIZE (32u * 1024u)
+#define HTTP_SMALL_MEDIA_CACHE_SIZE (256u * 1024u)
 #define HTTP_IO_TIMEOUT_SECONDS 8
 #define HTTP_RANGE_ATTEMPTS 4
 
@@ -52,6 +53,7 @@ struct HttpClient {
   uint8_t stream_prefetch[HTTP_HEADER_LIMIT];
   size_t stream_prefetch_offset;
   size_t stream_prefetch_size;
+  uint8_t *small_media;
 };
 
 static bool network_initialized;
@@ -275,13 +277,17 @@ static bool parse_headers(char *headers, HttpResponse *response) {
              response->content_length;
 }
 
-static bool parse_stream_headers(char *headers, size_t expected_size) {
+static bool parse_stream_headers(char *headers, size_t expected_start,
+                                 size_t expected_size) {
   unsigned status = 0;
-  if (sscanf(headers, "HTTP/%*u.%*u %u", &status) != 1 || status != 200) {
+  if (sscanf(headers, "HTTP/%*u.%*u %u", &status) != 1 || status != 206) {
     return false;
   }
 
   size_t content_length = 0;
+  size_t range_start = 0;
+  size_t range_end = 0;
+  size_t range_total = 0;
   char *line = strstr(headers, "\r\n");
   while (line != NULL && line[2] != '\r' && line[2] != '\0') {
     line += 2;
@@ -300,10 +306,23 @@ static bool parse_stream_headers(char *headers, size_t expected_size) {
         return false;
       }
       content_length = (size_t)parsed;
+    } else if (strncasecmp(line, "Content-Range:", 14) == 0) {
+      unsigned long parsed_start = 0;
+      unsigned long parsed_end = 0;
+      unsigned long parsed_total = 0;
+      if (sscanf(line + 14, " bytes %lu-%lu/%lu", &parsed_start,
+                 &parsed_end, &parsed_total) != 3) {
+        return false;
+      }
+      range_start = (size_t)parsed_start;
+      range_end = (size_t)parsed_end;
+      range_total = (size_t)parsed_total;
     }
     line = line_end;
   }
-  return content_length == expected_size;
+  return expected_start < expected_size && range_start == expected_start &&
+         range_end == expected_size - 1u && range_total == expected_size &&
+         content_length == expected_size - expected_start;
 }
 
 static bool read_body(HttpClient *client, uint8_t *destination, size_t size) {
@@ -412,7 +431,7 @@ static bool fetch_cache(HttpClient *client, size_t start) {
   return false;
 }
 
-static bool start_stream_response(HttpClient *client) {
+static bool start_stream_response(HttpClient *client, size_t start) {
   disconnect_client(client);
   if (!connect_client(client, false)) {
     return false;
@@ -422,8 +441,9 @@ static bool start_stream_response(HttpClient *client) {
   const int request_size = snprintf(
       request, sizeof(request),
       "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: Multiplex-GameCube/0\r\n"
-      "Connection: close\r\n\r\n",
-      client->path, client->host);
+      "Range: bytes=%u-%u\r\nConnection: close\r\n\r\n",
+      client->path, client->host, (unsigned)start,
+      (unsigned)(client->total_size - 1u));
   if (request_size <= 0 || (size_t)request_size >= sizeof(request) ||
       !write_all(client->socket, (const uint8_t *)request,
                  (size_t)request_size)) {
@@ -439,7 +459,8 @@ static bool start_stream_response(HttpClient *client) {
   }
   const char first_body_byte = headers[header_size];
   headers[header_size] = '\0';
-  const bool valid = parse_stream_headers(headers, client->total_size);
+  const bool valid =
+      parse_stream_headers(headers, start, client->total_size);
   headers[header_size] = first_body_byte;
   const size_t prefetched = response_size - header_size;
   if (!valid || prefetched > sizeof(client->stream_prefetch) ||
@@ -449,7 +470,7 @@ static bool start_stream_response(HttpClient *client) {
   memcpy(client->stream_prefetch, headers + header_size, prefetched);
   client->stream_prefetch_offset = 0;
   client->stream_prefetch_size = prefetched;
-  client->stream_position = 0;
+  client->stream_position = start;
   return true;
 }
 
@@ -488,22 +509,37 @@ static bool stream_read(HttpClient *client, uint8_t *destination,
 
 static bool stream_read_at(HttpClient *client, size_t offset,
                            uint8_t *destination, size_t size) {
-  if (client->socket < 0 || offset < client->stream_position) {
-    if (!start_stream_response(client)) {
-      return false;
+  for (unsigned attempt = 1; attempt <= HTTP_RANGE_ATTEMPTS; ++attempt) {
+    if (client->socket < 0 || offset < client->stream_position) {
+      if (!start_stream_response(client, offset)) {
+        disconnect_client(client);
+        continue;
+      }
+    }
+    uint8_t discard[HTTP_CACHE_SIZE];
+    bool discarded = true;
+    while (client->stream_position < offset) {
+      const size_t remaining = offset - client->stream_position;
+      const size_t chunk = remaining < sizeof(discard) ? remaining
+                                                        : sizeof(discard);
+      if (!stream_read(client, discard, chunk)) {
+        discarded = false;
+        break;
+      }
+    }
+    if (discarded && offset == client->stream_position &&
+        stream_read(client, destination, size)) {
+      return true;
+    }
+    disconnect_client(client);
+    if (attempt != HTTP_RANGE_ATTEMPTS) {
+      SYS_Report(
+          "REFERENCE GX: HTTP stream retry offset=%u attempt=%u/%u\n",
+          (unsigned)offset, attempt + 1u, HTTP_RANGE_ATTEMPTS);
+      usleep(100000);
     }
   }
-  uint8_t discard[HTTP_CACHE_SIZE];
-  while (client->stream_position < offset) {
-    const size_t remaining = offset - client->stream_position;
-    const size_t chunk = remaining < sizeof(discard) ? remaining
-                                                      : sizeof(discard);
-    if (!stream_read(client, discard, chunk)) {
-      return false;
-    }
-  }
-  return offset == client->stream_position &&
-         stream_read(client, destination, size);
+  return false;
 }
 
 HttpClient *http_client_open(const char *url) {
@@ -546,6 +582,26 @@ void http_client_begin_stream(HttpClient *client) {
   if (client == NULL) {
     return;
   }
+  if (client->total_size <= HTTP_SMALL_MEDIA_CACHE_SIZE) {
+    uint8_t *small_media = malloc(client->total_size);
+    size_t offset = 0;
+    while (small_media != NULL && offset < client->total_size) {
+      const size_t remaining = client->total_size - offset;
+      const size_t chunk =
+          remaining < HTTP_CACHE_SIZE ? remaining : HTTP_CACHE_SIZE;
+      if (!http_client_read_at(client, offset, small_media + offset, chunk)) {
+        free(small_media);
+        small_media = NULL;
+        break;
+      }
+      offset += chunk;
+    }
+    if (small_media != NULL) {
+      client->small_media = small_media;
+      SYS_Report("REFERENCE GX: HTTP small-media cache bytes=%u\n",
+                 (unsigned)client->total_size);
+    }
+  }
   http_client_release_connection(client);
   client->streaming = true;
   client->stream_position = 0;
@@ -558,6 +614,7 @@ void http_client_destroy(HttpClient *client) {
     return;
   }
   http_client_release_connection(client);
+  free(client->small_media);
   free(client);
 }
 
@@ -566,6 +623,10 @@ bool http_client_read_at(HttpClient *client, size_t offset,
   if (client == NULL || destination == NULL ||
       offset > client->total_size || size > client->total_size - offset) {
     return false;
+  }
+  if (client->small_media != NULL) {
+    memcpy(destination, client->small_media + offset, size);
+    return true;
   }
   if (client->streaming) {
     return stream_read_at(client, offset, destination, size);

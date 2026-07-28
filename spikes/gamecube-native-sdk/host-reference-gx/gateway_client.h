@@ -110,6 +110,9 @@ typedef struct {
   uint16_t version;
   uint16_t flags;
   uint32_t rating_key;
+  uint32_t media_duration_ms;
+  uint32_t segment_start_ms;
+  uint32_t segment_duration_ms;
   uint32_t container_bytes;
   uint32_t video_bytes;
   uint32_t audio_bytes;
@@ -140,7 +143,7 @@ bool multiplex_gateway_load_search_artwork(
 bool multiplex_gateway_load_details(const char *base_url, uint32_t rating_key,
                                     MultiplexGatewayDetails *details);
 bool multiplex_gateway_load_playback_manifest(
-    const char *base_url, uint32_t rating_key,
+    const char *base_url, uint32_t rating_key, uint32_t offset_ms,
     MultiplexGatewayPlaybackManifest *manifest);
 
 #endif

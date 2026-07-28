@@ -631,6 +631,13 @@ export fn multiplex_native_app_playback_request() callconv(.c) u32 {
     return @intCast(rating_key);
 }
 
+export fn multiplex_native_app_playback_offset_request() callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    const offset_ms = core.playbackRequestOffsetMs(app_model);
+    if (offset_ms < 0 or offset_ms > std.math.maxInt(u32)) return 0;
+    return @intCast(offset_ms);
+}
+
 export fn multiplex_native_app_playback_commit() callconv(.c) u32 {
     if (!app_initialized or core.playbackRequestRatingKey(app_model) == 0) return 0;
     app_model = core.commitModelRoot(core.loadPlayback(app_model));

@@ -410,6 +410,11 @@ export function playbackRequestRatingKey(model: Model): number {
   return model.screen === "player" && !model.playbackLoaded ? model.selectedRatingKey : 0;
 }
 
+export function playbackRequestOffsetMs(model: Model): number {
+  if (playbackRequestRatingKey(model) === 0 || model.selectedDurationMs <= 1) return 0;
+  return Math.min(model.selectedViewOffsetMs, model.selectedDurationMs - 1);
+}
+
 export function playbackLoading(model: Model): boolean {
   return model.screen === "player" && !model.playbackLoaded;
 }
