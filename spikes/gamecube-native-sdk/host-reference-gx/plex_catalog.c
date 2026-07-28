@@ -18,6 +18,7 @@
 #define PLEX_LIBRARY_RESPONSE_CAPACITY (8u * 1024u)
 #define PLEX_BROWSE_RESPONSE_CAPACITY (64u * 1024u)
 #define PLEX_DETAILS_RESPONSE_CAPACITY (64u * 1024u)
+#define PLEX_SEARCH_RESPONSE_CAPACITY (64u * 1024u)
 #define PLEX_CATALOG_URL_CAPACITY 1280u
 #define PLEX_REQUEST_ATTEMPTS 4u
 
@@ -620,6 +621,56 @@ bool multiplex_plex_catalog_parse_details(const char *json, size_t size,
   return details->title_length != 0 && details->media_type_length != 0;
 }
 
+bool multiplex_plex_catalog_parse_search(
+    const char *json, size_t size, const char *query, uint16_t query_length,
+    MultiplexGatewaySearchPage *page) {
+  if (json == NULL || size == 0 || query == NULL || query_length == 0 ||
+      query_length >= MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY ||
+      page == NULL) {
+    return false;
+  }
+  JsonSpan document = {.begin = json, .end = json + size};
+  memset(page, 0, sizeof(*page));
+  page->version = 1;
+  memcpy(page->query, query, query_length);
+  page->query[query_length] = '\0';
+  page->query_length = query_length;
+
+  const char *array = NULL;
+  if (!json_value(document, "SearchResult", &array)) {
+    uint32_t result_size = 0;
+    return json_unsigned(document, "size", &result_size) && result_size == 0;
+  }
+  if (*array != '[') {
+    return false;
+  }
+  const char *cursor = array + 1;
+  while (cursor < document.end &&
+         page->item_count < MULTIPLEX_GATEWAY_MAX_ITEMS) {
+    cursor = skip_space(cursor, document.end);
+    if (cursor < document.end && *cursor == ']') {
+      return true;
+    }
+    JsonSpan result;
+    const char *next = NULL;
+    if (!json_object(cursor, document.end, &result, &next)) {
+      return false;
+    }
+    const char *metadata_value = NULL;
+    JsonSpan metadata;
+    const char *metadata_next = NULL;
+    if (json_value(result, "Metadata", &metadata_value) &&
+        json_object(metadata_value, result.end, &metadata, &metadata_next)) {
+      MultiplexGatewayItem *item = &page->items[page->item_count];
+      if (parse_item(metadata, item, page->item_count)) {
+        ++page->item_count;
+      }
+    }
+    cursor = next;
+  }
+  return true;
+}
+
 static bool request_plex_json(const MultiplexAuthCredentials *credentials,
                               const char *path, char *destination,
                               size_t capacity, size_t *body_size) {
@@ -795,6 +846,46 @@ static bool encode_url_value(const char *value, char *destination,
   }
   destination[output] = '\0';
   return true;
+}
+
+bool multiplex_plex_load_search(
+    const MultiplexAuthCredentials *credentials, const char *query,
+    uint16_t query_length, MultiplexGatewaySearchPage *page) {
+  if (credentials == NULL || query == NULL || query_length == 0 ||
+      query_length >= MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY ||
+      page == NULL) {
+    return false;
+  }
+  char query_copy[MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY];
+  memcpy(query_copy, query, query_length);
+  query_copy[query_length] = '\0';
+  char encoded_query[MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY * 3u];
+  if (!encode_url_value(query_copy, encoded_query, sizeof(encoded_query))) {
+    return false;
+  }
+  char path[256];
+  const int path_size = snprintf(
+      path, sizeof(path),
+      "library/search?query=%s&limit=%u&searchTypes=movies%%2Ctv&"
+      "includeCollections=0&includeExternalMedia=0",
+      encoded_query, MULTIPLEX_GATEWAY_MAX_ITEMS);
+  if (path_size <= 0 || (size_t)path_size >= sizeof(path)) {
+    return false;
+  }
+  char *response = malloc(PLEX_SEARCH_RESPONSE_CAPACITY);
+  size_t response_size = 0;
+  const bool loaded =
+      response != NULL &&
+      request_plex_json(credentials, path, response,
+                        PLEX_SEARCH_RESPONSE_CAPACITY, &response_size) &&
+      multiplex_plex_catalog_parse_search(
+          response, response_size, query_copy, query_length, page);
+  free(response);
+  if (loaded) {
+    SYS_Report("REFERENCE GX: direct Plex search query=%s items=%u\n",
+               query_copy, page->item_count);
+  }
+  return loaded;
 }
 
 bool multiplex_plex_load_artwork(

@@ -1022,6 +1022,30 @@ static bool load_direct_browse_page(
   return bind_browse_page(&page);
 }
 
+static bool bind_search_page(const MultiplexGatewaySearchPage *page) {
+  if (multiplex_native_app_search_begin((const uint8_t *)page->query,
+                                        page->query_length,
+                                        page->item_count) == 0) {
+    return false;
+  }
+  for (uint16_t index = 0; index < page->item_count; ++index) {
+    const MultiplexGatewayItem *item = &page->items[index];
+    if (multiplex_native_app_search_item(
+            index, item->rating_key, (const uint8_t *)item->title,
+            item->title_length, (const uint8_t *)item->subtitle,
+            item->subtitle_length, item->artwork_slot, item->duration_ms,
+            item->view_offset_ms, item->progress_percent) == 0) {
+      return false;
+    }
+  }
+  if (multiplex_native_app_search_commit() == 0) {
+    return false;
+  }
+  SYS_Report("REFERENCE GX: search-page ready query=%.*s items=%u\n",
+             page->query_length, page->query, page->item_count);
+  return true;
+}
+
 static bool load_search_page(const char *gateway_url) {
   char query[MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY] = {0};
   const uint32_t query_length =
@@ -1070,27 +1094,35 @@ static bool load_search_page(const char *gateway_url) {
     DCFlushRange(browse_pixels, search_bytes);
   }
 
-  if (multiplex_native_app_search_begin((const uint8_t *)page.query,
-                                        page.query_length,
-                                        page.item_count) == 0) {
+  return bind_search_page(&page);
+}
+
+static bool
+load_direct_search_page(const MultiplexAuthCredentials *credentials,
+                        DirectPosterLoader *poster_loader) {
+  char query[MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY] = {0};
+  const uint32_t query_length =
+      multiplex_native_app_search_request((uint8_t *)query, sizeof(query) - 1u);
+  if (query_length == 0) {
+    return true;
+  }
+  if (query_length >= sizeof(query)) {
     return false;
   }
-  for (uint16_t index = 0; index < page.item_count; ++index) {
-    const MultiplexGatewayItem *item = &page.items[index];
-    if (multiplex_native_app_search_item(
-            index, item->rating_key, (const uint8_t *)item->title,
-            item->title_length, (const uint8_t *)item->subtitle,
-            item->subtitle_length, item->artwork_slot, item->duration_ms,
-            item->view_offset_ms, item->progress_percent) == 0) {
-      return false;
-    }
-  }
-  if (multiplex_native_app_search_commit() == 0) {
+
+  MultiplexGatewaySearchPage page;
+  if (!multiplex_plex_load_search(credentials, query, (uint16_t)query_length,
+                                  &page)) {
     return false;
   }
-  SYS_Report("REFERENCE GX: search-page ready query=%.*s items=%u\n",
-             page.query_length, page.query, page.item_count);
-  return true;
+  if (page.item_count > 0 &&
+      !queue_direct_poster_loader(
+          poster_loader, credentials, page.items, page.item_count,
+          HOME_POSTER_COUNT, false)) {
+    SYS_Report(
+        "REFERENCE GX: direct search artwork deferred; using placeholders\n");
+  }
+  return bind_search_page(&page);
 }
 
 static bool fail_item_details(uint32_t rating_key) {
@@ -2322,6 +2354,13 @@ static void *run_app(void *unused) {
           !load_search_page(MULTIPLEX_GATEWAY_URL)) {
         SYS_Report("REFERENCE GX: search-page load failed\n");
       }
+#if MULTIPLEX_PAIRING_ENABLED
+      if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked &&
+          !load_direct_search_page(&auth_credentials,
+                                   &direct_page_poster_loader)) {
+        SYS_Report("REFERENCE GX: direct search-page load failed\n");
+      }
+#endif
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
           !load_item_details(MULTIPLEX_GATEWAY_URL)) {
         SYS_Report("REFERENCE GX: details-page load failed\n");

@@ -121,11 +121,35 @@ static void test_parses_item_details(void) {
   assert((details.flags & 1u) != 0);
 }
 
+static void test_parses_search_results(void) {
+  static const char json[] =
+      "{\"MediaContainer\":{\"size\":3,\"SearchResult\":["
+      "{\"score\":99.0,\"Metadata\":{\"ratingKey\":\"51\",\"type\":\"movie\","
+      "\"title\":\"Cube\",\"year\":1997,\"duration\":5400000,"
+      "\"thumb\":\"/library/metadata/51/thumb/1\"}},"
+      "{\"score\":80.0,\"Directory\":{\"type\":\"person\",\"tag\":\"Someone\"}},"
+      "{\"score\":70.0,\"Metadata\":{\"ratingKey\":\"52\",\"type\":\"show\","
+      "\"title\":\"Cubed\",\"year\":2026,"
+      "\"thumb\":\"/library/metadata/52/thumb/1\"}}]}}";
+  MultiplexGatewaySearchPage page = {0};
+
+  assert(multiplex_plex_catalog_parse_search(
+      json, strlen(json), "CUBE", 4, &page));
+  assert(page.version == 1);
+  assert(strcmp(page.query, "CUBE") == 0);
+  assert(page.item_count == 2);
+  assert(strcmp(page.items[0].title, "Cube") == 0);
+  assert(strcmp(page.items[0].subtitle, "1997") == 0);
+  assert(page.items[1].rating_key == 52);
+  assert(page.items[1].artwork_slot == 1);
+}
+
 int main(void) {
   test_parses_home_rows();
   test_parses_libraries();
   test_parses_browse_page();
   test_parses_item_details();
+  test_parses_search_results();
   puts("GameCube direct Plex catalog tests passed.");
   return 0;
 }
