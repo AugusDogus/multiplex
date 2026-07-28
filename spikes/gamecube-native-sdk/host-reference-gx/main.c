@@ -9,6 +9,7 @@
 #include "multiplex-dvd-demo-program.h"
 #include "native_ui.h"
 #include "plex_bootstrap.h"
+#include "plex_catalog.h"
 #include "poster_jpeg.h"
 #include "yuv420_gx.h"
 
@@ -1747,6 +1748,52 @@ static bool read_http_program(void *context, size_t offset,
   return http_client_read_at(context, offset, destination, size);
 }
 
+static bool bind_catalog_to_app(const MultiplexGatewayCatalog *catalog) {
+  if (multiplex_native_app_catalog_begin(
+          (const uint8_t *)catalog->server_name, catalog->server_name_length,
+          catalog->row_count, catalog->library_count) == 0) {
+    SYS_Report("REFERENCE GX: failed to bind catalog to app\n");
+    return false;
+  }
+  for (uint16_t index = 0; index < catalog->library_count; ++index) {
+    const MultiplexGatewayLibrary *library = &catalog->libraries[index];
+    if (multiplex_native_app_catalog_library(
+            index, library->section_id, library->media_type,
+            (const uint8_t *)library->title, library->title_length) == 0) {
+      SYS_Report("REFERENCE GX: failed to bind library %u\n", index);
+      return false;
+    }
+  }
+  for (uint16_t row_index = 0; row_index < catalog->row_count; ++row_index) {
+    const MultiplexGatewayRow *row = &catalog->rows[row_index];
+    if (multiplex_native_app_catalog_row(
+            row_index, (const uint8_t *)row->title, row->title_length,
+            row->item_count) == 0) {
+      SYS_Report("REFERENCE GX: failed to bind catalog row %u\n", row_index);
+      return false;
+    }
+    for (uint16_t item_index = 0; item_index < row->item_count; ++item_index) {
+      const MultiplexGatewayItem *item =
+          &catalog->items[row->item_offset + item_index];
+      if (multiplex_native_app_catalog_item(
+              row_index, item_index, item->rating_key,
+              (const uint8_t *)item->title, item->title_length,
+              (const uint8_t *)item->subtitle, item->subtitle_length,
+              item->artwork_slot, item->duration_ms, item->view_offset_ms,
+              item->progress_percent) == 0) {
+        SYS_Report("REFERENCE GX: failed to bind catalog item %u/%u\n",
+                   row_index, item_index);
+        return false;
+      }
+    }
+  }
+  if (multiplex_native_app_catalog_commit() == 0) {
+    SYS_Report("REFERENCE GX: failed to commit catalog\n");
+    return false;
+  }
+  return true;
+}
+
 static void *run_app(void *unused) {
   (void)unused;
   initialize_video_and_gx();
@@ -1768,7 +1815,7 @@ static void *run_app(void *unused) {
   bool timeline_started = false;
   MultiplexGatewayCatalog catalog;
   memset(&catalog, 0, sizeof(catalog));
-  const bool has_catalog =
+  bool has_catalog =
       MULTIPLEX_GATEWAY_URL[0] != '\0' &&
       multiplex_gateway_load_catalog(MULTIPLEX_GATEWAY_URL, &catalog);
   if (has_catalog && !initialize_poster_textures(MULTIPLEX_GATEWAY_URL,
@@ -1777,50 +1824,8 @@ static void *run_app(void *unused) {
         "REFERENCE GX: gateway artwork unavailable; using placeholders\n");
   }
   multiplex_native_app_init();
-  if (has_catalog) {
-    if (multiplex_native_app_catalog_begin(
-            (const uint8_t *)catalog.server_name, catalog.server_name_length,
-            catalog.row_count, catalog.library_count) == 0) {
-      SYS_Report("REFERENCE GX: failed to bind gateway catalog to app\n");
-      return (void *)(uintptr_t)1;
-    }
-    for (uint16_t index = 0; index < catalog.library_count; ++index) {
-      const MultiplexGatewayLibrary *library = &catalog.libraries[index];
-      if (multiplex_native_app_catalog_library(
-              index, library->section_id, library->media_type,
-              (const uint8_t *)library->title, library->title_length) == 0) {
-        SYS_Report("REFERENCE GX: failed to bind library %u\n", index);
-        return (void *)(uintptr_t)1;
-      }
-    }
-    for (uint16_t row_index = 0; row_index < catalog.row_count; ++row_index) {
-      const MultiplexGatewayRow *row = &catalog.rows[row_index];
-      if (multiplex_native_app_catalog_row(
-              row_index, (const uint8_t *)row->title, row->title_length,
-              row->item_count) == 0) {
-        SYS_Report("REFERENCE GX: failed to bind catalog row %u\n", row_index);
-        return (void *)(uintptr_t)1;
-      }
-      for (uint16_t item_index = 0; item_index < row->item_count;
-           ++item_index) {
-        const MultiplexGatewayItem *item =
-            &catalog.items[row->item_offset + item_index];
-        if (multiplex_native_app_catalog_item(
-                row_index, item_index, item->rating_key,
-                (const uint8_t *)item->title, item->title_length,
-                (const uint8_t *)item->subtitle, item->subtitle_length,
-                item->artwork_slot, item->duration_ms, item->view_offset_ms,
-                item->progress_percent) == 0) {
-          SYS_Report("REFERENCE GX: failed to bind catalog item %u/%u\n",
-                     row_index, item_index);
-          return (void *)(uintptr_t)1;
-        }
-      }
-    }
-    if (multiplex_native_app_catalog_commit() == 0) {
-      SYS_Report("REFERENCE GX: failed to commit gateway catalog\n");
-      return (void *)(uintptr_t)1;
-    }
+  if (has_catalog && !bind_catalog_to_app(&catalog)) {
+    return (void *)(uintptr_t)1;
   }
 #if MULTIPLEX_PAIRING_ENABLED
   MultiplexAuthCredentials auth_credentials;
@@ -1872,6 +1877,13 @@ static void *run_app(void *unused) {
   }
   bool pairing_linked = device_auth.status == MULTIPLEX_DEVICE_AUTH_LINKED;
   uint32_t pairing_poll_frames = 0;
+  if (pairing_linked && !has_catalog &&
+      multiplex_plex_load_catalog(&auth_credentials, &catalog)) {
+    has_catalog = bind_catalog_to_app(&catalog);
+    if (!has_catalog) {
+      return (void *)(uintptr_t)1;
+    }
+  }
 #endif
   const bool has_playback_manifest =
       MULTIPLEX_GATEWAY_URL[0] != '\0' &&
@@ -1917,6 +1929,10 @@ static void *run_app(void *unused) {
                                               &auth_location);
           SYS_Report("REFERENCE GX: auth persistence=%s\n",
                      multiplex_memory_card_result_message(saved));
+          if (!has_catalog &&
+              multiplex_plex_load_catalog(&auth_credentials, &catalog)) {
+            has_catalog = bind_catalog_to_app(&catalog);
+          }
         }
         if (multiplex_native_app_pairing_status(
                 device_auth.status, (const uint8_t *)device_auth.user_code,

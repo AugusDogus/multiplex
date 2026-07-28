@@ -11,6 +11,7 @@ python3 "$script_dir/test-multiplex-pair.py"
 python3 "$script_dir/test-plex-pair.py"
 sh "$script_dir/test-auth-record.sh"
 sh "$script_dir/test-plex-server-directory.sh"
+sh "$script_dir/test-plex-catalog.sh"
 
 cd "$spike_dir"
 
