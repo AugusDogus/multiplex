@@ -31,6 +31,8 @@ const config = {
   },
   allowedDevOrigins: [
     "local.augie.haus",
+    "multiplex.local",
+    "*.multiplex.local",
     "multiplex.localhost",
     "127.0.0.1",
     "localhost",

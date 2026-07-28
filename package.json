@@ -13,7 +13,8 @@
     "typecheck": "bun --filter '*' typecheck",
     "check": "bun run lint && bun run format:check && bun run typecheck",
     "test": "bun --filter '*' test",
-    "dev": "bun --filter @multiplex/web dev",
+    "dev": "PORTLESS_LAN=1 PORTLESS_HTTPS=0 portless multiplex bun run dev:app",
+    "dev:app": "bun --filter @multiplex/web dev",
     "build": "bun --filter @multiplex/web build",
     "start": "bun --filter @multiplex/web start",
     "db:generate": "bun --filter @multiplex/web db:generate",
@@ -36,7 +37,8 @@
   },
   "devDependencies": {
     "oxfmt": "^0.26.0",
-    "oxlint": "^1.41.0"
+    "oxlint": "^1.41.0",
+    "portless": "^0.15.4"
   },
   "overrides": {
     "defu": ">=6.1.5 <7"
