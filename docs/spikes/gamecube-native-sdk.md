@@ -186,9 +186,14 @@ parameters.
 The same media pipeline can source its program stream from a directly
 playable HTTP URL. A small blocking libogc2 client initializes the BBA with
 DHCP, opens one TCP connection, validates `206`, `Content-Length`, and
-`Content-Range`, and downloads the 155,648-byte fixture in 1 KiB ranges. The
-full player smoke then exercises the same demux, decode, audio, navigation,
-pause/resume, timing, and invalid-access gates as the embedded build.
+`Content-Range`, and exposes a seekable 1 KiB range cache. The MPEG-PS scan and
+extraction consume that reader directly, so the 155,648-byte fixture is never
+held in a whole-container network allocation. The two passes used 230 cache
+fills in the measured smoke. The full player smoke then exercises the same
+demux, decode, audio, navigation, pause/resume, timing, and invalid-access
+gates as the embedded build. The extracted video and audio elementary streams
+remain whole-stream allocations; replacing those with bounded queues is the
+next memory boundary.
 
 The low-level control uses Dolphin's TAP BBA inside an unprivileged network
 namespace. A pinned `pasta` process supplies DHCP and rootless host networking;
@@ -199,8 +204,8 @@ June 11, 2026 `pasta` silently discarded the GameCube's padded 60-byte TCP SYN;
 upstream commit `f072bc0` fixed that exact class of frame on June 16 and is
 pinned by the spike bootstrap.
 
-With the fixed helper, Dolphin's TAP backend completes all 152 range responses
-and the clean playback smoke. Dolphin 2606's BuiltIn HLE backend can serve the
+With the fixed helper, Dolphin's TAP backend completes all 230 cached range
+responses and the clean playback smoke. Dolphin 2606's BuiltIn HLE backend can serve the
 first responses but stalls under the repeated transfer. The passing TAP test
 therefore demonstrates that the app/libogc2 BBA path works and isolates the
 remaining failure to Dolphin's BuiltIn HLE translation, not to a requirement

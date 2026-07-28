@@ -5,12 +5,16 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef struct {
-  uint8_t *data;
-  size_t size;
-} HttpDownload;
+typedef struct HttpClient HttpClient;
 
-bool http_client_download(const char *url, HttpDownload *download);
-void http_client_download_destroy(HttpDownload *download);
+HttpClient *http_client_open(const char *url);
+void http_client_destroy(HttpClient *client);
+
+bool http_client_read_at(HttpClient *client, size_t offset,
+                         uint8_t *destination, size_t size);
+size_t http_client_size(const HttpClient *client);
+unsigned http_client_range_count(const HttpClient *client);
+const char *http_client_host(const HttpClient *client);
+uint16_t http_client_port(const HttpClient *client);
 
 #endif

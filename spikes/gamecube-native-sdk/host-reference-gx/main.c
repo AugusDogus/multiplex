@@ -734,6 +734,11 @@ static void pause_audio_for_player_input(uint32_t pressed) {
   }
 }
 
+static bool read_http_program(void *context, size_t offset,
+                              uint8_t *destination, size_t size) {
+  return http_client_read_at(context, offset, destination, size);
+}
+
 static void *run_app(void *unused) {
   (void)unused;
   initialize_video_and_gx();
@@ -741,26 +746,30 @@ static void *run_app(void *unused) {
     return (void *)(uintptr_t)1;
   }
 
-  const uint8_t *program = multiplex_dvd_demo_mpg;
-  size_t program_size = (size_t)multiplex_dvd_demo_mpg_size;
-  HttpDownload download;
-  memset(&download, 0, sizeof(download));
+  MpegPsDemux *demux = NULL;
   if (MULTIPLEX_MEDIA_URL[0] != '\0') {
-    if (!http_client_download(MULTIPLEX_MEDIA_URL, &download)) {
+    HttpClient *client = http_client_open(MULTIPLEX_MEDIA_URL);
+    if (client == NULL) {
       SYS_Report("REFERENCE GX: HTTP media initialization failed\n");
       return (void *)(uintptr_t)1;
     }
-    program = download.data;
-    program_size = download.size;
+    demux = mpeg_ps_demux_create_reader(
+        client, http_client_size(client), read_http_program);
+    SYS_Report(
+        "REFERENCE GX: media-source=http host=%s port=%u bytes=%u ranges=%u\n",
+        http_client_host(client), http_client_port(client),
+        (unsigned)http_client_size(client),
+        http_client_range_count(client));
+    http_client_destroy(client);
   } else {
     SYS_Report("REFERENCE GX: media-source=embedded bytes=%u\n",
-               (unsigned)program_size);
+               multiplex_dvd_demo_mpg_size);
+    demux = mpeg_ps_demux_create(
+        multiplex_dvd_demo_mpg, (size_t)multiplex_dvd_demo_mpg_size);
   }
 
-  MpegPsDemux *demux = mpeg_ps_demux_create(program, program_size);
   if (demux == NULL) {
     SYS_Report("REFERENCE GX: MPEG-PS demux initialization failed\n");
-    http_client_download_destroy(&download);
     return (void *)(uintptr_t)1;
   }
   const int64_t pts_delta =
@@ -778,13 +787,11 @@ static void *run_app(void *unused) {
   if (!start_video_decoder(mpeg_ps_demux_video_data(demux),
                            mpeg_ps_demux_video_size(demux))) {
     mpeg_ps_demux_destroy(demux);
-    http_client_download_destroy(&download);
     return (void *)(uintptr_t)1;
   }
   audio_output = audio_dma_create(mpeg_ps_demux_audio_data(demux),
                                   mpeg_ps_demux_audio_size(demux));
   mpeg_ps_demux_destroy(demux);
-  http_client_download_destroy(&download);
   if (audio_output == NULL) {
     SYS_Report("REFERENCE GX: audio initialization failed\n");
     stop_video_decoder();

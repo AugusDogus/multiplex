@@ -1,8 +1,9 @@
 /*
  * SPDX-License-Identifier: GPL-2.0-or-later
  *
- * Narrow in-memory MPEG-2 Program Stream demuxer for the GameCube media
- * spike. It extracts the first MPEG video and MPEG audio PES streams and
+ * Narrow MPEG-2 Program Stream demuxer for the GameCube media spike. The
+ * parser operates on a seekable reader, so HTTP containers do not need a
+ * whole-file buffer. It extracts the first MPEG video and audio streams and
  * preserves their initial 90 kHz presentation timestamps.
  */
 
@@ -19,10 +20,21 @@
 #define MPEG_PROGRAM_END 0xb9u
 #define MPEG_NO_STREAM 0xffu
 #define MPEG_NO_PTS (-1)
+#define PROGRAM_CACHE_SIZE 1024u
+
+typedef struct {
+  void *context;
+  size_t size;
+  MpegPsReadAt read_at;
+  uint8_t cache[PROGRAM_CACHE_SIZE];
+  size_t cache_start;
+  size_t cache_size;
+  bool cache_valid;
+} ProgramReader;
 
 typedef struct {
   uint8_t stream_id;
-  const uint8_t *payload;
+  size_t payload_offset;
   size_t payload_size;
   bool has_pts;
   int64_t pts90k;
@@ -39,6 +51,11 @@ typedef struct {
   int64_t first_audio_pts90k;
 } ProgramScan;
 
+typedef struct {
+  const uint8_t *data;
+  size_t size;
+} MemoryProgram;
+
 struct MpegPsDemux {
   uint8_t *video;
   size_t video_size;
@@ -48,8 +65,72 @@ struct MpegPsDemux {
   int64_t first_audio_pts90k;
 };
 
-static uint16_t read_be16(const uint8_t *bytes) {
-  return (uint16_t)((uint16_t)bytes[0] << 8 | bytes[1]);
+static bool memory_read_at(void *context, size_t offset,
+                           uint8_t *destination, size_t size) {
+  const MemoryProgram *memory = context;
+  if (memory == NULL || destination == NULL || offset > memory->size ||
+      size > memory->size - offset) {
+    return false;
+  }
+  memcpy(destination, memory->data + offset, size);
+  return true;
+}
+
+static bool reader_fill_cache(ProgramReader *reader, size_t offset) {
+  if (offset >= reader->size) {
+    return false;
+  }
+  const size_t start = offset - offset % PROGRAM_CACHE_SIZE;
+  const size_t remaining = reader->size - start;
+  const size_t size =
+      remaining < PROGRAM_CACHE_SIZE ? remaining : PROGRAM_CACHE_SIZE;
+  if (!reader->read_at(reader->context, start, reader->cache, size)) {
+    return false;
+  }
+  reader->cache_start = start;
+  reader->cache_size = size;
+  reader->cache_valid = true;
+  return true;
+}
+
+static bool reader_read(ProgramReader *reader, size_t offset,
+                        uint8_t *destination, size_t size) {
+  if (destination == NULL || offset > reader->size ||
+      size > reader->size - offset) {
+    return false;
+  }
+
+  size_t copied = 0;
+  while (copied < size) {
+    const size_t position = offset + copied;
+    if (!reader->cache_valid || position < reader->cache_start ||
+        position >= reader->cache_start + reader->cache_size) {
+      if (!reader_fill_cache(reader, position)) {
+        return false;
+      }
+    }
+    const size_t cache_offset = position - reader->cache_start;
+    const size_t available = reader->cache_size - cache_offset;
+    const size_t remaining = size - copied;
+    const size_t chunk = available < remaining ? available : remaining;
+    memcpy(destination + copied, reader->cache + cache_offset, chunk);
+    copied += chunk;
+  }
+  return true;
+}
+
+static bool reader_byte(ProgramReader *reader, size_t offset, uint8_t *value) {
+  return reader_read(reader, offset, value, 1);
+}
+
+static bool reader_be16(ProgramReader *reader, size_t offset,
+                        uint16_t *value) {
+  uint8_t bytes[2];
+  if (!reader_read(reader, offset, bytes, sizeof(bytes))) {
+    return false;
+  }
+  *value = (uint16_t)((uint16_t)bytes[0] << 8 | bytes[1]);
+  return true;
 }
 
 static bool read_pts90k(const uint8_t *bytes, int64_t *pts90k) {
@@ -66,82 +147,92 @@ static bool read_pts90k(const uint8_t *bytes, int64_t *pts90k) {
   return true;
 }
 
-static bool parse_pes_packet(const uint8_t *packet, size_t packet_size,
-                             uint8_t stream_id, PesPacket *pes) {
-  if (packet_size < 6) {
-    return false;
-  }
-  const size_t declared_size = 6u + read_be16(packet + 4);
-  if (declared_size != packet_size || declared_size < 9) {
+static bool parse_pes_packet(ProgramReader *reader, size_t start,
+                             size_t packet_size, uint8_t stream_id,
+                             PesPacket *pes) {
+  if (packet_size < 9) {
     return false;
   }
 
-  const uint8_t *header = packet + 6;
-  const size_t header_size = packet_size - 6u;
-  size_t payload_offset = 0;
+  uint8_t header[9];
+  if (!reader_read(reader, start, header, sizeof(header))) {
+    return false;
+  }
+  size_t payload_offset = start + 6u;
   bool has_pts = false;
   int64_t pts90k = MPEG_NO_PTS;
 
-  if ((header[0] & 0xc0u) == 0x80u) {
-    if (header_size < 3) {
+  if ((header[6] & 0xc0u) == 0x80u) {
+    const size_t optional_size = header[8];
+    payload_offset = start + 9u + optional_size;
+    if (payload_offset > start + packet_size) {
       return false;
     }
-    payload_offset = 3u + header[2];
-    if (payload_offset > header_size) {
-      return false;
-    }
-    if ((header[1] & 0x80u) != 0) {
-      if (header[2] < 5 || header_size < 8 ||
-          !read_pts90k(header + 3, &pts90k)) {
+    if ((header[7] & 0x80u) != 0) {
+      uint8_t pts[5];
+      if (optional_size < sizeof(pts) ||
+          !reader_read(reader, start + 9u, pts, sizeof(pts)) ||
+          !read_pts90k(pts, &pts90k)) {
         return false;
       }
       has_pts = true;
     }
   } else {
-    while (payload_offset < header_size &&
-           header[payload_offset] == 0xffu) {
+    while (payload_offset < start + packet_size) {
+      uint8_t value = 0;
+      if (!reader_byte(reader, payload_offset, &value)) {
+        return false;
+      }
+      if (value != 0xffu) {
+        break;
+      }
       payload_offset += 1;
     }
-    if (payload_offset + 2 <= header_size &&
-        (header[payload_offset] & 0xc0u) == 0x40u) {
-      payload_offset += 2;
-    }
-    if (payload_offset >= header_size) {
+    uint8_t marker = 0;
+    if (!reader_byte(reader, payload_offset, &marker)) {
       return false;
     }
-    const uint8_t timestamp_prefix = header[payload_offset] & 0xf0u;
+    if ((marker & 0xc0u) == 0x40u) {
+      payload_offset += 2;
+      if (!reader_byte(reader, payload_offset, &marker)) {
+        return false;
+      }
+    }
+    const uint8_t timestamp_prefix = marker & 0xf0u;
     if (timestamp_prefix == 0x20u || timestamp_prefix == 0x30u) {
-      if (payload_offset + 5 > header_size ||
-          !read_pts90k(header + payload_offset, &pts90k)) {
+      uint8_t pts[5];
+      if (!reader_read(reader, payload_offset, pts, sizeof(pts)) ||
+          !read_pts90k(pts, &pts90k)) {
         return false;
       }
       has_pts = true;
       payload_offset += timestamp_prefix == 0x30u ? 10u : 5u;
-    } else if (header[payload_offset] == 0x0fu) {
+    } else if (marker == 0x0fu) {
       payload_offset += 1;
     } else {
       return false;
     }
-    if (payload_offset > header_size) {
+    if (payload_offset > start + packet_size) {
       return false;
     }
   }
 
   pes->stream_id = stream_id;
-  pes->payload = header + payload_offset;
-  pes->payload_size = header_size - payload_offset;
+  pes->payload_offset = payload_offset;
+  pes->payload_size = start + packet_size - payload_offset;
   pes->has_pts = has_pts;
   pes->pts90k = pts90k;
   return true;
 }
 
-static bool find_start_code(const uint8_t *program, size_t program_size,
-                            size_t *offset) {
-  while (*offset + 4 <= program_size) {
-    const uint32_t prefix =
-        (uint32_t)program[*offset] << 16 |
-        (uint32_t)program[*offset + 1] << 8 |
-        program[*offset + 2];
+static bool find_start_code(ProgramReader *reader, size_t *offset) {
+  while (*offset + 4u <= reader->size) {
+    uint8_t bytes[3];
+    if (!reader_read(reader, *offset, bytes, sizeof(bytes))) {
+      return false;
+    }
+    const uint32_t prefix = (uint32_t)bytes[0] << 16 |
+                            (uint32_t)bytes[1] << 8 | bytes[2];
     if (prefix == MPEG_START_CODE_PREFIX) {
       return true;
     }
@@ -150,43 +241,55 @@ static bool find_start_code(const uint8_t *program, size_t program_size,
   return false;
 }
 
-static bool next_pes_packet(const uint8_t *program, size_t program_size,
-                            size_t *offset, PesPacket *pes, bool *finished) {
+static bool next_pes_packet(ProgramReader *reader, size_t *offset,
+                            PesPacket *pes, bool *finished) {
   *finished = false;
-  while (find_start_code(program, program_size, offset)) {
+  while (find_start_code(reader, offset)) {
     const size_t start = *offset;
-    const uint8_t stream_id = program[start + 3];
+    uint8_t stream_id = 0;
+    if (!reader_byte(reader, start + 3u, &stream_id)) {
+      return false;
+    }
 
     if (stream_id == MPEG_PROGRAM_END) {
-      *offset = start + 4;
+      *offset = start + 4u;
       *finished = true;
       return true;
     }
     if (stream_id == MPEG_PACK_HEADER) {
-      if (start + 12 > program_size) {
+      uint8_t header[14];
+      const size_t available = reader->size - start;
+      const size_t header_size = available < sizeof(header) ? available
+                                                            : sizeof(header);
+      if (header_size < 12 ||
+          !reader_read(reader, start, header, header_size)) {
         return false;
       }
-      if ((program[start + 4] & 0xc0u) == 0x40u) {
-        if (start + 14 > program_size) {
+      if ((header[4] & 0xc0u) == 0x40u) {
+        if (header_size < 14) {
           return false;
         }
-        *offset = start + 14u + (program[start + 13] & 7u);
-      } else if ((program[start + 4] & 0xf0u) == 0x20u) {
+        *offset = start + 14u + (header[13] & 7u);
+      } else if ((header[4] & 0xf0u) == 0x20u) {
         *offset = start + 12u;
       } else {
         return false;
       }
-      if (*offset > program_size) {
+      if (*offset > reader->size) {
         return false;
       }
       continue;
     }
-    if (start + 6 > program_size) {
+    if (start + 6u > reader->size) {
       return false;
     }
 
-    const size_t packet_size = 6u + read_be16(program + start + 4);
-    if (packet_size == 6 || packet_size > program_size - start) {
+    uint16_t declared_size = 0;
+    if (!reader_be16(reader, start + 4u, &declared_size)) {
+      return false;
+    }
+    const size_t packet_size = 6u + declared_size;
+    if (packet_size == 6u || packet_size > reader->size - start) {
       return false;
     }
     *offset = start + packet_size;
@@ -196,11 +299,11 @@ static bool next_pes_packet(const uint8_t *program, size_t program_size,
     if (!is_video && !is_audio) {
       continue;
     }
-    return parse_pes_packet(program + start, packet_size, stream_id, pes);
+    return parse_pes_packet(reader, start, packet_size, stream_id, pes);
   }
 
   *finished = true;
-  return *offset == program_size;
+  return *offset == reader->size;
 }
 
 static bool add_payload_size(size_t *total, size_t payload_size) {
@@ -211,13 +314,12 @@ static bool add_payload_size(size_t *total, size_t payload_size) {
   return true;
 }
 
-static bool scan_program(const uint8_t *program, size_t program_size,
-                         ProgramScan *scan) {
+static bool scan_program(ProgramReader *reader, ProgramScan *scan) {
   size_t offset = 0;
   bool finished = false;
   while (!finished) {
     PesPacket pes;
-    if (!next_pes_packet(program, program_size, &offset, &pes, &finished)) {
+    if (!next_pes_packet(reader, &offset, &pes, &finished)) {
       return false;
     }
     if (finished) {
@@ -249,58 +351,70 @@ static bool scan_program(const uint8_t *program, size_t program_size,
   }
 
   return scan->video_stream_id != MPEG_NO_STREAM &&
-         scan->audio_stream_id != MPEG_NO_STREAM &&
-         scan->video_size != 0 && scan->audio_size != 0 &&
-         scan->first_video_pts90k != MPEG_NO_PTS &&
+         scan->audio_stream_id != MPEG_NO_STREAM && scan->video_size != 0 &&
+         scan->audio_size != 0 && scan->first_video_pts90k != MPEG_NO_PTS &&
          scan->first_audio_pts90k != MPEG_NO_PTS;
 }
 
-static bool extract_streams(const uint8_t *program, size_t program_size,
-                            const ProgramScan *scan, MpegPsDemux *demux) {
+static bool extract_streams(ProgramReader *reader, const ProgramScan *scan,
+                            MpegPsDemux *demux) {
+  reader->cache_valid = false;
   size_t offset = 0;
   size_t video_offset = 0;
   size_t audio_offset = 0;
   bool finished = false;
   while (!finished) {
     PesPacket pes;
-    if (!next_pes_packet(program, program_size, &offset, &pes, &finished)) {
+    if (!next_pes_packet(reader, &offset, &pes, &finished)) {
       return false;
     }
     if (finished) {
       break;
     }
 
+    uint8_t *destination = NULL;
+    size_t *destination_offset = NULL;
+    size_t destination_size = 0;
     if (pes.stream_id == scan->video_stream_id) {
-      if (pes.payload_size > demux->video_size - video_offset) {
-        return false;
-      }
-      memcpy(demux->video + video_offset, pes.payload, pes.payload_size);
-      video_offset += pes.payload_size;
+      destination = demux->video;
+      destination_offset = &video_offset;
+      destination_size = demux->video_size;
     } else if (pes.stream_id == scan->audio_stream_id) {
-      if (pes.payload_size > demux->audio_size - audio_offset) {
-        return false;
-      }
-      memcpy(demux->audio + audio_offset, pes.payload, pes.payload_size);
-      audio_offset += pes.payload_size;
+      destination = demux->audio;
+      destination_offset = &audio_offset;
+      destination_size = demux->audio_size;
+    } else {
+      continue;
     }
+    if (*destination_offset > destination_size ||
+        pes.payload_size > destination_size - *destination_offset ||
+        !reader_read(reader, pes.payload_offset,
+                     destination + *destination_offset, pes.payload_size)) {
+      return false;
+    }
+    *destination_offset += pes.payload_size;
   }
   return video_offset == demux->video_size &&
          audio_offset == demux->audio_size;
 }
 
-MpegPsDemux *mpeg_ps_demux_create(const uint8_t *program,
-                                  size_t program_size) {
-  if (program == NULL || program_size < 16) {
+MpegPsDemux *mpeg_ps_demux_create_reader(void *context, size_t program_size,
+                                         MpegPsReadAt read_at) {
+  if (context == NULL || read_at == NULL || program_size < 16) {
     return NULL;
   }
-
+  ProgramReader reader = {
+      .context = context,
+      .size = program_size,
+      .read_at = read_at,
+  };
   ProgramScan scan = {
       .video_stream_id = MPEG_NO_STREAM,
       .audio_stream_id = MPEG_NO_STREAM,
       .first_video_pts90k = MPEG_NO_PTS,
       .first_audio_pts90k = MPEG_NO_PTS,
   };
-  if (!scan_program(program, program_size, &scan)) {
+  if (!scan_program(&reader, &scan)) {
     SYS_Report("REFERENCE GX: MPEG-PS demux scan failed\n");
     return NULL;
   }
@@ -316,7 +430,7 @@ MpegPsDemux *mpeg_ps_demux_create(const uint8_t *program,
   demux->first_video_pts90k = scan.first_video_pts90k;
   demux->first_audio_pts90k = scan.first_audio_pts90k;
   if (demux->video == NULL || demux->audio == NULL ||
-      !extract_streams(program, program_size, &scan, demux)) {
+      !extract_streams(&reader, &scan, demux)) {
     SYS_Report("REFERENCE GX: MPEG-PS demux extraction failed\n");
     mpeg_ps_demux_destroy(demux);
     return NULL;
@@ -330,6 +444,18 @@ MpegPsDemux *mpeg_ps_demux_create(const uint8_t *program,
       (unsigned)scan.audio_size, scan.first_audio_pts90k,
       scan.first_video_pts90k - scan.first_audio_pts90k);
   return demux;
+}
+
+MpegPsDemux *mpeg_ps_demux_create(const uint8_t *program,
+                                  size_t program_size) {
+  if (program == NULL) {
+    return NULL;
+  }
+  MemoryProgram memory = {
+      .data = program,
+      .size = program_size,
+  };
+  return mpeg_ps_demux_create_reader(&memory, program_size, memory_read_at);
 }
 
 void mpeg_ps_demux_destroy(MpegPsDemux *demux) {

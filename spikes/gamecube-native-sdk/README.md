@@ -122,12 +122,16 @@ presentation fps after long MPEG I-frames. Average decode plus tiled upload is
 about 8.2 ms; the fast MPEG-2 path lowers the I-frame maximum to about 35.3 ms,
 and the audio clock schedules a catch-up frame after a missed VBlank. Audio
 ran without an underrun through the automated pause/resume flow. A blocking
-libogc2 client can also download the same container from a directly playable
-HTTP URL as 1 KiB byte ranges over one persistent connection. The rootless TAP
-smoke transferred all 155,648 bytes, decoded and played them, completed the
-same interaction/timing gates, and produced a clean memory log. Dolphin 2606's
-BuiltIn HLE backend still stalls after its first responses; the passing TAP
-control isolates that behavior to HLE rather than the app's BBA path.
+libogc2 client can also expose the same container from a directly playable
+HTTP URL through a seekable 1 KiB range cache over one persistent connection.
+The demux scan and extraction operate directly on that reader rather than a
+container-sized download allocation. The rootless TAP smoke parsed all 155,648
+bytes across 230 cached range responses, decoded and played them, completed the
+same interaction/timing gates, and produced a clean memory log. The extracted
+video and audio streams are still whole-stream allocations; bounded decoder
+queues are the next memory step. Dolphin 2606's BuiltIn HLE backend still
+stalls after its first responses; the passing TAP control isolates that
+behavior to HLE rather than the app's BBA path.
 
 The isolated Dolphin profile uses its normal DSP HLE mode. Movie audio follows
 WiiMC-GCN's `ao_gekko` design and streams decoded stereo PCM directly through
