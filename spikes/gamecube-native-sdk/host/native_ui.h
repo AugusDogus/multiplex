@@ -107,6 +107,9 @@ uint32_t multiplex_native_app_playback_request(void);
 uint32_t multiplex_native_app_playback_offset_request(void);
 uint32_t multiplex_native_app_playback_commit(void);
 uint32_t multiplex_native_app_playback_fail(void);
+uint32_t multiplex_native_app_playback_position(uint32_t position_ms);
+uint32_t multiplex_native_app_playback_continue(uint32_t position_ms);
+uint32_t multiplex_native_app_playback_complete(void);
 uint32_t multiplex_native_app_input(uint32_t action);
 uint32_t multiplex_native_video_surface(MultiplexVideoSurface *output);
 uint32_t multiplex_native_poster_surfaces(MultiplexPosterSurface *output,

@@ -1064,10 +1064,55 @@ static bool load_selected_playback(
   return true;
 }
 
+static uint32_t playback_position_ms(
+    const MultiplexGatewayPlaybackManifest *manifest) {
+  if (manifest == NULL || manifest->rating_key == 0 || audio_output == NULL) {
+    return manifest == NULL ? 0 : manifest->segment_start_ms;
+  }
+  uint64_t position =
+      (uint64_t)manifest->segment_start_ms +
+      (audio_dma_samples_played(audio_output) * 1000u) / AUDIO_SAMPLE_RATE;
+  if (position > manifest->media_duration_ms) {
+    position = manifest->media_duration_ms;
+  }
+  return (uint32_t)position;
+}
+
 static void texture_vertex(float x, float y, float u, float v) {
   GX_Position3f32(x, y, 0.0f);
   GX_Color4u8(255, 255, 255, 255);
   GX_TexCoord2f32(u, v);
+}
+
+static void configure_color_pipeline(void) {
+  GX_ClearVtxDesc();
+  GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
+  GX_SetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+  GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+  GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+  GX_SetNumChans(1);
+  GX_SetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_REG, GX_SRC_VTX,
+                 GX_LIGHTNULL, GX_DF_NONE, GX_AF_NONE);
+  GX_SetNumTexGens(0);
+  GX_SetNumTevStages(1);
+  GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORDNULL, GX_TEXMAP_NULL,
+                 GX_COLOR0A0);
+  GX_SetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+}
+
+static void color_vertex(float x, float y, GXColor color) {
+  GX_Position3f32(x, y, 0.0f);
+  GX_Color4u8(color.r, color.g, color.b, color.a);
+}
+
+static void fill_rect(float left, float top, float right, float bottom,
+                      GXColor color) {
+  GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+  color_vertex(left, top, color);
+  color_vertex(right, top, color);
+  color_vertex(right, bottom, color);
+  color_vertex(left, bottom, color);
+  GX_End();
 }
 
 static void draw_reference_frame(void) {
@@ -1230,7 +1275,32 @@ static void draw_video_surface(void) {
   yuv420_gx_draw(left, top, right, bottom);
 }
 
-static void present_frame(void) {
+static void draw_playback_progress(
+    const MultiplexGatewayPlaybackManifest *manifest) {
+  if (video_surface.visible == 0 || manifest == NULL ||
+      manifest->rating_key == 0 || manifest->media_duration_ms == 0) {
+    return;
+  }
+  const uint32_t position_ms = playback_position_ms(manifest);
+  const float left = video_surface.x + 10.0f;
+  const float right = video_surface.x + video_surface.width - 10.0f;
+  const float bottom = video_surface.y + video_surface.height - 8.0f;
+  const float top = bottom - 4.0f;
+  const float progress =
+      (float)position_ms / (float)manifest->media_duration_ms;
+  const float filled = left + (right - left) * progress;
+  configure_color_pipeline();
+  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
+                  GX_LO_CLEAR);
+  fill_rect(left, top, right, bottom, (GXColor){24, 24, 27, 210});
+  if (filled > left) {
+    fill_rect(left, top, filled, bottom, (GXColor){250, 250, 250, 255});
+  }
+  GX_SetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_CLEAR);
+}
+
+static void present_frame(
+    const MultiplexGatewayPlaybackManifest *playback_manifest) {
   if (native_frame_dirty && !refresh_reference_frame(false)) {
     native_frame_dirty = false;
   }
@@ -1238,6 +1308,7 @@ static void present_frame(void) {
   draw_reference_frame();
   draw_poster_surfaces();
   draw_video_surface();
+  draw_playback_progress(playback_manifest);
   GX_CopyDisp(framebuffers[framebuffer_index], GX_TRUE);
   GX_DrawDone();
   VIDEO_SetNextFramebuffer(framebuffers[framebuffer_index]);
@@ -1262,12 +1333,24 @@ static void present_frame(void) {
                  mpeg_ps_demux_video_bytes_pumped(media_demux),
                  mpeg_ps_demux_audio_bytes_pumped(media_demux),
                  mpeg_ps_demux_loop_count(media_demux));
+      if (playback_manifest != NULL && playback_manifest->rating_key != 0) {
+        SYS_Report(
+            "REFERENCE GX: timeline rating-key=%u position=%u duration=%u "
+            "segment-start=%u segment-duration=%u\n",
+            playback_manifest->rating_key,
+            playback_position_ms(playback_manifest),
+            playback_manifest->media_duration_ms,
+            playback_manifest->segment_start_ms,
+            playback_manifest->segment_duration_ms);
+      }
     }
     presentation_frames = 0;
   }
 }
 
-static void pause_audio_for_player_input(uint32_t pressed) {
+static void pause_audio_for_player_input(
+    uint32_t pressed,
+    const MultiplexGatewayPlaybackManifest *playback_manifest) {
   if ((pressed &
        (PAD_BUTTON_A | PAD_BUTTON_B | PAD_TRIGGER_L | PAD_TRIGGER_R)) != 0) {
     MultiplexVideoSurface current_surface;
@@ -1278,9 +1361,55 @@ static void pause_audio_for_player_input(uint32_t pressed) {
        * clock before dispatching pause/resume/exit; resume stays paused until
        * the new UI frame is ready and draw_video_surface restarts both clocks.
        */
+      const uint32_t position_ms = playback_position_ms(playback_manifest);
+      multiplex_native_app_playback_position(position_ms);
       audio_dma_update(audio_output, false);
+      SYS_Report("REFERENCE GX: timeline synced for input position=%u\n",
+                 position_ms);
     }
   }
+}
+
+static bool continue_playback_if_needed(
+    const char *gateway_url,
+    MultiplexGatewayPlaybackManifest *active_manifest, HttpClient **client,
+    MpegPsDemux **demux) {
+  if (gateway_url == NULL || gateway_url[0] == '\0' || active_manifest == NULL ||
+      active_manifest->rating_key == 0 || !video_was_playing ||
+      audio_output == NULL) {
+    return true;
+  }
+  const uint32_t position_ms = playback_position_ms(active_manifest);
+  const uint64_t segment_end =
+      (uint64_t)active_manifest->segment_start_ms +
+      active_manifest->segment_duration_ms;
+  if ((uint64_t)position_ms < segment_end) {
+    return true;
+  }
+  audio_dma_update(audio_output, false);
+  if (segment_end >= active_manifest->media_duration_ms) {
+    multiplex_native_app_playback_position(active_manifest->media_duration_ms);
+    if (multiplex_native_app_playback_complete() == 0) {
+      return false;
+    }
+    native_frame_dirty = true;
+    SYS_Report("REFERENCE GX: playback-complete rating-key=%u duration=%u\n",
+               active_manifest->rating_key,
+               active_manifest->media_duration_ms);
+    return true;
+  }
+  const uint32_t next_offset_ms = (uint32_t)segment_end;
+  if (multiplex_native_app_playback_continue(next_offset_ms) == 0) {
+    return false;
+  }
+  SYS_Report(
+      "REFERENCE GX: playback-continuation requested rating-key=%u offset=%u\n",
+      active_manifest->rating_key, next_offset_ms);
+  if (!load_selected_playback(gateway_url, active_manifest, client, demux)) {
+    return false;
+  }
+  native_frame_dirty = true;
+  return true;
 }
 
 static bool read_http_program(void *context, size_t offset,
@@ -1383,7 +1512,7 @@ static void *run_app(void *unused) {
     if (pressed != 0) {
       SYS_Report("REFERENCE GX: controller buttons %08x\n", pressed);
     }
-    pause_audio_for_player_input(pressed);
+    pause_audio_for_player_input(pressed, &playback_manifest);
     bool app_changed = false;
     if ((pressed & PAD_BUTTON_LEFT) != 0 &&
         multiplex_native_app_input(0) != 0) {
@@ -1452,7 +1581,12 @@ static void *run_app(void *unused) {
     if ((pressed & PAD_BUTTON_START) != 0) {
       break;
     }
-    present_frame();
+    present_frame(&playback_manifest);
+    if (!continue_playback_if_needed(MULTIPLEX_GATEWAY_URL,
+                                     &playback_manifest, &client, &demux)) {
+      SYS_Report("REFERENCE GX: playback continuation failed\n");
+      break;
+    }
   }
 
   close_media_session(&client, &demux);

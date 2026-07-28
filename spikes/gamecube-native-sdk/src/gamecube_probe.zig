@@ -654,6 +654,30 @@ export fn multiplex_native_app_playback_fail() callconv(.c) u32 {
     return 1;
 }
 
+export fn multiplex_native_app_playback_position(position_ms: u32) callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    app_model = core.commitModelRoot(core.update(app_model, .{ .sync_playback = @intCast(position_ms) }));
+    return 1;
+}
+
+export fn multiplex_native_app_playback_continue(position_ms: u32) callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    const continued = core.update(app_model, .{ .continue_playback = @intCast(position_ms) });
+    if (core.playbackRequestRatingKey(continued) == 0) return 0;
+    app_model = core.commitModelRoot(continued);
+    focused_handler = 0;
+    reference_full_repaint = true;
+    return 1;
+}
+
+export fn multiplex_native_app_playback_complete() callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    app_model = core.commitModelRoot(core.update(app_model, .complete_playback));
+    focused_handler = 0;
+    reference_full_repaint = true;
+    return 1;
+}
+
 /// 0/1 move focus backward/forward, 2 activates the focused `.native`
 /// handler, and 3 dispatches the console Back message.
 export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
@@ -783,6 +807,9 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .play => 9,
                 .seek_backward => 17,
                 .seek_forward => 18,
+                .sync_playback => 19,
+                .continue_playback => 20,
+                .complete_playback => 21,
                 .toggle_playback => 10,
                 .back => 11,
             };

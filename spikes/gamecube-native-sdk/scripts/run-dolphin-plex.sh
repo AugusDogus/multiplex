@@ -9,6 +9,8 @@ metadata="$cache_dir/media.json"
 port=${GAMECUBE_PLEX_PORT:-18992}
 offset=${GAMECUBE_PLEX_OFFSET:-60}
 duration=${GAMECUBE_PLEX_DURATION:-120}
+segment_duration=${GAMECUBE_PLEX_SEGMENT_DURATION:-$duration}
+expect_continuation=${GAMECUBE_PLEX_EXPECT_CONTINUATION:-0}
 rating_key=${GAMECUBE_PLEX_RATING_KEY:-}
 plex_base_url=${PLEX_BASE_URL:-}
 server_pid=
@@ -76,11 +78,12 @@ trap cleanup EXIT INT TERM
 if [ -n "${PLEX_TOKEN:-}" ]; then
   python3 "$script_dir/plex-gateway.py" "$port" "$media" \
     --plex-base-url "$plex_base_url" --token "$PLEX_TOKEN" \
-    --media-metadata "$metadata" \
+    --media-metadata "$metadata" --segment-duration "$segment_duration" \
     >"$cache_dir/http.log" 2>&1 &
 else
   python3 "$script_dir/plex-gateway.py" "$port" "$media" \
     --plex-base-url "$plex_base_url" --media-metadata "$metadata" \
+    --segment-duration "$segment_duration" \
     >"$cache_dir/http.log" 2>&1 &
 fi
 server_pid=$!
@@ -318,21 +321,40 @@ fi
 
 selected_rating_key=$(sed -n 's/.*playback-session ready rating-key=\([0-9][0-9]*\).*/\1/p' "$log" | tail -1)
 initial_offset=$(sed -n 's/.*playback-session ready rating-key=[0-9][0-9]* offset=\([0-9][0-9]*\).*/\1/p' "$log" | tail -1)
-seek_offset=$((initial_offset + 30000))
 switch_count=$(line_count "playback-session switched")
 playing_count=$(line_count "playback=playing")
 press R
 wait_for_new "playback-session switched" "$switch_count" 3600
 wait_for_new "playback=playing" "$playing_count" 1200
-if ! grep -q "playback-session ready rating-key=$selected_rating_key offset=$seek_offset" "$log"; then
-  echo "Selected Plex seek did not activate expected offset $seek_offset." >&2
+seek_offset=$(sed -n "s/.*playback-session ready rating-key=$selected_rating_key offset=\([0-9][0-9]*\).*/\1/p" "$log" | tail -1)
+minimum_seek_offset=$((initial_offset + 30000))
+maximum_seek_offset=$((minimum_seek_offset + 3000))
+if [ "$seek_offset" -lt "$minimum_seek_offset" ] || \
+   [ "$seek_offset" -gt "$maximum_seek_offset" ]; then
+  echo "Selected Plex seek activated unexpected offset $seek_offset (wanted $minimum_seek_offset..$maximum_seek_offset)." >&2
   exit 1
+fi
+
+if [ "$expect_continuation" -eq 1 ]; then
+  continuation_count=$(line_count "playback-continuation requested")
+  switch_count=$(line_count "playback-session switched")
+  playing_count=$(line_count "playback=playing")
+  wait_for_new "playback-continuation requested" "$continuation_count" 1200
+  wait_for_new "playback-session switched" "$switch_count" 3600
+  wait_for_new "playback=playing" "$playing_count" 1200
+  continuation_offset=$(sed -n 's/.*playback-continuation requested rating-key=[0-9][0-9]* offset=\([0-9][0-9]*\).*/\1/p' "$log" | tail -1)
+  if ! grep -q "playback-session ready rating-key=$selected_rating_key offset=$continuation_offset" "$log"; then
+    echo "Automatic Plex continuation did not activate offset $continuation_offset." >&2
+    exit 1
+  fi
+  echo "Automatically continued selected Plex item $selected_rating_key from ${seek_offset}ms to ${continuation_offset}ms."
 fi
 sleep 12
 if grep -Eq 'underruns=[1-9][0-9]*' "$log"; then
   echo "Selected Plex seek produced an audio underrun." >&2
   exit 1
 fi
+sh "$script_dir/check-dolphin-log.sh" "$log"
 
 echo "Playing selected Plex item $selected_rating_key at ${seek_offset}ms in Dolphin (startup fixture '$title' is $container_bytes bytes)."
 if [ -n "$mute_pid" ]; then

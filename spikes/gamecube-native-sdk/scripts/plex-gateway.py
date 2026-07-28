@@ -604,6 +604,7 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
     playback_rating_key: int = 0
     playback_cache: dict[tuple[int, int], tuple[bytes, pathlib.Path]] = {}
     playback_cache_lock = threading.Lock()
+    segment_duration_seconds = 120.0
     plex_base_url: str
     plex_token: str | None
     libraries: dict[int, LibrarySection]
@@ -688,7 +689,8 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
                 return cached
             session_dir = cls.media_path.parent / "sessions"
             session_dir.mkdir(parents=True, exist_ok=True)
-            session_name = f"{rating_key}-{offset_ms}"
+            duration_key = round(cls.segment_duration_seconds * 1000)
+            session_name = f"{rating_key}-{offset_ms}-{duration_key}"
             media_path = session_dir / f"{session_name}.mpg"
             metadata_path = session_dir / f"{session_name}.json"
             try:
@@ -708,6 +710,8 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
                         str(rating_key),
                         "--offset",
                         str(offset_ms / 1000),
+                        "--duration",
+                        str(cls.segment_duration_seconds),
                     ]
                     result = subprocess.run(
                         command,
@@ -946,7 +950,11 @@ def main() -> None:
     parser.add_argument("--plex-base-url", required=True)
     parser.add_argument("--token")
     parser.add_argument("--media-metadata", type=pathlib.Path)
+    parser.add_argument("--segment-duration", type=float, default=120.0)
     arguments = parser.parse_args()
+
+    if arguments.segment_duration <= 0:
+        parser.error("--segment-duration must be greater than zero")
 
     server_name, items = fetch_catalog(arguments.plex_base_url, arguments.token)
     home_server_name, rows = fetch_home_catalog(arguments.plex_base_url, arguments.token)
@@ -960,6 +968,7 @@ def main() -> None:
     GatewayHandler.artwork_bytes = build_artwork_atlas(arguments.plex_base_url, arguments.token, rows)
     GatewayHandler.plex_base_url = arguments.plex_base_url
     GatewayHandler.plex_token = arguments.token
+    GatewayHandler.segment_duration_seconds = arguments.segment_duration
     GatewayHandler.libraries = {library.section_id: library for library in libraries}
     if arguments.media_metadata is not None:
         media_metadata = json.loads(arguments.media_metadata.read_text(encoding="utf-8"))

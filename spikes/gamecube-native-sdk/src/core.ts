@@ -99,6 +99,9 @@ export type Msg =
   | { readonly kind: "play" }
   | { readonly kind: "seek_backward" }
   | { readonly kind: "seek_forward" }
+  | { readonly kind: "sync_playback"; readonly positionMs: number }
+  | { readonly kind: "continue_playback"; readonly positionMs: number }
+  | { readonly kind: "complete_playback" }
   | { readonly kind: "toggle_playback" }
   | { readonly kind: "back" };
 
@@ -643,6 +646,39 @@ export function update(model: Model, msg: Msg): Model {
         playing: false,
       };
     }
+    case "sync_playback": {
+      if (model.screen !== "player" || !model.playbackLoaded || model.selectedDurationMs <= 1) {
+        return model;
+      }
+      const playbackOffsetMs = Math.min(
+        Math.max(0, msg.positionMs),
+        model.selectedDurationMs - 1,
+      );
+      return { ...model, playbackOffsetMs: playbackOffsetMs };
+    }
+    case "continue_playback": {
+      if (model.screen !== "player" || !model.playbackLoaded || model.selectedDurationMs <= 1) {
+        return model;
+      }
+      const playbackOffsetMs = Math.min(
+        Math.max(0, msg.positionMs),
+        model.selectedDurationMs - 1,
+      );
+      if (playbackOffsetMs <= model.playbackOffsetMs) return model;
+      return {
+        ...model,
+        playbackOffsetMs: playbackOffsetMs,
+        playbackLoaded: false,
+        playing: false,
+      };
+    }
+    case "complete_playback":
+      if (model.screen !== "player" || !model.playbackLoaded) return model;
+      return {
+        ...model,
+        playbackOffsetMs: Math.max(0, model.selectedDurationMs - 1),
+        playing: false,
+      };
     case "toggle_playback":
       if (model.screen !== "player" || !model.playbackLoaded) return model;
       return { ...model, playing: !model.playing };

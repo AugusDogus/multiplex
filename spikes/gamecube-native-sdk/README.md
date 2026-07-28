@@ -42,6 +42,9 @@ Dolphin through the same rootless BBA path. Set `GAMECUBE_PLEX_RATING_KEY`,
 segment. `PLEX_TOKEN` is supported for servers that require LAN
 authentication. The runner auto-navigates to the player and mutes only
 Dolphin's PipeWire sink input; AI DMA remains active inside the emulator.
+Set `GAMECUBE_PLEX_SEGMENT_DURATION=8` and
+`GAMECUBE_PLEX_EXPECT_CONTINUATION=1` for the accelerated timeline-boundary
+smoke test.
 
 The spike retains three separate artifacts:
 
@@ -141,6 +144,12 @@ While playing, the GameCube L/R triggers request a bounded 30-second backward
 or forward seek. The gateway caches segments by rating key and logical offset;
 the guest pauses AI DMA, replaces the HTTP/demux/codec session, and resumes
 only after the new segment reaches its prebuffer threshold.
+The AI DMA sample clock drives a lightweight GX progress bar without repainting
+the Native SDK tree. It also requests the next segment at the current boundary;
+the accelerated Dolphin run crossed consecutive real Plex segments with zero
+invalid accesses and zero audio underruns. Cold preparation is still
+synchronous and caused an approximately seven-second boundary gap, which makes
+background prefetch the next player milestone.
 A bounded reference-render memo retains three expensive stable layers; warmed
 full home and details repaints measured about 0.37 and 0.33 seconds. The memo
 has a 4 MiB hard limit and peaked at 4,093 KiB in the home/details flow.
