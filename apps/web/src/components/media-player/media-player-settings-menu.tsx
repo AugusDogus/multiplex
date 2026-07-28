@@ -5,7 +5,7 @@ import type {
   StreamType as PlexStream,
 } from "@multiplex/plex-query";
 import { Check, ChevronLeft, ChevronRight, Settings } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "~/components/ui/button";
 import {
   Popover,
@@ -86,6 +86,7 @@ export function MediaPlayerSettingsMenu({
   const [pane, setPane] = useState<Pane>("root");
   const [subtitleError, setSubtitleError] = useState<string | null>(null);
   const [isUpdatingSubtitle, setIsUpdatingSubtitle] = useState(false);
+  const subtitleSelectionInFlightRef = useRef(false);
 
   const handleOpenChange = (next: boolean) => {
     if (!next) {
@@ -113,6 +114,7 @@ export function MediaPlayerSettingsMenu({
   // playback and the settings menu share one canonical subtitle selection.
   useEffect(() => {
     if (
+      subtitleSelectionInFlightRef.current ||
       !detailedItem ||
       !metadataServerId ||
       !metadataRatingKey ||
@@ -186,6 +188,7 @@ export function MediaPlayerSettingsMenu({
       return;
     }
 
+    subtitleSelectionInFlightRef.current = true;
     setIsUpdatingSubtitle(true);
     setSubtitleError(null);
 
@@ -217,7 +220,10 @@ export function MediaPlayerSettingsMenu({
           return;
         }
         if (refreshed.data) {
+          const playbackBeforeReplacement = playerCommands.snapshot();
+          const preserveCurrentTime = playbackBeforeReplacement.currentTime;
           applyPlaybackMetadata(playbackIdentity, refreshed.data, {
+            preserveCurrentTime,
             reloadVideo: true,
             previousVideoUsesTranscode: previousUsesTranscode,
           });
@@ -231,6 +237,7 @@ export function MediaPlayerSettingsMenu({
         }
       })
       .finally(() => {
+        subtitleSelectionInFlightRef.current = false;
         setIsUpdatingSubtitle(false);
       });
   };
