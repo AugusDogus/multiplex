@@ -18,6 +18,34 @@ SPEC.loader.exec_module(gateway)
 
 
 class CatalogContractTest(unittest.TestCase):
+    def test_encodes_versioned_pairing_status(self) -> None:
+        encoded = gateway.encode_pairing_status(
+            gateway.PairingStatus(
+                "waiting",
+                "GCN4",
+                "https://multiplex.example/link",
+                "2026-07-28T14:05:00.000Z",
+            )
+        )
+        magic, version, state, code_length, url_length = struct.unpack(
+            ">4sHHHH", encoded[:12]
+        )
+        self.assertEqual((magic, version, state), (b"MPXL", 1, 1))
+        self.assertEqual(encoded[12 : 12 + code_length], b"GCN4")
+        self.assertEqual(
+            encoded[12 + code_length : 12 + code_length + url_length],
+            b"https://multiplex.example/link",
+        )
+
+    def test_rejects_incomplete_waiting_pairing_status(self) -> None:
+        encoded = gateway.encode_pairing_status(
+            gateway.PairingStatus("waiting", "GCN4")
+        )
+        self.assertEqual(
+            struct.unpack(">4sHHHH", encoded),
+            (b"MPXL", 1, 3, 0, 0),
+        )
+
     def test_reports_web_parity_timeline_contract(self) -> None:
         with mock.patch.object(gateway.urllib.request, "urlopen") as urlopen:
             urlopen.return_value.__enter__.return_value.read.return_value = b""

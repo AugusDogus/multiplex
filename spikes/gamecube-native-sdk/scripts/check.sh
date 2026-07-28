@@ -7,6 +7,7 @@ spike_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 sh "$script_dir/bootstrap.sh"
 
 python3 "$script_dir/test-plex-gateway.py"
+python3 "$script_dir/test-multiplex-pair.py"
 python3 "$script_dir/test-plex-pair.py"
 
 cd "$spike_dir"

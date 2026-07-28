@@ -14,6 +14,7 @@ segment_duration=${GAMECUBE_PLEX_SEGMENT_DURATION:-$duration}
 expect_continuation=${GAMECUBE_PLEX_EXPECT_CONTINUATION:-0}
 rating_key=${GAMECUBE_PLEX_RATING_KEY:-}
 plex_base_url=${PLEX_BASE_URL:-}
+multiplex_base_url=${MULTIPLEX_BASE_URL:-}
 server_pid=
 launcher_pid=
 mute_pid=
@@ -82,10 +83,16 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-python3 "$script_dir/plex-gateway.py" "$port" "$media" \
-  --plex-base-url "$plex_base_url" --media-metadata "$metadata" \
-  --segment-duration "$segment_duration" \
-  >"$cache_dir/http.log" 2>&1 &
+set -- "$port" "$media" \
+  --plex-base-url "$plex_base_url" \
+  --media-metadata "$metadata" \
+  --segment-duration "$segment_duration"
+if [ -n "$multiplex_base_url" ]; then
+  set -- "$@" \
+    --multiplex-base-url "$multiplex_base_url" \
+    --multiplex-state "$cache_dir/multiplex-device.json"
+fi
+python3 "$script_dir/plex-gateway.py" "$@" >"$cache_dir/http.log" 2>&1 &
 server_pid=$!
 attempt=0
 while ! curl --noproxy '*' --fail --silent --output /dev/null \

@@ -20,6 +20,8 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
+from multiplex_pair import MultiplexPairingClient, PairingStatus
+
 
 CATALOG_MAGIC = b"MPXG"
 CATALOG_VERSION = 1
@@ -29,6 +31,7 @@ BROWSE_CATALOG_VERSION = 1
 SEARCH_CATALOG_VERSION = 1
 DETAILS_CATALOG_VERSION = 1
 PLAYBACK_MANIFEST_VERSION = 2
+PAIRING_STATUS_VERSION = 1
 MAX_ITEMS = 4
 MAX_ROWS = 3
 MAX_SERVER_NAME_BYTES = 63
@@ -38,6 +41,7 @@ MAX_DETAIL_SHORT_BYTES = 127
 MAX_DETAIL_SUMMARY_BYTES = 383
 ARTWORK_WIDTH = 80
 ARTWORK_HEIGHT = 120
+MAX_PAIRING_URL_BYTES = 255
 
 
 @dataclass(frozen=True)
@@ -117,6 +121,32 @@ class PlaybackManifest:
     video_pts90k: int
     audio_pts90k: int
     media_path: str
+
+
+def encode_pairing_status(status: PairingStatus) -> bytes:
+    state = {
+        "waiting": 1,
+        "linked": 2,
+        "unavailable": 3,
+    }.get(status.status, 3)
+    code = _bounded_utf8(status.code, 4)
+    link_url = _bounded_utf8(status.link_url, MAX_PAIRING_URL_BYTES)
+    if state == 1 and (len(code) != 4 or not link_url):
+        state = 3
+        code = b""
+        link_url = b""
+    return (
+        struct.pack(
+            ">4sHHHH",
+            b"MPXL",
+            PAIRING_STATUS_VERSION,
+            state,
+            len(code),
+            len(link_url),
+        )
+        + code
+        + link_url
+    )
 
 
 def _bounded_utf8(value: str, maximum: int) -> bytes:
@@ -654,6 +684,7 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
     search_cache_lock = threading.Lock()
     details_cache: dict[int, bytes] = {}
     details_cache_lock = threading.Lock()
+    pairing_client: MultiplexPairingClient | None = None
 
     @classmethod
     def _browse_payload(cls, section_id: int, start: int) -> tuple[bytes, bytes] | None:
@@ -952,6 +983,15 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
         query = urllib.parse.parse_qs(parsed.query)
         if path == "/v1/health":
             self._send_bytes(self.health_bytes, "application/json")
+        elif path == "/v1/pairing.bin":
+            if self.pairing_client is None:
+                self.send_error(404)
+                return
+            status = self.pairing_client.refresh()
+            self._send_bytes(
+                encode_pairing_status(status),
+                "application/octet-stream",
+            )
         elif path == "/v1/catalog.bin":
             self._send_bytes(self.catalog_bytes, "application/octet-stream")
         elif path == "/v2/catalog.bin":
@@ -1084,6 +1124,8 @@ def main() -> None:
     )
     parser.add_argument("--media-metadata", type=pathlib.Path)
     parser.add_argument("--segment-duration", type=float, default=120.0)
+    parser.add_argument("--multiplex-base-url")
+    parser.add_argument("--multiplex-state", type=pathlib.Path)
     arguments = parser.parse_args()
 
     if arguments.segment_duration <= 0:
@@ -1104,6 +1146,20 @@ def main() -> None:
     GatewayHandler.segment_duration_seconds = arguments.segment_duration
     GatewayHandler.playback_session_id = f"multiplex-gamecube-{os.getpid()}"
     GatewayHandler.libraries = {library.section_id: library for library in libraries}
+    GatewayHandler.pairing_client = None
+    if arguments.multiplex_base_url:
+        if arguments.multiplex_state is None:
+            parser.error("--multiplex-state is required with --multiplex-base-url")
+        GatewayHandler.pairing_client = MultiplexPairingClient(
+            arguments.multiplex_base_url,
+            arguments.multiplex_state,
+        )
+        pairing = GatewayHandler.pairing_client.refresh(force=True)
+        print(
+            f"Multiplex device pairing status={pairing.status}"
+            + (f" code={pairing.code} url={pairing.link_url}" if pairing.code else ""),
+            flush=True,
+        )
     if arguments.media_metadata is not None:
         media_metadata = json.loads(arguments.media_metadata.read_text(encoding="utf-8"))
         GatewayHandler.playback_manifest_bytes = encode_playback_manifest(
@@ -1149,6 +1205,7 @@ def main() -> None:
             "artworkBytes": len(GatewayHandler.artwork_bytes),
             "libraries": len(libraries),
             "mediaBytes": arguments.media.stat().st_size,
+            "multiplexPairing": GatewayHandler.pairing_client is not None,
         },
         separators=(",", ":"),
     ).encode("utf-8")
