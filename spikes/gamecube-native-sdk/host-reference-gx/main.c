@@ -113,6 +113,9 @@ static bool video_was_playing;
 static AudioDma *audio_output;
 static MpegPsDemux *media_demux;
 
+static bool read_http_program(void *context, size_t offset,
+                              uint8_t *destination, size_t size);
+
 static uint32_t elapsed_us(uint32_t started) {
   return (uint32_t)ticks_to_microsecs((uint32_t)(gettick() - started));
 }
@@ -316,6 +319,26 @@ static void request_video_decoder_stop(void) {
 
 static bool start_video_decoder(void *reader_context, MediaRead read,
                                 size_t stream_size) {
+  video_decode_requested = false;
+  video_decode_running = false;
+  video_decode_ready = false;
+  video_decode_failed = false;
+  video_decoder_stopping = false;
+  video_decode_ready_us = 0;
+  video_codec_ready_us = 0;
+  video_upload_ready_us = 0;
+  video_decode_request_count = 0;
+  video_decode_completion_count = 0;
+  video_texture_ready = false;
+  video_audio_clock_started = false;
+  video_was_playing = false;
+  video_frame_count = 0;
+  video_decode_total_us = 0;
+  video_decode_max_us = 0;
+  video_codec_total_us = 0;
+  video_codec_max_us = 0;
+  video_upload_total_us = 0;
+  video_upload_max_us = 0;
   video_decoder = mpeg2_decoder_create(reader_context, read);
   if (video_decoder == NULL) {
     SYS_Report("REFERENCE GX: MPEG-2 decoder initialization failed\n");
@@ -830,9 +853,168 @@ static bool load_item_details(const char *gateway_url) {
   return true;
 }
 
+static void close_media_session(HttpClient **client, MpegPsDemux **demux) {
+  if (audio_output != NULL) {
+    audio_dma_request_stop(audio_output);
+  }
+  request_video_decoder_stop();
+  if (*demux != NULL) {
+    mpeg_ps_demux_stop(*demux);
+  }
+  audio_dma_destroy(audio_output);
+  audio_output = NULL;
+  stop_video_decoder();
+  if (*demux != NULL) {
+    SYS_Report("REFERENCE GX: media producer loops=%u\n",
+               mpeg_ps_demux_loop_count(*demux));
+    mpeg_ps_demux_destroy(*demux);
+    *demux = NULL;
+  }
+  media_demux = NULL;
+  http_client_destroy(*client);
+  *client = NULL;
+}
+
+static bool start_media_pipeline(MpegPsDemux *demux, uint32_t rating_key) {
+  const int64_t pts_delta =
+      mpeg_ps_demux_first_video_pts90k(demux) -
+      mpeg_ps_demux_first_audio_pts90k(demux);
+  if (pts_delta >= 0) {
+    video_pts_offset_samples =
+        (pts_delta * AUDIO_SAMPLE_RATE + MPEG_PTS_RATE / 2) / MPEG_PTS_RATE;
+  } else {
+    video_pts_offset_samples =
+        -((-pts_delta * AUDIO_SAMPLE_RATE + MPEG_PTS_RATE / 2) /
+          MPEG_PTS_RATE);
+  }
+  if (!start_video_decoder(demux, mpeg_ps_demux_read_video,
+                           mpeg_ps_demux_video_size(demux))) {
+    return false;
+  }
+  audio_output = audio_dma_create(demux, mpeg_ps_demux_read_audio);
+  if (audio_output == NULL) {
+    SYS_Report("REFERENCE GX: audio initialization failed rating-key=%u\n",
+               rating_key);
+    stop_video_decoder();
+    return false;
+  }
+  if (!mpeg_ps_demux_start(demux)) {
+    SYS_Report("REFERENCE GX: media producer initialization failed rating-key=%u\n",
+               rating_key);
+    audio_dma_destroy(audio_output);
+    audio_output = NULL;
+    stop_video_decoder();
+    return false;
+  }
+  media_demux = demux;
+  return true;
+}
+
+static bool open_media_session(
+    const MultiplexGatewayPlaybackManifest *manifest, HttpClient **client_out,
+    MpegPsDemux **demux_out) {
+  HttpClient *client = http_client_open(manifest->media_url);
+  if (client == NULL) {
+    SYS_Report("REFERENCE GX: HTTP media initialization failed rating-key=%u\n",
+               manifest->rating_key);
+    return false;
+  }
+  const MpegPsInfo info = {
+      .video_stream_id = 0xe0,
+      .audio_stream_id = 0xc0,
+      .video_size = manifest->video_bytes,
+      .audio_size = manifest->audio_bytes,
+      .video_packets = manifest->video_packets,
+      .audio_packets = manifest->audio_packets,
+      .first_video_pts90k = manifest->first_video_pts90k,
+      .first_audio_pts90k = manifest->first_audio_pts90k,
+  };
+  MpegPsDemux *demux = mpeg_ps_demux_create_reader_with_info(
+      client, http_client_size(client), read_http_program, &info);
+  if (demux == NULL) {
+    SYS_Report("REFERENCE GX: MPEG-PS demux initialization failed rating-key=%u\n",
+               manifest->rating_key);
+    http_client_destroy(client);
+    return false;
+  }
+  SYS_Report(
+      "REFERENCE GX: media-source=http rating-key=%u host=%s port=%u "
+      "bytes=%u ranges=%u\n",
+      manifest->rating_key, http_client_host(client), http_client_port(client),
+      (unsigned)http_client_size(client), http_client_range_count(client));
+  http_client_begin_stream(client);
+  if (!start_media_pipeline(demux, manifest->rating_key)) {
+    mpeg_ps_demux_destroy(demux);
+    http_client_destroy(client);
+    return false;
+  }
+  *client_out = client;
+  *demux_out = demux;
+  return true;
+}
+
+static bool open_initial_media_session(HttpClient **client_out,
+                                       MpegPsDemux **demux_out) {
+  HttpClient *client = NULL;
+  MpegPsDemux *demux = NULL;
+  if (MULTIPLEX_MEDIA_URL[0] != '\0') {
+    client = http_client_open(MULTIPLEX_MEDIA_URL);
+    if (client == NULL) {
+      SYS_Report("REFERENCE GX: HTTP media initialization failed\n");
+      return false;
+    }
+    if (MULTIPLEX_MEDIA_HAS_INFO != 0) {
+      const MpegPsInfo info = {
+          .video_stream_id = 0xe0,
+          .audio_stream_id = 0xc0,
+          .video_size = MULTIPLEX_MEDIA_VIDEO_BYTES,
+          .audio_size = MULTIPLEX_MEDIA_AUDIO_BYTES,
+          .video_packets = MULTIPLEX_MEDIA_VIDEO_PACKETS,
+          .audio_packets = MULTIPLEX_MEDIA_AUDIO_PACKETS,
+          .first_video_pts90k = MULTIPLEX_MEDIA_VIDEO_PTS90K,
+          .first_audio_pts90k = MULTIPLEX_MEDIA_AUDIO_PTS90K,
+      };
+      demux = mpeg_ps_demux_create_reader_with_info(
+          client, http_client_size(client), read_http_program, &info);
+    } else {
+      demux = mpeg_ps_demux_create_reader(
+          client, http_client_size(client), read_http_program);
+    }
+    SYS_Report(
+        "REFERENCE GX: media-source=http rating-key=0 host=%s port=%u "
+        "bytes=%u ranges=%u\n",
+        http_client_host(client), http_client_port(client),
+        (unsigned)http_client_size(client), http_client_range_count(client));
+    http_client_begin_stream(client);
+  } else {
+    if (MULTIPLEX_GATEWAY_URL[0] != '\0') {
+      SYS_Report("REFERENCE GX: gateway playback manifest unavailable\n");
+      return false;
+    }
+    SYS_Report("REFERENCE GX: media-source=embedded bytes=%u\n",
+               multiplex_dvd_demo_mpg_size);
+    demux = mpeg_ps_demux_create(
+        multiplex_dvd_demo_mpg, (size_t)multiplex_dvd_demo_mpg_size);
+  }
+  if (demux == NULL) {
+    SYS_Report("REFERENCE GX: MPEG-PS demux initialization failed\n");
+    http_client_destroy(client);
+    return false;
+  }
+  if (!start_media_pipeline(demux, 0)) {
+    mpeg_ps_demux_destroy(demux);
+    http_client_destroy(client);
+    return false;
+  }
+  *client_out = client;
+  *demux_out = demux;
+  return true;
+}
+
 static bool load_selected_playback(
     const char *gateway_url,
-    const MultiplexGatewayPlaybackManifest *active_manifest) {
+    MultiplexGatewayPlaybackManifest *active_manifest, HttpClient **client,
+    MpegPsDemux **demux) {
   const uint32_t rating_key = multiplex_native_app_playback_request();
   if (rating_key == 0) {
     return true;
@@ -847,14 +1029,27 @@ static bool load_selected_playback(
                rating_key);
     return true;
   }
-  if (active_manifest->rating_key != requested.rating_key) {
-    if (multiplex_native_app_playback_fail() == 0) {
-      return false;
+  if (*demux == NULL || active_manifest->rating_key != requested.rating_key) {
+    const uint32_t previous_rating_key = active_manifest->rating_key;
+    const bool replacing_session = *demux != NULL;
+    close_media_session(client, demux);
+    if (!open_media_session(&requested, client, demux)) {
+      if (multiplex_native_app_playback_fail() == 0) {
+        return false;
+      }
+      SYS_Report("REFERENCE GX: playback-session switch failed requested=%u\n",
+                 requested.rating_key);
+      return true;
     }
-    SYS_Report(
-        "REFERENCE GX: playback-session switch pending active=%u requested=%u\n",
-        active_manifest->rating_key, requested.rating_key);
-    return true;
+    *active_manifest = requested;
+    if (replacing_session) {
+      SYS_Report(
+          "REFERENCE GX: playback-session switched previous=%u active=%u\n",
+          previous_rating_key, requested.rating_key);
+    } else {
+      SYS_Report("REFERENCE GX: playback-session activated rating-key=%u\n",
+                 requested.rating_key);
+    }
   }
   if (multiplex_native_app_playback_commit() == 0) {
     return false;
@@ -1159,120 +1354,21 @@ static void *run_app(void *unused) {
       MULTIPLEX_GATEWAY_URL[0] != '\0' &&
       multiplex_gateway_load_playback_manifest(MULTIPLEX_GATEWAY_URL, 0,
                                                &playback_manifest);
-  const char *remote_media_url = has_playback_manifest
-                                     ? playback_manifest.media_url
-                                     : MULTIPLEX_MEDIA_URL;
-  if (remote_media_url[0] != '\0') {
-    client = http_client_open(remote_media_url);
-    if (client == NULL) {
-      SYS_Report("REFERENCE GX: HTTP media initialization failed\n");
-      return (void *)(uintptr_t)1;
-    }
-    if (has_playback_manifest || MULTIPLEX_MEDIA_HAS_INFO != 0) {
-      const MpegPsInfo info = {
-          .video_stream_id = 0xe0,
-          .audio_stream_id = 0xc0,
-          .video_size = has_playback_manifest
-                            ? playback_manifest.video_bytes
-                            : MULTIPLEX_MEDIA_VIDEO_BYTES,
-          .audio_size = has_playback_manifest
-                            ? playback_manifest.audio_bytes
-                            : MULTIPLEX_MEDIA_AUDIO_BYTES,
-          .video_packets = has_playback_manifest
-                               ? playback_manifest.video_packets
-                               : MULTIPLEX_MEDIA_VIDEO_PACKETS,
-          .audio_packets = has_playback_manifest
-                               ? playback_manifest.audio_packets
-                               : MULTIPLEX_MEDIA_AUDIO_PACKETS,
-          .first_video_pts90k = has_playback_manifest
-                                    ? playback_manifest.first_video_pts90k
-                                    : MULTIPLEX_MEDIA_VIDEO_PTS90K,
-          .first_audio_pts90k = has_playback_manifest
-                                    ? playback_manifest.first_audio_pts90k
-                                    : MULTIPLEX_MEDIA_AUDIO_PTS90K,
-      };
-      demux = mpeg_ps_demux_create_reader_with_info(
-          client, http_client_size(client), read_http_program, &info);
-    } else {
-      demux = mpeg_ps_demux_create_reader(
-          client, http_client_size(client), read_http_program);
-    }
+  if (has_playback_manifest) {
     SYS_Report(
-        "REFERENCE GX: media-source=http rating-key=%u host=%s port=%u bytes=%u ranges=%u\n",
-        has_playback_manifest ? playback_manifest.rating_key : 0,
-        http_client_host(client), http_client_port(client),
-        (unsigned)http_client_size(client),
-        http_client_range_count(client));
-    /* libogc network waits are LWP-local; the producer opens a streaming GET. */
-    http_client_begin_stream(client);
-  } else {
-    if (MULTIPLEX_GATEWAY_URL[0] != '\0') {
-      SYS_Report("REFERENCE GX: gateway playback manifest unavailable\n");
-      return (void *)(uintptr_t)1;
-    }
-    SYS_Report("REFERENCE GX: media-source=embedded bytes=%u\n",
-               multiplex_dvd_demo_mpg_size);
-    demux = mpeg_ps_demux_create(
-        multiplex_dvd_demo_mpg, (size_t)multiplex_dvd_demo_mpg_size);
-  }
-
-  if (demux == NULL) {
-    SYS_Report("REFERENCE GX: MPEG-PS demux initialization failed\n");
-    http_client_destroy(client);
+        "REFERENCE GX: playback-session deferred rating-key=%u until selected\n",
+        playback_manifest.rating_key);
+  } else if (!open_initial_media_session(&client, &demux)) {
     return (void *)(uintptr_t)1;
   }
-  const int64_t pts_delta =
-      mpeg_ps_demux_first_video_pts90k(demux) -
-      mpeg_ps_demux_first_audio_pts90k(demux);
-  if (pts_delta >= 0) {
-    video_pts_offset_samples =
-        (pts_delta * AUDIO_SAMPLE_RATE + MPEG_PTS_RATE / 2) /
-        MPEG_PTS_RATE;
-  } else {
-    video_pts_offset_samples =
-        -((-pts_delta * AUDIO_SAMPLE_RATE + MPEG_PTS_RATE / 2) /
-          MPEG_PTS_RATE);
-  }
-  if (!start_video_decoder(demux, mpeg_ps_demux_read_video,
-                           mpeg_ps_demux_video_size(demux))) {
-    mpeg_ps_demux_destroy(demux);
-    http_client_destroy(client);
-    return (void *)(uintptr_t)1;
-  }
-  audio_output = audio_dma_create(demux, mpeg_ps_demux_read_audio);
-  if (audio_output == NULL) {
-    SYS_Report("REFERENCE GX: audio initialization failed\n");
-    stop_video_decoder();
-    mpeg_ps_demux_destroy(demux);
-    http_client_destroy(client);
-    return (void *)(uintptr_t)1;
-  }
-  if (!mpeg_ps_demux_start(demux)) {
-    SYS_Report("REFERENCE GX: media producer initialization failed\n");
-    audio_dma_destroy(audio_output);
-    audio_output = NULL;
-    stop_video_decoder();
-    mpeg_ps_demux_destroy(demux);
-    http_client_destroy(client);
-    return (void *)(uintptr_t)1;
-  }
-  media_demux = demux;
   initialize_textures();
   if (!refresh_reference_frame(false)) {
-    audio_dma_request_stop(audio_output);
-    request_video_decoder_stop();
-    mpeg_ps_demux_stop(demux);
-    audio_dma_destroy(audio_output);
-    audio_output = NULL;
-    stop_video_decoder();
-    mpeg_ps_demux_destroy(demux);
-    media_demux = NULL;
-    http_client_destroy(client);
+    close_media_session(&client, &demux);
     return (void *)(uintptr_t)1;
   }
 
   while (SYS_MainLoop()) {
-    if (mpeg_ps_demux_failed(demux)) {
+    if (demux != NULL && mpeg_ps_demux_failed(demux)) {
       SYS_Report("REFERENCE GX: media producer failure\n");
       break;
     }
@@ -1342,7 +1438,7 @@ static void *run_app(void *unused) {
       }
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
           !load_selected_playback(MULTIPLEX_GATEWAY_URL,
-                                  &playback_manifest)) {
+                                  &playback_manifest, &client, &demux)) {
         SYS_Report("REFERENCE GX: playback-session load failed\n");
       }
       native_frame_dirty = true;
@@ -1353,17 +1449,7 @@ static void *run_app(void *unused) {
     present_frame();
   }
 
-  audio_dma_request_stop(audio_output);
-  request_video_decoder_stop();
-  mpeg_ps_demux_stop(demux);
-  audio_dma_destroy(audio_output);
-  audio_output = NULL;
-  stop_video_decoder();
-  SYS_Report("REFERENCE GX: media producer loops=%u\n",
-             mpeg_ps_demux_loop_count(demux));
-  mpeg_ps_demux_destroy(demux);
-  media_demux = NULL;
-  http_client_destroy(client);
+  close_media_session(&client, &demux);
   multiplex_native_cache_free(poster_texture_pixels);
   poster_texture_pixels = NULL;
   poster_texture_count = 0;

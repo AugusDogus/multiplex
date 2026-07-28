@@ -2,7 +2,8 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Small seekable HTTP byte-range reader for the first GameCube network
- * boundary. A 1 KiB range cache supports metadata inspection. Playback then
+ * boundary. A 32 KiB range cache amortizes BBA round trips for artwork and
+ * metadata inspection. Playback then
  * switches to a forward-only HTTP response read in the same bounded chunks.
  */
 
@@ -23,7 +24,9 @@
 #define HTTP_HOST_LIMIT 64
 #define HTTP_PATH_LIMIT 512
 #define HTTP_MAX_MEDIA_SIZE UINT32_MAX
-#define HTTP_CACHE_SIZE 4096u
+#define HTTP_CACHE_SIZE (32u * 1024u)
+#define HTTP_IO_TIMEOUT_SECONDS 8
+#define HTTP_RANGE_ATTEMPTS 4
 
 typedef struct {
   unsigned status;
@@ -151,9 +154,9 @@ static bool connect_client(HttpClient *client, bool initial_connection) {
   if (inet_aton(client->host, &address.sin_addr) == 0 ||
       net_connect(client->socket, (struct sockaddr *)&address,
                   sizeof(address)) < 0) {
+    disconnect_client(client);
     return false;
   }
-
   if (initial_connection) {
     /* Match Dolphin's own GameCube HTTP regression test connection grace. */
     sleep(3);
@@ -166,6 +169,16 @@ static bool connect_client(HttpClient *client, bool initial_connection) {
 static bool write_all(int socket, const uint8_t *bytes, size_t size) {
   size_t written = 0;
   while (written < size) {
+    fd_set writable;
+    FD_ZERO(&writable);
+    FD_SET(socket, &writable);
+    struct timeval timeout = {
+        .tv_sec = HTTP_IO_TIMEOUT_SECONDS,
+        .tv_usec = 0,
+    };
+    if (net_select(socket + 1, NULL, &writable, NULL, &timeout) <= 0) {
+      return false;
+    }
     const int result = net_write(socket, bytes + written, size - written);
     if (result <= 0) {
       return false;
@@ -175,13 +188,27 @@ static bool write_all(int socket, const uint8_t *bytes, size_t size) {
   return true;
 }
 
+static int read_available(int socket, void *destination, size_t size) {
+  fd_set readable;
+  FD_ZERO(&readable);
+  FD_SET(socket, &readable);
+  struct timeval timeout = {
+      .tv_sec = HTTP_IO_TIMEOUT_SECONDS,
+      .tv_usec = 0,
+  };
+  if (net_select(socket + 1, &readable, NULL, NULL, &timeout) <= 0) {
+    return -1;
+  }
+  return net_recv(socket, destination, size, 0);
+}
+
 static bool read_headers(HttpClient *client, char *headers, size_t capacity,
                          size_t *header_size, size_t *response_size) {
   size_t used = 0;
   while (used + 1u < capacity) {
     const size_t previous = used;
-    const int result = net_recv(client->socket, headers + used,
-                                capacity - used - 1u, 0);
+    const int result = read_available(client->socket, headers + used,
+                                      capacity - used - 1u);
     if (result <= 0) {
       return false;
     }
@@ -282,8 +309,8 @@ static bool parse_stream_headers(char *headers, size_t expected_size) {
 static bool read_body(HttpClient *client, uint8_t *destination, size_t size) {
   size_t received = 0;
   while (received < size) {
-    const int result = net_recv(client->socket, destination + received,
-                                size - received, 0);
+    const int result = read_available(client->socket, destination + received,
+                                      size - received);
     if (result <= 0 || (size_t)result > size - received) {
       return false;
     }
@@ -295,7 +322,7 @@ static bool read_body(HttpClient *client, uint8_t *destination, size_t size) {
   return true;
 }
 
-static bool fetch_cache(HttpClient *client, size_t start) {
+static bool fetch_cache_once(HttpClient *client, size_t start) {
   if (client->total_size != 0 && start >= client->total_size) {
     return false;
   }
@@ -369,6 +396,22 @@ static bool fetch_cache(HttpClient *client, size_t start) {
   return true;
 }
 
+static bool fetch_cache(HttpClient *client, size_t start) {
+  for (unsigned attempt = 1; attempt <= HTTP_RANGE_ATTEMPTS; ++attempt) {
+    if (fetch_cache_once(client, start)) {
+      return true;
+    }
+    disconnect_client(client);
+    if (attempt != HTTP_RANGE_ATTEMPTS) {
+      SYS_Report(
+          "REFERENCE GX: HTTP range retry offset=%u attempt=%u/%u\n",
+          (unsigned)start, attempt + 1u, HTTP_RANGE_ATTEMPTS);
+      usleep(100000);
+    }
+  }
+  return false;
+}
+
 static bool start_stream_response(HttpClient *client) {
   disconnect_client(client);
   if (!connect_client(client, false)) {
@@ -429,8 +472,8 @@ static bool stream_read(HttpClient *client, uint8_t *destination,
     const size_t remaining = size - copied;
     const size_t request_size =
         remaining < HTTP_CACHE_SIZE ? remaining : HTTP_CACHE_SIZE;
-    const int result = net_recv(client->socket, destination + copied,
-                                request_size, 0);
+    const int result = read_available(client->socket, destination + copied,
+                                      request_size);
     if (result <= 0 || (size_t)result > request_size) {
       return false;
     }

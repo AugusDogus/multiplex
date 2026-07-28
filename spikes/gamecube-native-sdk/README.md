@@ -148,7 +148,7 @@ presentation fps after long MPEG I-frames. Average decode plus tiled upload is
 about 8.2 ms; the fast MPEG-2 path lowers the I-frame maximum to about 35.3 ms,
 and the audio clock schedules a catch-up frame after a missed VBlank. Audio
 ran without an underrun through the automated pause/resume flow. HTTP metadata
-inspection uses a seekable 1 KiB range cache; playback switches to one
+inspection uses a seekable 32 KiB range cache; playback switches to one
 forward-only GET on a producer LWP. The MPEG-PS producer fills fixed 320 KiB
 video and 64 KiB audio rings, while the codecs retain only 32 KiB and 8 KiB
 compressed input windows. No container or elementary stream is allocated at

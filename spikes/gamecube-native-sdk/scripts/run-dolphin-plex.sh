@@ -327,21 +327,15 @@ press R
 wait_for_new "browse-page ready" "$second_browse_count" 1200
 wait_for_new "signature=" "$signature_count"
 
-# Back to the library picker, then Home.
+# Open the first item on page two. This deliberately differs from the startup
+# fixture and proves the gateway can prepare and activate the selected session.
 signature_count=$(line_count "signature=")
-press B
+press D_RIGHT
 wait_for_new "signature=" "$signature_count"
 signature_count=$(line_count "signature=")
-press B
-wait_for_new "signature=" "$signature_count"
-
-# X cycles to the next hub row; its first item is the same Fresh item prepared
-# above by the gateway runner.
-signature_count=$(line_count "signature=")
-press X
-wait_for_new "signature=" "$signature_count"
-signature_count=$(line_count "signature=")
+details_count=$(line_count "details-page ready")
 press A
+wait_for_new "details-page ready" "$details_count" 1200
 wait_for_new "signature=" "$signature_count"
 signature_count=$(line_count "signature=")
 press D_RIGHT
@@ -349,7 +343,9 @@ wait_for_new "signature=" "$signature_count"
 playing_count=$(line_count "playback=playing")
 paused_count=$(line_count "playback=paused")
 playback_session_count=$(line_count "playback-session ready")
+playback_activation_count=$(line_count "playback-session activated")
 press A
+wait_for_new "playback-session activated" "$playback_activation_count" 3600
 wait_for_new "playback-session ready" "$playback_session_count" 1200
 wait_for_new "playback=playing" "$playing_count" 1200
 sleep 1
@@ -359,7 +355,8 @@ if [ "$(line_count "playback=paused")" -gt "$paused_count" ]; then
   wait_for_new "playback=playing" "$playing_count" 120
 fi
 
-echo "Playing Plex item '$title' in Dolphin ($container_bytes-byte GameCube stream)."
+selected_rating_key=$(sed -n 's/.*playback-session ready rating-key=\([0-9][0-9]*\).*/\1/p' "$log" | tail -1)
+echo "Playing selected Plex item $selected_rating_key in Dolphin (startup fixture '$title' is $container_bytes bytes)."
 if [ -n "$mute_pid" ]; then
   wait "$mute_pid" 2>/dev/null || true
   mute_pid=

@@ -8,8 +8,11 @@ import argparse
 import http.server
 import io
 import json
+import os
 import pathlib
 import struct
+import subprocess
+import sys
 import threading
 import urllib.error
 import urllib.parse
@@ -593,6 +596,8 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
     health_bytes: bytes
     playback_manifest_bytes: bytes | None = None
     playback_rating_key: int = 0
+    playback_cache: dict[int, tuple[bytes, pathlib.Path]] = {}
+    playback_cache_lock = threading.Lock()
     plex_base_url: str
     plex_token: str | None
     libraries: dict[int, LibrarySection]
@@ -659,6 +664,81 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
             cls.details_cache[rating_key] = payload
             return payload
 
+    @classmethod
+    def _playback_payload(cls, rating_key: int) -> tuple[bytes, pathlib.Path] | None:
+        if rating_key <= 0 or rating_key > 0xFFFFFFFF:
+            return None
+        with cls.playback_cache_lock:
+            cached = cls.playback_cache.get(rating_key)
+            if cached is not None:
+                return cached
+            session_dir = cls.media_path.parent / "sessions"
+            session_dir.mkdir(parents=True, exist_ok=True)
+            media_path = session_dir / f"{rating_key}.mpg"
+            metadata_path = session_dir / f"{rating_key}.json"
+            try:
+                if media_path.is_file() and metadata_path.is_file():
+                    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                else:
+                    temporary_media = session_dir / f"{rating_key}.tmp.mpg"
+                    environment = os.environ.copy()
+                    if cls.plex_token:
+                        environment["PLEX_TOKEN"] = cls.plex_token
+                    command = [
+                        sys.executable,
+                        str(pathlib.Path(__file__).with_name("prepare-plex-media.py")),
+                        cls.plex_base_url,
+                        str(temporary_media),
+                        "--rating-key",
+                        str(rating_key),
+                    ]
+                    result = subprocess.run(
+                        command,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                        env=environment,
+                        timeout=300,
+                    )
+                    metadata = json.loads(result.stdout)
+                    temporary_media.replace(media_path)
+                    metadata_path.write_text(
+                        json.dumps(metadata, separators=(",", ":")), encoding="utf-8"
+                    )
+                if int(metadata["rating_key"]) != rating_key:
+                    raise ValueError("prepared playback rating key did not match request")
+                manifest = encode_playback_manifest(
+                    PlaybackManifest(
+                        rating_key=int(metadata["rating_key"]),
+                        container_bytes=int(metadata["container_bytes"]),
+                        video_bytes=int(metadata["video_bytes"]),
+                        audio_bytes=int(metadata["audio_bytes"]),
+                        video_packets=int(metadata["video_packets"]),
+                        audio_packets=int(metadata["audio_packets"]),
+                        video_pts90k=int(metadata["video_pts90k"]),
+                        audio_pts90k=int(metadata["audio_pts90k"]),
+                        media_path=f"/v4/media/{rating_key}.mpg",
+                    )
+                )
+            except (
+                OSError,
+                ValueError,
+                KeyError,
+                json.JSONDecodeError,
+                subprocess.SubprocessError,
+            ) as error:
+                temporary_media = session_dir / f"{rating_key}.tmp.mpg"
+                temporary_media.unlink(missing_ok=True)
+                print(
+                    f"Playback preparation failed for rating key {rating_key}: {error}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                return None
+            payload = (manifest, media_path)
+            cls.playback_cache[rating_key] = payload
+            return payload
+
     def _send_bytes(self, body: bytes, content_type: str) -> None:
         start = 0
         end = len(body) - 1
@@ -695,8 +775,9 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True
 
-    def _send_media(self) -> None:
-        media_size = self.media_path.stat().st_size
+    def _send_media(self, media_path: pathlib.Path | None = None) -> None:
+        selected_path = self.media_path if media_path is None else media_path
+        media_size = selected_path.stat().st_size
         start = 0
         end = media_size - 1
         range_header = self.headers.get("Range")
@@ -727,7 +808,7 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Connection", "keep-alive")
         self.end_headers()
         try:
-            with self.media_path.open("rb") as media:
+            with selected_path.open("rb") as media:
                 media.seek(start)
                 remaining = body_size
                 while remaining:
@@ -794,13 +875,26 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
                 return
             rating_key_value = query.get("ratingKey", [""])[0]
             if rating_key_value:
-                if (
-                    not rating_key_value.isdigit()
-                    or int(rating_key_value) != self.playback_rating_key
-                ):
+                if not rating_key_value.isdigit():
                     self.send_error(404)
                     return
-            self._send_bytes(self.playback_manifest_bytes, "application/octet-stream")
+                playback = self._playback_payload(int(rating_key_value))
+                if playback is None:
+                    self.send_error(404)
+                    return
+                self._send_bytes(playback[0], "application/octet-stream")
+            else:
+                self._send_bytes(self.playback_manifest_bytes, "application/octet-stream")
+        elif path.startswith("/v4/media/") and path.endswith(".mpg"):
+            rating_key_value = path.removeprefix("/v4/media/").removesuffix(".mpg")
+            if not rating_key_value.isdigit():
+                self.send_error(404)
+                return
+            playback = self._playback_payload(int(rating_key_value))
+            if playback is None:
+                self.send_error(404)
+                return
+            self._send_media(playback[1])
         elif path == "/v1/media/current.mpg":
             self._send_media()
         else:
@@ -844,13 +938,20 @@ def main() -> None:
                 audio_packets=int(media_metadata["audio_packets"]),
                 video_pts90k=int(media_metadata["video_pts90k"]),
                 audio_pts90k=int(media_metadata["audio_pts90k"]),
-                media_path="/v1/media/current.mpg",
+                media_path=f"/v4/media/{int(media_metadata['rating_key'])}.mpg",
             )
         )
         GatewayHandler.playback_rating_key = int(media_metadata["rating_key"])
+        GatewayHandler.playback_cache = {
+            GatewayHandler.playback_rating_key: (
+                GatewayHandler.playback_manifest_bytes,
+                arguments.media,
+            )
+        }
     else:
         GatewayHandler.playback_manifest_bytes = None
         GatewayHandler.playback_rating_key = 0
+        GatewayHandler.playback_cache = {}
     GatewayHandler.health_bytes = json.dumps(
         {
             "contractVersion": BOOTSTRAP_CATALOG_VERSION,
