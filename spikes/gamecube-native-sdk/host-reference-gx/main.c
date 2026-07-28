@@ -39,6 +39,7 @@
 #define VIDEO_DECODER_STACK_SIZE (256 * 1024)
 #define MEDIA_PREFETCH_STACK_SIZE (256 * 1024)
 #define TIMELINE_REPORT_STACK_SIZE (128 * 1024)
+#define POSTER_LOADER_STACK_SIZE (256 * 1024)
 #define TIMELINE_REPORT_INTERVAL_MS 10000u
 #define PAIRING_POLL_INTERVAL_FRAMES 60u
 #define MEDIA_STARTUP_STALL_TIMEOUT_US 5000000u
@@ -168,6 +169,20 @@ typedef struct {
   bool timing;
   bool playback_started;
 } MediaStartupWatchdog;
+
+typedef struct {
+  const MultiplexAuthCredentials *credentials;
+  const MultiplexGatewayCatalog *catalog;
+  lwp_t thread;
+  void *stack;
+  uint8_t *decoded_pixels;
+  volatile bool item_ready;
+  volatile bool item_decoded;
+  volatile bool complete;
+  volatile bool stopping;
+  volatile uint16_t item_index;
+  volatile uint16_t decoded_count;
+} DirectPosterLoader;
 
 static bool read_http_program(void *context, size_t offset,
                               uint8_t *destination, size_t size);
@@ -714,46 +729,68 @@ static void fill_poster_fallback(uint8_t *pixels, uint32_t rating_key) {
   }
 }
 
-static bool initialize_direct_poster_textures(
-    const MultiplexAuthCredentials *credentials,
-    const MultiplexGatewayCatalog *catalog) {
-  if (credentials == NULL || catalog == NULL ||
-      catalog->total_item_count == 0 ||
-      catalog->total_item_count > MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS) {
-    return false;
-  }
-  const size_t texture_bytes =
-      (size_t)catalog->total_item_count *
-      MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
-  poster_texture_pixels = multiplex_native_cache_alloc(texture_bytes, 32);
+static void *run_direct_poster_loader(void *context) {
+  DirectPosterLoader *loader = context;
   uint8_t *encoded = calloc(1, PLEX_POSTER_JPEG_CAPACITY + 64u);
-  if (poster_texture_pixels == NULL || encoded == NULL) {
-    multiplex_native_cache_free(poster_texture_pixels);
-    poster_texture_pixels = NULL;
-    free(encoded);
-    return false;
+  if (encoded == NULL) {
+    loader->complete = true;
+    return NULL;
   }
-
-  uint16_t decoded_count = 0;
-  for (uint16_t index = 0; index < catalog->total_item_count; ++index) {
-    const MultiplexGatewayItem *item = &catalog->items[index];
-    uint8_t *pixels =
-        poster_texture_pixels +
-        (size_t)index * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+  for (uint16_t index = 0; index < loader->catalog->total_item_count;
+       ++index) {
+    while (loader->item_ready && !loader->stopping) {
+      LWP_YieldThread();
+    }
+    if (loader->stopping) {
+      break;
+    }
+    const MultiplexGatewayItem *item = &loader->catalog->items[index];
     size_t encoded_size = 0;
     const bool decoded =
         item->artwork_path[0] != '\0' &&
         multiplex_plex_load_artwork(
-            credentials, item->artwork_path, encoded,
+            loader->credentials, item->artwork_path, encoded,
             PLEX_POSTER_JPEG_CAPACITY, &encoded_size) &&
         poster_jpeg_decode_single(
-            encoded, encoded_size, pixels,
+            encoded, encoded_size, loader->decoded_pixels,
             MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
     if (decoded) {
-      ++decoded_count;
-    } else {
-      fill_poster_fallback(pixels, item->rating_key);
+      ++loader->decoded_count;
     }
+    loader->item_index = index;
+    loader->item_decoded = decoded;
+    __sync_synchronize();
+    loader->item_ready = true;
+  }
+  free(encoded);
+  __sync_synchronize();
+  loader->complete = true;
+  return NULL;
+}
+
+static bool start_direct_poster_loader(
+    DirectPosterLoader *loader, const MultiplexAuthCredentials *credentials,
+    const MultiplexGatewayCatalog *catalog) {
+  if (loader == NULL || credentials == NULL || catalog == NULL ||
+      loader->thread != LWP_THREAD_NULL ||
+      catalog->total_item_count == 0 ||
+      catalog->total_item_count > MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS) {
+    return false;
+  }
+  memset(loader, 0, sizeof(*loader));
+  loader->thread = LWP_THREAD_NULL;
+  const size_t texture_bytes =
+      (size_t)catalog->total_item_count *
+      MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+  poster_texture_pixels = multiplex_native_cache_alloc(texture_bytes, 32);
+  if (poster_texture_pixels == NULL) {
+    return false;
+  }
+  for (uint16_t index = 0; index < catalog->total_item_count; ++index) {
+    uint8_t *pixels =
+        poster_texture_pixels +
+        (size_t)index * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+    fill_poster_fallback(pixels, catalog->items[index].rating_key);
     GX_InitTexObj(&poster_textures[index], pixels,
                   MULTIPLEX_GATEWAY_ARTWORK_WIDTH,
                   MULTIPLEX_GATEWAY_ARTWORK_HEIGHT, GX_TF_RGB565, GX_CLAMP,
@@ -761,12 +798,82 @@ static bool initialize_direct_poster_textures(
     GX_InitTexObjLOD(&poster_textures[index], GX_LINEAR, GX_LINEAR, 0, 0, 0,
                      GX_FALSE, GX_FALSE, GX_ANISO_1);
   }
-  free(encoded);
   DCFlushRange(poster_texture_pixels, texture_bytes);
   poster_texture_count = catalog->total_item_count;
+
+  loader->credentials = credentials;
+  loader->catalog = catalog;
+  loader->decoded_pixels =
+      memalign(32, MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
+  loader->stack = malloc(POSTER_LOADER_STACK_SIZE);
+  if (loader->decoded_pixels == NULL || loader->stack == NULL) {
+    free(loader->decoded_pixels);
+    loader->decoded_pixels = NULL;
+    free(loader->stack);
+    loader->stack = NULL;
+    return false;
+  }
+  if (LWP_CreateThread(&loader->thread, run_direct_poster_loader, loader,
+                       loader->stack, POSTER_LOADER_STACK_SIZE,
+                       LWP_PRIO_NORMAL / 2) != 0) {
+    free(loader->decoded_pixels);
+    loader->decoded_pixels = NULL;
+    free(loader->stack);
+    loader->stack = NULL;
+    loader->thread = LWP_THREAD_NULL;
+    return false;
+  }
+  SYS_Report("REFERENCE GX: direct Plex poster loader started items=%u\n",
+             catalog->total_item_count);
+  return true;
+}
+
+static void poll_direct_poster_loader(DirectPosterLoader *loader) {
+  if (loader == NULL || loader->thread == LWP_THREAD_NULL) {
+    return;
+  }
+  if (loader->item_ready) {
+    __sync_synchronize();
+    if (loader->item_decoded) {
+      uint8_t *pixels =
+          poster_texture_pixels +
+          (size_t)loader->item_index *
+              MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+      memcpy(pixels, loader->decoded_pixels,
+             MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
+      DCFlushRange(pixels, MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
+      GX_InvalidateTexAll();
+      native_frame_dirty = true;
+    }
+    __sync_synchronize();
+    loader->item_ready = false;
+  }
+  if (!loader->complete || loader->item_ready) {
+    return;
+  }
+  LWP_JoinThread(loader->thread, NULL);
+  loader->thread = LWP_THREAD_NULL;
+  free(loader->decoded_pixels);
+  loader->decoded_pixels = NULL;
+  free(loader->stack);
+  loader->stack = NULL;
   SYS_Report("REFERENCE GX: direct Plex posters decoded=%u/%u\n",
-             decoded_count, catalog->total_item_count);
-  return decoded_count != 0;
+             loader->decoded_count, loader->catalog->total_item_count);
+}
+
+static void stop_direct_poster_loader(DirectPosterLoader *loader) {
+  if (loader == NULL) {
+    return;
+  }
+  loader->stopping = true;
+  if (loader->thread != LWP_THREAD_NULL) {
+    LWP_JoinThread(loader->thread, NULL);
+    loader->thread = LWP_THREAD_NULL;
+  }
+  free(loader->decoded_pixels);
+  loader->decoded_pixels = NULL;
+  free(loader->stack);
+  loader->stack = NULL;
 }
 
 static bool load_browse_page(const char *gateway_url) {
@@ -1881,6 +1988,9 @@ static void *run_app(void *unused) {
   initialize_timeline_reporter(&timeline_reporter);
   MediaStartupWatchdog media_startup_watchdog;
   memset(&media_startup_watchdog, 0, sizeof(media_startup_watchdog));
+  DirectPosterLoader direct_poster_loader;
+  memset(&direct_poster_loader, 0, sizeof(direct_poster_loader));
+  direct_poster_loader.thread = LWP_THREAD_NULL;
   bool timeline_player_visible = false;
   bool timeline_started = false;
   MultiplexGatewayCatalog catalog;
@@ -1975,7 +2085,8 @@ static void *run_app(void *unused) {
   if (has_catalog && MULTIPLEX_GATEWAY_URL[0] == '\0' &&
       poster_texture_pixels == NULL) {
     present_frame(&playback_manifest);
-    if (!initialize_direct_poster_textures(&auth_credentials, &catalog)) {
+    if (!start_direct_poster_loader(&direct_poster_loader, &auth_credentials,
+                                    &catalog)) {
       SYS_Report(
           "REFERENCE GX: direct Plex artwork unavailable; using placeholders\n");
     }
@@ -1983,6 +2094,7 @@ static void *run_app(void *unused) {
 #endif
 
   while (SYS_MainLoop()) {
+    poll_direct_poster_loader(&direct_poster_loader);
     if (demux != NULL && mpeg_ps_demux_failed(demux)) {
       SYS_Report("REFERENCE GX: media producer failure\n");
       break;
@@ -2013,7 +2125,8 @@ static void *run_app(void *unused) {
               multiplex_plex_load_catalog(&auth_credentials, &catalog)) {
             has_catalog = bind_catalog_to_app(&catalog);
             if (has_catalog) {
-              initialize_direct_poster_textures(&auth_credentials, &catalog);
+              start_direct_poster_loader(&direct_poster_loader,
+                                         &auth_credentials, &catalog);
             }
           }
         }
@@ -2138,6 +2251,7 @@ static void *run_app(void *unused) {
   }
 
   discard_staged_media_session(&staged_media);
+  stop_direct_poster_loader(&direct_poster_loader);
   if (timeline_started) {
     flush_timeline_report(&timeline_reporter, MULTIPLEX_GATEWAY_URL,
                           &playback_manifest,
