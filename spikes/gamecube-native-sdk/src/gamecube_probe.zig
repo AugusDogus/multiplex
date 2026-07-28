@@ -287,6 +287,34 @@ export fn multiplex_native_app_init() callconv(.c) void {
     initializeApp();
 }
 
+export fn multiplex_native_app_set_gateway(
+    server_name: [*]const u8,
+    server_name_length: u32,
+    item_count: u32,
+) callconv(.c) u32 {
+    if (!app_initialized or server_name_length == 0 or item_count == 0) return 0;
+    app_model = core.commitModelRoot(core.update(app_model, .{ .gateway_ready = .{
+        .itemCount = @intCast(item_count),
+        .serverName = server_name[0..server_name_length],
+    } }));
+    reference_full_repaint = true;
+    return 1;
+}
+
+export fn multiplex_native_app_set_catalog_item(
+    index: u32,
+    title: [*]const u8,
+    title_length: u32,
+) callconv(.c) u32 {
+    if (!app_initialized or index >= 4 or title_length == 0) return 0;
+    app_model = core.commitModelRoot(core.update(app_model, .{ .catalog_item = .{
+        .index = @intCast(index),
+        .title = title[0..title_length],
+    } }));
+    reference_full_repaint = true;
+    return 1;
+}
+
 /// 0/1 move focus backward/forward, 2 activates the focused `.native`
 /// handler, and 3 dispatches the console Back message.
 export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {

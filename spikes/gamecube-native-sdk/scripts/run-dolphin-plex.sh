@@ -79,12 +79,18 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-python3 "$script_dir/serve-http-fixture.py" "$port" "$media" \
-  >"$cache_dir/http.log" 2>&1 &
+if [ -n "${PLEX_TOKEN:-}" ]; then
+  python3 "$script_dir/plex-gateway.py" "$port" "$media" \
+    --plex-base-url "$plex_base_url" --token "$PLEX_TOKEN" \
+    >"$cache_dir/http.log" 2>&1 &
+else
+  python3 "$script_dir/plex-gateway.py" "$port" "$media" \
+    --plex-base-url "$plex_base_url" >"$cache_dir/http.log" 2>&1 &
+fi
 server_pid=$!
 attempt=0
 while ! curl --noproxy '*' --fail --silent --output /dev/null \
-  "http://127.0.0.1:$port/multiplex-dvd-demo.mpg"; do
+  "http://127.0.0.1:$port/v1/health"; do
   attempt=$((attempt + 1))
   if [ "$attempt" -ge 50 ]; then
     echo "Timed out starting the local GameCube media gateway." >&2
@@ -98,8 +104,10 @@ if [ -z "$gateway" ]; then
   echo "Could not determine the rootless TAP host gateway." >&2
   exit 1
 fi
-media_url="http://$gateway:$port/multiplex-dvd-demo.mpg"
+gateway_url="http://$gateway:$port"
+media_url="$gateway_url/v1/media/current.mpg"
 GAMECUBE_MEDIA_URL="$media_url" \
+GAMECUBE_GATEWAY_URL="$gateway_url" \
 GAMECUBE_MEDIA_VIDEO_BYTES="$video_bytes" \
 GAMECUBE_MEDIA_AUDIO_BYTES="$audio_bytes" \
 GAMECUBE_MEDIA_VIDEO_PACKETS="$video_packets" \
@@ -163,6 +171,32 @@ wait_log() {
   exit 1
 }
 
+line_count() {
+  grep -c "$1" "$log" 2>/dev/null || true
+}
+
+wait_for_new() {
+  pattern=$1
+  previous=$2
+  attempts=${3:-120}
+  attempt=0
+  while [ "$attempt" -lt "$attempts" ]; do
+    current=$(line_count "$pattern")
+    if [ "$current" -gt "$previous" ]; then
+      return
+    fi
+    if ! kill -0 "$launcher_pid" 2>/dev/null; then
+      echo "Dolphin exited before producing another: $pattern" >&2
+      exit 1
+    fi
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  echo "Timed out waiting for another Dolphin log pattern: $pattern" >&2
+  tail -60 "$log" >&2 || true
+  exit 1
+}
+
 press() {
   button=$1
   previous=$(grep -c "controller buttons" "$log" 2>/dev/null || true)
@@ -189,19 +223,24 @@ press() {
   exit 1
 }
 
-wait_log "signature=fa6601eb" 600
+wait_log "gateway-catalog version=1" 600
+wait_log "signature=" 600
 exec 3>"$pipe"
 pipe_open=1
+signature_count=$(line_count "signature=")
 press A
-wait_log "signature=4dcbccff" 120
+wait_for_new "signature=" "$signature_count"
+signature_count=$(line_count "signature=")
 press D_RIGHT
-wait_log "signature=683f174f" 120
+wait_for_new "signature=" "$signature_count"
+signature_count=$(line_count "signature=")
 press A
-wait_log "signature=8e79132e" 120
+wait_for_new "signature=" "$signature_count"
+signature_count=$(line_count "signature=")
 press D_RIGHT
-wait_log "signature=c3a0002e" 120
+wait_for_new "signature=" "$signature_count"
 press A
-wait_log "playback=playing" 300
+wait_log "playback=playing" 1200
 
 echo "Playing Plex item '$title' in Dolphin ($container_bytes-byte GameCube stream)."
 if [ -n "$mute_pid" ]; then

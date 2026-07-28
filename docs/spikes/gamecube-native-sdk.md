@@ -194,6 +194,28 @@ elementary-stream-sized allocations are gone. The full player smoke exercises
 the same demux, decode, audio, navigation, pause/resume, timing, and
 invalid-access gates as the embedded build.
 
+The Plex runner now starts a persistent, versioned Multiplex console gateway
+instead of exposing a bare fixture file. `GET /v1/catalog.bin` is a bounded,
+big-endian contract designed to be parsed without JSON or heap allocation on
+the console:
+
+```text
+"MPXG" | u16 version | u16 item count | u16 server bytes | u16 reserved
+server UTF-8 bytes
+repeated item count times:
+  u32 rating key | u32 duration ms | u32 view offset ms |
+  u16 title bytes | u16 flags | title UTF-8 bytes
+```
+
+Version 1 limits the snapshot to four items, 63 server-name bytes, 95 title
+bytes, and a 1 KiB response. The GameCube fetches it through the same BBA HTTP
+client, validates every length and version, stores it in fixed C buffers, and
+dispatches server/item messages into the TypeScript-authored model before the
+first Native SDK render. `/v1/health` supports host orchestration and
+`/v1/media/current.mpg` serves the prepared MPEG-2/MP2 stream with byte ranges.
+The demonstrated screen is therefore driven by the real Plex server name and
+recent titles rather than the previous static demo catalog.
+
 For gateway-prepared media, the host supplies selected stream sizes and first
 PTS in the generated build header. This avoids scanning an entire multi-MiB
 file through 1 KiB BBA ranges. The first real Plex run discovered PMS
@@ -245,8 +267,8 @@ command and producing Dolphin read/write warnings. The host now keeps `main`
 small and runs the app/render loop on a dedicated 512 KiB LWP stack allocated
 with ordinary `malloc`.
 
-The final Dolphin run has one window, the stable pairing pixel signature
-`fa6601eb`, and no invalid read/write entry in the current-run log. Dolphin's
+The final Dolphin run has one window, a deterministic pairing pixel signature
+for each catalog payload, and no invalid read/write entry in the current-run log. Dolphin's
 `MASTER` channel is enabled so CPU/MMU warnings are written rather than only
 shown in dialogs; `spike:gamecube:reference:log-check` rejects invalid reads,
 invalid writes, buffer-guard failures, and renderer failures. The presenter
@@ -288,9 +310,11 @@ panel's shadow, rounded fill, and rounded stroke. Exact scanline/solid-blend
 fast paths reduced the 11-command pairing view from about 0.55 to 0.326
 seconds, the 24-command cold home view from 7.13 to 0.490 seconds, and cold
 details from 8.02 to 0.453 seconds. This is a 93–94% reduction for the two
-large screens. The known pairing and initial-home signatures remained
-`fa6601eb` and `4dcbccff`; Native SDK's host tests also pass. Focus-only home
-changes now render in about 0.068 seconds.
+large screens. Native SDK's host tests also pass, and focus-only home changes
+render in about 0.068 seconds. Pixel signatures are content-dependent now that
+the gateway supplies the server and title strings, so the interaction smokes
+gate on each newly rendered frame plus semantic media state instead of one
+hard-coded demo-library hash.
 
 The renderer also attaches Native SDK's exact `ReferenceRenderMemo` through a
 GameCube allocator with a 4 MiB hard ceiling. The allocator uses ordinary
@@ -340,9 +364,12 @@ not as the committed GameCube renderer yet.
 
 Next Dolphin milestones:
 
-1. connect pairing/library data to a Multiplex gateway;
-2. turn the host-prepared Plex segment into an on-demand seekable session;
-3. decide whether to repair raylib/OpenGX or extract a smaller portable
+1. add artwork and the web app's Continue Watching/recent hub structure to the
+   catalog contract and controller navigation;
+2. turn the host-prepared Plex segment into an on-demand, seekable full-item
+   session with progress persistence;
+3. add player controls and Watch Together state through the same gateway;
+4. decide whether to repair raylib/OpenGX or extract a smaller portable
    framebuffer/presenter interface before the Dreamcast pass.
 
 Hardware profiling remains deferred until the Dolphin app is materially

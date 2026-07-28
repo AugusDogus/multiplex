@@ -9,8 +9,8 @@
   <if test="{screen == 'pairing'}">
     <column grow="1" main="center" cross="center" gap="12" label="Pair with Multiplex">
       <text size="heading">Connect to your Multiplex gateway</text>
-      <text foreground="text_muted">The production client will show a short pairing code here.</text>
-      <button variant="primary" on-press="connect_demo">Use demo library</button>
+      <text foreground="text_muted">Catalog and media stay behind one console-friendly protocol.</text>
+      <button variant="primary" on-press="connect_demo">Open {gatewayName}</button>
     </column>
   </if>
 
@@ -19,9 +19,9 @@
       <text size="heading">Continue Watching</text>
       <panel grow="1" padding="20" background="surface" border-color="border" radius="lg" label="{selectedTitle}">
         <column grow="1" main="center" cross="center" gap="8">
-          <badge variant="secondary">Selection {selectionNumber} of 4</badge>
+          <badge variant="secondary">Selection {selectionNumber} of {itemCount}</badge>
           <text size="heading">{selectedTitle}</text>
-          <text foreground="text_muted">Poster artwork will enter through the console image host.</text>
+          <text foreground="text_muted">Loaded from {gatewayName}</text>
         </column>
       </panel>
       <row gap="10" main="center">
@@ -56,7 +56,7 @@
           <text foreground="text_muted">Live GameCube media surface</text>
         </column>
         <spacer grow="1" />
-        <badge variant="secondary">Dolphin demo stream</badge>
+        <badge variant="secondary">Streaming from {gatewayName}</badge>
       </row>
       <video src="demo://multiplex-test-card" autoplay loop muted grow="1" label="{selectedTitle}"/>
       <row gap="10" main="center">

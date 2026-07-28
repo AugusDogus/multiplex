@@ -3,6 +3,7 @@ set -eu
 
 output=$1
 media_url=${GAMECUBE_MEDIA_URL:-}
+gateway_url=${GAMECUBE_GATEWAY_URL:-}
 video_bytes=${GAMECUBE_MEDIA_VIDEO_BYTES:-0}
 audio_bytes=${GAMECUBE_MEDIA_AUDIO_BYTES:-0}
 video_packets=${GAMECUBE_MEDIA_VIDEO_PACKETS:-0}
@@ -13,6 +14,11 @@ audio_pts=${GAMECUBE_MEDIA_AUDIO_PTS90K:--1}
 if [ -n "$media_url" ] &&
   printf '%s' "$media_url" | LC_ALL=C grep -q '[^A-Za-z0-9:/?&=._%+~-]'; then
   echo "GAMECUBE_MEDIA_URL contains unsupported characters." >&2
+  exit 1
+fi
+if [ -n "$gateway_url" ] &&
+  printf '%s' "$gateway_url" | LC_ALL=C grep -q '[^A-Za-z0-9:/?&=._%+~-]'; then
+  echo "GAMECUBE_GATEWAY_URL contains unsupported characters." >&2
   exit 1
 fi
 
@@ -46,6 +52,7 @@ trap 'rm -f "$temporary"' EXIT INT TERM
   printf '%s\n' '#ifndef MULTIPLEX_MEDIA_SOURCE_H'
   printf '%s\n' '#define MULTIPLEX_MEDIA_SOURCE_H'
   printf '#define MULTIPLEX_MEDIA_URL "%s"\n' "$media_url"
+  printf '#define MULTIPLEX_GATEWAY_URL "%s"\n' "$gateway_url"
   printf '#define MULTIPLEX_MEDIA_HAS_INFO %s\n' "$has_info"
   printf '#define MULTIPLEX_MEDIA_VIDEO_BYTES %su\n' "$video_bytes"
   printf '#define MULTIPLEX_MEDIA_AUDIO_BYTES %su\n' "$audio_bytes"

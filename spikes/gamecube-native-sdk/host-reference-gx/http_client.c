@@ -51,6 +51,8 @@ struct HttpClient {
   size_t stream_prefetch_size;
 };
 
+static bool network_initialized;
+
 static bool parse_port(const char *begin, const char *end, uint16_t *port) {
   if (begin == end) {
     return false;
@@ -337,8 +339,12 @@ static bool fetch_cache(HttpClient *client, size_t start) {
   const bool valid_headers = parse_headers(headers, &response);
   headers[header_size] = first_body_byte;
   const size_t prefetched = response_size - header_size;
+  const size_t expected_end =
+      valid_headers && end >= response.range_total ? response.range_total - 1u
+                                                   : end;
   if (!valid_headers || response.range_start != start ||
-      response.range_end != end || prefetched > response.content_length ||
+      response.range_end != expected_end ||
+      prefetched > response.content_length ||
       (client->total_size != 0 &&
        response.range_total != client->total_size)) {
     SYS_Report("REFERENCE GX: HTTP range response invalid offset=%u\n",
@@ -466,8 +472,15 @@ HttpClient *http_client_open(const char *url) {
     http_client_destroy(client);
     return NULL;
   }
-  if (!initialize_network() || !connect_client(client, true) ||
-      !fetch_cache(client, 0)) {
+  const bool first_connection = !network_initialized;
+  if (first_connection) {
+    if (!initialize_network()) {
+      http_client_destroy(client);
+      return NULL;
+    }
+    network_initialized = true;
+  }
+  if (!connect_client(client, first_connection) || !fetch_cache(client, 0)) {
     SYS_Report("REFERENCE GX: HTTP open failed host=%s port=%u\n",
                client->host, client->port);
     http_client_destroy(client);

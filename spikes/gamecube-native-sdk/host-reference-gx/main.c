@@ -1,4 +1,5 @@
 #include "audio_dma.h"
+#include "gateway_client.h"
 #include "http_client.h"
 #include "media-source.h"
 #include "native_ui.h"
@@ -439,6 +440,15 @@ static bool refresh_reference_frame(bool initialize) {
   convert_reference_to_rgba8_tiles();
   profile.upload_us = elapsed_us(upload_started);
   native_frame_dirty = false;
+  MultiplexVideoSurface rendered_surface;
+  memset(&rendered_surface, 0, sizeof(rendered_surface));
+  if (multiplex_native_video_surface(&rendered_surface) != 0) {
+    SYS_Report(
+        "REFERENCE GX: video-surface x=%d y=%d width=%d height=%d playing=%u\n",
+        (int)rendered_surface.x, (int)rendered_surface.y,
+        (int)rendered_surface.width, (int)rendered_surface.height,
+        rendered_surface.playing);
+  }
   SYS_Report(
       "REFERENCE GX: commands=%u passes=%u signature=%08x render=%uus "
       "conversion=%uus stages=%u/%u/%u/%u/%u/%uus memo=%u/%u "
@@ -774,6 +784,28 @@ static void *run_app(void *unused) {
 
   MpegPsDemux *demux = NULL;
   HttpClient *client = NULL;
+  MultiplexGatewayCatalog catalog;
+  memset(&catalog, 0, sizeof(catalog));
+  const bool has_catalog =
+      MULTIPLEX_GATEWAY_URL[0] != '\0' &&
+      multiplex_gateway_load_catalog(MULTIPLEX_GATEWAY_URL, &catalog);
+  multiplex_native_app_init();
+  if (has_catalog) {
+    if (multiplex_native_app_set_gateway(
+            (const uint8_t *)catalog.server_name,
+            catalog.server_name_length, catalog.item_count) == 0) {
+      SYS_Report("REFERENCE GX: failed to bind gateway catalog to app\n");
+      return (void *)(uintptr_t)1;
+    }
+    for (uint16_t index = 0; index < catalog.item_count; ++index) {
+      const MultiplexGatewayItem *item = &catalog.items[index];
+      if (multiplex_native_app_set_catalog_item(
+              index, (const uint8_t *)item->title, item->title_length) == 0) {
+        SYS_Report("REFERENCE GX: failed to bind catalog item %u\n", index);
+        return (void *)(uintptr_t)1;
+      }
+    }
+  }
   if (MULTIPLEX_MEDIA_URL[0] != '\0') {
     client = http_client_open(MULTIPLEX_MEDIA_URL);
     if (client == NULL) {
@@ -853,7 +885,7 @@ static void *run_app(void *unused) {
   }
   media_demux = demux;
   initialize_textures();
-  if (!refresh_reference_frame(true)) {
+  if (!refresh_reference_frame(false)) {
     audio_dma_request_stop(audio_output);
     request_video_decoder_stop();
     mpeg_ps_demux_stop(demux);

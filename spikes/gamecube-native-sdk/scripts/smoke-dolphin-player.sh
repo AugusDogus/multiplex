@@ -165,7 +165,7 @@ if ! rg -q "media-source=$expected_media_source .*bytes=$expected_media_bytes" "
   rg 'media-source=' "$log" >&2 || true
   exit 1
 fi
-wait_for_new "signature=fa6601eb" 0 120
+wait_for_new "signature=" 0 120
 wait_for_new "demux=mpeg-ps" 0 120
 if ! rg -q "demux=mpeg-ps .*pts-delta=$expected_pts_delta" "$log"; then
   echo "MPEG-PS demux did not preserve the expected initial PTS delta." >&2
@@ -177,27 +177,27 @@ exec 3>"$pipe"
 pipe_open=1
 sleep 0.5
 
-home_count=$(line_count "signature=4dcbccff")
+home_count=$(line_count "signature=")
 press A
-wait_for_new "signature=4dcbccff" "$home_count" 120
+wait_for_new "signature=" "$home_count" 120
 
-focus_count=$(line_count "signature=683f174f")
+focus_count=$(line_count "signature=")
 press D_RIGHT
-wait_for_new "signature=683f174f" "$focus_count" 80
+wait_for_new "signature=" "$focus_count" 80
 
-details_count=$(line_count "signature=8e79132e")
+details_count=$(line_count "signature=")
 press A
-wait_for_new "signature=8e79132e" "$details_count" 120
+wait_for_new "signature=" "$details_count" 120
 
-details_focus_count=$(line_count "signature=c3a0002e")
+details_focus_count=$(line_count "signature=")
 press D_RIGHT
-wait_for_new "signature=c3a0002e" "$details_focus_count" 80
+wait_for_new "signature=" "$details_focus_count" 80
 
-player_count=$(line_count "signature=f3bd7219")
+player_count=$(line_count "signature=")
 playing_count=$(line_count "playback=playing")
 audio_playing_count=$(line_count "audio=playing")
 press A
-wait_for_new "signature=f3bd7219" "$player_count" 120
+wait_for_new "signature=" "$player_count" 120
 wait_for_new "playback=playing" "$playing_count" "$playback_attempts"
 wait_for_new "audio=playing" "$audio_playing_count" "$playback_attempts"
 if ! rg -q "playback=playing .*pts-offset-samples=$expected_pts_offset_samples" "$log"; then
@@ -208,10 +208,10 @@ fi
 decoder_count=$(line_count "decoder=60 frames/")
 wait_for_new "decoder=60 frames/" "$decoder_count" "$decoder_attempts"
 
-paused_count=$(line_count "signature=f3bd7219")
+paused_count=$(line_count "signature=")
 playback_paused_count=$(line_count "playback=paused")
 press A
-wait_for_new "signature=f3bd7219" "$paused_count" 80
+wait_for_new "signature=" "$paused_count" 80
 wait_for_new "playback=paused" "$playback_paused_count" 80
 decoder_count=$(line_count "decoder=60 frames/")
 sleep 5

@@ -6,6 +6,8 @@ spike_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 
 sh "$script_dir/bootstrap.sh"
 
+python3 "$script_dir/test-plex-gateway.py"
+
 cd "$spike_dir"
 
 echo "Checking the TypeScript core and Native markup on the null platform..."

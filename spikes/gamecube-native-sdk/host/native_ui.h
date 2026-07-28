@@ -45,6 +45,12 @@ typedef struct {
 } MultiplexVideoSurface;
 
 void multiplex_native_app_init(void);
+uint32_t multiplex_native_app_set_gateway(const uint8_t *server_name,
+                                          uint32_t server_name_length,
+                                          uint32_t item_count);
+uint32_t multiplex_native_app_set_catalog_item(uint32_t index,
+                                               const uint8_t *title,
+                                               uint32_t title_length);
 uint32_t multiplex_native_app_input(uint32_t action);
 uint32_t multiplex_native_video_surface(MultiplexVideoSurface *output);
 uint32_t multiplex_native_app_render(MultiplexGxCommand *output,
