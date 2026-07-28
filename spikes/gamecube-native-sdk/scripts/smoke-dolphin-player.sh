@@ -117,6 +117,33 @@ wait_for_new() {
   exit 1
 }
 
+wait_for_stable_presentation() {
+  previous=$1
+  attempts=${2:-300}
+  attempt=0
+  while [ "$attempt" -lt "$attempts" ]; do
+    current=$(line_count "presentation=120 frames/")
+    if [ "$current" -gt "$previous" ]; then
+      fps_tenths=$(
+        rg 'presentation=120 frames/' "$log" |
+          tail -1 |
+          sed -n 's/.*(\([0-9][0-9]*\)\.\([0-9]\) fps).*/\1\2/p'
+      )
+      if [ -n "$fps_tenths" ] &&
+        [ "$fps_tenths" -ge 595 ] &&
+        [ "$fps_tenths" -le 610 ]; then
+        return
+      fi
+      previous=$current
+    fi
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  echo "Timed out waiting for stable 60 fps Dolphin presentation." >&2
+  tail -80 "$log" >&2 || true
+  exit 1
+}
+
 press() {
   button=$1
   previous=$(line_count "controller buttons")
@@ -227,13 +254,12 @@ fi
 
 playing_count=$(line_count "playback=playing")
 audio_playing_count=$(line_count "audio=playing")
-presentation_count=$(line_count "presentation=120 frames/1985316us (60.4 fps)")
+presentation_count=$(line_count "presentation=120 frames/")
 press A
 wait_for_new "playback=playing" "$playing_count" 80
 wait_for_new "audio=playing" "$audio_playing_count" 80
 wait_for_new "decoder=60 frames/" "$decoder_count" 140
-wait_for_new "presentation=120 frames/1985316us (60.4 fps)" \
-  "$presentation_count" 100
+wait_for_stable_presentation "$presentation_count" 300
 
 decoder_fps_tenths=$(
   rg 'decoder=60 frames/' "$log" |
