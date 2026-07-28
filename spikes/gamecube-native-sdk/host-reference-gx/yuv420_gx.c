@@ -29,6 +29,8 @@ static unsigned luma_width;
 static unsigned luma_height;
 static unsigned chroma_width;
 static unsigned chroma_height;
+static unsigned visible_width;
+static unsigned visible_height;
 static size_t luma_bytes;
 static size_t chroma_bytes;
 static TiledYuvBuffer buffers[FRAME_BUFFER_COUNT];
@@ -39,14 +41,28 @@ static GXTexObj v_texture;
 static bool initialized;
 
 static void tile_i8_plane(uint8_t *destination, const uint8_t *source,
-                          int source_stride, unsigned width, unsigned height) {
-  for (unsigned tile_y = 0; tile_y < height; tile_y += 4) {
-    for (unsigned tile_x = 0; tile_x < width; tile_x += 8) {
+                          int source_stride, unsigned source_width,
+                          unsigned source_height, unsigned texture_width,
+                          unsigned texture_height, uint8_t padding) {
+  for (unsigned tile_y = 0; tile_y < texture_height; tile_y += 4) {
+    for (unsigned tile_x = 0; tile_x < texture_width; tile_x += 8) {
       uint8_t *tile =
-          destination + ((tile_y / 4) * (width / 8) + tile_x / 8) * 32;
+          destination +
+          ((tile_y / 4) * (texture_width / 8) + tile_x / 8) * 32;
       for (unsigned row = 0; row < 4; ++row) {
-        memcpy(tile + row * 8,
-               source + (tile_y + row) * source_stride + tile_x, 8);
+        uint8_t *destination_row = tile + row * 8;
+        const unsigned source_y = tile_y + row;
+        if (source_y >= source_height || tile_x >= source_width) {
+          memset(destination_row, padding, 8);
+          continue;
+        }
+        const unsigned remaining = source_width - tile_x;
+        const unsigned copied = remaining < 8u ? remaining : 8u;
+        memcpy(destination_row,
+               source + source_y * source_stride + tile_x, copied);
+        if (copied < 8u) {
+          memset(destination_row + copied, padding, 8u - copied);
+        }
       }
     }
   }
@@ -95,6 +111,8 @@ bool yuv420_gx_initialize(unsigned width, unsigned height) {
   }
 
   front_index = 0;
+  visible_width = width;
+  visible_height = height;
   initialize_texture_objects();
   initialized = true;
   return true;
@@ -106,21 +124,29 @@ void yuv420_gx_destroy(void) {
     memset(&buffers[index], 0, sizeof(buffers[index]));
   }
   initialized = false;
+  visible_width = 0;
+  visible_height = 0;
 }
 
 bool yuv420_gx_upload_back(const VideoFrame *frame) {
-  if (!initialized || frame == NULL || frame->width != luma_width ||
-      frame->height != luma_height) {
+  if (!initialized || frame == NULL || frame->width == 0 ||
+      frame->height == 0 || frame->width > luma_width ||
+      frame->height > luma_height || (frame->width & 1u) != 0 ||
+      (frame->height & 1u) != 0) {
     return false;
   }
 
   TiledYuvBuffer *back = &buffers[front_index ^ 1u];
   tile_i8_plane(back->planes[0], frame->planes[0], frame->strides[0],
-                luma_width, luma_height);
+                frame->width, frame->height, luma_width, luma_height, 16);
   tile_i8_plane(back->planes[1], frame->planes[1], frame->strides[1],
-                chroma_width, chroma_height);
+                frame->width / 2u, frame->height / 2u, chroma_width,
+                chroma_height, 128);
   tile_i8_plane(back->planes[2], frame->planes[2], frame->strides[2],
-                chroma_width, chroma_height);
+                frame->width / 2u, frame->height / 2u, chroma_width,
+                chroma_height, 128);
+  visible_width = frame->width;
+  visible_height = frame->height;
   DCFlushRange(back->allocation, luma_bytes + 2 * chroma_bytes);
   return true;
 }
@@ -294,10 +320,12 @@ void yuv420_gx_draw(float left, float top, float right, float bottom) {
   GX_LoadTexObj(&y_texture, GX_TEXMAP0);
   GX_LoadTexObj(&u_texture, GX_TEXMAP1);
   GX_LoadTexObj(&v_texture, GX_TEXMAP2);
+  const float maximum_u = (float)visible_width / (float)luma_width;
+  const float maximum_v = (float)visible_height / (float)luma_height;
   GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
   yuv_vertex(left, top, 0.0f, 0.0f);
-  yuv_vertex(right, top, 1.0f, 0.0f);
-  yuv_vertex(right, bottom, 1.0f, 1.0f);
-  yuv_vertex(left, bottom, 0.0f, 1.0f);
+  yuv_vertex(right, top, maximum_u, 0.0f);
+  yuv_vertex(right, bottom, maximum_u, maximum_v);
+  yuv_vertex(left, bottom, 0.0f, maximum_v);
   GX_End();
 }

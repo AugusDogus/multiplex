@@ -233,8 +233,8 @@ bool video_decoder_next_frame(VideoDecoder *decoder, VideoFrame *frame) {
     if (got_picture != 0) {
       if (decoder->context->width <= 0 || decoder->context->width > 1024 ||
           decoder->context->height <= 0 || decoder->context->height > 1024 ||
-          (decoder->context->width & 15) != 0 ||
-          (decoder->context->height & 7) != 0 ||
+          (decoder->context->width & 1) != 0 ||
+          (decoder->context->height & 1) != 0 ||
           decoder->context->pix_fmt != PIX_FMT_YUV420P ||
           decoder->picture->data[0] == NULL ||
           decoder->picture->data[1] == NULL ||

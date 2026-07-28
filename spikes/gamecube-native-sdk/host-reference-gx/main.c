@@ -129,6 +129,8 @@ static uint32_t video_decode_request_count;
 static uint32_t video_decode_completion_count;
 static bool video_texture_ready;
 static bool video_was_playing;
+static uint32_t video_rate_millihertz =
+    (VIDEO_RATE_NUMERATOR * 1000u) / VIDEO_RATE_DENOMINATOR;
 static AudioDma *audio_output;
 static MpegPsDemux *media_demux;
 
@@ -388,8 +390,14 @@ static void request_video_decoder_stop(void) {
   LWP_MutexUnlock(video_decoder_mutex);
 }
 
-static bool start_video_decoder(void *reader_context, MediaRead read,
+static bool start_video_decoder(VideoCodec codec, void *reader_context,
+                                MediaRead read, unsigned width,
+                                unsigned height, uint32_t rate_millihertz,
                                 size_t stream_size) {
+  if (width == 0 || height == 0 || width > 1024 || height > 1024 ||
+      rate_millihertz == 0) {
+    return false;
+  }
   video_decode_requested = false;
   video_decode_running = false;
   video_decode_ready = false;
@@ -410,13 +418,15 @@ static bool start_video_decoder(void *reader_context, MediaRead read,
   video_codec_max_us = 0;
   video_upload_total_us = 0;
   video_upload_max_us = 0;
-  video_decoder =
-      video_decoder_create(VIDEO_CODEC_MPEG2, reader_context, read);
+  video_rate_millihertz = rate_millihertz;
+  video_decoder = video_decoder_create(codec, reader_context, read);
   if (video_decoder == NULL) {
     SYS_Report("REFERENCE GX: MPEG-2 decoder initialization failed\n");
     return false;
   }
-  if (!yuv420_gx_initialize(VIDEO_WIDTH, VIDEO_HEIGHT)) {
+  const unsigned texture_width = (width + 15u) & ~15u;
+  const unsigned texture_height = (height + 7u) & ~7u;
+  if (!yuv420_gx_initialize(texture_width, texture_height)) {
     SYS_Report("REFERENCE GX: YUV texture allocation failed\n");
     video_decoder_destroy(video_decoder);
     video_decoder = NULL;
@@ -452,9 +462,11 @@ static bool start_video_decoder(void *reader_context, MediaRead read,
     return false;
   }
   SYS_Report(
-      "REFERENCE GX: decoder=ffmpeg-mplayer-ce codec=mpeg2video "
-      "input=%ux%u pixel-format=yuv420p rate=30000/1001 fps size=%u bytes\n",
-      VIDEO_WIDTH, VIDEO_HEIGHT, (unsigned)stream_size);
+      "REFERENCE GX: decoder=ffmpeg-mplayer-ce codec=%s input=%ux%u "
+      "texture=%ux%u pixel-format=yuv420p rate=%u.%03u fps size=%u bytes\n",
+      video_codec_name(codec), width, height, texture_width, texture_height,
+      rate_millihertz / 1000u, rate_millihertz % 1000u,
+      (unsigned)stream_size);
   return true;
 }
 
@@ -1233,8 +1245,11 @@ static bool start_media_pipeline(MpegPsDemux *demux, uint32_t rating_key,
     video_pts_offset_samples =
         -((-pts_delta * AUDIO_SAMPLE_RATE + MPEG_PTS_RATE / 2) / MPEG_PTS_RATE);
   }
-  if (!start_video_decoder(demux, mpeg_ps_demux_read_video,
-                           mpeg_ps_demux_video_size(demux))) {
+  if (!start_video_decoder(
+          VIDEO_CODEC_MPEG2, demux, mpeg_ps_demux_read_video, VIDEO_WIDTH,
+          VIDEO_HEIGHT,
+          (VIDEO_RATE_NUMERATOR * 1000u) / VIDEO_RATE_DENOMINATOR,
+          mpeg_ps_demux_video_size(demux))) {
     return false;
   }
   audio_output =
@@ -1827,8 +1842,9 @@ static void draw_video_surface(void) {
   if (playing && media_elapsed_samples >= 0) {
     desired_completions =
         video_audio_start_completions + 1u +
-        (uint32_t)(((uint64_t)media_elapsed_samples * VIDEO_RATE_NUMERATOR) /
-                   (AUDIO_SAMPLE_RATE * VIDEO_RATE_DENOMINATOR));
+        (uint32_t)(((uint64_t)media_elapsed_samples *
+                    video_rate_millihertz) /
+                   (AUDIO_SAMPLE_RATE * 1000u));
   }
   const bool cadence_due =
       (!video_texture_ready && (!playing || media_elapsed_samples >= 0)) ||
