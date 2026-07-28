@@ -36,6 +36,7 @@
 #define MEDIA_PREFETCH_STACK_SIZE (256 * 1024)
 #define TIMELINE_REPORT_STACK_SIZE (128 * 1024)
 #define TIMELINE_REPORT_INTERVAL_MS 10000u
+#define PAIRING_POLL_INTERVAL_FRAMES 60u
 #define VIDEO_WIDTH 720
 #define VIDEO_HEIGHT 480
 #define VIDEO_PROFILE_FRAMES 60
@@ -1755,6 +1756,23 @@ static void *run_app(void *unused) {
       return (void *)(uintptr_t)1;
     }
   }
+#if MULTIPLEX_PAIRING_ENABLED
+  MultiplexGatewayPairing pairing;
+  memset(&pairing, 0, sizeof(pairing));
+  pairing.status = 3;
+  if (!multiplex_gateway_load_pairing(MULTIPLEX_GATEWAY_URL, &pairing)) {
+    SYS_Report("REFERENCE GX: gateway-pairing initial load unavailable\n");
+  }
+  if (multiplex_native_app_pairing_status(
+          pairing.status, (const uint8_t *)pairing.code,
+          pairing.code_length, (const uint8_t *)pairing.link_url,
+          pairing.link_url_length) == 0) {
+    SYS_Report("REFERENCE GX: failed to bind gateway pairing status\n");
+    return (void *)(uintptr_t)1;
+  }
+  bool pairing_linked = pairing.status == 2;
+  uint32_t pairing_poll_frames = 0;
+#endif
   const bool has_playback_manifest =
       MULTIPLEX_GATEWAY_URL[0] != '\0' &&
       multiplex_gateway_load_playback_manifest(MULTIPLEX_GATEWAY_URL, 0,
@@ -1778,6 +1796,39 @@ static void *run_app(void *unused) {
       break;
     }
     PAD_ScanPads();
+#if MULTIPLEX_PAIRING_ENABLED
+    if (!pairing_linked &&
+        ++pairing_poll_frames >= PAIRING_POLL_INTERVAL_FRAMES) {
+      pairing_poll_frames = 0;
+      MultiplexGatewayPairing next_pairing;
+      memset(&next_pairing, 0, sizeof(next_pairing));
+      next_pairing.status = 3;
+      if (!multiplex_gateway_load_pairing(MULTIPLEX_GATEWAY_URL,
+                                          &next_pairing)) {
+        SYS_Report("REFERENCE GX: gateway-pairing poll unavailable\n");
+      }
+      const bool pairing_changed =
+          next_pairing.status != pairing.status ||
+          next_pairing.code_length != pairing.code_length ||
+          next_pairing.link_url_length != pairing.link_url_length ||
+          memcmp(next_pairing.code, pairing.code,
+                 next_pairing.code_length) != 0 ||
+          memcmp(next_pairing.link_url, pairing.link_url,
+                 next_pairing.link_url_length) != 0;
+      if (pairing_changed) {
+        pairing = next_pairing;
+        pairing_linked = pairing.status == 2;
+        if (multiplex_native_app_pairing_status(
+                pairing.status, (const uint8_t *)pairing.code,
+                pairing.code_length, (const uint8_t *)pairing.link_url,
+                pairing.link_url_length) == 0) {
+          SYS_Report("REFERENCE GX: failed to update gateway pairing status\n");
+          break;
+        }
+        native_frame_dirty = true;
+      }
+    }
+#endif
     const uint32_t pressed = PAD_ButtonsDown(0);
     if (pressed != 0) {
       SYS_Report("REFERENCE GX: controller buttons %08x\n", pressed);

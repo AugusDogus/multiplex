@@ -11,8 +11,10 @@
 #define SEARCH_HEADER_BYTES 10u
 #define DETAILS_HEADER_BYTES 40u
 #define PLAYBACK_HEADER_BYTES 62u
+#define PAIRING_HEADER_BYTES 12u
 #define CATALOG_ITEM_HEADER_BYTES 20u
 #define CATALOG_MAX_BYTES 2048u
+#define PAIRING_MAX_BYTES 280u
 #define GATEWAY_URL_CAPACITY 768u
 
 #if MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES != 19200
@@ -320,6 +322,59 @@ static bool encode_query(const char *query, uint16_t query_length,
     }
   }
   encoded[cursor] = '\0';
+  return true;
+}
+
+bool multiplex_gateway_load_pairing(const char *base_url,
+                                    MultiplexGatewayPairing *pairing) {
+  if (base_url == NULL || base_url[0] == '\0' || pairing == NULL) {
+    return false;
+  }
+  const size_t base_length = strlen(base_url);
+  const bool has_slash = base_length > 0 && base_url[base_length - 1] == '/';
+  char url[GATEWAY_URL_CAPACITY];
+  const int written =
+      snprintf(url, sizeof(url), "%s%sv1/pairing.bin", base_url,
+               has_slash ? "" : "/");
+  if (written < 0 || (size_t)written >= sizeof(url)) {
+    return false;
+  }
+
+  HttpClient *client = http_client_open(url);
+  if (client == NULL) {
+    return false;
+  }
+  const size_t size = http_client_size(client);
+  uint8_t bytes[PAIRING_MAX_BYTES];
+  const bool read = size >= PAIRING_HEADER_BYTES && size <= sizeof(bytes) &&
+                    http_client_read_at(client, 0, bytes, size);
+  http_client_destroy(client);
+  if (!read || memcmp(bytes, "MPXL", 4) != 0) {
+    return false;
+  }
+
+  memset(pairing, 0, sizeof(*pairing));
+  pairing->version = read_be16(bytes + 4);
+  pairing->status = read_be16(bytes + 6);
+  pairing->code_length = read_be16(bytes + 8);
+  pairing->link_url_length = read_be16(bytes + 10);
+  if (pairing->version != 1 || pairing->status < 1 || pairing->status > 3 ||
+      pairing->code_length >= MULTIPLEX_GATEWAY_PAIRING_CODE_CAPACITY ||
+      pairing->link_url_length >= MULTIPLEX_GATEWAY_PAIRING_URL_CAPACITY ||
+      PAIRING_HEADER_BYTES + pairing->code_length +
+              pairing->link_url_length !=
+          size ||
+      (pairing->status == 1 &&
+       (pairing->code_length != 4 || pairing->link_url_length == 0))) {
+    return false;
+  }
+  size_t cursor = PAIRING_HEADER_BYTES;
+  memcpy(pairing->code, bytes + cursor, pairing->code_length);
+  cursor += pairing->code_length;
+  memcpy(pairing->link_url, bytes + cursor, pairing->link_url_length);
+  SYS_Report(
+      "REFERENCE GX: gateway-pairing status=%u code=%s url=%s loaded=1\n",
+      pairing->status, pairing->code, pairing->link_url);
   return true;
 }
 

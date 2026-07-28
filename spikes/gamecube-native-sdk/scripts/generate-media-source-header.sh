@@ -4,6 +4,7 @@ set -eu
 output=$1
 media_url=${GAMECUBE_MEDIA_URL:-}
 gateway_url=${GAMECUBE_GATEWAY_URL:-}
+multiplex_base_url=${MULTIPLEX_BASE_URL:-}
 video_bytes=${GAMECUBE_MEDIA_VIDEO_BYTES:-0}
 audio_bytes=${GAMECUBE_MEDIA_AUDIO_BYTES:-0}
 video_packets=${GAMECUBE_MEDIA_VIDEO_PACKETS:-0}
@@ -45,6 +46,10 @@ if [ "$video_bytes" -gt 0 ] && [ "$audio_bytes" -gt 0 ] &&
   [ "$video_pts" -ge 0 ] && [ "$audio_pts" -ge 0 ]; then
   has_info=1
 fi
+pairing_enabled=0
+if [ -n "$multiplex_base_url" ]; then
+  pairing_enabled=1
+fi
 
 temporary="$output.tmp"
 trap 'rm -f "$temporary"' EXIT INT TERM
@@ -53,6 +58,7 @@ trap 'rm -f "$temporary"' EXIT INT TERM
   printf '%s\n' '#define MULTIPLEX_MEDIA_SOURCE_H'
   printf '#define MULTIPLEX_MEDIA_URL "%s"\n' "$media_url"
   printf '#define MULTIPLEX_GATEWAY_URL "%s"\n' "$gateway_url"
+  printf '#define MULTIPLEX_PAIRING_ENABLED %s\n' "$pairing_enabled"
   printf '#define MULTIPLEX_MEDIA_HAS_INFO %s\n' "$has_info"
   printf '#define MULTIPLEX_MEDIA_VIDEO_BYTES %su\n' "$video_bytes"
   printf '#define MULTIPLEX_MEDIA_AUDIO_BYTES %su\n' "$audio_bytes"

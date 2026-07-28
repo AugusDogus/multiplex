@@ -234,8 +234,16 @@ wait_log "signature=" 600
 exec 3>"$pipe"
 pipe_open=1
 signature_count=$(line_count "signature=")
-press A
-wait_for_new "signature=" "$signature_count"
+if [ -n "$multiplex_base_url" ]; then
+  if ! grep -q "gateway-pairing status=2" "$log"; then
+    wait_log "gateway-pairing status=1" 600
+    wait_for_new "gateway-pairing status=2" 0 3600
+    wait_for_new "signature=" "$signature_count"
+  fi
+else
+  press A
+  wait_for_new "signature=" "$signature_count"
+fi
 
 # Search is fully controller-authored. Type FRESH on the 9-column keyboard:
 # Z opens it, A enters the focused letter, and R submits the query.

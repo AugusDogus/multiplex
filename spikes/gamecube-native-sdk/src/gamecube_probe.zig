@@ -325,6 +325,26 @@ export fn multiplex_native_app_init() callconv(.c) void {
     initializeApp();
 }
 
+export fn multiplex_native_app_pairing_status(
+    status: u32,
+    code: [*]const u8,
+    code_length: u32,
+    link_url: [*]const u8,
+    link_url_length: u32,
+) callconv(.c) u32 {
+    if (!app_initialized or status < 1 or status > 3) return 0;
+    if (status == 1 and (code_length != 4 or link_url_length == 0)) return 0;
+    app_model = core.commitModelRoot(core.loadPairing(
+        app_model,
+        @floatFromInt(status),
+        code[0..code_length],
+        link_url[0..link_url_length],
+    ));
+    focused_handler = 0;
+    reference_full_repaint = true;
+    return 1;
+}
+
 export fn multiplex_native_app_catalog_begin(
     server_name: [*]const u8,
     server_name_length: u32,

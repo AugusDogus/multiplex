@@ -45,6 +45,12 @@ export interface Model {
   readonly screen: Screen;
   readonly gatewayConnected: boolean;
   readonly gatewayName: Uint8Array;
+  readonly pairingEnabled: boolean;
+  readonly pairingWaiting: boolean;
+  readonly pairingLinked: boolean;
+  readonly pairingUnavailable: boolean;
+  readonly pairingCode: Uint8Array;
+  readonly pairingUrl: Uint8Array;
   readonly rows: readonly CatalogRow[];
   readonly libraries: readonly LibrarySection[];
   readonly rowIndex: number;
@@ -237,6 +243,12 @@ export function initialModel(): Model {
     screen: "pairing",
     gatewayConnected: false,
     gatewayName: asciiBytes("Demo library"),
+    pairingEnabled: false,
+    pairingWaiting: false,
+    pairingLinked: false,
+    pairingUnavailable: false,
+    pairingCode: new Uint8Array(0),
+    pairingUrl: new Uint8Array(0),
     rows: demoRows,
     libraries: demoLibraries,
     rowIndex: 0,
@@ -287,6 +299,7 @@ export function loadCatalog(
   if (rows.length === 0 || rows[0].items.length === 0) return model;
   return {
     ...model,
+    screen: model.pairingLinked ? "home" : model.screen,
     gatewayConnected: true,
     gatewayName: gatewayName,
     rows: rows,
@@ -297,6 +310,25 @@ export function loadCatalog(
     selectedTitle: rows[0].items[0].title,
     selectedDurationMs: rows[0].items[0].durationMs,
     selectedViewOffsetMs: rows[0].items[0].viewOffsetMs,
+  };
+}
+
+export function loadPairing(
+  model: Model,
+  status: number,
+  code: Uint8Array,
+  linkUrl: Uint8Array,
+): Model {
+  const linked = status === 2;
+  return {
+    ...model,
+    screen: linked && model.gatewayConnected ? "home" : "pairing",
+    pairingEnabled: true,
+    pairingWaiting: status === 1,
+    pairingLinked: linked,
+    pairingUnavailable: status === 3,
+    pairingCode: code,
+    pairingUrl: linkUrl,
   };
 }
 
@@ -399,6 +431,10 @@ export function rowCount(model: Model): number {
 
 export function hasMultipleRows(model: Model): boolean {
   return model.rows.length > 1;
+}
+
+export function pairingDemo(model: Model): boolean {
+  return !model.pairingEnabled;
 }
 
 export function hasResume(model: Model): boolean {
@@ -526,7 +562,7 @@ function appendSearchKey(query: Uint8Array, value: number): Uint8Array {
 export function update(model: Model, msg: Msg): Model {
   switch (msg.kind) {
     case "connect_demo":
-      return { ...model, screen: "home" };
+      return model.pairingEnabled ? model : { ...model, screen: "home" };
     case "previous_row": {
       const rowIndex = model.rowIndex === 0 ? model.rows.length - 1 : model.rowIndex - 1;
       return { ...model, rowIndex: rowIndex, rowNumber: rowIndex + 1 };

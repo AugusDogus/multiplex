@@ -18,6 +18,8 @@
 #define MULTIPLEX_GATEWAY_DETAIL_SHORT_CAPACITY 128
 #define MULTIPLEX_GATEWAY_DETAIL_SUMMARY_CAPACITY 384
 #define MULTIPLEX_GATEWAY_MEDIA_URL_CAPACITY 768
+#define MULTIPLEX_GATEWAY_PAIRING_CODE_CAPACITY 5
+#define MULTIPLEX_GATEWAY_PAIRING_URL_CAPACITY 256
 #define MULTIPLEX_GATEWAY_ARTWORK_WIDTH 80
 #define MULTIPLEX_GATEWAY_ARTWORK_HEIGHT 120
 #define MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES \
@@ -123,6 +125,17 @@ typedef struct {
   char media_url[MULTIPLEX_GATEWAY_MEDIA_URL_CAPACITY];
 } MultiplexGatewayPlaybackManifest;
 
+typedef struct {
+  uint16_t version;
+  uint16_t status;
+  char code[MULTIPLEX_GATEWAY_PAIRING_CODE_CAPACITY];
+  uint16_t code_length;
+  char link_url[MULTIPLEX_GATEWAY_PAIRING_URL_CAPACITY];
+  uint16_t link_url_length;
+} MultiplexGatewayPairing;
+
+bool multiplex_gateway_load_pairing(const char *base_url,
+                                    MultiplexGatewayPairing *pairing);
 bool multiplex_gateway_load_catalog(const char *base_url,
                                     MultiplexGatewayCatalog *catalog);
 bool multiplex_gateway_load_artwork(const char *base_url,

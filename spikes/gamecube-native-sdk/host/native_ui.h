@@ -53,6 +53,9 @@ typedef struct {
 } MultiplexPosterSurface;
 
 void multiplex_native_app_init(void);
+uint32_t multiplex_native_app_pairing_status(
+    uint32_t status, const uint8_t *code, uint32_t code_length,
+    const uint8_t *link_url, uint32_t link_url_length);
 uint32_t multiplex_native_app_catalog_begin(const uint8_t *server_name,
                                             uint32_t server_name_length,
                                             uint32_t row_count,

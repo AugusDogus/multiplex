@@ -8,9 +8,33 @@
 
   <if test="{screen == 'pairing'}">
     <column grow="1" main="center" cross="center" gap="12" label="Pair with Multiplex">
-      <text size="heading">Connect to your Multiplex gateway</text>
-      <text foreground="text_muted">Catalog and media stay behind one console-friendly protocol.</text>
-      <button variant="primary" on-press="connect_demo">Open {gatewayName}</button>
+      <if test="{pairingEnabled}">
+        <if test="{pairingWaiting}">
+          <badge variant="secondary">Link this GameCube</badge>
+          <text foreground="text_muted">On another device, open</text>
+          <text size="heading">{pairingUrl}</text>
+          <text foreground="text_muted">and enter this code</text>
+          <panel width="220" padding="18" background="surface" border-color="border" radius="lg">
+            <column cross="center">
+              <text size="heading">{pairingCode}</text>
+            </column>
+          </panel>
+          <text size="sm" foreground="text_muted">Waiting for your Multiplex account...</text>
+        </if>
+        <if test="{pairingLinked}">
+          <text size="heading">GameCube linked</text>
+          <text foreground="text_muted">Loading your Multiplex home...</text>
+        </if>
+        <if test="{pairingUnavailable}">
+          <text size="heading">Multiplex is unavailable</text>
+          <text foreground="text_muted">Check the gateway connection. This screen will retry automatically.</text>
+        </if>
+      </if>
+      <if test="{pairingDemo}">
+        <text size="heading">Connect to your Multiplex gateway</text>
+        <text foreground="text_muted">Catalog and media stay behind one console-friendly protocol.</text>
+        <button variant="primary" on-press="connect_demo">Open {gatewayName}</button>
+      </if>
     </column>
   </if>
 
