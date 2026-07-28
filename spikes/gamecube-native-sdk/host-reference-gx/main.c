@@ -2,12 +2,13 @@
 #include "device_auth.h"
 #include "gateway_client.h"
 #include "http_client.h"
-#include "memory_card_auth.h"
 #include "media-source.h"
-#include "native_ui.h"
+#include "memory_card_auth.h"
 #include "mpeg2_decoder.h"
 #include "mpeg_ps_demux.h"
 #include "multiplex-dvd-demo-program.h"
+#include "native_ui.h"
+#include "plex_bootstrap.h"
 #include "poster_jpeg.h"
 #include "yuv420_gx.h"
 
@@ -176,9 +177,8 @@ static uint32_t elapsed_us(uint32_t started) {
 
 void multiplex_native_input_trace(uint32_t action, uint32_t focus,
                                   uint32_t count, uint32_t message) {
-  SYS_Report(
-      "REFERENCE GX: input action=%u focus=%u count=%u message=%u\n", action,
-      focus, count, message);
+  SYS_Report("REFERENCE GX: input action=%u focus=%u count=%u message=%u\n",
+             action, focus, count, message);
 }
 
 void *multiplex_native_cache_alloc(uint32_t len, uint32_t alignment) {
@@ -228,8 +228,7 @@ static uint32_t hash_bytes(const uint8_t *bytes, uint32_t length) {
   return hash;
 }
 
-static bool guard_is_intact(const uint8_t *allocation,
-                            uint32_t payload_bytes) {
+static bool guard_is_intact(const uint8_t *allocation, uint32_t payload_bytes) {
   for (unsigned index = 0; index < BUFFER_GUARD_BYTES; ++index) {
     if (allocation[index] != BUFFER_GUARD_VALUE ||
         allocation[BUFFER_GUARD_BYTES + payload_bytes + index] !=
@@ -261,9 +260,8 @@ static bool allocate_buffers(void) {
 
   reference_pixels = reference_pixels_allocation + BUFFER_GUARD_BYTES;
   reference_scratch = reference_scratch_allocation + BUFFER_GUARD_BYTES;
-  texture_pixels =
-      (uint8_t *)(((uintptr_t)texture_pixels_allocation + 31u) &
-                  ~(uintptr_t)31u);
+  texture_pixels = (uint8_t *)(((uintptr_t)texture_pixels_allocation + 31u) &
+                               ~(uintptr_t)31u);
   memset(reference_pixels_allocation, BUFFER_GUARD_VALUE, guarded_bytes);
   memset(reference_scratch_allocation, BUFFER_GUARD_VALUE, guarded_bytes);
   memset(reference_pixels, 0, reference_bytes);
@@ -297,13 +295,13 @@ static void profile_decoded_frame(uint32_t decode_us, uint32_t codec_us,
             ? 0
             : (uint32_t)(((VIDEO_PROFILE_FRAMES - 1u) * 10000000ull) /
                          measured_us);
-    SYS_Report(
-        "REFERENCE GX: decoder=%u frames/%uus (%u.%u fps) "
-        "work=%u avg/%u max us codec=%u/%u upload=%u/%u\n",
-        VIDEO_PROFILE_FRAMES, measured_us, fps_tenths / 10, fps_tenths % 10,
-        video_decode_total_us / VIDEO_PROFILE_FRAMES, video_decode_max_us,
-        video_codec_total_us / VIDEO_PROFILE_FRAMES, video_codec_max_us,
-        video_upload_total_us / VIDEO_PROFILE_FRAMES, video_upload_max_us);
+    SYS_Report("REFERENCE GX: decoder=%u frames/%uus (%u.%u fps) "
+               "work=%u avg/%u max us codec=%u/%u upload=%u/%u\n",
+               VIDEO_PROFILE_FRAMES, measured_us, fps_tenths / 10,
+               fps_tenths % 10, video_decode_total_us / VIDEO_PROFILE_FRAMES,
+               video_decode_max_us, video_codec_total_us / VIDEO_PROFILE_FRAMES,
+               video_codec_max_us, video_upload_total_us / VIDEO_PROFILE_FRAMES,
+               video_upload_max_us);
     video_frame_count = 0;
     video_decode_total_us = 0;
     video_decode_max_us = 0;
@@ -331,8 +329,7 @@ static void *run_video_decoder(void *unused) {
 
     const uint32_t decode_started = gettick();
     Mpeg2Frame frame;
-    const bool frame_decoded =
-        mpeg2_decoder_next_frame(video_decoder, &frame);
+    const bool frame_decoded = mpeg2_decoder_next_frame(video_decoder, &frame);
     const uint32_t codec_us = elapsed_us(decode_started);
     const uint32_t upload_started = gettick();
     const bool decoded = frame_decoded && yuv420_gx_upload_back(&frame);
@@ -361,8 +358,7 @@ static void *run_video_decoder(void *unused) {
 static void stop_video_decoder(void);
 
 static void request_video_decoder_stop(void) {
-  if (video_decoder_thread == LWP_THREAD_NULL ||
-      !video_decoder_sync_ready) {
+  if (video_decoder_thread == LWP_THREAD_NULL || !video_decoder_sync_ready) {
     return;
   }
   LWP_MutexLock(video_decoder_mutex);
@@ -466,8 +462,7 @@ static void convert_reference_to_rgba8_tiles(void) {
 
       for (unsigned block_y = 0; block_y < TILE_HEIGHT / 4; ++block_y) {
         for (unsigned block_x = 0; block_x < TILE_WIDTH / 4; ++block_x) {
-          uint8_t *block =
-              tile + (block_y * (TILE_WIDTH / 4) + block_x) * 64;
+          uint8_t *block = tile + (block_y * (TILE_WIDTH / 4) + block_x) * 64;
           for (unsigned inner_y = 0; inner_y < 4; ++inner_y) {
             for (unsigned inner_x = 0; inner_x < 4; ++inner_x) {
               const unsigned source_x =
@@ -475,8 +470,7 @@ static void convert_reference_to_rgba8_tiles(void) {
               const unsigned source_y =
                   tile_y * TILE_HEIGHT + block_y * 4 + inner_y;
               const uint8_t *source =
-                  reference_pixels +
-                  (source_y * LOGICAL_WIDTH + source_x) * 4;
+                  reference_pixels + (source_y * LOGICAL_WIDTH + source_x) * 4;
               const unsigned plane_offset = (inner_y * 4 + inner_x) * 2;
 
               block[plane_offset] = source[3];
@@ -495,19 +489,17 @@ static void convert_reference_to_rgba8_tiles(void) {
 static bool refresh_reference_frame(bool initialize) {
   const uint32_t render_started = gettick();
   const uint32_t memo_hits_before = multiplex_native_reference_memo_hits();
-  const uint32_t memo_misses_before =
-      multiplex_native_reference_memo_misses();
+  const uint32_t memo_misses_before = multiplex_native_reference_memo_misses();
   memset(profile_stage_us, 0, sizeof(profile_stage_us));
   profile_stage_current = 0;
 
   const uint32_t commands =
-      initialize
-          ? multiplex_native_app_init_and_render_reference(
-                reference_pixels, reference_bytes, reference_scratch,
-                reference_bytes)
-          : multiplex_native_app_render_reference(
-                reference_pixels, reference_bytes, reference_scratch,
-                reference_bytes);
+      initialize ? multiplex_native_app_init_and_render_reference(
+                       reference_pixels, reference_bytes, reference_scratch,
+                       reference_bytes)
+                 : multiplex_native_app_render_reference(
+                       reference_pixels, reference_bytes, reference_scratch,
+                       reference_bytes);
   if (!guard_is_intact(reference_pixels_allocation, reference_bytes) ||
       !guard_is_intact(reference_scratch_allocation, reference_bytes)) {
     SYS_Report("REFERENCE GX: Native renderer buffer guard corrupted\n");
@@ -523,8 +515,7 @@ static bool refresh_reference_frame(bool initialize) {
   profile.passes = 1;
   profile.signature = hash_bytes(reference_pixels, reference_bytes);
   profile.render_us = elapsed_us(render_started);
-  profile.memo_hits =
-      multiplex_native_reference_memo_hits() - memo_hits_before;
+  profile.memo_hits = multiplex_native_reference_memo_hits() - memo_hits_before;
   profile.memo_misses =
       multiplex_native_reference_memo_misses() - memo_misses_before;
 
@@ -541,16 +532,16 @@ static bool refresh_reference_frame(bool initialize) {
         (int)rendered_surface.width, (int)rendered_surface.height,
         rendered_surface.playing);
   }
-  SYS_Report(
-      "REFERENCE GX: commands=%u passes=%u signature=%08x render=%uus "
-      "conversion=%uus stages=%u/%u/%u/%u/%u/%uus memo=%u/%u "
-      "cache=%u/%uKiB\n",
-      profile.commands, profile.passes, profile.signature, profile.render_us,
-      profile.upload_us, profile_stage_us[1], profile_stage_us[2],
-      profile_stage_us[3], profile_stage_us[4], profile_stage_us[5],
-      profile_stage_us[6], profile.memo_hits, profile.memo_misses,
-      multiplex_native_reference_memo_bytes() / 1024u,
-      multiplex_native_reference_memo_peak_bytes() / 1024u);
+  SYS_Report("REFERENCE GX: commands=%u passes=%u signature=%08x render=%uus "
+             "conversion=%uus stages=%u/%u/%u/%u/%u/%uus memo=%u/%u "
+             "cache=%u/%uKiB\n",
+             profile.commands, profile.passes, profile.signature,
+             profile.render_us, profile.upload_us, profile_stage_us[1],
+             profile_stage_us[2], profile_stage_us[3], profile_stage_us[4],
+             profile_stage_us[5], profile_stage_us[6], profile.memo_hits,
+             profile.memo_misses,
+             multiplex_native_reference_memo_bytes() / 1024u,
+             multiplex_native_reference_memo_peak_bytes() / 1024u);
   return true;
 }
 
@@ -561,12 +552,12 @@ static GXRModeObj *select_video_mode(void) {
   }
 
   switch (preferred->viTVMode >> 2) {
-    case VI_PAL:
-      return &TVPal576ProgScale;
-    case VI_EURGB60:
-      return &TVEurgb60Hz480Prog;
-    default:
-      return &TVNtsc480Prog;
+  case VI_PAL:
+    return &TVPal576ProgScale;
+  case VI_EURGB60:
+    return &TVEurgb60Hz480Prog;
+  default:
+    return &TVNtsc480Prog;
   }
 }
 
@@ -594,21 +585,18 @@ static void initialize_video_and_gx(void) {
   video_mode = select_video_mode();
   const uint32_t framebuffer_bytes = VIDEO_GetFrameBufferSize(video_mode);
   for (unsigned index = 0; index < 2; ++index) {
-    framebuffers[index] =
-        MEM_K0_TO_K1(SYS_AllocateFramebuffer(video_mode));
+    framebuffers[index] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(video_mode));
     memset(framebuffers[index], 0, framebuffer_bytes);
   }
   framebuffer_index = 1;
 
-  SYS_Report(
-      "REFERENCE GX: video mode=%08x progressive=%u component=%u "
-      "fb=%ux%u efb=%u xfb=%u vi=%ux%u xfb_mode=%u fields=%u aa=%u\n",
-      video_mode->viTVMode,
-      (video_mode->viTVMode & 3) == VI_PROGRESSIVE,
-      VIDEO_HaveComponentCable(), video_mode->fbWidth,
-      video_mode->xfbHeight, video_mode->efbHeight,
-      video_mode->xfbHeight, video_mode->viWidth, video_mode->viHeight,
-      video_mode->xfbMode, video_mode->field_rendering, video_mode->aa);
+  SYS_Report("REFERENCE GX: video mode=%08x progressive=%u component=%u "
+             "fb=%ux%u efb=%u xfb=%u vi=%ux%u xfb_mode=%u fields=%u aa=%u\n",
+             video_mode->viTVMode, (video_mode->viTVMode & 3) == VI_PROGRESSIVE,
+             VIDEO_HaveComponentCable(), video_mode->fbWidth,
+             video_mode->xfbHeight, video_mode->efbHeight,
+             video_mode->xfbHeight, video_mode->viWidth, video_mode->viHeight,
+             video_mode->xfbMode, video_mode->field_rendering, video_mode->aa);
 
   VIDEO_Configure(video_mode);
   VIDEO_SetNextFramebuffer(framebuffers[0]);
@@ -683,7 +671,7 @@ static bool initialize_poster_textures(const char *gateway_url,
   size_t encoded_size = 0;
   if (encoded == NULL || poster_texture_pixels == NULL ||
       !multiplex_gateway_load_artwork(gateway_url, encoded,
-                                     POSTER_JPEG_CAPACITY, &encoded_size) ||
+                                      POSTER_JPEG_CAPACITY, &encoded_size) ||
       !poster_jpeg_decode(encoded, encoded_size, item_count,
                           poster_texture_pixels, home_bytes)) {
     free(encoded);
@@ -694,8 +682,7 @@ static bool initialize_poster_textures(const char *gateway_url,
 
   for (uint16_t item = 0; item < item_count; ++item) {
     uint8_t *destination = poster_texture_pixels +
-                           (size_t)item *
-                               MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+                           (size_t)item * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
     GX_InitTexObj(&poster_textures[item], destination,
                   MULTIPLEX_GATEWAY_ARTWORK_WIDTH,
                   MULTIPLEX_GATEWAY_ARTWORK_HEIGHT, GX_TF_RGB565, GX_CLAMP,
@@ -706,9 +693,8 @@ static bool initialize_poster_textures(const char *gateway_url,
   free(encoded);
   DCFlushRange(poster_texture_pixels, home_bytes);
   poster_texture_count = POSTER_TEXTURE_COUNT;
-  SYS_Report("REFERENCE GX: poster-textures count=%u size=%ux%u\n",
-             item_count, MULTIPLEX_GATEWAY_ARTWORK_WIDTH,
-             MULTIPLEX_GATEWAY_ARTWORK_HEIGHT);
+  SYS_Report("REFERENCE GX: poster-textures count=%u size=%ux%u\n", item_count,
+             MULTIPLEX_GATEWAY_ARTWORK_WIDTH, MULTIPLEX_GATEWAY_ARTWORK_HEIGHT);
   return true;
 }
 
@@ -739,16 +725,15 @@ static bool load_browse_page(const char *gateway_url) {
       !multiplex_gateway_load_browse_artwork(
           gateway_url, page.section_id, page.start, encoded,
           POSTER_JPEG_CAPACITY, &encoded_size) ||
-      !poster_jpeg_decode(encoded, encoded_size, page.item_count,
-                          browse_pixels, browse_bytes)) {
+      !poster_jpeg_decode(encoded, encoded_size, page.item_count, browse_pixels,
+                          browse_bytes)) {
     free(encoded);
     return false;
   }
   free(encoded);
   for (uint16_t item = 0; item < page.item_count; ++item) {
     uint8_t *pixels =
-        browse_pixels +
-        (size_t)item * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+        browse_pixels + (size_t)item * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
     GX_InitTexObj(&poster_textures[HOME_POSTER_COUNT + item], pixels,
                   MULTIPLEX_GATEWAY_ARTWORK_WIDTH,
                   MULTIPLEX_GATEWAY_ARTWORK_HEIGHT, GX_TF_RGB565, GX_CLAMP,
@@ -783,8 +768,8 @@ static bool load_browse_page(const char *gateway_url) {
 
 static bool load_search_page(const char *gateway_url) {
   char query[MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY] = {0};
-  const uint32_t query_length = multiplex_native_app_search_request(
-      (uint8_t *)query, sizeof(query) - 1u);
+  const uint32_t query_length =
+      multiplex_native_app_search_request((uint8_t *)query, sizeof(query) - 1u);
   if (query_length == 0) {
     return true;
   }
@@ -793,8 +778,8 @@ static bool load_search_page(const char *gateway_url) {
   }
 
   MultiplexGatewaySearchPage page;
-  if (!multiplex_gateway_load_search(gateway_url, query,
-                                     (uint16_t)query_length, &page)) {
+  if (!multiplex_gateway_load_search(gateway_url, query, (uint16_t)query_length,
+                                     &page)) {
     return false;
   }
 
@@ -818,8 +803,7 @@ static bool load_search_page(const char *gateway_url) {
     free(encoded);
     for (uint16_t item = 0; item < page.item_count; ++item) {
       uint8_t *pixels =
-          browse_pixels +
-          (size_t)item * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+          browse_pixels + (size_t)item * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
       GX_InitTexObj(&poster_textures[HOME_POSTER_COUNT + item], pixels,
                     MULTIPLEX_GATEWAY_ARTWORK_WIDTH,
                     MULTIPLEX_GATEWAY_ARTWORK_HEIGHT, GX_TF_RGB565, GX_CLAMP,
@@ -830,9 +814,9 @@ static bool load_search_page(const char *gateway_url) {
     DCFlushRange(browse_pixels, search_bytes);
   }
 
-  if (multiplex_native_app_search_begin(
-          (const uint8_t *)page.query, page.query_length, page.item_count) ==
-      0) {
+  if (multiplex_native_app_search_begin((const uint8_t *)page.query,
+                                        page.query_length,
+                                        page.item_count) == 0) {
     return false;
   }
   for (uint16_t index = 0; index < page.item_count; ++index) {
@@ -873,13 +857,12 @@ static bool load_item_details(const char *gateway_url) {
       details.duration_ms == 0 ? 0 : (details.duration_ms + 30000u) / 60000u;
   int facts_length = 0;
   if (details.year != 0 && minutes != 0 && details.rating_tenths != 0) {
-    facts_length = snprintf(facts, sizeof(facts),
-                            "%u | %u min | Rating %u.%u/10", details.year,
-                            minutes, details.rating_tenths / 10u,
-                            details.rating_tenths % 10u);
+    facts_length = snprintf(
+        facts, sizeof(facts), "%u | %u min | Rating %u.%u/10", details.year,
+        minutes, details.rating_tenths / 10u, details.rating_tenths % 10u);
   } else if (details.year != 0 && minutes != 0) {
-    facts_length = snprintf(facts, sizeof(facts), "%u | %u min", details.year,
-                            minutes);
+    facts_length =
+        snprintf(facts, sizeof(facts), "%u | %u min", details.year, minutes);
   } else if (minutes != 0) {
     facts_length = snprintf(facts, sizeof(facts), "%u min", minutes);
   } else if (details.year != 0) {
@@ -932,16 +915,14 @@ static void close_media_session(HttpClient **client, MpegPsDemux **demux) {
 
 static bool start_media_pipeline(MpegPsDemux *demux, uint32_t rating_key,
                                  bool start_demux) {
-  const int64_t pts_delta =
-      mpeg_ps_demux_first_video_pts90k(demux) -
-      mpeg_ps_demux_first_audio_pts90k(demux);
+  const int64_t pts_delta = mpeg_ps_demux_first_video_pts90k(demux) -
+                            mpeg_ps_demux_first_audio_pts90k(demux);
   if (pts_delta >= 0) {
     video_pts_offset_samples =
         (pts_delta * AUDIO_SAMPLE_RATE + MPEG_PTS_RATE / 2) / MPEG_PTS_RATE;
   } else {
     video_pts_offset_samples =
-        -((-pts_delta * AUDIO_SAMPLE_RATE + MPEG_PTS_RATE / 2) /
-          MPEG_PTS_RATE);
+        -((-pts_delta * AUDIO_SAMPLE_RATE + MPEG_PTS_RATE / 2) / MPEG_PTS_RATE);
   }
   if (!start_video_decoder(demux, mpeg_ps_demux_read_video,
                            mpeg_ps_demux_video_size(demux))) {
@@ -955,8 +936,9 @@ static bool start_media_pipeline(MpegPsDemux *demux, uint32_t rating_key,
     return false;
   }
   if (start_demux && !mpeg_ps_demux_start(demux)) {
-    SYS_Report("REFERENCE GX: media producer initialization failed rating-key=%u\n",
-               rating_key);
+    SYS_Report(
+        "REFERENCE GX: media producer initialization failed rating-key=%u\n",
+        rating_key);
     audio_dma_destroy(audio_output);
     audio_output = NULL;
     stop_video_decoder();
@@ -966,9 +948,9 @@ static bool start_media_pipeline(MpegPsDemux *demux, uint32_t rating_key,
   return true;
 }
 
-static bool prepare_media_source(
-    const MultiplexGatewayPlaybackManifest *manifest, HttpClient **client_out,
-    MpegPsDemux **demux_out) {
+static bool
+prepare_media_source(const MultiplexGatewayPlaybackManifest *manifest,
+                     HttpClient **client_out, MpegPsDemux **demux_out) {
   HttpClient *client = http_client_open(manifest->media_url);
   if (client == NULL) {
     SYS_Report("REFERENCE GX: HTTP media initialization failed rating-key=%u\n",
@@ -988,25 +970,26 @@ static bool prepare_media_source(
   MpegPsDemux *demux = mpeg_ps_demux_create_reader_with_info(
       client, http_client_size(client), read_http_program, &info);
   if (demux == NULL) {
-    SYS_Report("REFERENCE GX: MPEG-PS demux initialization failed rating-key=%u\n",
-               manifest->rating_key);
+    SYS_Report(
+        "REFERENCE GX: MPEG-PS demux initialization failed rating-key=%u\n",
+        manifest->rating_key);
     http_client_destroy(client);
     return false;
   }
-  SYS_Report(
-      "REFERENCE GX: media-source=http rating-key=%u host=%s port=%u "
-      "bytes=%u ranges=%u\n",
-      manifest->rating_key, http_client_host(client), http_client_port(client),
-      (unsigned)http_client_size(client), http_client_range_count(client));
+  SYS_Report("REFERENCE GX: media-source=http rating-key=%u host=%s port=%u "
+             "bytes=%u ranges=%u\n",
+             manifest->rating_key, http_client_host(client),
+             http_client_port(client), (unsigned)http_client_size(client),
+             http_client_range_count(client));
   http_client_begin_stream(client);
   *client_out = client;
   *demux_out = demux;
   return true;
 }
 
-static bool open_media_session(
-    const MultiplexGatewayPlaybackManifest *manifest, HttpClient **client_out,
-    MpegPsDemux **demux_out) {
+static bool open_media_session(const MultiplexGatewayPlaybackManifest *manifest,
+                               HttpClient **client_out,
+                               MpegPsDemux **demux_out) {
   HttpClient *client = NULL;
   MpegPsDemux *demux = NULL;
   if (!prepare_media_source(manifest, &client, &demux)) {
@@ -1022,10 +1005,11 @@ static bool open_media_session(
   return true;
 }
 
-static bool recover_stalled_media_startup(
-    MediaStartupWatchdog *watchdog,
-    const MultiplexGatewayPlaybackManifest *manifest, HttpClient **client,
-    MpegPsDemux **demux, StagedMediaSession *staged) {
+static bool
+recover_stalled_media_startup(MediaStartupWatchdog *watchdog,
+                              const MultiplexGatewayPlaybackManifest *manifest,
+                              HttpClient **client, MpegPsDemux **demux,
+                              StagedMediaSession *staged) {
   if (watchdog == NULL || manifest == NULL || client == NULL || demux == NULL) {
     return false;
   }
@@ -1069,11 +1053,10 @@ static bool recover_stalled_media_startup(
     return true;
   }
   if (watchdog->restart_count >= MEDIA_STARTUP_RESTART_LIMIT) {
-    SYS_Report(
-        "REFERENCE GX: media startup recovery exhausted rating-key=%u "
-        "offset=%u attempts=%u\n",
-        manifest->rating_key, manifest->segment_start_ms,
-        watchdog->restart_count);
+    SYS_Report("REFERENCE GX: media startup recovery exhausted rating-key=%u "
+               "offset=%u attempts=%u\n",
+               manifest->rating_key, manifest->segment_start_ms,
+               watchdog->restart_count);
     return false;
   }
 
@@ -1081,16 +1064,15 @@ static bool recover_stalled_media_startup(
   SYS_Report(
       "REFERENCE GX: media startup made no progress rating-key=%u offset=%u "
       "retry=%u/%u\n",
-      manifest->rating_key, manifest->segment_start_ms,
-      watchdog->restart_count, MEDIA_STARTUP_RESTART_LIMIT);
+      manifest->rating_key, manifest->segment_start_ms, watchdog->restart_count,
+      MEDIA_STARTUP_RESTART_LIMIT);
   discard_staged_media_session(staged);
   close_media_session(client, demux);
   if (!open_media_session(manifest, client, demux)) {
-    SYS_Report(
-        "REFERENCE GX: media startup recovery failed rating-key=%u "
-        "offset=%u retry=%u\n",
-        manifest->rating_key, manifest->segment_start_ms,
-        watchdog->restart_count);
+    SYS_Report("REFERENCE GX: media startup recovery failed rating-key=%u "
+               "offset=%u retry=%u\n",
+               manifest->rating_key, manifest->segment_start_ms,
+               watchdog->restart_count);
     return false;
   }
   watchdog->started_tick = gettick();
@@ -1124,14 +1106,14 @@ static bool open_initial_media_session(HttpClient **client_out,
       demux = mpeg_ps_demux_create_reader_with_info(
           client, http_client_size(client), read_http_program, &info);
     } else {
-      demux = mpeg_ps_demux_create_reader(
-          client, http_client_size(client), read_http_program);
+      demux = mpeg_ps_demux_create_reader(client, http_client_size(client),
+                                          read_http_program);
     }
-    SYS_Report(
-        "REFERENCE GX: media-source=http rating-key=0 host=%s port=%u "
-        "bytes=%u ranges=%u\n",
-        http_client_host(client), http_client_port(client),
-        (unsigned)http_client_size(client), http_client_range_count(client));
+    SYS_Report("REFERENCE GX: media-source=http rating-key=0 host=%s port=%u "
+               "bytes=%u ranges=%u\n",
+               http_client_host(client), http_client_port(client),
+               (unsigned)http_client_size(client),
+               http_client_range_count(client));
     http_client_begin_stream(client);
   } else {
     if (MULTIPLEX_GATEWAY_URL[0] != '\0') {
@@ -1140,8 +1122,8 @@ static bool open_initial_media_session(HttpClient **client_out,
     }
     SYS_Report("REFERENCE GX: media-source=embedded bytes=%u\n",
                multiplex_dvd_demo_mpg_size);
-    demux = mpeg_ps_demux_create(
-        multiplex_dvd_demo_mpg, (size_t)multiplex_dvd_demo_mpg_size);
+    demux = mpeg_ps_demux_create(multiplex_dvd_demo_mpg,
+                                 (size_t)multiplex_dvd_demo_mpg_size);
   }
   if (demux == NULL) {
     SYS_Report("REFERENCE GX: MPEG-PS demux initialization failed\n");
@@ -1175,9 +1157,8 @@ static void *prepare_staged_media_session(void *argument) {
     return NULL;
   }
   staged->ready = true;
-  SYS_Report(
-      "REFERENCE GX: playback-session staged rating-key=%u offset=%u\n",
-      staged->rating_key, staged->offset_ms);
+  SYS_Report("REFERENCE GX: playback-session staged rating-key=%u offset=%u\n",
+             staged->rating_key, staged->offset_ms);
   return NULL;
 }
 
@@ -1188,9 +1169,8 @@ static bool start_staged_media_session(
       active_manifest == NULL || active_manifest->rating_key == 0) {
     return false;
   }
-  const uint64_t next_offset =
-      (uint64_t)active_manifest->segment_start_ms +
-      active_manifest->segment_duration_ms;
+  const uint64_t next_offset = (uint64_t)active_manifest->segment_start_ms +
+                               active_manifest->segment_duration_ms;
   if (next_offset >= active_manifest->media_duration_ms) {
     return false;
   }
@@ -1206,9 +1186,8 @@ static bool start_staged_media_session(
     reset_staged_media_session(staged);
     return false;
   }
-  SYS_Report(
-      "REFERENCE GX: playback-session staging rating-key=%u offset=%u\n",
-      staged->rating_key, staged->offset_ms);
+  SYS_Report("REFERENCE GX: playback-session staging rating-key=%u offset=%u\n",
+             staged->rating_key, staged->offset_ms);
   return true;
 }
 
@@ -1256,10 +1235,11 @@ static void finish_timeline_report(TimelineReporter *reporter) {
   reporter->complete = false;
 }
 
-static bool schedule_timeline_report(
-    TimelineReporter *reporter, const char *gateway_url, uint32_t rating_key,
-    uint32_t position_ms, uint32_t duration_ms, const char *state,
-    bool force) {
+static bool schedule_timeline_report(TimelineReporter *reporter,
+                                     const char *gateway_url,
+                                     uint32_t rating_key, uint32_t position_ms,
+                                     uint32_t duration_ms, const char *state,
+                                     bool force) {
   if (reporter->thread != LWP_THREAD_NULL && reporter->complete) {
     finish_timeline_report(reporter);
   }
@@ -1268,8 +1248,8 @@ static bool schedule_timeline_report(
     return false;
   }
   const bool same_item = reporter->last_rating_key == rating_key;
-  const bool same_state = reporter->last_state != NULL &&
-                          strcmp(reporter->last_state, state) == 0;
+  const bool same_state =
+      reporter->last_state != NULL && strcmp(reporter->last_state, state) == 0;
   const bool periodic_due =
       strcmp(state, "playing") == 0 && same_item && same_state &&
       position_ms >= reporter->last_position_ms + TIMELINE_REPORT_INTERVAL_MS;
@@ -1294,32 +1274,31 @@ static bool schedule_timeline_report(
   reporter->last_rating_key = rating_key;
   reporter->last_position_ms = position_ms;
   reporter->last_state = state;
-  SYS_Report(
-      "REFERENCE GX: timeline-report queued rating-key=%u position=%u "
-      "state=%s\n",
-      rating_key, position_ms, state);
+  SYS_Report("REFERENCE GX: timeline-report queued rating-key=%u position=%u "
+             "state=%s\n",
+             rating_key, position_ms, state);
   return true;
 }
 
-static void flush_timeline_report(
-    TimelineReporter *reporter, const char *gateway_url,
-    const MultiplexGatewayPlaybackManifest *manifest, uint32_t position_ms,
-    const char *state) {
+static void
+flush_timeline_report(TimelineReporter *reporter, const char *gateway_url,
+                      const MultiplexGatewayPlaybackManifest *manifest,
+                      uint32_t position_ms, const char *state) {
   finish_timeline_report(reporter);
   if (manifest == NULL || manifest->rating_key == 0) {
     return;
   }
-  if (schedule_timeline_report(
-          reporter, gateway_url, manifest->rating_key, position_ms,
-          manifest->media_duration_ms, state, true)) {
+  if (schedule_timeline_report(reporter, gateway_url, manifest->rating_key,
+                               position_ms, manifest->media_duration_ms, state,
+                               true)) {
     finish_timeline_report(reporter);
   }
 }
 
-static bool load_selected_playback(
-    const char *gateway_url,
-    MultiplexGatewayPlaybackManifest *active_manifest, HttpClient **client,
-    MpegPsDemux **demux) {
+static bool
+load_selected_playback(const char *gateway_url,
+                       MultiplexGatewayPlaybackManifest *active_manifest,
+                       HttpClient **client, MpegPsDemux **demux) {
   const uint32_t rating_key = multiplex_native_app_playback_request();
   if (rating_key == 0) {
     return true;
@@ -1327,8 +1306,7 @@ static bool load_selected_playback(
   const uint32_t offset_ms = multiplex_native_app_playback_offset_request();
   MultiplexGatewayPlaybackManifest requested;
   if (!multiplex_gateway_load_playback_manifest(gateway_url, rating_key,
-                                                offset_ms,
-                                                &requested)) {
+                                                offset_ms, &requested)) {
     if (multiplex_native_app_playback_fail() == 0) {
       return false;
     }
@@ -1351,10 +1329,10 @@ static bool load_selected_playback(
     }
     *active_manifest = requested;
     if (replacing_session) {
-      SYS_Report(
-          "REFERENCE GX: playback-session switched previous=%u active=%u offset=%u\n",
-          previous_rating_key, requested.rating_key,
-          requested.segment_start_ms);
+      SYS_Report("REFERENCE GX: playback-session switched previous=%u "
+                 "active=%u offset=%u\n",
+                 previous_rating_key, requested.rating_key,
+                 requested.segment_start_ms);
     } else {
       SYS_Report(
           "REFERENCE GX: playback-session activated rating-key=%u offset=%u\n",
@@ -1369,8 +1347,8 @@ static bool load_selected_playback(
   return true;
 }
 
-static uint32_t playback_position_ms(
-    const MultiplexGatewayPlaybackManifest *manifest) {
+static uint32_t
+playback_position_ms(const MultiplexGatewayPlaybackManifest *manifest) {
   if (manifest == NULL || manifest->rating_key == 0 || audio_output == NULL) {
     return manifest == NULL ? 0 : manifest->segment_start_ms;
   }
@@ -1396,12 +1374,11 @@ static void configure_color_pipeline(void) {
   GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
   GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
   GX_SetNumChans(1);
-  GX_SetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_REG, GX_SRC_VTX,
-                 GX_LIGHTNULL, GX_DF_NONE, GX_AF_NONE);
+  GX_SetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_REG, GX_SRC_VTX, GX_LIGHTNULL,
+                 GX_DF_NONE, GX_AF_NONE);
   GX_SetNumTexGens(0);
   GX_SetNumTevStages(1);
-  GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORDNULL, GX_TEXMAP_NULL,
-                 GX_COLOR0A0);
+  GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORDNULL, GX_TEXMAP_NULL, GX_COLOR0A0);
   GX_SetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
 }
 
@@ -1457,8 +1434,8 @@ static void draw_poster_surfaces(void) {
     GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
     texture_vertex(surface->x, surface->y, 0.0f, 0.0f);
     texture_vertex(surface->x + surface->width, surface->y, 1.0f, 0.0f);
-    texture_vertex(surface->x + surface->width,
-                   surface->y + surface->height, 1.0f, 1.0f);
+    texture_vertex(surface->x + surface->width, surface->y + surface->height,
+                   1.0f, 1.0f);
     texture_vertex(surface->x, surface->y + surface->height, 0.0f, 1.0f);
     GX_End();
   }
@@ -1540,13 +1517,11 @@ static void draw_video_surface(void) {
   if (playing && media_elapsed_samples >= 0) {
     desired_completions =
         video_audio_start_completions + 1u +
-        (uint32_t)(((uint64_t)media_elapsed_samples *
-                    VIDEO_RATE_NUMERATOR) /
+        (uint32_t)(((uint64_t)media_elapsed_samples * VIDEO_RATE_NUMERATOR) /
                    (AUDIO_SAMPLE_RATE * VIDEO_RATE_DENOMINATOR));
   }
   const bool cadence_due =
-      (!video_texture_ready &&
-       (!playing || media_elapsed_samples >= 0)) ||
+      (!video_texture_ready && (!playing || media_elapsed_samples >= 0)) ||
       (playing && video_decode_completion_count < desired_completions);
   if (cadence_due && !video_decode_running && !video_decode_ready &&
       !video_decode_failed) {
@@ -1557,15 +1532,13 @@ static void draw_video_surface(void) {
   }
   decoder_failed = video_decode_failed;
   if (playback_changed) {
-    SYS_Report(
-        "REFERENCE GX: playback=%s clock=audio samples=%llu "
-        "pts-offset-samples=%lld target=%u decoder requests=%u "
-        "completed=%u running=%u ready=%u\n",
-        playing ? "playing" : "paused", audio_samples,
-        video_pts_offset_samples, desired_completions,
-        video_decode_request_count,
-        video_decode_completion_count, video_decode_running,
-        video_decode_ready);
+    SYS_Report("REFERENCE GX: playback=%s clock=audio samples=%llu "
+               "pts-offset-samples=%lld target=%u decoder requests=%u "
+               "completed=%u running=%u ready=%u\n",
+               playing ? "playing" : "paused", audio_samples,
+               video_pts_offset_samples, desired_completions,
+               video_decode_request_count, video_decode_completion_count,
+               video_decode_running, video_decode_ready);
   }
   LWP_MutexUnlock(video_decoder_mutex);
 
@@ -1580,8 +1553,8 @@ static void draw_video_surface(void) {
   yuv420_gx_draw(left, top, right, bottom);
 }
 
-static void draw_playback_progress(
-    const MultiplexGatewayPlaybackManifest *manifest) {
+static void
+draw_playback_progress(const MultiplexGatewayPlaybackManifest *manifest) {
   if (video_surface.visible == 0 || manifest == NULL ||
       manifest->rating_key == 0 || manifest->media_duration_ms == 0) {
     return;
@@ -1595,8 +1568,7 @@ static void draw_playback_progress(
       (float)position_ms / (float)manifest->media_duration_ms;
   const float filled = left + (right - left) * progress;
   configure_color_pipeline();
-  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
-                  GX_LO_CLEAR);
+  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
   fill_rect(left, top, right, bottom, (GXColor){24, 24, 27, 210});
   if (filled > left) {
     fill_rect(left, top, filled, bottom, (GXColor){250, 250, 250, 255});
@@ -1604,8 +1576,8 @@ static void draw_playback_progress(
   GX_SetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_CLEAR);
 }
 
-static void present_frame(
-    const MultiplexGatewayPlaybackManifest *playback_manifest) {
+static void
+present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
   if (native_frame_dirty && !refresh_reference_frame(false)) {
     native_frame_dirty = false;
   }
@@ -1628,9 +1600,7 @@ static void present_frame(
   if (presentation_frames == 120) {
     const uint32_t measured_us = elapsed_us(presentation_started);
     const uint32_t fps_tenths =
-        measured_us == 0
-            ? 0
-            : (uint32_t)((120ull * 10000000ull) / measured_us);
+        measured_us == 0 ? 0 : (uint32_t)((120ull * 10000000ull) / measured_us);
     SYS_Report("REFERENCE GX: presentation=120 frames/%uus (%u.%u fps)\n",
                measured_us, fps_tenths / 10, fps_tenths % 10);
     if (media_demux != NULL) {
@@ -1675,10 +1645,10 @@ static void pause_audio_for_player_input(
   }
 }
 
-static bool activate_staged_media_session(
-    StagedMediaSession *staged,
-    MultiplexGatewayPlaybackManifest *active_manifest, HttpClient **client,
-    MpegPsDemux **demux) {
+static bool
+activate_staged_media_session(StagedMediaSession *staged,
+                              MultiplexGatewayPlaybackManifest *active_manifest,
+                              HttpClient **client, MpegPsDemux **demux) {
   join_staged_media_session(staged);
   if (!staged->ready || staged->failed || staged->client == NULL ||
       staged->demux == NULL) {
@@ -1709,24 +1679,21 @@ static bool activate_staged_media_session(
       mpeg_ps_demux_video_bytes_pumped(*demux),
       mpeg_ps_demux_audio_bytes_pumped(*demux));
   SYS_Report("REFERENCE GX: playback-session ready rating-key=%u offset=%u\n",
-             active_manifest->rating_key,
-             active_manifest->segment_start_ms);
+             active_manifest->rating_key, active_manifest->segment_start_ms);
   return true;
 }
 
 static bool continue_playback_if_needed(
-    const char *gateway_url,
-    MultiplexGatewayPlaybackManifest *active_manifest, HttpClient **client,
-    MpegPsDemux **demux, StagedMediaSession *staged) {
-  if (gateway_url == NULL || gateway_url[0] == '\0' || active_manifest == NULL ||
-      active_manifest->rating_key == 0 || !video_was_playing ||
-      audio_output == NULL) {
+    const char *gateway_url, MultiplexGatewayPlaybackManifest *active_manifest,
+    HttpClient **client, MpegPsDemux **demux, StagedMediaSession *staged) {
+  if (gateway_url == NULL || gateway_url[0] == '\0' ||
+      active_manifest == NULL || active_manifest->rating_key == 0 ||
+      !video_was_playing || audio_output == NULL) {
     return true;
   }
   const uint32_t position_ms = playback_position_ms(active_manifest);
-  const uint64_t segment_end =
-      (uint64_t)active_manifest->segment_start_ms +
-      active_manifest->segment_duration_ms;
+  const uint64_t segment_end = (uint64_t)active_manifest->segment_start_ms +
+                               active_manifest->segment_duration_ms;
   if ((uint64_t)position_ms + SEGMENT_HANDOFF_MARGIN_MS < segment_end) {
     return true;
   }
@@ -1738,8 +1705,7 @@ static bool continue_playback_if_needed(
     }
     native_frame_dirty = true;
     SYS_Report("REFERENCE GX: playback-complete rating-key=%u duration=%u\n",
-               active_manifest->rating_key,
-               active_manifest->media_duration_ms);
+               active_manifest->rating_key, active_manifest->media_duration_ms);
     return true;
   }
   const uint32_t next_offset_ms = (uint32_t)segment_end;
@@ -1805,17 +1771,16 @@ static void *run_app(void *unused) {
   const bool has_catalog =
       MULTIPLEX_GATEWAY_URL[0] != '\0' &&
       multiplex_gateway_load_catalog(MULTIPLEX_GATEWAY_URL, &catalog);
-  if (has_catalog &&
-      !initialize_poster_textures(MULTIPLEX_GATEWAY_URL,
-                                  catalog.total_item_count)) {
-    SYS_Report("REFERENCE GX: gateway artwork unavailable; using placeholders\n");
+  if (has_catalog && !initialize_poster_textures(MULTIPLEX_GATEWAY_URL,
+                                                 catalog.total_item_count)) {
+    SYS_Report(
+        "REFERENCE GX: gateway artwork unavailable; using placeholders\n");
   }
   multiplex_native_app_init();
   if (has_catalog) {
     if (multiplex_native_app_catalog_begin(
-            (const uint8_t *)catalog.server_name,
-            catalog.server_name_length, catalog.row_count,
-            catalog.library_count) == 0) {
+            (const uint8_t *)catalog.server_name, catalog.server_name_length,
+            catalog.row_count, catalog.library_count) == 0) {
       SYS_Report("REFERENCE GX: failed to bind gateway catalog to app\n");
       return (void *)(uintptr_t)1;
     }
@@ -1871,20 +1836,27 @@ static void *run_app(void *unused) {
   if (stored_auth == MULTIPLEX_MEMORY_CARD_OK) {
     device_auth.status = MULTIPLEX_DEVICE_AUTH_LINKED;
     SYS_Report("REFERENCE GX: auth restored slot=%c generation=%u\n",
-               auth_location.slot == 0 ? 'A' : 'B',
-               auth_location.generation);
+               auth_location.slot == 0 ? 'A' : 'B', auth_location.generation);
+    bool credentials_changed = false;
     if (auth_credentials.plex_token[0] == '\0') {
       const bool credentials_refreshed =
           multiplex_device_auth_refresh_credentials(auth_credentials.origin,
                                                     &auth_credentials);
       SYS_Report("REFERENCE GX: Plex credential refresh=%u\n",
                  credentials_refreshed ? 1u : 0u);
-      if (credentials_refreshed) {
-        const MultiplexMemoryCardResult refreshed =
-            multiplex_memory_card_save_auth(&auth_credentials, &auth_location);
-        SYS_Report("REFERENCE GX: Plex credential persistence=%s\n",
-                   multiplex_memory_card_result_message(refreshed));
-      }
+      credentials_changed = credentials_refreshed;
+    }
+    if (auth_credentials.plex_server_url[0] == '\0' &&
+        multiplex_plex_bootstrap_credentials(&auth_credentials,
+                                             MULTIPLEX_PLEX_BASE_URL)) {
+      credentials_changed = true;
+    }
+    if (credentials_changed) {
+      SYS_Report("REFERENCE GX: persisting refreshed Plex credentials\n");
+      const MultiplexMemoryCardResult refreshed =
+          multiplex_memory_card_save_auth(&auth_credentials, &auth_location);
+      SYS_Report("REFERENCE GX: Plex credential persistence=%s\n",
+                 multiplex_memory_card_result_message(refreshed));
     }
   } else if (!multiplex_device_auth_begin(MULTIPLEX_BASE_URL, &device_auth)) {
     device_auth.status = MULTIPLEX_DEVICE_AUTH_UNAVAILABLE;
@@ -1903,12 +1875,12 @@ static void *run_app(void *unused) {
 #endif
   const bool has_playback_manifest =
       MULTIPLEX_GATEWAY_URL[0] != '\0' &&
-      multiplex_gateway_load_playback_manifest(MULTIPLEX_GATEWAY_URL, 0,
-                                               0, &playback_manifest);
+      multiplex_gateway_load_playback_manifest(MULTIPLEX_GATEWAY_URL, 0, 0,
+                                               &playback_manifest);
   if (has_playback_manifest) {
-    SYS_Report(
-        "REFERENCE GX: playback-session deferred rating-key=%u until selected\n",
-        playback_manifest.rating_key);
+    SYS_Report("REFERENCE GX: playback-session deferred rating-key=%u until "
+               "selected\n",
+               playback_manifest.rating_key);
   } else if (!open_initial_media_session(&client, &demux)) {
     return (void *)(uintptr_t)1;
   }
@@ -1927,9 +1899,8 @@ static void *run_app(void *unused) {
 #if MULTIPLEX_PAIRING_ENABLED
     if (!pairing_linked &&
         device_auth.status == MULTIPLEX_DEVICE_AUTH_WAITING &&
-        ++pairing_poll_frames >=
-            (uint32_t)device_auth.interval_seconds *
-                PAIRING_POLL_INTERVAL_FRAMES) {
+        ++pairing_poll_frames >= (uint32_t)device_auth.interval_seconds *
+                                     PAIRING_POLL_INTERVAL_FRAMES) {
       pairing_poll_frames = 0;
       const MultiplexDeviceAuthStatus previous_status = device_auth.status;
       if (!multiplex_device_auth_poll(MULTIPLEX_BASE_URL, &device_auth,
@@ -1937,9 +1908,10 @@ static void *run_app(void *unused) {
         SYS_Report("REFERENCE GX: device authorization poll unavailable\n");
       }
       if (device_auth.status != previous_status) {
-        pairing_linked =
-            device_auth.status == MULTIPLEX_DEVICE_AUTH_LINKED;
+        pairing_linked = device_auth.status == MULTIPLEX_DEVICE_AUTH_LINKED;
         if (pairing_linked) {
+          multiplex_plex_bootstrap_credentials(&auth_credentials,
+                                               MULTIPLEX_PLEX_BASE_URL);
           const MultiplexMemoryCardResult saved =
               multiplex_memory_card_save_auth(&auth_credentials,
                                               &auth_location);
@@ -1973,40 +1945,32 @@ static void *run_app(void *unused) {
         multiplex_native_app_input(1) != 0) {
       app_changed = true;
     }
-    if ((pressed & PAD_BUTTON_UP) != 0 &&
-        multiplex_native_app_input(8) != 0) {
+    if ((pressed & PAD_BUTTON_UP) != 0 && multiplex_native_app_input(8) != 0) {
       app_changed = true;
     }
     if ((pressed & PAD_BUTTON_DOWN) != 0 &&
         multiplex_native_app_input(9) != 0) {
       app_changed = true;
     }
-    if ((pressed & PAD_BUTTON_A) != 0 &&
-        multiplex_native_app_input(2) != 0) {
+    if ((pressed & PAD_BUTTON_A) != 0 && multiplex_native_app_input(2) != 0) {
       app_changed = true;
     }
-    if ((pressed & PAD_BUTTON_B) != 0 &&
-        multiplex_native_app_input(3) != 0) {
+    if ((pressed & PAD_BUTTON_B) != 0 && multiplex_native_app_input(3) != 0) {
       app_changed = true;
     }
-    if ((pressed & PAD_BUTTON_Y) != 0 &&
-        multiplex_native_app_input(4) != 0) {
+    if ((pressed & PAD_BUTTON_Y) != 0 && multiplex_native_app_input(4) != 0) {
       app_changed = true;
     }
-    if ((pressed & PAD_BUTTON_X) != 0 &&
-        multiplex_native_app_input(5) != 0) {
+    if ((pressed & PAD_BUTTON_X) != 0 && multiplex_native_app_input(5) != 0) {
       app_changed = true;
     }
-    if ((pressed & PAD_TRIGGER_R) != 0 &&
-        multiplex_native_app_input(6) != 0) {
+    if ((pressed & PAD_TRIGGER_R) != 0 && multiplex_native_app_input(6) != 0) {
       app_changed = true;
     }
-    if ((pressed & PAD_TRIGGER_L) != 0 &&
-        multiplex_native_app_input(7) != 0) {
+    if ((pressed & PAD_TRIGGER_L) != 0 && multiplex_native_app_input(7) != 0) {
       app_changed = true;
     }
-    if ((pressed & PAD_TRIGGER_Z) != 0 &&
-        multiplex_native_app_input(10) != 0) {
+    if ((pressed & PAD_TRIGGER_Z) != 0 && multiplex_native_app_input(10) != 0) {
       app_changed = true;
     }
     if (app_changed) {
@@ -2027,8 +1991,8 @@ static void *run_app(void *unused) {
         discard_staged_media_session(&staged_media);
       }
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
-          !load_selected_playback(MULTIPLEX_GATEWAY_URL,
-                                  &playback_manifest, &client, &demux)) {
+          !load_selected_playback(MULTIPLEX_GATEWAY_URL, &playback_manifest,
+                                  &client, &demux)) {
         SYS_Report("REFERENCE GX: playback-session load failed\n");
       }
       native_frame_dirty = true;
@@ -2037,9 +2001,9 @@ static void *run_app(void *unused) {
       break;
     }
     present_frame(&playback_manifest);
-    if (!recover_stalled_media_startup(
-            &media_startup_watchdog, &playback_manifest, &client, &demux,
-            &staged_media)) {
+    if (!recover_stalled_media_startup(&media_startup_watchdog,
+                                       &playback_manifest, &client, &demux,
+                                       &staged_media)) {
       break;
     }
     if (video_surface.visible != 0) {
@@ -2057,19 +2021,18 @@ static void *run_app(void *unused) {
       }
       timeline_player_visible = true;
     } else if (timeline_player_visible) {
-      if (schedule_timeline_report(
-              &timeline_reporter, MULTIPLEX_GATEWAY_URL,
-              playback_manifest.rating_key,
-              playback_position_ms(&playback_manifest),
-              playback_manifest.media_duration_ms, "stopped", false)) {
+      if (schedule_timeline_report(&timeline_reporter, MULTIPLEX_GATEWAY_URL,
+                                   playback_manifest.rating_key,
+                                   playback_position_ms(&playback_manifest),
+                                   playback_manifest.media_duration_ms,
+                                   "stopped", false)) {
         timeline_player_visible = false;
       }
     }
     stage_following_media_if_due(&staged_media, MULTIPLEX_GATEWAY_URL,
                                  &playback_manifest);
-    if (!continue_playback_if_needed(MULTIPLEX_GATEWAY_URL,
-                                     &playback_manifest, &client, &demux,
-                                     &staged_media)) {
+    if (!continue_playback_if_needed(MULTIPLEX_GATEWAY_URL, &playback_manifest,
+                                     &client, &demux, &staged_media)) {
       SYS_Report("REFERENCE GX: playback continuation failed\n");
       break;
     }
@@ -2077,9 +2040,9 @@ static void *run_app(void *unused) {
 
   discard_staged_media_session(&staged_media);
   if (timeline_started) {
-    flush_timeline_report(
-        &timeline_reporter, MULTIPLEX_GATEWAY_URL, &playback_manifest,
-        playback_position_ms(&playback_manifest), "stopped");
+    flush_timeline_report(&timeline_reporter, MULTIPLEX_GATEWAY_URL,
+                          &playback_manifest,
+                          playback_position_ms(&playback_manifest), "stopped");
   } else {
     finish_timeline_report(&timeline_reporter);
   }

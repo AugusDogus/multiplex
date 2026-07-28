@@ -9,6 +9,10 @@
 #define MULTIPLEX_AUTH_SESSION_TOKEN_CAPACITY 256
 #define MULTIPLEX_AUTH_PLEX_TOKEN_CAPACITY 1024
 #define MULTIPLEX_AUTH_PLEX_CLIENT_ID_CAPACITY 96
+#define MULTIPLEX_AUTH_PLEX_SERVER_URL_CAPACITY 256
+#define MULTIPLEX_AUTH_PLEX_SERVER_TOKEN_CAPACITY 1024
+#define MULTIPLEX_AUTH_PLEX_SERVER_ID_CAPACITY 64
+#define MULTIPLEX_AUTH_PLEX_SERVER_NAME_CAPACITY 96
 #define MULTIPLEX_AUTH_RECORD_HEADER_SIZE 24u
 
 typedef struct {
@@ -16,6 +20,10 @@ typedef struct {
   char session_token[MULTIPLEX_AUTH_SESSION_TOKEN_CAPACITY];
   char plex_token[MULTIPLEX_AUTH_PLEX_TOKEN_CAPACITY];
   char plex_client_id[MULTIPLEX_AUTH_PLEX_CLIENT_ID_CAPACITY];
+  char plex_server_url[MULTIPLEX_AUTH_PLEX_SERVER_URL_CAPACITY];
+  char plex_server_token[MULTIPLEX_AUTH_PLEX_SERVER_TOKEN_CAPACITY];
+  char plex_server_id[MULTIPLEX_AUTH_PLEX_SERVER_ID_CAPACITY];
+  char plex_server_name[MULTIPLEX_AUTH_PLEX_SERVER_NAME_CAPACITY];
   uint64_t session_expires_at_unix;
 } MultiplexAuthCredentials;
 
@@ -31,9 +39,10 @@ bool multiplex_auth_record_encode(uint8_t *destination, size_t capacity,
 bool multiplex_auth_record_decode(const uint8_t *record, size_t size,
                                   MultiplexAuthCredentials *credentials,
                                   uint32_t *generation);
-MultiplexAuthRecordSelection multiplex_auth_record_select(
-    const uint8_t *first, size_t first_size, const uint8_t *second,
-    size_t second_size, MultiplexAuthCredentials *credentials,
-    uint32_t *generation);
+MultiplexAuthRecordSelection
+multiplex_auth_record_select(const uint8_t *first, size_t first_size,
+                             const uint8_t *second, size_t second_size,
+                             MultiplexAuthCredentials *credentials,
+                             uint32_t *generation);
 
 #endif

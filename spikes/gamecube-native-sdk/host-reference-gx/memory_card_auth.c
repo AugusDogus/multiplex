@@ -98,7 +98,11 @@ static bool credentials_equal(const MultiplexAuthCredentials *first,
          strcmp(first->origin, second->origin) == 0 &&
          strcmp(first->session_token, second->session_token) == 0 &&
          strcmp(first->plex_token, second->plex_token) == 0 &&
-         strcmp(first->plex_client_id, second->plex_client_id) == 0;
+         strcmp(first->plex_client_id, second->plex_client_id) == 0 &&
+         strcmp(first->plex_server_url, second->plex_server_url) == 0 &&
+         strcmp(first->plex_server_token, second->plex_server_token) == 0 &&
+         strcmp(first->plex_server_id, second->plex_server_id) == 0 &&
+         strcmp(first->plex_server_name, second->plex_server_name) == 0;
 }
 
 static MultiplexMemoryCardResult read_records(
@@ -211,6 +215,8 @@ static MultiplexMemoryCardResult save_to_slot(
     int slot, const MultiplexAuthCredentials *credentials,
     MultiplexMemoryCardLocation *location) {
   int sector_size = 0;
+  SYS_Report("REFERENCE GX: memory-card save slot=%c begin\n",
+             slot == CARD_SLOTA ? 'A' : 'B');
   MultiplexMemoryCardResult result = mount_slot(slot, &sector_size);
   if (result != MULTIPLEX_MEMORY_CARD_OK) {
     return result;
@@ -265,6 +271,10 @@ static MultiplexMemoryCardResult save_to_slot(
       selected == MULTIPLEX_AUTH_RECORD_FIRST ? 1u : 0u;
   const uint32_t next_generation =
       selected == MULTIPLEX_AUTH_RECORD_NONE ? 1u : current_generation + 1u;
+  SYS_Report(
+      "REFERENCE GX: memory-card save slot=%c selected=%u generation=%u "
+      "sector=%d\n",
+      slot == CARD_SLOTA ? 'A' : 'B', selected, next_generation, sector_size);
   uint8_t *target = target_index == 0 ? first : second;
   if (!multiplex_auth_record_encode(target, (size_t)sector_size, credentials,
                                     next_generation)) {
@@ -273,6 +283,8 @@ static MultiplexMemoryCardResult save_to_slot(
     card_result =
         CARD_Write(&file, target, (uint32_t)sector_size,
                    (uint32_t)(target_index * (unsigned)sector_size));
+    SYS_Report("REFERENCE GX: memory-card write slot=%c target=%u result=%d\n",
+               slot == CARD_SLOTA ? 'A' : 'B', target_index, card_result);
     if (card_result < CARD_ERROR_READY) {
       result = map_card_error(card_result);
     } else {

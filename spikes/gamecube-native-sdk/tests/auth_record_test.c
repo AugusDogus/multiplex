@@ -13,6 +13,10 @@ static MultiplexAuthCredentials credentials(const char *session_token) {
   strcpy(value.session_token, session_token);
   strcpy(value.plex_token, "plex-device-token");
   strcpy(value.plex_client_id, "multiplex-gamecube-1234");
+  strcpy(value.plex_server_url, "http://192.0.2.10:32400");
+  strcpy(value.plex_server_token, "plex-server-token");
+  strcpy(value.plex_server_id, "server-machine-id");
+  strcpy(value.plex_server_name, "Living Room Plex");
   value.session_expires_at_unix = UINT64_C(2000000000);
   return value;
 }
@@ -50,20 +54,20 @@ static void test_selects_newest_valid_copy(void) {
   MultiplexAuthCredentials actual;
   uint32_t generation = 0;
 
-  assert(multiplex_auth_record_encode(first, sizeof(first), &old_credentials,
-                                      41));
+  assert(
+      multiplex_auth_record_encode(first, sizeof(first), &old_credentials, 41));
   assert(multiplex_auth_record_encode(second, sizeof(second), &new_credentials,
                                       42));
-  assert(multiplex_auth_record_select(
-             first, sizeof(first), second, sizeof(second), &actual,
-             &generation) == MULTIPLEX_AUTH_RECORD_SECOND);
+  assert(multiplex_auth_record_select(first, sizeof(first), second,
+                                      sizeof(second), &actual, &generation) ==
+         MULTIPLEX_AUTH_RECORD_SECOND);
   assert(generation == 42);
   assert(strcmp(actual.session_token, "new") == 0);
 
   second[0] = 0;
-  assert(multiplex_auth_record_select(
-             first, sizeof(first), second, sizeof(second), &actual,
-             &generation) == MULTIPLEX_AUTH_RECORD_FIRST);
+  assert(multiplex_auth_record_select(first, sizeof(first), second,
+                                      sizeof(second), &actual, &generation) ==
+         MULTIPLEX_AUTH_RECORD_FIRST);
   assert(generation == 41);
   assert(strcmp(actual.session_token, "old") == 0);
 }
@@ -79,9 +83,9 @@ static void test_generation_wrap(void) {
   assert(multiplex_auth_record_encode(first, sizeof(first), &before_wrap,
                                       UINT32_MAX));
   assert(multiplex_auth_record_encode(second, sizeof(second), &after_wrap, 0));
-  assert(multiplex_auth_record_select(
-             first, sizeof(first), second, sizeof(second), &actual,
-             &generation) == MULTIPLEX_AUTH_RECORD_SECOND);
+  assert(multiplex_auth_record_select(first, sizeof(first), second,
+                                      sizeof(second), &actual, &generation) ==
+         MULTIPLEX_AUTH_RECORD_SECOND);
   assert(generation == 0);
   assert(strcmp(actual.session_token, "after-wrap") == 0);
 }

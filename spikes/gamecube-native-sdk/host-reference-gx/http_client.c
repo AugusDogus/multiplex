@@ -21,7 +21,7 @@
 
 #define HTTP_HEADER_LIMIT 4096
 #define HTTP_REQUEST_LIMIT 768
-#define HTTP_HOST_LIMIT 64
+#define HTTP_HOST_LIMIT 128
 #define HTTP_PATH_LIMIT 512
 #define HTTP_MAX_MEDIA_SIZE UINT32_MAX
 #define HTTP_CACHE_SIZE (32u * 1024u)
@@ -29,7 +29,7 @@
 #define HTTP_IO_TIMEOUT_SECONDS 8
 #define HTTP_STREAM_TIMEOUT_SECONDS 2
 #define HTTP_RANGE_ATTEMPTS 4
-#define HTTP_JSON_REQUEST_LIMIT 2048
+#define HTTP_JSON_REQUEST_LIMIT 4096
 #define HTTP_JSON_FRAMING_ALLOWANCE 2048
 
 typedef struct {
@@ -219,8 +219,8 @@ static bool read_headers(HttpClient *client, char *headers, size_t capacity,
   size_t used = 0;
   while (used + 1u < capacity) {
     const size_t previous = used;
-    const int result = read_available(client->socket, headers + used,
-                                      capacity - used - 1u);
+    const int result =
+        read_available(client->socket, headers + used, capacity - used - 1u);
     if (result <= 0) {
       return false;
     }
@@ -320,8 +320,8 @@ static bool parse_stream_headers(char *headers, size_t expected_start,
       unsigned long parsed_start = 0;
       unsigned long parsed_end = 0;
       unsigned long parsed_total = 0;
-      if (sscanf(line + 14, " bytes %lu-%lu/%lu", &parsed_start,
-                 &parsed_end, &parsed_total) != 3) {
+      if (sscanf(line + 14, " bytes %lu-%lu/%lu", &parsed_start, &parsed_end,
+                 &parsed_total) != 3) {
         return false;
       }
       range_start = (size_t)parsed_start;
@@ -405,8 +405,8 @@ static bool decode_chunked_body(const uint8_t *encoded, size_t encoded_size,
       }
       chunk_size = chunk_size * 16u + digit;
     }
-    if (!saw_digit || input + 2u > encoded_size ||
-        encoded[input] != '\r' || encoded[input + 1u] != '\n') {
+    if (!saw_digit || input + 2u > encoded_size || encoded[input] != '\r' ||
+        encoded[input + 1u] != '\n') {
       return false;
     }
     input += 2u;
@@ -418,8 +418,7 @@ static bool decode_chunked_body(const uint8_t *encoded, size_t encoded_size,
       *decoded_size = output;
       return true;
     }
-    if (chunk_size > encoded_size - input ||
-        chunk_size >= capacity - output) {
+    if (chunk_size > encoded_size - input || chunk_size >= capacity - output) {
       return false;
     }
     memcpy(destination + output, encoded + input, chunk_size);
@@ -437,8 +436,8 @@ static bool decode_chunked_body(const uint8_t *encoded, size_t encoded_size,
 static bool read_body(HttpClient *client, uint8_t *destination, size_t size) {
   size_t received = 0;
   while (received < size) {
-    const int result = read_available(client->socket, destination + received,
-                                      size - received);
+    const int result =
+        read_available(client->socket, destination + received, size - received);
     if (result <= 0 || (size_t)result > size - received) {
       return false;
     }
@@ -494,14 +493,13 @@ static bool fetch_cache_once(HttpClient *client, size_t start) {
   const bool valid_headers = parse_headers(headers, &response);
   headers[header_size] = first_body_byte;
   const size_t prefetched = response_size - header_size;
-  const size_t expected_end =
-      valid_headers && end >= response.range_total ? response.range_total - 1u
-                                                   : end;
+  const size_t expected_end = valid_headers && end >= response.range_total
+                                  ? response.range_total - 1u
+                                  : end;
   if (!valid_headers || response.range_start != start ||
       response.range_end != expected_end ||
       prefetched > response.content_length ||
-      (client->total_size != 0 &&
-       response.range_total != client->total_size)) {
+      (client->total_size != 0 && response.range_total != client->total_size)) {
     SYS_Report("REFERENCE GX: HTTP range response invalid offset=%u\n",
                (unsigned)start);
     return false;
@@ -531,9 +529,8 @@ static bool fetch_cache(HttpClient *client, size_t start) {
     }
     disconnect_client(client);
     if (attempt != HTTP_RANGE_ATTEMPTS) {
-      SYS_Report(
-          "REFERENCE GX: HTTP range retry offset=%u attempt=%u/%u\n",
-          (unsigned)start, attempt + 1u, HTTP_RANGE_ATTEMPTS);
+      SYS_Report("REFERENCE GX: HTTP range retry offset=%u attempt=%u/%u\n",
+                 (unsigned)start, attempt + 1u, HTTP_RANGE_ATTEMPTS);
       usleep(100000);
     }
   }
@@ -571,8 +568,7 @@ static bool start_stream_response(HttpClient *client, size_t start) {
   }
   const char first_body_byte = headers[header_size];
   headers[header_size] = '\0';
-  const bool valid =
-      parse_stream_headers(headers, start, client->total_size);
+  const bool valid = parse_stream_headers(headers, start, client->total_size);
   headers[header_size] = first_body_byte;
   const size_t prefetched = response_size - header_size;
   if (!valid || prefetched > sizeof(client->stream_prefetch) ||
@@ -586,8 +582,7 @@ static bool start_stream_response(HttpClient *client, size_t start) {
   return true;
 }
 
-static bool stream_read(HttpClient *client, uint8_t *destination,
-                        size_t size) {
+static bool stream_read(HttpClient *client, uint8_t *destination, size_t size) {
   size_t copied = 0;
   while (copied < size &&
          client->stream_prefetch_offset < client->stream_prefetch_size) {
@@ -608,9 +603,9 @@ static bool stream_read(HttpClient *client, uint8_t *destination,
     const size_t remaining = size - copied;
     const size_t request_size =
         remaining < HTTP_CACHE_SIZE ? remaining : HTTP_CACHE_SIZE;
-    const int result = read_available_with_timeout(
-        client->socket, destination + copied, request_size,
-        HTTP_STREAM_TIMEOUT_SECONDS);
+    const int result =
+        read_available_with_timeout(client->socket, destination + copied,
+                                    request_size, HTTP_STREAM_TIMEOUT_SECONDS);
     if (result <= 0 || (size_t)result > request_size) {
       return false;
     }
@@ -639,8 +634,8 @@ static bool stream_read_at(HttpClient *client, size_t offset,
     bool discarded = true;
     while (client->stream_position < offset) {
       const size_t remaining = offset - client->stream_position;
-      const size_t chunk = remaining < sizeof(discard) ? remaining
-                                                        : sizeof(discard);
+      const size_t chunk =
+          remaining < sizeof(discard) ? remaining : sizeof(discard);
       if (!stream_read(client, discard, chunk)) {
         discarded = false;
         break;
@@ -652,9 +647,8 @@ static bool stream_read_at(HttpClient *client, size_t offset,
     }
     disconnect_client(client);
     if (!client->stopping && attempt != HTTP_RANGE_ATTEMPTS) {
-      SYS_Report(
-          "REFERENCE GX: HTTP stream retry offset=%u attempt=%u/%u\n",
-          (unsigned)offset, attempt + 1u, HTTP_RANGE_ATTEMPTS);
+      SYS_Report("REFERENCE GX: HTTP stream retry offset=%u attempt=%u/%u\n",
+                 (unsigned)offset, attempt + 1u, HTTP_RANGE_ATTEMPTS);
       usleep(100000);
     }
   }
@@ -681,8 +675,8 @@ HttpClient *http_client_open(const char *url) {
     network_initialized = true;
   }
   if (!connect_client(client, first_connection) || !fetch_cache(client, 0)) {
-    SYS_Report("REFERENCE GX: HTTP open failed host=%s port=%u\n",
-               client->host, client->port);
+    SYS_Report("REFERENCE GX: HTTP open failed host=%s port=%u\n", client->host,
+               client->port);
     http_client_destroy(client);
     return NULL;
   }
@@ -748,8 +742,8 @@ void http_client_destroy(HttpClient *client) {
 
 bool http_client_read_at(HttpClient *client, size_t offset,
                          uint8_t *destination, size_t size) {
-  if (client == NULL || destination == NULL ||
-      offset > client->total_size || size > client->total_size - offset) {
+  if (client == NULL || destination == NULL || offset > client->total_size ||
+      size > client->total_size - offset) {
     return false;
   }
   if (client->small_media != NULL) {
@@ -800,8 +794,39 @@ bool http_client_request_json(const char *method, const char *url,
                               const char *bearer_token, const char *body,
                               char *destination, size_t capacity,
                               HttpJsonResponse *response) {
+  const HttpRequestHeader header = {
+      .name = "Authorization",
+      .value = bearer_token,
+  };
+  return http_client_request_with_headers(
+      method, url,
+      bearer_token == NULL || bearer_token[0] == '\0' ? NULL : &header,
+      bearer_token == NULL || bearer_token[0] == '\0' ? 0u : 1u, body,
+      destination, capacity, response);
+}
+
+static bool header_is_safe(const HttpRequestHeader *header) {
+  if (header == NULL || header->name == NULL || header->value == NULL ||
+      header->name[0] == '\0') {
+    return false;
+  }
+  for (const char *cursor = header->name; *cursor != '\0'; ++cursor) {
+    if (!((*cursor >= 'A' && *cursor <= 'Z') ||
+          (*cursor >= 'a' && *cursor <= 'z') || *cursor == '-')) {
+      return false;
+    }
+  }
+  return strchr(header->value, '\r') == NULL &&
+         strchr(header->value, '\n') == NULL;
+}
+
+bool http_client_request_with_headers(const char *method, const char *url,
+                                      const HttpRequestHeader *headers,
+                                      size_t header_count, const char *body,
+                                      char *destination, size_t capacity,
+                                      HttpJsonResponse *response) {
   if (method == NULL || url == NULL || destination == NULL || capacity < 2 ||
-      response == NULL) {
+      response == NULL || (header_count != 0 && headers == NULL)) {
     return false;
   }
 
@@ -828,40 +853,63 @@ bool http_client_request_json(const char *method, const char *url,
 
   const char *request_body = body == NULL ? "" : body;
   const size_t body_size = strlen(request_body);
-  const char *authorization =
-      bearer_token == NULL || bearer_token[0] == '\0' ? "" : bearer_token;
   char request[HTTP_JSON_REQUEST_LIMIT];
-  const int request_size = snprintf(
+  int request_size = snprintf(
       request, sizeof(request),
-      "%s %s HTTP/1.1\r\nHost: %s\r\n"
+      "%s %s HTTP/1.1\r\nHost: %s:%u\r\n"
       "User-Agent: Multiplex-GameCube/0\r\nAccept: application/json\r\n"
-      "Content-Type: application/json\r\nContent-Length: %u\r\n"
-      "%s%s%sConnection: close\r\n\r\n%s",
-      method, client->path, client->host, (unsigned)body_size,
-      authorization[0] == '\0' ? "" : "Authorization: Bearer ",
-      authorization, authorization[0] == '\0' ? "" : "\r\n", request_body);
-  if (request_size <= 0 || (size_t)request_size >= sizeof(request) ||
-      !write_all(client->socket, (const uint8_t *)request,
-                 (size_t)request_size)) {
+      "Content-Type: application/json\r\nContent-Length: %u\r\n",
+      method, client->path, client->host, client->port, (unsigned)body_size);
+  if (request_size <= 0 || (size_t)request_size >= sizeof(request)) {
+    http_client_destroy(client);
+    return false;
+  }
+  size_t request_used = (size_t)request_size;
+  for (size_t index = 0; index < header_count; ++index) {
+    if (!header_is_safe(&headers[index])) {
+      http_client_destroy(client);
+      return false;
+    }
+    const char *prefix =
+        strcasecmp(headers[index].name, "Authorization") == 0 ? "Bearer " : "";
+    const int written = snprintf(
+        request + request_used, sizeof(request) - request_used, "%s: %s%s\r\n",
+        headers[index].name, prefix, headers[index].value);
+    if (written <= 0 || (size_t)written >= sizeof(request) - request_used) {
+      http_client_destroy(client);
+      return false;
+    }
+    request_used += (size_t)written;
+  }
+  const int tail_size =
+      snprintf(request + request_used, sizeof(request) - request_used,
+               "Connection: close\r\n\r\n%s", request_body);
+  if (tail_size <= 0 || (size_t)tail_size >= sizeof(request) - request_used) {
+    http_client_destroy(client);
+    return false;
+  }
+  request_used += (size_t)tail_size;
+  if (!write_all(client->socket, (const uint8_t *)request, request_used)) {
     http_client_destroy(client);
     return false;
   }
 
-  char headers[HTTP_HEADER_LIMIT];
+  char response_headers[HTTP_HEADER_LIMIT];
   size_t header_size = 0;
   size_t response_size = 0;
-  if (!read_headers(client, headers, sizeof(headers), &header_size,
+  if (!read_headers(client, response_headers, sizeof(response_headers),
+                    &header_size,
                     &response_size)) {
     http_client_destroy(client);
     return false;
   }
-  const char first_body_byte = headers[header_size];
-  headers[header_size] = '\0';
+  const char first_body_byte = response_headers[header_size];
+  response_headers[header_size] = '\0';
   size_t content_length = 0;
   bool chunked = false;
-  const bool valid_headers =
-      parse_json_headers(headers, response, &content_length, &chunked);
-  headers[header_size] = first_body_byte;
+  const bool valid_headers = parse_json_headers(
+      response_headers, response, &content_length, &chunked);
+  response_headers[header_size] = first_body_byte;
   if (!valid_headers) {
     SYS_Report("REFERENCE GX: HTTP JSON headers invalid\n");
     http_client_destroy(client);
@@ -874,10 +922,9 @@ bool http_client_request_json(const char *method, const char *url,
       http_client_destroy(client);
       return false;
     }
-    memcpy(destination, headers + header_size, prefetched);
-    const bool read =
-        read_body(client, (uint8_t *)destination + prefetched,
-                  content_length - prefetched);
+    memcpy(destination, response_headers + header_size, prefetched);
+    const bool read = read_body(client, (uint8_t *)destination + prefetched,
+                                content_length - prefetched);
     if (read) {
       destination[content_length] = '\0';
       response->body_size = content_length;
@@ -896,25 +943,22 @@ bool http_client_request_json(const char *method, const char *url,
     http_client_destroy(client);
     return false;
   }
-  memcpy(encoded, headers + header_size, prefetched);
+  memcpy(encoded, response_headers + header_size, prefetched);
   size_t encoded_size = prefetched;
   while (encoded_size < encoded_capacity) {
-    const int received =
-        read_available(client->socket, encoded + encoded_size,
-                       encoded_capacity - encoded_size);
+    const int received = read_available(client->socket, encoded + encoded_size,
+                                        encoded_capacity - encoded_size);
     if (received <= 0) {
       break;
     }
     encoded_size += (size_t)received;
   }
-  const bool decoded =
-      decode_chunked_body(encoded, encoded_size, destination, capacity,
-                          &response->body_size);
-  SYS_Report(
-      "REFERENCE GX: HTTP JSON status=%u framing=chunked encoded=%u "
-      "decoded=%u valid=%u\n",
-      response->status, (unsigned)encoded_size, (unsigned)response->body_size,
-      decoded ? 1u : 0u);
+  const bool decoded = decode_chunked_body(encoded, encoded_size, destination,
+                                           capacity, &response->body_size);
+  SYS_Report("REFERENCE GX: HTTP JSON status=%u framing=chunked encoded=%u "
+             "decoded=%u valid=%u\n",
+             response->status, (unsigned)encoded_size,
+             (unsigned)response->body_size, decoded ? 1u : 0u);
   free(encoded);
   http_client_destroy(client);
   SYS_Report("REFERENCE GX: HTTP JSON connection closed\n");

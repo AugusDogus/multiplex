@@ -12,6 +12,11 @@ typedef struct {
   size_t body_size;
 } HttpJsonResponse;
 
+typedef struct {
+  const char *name;
+  const char *value;
+} HttpRequestHeader;
+
 HttpClient *http_client_open(const char *url);
 void http_client_request_stop(HttpClient *client);
 void http_client_begin_stream(HttpClient *client);
@@ -28,5 +33,10 @@ bool http_client_request_json(const char *method, const char *url,
                               const char *bearer_token, const char *body,
                               char *destination, size_t capacity,
                               HttpJsonResponse *response);
+bool http_client_request_with_headers(const char *method, const char *url,
+                                      const HttpRequestHeader *headers,
+                                      size_t header_count, const char *body,
+                                      char *destination, size_t capacity,
+                                      HttpJsonResponse *response);
 
 #endif

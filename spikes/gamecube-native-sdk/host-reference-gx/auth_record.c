@@ -3,8 +3,10 @@
 #include <limits.h>
 #include <string.h>
 
-#define AUTH_RECORD_VERSION 1u
-#define AUTH_PAYLOAD_HEADER_SIZE 16u
+#define AUTH_RECORD_VERSION 2u
+#define AUTH_RECORD_LEGACY_VERSION 1u
+#define AUTH_PAYLOAD_HEADER_SIZE 24u
+#define AUTH_LEGACY_PAYLOAD_HEADER_SIZE 16u
 
 static void write_be16(uint8_t *destination, uint16_t value) {
   destination[0] = (uint8_t)(value >> 8u);
@@ -33,8 +35,7 @@ static uint32_t read_be32(const uint8_t *source) {
 }
 
 static uint64_t read_be64(const uint8_t *source) {
-  return ((uint64_t)read_be32(source) << 32u) |
-         (uint64_t)read_be32(source + 4);
+  return ((uint64_t)read_be32(source) << 32u) | (uint64_t)read_be32(source + 4);
 }
 
 static size_t bounded_string_length(const char *value, size_t capacity) {
@@ -78,17 +79,32 @@ bool multiplex_auth_record_encode(uint8_t *destination, size_t capacity,
       credentials->plex_token, MULTIPLEX_AUTH_PLEX_TOKEN_CAPACITY);
   const size_t plex_client_id_length = bounded_string_length(
       credentials->plex_client_id, MULTIPLEX_AUTH_PLEX_CLIENT_ID_CAPACITY);
+  const size_t plex_server_url_length = bounded_string_length(
+      credentials->plex_server_url, MULTIPLEX_AUTH_PLEX_SERVER_URL_CAPACITY);
+  const size_t plex_server_token_length =
+      bounded_string_length(credentials->plex_server_token,
+                            MULTIPLEX_AUTH_PLEX_SERVER_TOKEN_CAPACITY);
+  const size_t plex_server_id_length = bounded_string_length(
+      credentials->plex_server_id, MULTIPLEX_AUTH_PLEX_SERVER_ID_CAPACITY);
+  const size_t plex_server_name_length = bounded_string_length(
+      credentials->plex_server_name, MULTIPLEX_AUTH_PLEX_SERVER_NAME_CAPACITY);
   if (origin_length == MULTIPLEX_AUTH_ORIGIN_CAPACITY ||
       session_token_length == MULTIPLEX_AUTH_SESSION_TOKEN_CAPACITY ||
       plex_token_length == MULTIPLEX_AUTH_PLEX_TOKEN_CAPACITY ||
       plex_client_id_length == MULTIPLEX_AUTH_PLEX_CLIENT_ID_CAPACITY ||
+      plex_server_url_length == MULTIPLEX_AUTH_PLEX_SERVER_URL_CAPACITY ||
+      plex_server_token_length == MULTIPLEX_AUTH_PLEX_SERVER_TOKEN_CAPACITY ||
+      plex_server_id_length == MULTIPLEX_AUTH_PLEX_SERVER_ID_CAPACITY ||
+      plex_server_name_length == MULTIPLEX_AUTH_PLEX_SERVER_NAME_CAPACITY ||
       origin_length == 0 || session_token_length == 0) {
     return false;
   }
 
-  const size_t payload_size =
-      AUTH_PAYLOAD_HEADER_SIZE + origin_length + session_token_length +
-      plex_token_length + plex_client_id_length;
+  const size_t payload_size = AUTH_PAYLOAD_HEADER_SIZE + origin_length +
+                              session_token_length + plex_token_length +
+                              plex_client_id_length + plex_server_url_length +
+                              plex_server_token_length + plex_server_id_length +
+                              plex_server_name_length;
   if (payload_size > UINT32_MAX ||
       MULTIPLEX_AUTH_RECORD_HEADER_SIZE + payload_size > capacity) {
     return false;
@@ -107,6 +123,10 @@ bool multiplex_auth_record_encode(uint8_t *destination, size_t capacity,
   write_be16(payload + 10, (uint16_t)session_token_length);
   write_be16(payload + 12, (uint16_t)plex_token_length);
   write_be16(payload + 14, (uint16_t)plex_client_id_length);
+  write_be16(payload + 16, (uint16_t)plex_server_url_length);
+  write_be16(payload + 18, (uint16_t)plex_server_token_length);
+  write_be16(payload + 20, (uint16_t)plex_server_id_length);
+  write_be16(payload + 22, (uint16_t)plex_server_name_length);
 
   size_t cursor = AUTH_PAYLOAD_HEADER_SIZE;
   memcpy(payload + cursor, credentials->origin, origin_length);
@@ -115,8 +135,18 @@ bool multiplex_auth_record_encode(uint8_t *destination, size_t capacity,
   cursor += session_token_length;
   memcpy(payload + cursor, credentials->plex_token, plex_token_length);
   cursor += plex_token_length;
-  memcpy(payload + cursor, credentials->plex_client_id,
-         plex_client_id_length);
+  memcpy(payload + cursor, credentials->plex_client_id, plex_client_id_length);
+  cursor += plex_client_id_length;
+  memcpy(payload + cursor, credentials->plex_server_url,
+         plex_server_url_length);
+  cursor += plex_server_url_length;
+  memcpy(payload + cursor, credentials->plex_server_token,
+         plex_server_token_length);
+  cursor += plex_server_token_length;
+  memcpy(payload + cursor, credentials->plex_server_id, plex_server_id_length);
+  cursor += plex_server_id_length;
+  memcpy(payload + cursor, credentials->plex_server_name,
+         plex_server_name_length);
 
   write_be32(destination + 16, crc32(payload, payload_size));
   write_be32(destination + 20, crc32(destination, 20));
@@ -129,14 +159,20 @@ bool multiplex_auth_record_decode(const uint8_t *record, size_t size,
   if (record == NULL || credentials == NULL || generation == NULL ||
       size < MULTIPLEX_AUTH_RECORD_HEADER_SIZE ||
       memcmp(record, "MPXA", 4) != 0 ||
-      read_be16(record + 4) != AUTH_RECORD_VERSION ||
       read_be16(record + 6) != MULTIPLEX_AUTH_RECORD_HEADER_SIZE ||
       crc32(record, 20) != read_be32(record + 20)) {
     return false;
   }
+  const uint16_t version = read_be16(record + 4);
+  if (version != AUTH_RECORD_VERSION && version != AUTH_RECORD_LEGACY_VERSION) {
+    return false;
+  }
 
   const size_t payload_size = read_be32(record + 12);
-  if (payload_size < AUTH_PAYLOAD_HEADER_SIZE ||
+  const size_t payload_header_size = version == AUTH_RECORD_VERSION
+                                         ? AUTH_PAYLOAD_HEADER_SIZE
+                                         : AUTH_LEGACY_PAYLOAD_HEADER_SIZE;
+  if (payload_size < payload_header_size ||
       payload_size > size - MULTIPLEX_AUTH_RECORD_HEADER_SIZE) {
     return false;
   }
@@ -150,21 +186,34 @@ bool multiplex_auth_record_decode(const uint8_t *record, size_t size,
   const size_t session_token_length = read_be16(payload + 10);
   const size_t plex_token_length = read_be16(payload + 12);
   const size_t plex_client_id_length = read_be16(payload + 14);
+  const size_t plex_server_url_length =
+      version == AUTH_RECORD_VERSION ? read_be16(payload + 16) : 0;
+  const size_t plex_server_token_length =
+      version == AUTH_RECORD_VERSION ? read_be16(payload + 18) : 0;
+  const size_t plex_server_id_length =
+      version == AUTH_RECORD_VERSION ? read_be16(payload + 20) : 0;
+  const size_t plex_server_name_length =
+      version == AUTH_RECORD_VERSION ? read_be16(payload + 22) : 0;
   const size_t field_bytes = origin_length + session_token_length +
-                             plex_token_length + plex_client_id_length;
-  if (origin_length == 0 ||
-      origin_length >= MULTIPLEX_AUTH_ORIGIN_CAPACITY ||
+                             plex_token_length + plex_client_id_length +
+                             plex_server_url_length + plex_server_token_length +
+                             plex_server_id_length + plex_server_name_length;
+  if (origin_length == 0 || origin_length >= MULTIPLEX_AUTH_ORIGIN_CAPACITY ||
       session_token_length == 0 ||
       session_token_length >= MULTIPLEX_AUTH_SESSION_TOKEN_CAPACITY ||
       plex_token_length >= MULTIPLEX_AUTH_PLEX_TOKEN_CAPACITY ||
       plex_client_id_length >= MULTIPLEX_AUTH_PLEX_CLIENT_ID_CAPACITY ||
-      field_bytes != payload_size - AUTH_PAYLOAD_HEADER_SIZE) {
+      plex_server_url_length >= MULTIPLEX_AUTH_PLEX_SERVER_URL_CAPACITY ||
+      plex_server_token_length >= MULTIPLEX_AUTH_PLEX_SERVER_TOKEN_CAPACITY ||
+      plex_server_id_length >= MULTIPLEX_AUTH_PLEX_SERVER_ID_CAPACITY ||
+      plex_server_name_length >= MULTIPLEX_AUTH_PLEX_SERVER_NAME_CAPACITY ||
+      field_bytes != payload_size - payload_header_size) {
     return false;
   }
 
   memset(credentials, 0, sizeof(*credentials));
   credentials->session_expires_at_unix = read_be64(payload);
-  size_t cursor = AUTH_PAYLOAD_HEADER_SIZE;
+  size_t cursor = payload_header_size;
   memcpy(credentials->origin, payload + cursor, origin_length);
   cursor += origin_length;
   memcpy(credentials->session_token, payload + cursor, session_token_length);
@@ -172,14 +221,26 @@ bool multiplex_auth_record_decode(const uint8_t *record, size_t size,
   memcpy(credentials->plex_token, payload + cursor, plex_token_length);
   cursor += plex_token_length;
   memcpy(credentials->plex_client_id, payload + cursor, plex_client_id_length);
+  cursor += plex_client_id_length;
+  memcpy(credentials->plex_server_url, payload + cursor,
+         plex_server_url_length);
+  cursor += plex_server_url_length;
+  memcpy(credentials->plex_server_token, payload + cursor,
+         plex_server_token_length);
+  cursor += plex_server_token_length;
+  memcpy(credentials->plex_server_id, payload + cursor, plex_server_id_length);
+  cursor += plex_server_id_length;
+  memcpy(credentials->plex_server_name, payload + cursor,
+         plex_server_name_length);
   *generation = read_be32(record + 8);
   return true;
 }
 
-MultiplexAuthRecordSelection multiplex_auth_record_select(
-    const uint8_t *first, size_t first_size, const uint8_t *second,
-    size_t second_size, MultiplexAuthCredentials *credentials,
-    uint32_t *generation) {
+MultiplexAuthRecordSelection
+multiplex_auth_record_select(const uint8_t *first, size_t first_size,
+                             const uint8_t *second, size_t second_size,
+                             MultiplexAuthCredentials *credentials,
+                             uint32_t *generation) {
   MultiplexAuthCredentials first_credentials;
   MultiplexAuthCredentials second_credentials;
   uint32_t first_generation = 0;
@@ -194,8 +255,8 @@ MultiplexAuthRecordSelection multiplex_auth_record_select(
   }
 
   const bool select_second =
-      second_valid &&
-      (!first_valid || generation_is_newer(second_generation, first_generation));
+      second_valid && (!first_valid || generation_is_newer(second_generation,
+                                                           first_generation));
   if (select_second) {
     *credentials = second_credentials;
     *generation = second_generation;
