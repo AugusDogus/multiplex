@@ -17,12 +17,15 @@ wait_artwork=${GAMECUBE_PLEX_WAIT_ARTWORK:-1}
 sustain_seconds=${GAMECUBE_PLEX_SUSTAIN_SECONDS:-45}
 plex_video_resolution=${GAMECUBE_PLEX_VIDEO_RESOLUTION:-480x270}
 plex_max_video_bitrate=${GAMECUBE_PLEX_MAX_VIDEO_BITRATE:-700}
+watch_together=${GAMECUBE_PLEX_WATCH_TOGETHER:-0}
+watch_together_invitee_id=${GAMECUBE_WATCH_TOGETHER_INVITEE_ID:-}
 rating_key=${GAMECUBE_PLEX_RATING_KEY:-}
 plex_base_url=${PLEX_BASE_URL:-}
 multiplex_base_url=${MULTIPLEX_BASE_URL:-}
 server_pid=
 launcher_pid=
 mute_pid=
+lobby_pid=
 pipe_open=0
 mute_marker="$cache_dir/audio-muted"
 
@@ -68,6 +71,25 @@ case "$sustain_seconds" in
     exit 1
     ;;
 esac
+case "$watch_together" in
+  0 | 1) ;;
+  *)
+    echo "GAMECUBE_PLEX_WATCH_TOGETHER must be 0 or 1." >&2
+    exit 1
+    ;;
+esac
+if [ "$watch_together" -eq 1 ] && [ "$direct_plex" -ne 1 ]; then
+  echo "Watch Together smoke testing requires GAMECUBE_DIRECT_PLEX=1." >&2
+  exit 1
+fi
+if [ "$watch_together" -eq 1 ]; then
+  case "$watch_together_invitee_id" in
+    '' | *[!0-9]*)
+      echo "Watch Together smoke testing requires a numeric GAMECUBE_WATCH_TOGETHER_INVITEE_ID." >&2
+      exit 1
+      ;;
+  esac
+fi
 
 mkdir -p "$cache_dir"
 if [ -z "${PLEX_TOKEN:-}" ] && [ -f "$auth_state" ]; then
@@ -100,6 +122,10 @@ cleanup() {
   if [ -n "$mute_pid" ]; then
     kill -TERM "$mute_pid" 2>/dev/null || true
     wait "$mute_pid" 2>/dev/null || true
+  fi
+  if [ -n "$lobby_pid" ]; then
+    kill -TERM "$lobby_pid" 2>/dev/null || true
+    wait "$lobby_pid" 2>/dev/null || true
   fi
   if [ -n "$launcher_pid" ] && kill -0 "$launcher_pid" 2>/dev/null; then
     /bin/kill -TERM -- "-$launcher_pid" 2>/dev/null || true
@@ -380,6 +406,14 @@ wait_for_new "signature=" "$signature_count"
 signature_count=$(line_count "signature=")
 press D_RIGHT
 wait_for_new "signature=" "$signature_count"
+if [ "$watch_together" -eq 1 ]; then
+  # Focus the details screen's Host Watch Together action. Creating the room
+  # returns to the room list with Home focused; move once more to join the
+  # newly inserted first room.
+  signature_count=$(line_count "signature=")
+  press D_RIGHT
+  wait_for_new "signature=" "$signature_count"
+fi
 playing_count=$(line_count "playback=playing")
 paused_count=$(line_count "playback=paused")
 if [ "$direct_plex" -eq 1 ]; then
@@ -395,7 +429,38 @@ else
 fi
 playback_session_count=$(line_count "$playback_ready_pattern")
 playback_activation_count=$(line_count "$playback_activation_pattern")
-press A
+if [ "$watch_together" -eq 1 ]; then
+  created_count=$(line_count "Watch Together room created")
+  press A
+  wait_for_new "Watch Together room created" "$created_count" 1200
+  wait_for_new "signature=" "$signature_count"
+  created_room=$(
+    bun "$script_dir/syncplay-room-control.ts" create-room \
+      "$watch_together_invitee_id"
+  )
+  created_room_id=$(printf '%s\n' "$created_room" | awk 'NR == 1 { print $1 }')
+  if [ -z "$created_room_id" ]; then
+    echo "The invited Watch Together room id was not returned." >&2
+    exit 1
+  fi
+  room_count=$(line_count "Watch Together room=0 id=$created_room_id invited=2")
+  press START
+  wait_for_new "Watch Together room=0 id=$created_room_id invited=2" \
+    "$room_count" 1200
+  signature_count=$(line_count "signature=")
+  press D_RIGHT
+  wait_for_new "signature=" "$signature_count"
+  join_count=$(line_count "Watch Together lobby room=0 connected=1 invited=2")
+  press A
+  wait_for_new "Watch Together lobby room=0 connected=1 invited=2" \
+    "$join_count" 3600
+  MULTIPLEX_WATCH_TOGETHER_ROOM_ID="$created_room_id" \
+    bun "$script_dir/syncplay-room-control.ts" join-lobby \
+      "$watch_together_invitee_id" >"$cache_dir/syncplay-lobby.log" 2>&1 &
+  lobby_pid=$!
+else
+  press A
+fi
 wait_for_new "$playback_activation_pattern" "$playback_activation_count" 3600
 wait_for_new "$playback_ready_pattern" "$playback_session_count" 1200
 wait_for_new "playback=playing" "$playing_count" 1200
@@ -450,6 +515,16 @@ press A
 wait_for_new "playback=playing" "$playing_count" 120
 wait_for_new "$timeline_pattern .*state=playing reported=1" "$playing_timeline_count" 600
 wait_for_new "decoder=60 frames/" "$decoder_count" 1200
+if [ "$watch_together" -eq 1 ]; then
+  remote_pause_count=$(line_count "Syncplay remote playback paused=1")
+  MULTIPLEX_WATCH_TOGETHER_ROOM_ID="$created_room_id" \
+    bun "$script_dir/syncplay-room-control.ts" pause
+  wait_for_new "Syncplay remote playback paused=1" "$remote_pause_count" 600
+  remote_resume_count=$(line_count "Syncplay remote playback paused=0")
+  MULTIPLEX_WATCH_TOGETHER_ROOM_ID="$created_room_id" \
+    bun "$script_dir/syncplay-room-control.ts" resume
+  wait_for_new "Syncplay remote playback paused=0" "$remote_resume_count" 600
+fi
 sleep "$sustain_seconds"
 if grep -Eq 'underruns=[1-9][0-9]*' "$log"; then
   echo "Selected Plex seek produced an audio underrun." >&2
@@ -459,7 +534,11 @@ wait_log "$timeline_pattern rating-key=$selected_rating_key .*state=playing repo
 sh "$script_dir/check-dolphin-log.sh" "$log"
 
 if [ "$direct_plex" -eq 1 ]; then
-  echo "Playing selected Plex item $selected_rating_key directly from PMS at ${seek_offset}ms in Dolphin."
+  if [ "$watch_together" -eq 1 ]; then
+    echo "Playing selected Plex item $selected_rating_key in Watch Together room $created_room_id directly from PMS at ${seek_offset}ms in Dolphin."
+  else
+    echo "Playing selected Plex item $selected_rating_key directly from PMS at ${seek_offset}ms in Dolphin."
+  fi
 else
   echo "Playing selected Plex item $selected_rating_key at ${seek_offset}ms in Dolphin (startup fixture '$title' is $container_bytes bytes)."
 fi
