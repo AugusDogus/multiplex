@@ -45,6 +45,7 @@
 #define POSTER_LOADER_STACK_SIZE (256 * 1024)
 #define TIMELINE_REPORT_INTERVAL_MS 10000u
 #define PAIRING_POLL_INTERVAL_FRAMES 60u
+#define WATCH_TOGETHER_NETWORK_COOLDOWN_FRAMES (60u * 60u)
 #define MEDIA_STARTUP_STALL_TIMEOUT_US 5000000u
 #define MEDIA_STARTUP_RESTART_LIMIT 2u
 #define VIDEO_WIDTH 720
@@ -2331,6 +2332,20 @@ static bool bind_watch_together_rooms(const MultiplexTrpcRoomList *rooms,
   return true;
 }
 
+#if MULTIPLEX_PAIRING_ENABLED
+static bool refresh_watch_together_rooms(
+    const MultiplexAuthCredentials *credentials,
+    MultiplexTrpcRoomList *rooms) {
+  if (credentials == NULL || rooms == NULL) {
+    return false;
+  }
+  memset(rooms, 0, sizeof(*rooms));
+  const bool available = multiplex_trpc_load_watch_together_rooms(
+      MULTIPLEX_BASE_URL, credentials->session_token, rooms);
+  return bind_watch_together_rooms(rooms, available);
+}
+#endif
+
 static void *run_app(void *unused) {
   (void)unused;
   initialize_video_and_gx();
@@ -2425,14 +2440,10 @@ static void *run_app(void *unused) {
   bool pairing_linked = device_auth.status == MULTIPLEX_DEVICE_AUTH_LINKED;
   bool auth_reset_latched = false;
   uint32_t pairing_poll_frames = 0;
-  const bool watch_together_available =
-      pairing_linked &&
-      multiplex_trpc_load_watch_together_rooms(
-          MULTIPLEX_BASE_URL, auth_credentials.session_token,
-          &watch_together_rooms);
+  uint32_t watch_together_network_cooldown = 0;
   if (pairing_linked &&
-      !bind_watch_together_rooms(&watch_together_rooms,
-                                 watch_together_available)) {
+      !refresh_watch_together_rooms(&auth_credentials,
+                                    &watch_together_rooms)) {
     return (void *)(uintptr_t)1;
   }
   if (pairing_linked && !has_catalog &&
@@ -2507,6 +2518,9 @@ static void *run_app(void *unused) {
       controller_status_reported = true;
     }
 #if MULTIPLEX_PAIRING_ENABLED
+    if (watch_together_network_cooldown > 0) {
+      --watch_together_network_cooldown;
+    }
     if (!pairing_linked &&
         device_auth.status == MULTIPLEX_DEVICE_AUTH_WAITING &&
         ++pairing_poll_frames >= (uint32_t)device_auth.interval_seconds *
@@ -2536,12 +2550,8 @@ static void *run_app(void *unused) {
                   catalog.total_item_count, 0, true);
             }
           }
-          const bool rooms_available =
-              multiplex_trpc_load_watch_together_rooms(
-                  MULTIPLEX_BASE_URL, auth_credentials.session_token,
-                  &watch_together_rooms);
-          if (!bind_watch_together_rooms(&watch_together_rooms,
-                                         rooms_available)) {
+          if (!refresh_watch_together_rooms(&auth_credentials,
+                                            &watch_together_rooms)) {
             break;
           }
         }
@@ -2655,6 +2665,30 @@ static void *run_app(void *unused) {
     if ((pressed & PAD_TRIGGER_Z) != 0 && multiplex_native_app_input(10) != 0) {
       app_changed = true;
     }
+#if MULTIPLEX_PAIRING_ENABLED
+    if (pairing_linked && (pressed & PAD_BUTTON_START) != 0) {
+      const bool refresh_without_network_contention =
+          direct_home_poster_loader.thread == LWP_THREAD_NULL &&
+          !direct_home_poster_loader.pending &&
+          direct_page_poster_loader.thread == LWP_THREAD_NULL &&
+          !direct_page_poster_loader.pending;
+      stop_direct_poster_loader(&direct_home_poster_loader);
+      stop_direct_poster_loader(&direct_page_poster_loader);
+      if (!refresh_without_network_contention) {
+        watch_together_network_cooldown =
+            WATCH_TOGETHER_NETWORK_COOLDOWN_FRAMES;
+        SYS_Report("REFERENCE GX: Watch Together using boot snapshot after "
+                   "poster cancellation\n");
+      } else if (watch_together_network_cooldown > 0) {
+        SYS_Report("REFERENCE GX: Watch Together using boot snapshot during "
+                   "network cooldown frames=%u\n",
+                   watch_together_network_cooldown);
+      } else if (!refresh_watch_together_rooms(&auth_credentials,
+                                               &watch_together_rooms)) {
+        SYS_Report("REFERENCE GX: Watch Together refresh failed\n");
+      }
+    }
+#endif
     if ((pressed & PAD_BUTTON_START) != 0 &&
         multiplex_native_app_input(11) != 0) {
       app_changed = true;
