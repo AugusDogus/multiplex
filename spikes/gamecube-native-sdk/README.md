@@ -27,6 +27,11 @@ profile exposes a component-capable output, so the presenter selects 640x480
 progressive scan; composite-only hardware falls back to the preferred
 interlaced mode.
 
+When `MULTIPLEX_BASE_URL` is an HTTPS `*.localhost` origin, the reference build
+automatically embeds the public Portless CA from `~/.portless/ca.pem`.
+`GAMECUBE_TLS_CA_FILE` remains the explicit override for another local CA. The
+private key and generated host certificates are never copied into the build.
+
 `spike:gamecube:reference:smoke-http-tap` builds the DOL with a local HTTP
 media URL, creates an unprivileged network namespace, and connects Dolphin's
 low-level emulated BBA to a rootless `pasta` Ethernet uplink. It does not
@@ -86,6 +91,9 @@ backward/forward without walking focus through every poster.
 - `src/gamecube_probe.zig`: compiled view, layout, focus/handler resolution,
   GPU-packet translation, and C ABI
 - `host-reference-gx/main.c`: reference framebuffer and direct-GX presenter
+- `host-reference-gx/trpc_client.c`: bounded Better Auth bearer transport for
+  the same tRPC procedures used by the web client
+- `host-reference-gx/trpc_rooms.c`: fixed-capacity Watch Together room parser
 - `host-reference-gx/mpeg2_decoder.c`: narrow wrapper around MPlayer CE's
   bundled FFmpeg MPEG-2 decoder
 - `host-reference-gx/mp2_decoder.c`: fixed-point MPlayer CE FFmpeg MP2 decoder
@@ -189,6 +197,11 @@ presentation fps with a clean invalid-access log. Leaving the player also
 commits the current offset and integer progress percentage into the
 TypeScript-owned home, search, or library item. Reopening that same item in the
 verified run resumed at 7,547 ms without reloading the catalog.
+The first Watch Together increment also calls the web app's existing
+`plex.getWatchTogetherRooms` tRPC procedure rather than adding a console-only
+query. Dolphin completed TLS 1.2 through Portless, authenticated the restored
+Better Auth bearer token, decoded the chunked SuperJSON envelope, and parsed
+the bounded empty-room result before loading the direct Plex catalog.
 A bounded reference-render memo retains three expensive stable layers; warmed
 full home and details repaints measured about 0.37 and 0.33 seconds. The memo
 has a 4 MiB hard limit and peaked at 4,093 KiB in the home/details flow.

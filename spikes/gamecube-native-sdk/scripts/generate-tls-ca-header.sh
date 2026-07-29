@@ -3,6 +3,16 @@ set -eu
 
 destination=$1
 ca_file=${GAMECUBE_TLS_CA_FILE:-}
+if [ -z "$ca_file" ] && [ -n "${HOME:-}" ]; then
+  case ${MULTIPLEX_BASE_URL:-} in
+    https://*.localhost | https://*.localhost/*)
+      portless_ca_file="$HOME/.portless/ca.pem"
+      if [ -s "$portless_ca_file" ]; then
+        ca_file=$portless_ca_file
+      fi
+      ;;
+  esac
+fi
 
 {
   echo "#ifndef MULTIPLEX_TLS_CA_H"

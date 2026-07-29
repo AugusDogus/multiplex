@@ -13,6 +13,7 @@
 #include "plex_hls.h"
 #include "plex_hls_demux.h"
 #include "poster_jpeg.h"
+#include "trpc_client.h"
 #include "yuv420_gx.h"
 
 #include <gccore.h>
@@ -2329,6 +2330,8 @@ static void *run_app(void *unused) {
   bool timeline_started = false;
   MultiplexGatewayCatalog catalog;
   memset(&catalog, 0, sizeof(catalog));
+  MultiplexTrpcRoomList watch_together_rooms;
+  memset(&watch_together_rooms, 0, sizeof(watch_together_rooms));
   bool has_catalog =
       MULTIPLEX_GATEWAY_URL[0] != '\0' &&
       multiplex_gateway_load_catalog(MULTIPLEX_GATEWAY_URL, &catalog);
@@ -2392,6 +2395,11 @@ static void *run_app(void *unused) {
   bool pairing_linked = device_auth.status == MULTIPLEX_DEVICE_AUTH_LINKED;
   bool auth_reset_latched = false;
   uint32_t pairing_poll_frames = 0;
+  if (pairing_linked) {
+    multiplex_trpc_load_watch_together_rooms(
+        MULTIPLEX_BASE_URL, auth_credentials.session_token,
+        &watch_together_rooms);
+  }
   if (pairing_linked && !has_catalog &&
       multiplex_plex_load_catalog(&auth_credentials, &catalog)) {
     has_catalog = bind_catalog_to_app(&catalog);
