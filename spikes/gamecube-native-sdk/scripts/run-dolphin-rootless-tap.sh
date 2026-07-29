@@ -93,7 +93,7 @@ trap stop_namespace HUP INT TERM
           if ip link show "$tap" >/dev/null 2>&1; then
             ip link set "$tap" master "$bridge"
             ip link set "$tap" up
-            # libogc advertises a four-frame TCP receive window and configures
+            # libogc advertises a two-frame TCP receive window and configures
             # the BBA to interrupt after two packets. Upstream pasta emits one
             # TCP frame per TAP flush in namespace mode, so no additional
             # host-side pacing is needed.

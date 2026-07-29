@@ -25,7 +25,11 @@ bun run spike:gamecube:reference:plex
 its previous recorded process, keeping one emulator instance open. The managed
 profile exposes a component-capable output, so the presenter selects 640x480
 progressive scan; composite-only hardware falls back to the preferred
-interlaced mode.
+interlaced mode. When the launcher itself inherited Linux `SCHED_IDLE`, as
+commands launched from T3 Code do, it starts Dolphin in a transient
+normal-priority user service. This requires no sudo, preserves the one-window
+cleanup behavior, and prevents an apparently 60 fps guest from advancing much
+slower than wall time.
 
 When `MULTIPLEX_BASE_URL` is an HTTPS `*.localhost` origin, the reference build
 automatically embeds the public Portless CA from `~/.portless/ca.pem`.

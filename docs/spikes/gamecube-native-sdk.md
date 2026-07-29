@@ -77,6 +77,15 @@ spikes/gamecube-native-sdk/multiplex-gamecube-native-reference.dol
 The launcher uses an isolated Dolphin profile and records the exact process
 ID. Starting it again terminates that instance before launching the new DOL, so
 iteration leaves one Dolphin process rather than accumulating emulator windows.
+Commands launched from T3 Code inherit Linux `SCHED_IDLE`; passing that policy
+to Dolphin made roughly two seconds of guest time take about one minute of wall
+time even though the in-guest profiler still reported 60.4 fps. The launcher
+now detects that case and uses a transient `systemd --user` service with
+`SCHED_OTHER`. It needs no sudo, leaves ordinary terminal launches alone, and
+stops the service when the launcher is interrupted, without showing Dolphin's
+confirmation dialog. Under normal scheduling, the embedded player reached its
+first 60-frame decode report in about 2.5 seconds of wall time and then
+sustained 29.9–30.2 decoded fps with zero audio underruns.
 The profile enables Dolphin's component-capable output and the presenter
 selects the matching progressive mode. This avoids the alternating-field
 vertical jitter of 480i; composite-only hardware keeps the preferred
