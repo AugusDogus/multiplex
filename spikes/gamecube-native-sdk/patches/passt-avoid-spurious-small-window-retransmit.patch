@@ -1,0 +1,13 @@
+diff --git a/tcp.c b/tcp.c
+index 41966f2..ad4d17b 100644
+--- a/tcp.c
++++ b/tcp.c
+@@ -2008,6 +2009,7 @@ static int tcp_data_from_tap(const struct ctx *c, struct tcp_tap_conn *conn,
+ 			    SEQ_GE(ack_seq, max_ack_seq)) {
+ 				/* Fast re-transmit */
+-				retr = !len && !th->fin &&
++				retr = conn->wnd_from_tap > 2U * MSS_GET(conn) &&
++				       !len && !th->fin &&
+ 				       ack_seq == max_ack_seq &&
+ 				       ntohs(th->window) == max_ack_seq_wnd;
+ 

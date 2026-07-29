@@ -1,0 +1,58 @@
+diff --git a/Source/Core/Core/HW/EXI/BBA/TAP_Unix.cpp b/Source/Core/Core/HW/EXI/BBA/TAP_Unix.cpp
+index a147cc7..628d327 100644
+--- a/Source/Core/Core/HW/EXI/BBA/TAP_Unix.cpp
++++ b/Source/Core/Core/HW/EXI/BBA/TAP_Unix.cpp
+@@ -3,7 +3,9 @@
+ 
+ #include "Core/HW/EXI/EXI_DeviceEthernet.h"
+ 
++#include <chrono>
+ #include <cstring>
++#include <thread>
+ 
+ #ifndef _WIN32
+ #include <unistd.h>
+@@ -127,6 +129,26 @@ void CEXIETHERNET::TAPNetworkInterface::ReadThreadHandler(TAPNetworkInterface* s
+ {
+   while (!self->readThreadShutdown.IsSet())
+   {
++    if (!self->readEnabled.IsSet())
++    {
++      std::this_thread::sleep_for(std::chrono::milliseconds(1));
++      continue;
++    }
++
++    u16 wp = self->m_eth_ref->page_ptr(BBA_RWP);
++    const u16 rp = self->m_eth_ref->page_ptr(BBA_RRP);
++    if (rp > wp)
++      wp += 16;
++
++    // Match the receive-ring backpressure used by the built-in BBA backend.
++    // A full-size Ethernet frame consumes up to seven 256-byte pages, so stop
++    // reading TAP before the emulated adapter can overwrite unread packets.
++    if ((wp - rp) >= 8)
++    {
++      std::this_thread::sleep_for(std::chrono::milliseconds(1));
++      continue;
++    }
++
+     fd_set rfds;
+     FD_ZERO(&rfds);
+     FD_SET(self->fd, &rfds);
+@@ -136,13 +158,15 @@ void CEXIETHERNET::TAPNetworkInterface::ReadThreadHandler(TAPNetworkInterface* s
+     timeout.tv_usec = 50000;
+     if (select(self->fd + 1, &rfds, nullptr, nullptr, &timeout) <= 0)
+       continue;
++    if (!self->readEnabled.IsSet())
++      continue;
+ 
+     int readBytes = read(self->fd, self->m_eth_ref->mRecvBuffer.get(), BBA_RECV_SIZE);
+     if (readBytes < 0)
+     {
+       ERROR_LOG_FMT(SP1, "Failed to read from BBA, err={}", readBytes);
+     }
+-    else if (self->readEnabled.IsSet())
++    else
+     {
+       DEBUG_LOG_FMT(SP1, "Read data: {}",
+                     ArrayToString(self->m_eth_ref->mRecvBuffer.get(), readBytes, 0x10));

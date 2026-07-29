@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+spike_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+
 pasta_bin=${GAMECUBE_PASTA_BIN:-pasta}
 if ! command -v "$pasta_bin" >/dev/null 2>&1 && [ ! -x "$pasta_bin" ]; then
   echo "pasta is required for the rootless Dolphin TAP network." >&2
@@ -13,7 +16,12 @@ for command in ip pgrep tc; do
   fi
 done
 
-dolphin_emu=${DOLPHIN_EMU_REAL:-dolphin-emu}
+custom_dolphin="$spike_dir/.dolphin-source-2606/build/Binaries/dolphin-emu"
+dolphin_emu=${DOLPHIN_EMU_REAL:-}
+if [ -z "$dolphin_emu" ] && [ -x "$custom_dolphin" ]; then
+  dolphin_emu=$custom_dolphin
+fi
+dolphin_emu=${dolphin_emu:-dolphin-emu}
 
 proxy_mac=02:00:00:00:00:01
 pasta_logging=--quiet

@@ -74,7 +74,8 @@ libogc2_bba_wrap_patch="$spike_dir/patches/libogc2-wrap-bba-receive-dma.patch"
 libogc2_bba_recovery_patch="$spike_dir/patches/libogc2-recover-malformed-bba-descriptors.patch"
 libogc2_bba_pbuf_patch="$spike_dir/patches/libogc2-drop-bba-packet-on-pbuf-exhaustion.patch"
 libogc2_tcp_sequence_patch="$spike_dir/patches/libogc2-lwip-rfc-snd-nxt.patch"
-for patch_file in "$libogc2_patch" "$libogc2_bba_wrap_patch" "$libogc2_bba_recovery_patch" "$libogc2_bba_pbuf_patch" "$libogc2_tcp_sequence_patch"; do
+libogc2_tcp_window_patch="$spike_dir/patches/libogc2-flush-tcp-window-updates.patch"
+for patch_file in "$libogc2_patch" "$libogc2_bba_wrap_patch" "$libogc2_bba_recovery_patch" "$libogc2_bba_pbuf_patch" "$libogc2_tcp_sequence_patch" "$libogc2_tcp_window_patch"; do
   if git -C "$libogc2_dir" apply --reverse --check "$patch_file" >/dev/null 2>&1; then
     :
   elif git -C "$libogc2_dir" apply --check "$patch_file"; then
@@ -85,7 +86,7 @@ for patch_file in "$libogc2_patch" "$libogc2_bba_wrap_patch" "$libogc2_bba_recov
   fi
 done
 
-libogc2_input="$LIBOGC2_COMMIT $(cksum "$libogc2_patch") $(cksum "$libogc2_bba_wrap_patch") $(cksum "$libogc2_bba_recovery_patch") $(cksum "$libogc2_bba_pbuf_patch") $(cksum "$libogc2_tcp_sequence_patch")"
+libogc2_input="$LIBOGC2_COMMIT $(cksum "$libogc2_patch") $(cksum "$libogc2_bba_wrap_patch") $(cksum "$libogc2_bba_recovery_patch") $(cksum "$libogc2_bba_pbuf_patch") $(cksum "$libogc2_tcp_sequence_patch") $(cksum "$libogc2_tcp_window_patch")"
 libogc2_stamp="$libogc2_stage/.build-input"
 if [ ! -s "$libogc2_stage/opt/devkitpro/libogc2/gamecube/lib/libogc.a" ] ||
   [ ! -f "$libogc2_stamp" ] ||
@@ -98,7 +99,7 @@ if [ ! -s "$libogc2_stage/opt/devkitpro/libogc2/gamecube/lib/libogc.a" ] ||
     --volume "$spike_dir:/workspace:Z" \
     --workdir /workspace/.libogc2 \
     "$DEVKITPPC_IMAGE" \
-    sh -c 'export DEVKITPRO="/opt/devkitpro"; export DEVKITPPC="/opt/devkitpro/devkitPPC"; make clean; make cube; stage="/workspace/.libogc2-stage/opt/devkitpro/libogc2"; mkdir -p "$stage/gamecube/lib"; cp -R include "$stage/gamecube/"; cp lib/cube/*.a "$stage/gamecube/lib/"; cp *_license.txt *_rules "$stage/"'
+    sh -ec 'export DEVKITPRO="/opt/devkitpro"; export DEVKITPPC="/opt/devkitpro/devkitPPC"; make clean; make cube; stage="/workspace/.libogc2-stage/opt/devkitpro/libogc2"; rm -rf "$stage"; mkdir -p "$stage/gamecube/lib"; cp -R include "$stage/gamecube/"; cp lib/cube/*.a "$stage/gamecube/lib/"; cp *_license.txt *_rules "$stage/"'
   printf '%s\n' "$libogc2_input" >"$libogc2_stamp"
 fi
 

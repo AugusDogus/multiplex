@@ -133,6 +133,10 @@ backward/forward without walking focus through every poster.
   pause/resume, and invalid-access assertions
 - `scripts/run-dolphin-rootless-tap.sh`: isolated TAP-to-`pasta` Ethernet
   harness for exercising Dolphin's low-level BBA emulation without sudo
+- `scripts/bootstrap-dolphin.sh`: reproducible local Dolphin 2606 build using
+  the installed 2606 system data and the TAP receive-pressure patch
+- `patches/dolphin-2606-tap-receive-backpressure.patch`: applies Dolphin's
+  existing BuiltIn BBA ring guard to Linux TAP before reading another frame
 - `scripts/run-dolphin-plex.sh`: real Plex item → GameCube transcode gateway →
   muted Dolphin runner
 - `scripts/plex-gateway.py`: bounded binary home/search/library metadata and
@@ -149,10 +153,16 @@ backward/forward without walking focus through every poster.
   scanline and solid-blend fast paths for rounded fills, borders, and shadows
 - `patches/libogc2-lwip-rfc-snd-nxt.patch`: upstream lwIP sequence-number
   semantics backported to libogc2's historical TCP stack
+- `patches/libogc2-flush-tcp-window-updates.patch`: immediately ACKs consumed
+  TCP data, advertises receive space in complete windows, and limits the
+  Dolphin TAP test path to one in-flight Ethernet frame
 - `patches/passt-handle-data-on-handshake-ack.patch`: preserve application
   data piggybacked on the final TCP handshake ACK
-- `patches/passt-ack-small-window-guests-immediately.patch`: avoid duplicate
-  ACK storms for the BBA's two-MSS TCP window
+- `patches/passt-ack-small-window-guests-immediately.patch`: avoid delayed
+  host ACKs for the BBA's tiny TCP receive window
+- `patches/passt-avoid-spurious-small-window-retransmit.patch`: leave loss
+  recovery to the host TCP socket when a tiny guest window cannot provide the
+  three duplicate ACKs required for fast retransmit
 
 ## Current boundary
 
@@ -269,6 +279,53 @@ milliseconds, completes the Portless TLS connection in about 0.19 seconds,
 and completes the authenticated tRPC request in about 0.44 seconds. Pasta
 packet tracing is intentionally disabled for performance runs because
 per-frame trace and PCAP output materially slows emulation.
+
+The [Linux TAP backend in stock Dolphin
+2606](https://github.com/dolphin-emu/dolphin/blob/6094cfcf7b8fba733b3116fdf3414d51c1c0e4a4/Source/Core/Core/HW/EXI/BBA/TAP_Unix.cpp)
+reads host frames without applying the receive-ring occupancy guard already
+used by [Dolphin's BuiltIn BBA
+backend](https://github.com/dolphin-emu/dolphin/blob/6094cfcf7b8fba733b3116fdf3414d51c1c0e4a4/Source/Core/Core/HW/EXI/BBA/BuiltIn.cpp).
+Under sustained Plex responses that can overrun the emulated 4 KiB BBA ring
+before libogc2 advances its read pointer. `bun run
+spike:gamecube:dolphin:bootstrap` builds the pinned Dolphin source with a narrow
+patch that applies the existing eight-page backpressure threshold to TAP and
+checks receive enablement before consuming a host frame. The rootless TAP
+runner automatically prefers this local build and retains stock Dolphin as a
+fallback when it has not been built.
+
+Pasta's interactive-flow ACK suppression also interacts badly with libogc2's
+historical two-MSS advertised window: repeated ACKs for tiny TLS records made a
+valid Multiplex tRPC request take about 30 seconds. One pinned pasta patch keeps
+immediate host ACKs for guests advertising at most two MSS while leaving
+upstream behavior unchanged for ordinary larger-window peers. Pasta also treats
+a single duplicate guest ACK as a fast-retransmit request. That is useful for
+ordinary large windows, but creates a retransmit loop for a peer that can only
+hold one or two segments. A second narrow patch disables that shortcut for
+these small windows and leaves recovery to the host TCP socket. Standard TCP
+fast retransmit uses [three duplicate
+ACKs](https://www.rfc-editor.org/info/rfc5681), which such a peer cannot
+produce. These changes follow the [upstream pasta small-buffer
+investigation](https://archives.passt.top/passt-dev/ZREgC%2FuksH%2B2ol1b%40zatzit/T/)
+and its [documented small-message ACK
+behavior](https://github.com/podman-container-tools/podman/discussions/24572);
+no privileged TAP device or Portless service change is required.
+
+The old stack exposed a second bottleneck independent of Dolphin's backend.
+libogc2's historical lwIP calls the delayed-ACK helper when the application
+returns receive-window space, which can hold a zero-window update until the
+250 ms fast timer and cap a bulk response to only a few kilobytes per second.
+The pinned backport ACKs consumed data immediately but advertises returned
+space only after a complete receive window has drained. For the Dolphin TAP
+harness it also limits that window to one MSS, preventing the emulator bridge
+from handing two full Ethernet frames to the BBA concurrently. This trades
+some theoretical bandwidth for deterministic delivery; it should be revisited
+against a real BBA rather than assumed to be a hardware requirement. It matches
+the long-standing [lwIP receive-performance
+guidance](https://lists.nongnu.org/archive/html/lwip-users/2004-10/msg00022.html)
+while respecting the BBA's small ring. The automated local HTTP playback run
+now transfers the 155,648-byte test movie twice in 3.15 seconds of captured
+network time with three retransmissions, starts playback, decodes at 29.9 fps,
+pauses and resumes, and leaves a clean invalid-access log.
 
 The managed runner defaults Dolphin to DSP LLE. Movie audio follows
 WiiMC-GCN's `ao_gekko` design and streams decoded stereo PCM directly through

@@ -11,6 +11,7 @@
 .opengx-build/
 .raylib/
 .dolphin-user/
+.dolphin-source-2606/
 .zig-cache/
 build/
 build-raylib-reference/

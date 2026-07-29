@@ -22,6 +22,7 @@
     "db:push": "bun --filter @multiplex/web db:push",
     "db:studio": "bun --filter @multiplex/web db:studio",
     "spike:gamecube:bootstrap": "sh spikes/gamecube-native-sdk/scripts/bootstrap.sh",
+    "spike:gamecube:dolphin:bootstrap": "sh spikes/gamecube-native-sdk/scripts/bootstrap-dolphin.sh",
     "spike:gamecube:check": "sh spikes/gamecube-native-sdk/scripts/check.sh",
     "spike:gamecube:dol": "sh spikes/gamecube-native-sdk/scripts/build-dol.sh",
     "spike:gamecube:run": "sh spikes/gamecube-native-sdk/scripts/run-dolphin.sh",
