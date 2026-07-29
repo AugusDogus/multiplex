@@ -1,11 +1,15 @@
-import { expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 
 import type { MediaPlayerItem } from "~/types/media-player";
 import type { PlexPlaybackPlan } from "./plex-playback-plan";
 import {
   buildPlexTranscodeSessionKey,
+  consumeStoppedTranscodeSession,
   generatePlexStreamUrl,
+  markTranscodeSessionStopped,
+  preparePlexTranscodeDecision,
   stopTranscodeSession,
+  stopTranscodeSessionBeforeReplacement,
 } from "./plex-stream-urls";
 
 const TRANSCODE_ITEM = {
@@ -27,164 +31,300 @@ const TRANSCODE_ITEM = {
 const TRANSCODE_WITHOUT_SUBTITLES: PlexPlaybackPlan = {
   streamDecision: "direct-stream",
   videoUsesTranscode: true,
-  burnedSubtitleIndex: null,
+  burnedSubtitleId: null,
   subtitle: { kind: "none" },
 };
 
 const PLAYBACK_SESSION_ID = "0123456789abcdef01234567";
+const originalFetch = globalThis.fetch;
+const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 
-const transcodeWithBurnedSubtitle = (index: number): PlexPlaybackPlan => ({
+beforeEach(() => {
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      localStorage: {
+        getItem: () => "test-client-id",
+        setItem: () => undefined,
+      },
+    },
+  });
+});
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  if (originalWindow) {
+    Object.defineProperty(globalThis, "window", originalWindow);
+  } else {
+    Reflect.deleteProperty(globalThis, "window");
+  }
+});
+
+function getRequestUrl(input: Parameters<typeof globalThis.fetch>[0]): string {
+  return input instanceof URL
+    ? input.href
+    : input instanceof Request
+      ? input.url
+      : input;
+}
+
+function installFetchMock(
+  implementation: (
+    input: Parameters<typeof globalThis.fetch>[0],
+    init?: Parameters<typeof globalThis.fetch>[1],
+  ) => Promise<Response>,
+) {
+  const fetchMock = mock(implementation);
+  globalThis.fetch = Object.assign(fetchMock, {
+    preconnect: originalFetch.preconnect,
+  });
+  return fetchMock;
+}
+
+const transcodeWithBurnedSubtitle = (
+  id: number,
+  index: number,
+): PlexPlaybackPlan => ({
   streamDecision: "direct-stream",
   videoUsesTranscode: true,
-  burnedSubtitleIndex: index,
-  subtitle: { kind: "burnIn", index },
+  burnedSubtitleId: id,
+  subtitle: { kind: "burnIn", id, index },
 });
 
 test("keeps a valid playback identifier while isolating subtitle transcodes", () => {
-  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
-  Object.defineProperty(globalThis, "window", {
-    configurable: true,
-    value: {
-      localStorage: {
-        getItem: () => "test-client-id",
-        setItem: () => undefined,
-      },
-    },
-  });
-
-  try {
-    const withoutSubtitles = new URL(
-      generatePlexStreamUrl(
-        TRANSCODE_ITEM,
-        TRANSCODE_ITEM.serverUrl,
-        TRANSCODE_ITEM.authToken,
-        TRANSCODE_WITHOUT_SUBTITLES,
-        3158,
-        PLAYBACK_SESSION_ID,
-      ),
-    );
-    const withSubtitleTwo = new URL(
-      generatePlexStreamUrl(
-        TRANSCODE_ITEM,
-        TRANSCODE_ITEM.serverUrl,
-        TRANSCODE_ITEM.authToken,
-        transcodeWithBurnedSubtitle(2),
-        3158,
-        PLAYBACK_SESSION_ID,
-      ),
-    );
-    const withSubtitleThree = new URL(
-      generatePlexStreamUrl(
-        TRANSCODE_ITEM,
-        TRANSCODE_ITEM.serverUrl,
-        TRANSCODE_ITEM.authToken,
-        transcodeWithBurnedSubtitle(3),
-        3158,
-        PLAYBACK_SESSION_ID,
-      ),
-    );
-
-    expect(withoutSubtitles.searchParams.get("session")).toBe(
-      buildPlexTranscodeSessionKey(PLAYBACK_SESSION_ID, 3158, null),
-    );
-    expect(withoutSubtitles.searchParams.get("X-Plex-Session-Identifier")).toBe(
+  const withoutSubtitles = new URL(
+    generatePlexStreamUrl(
+      TRANSCODE_ITEM,
+      TRANSCODE_ITEM.serverUrl,
+      TRANSCODE_ITEM.authToken,
+      TRANSCODE_WITHOUT_SUBTITLES,
+      3158,
       PLAYBACK_SESSION_ID,
-    );
-    expect(withoutSubtitles.searchParams.get("subtitles")).toBe("none");
-    expect(withoutSubtitles.searchParams.get("subtitleStreamID")).toBeNull();
-    expect(withoutSubtitles.searchParams.get("directStream")).toBe("1");
-    expect(withoutSubtitles.searchParams.get("offset")).toBe("3158");
-    expect(withSubtitleTwo.searchParams.get("session")).toBe(
-      buildPlexTranscodeSessionKey(PLAYBACK_SESSION_ID, 3158, 2),
-    );
-    expect(withSubtitleTwo.searchParams.get("X-Plex-Session-Identifier")).toBe(
+    ),
+  );
+  const withSubtitleTwo = new URL(
+    generatePlexStreamUrl(
+      TRANSCODE_ITEM,
+      TRANSCODE_ITEM.serverUrl,
+      TRANSCODE_ITEM.authToken,
+      transcodeWithBurnedSubtitle(1_572_872, 2),
+      3158,
       PLAYBACK_SESSION_ID,
-    );
-    expect(withSubtitleTwo.searchParams.get("subtitles")).toBe("burn");
-    expect(withSubtitleTwo.searchParams.get("subtitleStreamID")).toBe("2");
-    expect(withSubtitleTwo.searchParams.get("directStream")).toBe("0");
-    expect(withSubtitleTwo.searchParams.get("offset")).toBe("3158");
-    expect(withSubtitleThree.searchParams.get("session")).toBe(
-      buildPlexTranscodeSessionKey(PLAYBACK_SESSION_ID, 3158, 3),
-    );
-    expect(
-      withSubtitleThree.searchParams.get("X-Plex-Session-Identifier"),
-    ).toBe(PLAYBACK_SESSION_ID);
-    expect(
-      new Set([
-        withoutSubtitles.searchParams.get("session"),
-        withSubtitleTwo.searchParams.get("session"),
-        withSubtitleThree.searchParams.get("session"),
-      ]).size,
-    ).toBe(3);
-    expect(
-      [withoutSubtitles, withSubtitleTwo, withSubtitleThree].every((url) => {
-        const transcodeSession = url.searchParams.get("session");
-        return (
-          transcodeSession !== null &&
-          transcodeSession.length <= 64 &&
-          /^[a-zA-Z0-9-]+$/.test(transcodeSession)
-        );
-      }),
-    ).toBe(true);
-  } finally {
-    if (originalWindow) {
-      Object.defineProperty(globalThis, "window", originalWindow);
-    } else {
-      Reflect.deleteProperty(globalThis, "window");
-    }
-  }
+    ),
+  );
+  const withSubtitleThree = new URL(
+    generatePlexStreamUrl(
+      TRANSCODE_ITEM,
+      TRANSCODE_ITEM.serverUrl,
+      TRANSCODE_ITEM.authToken,
+      transcodeWithBurnedSubtitle(1_572_873, 3),
+      3158,
+      PLAYBACK_SESSION_ID,
+    ),
+  );
+
+  expect(withoutSubtitles.searchParams.get("session")).toBe(
+    buildPlexTranscodeSessionKey(PLAYBACK_SESSION_ID, 3158, null),
+  );
+  expect(withoutSubtitles.searchParams.get("X-Plex-Session-Identifier")).toBe(
+    PLAYBACK_SESSION_ID,
+  );
+  expect(withoutSubtitles.searchParams.get("hasMDE")).toBeNull();
+  expect(withoutSubtitles.searchParams.get("subtitles")).toBe("none");
+  expect(withoutSubtitles.searchParams.get("subtitleStreamID")).toBeNull();
+  expect(withoutSubtitles.searchParams.get("directStream")).toBe("1");
+  expect(withoutSubtitles.searchParams.get("offset")).toBe("3158");
+  expect(withSubtitleTwo.searchParams.get("session")).toBe(
+    buildPlexTranscodeSessionKey(PLAYBACK_SESSION_ID, 3158, 1_572_872),
+  );
+  expect(withSubtitleTwo.searchParams.get("X-Plex-Session-Identifier")).toBe(
+    PLAYBACK_SESSION_ID,
+  );
+  expect(withSubtitleTwo.searchParams.get("subtitles")).toBe("burn");
+  expect(withSubtitleTwo.searchParams.get("hasMDE")).toBe("1");
+  expect(withSubtitleTwo.searchParams.get("subtitleStreamID")).toBe("1572872");
+  expect(withSubtitleTwo.searchParams.get("directStream")).toBe("0");
+  expect(withSubtitleTwo.searchParams.get("offset")).toBe("3158");
+  expect(withSubtitleThree.searchParams.get("session")).toBe(
+    buildPlexTranscodeSessionKey(PLAYBACK_SESSION_ID, 3158, 1_572_873),
+  );
+  expect(withSubtitleThree.searchParams.get("X-Plex-Session-Identifier")).toBe(
+    PLAYBACK_SESSION_ID,
+  );
+  expect(
+    new Set([
+      withoutSubtitles.searchParams.get("session"),
+      withSubtitleTwo.searchParams.get("session"),
+      withSubtitleThree.searchParams.get("session"),
+    ]).size,
+  ).toBe(3);
+  expect(
+    [withoutSubtitles, withSubtitleTwo, withSubtitleThree].every((url) => {
+      const transcodeSession = url.searchParams.get("session");
+      return (
+        transcodeSession !== null &&
+        transcodeSession.length <= 64 &&
+        /^[a-zA-Z0-9-]+$/.test(transcodeSession)
+      );
+    }),
+  ).toBe(true);
 });
 
 test("stops the current transcode with a page-close-safe request", async () => {
-  const originalFetch = globalThis.fetch;
-  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
-  const fetch = mock(
-    async (
-      _input: Parameters<typeof globalThis.fetch>[0],
-      _init?: Parameters<typeof globalThis.fetch>[1],
-    ) => new Response(),
+  const fetch = installFetchMock(async () => new Response());
+
+  const stopped = await stopTranscodeSession(
+    "https://plex.example",
+    "secret-token",
+    "multiplex-session-42",
   );
-  globalThis.fetch = Object.assign(fetch, {
-    preconnect: originalFetch.preconnect,
+
+  expect(stopped).toBe(true);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  const [input, init] = fetch.mock.calls[0]!;
+  expect(init).toEqual({ keepalive: true });
+  const url = new URL(getRequestUrl(input));
+  expect(url.pathname).toBe("/video/:/transcode/universal/stop");
+  expect(url.searchParams.get("session")).toBe("multiplex-session-42");
+});
+
+test("reports a failed stop without suppressing modal cleanup", async () => {
+  installFetchMock(async () => {
+    throw new TypeError("network unavailable");
   });
-  Object.defineProperty(globalThis, "window", {
-    configurable: true,
-    value: {
-      localStorage: {
-        getItem: () => "test-client-id",
-        setItem: () => undefined,
-      },
-    },
+  const sessionKey = "multiplex-session-stop-failed";
+
+  const stopped = await stopTranscodeSessionBeforeReplacement(
+    "https://plex.example",
+    "secret-token",
+    sessionKey,
+  );
+
+  expect(stopped).toBe(false);
+  expect(consumeStoppedTranscodeSession(sessionKey)).toBe(false);
+});
+
+test("treats an already-gone transcode as successfully stopped", async () => {
+  installFetchMock(
+    async () => new Response(null, { status: 404, statusText: "Not Found" }),
+  );
+
+  const stopped = await stopTranscodeSession(
+    "https://plex.example",
+    "secret-token",
+    "multiplex-session-already-gone",
+  );
+
+  expect(stopped).toBe(true);
+});
+
+test("suppresses modal cleanup only after replacement is applied", () => {
+  const sessionKey = "multiplex-session-replaced";
+
+  expect(consumeStoppedTranscodeSession(sessionKey)).toBe(false);
+  markTranscodeSessionStopped(sessionKey);
+  expect(consumeStoppedTranscodeSession(sessionKey)).toBe(true);
+  expect(consumeStoppedTranscodeSession(sessionKey)).toBe(false);
+});
+
+test("completes old transcode cleanup before allowing replacement", async () => {
+  const events: string[] = [];
+  let releaseStop!: () => void;
+  const stopResponse = new Promise<void>((resolve) => {
+    releaseStop = resolve;
+  });
+  installFetchMock(async () => {
+    events.push("stop-requested");
+    await stopResponse;
+    events.push("stop-completed");
+    return new Response();
   });
 
-  try {
-    await stopTranscodeSession(
-      "https://plex.example",
-      "secret-token",
-      "multiplex-session-42",
-    );
+  const sessionKey = "multiplex-session-before-replacement";
+  const cleanup = stopTranscodeSessionBeforeReplacement(
+    "https://plex.example",
+    "secret-token",
+    sessionKey,
+  ).then((stopped) => {
+    events.push("replacement-ready");
+    return stopped;
+  });
 
-    expect(fetch).toHaveBeenCalledTimes(1);
-    const call = fetch.mock.calls[0];
-    expect(call).toBeDefined();
-    const [input, init] = call!;
-    expect(init).toEqual({ keepalive: true });
-    const requestUrl =
-      input instanceof URL
-        ? input.href
-        : input instanceof Request
-          ? input.url
-          : input;
-    const url = new URL(requestUrl);
-    expect(url.pathname).toBe("/video/:/transcode/universal/stop");
-    expect(url.searchParams.get("session")).toBe("multiplex-session-42");
-  } finally {
-    globalThis.fetch = originalFetch;
-    if (originalWindow) {
-      Object.defineProperty(globalThis, "window", originalWindow);
-    } else {
-      Reflect.deleteProperty(globalThis, "window");
-    }
-  }
+  await Promise.resolve();
+  expect(events).toEqual(["stop-requested"]);
+
+  releaseStop();
+  const stopped = await cleanup;
+
+  expect(stopped).toBe(true);
+  expect(events).toEqual([
+    "stop-requested",
+    "stop-completed",
+    "replacement-ready",
+  ]);
+  expect(consumeStoppedTranscodeSession(sessionKey)).toBe(false);
+});
+
+test("pairs each media decision with its replacement start session", async () => {
+  const fetch = installFetchMock(async () => new Response());
+  const subtitlePlan = transcodeWithBurnedSubtitle(1_572_872, 2);
+
+  const subtitleReady = await preparePlexTranscodeDecision(
+    TRANSCODE_ITEM,
+    TRANSCODE_ITEM.serverUrl,
+    TRANSCODE_ITEM.authToken,
+    subtitlePlan,
+    474,
+    PLAYBACK_SESSION_ID,
+  );
+  const uncaptionedReady = await preparePlexTranscodeDecision(
+    TRANSCODE_ITEM,
+    TRANSCODE_ITEM.serverUrl,
+    TRANSCODE_ITEM.authToken,
+    TRANSCODE_WITHOUT_SUBTITLES,
+    501,
+    PLAYBACK_SESSION_ID,
+  );
+
+  expect(subtitleReady).toBe(true);
+  expect(uncaptionedReady).toBe(true);
+  expect(fetch).toHaveBeenCalledTimes(2);
+
+  const subtitleDecision = new URL(getRequestUrl(fetch.mock.calls[0]![0]));
+  const subtitleStart = new URL(
+    generatePlexStreamUrl(
+      TRANSCODE_ITEM,
+      TRANSCODE_ITEM.serverUrl,
+      TRANSCODE_ITEM.authToken,
+      subtitlePlan,
+      474,
+      PLAYBACK_SESSION_ID,
+    ),
+  );
+  expect(subtitleDecision.pathname).toBe(
+    "/video/:/transcode/universal/decision",
+  );
+  expect(subtitleDecision.search).toBe(subtitleStart.search);
+  expect(fetch.mock.calls[0]![1]).toEqual({
+    headers: { Accept: "application/xml" },
+  });
+
+  const uncaptionedDecision = new URL(getRequestUrl(fetch.mock.calls[1]![0]));
+  const uncaptionedStart = new URL(
+    generatePlexStreamUrl(
+      TRANSCODE_ITEM,
+      TRANSCODE_ITEM.serverUrl,
+      TRANSCODE_ITEM.authToken,
+      TRANSCODE_WITHOUT_SUBTITLES,
+      501,
+      PLAYBACK_SESSION_ID,
+    ),
+  );
+  expect(uncaptionedDecision.pathname).toBe(
+    "/video/:/transcode/universal/decision",
+  );
+  expect(uncaptionedDecision.search).toBe(uncaptionedStart.search);
+  expect(fetch.mock.calls[1]![1]).toEqual({
+    headers: { Accept: "application/xml" },
+  });
 });

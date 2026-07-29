@@ -53,7 +53,7 @@ export type SelectedSubtitleStream = {
 
 export type SubtitlePlan =
   | { kind: "none" }
-  | { kind: "burnIn"; index: number }
+  | { kind: "burnIn"; id: number; index: number | null }
   | { kind: "plexTrack"; index: number }
   | { kind: "externalText"; key: string }
   | { kind: "unsupported" };
@@ -61,7 +61,7 @@ export type SubtitlePlan =
 export type PlexPlaybackPlan = {
   streamDecision: StreamDecision;
   videoUsesTranscode: boolean;
-  burnedSubtitleIndex: number | null;
+  burnedSubtitleId: number | null;
   subtitle: SubtitlePlan;
 };
 
@@ -105,8 +105,8 @@ function buildSubtitlePlan(
 
   // Offset-based transcoded streams start at t=0 on the browser timeline, so
   // client-side text tracks cannot use the original subtitle timestamps.
-  if (!canDirectPlay && selected.index !== null) {
-    return { kind: "burnIn", index: selected.index };
+  if (!canDirectPlay) {
+    return { kind: "burnIn", id: selected.id, index: selected.index };
   }
 
   if (isExternalSrtSubtitle(selected.codec, selected.format, selected.key)) {
@@ -122,7 +122,7 @@ function buildSubtitlePlan(
   }
 
   if (selected.index !== null) {
-    return { kind: "burnIn", index: selected.index };
+    return { kind: "burnIn", id: selected.id, index: selected.index };
   }
 
   return { kind: "unsupported" };
@@ -135,14 +135,13 @@ export function buildPlexPlaybackPlan(item: MediaPlayerItem): PlexPlaybackPlan {
     streamDecision,
     getSelectedSubtitleStream(item),
   );
-  const burnedSubtitleIndex =
-    subtitle.kind === "burnIn" ? subtitle.index : null;
+  const burnedSubtitleId = subtitle.kind === "burnIn" ? subtitle.id : null;
 
   return {
     streamDecision,
     videoUsesTranscode:
       streamDecision === "direct-stream" || subtitle.kind === "burnIn",
-    burnedSubtitleIndex,
+    burnedSubtitleId,
     subtitle,
   };
 }

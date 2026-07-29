@@ -18,6 +18,8 @@ const CLIENT_PROFILE: ClientProfile = {
   deviceName: "Multiplex Web",
 };
 
+const stoppedBeforeReplacement = new Set<string>();
+
 function getBaseServerUrl(serverUrl: string): string {
   return serverUrl.replace(/\/$/, "");
 }
@@ -111,7 +113,7 @@ function buildDirectStreamUrl(
   serverUrl: string,
   authToken: string,
   offsetSeconds: number,
-  selectedSubtitleStreamIndex: number | null,
+  selectedSubtitleStreamId: number | null,
   sessionId: string,
 ): string {
   const baseUrl = getBaseServerUrl(serverUrl);
@@ -125,19 +127,20 @@ function buildDirectStreamUrl(
   const session = buildPlexTranscodeSessionKey(
     sessionId,
     offsetSeconds,
-    selectedSubtitleStreamIndex,
+    selectedSubtitleStreamId,
   );
 
   applyClientHeaders(streamUrl, authToken);
   applyUniversalTranscodeParams(streamUrl, item, "http", session, sessionId);
-  if (selectedSubtitleStreamIndex === null) {
+  if (selectedSubtitleStreamId === null) {
     streamUrl.searchParams.set("subtitles", "none");
   } else {
+    streamUrl.searchParams.set("hasMDE", "1");
     streamUrl.searchParams.set("directStream", "0");
     streamUrl.searchParams.set("subtitles", "burn");
     streamUrl.searchParams.set(
       "subtitleStreamID",
-      String(selectedSubtitleStreamIndex),
+      String(selectedSubtitleStreamId),
     );
   }
   // Plex's transcoded MP4 stream advertises an empty seekable range, so the
@@ -154,9 +157,9 @@ function buildDirectStreamUrl(
 export function buildPlexTranscodeSessionKey(
   sessionId: string,
   offsetSeconds: number,
-  selectedSubtitleStreamIndex: number | null,
+  selectedSubtitleStreamId: number | null,
 ): string {
-  const subtitleSessionKey = selectedSubtitleStreamIndex ?? "n";
+  const subtitleSessionKey = selectedSubtitleStreamId ?? "n";
   return `${sessionId}-${Math.floor(offsetSeconds)}-s${subtitleSessionKey}`;
 }
 
@@ -243,14 +246,14 @@ export function generatePlexStreamUrl(
   }
 
   return playbackPlan.streamDecision === "direct-play" &&
-    playbackPlan.burnedSubtitleIndex === null
+    playbackPlan.burnedSubtitleId === null
     ? buildDirectPlayUrl(item, serverUrl, authToken, sessionId)
     : buildDirectStreamUrl(
         item,
         serverUrl,
         authToken,
         offsetSeconds,
-        playbackPlan.burnedSubtitleIndex,
+        playbackPlan.burnedSubtitleId,
         sessionId,
       );
 }
@@ -259,6 +262,33 @@ export function hasValidStreamingData(item: MediaPlayerItem): boolean {
   return Boolean(
     item.Media?.[0]?.Part?.[0]?.key && item.serverUrl && item.authToken,
   );
+}
+
+export async function preparePlexTranscodeDecision(
+  item: MediaPlayerItem,
+  serverUrl: string,
+  authToken: string,
+  playbackPlan: PlexPlaybackPlan,
+  offsetSeconds: number,
+  sessionId: string,
+): Promise<boolean> {
+  if (!playbackPlan.videoUsesTranscode) return true;
+
+  const decisionUrl = new URL(
+    generatePlexStreamUrl(
+      item,
+      serverUrl,
+      authToken,
+      playbackPlan,
+      offsetSeconds,
+      sessionId,
+    ),
+  );
+  decisionUrl.pathname = "/video/:/transcode/universal/decision";
+  const response = await fetch(decisionUrl.toString(), {
+    headers: { Accept: "application/xml" },
+  });
+  return response.ok;
 }
 
 /**
@@ -275,8 +305,8 @@ export async function stopTranscodeSession(
   serverUrl: string,
   authToken: string,
   sessionKey: string,
-): Promise<void> {
-  if (!sessionKey) return;
+): Promise<boolean> {
+  if (!sessionKey) return false;
   try {
     const stopUrl = new URL(
       `${getBaseServerUrl(serverUrl)}/video/:/transcode/universal/stop`,
@@ -286,10 +316,30 @@ export async function stopTranscodeSession(
     // Keep the request alive when the player is being torn down by a tab or
     // browser close. Without this, the abandoned transcode occupies the
     // server's limited slots until Plex times it out.
-    await fetch(stopUrl.toString(), { keepalive: true });
+    const response = await fetch(stopUrl.toString(), { keepalive: true });
+    return response.ok || response.status === 404;
   } catch {
     // Best-effort.
+    return false;
   }
+}
+
+export async function stopTranscodeSessionBeforeReplacement(
+  serverUrl: string,
+  authToken: string,
+  sessionKey: string,
+): Promise<boolean> {
+  return stopTranscodeSession(serverUrl, authToken, sessionKey);
+}
+
+export function markTranscodeSessionStopped(sessionKey: string): void {
+  stoppedBeforeReplacement.add(sessionKey);
+}
+
+export function consumeStoppedTranscodeSession(sessionKey: string): boolean {
+  const wasStopped = stoppedBeforeReplacement.has(sessionKey);
+  stoppedBeforeReplacement.delete(sessionKey);
+  return wasStopped;
 }
 
 export async function stopPlaybackTranscodeSessions(

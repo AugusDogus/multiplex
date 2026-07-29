@@ -42,6 +42,7 @@ import { MediaPlayerVideo } from "./media-player-video";
 import type { MediaPlayerSeekFeedbackHandle } from "./media-player-video";
 import {
   buildPlexTranscodeSessionKey,
+  consumeStoppedTranscodeSession,
   stopPlaybackTranscodeSessions,
   stopTranscodeSession,
 } from "./utils/plex-stream-urls";
@@ -428,6 +429,9 @@ function usePlaybackSessionController({
       streamServerUrl &&
       streamAuthToken
     ) {
+      if (consumeStoppedTranscodeSession(previousStream.transcodeSessionKey)) {
+        return;
+      }
       void stopTranscodeSession(
         streamServerUrl,
         streamAuthToken,
@@ -565,7 +569,7 @@ export function MediaPlayerModal() {
       ? buildPlexTranscodeSessionKey(
           streamSessionId,
           streamOffset,
-          playbackPlan.burnedSubtitleIndex,
+          playbackPlan.burnedSubtitleId,
         )
       : null;
 
