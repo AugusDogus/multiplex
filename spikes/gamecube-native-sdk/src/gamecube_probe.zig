@@ -1109,6 +1109,16 @@ export fn multiplex_native_reference_memo_peak_bytes() callconv(.c) u32 {
     return @intCast(reference_memo_allocator.peak_bytes);
 }
 
+/// Drop cached reference-render command results without touching the retained
+/// frame already uploaded by the host. The next dirty UI frame repopulates the
+/// memo on demand.
+export fn multiplex_native_reference_memo_clear() callconv(.c) u32 {
+    if (!reference_render_memo_initialized) return 0;
+    const released = reference_memo_allocator.bytes_in_use;
+    reference_render_memo.deinit();
+    return @intCast(released);
+}
+
 fn renderReference(
     model: *const core.Model,
     pixels_ptr: [*]u8,

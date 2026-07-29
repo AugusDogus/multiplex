@@ -223,6 +223,12 @@ boundary. The guest concurrently opens that HTTP source and fills a second
 bounded demux session, then transfers it to the codecs after cancelling the old
 reader. In the 12-second accelerated run, three consecutive staged ownership
 swaps took 17–23 ms and resumed playback in roughly 0.3–0.4 seconds.
+Before opening the second demux, the host drops Native SDK's reference-render
+memo while retaining the already-uploaded GX frame. The first real Plex
+prefetch released 3,876 KiB, leaving enough MEM2 for the full 320 KiB video and
+64 KiB audio queues instead of weakening their interleave tolerance. Six
+consecutive eight-second handoffs then switched in 14–26 ms with zero
+underruns and a clean invalid-access log.
 Intentional session replacement now cancels the old resumable HTTP reader
 instead of waiting through its outage-retry budget. A 64 ms handoff margin
 also stops the finite audio stream before its final DMA request; the repeated
@@ -235,7 +241,7 @@ memory-card record. A dedicated LWP sends play/pause/stop edges immediately and
 playing progress every ten seconds, so Plex latency cannot stall GX or AI DMA.
 The direct-Plex Dolphin run confirmed real playing, paused, resumed, and
 periodic progress acknowledgements; PMS metadata advanced to the reported
-resume offset while H.264/AAC playback stayed at 29.7–30.4 decode fps and 60.4
+resume offset while MPEG-2/MP2 playback stayed at about 30 decode fps and 60.4
 presentation fps with a clean invalid-access log. Leaving the player also
 commits the current offset and integer progress percentage into the
 TypeScript-owned home, search, or library item. Reopening that same item in the

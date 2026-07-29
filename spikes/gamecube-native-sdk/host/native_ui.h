@@ -146,6 +146,7 @@ uint32_t multiplex_native_reference_memo_hits(void);
 uint32_t multiplex_native_reference_memo_misses(void);
 uint32_t multiplex_native_reference_memo_bytes(void);
 uint32_t multiplex_native_reference_memo_peak_bytes(void);
+uint32_t multiplex_native_reference_memo_clear(void);
 uint32_t multiplex_native_app_init_and_render_reference(
     uint8_t *pixels, uint32_t pixels_capacity, uint8_t *scratch,
     uint32_t scratch_capacity);

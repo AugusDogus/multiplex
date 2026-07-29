@@ -61,7 +61,7 @@
  * are interleaved, so waiting for exactly 32 KiB can leave the producer
  * blocked on a full video queue with audio only a few bytes short.
  */
-#define AUDIO_PREBUFFER_BYTES (24u * 1024u)
+#define AUDIO_PREBUFFER_BYTES (16u * 1024u)
 #define HLS_READINESS_TIMEOUT_MS 60000u
 #define SEGMENT_PREFETCH_MARGIN_MS 8000u
 #define SEGMENT_HANDOFF_MARGIN_MS 64u
@@ -2267,7 +2267,11 @@ static void stage_following_media_if_due(
   if ((uint64_t)position_ms + SEGMENT_PREFETCH_MARGIN_MS < segment_end) {
     return;
   }
-  start_staged_media_session(staged, gateway_url, active_manifest);
+  const uint32_t released = multiplex_native_reference_memo_clear();
+  if (start_staged_media_session(staged, gateway_url, active_manifest)) {
+    SYS_Report("REFERENCE GX: playback-session released-render-memo=%uKiB\n",
+               released / 1024u);
+  }
 }
 
 static bool read_http_program(void *context, size_t offset,
