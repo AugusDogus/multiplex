@@ -568,6 +568,17 @@ export fn multiplex_native_app_playback_state() callconv(.c) u32 {
         (@as(u32, @intFromBool(app_model.playing)) << 2);
 }
 
+export fn multiplex_native_app_playback_set_paused(paused: u32) callconv(.c) u32 {
+    if (!app_initialized or app_model.screen != .player or !app_model.playbackLoaded) return 0;
+    const playing = paused == 0;
+    if (app_model.playing == playing) return 1;
+    const next = core.rt.frameCreate(core.Model, app_model.*);
+    next.playing = playing;
+    commitAppModel(next);
+    reference_full_repaint = true;
+    return 1;
+}
+
 export fn multiplex_native_app_browse_request(section_id: *u32, start: *u32) callconv(.c) u32 {
     const requested = core.browseRequestSection(app_model);
     if (requested == 0) return 0;

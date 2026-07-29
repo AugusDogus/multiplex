@@ -93,6 +93,7 @@ uint32_t multiplex_native_app_watch_together_playback(uint32_t rating_key,
                                                        uint32_t duration_ms,
                                                        uint32_t offset_ms);
 uint32_t multiplex_native_app_playback_state(void);
+uint32_t multiplex_native_app_playback_set_paused(uint32_t paused);
 uint32_t multiplex_native_app_browse_request(uint32_t *section_id,
                                              uint32_t *start);
 uint32_t multiplex_native_app_browse_begin(uint32_t section_id,

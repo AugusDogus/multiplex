@@ -2857,6 +2857,18 @@ static void *run_app(void *unused) {
         SYS_Report("REFERENCE GX: Syncplay session disconnected\n");
         multiplex_syncplay_session_destroy(syncplay_session);
         syncplay_session = NULL;
+      } else {
+        bool remote_paused = false;
+        uint32_t remote_position_ms = 0;
+        if (multiplex_syncplay_session_take_remote_playback(
+                syncplay_session, &remote_paused, &remote_position_ms) &&
+            multiplex_native_app_playback_set_paused(remote_paused ? 1u : 0u) !=
+                0) {
+          native_frame_dirty = true;
+          SYS_Report("REFERENCE GX: Syncplay remote playback paused=%u "
+                     "position=%u\n",
+                     remote_paused ? 1u : 0u, remote_position_ms);
+        }
       }
     }
 #endif
