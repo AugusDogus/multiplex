@@ -1,0 +1,14 @@
+diff --git a/tcp.c b/tcp.c
+index b0a5adc..41966f2 100644
+--- a/tcp.c
++++ b/tcp.c
+@@ -1168,7 +1168,8 @@ int tcp_update_seqack_wnd(const struct ctx *c, struct tcp_tap_conn *conn,
+ 	 *      outbound socket queue.
+ 	 */
+ 	if (bytes_acked_cap && delivery_rate_cap && !force_seq &&
+-	    !CONN_IS_CLOSING(conn) &&
++	    !CONN_IS_CLOSING(conn) &&
++	    conn->wnd_from_tap > 2U * MSS_GET(conn) &&
+ 	    !(conn->flags & LOCAL) && !tcp_rtt_dst_low(conn)) {
+ 		if (!tinfo) {
+ 			tinfo = &tinfo_new;

@@ -48,15 +48,18 @@ patch lets a single final handshake ACK carry the first HTTP request instead
 of silently discarding that payload. The libogc2 build also backports lwIP's
 upstream RFC-correct `snd_nxt` fix so a retransmission cannot move the
 GameCube's outgoing TCP sequence backward. Together these remove the
-connection-level retransmission delays without host privileges. Libogc2's
+connection-level retransmission delays without host privileges. Pasta's
+interactive-traffic heuristic normally waits for the remote peer before
+acknowledging guest bytes. That produces a duplicate-ACK storm with libogc2's
+two-MSS window and tiny TLS records, a pattern also diagnosed by pasta's
+maintainers for small-message protocols. The dedicated local pasta build
+acknowledges a guest with a two-MSS-or-smaller window immediately; this changed
+the authenticated Watch Together request from a 30-second timeout to a valid
+sub-second chunked response without changing the host or requiring sudo.
+Libogc2's
 upstream two-segment TCP receive window is preserved because it matches the
 BBA's approximately two-frame receive ring; advertising four segments
-overflowed the adapter and caused retransmission bursts. The upstream driver
-also waits for two packets before raising a receive interrupt, leaving no
-room for a second full-size frame while the first is pending. The local
-one-packet interrupt patch drains the ring with one frame of headroom; in the
-direct-Plex test it removed the 30-second catalog retry and delivered 93,863
-bytes in about 0.54 seconds. Set
+overflowed the adapter and caused retransmission bursts. Set
 `GAMECUBE_PASTA_CAPTURE=1` to write `/tmp/multiplex-pasta.pcap` without
 enabling timing-heavy trace logs.
 
@@ -146,10 +149,10 @@ backward/forward without walking focus through every poster.
   scanline and solid-blend fast paths for rounded fills, borders, and shadows
 - `patches/libogc2-lwip-rfc-snd-nxt.patch`: upstream lwIP sequence-number
   semantics backported to libogc2's historical TCP stack
-- `patches/libogc2-drain-bba-ring-per-packet.patch`: raise the BBA receive
-  interrupt after one packet so its two-frame ring retains headroom
 - `patches/passt-handle-data-on-handshake-ack.patch`: preserve application
   data piggybacked on the final TCP handshake ACK
+- `patches/passt-ack-small-window-guests-immediately.patch`: avoid duplicate
+  ACK storms for the BBA's two-MSS TCP window
 
 ## Current boundary
 

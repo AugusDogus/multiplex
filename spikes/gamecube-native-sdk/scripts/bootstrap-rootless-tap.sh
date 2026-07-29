@@ -33,16 +33,19 @@ if [ "$actual_commit" != "$PASST_COMMIT" ]; then
 fi
 
 passt_patch="$spike_dir/patches/passt-handle-data-on-handshake-ack.patch"
-if git -C "$passt_dir" apply --unidiff-zero --reverse --check "$passt_patch" >/dev/null 2>&1; then
-  :
-elif git -C "$passt_dir" apply --unidiff-zero --check "$passt_patch"; then
-  git -C "$passt_dir" apply --unidiff-zero "$passt_patch"
-else
-  echo "passt patch does not apply cleanly: $passt_patch" >&2
-  exit 1
-fi
+passt_small_window_patch="$spike_dir/patches/passt-ack-small-window-guests-immediately.patch"
+for patch_file in "$passt_patch" "$passt_small_window_patch"; do
+  if git -C "$passt_dir" apply --unidiff-zero --reverse --check "$patch_file" >/dev/null 2>&1; then
+    :
+  elif git -C "$passt_dir" apply --unidiff-zero --check "$patch_file"; then
+    git -C "$passt_dir" apply --unidiff-zero "$patch_file"
+  else
+    echo "passt patch does not apply cleanly: $patch_file" >&2
+    exit 1
+  fi
+done
 
-passt_input="$PASST_COMMIT $(cksum "$passt_patch")"
+passt_input="$PASST_COMMIT $(cksum "$passt_patch") $(cksum "$passt_small_window_patch")"
 passt_stamp="$passt_dir/.multiplex-build-input"
 if [ ! -x "$passt_dir/pasta" ] ||
   [ ! -f "$passt_stamp" ] ||
