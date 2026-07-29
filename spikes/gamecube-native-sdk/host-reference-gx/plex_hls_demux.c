@@ -142,7 +142,7 @@ static void *run_hls_producer(void *context) {
 
 PlexHlsDemux *plex_hls_demux_create(
     const MultiplexAuthCredentials *credentials, uint32_t rating_key,
-    uint32_t offset_ms) {
+    uint32_t offset_ms, const char *session_id) {
   if (credentials == NULL || rating_key == 0) {
     return NULL;
   }
@@ -155,7 +155,7 @@ PlexHlsDemux *plex_hls_demux_create(
   demux->video = media_byte_queue_create(HLS_VIDEO_QUEUE_SIZE);
   demux->audio = media_byte_queue_create(HLS_AUDIO_QUEUE_SIZE);
   if (demux->video == NULL || demux->audio == NULL ||
-      !multiplex_plex_hls_start(credentials, rating_key, offset_ms,
+      !multiplex_plex_hls_start(credentials, rating_key, offset_ms, session_id,
                                 &demux->session)) {
     plex_hls_demux_destroy(demux);
     return NULL;
@@ -209,6 +209,17 @@ bool plex_hls_demux_wait_ready(PlexHlsDemux *demux, size_t video_bytes,
     usleep(10000);
     waited_ms += 10u;
   }
+  const MpegTsInfo *info = mpeg_ts_parser_info(&demux->parser);
+  SYS_Report(
+      "REFERENCE GX: HLS readiness failed waited=%u video=%u/%u "
+      "audio=%u/%u pids=%u/%u pts=%lld/%lld failed=%u complete=%u "
+      "stopping=%u\n",
+      waited_ms, (unsigned)media_byte_queue_size(demux->video),
+      (unsigned)video_bytes, (unsigned)media_byte_queue_size(demux->audio),
+      (unsigned)audio_bytes, info->video_pid, info->audio_pid,
+      info->first_video_pts90k, info->first_audio_pts90k,
+      demux->failed ? 1u : 0u, demux->complete ? 1u : 0u,
+      demux->stopping ? 1u : 0u);
   return false;
 }
 
@@ -294,4 +305,8 @@ bool plex_hls_demux_failed(const PlexHlsDemux *demux) {
 
 bool plex_hls_demux_complete(const PlexHlsDemux *demux) {
   return demux != NULL && demux->complete;
+}
+
+const char *plex_hls_demux_session_id(const PlexHlsDemux *demux) {
+  return demux == NULL ? NULL : demux->session.session_id;
 }

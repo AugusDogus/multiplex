@@ -10,6 +10,7 @@
 #include "native_ui.h"
 #include "plex_bootstrap.h"
 #include "plex_catalog.h"
+#include "plex_hls.h"
 #include "plex_hls_demux.h"
 #include "poster_jpeg.h"
 #include "yuv420_gx.h"
@@ -135,6 +136,8 @@ static uint32_t video_rate_millihertz =
 static AudioDma *audio_output;
 static MpegPsDemux *media_demux;
 static PlexHlsDemux *direct_hls_demux;
+static char
+    direct_hls_session_id[MULTIPLEX_PLEX_HLS_SESSION_ID_CAPACITY];
 
 typedef struct {
   const char *gateway_url;
@@ -1328,9 +1331,9 @@ static bool start_hls_pipeline(PlexHlsDemux *demux, uint32_t rating_key) {
 
 static bool open_direct_hls_session(
     const MultiplexAuthCredentials *credentials, uint32_t rating_key,
-    uint32_t offset_ms, PlexHlsDemux **demux_out) {
+    uint32_t offset_ms, const char *session_id, PlexHlsDemux **demux_out) {
   PlexHlsDemux *demux =
-      plex_hls_demux_create(credentials, rating_key, offset_ms);
+      plex_hls_demux_create(credentials, rating_key, offset_ms, session_id);
   if (demux == NULL || !plex_hls_demux_start(demux) ||
       !plex_hls_demux_wait_ready(demux, VIDEO_PREBUFFER_BYTES,
                                  AUDIO_PREBUFFER_BYTES, 30000u) ||
@@ -1340,6 +1343,13 @@ static bool open_direct_hls_session(
     plex_hls_demux_destroy(demux);
     return false;
   }
+  const char *started_session_id = plex_hls_demux_session_id(demux);
+  if (started_session_id == NULL ||
+      strlen(started_session_id) >= sizeof(direct_hls_session_id)) {
+    plex_hls_demux_destroy(demux);
+    return false;
+  }
+  strcpy(direct_hls_session_id, started_session_id);
   *demux_out = demux;
   return true;
 }
@@ -1771,9 +1781,17 @@ static bool load_selected_direct_playback(
       active_manifest->segment_start_ms == offset_ms;
   if (!same_session) {
     const uint32_t previous_rating_key = active_manifest->rating_key;
+    const char *resume_session_id =
+        previous_rating_key == rating_key && direct_hls_session_id[0] != '\0'
+            ? direct_hls_session_id
+            : NULL;
+    if (previous_rating_key != rating_key) {
+      direct_hls_session_id[0] = '\0';
+    }
     close_media_session(client, demux);
     PlexHlsDemux *hls = NULL;
-    if (!open_direct_hls_session(credentials, rating_key, offset_ms, &hls)) {
+    if (!open_direct_hls_session(credentials, rating_key, offset_ms,
+                                 resume_session_id, &hls)) {
       if (multiplex_native_app_playback_fail() == 0) {
         return false;
       }

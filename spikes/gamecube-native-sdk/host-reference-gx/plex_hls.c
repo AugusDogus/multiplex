@@ -116,7 +116,7 @@ static size_t control_headers(const MultiplexAuthCredentials *credentials,
       (HttpRequestHeader){.name = "X-Plex-Version", .value = "0.1.0"};
   headers[count++] = (HttpRequestHeader){
       .name = "X-Plex-Client-Identifier",
-      .value = session->session_id,
+      .value = credentials->plex_client_id,
   };
   headers[count++] = (HttpRequestHeader){
       .name = "X-Plex-Session-Identifier",
@@ -139,10 +139,17 @@ static size_t control_headers(const MultiplexAuthCredentials *credentials,
 
 static bool configure_hls_session(
     const MultiplexAuthCredentials *credentials, uint32_t rating_key,
-    uint32_t offset_ms, MultiplexPlexHlsSession *session) {
+    uint32_t offset_ms, const char *requested_session_id,
+    MultiplexPlexHlsSession *session) {
   memset(session, 0, sizeof(*session));
-  if (!make_session_id(credentials, session->session_id,
-                       sizeof(session->session_id))) {
+  if (requested_session_id != NULL && requested_session_id[0] != '\0') {
+    const size_t session_id_size = strlen(requested_session_id);
+    if (session_id_size + 1u > sizeof(session->session_id)) {
+      return false;
+    }
+    memcpy(session->session_id, requested_session_id, session_id_size + 1u);
+  } else if (!make_session_id(credentials, session->session_id,
+                              sizeof(session->session_id))) {
     return false;
   }
   session->start_offset_ms = offset_ms;
@@ -171,15 +178,20 @@ static bool configure_hls_session(
 
 bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
                               uint32_t rating_key, uint32_t offset_ms,
+                              const char *session_id,
                               MultiplexPlexHlsSession *session) {
   if (credentials == NULL || session == NULL || rating_key == 0 ||
       credentials->plex_server_url[0] == '\0' ||
       credentials->plex_server_token[0] == '\0') {
     return false;
   }
-  if (!configure_hls_session(credentials, rating_key, offset_ms, session)) {
+  if (!configure_hls_session(credentials, rating_key, offset_ms, session_id,
+                             session)) {
     return false;
   }
+  char established_session_id[MULTIPLEX_PLEX_HLS_SESSION_ID_CAPACITY];
+  memcpy(established_session_id, session->session_id,
+         sizeof(established_session_id));
 
   char master[PLEX_HLS_MASTER_CAPACITY];
   HttpJsonResponse response;
@@ -189,7 +201,8 @@ bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
     if (mode != 0) {
       SYS_Report(
           "REFERENCE GX: Plex HLS resume rejected; retrying from beginning\n");
-      if (!configure_hls_session(credentials, rating_key, 0, session)) {
+      if (!configure_hls_session(credentials, rating_key, 0,
+                                 established_session_id, session)) {
         return false;
       }
     }
