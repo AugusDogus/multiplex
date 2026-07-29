@@ -185,7 +185,10 @@ playing progress every ten seconds, so Plex latency cannot stall GX or AI DMA.
 The direct-Plex Dolphin run confirmed real playing, paused, resumed, and
 periodic progress acknowledgements; PMS metadata advanced to the reported
 resume offset while H.264/AAC playback stayed at 29.7–30.4 decode fps and 60.4
-presentation fps with a clean invalid-access log.
+presentation fps with a clean invalid-access log. Leaving the player also
+commits the current offset and integer progress percentage into the
+TypeScript-owned home, search, or library item. Reopening that same item in the
+verified run resumed at 7,547 ms without reloading the catalog.
 A bounded reference-render memo retains three expensive stable layers; warmed
 full home and details repaints measured about 0.37 and 0.33 seconds. The memo
 has a 4 MiB hard limit and peaked at 4,093 KiB in the home/details flow.

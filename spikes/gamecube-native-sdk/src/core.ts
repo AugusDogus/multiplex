@@ -559,6 +559,61 @@ function appendSearchKey(query: Uint8Array, value: number): Uint8Array {
   return result;
 }
 
+// Native SDK v1 gives a number slot one machine type, so `/` would push the
+// millisecond fields into its fractional tier. Binary long division keeps the
+// playback model and its derived percentage entirely integer-valued.
+function intDiv(numerator: number, denominator: number): number {
+  let quotient = 0;
+  let remainder = numerator;
+  while (remainder >= denominator) {
+    let step = denominator;
+    let count = 1;
+    while (step + step <= remainder) {
+      step += step;
+      count += count;
+    }
+    remainder -= step;
+    quotient += count;
+  }
+  return quotient;
+}
+
+function updateItemProgress(item: CatalogItem, positionMs: number): CatalogItem {
+  const viewOffsetMs = Math.min(Math.max(0, positionMs), Math.max(0, item.durationMs - 1));
+  const progressPercent =
+    item.durationMs === 0 ? 0 : Math.min(100, intDiv(viewOffsetMs * 100, item.durationMs));
+  return { ...item, viewOffsetMs: viewOffsetMs, progressPercent: progressPercent };
+}
+
+function commitSelectedProgress(model: Model): Model {
+  const selectedViewOffsetMs = Math.min(
+    Math.max(0, model.playbackOffsetMs),
+    Math.max(0, model.selectedDurationMs - 1),
+  );
+  if (model.selectedFromBrowse) {
+    const browseItems = model.browseItems.slice();
+    browseItems[model.selectedIndex] = updateItemProgress(
+      browseItems[model.selectedIndex],
+      selectedViewOffsetMs,
+    );
+    return { ...model, selectedViewOffsetMs: selectedViewOffsetMs, browseItems: browseItems };
+  }
+  if (model.selectedFromSearch) {
+    const searchItems = model.searchItems.slice();
+    searchItems[model.selectedIndex] = updateItemProgress(
+      searchItems[model.selectedIndex],
+      selectedViewOffsetMs,
+    );
+    return { ...model, selectedViewOffsetMs: selectedViewOffsetMs, searchItems: searchItems };
+  }
+  const rows = model.rows.slice();
+  const row = rows[model.rowIndex];
+  const items = row.items.slice();
+  items[model.selectedIndex] = updateItemProgress(items[model.selectedIndex], selectedViewOffsetMs);
+  rows[model.rowIndex] = { ...row, items: items };
+  return { ...model, selectedViewOffsetMs: selectedViewOffsetMs, rows: rows };
+}
+
 export function update(model: Model, msg: Msg): Model {
   switch (msg.kind) {
     case "connect_demo":
@@ -720,7 +775,8 @@ export function update(model: Model, msg: Msg): Model {
       return { ...model, playing: !model.playing };
     case "back":
       if (model.screen === "player") {
-        return { ...model, screen: "details", playing: false };
+        const progressed = commitSelectedProgress(model);
+        return { ...progressed, screen: "details", playing: false };
       }
       if (model.screen === "details") {
         return {
