@@ -35,5 +35,9 @@ bool multiplex_plex_load_search(
 bool multiplex_plex_load_artwork(
     const MultiplexAuthCredentials *credentials, const char *artwork_path,
     uint8_t *destination, size_t capacity, size_t *encoded_size);
+bool multiplex_plex_report_timeline(
+    const MultiplexAuthCredentials *credentials, const char *session_id,
+    uint32_t rating_key, uint32_t position_ms, uint32_t duration_ms,
+    const char *state);
 
 #endif

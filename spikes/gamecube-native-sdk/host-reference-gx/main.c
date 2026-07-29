@@ -154,6 +154,8 @@ typedef struct {
 
 typedef struct {
   const char *gateway_url;
+  const MultiplexAuthCredentials *plex_credentials;
+  char plex_session_id[MULTIPLEX_PLEX_HLS_SESSION_ID_CAPACITY];
   uint32_t rating_key;
   uint32_t position_ms;
   uint32_t duration_ms;
@@ -1624,9 +1626,16 @@ static void initialize_timeline_reporter(TimelineReporter *reporter) {
 
 static void *run_timeline_report(void *argument) {
   TimelineReporter *reporter = argument;
-  reporter->succeeded = multiplex_gateway_report_timeline(
-      reporter->gateway_url, reporter->rating_key, reporter->position_ms,
-      reporter->duration_ms, reporter->state);
+  if (reporter->gateway_url != NULL && reporter->gateway_url[0] != '\0') {
+    reporter->succeeded = multiplex_gateway_report_timeline(
+        reporter->gateway_url, reporter->rating_key, reporter->position_ms,
+        reporter->duration_ms, reporter->state);
+  } else {
+    reporter->succeeded = multiplex_plex_report_timeline(
+        reporter->plex_credentials, reporter->plex_session_id,
+        reporter->rating_key, reporter->position_ms, reporter->duration_ms,
+        reporter->state);
+  }
   reporter->complete = true;
   return NULL;
 }
@@ -1643,14 +1652,25 @@ static void finish_timeline_report(TimelineReporter *reporter) {
 
 static bool schedule_timeline_report(TimelineReporter *reporter,
                                      const char *gateway_url,
+                                     const MultiplexAuthCredentials
+                                         *plex_credentials,
+                                     const char *plex_session_id,
                                      uint32_t rating_key, uint32_t position_ms,
                                      uint32_t duration_ms, const char *state,
                                      bool force) {
   if (reporter->thread != LWP_THREAD_NULL && reporter->complete) {
     finish_timeline_report(reporter);
   }
-  if (reporter->thread != LWP_THREAD_NULL || gateway_url == NULL ||
-      gateway_url[0] == '\0' || rating_key == 0 || duration_ms == 0) {
+  const bool use_gateway = gateway_url != NULL && gateway_url[0] != '\0';
+  const bool use_direct_plex =
+      !use_gateway && plex_credentials != NULL &&
+      plex_credentials->plex_server_url[0] != '\0' &&
+      plex_credentials->plex_server_token[0] != '\0' &&
+      plex_session_id != NULL && plex_session_id[0] != '\0' &&
+      strlen(plex_session_id) < sizeof(reporter->plex_session_id);
+  if (reporter->thread != LWP_THREAD_NULL ||
+      (!use_gateway && !use_direct_plex) || rating_key == 0 ||
+      duration_ms == 0) {
     return false;
   }
   const bool same_item = reporter->last_rating_key == rating_key;
@@ -1663,6 +1683,12 @@ static bool schedule_timeline_report(TimelineReporter *reporter,
     return false;
   }
   reporter->gateway_url = gateway_url;
+  reporter->plex_credentials = use_direct_plex ? plex_credentials : NULL;
+  if (use_direct_plex) {
+    strcpy(reporter->plex_session_id, plex_session_id);
+  } else {
+    reporter->plex_session_id[0] = '\0';
+  }
   reporter->rating_key = rating_key;
   reporter->position_ms = position_ms;
   reporter->duration_ms = duration_ms;
@@ -1688,15 +1714,18 @@ static bool schedule_timeline_report(TimelineReporter *reporter,
 
 static void
 flush_timeline_report(TimelineReporter *reporter, const char *gateway_url,
+                      const MultiplexAuthCredentials *plex_credentials,
+                      const char *plex_session_id,
                       const MultiplexGatewayPlaybackManifest *manifest,
                       uint32_t position_ms, const char *state) {
   finish_timeline_report(reporter);
   if (manifest == NULL || manifest->rating_key == 0) {
     return;
   }
-  if (schedule_timeline_report(reporter, gateway_url, manifest->rating_key,
-                               position_ms, manifest->media_duration_ms, state,
-                               true)) {
+  if (schedule_timeline_report(
+          reporter, gateway_url, plex_credentials, plex_session_id,
+          manifest->rating_key, position_ms, manifest->media_duration_ms,
+          state, true)) {
     finish_timeline_report(reporter);
   }
 }
@@ -2371,6 +2400,12 @@ static void *run_app(void *unused) {
     }
   }
 #endif
+#if MULTIPLEX_PAIRING_ENABLED
+  const MultiplexAuthCredentials *timeline_plex_credentials =
+      MULTIPLEX_GATEWAY_URL[0] == '\0' ? &auth_credentials : NULL;
+#else
+  const MultiplexAuthCredentials *timeline_plex_credentials = NULL;
+#endif
   const bool has_playback_manifest =
       MULTIPLEX_GATEWAY_URL[0] != '\0' &&
       multiplex_gateway_load_playback_manifest(MULTIPLEX_GATEWAY_URL, 0, 0,
@@ -2490,6 +2525,7 @@ static void *run_app(void *unused) {
       SYS_Report("REFERENCE GX: linked-account reset=%s\n",
                  multiplex_memory_card_result_message(deleted));
       if (deleted == MULTIPLEX_MEMORY_CARD_OK) {
+        finish_timeline_report(&timeline_reporter);
         pairing_linked = false;
         has_catalog = false;
         memset(&auth_credentials, 0, sizeof(auth_credentials));
@@ -2630,21 +2666,24 @@ static void *run_app(void *unused) {
       if (video_surface.playing == 0) {
         timeline_started |= schedule_timeline_report(
             &timeline_reporter, MULTIPLEX_GATEWAY_URL,
+            timeline_plex_credentials, direct_hls_session_id,
             playback_manifest.rating_key, position_ms,
             playback_manifest.media_duration_ms, "paused", false);
       } else if (video_was_playing) {
         timeline_started |= schedule_timeline_report(
             &timeline_reporter, MULTIPLEX_GATEWAY_URL,
+            timeline_plex_credentials, direct_hls_session_id,
             playback_manifest.rating_key, position_ms,
             playback_manifest.media_duration_ms, "playing", false);
       }
       timeline_player_visible = true;
     } else if (timeline_player_visible) {
-      if (schedule_timeline_report(&timeline_reporter, MULTIPLEX_GATEWAY_URL,
-                                   playback_manifest.rating_key,
-                                   playback_position_ms(&playback_manifest),
-                                   playback_manifest.media_duration_ms,
-                                   "stopped", false)) {
+      if (schedule_timeline_report(
+              &timeline_reporter, MULTIPLEX_GATEWAY_URL,
+              timeline_plex_credentials, direct_hls_session_id,
+              playback_manifest.rating_key,
+              playback_position_ms(&playback_manifest),
+              playback_manifest.media_duration_ms, "stopped", false)) {
         timeline_player_visible = false;
       }
     }
@@ -2662,6 +2701,7 @@ static void *run_app(void *unused) {
   stop_direct_poster_loader(&direct_page_poster_loader);
   if (timeline_started) {
     flush_timeline_report(&timeline_reporter, MULTIPLEX_GATEWAY_URL,
+                          timeline_plex_credentials, direct_hls_session_id,
                           &playback_manifest,
                           playback_position_ms(&playback_manifest), "stopped");
   } else {

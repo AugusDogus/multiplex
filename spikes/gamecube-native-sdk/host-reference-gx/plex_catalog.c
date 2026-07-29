@@ -940,3 +940,59 @@ bool multiplex_plex_load_artwork(
   }
   return loaded;
 }
+
+bool multiplex_plex_report_timeline(
+    const MultiplexAuthCredentials *credentials, const char *session_id,
+    uint32_t rating_key, uint32_t position_ms, uint32_t duration_ms,
+    const char *state) {
+  if (credentials == NULL || credentials->plex_server_url[0] == '\0' ||
+      credentials->plex_server_token[0] == '\0' ||
+      credentials->plex_client_id[0] == '\0' || session_id == NULL ||
+      session_id[0] == '\0' || rating_key == 0 || duration_ms == 0 ||
+      state == NULL ||
+      (strcmp(state, "playing") != 0 && strcmp(state, "paused") != 0 &&
+       strcmp(state, "stopped") != 0)) {
+    return false;
+  }
+  const size_t base_size = strlen(credentials->plex_server_url);
+  char url[PLEX_CATALOG_URL_CAPACITY];
+  const int url_size = snprintf(
+      url, sizeof(url),
+      "%s%s:/timeline?ratingKey=%u&key=%%2Flibrary%%2Fmetadata%%2F%u&"
+      "playbackTime=%u&time=%u&duration=%u&state=%s&hasMDE=1&"
+      "X-Plex-Playback-Session-Id=%s",
+      credentials->plex_server_url,
+      base_size != 0 &&
+              credentials->plex_server_url[base_size - 1u] == '/'
+          ? ""
+          : "/",
+      rating_key, rating_key, position_ms, position_ms, duration_ms, state,
+      session_id);
+  if (url_size <= 0 || (size_t)url_size >= sizeof(url)) {
+    return false;
+  }
+  const HttpRequestHeader headers[] = {
+      {.name = "Accept", .value = "application/xml"},
+      {.name = "X-Plex-Token", .value = credentials->plex_server_token},
+      {.name = "X-Plex-Product", .value = "Multiplex"},
+      {.name = "X-Plex-Version", .value = "0.1.0"},
+      {.name = "X-Plex-Platform", .value = "GameCube"},
+      {.name = "X-Plex-Device", .value = "GameCube"},
+      {.name = "X-Plex-Device-Name", .value = "Multiplex GameCube"},
+      {.name = "X-Plex-Language", .value = "en"},
+      {.name = "X-Plex-Client-Identifier",
+       .value = credentials->plex_client_id},
+  };
+  char response_body[512];
+  HttpJsonResponse response;
+  const bool reported = http_client_request_with_headers(
+                            "GET", url, headers,
+                            sizeof(headers) / sizeof(headers[0]), NULL,
+                            response_body, sizeof(response_body), &response) &&
+                        response.status == 200;
+  SYS_Report(
+      "REFERENCE GX: direct Plex timeline rating-key=%u position=%u state=%s "
+      "reported=%u\n",
+      rating_key, position_ms, state, reported ? 1u : 0u);
+  return reported;
+}
