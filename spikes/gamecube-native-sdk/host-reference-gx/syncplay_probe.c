@@ -10,6 +10,7 @@
 #include <mbedtls/base64.h>
 #include <mbedtls/sha1.h>
 
+#include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -19,12 +20,25 @@
 
 #define SYNCPLAY_HTTP_CAPACITY 2048u
 #define SYNCPLAY_FRAME_CAPACITY 2048u
+#define SYNCPLAY_RECEIVE_CAPACITY 4096u
 #define SYNCPLAY_IO_TIMEOUT_SECONDS 8u
 
 typedef struct {
   int socket;
   MultiplexTlsClient *tls;
+  uint8_t prefetched[SYNCPLAY_HTTP_CAPACITY];
+  size_t prefetched_offset;
+  size_t prefetched_size;
 } SyncplaySocket;
+
+struct MultiplexSyncplaySession {
+  SyncplaySocket transport;
+  uint8_t received[SYNCPLAY_RECEIVE_CAPACITY];
+  size_t received_size;
+  unsigned participant_count;
+  unsigned heartbeat_count;
+  bool connected;
+};
 
 static uint16_t read_u16(const uint8_t *bytes) {
   return (uint16_t)(((uint16_t)bytes[0] << 8u) | bytes[1]);
@@ -40,8 +54,7 @@ static size_t skip_dns_name(const uint8_t *response, size_t size,
     if ((length & 0xc0u) == 0xc0u) {
       return offset < size ? offset + 1u : 0u;
     }
-    if ((length & 0xc0u) != 0 || length > 63u ||
-        offset + length > size) {
+    if ((length & 0xc0u) != 0 || length > 63u || offset + length > size) {
       return 0;
     }
     offset += length;
@@ -126,8 +139,8 @@ static bool resolve_ipv4(const char *host, struct in_addr *address) {
           offset = skip_dns_name(query, size, offset);
           offset = offset != 0 && offset + 4u <= size ? offset + 4u : 0u;
         }
-        for (uint16_t index = 0;
-             index < answers && offset != 0 && !resolved; ++index) {
+        for (uint16_t index = 0; index < answers && offset != 0 && !resolved;
+             ++index) {
           offset = skip_dns_name(query, size, offset);
           if (offset == 0 || offset + 10u > size) {
             break;
@@ -169,6 +182,8 @@ static void close_socket(SyncplaySocket *socket) {
     net_close(socket->socket);
     socket->socket = -1;
   }
+  socket->prefetched_offset = 0;
+  socket->prefetched_size = 0;
 }
 
 static bool connect_socket(const char *host, uint16_t port,
@@ -178,6 +193,8 @@ static bool connect_socket(const char *host, uint16_t port,
   }
   output->socket = -1;
   output->tls = NULL;
+  output->prefetched_offset = 0;
+  output->prefetched_size = 0;
   struct in_addr resolved;
   if (!resolve_ipv4(host, &resolved)) {
     SYS_Report("REFERENCE GX: Syncplay DNS failed host=%s\n", host);
@@ -213,12 +230,21 @@ static bool connect_socket(const char *host, uint16_t port,
   return true;
 }
 
-static bool tls_read_exact(MultiplexTlsClient *tls, uint8_t *destination,
+static bool tls_read_exact(SyncplaySocket *socket, uint8_t *destination,
                            size_t size) {
   size_t used = 0;
+  if (socket->prefetched_offset < socket->prefetched_size) {
+    const size_t available =
+        socket->prefetched_size - socket->prefetched_offset;
+    const size_t copied = available < size ? available : size;
+    memcpy(destination, socket->prefetched + socket->prefetched_offset, copied);
+    socket->prefetched_offset += copied;
+    used += copied;
+  }
   while (used < size) {
-    const int received = multiplex_tls_client_read(
-        tls, destination + used, size - used, SYNCPLAY_IO_TIMEOUT_SECONDS);
+    const int received =
+        multiplex_tls_client_read(socket->tls, destination + used, size - used,
+                                  SYNCPLAY_IO_TIMEOUT_SECONDS);
     if (received <= 0) {
       return false;
     }
@@ -296,8 +322,7 @@ static bool header_has_value(const char *headers, const char *name,
       return false;
     }
     if ((size_t)(line_end - line) > name_size &&
-        strncasecmp(line, name, name_size) == 0 &&
-        line[name_size] == ':') {
+        strncasecmp(line, name, name_size) == 0 && line[name_size] == ':') {
       const char *value = line + name_size + 1u;
       while (value < line_end && (*value == ' ' || *value == '\t')) {
         ++value;
@@ -327,8 +352,8 @@ static bool upgrade_websocket(SyncplaySocket *socket, const char *host,
       "Sec-WebSocket-Version: 13\r\nUser-Agent: Multiplex-GameCube/0\r\n\r\n",
       host, port, key);
   if (request_size <= 0 || (size_t)request_size >= sizeof(request) ||
-      !multiplex_tls_client_write_all(
-          socket->tls, (const uint8_t *)request, (size_t)request_size)) {
+      !multiplex_tls_client_write_all(socket->tls, (const uint8_t *)request,
+                                      (size_t)request_size)) {
     return false;
   }
 
@@ -347,9 +372,25 @@ static bool upgrade_websocket(SyncplaySocket *socket, const char *host,
       break;
     }
   }
-  return strncmp(response, "HTTP/1.1 101 ", 13u) == 0 &&
-         header_has_value(response, "Upgrade", "websocket") &&
-         header_has_accept(response, expected_accept);
+  char *header_end = strstr(response, "\r\n\r\n");
+  const bool upgraded = header_end != NULL &&
+                        strncmp(response, "HTTP/1.1 101 ", 13u) == 0 &&
+                        header_has_value(response, "Upgrade", "websocket") &&
+                        header_has_accept(response, expected_accept);
+  if (!upgraded) {
+    return false;
+  }
+  const size_t header_size = (size_t)(header_end - response) + 4u;
+  const size_t extra_size = used - header_size;
+  if (extra_size > sizeof(socket->prefetched)) {
+    return false;
+  }
+  if (extra_size != 0) {
+    memcpy(socket->prefetched, response + header_size, extra_size);
+  }
+  socket->prefetched_offset = 0;
+  socket->prefetched_size = extra_size;
+  return true;
 }
 
 static bool send_frame(SyncplaySocket *socket, uint8_t opcode,
@@ -380,8 +421,8 @@ static bool send_frame(SyncplaySocket *socket, uint8_t opcode,
     frame[header_size + index] =
         payload[index] ^ frame[mask_offset + (index & 3u)];
   }
-  const bool sent = multiplex_tls_client_write_all(
-      socket->tls, frame, header_size + payload_size);
+  const bool sent = multiplex_tls_client_write_all(socket->tls, frame,
+                                                   header_size + payload_size);
   free(frame);
   return sent;
 }
@@ -396,7 +437,7 @@ static bool receive_text_frame(SyncplaySocket *socket, char *text,
                                size_t capacity) {
   for (unsigned frame_index = 0; frame_index < 4u; ++frame_index) {
     uint8_t header[4];
-    if (!tls_read_exact(socket->tls, header, 2u)) {
+    if (!tls_read_exact(socket, header, 2u)) {
       return false;
     }
     const uint8_t opcode = header[0] & 0x0fu;
@@ -405,7 +446,7 @@ static bool receive_text_frame(SyncplaySocket *socket, char *text,
     }
     size_t payload_size = header[1] & 0x7fu;
     if (payload_size == 126u) {
-      if (!tls_read_exact(socket->tls, header + 2u, 2u)) {
+      if (!tls_read_exact(socket, header + 2u, 2u)) {
         return false;
       }
       payload_size = ((size_t)header[2] << 8u) | header[3];
@@ -419,7 +460,7 @@ static bool receive_text_frame(SyncplaySocket *socket, char *text,
       uint8_t control_payload[125];
       if (payload_size > sizeof(control_payload) ||
           (payload_size != 0 &&
-           !tls_read_exact(socket->tls, control_payload, payload_size))) {
+           !tls_read_exact(socket, control_payload, payload_size))) {
         return false;
       }
       if (opcode == 0x9u &&
@@ -429,7 +470,7 @@ static bool receive_text_frame(SyncplaySocket *socket, char *text,
       continue;
     }
     if (opcode != 0x1u || payload_size == 0 || payload_size >= capacity ||
-        !tls_read_exact(socket->tls, (uint8_t *)text, payload_size)) {
+        !tls_read_exact(socket, (uint8_t *)text, payload_size)) {
       return false;
     }
     text[payload_size] = '\0';
@@ -454,34 +495,264 @@ static bool safe_identifier(const char *value) {
   return true;
 }
 
-bool multiplex_syncplay_probe_room(const MultiplexTrpcRoom *room,
+static bool safe_json_string(const char *value) {
+  if (value == NULL || value[0] == '\0') {
+    return false;
+  }
+  for (const unsigned char *cursor = (const unsigned char *)value;
+       *cursor != '\0'; ++cursor) {
+    if (*cursor < 0x20u || *cursor == '"' || *cursor == '\\') {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool announce_session(MultiplexSyncplaySession *session,
+                             const MultiplexTrpcRoom *room) {
+  char file[512];
+  const int file_size = snprintf(
+      file, sizeof(file),
+      "{\"Set\":{\"file\":{\"name\":\"{\\\"ads\\\":{\\\"playing\\\":false},"
+      "\\\"uri\\\":\\\"%s\\\"}\"}}}",
+      room->source_uri);
+  return safe_json_string(room->source_uri) &&
+         send_text_frame(&session->transport, "{\"List\":{}}") &&
+         file_size > 0 && (size_t)file_size < sizeof(file) &&
+         send_text_frame(&session->transport, file) &&
+         send_text_frame(&session->transport,
+                         "{\"Set\":{\"ready\":{\"isReady\":true}}}");
+}
+
+static bool read_json_number(const char *json, const char *key,
+                             double *output) {
+  const char *cursor = strstr(json, key);
+  if (cursor == NULL) {
+    return false;
+  }
+  cursor += strlen(key);
+  char *end = NULL;
+  const double value = strtod(cursor, &end);
+  if (end == cursor) {
+    return false;
+  }
+  *output = value;
+  return true;
+}
+
+static bool read_json_bool(const char *json, const char *key, bool *output) {
+  const char *cursor = strstr(json, key);
+  if (cursor == NULL) {
+    return false;
+  }
+  cursor += strlen(key);
+  while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' ||
+         *cursor == '\n') {
+    ++cursor;
+  }
+  if (strncmp(cursor, "true", 4u) == 0) {
+    *output = true;
+    return true;
+  }
+  if (strncmp(cursor, "false", 5u) == 0) {
+    *output = false;
+    return true;
+  }
+  return false;
+}
+
+static unsigned count_participants(const char *json) {
+  unsigned count = 0;
+  const char *cursor = json;
+  while ((cursor = strstr(cursor, "deviceIdentifier")) != NULL) {
+    ++count;
+    cursor += sizeof("deviceIdentifier") - 1u;
+  }
+  return count;
+}
+
+static bool echo_state(MultiplexSyncplaySession *session, const char *json) {
+  double position = 0;
+  double client_rtt = 0;
+  double server_rtt = 0;
+  double latency = 0;
+  double ignoring_server = 0;
+  bool paused = true;
+  if (!read_json_number(json, "\"position\":", &position) ||
+      !read_json_bool(json, "\"paused\":", &paused)) {
+    return false;
+  }
+  read_json_number(json, "\"clientRtt\":", &client_rtt);
+  read_json_number(json, "\"serverRtt\":", &server_rtt);
+  read_json_number(json, "\"latencyCalculation\":", &latency);
+  read_json_number(json, "\"server\":", &ignoring_server);
+
+  char response[768];
+  const double now_seconds = (double)ticks_to_millisecs(gettime()) / 1000.0;
+  const int response_size =
+      snprintf(response, sizeof(response),
+               "{\"State\":{\"ping\":{\"clientLatencyCalculation\":%.3f,"
+               "\"clientRtt\":%.6f,\"serverRtt\":%.6f,"
+               "\"latencyCalculation\":%.6f},\"playstate\":{\"doSeek\":false,"
+               "\"paused\":%s,\"position\":%.6f,\"setBy\":null},"
+               "\"ignoringOnTheFly\":{\"client\":0,\"server\":%.0f}}}",
+               now_seconds, client_rtt, server_rtt, latency,
+               paused ? "true" : "false", position, ignoring_server);
+  const bool sent = response_size > 0 &&
+                    (size_t)response_size < sizeof(response) &&
+                    send_text_frame(&session->transport, response);
+  if (sent) {
+    session->heartbeat_count += 1u;
+    if (session->heartbeat_count % 10u == 0) {
+      const uint32_t position_ms = position <= 0 ? 0
+                                   : position >= (double)UINT32_MAX / 1000.0
+                                       ? UINT32_MAX
+                                       : (uint32_t)(position * 1000.0);
+      SYS_Report("REFERENCE GX: Syncplay heartbeat=%u paused=%u "
+                 "position=%ums participants=%u\n",
+                 session->heartbeat_count, paused ? 1u : 0u, position_ms,
+                 session->participant_count);
+    }
+  }
+  return sent;
+}
+
+static bool handle_text_frame(MultiplexSyncplaySession *session,
+                              const char *text) {
+  if (strstr(text, "\"Error\"") != NULL) {
+    SYS_Report("REFERENCE GX: Syncplay protocol error\n");
+    return false;
+  }
+  if (strstr(text, "\"List\"") != NULL) {
+    const unsigned participants = count_participants(text);
+    if (participants != 0 && participants != session->participant_count) {
+      session->participant_count = participants;
+      SYS_Report("REFERENCE GX: Syncplay participants=%u\n", participants);
+    }
+  }
+  if (strstr(text, "\"State\"") != NULL && !echo_state(session, text)) {
+    SYS_Report("REFERENCE GX: Syncplay State reply failed\n");
+    return false;
+  }
+  return true;
+}
+
+static bool poll_frames(MultiplexSyncplaySession *session) {
+  SyncplaySocket *socket = &session->transport;
+  if (socket->prefetched_offset < socket->prefetched_size) {
+    const size_t available =
+        socket->prefetched_size - socket->prefetched_offset;
+    if (available > sizeof(session->received) - session->received_size) {
+      return false;
+    }
+    memcpy(session->received + session->received_size,
+           socket->prefetched + socket->prefetched_offset, available);
+    session->received_size += available;
+    socket->prefetched_offset = socket->prefetched_size;
+  }
+
+  if (session->received_size < sizeof(session->received)) {
+    const int received = multiplex_tls_client_read(
+        socket->tls, session->received + session->received_size,
+        sizeof(session->received) - session->received_size, 0);
+    if (received == 0) {
+      return false;
+    }
+    if (received > 0) {
+      session->received_size += (size_t)received;
+    } else if (received != -EAGAIN) {
+      return false;
+    }
+  }
+
+  size_t consumed = 0;
+  while (session->received_size - consumed >= 2u) {
+    const uint8_t *frame = session->received + consumed;
+    const uint8_t opcode = frame[0] & 0x0fu;
+    if ((frame[0] & 0x80u) == 0 || (frame[1] & 0x80u) != 0) {
+      return false;
+    }
+    size_t header_size = 2u;
+    size_t payload_size = frame[1] & 0x7fu;
+    if (payload_size == 126u) {
+      if (session->received_size - consumed < 4u) {
+        break;
+      }
+      payload_size = ((size_t)frame[2] << 8u) | frame[3];
+      header_size = 4u;
+    } else if (payload_size == 127u) {
+      return false;
+    }
+    if (header_size + payload_size > session->received_size - consumed) {
+      break;
+    }
+    const uint8_t *payload = frame + header_size;
+    if (opcode == 0x8u) {
+      return false;
+    }
+    if (opcode == 0x9u && !send_frame(socket, 0xau, payload, payload_size)) {
+      return false;
+    }
+    if (opcode == 0x1u) {
+      if (payload_size == 0 || payload_size >= SYNCPLAY_FRAME_CAPACITY) {
+        return false;
+      }
+      char text[SYNCPLAY_FRAME_CAPACITY];
+      memcpy(text, payload, payload_size);
+      text[payload_size] = '\0';
+      if (!handle_text_frame(session, text)) {
+        return false;
+      }
+    } else if (opcode != 0x9u && opcode != 0xau) {
+      return false;
+    }
+    consumed += header_size + payload_size;
+  }
+  if (consumed != 0) {
+    memmove(session->received, session->received + consumed,
+            session->received_size - consumed);
+    session->received_size -= consumed;
+  }
+  return session->received_size < sizeof(session->received);
+}
+
+MultiplexSyncplaySession *
+multiplex_syncplay_session_connect(const MultiplexTrpcRoom *room,
                                    const char *device_identifier) {
   if (room == NULL || !safe_identifier(room->id) ||
       !safe_identifier(device_identifier)) {
-    return false;
+    return NULL;
   }
-  SyncplaySocket socket = {.socket = -1, .tls = NULL};
-  if (!connect_socket(room->syncplay_host, room->syncplay_port, &socket)) {
+  SyncplaySocket socket = {.socket = -1};
+  bool connected = false;
+  for (unsigned attempt = 0; attempt < 2u && !connected; ++attempt) {
+    connected =
+        connect_socket(room->syncplay_host, room->syncplay_port, &socket);
+    if (!connected && attempt == 0) {
+      SYS_Report("REFERENCE GX: Syncplay transport retry\n");
+    }
+  }
+  if (!connected) {
     SYS_Report("REFERENCE GX: Syncplay connection failed host=%s port=%u\n",
                room->syncplay_host, room->syncplay_port);
-    return false;
+    return NULL;
   }
   SYS_Report("REFERENCE GX: Syncplay TLS connected host=%s port=%u\n",
              room->syncplay_host, room->syncplay_port);
   if (!upgrade_websocket(&socket, room->syncplay_host, room->syncplay_port)) {
     SYS_Report("REFERENCE GX: Syncplay WebSocket upgrade failed\n");
     close_socket(&socket);
-    return false;
+    return NULL;
   }
 
   char hello[512];
-  const int hello_size = snprintf(
-      hello, sizeof(hello),
-      "{\"Hello\":{\"room\":{\"name\":\"%s\"},\"username\":"
-      "\"{\\\"deviceIdentifier\\\":\\\"%s\\\","
-      "\\\"deviceName\\\":\\\"Multiplex GameCube\\\","
-      "\\\"userID\\\":\\\"0\\\"}\",\"version\":\"1.6.4\"}}",
-      room->id, device_identifier);
+  const int hello_size =
+      snprintf(hello, sizeof(hello),
+               "{\"Hello\":{\"room\":{\"name\":\"%s\"},\"username\":"
+               "\"{\\\"deviceIdentifier\\\":\\\"%s\\\","
+               "\\\"deviceName\\\":\\\"Multiplex GameCube\\\","
+               "\\\"userID\\\":\\\"0\\\"}\",\"version\":\"1.6.4\"}}",
+               room->id, device_identifier);
   char response[SYNCPLAY_FRAME_CAPACITY] = {0};
   const bool received_protocol_frame =
       hello_size > 0 && (size_t)hello_size < sizeof(hello) &&
@@ -492,17 +763,59 @@ bool multiplex_syncplay_probe_room(const MultiplexTrpcRoom *room,
    * our encoded username is its normal first reply and is authoritative proof
    * that the server accepted the room and registered this client.
    */
-  const bool joined =
-      received_protocol_frame && strstr(response, "\"Error\"") == NULL &&
-      (strstr(response, "\"Hello\"") != NULL ||
-       strstr(response, "\"List\"") != NULL ||
-       (strstr(response, "\"Set\"") != NULL &&
-        strstr(response, device_identifier) != NULL));
+  const bool joined = received_protocol_frame &&
+                      strstr(response, "\"Error\"") == NULL &&
+                      (strstr(response, "\"Hello\"") != NULL ||
+                       strstr(response, "\"List\"") != NULL ||
+                       (strstr(response, "\"Set\"") != NULL &&
+                        strstr(response, device_identifier) != NULL));
   if (!joined) {
     SYS_Report("REFERENCE GX: Syncplay first response=%s\n", response);
   }
   SYS_Report("REFERENCE GX: Syncplay Hello acknowledged=%u\n",
              joined ? 1u : 0u);
-  close_socket(&socket);
-  return joined;
+  if (!joined) {
+    close_socket(&socket);
+    return NULL;
+  }
+
+  MultiplexSyncplaySession *session = calloc(1, sizeof(*session));
+  if (session == NULL) {
+    close_socket(&socket);
+    return NULL;
+  }
+  session->transport = socket;
+  session->connected = true;
+  session->participant_count = 1u;
+  if (!announce_session(session, room)) {
+    multiplex_syncplay_session_destroy(session);
+    return NULL;
+  }
+  SYS_Report("REFERENCE GX: Syncplay session retained\n");
+  return session;
+}
+
+bool multiplex_syncplay_session_poll(MultiplexSyncplaySession *session) {
+  if (session == NULL || !session->connected) {
+    return false;
+  }
+  session->connected = poll_frames(session);
+  return session->connected;
+}
+
+unsigned multiplex_syncplay_session_participant_count(
+    const MultiplexSyncplaySession *session) {
+  return session == NULL ? 0u : session->participant_count;
+}
+
+void multiplex_syncplay_session_destroy(MultiplexSyncplaySession *session) {
+  if (session == NULL) {
+    return;
+  }
+  if (session->connected) {
+    const uint8_t normal_close[2] = {0x03u, 0xe8u};
+    send_frame(&session->transport, 0x8u, normal_close, sizeof(normal_close));
+  }
+  close_socket(&session->transport);
+  free(session);
 }

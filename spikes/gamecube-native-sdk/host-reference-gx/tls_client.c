@@ -58,8 +58,8 @@ static int gamecube_entropy(void *context, unsigned char *output, size_t size,
   uint64_t *state = context;
   uint8_t mac[6] = {0};
   net_get_mac_address(mac);
-  uint64_t value = *state ^ (uint64_t)gettime() ^
-                   (uint64_t)(uintptr_t)output ^ (uint64_t)(uintptr_t)&state;
+  uint64_t value = *state ^ (uint64_t)gettime() ^ (uint64_t)(uintptr_t)output ^
+                   (uint64_t)(uintptr_t)&state;
   for (unsigned index = 0; index < sizeof(mac); ++index) {
     value = mix64(value ^ ((uint64_t)mac[index] << (index * 8u)));
   }
@@ -99,7 +99,7 @@ static int tls_send(void *context, const unsigned char *bytes, size_t size) {
    * even though the TCP send buffer has ample space. net_write synchronously
    * queues or rejects the copy, so probing select first can only strand the
    * next TLS record.
-  */
+   */
   const int result = net_write(client->socket, bytes, size);
   const int flush_result = result > 0 ? net_flush(client->socket) : 0;
   if (flush_result < 0) {
@@ -110,8 +110,8 @@ static int tls_send(void *context, const unsigned char *bytes, size_t size) {
 
 static int tls_receive(void *context, unsigned char *bytes, size_t size) {
   MultiplexTlsClient *client = context;
-  const int ready = wait_socket(client->socket, false,
-                                client->io_timeout_seconds);
+  const int ready =
+      wait_socket(client->socket, false, client->io_timeout_seconds);
   if (ready <= 0) {
     return MBEDTLS_ERR_SSL_WANT_READ;
   }
@@ -156,24 +156,24 @@ MultiplexTlsClient *multiplex_tls_client_connect(int socket,
 
   client->entropy_state =
       mix64((uint64_t)gettime() ^ (uint64_t)(uintptr_t)client);
-  int result = mbedtls_entropy_add_source(
-      &client->entropy, gamecube_entropy, &client->entropy_state, 32,
-      MBEDTLS_ENTROPY_SOURCE_STRONG);
+  int result = mbedtls_entropy_add_source(&client->entropy, gamecube_entropy,
+                                          &client->entropy_state, 32,
+                                          MBEDTLS_ENTROPY_SOURCE_STRONG);
   static const unsigned char personalization[] = "Multiplex GameCube TLS";
   if (result == 0) {
-    result = mbedtls_ctr_drbg_seed(
-        &client->random, mbedtls_entropy_func, &client->entropy,
-        personalization, sizeof(personalization) - 1u);
+    result = mbedtls_ctr_drbg_seed(&client->random, mbedtls_entropy_func,
+                                   &client->entropy, personalization,
+                                   sizeof(personalization) - 1u);
   }
   if (result == 0) {
-    result = mbedtls_x509_crt_parse(
-        &client->ca, (const unsigned char *)multiplex_tls_ca_pem,
-        multiplex_tls_ca_pem_size);
+    result = mbedtls_x509_crt_parse(&client->ca,
+                                    (const unsigned char *)multiplex_tls_ca_pem,
+                                    multiplex_tls_ca_pem_size);
   }
   if (result == 0) {
-    result = mbedtls_ssl_config_defaults(
-        &client->config, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
-        MBEDTLS_SSL_PRESET_DEFAULT);
+    result = mbedtls_ssl_config_defaults(&client->config, MBEDTLS_SSL_IS_CLIENT,
+                                         MBEDTLS_SSL_TRANSPORT_STREAM,
+                                         MBEDTLS_SSL_PRESET_DEFAULT);
   }
   if (result == 0) {
     mbedtls_ssl_conf_authmode(&client->config, MBEDTLS_SSL_VERIFY_REQUIRED);
@@ -211,9 +211,9 @@ bool multiplex_tls_client_write_all(MultiplexTlsClient *client,
   size_t written = 0;
   while (written < size) {
     const size_t remaining = size - written;
-    const size_t chunk_size =
-        remaining < TLS_GAMECUBE_WRITE_CHUNK ? remaining
-                                             : TLS_GAMECUBE_WRITE_CHUNK;
+    const size_t chunk_size = remaining < TLS_GAMECUBE_WRITE_CHUNK
+                                  ? remaining
+                                  : TLS_GAMECUBE_WRITE_CHUNK;
     const int result =
         mbedtls_ssl_write(&client->ssl, bytes + written, chunk_size);
     if (result <= 0) {
@@ -238,6 +238,10 @@ int multiplex_tls_client_read(MultiplexTlsClient *client, uint8_t *destination,
   const int result = mbedtls_ssl_read(&client->ssl, destination, size);
   if (result == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
     return 0;
+  }
+  if (result == MBEDTLS_ERR_SSL_WANT_READ ||
+      result == MBEDTLS_ERR_SSL_WANT_WRITE) {
+    return -EAGAIN;
   }
   if (result < 0) {
     report_tls_error("read", result);

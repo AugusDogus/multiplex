@@ -5,7 +5,14 @@
 
 #include <stdbool.h>
 
-bool multiplex_syncplay_probe_room(const MultiplexTrpcRoom *room,
+typedef struct MultiplexSyncplaySession MultiplexSyncplaySession;
+
+MultiplexSyncplaySession *
+multiplex_syncplay_session_connect(const MultiplexTrpcRoom *room,
                                    const char *device_identifier);
+bool multiplex_syncplay_session_poll(MultiplexSyncplaySession *session);
+unsigned multiplex_syncplay_session_participant_count(
+    const MultiplexSyncplaySession *session);
+void multiplex_syncplay_session_destroy(MultiplexSyncplaySession *session);
 
 #endif

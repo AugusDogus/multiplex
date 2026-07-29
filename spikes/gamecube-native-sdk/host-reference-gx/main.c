@@ -4,7 +4,6 @@
 #include "http_client.h"
 #include "media-source.h"
 #include "memory_card_auth.h"
-#include "video_decoder.h"
 #include "mpeg_ps_demux.h"
 #include "multiplex-dvd-demo-program.h"
 #include "native_ui.h"
@@ -15,6 +14,7 @@
 #include "poster_jpeg.h"
 #include "syncplay_probe.h"
 #include "trpc_client.h"
+#include "video_decoder.h"
 #include "yuv420_gx.h"
 
 #include <gccore.h>
@@ -138,8 +138,7 @@ static uint32_t video_rate_millihertz =
 static AudioDma *audio_output;
 static MpegPsDemux *media_demux;
 static PlexHlsDemux *direct_hls_demux;
-static char
-    direct_hls_session_id[MULTIPLEX_PLEX_HLS_SESSION_ID_CAPACITY];
+static char direct_hls_session_id[MULTIPLEX_PLEX_HLS_SESSION_ID_CAPACITY];
 
 typedef struct {
   const char *gateway_url;
@@ -401,9 +400,8 @@ static void request_video_decoder_stop(void) {
 }
 
 static bool start_video_decoder(VideoCodec codec, void *reader_context,
-                                MediaRead read, unsigned width,
-                                unsigned height, uint32_t rate_millihertz,
-                                size_t stream_size) {
+                                MediaRead read, unsigned width, unsigned height,
+                                uint32_t rate_millihertz, size_t stream_size) {
   if (width == 0 || height == 0 || width > 1024 || height > 1024 ||
       rate_millihertz == 0) {
     return false;
@@ -475,8 +473,7 @@ static bool start_video_decoder(VideoCodec codec, void *reader_context,
       "REFERENCE GX: decoder=ffmpeg-mplayer-ce codec=%s input=%ux%u "
       "texture=%ux%u pixel-format=yuv420p rate=%u.%03u fps size=%u bytes\n",
       video_codec_name(codec), width, height, texture_width, texture_height,
-      rate_millihertz / 1000u, rate_millihertz % 1000u,
-      (unsigned)stream_size);
+      rate_millihertz / 1000u, rate_millihertz % 1000u, (unsigned)stream_size);
   return true;
 }
 
@@ -750,8 +747,8 @@ static void fill_poster_fallback(uint8_t *pixels, uint32_t rating_key) {
   const uint16_t color =
       (uint16_t)(((uint16_t)(red & 0xf8u) << 8u) |
                  ((uint16_t)(green & 0xfcu) << 3u) | (blue >> 3u));
-  for (size_t offset = 0;
-       offset < MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES; offset += 2u) {
+  for (size_t offset = 0; offset < MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+       offset += 2u) {
     pixels[offset] = (uint8_t)(color >> 8u);
     pixels[offset + 1u] = (uint8_t)color;
   }
@@ -775,12 +772,11 @@ static void *run_direct_poster_loader(void *context) {
     size_t encoded_size = 0;
     const bool decoded =
         item->artwork_path[0] != '\0' &&
-        multiplex_plex_load_artwork(
-            loader->credentials, item->artwork_path, encoded,
-            PLEX_POSTER_JPEG_CAPACITY, &encoded_size) &&
-        poster_jpeg_decode_single(
-            encoded, encoded_size, loader->decoded_pixels,
-            MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
+        multiplex_plex_load_artwork(loader->credentials, item->artwork_path,
+                                    encoded, PLEX_POSTER_JPEG_CAPACITY,
+                                    &encoded_size) &&
+        poster_jpeg_decode_single(encoded, encoded_size, loader->decoded_pixels,
+                                  MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
     if (decoded) {
       ++loader->decoded_count;
     }
@@ -796,16 +792,14 @@ static void *run_direct_poster_loader(void *context) {
 }
 
 static bool launch_direct_poster_loader(DirectPosterLoader *loader) {
-  if (loader == NULL || !loader->pending ||
-      loader->thread != LWP_THREAD_NULL) {
+  if (loader == NULL || !loader->pending || loader->thread != LWP_THREAD_NULL) {
     return false;
   }
   loader->complete = false;
   loader->stopping = false;
   loader->item_ready = false;
   loader->decoded_count = 0;
-  loader->decoded_pixels =
-      memalign(32, MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
+  loader->decoded_pixels = memalign(32, MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
   loader->stack = malloc(POSTER_LOADER_STACK_SIZE);
   if (loader->decoded_pixels == NULL || loader->stack == NULL) {
     free(loader->decoded_pixels);
@@ -848,8 +842,7 @@ static bool queue_direct_poster_loader(
   loader->thread = LWP_THREAD_NULL;
   if (poster_texture_pixels == NULL) {
     const size_t total_bytes =
-        (size_t)POSTER_TEXTURE_COUNT *
-        MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+        (size_t)POSTER_TEXTURE_COUNT * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
     poster_texture_pixels = multiplex_native_cache_alloc(total_bytes, 32);
     if (poster_texture_pixels == NULL) {
       return false;
@@ -860,8 +853,7 @@ static bool queue_direct_poster_loader(
   for (uint16_t index = 0; index < item_count; ++index) {
     uint8_t *pixels =
         poster_texture_pixels +
-        (size_t)(texture_offset + index) *
-            MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+        (size_t)(texture_offset + index) * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
     fill_poster_fallback(pixels, items[index].rating_key);
     GX_InitTexObj(&poster_textures[texture_offset + index], pixels,
                   MULTIPLEX_GATEWAY_ARTWORK_WIDTH,
@@ -870,10 +862,9 @@ static bool queue_direct_poster_loader(
     GX_InitTexObjLOD(&poster_textures[texture_offset + index], GX_LINEAR,
                      GX_LINEAR, 0, 0, 0, GX_FALSE, GX_FALSE, GX_ANISO_1);
   }
-  DCFlushRange(
-      poster_texture_pixels +
-          (size_t)texture_offset * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES,
-      (size_t)item_count * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
+  DCFlushRange(poster_texture_pixels + (size_t)texture_offset *
+                                           MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES,
+               (size_t)item_count * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
   const uint16_t texture_count = texture_offset + item_count;
   if (texture_count > poster_texture_count) {
     poster_texture_count = texture_count;
@@ -894,10 +885,9 @@ static void poll_direct_poster_loader(DirectPosterLoader *loader) {
   if (loader->item_ready) {
     __sync_synchronize();
     if (loader->item_decoded) {
-      uint8_t *pixels =
-          poster_texture_pixels +
-          (size_t)(loader->texture_offset + loader->item_index) *
-              MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+      uint8_t *pixels = poster_texture_pixels +
+                        (size_t)(loader->texture_offset + loader->item_index) *
+                            MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
       memcpy(pixels, loader->decoded_pixels,
              MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
       DCFlushRange(pixels, MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
@@ -1008,9 +998,9 @@ static bool load_browse_page(const char *gateway_url) {
   return bind_browse_page(&page);
 }
 
-static bool load_direct_browse_page(
-    const MultiplexAuthCredentials *credentials,
-    const MultiplexGatewayCatalog *catalog, DirectPosterLoader *poster_loader) {
+static bool load_direct_browse_page(const MultiplexAuthCredentials *credentials,
+                                    const MultiplexGatewayCatalog *catalog,
+                                    DirectPosterLoader *poster_loader) {
   uint32_t requested_section = 0;
   uint32_t requested_start = 0;
   if (multiplex_native_app_browse_request(&requested_section,
@@ -1036,9 +1026,8 @@ static bool load_direct_browse_page(
                                   (uint16_t)requested_start, &page)) {
     return false;
   }
-  if (!queue_direct_poster_loader(
-          poster_loader, credentials, page.items, page.item_count,
-          HOME_POSTER_COUNT, false)) {
+  if (!queue_direct_poster_loader(poster_loader, credentials, page.items,
+                                  page.item_count, HOME_POSTER_COUNT, false)) {
     SYS_Report(
         "REFERENCE GX: direct browse artwork deferred; using placeholders\n");
   }
@@ -1120,9 +1109,8 @@ static bool load_search_page(const char *gateway_url) {
   return bind_search_page(&page);
 }
 
-static bool
-load_direct_search_page(const MultiplexAuthCredentials *credentials,
-                        DirectPosterLoader *poster_loader) {
+static bool load_direct_search_page(const MultiplexAuthCredentials *credentials,
+                                    DirectPosterLoader *poster_loader) {
   char query[MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY] = {0};
   const uint32_t query_length =
       multiplex_native_app_search_request((uint8_t *)query, sizeof(query) - 1u);
@@ -1139,9 +1127,8 @@ load_direct_search_page(const MultiplexAuthCredentials *credentials,
     return false;
   }
   if (page.item_count > 0 &&
-      !queue_direct_poster_loader(
-          poster_loader, credentials, page.items, page.item_count,
-          HOME_POSTER_COUNT, false)) {
+      !queue_direct_poster_loader(poster_loader, credentials, page.items,
+                                  page.item_count, HOME_POSTER_COUNT, false)) {
     SYS_Report(
         "REFERENCE GX: direct search artwork deferred; using placeholders\n");
   }
@@ -1167,8 +1154,8 @@ static bool bind_item_details(const MultiplexGatewayDetails *details) {
         facts, sizeof(facts), "%u | %u min | Rating %u.%u/10", details->year,
         minutes, details->rating_tenths / 10u, details->rating_tenths % 10u);
   } else if (details->year != 0 && minutes != 0) {
-    facts_length = snprintf(facts, sizeof(facts), "%u | %u min",
-                            details->year, minutes);
+    facts_length =
+        snprintf(facts, sizeof(facts), "%u | %u min", details->year, minutes);
   } else if (minutes != 0) {
     facts_length = snprintf(facts, sizeof(facts), "%u min", minutes);
   } else if (details->year != 0) {
@@ -1208,8 +1195,8 @@ static bool load_item_details(const char *gateway_url) {
   return bind_item_details(&details);
 }
 
-static bool load_direct_item_details(
-    const MultiplexAuthCredentials *credentials) {
+static bool
+load_direct_item_details(const MultiplexAuthCredentials *credentials) {
   const uint32_t rating_key = multiplex_native_app_details_request();
   if (rating_key == 0) {
     return true;
@@ -1244,14 +1231,13 @@ static void close_media_session(HttpClient **client, MpegPsDemux **demux) {
   }
   media_demux = NULL;
   if (direct_hls_demux != NULL) {
-    SYS_Report(
-        "REFERENCE GX: HLS producer segments=%u video=%u audio=%u "
-        "complete=%u failed=%u\n",
-        plex_hls_demux_segment_count(direct_hls_demux),
-        plex_hls_demux_video_bytes(direct_hls_demux),
-        plex_hls_demux_audio_bytes(direct_hls_demux),
-        plex_hls_demux_complete(direct_hls_demux) ? 1u : 0u,
-        plex_hls_demux_failed(direct_hls_demux) ? 1u : 0u);
+    SYS_Report("REFERENCE GX: HLS producer segments=%u video=%u audio=%u "
+               "complete=%u failed=%u\n",
+               plex_hls_demux_segment_count(direct_hls_demux),
+               plex_hls_demux_video_bytes(direct_hls_demux),
+               plex_hls_demux_audio_bytes(direct_hls_demux),
+               plex_hls_demux_complete(direct_hls_demux) ? 1u : 0u,
+               plex_hls_demux_failed(direct_hls_demux) ? 1u : 0u);
     plex_hls_demux_destroy(direct_hls_demux);
     direct_hls_demux = NULL;
   }
@@ -1272,8 +1258,7 @@ static bool start_media_pipeline(MpegPsDemux *demux, uint32_t rating_key,
   }
   if (!start_video_decoder(
           VIDEO_CODEC_MPEG2, demux, mpeg_ps_demux_read_video, VIDEO_WIDTH,
-          VIDEO_HEIGHT,
-          (VIDEO_RATE_NUMERATOR * 1000u) / VIDEO_RATE_DENOMINATOR,
+          VIDEO_HEIGHT, (VIDEO_RATE_NUMERATOR * 1000u) / VIDEO_RATE_DENOMINATOR,
           mpeg_ps_demux_video_size(demux))) {
     return false;
   }
@@ -1306,13 +1291,12 @@ static bool start_hls_pipeline(PlexHlsDemux *demux, uint32_t rating_key) {
         (pts_delta * AUDIO_SAMPLE_RATE + MPEG_PTS_RATE / 2) / MPEG_PTS_RATE;
   } else {
     video_pts_offset_samples =
-        -((-pts_delta * AUDIO_SAMPLE_RATE + MPEG_PTS_RATE / 2) /
-          MPEG_PTS_RATE);
+        -((-pts_delta * AUDIO_SAMPLE_RATE + MPEG_PTS_RATE / 2) / MPEG_PTS_RATE);
   }
-  if (!start_video_decoder(
-          VIDEO_CODEC_H264, demux, plex_hls_demux_read_video,
-          plex_hls_demux_width(demux), plex_hls_demux_height(demux),
-          plex_hls_demux_frame_rate_millihertz(demux), 0)) {
+  if (!start_video_decoder(VIDEO_CODEC_H264, demux, plex_hls_demux_read_video,
+                           plex_hls_demux_width(demux),
+                           plex_hls_demux_height(demux),
+                           plex_hls_demux_frame_rate_millihertz(demux), 0)) {
     SYS_Report("REFERENCE GX: H.264 initialization failed rating-key=%u\n",
                rating_key);
     return false;
@@ -1326,16 +1310,16 @@ static bool start_hls_pipeline(PlexHlsDemux *demux, uint32_t rating_key) {
     return false;
   }
   direct_hls_demux = demux;
-  SYS_Report(
-      "REFERENCE GX: direct playback pipeline rating-key=%u "
-      "pts-delta=%lld pts-offset-samples=%lld\n",
-      rating_key, pts_delta, video_pts_offset_samples);
+  SYS_Report("REFERENCE GX: direct playback pipeline rating-key=%u "
+             "pts-delta=%lld pts-offset-samples=%lld\n",
+             rating_key, pts_delta, video_pts_offset_samples);
   return true;
 }
 
-static bool open_direct_hls_session(
-    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
-    uint32_t offset_ms, const char *session_id, PlexHlsDemux **demux_out) {
+static bool open_direct_hls_session(const MultiplexAuthCredentials *credentials,
+                                    uint32_t rating_key, uint32_t offset_ms,
+                                    const char *session_id,
+                                    PlexHlsDemux **demux_out) {
   PlexHlsDemux *demux =
       plex_hls_demux_create(credentials, rating_key, offset_ms, session_id);
   if (demux == NULL || !plex_hls_demux_start(demux) ||
@@ -1652,14 +1636,12 @@ static void finish_timeline_report(TimelineReporter *reporter) {
   reporter->complete = false;
 }
 
-static bool schedule_timeline_report(TimelineReporter *reporter,
-                                     const char *gateway_url,
-                                     const MultiplexAuthCredentials
-                                         *plex_credentials,
-                                     const char *plex_session_id,
-                                     uint32_t rating_key, uint32_t position_ms,
-                                     uint32_t duration_ms, const char *state,
-                                     bool force) {
+static bool
+schedule_timeline_report(TimelineReporter *reporter, const char *gateway_url,
+                         const MultiplexAuthCredentials *plex_credentials,
+                         const char *plex_session_id, uint32_t rating_key,
+                         uint32_t position_ms, uint32_t duration_ms,
+                         const char *state, bool force) {
   if (reporter->thread != LWP_THREAD_NULL && reporter->complete) {
     finish_timeline_report(reporter);
   }
@@ -1724,10 +1706,10 @@ flush_timeline_report(TimelineReporter *reporter, const char *gateway_url,
   if (manifest == NULL || manifest->rating_key == 0) {
     return;
   }
-  if (schedule_timeline_report(
-          reporter, gateway_url, plex_credentials, plex_session_id,
-          manifest->rating_key, position_ms, manifest->media_duration_ms,
-          state, true)) {
+  if (schedule_timeline_report(reporter, gateway_url, plex_credentials,
+                               plex_session_id, manifest->rating_key,
+                               position_ms, manifest->media_duration_ms, state,
+                               true)) {
     finish_timeline_report(reporter);
   }
 }
@@ -1784,10 +1766,10 @@ load_selected_playback(const char *gateway_url,
   return true;
 }
 
-static bool load_selected_direct_playback(
-    const MultiplexAuthCredentials *credentials,
-    MultiplexGatewayPlaybackManifest *active_manifest, HttpClient **client,
-    MpegPsDemux **demux) {
+static bool
+load_selected_direct_playback(const MultiplexAuthCredentials *credentials,
+                              MultiplexGatewayPlaybackManifest *active_manifest,
+                              HttpClient **client, MpegPsDemux **demux) {
   const uint32_t rating_key = multiplex_native_app_playback_request();
   if (rating_key == 0) {
     return true;
@@ -1807,9 +1789,9 @@ static bool load_selected_direct_playback(
   }
   const uint32_t offset_ms =
       requested_offset < details.duration_ms ? requested_offset : 0;
-  const bool same_session =
-      direct_hls_demux != NULL && active_manifest->rating_key == rating_key &&
-      active_manifest->segment_start_ms == offset_ms;
+  const bool same_session = direct_hls_demux != NULL &&
+                            active_manifest->rating_key == rating_key &&
+                            active_manifest->segment_start_ms == offset_ms;
   if (!same_session) {
     const uint32_t previous_rating_key = active_manifest->rating_key;
     const char *resume_session_id =
@@ -1836,10 +1818,9 @@ static bool load_selected_direct_playback(
     active_manifest->media_duration_ms = details.duration_ms;
     active_manifest->segment_start_ms = offset_ms;
     active_manifest->segment_duration_ms = details.duration_ms - offset_ms;
-    SYS_Report(
-        "REFERENCE GX: direct playback activated previous=%u active=%u "
-        "offset=%u duration=%u\n",
-        previous_rating_key, rating_key, offset_ms, details.duration_ms);
+    SYS_Report("REFERENCE GX: direct playback activated previous=%u active=%u "
+               "offset=%u duration=%u\n",
+               previous_rating_key, rating_key, offset_ms, details.duration_ms);
   }
   if (multiplex_native_app_playback_commit() == 0) {
     return false;
@@ -2019,8 +2000,7 @@ static void draw_video_surface(void) {
   if (playing && media_elapsed_samples >= 0) {
     desired_completions =
         video_audio_start_completions + 1u +
-        (uint32_t)(((uint64_t)media_elapsed_samples *
-                    video_rate_millihertz) /
+        (uint32_t)(((uint64_t)media_elapsed_samples * video_rate_millihertz) /
                    (AUDIO_SAMPLE_RATE * 1000u));
   }
   const bool cadence_due =
@@ -2122,11 +2102,10 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
             playback_manifest->segment_duration_ms);
       }
     } else if (direct_hls_demux != NULL) {
-      SYS_Report(
-          "REFERENCE GX: HLS progress segments=%u video=%u audio=%u\n",
-          plex_hls_demux_segment_count(direct_hls_demux),
-          plex_hls_demux_video_bytes(direct_hls_demux),
-          plex_hls_demux_audio_bytes(direct_hls_demux));
+      SYS_Report("REFERENCE GX: HLS progress segments=%u video=%u audio=%u\n",
+                 plex_hls_demux_segment_count(direct_hls_demux),
+                 plex_hls_demux_video_bytes(direct_hls_demux),
+                 plex_hls_demux_audio_bytes(direct_hls_demux));
     }
     presentation_frames = 0;
   }
@@ -2274,9 +2253,9 @@ static bool bind_catalog_to_app(const MultiplexGatewayCatalog *catalog) {
   }
   for (uint16_t row_index = 0; row_index < catalog->row_count; ++row_index) {
     const MultiplexGatewayRow *row = &catalog->rows[row_index];
-    if (multiplex_native_app_catalog_row(
-            row_index, (const uint8_t *)row->title, row->title_length,
-            row->item_count) == 0) {
+    if (multiplex_native_app_catalog_row(row_index, (const uint8_t *)row->title,
+                                         row->title_length,
+                                         row->item_count) == 0) {
       SYS_Report("REFERENCE GX: failed to bind catalog row %u\n", row_index);
       return false;
     }
@@ -2333,9 +2312,9 @@ static bool bind_watch_together_rooms(const MultiplexTrpcRoomList *rooms,
 }
 
 #if MULTIPLEX_PAIRING_ENABLED
-static bool refresh_watch_together_rooms(
-    const MultiplexAuthCredentials *credentials,
-    MultiplexTrpcRoomList *rooms) {
+static bool
+refresh_watch_together_rooms(const MultiplexAuthCredentials *credentials,
+                             MultiplexTrpcRoomList *rooms) {
   if (credentials == NULL || rooms == NULL) {
     return false;
   }
@@ -2346,8 +2325,7 @@ static bool refresh_watch_together_rooms(
 }
 
 static void create_requested_watch_together_room(
-    const MultiplexAuthCredentials *credentials,
-    MultiplexTrpcRoomList *rooms) {
+    const MultiplexAuthCredentials *credentials, MultiplexTrpcRoomList *rooms) {
   uint32_t rating_key = 0;
   char title[MULTIPLEX_TRPC_ROOM_TITLE_CAPACITY];
   const uint32_t title_length =
@@ -2379,10 +2357,9 @@ static void create_requested_watch_together_room(
   if (existing < rooms->room_count) {
     rooms->rooms[existing] = created;
   } else {
-    const uint8_t retained =
-        rooms->room_count < MULTIPLEX_TRPC_MAX_ROOMS
-            ? rooms->room_count
-            : MULTIPLEX_TRPC_MAX_ROOMS - 1u;
+    const uint8_t retained = rooms->room_count < MULTIPLEX_TRPC_MAX_ROOMS
+                                 ? rooms->room_count
+                                 : MULTIPLEX_TRPC_MAX_ROOMS - 1u;
     memmove(&rooms->rooms[1], &rooms->rooms[0],
             (size_t)retained * sizeof(rooms->rooms[0]));
     rooms->rooms[0] = created;
@@ -2396,18 +2373,21 @@ static void create_requested_watch_together_room(
              created.id, rating_key);
 }
 
-static void join_requested_watch_together_room(
-    const MultiplexAuthCredentials *credentials,
-    const MultiplexTrpcRoomList *rooms) {
+static void
+join_requested_watch_together_room(const MultiplexAuthCredentials *credentials,
+                                   const MultiplexTrpcRoomList *rooms,
+                                   MultiplexSyncplaySession **session) {
   const uint32_t requested = multiplex_native_app_watch_together_join_request();
   if (requested == 0) {
     return;
   }
   const uint32_t index = requested - 1u;
-  const bool connected =
-      index < rooms->room_count &&
-      multiplex_syncplay_probe_room(&rooms->rooms[index],
-                                    credentials->plex_client_id);
+  multiplex_syncplay_session_destroy(*session);
+  *session = index < rooms->room_count
+                 ? multiplex_syncplay_session_connect(
+                       &rooms->rooms[index], credentials->plex_client_id)
+                 : NULL;
+  const bool connected = *session != NULL;
   SYS_Report("REFERENCE GX: Watch Together join room=%u connected=%u\n", index,
              connected ? 1u : 0u);
   multiplex_native_app_watch_together_join_commit(connected ? 1u : 0u);
@@ -2432,12 +2412,10 @@ static void *run_app(void *unused) {
   MediaStartupWatchdog media_startup_watchdog;
   memset(&media_startup_watchdog, 0, sizeof(media_startup_watchdog));
   DirectPosterLoader direct_home_poster_loader;
-  memset(&direct_home_poster_loader, 0,
-         sizeof(direct_home_poster_loader));
+  memset(&direct_home_poster_loader, 0, sizeof(direct_home_poster_loader));
   direct_home_poster_loader.thread = LWP_THREAD_NULL;
   DirectPosterLoader direct_page_poster_loader;
-  memset(&direct_page_poster_loader, 0,
-         sizeof(direct_page_poster_loader));
+  memset(&direct_page_poster_loader, 0, sizeof(direct_page_poster_loader));
   direct_page_poster_loader.thread = LWP_THREAD_NULL;
   bool timeline_player_visible = false;
   bool timeline_started = false;
@@ -2445,6 +2423,9 @@ static void *run_app(void *unused) {
   memset(&catalog, 0, sizeof(catalog));
   MultiplexTrpcRoomList watch_together_rooms;
   memset(&watch_together_rooms, 0, sizeof(watch_together_rooms));
+#if MULTIPLEX_PAIRING_ENABLED
+  MultiplexSyncplaySession *syncplay_session = NULL;
+#endif
   bool has_catalog =
       MULTIPLEX_GATEWAY_URL[0] != '\0' &&
       multiplex_gateway_load_catalog(MULTIPLEX_GATEWAY_URL, &catalog);
@@ -2509,8 +2490,7 @@ static void *run_app(void *unused) {
   bool auth_reset_latched = false;
   uint32_t pairing_poll_frames = 0;
   if (pairing_linked &&
-      !refresh_watch_together_rooms(&auth_credentials,
-                                    &watch_together_rooms)) {
+      !refresh_watch_together_rooms(&auth_credentials, &watch_together_rooms)) {
     return (void *)(uintptr_t)1;
   }
   if (pairing_linked && !has_catalog &&
@@ -2547,11 +2527,11 @@ static void *run_app(void *unused) {
   if (has_catalog && MULTIPLEX_GATEWAY_URL[0] == '\0' &&
       poster_texture_pixels == NULL) {
     present_frame(&playback_manifest);
-    if (!queue_direct_poster_loader(
-            &direct_home_poster_loader, &auth_credentials, catalog.items,
-            catalog.total_item_count, 0, true)) {
-      SYS_Report(
-          "REFERENCE GX: direct Plex artwork unavailable; using placeholders\n");
+    if (!queue_direct_poster_loader(&direct_home_poster_loader,
+                                    &auth_credentials, catalog.items,
+                                    catalog.total_item_count, 0, true)) {
+      SYS_Report("REFERENCE GX: direct Plex artwork unavailable; using "
+                 "placeholders\n");
     }
   }
 #endif
@@ -2569,8 +2549,7 @@ static void *run_app(void *unused) {
       SYS_Report("REFERENCE GX: media producer failure\n");
       break;
     }
-    if (direct_hls_demux != NULL &&
-        plex_hls_demux_failed(direct_hls_demux)) {
+    if (direct_hls_demux != NULL && plex_hls_demux_failed(direct_hls_demux)) {
       SYS_Report("REFERENCE GX: HLS media producer failure\n");
       break;
     }
@@ -2609,9 +2588,9 @@ static void *run_app(void *unused) {
               multiplex_plex_load_catalog(&auth_credentials, &catalog)) {
             has_catalog = bind_catalog_to_app(&catalog);
             if (has_catalog) {
-              queue_direct_poster_loader(
-                  &direct_home_poster_loader, &auth_credentials, catalog.items,
-                  catalog.total_item_count, 0, true);
+              queue_direct_poster_loader(&direct_home_poster_loader,
+                                         &auth_credentials, catalog.items,
+                                         catalog.total_item_count, 0, true);
             }
           }
           if (!refresh_watch_together_rooms(&auth_credentials,
@@ -2651,6 +2630,8 @@ static void *run_app(void *unused) {
                  multiplex_memory_card_result_message(deleted));
       if (deleted == MULTIPLEX_MEMORY_CARD_OK) {
         finish_timeline_report(&timeline_reporter);
+        multiplex_syncplay_session_destroy(syncplay_session);
+        syncplay_session = NULL;
         pairing_linked = false;
         has_catalog = false;
         memset(&auth_credentials, 0, sizeof(auth_credentials));
@@ -2778,8 +2759,8 @@ static void *run_app(void *unused) {
       if (pairing_linked) {
         create_requested_watch_together_room(&auth_credentials,
                                              &watch_together_rooms);
-        join_requested_watch_together_room(&auth_credentials,
-                                           &watch_together_rooms);
+        join_requested_watch_together_room(
+            &auth_credentials, &watch_together_rooms, &syncplay_session);
       }
 #endif
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
@@ -2793,14 +2774,21 @@ static void *run_app(void *unused) {
       }
 #if MULTIPLEX_PAIRING_ENABLED
       if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked &&
-          !load_selected_direct_playback(&auth_credentials,
-                                         &playback_manifest, &client,
-                                         &demux)) {
+          !load_selected_direct_playback(&auth_credentials, &playback_manifest,
+                                         &client, &demux)) {
         SYS_Report("REFERENCE GX: direct playback-session load failed\n");
       }
 #endif
       native_frame_dirty = true;
     }
+#if MULTIPLEX_PAIRING_ENABLED
+    if (syncplay_session != NULL &&
+        !multiplex_syncplay_session_poll(syncplay_session)) {
+      SYS_Report("REFERENCE GX: Syncplay session disconnected\n");
+      multiplex_syncplay_session_destroy(syncplay_session);
+      syncplay_session = NULL;
+    }
+#endif
     present_frame(&playback_manifest);
     if (!recover_stalled_media_startup(&media_startup_watchdog,
                                        &playback_manifest, &client, &demux,
@@ -2843,6 +2831,9 @@ static void *run_app(void *unused) {
   }
 
   discard_staged_media_session(&staged_media);
+#if MULTIPLEX_PAIRING_ENABLED
+  multiplex_syncplay_session_destroy(syncplay_session);
+#endif
   stop_direct_poster_loader(&direct_home_poster_loader);
   stop_direct_poster_loader(&direct_page_poster_loader);
   if (timeline_started) {
