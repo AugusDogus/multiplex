@@ -37,6 +37,7 @@ struct MultiplexSyncplaySession {
   size_t received_size;
   unsigned participant_count;
   unsigned heartbeat_count;
+  unsigned ignoring_client;
   uint32_t local_position_ms;
   uint32_t remote_position_ms;
   uint32_t room_position_ms;
@@ -631,6 +632,7 @@ static bool echo_state(MultiplexSyncplaySession *session, const char *json) {
   double client_rtt = 0;
   double server_rtt = 0;
   double latency = 0;
+  double acknowledged_client = 0;
   double ignoring_server = 0;
   bool paused = true;
   bool do_seek = false;
@@ -642,6 +644,7 @@ static bool echo_state(MultiplexSyncplaySession *session, const char *json) {
   read_json_number(json, "\"clientRtt\":", &client_rtt);
   read_json_number(json, "\"serverRtt\":", &server_rtt);
   read_json_number(json, "\"latencyCalculation\":", &latency);
+  read_json_number(json, "\"client\":", &acknowledged_client);
   read_json_number(json, "\"server\":", &ignoring_server);
 
   char response[768];
@@ -650,15 +653,41 @@ static bool echo_state(MultiplexSyncplaySession *session, const char *json) {
   const bool set_by_self =
       set_by_field != NULL &&
       strstr(set_by_field, session->device_identifier) != NULL;
-  const bool should_echo = ignoring_server > 0;
-  const bool local_change =
-      session->pending_local_play_pause || session->pending_local_seek;
-  const bool apply_remote = !set_by_self && !local_change;
   const uint32_t remote_position_ms =
       position <= 0 ? 0
       : position >= (double)UINT32_MAX / 1000.0
           ? UINT32_MAX
           : (uint32_t)(position * 1000.0);
+  const bool should_echo = session->observer || ignoring_server > 0;
+  const bool acknowledged_local =
+      session->ignoring_client > 0 &&
+      acknowledged_client == (double)session->ignoring_client;
+  const uint32_t position_delta =
+      session->local_position_ms > remote_position_ms
+          ? session->local_position_ms - remote_position_ms
+          : remote_position_ms - session->local_position_ms;
+  if (session->ignoring_client > 0 &&
+      session->pending_local_play_pause && session->local_paused == paused) {
+    session->pending_local_play_pause = false;
+  }
+  if (session->ignoring_client > 0 && session->pending_local_seek &&
+      position_delta <= 3000u) {
+    session->pending_local_seek = false;
+  }
+  if (should_echo) {
+    session->ignoring_client = 0;
+  } else if (acknowledged_local) {
+    session->ignoring_client = 0;
+  }
+  const bool local_change =
+      session->pending_local_play_pause || session->pending_local_seek;
+  const bool starting_claim = !should_echo && local_change &&
+                              session->ignoring_client == 0;
+  if (starting_claim && session->ignoring_client < UINT32_MAX) {
+    session->ignoring_client += 1u;
+  }
+  const bool apply_remote = !session->observer && !set_by_self &&
+                            !local_change && session->ignoring_client == 0;
   session->room_position_ms = remote_position_ms;
   session->room_position_known = true;
   session->room_paused = paused;
@@ -669,13 +698,14 @@ static bool echo_state(MultiplexSyncplaySession *session, const char *json) {
     session->remote_seek = do_seek;
     session->remote_playback_pending = true;
   }
-  const bool claim_local = !session->observer &&
+  const bool reply_local = !session->observer &&
                            session->has_local_playback && !should_echo &&
-                           local_change;
-  const bool reply_paused = claim_local ? session->local_paused : paused;
+                           !apply_remote;
+  const bool claimed_seek = reply_local && session->pending_local_seek;
+  const bool reply_paused = reply_local ? session->local_paused : paused;
   const double reply_position =
-      claim_local ? (double)session->local_position_ms / 1000.0 : position;
-  if (claim_local) {
+      reply_local ? (double)session->local_position_ms / 1000.0 : position;
+  if (session->ignoring_client > 0) {
     snprintf(set_by, sizeof(set_by), "\"%s\"", session->encoded_user);
   } else {
     strcpy(set_by, "null");
@@ -689,16 +719,20 @@ static bool echo_state(MultiplexSyncplaySession *session, const char *json) {
                "\"paused\":%s,\"position\":%.6f,\"setBy\":%s},"
                "\"ignoringOnTheFly\":{\"client\":%u,\"server\":%.0f}}}",
                now_seconds, client_rtt, server_rtt, latency,
-               claim_local && session->pending_local_seek ? "true" : "false",
+               claimed_seek ? "true" : "false",
                reply_paused ? "true" : "false", reply_position, set_by,
-               claim_local ? 1u : 0u, ignoring_server);
+               session->ignoring_client, ignoring_server);
   const bool sent = response_size > 0 &&
                     (size_t)response_size < sizeof(response) &&
                     send_text_frame(&session->transport, response);
   if (sent) {
-    if (claim_local) {
-      session->pending_local_play_pause = false;
-      session->pending_local_seek = false;
+    if (starting_claim) {
+      SYS_Report("REFERENCE GX: Syncplay local playback paused=%u "
+                 "position=%ums seek=%u claim=%u\n",
+                 session->local_paused ? 1u : 0u,
+                 session->local_position_ms,
+                 claimed_seek ? 1u : 0u,
+                 session->ignoring_client);
     }
     session->heartbeat_count += 1u;
     if (session->heartbeat_count % 10u == 0) {
@@ -706,7 +740,7 @@ static bool echo_state(MultiplexSyncplaySession *session, const char *json) {
                  "position=%ums participants=%u claim=%u\n",
                  session->heartbeat_count, paused ? 1u : 0u,
                  remote_position_ms,
-                 session->participant_count, claim_local ? 1u : 0u);
+                 session->participant_count, session->ignoring_client);
     }
   }
   return sent;
@@ -963,6 +997,7 @@ void multiplex_syncplay_session_adopt_playback(
   session->local_position_ms = position_ms;
   session->pending_local_play_pause = false;
   session->pending_local_seek = false;
+  session->ignoring_client = 0;
 }
 
 void multiplex_syncplay_session_mark_local_seek(
