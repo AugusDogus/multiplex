@@ -86,6 +86,11 @@ stops the service when the launcher is interrupted, without showing Dolphin's
 confirmation dialog. Under normal scheduling, the embedded player reached its
 first 60-frame decode report in about 2.5 seconds of wall time and then
 sustained 29.9–30.2 decoded fps with zero audio underruns.
+Because Dolphin gives raw GameCube cards regional filenames even for a
+region-free DOL, the isolated profiles explicitly pin the fallback region to
+North America. This keeps the app on `MemoryCardA.USA.raw`; otherwise a locale
+or profile change can make a valid Multiplex save appear to disappear by
+silently selecting another regional card image.
 The profile enables Dolphin's component-capable output and the presenter
 selects the matching progressive mode. This avoids the alternating-field
 vertical jitter of 480i; composite-only hardware keeps the preferred

@@ -52,8 +52,13 @@ if [ "$normal_scheduler_guard" -ne 1 ] &&
     --setenv="GAMECUBE_PASTA_DEBUG=${GAMECUBE_PASTA_DEBUG:-0}" \
     --setenv="GAMECUBE_PASTA_CAPTURE=${GAMECUBE_PASTA_CAPTURE:-0}" \
     /bin/sh "$script_dir/run-dolphin.sh" "$dol"
-  while systemctl --user --quiet is-active "$unit"; do
-    sleep 1
+  while :; do
+    service_state=$(systemctl --user show "$unit" --property=ActiveState \
+      --value 2>/dev/null || true)
+    case "$service_state" in
+      active | activating | reloading | deactivating) sleep 1 ;;
+      *) break ;;
+    esac
   done
   exit 0
 fi

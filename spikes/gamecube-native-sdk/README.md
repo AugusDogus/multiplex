@@ -29,7 +29,9 @@ interlaced mode. When the launcher itself inherited Linux `SCHED_IDLE`, as
 commands launched from T3 Code do, it starts Dolphin in a transient
 normal-priority user service. This requires no sudo, preserves the one-window
 cleanup behavior, and prevents an apparently 60 fps guest from advancing much
-slower than wall time.
+slower than wall time. The isolated profiles also pin Dolphin's fallback
+region to North America so region-free DOL boots consistently reopen the same
+`MemoryCardA.USA.raw` sign-in save.
 
 When `MULTIPLEX_BASE_URL` is an HTTPS `*.localhost` origin, the reference build
 automatically embeds the public Portless CA from `~/.portless/ca.pem`.
