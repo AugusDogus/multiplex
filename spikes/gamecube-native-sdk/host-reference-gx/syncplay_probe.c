@@ -928,14 +928,25 @@ void multiplex_syncplay_session_set_playback(
   if (session == NULL) {
     return;
   }
+  bool claim_local = false;
   if (session->has_local_playback && session->local_paused != paused) {
     session->pending_local_play_pause = true;
+    claim_local = true;
   } else if (!session->has_local_playback && !paused) {
     /*
      * Joining a room auto-starts the player while the room is still on its
      * paused lobby baseline. Claim that initial play just like the web client.
      */
     session->pending_local_play_pause = true;
+    claim_local = true;
+  }
+  if (claim_local) {
+    /*
+     * The server can send its paused lobby baseline during the synchronous
+     * handshake, before the caller attaches local playback. Do not apply that
+     * stale event after a newer local play/pause claim has been armed.
+     */
+    session->remote_playback_pending = false;
   }
   session->has_local_playback = true;
   session->local_paused = paused;
