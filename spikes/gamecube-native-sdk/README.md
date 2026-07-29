@@ -51,7 +51,12 @@ GameCube's outgoing TCP sequence backward. Together these remove the
 connection-level retransmission delays without host privileges. Libogc2's
 upstream two-segment TCP receive window is preserved because it matches the
 BBA's approximately two-frame receive ring; advertising four segments
-overflowed the adapter and caused retransmission bursts. Set
+overflowed the adapter and caused retransmission bursts. The upstream driver
+also waits for two packets before raising a receive interrupt, leaving no
+room for a second full-size frame while the first is pending. The local
+one-packet interrupt patch drains the ring with one frame of headroom; in the
+direct-Plex test it removed the 30-second catalog retry and delivered 93,863
+bytes in about 0.54 seconds. Set
 `GAMECUBE_PASTA_CAPTURE=1` to write `/tmp/multiplex-pasta.pcap` without
 enabling timing-heavy trace logs.
 
@@ -141,6 +146,8 @@ backward/forward without walking focus through every poster.
   scanline and solid-blend fast paths for rounded fills, borders, and shadows
 - `patches/libogc2-lwip-rfc-snd-nxt.patch`: upstream lwIP sequence-number
   semantics backported to libogc2's historical TCP stack
+- `patches/libogc2-drain-bba-ring-per-packet.patch`: raise the BBA receive
+  interrupt after one packet so its two-frame ring retains headroom
 - `patches/passt-handle-data-on-handshake-ack.patch`: preserve application
   data piggybacked on the final TCP handshake ACK
 
