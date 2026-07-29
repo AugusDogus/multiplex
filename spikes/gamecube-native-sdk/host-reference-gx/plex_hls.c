@@ -343,7 +343,8 @@ bool multiplex_plex_hls_refresh(
 bool multiplex_plex_hls_stream_segment(
     const MultiplexAuthCredentials *credentials,
     const MultiplexPlexHlsSession *session, const HlsSegment *segment,
-    HttpBodyWrite write, void *write_context, size_t *body_size) {
+    HttpBodyWrite write, void *write_context,
+    const volatile bool *cancelled, size_t *body_size) {
   if (credentials == NULL || session == NULL || segment == NULL ||
       write == NULL || body_size == NULL || !session->started) {
     return false;
@@ -359,6 +360,9 @@ bool multiplex_plex_hls_stream_segment(
   size_t delivered = 0;
   HttpJsonResponse response = {0};
   for (unsigned attempt = 1; attempt <= PLEX_HLS_SEGMENT_ATTEMPTS; ++attempt) {
+    if (!write(write_context, NULL, 0)) {
+      break;
+    }
     const size_t resumed_at = delivered;
     ResumingSegmentWrite resume = {
         .write = write,
@@ -367,7 +371,8 @@ bool multiplex_plex_hls_stream_segment(
     };
     response = (HttpJsonResponse){0};
     const bool streamed = http_client_stream_get_with_headers(
-        url, headers, header_count, write_resumed_segment, &resume, &response);
+        url, headers, header_count, write_resumed_segment, &resume, cancelled,
+        &response);
     delivered += resume.forwarded;
     if (streamed && response.status == 200 && response.body_size != 0 &&
         resume.skip == 0 && delivered == response.body_size) {
@@ -379,7 +384,7 @@ bool multiplex_plex_hls_stream_segment(
           attempt);
       return true;
     }
-    if (resume.write_failed ||
+    if (!write(write_context, NULL, 0) || resume.write_failed ||
         (response.status != 0 && response.status != 200)) {
       break;
     }

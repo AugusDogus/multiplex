@@ -68,6 +68,9 @@ static bool parse_transport(void *context, const uint8_t *bytes,
   if (demux->stopping) {
     return false;
   }
+  if (size == 0) {
+    return true;
+  }
   if (mpeg_ts_parser_push(&demux->parser, bytes, size)) {
     return true;
   }
@@ -127,7 +130,7 @@ static void *run_hls_producer(void *context) {
     size_t transport_bytes = 0;
     if (!multiplex_plex_hls_stream_segment(
             demux->credentials, &demux->session, segment, parse_transport,
-            demux, &transport_bytes)) {
+            demux, &demux->stopping, &transport_bytes)) {
       if (!demux->stopping) {
         demux->failed = true;
       }

@@ -55,7 +55,7 @@
 #define MPEG_PTS_RATE 90000
 #define VIDEO_RATE_NUMERATOR 30000
 #define VIDEO_RATE_DENOMINATOR 1001
-#define VIDEO_PREBUFFER_BYTES (128u * 1024u)
+#define VIDEO_PREBUFFER_BYTES (64u * 1024u)
 /*
  * Keep this below half of the 64 KiB compressed-audio queue. MPEG-PS packets
  * are interleaved, so waiting for exactly 32 KiB can leave the producer
@@ -1774,9 +1774,14 @@ load_direct_playback(const MultiplexAuthCredentials *credentials,
                      bool transition_from_watch_together,
                      MultiplexGatewayPlaybackManifest *active_manifest,
                      HttpClient **client, MpegPsDemux **demux) {
+  uint32_t duration_ms =
+      active_manifest->rating_key == rating_key
+          ? active_manifest->media_duration_ms
+          : 0;
   MultiplexGatewayDetails details;
-  if (!multiplex_plex_load_details(credentials, rating_key, &details) ||
-      details.duration_ms == 0) {
+  if (duration_ms == 0 &&
+      (!multiplex_plex_load_details(credentials, rating_key, &details) ||
+       details.duration_ms == 0)) {
     if (transition_from_watch_together) {
       SYS_Report("REFERENCE GX: direct playback metadata unavailable "
                  "rating-key=%u\n",
@@ -1791,8 +1796,11 @@ load_direct_playback(const MultiplexAuthCredentials *credentials,
                rating_key);
     return true;
   }
+  if (duration_ms == 0) {
+    duration_ms = details.duration_ms;
+  }
   const uint32_t offset_ms =
-      requested_offset < details.duration_ms ? requested_offset : 0;
+      requested_offset < duration_ms ? requested_offset : 0;
   const bool same_session = direct_hls_demux != NULL &&
                             active_manifest->rating_key == rating_key &&
                             active_manifest->segment_start_ms == offset_ms;
@@ -1824,12 +1832,12 @@ load_direct_playback(const MultiplexAuthCredentials *credentials,
     memset(active_manifest, 0, sizeof(*active_manifest));
     active_manifest->version = 1;
     active_manifest->rating_key = rating_key;
-    active_manifest->media_duration_ms = details.duration_ms;
+    active_manifest->media_duration_ms = duration_ms;
     active_manifest->segment_start_ms = offset_ms;
-    active_manifest->segment_duration_ms = details.duration_ms - offset_ms;
+    active_manifest->segment_duration_ms = duration_ms - offset_ms;
     SYS_Report("REFERENCE GX: direct playback activated previous=%u active=%u "
                "offset=%u duration=%u\n",
-               previous_rating_key, rating_key, offset_ms, details.duration_ms);
+               previous_rating_key, rating_key, offset_ms, duration_ms);
   }
   if (!transition_from_watch_together &&
       multiplex_native_app_playback_commit() == 0) {
@@ -2419,6 +2427,7 @@ static void
 join_requested_watch_together_room(const MultiplexAuthCredentials *credentials,
                                    const MultiplexTrpcRoomList *rooms,
                                    MultiplexSyncplaySession **session,
+                                   uint32_t *joined_room_index,
                                    MultiplexGatewayPlaybackManifest *manifest,
                                    HttpClient **client, MpegPsDemux **demux) {
   const uint32_t requested = multiplex_native_app_watch_together_join_request();
@@ -2428,6 +2437,7 @@ join_requested_watch_together_room(const MultiplexAuthCredentials *credentials,
   const uint32_t index = requested - 1u;
   multiplex_syncplay_session_destroy(*session);
   *session = NULL;
+  *joined_room_index = UINT32_MAX;
   if (index >= rooms->room_count) {
     multiplex_native_app_watch_together_join_commit(0);
     return;
@@ -2452,6 +2462,9 @@ join_requested_watch_together_room(const MultiplexAuthCredentials *credentials,
           manifest->segment_start_ms) == 0) {
     multiplex_syncplay_session_destroy(*session);
     *session = NULL;
+  }
+  if (*session != NULL) {
+    *joined_room_index = index;
   }
   SYS_Report("REFERENCE GX: Watch Together join room=%u connected=%u\n", index,
              *session != NULL ? 1u : 0u);
@@ -2491,6 +2504,7 @@ static void *run_app(void *unused) {
   memset(&watch_together_rooms, 0, sizeof(watch_together_rooms));
 #if MULTIPLEX_PAIRING_ENABLED
   MultiplexSyncplaySession *syncplay_session = NULL;
+  uint32_t joined_watch_together_room = UINT32_MAX;
 #endif
   bool has_catalog =
       MULTIPLEX_GATEWAY_URL[0] != '\0' &&
@@ -2698,6 +2712,7 @@ static void *run_app(void *unused) {
         finish_timeline_report(&timeline_reporter);
         multiplex_syncplay_session_destroy(syncplay_session);
         syncplay_session = NULL;
+        joined_watch_together_room = UINT32_MAX;
         pairing_linked = false;
         has_catalog = false;
         memset(&auth_credentials, 0, sizeof(auth_credentials));
@@ -2827,7 +2842,7 @@ static void *run_app(void *unused) {
                                              &watch_together_rooms);
         join_requested_watch_together_room(
             &auth_credentials, &watch_together_rooms, &syncplay_session,
-            &playback_manifest, &client, &demux);
+            &joined_watch_together_room, &playback_manifest, &client, &demux);
       }
 #endif
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
@@ -2840,10 +2855,49 @@ static void *run_app(void *unused) {
         SYS_Report("REFERENCE GX: playback-session load failed\n");
       }
 #if MULTIPLEX_PAIRING_ENABLED
+      const uint32_t local_playback_request =
+          multiplex_native_app_playback_request();
+      const uint32_t local_playback_offset =
+          multiplex_native_app_playback_offset_request();
+      const bool local_syncplay_seek =
+          syncplay_session != NULL &&
+          local_playback_request == playback_manifest.rating_key &&
+          local_playback_offset != playback_manifest.segment_start_ms;
+      const uint32_t local_seek_room = joined_watch_together_room;
+      if (local_syncplay_seek) {
+        /*
+         * A transcode seek can block while the old HLS producer winds down.
+         * Reconnect afterward instead of letting the retained Syncplay socket
+         * expire during that reload.
+         */
+        multiplex_syncplay_session_destroy(syncplay_session);
+        syncplay_session = NULL;
+      }
       if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked &&
           !load_selected_direct_playback(&auth_credentials, &playback_manifest,
                                          &client, &demux)) {
         SYS_Report("REFERENCE GX: direct playback-session load failed\n");
+      }
+      if (local_syncplay_seek &&
+          playback_manifest.segment_start_ms == local_playback_offset) {
+        if (local_seek_room < watch_together_rooms.room_count) {
+          syncplay_session = multiplex_syncplay_session_connect(
+              &watch_together_rooms.rooms[local_seek_room],
+              auth_credentials.plex_client_id);
+        }
+        if (syncplay_session != NULL) {
+          multiplex_syncplay_session_set_playback(
+              syncplay_session, video_surface.playing == 0,
+              local_playback_offset);
+          multiplex_syncplay_session_mark_local_seek(syncplay_session);
+          SYS_Report("REFERENCE GX: Syncplay local seek position=%u\n",
+                     local_playback_offset);
+        } else {
+          joined_watch_together_room = UINT32_MAX;
+          SYS_Report("REFERENCE GX: Syncplay local seek reconnect failed\n");
+        }
+      } else if (local_syncplay_seek) {
+        joined_watch_together_room = UINT32_MAX;
       }
 #endif
       native_frame_dirty = true;
@@ -2857,17 +2911,52 @@ static void *run_app(void *unused) {
         SYS_Report("REFERENCE GX: Syncplay session disconnected\n");
         multiplex_syncplay_session_destroy(syncplay_session);
         syncplay_session = NULL;
+        joined_watch_together_room = UINT32_MAX;
       } else {
         bool remote_paused = false;
+        bool remote_seek = false;
         uint32_t remote_position_ms = 0;
         if (multiplex_syncplay_session_take_remote_playback(
-                syncplay_session, &remote_paused, &remote_position_ms) &&
-            multiplex_native_app_playback_set_paused(remote_paused ? 1u : 0u) !=
-                0) {
-          native_frame_dirty = true;
-          SYS_Report("REFERENCE GX: Syncplay remote playback paused=%u "
-                     "position=%u\n",
-                     remote_paused ? 1u : 0u, remote_position_ms);
+                syncplay_session, &remote_paused, &remote_position_ms,
+                &remote_seek)) {
+          const uint32_t room_index = joined_watch_together_room;
+          bool applied = true;
+          if (remote_seek) {
+            multiplex_syncplay_session_destroy(syncplay_session);
+            syncplay_session = NULL;
+            applied =
+                load_direct_playback(
+                    &auth_credentials, playback_manifest.rating_key,
+                    remote_position_ms, true, &playback_manifest, &client,
+                    &demux) &&
+                room_index < watch_together_rooms.room_count;
+            if (applied) {
+              syncplay_session = multiplex_syncplay_session_connect(
+                  &watch_together_rooms.rooms[room_index],
+                  auth_credentials.plex_client_id);
+              applied = syncplay_session != NULL;
+            }
+            if (!applied) {
+              joined_watch_together_room = UINT32_MAX;
+              SYS_Report("REFERENCE GX: Syncplay remote seek failed "
+                         "position=%u\n",
+                         remote_position_ms);
+            }
+          }
+          if (applied &&
+              multiplex_native_app_playback_set_paused(remote_paused ? 1u
+                                                                     : 0u) !=
+                  0) {
+            if (syncplay_session != NULL) {
+              multiplex_syncplay_session_adopt_playback(
+                  syncplay_session, remote_paused, remote_position_ms);
+            }
+            native_frame_dirty = true;
+            SYS_Report("REFERENCE GX: Syncplay remote playback paused=%u "
+                       "position=%u seek=%u\n",
+                       remote_paused ? 1u : 0u, remote_position_ms,
+                       remote_seek ? 1u : 0u);
+          }
         }
       }
     }

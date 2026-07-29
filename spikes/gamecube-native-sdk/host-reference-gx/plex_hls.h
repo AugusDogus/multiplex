@@ -31,7 +31,8 @@ bool multiplex_plex_hls_refresh(
 bool multiplex_plex_hls_stream_segment(
     const MultiplexAuthCredentials *credentials,
     const MultiplexPlexHlsSession *session, const HlsSegment *segment,
-    HttpBodyWrite write, void *write_context, size_t *body_size);
+    HttpBodyWrite write, void *write_context,
+    const volatile bool *cancelled, size_t *body_size);
 void multiplex_plex_hls_stop(const MultiplexAuthCredentials *credentials,
                              MultiplexPlexHlsSession *session);
 

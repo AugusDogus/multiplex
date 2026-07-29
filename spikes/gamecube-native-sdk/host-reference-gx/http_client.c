@@ -65,6 +65,7 @@ struct HttpClient {
   size_t stream_prefetch_size;
   uint8_t *small_media;
   volatile bool stopping;
+  const volatile bool *external_cancelled;
 };
 
 static bool network_initialized;
@@ -284,33 +285,51 @@ static bool write_all(HttpClient *client, const uint8_t *bytes, size_t size) {
 
 static int read_available_with_timeout(HttpClient *client, void *destination,
                                        size_t size, unsigned timeout_seconds) {
+  if (client->stopping ||
+      (client->external_cancelled != NULL &&
+       *client->external_cancelled)) {
+    return -1;
+  }
   if (client->tls != NULL) {
     return multiplex_tls_client_read(client->tls, destination, size,
                                      timeout_seconds);
   }
-  fd_set readable;
-  FD_ZERO(&readable);
-  FD_SET(client->socket, &readable);
-  struct timeval timeout = {
-      .tv_sec = timeout_seconds,
-      .tv_usec = 0,
-  };
-  if (net_select(client->socket + 1, &readable, NULL, NULL, &timeout) <= 0) {
-    return -1;
+  for (unsigned waited = 0; waited < timeout_seconds; ++waited) {
+    if (client->stopping ||
+        (client->external_cancelled != NULL &&
+         *client->external_cancelled)) {
+      return -1;
+    }
+    fd_set readable;
+    FD_ZERO(&readable);
+    FD_SET(client->socket, &readable);
+    struct timeval timeout = {
+        .tv_sec = 1,
+        .tv_usec = 0,
+    };
+    const int selected =
+        net_select(client->socket + 1, &readable, NULL, NULL, &timeout);
+    if (selected < 0) {
+      return -1;
+    }
+    if (selected == 0) {
+      continue;
+    }
+    /*
+     * libogc2 select can report a damaged BBA TCP flow readable even though a
+     * blocking recv would wait forever. Switch modes only around this recv so
+     * connection setup and writes retain their proven blocking semantics.
+     */
+    if (net_fcntl(client->socket, F_SETFL, O_NONBLOCK) < 0) {
+      return -1;
+    }
+    const int received = net_recv(client->socket, destination, size, 0);
+    if (net_fcntl(client->socket, F_SETFL, 0) < 0) {
+      return -1;
+    }
+    return received;
   }
-  /*
-   * libogc2 select can report a damaged BBA TCP flow readable even though a
-   * blocking recv would wait forever. Switch modes only around this recv so
-   * connection setup and writes retain their proven blocking semantics.
-   */
-  if (net_fcntl(client->socket, F_SETFL, O_NONBLOCK) < 0) {
-    return -1;
-  }
-  const int received = net_recv(client->socket, destination, size, 0);
-  if (net_fcntl(client->socket, F_SETFL, 0) < 0) {
-    return -1;
-  }
-  return received;
+  return -1;
 }
 
 static int read_available(HttpClient *client, void *destination, size_t size) {
@@ -1147,7 +1166,8 @@ static bool stream_until_close(HttpBodyReader *reader, HttpBodyWrite write,
 
 bool http_client_stream_get_with_headers(
     const char *url, const HttpRequestHeader *headers, size_t header_count,
-    HttpBodyWrite write, void *write_context, HttpJsonResponse *response) {
+    HttpBodyWrite write, void *write_context,
+    const volatile bool *cancelled, HttpJsonResponse *response) {
   if (url == NULL || response == NULL ||
       (header_count != 0 && headers == NULL)) {
     return false;
@@ -1157,6 +1177,7 @@ bool http_client_stream_get_with_headers(
     return false;
   }
   client->socket = -1;
+  client->external_cancelled = cancelled;
   if (!parse_url(url, client)) {
     free(client);
     return false;
