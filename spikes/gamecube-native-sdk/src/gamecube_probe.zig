@@ -44,6 +44,11 @@ var staged_browse_total: u32 = 0;
 var staged_browse_items: [4]core.CatalogItem = undefined;
 var staged_browse_item_ptrs: [4]*const core.CatalogItem = undefined;
 var staged_browse_item_count: usize = 0;
+var staged_watch_together_rooms: [4]core.WatchTogetherRoom = undefined;
+var staged_watch_together_room_ptrs: [4]*const core.WatchTogetherRoom = undefined;
+var staged_watch_together_titles: [4][96]u8 = undefined;
+var staged_watch_together_room_count: usize = 0;
+var staged_watch_together_available = false;
 var details_title_buffer: [96]u8 = undefined;
 var details_secondary_buffer: [96]u8 = undefined;
 var details_type_buffer: [32]u8 = undefined;
@@ -448,6 +453,46 @@ export fn multiplex_native_app_catalog_commit() callconv(.c) u32 {
     return 1;
 }
 
+export fn multiplex_native_app_watch_together_begin(
+    available: u32,
+    room_count: u32,
+) callconv(.c) u32 {
+    if (!app_initialized or room_count > staged_watch_together_rooms.len) return 0;
+    staged_watch_together_available = available != 0;
+    staged_watch_together_room_count = room_count;
+    return 1;
+}
+
+export fn multiplex_native_app_watch_together_room(
+    index: u32,
+    title: [*]const u8,
+    title_length: u32,
+    participant_count: u32,
+) callconv(.c) u32 {
+    if (index >= staged_watch_together_room_count or title_length == 0 or title_length >= staged_watch_together_titles[0].len) return 0;
+    const slot: usize = index;
+    @memcpy(staged_watch_together_titles[slot][0..title_length], title[0..title_length]);
+    staged_watch_together_rooms[slot] = .{
+        .id = @intCast(index),
+        .title = staged_watch_together_titles[slot][0..title_length],
+        .participantCount = @intCast(participant_count),
+    };
+    staged_watch_together_room_ptrs[slot] = &staged_watch_together_rooms[slot];
+    return 1;
+}
+
+export fn multiplex_native_app_watch_together_commit() callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    app_model = core.commitModelRoot(core.loadWatchTogetherRooms(
+        app_model,
+        staged_watch_together_available,
+        staged_watch_together_room_ptrs[0..staged_watch_together_room_count],
+    ));
+    focused_handler = 0;
+    reference_full_repaint = true;
+    return 1;
+}
+
 export fn multiplex_native_app_browse_request(section_id: *u32, start: *u32) callconv(.c) u32 {
     const requested = core.browseRequestSection(app_model);
     if (requested == 0) return 0;
@@ -750,6 +795,15 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         multiplex_native_input_trace(action, 0, 0, 13);
         return 1;
     }
+    if (action == 11) {
+        const opened = core.update(model, .open_watch_together);
+        if (opened.screen == model.screen) return 0;
+        app_model = core.commitModelRoot(opened);
+        focused_handler = 0;
+        reference_full_repaint = true;
+        multiplex_native_input_trace(action, 0, 0, 22);
+        return 1;
+    }
     var fixed = std.heap.FixedBufferAllocator.init(&ui_arena);
     var ui = CompiledView.Ui.init(fixed.allocator());
     const tree = ui.finalizeWithTokens(CompiledView.build(&ui, model), .{}) catch return 0;
@@ -820,6 +874,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .browse_previous => 6,
                 .browse_next => 7,
                 .open_search => 13,
+                .open_watch_together => 22,
                 .search_key => 14,
                 .search_delete => 15,
                 .search_submit => 16,

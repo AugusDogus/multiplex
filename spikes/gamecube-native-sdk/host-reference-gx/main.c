@@ -2301,6 +2301,36 @@ static bool bind_catalog_to_app(const MultiplexGatewayCatalog *catalog) {
   return true;
 }
 
+static bool bind_watch_together_rooms(const MultiplexTrpcRoomList *rooms,
+                                      bool available) {
+  if (rooms == NULL ||
+      multiplex_native_app_watch_together_begin(
+          available ? 1u : 0u, available ? rooms->room_count : 0u) == 0) {
+    SYS_Report("REFERENCE GX: failed to begin Watch Together binding\n");
+    return false;
+  }
+  if (available) {
+    for (uint8_t index = 0; index < rooms->room_count; ++index) {
+      const MultiplexTrpcRoom *room = &rooms->rooms[index];
+      const size_t title_length = strlen(room->title);
+      if (multiplex_native_app_watch_together_room(
+              index, (const uint8_t *)room->title, title_length,
+              room->user_count) == 0) {
+        SYS_Report("REFERENCE GX: failed to bind Watch Together room %u\n",
+                   index);
+        return false;
+      }
+    }
+  }
+  if (multiplex_native_app_watch_together_commit() == 0) {
+    SYS_Report("REFERENCE GX: failed to commit Watch Together rooms\n");
+    return false;
+  }
+  SYS_Report("REFERENCE GX: Watch Together model rooms=%u available=%u\n",
+             available ? rooms->room_count : 0u, available ? 1u : 0u);
+  return true;
+}
+
 static void *run_app(void *unused) {
   (void)unused;
   initialize_video_and_gx();
@@ -2395,10 +2425,15 @@ static void *run_app(void *unused) {
   bool pairing_linked = device_auth.status == MULTIPLEX_DEVICE_AUTH_LINKED;
   bool auth_reset_latched = false;
   uint32_t pairing_poll_frames = 0;
-  if (pairing_linked) {
-    multiplex_trpc_load_watch_together_rooms(
-        MULTIPLEX_BASE_URL, auth_credentials.session_token,
-        &watch_together_rooms);
+  const bool watch_together_available =
+      pairing_linked &&
+      multiplex_trpc_load_watch_together_rooms(
+          MULTIPLEX_BASE_URL, auth_credentials.session_token,
+          &watch_together_rooms);
+  if (pairing_linked &&
+      !bind_watch_together_rooms(&watch_together_rooms,
+                                 watch_together_available)) {
+    return (void *)(uintptr_t)1;
   }
   if (pairing_linked && !has_catalog &&
       multiplex_plex_load_catalog(&auth_credentials, &catalog)) {
@@ -2501,6 +2536,14 @@ static void *run_app(void *unused) {
                   catalog.total_item_count, 0, true);
             }
           }
+          const bool rooms_available =
+              multiplex_trpc_load_watch_together_rooms(
+                  MULTIPLEX_BASE_URL, auth_credentials.session_token,
+                  &watch_together_rooms);
+          if (!bind_watch_together_rooms(&watch_together_rooms,
+                                         rooms_available)) {
+            break;
+          }
         }
         if (multiplex_native_app_pairing_status(
                 device_auth.status, (const uint8_t *)device_auth.user_code,
@@ -2537,6 +2580,10 @@ static void *run_app(void *unused) {
         pairing_linked = false;
         has_catalog = false;
         memset(&auth_credentials, 0, sizeof(auth_credentials));
+        memset(&watch_together_rooms, 0, sizeof(watch_together_rooms));
+        if (!bind_watch_together_rooms(&watch_together_rooms, false)) {
+          break;
+        }
         memset(&device_auth, 0, sizeof(device_auth));
         if (!multiplex_device_auth_begin(MULTIPLEX_BASE_URL, &device_auth)) {
           device_auth.status = MULTIPLEX_DEVICE_AUTH_UNAVAILABLE;
@@ -2608,6 +2655,10 @@ static void *run_app(void *unused) {
     if ((pressed & PAD_TRIGGER_Z) != 0 && multiplex_native_app_input(10) != 0) {
       app_changed = true;
     }
+    if ((pressed & PAD_BUTTON_START) != 0 &&
+        multiplex_native_app_input(11) != 0) {
+      app_changed = true;
+    }
     if (app_changed) {
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
           !load_browse_page(MULTIPLEX_GATEWAY_URL)) {
@@ -2659,9 +2710,6 @@ static void *run_app(void *unused) {
       }
 #endif
       native_frame_dirty = true;
-    }
-    if ((pressed & PAD_BUTTON_START) != 0) {
-      break;
     }
     present_frame(&playback_manifest);
     if (!recover_stalled_media_startup(&media_startup_watchdog,

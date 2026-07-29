@@ -73,6 +73,12 @@ uint32_t multiplex_native_app_catalog_item(
     uint32_t subtitle_length, uint32_t artwork_slot, uint32_t duration_ms,
     uint32_t view_offset_ms, uint32_t progress_percent);
 uint32_t multiplex_native_app_catalog_commit(void);
+uint32_t multiplex_native_app_watch_together_begin(uint32_t available,
+                                                    uint32_t room_count);
+uint32_t multiplex_native_app_watch_together_room(
+    uint32_t index, const uint8_t *title, uint32_t title_length,
+    uint32_t participant_count);
+uint32_t multiplex_native_app_watch_together_commit(void);
 uint32_t multiplex_native_app_browse_request(uint32_t *section_id,
                                              uint32_t *start);
 uint32_t multiplex_native_app_browse_begin(

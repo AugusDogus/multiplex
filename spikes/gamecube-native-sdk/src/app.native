@@ -2,6 +2,9 @@
   <row cross="center">
     <text size="heading">Multiplex</text>
     <spacer grow="1" />
+    <if test="{pairingLinked}">
+      <badge variant="outline">START Watch Together</badge>
+    </if>
     <badge variant="secondary">GameCube spike</badge>
   </row>
   <separator />
@@ -212,6 +215,50 @@
       <if test="{browseLoading}">
         <column grow="1" main="center" cross="center">
           <text foreground="text_muted">Loading library page...</text>
+        </column>
+      </if>
+    </column>
+  </if>
+
+  <if test="{screen == 'watch_together'}">
+    <column grow="1" gap="14">
+      <row cross="center">
+        <button width="90" variant="ghost" on-press="back">Home</button>
+        <column gap="1">
+          <text size="heading">Watch Together</text>
+          <text size="sm" foreground="text_muted">Rooms from your Multiplex account</text>
+        </column>
+        <spacer grow="1" />
+        <badge variant="secondary">Shared web API</badge>
+      </row>
+      <if test="{watchTogetherHasRooms}">
+        <row grow="1" gap="10" cross="center">
+          <for each="watchTogetherRooms" as="room" key="id">
+            <panel width="138" grow="1" padding="16" background="surface" border-color="border" radius="lg">
+              <column grow="1" main="center" cross="center" gap="8">
+                <badge variant="secondary">{room.participantCount} viewers</badge>
+                <text size="heading" wrap="true">{room.title}</text>
+                <text size="sm" foreground="text_muted">Plex Syncplay room</text>
+              </column>
+            </panel>
+          </for>
+        </row>
+      </if>
+      <if test="{watchTogetherNoRooms}">
+        <column grow="1" main="center" cross="center" gap="10">
+          <text size="heading">No active rooms</text>
+          <text foreground="text_muted">Create a Watch Together room in Multiplex and it will appear here.</text>
+        </column>
+      </if>
+      <if test="{watchTogetherUnavailable}">
+        <column grow="1" main="center" cross="center" gap="10">
+          <text size="heading">Rooms are unavailable</text>
+          <text foreground="text_muted">Multiplex could not load Watch Together right now.</text>
+        </column>
+      </if>
+      <if test="{watchTogetherLoading}">
+        <column grow="1" main="center" cross="center">
+          <text foreground="text_muted">Loading Watch Together rooms...</text>
         </column>
       </if>
     </column>

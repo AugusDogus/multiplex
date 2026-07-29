@@ -7,6 +7,7 @@ export type Screen =
   | "browse"
   | "search"
   | "search_results"
+  | "watch_together"
   | "details"
   | "player";
 
@@ -39,6 +40,12 @@ export interface KeyboardKey {
   readonly id: number;
   readonly label: Uint8Array;
   readonly value: number;
+}
+
+export interface WatchTogetherRoom {
+  readonly id: number;
+  readonly title: Uint8Array;
+  readonly participantCount: number;
 }
 
 export interface Model {
@@ -74,6 +81,9 @@ export interface Model {
   readonly searchItems: readonly CatalogItem[];
   readonly searchLoaded: boolean;
   readonly selectedFromSearch: boolean;
+  readonly watchTogetherRooms: readonly WatchTogetherRoom[];
+  readonly watchTogetherLoaded: boolean;
+  readonly watchTogetherAvailable: boolean;
   readonly detailsLoaded: boolean;
   readonly detailsPlayable: boolean;
   readonly detailsSecondary: Uint8Array;
@@ -101,6 +111,7 @@ export type Msg =
   | { readonly kind: "search_key"; readonly index: number }
   | { readonly kind: "search_delete" }
   | { readonly kind: "search_submit" }
+  | { readonly kind: "open_watch_together" }
   | { readonly kind: "open_item"; readonly index: number }
   | { readonly kind: "play" }
   | { readonly kind: "seek_backward" }
@@ -272,6 +283,9 @@ export function initialModel(): Model {
     searchItems: [],
     searchLoaded: true,
     selectedFromSearch: false,
+    watchTogetherRooms: [],
+    watchTogetherLoaded: false,
+    watchTogetherAvailable: false,
     detailsLoaded: true,
     detailsPlayable: true,
     detailsSecondary: asciiBytes("Native SDK media prototype"),
@@ -358,6 +372,19 @@ export function loadBrowse(
 export function loadSearch(model: Model, query: Uint8Array, items: readonly CatalogItem[]): Model {
   if (model.screen !== "search_results" || query.length === 0) return model;
   return { ...model, searchQuery: query, searchItems: items, searchLoaded: true };
+}
+
+export function loadWatchTogetherRooms(
+  model: Model,
+  available: boolean,
+  rooms: readonly WatchTogetherRoom[],
+): Model {
+  return {
+    ...model,
+    watchTogetherRooms: rooms,
+    watchTogetherLoaded: true,
+    watchTogetherAvailable: available,
+  };
 }
 
 export function loadDetails(
@@ -546,6 +573,30 @@ export function searchNoResults(model: Model): boolean {
   return model.searchLoaded && model.searchItems.length === 0;
 }
 
+export function watchTogetherHasRooms(model: Model): boolean {
+  return (
+    model.watchTogetherLoaded &&
+    model.watchTogetherAvailable &&
+    model.watchTogetherRooms.length > 0
+  );
+}
+
+export function watchTogetherNoRooms(model: Model): boolean {
+  return (
+    model.watchTogetherLoaded &&
+    model.watchTogetherAvailable &&
+    model.watchTogetherRooms.length === 0
+  );
+}
+
+export function watchTogetherUnavailable(model: Model): boolean {
+  return model.watchTogetherLoaded && !model.watchTogetherAvailable;
+}
+
+export function watchTogetherLoading(model: Model): boolean {
+  return !model.watchTogetherLoaded;
+}
+
 export function searchRequestQuery(model: Model): Uint8Array {
   if (model.screen !== "search_results" || model.searchLoaded) return new Uint8Array(0);
   return model.searchQuery;
@@ -676,6 +727,9 @@ export function update(model: Model, msg: Msg): Model {
     case "search_submit":
       if (model.screen !== "search" || model.searchQuery.length === 0) return model;
       return { ...model, screen: "search_results", searchItems: [], searchLoaded: false };
+    case "open_watch_together":
+      if (!model.pairingLinked || model.screen === "player") return model;
+      return { ...model, screen: "watch_together" };
     case "open_item": {
       const items =
         model.screen === "browse"
@@ -793,6 +847,9 @@ export function update(model: Model, msg: Msg): Model {
         return { ...model, screen: "search", playing: false };
       }
       if (model.screen === "search") {
+        return { ...model, screen: "home", playing: false };
+      }
+      if (model.screen === "watch_together") {
         return { ...model, screen: "home", playing: false };
       }
       if (model.screen === "browse") {
