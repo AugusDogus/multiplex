@@ -176,6 +176,9 @@ backward/forward without walking focus through every poster.
   three duplicate ACKs required for fast retransmit
 - `patches/passt-pull-small-window-on-ack.patch`: drain the next host segment
   as soon as a one- or two-MSS guest advances its ACK
+- `patches/passt-floor-small-window-guest-send.patch`: keep one MSS of
+  guest-facing send window available so old lwIP cannot deadlock a queued TLS
+  record when pasta mirrors a smaller host-socket window
 
 ## Current boundary
 

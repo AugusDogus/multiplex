@@ -1,0 +1,19 @@
+diff --git a/tcp.c b/tcp.c
+index 126bc65..b4a9f71 100644
+--- a/tcp.c
++++ b/tcp.c
+@@ -1225,6 +1225,14 @@ int tcp_update_seqack_wnd(const struct ctx *c, struct tcp_tap_conn *conn,
+ 		new_wnd_to_tap = MAX(new_wnd_to_tap, WINDOW_DEFAULT);
+ 
+ 	conn->wnd_to_tap = MIN(new_wnd_to_tap >> conn->ws_to_tap, USHRT_MAX);
++	/*
++	 * A guest that did not negotiate window scaling cannot segment an
++	 * already-queued write again when our raw advertised window falls below
++	 * that write. The host socket still provides buffering, so keep one raw
++	 * MSS available and avoid deadlocking small TLS control records.
++	 */
++	if (!conn->ws_from_tap)
++		conn->wnd_to_tap = MAX(conn->wnd_to_tap, MSS_GET(conn));
+ 
+ 	/* Certain cppcheck versions, e.g. 2.12.0 have a bug where they think
+ 	 * the MIN() above restricts conn->wnd_to_tap to be zero.  That's
