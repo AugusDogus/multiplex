@@ -36,7 +36,7 @@ index 2a6a288..1185431 100644
 + * #syscalls:pasta write nanosleep clock_nanosleep
 @@ -452,0 +453,5 @@ static size_t tap_send_frames_pasta(const struct ctx *c,
 +		if (i + bufs_per_frame < nbufs) {
-+			const struct timespec delay = { .tv_nsec = 1000 * 1000 };
++			const struct timespec delay = { .tv_nsec = 100 * 1000 };
 +
 +			nanosleep(&delay, NULL);
 +		}
