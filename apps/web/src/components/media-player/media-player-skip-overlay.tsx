@@ -52,9 +52,8 @@ export function MediaPlayerSkipOverlay({
     <div className="absolute right-[calc(var(--spacing)_*_21)] bottom-24 z-50">
       <Button
         onClick={() => onSkip(activeMarker)}
-        variant="ghost"
-        size="sm"
-        className="bg-black/60 text-white shadow-lg shadow-black/20 backdrop-blur-md transition-colors hover:bg-black/75 hover:text-white data-pressed:bg-black/80"
+        variant="glass"
+        size="lg"
       >
         {getButtonText(activeMarker.type)}
       </Button>
