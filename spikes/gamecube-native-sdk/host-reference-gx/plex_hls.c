@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #define PLEX_HLS_SEGMENT_ATTEMPTS 4u
@@ -48,6 +49,7 @@ static bool write_resumed_segment(void *context, const uint8_t *bytes,
 }
 
 #define PLEX_HLS_MASTER_CAPACITY 2048u
+#define PLEX_HLS_DECISION_CAPACITY (16u * 1024u)
 #define PLEX_HLS_MEDIA_PLAYLIST_CAPACITY (16u * 1024u)
 #define PLEX_HLS_START_ATTEMPTS 4u
 #define PLEX_HLS_START_RETRY_US 1000000u
@@ -67,14 +69,18 @@ static uint64_t fnv1a64(const char *value) {
 static bool make_session_id(const MultiplexAuthCredentials *credentials,
                             char *destination, size_t capacity) {
   const uint64_t clock = gettime();
+  const uint64_t wall_clock = (uint64_t)time(NULL);
   const uint64_t identity = fnv1a64(credentials->plex_client_id);
-  const uint32_t first = (uint32_t)(clock ^ (identity >> 32u));
-  const uint16_t second = (uint16_t)(clock >> 32u);
+  const uint32_t first =
+      (uint32_t)(clock ^ (identity >> 32u) ^ wall_clock);
+  const uint16_t second = (uint16_t)((clock >> 32u) ^ (wall_clock >> 32u));
   const uint16_t third =
       (uint16_t)(((identity >> 48u) & 0x0fffu) | 0x4000u);
   const uint16_t fourth =
       (uint16_t)(((identity >> 16u) & 0x3fffu) | 0x8000u);
-  const uint64_t fifth = (clock ^ identity) & UINT64_C(0xffffffffffff);
+  const uint64_t fifth =
+      (clock ^ identity ^ wall_clock * UINT64_C(0x9e3779b97f4a7c15)) &
+      UINT64_C(0xffffffffffff);
   const int size = snprintf(destination, capacity,
                             "%08x-%04x-%04x-%04x-%04x%08x", first, second,
                             third, fourth, (unsigned)(fifth >> 32u),
@@ -176,6 +182,40 @@ static bool configure_hls_session(
                     sizeof(session->master_url));
 }
 
+static bool request_transcode_decision(
+    const MultiplexAuthCredentials *credentials,
+    const MultiplexPlexHlsSession *session) {
+  static const char marker[] = "start.m3u8?";
+  const char *start = strstr(session->master_url, marker);
+  if (start == NULL) {
+    return false;
+  }
+  char decision_url[MULTIPLEX_PLEX_HLS_URL_CAPACITY];
+  const size_t prefix_size = (size_t)(start - session->master_url);
+  const int url_size =
+      snprintf(decision_url, sizeof(decision_url), "%.*sdecision?%s",
+               (int)prefix_size, session->master_url,
+               start + sizeof(marker) - 1u);
+  if (url_size <= 0 || (size_t)url_size >= sizeof(decision_url)) {
+    return false;
+  }
+
+  char decision[PLEX_HLS_DECISION_CAPACITY];
+  HttpRequestHeader headers[9];
+  const size_t header_count =
+      control_headers(credentials, session, true, headers);
+  HttpJsonResponse response;
+  memset(&response, 0, sizeof(response));
+  const bool decided =
+      http_client_request_with_headers(
+          "GET", decision_url, headers, header_count, NULL, decision,
+          sizeof(decision), &response) &&
+      response.status == 200;
+  SYS_Report("REFERENCE GX: Plex HLS decision status=%u bytes=%u\n",
+             response.status, (unsigned)response.body_size);
+  return decided;
+}
+
 bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
                               uint32_t rating_key, uint32_t offset_ms,
                               const char *session_id,
@@ -205,6 +245,9 @@ bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
                                  established_session_id, session)) {
         return false;
       }
+    }
+    if (!request_transcode_decision(credentials, session)) {
+      return false;
     }
     HttpRequestHeader headers[9];
     const size_t header_count =
