@@ -447,13 +447,30 @@ if [ "$watch_together" -eq 1 ]; then
       exit 1
       ;;
   esac
+  invitee_page=$((invitee_index / 4))
+  invitee_index_on_page=$((invitee_index % 4))
   # Open the invite picker. Back is the first focusable control, followed by
   # the Plex invitees in API order.
   signature_count=$(line_count "signature=")
   press A
   wait_for_new "signature=" "$signature_count"
+  current_invitee_page=0
+  while [ "$current_invitee_page" -lt "$invitee_page" ]; do
+    # Page one has Back, four invitees, then Next.
+    page_focus=0
+    while [ "$page_focus" -lt 5 ]; do
+      signature_count=$(line_count "signature=")
+      press D_RIGHT
+      wait_for_new "signature=" "$signature_count"
+      page_focus=$((page_focus + 1))
+    done
+    signature_count=$(line_count "signature=")
+    press A
+    wait_for_new "signature=" "$signature_count"
+    current_invitee_page=$((current_invitee_page + 1))
+  done
   invitee_focus=0
-  while [ "$invitee_focus" -le "$invitee_index" ]; do
+  while [ "$invitee_focus" -le "$invitee_index_on_page" ]; do
     signature_count=$(line_count "signature=")
     press D_RIGHT
     wait_for_new "signature=" "$signature_count"

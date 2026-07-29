@@ -93,6 +93,7 @@ export interface Model {
   readonly watchTogetherInvitees: readonly WatchTogetherInvitee[];
   readonly watchTogetherInviteesLoaded: boolean;
   readonly watchTogetherInviteesAvailable: boolean;
+  readonly watchTogetherInviteePage: number;
   readonly selectedWatchTogetherInviteeId: number;
   readonly watchTogetherLoaded: boolean;
   readonly watchTogetherAvailable: boolean;
@@ -131,6 +132,8 @@ export type Msg =
   | { readonly kind: "search_submit" }
   | { readonly kind: "open_watch_together" }
   | { readonly kind: "create_watch_together" }
+  | { readonly kind: "watch_together_invitees_previous" }
+  | { readonly kind: "watch_together_invitees_next" }
   | { readonly kind: "invite_watch_together"; readonly index: number }
   | { readonly kind: "join_watch_together"; readonly index: number }
   | { readonly kind: "open_item"; readonly index: number }
@@ -308,6 +311,7 @@ export function initialModel(): Model {
     watchTogetherInvitees: [],
     watchTogetherInviteesLoaded: false,
     watchTogetherInviteesAvailable: false,
+    watchTogetherInviteePage: 0,
     selectedWatchTogetherInviteeId: 0,
     watchTogetherLoaded: false,
     watchTogetherAvailable: false,
@@ -430,6 +434,7 @@ export function loadWatchTogetherInvitees(
     watchTogetherInvitees: invitees,
     watchTogetherInviteesLoaded: true,
     watchTogetherInviteesAvailable: available,
+    watchTogetherInviteePage: 0,
   };
 }
 
@@ -688,6 +693,29 @@ export function watchTogetherInviteesLoading(model: Model): boolean {
   return !model.watchTogetherInviteesLoaded;
 }
 
+const watchTogetherInviteesPerPage = 4;
+
+export function visibleWatchTogetherInvitees(model: Model): readonly WatchTogetherInvitee[] {
+  const start = model.watchTogetherInviteePage * watchTogetherInviteesPerPage;
+  return model.watchTogetherInvitees.slice(start, start + watchTogetherInviteesPerPage);
+}
+
+export function watchTogetherInviteePageNumber(model: Model): number {
+  return model.watchTogetherInviteePage + 1;
+}
+
+export function watchTogetherInviteePageCount(model: Model): number {
+  return Math.max(1, intDiv(model.watchTogetherInvitees.length + 3, 4));
+}
+
+export function watchTogetherInviteesHasPrevious(model: Model): boolean {
+  return model.watchTogetherInviteePage > 0;
+}
+
+export function watchTogetherInviteesHasNext(model: Model): boolean {
+  return model.watchTogetherInviteePage + 1 < watchTogetherInviteePageCount(model);
+}
+
 export function watchTogetherCreateRatingKey(model: Model): number {
   return model.screen === "watch_together" && model.watchTogetherCreating
     ? model.selectedRatingKey
@@ -870,8 +898,20 @@ export function update(model: Model, msg: Msg): Model {
       return {
         ...model,
         screen: "watch_together_invite",
+        watchTogetherInviteePage: 0,
         watchTogetherCreateFailed: false,
       };
+    case "watch_together_invitees_previous":
+      if (model.screen !== "watch_together_invite" || model.watchTogetherInviteePage <= 0)
+        return model;
+      return { ...model, watchTogetherInviteePage: model.watchTogetherInviteePage - 1 };
+    case "watch_together_invitees_next":
+      if (
+        model.screen !== "watch_together_invite" ||
+        model.watchTogetherInviteePage + 1 >= watchTogetherInviteePageCount(model)
+      )
+        return model;
+      return { ...model, watchTogetherInviteePage: model.watchTogetherInviteePage + 1 };
     case "invite_watch_together":
       if (
         model.screen !== "watch_together_invite" ||

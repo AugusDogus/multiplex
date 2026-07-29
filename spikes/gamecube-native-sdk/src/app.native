@@ -232,8 +232,13 @@
         <badge variant="secondary">Plex friends</badge>
       </row>
       <if test="{watchTogetherHasInvitees}">
+        <row cross="center">
+          <text size="sm" foreground="text_muted">Invitees</text>
+          <spacer grow="1" />
+          <badge variant="secondary">Page {watchTogetherInviteePageNumber} of {watchTogetherInviteePageCount}</badge>
+        </row>
         <row grow="1" gap="10" cross="center">
-          <for each="watchTogetherInvitees" as="invitee" key="id">
+          <for each="visibleWatchTogetherInvitees" as="invitee" key="id">
             <panel width="138" grow="1" padding="16" background="surface" border-color="border" radius="lg" on-press="invite_watch_together:{invitee.id}" label="{invitee.title}">
               <column grow="1" main="center" cross="center" gap="8">
                 <badge variant="secondary">Plex user</badge>
@@ -242,6 +247,14 @@
               </column>
             </panel>
           </for>
+        </row>
+        <row gap="8" main="center">
+          <if test="{watchTogetherInviteesHasPrevious}">
+            <button variant="secondary" on-press="watch_together_invitees_previous">Previous</button>
+          </if>
+          <if test="{watchTogetherInviteesHasNext}">
+            <button variant="primary" on-press="watch_together_invitees_next">Next</button>
+          </if>
         </row>
       </if>
       <if test="{watchTogetherNoInvitees}">
