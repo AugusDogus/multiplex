@@ -179,6 +179,26 @@ static bool count_array_objects(JsonSpan array, uint8_t *count) {
   return false;
 }
 
+static bool parse_room(JsonSpan room, MultiplexTrpcRoom *parsed) {
+  uint32_t port = 0;
+  JsonSpan users;
+  memset(parsed, 0, sizeof(*parsed));
+  if (!json_string(room, "id", parsed->id, sizeof(parsed->id)) ||
+      !json_string(room, "title", parsed->title, sizeof(parsed->title)) ||
+      !json_string(room, "sourceUri", parsed->source_uri,
+                   sizeof(parsed->source_uri)) ||
+      !json_string(room, "syncplayHost", parsed->syncplay_host,
+                   sizeof(parsed->syncplay_host)) ||
+      !json_unsigned(room, "syncplayPort", &port) || port > UINT16_MAX ||
+      !json_array(room, "users", &users) ||
+      !count_array_objects(users, &parsed->user_count)) {
+    memset(parsed, 0, sizeof(*parsed));
+    return false;
+  }
+  parsed->syncplay_port = (uint16_t)port;
+  return true;
+}
+
 bool multiplex_trpc_parse_watch_together_rooms(const char *json, size_t size,
                                                 MultiplexTrpcRoomList *list) {
   if (json == NULL || size == 0 || list == NULL) {
@@ -203,19 +223,10 @@ bool multiplex_trpc_parse_watch_together_rooms(const char *json, size_t size,
     }
     if (list->room_count < MULTIPLEX_TRPC_MAX_ROOMS) {
       MultiplexTrpcRoom *parsed = &list->rooms[list->room_count];
-      uint32_t port = 0;
-      JsonSpan users;
-      if (!json_string(room, "id", parsed->id, sizeof(parsed->id)) ||
-          !json_string(room, "title", parsed->title, sizeof(parsed->title)) ||
-          !json_string(room, "syncplayHost", parsed->syncplay_host,
-                       sizeof(parsed->syncplay_host)) ||
-          !json_unsigned(room, "syncplayPort", &port) || port > UINT16_MAX ||
-          !json_array(room, "users", &users) ||
-          !count_array_objects(users, &parsed->user_count)) {
+      if (!parse_room(room, parsed)) {
         memset(list, 0, sizeof(*list));
         return false;
       }
-      parsed->syncplay_port = (uint16_t)port;
       ++list->room_count;
     }
     cursor = skip_space(next, rooms.end);
@@ -225,4 +236,22 @@ bool multiplex_trpc_parse_watch_together_rooms(const char *json, size_t size,
   }
   memset(list, 0, sizeof(*list));
   return false;
+}
+
+bool multiplex_trpc_parse_watch_together_room(const char *json, size_t size,
+                                              MultiplexTrpcRoom *room) {
+  if (json == NULL || size == 0 || room == NULL) {
+    return false;
+  }
+  const JsonSpan document = {.begin = json, .end = json + size};
+  const char *value = NULL;
+  JsonSpan object;
+  const char *next = NULL;
+  if (!json_value(document, "json", &value) ||
+      !json_container(value, document.end, '{', '}', &object, &next) ||
+      !parse_room(object, room)) {
+    memset(room, 0, sizeof(*room));
+    return false;
+  }
+  return true;
 }

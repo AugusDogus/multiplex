@@ -45,7 +45,6 @@
 #define POSTER_LOADER_STACK_SIZE (256 * 1024)
 #define TIMELINE_REPORT_INTERVAL_MS 10000u
 #define PAIRING_POLL_INTERVAL_FRAMES 60u
-#define WATCH_TOGETHER_NETWORK_COOLDOWN_FRAMES (60u * 60u)
 #define MEDIA_STARTUP_STALL_TIMEOUT_US 5000000u
 #define MEDIA_STARTUP_RESTART_LIMIT 2u
 #define VIDEO_WIDTH 720
@@ -2344,6 +2343,57 @@ static bool refresh_watch_together_rooms(
       MULTIPLEX_BASE_URL, credentials->session_token, rooms);
   return bind_watch_together_rooms(rooms, available);
 }
+
+static void create_requested_watch_together_room(
+    const MultiplexAuthCredentials *credentials,
+    MultiplexTrpcRoomList *rooms) {
+  uint32_t rating_key = 0;
+  char title[MULTIPLEX_TRPC_ROOM_TITLE_CAPACITY];
+  const uint32_t title_length =
+      multiplex_native_app_watch_together_create_request(
+          &rating_key, (uint8_t *)title, sizeof(title));
+  if (title_length == 0) {
+    return;
+  }
+
+  MultiplexTrpcRoom created;
+  memset(&created, 0, sizeof(created));
+  if (!multiplex_trpc_create_watch_together_room(
+          MULTIPLEX_BASE_URL, credentials->session_token,
+          credentials->plex_server_id, rating_key, title, &created)) {
+    SYS_Report("REFERENCE GX: Watch Together room creation failed "
+               "rating-key=%u\n",
+               rating_key);
+    multiplex_native_app_watch_together_create_fail();
+    return;
+  }
+
+  uint8_t existing = rooms->room_count;
+  for (uint8_t index = 0; index < rooms->room_count; ++index) {
+    if (strcmp(rooms->rooms[index].id, created.id) == 0) {
+      existing = index;
+      break;
+    }
+  }
+  if (existing < rooms->room_count) {
+    rooms->rooms[existing] = created;
+  } else {
+    const uint8_t retained =
+        rooms->room_count < MULTIPLEX_TRPC_MAX_ROOMS
+            ? rooms->room_count
+            : MULTIPLEX_TRPC_MAX_ROOMS - 1u;
+    memmove(&rooms->rooms[1], &rooms->rooms[0],
+            (size_t)retained * sizeof(rooms->rooms[0]));
+    rooms->rooms[0] = created;
+    rooms->room_count = retained + 1u;
+  }
+  if (!bind_watch_together_rooms(rooms, true)) {
+    multiplex_native_app_watch_together_create_fail();
+  }
+  SYS_Report("REFERENCE GX: Watch Together room created id=%s "
+             "rating-key=%u\n",
+             created.id, rating_key);
+}
 #endif
 
 static void *run_app(void *unused) {
@@ -2440,7 +2490,6 @@ static void *run_app(void *unused) {
   bool pairing_linked = device_auth.status == MULTIPLEX_DEVICE_AUTH_LINKED;
   bool auth_reset_latched = false;
   uint32_t pairing_poll_frames = 0;
-  uint32_t watch_together_network_cooldown = 0;
   if (pairing_linked &&
       !refresh_watch_together_rooms(&auth_credentials,
                                     &watch_together_rooms)) {
@@ -2518,9 +2567,6 @@ static void *run_app(void *unused) {
       controller_status_reported = true;
     }
 #if MULTIPLEX_PAIRING_ENABLED
-    if (watch_together_network_cooldown > 0) {
-      --watch_together_network_cooldown;
-    }
     if (!pairing_linked &&
         device_auth.status == MULTIPLEX_DEVICE_AUTH_WAITING &&
         ++pairing_poll_frames >= (uint32_t)device_auth.interval_seconds *
@@ -2667,24 +2713,10 @@ static void *run_app(void *unused) {
     }
 #if MULTIPLEX_PAIRING_ENABLED
     if (pairing_linked && (pressed & PAD_BUTTON_START) != 0) {
-      const bool refresh_without_network_contention =
-          direct_home_poster_loader.thread == LWP_THREAD_NULL &&
-          !direct_home_poster_loader.pending &&
-          direct_page_poster_loader.thread == LWP_THREAD_NULL &&
-          !direct_page_poster_loader.pending;
       stop_direct_poster_loader(&direct_home_poster_loader);
       stop_direct_poster_loader(&direct_page_poster_loader);
-      if (!refresh_without_network_contention) {
-        watch_together_network_cooldown =
-            WATCH_TOGETHER_NETWORK_COOLDOWN_FRAMES;
-        SYS_Report("REFERENCE GX: Watch Together using boot snapshot after "
-                   "poster cancellation\n");
-      } else if (watch_together_network_cooldown > 0) {
-        SYS_Report("REFERENCE GX: Watch Together using boot snapshot during "
-                   "network cooldown frames=%u\n",
-                   watch_together_network_cooldown);
-      } else if (!refresh_watch_together_rooms(&auth_credentials,
-                                               &watch_together_rooms)) {
+      if (!refresh_watch_together_rooms(&auth_credentials,
+                                        &watch_together_rooms)) {
         SYS_Report("REFERENCE GX: Watch Together refresh failed\n");
       }
     }
@@ -2724,6 +2756,10 @@ static void *run_app(void *unused) {
       if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked &&
           !load_direct_item_details(&auth_credentials)) {
         SYS_Report("REFERENCE GX: direct details-page load failed\n");
+      }
+      if (pairing_linked) {
+        create_requested_watch_together_room(&auth_credentials,
+                                             &watch_together_rooms);
       }
 #endif
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&

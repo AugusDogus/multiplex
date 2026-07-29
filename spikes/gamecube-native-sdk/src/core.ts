@@ -84,6 +84,8 @@ export interface Model {
   readonly watchTogetherRooms: readonly WatchTogetherRoom[];
   readonly watchTogetherLoaded: boolean;
   readonly watchTogetherAvailable: boolean;
+  readonly watchTogetherCreating: boolean;
+  readonly watchTogetherCreateFailed: boolean;
   readonly detailsLoaded: boolean;
   readonly detailsPlayable: boolean;
   readonly detailsSecondary: Uint8Array;
@@ -112,6 +114,7 @@ export type Msg =
   | { readonly kind: "search_delete" }
   | { readonly kind: "search_submit" }
   | { readonly kind: "open_watch_together" }
+  | { readonly kind: "create_watch_together" }
   | { readonly kind: "open_item"; readonly index: number }
   | { readonly kind: "play" }
   | { readonly kind: "seek_backward" }
@@ -286,6 +289,8 @@ export function initialModel(): Model {
     watchTogetherRooms: [],
     watchTogetherLoaded: false,
     watchTogetherAvailable: false,
+    watchTogetherCreating: false,
+    watchTogetherCreateFailed: false,
     detailsLoaded: true,
     detailsPlayable: true,
     detailsSecondary: asciiBytes("Native SDK media prototype"),
@@ -384,6 +389,18 @@ export function loadWatchTogetherRooms(
     watchTogetherRooms: rooms,
     watchTogetherLoaded: true,
     watchTogetherAvailable: available,
+    watchTogetherCreating: false,
+    watchTogetherCreateFailed: false,
+  };
+}
+
+export function failWatchTogetherCreate(model: Model): Model {
+  return {
+    ...model,
+    watchTogetherLoaded: true,
+    watchTogetherAvailable: true,
+    watchTogetherCreating: false,
+    watchTogetherCreateFailed: true,
   };
 }
 
@@ -585,6 +602,8 @@ export function watchTogetherNoRooms(model: Model): boolean {
   return (
     model.watchTogetherLoaded &&
     model.watchTogetherAvailable &&
+    !model.watchTogetherCreating &&
+    !model.watchTogetherCreateFailed &&
     model.watchTogetherRooms.length === 0
   );
 }
@@ -594,7 +613,17 @@ export function watchTogetherUnavailable(model: Model): boolean {
 }
 
 export function watchTogetherLoading(model: Model): boolean {
-  return !model.watchTogetherLoaded;
+  return !model.watchTogetherLoaded || model.watchTogetherCreating;
+}
+
+export function watchTogetherCreateRatingKey(model: Model): number {
+  return model.screen === "watch_together" && model.watchTogetherCreating
+    ? model.selectedRatingKey
+    : 0;
+}
+
+export function watchTogetherCreateTitle(model: Model): Uint8Array {
+  return watchTogetherCreateRatingKey(model) === 0 ? new Uint8Array(0) : model.selectedTitle;
 }
 
 export function searchRequestQuery(model: Model): Uint8Array {
@@ -730,6 +759,20 @@ export function update(model: Model, msg: Msg): Model {
     case "open_watch_together":
       if (!model.pairingLinked || model.screen === "player") return model;
       return { ...model, screen: "watch_together" };
+    case "create_watch_together":
+      if (
+        !model.pairingLinked ||
+        model.screen !== "details" ||
+        !model.detailsLoaded ||
+        !model.detailsPlayable
+      )
+        return model;
+      return {
+        ...model,
+        screen: "watch_together",
+        watchTogetherCreating: true,
+        watchTogetherCreateFailed: false,
+      };
     case "open_item": {
       const items =
         model.screen === "browse"

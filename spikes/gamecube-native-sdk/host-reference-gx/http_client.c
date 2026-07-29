@@ -1326,6 +1326,8 @@ bool http_client_request_with_headers(const char *method, const char *url,
     return false;
   }
   request_used += (size_t)tail_size;
+  SYS_Report("REFERENCE GX: HTTP JSON request method=%s bytes=%u body=%u\n",
+             method, (unsigned)request_used, (unsigned)body_size);
   if (!write_all(client, (const uint8_t *)request, request_used)) {
     http_client_destroy(client);
     return false;

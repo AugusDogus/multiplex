@@ -79,6 +79,9 @@ uint32_t multiplex_native_app_watch_together_room(
     uint32_t index, const uint8_t *title, uint32_t title_length,
     uint32_t participant_count);
 uint32_t multiplex_native_app_watch_together_commit(void);
+uint32_t multiplex_native_app_watch_together_create_request(
+    uint32_t *rating_key, uint8_t *title, uint32_t title_capacity);
+uint32_t multiplex_native_app_watch_together_create_fail(void);
 uint32_t multiplex_native_app_browse_request(uint32_t *section_id,
                                              uint32_t *start);
 uint32_t multiplex_native_app_browse_begin(

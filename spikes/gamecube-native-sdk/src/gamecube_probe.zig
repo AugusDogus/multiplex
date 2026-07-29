@@ -493,6 +493,30 @@ export fn multiplex_native_app_watch_together_commit() callconv(.c) u32 {
     return 1;
 }
 
+export fn multiplex_native_app_watch_together_create_request(
+    rating_key: *u32,
+    title: [*]u8,
+    title_capacity: u32,
+) callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    const requested_rating_key = core.watchTogetherCreateRatingKey(app_model);
+    const requested_title = core.watchTogetherCreateTitle(app_model);
+    if (requested_rating_key <= 0 or requested_rating_key > std.math.maxInt(u32) or
+        requested_title.len == 0 or requested_title.len >= title_capacity) return 0;
+    rating_key.* = @intCast(requested_rating_key);
+    @memcpy(title[0..requested_title.len], requested_title);
+    title[requested_title.len] = 0;
+    return @intCast(requested_title.len);
+}
+
+export fn multiplex_native_app_watch_together_create_fail() callconv(.c) u32 {
+    if (!app_initialized or core.watchTogetherCreateRatingKey(app_model) == 0) return 0;
+    app_model = core.commitModelRoot(core.failWatchTogetherCreate(app_model));
+    focused_handler = 0;
+    reference_full_repaint = true;
+    return 1;
+}
+
 export fn multiplex_native_app_browse_request(section_id: *u32, start: *u32) callconv(.c) u32 {
     const requested = core.browseRequestSection(app_model);
     if (requested == 0) return 0;
@@ -875,6 +899,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .browse_next => 7,
                 .open_search => 13,
                 .open_watch_together => 22,
+                .create_watch_together => 23,
                 .search_key => 14,
                 .search_delete => 15,
                 .search_submit => 16,

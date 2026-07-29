@@ -258,7 +258,13 @@
       </if>
       <if test="{watchTogetherLoading}">
         <column grow="1" main="center" cross="center">
-          <text foreground="text_muted">Loading Watch Together rooms...</text>
+          <text foreground="text_muted">Creating Watch Together room...</text>
+        </column>
+      </if>
+      <if test="{watchTogetherCreateFailed}">
+        <column grow="1" main="center" cross="center" gap="10">
+          <text size="heading">Room creation failed</text>
+          <text foreground="text_muted">Return to the item and try again.</text>
         </column>
       </if>
     </column>
@@ -314,6 +320,9 @@
               <row gap="10">
                 <if test="{detailsPlayable}">
                   <button variant="primary" on-press="play">Play</button>
+                </if>
+                <if test="{pairingLinked}">
+                  <button variant="secondary" on-press="create_watch_together">Host Watch Together</button>
                 </if>
                 <if test="{detailsUnplayable}">
                   <badge variant="secondary">Choose a playable child</badge>

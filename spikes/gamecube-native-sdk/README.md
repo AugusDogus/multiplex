@@ -201,7 +201,15 @@ The first Watch Together increment also calls the web app's existing
 `plex.getWatchTogetherRooms` tRPC procedure rather than adding a console-only
 query. Dolphin completed TLS 1.2 through Portless, authenticated the restored
 Better Auth bearer token, decoded the chunked SuperJSON envelope, and parsed
-the bounded empty-room result before loading the direct Plex catalog.
+the bounded room result before loading the direct Plex catalog. The item-details
+screen can now call the existing `plex.createWatchTogetherRoom` mutation and
+render the returned room in the Native SDK view. A live Dolphin run created a
+real room for rating key `416278`, then immediately refreshed the list back to
+the same room. The BBA transport required 224-byte TLS plaintext records:
+including TLS overhead, they stay below pasta's observed 256-byte receive
+window, and both tRPC control requests fit in two records. Repeated HTTPS
+connections and a refresh immediately after cancelling an active poster load
+now complete without the earlier 30-second lost-record timeout.
 A bounded reference-render memo retains three expensive stable layers; warmed
 full home and details repaints measured about 0.37 and 0.33 seconds. The memo
 has a 4 MiB hard limit and peaked at 4,093 KiB in the home/details flow.

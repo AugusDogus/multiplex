@@ -8,11 +8,13 @@
 #define MULTIPLEX_TRPC_MAX_ROOMS 4u
 #define MULTIPLEX_TRPC_ROOM_ID_CAPACITY 64u
 #define MULTIPLEX_TRPC_ROOM_TITLE_CAPACITY 96u
+#define MULTIPLEX_TRPC_SOURCE_URI_CAPACITY 256u
 #define MULTIPLEX_TRPC_SYNCPLAY_HOST_CAPACITY 256u
 
 typedef struct {
   char id[MULTIPLEX_TRPC_ROOM_ID_CAPACITY];
   char title[MULTIPLEX_TRPC_ROOM_TITLE_CAPACITY];
+  char source_uri[MULTIPLEX_TRPC_SOURCE_URI_CAPACITY];
   char syncplay_host[MULTIPLEX_TRPC_SYNCPLAY_HOST_CAPACITY];
   uint16_t syncplay_port;
   uint8_t user_count;
@@ -25,8 +27,13 @@ typedef struct {
 
 bool multiplex_trpc_parse_watch_together_rooms(const char *json, size_t size,
                                                 MultiplexTrpcRoomList *list);
+bool multiplex_trpc_parse_watch_together_room(const char *json, size_t size,
+                                              MultiplexTrpcRoom *room);
 bool multiplex_trpc_load_watch_together_rooms(const char *base_url,
                                                const char *bearer_token,
                                                MultiplexTrpcRoomList *list);
+bool multiplex_trpc_create_watch_together_room(
+    const char *base_url, const char *bearer_token, const char *server_id,
+    uint32_t rating_key, const char *title, MultiplexTrpcRoom *room);
 
 #endif

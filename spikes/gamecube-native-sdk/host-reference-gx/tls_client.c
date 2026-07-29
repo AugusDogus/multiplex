@@ -23,10 +23,13 @@
 #define TLS_IO_TIMEOUT_SECONDS 30u
 /*
  * libogc2's unscaled receive window can shrink Portless/Node's advertised
- * peer window below one TLS record. Small writes plus an explicit flush keep
- * the request moving while the old lwIP stack reopens that window.
+ * peer window below a large TLS record. Keep control-plane requests in one
+ * moderate record: 224 bytes plus TLS overhead stays below the 256-byte window
+ * exposed through pasta, while the GameCube control requests fit in at most two
+ * records. Dolphin's BBA path can lose a third back-to-back application record
+ * after a reconnect even when every record is explicitly flushed.
  */
-#define TLS_GAMECUBE_WRITE_CHUNK 128u
+#define TLS_GAMECUBE_WRITE_CHUNK 224u
 
 struct MultiplexTlsClient {
   int socket;
