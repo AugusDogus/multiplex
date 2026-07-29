@@ -35,6 +35,7 @@ size_t http_client_size(const HttpClient *client);
 unsigned http_client_range_count(const HttpClient *client);
 const char *http_client_host(const HttpClient *client);
 uint16_t http_client_port(const HttpClient *client);
+const char *http_client_network_gateway(void);
 bool http_client_request_json(const char *method, const char *url,
                               const char *bearer_token, const char *body,
                               char *destination, size_t capacity,

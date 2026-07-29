@@ -517,6 +517,21 @@ export fn multiplex_native_app_watch_together_create_fail() callconv(.c) u32 {
     return 1;
 }
 
+export fn multiplex_native_app_watch_together_join_request() callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    const requested = core.watchTogetherJoinRequestIndex(app_model);
+    if (requested <= 0 or requested > std.math.maxInt(u32)) return 0;
+    return @intCast(requested);
+}
+
+export fn multiplex_native_app_watch_together_join_commit(connected: u32) callconv(.c) u32 {
+    if (!app_initialized or core.watchTogetherJoinRequestIndex(app_model) == 0) return 0;
+    app_model = core.commitModelRoot(core.completeWatchTogetherJoin(app_model, connected != 0));
+    focused_handler = 0;
+    reference_full_repaint = true;
+    return 1;
+}
+
 export fn multiplex_native_app_browse_request(section_id: *u32, start: *u32) callconv(.c) u32 {
     const requested = core.browseRequestSection(app_model);
     if (requested == 0) return 0;
@@ -900,6 +915,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .open_search => 13,
                 .open_watch_together => 22,
                 .create_watch_together => 23,
+                .join_watch_together => 24,
                 .search_key => 14,
                 .search_delete => 15,
                 .search_submit => 16,

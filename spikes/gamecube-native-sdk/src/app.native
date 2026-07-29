@@ -234,7 +234,7 @@
       <if test="{watchTogetherHasRooms}">
         <row grow="1" gap="10" cross="center">
           <for each="watchTogetherRooms" as="room" key="id">
-            <panel width="138" grow="1" padding="16" background="surface" border-color="border" radius="lg">
+            <panel width="138" grow="1" padding="16" background="surface" border-color="border" radius="lg" on-press="join_watch_together:{room.id}" label="{room.title}">
               <column grow="1" main="center" cross="center" gap="8">
                 <badge variant="secondary">{room.participantCount} viewers</badge>
                 <text size="heading" wrap="true">{room.title}</text>
@@ -265,6 +265,38 @@
         <column grow="1" main="center" cross="center" gap="10">
           <text size="heading">Room creation failed</text>
           <text foreground="text_muted">Return to the item and try again.</text>
+        </column>
+      </if>
+    </column>
+  </if>
+
+  <if test="{screen == 'watch_together_room'}">
+    <column grow="1" gap="14">
+      <row cross="center">
+        <button width="90" variant="ghost" on-press="back">Rooms</button>
+        <column gap="1">
+          <text size="heading">{selectedWatchTogetherRoomTitle}</text>
+          <text size="sm" foreground="text_muted">{selectedWatchTogetherParticipantCount} invited viewers</text>
+        </column>
+        <spacer grow="1" />
+        <badge variant="secondary">Plex Syncplay</badge>
+      </row>
+      <if test="{watchTogetherJoining}">
+        <column grow="1" main="center" cross="center" gap="10">
+          <text size="heading">Joining room...</text>
+          <text foreground="text_muted">Opening the native Syncplay connection.</text>
+        </column>
+      </if>
+      <if test="{watchTogetherConnected}">
+        <column grow="1" main="center" cross="center" gap="10">
+          <text size="heading">Syncplay connected</text>
+          <text foreground="text_muted">The GameCube completed the secure room handshake.</text>
+        </column>
+      </if>
+      <if test="{watchTogetherJoinFailed}">
+        <column grow="1" main="center" cross="center" gap="10">
+          <text size="heading">Could not join room</text>
+          <text foreground="text_muted">Return to the room list and try again.</text>
         </column>
       </if>
     </column>

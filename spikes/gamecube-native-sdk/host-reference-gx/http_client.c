@@ -901,6 +901,8 @@ uint16_t http_client_port(const HttpClient *client) {
   return client == NULL ? 0 : client->port;
 }
 
+const char *http_client_network_gateway(void) { return network_gateway; }
+
 bool http_client_request_json(const char *method, const char *url,
                               const char *bearer_token, const char *body,
                               char *destination, size_t capacity,

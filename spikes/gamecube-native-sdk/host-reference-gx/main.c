@@ -13,6 +13,7 @@
 #include "plex_hls.h"
 #include "plex_hls_demux.h"
 #include "poster_jpeg.h"
+#include "syncplay_probe.h"
 #include "trpc_client.h"
 #include "yuv420_gx.h"
 
@@ -2394,6 +2395,23 @@ static void create_requested_watch_together_room(
              "rating-key=%u\n",
              created.id, rating_key);
 }
+
+static void join_requested_watch_together_room(
+    const MultiplexAuthCredentials *credentials,
+    const MultiplexTrpcRoomList *rooms) {
+  const uint32_t requested = multiplex_native_app_watch_together_join_request();
+  if (requested == 0) {
+    return;
+  }
+  const uint32_t index = requested - 1u;
+  const bool connected =
+      index < rooms->room_count &&
+      multiplex_syncplay_probe_room(&rooms->rooms[index],
+                                    credentials->plex_client_id);
+  SYS_Report("REFERENCE GX: Watch Together join room=%u connected=%u\n", index,
+             connected ? 1u : 0u);
+  multiplex_native_app_watch_together_join_commit(connected ? 1u : 0u);
+}
 #endif
 
 static void *run_app(void *unused) {
@@ -2760,6 +2778,8 @@ static void *run_app(void *unused) {
       if (pairing_linked) {
         create_requested_watch_together_room(&auth_credentials,
                                              &watch_together_rooms);
+        join_requested_watch_together_room(&auth_credentials,
+                                           &watch_together_rooms);
       }
 #endif
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&

@@ -8,6 +8,7 @@ export type Screen =
   | "search"
   | "search_results"
   | "watch_together"
+  | "watch_together_room"
   | "details"
   | "player";
 
@@ -86,6 +87,10 @@ export interface Model {
   readonly watchTogetherAvailable: boolean;
   readonly watchTogetherCreating: boolean;
   readonly watchTogetherCreateFailed: boolean;
+  readonly selectedWatchTogetherRoomIndex: number;
+  readonly watchTogetherJoining: boolean;
+  readonly watchTogetherConnected: boolean;
+  readonly watchTogetherJoinFailed: boolean;
   readonly detailsLoaded: boolean;
   readonly detailsPlayable: boolean;
   readonly detailsSecondary: Uint8Array;
@@ -115,6 +120,7 @@ export type Msg =
   | { readonly kind: "search_submit" }
   | { readonly kind: "open_watch_together" }
   | { readonly kind: "create_watch_together" }
+  | { readonly kind: "join_watch_together"; readonly index: number }
   | { readonly kind: "open_item"; readonly index: number }
   | { readonly kind: "play" }
   | { readonly kind: "seek_backward" }
@@ -291,6 +297,10 @@ export function initialModel(): Model {
     watchTogetherAvailable: false,
     watchTogetherCreating: false,
     watchTogetherCreateFailed: false,
+    selectedWatchTogetherRoomIndex: 0,
+    watchTogetherJoining: false,
+    watchTogetherConnected: false,
+    watchTogetherJoinFailed: false,
     detailsLoaded: true,
     detailsPlayable: true,
     detailsSecondary: asciiBytes("Native SDK media prototype"),
@@ -401,6 +411,15 @@ export function failWatchTogetherCreate(model: Model): Model {
     watchTogetherAvailable: true,
     watchTogetherCreating: false,
     watchTogetherCreateFailed: true,
+  };
+}
+
+export function completeWatchTogetherJoin(model: Model, connected: boolean): Model {
+  return {
+    ...model,
+    watchTogetherJoining: false,
+    watchTogetherConnected: connected,
+    watchTogetherJoinFailed: !connected,
   };
 }
 
@@ -626,6 +645,30 @@ export function watchTogetherCreateTitle(model: Model): Uint8Array {
   return watchTogetherCreateRatingKey(model) === 0 ? new Uint8Array(0) : model.selectedTitle;
 }
 
+export function selectedWatchTogetherRoomTitle(model: Model): Uint8Array {
+  if (
+    model.selectedWatchTogetherRoomIndex < 0 ||
+    model.selectedWatchTogetherRoomIndex >= model.watchTogetherRooms.length
+  )
+    return new Uint8Array(0);
+  return model.watchTogetherRooms[model.selectedWatchTogetherRoomIndex].title;
+}
+
+export function selectedWatchTogetherParticipantCount(model: Model): number {
+  if (
+    model.selectedWatchTogetherRoomIndex < 0 ||
+    model.selectedWatchTogetherRoomIndex >= model.watchTogetherRooms.length
+  )
+    return 0;
+  return model.watchTogetherRooms[model.selectedWatchTogetherRoomIndex].participantCount;
+}
+
+export function watchTogetherJoinRequestIndex(model: Model): number {
+  return model.screen === "watch_together_room" && model.watchTogetherJoining
+    ? model.selectedWatchTogetherRoomIndex + 1
+    : 0;
+}
+
 export function searchRequestQuery(model: Model): Uint8Array {
   if (model.screen !== "search_results" || model.searchLoaded) return new Uint8Array(0);
   return model.searchQuery;
@@ -773,6 +816,21 @@ export function update(model: Model, msg: Msg): Model {
         watchTogetherCreating: true,
         watchTogetherCreateFailed: false,
       };
+    case "join_watch_together":
+      if (
+        model.screen !== "watch_together" ||
+        msg.index < 0 ||
+        msg.index >= model.watchTogetherRooms.length
+      )
+        return model;
+      return {
+        ...model,
+        screen: "watch_together_room",
+        selectedWatchTogetherRoomIndex: msg.index,
+        watchTogetherJoining: true,
+        watchTogetherConnected: false,
+        watchTogetherJoinFailed: false,
+      };
     case "open_item": {
       const items =
         model.screen === "browse"
@@ -894,6 +952,15 @@ export function update(model: Model, msg: Msg): Model {
       }
       if (model.screen === "watch_together") {
         return { ...model, screen: "home", playing: false };
+      }
+      if (model.screen === "watch_together_room") {
+        return {
+          ...model,
+          screen: "watch_together",
+          watchTogetherJoining: false,
+          watchTogetherConnected: false,
+          watchTogetherJoinFailed: false,
+        };
       }
       if (model.screen === "browse") {
         return { ...model, screen: "libraries", playing: false };
