@@ -26,6 +26,8 @@ server_pid=
 launcher_pid=
 mute_pid=
 lobby_pid=
+source_room_id=
+created_room_id=
 pipe_open=0
 mute_marker="$cache_dir/audio-muted"
 
@@ -127,6 +129,13 @@ cleanup() {
     kill -TERM "$lobby_pid" 2>/dev/null || true
     wait "$lobby_pid" 2>/dev/null || true
   fi
+  for test_room_id in "$created_room_id" "$source_room_id"; do
+    if [ -n "$test_room_id" ] &&
+      ! bun "$script_dir/syncplay-room-control.ts" delete-room \
+        "$test_room_id" >/dev/null 2>&1; then
+      echo "Could not delete test Watch Together room $test_room_id; it remains available for manual cleanup." >&2
+    fi
+  done
   if [ -n "$launcher_pid" ] && kill -0 "$launcher_pid" 2>/dev/null; then
     /bin/kill -TERM -- "-$launcher_pid" 2>/dev/null || true
     sleep 0.3
@@ -434,6 +443,13 @@ if [ "$watch_together" -eq 1 ]; then
   press A
   wait_for_new "Watch Together room created" "$created_count" 1200
   wait_for_new "signature=" "$signature_count"
+  source_room_id=$(sed -n \
+    's/.*Watch Together room created id=\([A-Za-z0-9][A-Za-z0-9]*\).*/\1/p' \
+    "$log" | tail -1)
+  if [ -z "$source_room_id" ]; then
+    echo "The source Watch Together room id was not found in the Dolphin log." >&2
+    exit 1
+  fi
   created_room=$(
     bun "$script_dir/syncplay-room-control.ts" create-room \
       "$watch_together_invitee_id"

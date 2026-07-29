@@ -45,12 +45,19 @@ const defaultMemoryCard = path.resolve(scriptDirectory, "../.dolphin-user/GC/Mem
 const command = process.argv[2];
 const argument = process.argv[3];
 if (
-  !["seek", "pause", "resume", "list-invitees", "list-rooms", "create-room", "join-lobby"].includes(
-    command ?? "",
-  )
+  ![
+    "seek",
+    "pause",
+    "resume",
+    "list-invitees",
+    "list-rooms",
+    "create-room",
+    "delete-room",
+    "join-lobby",
+  ].includes(command ?? "")
 ) {
   throw new Error(
-    "Usage: bun syncplay-room-control.ts seek <milliseconds> | pause | resume | list-invitees | list-rooms | create-room <invitee-id> | join-lobby <user-id>",
+    "Usage: bun syncplay-room-control.ts seek <milliseconds> | pause | resume | list-invitees | list-rooms | create-room <invitee-id> | delete-room <room-id> | join-lobby <user-id>",
   );
 }
 
@@ -63,6 +70,24 @@ const memoryCardPath = process.env.GAMECUBE_MEMORY_CARD_PATH ?? defaultMemoryCar
 const auth = newestAuthRecord(await readFile(memoryCardPath));
 if (!auth) {
   throw new Error(`No valid Multiplex auth record found in ${memoryCardPath}`);
+}
+
+if (command === "delete-room") {
+  const roomId = z
+    .string()
+    .regex(/^[A-Za-z0-9]+$/)
+    .parse(argument);
+  const deleteUrl = new URL("/api/trpc/plex.deleteWatchTogetherRoom", auth.origin);
+  const response = await fetchWithSession(deleteUrl, auth.sessionToken, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ json: { roomId } }),
+  });
+  if (!response.ok) {
+    throw new Error(`Room deletion for ${roomId} failed with HTTP ${response.status}.`);
+  }
+  console.log(`Deleted Watch Together room ${roomId}.`);
+  process.exit(0);
 }
 
 if (command === "list-invitees") {
