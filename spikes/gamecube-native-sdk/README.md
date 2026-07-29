@@ -92,6 +92,15 @@ also repeatable through `GAMECUBE_PLEX_VIDEO_RESOLUTION` and
 `GAMECUBE_PLEX_SUSTAIN_SECONDS` controls the post-resume failure window and
 defaults to 45 seconds.
 
+Set `GAMECUBE_PLEX_WATCH_TOGETHER=1`,
+`GAMECUBE_WATCH_TOGETHER_INVITEE_ID=<plex-user-id>`, and
+`GAMECUBE_WATCH_TOGETHER_BROWSER_GUEST=1` to run the cross-platform Watch
+Together smoke. It uses the real guest session saved by the web Playwright
+setup, has that account join the room created in Dolphin, verifies playback
+advances in both clients, and exercises play/pause synchronization in both
+directions. The browser is headless and muted while Dolphin remains visible;
+the runner disbands its room and closes both clients during cleanup.
+
 `scripts/plex-pair.py` implements Plex's current device-key PIN flow without
 placing an account password or long-lived legacy token on the console. `start`
 creates an Ed25519 device identity and strong PIN, `poll` exchanges a claimed
@@ -294,6 +303,14 @@ the same room. The BBA transport uses 224-byte TLS plaintext records, so both
 tRPC control requests fit in bounded records. Repeated HTTPS
 connections and a refresh immediately after cancelling an active poster load
 now complete without the earlier 30-second lost-record timeout.
+The cross-platform smoke now replaces the synthetic second participant with
+the real `multiplextest` web session. A Dolphin-created room gathered both
+users, advanced the same PMS item in Chromium and on GameCube, followed a
+31-second GameCube seek, propagated GameCube pause/resume to the browser, and
+propagated browser pause/resume back to GameCube. Clearing the room's stale
+paused handshake event when the console arms its initial local play claim keeps
+the lobby baseline from immediately stopping the decoder. The run remained
+free of invalid accesses, decoder failures, and audio underruns.
 A bounded reference-render memo retains three expensive stable layers; warmed
 full home and details repaints measured about 0.37 and 0.33 seconds. The memo
 has a 4 MiB hard limit and peaked at 4,093 KiB in the home/details flow.

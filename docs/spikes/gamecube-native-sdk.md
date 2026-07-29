@@ -560,11 +560,10 @@ not as the committed GameCube renderer yet.
 
 Next Dolphin milestones:
 
-1. make the created/discovered Plex Watch Together rooms selectable, join them
-   over Syncplay, and bridge
-   remote play/pause/seek into the existing player;
-2. add room lifecycle and participant state without duplicating the web app's
-   tRPC procedures;
+1. expose room participants, leave/disband actions, and reconnect state in the
+   Native SDK UI without duplicating the web app's tRPC procedures;
+2. cover browser-to-GameCube seek synchronization and room recovery after a
+   participant disconnects;
 3. decide whether to repair raylib/OpenGX or extract a smaller portable
    framebuffer/presenter interface before the Dreamcast pass.
 

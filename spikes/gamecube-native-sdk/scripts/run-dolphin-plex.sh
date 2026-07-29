@@ -19,6 +19,7 @@ plex_video_resolution=${GAMECUBE_PLEX_VIDEO_RESOLUTION:-480x270}
 plex_max_video_bitrate=${GAMECUBE_PLEX_MAX_VIDEO_BITRATE:-700}
 watch_together=${GAMECUBE_PLEX_WATCH_TOGETHER:-0}
 watch_together_invitee_id=${GAMECUBE_WATCH_TOGETHER_INVITEE_ID:-}
+watch_together_browser_guest=${GAMECUBE_WATCH_TOGETHER_BROWSER_GUEST:-0}
 rating_key=${GAMECUBE_PLEX_RATING_KEY:-}
 plex_base_url=${PLEX_BASE_URL:-}
 multiplex_base_url=${MULTIPLEX_BASE_URL:-}
@@ -27,6 +28,8 @@ launcher_pid=
 mute_pid=
 lobby_pid=
 created_room_id=
+browser_guest_log="$cache_dir/watch-together-browser-guest.log"
+browser_guest_control="$cache_dir/watch-together-browser-guest.control"
 pipe_open=0
 mute_marker="$cache_dir/audio-muted"
 
@@ -79,6 +82,13 @@ case "$watch_together" in
     exit 1
     ;;
 esac
+case "$watch_together_browser_guest" in
+  0 | 1) ;;
+  *)
+    echo "GAMECUBE_WATCH_TOGETHER_BROWSER_GUEST must be 0 or 1." >&2
+    exit 1
+    ;;
+esac
 if [ "$watch_together" -eq 1 ] && [ "$direct_plex" -ne 1 ]; then
   echo "Watch Together smoke testing requires GAMECUBE_DIRECT_PLEX=1." >&2
   exit 1
@@ -128,6 +138,7 @@ cleanup() {
     kill -TERM "$lobby_pid" 2>/dev/null || true
     wait "$lobby_pid" 2>/dev/null || true
   fi
+  rm -f "$browser_guest_control"
   for test_room_id in "$created_room_id"; do
     if [ -n "$test_room_id" ] &&
       ! bun "$script_dir/syncplay-room-control.ts" delete-room \
@@ -269,6 +280,33 @@ wait_for_new() {
   done
   echo "Timed out waiting for another Dolphin log pattern: $pattern" >&2
   tail -60 "$log" >&2 || true
+  exit 1
+}
+
+browser_guest_line_count() {
+  grep -c "$1" "$browser_guest_log" 2>/dev/null || true
+}
+
+wait_for_browser_guest() {
+  pattern=$1
+  previous=${2:-0}
+  attempts=${3:-1200}
+  attempt=0
+  while [ "$attempt" -lt "$attempts" ]; do
+    current=$(browser_guest_line_count "$pattern")
+    if [ "$current" -gt "$previous" ]; then
+      return
+    fi
+    if [ -z "$lobby_pid" ] || ! kill -0 "$lobby_pid" 2>/dev/null; then
+      echo "Browser guest exited before producing: $pattern" >&2
+      tail -60 "$browser_guest_log" >&2 || true
+      exit 1
+    fi
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  echo "Timed out waiting for browser guest log pattern: $pattern" >&2
+  tail -60 "$browser_guest_log" >&2 || true
   exit 1
 }
 
@@ -492,16 +530,31 @@ if [ "$watch_together" -eq 1 ]; then
   press A
   wait_for_new "Watch Together lobby room=0 connected=1 invited=2" \
     "$join_count" 3600
-  MULTIPLEX_WATCH_TOGETHER_ROOM_ID="$created_room_id" \
-    bun "$script_dir/syncplay-room-control.ts" join-lobby \
-      "$watch_together_invitee_id" >"$cache_dir/syncplay-lobby.log" 2>&1 &
+  if [ "$watch_together_browser_guest" -eq 1 ]; then
+    rm -f "$browser_guest_control"
+    : >"$browser_guest_log"
+    MULTIPLEX_BROWSER_BASE_URL="$multiplex_base_url" \
+      bun "$script_dir/watch-together-browser-guest.ts" \
+        "$created_room_id" "$browser_guest_control" \
+        >"$browser_guest_log" 2>&1 &
+  else
+    MULTIPLEX_WATCH_TOGETHER_ROOM_ID="$created_room_id" \
+      bun "$script_dir/syncplay-room-control.ts" join-lobby \
+        "$watch_together_invitee_id" >"$cache_dir/syncplay-lobby.log" 2>&1 &
+  fi
   lobby_pid=$!
+  if [ "$watch_together_browser_guest" -eq 1 ]; then
+    wait_for_browser_guest "Browser guest joined room=$created_room_id" 0 600
+  fi
 else
   press A
 fi
 wait_for_new "$playback_activation_pattern" "$playback_activation_count" 3600
 wait_for_new "$playback_ready_pattern" "$playback_session_count" 1200
 wait_for_new "playback=playing" "$playing_count" 1200
+if [ "$watch_together_browser_guest" -eq 1 ]; then
+  wait_for_browser_guest "Browser guest advancing room=$created_room_id" 0 1200
+fi
 sleep 1
 if [ "$(line_count "playback=paused")" -gt "$paused_count" ]; then
   playing_count=$(line_count "playback=playing")
@@ -543,24 +596,46 @@ fi
 # Prove deliberate player state edges reach Plex as well as periodic progress.
 paused_count=$(line_count "playback=paused")
 paused_timeline_count=$(line_count "$timeline_pattern .*state=paused reported=1")
+if [ "$watch_together_browser_guest" -eq 1 ]; then
+  browser_paused_count=$(browser_guest_line_count "Browser guest playback=paused")
+fi
 press A
 wait_for_new "playback=paused" "$paused_count" 120
 wait_for_new "$timeline_pattern .*state=paused reported=1" "$paused_timeline_count" 600
+if [ "$watch_together_browser_guest" -eq 1 ]; then
+  wait_for_browser_guest "Browser guest playback=paused" "$browser_paused_count" 600
+fi
 playing_count=$(line_count "playback=playing")
 playing_timeline_count=$(line_count "$timeline_pattern .*state=playing reported=1")
 decoder_count=$(line_count "decoder=60 frames/")
+if [ "$watch_together_browser_guest" -eq 1 ]; then
+  browser_playing_count=$(browser_guest_line_count "Browser guest playback=playing")
+fi
 press A
 wait_for_new "playback=playing" "$playing_count" 120
 wait_for_new "$timeline_pattern .*state=playing reported=1" "$playing_timeline_count" 600
 wait_for_new "decoder=60 frames/" "$decoder_count" 1200
+if [ "$watch_together_browser_guest" -eq 1 ]; then
+  wait_for_browser_guest "Browser guest playback=playing" "$browser_playing_count" 600
+fi
 if [ "$watch_together" -eq 1 ]; then
   remote_pause_count=$(line_count "Syncplay remote playback paused=1")
-  MULTIPLEX_WATCH_TOGETHER_ROOM_ID="$created_room_id" \
-    bun "$script_dir/syncplay-room-control.ts" pause
+  if [ "$watch_together_browser_guest" -eq 1 ]; then
+    printf 'pause\n' >"$browser_guest_control"
+    wait_for_browser_guest "Browser guest command=pause" 0 300
+  else
+    MULTIPLEX_WATCH_TOGETHER_ROOM_ID="$created_room_id" \
+      bun "$script_dir/syncplay-room-control.ts" pause
+  fi
   wait_for_new "Syncplay remote playback paused=1" "$remote_pause_count" 600
   remote_resume_count=$(line_count "Syncplay remote playback paused=0")
-  MULTIPLEX_WATCH_TOGETHER_ROOM_ID="$created_room_id" \
-    bun "$script_dir/syncplay-room-control.ts" resume
+  if [ "$watch_together_browser_guest" -eq 1 ]; then
+    printf 'resume\n' >"$browser_guest_control"
+    wait_for_browser_guest "Browser guest command=resume" 0 300
+  else
+    MULTIPLEX_WATCH_TOGETHER_ROOM_ID="$created_room_id" \
+      bun "$script_dir/syncplay-room-control.ts" resume
+  fi
   wait_for_new "Syncplay remote playback paused=0" "$remote_resume_count" 600
 fi
 sleep "$sustain_seconds"
