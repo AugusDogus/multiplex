@@ -29,9 +29,14 @@ bool multiplex_trpc_parse_watch_together_rooms(const char *json, size_t size,
                                                 MultiplexTrpcRoomList *list);
 bool multiplex_trpc_parse_watch_together_room(const char *json, size_t size,
                                               MultiplexTrpcRoom *room);
+bool multiplex_trpc_parse_user_id(const char *json, size_t size,
+                                  uint32_t *user_id);
 bool multiplex_trpc_load_watch_together_rooms(const char *base_url,
                                                const char *bearer_token,
                                                MultiplexTrpcRoomList *list);
+bool multiplex_trpc_load_user_id(const char *base_url,
+                                 const char *bearer_token,
+                                 uint32_t *user_id);
 bool multiplex_trpc_create_watch_together_room(
     const char *base_url, const char *bearer_token, const char *server_id,
     uint32_t rating_key, const char *title, MultiplexTrpcRoom *room);

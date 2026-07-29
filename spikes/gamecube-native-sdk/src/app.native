@@ -289,8 +289,8 @@
       </if>
       <if test="{watchTogetherConnected}">
         <column grow="1" main="center" cross="center" gap="10">
-          <text size="heading">Syncplay connected</text>
-          <text foreground="text_muted">The GameCube completed the secure room handshake.</text>
+          <text size="heading">Waiting for everyone</text>
+          <text foreground="text_muted">Playback starts after every invited viewer joins the lobby.</text>
         </column>
       </if>
       <if test="{watchTogetherJoinFailed}">

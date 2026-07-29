@@ -108,6 +108,43 @@ bool multiplex_trpc_load_watch_together_rooms(const char *base_url,
   return loaded;
 }
 
+bool multiplex_trpc_load_user_id(const char *base_url,
+                                 const char *bearer_token,
+                                 uint32_t *user_id) {
+  if (base_url == NULL || base_url[0] == '\0' || bearer_token == NULL ||
+      bearer_token[0] == '\0' || user_id == NULL) {
+    return false;
+  }
+  const size_t base_size = strlen(base_url);
+  char url[TRPC_URL_CAPACITY];
+  const int url_size = snprintf(
+      url, sizeof(url),
+      "%s%sapi/trpc/plex.getUserInfo?"
+      "input=%%7B%%22json%%22%%3Anull%%7D",
+      base_url, base_size != 0 && base_url[base_size - 1u] == '/' ? "" : "/");
+  if (url_size <= 0 || (size_t)url_size >= sizeof(url)) {
+    return false;
+  }
+  char *response_body = malloc(TRPC_RESPONSE_CAPACITY);
+  if (response_body == NULL) {
+    return false;
+  }
+  HttpJsonResponse response;
+  uint32_t parsed = 0;
+  const bool loaded =
+      http_client_request_json("GET", url, bearer_token, NULL, response_body,
+                               TRPC_RESPONSE_CAPACITY, &response) &&
+      response.status == 200 &&
+      multiplex_trpc_parse_user_id(response_body, response.body_size,
+                                   &parsed);
+  free(response_body);
+  if (loaded) {
+    *user_id = parsed;
+  }
+  SYS_Report("REFERENCE GX: tRPC Plex user loaded=%u\n", loaded ? 1u : 0u);
+  return loaded;
+}
+
 bool multiplex_trpc_create_watch_together_room(
     const char *base_url, const char *bearer_token, const char *server_id,
     uint32_t rating_key, const char *title, MultiplexTrpcRoom *room) {

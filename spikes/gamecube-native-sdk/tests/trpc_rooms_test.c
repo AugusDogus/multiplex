@@ -55,6 +55,21 @@ static void parses_created_room(void) {
   assert(room.user_count == 1);
 }
 
+static void parses_plex_user_id(void) {
+  static const char response[] =
+      "{\"result\":{\"data\":{\"json\":{\"id\":12345,"
+      "\"username\":\"viewer\"}}}}";
+  uint32_t user_id = 0;
+  assert(multiplex_trpc_parse_user_id(response, sizeof(response) - 1u,
+                                      &user_id));
+  assert(user_id == 12345);
+
+  static const char missing[] =
+      "{\"result\":{\"data\":{\"json\":{\"username\":\"viewer\"}}}}";
+  assert(!multiplex_trpc_parse_user_id(missing, sizeof(missing) - 1u,
+                                       &user_id));
+}
+
 static void rejects_malformed_or_oversized_fields(void) {
   static const char malformed[] =
       "{\"result\":{\"data\":{\"json\":[{\"id\":\"Room123\","
@@ -74,6 +89,7 @@ int main(void) {
   parses_empty_rooms();
   parses_bounded_room_summaries();
   parses_created_room();
+  parses_plex_user_id();
   rejects_malformed_or_oversized_fields();
   puts("GameCube tRPC Watch Together parser tests passed.");
   return 0;

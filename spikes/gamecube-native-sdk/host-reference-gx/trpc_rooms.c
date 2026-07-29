@@ -255,3 +255,17 @@ bool multiplex_trpc_parse_watch_together_room(const char *json, size_t size,
   }
   return true;
 }
+
+bool multiplex_trpc_parse_user_id(const char *json, size_t size,
+                                  uint32_t *user_id) {
+  if (json == NULL || size == 0 || user_id == NULL) {
+    return false;
+  }
+  const JsonSpan document = {.begin = json, .end = json + size};
+  uint32_t parsed = 0;
+  if (!json_unsigned(document, "id", &parsed) || parsed == 0) {
+    return false;
+  }
+  *user_id = parsed;
+  return true;
+}

@@ -65,6 +65,7 @@
 #define HLS_VIDEO_PREBUFFER_BYTES (16u * 1024u)
 #define HLS_AUDIO_PREBUFFER_BYTES (16u * 1024u)
 #define HLS_READINESS_TIMEOUT_MS 60000u
+#define WATCH_TOGETHER_AUTO_START_DELAY_MS 1200u
 #define SEGMENT_PREFETCH_MARGIN_MS 8000u
 #define SEGMENT_HANDOFF_MARGIN_MS 64u
 #define POSTER_JPEG_CAPACITY (256u * 1024u)
@@ -2356,6 +2357,8 @@ static bool bind_watch_together_rooms(const MultiplexTrpcRoomList *rooms,
                    index);
         return false;
       }
+      SYS_Report("REFERENCE GX: Watch Together room=%u id=%s invited=%u\n",
+                 index, room->id, room->user_count);
     }
   }
   if (multiplex_native_app_watch_together_commit() == 0) {
@@ -2451,8 +2454,8 @@ join_requested_watch_together_room(const MultiplexAuthCredentials *credentials,
                                    const MultiplexTrpcRoomList *rooms,
                                    MultiplexSyncplaySession **session,
                                    uint32_t *joined_room_index,
-                                   MultiplexGatewayPlaybackManifest *manifest,
-                                   HttpClient **client, MpegPsDemux **demux) {
+                                   uint32_t plex_user_id, bool *in_lobby,
+                                   uint64_t *all_present_since_ms) {
   const uint32_t requested = multiplex_native_app_watch_together_join_request();
   if (requested == 0) {
     return;
@@ -2461,38 +2464,71 @@ join_requested_watch_together_room(const MultiplexAuthCredentials *credentials,
   multiplex_syncplay_session_destroy(*session);
   *session = NULL;
   *joined_room_index = UINT32_MAX;
+  *in_lobby = false;
+  *all_present_since_ms = 0;
   if (index >= rooms->room_count) {
     multiplex_native_app_watch_together_join_commit(0);
     return;
   }
   const uint32_t rating_key = watch_together_rating_key(&rooms->rooms[index]);
-  const bool playback_ready =
-      rating_key != 0 && load_direct_playback(credentials, rating_key, 0, true,
-                                              manifest, client, demux);
-  if (!playback_ready) {
+  if (rating_key == 0 || plex_user_id == 0) {
     SYS_Report("REFERENCE GX: Watch Together playback unavailable "
-               "room=%u rating-key=%u\n",
-               index, rating_key);
+               "room=%u rating-key=%u user=%u\n",
+               index, rating_key, plex_user_id);
     multiplex_native_app_watch_together_join_commit(0);
     return;
   }
   *session = multiplex_syncplay_session_connect(&rooms->rooms[index],
-                                                credentials->plex_client_id);
-  multiplex_native_app_watch_together_join_commit(*session != NULL);
-  if (*session != NULL &&
+                                                credentials->plex_client_id,
+                                                plex_user_id, true);
+  if (*session == NULL) {
+    multiplex_native_app_watch_together_join_commit(0);
+    SYS_Report("REFERENCE GX: Watch Together join room=%u connected=0\n",
+               index);
+    return;
+  }
+  multiplex_native_app_watch_together_join_commit(1);
+  *joined_room_index = index;
+  *in_lobby = true;
+  SYS_Report("REFERENCE GX: Watch Together lobby room=%u connected=1 "
+             "invited=%u\n",
+             index, rooms->rooms[index].user_count);
+}
+
+static bool start_joined_watch_together_playback(
+    const MultiplexAuthCredentials *credentials,
+    const MultiplexTrpcRoomList *rooms, uint32_t room_index,
+    uint32_t plex_user_id, uint32_t offset_ms,
+    MultiplexSyncplaySession **session,
+    MultiplexGatewayPlaybackManifest *manifest, HttpClient **client,
+    MpegPsDemux **demux) {
+  if (room_index >= rooms->room_count || plex_user_id == 0) {
+    return false;
+  }
+  const MultiplexTrpcRoom *room = &rooms->rooms[room_index];
+  const uint32_t rating_key = watch_together_rating_key(room);
+  if (rating_key == 0 ||
+      !load_direct_playback(credentials, rating_key, offset_ms, true, manifest,
+                            client, demux)) {
+    return false;
+  }
+  *session = multiplex_syncplay_session_connect(
+      room, credentials->plex_client_id, plex_user_id, false);
+  if (*session == NULL ||
       multiplex_native_app_watch_together_playback(
           rating_key, manifest->media_duration_ms,
           manifest->segment_start_ms) == 0) {
     multiplex_syncplay_session_destroy(*session);
     *session = NULL;
+    close_media_session(client, demux);
+    return false;
   }
-  if (*session != NULL) {
-    *joined_room_index = index;
-  }
-  SYS_Report("REFERENCE GX: Watch Together join room=%u connected=%u\n", index,
-             *session != NULL ? 1u : 0u);
-  SYS_Report("REFERENCE GX: joined playback model state=%u\n",
-             multiplex_native_app_playback_state());
+  multiplex_syncplay_session_set_playback(
+      *session, false, manifest->segment_start_ms);
+  SYS_Report("REFERENCE GX: Watch Together playback room=%u rating-key=%u "
+             "offset=%u\n",
+             room_index, rating_key, manifest->segment_start_ms);
+  return true;
 }
 #endif
 
@@ -2528,6 +2564,9 @@ static void *run_app(void *unused) {
 #if MULTIPLEX_PAIRING_ENABLED
   MultiplexSyncplaySession *syncplay_session = NULL;
   uint32_t joined_watch_together_room = UINT32_MAX;
+  uint64_t watch_together_all_present_since_ms = 0;
+  uint32_t plex_user_id = 0;
+  bool watch_together_lobby = false;
 #endif
   bool has_catalog =
       MULTIPLEX_GATEWAY_URL[0] != '\0' &&
@@ -2592,6 +2631,11 @@ static void *run_app(void *unused) {
   bool pairing_linked = device_auth.status == MULTIPLEX_DEVICE_AUTH_LINKED;
   bool auth_reset_latched = false;
   uint32_t pairing_poll_frames = 0;
+  if (pairing_linked) {
+    multiplex_trpc_load_user_id(auth_credentials.origin,
+                                auth_credentials.session_token,
+                                &plex_user_id);
+  }
   if (pairing_linked &&
       !refresh_watch_together_rooms(&auth_credentials, &watch_together_rooms)) {
     return (void *)(uintptr_t)1;
@@ -2682,6 +2726,9 @@ static void *run_app(void *unused) {
         if (pairing_linked) {
           multiplex_plex_bootstrap_credentials(&auth_credentials,
                                                MULTIPLEX_PLEX_BASE_URL);
+          multiplex_trpc_load_user_id(auth_credentials.origin,
+                                      auth_credentials.session_token,
+                                      &plex_user_id);
           const MultiplexMemoryCardResult saved =
               multiplex_memory_card_save_auth(&auth_credentials,
                                               &auth_location);
@@ -2736,6 +2783,9 @@ static void *run_app(void *unused) {
         multiplex_syncplay_session_destroy(syncplay_session);
         syncplay_session = NULL;
         joined_watch_together_room = UINT32_MAX;
+        watch_together_all_present_since_ms = 0;
+        watch_together_lobby = false;
+        plex_user_id = 0;
         pairing_linked = false;
         has_catalog = false;
         memset(&auth_credentials, 0, sizeof(auth_credentials));
@@ -2865,7 +2915,8 @@ static void *run_app(void *unused) {
                                              &watch_together_rooms);
         join_requested_watch_together_room(
             &auth_credentials, &watch_together_rooms, &syncplay_session,
-            &joined_watch_together_room, &playback_manifest, &client, &demux);
+            &joined_watch_together_room, plex_user_id, &watch_together_lobby,
+            &watch_together_all_present_since_ms);
       }
 #endif
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
@@ -2906,7 +2957,7 @@ static void *run_app(void *unused) {
         if (local_seek_room < watch_together_rooms.room_count) {
           syncplay_session = multiplex_syncplay_session_connect(
               &watch_together_rooms.rooms[local_seek_room],
-              auth_credentials.plex_client_id);
+              auth_credentials.plex_client_id, plex_user_id, false);
         }
         if (syncplay_session != NULL) {
           multiplex_syncplay_session_set_playback(
@@ -2926,7 +2977,76 @@ static void *run_app(void *unused) {
       native_frame_dirty = true;
     }
 #if MULTIPLEX_PAIRING_ENABLED
-    if (syncplay_session != NULL) {
+    if (watch_together_lobby && syncplay_session != NULL) {
+      if ((pressed & PAD_BUTTON_B) != 0) {
+        SYS_Report("REFERENCE GX: Watch Together lobby left room=%u\n",
+                   joined_watch_together_room);
+        multiplex_syncplay_session_destroy(syncplay_session);
+        syncplay_session = NULL;
+        joined_watch_together_room = UINT32_MAX;
+        watch_together_all_present_since_ms = 0;
+        watch_together_lobby = false;
+      } else if (!multiplex_syncplay_session_poll(syncplay_session)) {
+        SYS_Report("REFERENCE GX: Watch Together lobby disconnected\n");
+        multiplex_syncplay_session_destroy(syncplay_session);
+        syncplay_session = NULL;
+        joined_watch_together_room = UINT32_MAX;
+        watch_together_all_present_since_ms = 0;
+        watch_together_lobby = false;
+        multiplex_native_app_watch_together_join_commit(0);
+        native_frame_dirty = true;
+      } else if (joined_watch_together_room <
+                 watch_together_rooms.room_count) {
+        const MultiplexTrpcRoom *room =
+            &watch_together_rooms.rooms[joined_watch_together_room];
+        const unsigned present =
+            multiplex_syncplay_session_participant_count(syncplay_session);
+        const bool everyone_present =
+            room->user_count > 1u && present >= room->user_count;
+        const uint64_t now_ms = ticks_to_millisecs(gettime());
+        if (!everyone_present) {
+          if (watch_together_all_present_since_ms != 0) {
+            SYS_Report("REFERENCE GX: Watch Together lobby rearmed "
+                       "present=%u invited=%u\n",
+                       present, room->user_count);
+          }
+          watch_together_all_present_since_ms = 0;
+        } else if (watch_together_all_present_since_ms == 0) {
+          watch_together_all_present_since_ms = now_ms;
+          SYS_Report("REFERENCE GX: Watch Together lobby gathered "
+                     "present=%u invited=%u\n",
+                     present, room->user_count);
+        } else if (now_ms - watch_together_all_present_since_ms >=
+                   WATCH_TOGETHER_AUTO_START_DELAY_MS) {
+          uint32_t room_position_ms = 0;
+          bool room_paused = true;
+          multiplex_syncplay_session_room_position(
+              syncplay_session, &room_position_ms, &room_paused);
+          const uint32_t room_index = joined_watch_together_room;
+          multiplex_syncplay_session_destroy(syncplay_session);
+          syncplay_session = NULL;
+          watch_together_lobby = false;
+          watch_together_all_present_since_ms = 0;
+          if (!start_joined_watch_together_playback(
+                  &auth_credentials, &watch_together_rooms, room_index,
+                  plex_user_id, room_position_ms, &syncplay_session,
+                  &playback_manifest, &client, &demux)) {
+            joined_watch_together_room = UINT32_MAX;
+            multiplex_native_app_watch_together_join_commit(0);
+            SYS_Report("REFERENCE GX: Watch Together auto-start failed "
+                       "room=%u\n",
+                       room_index);
+          } else {
+            SYS_Report("REFERENCE GX: Watch Together auto-start room=%u "
+                       "position=%u paused=%u\n",
+                       room_index, room_position_ms,
+                       room_paused ? 1u : 0u);
+          }
+          native_frame_dirty = true;
+        }
+      }
+    }
+    if (!watch_together_lobby && syncplay_session != NULL) {
       multiplex_syncplay_session_set_playback(
           syncplay_session, video_surface.playing == 0,
           playback_position_ms(&playback_manifest));
@@ -2956,7 +3076,7 @@ static void *run_app(void *unused) {
             if (applied) {
               syncplay_session = multiplex_syncplay_session_connect(
                   &watch_together_rooms.rooms[room_index],
-                  auth_credentials.plex_client_id);
+                  auth_credentials.plex_client_id, plex_user_id, false);
               applied = syncplay_session != NULL;
             }
             if (!applied) {

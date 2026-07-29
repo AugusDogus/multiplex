@@ -9,7 +9,8 @@ typedef struct MultiplexSyncplaySession MultiplexSyncplaySession;
 
 MultiplexSyncplaySession *
 multiplex_syncplay_session_connect(const MultiplexTrpcRoom *room,
-                                   const char *device_identifier);
+                                   const char *device_identifier,
+                                   uint32_t user_id, bool observer);
 bool multiplex_syncplay_session_poll(MultiplexSyncplaySession *session);
 void multiplex_syncplay_session_set_playback(
     MultiplexSyncplaySession *session, bool paused, uint32_t position_ms);
@@ -22,6 +23,9 @@ bool multiplex_syncplay_session_take_remote_playback(
     bool *seek);
 unsigned multiplex_syncplay_session_participant_count(
     const MultiplexSyncplaySession *session);
+bool multiplex_syncplay_session_room_position(
+    const MultiplexSyncplaySession *session, uint32_t *position_ms,
+    bool *paused);
 void multiplex_syncplay_session_destroy(MultiplexSyncplaySession *session);
 
 #endif

@@ -39,6 +39,7 @@ struct MultiplexSyncplaySession {
   unsigned heartbeat_count;
   uint32_t local_position_ms;
   uint32_t remote_position_ms;
+  uint32_t room_position_ms;
   char encoded_user[256];
   char device_identifier[96];
   bool has_local_playback;
@@ -48,6 +49,9 @@ struct MultiplexSyncplaySession {
   bool remote_paused;
   bool remote_seek;
   bool remote_playback_pending;
+  bool room_position_known;
+  bool room_paused;
+  bool observer;
   bool connected;
 };
 
@@ -257,6 +261,9 @@ static bool tls_read_exact(SyncplaySocket *socket, uint8_t *destination,
         multiplex_tls_client_read(socket->tls, destination + used, size - used,
                                   SYNCPLAY_IO_TIMEOUT_SECONDS);
     if (received <= 0) {
+      SYS_Report("REFERENCE GX: Syncplay frame read failed used=%u wanted=%u "
+                 "result=%d\n",
+                 (unsigned)used, (unsigned)size, received);
       return false;
     }
     used += (size_t)received;
@@ -453,6 +460,9 @@ static bool receive_text_frame(SyncplaySocket *socket, char *text,
     }
     const uint8_t opcode = header[0] & 0x0fu;
     if ((header[0] & 0x80u) == 0 || (header[1] & 0x80u) != 0) {
+      SYS_Report("REFERENCE GX: Syncplay frame header rejected first=%02x "
+                 "second=%02x\n",
+                 header[0], header[1]);
       return false;
     }
     size_t payload_size = header[1] & 0x7fu;
@@ -465,6 +475,8 @@ static bool receive_text_frame(SyncplaySocket *socket, char *text,
       return false;
     }
     if (opcode == 0x8u) {
+      SYS_Report("REFERENCE GX: Syncplay close frame payload=%u\n",
+                 (unsigned)payload_size);
       return false;
     }
     if (opcode == 0x9u || opcode == 0xau) {
@@ -482,6 +494,9 @@ static bool receive_text_frame(SyncplaySocket *socket, char *text,
     }
     if (opcode != 0x1u || payload_size == 0 || payload_size >= capacity ||
         !tls_read_exact(socket, (uint8_t *)text, payload_size)) {
+      SYS_Report("REFERENCE GX: Syncplay data frame rejected opcode=%u "
+                 "payload=%u capacity=%u\n",
+                 opcode, (unsigned)payload_size, (unsigned)capacity);
       return false;
     }
     text[payload_size] = '\0';
@@ -531,8 +546,11 @@ static bool announce_session(MultiplexSyncplaySession *session,
          send_text_frame(&session->transport, "{\"List\":{}}") &&
          file_size > 0 && (size_t)file_size < sizeof(file) &&
          send_text_frame(&session->transport, file) &&
-         send_text_frame(&session->transport,
-                         "{\"Set\":{\"ready\":{\"isReady\":true}}}");
+         send_text_frame(
+             &session->transport,
+             session->observer
+                 ? "{\"Set\":{\"ready\":{\"isReady\":false}}}"
+                 : "{\"Set\":{\"ready\":{\"isReady\":true}}}");
 }
 
 static bool read_json_number(const char *json, const char *key,
@@ -573,11 +591,37 @@ static bool read_json_bool(const char *json, const char *key, bool *output) {
 }
 
 static unsigned count_participants(const char *json) {
+  uint32_t user_ids[32];
   unsigned count = 0;
   const char *cursor = json;
-  while ((cursor = strstr(cursor, "deviceIdentifier")) != NULL) {
-    ++count;
-    cursor += sizeof("deviceIdentifier") - 1u;
+  while ((cursor = strstr(cursor, "userID")) != NULL) {
+    cursor += sizeof("userID") - 1u;
+    const char *digits = cursor;
+    for (unsigned scanned = 0; scanned < 32u && *digits != '\0'; ++scanned) {
+      if (*digits >= '0' && *digits <= '9') {
+        break;
+      }
+      ++digits;
+    }
+    if (*digits < '0' || *digits > '9') {
+      continue;
+    }
+    char *end = NULL;
+    const unsigned long parsed = strtoul(digits, &end, 10);
+    if (end == digits || parsed > UINT32_MAX) {
+      continue;
+    }
+    bool duplicate = false;
+    for (unsigned index = 0; index < count; ++index) {
+      if (user_ids[index] == (uint32_t)parsed) {
+        duplicate = true;
+        break;
+      }
+    }
+    if (!duplicate && count < sizeof(user_ids) / sizeof(user_ids[0])) {
+      user_ids[count++] = (uint32_t)parsed;
+    }
+    cursor = end;
   }
   return count;
 }
@@ -615,15 +659,19 @@ static bool echo_state(MultiplexSyncplaySession *session, const char *json) {
       : position >= (double)UINT32_MAX / 1000.0
           ? UINT32_MAX
           : (uint32_t)(position * 1000.0);
-  if (apply_remote &&
+  session->room_position_ms = remote_position_ms;
+  session->room_position_known = true;
+  session->room_paused = paused;
+  if (!session->observer && apply_remote &&
       (session->local_paused != paused || do_seek)) {
     session->remote_paused = paused;
     session->remote_position_ms = remote_position_ms;
     session->remote_seek = do_seek;
     session->remote_playback_pending = true;
   }
-  const bool claim_local =
-      session->has_local_playback && !should_echo && local_change;
+  const bool claim_local = !session->observer &&
+                           session->has_local_playback && !should_echo &&
+                           local_change;
   const bool reply_paused = claim_local ? session->local_paused : paused;
   const double reply_position =
       claim_local ? (double)session->local_position_ms / 1000.0 : position;
@@ -676,6 +724,17 @@ static bool handle_text_frame(MultiplexSyncplaySession *session,
       session->participant_count = participants;
       SYS_Report("REFERENCE GX: Syncplay participants=%u\n", participants);
     }
+  }
+  bool joined = false;
+  bool left = false;
+  read_json_bool(text, "\"joined\":", &joined);
+  read_json_bool(text, "\"left\":", &left);
+  if (joined || left) {
+    if (!send_text_frame(&session->transport, "{\"List\":{}}")) {
+      return false;
+    }
+    SYS_Report("REFERENCE GX: Syncplay roster refresh joined=%u left=%u\n",
+               joined ? 1u : 0u, left ? 1u : 0u);
   }
   if (strstr(text, "\"State\"") != NULL && !echo_state(session, text)) {
     SYS_Report("REFERENCE GX: Syncplay State reply failed\n");
@@ -765,9 +824,11 @@ static bool poll_frames(MultiplexSyncplaySession *session) {
 
 MultiplexSyncplaySession *
 multiplex_syncplay_session_connect(const MultiplexTrpcRoom *room,
-                                   const char *device_identifier) {
+                                   const char *device_identifier,
+                                   uint32_t user_id, bool observer) {
   if (room == NULL || !safe_identifier(room->id) ||
       !safe_identifier(device_identifier) ||
+      user_id == 0 ||
       strlen(device_identifier) >=
           sizeof(((MultiplexSyncplaySession *)0)->device_identifier)) {
     return NULL;
@@ -800,8 +861,8 @@ multiplex_syncplay_session_connect(const MultiplexTrpcRoom *room,
                "{\"Hello\":{\"room\":{\"name\":\"%s\"},\"username\":"
                "\"{\\\"deviceIdentifier\\\":\\\"%s\\\","
                "\\\"deviceName\\\":\\\"Multiplex GameCube\\\","
-               "\\\"userID\\\":\\\"0\\\"}\",\"version\":\"1.6.4\"}}",
-               room->id, device_identifier);
+               "\\\"userID\\\":\\\"%u\\\"}\",\"version\":\"1.6.4\"}}",
+               room->id, device_identifier, user_id);
   char response[SYNCPLAY_FRAME_CAPACITY] = {0};
   const bool received_protocol_frame =
       hello_size > 0 && (size_t)hello_size < sizeof(hello) &&
@@ -836,13 +897,14 @@ multiplex_syncplay_session_connect(const MultiplexTrpcRoom *room,
   session->transport = socket;
   session->connected = true;
   session->participant_count = 1u;
+  session->observer = observer;
   strcpy(session->device_identifier, device_identifier);
   const int identity_size = snprintf(
       session->encoded_user, sizeof(session->encoded_user),
       "{\\\"deviceIdentifier\\\":\\\"%s\\\","
       "\\\"deviceName\\\":\\\"Multiplex GameCube\\\","
-      "\\\"userID\\\":\\\"0\\\"}",
-      device_identifier);
+      "\\\"userID\\\":\\\"%u\\\"}",
+      device_identifier, user_id);
   if (identity_size <= 0 ||
       (size_t)identity_size >= sizeof(session->encoded_user) ||
       !announce_session(session, room)) {
@@ -916,6 +978,18 @@ bool multiplex_syncplay_session_take_remote_playback(
 unsigned multiplex_syncplay_session_participant_count(
     const MultiplexSyncplaySession *session) {
   return session == NULL ? 0u : session->participant_count;
+}
+
+bool multiplex_syncplay_session_room_position(
+    const MultiplexSyncplaySession *session, uint32_t *position_ms,
+    bool *paused) {
+  if (session == NULL || position_ms == NULL || paused == NULL ||
+      !session->room_position_known) {
+    return false;
+  }
+  *position_ms = session->room_position_ms;
+  *paused = session->room_paused;
+  return true;
 }
 
 void multiplex_syncplay_session_destroy(MultiplexSyncplaySession *session) {
