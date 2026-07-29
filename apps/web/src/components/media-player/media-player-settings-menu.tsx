@@ -22,8 +22,17 @@ import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import { shallow } from "zustand/shallow";
 import type { MediaPlayerItem, PlaybackRate } from "~/types/media-player";
 import { CAPTION_SIZE_OPTIONS } from "./utils/caption-size";
-import { playbackUsesTranscode } from "./utils/plex-playback-plan";
-import { buildPlexSubtitleSelectionUrl } from "./utils/plex-stream-urls";
+import {
+  buildPlexPlaybackPlan,
+  playbackUsesTranscode,
+} from "./utils/plex-playback-plan";
+import {
+  buildPlexSubtitleSelectionUrl,
+  buildPlexTranscodeSessionKey,
+  markTranscodeSessionStopped,
+  preparePlexTranscodeDecision,
+  stopTranscodeSessionBeforeReplacement,
+} from "./utils/plex-stream-urls";
 
 /* ────────────────────────────────────────────────────────────
    Media Player Settings Menu
@@ -222,11 +231,62 @@ export function MediaPlayerSettingsMenu({
         if (refreshed.data) {
           const playbackBeforeReplacement = playerCommands.snapshot();
           const preserveCurrentTime = playbackBeforeReplacement.currentTime;
+          const previousItem = playbackBeforeReplacement.currentItem;
+          const previousPlan = previousItem
+            ? buildPlexPlaybackPlan(previousItem)
+            : null;
+          const previousTranscodeSession =
+            previousPlan?.videoUsesTranscode &&
+            playbackBeforeReplacement.streamSessionId
+              ? buildPlexTranscodeSessionKey(
+                  playbackBeforeReplacement.streamSessionId,
+                  playbackBeforeReplacement.streamOffset,
+                  previousPlan.burnedSubtitleId,
+                )
+              : null;
+          const replacementItem: MediaPlayerItem = {
+            ...currentItem,
+            ...refreshed.data,
+            serverUrl: currentItem.serverUrl,
+            authToken: currentItem.authToken,
+            serverId: currentItem.serverId,
+          };
+          const replacementPlan = buildPlexPlaybackPlan(replacementItem);
+          if (previousTranscodeSession) {
+            const previousStopped = await stopTranscodeSessionBeforeReplacement(
+              currentItem.serverUrl,
+              currentItem.authToken,
+              previousTranscodeSession,
+            );
+            if (!previousStopped || !isCurrentPlayback()) {
+              if (isCurrentPlayback()) {
+                setSubtitleError("Unable to update subtitles");
+              }
+              return;
+            }
+          }
+          const decisionReady = await preparePlexTranscodeDecision(
+            replacementItem,
+            currentItem.serverUrl,
+            currentItem.authToken,
+            replacementPlan,
+            preserveCurrentTime,
+            playbackIdentity.streamSessionId,
+          );
+          if (!decisionReady || !isCurrentPlayback()) {
+            if (isCurrentPlayback()) {
+              setSubtitleError("Unable to update subtitles");
+            }
+            return;
+          }
           applyPlaybackMetadata(playbackIdentity, refreshed.data, {
             preserveCurrentTime,
             reloadVideo: true,
             previousVideoUsesTranscode: previousUsesTranscode,
           });
+          if (previousTranscodeSession) {
+            markTranscodeSessionStopped(previousTranscodeSession);
+          }
         }
         setPane("root");
       })

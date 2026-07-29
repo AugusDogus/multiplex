@@ -337,6 +337,7 @@ describe("applyPlaybackMetadata", () => {
     expect(state.streamOffset).toBe(40);
     expect(buildPlexPlaybackPlan(state.currentItem!).subtitle).toEqual({
       kind: "burnIn",
+      id: 3,
       index: 2,
     });
     expect(

@@ -174,8 +174,7 @@ const getVideoSourceIdentity = (item: MediaPlayerItem): string => {
   const media = item.Media?.[0];
   const plan = buildPlexPlaybackPlan(item);
 
-  return plan.streamDecision === "direct-play" &&
-    plan.burnedSubtitleIndex === null
+  return plan.streamDecision === "direct-play" && plan.burnedSubtitleId === null
     ? JSON.stringify({
         kind: "direct-play",
         serverUrl: item.serverUrl,
@@ -188,7 +187,7 @@ const getVideoSourceIdentity = (item: MediaPlayerItem): string => {
         authToken: item.authToken,
         key: item.key,
         hasPart: Boolean(media?.Part?.[0]?.key),
-        burnedSubtitleIndex: plan.burnedSubtitleIndex,
+        burnedSubtitleId: plan.burnedSubtitleId,
       });
 };
 
