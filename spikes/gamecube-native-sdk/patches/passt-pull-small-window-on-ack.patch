@@ -1,0 +1,23 @@
+diff --git a/tcp.c b/tcp.c
+index ad4d17b..126bc65 100644
+--- a/tcp.c
++++ b/tcp.c
+@@ -1937,6 +1937,7 @@ static int tcp_data_from_tap(const struct ctx *c, struct tcp_tap_conn *conn,
+ 	int i, iov_i, ack = 0, fin = 0, retr = 0, keep = -1, partial_send = 0;
+ 	uint16_t max_ack_seq_wnd = conn->wnd_from_tap;
+ 	uint32_t max_ack_seq = conn->seq_ack_from_tap;
++	uint32_t ack_before = conn->seq_ack_from_tap;
+ 	uint32_t seq_from_tap = conn->seq_from_tap;
+ 	struct msghdr mh = { .msg_iov = tcp_iov };
+ 	size_t len;
+@@ -2085,6 +2086,10 @@ static int tcp_data_from_tap(const struct ctx *c, struct tcp_tap_conn *conn,
+ 
+ 	tcp_tap_window_update(c, conn, max_ack_seq_wnd, now);
+ 
++	if (conn->wnd_from_tap <= 2U * MSS_GET(conn) &&
++	    SEQ_GT(conn->seq_ack_from_tap, ack_before))
++		tcp_data_from_sock(c, conn, now);
++
+ 	if (retr) {
+ 		flow_trace(conn,
+ 			   "fast re-transmit, ACK: %u, previous sequence: %u",

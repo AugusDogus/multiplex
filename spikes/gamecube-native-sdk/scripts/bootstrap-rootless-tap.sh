@@ -35,7 +35,8 @@ fi
 passt_patch="$spike_dir/patches/passt-handle-data-on-handshake-ack.patch"
 passt_small_window_patch="$spike_dir/patches/passt-ack-small-window-guests-immediately.patch"
 passt_small_window_retransmit_patch="$spike_dir/patches/passt-avoid-spurious-small-window-retransmit.patch"
-for patch_file in "$passt_patch" "$passt_small_window_patch" "$passt_small_window_retransmit_patch"; do
+passt_small_window_pull_patch="$spike_dir/patches/passt-pull-small-window-on-ack.patch"
+for patch_file in "$passt_patch" "$passt_small_window_patch" "$passt_small_window_retransmit_patch" "$passt_small_window_pull_patch"; do
   if git -C "$passt_dir" apply --unidiff-zero --reverse --check "$patch_file" >/dev/null 2>&1; then
     :
   elif git -C "$passt_dir" apply --unidiff-zero --check "$patch_file"; then
@@ -46,7 +47,7 @@ for patch_file in "$passt_patch" "$passt_small_window_patch" "$passt_small_windo
   fi
 done
 
-passt_input="$PASST_COMMIT $(cksum "$passt_patch") $(cksum "$passt_small_window_patch") $(cksum "$passt_small_window_retransmit_patch")"
+passt_input="$PASST_COMMIT $(cksum "$passt_patch") $(cksum "$passt_small_window_patch") $(cksum "$passt_small_window_retransmit_patch") $(cksum "$passt_small_window_pull_patch")"
 passt_stamp="$passt_dir/.multiplex-build-input"
 if [ ! -x "$passt_dir/pasta" ] ||
   [ ! -f "$passt_stamp" ] ||

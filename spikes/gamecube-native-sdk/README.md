@@ -51,15 +51,16 @@ GameCube's outgoing TCP sequence backward. Together these remove the
 connection-level retransmission delays without host privileges. Pasta's
 interactive-traffic heuristic normally waits for the remote peer before
 acknowledging guest bytes. That produces a duplicate-ACK storm with libogc2's
-two-MSS window and tiny TLS records, a pattern also diagnosed by pasta's
+tiny window and TLS records, a pattern also diagnosed by pasta's
 maintainers for small-message protocols. The dedicated local pasta build
 acknowledges a guest with a two-MSS-or-smaller window immediately; this changed
 the authenticated Watch Together request from a 30-second timeout to a valid
-sub-second chunked response without changing the host or requiring sudo.
-Libogc2's
-upstream two-segment TCP receive window is preserved because it matches the
-BBA's approximately two-frame receive ring; advertising four segments
-overflowed the adapter and caused retransmission bursts. Set
+sub-second chunked response without changing the host or requiring sudo. The
+Dolphin TAP harness limits libogc2's TCP receive window to one MSS because the
+emulator can otherwise enqueue two Ethernet frames before the BBA advances its
+approximately two-frame ring. A final pasta patch drains more host-socket data
+whenever that small guest advances its ACK; without it, pasta's edge-triggered
+socket path sent only one segment per second after the initial burst. Set
 `GAMECUBE_PASTA_CAPTURE=1` to write `/tmp/multiplex-pasta.pcap` without
 enabling timing-heavy trace logs.
 
@@ -163,6 +164,8 @@ backward/forward without walking focus through every poster.
 - `patches/passt-avoid-spurious-small-window-retransmit.patch`: leave loss
   recovery to the host TCP socket when a tiny guest window cannot provide the
   three duplicate ACKs required for fast retransmit
+- `patches/passt-pull-small-window-on-ack.patch`: drain the next host segment
+  as soon as a one- or two-MSS guest advances its ACK
 
 ## Current boundary
 
@@ -309,6 +312,10 @@ investigation](https://archives.passt.top/passt-dev/ZREgC%2FuksH%2B2ol1b%40zatzi
 and its [documented small-message ACK
 behavior](https://github.com/podman-container-tools/podman/discussions/24572);
 no privileged TAP device or Portless service change is required.
+Because pasta's socket side uses edge-triggered readiness, a third patch pulls
+the next segment from an already-readable host socket whenever the small guest
+advances its ACK. This preserves the BBA-sized in-flight limit without waiting
+for a readiness edge that cannot recur while unread bytes remain queued.
 
 The old stack exposed a second bottleneck independent of Dolphin's backend.
 libogc2's historical lwIP calls the delayed-ACK helper when the application
@@ -323,9 +330,9 @@ against a real BBA rather than assumed to be a hardware requirement. It matches
 the long-standing [lwIP receive-performance
 guidance](https://lists.nongnu.org/archive/html/lwip-users/2004-10/msg00022.html)
 while respecting the BBA's small ring. The automated local HTTP playback run
-now transfers the 155,648-byte test movie twice in 3.15 seconds of captured
-network time with three retransmissions, starts playback, decodes at 29.9 fps,
-pauses and resumes, and leaves a clean invalid-access log.
+now scans and caches the 155,648-byte test movie without the earlier
+one-segment-per-second stalls, starts playback, decodes at about 30 fps, pauses
+and resumes, and leaves a clean invalid-access log.
 
 The managed runner defaults Dolphin to DSP LLE. Movie audio follows
 WiiMC-GCN's `ao_gekko` design and streams decoded stereo PCM directly through
