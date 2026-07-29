@@ -36,6 +36,9 @@ const inviteesEnvelopeSchema = z.object({
 interface StoredConsoleAuth {
   generation: number;
   origin: string;
+  plexClientId: string;
+  plexServerToken: string;
+  plexServerUrl: string;
   sessionToken: string;
 }
 
@@ -54,10 +57,11 @@ if (
     "create-room",
     "delete-room",
     "join-lobby",
+    "stop-pms-session",
   ].includes(command ?? "")
 ) {
   throw new Error(
-    "Usage: bun syncplay-room-control.ts seek <milliseconds> | pause | resume | list-invitees | list-rooms | create-room <invitee-id> | delete-room <room-id> | join-lobby <user-id>",
+    "Usage: bun syncplay-room-control.ts seek <milliseconds> | pause | resume | list-invitees | list-rooms | create-room <invitee-id> | delete-room <room-id> | join-lobby <user-id> | stop-pms-session",
   );
 }
 
@@ -70,6 +74,11 @@ const memoryCardPath = process.env.GAMECUBE_MEMORY_CARD_PATH ?? defaultMemoryCar
 const auth = newestAuthRecord(await readFile(memoryCardPath));
 if (!auth) {
   throw new Error(`No valid Multiplex auth record found in ${memoryCardPath}`);
+}
+
+if (command === "stop-pms-session") {
+  await stopPmsSessions(auth);
+  process.exit(0);
 }
 
 if (command === "delete-room") {
@@ -304,6 +313,71 @@ async function fetchWithSession(
   return response;
 }
 
+async function stopPmsSessions(auth: StoredConsoleAuth): Promise<void> {
+  if (!auth.plexClientId || !auth.plexServerToken || !auth.plexServerUrl) {
+    throw new Error("The GameCube auth record has no saved PMS credentials.");
+  }
+  const headers = { "X-Plex-Token": auth.plexServerToken };
+  const sessionsUrl = new URL("/status/sessions", auth.plexServerUrl);
+  const response = await fetch(sessionsUrl, { headers });
+  if (!response.ok) {
+    throw new Error(`PMS session request failed with HTTP ${response.status}.`);
+  }
+  const xml = await response.text();
+  const videoBlocks = xml.match(/<Video\b[\s\S]*?<\/Video>/g) ?? [];
+  let stopped = 0;
+  for (const video of videoBlocks) {
+    const player = video.match(/<Player\b[^>]*\/>/)?.[0];
+    if (
+      !player ||
+      xmlAttribute(player, "machineIdentifier") !== auth.plexClientId ||
+      xmlAttribute(player, "product") !== "Multiplex" ||
+      xmlAttribute(player, "device") !== "GameCube"
+    ) {
+      continue;
+    }
+    const playbackSessionId = xmlAttribute(player, "playbackSessionId");
+    if (playbackSessionId) {
+      const stopUrl = new URL("/:/transcode/universal/stop", auth.plexServerUrl);
+      stopUrl.searchParams.set("session", playbackSessionId);
+      const stopResponse = await fetch(stopUrl, { headers });
+      if (!stopResponse.ok && stopResponse.status !== 404) {
+        throw new Error(
+          `PMS transcode stop for ${playbackSessionId} failed with HTTP ${stopResponse.status}.`,
+        );
+      }
+    }
+    const videoTag = video.match(/<Video\b[^>]*>/)?.[0];
+    const ratingKey = videoTag ? xmlAttribute(videoTag, "ratingKey") : undefined;
+    if (ratingKey) {
+      const timelineUrl = new URL("/:/timeline", auth.plexServerUrl);
+      timelineUrl.searchParams.set("ratingKey", ratingKey);
+      timelineUrl.searchParams.set("key", `/library/metadata/${ratingKey}`);
+      timelineUrl.searchParams.set("state", "stopped");
+      timelineUrl.searchParams.set("time", xmlAttribute(videoTag, "viewOffset") ?? "0");
+      timelineUrl.searchParams.set("duration", xmlAttribute(videoTag, "duration") ?? "0");
+      const timelineResponse = await fetch(timelineUrl, {
+        headers: {
+          ...headers,
+          "X-Plex-Client-Identifier": auth.plexClientId,
+        },
+      });
+      if (!timelineResponse.ok) {
+        throw new Error(
+          `PMS stopped timeline for ${ratingKey} failed with HTTP ${timelineResponse.status}.`,
+        );
+      }
+    }
+    stopped += 1;
+  }
+  console.log(`Stopped ${stopped} Multiplex GameCube PMS session(s).`);
+}
+
+function xmlAttribute(tag: string, name: string): string | undefined {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|\\s)${escapedName}="([^"]*)"`).exec(tag)?.[1];
+}
+
 function newestAuthRecord(bytes: Uint8Array): StoredConsoleAuth | null {
   const records: StoredConsoleAuth[] = [];
   for (let offset = 0; offset + 48 <= bytes.length; ++offset) {
@@ -341,9 +415,26 @@ function newestAuthRecord(bytes: Uint8Array): StoredConsoleAuth | null {
       continue;
     }
     const fields = payload + 24;
+    const plexTokenLength = fieldLengths[2] ?? 0;
+    const plexClientIdLength = fieldLengths[3] ?? 0;
+    const plexServerUrlLength = fieldLengths[4] ?? 0;
+    const plexServerTokenLength = fieldLengths[5] ?? 0;
+    const plexTokenStart = fields + originLength + sessionTokenLength;
+    const plexClientIdStart = plexTokenStart + plexTokenLength;
+    const plexServerUrlStart = plexClientIdStart + plexClientIdLength;
+    const plexServerTokenStart = plexServerUrlStart + plexServerUrlLength;
     records.push({
       generation: readBe32(bytes, offset + 8),
       origin: decodeUtf8(bytes.subarray(fields, fields + originLength)),
+      plexClientId: decodeUtf8(
+        bytes.subarray(plexClientIdStart, plexClientIdStart + plexClientIdLength),
+      ),
+      plexServerToken: decodeUtf8(
+        bytes.subarray(plexServerTokenStart, plexServerTokenStart + plexServerTokenLength),
+      ),
+      plexServerUrl: decodeUtf8(
+        bytes.subarray(plexServerUrlStart, plexServerUrlStart + plexServerUrlLength),
+      ),
       sessionToken: decodeUtf8(
         bytes.subarray(fields + originLength, fields + originLength + sessionTokenLength),
       ),

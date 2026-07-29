@@ -28,6 +28,7 @@ launcher_pid=
 mute_pid=
 lobby_pid=
 created_room_id=
+cleanup_started=0
 browser_guest_log="$cache_dir/watch-together-browser-guest.log"
 browser_guest_control="$cache_dir/watch-together-browser-guest.control"
 pipe_open=0
@@ -126,6 +127,10 @@ else
 fi
 
 cleanup() {
+  if [ "$cleanup_started" -eq 1 ]; then
+    return
+  fi
+  cleanup_started=1
   if [ "$pipe_open" -eq 1 ]; then
     exec 3>&-
     pipe_open=0
@@ -151,6 +156,11 @@ cleanup() {
     sleep 0.3
     /bin/kill -KILL -- "-$launcher_pid" 2>/dev/null || true
     wait "$launcher_pid" 2>/dev/null || true
+  fi
+  if [ "$direct_plex" -eq 1 ] && \
+    ! bun "$script_dir/syncplay-room-control.ts" stop-pms-session \
+      >/dev/null 2>&1; then
+    echo "Could not stop the Dolphin client's PMS session; it may remain active until Plex expires it." >&2
   fi
   if [ -n "$server_pid" ]; then
     kill -TERM "$server_pid" 2>/dev/null || true
@@ -307,6 +317,66 @@ wait_for_browser_guest() {
   done
   echo "Timed out waiting for browser guest log pattern: $pattern" >&2
   tail -60 "$browser_guest_log" >&2 || true
+  exit 1
+}
+
+wait_for_browser_guest_seek() {
+  minimum=$1
+  maximum=$2
+  attempts=${3:-1200}
+  attempt=0
+  while [ "$attempt" -lt "$attempts" ]; do
+    browser_seek_offset=$(sed -n \
+      's/.*Browser guest advancing offset-ms=\([0-9][0-9]*\).*/\1/p' \
+      "$browser_guest_log" 2>/dev/null | tail -1)
+    if [ -n "$browser_seek_offset" ] && \
+      [ "$browser_seek_offset" -ge "$minimum" ] && \
+      [ "$browser_seek_offset" -le "$maximum" ]; then
+      return
+    fi
+    if [ -z "$lobby_pid" ] || ! kill -0 "$lobby_pid" 2>/dev/null; then
+      echo "Browser guest exited before following the GameCube seek." >&2
+      tail -60 "$browser_guest_log" >&2 || true
+      exit 1
+    fi
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  echo "Browser guest did not follow the GameCube seek to $minimum..$maximum ms; its latest offset was ${browser_seek_offset:-unknown}." >&2
+  tail -60 "$browser_guest_log" >&2 || true
+  exit 1
+}
+
+wait_for_synced_playback_state() {
+  expected=$1
+  attempts=${2:-1200}
+  stable=0
+  attempt=0
+  while [ "$attempt" -lt "$attempts" ]; do
+    gamecube_state=$(sed -n \
+      's/.*REFERENCE GX: playback=\(playing\|paused\).*/\1/p' \
+      "$log" 2>/dev/null | tail -1)
+    browser_state=$(sed -n \
+      's/.*Browser guest playback=\(playing\|paused\).*/\1/p' \
+      "$browser_guest_log" 2>/dev/null | tail -1)
+    if [ "$gamecube_state" = "$expected" ] && \
+      [ "$browser_state" = "$expected" ]; then
+      stable=$((stable + 1))
+      if [ "$stable" -ge 20 ]; then
+        return
+      fi
+    else
+      stable=0
+    fi
+    if ! kill -0 "$launcher_pid" 2>/dev/null || \
+      [ -z "$lobby_pid" ] || ! kill -0 "$lobby_pid" 2>/dev/null; then
+      echo "A Watch Together client exited before both reached $expected." >&2
+      exit 1
+    fi
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  echo "Watch Together clients did not remain $expected; GameCube=$gamecube_state browser=$browser_state." >&2
   exit 1
 }
 
@@ -577,6 +647,12 @@ if [ "$seek_offset" -lt "$minimum_seek_offset" ] || \
   echo "Selected Plex seek activated unexpected offset $seek_offset (wanted $minimum_seek_offset..$maximum_seek_offset)." >&2
   exit 1
 fi
+if [ "$watch_together_browser_guest" -eq 1 ]; then
+  browser_minimum_seek_offset=$((seek_offset - 3000))
+  browser_maximum_seek_offset=$((seek_offset + 3000))
+  wait_for_browser_guest_seek \
+    "$browser_minimum_seek_offset" "$browser_maximum_seek_offset" 1200
+fi
 
 if [ "$expect_continuation" -eq 1 ]; then
   continuation_count=$(line_count "playback-continuation requested")
@@ -596,27 +672,21 @@ fi
 # Prove deliberate player state edges reach Plex as well as periodic progress.
 paused_count=$(line_count "playback=paused")
 paused_timeline_count=$(line_count "$timeline_pattern .*state=paused reported=1")
-if [ "$watch_together_browser_guest" -eq 1 ]; then
-  browser_paused_count=$(browser_guest_line_count "Browser guest playback=paused")
-fi
 press A
 wait_for_new "playback=paused" "$paused_count" 120
 wait_for_new "$timeline_pattern .*state=paused reported=1" "$paused_timeline_count" 600
 if [ "$watch_together_browser_guest" -eq 1 ]; then
-  wait_for_browser_guest "Browser guest playback=paused" "$browser_paused_count" 600
+  wait_for_synced_playback_state paused 1200
 fi
 playing_count=$(line_count "playback=playing")
 playing_timeline_count=$(line_count "$timeline_pattern .*state=playing reported=1")
 decoder_count=$(line_count "decoder=60 frames/")
-if [ "$watch_together_browser_guest" -eq 1 ]; then
-  browser_playing_count=$(browser_guest_line_count "Browser guest playback=playing")
-fi
 press A
 wait_for_new "playback=playing" "$playing_count" 120
 wait_for_new "$timeline_pattern .*state=playing reported=1" "$playing_timeline_count" 600
 wait_for_new "decoder=60 frames/" "$decoder_count" 1200
 if [ "$watch_together_browser_guest" -eq 1 ]; then
-  wait_for_browser_guest "Browser guest playback=playing" "$browser_playing_count" 600
+  wait_for_synced_playback_state playing 1200
 fi
 if [ "$watch_together" -eq 1 ]; then
   remote_pause_count=$(line_count "Syncplay remote playback paused=1")
@@ -628,6 +698,9 @@ if [ "$watch_together" -eq 1 ]; then
       bun "$script_dir/syncplay-room-control.ts" pause
   fi
   wait_for_new "Syncplay remote playback paused=1" "$remote_pause_count" 600
+  if [ "$watch_together_browser_guest" -eq 1 ]; then
+    wait_for_synced_playback_state paused 1200
+  fi
   remote_resume_count=$(line_count "Syncplay remote playback paused=0")
   if [ "$watch_together_browser_guest" -eq 1 ]; then
     printf 'resume\n' >"$browser_guest_control"
@@ -637,6 +710,9 @@ if [ "$watch_together" -eq 1 ]; then
       bun "$script_dir/syncplay-room-control.ts" resume
   fi
   wait_for_new "Syncplay remote playback paused=0" "$remote_resume_count" 600
+  if [ "$watch_together_browser_guest" -eq 1 ]; then
+    wait_for_synced_playback_state playing 1200
+  fi
 fi
 sleep "$sustain_seconds"
 if grep -Eq 'underruns=[1-9][0-9]*' "$log"; then

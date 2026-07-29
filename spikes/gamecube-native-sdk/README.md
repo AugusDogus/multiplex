@@ -99,7 +99,8 @@ Together smoke. It uses the real guest session saved by the web Playwright
 setup, has that account join the room created in Dolphin, verifies playback
 advances in both clients, and exercises play/pause synchronization in both
 directions. The browser is headless and muted while Dolphin remains visible;
-the runner disbands its room and closes both clients during cleanup.
+the runner disbands its room, closes both clients, and clears the exact
+GameCube client session from PMS during cleanup.
 
 `scripts/plex-pair.py` implements Plex's current device-key PIN flow without
 placing an account password or long-lived legacy token on the console. `start`
