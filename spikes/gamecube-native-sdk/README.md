@@ -258,12 +258,14 @@ and completes the authenticated tRPC request in about 0.44 seconds. Pasta
 packet tracing is intentionally disabled for performance runs because
 per-frame trace and PCAP output materially slows emulation.
 
-The isolated Dolphin profile uses its normal DSP HLE mode. Movie audio follows
+The managed runner defaults Dolphin to DSP LLE. Movie audio follows
 WiiMC-GCN's `ao_gekko` design and streams decoded stereo PCM directly through
-`AUDIO_InitDMA`, so it does not upload a DSP mixer ucode. The earlier AESND
-implementation required LLE only because Dolphin 2606 did not recognize the
-current libogc2 yield/resume ucode. Removing that unnecessary mixer removes
-the emulator-specific requirement; unknown-ucode/AX fallback remains a hard
+`AUDIO_InitDMA`, but the linked homebrew stack still caused Dolphin 2606 to
+report unknown ucode CRC `8d527c50`. Dolphin's own homebrew-audio maintainer
+documents that substituting AX for an unknown homebrew ucode is not correct and
+recommends LLE for proper emulation. This affects only Dolphin; real hardware
+runs the uploaded code on its DSP. `DOLPHIN_AUDIO_EMULATION=HLE` remains
+available for diagnosis, while unknown-ucode/AX fallback remains a hard
 log-check failure.
 
 The linked decoder comes from MPlayer CE's historical FFmpeg tree. Its source

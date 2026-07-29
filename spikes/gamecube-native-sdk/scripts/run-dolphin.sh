@@ -12,7 +12,7 @@ case "$dol" in
 esac
 dolphin_emu="${DOLPHIN_EMU:-dolphin-emu}"
 config_profile=${DOLPHIN_CONFIG_PROFILE:-"$spike_dir/dolphin/Dolphin.ini"}
-audio_emulation=${DOLPHIN_AUDIO_EMULATION:-HLE}
+audio_emulation=${DOLPHIN_AUDIO_EMULATION:-LLE}
 gdb_port=${DOLPHIN_GDB_PORT:--1}
 gdb_socket=${DOLPHIN_GDB_SOCKET:-}
 normal_scheduler_guard=${MULTIPLEX_DOLPHIN_NORMAL_SCHEDULER:-0}

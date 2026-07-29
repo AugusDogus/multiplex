@@ -91,15 +91,17 @@ selects the matching progressive mode. This avoids the alternating-field
 vertical jitter of 480i; composite-only hardware keeps the preferred
 interlaced fallback.
 
-The profile uses Dolphin's normal DSP HLE mode. WiiMC-GCN's working
-`ao_gekko` path showed that stereo movie output does not need ASND or AESND:
-it can hand decoded PCM straight to the GameCube Audio Interface with
-`AUDIO_InitDMA`. The spike now follows that design and does not upload a DSP
-mixer ucode. The previous LLE profile was valid for its AESND implementation,
-but the requirement was self-inflicted: Dolphin 2606 did not recognize that
-libogc2 revision's yield/resume ucode and fell back to AX under HLE. Direct AI
-DMA removes the mismatch, and the smoke test still rejects unknown-ucode/AX
-fallback warnings.
+WiiMC-GCN's working `ao_gekko` path showed that stereo movie output does not
+need ASND or AESND: it can hand decoded PCM straight to the GameCube Audio
+Interface with `AUDIO_InitDMA`. The spike follows that design. Even so, the
+linked homebrew stack caused Dolphin 2606 to report unknown ucode CRC
+`8d527c50`. Dolphin PR
+[#10793](https://github.com/dolphin-emu/dolphin/pull/10793#issuecomment-1170318021)
+documents that its AX fallback does not correctly emulate unknown homebrew
+ucode and says to use DSP LLE. The managed runner therefore defaults to LLE,
+with `DOLPHIN_AUDIO_EMULATION=HLE` as a diagnostic override. This is an
+emulator profile requirement only; real hardware executes the uploaded DSP
+code. The smoke test continues to reject unknown-ucode/AX fallback warnings.
 
 ## Native SDK patches
 
@@ -500,9 +502,9 @@ window captures taken a second apart while paused were byte-identical.
 
 The same smoke run decoded MP2 continuously into direct Audio Interface DMA
 with zero buffer underruns. Its sample counter was unchanged across the
-five-second pause and resumed from the exact logged count. Repeated Dolphin
-DSP HLE runs completed the full flow without loading a DSP ucode, falling back
-to AX, reporting an invalid access, or missing the timing gate.
+five-second pause and resumed from the exact logged count. A normal-priority
+Dolphin DSP LLE run completed the full flow without reporting an invalid
+access or missing the timing gate.
 
 The console spike is intentionally GPL-2.0-or-later so it can directly reuse
 MPlayer CE's proven GameCube work. Native SDK remains Apache-2.0 and the
