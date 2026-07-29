@@ -63,6 +63,7 @@
  */
 #define AUDIO_PREBUFFER_BYTES (24u * 1024u)
 #define HLS_READINESS_TIMEOUT_MS 60000u
+#define SEGMENT_PREFETCH_MARGIN_MS 8000u
 #define SEGMENT_HANDOFF_MARGIN_MS 64u
 #define POSTER_JPEG_CAPACITY (256u * 1024u)
 #define PLEX_POSTER_JPEG_CAPACITY (32u * 1024u)
@@ -2258,6 +2259,12 @@ static void stage_following_media_if_due(
   if (!video_was_playing || audio_output == NULL || staged == NULL ||
       staged->thread != LWP_THREAD_NULL || staged->ready || staged->failed ||
       active_manifest == NULL || active_manifest->rating_key == 0) {
+    return;
+  }
+  const uint32_t position_ms = playback_position_ms(active_manifest);
+  const uint64_t segment_end = (uint64_t)active_manifest->segment_start_ms +
+                               active_manifest->segment_duration_ms;
+  if ((uint64_t)position_ms + SEGMENT_PREFETCH_MARGIN_MS < segment_end) {
     return;
   }
   start_staged_media_session(staged, gateway_url, active_manifest);
