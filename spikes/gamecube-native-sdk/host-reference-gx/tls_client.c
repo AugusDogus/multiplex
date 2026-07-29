@@ -25,8 +25,8 @@
  * libogc2's unscaled receive window can shrink Portless/Node's advertised
  * peer window below a large TLS record. Keep control-plane records below the
  * smallest window observed while pasta is draining a remote TLS handshake.
- * The paced Dolphin TAP adapter prevents the BBA from losing the additional
- * records this requires.
+ * Short records also keep the ancient libogc2/lwIP receive path responsive
+ * while application code processes each decrypted chunk.
  */
 #define TLS_GAMECUBE_WRITE_CHUNK 96u
 

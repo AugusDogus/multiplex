@@ -213,7 +213,7 @@ static void disconnect_client(HttpClient *client) {
   }
 }
 
-static bool connect_client(HttpClient *client, bool initial_connection) {
+static bool connect_client(HttpClient *client) {
   client->socket = net_socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
   if (client->socket < 0) {
     return false;
@@ -251,12 +251,8 @@ static bool connect_client(HttpClient *client, bool initial_connection) {
     disconnect_client(client);
     return false;
   }
-  if (initial_connection) {
-    /* Match Dolphin's own GameCube HTTP regression test connection grace. */
-    sleep(3);
-    SYS_Report("REFERENCE GX: HTTP connected host=%s port=%u\n", client->host,
-               client->port);
-  }
+  SYS_Report("REFERENCE GX: HTTP connected host=%s port=%u\n", client->host,
+             client->port);
   if (client->secure) {
     client->tls = multiplex_tls_client_connect(client->socket, client->host);
     if (client->tls == NULL) {
@@ -587,7 +583,7 @@ static bool fetch_cache_once(HttpClient *client, size_t start) {
   if (client->total_size != 0 && start >= client->total_size) {
     return false;
   }
-  if (client->socket < 0 && !connect_client(client, false)) {
+  if (client->socket < 0 && !connect_client(client)) {
     return false;
   }
   size_t end = start + HTTP_CACHE_SIZE - 1u;
@@ -676,7 +672,7 @@ static bool start_stream_response(HttpClient *client, size_t start) {
     return false;
   }
   disconnect_client(client);
-  if (!connect_client(client, false)) {
+  if (!connect_client(client)) {
     return false;
   }
 
@@ -810,7 +806,7 @@ HttpClient *http_client_open_with_headers(const char *url,
     }
     network_initialized = true;
   }
-  if (!connect_client(client, first_connection) || !fetch_cache(client, 0)) {
+  if (!connect_client(client) || !fetch_cache(client, 0)) {
     SYS_Report("REFERENCE GX: HTTP open failed host=%s port=%u\n", client->host,
                client->port);
     http_client_destroy(client);
@@ -1217,7 +1213,7 @@ static bool http_client_stream_get_with_headers_unlocked(
     }
     network_initialized = true;
   }
-  if (!connect_client(client, false)) {
+  if (!connect_client(client)) {
     free(client);
     return false;
   }
@@ -1360,7 +1356,7 @@ static bool http_client_request_with_headers_unlocked(
     }
     network_initialized = true;
   }
-  if (!connect_client(client, false)) {
+  if (!connect_client(client)) {
     free(client);
     return false;
   }

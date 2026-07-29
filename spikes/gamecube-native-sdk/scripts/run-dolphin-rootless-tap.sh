@@ -89,11 +89,10 @@ trap stop_namespace HUP INT TERM
           if ip link show "$tap" >/dev/null 2>&1; then
             ip link set "$tap" master "$bridge"
             ip link set "$tap" up
-            # libogc advertises a two-frame TCP receive window and configures
-            # the BBA to interrupt after two packets. Let pasta deliver that
-            # window directly: delaying those frames behind a host-side TBF
-            # makes the pasta TCP proxy mistake the delay for packet loss and
-            # repeatedly rewind to its last acknowledged sequence number.
+            # libogc advertises a four-frame TCP receive window and configures
+            # the BBA to interrupt after two packets. Upstream pasta emits one
+            # TCP frame per TAP flush in namespace mode, so no additional
+            # host-side pacing is needed.
             exit 0
           fi
         done

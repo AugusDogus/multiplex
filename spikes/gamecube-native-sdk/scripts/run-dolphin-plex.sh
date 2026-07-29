@@ -123,7 +123,7 @@ fi
 setsid env \
   DOLPHIN_CONFIG_PROFILE="$spike_dir/dolphin/Dolphin.tap.ini" \
   DOLPHIN_EMU="$script_dir/run-dolphin-rootless-tap.sh" \
-  GAMECUBE_PASTA_BIN="$spike_dir/.passt/pasta" \
+  GAMECUBE_PASTA_BIN="${GAMECUBE_PASTA_BIN:-$spike_dir/.passt/pasta}" \
   sh "$script_dir/run-dolphin.sh" \
     "$spike_dir/multiplex-gamecube-native-reference.dol" >/dev/null 2>&1 &
 launcher_pid=$!
@@ -235,7 +235,10 @@ exec 3>"$pipe"
 pipe_open=1
 signature_count=$(line_count "signature=")
 if [ -n "$multiplex_base_url" ]; then
-  if ! grep -q "gateway-pairing status=2" "$log"; then
+  if grep -q "auth restored" "$log" &&
+    grep -q "tRPC Watch Together rooms=.* loaded=1" "$log"; then
+    :
+  elif ! grep -q "gateway-pairing status=2" "$log"; then
     wait_log "gateway-pairing status=1" 600
     wait_for_new "gateway-pairing status=2" 0 3600
     wait_for_new "signature=" "$signature_count"

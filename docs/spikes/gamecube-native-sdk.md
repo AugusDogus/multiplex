@@ -295,9 +295,9 @@ the sheet as planar YUV420, converts each cell directly to `GX_TF_RGB565` 4x4
 texture order, and overlays the textures at the exact Native SDK-resolved
 `<image>` rectangles. In the real-server run, eleven raw RGB565 posters would
 have required 211 KiB; the JPEG was 33,200 bytes and decoded all eleven cells
-in 35 ms. Dolphin's TAP BBA remains reliable with 4 KiB ranges but stalls on a
-16 KiB range, so the smaller transport materially improves startup without
-depending on an emulator-only socket assumption.
+in 35 ms. The original 16 KiB-range stall was a transport bug rather than a
+BBA limit: the corrected rootless path transferred a 35,151-byte artwork
+response in single-digit milliseconds.
 
 Gateway-prepared media is no longer coupled into the generated build header.
 At startup the GameCube requests `GET /v4/playback.bin`:
@@ -338,16 +338,40 @@ namespace. A pinned `pasta` process supplies DHCP and rootless host networking;
 the harness translates only the outer Ethernet source/destination MAC at its
 bridge boundary, leaving the GameCube's ARP, IP, and TCP payloads unchanged.
 No sudo or physical-interface reconfiguration is required. The host's packaged
-June 11, 2026 `pasta` silently discarded the GameCube's padded 60-byte TCP SYN;
-upstream commit `f072bc0` fixed that exact class of frame on June 16 and is
-pinned by the spike bootstrap.
+June 11, 2026 `pasta` silently discarded the GameCube's padded 60-byte TCP SYN.
+The bootstrap now pins July 28 upstream commit `f8df3f1`, which contains the
+June padded-frame fix and the December 2025 throughput work for non-local
+peers.
 
-With the fixed helper, Dolphin's TAP backend completes the clean playback
-smokes. Dolphin 2606's BuiltIn HLE backend can serve the
-first responses but stalls under the repeated transfer. The passing TAP test
-therefore demonstrates that the app/libogc2 BBA path works and isolates the
-remaining failure to Dolphin's BuiltIn HLE translation, not to a requirement
-that would affect a physical GameCube BBA.
+Packet captures isolated two additional compatibility bugs. Libogc2 carries a
+2006-era lwIP TCP stack that moves `snd_nxt` backward during retransmission,
+causing later ACKs to use the request's 380-byte-old sequence number. The
+bootstrap backports lwIP upstream commit `c232edb`, which made `snd_nxt`
+monotonic and RFC-correct. Pasta also returned immediately after receiving a
+single final handshake ACK even when that same segment carried the first HTTP
+request. A narrow patch retains the pure-ACK fast path but lets a data-bearing
+ACK continue into established-state processing. This matches pasta's earlier
+upstream first-ACK fixes without disabling its congestion-window or
+delivery-rate controls.
+
+With both fixes, the rootless run loads the catalog immediately, transfers a
+35,151-byte artwork response in single-digit milliseconds, completes a
+Portless TLS connection in about 0.19 seconds, and finishes the authenticated
+tRPC request in about 0.44 seconds. The old workaround that inflated the
+advertised TCP window, disabled delivery-rate feedback, forced window scaling
+off, and slept after TAP frames has been removed. Those changes fought pasta's
+flow control and increased retransmissions instead of fixing the packet-state
+errors.
+
+With the fixed helper, Dolphin's TAP backend completes metadata, artwork, TLS,
+and tRPC control transfers and has carried the real Plex playback stream.
+Dolphin 2606's BuiltIn HLE backend can serve the first responses but stalls
+under the repeated transfer. The TAP results demonstrate that the app/libogc2
+BBA path works and isolate that HLE failure from requirements that would affect
+a physical GameCube BBA. The managed 155 KiB fixture smoke remains
+timing-sensitive: one non-traced run timed out during its range scan, while a
+traced rerun transferred the complete file and entered playback before trace
+overhead prevented the 60-frame decoder assertion.
 
 ## Invalid-access investigation
 

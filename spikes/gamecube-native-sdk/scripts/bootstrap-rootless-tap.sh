@@ -32,7 +32,7 @@ if [ "$actual_commit" != "$PASST_COMMIT" ]; then
   exit 1
 fi
 
-passt_patch="$spike_dir/patches/passt-dolphin-bba-rtt.patch"
+passt_patch="$spike_dir/patches/passt-handle-data-on-handshake-ack.patch"
 if git -C "$passt_dir" apply --unidiff-zero --reverse --check "$passt_patch" >/dev/null 2>&1; then
   :
 elif git -C "$passt_dir" apply --unidiff-zero --check "$passt_patch"; then

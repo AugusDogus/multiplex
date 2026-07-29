@@ -1,0 +1,17 @@
+diff --git a/tcp.c b/tcp.c
+index 59cb703..e3fb15d 100644
+--- a/tcp.c
++++ b/tcp.c
+@@ -2406,7 +2406,11 @@ int tcp_tap_handler(const struct ctx *c, enum pif pif,
+ 		if (tcp_tap_window_update(c, conn, ntohs(th->window), now))
+ 			tcp_data_from_sock(c, conn, now);
+ 
+-		if (p->count - idx == 1)
++		/* A single final ACK can also carry the first application
++		 * payload. Let the established-state path consume that data.
++		 */
++		if (p->count - idx == 1 &&
++		    l4len == th->doff * 4UL)
+ 			return 1;
+ 	}
+ 

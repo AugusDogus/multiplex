@@ -37,7 +37,12 @@ media URL, creates an unprivileged network namespace, and connects Dolphin's
 low-level emulated BBA to a rootless `pasta` Ethernet uplink. It does not
 modify the host's physical network and does not require sudo. The bootstrap
 pins a `pasta` revision containing its June 2026 fix for padded minimum-size
-IPv4 frames; older releases silently drop the GameCube TCP SYN.
+IPv4 frames and its December 2025 non-local-throughput work. A narrow local
+patch lets a single final handshake ACK carry the first HTTP request instead
+of silently discarding that payload. The libogc2 build also backports lwIP's
+upstream RFC-correct `snd_nxt` fix so a retransmission cannot move the
+GameCube's outgoing TCP sequence backward. Together these remove the
+connection-level retransmission delays without host privileges.
 
 `spike:gamecube:reference:plex` discovers a LAN Plex server (or uses
 `PLEX_BASE_URL`), selects its latest playable item by default, transcodes a
@@ -123,6 +128,10 @@ backward/forward without walking focus through every poster.
   changes applied to the pinned Native SDK checkout
 - `patches/native-sdk-reference-render-fast-paths.patch`: exact-output
   scanline and solid-blend fast paths for rounded fills, borders, and shadows
+- `patches/libogc2-lwip-rfc-snd-nxt.patch`: upstream lwIP sequence-number
+  semantics backported to libogc2's historical TCP stack
+- `patches/passt-handle-data-on-handshake-ack.patch`: preserve application
+  data piggybacked on the final TCP handshake ACK
 
 ## Current boundary
 
@@ -205,9 +214,8 @@ the bounded room result before loading the direct Plex catalog. The item-details
 screen can now call the existing `plex.createWatchTogetherRoom` mutation and
 render the returned room in the Native SDK view. A live Dolphin run created a
 real room for rating key `416278`, then immediately refreshed the list back to
-the same room. The BBA transport required 224-byte TLS plaintext records:
-including TLS overhead, they stay below pasta's observed 256-byte receive
-window, and both tRPC control requests fit in two records. Repeated HTTPS
+the same room. The BBA transport uses 224-byte TLS plaintext records, so both
+tRPC control requests fit in bounded records. Repeated HTTPS
 connections and a refresh immediately after cancelling an active poster load
 now complete without the earlier 30-second lost-record timeout.
 A bounded reference-render memo retains three expensive stable layers; warmed
@@ -234,6 +242,12 @@ playback without compiling session data into the DOL. That run decoded at 29.9
 fps, presented at 60.4 fps, completed pause/resume with zero underruns, and
 produced a clean Dolphin memory log. Dolphin 2606's BuiltIn HLE backend still
 stalls after its first responses; TAP remains the passing low-level BBA control.
+With the TCP sequence and handshake fixes, the rootless TAP path loads the
+catalog immediately, transfers a 35,151-byte artwork response in single-digit
+milliseconds, completes the Portless TLS connection in about 0.19 seconds,
+and completes the authenticated tRPC request in about 0.44 seconds. Pasta
+packet tracing is intentionally disabled for performance runs because
+per-frame trace and PCAP output materially slows emulation.
 
 The isolated Dolphin profile uses its normal DSP HLE mode. Movie audio follows
 WiiMC-GCN's `ao_gekko` design and streams decoded stereo PCM directly through
