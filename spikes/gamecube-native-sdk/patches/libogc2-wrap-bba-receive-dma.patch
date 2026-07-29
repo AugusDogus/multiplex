@@ -1,0 +1,52 @@
+diff --git a/lwip/arch/gc/netif/gcif.c b/lwip/arch/gc/netif/gcif.c
+index feae677..20fd9d6 100644
+--- a/lwip/arch/gc/netif/gcif.c
++++ b/lwip/arch/gc/netif/gcif.c
+@@ -577,7 +577,7 @@ static err_t __bba_start_tx(struct netif *dev,struct pbuf *p,struct ip_addr *ipa
+ static err_t bba_start_rx(struct netif *dev,u32 budget)
+ {
+ 	s32 size;
+-	u16 pos,rrp,rwp;
++	u16 pos,rrp,rwp,rx_start,rx_end;
+ 	u32 pkt_status,recvd;
+ 	struct pbuf *tmp,*p = NULL;
+ 	struct bba_priv *priv = (struct bba_priv*)dev->state;
+@@ -587,6 +587,8 @@ static err_t bba_start_rx(struct netif *dev,u32 budget)
+ 	recvd = 0;
+ 	rwp = bba_in12(BBA_RWP);
+ 	rrp = bba_in12(BBA_RRP);
++	rx_start = bba_in12(BBA_BP)<<8;
++	rx_end = (bba_in12(BBA_RHBP)+1)<<8;
+ 	while(recvd<budget && rrp!=rwp) {
+ 		LWIP_DEBUGF(NETIF_DEBUG,("bba_start_rx(%04x,%04x)\n",rrp,rwp));
+ 		bba_ins(rrp<<8,(void*)(&cur_descr),sizeof(struct bba_descr));
+@@ -613,13 +615,23 @@ static err_t bba_start_rx(struct netif *dev,u32 budget)
+ 		p = pbuf_alloc(PBUF_RAW,size,PBUF_POOL);
+ 		if(p) {
+ 			for(tmp=p;tmp!=NULL;tmp=tmp->next) {
++				u8 *payload = tmp->payload;
+ 				size = tmp->len;
+-
+-				bba_select();
+-				bba_insregister(pos);
+-				bba_insdata(tmp->payload,size);
+-				bba_deselect();
+-				pos += size;
++				while(size>0) {
++					u32 chunk = size;
++					if(pos<rx_end && chunk>(u32)(rx_end-pos))
++						chunk = rx_end-pos;
++
++					bba_select();
++					bba_insregister(pos);
++					bba_insdata(payload,chunk);
++					bba_deselect();
++					payload += chunk;
++					pos += chunk;
++					size -= chunk;
++					if(pos==rx_end)
++						pos = rx_start;
++				}
+ 			}
+ 			dev->input(p,dev);
+ 		} else
