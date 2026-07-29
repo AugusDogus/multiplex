@@ -12,8 +12,11 @@ import { defineConfig, devices } from "@playwright/test";
  * streams are H.264/AAC, which Playwright's bundled Chromium cannot decode.
  * Auth-gate uses bundled Chromium — no media decode required.
  */
-const PORT = Number(process.env.PLAYWRIGHT_PORT ?? 3000);
-const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? `http://localhost:${PORT}`;
+const BASE_URL =
+  process.env.PLAYWRIGHT_BASE_URL ?? "https://multiplex.localhost";
+const WEB_SERVER_URL = process.env.PLAYWRIGHT_WEB_SERVER_URL ?? BASE_URL;
+const WEB_SERVER_COMMAND =
+  process.env.PLAYWRIGHT_WEB_SERVER_COMMAND ?? "portless multiplex bun run dev";
 const CHANNEL =
   process.env.PLAYWRIGHT_CHANNEL === "chromium"
     ? undefined
@@ -31,6 +34,7 @@ export default defineConfig({
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL: BASE_URL,
+    ignoreHTTPSErrors: true,
     trace: "retain-on-failure",
     video: "retain-on-failure",
     actionTimeout: 30_000,
@@ -68,8 +72,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `bun run dev -- --port ${PORT}`,
-    url: BASE_URL,
+    command: WEB_SERVER_COMMAND,
+    url: WEB_SERVER_URL,
+    ignoreHTTPSErrors: true,
     reuseExistingServer: true,
     timeout: 120_000,
   },

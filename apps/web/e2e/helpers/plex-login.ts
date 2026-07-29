@@ -1,4 +1,11 @@
 import { expect, type Page } from "@playwright/test";
+import { z } from "zod";
+
+const authenticatedSessionSchema = z.object({
+  user: z.object({
+    plexId: z.number(),
+  }),
+});
 
 export interface PlexCredentials {
   login: string;
@@ -53,23 +60,32 @@ export async function loginToMultiplex(
   await expect(emailField).toBeVisible({ timeout: 30_000 });
   await emailField.fill(credentials.login);
   await form.locator("#password").fill(credentials.password);
+  const callbackResponsePromise = page.waitForResponse(
+    (response) => response.url().includes("/api/auth/plex/auth/callback"),
+    { timeout: 90_000 },
+  );
   await form.getByTestId("signIn--submit").click();
 
   // Plex may show a "new device" security interstitial or an authorize/allow
   // screen; click through anything that looks like a confirmation.
   await acknowledgeInterstitials(page);
 
-  // Success = forwarded back to the app and no longer on /login.
-  await page.waitForURL(
-    (url) =>
-      !url.href.includes("plex.tv") && !url.pathname.startsWith("/login"),
-    { timeout: 90_000 },
-  );
+  const callbackResponse = await callbackResponsePromise;
+  expect(
+    callbackResponse.status(),
+    "Plex callback should redirect after authentication",
+  ).toBe(302);
+  const appOrigin = new URL(callbackResponse.url()).origin;
+  const sessionUrl = new URL("/api/auth/get-session", appOrigin);
+  const rawSession: unknown = await page.evaluate(async (url) => {
+    const response = await fetch(url, { credentials: "include" });
+    if (!response.ok) return null;
+    return await response.json();
+  }, sessionUrl.href);
+  authenticatedSessionSchema.parse(rawSession);
 
-  // The app finishes the PIN exchange and lands on the authenticated home.
-  await page.waitForURL((url) => !url.pathname.startsWith("/login"), {
-    timeout: 60_000,
-  });
+  await page.goto(new URL("/", appOrigin).href);
+  await expect(page).not.toHaveURL(/\/login(?:\?|$)/, { timeout: 60_000 });
 }
 
 async function acknowledgeInterstitials(page: Page): Promise<void> {
