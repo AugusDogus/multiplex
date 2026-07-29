@@ -19,6 +19,10 @@ proxy_mac=02:00:00:00:00:01
 pasta_logging=--quiet
 if [ "${GAMECUBE_PASTA_DEBUG:-0}" -eq 1 ]; then
   pasta_logging="--trace --log-file /tmp/multiplex-pasta.log --pcap /tmp/multiplex-pasta.pcap"
+elif [ "${GAMECUBE_PASTA_CAPTURE:-0}" -eq 1 ]; then
+  # Packet capture alone has negligible overhead compared with --trace and is
+  # suitable for measuring timing-sensitive BBA transfers.
+  pasta_logging="--pcap /tmp/multiplex-pasta.pcap"
 fi
 
 pasta_pid=

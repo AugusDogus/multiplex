@@ -363,6 +363,17 @@ off, and slept after TAP frames has been removed. Those changes fought pasta's
 flow control and increased retransmissions instead of fixing the packet-state
 errors.
 
+The libogc2 TCP receive-window expansion was removed as well. Packet capture
+showed why upstream deliberately advertises only `2 * TCP_MSS`: the BBA receive
+ring from page `0x01` through `0x10` can hold roughly two maximum-size Ethernet
+frames. Advertising four frames let the peer overflow that hardware ring,
+which produced duplicate ACKs, zero-window recovery, and retransmission
+avalanches in `pasta`. Returning to upstream's two-segment window reduced the
+real 93,863-byte Plex catalog transfer from about 19.2 seconds to 0.93 seconds
+and reduced its captured retransmissions from 137 to 10. The rootless launcher
+also supports `GAMECUBE_PASTA_CAPTURE=1` for packet capture without the
+timing distortion of trace logging.
+
 With the fixed helper, Dolphin's TAP backend completes metadata, artwork, TLS,
 and tRPC control transfers and has carried the real Plex playback stream.
 Dolphin 2606's BuiltIn HLE backend can serve the first responses but stalls

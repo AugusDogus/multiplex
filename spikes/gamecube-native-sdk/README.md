@@ -42,7 +42,12 @@ patch lets a single final handshake ACK carry the first HTTP request instead
 of silently discarding that payload. The libogc2 build also backports lwIP's
 upstream RFC-correct `snd_nxt` fix so a retransmission cannot move the
 GameCube's outgoing TCP sequence backward. Together these remove the
-connection-level retransmission delays without host privileges.
+connection-level retransmission delays without host privileges. Libogc2's
+upstream two-segment TCP receive window is preserved because it matches the
+BBA's approximately two-frame receive ring; advertising four segments
+overflowed the adapter and caused retransmission bursts. Set
+`GAMECUBE_PASTA_CAPTURE=1` to write `/tmp/multiplex-pasta.pcap` without
+enabling timing-heavy trace logs.
 
 `spike:gamecube:reference:plex` discovers a LAN Plex server (or uses
 `PLEX_BASE_URL`), selects its latest playable item by default, transcodes a
