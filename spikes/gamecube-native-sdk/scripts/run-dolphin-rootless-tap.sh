@@ -6,7 +6,7 @@ if ! command -v "$pasta_bin" >/dev/null 2>&1 && [ ! -x "$pasta_bin" ]; then
   echo "pasta is required for the rootless Dolphin TAP network." >&2
   exit 1
 fi
-for command in ip tc; do
+for command in ip pgrep tc; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "$command is required for the rootless Dolphin TAP network." >&2
     exit 1
@@ -21,9 +21,37 @@ if [ "${GAMECUBE_PASTA_DEBUG:-0}" -eq 1 ]; then
   pasta_logging="--trace --log-file /tmp/multiplex-pasta.log --pcap /tmp/multiplex-pasta.pcap"
 fi
 
+pasta_pid=
+stop_namespace() {
+  if [ -z "$pasta_pid" ]; then
+    return
+  fi
+  child_pids=$(pgrep -P "$pasta_pid" 2>/dev/null || true)
+  for child_pid in $child_pids; do
+    kill -TERM "$child_pid" 2>/dev/null || true
+  done
+  attempt=0
+  while [ -n "$child_pids" ] && [ "$attempt" -lt 10 ]; do
+    running_children=
+    for child_pid in $child_pids; do
+      if kill -0 "$child_pid" 2>/dev/null; then
+        running_children="$running_children $child_pid"
+      fi
+    done
+    child_pids=$running_children
+    [ -z "$child_pids" ] || sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  for child_pid in $child_pids; do
+    kill -KILL "$child_pid" 2>/dev/null || true
+  done
+  kill -TERM "$pasta_pid" 2>/dev/null || true
+}
+trap stop_namespace HUP INT TERM
+
 # pasta_logging is an intentional list of fixed command-line arguments.
 # shellcheck disable=SC2086
-exec "$pasta_bin" $pasta_logging --config-net --ipv4-only --mtu 1500 \
+"$pasta_bin" $pasta_logging --foreground --config-net --ipv4-only --mtu 1500 \
   --ns-mac-addr "$proxy_mac" \
   --ns-ifname multiplex0 -- \
   sh -eu -c '
@@ -56,20 +84,16 @@ exec "$pasta_bin" $pasta_logging --config-net --ipv4-only --mtu 1500 \
 
     (
       attempt=0
-      while [ "$attempt" -lt 300 ]; do
+      while [ "$attempt" -lt 3000 ]; do
         for tap in Dolphin0 Dolphin1 Dolphin2 Dolphin3; do
           if ip link show "$tap" >/dev/null 2>&1; then
             ip link set "$tap" master "$bridge"
             ip link set "$tap" up
-            # pasta can enqueue a complete TCP window into the TAP in a few
-            # microseconds. The emulated BBA has a finite receive FIFO,
-            # just like the hardware, so an unpaced host-side burst can drop
-            # the first payload and trigger an endless duplicate-ACK loop.
-            # A netem rate still releases timer-sized bursts, which can
-            # overrun the emulated BBA receive ring. TBF spaces packets
-            # and limits each release to one Ethernet frame.
-            tc qdisc replace dev "$tap" root tbf \
-              rate 3mbit burst 1540 latency 500ms
+            # libogc advertises a two-frame TCP receive window and configures
+            # the BBA to interrupt after two packets. Let pasta deliver that
+            # window directly: delaying those frames behind a host-side TBF
+            # makes the pasta TCP proxy mistake the delay for packet loss and
+            # repeatedly rewind to its last acknowledged sequence number.
             exit 0
           fi
         done
@@ -81,4 +105,12 @@ exec "$pasta_bin" $pasta_logging --config-net --ipv4-only --mtu 1500 \
     ) &
 
     exec "$@"
-  ' sh "$dolphin_emu" "$@"
+  ' sh "$dolphin_emu" "$@" &
+pasta_pid=$!
+
+set +e
+wait "$pasta_pid"
+status=$?
+set -e
+trap - HUP INT TERM
+exit "$status"

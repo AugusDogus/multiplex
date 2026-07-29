@@ -8,6 +8,8 @@ pid_file="$user_dir/dolphin.pid"
 dol="${1:-$spike_dir/multiplex-gamecube-spike.dol}"
 dolphin_emu="${DOLPHIN_EMU:-dolphin-emu}"
 config_profile=${DOLPHIN_CONFIG_PROFILE:-"$spike_dir/dolphin/Dolphin.ini"}
+gdb_port=${DOLPHIN_GDB_PORT:--1}
+gdb_socket=${DOLPHIN_GDB_SOCKET:-}
 
 if [ ! -s "$dol" ]; then
   echo "Missing $dol; run bun run spike:gamecube:dol first." >&2
@@ -23,17 +25,31 @@ if [ -f "$pid_file" ]; then
   case "$previous_pid" in
     *[!0-9]* | "") ;;
     *)
-      if kill -0 "$previous_pid" 2>/dev/null; then
-        kill -TERM "$previous_pid"
+      previous_command=$(ps -p "$previous_pid" -o args= 2>/dev/null || true)
+      case "$previous_command" in
+        *"$user_dir"*) owned_pid=true ;;
+        *) owned_pid=false ;;
+      esac
+      if [ "$owned_pid" = true ] &&
+        kill -0 "$previous_pid" 2>/dev/null; then
+        previous_pgid=$(ps -p "$previous_pid" -o pgid= 2>/dev/null | tr -d ' ' || true)
+        if [ "$previous_pgid" = "$previous_pid" ]; then
+          previous_target="-$previous_pgid"
+        else
+          previous_target=$previous_pid
+        fi
+        kill -TERM -- "$previous_target"
         attempt=0
-        while kill -0 "$previous_pid" 2>/dev/null && [ "$attempt" -lt 30 ]; do
+        while kill -0 -- "$previous_target" 2>/dev/null &&
+          [ "$attempt" -lt 30 ]; do
           sleep 0.1
           attempt=$((attempt + 1))
         done
-        if kill -0 "$previous_pid" 2>/dev/null; then
-          kill -KILL "$previous_pid"
+        if kill -0 -- "$previous_target" 2>/dev/null; then
+          kill -KILL -- "$previous_target"
           attempt=0
-          while kill -0 "$previous_pid" 2>/dev/null && [ "$attempt" -lt 30 ]; do
+          while kill -0 -- "$previous_target" 2>/dev/null &&
+            [ "$attempt" -lt 30 ]; do
             sleep 0.1
             attempt=$((attempt + 1))
           done
@@ -64,6 +80,8 @@ exec "$dolphin_emu" --batch \
   --user="$user_dir" \
   --audio_emulation=HLE \
   --config=Interface.ConfirmStop=False \
+  --config=Main.General.GDBPort="$gdb_port" \
+  --config=Main.General.GDBSocket="$gdb_socket" \
   --config=SYSCONF.IPL.PGS=True \
   --config=GFX.Hacks.SafeTextureCacheColorSamples=0 \
   --config=GFX.Hacks.EFBToTextureEnable=False \
