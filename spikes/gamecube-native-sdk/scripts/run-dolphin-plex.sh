@@ -14,8 +14,9 @@ segment_duration=${GAMECUBE_PLEX_SEGMENT_DURATION:-$duration}
 expect_continuation=${GAMECUBE_PLEX_EXPECT_CONTINUATION:-0}
 direct_plex=${GAMECUBE_DIRECT_PLEX:-0}
 wait_artwork=${GAMECUBE_PLEX_WAIT_ARTWORK:-1}
-plex_video_resolution=${GAMECUBE_PLEX_VIDEO_RESOLUTION:-720x480}
-plex_max_video_bitrate=${GAMECUBE_PLEX_MAX_VIDEO_BITRATE:-350}
+sustain_seconds=${GAMECUBE_PLEX_SUSTAIN_SECONDS:-45}
+plex_video_resolution=${GAMECUBE_PLEX_VIDEO_RESOLUTION:-480x270}
+plex_max_video_bitrate=${GAMECUBE_PLEX_MAX_VIDEO_BITRATE:-700}
 rating_key=${GAMECUBE_PLEX_RATING_KEY:-}
 plex_base_url=${PLEX_BASE_URL:-}
 multiplex_base_url=${MULTIPLEX_BASE_URL:-}
@@ -61,6 +62,12 @@ if [ "$direct_plex" -eq 1 ] && [ "$expect_continuation" -eq 1 ]; then
   echo "Direct Plex HLS is continuous; GAMECUBE_PLEX_EXPECT_CONTINUATION only applies to gateway segments." >&2
   exit 1
 fi
+case "$sustain_seconds" in
+  '' | *[!0-9]*)
+    echo "GAMECUBE_PLEX_SUSTAIN_SECONDS must be an unsigned integer." >&2
+    exit 1
+    ;;
+esac
 
 mkdir -p "$cache_dir"
 if [ -z "${PLEX_TOKEN:-}" ] && [ -f "$auth_state" ]; then
@@ -443,7 +450,7 @@ press A
 wait_for_new "playback=playing" "$playing_count" 120
 wait_for_new "$timeline_pattern .*state=playing reported=1" "$playing_timeline_count" 600
 wait_for_new "decoder=60 frames/" "$decoder_count" 1200
-sleep 12
+sleep "$sustain_seconds"
 if grep -Eq 'underruns=[1-9][0-9]*' "$log"; then
   echo "Selected Plex seek produced an audio underrun." >&2
   exit 1

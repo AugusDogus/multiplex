@@ -87,8 +87,10 @@ direct PMS catalog/artwork requests, HLS transcode, seek, and timeline
 reporting. `GAMECUBE_PLEX_WAIT_ARTWORK=0` may skip the automation wait for all
 twelve home posters while iterating on playback. The requested PMS profile is
 also repeatable through `GAMECUBE_PLEX_VIDEO_RESOLUTION` and
-`GAMECUBE_PLEX_MAX_VIDEO_BITRATE`; the defaults remain the conservative
-`720x480`/`350` combination, which PMS currently resolves to 320x180.
+`GAMECUBE_PLEX_MAX_VIDEO_BITRATE`; the conservative defaults are
+`480x270`/`700`, which PMS currently resolves to a 480x270, 576 kbps stream.
+`GAMECUBE_PLEX_SUSTAIN_SECONDS` controls the post-resume failure window and
+defaults to 45 seconds.
 
 `scripts/plex-pair.py` implements Plex's current device-key PIN flow without
 placing an account password or long-lived legacy token on the console. `start`
@@ -265,12 +267,18 @@ verified run resumed at 7,547 ms without reloading the catalog.
 A 640x360/1000 profile run made PMS select a 640x360, 822 kbps H.264/AAC
 variant. Releasing the obsolete browse/details reference-render memo before
 opening H.264 recovered 3.8 MiB and fixed reference-picture allocation failures
-at that resolution. The seeked replacement then released another 589 KiB. It
-completed a 60-frame sample at 24.2 decoded fps for a 24 fps source, presented
-at 60.4 fps, reported play/pause/resume directly to Plex, and recorded zero
-audio underruns or invalid accesses. Its 42.9 ms average decode-plus-upload
-work remains too close to the 41.7 ms frame budget to make 360p the default
-without another decoder or upload optimization.
+at that resolution; the seeked replacement released another 589 KiB. A short
+sample reached 24.2 decoded fps, but sustained scene complexity later pulled
+the decoder down to 17 fps and produced audio underruns, so 360p is not a safe
+default.
+
+The selected 480x270/700 default resolves to 576 kbps. A sustained direct-PMS
+run crossed eight 8-second segments and about 2,100 audio DMA buffers while
+holding the 24 fps source predominantly at 23.7–24.5 decoded fps. It retained
+60.4 presentation fps, direct play/pause/resume and periodic timeline
+acknowledgements, zero audio underruns, and a clean invalid-access log. The
+45-second smoke window is intentionally long enough to reject the delayed
+failure observed at 360p.
 The first Watch Together increment also calls the web app's existing
 `plex.getWatchTogetherRooms` tRPC procedure rather than adding a console-only
 query. Dolphin completed TLS 1.2 through Portless, authenticated the restored

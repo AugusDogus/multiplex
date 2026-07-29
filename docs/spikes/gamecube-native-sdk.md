@@ -353,12 +353,13 @@ GameCube restores its Plex server token and client identifier from the
 Multiplex memory-card save, loads catalog/search/details and artwork directly
 from PMS, creates the universal-transcoder HLS session, parses the full bounded
 media playlist, and incrementally demuxes MPEG-TS into H.264/AAC queues. Plex
-selected 320x180 at 24 fps for the current 350 kbps profile; Dolphin sustained
-23.8–24.0 decoded fps and 60.4 presentation fps through seek, pause/resume,
-multiple segments, and direct `/:/timeline` reports with zero audio underruns
-and a clean invalid-access log. Media bodies use a separate TCP transaction
-from serialized control requests, preventing a paused full codec queue from
-blocking its own timeline report.
+selected 480x270 at 576 kbps for the current 700 kbps ceiling; Dolphin sustained
+the 24 fps source predominantly at 23.7–24.5 decoded fps and 60.4 presentation
+fps through seek, pause/resume, eight 8-second segments, about 2,100 audio DMA
+buffers, and direct `/:/timeline` reports with zero audio underruns and a clean
+invalid-access log. Media bodies use a separate TCP transaction from serialized
+control requests, preventing a paused full codec queue from blocking its own
+timeline report.
 
 The HLS request profile is build-time configurable for reproducible quality
 experiments. At `GAMECUBE_PLEX_VIDEO_RESOLUTION=640x360` and
@@ -366,11 +367,12 @@ experiments. At `GAMECUBE_PLEX_VIDEO_RESOLUTION=640x360` and
 H.264/AAC variant. Direct playback now clears obsolete browse/details
 reference-render memo entries before H.264 allocates reference pictures,
 recovering 3.8 MiB on the first transition and 589 KiB on the seek transition.
-That removed the 360p allocation failure. The end-to-end run completed 60
-frames at 24.2 decoded fps for a 24 fps source, retained 60.4 presentation fps,
-and passed seek, pause/resume, timeline, underrun, and invalid-access checks.
-At 42.9 ms average decode-plus-upload work against a 41.7 ms frame interval,
-360p is validated but not yet the conservative default.
+That removed the 360p allocation failure. A short end-to-end sample completed
+60 frames at 24.2 decoded fps, but a longer observation exposed the true
+limit: complex scenes fell to 17 fps and eventually starved audio. The runner's
+post-resume gate is now 45 seconds so that delayed failure is reproducible.
+The 480x270/700 profile above is the highest sustained profile validated so far
+and is now the conservative default.
 
 Play is also gated by selection identity now. The TypeScript model enters a
 preparing state and exposes the selected rating key through the native ABI.
