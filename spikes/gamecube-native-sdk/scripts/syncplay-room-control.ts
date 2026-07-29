@@ -199,7 +199,7 @@ if (command === "join-lobby") {
     },
   });
   observer.connect();
-  const deadline = Date.now() + 30_000;
+  const deadline = Date.now() + 120_000;
   while (!closed && Date.now() < deadline) {
     await Bun.sleep(100);
   }

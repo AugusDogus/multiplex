@@ -49,6 +49,11 @@ var staged_watch_together_room_ptrs: [4]*const core.WatchTogetherRoom = undefine
 var staged_watch_together_titles: [4][96]u8 = undefined;
 var staged_watch_together_room_count: usize = 0;
 var staged_watch_together_available = false;
+var staged_watch_together_invitees: [8]core.WatchTogetherInvitee = undefined;
+var staged_watch_together_invitee_ptrs: [8]*const core.WatchTogetherInvitee = undefined;
+var staged_watch_together_invitee_names: [8][64]u8 = undefined;
+var staged_watch_together_invitee_count: usize = 0;
+var staged_watch_together_invitees_available = false;
 var details_title_buffer: [96]u8 = undefined;
 var details_secondary_buffer: [96]u8 = undefined;
 var details_type_buffer: [32]u8 = undefined;
@@ -499,17 +504,62 @@ export fn multiplex_native_app_watch_together_commit() callconv(.c) u32 {
     return 1;
 }
 
+export fn multiplex_native_app_watch_together_invitees_begin(
+    available: u32,
+    invitee_count: u32,
+) callconv(.c) u32 {
+    if (!app_initialized or invitee_count > staged_watch_together_invitees.len) return 0;
+    staged_watch_together_invitees_available = available != 0;
+    staged_watch_together_invitee_count = invitee_count;
+    return 1;
+}
+
+export fn multiplex_native_app_watch_together_invitee(
+    index: u32,
+    user_id: u32,
+    name: [*]const u8,
+    name_length: u32,
+) callconv(.c) u32 {
+    if (index >= staged_watch_together_invitee_count or user_id == 0 or
+        name_length == 0 or name_length >= staged_watch_together_invitee_names[0].len) return 0;
+    const slot: usize = index;
+    @memcpy(staged_watch_together_invitee_names[slot][0..name_length], name[0..name_length]);
+    staged_watch_together_invitees[slot] = .{
+        .id = @intCast(index),
+        .userId = @intCast(user_id),
+        .title = staged_watch_together_invitee_names[slot][0..name_length],
+    };
+    staged_watch_together_invitee_ptrs[slot] = &staged_watch_together_invitees[slot];
+    return 1;
+}
+
+export fn multiplex_native_app_watch_together_invitees_commit() callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    commitAppModel(core.loadWatchTogetherInvitees(
+        app_model,
+        staged_watch_together_invitees_available,
+        staged_watch_together_invitee_ptrs[0..staged_watch_together_invitee_count],
+    ));
+    focused_handler = 0;
+    reference_full_repaint = true;
+    return 1;
+}
+
 export fn multiplex_native_app_watch_together_create_request(
     rating_key: *u32,
+    invitee_user_id: *u32,
     title: [*]u8,
     title_capacity: u32,
 ) callconv(.c) u32 {
     if (!app_initialized) return 0;
     const requested_rating_key = core.watchTogetherCreateRatingKey(app_model);
+    const requested_invitee_user_id = core.watchTogetherCreateInviteeId(app_model);
     const requested_title = core.watchTogetherCreateTitle(app_model);
     if (requested_rating_key <= 0 or requested_rating_key > std.math.maxInt(u32) or
+        requested_invitee_user_id <= 0 or requested_invitee_user_id > std.math.maxInt(u32) or
         requested_title.len == 0 or requested_title.len >= title_capacity) return 0;
     rating_key.* = @intCast(requested_rating_key);
+    invitee_user_id.* = @intCast(requested_invitee_user_id);
     @memcpy(title[0..requested_title.len], requested_title);
     title[requested_title.len] = 0;
     return @intCast(requested_title.len);
@@ -962,7 +1012,8 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .open_search => 13,
                 .open_watch_together => 22,
                 .create_watch_together => 23,
-                .join_watch_together => 24,
+                .invite_watch_together => 24,
+                .join_watch_together => 25,
                 .search_key => 14,
                 .search_delete => 15,
                 .search_submit => 16,

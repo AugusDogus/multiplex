@@ -70,6 +70,29 @@ static void parses_plex_user_id(void) {
                                        &user_id));
 }
 
+static void parses_watch_together_invitees(void) {
+  static const char response[] =
+      "{\"result\":{\"data\":{\"json\":["
+      "{\"id\":12345,\"title\":\"Friendly viewer\","
+      "\"username\":\"viewer\"},"
+      "{\"id\":67890,\"username\":\"second-viewer\"}"
+      "]}}}";
+  MultiplexTrpcInviteeList list;
+  assert(multiplex_trpc_parse_watch_together_invitees(
+      response, sizeof(response) - 1u, &list));
+  assert(list.invitee_count == 2);
+  assert(list.invitees[0].user_id == 12345);
+  assert(strcmp(list.invitees[0].name, "Friendly viewer") == 0);
+  assert(list.invitees[1].user_id == 67890);
+  assert(strcmp(list.invitees[1].name, "second-viewer") == 0);
+
+  static const char malformed[] =
+      "{\"result\":{\"data\":{\"json\":[{\"id\":0,"
+      "\"username\":\"viewer\"}]}}}";
+  assert(!multiplex_trpc_parse_watch_together_invitees(
+      malformed, sizeof(malformed) - 1u, &list));
+}
+
 static void rejects_malformed_or_oversized_fields(void) {
   static const char malformed[] =
       "{\"result\":{\"data\":{\"json\":[{\"id\":\"Room123\","
@@ -90,6 +113,7 @@ int main(void) {
   parses_bounded_room_summaries();
   parses_created_room();
   parses_plex_user_id();
+  parses_watch_together_invitees();
   rejects_malformed_or_oversized_fields();
   puts("GameCube tRPC Watch Together parser tests passed.");
   return 0;

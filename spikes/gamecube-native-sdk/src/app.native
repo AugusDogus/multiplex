@@ -220,6 +220,50 @@
     </column>
   </if>
 
+  <if test="{screen == 'watch_together_invite'}">
+    <column grow="1" gap="14">
+      <row cross="center">
+        <button width="90" variant="ghost" on-press="back">Back</button>
+        <column gap="1">
+          <text size="heading">Invite a friend</text>
+          <text size="sm" foreground="text_muted">Choose who should join {selectedTitle}</text>
+        </column>
+        <spacer grow="1" />
+        <badge variant="secondary">Plex friends</badge>
+      </row>
+      <if test="{watchTogetherHasInvitees}">
+        <row grow="1" gap="10" cross="center">
+          <for each="watchTogetherInvitees" as="invitee" key="id">
+            <panel width="138" grow="1" padding="16" background="surface" border-color="border" radius="lg" on-press="invite_watch_together:{invitee.id}" label="{invitee.title}">
+              <column grow="1" main="center" cross="center" gap="8">
+                <badge variant="secondary">Plex user</badge>
+                <text size="heading" wrap="true">{invitee.title}</text>
+                <text size="sm" foreground="text_muted">Invite and create room</text>
+              </column>
+            </panel>
+          </for>
+        </row>
+      </if>
+      <if test="{watchTogetherNoInvitees}">
+        <column grow="1" main="center" cross="center" gap="10">
+          <text size="heading">No friends available</text>
+          <text foreground="text_muted">Add a Plex friend before creating a shared room.</text>
+        </column>
+      </if>
+      <if test="{watchTogetherInviteesUnavailable}">
+        <column grow="1" main="center" cross="center" gap="10">
+          <text size="heading">Friends are unavailable</text>
+          <text foreground="text_muted">Multiplex could not load your Plex friends right now.</text>
+        </column>
+      </if>
+      <if test="{watchTogetherInviteesLoading}">
+        <column grow="1" main="center" cross="center">
+          <text foreground="text_muted">Loading Plex friends...</text>
+        </column>
+      </if>
+    </column>
+  </if>
+
   <if test="{screen == 'watch_together'}">
     <column grow="1" gap="14">
       <row cross="center">

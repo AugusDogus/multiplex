@@ -84,8 +84,15 @@ uint32_t multiplex_native_app_watch_together_room(uint32_t index,
                                                   uint32_t title_length,
                                                   uint32_t participant_count);
 uint32_t multiplex_native_app_watch_together_commit(void);
+uint32_t multiplex_native_app_watch_together_invitees_begin(
+    uint32_t available, uint32_t invitee_count);
+uint32_t multiplex_native_app_watch_together_invitee(
+    uint32_t index, uint32_t user_id, const uint8_t *name,
+    uint32_t name_length);
+uint32_t multiplex_native_app_watch_together_invitees_commit(void);
 uint32_t multiplex_native_app_watch_together_create_request(
-    uint32_t *rating_key, uint8_t *title, uint32_t title_capacity);
+    uint32_t *rating_key, uint32_t *invitee_user_id, uint8_t *title,
+    uint32_t title_capacity);
 uint32_t multiplex_native_app_watch_together_create_fail(void);
 uint32_t multiplex_native_app_watch_together_join_request(void);
 uint32_t multiplex_native_app_watch_together_join_commit(uint32_t connected);

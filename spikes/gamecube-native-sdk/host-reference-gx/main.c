@@ -2370,6 +2370,30 @@ static bool bind_watch_together_rooms(const MultiplexTrpcRoomList *rooms,
   return true;
 }
 
+static bool refresh_watch_together_invitees(
+    const MultiplexAuthCredentials *credentials,
+    MultiplexTrpcInviteeList *invitees) {
+  memset(invitees, 0, sizeof(*invitees));
+  const bool available = multiplex_trpc_load_watch_together_invitees(
+      MULTIPLEX_BASE_URL, credentials->session_token, invitees);
+  if (multiplex_native_app_watch_together_invitees_begin(
+          available ? 1u : 0u, available ? invitees->invitee_count : 0u) ==
+      0) {
+    return false;
+  }
+  if (available) {
+    for (uint8_t index = 0; index < invitees->invitee_count; ++index) {
+      const MultiplexTrpcInvitee *invitee = &invitees->invitees[index];
+      if (multiplex_native_app_watch_together_invitee(
+              index, invitee->user_id, (const uint8_t *)invitee->name,
+              strlen(invitee->name)) == 0) {
+        return false;
+      }
+    }
+  }
+  return multiplex_native_app_watch_together_invitees_commit() != 0;
+}
+
 #if MULTIPLEX_PAIRING_ENABLED
 static bool
 refresh_watch_together_rooms(const MultiplexAuthCredentials *credentials,
@@ -2386,10 +2410,11 @@ refresh_watch_together_rooms(const MultiplexAuthCredentials *credentials,
 static void create_requested_watch_together_room(
     const MultiplexAuthCredentials *credentials, MultiplexTrpcRoomList *rooms) {
   uint32_t rating_key = 0;
+  uint32_t invitee_user_id = 0;
   char title[MULTIPLEX_TRPC_ROOM_TITLE_CAPACITY];
   const uint32_t title_length =
       multiplex_native_app_watch_together_create_request(
-          &rating_key, (uint8_t *)title, sizeof(title));
+          &rating_key, &invitee_user_id, (uint8_t *)title, sizeof(title));
   if (title_length == 0) {
     return;
   }
@@ -2398,7 +2423,8 @@ static void create_requested_watch_together_room(
   memset(&created, 0, sizeof(created));
   if (!multiplex_trpc_create_watch_together_room(
           MULTIPLEX_BASE_URL, credentials->session_token,
-          credentials->plex_server_id, rating_key, title, &created)) {
+          credentials->plex_server_id, rating_key, title, invitee_user_id,
+          &created)) {
     SYS_Report("REFERENCE GX: Watch Together room creation failed "
                "rating-key=%u\n",
                rating_key);
@@ -2561,6 +2587,8 @@ static void *run_app(void *unused) {
   memset(&catalog, 0, sizeof(catalog));
   MultiplexTrpcRoomList watch_together_rooms;
   memset(&watch_together_rooms, 0, sizeof(watch_together_rooms));
+  MultiplexTrpcInviteeList watch_together_invitees;
+  memset(&watch_together_invitees, 0, sizeof(watch_together_invitees));
 #if MULTIPLEX_PAIRING_ENABLED
   MultiplexSyncplaySession *syncplay_session = NULL;
   uint32_t joined_watch_together_room = UINT32_MAX;
@@ -2638,6 +2666,10 @@ static void *run_app(void *unused) {
   }
   if (pairing_linked &&
       !refresh_watch_together_rooms(&auth_credentials, &watch_together_rooms)) {
+    return (void *)(uintptr_t)1;
+  }
+  if (pairing_linked && !refresh_watch_together_invitees(
+                            &auth_credentials, &watch_together_invitees)) {
     return (void *)(uintptr_t)1;
   }
   if (pairing_linked && !has_catalog &&
@@ -2745,6 +2777,10 @@ static void *run_app(void *unused) {
           }
           if (!refresh_watch_together_rooms(&auth_credentials,
                                             &watch_together_rooms)) {
+            break;
+          }
+          if (!refresh_watch_together_invitees(
+                  &auth_credentials, &watch_together_invitees)) {
             break;
           }
         }
@@ -2871,6 +2907,10 @@ static void *run_app(void *unused) {
       if (!refresh_watch_together_rooms(&auth_credentials,
                                         &watch_together_rooms)) {
         SYS_Report("REFERENCE GX: Watch Together refresh failed\n");
+      }
+      if (!refresh_watch_together_invitees(
+              &auth_credentials, &watch_together_invitees)) {
+        SYS_Report("REFERENCE GX: Watch Together invitee refresh failed\n");
       }
     }
 #endif

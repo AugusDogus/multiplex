@@ -145,13 +145,48 @@ bool multiplex_trpc_load_user_id(const char *base_url,
   return loaded;
 }
 
+bool multiplex_trpc_load_watch_together_invitees(
+    const char *base_url, const char *bearer_token,
+    MultiplexTrpcInviteeList *list) {
+  if (base_url == NULL || base_url[0] == '\0' || bearer_token == NULL ||
+      bearer_token[0] == '\0' || list == NULL) {
+    return false;
+  }
+  const size_t base_size = strlen(base_url);
+  char url[TRPC_URL_CAPACITY];
+  const int url_size = snprintf(
+      url, sizeof(url),
+      "%s%sapi/trpc/plex.getWatchTogetherInvitees?"
+      "input=%%7B%%22json%%22%%3Anull%%7D",
+      base_url, base_size != 0 && base_url[base_size - 1u] == '/' ? "" : "/");
+  if (url_size <= 0 || (size_t)url_size >= sizeof(url)) {
+    return false;
+  }
+  char *response_body = malloc(TRPC_RESPONSE_CAPACITY);
+  if (response_body == NULL) {
+    return false;
+  }
+  HttpJsonResponse response;
+  const bool loaded =
+      http_client_request_json("GET", url, bearer_token, NULL, response_body,
+                               TRPC_RESPONSE_CAPACITY, &response) &&
+      response.status == 200 &&
+      multiplex_trpc_parse_watch_together_invitees(
+          response_body, response.body_size, list);
+  free(response_body);
+  SYS_Report("REFERENCE GX: tRPC Watch Together invitees=%u loaded=%u\n",
+             loaded ? list->invitee_count : 0, loaded ? 1u : 0u);
+  return loaded;
+}
+
 bool multiplex_trpc_create_watch_together_room(
     const char *base_url, const char *bearer_token, const char *server_id,
-    uint32_t rating_key, const char *title, MultiplexTrpcRoom *room) {
+    uint32_t rating_key, const char *title, uint32_t invitee_user_id,
+    MultiplexTrpcRoom *room) {
   if (base_url == NULL || base_url[0] == '\0' || bearer_token == NULL ||
       bearer_token[0] == '\0' || server_id == NULL || server_id[0] == '\0' ||
       !safe_server_id(server_id) || rating_key == 0 || title == NULL ||
-      title[0] == '\0' || room == NULL) {
+      title[0] == '\0' || invitee_user_id == 0 || room == NULL) {
     return false;
   }
   const size_t base_size = strlen(base_url);
@@ -167,8 +202,8 @@ bool multiplex_trpc_create_watch_together_room(
   int prefix_size = snprintf(
       body, sizeof(body),
       "{\"json\":{\"serverId\":\"%s\",\"ratingKey\":\"%u\","
-      "\"title\":\"",
-      server_id, rating_key);
+      "\"key\":\"/library/metadata/%u\",\"title\":\"",
+      server_id, rating_key, rating_key);
   if (prefix_size <= 0 || (size_t)prefix_size >= sizeof(body)) {
     return false;
   }
@@ -176,11 +211,12 @@ bool multiplex_trpc_create_watch_together_room(
   if (!append_json_string(body, sizeof(body), &body_size, title)) {
     return false;
   }
-  static const char suffix[] = "\",\"users\":[]}}";
-  if (sizeof(suffix) > sizeof(body) - body_size) {
+  const int suffix_size = snprintf(body + body_size, sizeof(body) - body_size,
+                                   "\",\"users\":[%u]}}",
+                                   invitee_user_id);
+  if (suffix_size <= 0 || (size_t)suffix_size >= sizeof(body) - body_size) {
     return false;
   }
-  memcpy(body + body_size, suffix, sizeof(suffix));
 
   char *response_body = malloc(TRPC_RESPONSE_CAPACITY);
   if (response_body == NULL) {

@@ -269,3 +269,46 @@ bool multiplex_trpc_parse_user_id(const char *json, size_t size,
   *user_id = parsed;
   return true;
 }
+
+bool multiplex_trpc_parse_watch_together_invitees(
+    const char *json, size_t size, MultiplexTrpcInviteeList *list) {
+  if (json == NULL || size == 0 || list == NULL) {
+    return false;
+  }
+  memset(list, 0, sizeof(*list));
+  const JsonSpan document = {.begin = json, .end = json + size};
+  JsonSpan invitees;
+  if (!json_array(document, "json", &invitees)) {
+    return false;
+  }
+  const char *cursor = invitees.begin + 1;
+  while (cursor < invitees.end) {
+    cursor = skip_space(cursor, invitees.end);
+    if (cursor == invitees.end || *cursor == ']') {
+      return true;
+    }
+    JsonSpan invitee;
+    const char *next = NULL;
+    if (!json_container(cursor, invitees.end, '{', '}', &invitee, &next)) {
+      break;
+    }
+    if (list->invitee_count < MULTIPLEX_TRPC_MAX_INVITEES) {
+      MultiplexTrpcInvitee *parsed = &list->invitees[list->invitee_count];
+      if (!json_unsigned(invitee, "id", &parsed->user_id) ||
+          parsed->user_id == 0 ||
+          (!json_string(invitee, "title", parsed->name,
+                        sizeof(parsed->name)) &&
+           !json_string(invitee, "username", parsed->name,
+                        sizeof(parsed->name)))) {
+        break;
+      }
+      ++list->invitee_count;
+    }
+    cursor = skip_space(next, invitees.end);
+    if (cursor < invitees.end && *cursor == ',') {
+      ++cursor;
+    }
+  }
+  memset(list, 0, sizeof(*list));
+  return false;
+}

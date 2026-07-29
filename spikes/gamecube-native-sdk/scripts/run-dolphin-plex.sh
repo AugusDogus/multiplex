@@ -26,7 +26,6 @@ server_pid=
 launcher_pid=
 mute_pid=
 lobby_pid=
-source_room_id=
 created_room_id=
 pipe_open=0
 mute_marker="$cache_dir/audio-muted"
@@ -129,7 +128,7 @@ cleanup() {
     kill -TERM "$lobby_pid" 2>/dev/null || true
     wait "$lobby_pid" 2>/dev/null || true
   fi
-  for test_room_id in "$created_room_id" "$source_room_id"; do
+  for test_room_id in "$created_room_id"; do
     if [ -n "$test_room_id" ] &&
       ! bun "$script_dir/syncplay-room-control.ts" delete-room \
         "$test_room_id" >/dev/null 2>&1; then
@@ -416,9 +415,7 @@ signature_count=$(line_count "signature=")
 press D_RIGHT
 wait_for_new "signature=" "$signature_count"
 if [ "$watch_together" -eq 1 ]; then
-  # Focus the details screen's Host Watch Together action. Creating the room
-  # returns to the room list with Home focused; move once more to join the
-  # newly inserted first room.
+  # Focus the details screen's Host Watch Together action.
   signature_count=$(line_count "signature=")
   press D_RIGHT
   wait_for_new "signature=" "$signature_count"
@@ -440,29 +437,37 @@ playback_session_count=$(line_count "$playback_ready_pattern")
 playback_activation_count=$(line_count "$playback_activation_pattern")
 if [ "$watch_together" -eq 1 ]; then
   created_count=$(line_count "Watch Together room created")
+  invitee_index=$(
+    bun "$script_dir/syncplay-room-control.ts" list-invitees |
+      awk -v id="$watch_together_invitee_id" '$1 == id { print NR - 1; exit }'
+  )
+  case "$invitee_index" in
+    '' | *[!0-9]*)
+      echo "Plex user $watch_together_invitee_id is not available in the GameCube invite list." >&2
+      exit 1
+      ;;
+  esac
+  # Open the invite picker. Back is the first focusable control, followed by
+  # the Plex invitees in API order.
+  signature_count=$(line_count "signature=")
+  press A
+  wait_for_new "signature=" "$signature_count"
+  invitee_focus=0
+  while [ "$invitee_focus" -le "$invitee_index" ]; do
+    signature_count=$(line_count "signature=")
+    press D_RIGHT
+    wait_for_new "signature=" "$signature_count"
+    invitee_focus=$((invitee_focus + 1))
+  done
   press A
   wait_for_new "Watch Together room created" "$created_count" 1200
-  wait_for_new "signature=" "$signature_count"
-  source_room_id=$(sed -n \
+  created_room_id=$(sed -n \
     's/.*Watch Together room created id=\([A-Za-z0-9][A-Za-z0-9]*\).*/\1/p' \
     "$log" | tail -1)
-  if [ -z "$source_room_id" ]; then
-    echo "The source Watch Together room id was not found in the Dolphin log." >&2
-    exit 1
-  fi
-  created_room=$(
-    bun "$script_dir/syncplay-room-control.ts" create-room \
-      "$watch_together_invitee_id"
-  )
-  created_room_id=$(printf '%s\n' "$created_room" | awk 'NR == 1 { print $1 }')
   if [ -z "$created_room_id" ]; then
-    echo "The invited Watch Together room id was not returned." >&2
+    echo "The GameCube-created Watch Together room id was not found in the Dolphin log." >&2
     exit 1
   fi
-  room_count=$(line_count "Watch Together room=0 id=$created_room_id invited=2")
-  press START
-  wait_for_new "Watch Together room=0 id=$created_room_id invited=2" \
-    "$room_count" 1200
   signature_count=$(line_count "signature=")
   press D_RIGHT
   wait_for_new "signature=" "$signature_count"

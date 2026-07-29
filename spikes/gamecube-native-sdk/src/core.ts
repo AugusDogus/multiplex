@@ -7,6 +7,7 @@ export type Screen =
   | "browse"
   | "search"
   | "search_results"
+  | "watch_together_invite"
   | "watch_together"
   | "watch_together_room"
   | "details"
@@ -49,6 +50,12 @@ export interface WatchTogetherRoom {
   readonly participantCount: number;
 }
 
+export interface WatchTogetherInvitee {
+  readonly id: number;
+  readonly userId: number;
+  readonly title: Uint8Array;
+}
+
 export interface Model {
   readonly screen: Screen;
   readonly gatewayConnected: boolean;
@@ -83,6 +90,10 @@ export interface Model {
   readonly searchLoaded: boolean;
   readonly selectedFromSearch: boolean;
   readonly watchTogetherRooms: readonly WatchTogetherRoom[];
+  readonly watchTogetherInvitees: readonly WatchTogetherInvitee[];
+  readonly watchTogetherInviteesLoaded: boolean;
+  readonly watchTogetherInviteesAvailable: boolean;
+  readonly selectedWatchTogetherInviteeId: number;
   readonly watchTogetherLoaded: boolean;
   readonly watchTogetherAvailable: boolean;
   readonly watchTogetherCreating: boolean;
@@ -120,6 +131,7 @@ export type Msg =
   | { readonly kind: "search_submit" }
   | { readonly kind: "open_watch_together" }
   | { readonly kind: "create_watch_together" }
+  | { readonly kind: "invite_watch_together"; readonly index: number }
   | { readonly kind: "join_watch_together"; readonly index: number }
   | { readonly kind: "open_item"; readonly index: number }
   | { readonly kind: "play" }
@@ -293,6 +305,10 @@ export function initialModel(): Model {
     searchLoaded: true,
     selectedFromSearch: false,
     watchTogetherRooms: [],
+    watchTogetherInvitees: [],
+    watchTogetherInviteesLoaded: false,
+    watchTogetherInviteesAvailable: false,
+    selectedWatchTogetherInviteeId: 0,
     watchTogetherLoaded: false,
     watchTogetherAvailable: false,
     watchTogetherCreating: false,
@@ -401,6 +417,19 @@ export function loadWatchTogetherRooms(
     watchTogetherAvailable: available,
     watchTogetherCreating: false,
     watchTogetherCreateFailed: false,
+  };
+}
+
+export function loadWatchTogetherInvitees(
+  model: Model,
+  available: boolean,
+  invitees: readonly WatchTogetherInvitee[],
+): Model {
+  return {
+    ...model,
+    watchTogetherInvitees: invitees,
+    watchTogetherInviteesLoaded: true,
+    watchTogetherInviteesAvailable: available,
   };
 }
 
@@ -635,6 +664,30 @@ export function watchTogetherLoading(model: Model): boolean {
   return !model.watchTogetherLoaded || model.watchTogetherCreating;
 }
 
+export function watchTogetherHasInvitees(model: Model): boolean {
+  return (
+    model.watchTogetherInviteesLoaded &&
+    model.watchTogetherInviteesAvailable &&
+    model.watchTogetherInvitees.length > 0
+  );
+}
+
+export function watchTogetherNoInvitees(model: Model): boolean {
+  return (
+    model.watchTogetherInviteesLoaded &&
+    model.watchTogetherInviteesAvailable &&
+    model.watchTogetherInvitees.length === 0
+  );
+}
+
+export function watchTogetherInviteesUnavailable(model: Model): boolean {
+  return model.watchTogetherInviteesLoaded && !model.watchTogetherInviteesAvailable;
+}
+
+export function watchTogetherInviteesLoading(model: Model): boolean {
+  return !model.watchTogetherInviteesLoaded;
+}
+
 export function watchTogetherCreateRatingKey(model: Model): number {
   return model.screen === "watch_together" && model.watchTogetherCreating
     ? model.selectedRatingKey
@@ -643,6 +696,10 @@ export function watchTogetherCreateRatingKey(model: Model): number {
 
 export function watchTogetherCreateTitle(model: Model): Uint8Array {
   return watchTogetherCreateRatingKey(model) === 0 ? new Uint8Array(0) : model.selectedTitle;
+}
+
+export function watchTogetherCreateInviteeId(model: Model): number {
+  return watchTogetherCreateRatingKey(model) === 0 ? 0 : model.selectedWatchTogetherInviteeId;
 }
 
 export function selectedWatchTogetherRoomTitle(model: Model): Uint8Array {
@@ -812,7 +869,20 @@ export function update(model: Model, msg: Msg): Model {
         return model;
       return {
         ...model,
+        screen: "watch_together_invite",
+        watchTogetherCreateFailed: false,
+      };
+    case "invite_watch_together":
+      if (
+        model.screen !== "watch_together_invite" ||
+        msg.index < 0 ||
+        msg.index >= model.watchTogetherInvitees.length
+      )
+        return model;
+      return {
+        ...model,
         screen: "watch_together",
+        selectedWatchTogetherInviteeId: model.watchTogetherInvitees[msg.index].userId,
         watchTogetherCreating: true,
         watchTogetherCreateFailed: false,
       };
@@ -952,6 +1022,9 @@ export function update(model: Model, msg: Msg): Model {
       }
       if (model.screen === "watch_together") {
         return { ...model, screen: "home", playing: false };
+      }
+      if (model.screen === "watch_together_invite") {
+        return { ...model, screen: "details", playing: false };
       }
       if (model.screen === "watch_together_room") {
         return {
