@@ -1,0 +1,22 @@
+diff --git a/lwip/arch/gc/netif/gcif.c b/lwip/arch/gc/netif/gcif.c
+index 20fd9d6..9db132b 100644
+--- a/lwip/arch/gc/netif/gcif.c
++++ b/lwip/arch/gc/netif/gcif.c
+@@ -599,4 +599,14 @@ static err_t bba_start_rx(struct netif *dev,u32 budget)
+-		if(size>(BBA_RX_MAX_PACKET_SIZE-4)) {
+-			LWIP_DEBUGF(NETIF_DEBUG|2,("bba_start_rx(size>BBA_RX_MAX_PACKET_SIZE)\n"));
+-			continue;
++		if(size<14 || size>(BBA_RX_MAX_PACKET_SIZE-4)
++		   || cur_descr.next_packet_ptr<(rx_start>>8)
++		   || cur_descr.next_packet_ptr>=(rx_end>>8)) {
++			/*
++			 * A malformed descriptor previously left RRP unchanged and spun
++			 * forever in this interrupt handler. Drop the damaged receive
++			 * ring so TCP can retransmit instead of livelocking the console.
++			 */
++			LWIP_DEBUGF(NETIF_DEBUG|2,("bba_start_rx(invalid descriptor)\n"));
++			__bba_rx_err(0xff,priv);
++			rwp = bba_in12(BBA_RWP);
++			bba_out12(BBA_RRP,rwp);
++			break;
+ 		}
