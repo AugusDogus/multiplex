@@ -103,19 +103,23 @@ static void finish_queues(PlexHlsDemux *demux) {
 static void *run_hls_producer(void *context) {
   PlexHlsDemux *demux = context;
   unsigned playlist_failures = 0;
+  HlsMediaPlaylist playlist;
+  bool has_playlist = false;
   while (!demux->stopping) {
-    HlsMediaPlaylist playlist;
-    if (!multiplex_plex_hls_refresh(demux->credentials, &demux->session,
-                                    &playlist)) {
-      if (++playlist_failures >= HLS_PLAYLIST_FAILURE_LIMIT) {
-        SYS_Report("REFERENCE GX: Plex HLS playlist retry limit reached\n");
-        demux->failed = true;
-        break;
+    if (!has_playlist) {
+      if (!multiplex_plex_hls_refresh(demux->credentials, &demux->session,
+                                      &playlist)) {
+        if (++playlist_failures >= HLS_PLAYLIST_FAILURE_LIMIT) {
+          SYS_Report("REFERENCE GX: Plex HLS playlist retry limit reached\n");
+          demux->failed = true;
+          break;
+        }
+        usleep(HLS_PLAYLIST_RETRY_US);
+        continue;
       }
-      usleep(HLS_PLAYLIST_RETRY_US);
-      continue;
+      playlist_failures = 0;
+      has_playlist = true;
     }
-    playlist_failures = 0;
     const HlsSegment *segment = next_segment(&demux->session, &playlist);
     if (segment == NULL) {
       if (playlist.end_list) {
@@ -123,6 +127,7 @@ static void *run_hls_producer(void *context) {
         demux->failed = !demux->complete;
         break;
       }
+      has_playlist = false;
       usleep(HLS_PLAYLIST_RETRY_US);
       continue;
     }

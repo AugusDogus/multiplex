@@ -13,6 +13,7 @@
 #include <fcntl.h>
 #include <gccore.h>
 #include <network.h>
+#include <ogc/mutex.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -70,6 +71,8 @@ struct HttpClient {
 
 static bool network_initialized;
 static char network_gateway[16];
+static mutex_t http_transaction_mutex;
+static bool http_transaction_mutex_ready;
 
 static bool parse_port(const char *begin, const char *end, uint16_t *port) {
   if (begin == end) {
@@ -191,6 +194,13 @@ static bool initialize_network(void) {
   SYS_Report("REFERENCE GX: network=bba ip=%s netmask=%s gateway=%s\n",
              local_ip, netmask, gateway);
   strcpy(network_gateway, gateway);
+  if (!http_transaction_mutex_ready) {
+    if (LWP_MutexInit(&http_transaction_mutex, false) != 0) {
+      SYS_Report("REFERENCE GX: HTTP transaction mutex unavailable\n");
+      return false;
+    }
+    http_transaction_mutex_ready = true;
+  }
   return true;
 }
 
@@ -960,6 +970,24 @@ typedef struct {
   unsigned timeout_seconds;
 } HttpBodyReader;
 
+typedef struct {
+  HttpBodyWrite write;
+  void *context;
+  size_t skip;
+} SkippingBodyWrite;
+
+static bool write_skipping_prefix(void *context, const uint8_t *bytes,
+                                  size_t size) {
+  SkippingBodyWrite *skipping = context;
+  if (skipping->skip != 0) {
+    const size_t skipped = skipping->skip < size ? skipping->skip : size;
+    skipping->skip -= skipped;
+    bytes += skipped;
+    size -= skipped;
+  }
+  return size == 0 || skipping->write(skipping->context, bytes, size);
+}
+
 static int body_reader_read_some(HttpBodyReader *reader, uint8_t *destination,
                                  size_t size) {
   if (reader->prefetched_offset < reader->prefetched_size) {
@@ -1164,9 +1192,9 @@ static bool stream_until_close(HttpBodyReader *reader, HttpBodyWrite write,
   }
 }
 
-bool http_client_stream_get_with_headers(
+static bool http_client_stream_get_with_headers_unlocked(
     const char *url, const HttpRequestHeader *headers, size_t header_count,
-    HttpBodyWrite write, void *write_context,
+    HttpBodyWrite write, void *write_context, size_t full_response_skip,
     const volatile bool *cancelled, HttpJsonResponse *response) {
   if (url == NULL || response == NULL ||
       (header_count != 0 && headers == NULL)) {
@@ -1260,15 +1288,25 @@ bool http_client_stream_get_with_headers(
       .prefetched_offset = 0,
       .timeout_seconds = HTTP_STREAM_TIMEOUT_SECONDS,
   };
+  SkippingBodyWrite skipping = {
+      .write = write,
+      .context = write_context,
+      .skip = response->status == 200 ? full_response_skip : 0,
+  };
+  HttpBodyWrite body_write =
+      skipping.skip == 0 ? write : write_skipping_prefix;
+  void *body_write_context =
+      skipping.skip == 0 ? write_context : &skipping;
   bool streamed = false;
   if (chunked) {
-    streamed = stream_chunked(&reader, write, write_context,
+    streamed = stream_chunked(&reader, body_write, body_write_context,
                               &response->body_size);
   } else if (has_content_length) {
-    streamed = stream_content_length(&reader, content_length, write,
-                                     write_context, &response->body_size);
+    streamed =
+        stream_content_length(&reader, content_length, body_write,
+                              body_write_context, &response->body_size);
   } else {
-    streamed = stream_until_close(&reader, write, write_context,
+    streamed = stream_until_close(&reader, body_write, body_write_context,
                                   &response->body_size);
   }
   SYS_Report(
@@ -1280,11 +1318,27 @@ bool http_client_stream_get_with_headers(
   return streamed;
 }
 
-bool http_client_request_with_headers(const char *method, const char *url,
-                                      const HttpRequestHeader *headers,
-                                      size_t header_count, const char *body,
-                                      char *destination, size_t capacity,
-                                      HttpJsonResponse *response) {
+bool http_client_stream_get_with_headers(
+    const char *url, const HttpRequestHeader *headers, size_t header_count,
+    HttpBodyWrite write, void *write_context, size_t full_response_skip,
+    const volatile bool *cancelled, HttpJsonResponse *response) {
+  if (!http_transaction_mutex_ready) {
+    return http_client_stream_get_with_headers_unlocked(
+        url, headers, header_count, write, write_context, full_response_skip,
+        cancelled, response);
+  }
+  LWP_MutexLock(http_transaction_mutex);
+  const bool streamed = http_client_stream_get_with_headers_unlocked(
+      url, headers, header_count, write, write_context, full_response_skip,
+      cancelled, response);
+  LWP_MutexUnlock(http_transaction_mutex);
+  return streamed;
+}
+
+static bool http_client_request_with_headers_unlocked(
+    const char *method, const char *url, const HttpRequestHeader *headers,
+    size_t header_count, const char *body, char *destination, size_t capacity,
+    HttpJsonResponse *response) {
   if (method == NULL || url == NULL || destination == NULL || capacity < 2 ||
       response == NULL || (header_count != 0 && headers == NULL)) {
     return false;
@@ -1424,4 +1478,22 @@ bool http_client_request_with_headers(const char *method, const char *url,
   http_client_destroy(client);
   SYS_Report("REFERENCE GX: HTTP JSON connection closed\n");
   return decoded;
+}
+
+bool http_client_request_with_headers(const char *method, const char *url,
+                                      const HttpRequestHeader *headers,
+                                      size_t header_count, const char *body,
+                                      char *destination, size_t capacity,
+                                      HttpJsonResponse *response) {
+  if (!http_transaction_mutex_ready) {
+    return http_client_request_with_headers_unlocked(
+        method, url, headers, header_count, body, destination, capacity,
+        response);
+  }
+  LWP_MutexLock(http_transaction_mutex);
+  const bool requested = http_client_request_with_headers_unlocked(
+      method, url, headers, header_count, body, destination, capacity,
+      response);
+  LWP_MutexUnlock(http_transaction_mutex);
+  return requested;
 }

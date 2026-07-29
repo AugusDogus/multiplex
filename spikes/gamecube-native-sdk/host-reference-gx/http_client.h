@@ -47,7 +47,7 @@ bool http_client_request_with_headers(const char *method, const char *url,
                                       HttpJsonResponse *response);
 bool http_client_stream_get_with_headers(
     const char *url, const HttpRequestHeader *headers, size_t header_count,
-    HttpBodyWrite write, void *write_context,
+    HttpBodyWrite write, void *write_context, size_t full_response_skip,
     const volatile bool *cancelled, HttpJsonResponse *response);
 
 #endif

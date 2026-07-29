@@ -23,7 +23,6 @@
 typedef struct {
   HttpBodyWrite write;
   void *context;
-  size_t skip;
   size_t forwarded;
   bool write_failed;
 } ResumingSegmentWrite;
@@ -31,12 +30,6 @@ typedef struct {
 static bool write_resumed_segment(void *context, const uint8_t *bytes,
                                   size_t size) {
   ResumingSegmentWrite *resume = context;
-  if (resume->skip != 0) {
-    const size_t skipped = resume->skip < size ? resume->skip : size;
-    resume->skip -= skipped;
-    bytes += skipped;
-    size -= skipped;
-  }
   if (size == 0) {
     return true;
   }
@@ -307,7 +300,7 @@ bool multiplex_plex_hls_refresh(
   if (response_body == NULL) {
     return false;
   }
-  HttpRequestHeader headers[8];
+  HttpRequestHeader headers[9];
   const size_t header_count =
       control_headers(credentials, session, false, headers);
   HttpJsonResponse response;
@@ -354,7 +347,7 @@ bool multiplex_plex_hls_stream_segment(
                                 sizeof(url))) {
     return false;
   }
-  HttpRequestHeader headers[8];
+  HttpRequestHeader headers[9];
   const size_t header_count =
       control_headers(credentials, session, false, headers);
   size_t delivered = 0;
@@ -364,18 +357,33 @@ bool multiplex_plex_hls_stream_segment(
       break;
     }
     const size_t resumed_at = delivered;
+    size_t request_header_count = header_count;
+    char range_header[48];
+    if (resumed_at != 0) {
+      const int range_size =
+          snprintf(range_header, sizeof(range_header), "bytes=%u-",
+                   (unsigned)resumed_at);
+      if (range_size <= 0 || (size_t)range_size >= sizeof(range_header)) {
+        break;
+      }
+      headers[request_header_count++] =
+          (HttpRequestHeader){.name = "Range", .value = range_header};
+    }
     ResumingSegmentWrite resume = {
         .write = write,
         .context = write_context,
-        .skip = resumed_at,
     };
     response = (HttpJsonResponse){0};
     const bool streamed = http_client_stream_get_with_headers(
-        url, headers, header_count, write_resumed_segment, &resume, cancelled,
-        &response);
+        url, headers, request_header_count, write_resumed_segment, &resume,
+        resumed_at, cancelled, &response);
     delivered += resume.forwarded;
-    if (streamed && response.status == 200 && response.body_size != 0 &&
-        resume.skip == 0 && delivered == response.body_size) {
+    const bool complete_full_response =
+        response.status == 200 && delivered == response.body_size;
+    const bool complete_partial_response =
+        response.status == 206 && resume.forwarded == response.body_size;
+    if (streamed && response.body_size != 0 &&
+        (complete_full_response || complete_partial_response)) {
       *body_size = delivered;
       SYS_Report(
           "REFERENCE GX: Plex HLS segment sequence=%u duration=%u bytes=%u "
@@ -385,7 +393,8 @@ bool multiplex_plex_hls_stream_segment(
       return true;
     }
     if (!write(write_context, NULL, 0) || resume.write_failed ||
-        (response.status != 0 && response.status != 200)) {
+        (response.status != 0 && response.status != 200 &&
+         response.status != 206)) {
       break;
     }
     if (attempt != PLEX_HLS_SEGMENT_ATTEMPTS) {

@@ -2975,7 +2975,7 @@ static void *run_app(void *unused) {
             timeline_plex_credentials, direct_hls_session_id,
             playback_manifest.rating_key, position_ms,
             playback_manifest.media_duration_ms, "paused", false);
-      } else if (video_was_playing) {
+      } else if (video_was_playing && direct_hls_demux == NULL) {
         timeline_started |= schedule_timeline_report(
             &timeline_reporter, MULTIPLEX_GATEWAY_URL,
             timeline_plex_credentials, direct_hls_session_id,
