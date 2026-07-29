@@ -1331,6 +1331,20 @@ bool http_client_stream_get_with_headers(
   return streamed;
 }
 
+bool http_client_stream_get_with_headers_concurrent(
+    const char *url, const HttpRequestHeader *headers, size_t header_count,
+    HttpBodyWrite write, void *write_context, size_t full_response_skip,
+    const volatile bool *cancelled, HttpJsonResponse *response) {
+  /*
+   * Long media bodies may block on bounded codec queues. They must not hold
+   * the short-control transaction mutex or pause/timeline requests deadlock
+   * behind media backpressure. Each call owns a separate TCP connection.
+   */
+  return http_client_stream_get_with_headers_unlocked(
+      url, headers, header_count, write, write_context, full_response_skip,
+      cancelled, response);
+}
+
 static bool http_client_request_with_headers_unlocked(
     const char *method, const char *url, const HttpRequestHeader *headers,
     size_t header_count, const char *body, char *destination, size_t capacity,

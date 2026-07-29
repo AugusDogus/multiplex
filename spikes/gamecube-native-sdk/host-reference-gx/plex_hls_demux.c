@@ -74,6 +74,14 @@ static bool parse_transport(void *context, const uint8_t *bytes,
   if (mpeg_ts_parser_push(&demux->parser, bytes, size)) {
     return true;
   }
+  /*
+   * Stopping the session closes its elementary-stream queues. The parser
+   * reports that rejected writer call as MPEG_TS_ERROR_OUTPUT, but it is the
+   * expected result of a seek or shutdown rather than malformed transport.
+   */
+  if (demux->stopping) {
+    return false;
+  }
   uint32_t packet_index = 0;
   uint16_t pid = MPEG_TS_NO_PID;
   const MpegTsError error =

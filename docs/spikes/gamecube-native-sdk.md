@@ -339,6 +339,27 @@ and resumed on the AI DMA clock with zero underruns, and passed the invalid
 read/write gate. The repeatable runner keeps Dolphin muted at the PipeWire
 sink-input layer without muting the emulated application.
 
+The same runner has a fully direct mode:
+
+```sh
+PLEX_BASE_URL=http://192.168.86.245:32400 \
+MULTIPLEX_BASE_URL=https://multiplex.localhost \
+GAMECUBE_DIRECT_PLEX=1 \
+bun run spike:gamecube:reference:plex
+```
+
+That mode starts no console gateway and prepares no host-side media file. The
+GameCube restores its Plex server token and client identifier from the
+Multiplex memory-card save, loads catalog/search/details and artwork directly
+from PMS, creates the universal-transcoder HLS session, parses the full bounded
+media playlist, and incrementally demuxes MPEG-TS into H.264/AAC queues. Plex
+selected 320x180 at 24 fps for the current 350 kbps profile; Dolphin sustained
+23.8–24.0 decoded fps and 60.4 presentation fps through seek, pause/resume,
+multiple segments, and direct `/:/timeline` reports with zero audio underruns
+and a clean invalid-access log. Media bodies use a separate TCP transaction
+from serialized control requests, preventing a paused full codec queue from
+blocking its own timeline report.
+
 Play is also gated by selection identity now. The TypeScript model enters a
 preparing state and exposes the selected rating key through the native ABI.
 The host requests `/v4/playback.bin?ratingKey=K`; the gateway returns 404 for a

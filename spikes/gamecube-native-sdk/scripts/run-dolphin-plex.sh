@@ -12,6 +12,8 @@ offset=${GAMECUBE_PLEX_OFFSET:-60}
 duration=${GAMECUBE_PLEX_DURATION:-120}
 segment_duration=${GAMECUBE_PLEX_SEGMENT_DURATION:-$duration}
 expect_continuation=${GAMECUBE_PLEX_EXPECT_CONTINUATION:-0}
+direct_plex=${GAMECUBE_DIRECT_PLEX:-0}
+wait_artwork=${GAMECUBE_PLEX_WAIT_ARTWORK:-1}
 rating_key=${GAMECUBE_PLEX_RATING_KEY:-}
 plex_base_url=${PLEX_BASE_URL:-}
 multiplex_base_url=${MULTIPLEX_BASE_URL:-}
@@ -21,12 +23,20 @@ mute_pid=
 pipe_open=0
 mute_marker="$cache_dir/audio-muted"
 
-for command in curl ffmpeg ffprobe ip jq python3 setsid; do
+for command in curl ip jq python3 setsid; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "$command is required for Plex playback in Dolphin." >&2
     exit 1
   fi
 done
+if [ "$direct_plex" -ne 1 ]; then
+  for command in ffmpeg ffprobe; do
+    if ! command -v "$command" >/dev/null 2>&1; then
+      echo "$command is required for gateway-transcoded Plex playback in Dolphin." >&2
+      exit 1
+    fi
+  done
+fi
 
 if [ -z "$plex_base_url" ]; then
   for address in $(ip neigh show | awk '$1 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {print $1}'); do
@@ -41,6 +51,14 @@ if [ -z "$plex_base_url" ]; then
   echo "No Plex server was discovered; set PLEX_BASE_URL." >&2
   exit 1
 fi
+if [ "$direct_plex" -eq 1 ] && [ -z "$multiplex_base_url" ]; then
+  echo "GAMECUBE_DIRECT_PLEX=1 requires MULTIPLEX_BASE_URL for saved device credentials." >&2
+  exit 1
+fi
+if [ "$direct_plex" -eq 1 ] && [ "$expect_continuation" -eq 1 ]; then
+  echo "Direct Plex HLS is continuous; GAMECUBE_PLEX_EXPECT_CONTINUATION only applies to gateway segments." >&2
+  exit 1
+fi
 
 mkdir -p "$cache_dir"
 if [ -z "${PLEX_TOKEN:-}" ] && [ -f "$auth_state" ]; then
@@ -49,17 +67,21 @@ if [ -z "${PLEX_TOKEN:-}" ] && [ -f "$auth_state" ]; then
   export PLEX_TOKEN
   echo "Loaded the approved access token for the selected Plex server."
 fi
-if [ -n "$rating_key" ]; then
-  python3 "$script_dir/prepare-plex-media.py" "$plex_base_url" "$media" \
-    --offset "$offset" --duration "$duration" \
-    --rating-key "$rating_key" >"$metadata"
+if [ "$direct_plex" -eq 1 ]; then
+  title=
+  container_bytes=
 else
-  python3 "$script_dir/prepare-plex-media.py" "$plex_base_url" "$media" \
-    --offset "$offset" --duration "$duration" >"$metadata"
+  if [ -n "$rating_key" ]; then
+    python3 "$script_dir/prepare-plex-media.py" "$plex_base_url" "$media" \
+      --offset "$offset" --duration "$duration" \
+      --rating-key "$rating_key" >"$metadata"
+  else
+    python3 "$script_dir/prepare-plex-media.py" "$plex_base_url" "$media" \
+      --offset "$offset" --duration "$duration" >"$metadata"
+  fi
+  title=$(jq -r '.title' "$metadata")
+  container_bytes=$(jq -r '.container_bytes' "$metadata")
 fi
-
-title=$(jq -r '.title' "$metadata")
-container_bytes=$(jq -r '.container_bytes' "$metadata")
 
 cleanup() {
   if [ "$pipe_open" -eq 1 ]; then
@@ -83,36 +105,46 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-set -- "$port" "$media" \
-  --plex-base-url "$plex_base_url" \
-  --media-metadata "$metadata" \
-  --segment-duration "$segment_duration"
-if [ -n "$multiplex_base_url" ]; then
-  set -- "$@" \
-    --multiplex-base-url "$multiplex_base_url" \
-    --multiplex-state "$cache_dir/multiplex-device.json"
-fi
-python3 "$script_dir/plex-gateway.py" "$@" >"$cache_dir/http.log" 2>&1 &
-server_pid=$!
-attempt=0
-while ! curl --noproxy '*' --fail --silent --output /dev/null \
-  "http://127.0.0.1:$port/v1/health"; do
-  attempt=$((attempt + 1))
-  if [ "$attempt" -ge 50 ]; then
-    echo "Timed out starting the local GameCube media gateway." >&2
+gateway_url=
+if [ "$direct_plex" -ne 1 ]; then
+  set -- "$port" "$media" \
+    --plex-base-url "$plex_base_url" \
+    --media-metadata "$metadata" \
+    --segment-duration "$segment_duration"
+  if [ -n "$multiplex_base_url" ]; then
+    set -- "$@" \
+      --multiplex-base-url "$multiplex_base_url" \
+      --multiplex-state "$cache_dir/multiplex-device.json"
+  fi
+  python3 "$script_dir/plex-gateway.py" "$@" >"$cache_dir/http.log" 2>&1 &
+  server_pid=$!
+  attempt=0
+  while ! curl --noproxy '*' --fail --silent --output /dev/null \
+    "http://127.0.0.1:$port/v1/health"; do
+    attempt=$((attempt + 1))
+    if [ "$attempt" -ge 50 ]; then
+      echo "Timed out starting the local GameCube media gateway." >&2
+      exit 1
+    fi
+    sleep 0.1
+  done
+
+  gateway=$(ip -4 route show default | sed -n 's/^default via \([^ ]*\).*/\1/p' | sed -n '1p')
+  if [ -z "$gateway" ]; then
+    echo "Could not determine the rootless TAP host gateway." >&2
     exit 1
   fi
-  sleep 0.1
-done
-
-gateway=$(ip -4 route show default | sed -n 's/^default via \([^ ]*\).*/\1/p' | sed -n '1p')
-if [ -z "$gateway" ]; then
-  echo "Could not determine the rootless TAP host gateway." >&2
-  exit 1
+  gateway_url="http://$gateway:$port"
 fi
-gateway_url="http://$gateway:$port"
-GAMECUBE_GATEWAY_URL="$gateway_url" \
-  sh "$script_dir/build-native-reference-dol.sh"
+if [ "$direct_plex" -eq 1 ]; then
+  GAMECUBE_GATEWAY_URL= \
+    GAMECUBE_PLEX_BASE_URL="$plex_base_url" \
+    MULTIPLEX_BASE_URL="$multiplex_base_url" \
+    sh "$script_dir/build-native-reference-dol.sh"
+else
+  GAMECUBE_GATEWAY_URL="$gateway_url" \
+    sh "$script_dir/build-native-reference-dol.sh"
+fi
 
 user_dir="$spike_dir/.dolphin-user"
 log="$user_dir/Logs/dolphin.log"
@@ -228,8 +260,16 @@ press() {
   exit 1
 }
 
-wait_log "gateway-catalog version=3" 600
-wait_log "gateway-artwork .*loaded=1" 1200
+if [ "$direct_plex" -eq 1 ]; then
+  wait_log "auth restored" 600
+  wait_log "direct Plex catalog rows=" 1200
+  if [ "$wait_artwork" -eq 1 ]; then
+    wait_log "direct Plex posters decoded=" 1200
+  fi
+else
+  wait_log "gateway-catalog version=3" 600
+  wait_log "gateway-artwork .*loaded=1" 1200
+fi
 wait_log "signature=" 600
 exec 3>"$pipe"
 pipe_open=1
@@ -331,11 +371,22 @@ press D_RIGHT
 wait_for_new "signature=" "$signature_count"
 playing_count=$(line_count "playback=playing")
 paused_count=$(line_count "playback=paused")
-playback_session_count=$(line_count "playback-session ready")
-playback_activation_count=$(line_count "playback-session activated")
+if [ "$direct_plex" -eq 1 ]; then
+  playback_ready_pattern="direct playback ready"
+  playback_activation_pattern="direct playback activated"
+  playback_switch_pattern="direct playback activated"
+  timeline_pattern="direct Plex timeline"
+else
+  playback_ready_pattern="playback-session ready"
+  playback_activation_pattern="playback-session activated"
+  playback_switch_pattern="playback-session .*switch"
+  timeline_pattern="gateway-timeline"
+fi
+playback_session_count=$(line_count "$playback_ready_pattern")
+playback_activation_count=$(line_count "$playback_activation_pattern")
 press A
-wait_for_new "playback-session activated" "$playback_activation_count" 3600
-wait_for_new "playback-session ready" "$playback_session_count" 1200
+wait_for_new "$playback_activation_pattern" "$playback_activation_count" 3600
+wait_for_new "$playback_ready_pattern" "$playback_session_count" 1200
 wait_for_new "playback=playing" "$playing_count" 1200
 sleep 1
 if [ "$(line_count "playback=paused")" -gt "$paused_count" ]; then
@@ -344,14 +395,14 @@ if [ "$(line_count "playback=paused")" -gt "$paused_count" ]; then
   wait_for_new "playback=playing" "$playing_count" 120
 fi
 
-selected_rating_key=$(sed -n 's/.*playback-session ready rating-key=\([0-9][0-9]*\).*/\1/p' "$log" | tail -1)
-initial_offset=$(sed -n 's/.*playback-session ready rating-key=[0-9][0-9]* offset=\([0-9][0-9]*\).*/\1/p' "$log" | tail -1)
-switch_count=$(line_count "playback-session .*switch")
+selected_rating_key=$(sed -n "s/.*$playback_ready_pattern rating-key=\\([0-9][0-9]*\\).*/\\1/p" "$log" | tail -1)
+initial_offset=$(sed -n "s/.*$playback_ready_pattern rating-key=[0-9][0-9]* offset=\\([0-9][0-9]*\\).*/\\1/p" "$log" | tail -1)
+switch_count=$(line_count "$playback_switch_pattern")
 playing_count=$(line_count "playback=playing")
 press R
-wait_for_new "playback-session .*switch" "$switch_count" 3600
+wait_for_new "$playback_switch_pattern" "$switch_count" 3600
 wait_for_new "playback=playing" "$playing_count" 1200
-seek_offset=$(sed -n "s/.*playback-session ready rating-key=$selected_rating_key offset=\([0-9][0-9]*\).*/\1/p" "$log" | tail -1)
+seek_offset=$(sed -n "s/.*$playback_ready_pattern rating-key=$selected_rating_key offset=\\([0-9][0-9]*\\).*/\\1/p" "$log" | tail -1)
 minimum_seek_offset=$((initial_offset + 30000))
 maximum_seek_offset=$((minimum_seek_offset + 3000))
 if [ "$seek_offset" -lt "$minimum_seek_offset" ] || \
@@ -377,24 +428,28 @@ fi
 
 # Prove deliberate player state edges reach Plex as well as periodic progress.
 paused_count=$(line_count "playback=paused")
-paused_timeline_count=$(line_count "gateway-timeline .*state=paused reported=1")
+paused_timeline_count=$(line_count "$timeline_pattern .*state=paused reported=1")
 press A
 wait_for_new "playback=paused" "$paused_count" 120
-wait_for_new "gateway-timeline .*state=paused reported=1" "$paused_timeline_count" 600
+wait_for_new "$timeline_pattern .*state=paused reported=1" "$paused_timeline_count" 600
 playing_count=$(line_count "playback=playing")
-playing_timeline_count=$(line_count "gateway-timeline .*state=playing reported=1")
+playing_timeline_count=$(line_count "$timeline_pattern .*state=playing reported=1")
 press A
 wait_for_new "playback=playing" "$playing_count" 120
-wait_for_new "gateway-timeline .*state=playing reported=1" "$playing_timeline_count" 600
+wait_for_new "$timeline_pattern .*state=playing reported=1" "$playing_timeline_count" 600
 sleep 12
 if grep -Eq 'underruns=[1-9][0-9]*' "$log"; then
   echo "Selected Plex seek produced an audio underrun." >&2
   exit 1
 fi
-wait_log "gateway-timeline rating-key=$selected_rating_key .*state=playing reported=1" 600
+wait_log "$timeline_pattern rating-key=$selected_rating_key .*state=playing reported=1" 600
 sh "$script_dir/check-dolphin-log.sh" "$log"
 
-echo "Playing selected Plex item $selected_rating_key at ${seek_offset}ms in Dolphin (startup fixture '$title' is $container_bytes bytes)."
+if [ "$direct_plex" -eq 1 ]; then
+  echo "Playing selected Plex item $selected_rating_key directly from PMS at ${seek_offset}ms in Dolphin."
+else
+  echo "Playing selected Plex item $selected_rating_key at ${seek_offset}ms in Dolphin (startup fixture '$title' is $container_bytes bytes)."
+fi
 if [ -n "$mute_pid" ]; then
   wait "$mute_pid" 2>/dev/null || true
   mute_pid=

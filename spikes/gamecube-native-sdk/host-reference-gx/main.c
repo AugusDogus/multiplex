@@ -62,6 +62,8 @@
  * blocked on a full video queue with audio only a few bytes short.
  */
 #define AUDIO_PREBUFFER_BYTES (16u * 1024u)
+#define HLS_VIDEO_PREBUFFER_BYTES (16u * 1024u)
+#define HLS_AUDIO_PREBUFFER_BYTES (16u * 1024u)
 #define HLS_READINESS_TIMEOUT_MS 60000u
 #define SEGMENT_PREFETCH_MARGIN_MS 8000u
 #define SEGMENT_HANDOFF_MARGIN_MS 64u
@@ -1325,8 +1327,8 @@ static bool open_direct_hls_session(const MultiplexAuthCredentials *credentials,
   PlexHlsDemux *demux =
       plex_hls_demux_create(credentials, rating_key, offset_ms, session_id);
   if (demux == NULL || !plex_hls_demux_start(demux) ||
-      !plex_hls_demux_wait_ready(demux, VIDEO_PREBUFFER_BYTES,
-                                 AUDIO_PREBUFFER_BYTES,
+      !plex_hls_demux_wait_ready(demux, HLS_VIDEO_PREBUFFER_BYTES,
+                                 HLS_AUDIO_PREBUFFER_BYTES,
                                  HLS_READINESS_TIMEOUT_MS) ||
       !start_hls_pipeline(demux, rating_key)) {
     SYS_Report("REFERENCE GX: direct HLS unavailable rating-key=%u\n",
@@ -2986,7 +2988,7 @@ static void *run_app(void *unused) {
             timeline_plex_credentials, direct_hls_session_id,
             playback_manifest.rating_key, position_ms,
             playback_manifest.media_duration_ms, "paused", false);
-      } else if (video_was_playing && direct_hls_demux == NULL) {
+      } else if (video_was_playing) {
         timeline_started |= schedule_timeline_report(
             &timeline_reporter, MULTIPLEX_GATEWAY_URL,
             timeline_plex_credentials, direct_hls_session_id,

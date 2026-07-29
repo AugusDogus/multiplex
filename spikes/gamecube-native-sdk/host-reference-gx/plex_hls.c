@@ -27,6 +27,26 @@ typedef struct {
   bool write_failed;
 } ResumingSegmentWrite;
 
+typedef struct {
+  char *bytes;
+  size_t capacity;
+  size_t used;
+} BoundedBodyWrite;
+
+static bool write_bounded_body(void *context, const uint8_t *bytes,
+                               size_t size) {
+  BoundedBodyWrite *body = context;
+  if (body == NULL || body->bytes == NULL || body->capacity == 0 ||
+      body->used >= body->capacity ||
+      size > body->capacity - 1u - body->used) {
+    return false;
+  }
+  memcpy(body->bytes + body->used, bytes, size);
+  body->used += size;
+  body->bytes[body->used] = '\0';
+  return true;
+}
+
 static bool write_resumed_segment(void *context, const uint8_t *bytes,
                                   size_t size) {
   ResumingSegmentWrite *resume = context;
@@ -43,7 +63,7 @@ static bool write_resumed_segment(void *context, const uint8_t *bytes,
 
 #define PLEX_HLS_MASTER_CAPACITY 2048u
 #define PLEX_HLS_DECISION_CAPACITY (16u * 1024u)
-#define PLEX_HLS_MEDIA_PLAYLIST_CAPACITY (16u * 1024u)
+#define PLEX_HLS_MEDIA_PLAYLIST_CAPACITY (64u * 1024u)
 #define PLEX_HLS_START_ATTEMPTS 4u
 #define PLEX_HLS_START_RETRY_US 1000000u
 #define PLEX_HLS_PROFILE \
@@ -296,7 +316,7 @@ bool multiplex_plex_hls_refresh(
       !session->started) {
     return false;
   }
-  char *response_body = malloc(PLEX_HLS_MEDIA_PLAYLIST_CAPACITY);
+  char *response_body = malloc(PLEX_HLS_MEDIA_PLAYLIST_CAPACITY + 1u);
   if (response_body == NULL) {
     return false;
   }
@@ -305,20 +325,25 @@ bool multiplex_plex_hls_refresh(
       control_headers(credentials, session, false, headers);
   HttpJsonResponse response;
   memset(&response, 0, sizeof(response));
-  const bool requested = http_client_request_with_headers(
-      "GET", session->variant_url, headers, header_count, NULL, response_body,
-      PLEX_HLS_MEDIA_PLAYLIST_CAPACITY, &response);
+  BoundedBodyWrite body = {
+      .bytes = response_body,
+      .capacity = PLEX_HLS_MEDIA_PLAYLIST_CAPACITY + 1u,
+  };
+  response_body[0] = '\0';
+  const bool requested = http_client_stream_get_with_headers(
+      session->variant_url, headers, header_count, write_bounded_body, &body, 0,
+      NULL, &response);
   const bool parsed =
-      requested && response.status == 200 &&
+      requested && response.status == 200 && response.body_size == body.used &&
       hls_playlist_parse_media_window(
-          response_body, response.body_size, session->next_sequence,
+          response_body, body.used, session->next_sequence,
           session->next_sequence == 0 ? session->start_offset_ms : 0,
           playlist);
   if (!parsed) {
     SYS_Report(
         "REFERENCE GX: Plex HLS playlist failed request=%u status=%u "
         "bytes=%u\n",
-        requested ? 1u : 0u, response.status, (unsigned)response.body_size);
+        requested ? 1u : 0u, response.status, (unsigned)body.used);
   } else {
     SYS_Report(
         "REFERENCE GX: Plex HLS playlist segments=%u first=%u next=%u "
@@ -374,7 +399,7 @@ bool multiplex_plex_hls_stream_segment(
         .context = write_context,
     };
     response = (HttpJsonResponse){0};
-    const bool streamed = http_client_stream_get_with_headers(
+    const bool streamed = http_client_stream_get_with_headers_concurrent(
         url, headers, request_header_count, write_resumed_segment, &resume,
         resumed_at, cancelled, &response);
     delivered += resume.forwarded;
@@ -405,6 +430,12 @@ bool multiplex_plex_hls_stream_segment(
           PLEX_HLS_SEGMENT_ATTEMPTS);
       usleep(100000);
     }
+  }
+  if (cancelled != NULL && *cancelled) {
+    SYS_Report(
+        "REFERENCE GX: Plex HLS segment cancelled sequence=%u bytes=%u\n",
+        segment->sequence, (unsigned)delivered);
+    return false;
   }
   SYS_Report(
       "REFERENCE GX: Plex HLS segment failed sequence=%u status=%u "

@@ -80,7 +80,12 @@ runner auto-navigates to the player and mutes only
 Dolphin's PipeWire sink input; AI DMA remains active inside the emulator.
 Set `GAMECUBE_PLEX_SEGMENT_DURATION=8` and
 `GAMECUBE_PLEX_EXPECT_CONTINUATION=1` for the accelerated timeline-boundary
-smoke test.
+smoke test. Set `GAMECUBE_DIRECT_PLEX=1` with
+`MULTIPLEX_BASE_URL=https://multiplex.localhost` to skip the development
+gateway and exercise the paired console's saved memory-card credentials,
+direct PMS catalog/artwork requests, HLS transcode, seek, and timeline
+reporting. `GAMECUBE_PLEX_WAIT_ARTWORK=0` may skip the automation wait for all
+twelve home posters while iterating on playback.
 
 `scripts/plex-pair.py` implements Plex's current device-key PIN flow without
 placing an account password or long-lived legacy token on the console. `start`
@@ -240,9 +245,16 @@ client identifier, and active playback-session identifier restored from its
 memory-card record. A dedicated LWP sends play/pause/stop edges immediately and
 playing progress every ten seconds, so Plex latency cannot stall GX or AI DMA.
 The direct-Plex Dolphin run confirmed real playing, paused, resumed, and
-periodic progress acknowledgements; PMS metadata advanced to the reported
-resume offset while MPEG-2/MP2 playback stayed at about 30 decode fps and 60.4
-presentation fps with a clean invalid-access log. Leaving the player also
+periodic progress acknowledgements without starting the gateway or preparing a
+host-side media file. PMS selected a 320x180 H.264/AAC HLS variant at 24 fps;
+the console held 23.8–24.0 decode fps and 60.4 presentation fps with zero
+underruns and a clean invalid-access log. Its bounded playlist reader accepts
+Plex's full 23 KiB static movie playlist, retains only the next 32 segment
+records, and starts the consumers at 16 KiB per elementary stream so either
+mux order can make progress. Long segment bodies use their own TCP connection
+instead of holding the short-control mutex while codec queues backpressure, so
+pause/resume and ten-second timeline reports remain independent. Leaving the
+player also
 commits the current offset and integer progress percentage into the
 TypeScript-owned home, search, or library item. Reopening that same item in the
 verified run resumed at 7,547 ms without reloading the catalog.
