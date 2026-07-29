@@ -208,18 +208,31 @@ bool plex_hls_demux_wait_ready(PlexHlsDemux *demux, size_t video_bytes,
   while (!demux->failed && !demux->complete && !demux->stopping &&
          waited_ms < timeout_ms) {
     const MpegTsInfo *info = mpeg_ts_parser_info(&demux->parser);
+    const size_t queued_video = media_byte_queue_size(demux->video);
+    const size_t queued_audio = media_byte_queue_size(demux->audio);
+    const bool requested_prebuffer =
+        queued_video >= video_bytes && queued_audio >= audio_bytes;
+    /*
+     * MPEG-TS does not promise a bounded byte ratio between elementary
+     * streams. In particular, a seek can land before a long run of audio
+     * packets. If either bounded queue fills while both streams already have
+     * data, the producer cannot reach the other stream's requested prebuffer
+     * until codec consumers start draining it.
+     */
+    const bool producer_backpressured =
+        (queued_video == HLS_VIDEO_QUEUE_SIZE && queued_audio != 0) ||
+        (queued_audio == HLS_AUDIO_QUEUE_SIZE && queued_video != 0);
     if (info->video_pid != MPEG_TS_NO_PID &&
         info->audio_pid != MPEG_TS_NO_PID &&
         info->first_video_pts90k != MPEG_TS_NO_PTS &&
         info->first_audio_pts90k != MPEG_TS_NO_PTS &&
-        media_byte_queue_size(demux->video) >= video_bytes &&
-        media_byte_queue_size(demux->audio) >= audio_bytes) {
+        (requested_prebuffer || producer_backpressured)) {
       SYS_Report(
           "REFERENCE GX: HLS ready video=%u audio=%u video-pts=%lld "
-          "audio-pts=%lld\n",
-          (unsigned)media_byte_queue_size(demux->video),
-          (unsigned)media_byte_queue_size(demux->audio),
-          info->first_video_pts90k, info->first_audio_pts90k);
+          "audio-pts=%lld backpressured=%u\n",
+          (unsigned)queued_video, (unsigned)queued_audio,
+          info->first_video_pts90k, info->first_audio_pts90k,
+          producer_backpressured ? 1u : 0u);
       return true;
     }
     usleep(10000);
