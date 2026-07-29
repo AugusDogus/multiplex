@@ -31,6 +31,7 @@ void video_decoder_destroy(VideoDecoder *decoder);
  * chunks from the container producer.
  */
 bool video_decoder_next_frame(VideoDecoder *decoder, VideoFrame *frame);
+uint64_t video_decoder_stream_offset(const VideoDecoder *decoder);
 
 const char *video_codec_name(VideoCodec codec);
 

@@ -1,0 +1,24 @@
+diff --git a/lwip/arch/gc/netif/gcif.c b/lwip/arch/gc/netif/gcif.c
+index 9db132b..9062dda 100644
+--- a/lwip/arch/gc/netif/gcif.c
++++ b/lwip/arch/gc/netif/gcif.c
+@@ -639,7 +639,17 @@ static err_t bba_start_rx(struct netif *dev,u32 budget)
+ 			}
+ 			dev->input(p,dev);
+-		} else
+-			break;
++		} else {
++			/*
++			 * Leaving RRP on this descriptor strands the receive ring after
++			 * the interrupt is acknowledged. Drop the frame so TCP can
++			 * retransmit it once pbuf memory is available again.
++			 */
++			__bba_rx_err(0xff,priv);
++			recvd++;
++			bba_out12(BBA_RRP,(rrp=cur_descr.next_packet_ptr));
++			rwp = bba_in12(BBA_RWP);
++			continue;
++		}
+ 
+ 		recvd++;
+ 		bba_out12(BBA_RRP,(rrp=cur_descr.next_packet_ptr));

@@ -321,9 +321,10 @@ static void profile_decoded_frame(uint32_t decode_us, uint32_t codec_us,
             : (uint32_t)(((VIDEO_PROFILE_FRAMES - 1u) * 10000000ull) /
                          measured_us);
     SYS_Report("REFERENCE GX: decoder=%u frames/%uus (%u.%u fps) "
-               "work=%u avg/%u max us codec=%u/%u upload=%u/%u\n",
+               "bytes=%llu work=%u avg/%u max us codec=%u/%u upload=%u/%u\n",
                VIDEO_PROFILE_FRAMES, measured_us, fps_tenths / 10,
-               fps_tenths % 10, video_decode_total_us / VIDEO_PROFILE_FRAMES,
+               fps_tenths % 10, video_decoder_stream_offset(video_decoder),
+               video_decode_total_us / VIDEO_PROFILE_FRAMES,
                video_decode_max_us, video_codec_total_us / VIDEO_PROFILE_FRAMES,
                video_codec_max_us, video_upload_total_us / VIDEO_PROFILE_FRAMES,
                video_upload_max_us);

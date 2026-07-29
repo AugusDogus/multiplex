@@ -72,7 +72,8 @@ fi
 libogc2_patch="$spike_dir/patches/libogc2-flush-tcp-writes.patch"
 libogc2_bba_wrap_patch="$spike_dir/patches/libogc2-wrap-bba-receive-dma.patch"
 libogc2_bba_recovery_patch="$spike_dir/patches/libogc2-recover-malformed-bba-descriptors.patch"
-for patch_file in "$libogc2_patch" "$libogc2_bba_wrap_patch" "$libogc2_bba_recovery_patch"; do
+libogc2_bba_pbuf_patch="$spike_dir/patches/libogc2-drop-bba-packet-on-pbuf-exhaustion.patch"
+for patch_file in "$libogc2_patch" "$libogc2_bba_wrap_patch" "$libogc2_bba_recovery_patch" "$libogc2_bba_pbuf_patch"; do
   if git -C "$libogc2_dir" apply --reverse --check "$patch_file" >/dev/null 2>&1; then
     :
   elif git -C "$libogc2_dir" apply --check "$patch_file"; then
@@ -83,7 +84,7 @@ for patch_file in "$libogc2_patch" "$libogc2_bba_wrap_patch" "$libogc2_bba_recov
   fi
 done
 
-libogc2_input="$LIBOGC2_COMMIT $(cksum "$libogc2_patch") $(cksum "$libogc2_bba_wrap_patch") $(cksum "$libogc2_bba_recovery_patch")"
+libogc2_input="$LIBOGC2_COMMIT $(cksum "$libogc2_patch") $(cksum "$libogc2_bba_wrap_patch") $(cksum "$libogc2_bba_recovery_patch") $(cksum "$libogc2_bba_pbuf_patch")"
 libogc2_stamp="$libogc2_stage/.build-input"
 if [ ! -s "$libogc2_stage/opt/devkitpro/libogc2/gamecube/lib/libogc.a" ] ||
   [ ! -f "$libogc2_stamp" ] ||

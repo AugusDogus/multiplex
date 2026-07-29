@@ -2,6 +2,8 @@
 
 #include "tls-ca.h"
 
+#include <errno.h>
+#include <fcntl.h>
 #include <gccore.h>
 #include <network.h>
 #include <ogc/lwp_watchdog.h>
@@ -102,7 +104,16 @@ static int tls_receive(void *context, unsigned char *bytes, size_t size) {
   if (wait_socket(client->socket, false, client->io_timeout_seconds) <= 0) {
     return MBEDTLS_ERR_SSL_WANT_READ;
   }
+  if (net_fcntl(client->socket, F_SETFL, O_NONBLOCK) < 0) {
+    return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
+  }
   const int result = net_recv(client->socket, bytes, size, 0);
+  if (net_fcntl(client->socket, F_SETFL, 0) < 0) {
+    return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
+  }
+  if (result == -EAGAIN) {
+    return MBEDTLS_ERR_SSL_WANT_READ;
+  }
   return result < 0 ? MBEDTLS_ERR_SSL_INTERNAL_ERROR : result;
 }
 

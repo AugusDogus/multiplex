@@ -20,7 +20,7 @@ index feae677..20fd9d6 100644
  	while(recvd<budget && rrp!=rwp) {
  		LWIP_DEBUGF(NETIF_DEBUG,("bba_start_rx(%04x,%04x)\n",rrp,rwp));
  		bba_ins(rrp<<8,(void*)(&cur_descr),sizeof(struct bba_descr));
-@@ -613,13 +615,23 @@ static err_t bba_start_rx(struct netif *dev,u32 budget)
+@@ -613,12 +615,22 @@ static err_t bba_start_rx(struct netif *dev,u32 budget)
  		p = pbuf_alloc(PBUF_RAW,size,PBUF_POOL);
  		if(p) {
  			for(tmp=p;tmp!=NULL;tmp=tmp->next) {
@@ -49,4 +49,3 @@ index feae677..20fd9d6 100644
 +				}
  			}
  			dev->input(p,dev);
- 		} else

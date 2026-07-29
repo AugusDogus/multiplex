@@ -17,6 +17,36 @@
 #include <string.h>
 #include <unistd.h>
 
+#define PLEX_HLS_SEGMENT_ATTEMPTS 4u
+
+typedef struct {
+  HttpBodyWrite write;
+  void *context;
+  size_t skip;
+  size_t forwarded;
+  bool write_failed;
+} ResumingSegmentWrite;
+
+static bool write_resumed_segment(void *context, const uint8_t *bytes,
+                                  size_t size) {
+  ResumingSegmentWrite *resume = context;
+  if (resume->skip != 0) {
+    const size_t skipped = resume->skip < size ? resume->skip : size;
+    resume->skip -= skipped;
+    bytes += skipped;
+    size -= skipped;
+  }
+  if (size == 0) {
+    return true;
+  }
+  if (!resume->write(resume->context, bytes, size)) {
+    resume->write_failed = true;
+    return false;
+  }
+  resume->forwarded += size;
+  return true;
+}
+
 #define PLEX_HLS_MASTER_CAPACITY 2048u
 #define PLEX_HLS_MEDIA_PLAYLIST_CAPACITY (16u * 1024u)
 #define PLEX_HLS_START_ATTEMPTS 4u
@@ -270,21 +300,47 @@ bool multiplex_plex_hls_stream_segment(
   HttpRequestHeader headers[8];
   const size_t header_count =
       control_headers(credentials, session, false, headers);
-  HttpJsonResponse response;
-  const bool streamed = http_client_stream_get_with_headers(
-      url, headers, header_count, write, write_context, &response);
-  if (!streamed || response.status != 200 || response.body_size == 0) {
-    SYS_Report(
-        "REFERENCE GX: Plex HLS segment failed sequence=%u status=%u "
-        "bytes=%u\n",
-        segment->sequence, response.status, (unsigned)response.body_size);
-    return false;
+  size_t delivered = 0;
+  HttpJsonResponse response = {0};
+  for (unsigned attempt = 1; attempt <= PLEX_HLS_SEGMENT_ATTEMPTS; ++attempt) {
+    const size_t resumed_at = delivered;
+    ResumingSegmentWrite resume = {
+        .write = write,
+        .context = write_context,
+        .skip = resumed_at,
+    };
+    response = (HttpJsonResponse){0};
+    const bool streamed = http_client_stream_get_with_headers(
+        url, headers, header_count, write_resumed_segment, &resume, &response);
+    delivered += resume.forwarded;
+    if (streamed && response.status == 200 && response.body_size != 0 &&
+        resume.skip == 0 && delivered == response.body_size) {
+      *body_size = delivered;
+      SYS_Report(
+          "REFERENCE GX: Plex HLS segment sequence=%u duration=%u bytes=%u "
+          "attempts=%u\n",
+          segment->sequence, segment->duration_ms, (unsigned)*body_size,
+          attempt);
+      return true;
+    }
+    if (resume.write_failed ||
+        (response.status != 0 && response.status != 200)) {
+      break;
+    }
+    if (attempt != PLEX_HLS_SEGMENT_ATTEMPTS) {
+      SYS_Report(
+          "REFERENCE GX: Plex HLS segment retry sequence=%u offset=%u "
+          "attempt=%u/%u\n",
+          segment->sequence, (unsigned)delivered, attempt + 1u,
+          PLEX_HLS_SEGMENT_ATTEMPTS);
+      usleep(100000);
+    }
   }
-  *body_size = response.body_size;
   SYS_Report(
-      "REFERENCE GX: Plex HLS segment sequence=%u duration=%u bytes=%u\n",
-      segment->sequence, segment->duration_ms, (unsigned)*body_size);
-  return true;
+      "REFERENCE GX: Plex HLS segment failed sequence=%u status=%u "
+      "bytes=%u\n",
+      segment->sequence, response.status, (unsigned)delivered);
+  return false;
 }
 
 void multiplex_plex_hls_stop(const MultiplexAuthCredentials *credentials,

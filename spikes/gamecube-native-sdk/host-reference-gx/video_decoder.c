@@ -266,3 +266,7 @@ bool video_decoder_next_frame(VideoDecoder *decoder, VideoFrame *frame) {
              video_codec_name(decoder->selected_codec));
   return false;
 }
+
+uint64_t video_decoder_stream_offset(const VideoDecoder *decoder) {
+  return decoder == NULL ? 0 : decoder->stream_offset;
+}

@@ -10,6 +10,7 @@
 #include "http_client.h"
 #include "tls_client.h"
 
+#include <fcntl.h>
 #include <gccore.h>
 #include <network.h>
 #include <stdbool.h>
@@ -30,7 +31,7 @@
 #define HTTP_BODY_STREAM_CHUNK_SIZE (4u * 1024u)
 #define HTTP_SMALL_MEDIA_CACHE_SIZE (256u * 1024u)
 #define HTTP_IO_TIMEOUT_SECONDS 30
-#define HTTP_STREAM_TIMEOUT_SECONDS 2
+#define HTTP_STREAM_TIMEOUT_SECONDS 5
 #define HTTP_RANGE_ATTEMPTS 4
 #define HTTP_JSON_REQUEST_LIMIT 4096
 #define HTTP_JSON_FRAMING_ALLOWANCE 2048
@@ -297,7 +298,19 @@ static int read_available_with_timeout(HttpClient *client, void *destination,
   if (net_select(client->socket + 1, &readable, NULL, NULL, &timeout) <= 0) {
     return -1;
   }
-  return net_recv(client->socket, destination, size, 0);
+  /*
+   * libogc2 select can report a damaged BBA TCP flow readable even though a
+   * blocking recv would wait forever. Switch modes only around this recv so
+   * connection setup and writes retain their proven blocking semantics.
+   */
+  if (net_fcntl(client->socket, F_SETFL, O_NONBLOCK) < 0) {
+    return -1;
+  }
+  const int received = net_recv(client->socket, destination, size, 0);
+  if (net_fcntl(client->socket, F_SETFL, 0) < 0) {
+    return -1;
+  }
+  return received;
 }
 
 static int read_available(HttpClient *client, void *destination, size_t size) {
@@ -306,12 +319,13 @@ static int read_available(HttpClient *client, void *destination, size_t size) {
 }
 
 static bool read_headers(HttpClient *client, char *headers, size_t capacity,
-                         size_t *header_size, size_t *response_size) {
+                         size_t *header_size, size_t *response_size,
+                         unsigned timeout_seconds) {
   size_t used = 0;
   while (used + 1u < capacity) {
     const size_t previous = used;
-    const int result =
-        read_available(client, headers + used, capacity - used - 1u);
+    const int result = read_available_with_timeout(
+        client, headers + used, capacity - used - 1u, timeout_seconds);
     if (result <= 0) {
       return false;
     }
@@ -573,7 +587,7 @@ static bool fetch_cache_once(HttpClient *client, size_t start) {
   size_t header_size = 0;
   size_t response_size = 0;
   if (!read_headers(client, headers, sizeof(headers), &header_size,
-                    &response_size)) {
+                    &response_size, HTTP_IO_TIMEOUT_SECONDS)) {
     SYS_Report("REFERENCE GX: HTTP response header unavailable offset=%u\n",
                (unsigned)start);
     return false;
@@ -653,7 +667,7 @@ static bool start_stream_response(HttpClient *client, size_t start) {
   size_t header_size = 0;
   size_t response_size = 0;
   if (!read_headers(client, headers, sizeof(headers), &header_size,
-                    &response_size)) {
+                    &response_size, HTTP_IO_TIMEOUT_SECONDS)) {
     return false;
   }
   const char first_body_byte = headers[header_size];
@@ -922,6 +936,7 @@ typedef struct {
   const uint8_t *prefetched;
   size_t prefetched_size;
   size_t prefetched_offset;
+  unsigned timeout_seconds;
 } HttpBodyReader;
 
 static int body_reader_read_some(HttpBodyReader *reader, uint8_t *destination,
@@ -935,7 +950,8 @@ static int body_reader_read_some(HttpBodyReader *reader, uint8_t *destination,
     reader->prefetched_offset += copied;
     return (int)copied;
   }
-  return read_available(reader->client, destination, size);
+  return read_available_with_timeout(reader->client, destination, size,
+                                     reader->timeout_seconds);
 }
 
 static bool body_reader_read_exact(HttpBodyReader *reader,
@@ -1022,18 +1038,19 @@ static bool write_body(HttpBodyWrite write, void *context,
 }
 
 static bool stream_content_length(HttpBodyReader *reader, size_t size,
-                                  HttpBodyWrite write, void *context) {
+                                  HttpBodyWrite write, void *context,
+                                  size_t *body_size) {
   uint8_t buffer[HTTP_BODY_STREAM_CHUNK_SIZE];
-  size_t read = 0;
-  while (read < size) {
-    const size_t remaining = size - read;
+  *body_size = 0;
+  while (*body_size < size) {
+    const size_t remaining = size - *body_size;
     const size_t chunk = remaining < sizeof(buffer) ? remaining
                                                     : sizeof(buffer);
     if (!body_reader_read_exact(reader, buffer, chunk) ||
         !write_body(write, context, buffer, chunk)) {
       return false;
     }
-    read += chunk;
+    *body_size += chunk;
     LWP_YieldThread();
   }
   return true;
@@ -1194,7 +1211,8 @@ bool http_client_stream_get_with_headers(
   size_t header_size = 0;
   size_t response_size = 0;
   if (!read_headers(client, response_headers, sizeof(response_headers),
-                    &header_size, &response_size)) {
+                    &header_size, &response_size,
+                    HTTP_STREAM_TIMEOUT_SECONDS)) {
     http_client_destroy(client);
     return false;
   }
@@ -1217,6 +1235,7 @@ bool http_client_stream_get_with_headers(
       .prefetched = (const uint8_t *)response_headers + header_size,
       .prefetched_size = response_size - header_size,
       .prefetched_offset = 0,
+      .timeout_seconds = HTTP_STREAM_TIMEOUT_SECONDS,
   };
   bool streamed = false;
   if (chunked) {
@@ -1224,10 +1243,7 @@ bool http_client_stream_get_with_headers(
                               &response->body_size);
   } else if (has_content_length) {
     streamed = stream_content_length(&reader, content_length, write,
-                                     write_context);
-    if (streamed) {
-      response->body_size = content_length;
-    }
+                                     write_context, &response->body_size);
   } else {
     streamed = stream_until_close(&reader, write, write_context,
                                   &response->body_size);
@@ -1318,8 +1334,8 @@ bool http_client_request_with_headers(const char *method, const char *url,
   size_t header_size = 0;
   size_t response_size = 0;
   if (!read_headers(client, response_headers, sizeof(response_headers),
-                    &header_size,
-                    &response_size)) {
+                    &header_size, &response_size,
+                    HTTP_IO_TIMEOUT_SECONDS)) {
     http_client_destroy(client);
     return false;
   }
