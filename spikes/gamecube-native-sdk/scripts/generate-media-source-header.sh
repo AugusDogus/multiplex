@@ -6,6 +6,8 @@ media_url=${GAMECUBE_MEDIA_URL:-}
 gateway_url=${GAMECUBE_GATEWAY_URL:-}
 multiplex_base_url=${MULTIPLEX_BASE_URL:-}
 plex_base_url=${GAMECUBE_PLEX_BASE_URL:-}
+plex_video_resolution=${GAMECUBE_PLEX_VIDEO_RESOLUTION:-720x480}
+plex_max_video_bitrate=${GAMECUBE_PLEX_MAX_VIDEO_BITRATE:-350}
 video_bytes=${GAMECUBE_MEDIA_VIDEO_BYTES:-0}
 audio_bytes=${GAMECUBE_MEDIA_AUDIO_BYTES:-0}
 video_packets=${GAMECUBE_MEDIA_VIDEO_PACKETS:-0}
@@ -33,6 +35,17 @@ if [ -n "$plex_base_url" ] &&
   echo "GAMECUBE_PLEX_BASE_URL contains unsupported characters." >&2
   exit 1
 fi
+if ! printf '%s' "$plex_video_resolution" |
+  LC_ALL=C grep -Eq '^[1-9][0-9]*x[1-9][0-9]*$'; then
+  echo "GAMECUBE_PLEX_VIDEO_RESOLUTION must look like 640x360." >&2
+  exit 1
+fi
+case "$plex_max_video_bitrate" in
+  '' | *[!0-9]*)
+    echo "GAMECUBE_PLEX_MAX_VIDEO_BITRATE must be an unsigned integer." >&2
+    exit 1
+    ;;
+esac
 
 for value in "$video_bytes" "$audio_bytes" "$video_packets" "$audio_packets"; do
   case "$value" in
@@ -71,6 +84,8 @@ trap 'rm -f "$temporary"' EXIT INT TERM
   printf '#define MULTIPLEX_GATEWAY_URL "%s"\n' "$gateway_url"
   printf '#define MULTIPLEX_BASE_URL "%s"\n' "$multiplex_base_url"
   printf '#define MULTIPLEX_PLEX_BASE_URL "%s"\n' "$plex_base_url"
+  printf '#define MULTIPLEX_PLEX_VIDEO_RESOLUTION "%s"\n' "$plex_video_resolution"
+  printf '#define MULTIPLEX_PLEX_MAX_VIDEO_BITRATE "%s"\n' "$plex_max_video_bitrate"
   printf '#define MULTIPLEX_PAIRING_ENABLED %s\n' "$pairing_enabled"
   printf '#define MULTIPLEX_MEDIA_HAS_INFO %s\n' "$has_info"
   printf '#define MULTIPLEX_MEDIA_VIDEO_BYTES %su\n' "$video_bytes"

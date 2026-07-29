@@ -360,6 +360,18 @@ and a clean invalid-access log. Media bodies use a separate TCP transaction
 from serialized control requests, preventing a paused full codec queue from
 blocking its own timeline report.
 
+The HLS request profile is build-time configurable for reproducible quality
+experiments. At `GAMECUBE_PLEX_VIDEO_RESOLUTION=640x360` and
+`GAMECUBE_PLEX_MAX_VIDEO_BITRATE=1000`, PMS selected a 640x360, 822 kbps
+H.264/AAC variant. Direct playback now clears obsolete browse/details
+reference-render memo entries before H.264 allocates reference pictures,
+recovering 3.8 MiB on the first transition and 589 KiB on the seek transition.
+That removed the 360p allocation failure. The end-to-end run completed 60
+frames at 24.2 decoded fps for a 24 fps source, retained 60.4 presentation fps,
+and passed seek, pause/resume, timeline, underrun, and invalid-access checks.
+At 42.9 ms average decode-plus-upload work against a 41.7 ms frame interval,
+360p is validated but not yet the conservative default.
+
 Play is also gated by selection identity now. The TypeScript model enters a
 preparing state and exposes the selected rating key through the native ABI.
 The host requests `/v4/playback.bin?ratingKey=K`; the gateway returns 404 for a

@@ -8,6 +8,7 @@
 #include "plex_hls.h"
 
 #include "http_client.h"
+#include "media-source.h"
 
 #include <gccore.h>
 #include <ogc/lwp_watchdog.h>
@@ -186,8 +187,10 @@ static bool configure_hls_session(
       "video/:/transcode/universal/start.m3u8?"
       "path=%%2Flibrary%%2Fmetadata%%2F%u&mediaIndex=0&partIndex=0&"
       "protocol=hls&fastSeek=1&directPlay=0&directStream=0&"
-      "directStreamAudio=0&videoQuality=100&videoResolution=720x480&"
-      "maxVideoBitrate=350&subtitles=none&location=lan&hasMDE=1&"
+      "directStreamAudio=0&videoQuality=100&videoResolution="
+      MULTIPLEX_PLEX_VIDEO_RESOLUTION "&maxVideoBitrate="
+      MULTIPLEX_PLEX_MAX_VIDEO_BITRATE
+      "&subtitles=none&location=lan&hasMDE=1&"
       "session=%s%s",
       rating_key, session->session_id, offset_query);
   return path_size > 0 && (size_t)path_size < sizeof(path) &&

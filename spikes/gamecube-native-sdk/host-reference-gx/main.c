@@ -1687,6 +1687,7 @@ schedule_timeline_report(TimelineReporter *reporter, const char *gateway_url,
       LWP_CreateThread(&reporter->thread, run_timeline_report, reporter,
                        reporter->stack, TIMELINE_REPORT_STACK_SIZE,
                        LWP_PRIO_NORMAL / 2) != 0) {
+    SYS_Report("REFERENCE GX: timeline report allocation failed\n");
     free(reporter->stack);
     reporter->stack = NULL;
     reporter->thread = LWP_THREAD_NULL;
@@ -1817,6 +1818,15 @@ load_direct_playback(const MultiplexAuthCredentials *credentials,
       direct_hls_session_id[0] = '\0';
     }
     close_media_session(client, demux);
+    /*
+     * Browse/details memo entries retain roughly 4 MiB. The uploaded GX frame
+     * remains valid after clearing them, and the player needs only its much
+     * smaller current-frame memo. Reclaim the old UI working set before H.264
+     * allocates reference pictures.
+     */
+    const uint32_t released = multiplex_native_reference_memo_clear();
+    SYS_Report("REFERENCE GX: direct playback released-render-memo=%uKiB\n",
+               released / 1024u);
     PlexHlsDemux *hls = NULL;
     if (!open_direct_hls_session(credentials, rating_key, offset_ms,
                                  resume_session_id, &hls)) {

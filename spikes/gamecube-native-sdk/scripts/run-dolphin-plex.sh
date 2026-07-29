@@ -14,6 +14,8 @@ segment_duration=${GAMECUBE_PLEX_SEGMENT_DURATION:-$duration}
 expect_continuation=${GAMECUBE_PLEX_EXPECT_CONTINUATION:-0}
 direct_plex=${GAMECUBE_DIRECT_PLEX:-0}
 wait_artwork=${GAMECUBE_PLEX_WAIT_ARTWORK:-1}
+plex_video_resolution=${GAMECUBE_PLEX_VIDEO_RESOLUTION:-720x480}
+plex_max_video_bitrate=${GAMECUBE_PLEX_MAX_VIDEO_BITRATE:-350}
 rating_key=${GAMECUBE_PLEX_RATING_KEY:-}
 plex_base_url=${PLEX_BASE_URL:-}
 multiplex_base_url=${MULTIPLEX_BASE_URL:-}
@@ -139,6 +141,8 @@ fi
 if [ "$direct_plex" -eq 1 ]; then
   GAMECUBE_GATEWAY_URL= \
     GAMECUBE_PLEX_BASE_URL="$plex_base_url" \
+    GAMECUBE_PLEX_VIDEO_RESOLUTION="$plex_video_resolution" \
+    GAMECUBE_PLEX_MAX_VIDEO_BITRATE="$plex_max_video_bitrate" \
     MULTIPLEX_BASE_URL="$multiplex_base_url" \
     sh "$script_dir/build-native-reference-dol.sh"
 else
@@ -434,9 +438,11 @@ wait_for_new "playback=paused" "$paused_count" 120
 wait_for_new "$timeline_pattern .*state=paused reported=1" "$paused_timeline_count" 600
 playing_count=$(line_count "playback=playing")
 playing_timeline_count=$(line_count "$timeline_pattern .*state=playing reported=1")
+decoder_count=$(line_count "decoder=60 frames/")
 press A
 wait_for_new "playback=playing" "$playing_count" 120
 wait_for_new "$timeline_pattern .*state=playing reported=1" "$playing_timeline_count" 600
+wait_for_new "decoder=60 frames/" "$decoder_count" 1200
 sleep 12
 if grep -Eq 'underruns=[1-9][0-9]*' "$log"; then
   echo "Selected Plex seek produced an audio underrun." >&2

@@ -85,7 +85,10 @@ smoke test. Set `GAMECUBE_DIRECT_PLEX=1` with
 gateway and exercise the paired console's saved memory-card credentials,
 direct PMS catalog/artwork requests, HLS transcode, seek, and timeline
 reporting. `GAMECUBE_PLEX_WAIT_ARTWORK=0` may skip the automation wait for all
-twelve home posters while iterating on playback.
+twelve home posters while iterating on playback. The requested PMS profile is
+also repeatable through `GAMECUBE_PLEX_VIDEO_RESOLUTION` and
+`GAMECUBE_PLEX_MAX_VIDEO_BITRATE`; the defaults remain the conservative
+`720x480`/`350` combination, which PMS currently resolves to 320x180.
 
 `scripts/plex-pair.py` implements Plex's current device-key PIN flow without
 placing an account password or long-lived legacy token on the console. `start`
@@ -258,6 +261,16 @@ player also
 commits the current offset and integer progress percentage into the
 TypeScript-owned home, search, or library item. Reopening that same item in the
 verified run resumed at 7,547 ms without reloading the catalog.
+
+A 640x360/1000 profile run made PMS select a 640x360, 822 kbps H.264/AAC
+variant. Releasing the obsolete browse/details reference-render memo before
+opening H.264 recovered 3.8 MiB and fixed reference-picture allocation failures
+at that resolution. The seeked replacement then released another 589 KiB. It
+completed a 60-frame sample at 24.2 decoded fps for a 24 fps source, presented
+at 60.4 fps, reported play/pause/resume directly to Plex, and recorded zero
+audio underruns or invalid accesses. Its 42.9 ms average decode-plus-upload
+work remains too close to the 41.7 ms frame budget to make 360p the default
+without another decoder or upload optimization.
 The first Watch Together increment also calls the web app's existing
 `plex.getWatchTogetherRooms` tRPC procedure rather than adding a console-only
 query. Dolphin completed TLS 1.2 through Portless, authenticated the restored
