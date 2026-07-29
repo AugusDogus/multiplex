@@ -75,7 +75,10 @@ type SessionProbe = z.infer<typeof sessionProbeSchema>;
 async function probeSession(
   request: NextRequest,
 ): Promise<{ session: SessionProbe; setCookieHeaders: string[] }> {
-  const url = new URL("/api/auth/get-session", request.nextUrl.origin);
+  const url = new URL(
+    "/api/auth/get-session",
+    process.env.BETTER_AUTH_URL ?? request.nextUrl.origin,
+  );
   const headers = new Headers({
     accept: "application/json",
     cookie: request.headers.get("cookie") ?? "",
