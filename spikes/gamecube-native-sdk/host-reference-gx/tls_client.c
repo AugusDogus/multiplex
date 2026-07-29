@@ -23,13 +23,12 @@
 #define TLS_IO_TIMEOUT_SECONDS 30u
 /*
  * libogc2's unscaled receive window can shrink Portless/Node's advertised
- * peer window below a large TLS record. Keep control-plane requests in one
- * moderate record: 224 bytes plus TLS overhead stays below the 256-byte window
- * exposed through pasta, while the GameCube control requests fit in at most two
- * records. Dolphin's BBA path can lose a third back-to-back application record
- * after a reconnect even when every record is explicitly flushed.
+ * peer window below a large TLS record. Keep control-plane records below the
+ * smallest window observed while pasta is draining a remote TLS handshake.
+ * The paced Dolphin TAP adapter prevents the BBA from losing the additional
+ * records this requires.
  */
-#define TLS_GAMECUBE_WRITE_CHUNK 224u
+#define TLS_GAMECUBE_WRITE_CHUNK 96u
 
 struct MultiplexTlsClient {
   int socket;
@@ -95,16 +94,25 @@ static int wait_socket(int socket, bool write, unsigned timeout_seconds) {
 
 static int tls_send(void *context, const unsigned char *bytes, size_t size) {
   MultiplexTlsClient *client = context;
-  if (wait_socket(client->socket, true, client->io_timeout_seconds) <= 0) {
-    return MBEDTLS_ERR_SSL_WANT_WRITE;
-  }
+  /*
+   * libogc2's writable select event can remain cleared after a small record
+   * even though the TCP send buffer has ample space. net_write synchronously
+   * queues or rejects the copy, so probing select first can only strand the
+   * next TLS record.
+  */
   const int result = net_write(client->socket, bytes, size);
+  const int flush_result = result > 0 ? net_flush(client->socket) : 0;
+  if (flush_result < 0) {
+    return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
+  }
   return result < 0 ? MBEDTLS_ERR_SSL_INTERNAL_ERROR : result;
 }
 
 static int tls_receive(void *context, unsigned char *bytes, size_t size) {
   MultiplexTlsClient *client = context;
-  if (wait_socket(client->socket, false, client->io_timeout_seconds) <= 0) {
+  const int ready = wait_socket(client->socket, false,
+                                client->io_timeout_seconds);
+  if (ready <= 0) {
     return MBEDTLS_ERR_SSL_WANT_READ;
   }
   if (net_fcntl(client->socket, F_SETFL, O_NONBLOCK) < 0) {

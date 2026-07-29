@@ -33,10 +33,10 @@ if [ "$actual_commit" != "$PASST_COMMIT" ]; then
 fi
 
 passt_patch="$spike_dir/patches/passt-dolphin-bba-rtt.patch"
-if git -C "$passt_dir" apply --reverse --check "$passt_patch" >/dev/null 2>&1; then
+if git -C "$passt_dir" apply --unidiff-zero --reverse --check "$passt_patch" >/dev/null 2>&1; then
   :
-elif git -C "$passt_dir" apply --check "$passt_patch"; then
-  git -C "$passt_dir" apply "$passt_patch"
+elif git -C "$passt_dir" apply --unidiff-zero --check "$passt_patch"; then
+  git -C "$passt_dir" apply --unidiff-zero "$passt_patch"
 else
   echo "passt patch does not apply cleanly: $passt_patch" >&2
   exit 1
