@@ -316,6 +316,7 @@ export fn multiplex_native_home_emit_diagnostic() callconv(.c) u32 {
 fn initializeApp() void {
     core.rt.resetAll();
     app_model = core.commitModelRoot(core.initialModel());
+    core.rt.frameReset();
     app_initialized = true;
     focused_handler = 0;
     reference_full_repaint = true;
@@ -324,6 +325,11 @@ fn initializeApp() void {
     video_surface = .{};
     poster_surfaces = [_]PosterSurface{.{}} ** 4;
     poster_surface_count = 0;
+}
+
+fn commitAppModel(next: *const core.Model) void {
+    app_model = core.commitModelRoot(next);
+    core.rt.frameReset();
 }
 
 export fn multiplex_native_app_init() callconv(.c) void {
@@ -339,7 +345,7 @@ export fn multiplex_native_app_pairing_status(
 ) callconv(.c) u32 {
     if (!app_initialized or status < 1 or status > 3) return 0;
     if (status == 1 and (code_length != 4 or link_url_length == 0)) return 0;
-    app_model = core.commitModelRoot(core.loadPairing(
+    commitAppModel(core.loadPairing(
         app_model,
         @floatFromInt(status),
         code[0..code_length],
@@ -442,7 +448,7 @@ export fn multiplex_native_app_catalog_item(
 
 export fn multiplex_native_app_catalog_commit() callconv(.c) u32 {
     if (!app_initialized or staged_row_count == 0) return 0;
-    app_model = core.commitModelRoot(core.loadCatalog(
+    commitAppModel(core.loadCatalog(
         app_model,
         staged_gateway_name,
         staged_row_ptrs[0..staged_row_count],
@@ -483,7 +489,7 @@ export fn multiplex_native_app_watch_together_room(
 
 export fn multiplex_native_app_watch_together_commit() callconv(.c) u32 {
     if (!app_initialized) return 0;
-    app_model = core.commitModelRoot(core.loadWatchTogetherRooms(
+    commitAppModel(core.loadWatchTogetherRooms(
         app_model,
         staged_watch_together_available,
         staged_watch_together_room_ptrs[0..staged_watch_together_room_count],
@@ -511,7 +517,7 @@ export fn multiplex_native_app_watch_together_create_request(
 
 export fn multiplex_native_app_watch_together_create_fail() callconv(.c) u32 {
     if (!app_initialized or core.watchTogetherCreateRatingKey(app_model) == 0) return 0;
-    app_model = core.commitModelRoot(core.failWatchTogetherCreate(app_model));
+    commitAppModel(core.failWatchTogetherCreate(app_model));
     focused_handler = 0;
     reference_full_repaint = true;
     return 1;
@@ -525,11 +531,41 @@ export fn multiplex_native_app_watch_together_join_request() callconv(.c) u32 {
 }
 
 export fn multiplex_native_app_watch_together_join_commit(connected: u32) callconv(.c) u32 {
-    if (!app_initialized or core.watchTogetherJoinRequestIndex(app_model) == 0) return 0;
-    app_model = core.commitModelRoot(core.completeWatchTogetherJoin(app_model, connected != 0));
+    if (!app_initialized) return 0;
+    commitAppModel(core.completeWatchTogetherJoin(app_model, connected != 0));
     focused_handler = 0;
     reference_full_repaint = true;
     return 1;
+}
+
+export fn multiplex_native_app_watch_together_playback(
+    rating_key: u32,
+    duration_ms: u32,
+    offset_ms: u32,
+) callconv(.c) u32 {
+    if (!app_initialized or rating_key == 0 or duration_ms == 0) return 0;
+    const next = core.rt.frameCreate(core.Model, app_model.*);
+    next.screen = .player;
+    next.selectedRatingKey = @intCast(rating_key);
+    next.selectedTitle = core.selectedWatchTogetherRoomTitle(app_model);
+    next.selectedDurationMs = @intCast(duration_ms);
+    next.selectedViewOffsetMs = @intCast(offset_ms);
+    next.selectedFromBrowse = false;
+    next.selectedFromSearch = false;
+    next.playbackOffsetMs = @intCast(offset_ms);
+    next.playbackLoaded = true;
+    next.playing = true;
+    commitAppModel(next);
+    focused_handler = 0;
+    reference_full_repaint = true;
+    return 1;
+}
+
+export fn multiplex_native_app_playback_state() callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    return @as(u32, @intFromBool(app_model.screen == .player)) |
+        (@as(u32, @intFromBool(app_model.playbackLoaded)) << 1) |
+        (@as(u32, @intFromBool(app_model.playing)) << 2);
 }
 
 export fn multiplex_native_app_browse_request(section_id: *u32, start: *u32) callconv(.c) u32 {
@@ -587,7 +623,7 @@ export fn multiplex_native_app_browse_item(
 
 export fn multiplex_native_app_browse_commit() callconv(.c) u32 {
     if (!app_initialized or staged_browse_item_count == 0) return 0;
-    app_model = core.commitModelRoot(core.loadBrowse(
+    commitAppModel(core.loadBrowse(
         app_model,
         @as(f64, @floatFromInt(staged_browse_section_id)),
         staged_browse_title,
@@ -648,7 +684,7 @@ export fn multiplex_native_app_search_item(
 
 export fn multiplex_native_app_search_commit() callconv(.c) u32 {
     if (!app_initialized) return 0;
-    app_model = core.commitModelRoot(core.loadSearch(
+    commitAppModel(core.loadSearch(
         app_model,
         staged_browse_title,
         staged_browse_item_ptrs[0..staged_browse_item_count],
@@ -702,7 +738,7 @@ export fn multiplex_native_app_details_commit(
     const stored_summary = copyDetailsString(&details_summary_buffer, summary, summary_length) orelse return 0;
     const stored_genres = copyDetailsString(&details_genres_buffer, genres, genres_length) orelse return 0;
     const stored_directors = copyDetailsString(&details_directors_buffer, directors, directors_length) orelse return 0;
-    app_model = core.commitModelRoot(core.loadDetails(
+    commitAppModel(core.loadDetails(
         app_model,
         stored_title,
         stored_secondary,
@@ -722,7 +758,7 @@ export fn multiplex_native_app_details_commit(
 
 export fn multiplex_native_app_details_fail() callconv(.c) u32 {
     if (!app_initialized or core.detailsRequestRatingKey(app_model) == 0) return 0;
-    app_model = core.commitModelRoot(core.failDetails(app_model));
+    commitAppModel(core.failDetails(app_model));
     focused_handler = 0;
     reference_full_repaint = true;
     return 1;
@@ -744,7 +780,7 @@ export fn multiplex_native_app_playback_offset_request() callconv(.c) u32 {
 
 export fn multiplex_native_app_playback_commit() callconv(.c) u32 {
     if (!app_initialized or core.playbackRequestRatingKey(app_model) == 0) return 0;
-    app_model = core.commitModelRoot(core.loadPlayback(app_model));
+    commitAppModel(core.loadPlayback(app_model));
     focused_handler = 0;
     reference_full_repaint = true;
     return 1;
@@ -752,7 +788,7 @@ export fn multiplex_native_app_playback_commit() callconv(.c) u32 {
 
 export fn multiplex_native_app_playback_fail() callconv(.c) u32 {
     if (!app_initialized or core.playbackRequestRatingKey(app_model) == 0) return 0;
-    app_model = core.commitModelRoot(core.failPlayback(app_model));
+    commitAppModel(core.failPlayback(app_model));
     focused_handler = 0;
     reference_full_repaint = true;
     return 1;
@@ -760,7 +796,7 @@ export fn multiplex_native_app_playback_fail() callconv(.c) u32 {
 
 export fn multiplex_native_app_playback_position(position_ms: u32) callconv(.c) u32 {
     if (!app_initialized) return 0;
-    app_model = core.commitModelRoot(core.update(app_model, .{ .sync_playback = @intCast(position_ms) }));
+    commitAppModel(core.update(app_model, .{ .sync_playback = @intCast(position_ms) }));
     return 1;
 }
 
@@ -768,7 +804,7 @@ export fn multiplex_native_app_playback_continue(position_ms: u32) callconv(.c) 
     if (!app_initialized) return 0;
     const continued = core.update(app_model, .{ .continue_playback = @intCast(position_ms) });
     if (core.playbackRequestRatingKey(continued) == 0) return 0;
-    app_model = core.commitModelRoot(continued);
+    commitAppModel(continued);
     focused_handler = 0;
     reference_full_repaint = true;
     return 1;
@@ -776,7 +812,7 @@ export fn multiplex_native_app_playback_continue(position_ms: u32) callconv(.c) 
 
 export fn multiplex_native_app_playback_complete() callconv(.c) u32 {
     if (!app_initialized) return 0;
-    app_model = core.commitModelRoot(core.update(app_model, .complete_playback));
+    commitAppModel(core.update(app_model, .complete_playback));
     focused_handler = 0;
     reference_full_repaint = true;
     return 1;
@@ -788,14 +824,14 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
     if (!app_initialized) return 0;
     const model = app_model;
     if (action == 4) {
-        app_model = core.commitModelRoot(core.update(model, .open_libraries));
+        commitAppModel(core.update(model, .open_libraries));
         focused_handler = 0;
         reference_full_repaint = true;
         multiplex_native_input_trace(action, 0, 0, 4);
         return 1;
     }
     if (action == 5) {
-        app_model = core.commitModelRoot(core.update(model, .next_row));
+        commitAppModel(core.update(model, .next_row));
         focused_handler = 0;
         reference_full_repaint = true;
         multiplex_native_input_trace(action, 0, 0, 3);
@@ -808,7 +844,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
             .seek_forward
         else
             .browse_next;
-        app_model = core.commitModelRoot(core.update(model, message));
+        commitAppModel(core.update(model, message));
         focused_handler = 0;
         reference_full_repaint = true;
         multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 16 else if (model.screen == .player) 18 else 7);
@@ -821,14 +857,14 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
             .seek_backward
         else
             .browse_previous;
-        app_model = core.commitModelRoot(core.update(model, message));
+        commitAppModel(core.update(model, message));
         focused_handler = 0;
         reference_full_repaint = true;
         multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 15 else if (model.screen == .player) 17 else 6);
         return 1;
     }
     if (action == 10) {
-        app_model = core.commitModelRoot(core.update(model, .open_search));
+        commitAppModel(core.update(model, .open_search));
         focused_handler = 0;
         reference_full_repaint = true;
         multiplex_native_input_trace(action, 0, 0, 13);
@@ -837,7 +873,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
     if (action == 11) {
         const opened = core.update(model, .open_watch_together);
         if (opened.screen == model.screen) return 0;
-        app_model = core.commitModelRoot(opened);
+        commitAppModel(opened);
         focused_handler = 0;
         reference_full_repaint = true;
         multiplex_native_input_trace(action, 0, 0, 22);
@@ -861,7 +897,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         }
     }
     if (action == 3) {
-        app_model = core.commitModelRoot(core.update(model, .back));
+        commitAppModel(core.update(model, .back));
         focused_handler = 0;
         reference_full_repaint = true;
         multiplex_native_input_trace(action, 0, @intCast(press_count), 12);
@@ -929,7 +965,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .toggle_playback => 10,
                 .back => 11,
             };
-            app_model = core.commitModelRoot(core.update(model, msg));
+            commitAppModel(core.update(model, msg));
             if (!keep_focus) focused_handler = 0;
             reference_full_repaint = true;
         },

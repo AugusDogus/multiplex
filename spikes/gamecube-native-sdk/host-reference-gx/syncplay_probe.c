@@ -37,6 +37,10 @@ struct MultiplexSyncplaySession {
   size_t received_size;
   unsigned participant_count;
   unsigned heartbeat_count;
+  uint32_t local_position_ms;
+  char encoded_user[256];
+  bool has_local_playback;
+  bool local_paused;
   bool connected;
 };
 
@@ -588,16 +592,29 @@ static bool echo_state(MultiplexSyncplaySession *session, const char *json) {
   read_json_number(json, "\"server\":", &ignoring_server);
 
   char response[768];
+  char set_by[sizeof(session->encoded_user) + 3u];
+  const bool claim_local =
+      session->has_local_playback && session->local_paused != paused;
+  const bool reply_paused =
+      claim_local ? session->local_paused : paused;
+  const double reply_position =
+      claim_local ? (double)session->local_position_ms / 1000.0 : position;
+  if (claim_local) {
+    snprintf(set_by, sizeof(set_by), "\"%s\"", session->encoded_user);
+  } else {
+    strcpy(set_by, "null");
+  }
   const double now_seconds = (double)ticks_to_millisecs(gettime()) / 1000.0;
   const int response_size =
       snprintf(response, sizeof(response),
                "{\"State\":{\"ping\":{\"clientLatencyCalculation\":%.3f,"
                "\"clientRtt\":%.6f,\"serverRtt\":%.6f,"
                "\"latencyCalculation\":%.6f},\"playstate\":{\"doSeek\":false,"
-               "\"paused\":%s,\"position\":%.6f,\"setBy\":null},"
-               "\"ignoringOnTheFly\":{\"client\":0,\"server\":%.0f}}}",
+               "\"paused\":%s,\"position\":%.6f,\"setBy\":%s},"
+               "\"ignoringOnTheFly\":{\"client\":%u,\"server\":%.0f}}}",
                now_seconds, client_rtt, server_rtt, latency,
-               paused ? "true" : "false", position, ignoring_server);
+               reply_paused ? "true" : "false", reply_position, set_by,
+               claim_local ? 1u : 0u, ignoring_server);
   const bool sent = response_size > 0 &&
                     (size_t)response_size < sizeof(response) &&
                     send_text_frame(&session->transport, response);
@@ -609,9 +626,9 @@ static bool echo_state(MultiplexSyncplaySession *session, const char *json) {
                                        ? UINT32_MAX
                                        : (uint32_t)(position * 1000.0);
       SYS_Report("REFERENCE GX: Syncplay heartbeat=%u paused=%u "
-                 "position=%ums participants=%u\n",
+                 "position=%ums participants=%u claim=%u\n",
                  session->heartbeat_count, paused ? 1u : 0u, position_ms,
-                 session->participant_count);
+                 session->participant_count, claim_local ? 1u : 0u);
     }
   }
   return sent;
@@ -787,7 +804,15 @@ multiplex_syncplay_session_connect(const MultiplexTrpcRoom *room,
   session->transport = socket;
   session->connected = true;
   session->participant_count = 1u;
-  if (!announce_session(session, room)) {
+  const int identity_size = snprintf(
+      session->encoded_user, sizeof(session->encoded_user),
+      "{\\\"deviceIdentifier\\\":\\\"%s\\\","
+      "\\\"deviceName\\\":\\\"Multiplex GameCube\\\","
+      "\\\"userID\\\":\\\"0\\\"}",
+      device_identifier);
+  if (identity_size <= 0 ||
+      (size_t)identity_size >= sizeof(session->encoded_user) ||
+      !announce_session(session, room)) {
     multiplex_syncplay_session_destroy(session);
     return NULL;
   }
@@ -801,6 +826,16 @@ bool multiplex_syncplay_session_poll(MultiplexSyncplaySession *session) {
   }
   session->connected = poll_frames(session);
   return session->connected;
+}
+
+void multiplex_syncplay_session_set_playback(
+    MultiplexSyncplaySession *session, bool paused, uint32_t position_ms) {
+  if (session == NULL) {
+    return;
+  }
+  session->has_local_playback = true;
+  session->local_paused = paused;
+  session->local_position_ms = position_ms;
 }
 
 unsigned multiplex_syncplay_session_participant_count(

@@ -53,16 +53,20 @@ typedef struct {
 } MultiplexPosterSurface;
 
 void multiplex_native_app_init(void);
-uint32_t multiplex_native_app_pairing_status(
-    uint32_t status, const uint8_t *code, uint32_t code_length,
-    const uint8_t *link_url, uint32_t link_url_length);
+uint32_t multiplex_native_app_pairing_status(uint32_t status,
+                                             const uint8_t *code,
+                                             uint32_t code_length,
+                                             const uint8_t *link_url,
+                                             uint32_t link_url_length);
 uint32_t multiplex_native_app_catalog_begin(const uint8_t *server_name,
                                             uint32_t server_name_length,
                                             uint32_t row_count,
                                             uint32_t library_count);
-uint32_t multiplex_native_app_catalog_library(
-    uint32_t index, uint32_t section_id, uint32_t media_type,
-    const uint8_t *title, uint32_t title_length);
+uint32_t multiplex_native_app_catalog_library(uint32_t index,
+                                              uint32_t section_id,
+                                              uint32_t media_type,
+                                              const uint8_t *title,
+                                              uint32_t title_length);
 uint32_t multiplex_native_app_catalog_row(uint32_t row_index,
                                           const uint8_t *title,
                                           uint32_t title_length,
@@ -74,29 +78,35 @@ uint32_t multiplex_native_app_catalog_item(
     uint32_t view_offset_ms, uint32_t progress_percent);
 uint32_t multiplex_native_app_catalog_commit(void);
 uint32_t multiplex_native_app_watch_together_begin(uint32_t available,
-                                                    uint32_t room_count);
-uint32_t multiplex_native_app_watch_together_room(
-    uint32_t index, const uint8_t *title, uint32_t title_length,
-    uint32_t participant_count);
+                                                   uint32_t room_count);
+uint32_t multiplex_native_app_watch_together_room(uint32_t index,
+                                                  const uint8_t *title,
+                                                  uint32_t title_length,
+                                                  uint32_t participant_count);
 uint32_t multiplex_native_app_watch_together_commit(void);
 uint32_t multiplex_native_app_watch_together_create_request(
     uint32_t *rating_key, uint8_t *title, uint32_t title_capacity);
 uint32_t multiplex_native_app_watch_together_create_fail(void);
 uint32_t multiplex_native_app_watch_together_join_request(void);
 uint32_t multiplex_native_app_watch_together_join_commit(uint32_t connected);
+uint32_t multiplex_native_app_watch_together_playback(uint32_t rating_key,
+                                                       uint32_t duration_ms,
+                                                       uint32_t offset_ms);
+uint32_t multiplex_native_app_playback_state(void);
 uint32_t multiplex_native_app_browse_request(uint32_t *section_id,
                                              uint32_t *start);
-uint32_t multiplex_native_app_browse_begin(
-    uint32_t section_id, const uint8_t *title, uint32_t title_length,
-    uint32_t start, uint32_t total, uint32_t item_count);
+uint32_t multiplex_native_app_browse_begin(uint32_t section_id,
+                                           const uint8_t *title,
+                                           uint32_t title_length,
+                                           uint32_t start, uint32_t total,
+                                           uint32_t item_count);
 uint32_t multiplex_native_app_browse_item(
     uint32_t item_index, uint32_t rating_key, const uint8_t *title,
     uint32_t title_length, const uint8_t *subtitle, uint32_t subtitle_length,
     uint32_t artwork_slot, uint32_t duration_ms, uint32_t view_offset_ms,
     uint32_t progress_percent);
 uint32_t multiplex_native_app_browse_commit(void);
-uint32_t multiplex_native_app_search_request(uint8_t *query,
-                                             uint32_t capacity);
+uint32_t multiplex_native_app_search_request(uint8_t *query, uint32_t capacity);
 uint32_t multiplex_native_app_search_begin(const uint8_t *query,
                                            uint32_t query_length,
                                            uint32_t item_count);
@@ -110,12 +120,11 @@ uint32_t multiplex_native_app_details_request(void);
 uint32_t multiplex_native_app_details_commit(
     const uint8_t *title, uint32_t title_length, const uint8_t *secondary,
     uint32_t secondary_length, const uint8_t *media_type,
-    uint32_t media_type_length, const uint8_t *library,
-    uint32_t library_length, const uint8_t *content_rating,
-    uint32_t content_rating_length, const uint8_t *facts,
-    uint32_t facts_length, const uint8_t *summary, uint32_t summary_length,
-    const uint8_t *genres, uint32_t genres_length, const uint8_t *directors,
-    uint32_t directors_length, uint32_t playable);
+    uint32_t media_type_length, const uint8_t *library, uint32_t library_length,
+    const uint8_t *content_rating, uint32_t content_rating_length,
+    const uint8_t *facts, uint32_t facts_length, const uint8_t *summary,
+    uint32_t summary_length, const uint8_t *genres, uint32_t genres_length,
+    const uint8_t *directors, uint32_t directors_length, uint32_t playable);
 uint32_t multiplex_native_app_details_fail(void);
 uint32_t multiplex_native_app_playback_request(void);
 uint32_t multiplex_native_app_playback_offset_request(void);

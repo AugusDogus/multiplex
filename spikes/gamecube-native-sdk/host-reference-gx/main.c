@@ -62,6 +62,7 @@
  * blocked on a full video queue with audio only a few bytes short.
  */
 #define AUDIO_PREBUFFER_BYTES (24u * 1024u)
+#define HLS_READINESS_TIMEOUT_MS 60000u
 #define SEGMENT_HANDOFF_MARGIN_MS 64u
 #define POSTER_JPEG_CAPACITY (256u * 1024u)
 #define PLEX_POSTER_JPEG_CAPACITY (32u * 1024u)
@@ -1324,7 +1325,8 @@ static bool open_direct_hls_session(const MultiplexAuthCredentials *credentials,
       plex_hls_demux_create(credentials, rating_key, offset_ms, session_id);
   if (demux == NULL || !plex_hls_demux_start(demux) ||
       !plex_hls_demux_wait_ready(demux, VIDEO_PREBUFFER_BYTES,
-                                 AUDIO_PREBUFFER_BYTES, 30000u) ||
+                                 AUDIO_PREBUFFER_BYTES,
+                                 HLS_READINESS_TIMEOUT_MS) ||
       !start_hls_pipeline(demux, rating_key)) {
     SYS_Report("REFERENCE GX: direct HLS unavailable rating-key=%u\n",
                rating_key);
@@ -1767,18 +1769,20 @@ load_selected_playback(const char *gateway_url,
 }
 
 static bool
-load_selected_direct_playback(const MultiplexAuthCredentials *credentials,
-                              MultiplexGatewayPlaybackManifest *active_manifest,
-                              HttpClient **client, MpegPsDemux **demux) {
-  const uint32_t rating_key = multiplex_native_app_playback_request();
-  if (rating_key == 0) {
-    return true;
-  }
-  const uint32_t requested_offset =
-      multiplex_native_app_playback_offset_request();
+load_direct_playback(const MultiplexAuthCredentials *credentials,
+                     uint32_t rating_key, uint32_t requested_offset,
+                     bool transition_from_watch_together,
+                     MultiplexGatewayPlaybackManifest *active_manifest,
+                     HttpClient **client, MpegPsDemux **demux) {
   MultiplexGatewayDetails details;
   if (!multiplex_plex_load_details(credentials, rating_key, &details) ||
       details.duration_ms == 0) {
+    if (transition_from_watch_together) {
+      SYS_Report("REFERENCE GX: direct playback metadata unavailable "
+                 "rating-key=%u\n",
+                 rating_key);
+      return false;
+    }
     if (multiplex_native_app_playback_fail() == 0) {
       return false;
     }
@@ -1805,6 +1809,11 @@ load_selected_direct_playback(const MultiplexAuthCredentials *credentials,
     PlexHlsDemux *hls = NULL;
     if (!open_direct_hls_session(credentials, rating_key, offset_ms,
                                  resume_session_id, &hls)) {
+      if (transition_from_watch_together) {
+        SYS_Report("REFERENCE GX: direct playback switch failed requested=%u\n",
+                   rating_key);
+        return false;
+      }
       if (multiplex_native_app_playback_fail() == 0) {
         return false;
       }
@@ -1822,12 +1831,28 @@ load_selected_direct_playback(const MultiplexAuthCredentials *credentials,
                "offset=%u duration=%u\n",
                previous_rating_key, rating_key, offset_ms, details.duration_ms);
   }
-  if (multiplex_native_app_playback_commit() == 0) {
+  if (!transition_from_watch_together &&
+      multiplex_native_app_playback_commit() == 0) {
     return false;
   }
   SYS_Report("REFERENCE GX: direct playback ready rating-key=%u offset=%u\n",
              rating_key, offset_ms);
+  SYS_Report("REFERENCE GX: playback model state=%u\n",
+             multiplex_native_app_playback_state());
   return true;
+}
+
+static bool
+load_selected_direct_playback(const MultiplexAuthCredentials *credentials,
+                              MultiplexGatewayPlaybackManifest *active_manifest,
+                              HttpClient **client, MpegPsDemux **demux) {
+  const uint32_t rating_key = multiplex_native_app_playback_request();
+  if (rating_key == 0) {
+    return true;
+  }
+  return load_direct_playback(credentials, rating_key,
+                              multiplex_native_app_playback_offset_request(),
+                              false, active_manifest, client, demux);
 }
 
 static uint32_t
@@ -2373,24 +2398,65 @@ static void create_requested_watch_together_room(
              created.id, rating_key);
 }
 
+static uint32_t watch_together_rating_key(const MultiplexTrpcRoom *room) {
+  static const char marker[] = "/metadata/";
+  if (room == NULL) {
+    return 0;
+  }
+  const char *value = strstr(room->source_uri, marker);
+  if (value == NULL) {
+    return 0;
+  }
+  value += sizeof(marker) - 1u;
+  char *end = NULL;
+  const unsigned long parsed = strtoul(value, &end, 10);
+  return end != value && *end == '\0' && parsed != 0 && parsed <= UINT32_MAX
+             ? (uint32_t)parsed
+             : 0;
+}
+
 static void
 join_requested_watch_together_room(const MultiplexAuthCredentials *credentials,
                                    const MultiplexTrpcRoomList *rooms,
-                                   MultiplexSyncplaySession **session) {
+                                   MultiplexSyncplaySession **session,
+                                   MultiplexGatewayPlaybackManifest *manifest,
+                                   HttpClient **client, MpegPsDemux **demux) {
   const uint32_t requested = multiplex_native_app_watch_together_join_request();
   if (requested == 0) {
     return;
   }
   const uint32_t index = requested - 1u;
   multiplex_syncplay_session_destroy(*session);
-  *session = index < rooms->room_count
-                 ? multiplex_syncplay_session_connect(
-                       &rooms->rooms[index], credentials->plex_client_id)
-                 : NULL;
-  const bool connected = *session != NULL;
+  *session = NULL;
+  if (index >= rooms->room_count) {
+    multiplex_native_app_watch_together_join_commit(0);
+    return;
+  }
+  const uint32_t rating_key = watch_together_rating_key(&rooms->rooms[index]);
+  const bool playback_ready =
+      rating_key != 0 && load_direct_playback(credentials, rating_key, 0, true,
+                                              manifest, client, demux);
+  if (!playback_ready) {
+    SYS_Report("REFERENCE GX: Watch Together playback unavailable "
+               "room=%u rating-key=%u\n",
+               index, rating_key);
+    multiplex_native_app_watch_together_join_commit(0);
+    return;
+  }
+  *session = multiplex_syncplay_session_connect(&rooms->rooms[index],
+                                                credentials->plex_client_id);
+  multiplex_native_app_watch_together_join_commit(*session != NULL);
+  if (*session != NULL &&
+      multiplex_native_app_watch_together_playback(
+          rating_key, manifest->media_duration_ms,
+          manifest->segment_start_ms) == 0) {
+    multiplex_syncplay_session_destroy(*session);
+    *session = NULL;
+  }
   SYS_Report("REFERENCE GX: Watch Together join room=%u connected=%u\n", index,
-             connected ? 1u : 0u);
-  multiplex_native_app_watch_together_join_commit(connected ? 1u : 0u);
+             *session != NULL ? 1u : 0u);
+  SYS_Report("REFERENCE GX: joined playback model state=%u\n",
+             multiplex_native_app_playback_state());
 }
 #endif
 
@@ -2667,7 +2733,7 @@ static void *run_app(void *unused) {
      * priority to the user before opening details or starting playback.
      */
 #if MULTIPLEX_PAIRING_ENABLED
-    if (pairing_linked && (pressed & PAD_BUTTON_A) != 0) {
+    if (pairing_linked && (pressed & (PAD_BUTTON_A | PAD_BUTTON_START)) != 0) {
       stop_direct_poster_loader(&direct_home_poster_loader);
       stop_direct_poster_loader(&direct_page_poster_loader);
     }
@@ -2760,7 +2826,8 @@ static void *run_app(void *unused) {
         create_requested_watch_together_room(&auth_credentials,
                                              &watch_together_rooms);
         join_requested_watch_together_room(
-            &auth_credentials, &watch_together_rooms, &syncplay_session);
+            &auth_credentials, &watch_together_rooms, &syncplay_session,
+            &playback_manifest, &client, &demux);
       }
 #endif
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
@@ -2782,11 +2849,15 @@ static void *run_app(void *unused) {
       native_frame_dirty = true;
     }
 #if MULTIPLEX_PAIRING_ENABLED
-    if (syncplay_session != NULL &&
-        !multiplex_syncplay_session_poll(syncplay_session)) {
-      SYS_Report("REFERENCE GX: Syncplay session disconnected\n");
-      multiplex_syncplay_session_destroy(syncplay_session);
-      syncplay_session = NULL;
+    if (syncplay_session != NULL) {
+      multiplex_syncplay_session_set_playback(
+          syncplay_session, video_surface.playing == 0,
+          playback_position_ms(&playback_manifest));
+      if (!multiplex_syncplay_session_poll(syncplay_session)) {
+        SYS_Report("REFERENCE GX: Syncplay session disconnected\n");
+        multiplex_syncplay_session_destroy(syncplay_session);
+        syncplay_session = NULL;
+      }
     }
 #endif
     present_frame(&playback_manifest);
