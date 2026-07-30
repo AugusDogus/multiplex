@@ -1,11 +1,48 @@
-<column padding="24" gap="16" background="background">
+<stack>
+  <if test="{screen == 'player'}">
+    <stack>
+      <video grow="1" label="{selectedTitle}"/>
+      <column padding="16" cross="center">
+        <spacer grow="1" />
+        <if test="{playbackLoading}">
+          <panel padding="12" background="scrim" radius="lg">
+            <row main="center" cross="center" gap="8">
+              <text>Preparing playback...</text>
+              <text size="sm" foreground="text_muted">Requesting the selected Plex session.</text>
+            </row>
+          </panel>
+        </if>
+        <if test="{playbackLoaded}">
+          <panel padding="8" background="scrim" radius="lg">
+            <row gap="6" main="center" cross="center">
+              <text width="170" size="sm" wrap="false">{selectedTitle}</text>
+              <button width="38" size="sm" icon="{playbackToggleIcon}" variant="primary" on-press="toggle_playback" label="Play or pause"></button>
+              <button width="38" size="sm" icon="skip-back" variant="ghost" on-press="seek_backward" label="Back 30 seconds"></button>
+              <button width="38" size="sm" icon="skip-forward" variant="ghost" on-press="seek_forward" label="Forward 30 seconds"></button>
+              <if test="{watchTogetherActive}">
+                <button width="38" size="sm" icon="x" variant="ghost" on-press="leave_watch_together" label="Leave room"></button>
+                <button width="38" size="sm" icon="refresh-cw" variant="ghost" on-press="reconnect_watch_together" label="Reconnect room"></button>
+                <if test="{watchTogetherHost}">
+                  <button width="38" size="sm" icon="trash" variant="ghost" on-press="disband_watch_together" label="Disband room"></button>
+                </if>
+              </if>
+            </row>
+          </panel>
+        </if>
+      </column>
+    </stack>
+  </if>
+  <else>
+<column padding="20" gap="12" background="background">
   <row cross="center">
-    <text size="heading">Multiplex</text>
+    <row cross="center" gap="8">
+      <icon name="app:multiplex" width="22" height="22" foreground="text" label="Multiplex" />
+      <text size="heading">Multiplex</text>
+    </row>
     <spacer grow="1" />
     <if test="{pairingLinked}">
-      <badge variant="outline">START Watch Together</badge>
+      <text size="sm" foreground="text_muted">START Watch Together</text>
     </if>
-    <badge variant="secondary">GameCube spike</badge>
   </row>
   <separator />
 
@@ -46,16 +83,15 @@
       <row cross="center">
         <column gap="1">
           <text size="heading">{visibleRowTitle}</text>
-          <text size="sm" foreground="text_muted">{gatewayName}</text>
         </column>
         <spacer grow="1" />
         <badge variant="secondary">Row {rowNumber} of {rowCount}</badge>
       </row>
-      <row grow="1" gap="8">
+      <row grow="1" gap="8" main="center">
         <for each="visibleItems" as="item" key="ratingKey">
-          <panel width="140" grow="1" padding="7" background="surface" border-color="border" radius="lg" on-press="open_item:{item.id}" label="{item.title}">
+          <panel width="140" padding="0" background="background" border-color="background" radius="lg" on-press="open_item:{item.id}" label="{item.title}">
             <column grow="1" gap="4">
-              <image image="{item.imageId}" width="126" height="190" label="{item.title}" />
+              <image image="{item.imageId}" width="140" height="210" label="{item.title}" />
               <progress value="{item.progressPercent}" height="4" />
               <text size="sm" wrap="false">{item.title}</text>
               <text size="sm" foreground="text_muted" wrap="false">{item.subtitle}</text>
@@ -82,7 +118,6 @@
         <button width="90" variant="ghost" on-press="back">Home</button>
         <column gap="1">
           <text size="heading">Libraries</text>
-          <text size="sm" foreground="text_muted">{gatewayName}</text>
         </column>
         <spacer grow="1" />
         <button variant="secondary" on-press="open_search">Search</button>
@@ -93,7 +128,6 @@
             <column grow="1" main="center" cross="center" gap="8">
               <badge variant="secondary">{library.typeLabel}</badge>
               <text size="heading">{library.title}</text>
-              <text size="sm" foreground="text_muted">Browse all</text>
             </column>
           </panel>
         </for>
@@ -107,10 +141,8 @@
         <button width="90" variant="ghost" on-press="back">Home</button>
         <column gap="1">
           <text size="heading">Search Plex</text>
-          <text size="sm" foreground="text_muted">Across {gatewayName}</text>
         </column>
         <spacer grow="1" />
-        <badge variant="secondary">Z opens search</badge>
       </row>
       <panel padding="14" background="surface" border-color="border" radius="lg">
         <row cross="center" gap="10">
@@ -153,11 +185,11 @@
         </column>
       </row>
       <if test="{searchHasResults}">
-        <row grow="1" gap="8">
+        <row grow="1" gap="8" main="center">
           <for each="searchItems" as="item" key="ratingKey">
-            <panel width="140" grow="1" padding="7" background="surface" border-color="border" radius="lg" on-press="open_item:{item.id}" label="{item.title}">
+            <panel width="140" padding="0" background="background" border-color="background" radius="lg" on-press="open_item:{item.id}" label="{item.title}">
               <column grow="1" gap="4">
-                <image image="{item.imageId}" width="126" height="190" label="{item.title}" />
+                <image image="{item.imageId}" width="140" height="210" label="{item.title}" />
                 <text size="sm" wrap="false">{item.title}</text>
                 <text size="sm" foreground="text_muted" wrap="false">{item.subtitle}</text>
               </column>
@@ -191,11 +223,11 @@
         <badge variant="secondary">Page {browsePageNumber} of {browsePageCount}</badge>
       </row>
       <if test="{browseLoaded}">
-        <row grow="1" gap="8">
+        <row grow="1" gap="8" main="center">
           <for each="browseItems" as="item" key="ratingKey">
-            <panel width="140" grow="1" padding="7" background="surface" border-color="border" radius="lg" on-press="open_item:{item.id}" label="{item.title}">
+            <panel width="140" padding="0" background="background" border-color="background" radius="lg" on-press="open_item:{item.id}" label="{item.title}">
               <column grow="1" gap="4">
-                <image image="{item.imageId}" width="126" height="190" label="{item.title}" />
+                <image image="{item.imageId}" width="140" height="210" label="{item.title}" />
                 <progress value="{item.progressPercent}" height="4" />
                 <text size="sm" wrap="false">{item.title}</text>
                 <text size="sm" foreground="text_muted" wrap="false">{item.subtitle}</text>
@@ -229,7 +261,6 @@
           <text size="sm" foreground="text_muted">Choose who should join {selectedTitle}</text>
         </column>
         <spacer grow="1" />
-        <badge variant="secondary">Plex friends</badge>
       </row>
       <if test="{watchTogetherHasInvitees}">
         <row cross="center">
@@ -286,7 +317,6 @@
           <text size="sm" foreground="text_muted">Rooms from your Multiplex account</text>
         </column>
         <spacer grow="1" />
-        <badge variant="secondary">Shared web API</badge>
       </row>
       <if test="{watchTogetherHasRooms}">
         <row grow="1" gap="10" cross="center">
@@ -295,7 +325,6 @@
               <column grow="1" main="center" cross="center" gap="8">
                 <badge variant="secondary">{room.participantCount} viewers</badge>
                 <text size="heading" wrap="true">{room.title}</text>
-                <text size="sm" foreground="text_muted">Plex Syncplay room</text>
               </column>
             </panel>
           </for>
@@ -342,7 +371,6 @@
           <text size="sm" foreground="text_muted">{selectedWatchTogetherParticipantCount} invited viewers</text>
         </column>
         <spacer grow="1" />
-        <badge variant="secondary">Plex Syncplay</badge>
       </row>
       <if test="{watchTogetherJoining}">
         <column grow="1" main="center" cross="center" gap="10">
@@ -370,8 +398,6 @@
     <column grow="1" gap="10">
       <row cross="center">
         <button width="90" variant="ghost" on-press="back">Back</button>
-        <spacer grow="1" />
-        <badge variant="secondary">{gatewayName}</badge>
       </row>
       <if test="{detailsLoading}">
         <column grow="1" main="center" cross="center" gap="8">
@@ -454,7 +480,6 @@
                     <button variant="secondary" on-press="create_watch_together">Host Watch Together</button>
                   </if>
                 </if>
-                <button variant="secondary" on-press="back">Return</button>
               </row>
             </column>
           </row>
@@ -463,49 +488,6 @@
     </column>
   </if>
 
-  <if test="{screen == 'player'}">
-    <column grow="1" gap="12">
-      <row cross="center">
-        <column gap="2">
-          <text size="heading">{selectedTitle}</text>
-          <text foreground="text_muted">Live GameCube media surface</text>
-        </column>
-        <spacer grow="1" />
-        <if test="{watchTogetherActive}">
-          <if test="{watchTogetherConnected}">
-            <badge variant="secondary">{watchTogetherPresentCount} of {selectedWatchTogetherParticipantCount} viewers</badge>
-          </if>
-          <if test="{watchTogetherDisconnected}">
-            <badge variant="outline">Room disconnected</badge>
-          </if>
-        </if>
-        <if test="{watchTogetherInactive}">
-          <badge variant="secondary">Streaming from {gatewayName}</badge>
-        </if>
-      </row>
-      <if test="{playbackLoading}">
-        <column grow="1" main="center" cross="center" gap="8">
-          <text size="heading">Preparing playback...</text>
-          <text foreground="text_muted">Requesting the selected Plex session.</text>
-        </column>
-      </if>
-      <if test="{playbackLoaded}">
-        <video src="demo://multiplex-test-card" autoplay loop muted grow="1" label="{selectedTitle}"/>
-        <row gap="10" main="center">
-          <button variant="primary" on-press="toggle_playback">Play / Pause</button>
-          <if test="{watchTogetherActive}">
-            <button variant="secondary" on-press="leave_watch_together">Leave room</button>
-            <button variant="secondary" on-press="reconnect_watch_together">Reconnect</button>
-            <if test="{watchTogetherHost}">
-              <button variant="secondary" on-press="disband_watch_together">Disband room</button>
-            </if>
-          </if>
-          <if test="{watchTogetherInactive}">
-            <button variant="secondary" on-press="back">Back to details</button>
-          </if>
-          <badge variant="outline">L -30s · R +30s</badge>
-        </row>
-      </if>
-    </column>
-  </if>
 </column>
+  </else>
+</stack>

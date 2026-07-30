@@ -28,6 +28,7 @@ tv_hierarchy=${GAMECUBE_PLEX_TV_HIERARCHY:-0}
 tv_season_index=${GAMECUBE_PLEX_TV_SEASON_INDEX:-0}
 tv_episode_page=${GAMECUBE_PLEX_TV_EPISODE_PAGE:-0}
 tv_episode_index=${GAMECUBE_PLEX_TV_EPISODE_INDEX:-0}
+focus_audit=${GAMECUBE_PLEX_FOCUS_AUDIT:-0}
 plex_base_url=${PLEX_BASE_URL:-}
 multiplex_base_url=${MULTIPLEX_BASE_URL:-}
 console_name=${MULTIPLEX_CONSOLE_NAME:-GameCube}
@@ -141,6 +142,13 @@ case "$tv_hierarchy" in
   0 | 1) ;;
   *)
     echo "GAMECUBE_PLEX_TV_HIERARCHY must be 0 or 1." >&2
+    exit 1
+    ;;
+esac
+case "$focus_audit" in
+  0 | 1) ;;
+  *)
+    echo "GAMECUBE_PLEX_FOCUS_AUDIT must be 0 or 1." >&2
     exit 1
     ;;
 esac
@@ -499,6 +507,32 @@ press() {
   exit 1
 }
 
+audit_focus_cycle() {
+  input_count=$(line_count "input action=1")
+  signature_count=$(line_count "signature=")
+  press D_RIGHT
+  wait_for_new "input action=1" "$input_count"
+  wait_for_new "signature=" "$signature_count"
+  focus_count=$(sed -n \
+    's/.*input action=1 focus=[0-9][0-9]* count=\([0-9][0-9]*\).*/\1/p' \
+    "$log" | tail -1)
+  case "$focus_count" in
+    '' | 0 | *[!0-9]*)
+      echo "Could not determine the current screen's focus target count." >&2
+      exit 1
+      ;;
+  esac
+  remaining=$((focus_count - 1))
+  while [ "$remaining" -gt 0 ]; do
+    input_count=$(line_count "input action=1")
+    signature_count=$(line_count "signature=")
+    press D_RIGHT
+    wait_for_new "input action=1" "$input_count"
+    wait_for_new "signature=" "$signature_count"
+    remaining=$((remaining - 1))
+  done
+}
+
 type_search_query() {
   query=$1
   focus=0
@@ -571,17 +605,54 @@ else
   wait_for_new "signature=" "$signature_count"
 fi
 
+if [ "$focus_audit" -eq 1 ]; then
+  audit_focus_cycle
+
+  # Y opens Libraries from Home without coupling the audit to catalog size.
+  signature_count=$(line_count "signature=")
+  press Y
+  wait_for_new "signature=" "$signature_count"
+  audit_focus_cycle
+
+  # Libraries focus starts at Home and Search, followed by real Plex libraries.
+  signature_count=$(line_count "signature=")
+  press D_RIGHT
+  wait_for_new "signature=" "$signature_count"
+  signature_count=$(line_count "signature=")
+  press D_RIGHT
+  wait_for_new "signature=" "$signature_count"
+  browse_count=$(line_count "browse-page ready")
+  signature_count=$(line_count "signature=")
+  press A
+  wait_for_new "browse-page ready" "$browse_count" 1200
+  wait_for_new "signature=" "$signature_count"
+  audit_focus_cycle
+
+  signature_count=$(line_count "signature=")
+  press B
+  wait_for_new "signature=" "$signature_count"
+  signature_count=$(line_count "signature=")
+  press B
+  wait_for_new "signature=" "$signature_count"
+fi
+
 # Search is fully controller-authored. Z opens it, A enters each focused
 # letter, and R submits the query.
 signature_count=$(line_count "signature=")
 press Z
 wait_for_new "signature=" "$signature_count"
+if [ "$focus_audit" -eq 1 ]; then
+  audit_focus_cycle
+fi
 type_search_query "$search_query"
 search_count=$(line_count "search-page ready query=$search_query")
 signature_count=$(line_count "signature=")
 press R
 wait_for_new "search-page ready query=$search_query" "$search_count" 1200
 wait_for_new "signature=" "$signature_count"
+if [ "$focus_audit" -eq 1 ]; then
+  audit_focus_cycle
+fi
 
 # Open the selected real search result and exercise playback from that origin. The
 # browse paging route has its own committed coverage; keeping it out of this
@@ -603,6 +674,9 @@ wait_for_new "details-page ready" "$details_count" 1200
 wait_for_new "signature=" "$signature_count"
 if [ "$tv_hierarchy" -eq 1 ]; then
   wait_for_new "details children ready" "$children_count" 1200
+  if [ "$focus_audit" -eq 1 ]; then
+    audit_focus_cycle
+  fi
   season_focus=0
   while [ "$season_focus" -le "$tv_season_index" ]; do
     signature_count=$(line_count "signature=")
@@ -617,6 +691,9 @@ if [ "$tv_hierarchy" -eq 1 ]; then
   wait_for_new "details-page ready" "$details_count" 1200
   wait_for_new "details children ready" "$children_count" 1200
   wait_for_new "signature=" "$signature_count"
+  if [ "$focus_audit" -eq 1 ]; then
+    audit_focus_cycle
+  fi
   current_episode_page=0
   while [ "$current_episode_page" -lt "$tv_episode_page" ]; do
     children_count=$(line_count "details children ready")
@@ -638,6 +715,9 @@ if [ "$tv_hierarchy" -eq 1 ]; then
   press A
   wait_for_new "details-page ready" "$details_count" 1200
   wait_for_new "signature=" "$signature_count"
+fi
+if [ "$focus_audit" -eq 1 ]; then
+  audit_focus_cycle
 fi
 signature_count=$(line_count "signature=")
 press D_RIGHT
@@ -756,6 +836,9 @@ if [ "$seek_offset" -lt "$minimum_seek_offset" ] || \
    [ "$seek_offset" -gt "$maximum_seek_offset" ]; then
   echo "Selected Plex seek activated unexpected offset $seek_offset (wanted $minimum_seek_offset..$maximum_seek_offset)." >&2
   exit 1
+fi
+if [ "$focus_audit" -eq 1 ]; then
+  audit_focus_cycle
 fi
 if [ "$watch_together_browser_guest" -eq 1 ]; then
   browser_minimum_seek_offset=$((seek_offset - 3000))
@@ -915,6 +998,21 @@ if [ "$watch_together_browser_guest" -eq 1 ]; then
   created_room_id=
 fi
 sh "$script_dir/check-dolphin-log.sh" "$log"
+if grep -Eq 'layout-audit findings=([1-9][0-9]*|4294967295)' "$log"; then
+  echo "Native SDK layout audit found overflow, overlap, escape, or hit-target damage." >&2
+  grep 'layout-audit findings=' "$log" >&2
+  exit 1
+fi
+if grep -Eq 'poster-inset-audit findings=([1-9][0-9]*|4294967295)' "$log"; then
+  echo "Poster cards contain unintended image padding." >&2
+  grep 'poster-inset-audit findings=' "$log" >&2
+  exit 1
+fi
+if ! grep -q 'video-surface x=0 y=0 width=640 height=480' "$log"; then
+  echo "The native video surface did not fill the 640x480 GameCube viewport." >&2
+  grep 'video-surface' "$log" >&2 || true
+  exit 1
+fi
 
 if [ "$direct_plex" -eq 1 ]; then
   if [ "$watch_together" -eq 1 ]; then

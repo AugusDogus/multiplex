@@ -44,6 +44,7 @@ fn addGameCubeCoreProbe(b: *std.Build, dependency: *std.Build.Dependency) void {
     _ = staged.addCopyFile(emitted_core, "core.zig");
     _ = staged.addCopyFile(dependency.path("packages/core/rt/rt.zig"), "rt.zig");
     _ = staged.addCopyFile(b.path("src/app.native"), "app.native");
+    _ = staged.addCopyFile(b.path("src/icons/multiplex.svg"), "icons/multiplex.svg");
     const probe_root = staged.addCopyFile(b.path("src/gamecube_probe.zig"), "gamecube_probe.zig");
 
     const geometry_module = b.createModule(.{

@@ -11,6 +11,15 @@ user_dir="$spike_dir/.dolphin-user"
 log="$user_dir/Logs/dolphin.log"
 pipe="$user_dir/Pipes/$controller_pipe_name"
 expected_media_source=${GAMECUBE_EXPECT_MEDIA_SOURCE:-embedded}
+keep_open=${GAMECUBE_SMOKE_KEEP_OPEN:-0}
+
+case "$keep_open" in
+  0 | 1) ;;
+  *)
+    echo "GAMECUBE_SMOKE_KEEP_OPEN must be 0 or 1." >&2
+    exit 1
+    ;;
+esac
 
 if [ "$expected_media_source" = embedded ]; then
   GAMECUBE_MEDIA_URL= GAMECUBE_GATEWAY_URL= \
@@ -147,6 +156,33 @@ wait_for_stable_presentation() {
   exit 1
 }
 
+wait_for_stable_decoder() {
+  previous=$1
+  attempts=${2:-300}
+  attempt=0
+  while [ "$attempt" -lt "$attempts" ]; do
+    current=$(line_count "decoder=60 frames/")
+    if [ "$current" -gt "$previous" ]; then
+      fps_tenths=$(
+        rg 'decoder=60 frames/' "$log" |
+          tail -1 |
+          sed -n 's/.*(\([0-9][0-9]*\)\.\([0-9]\) fps).*/\1\2/p'
+      )
+      if [ -n "$fps_tenths" ] &&
+        [ "$fps_tenths" -ge 295 ] &&
+        [ "$fps_tenths" -le 305 ]; then
+        return
+      fi
+      previous=$current
+    fi
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  echo "Timed out waiting for the DVD-resolution decoder to settle at 29.97 fps." >&2
+  rg 'decoder=60 frames/' "$log" >&2 || true
+  exit 1
+}
+
 press() {
   button=$1
   previous=$(line_count "controller buttons")
@@ -177,6 +213,18 @@ press() {
   echo "Timed out after $max_attempts attempts waiting for Dolphin to sample controller button: $button" >&2
   tail -80 "$log" >&2 || true
   exit 1
+}
+
+cycle_focus() {
+  remaining=$1
+  while [ "$remaining" -gt 0 ]; do
+    input_count=$(line_count "input action=1")
+    signature_count=$(line_count "signature=")
+    press D_RIGHT
+    wait_for_new "input action=1" "$input_count" 80
+    wait_for_new "signature=" "$signature_count" 80
+    remaining=$((remaining - 1))
+  done
 }
 
 expected_media_bytes=${GAMECUBE_EXPECT_MEDIA_BYTES:-155648}
@@ -222,17 +270,15 @@ home_count=$(line_count "signature=")
 press A
 wait_for_new "signature=" "$home_count" 120
 
-focus_count=$(line_count "signature=")
-press D_RIGHT
-wait_for_new "signature=" "$focus_count" 80
+cycle_focus 3
+cycle_focus 1
 
 details_count=$(line_count "signature=")
 press A
 wait_for_new "signature=" "$details_count" 120
 
-details_focus_count=$(line_count "signature=")
-press D_RIGHT
-wait_for_new "signature=" "$details_focus_count" 80
+cycle_focus 2
+cycle_focus 1
 
 player_count=$(line_count "signature=")
 playing_count=$(line_count "playback=playing")
@@ -241,6 +287,7 @@ press A
 wait_for_new "signature=" "$player_count" 120
 wait_for_new "playback=playing" "$playing_count" "$playback_attempts"
 wait_for_new "audio=playing" "$audio_playing_count" "$playback_attempts"
+cycle_focus 3
 if ! rg -q "playback=playing .*pts-offset-samples=$expected_pts_offset_samples" "$log"; then
   echo "Video scheduler did not apply the MPEG-PS timestamp offset." >&2
   exit 1
@@ -267,8 +314,14 @@ presentation_count=$(line_count "presentation=120 frames/")
 press A
 wait_for_new "playback=playing" "$playing_count" 80
 wait_for_new "audio=playing" "$audio_playing_count" 80
-wait_for_new "decoder=60 frames/" "$decoder_count" 140
+controls_hidden_count=$(line_count "player controls visible=0")
+wait_for_stable_decoder "$decoder_count" 300
 wait_for_stable_presentation "$presentation_count" 300
+
+wait_for_new "player controls visible=0" "$controls_hidden_count" 80
+controls_visible_count=$(line_count "player controls visible=1")
+press D_RIGHT
+wait_for_new "player controls visible=1" "$controls_visible_count" 80
 
 decoder_fps_tenths=$(
   rg 'decoder=60 frames/' "$log" |
@@ -308,4 +361,28 @@ if [ "$(line_count "playback=playing clock=audio")" -lt 2 ]; then
 fi
 
 sh "$script_dir/check-dolphin-log.sh"
+if rg -q 'layout-audit findings=([1-9][0-9]*|4294967295)' "$log"; then
+  echo "Native SDK layout audit found overflow, overlap, escape, or hit-target damage." >&2
+  rg 'layout-audit findings=' "$log" >&2
+  exit 1
+fi
+if rg -q 'poster-inset-audit findings=([1-9][0-9]*|4294967295)' "$log"; then
+  echo "Poster cards contain unintended image padding." >&2
+  rg 'poster-inset-audit findings=' "$log" >&2
+  exit 1
+fi
+if ! rg -q 'video-surface x=0 y=0 width=640 height=480' "$log"; then
+  echo "The native video surface did not fill the 640x480 GameCube viewport." >&2
+  rg 'video-surface' "$log" >&2 || true
+  exit 1
+fi
+if ! rg -q 'player controls visible=0 idle-ms=4000' "$log" ||
+  ! rg -q 'player controls visible=1' "$log"; then
+  echo "Player controls did not hide after inactivity and reappear on input." >&2
+  rg 'player controls visible=' "$log" >&2 || true
+  exit 1
+fi
 echo "$console_name Dolphin player smoke passed with $expected_media_source media: navigation, timestamped MPEG-PS playback, 60 fps presentation, pause/resume, and clean memory log."
+if [ "$keep_open" -eq 1 ]; then
+  wait "$launcher_pid"
+fi

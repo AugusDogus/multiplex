@@ -117,6 +117,18 @@ also repeatable through `GAMECUBE_PLEX_VIDEO_RESOLUTION` and
 `GAMECUBE_PLEX_SUSTAIN_SECONDS` controls the post-resume failure window and
 defaults to 45 seconds.
 
+The GameCube shell now uses the Multiplex mark, flush 140x210 poster art, and
+Native SDK's focus treatment without prototype badges or duplicate navigation
+actions. Playback is aspect-fitted inside a fullscreen 640x480 video surface.
+Its compact bottom bar uses icon-only transport controls, fades over 180 ms
+after four seconds without input, and restores on the next controller action.
+The progress track fades with the rest of the chrome. Every Native repaint runs
+layout checks for text overflow, sibling overlap, viewport escape, and damaged
+hit targets, plus a dedicated zero-inset poster check. Set
+`GAMECUBE_PLEX_FOCUS_AUDIT=1` to cycle every focus target on Home, Libraries,
+a real library page, the complete A-Z keyboard, search results, the selected TV
+hierarchy, and the player before the real Plex smoke can pass.
+
 Set `GAMECUBE_PLEX_WATCH_TOGETHER=1`,
 `GAMECUBE_WATCH_TOGETHER_INVITEE_ID=<plex-user-id>`, and
 `GAMECUBE_WATCH_TOGETHER_BROWSER_GUEST=1` to run the cross-platform Watch

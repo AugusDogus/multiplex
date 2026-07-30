@@ -10,6 +10,12 @@ const core = @import("core.zig");
 const canvas = @import("canvas");
 const geometry = @import("geometry");
 
+const multiplex_icon = canvas.svg_icon.parseComptime(@embedFile("icons/multiplex.svg"));
+
+pub const app_icons = [_]canvas.icons.Entry{
+    .{ .name = "multiplex", .icon = &multiplex_icon },
+};
+
 const CompiledView = canvas.CompiledMarkupView(
     core.Model,
     core.Msg,
@@ -319,6 +325,7 @@ export fn multiplex_native_home_emit_diagnostic() callconv(.c) u32 {
 }
 
 fn initializeApp() void {
+    canvas.icons.registerAppIcons(&app_icons);
     core.rt.resetAll();
     app_model = core.commitModelRoot(core.initialModel());
     core.rt.frameReset();
@@ -1016,6 +1023,75 @@ export fn multiplex_native_app_playback_complete() callconv(.c) u32 {
     return 1;
 }
 
+export fn multiplex_native_app_layout_audit(first_rule: *u32, first_node: *u32) callconv(.c) u32 {
+    first_rule.* = 0;
+    first_node.* = 0;
+    if (!app_initialized) return 0;
+    const tokens = canvas.DesignTokens.theme(.{
+        .pack = .geist,
+        .color_scheme = .dark,
+    });
+    var fixed = std.heap.FixedBufferAllocator.init(&ui_arena);
+    var ui = CompiledView.Ui.init(fixed.allocator());
+    const tree = ui.finalizeWithTokens(CompiledView.build(&ui, app_model), tokens) catch return std.math.maxInt(u32);
+    const layout = canvas.layoutWidgetTreeWithTokens(
+        tree.root,
+        geometry.RectF.init(0, 0, 640, 480),
+        tokens,
+        &layout_nodes,
+    ) catch return std.math.maxInt(u32);
+    var storage: [canvas.max_layout_audit_findings]canvas.LayoutAuditFinding = undefined;
+    const issues = canvas.auditWidgetLayout(
+        layout,
+        geometry.RectF.init(0, 0, 640, 480),
+        tokens,
+        &storage,
+    );
+    if (issues.findings.len > 0) {
+        first_rule.* = @intFromEnum(issues.findings[0].rule) + 1;
+        first_node.* = @intCast(issues.findings[0].node_index);
+    }
+    return @intCast(issues.total);
+}
+
+export fn multiplex_native_app_poster_inset_audit() callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    const tokens = canvas.DesignTokens.theme(.{
+        .pack = .geist,
+        .color_scheme = .dark,
+    });
+    var fixed = std.heap.FixedBufferAllocator.init(&ui_arena);
+    var ui = CompiledView.Ui.init(fixed.allocator());
+    const tree = ui.finalizeWithTokens(CompiledView.build(&ui, app_model), tokens) catch return std.math.maxInt(u32);
+    const layout = canvas.layoutWidgetTreeWithTokens(
+        tree.root,
+        geometry.RectF.init(0, 0, 640, 480),
+        tokens,
+        &layout_nodes,
+    ) catch return std.math.maxInt(u32);
+    var issues: u32 = 0;
+    for (layout.nodes) |node| {
+        if (node.widget.kind != .image or node.frame.width < 100 or node.frame.width > 150) continue;
+        var ancestor_index = node.parent_index;
+        var panel_frame: ?geometry.RectF = null;
+        while (ancestor_index) |index| {
+            const ancestor = layout.nodes[index];
+            if (ancestor.widget.kind == .panel) {
+                panel_frame = ancestor.frame.normalized();
+                break;
+            }
+            ancestor_index = ancestor.parent_index;
+        }
+        const panel = panel_frame orelse continue;
+        const image = node.frame.normalized();
+        const left_inset = image.x - panel.x;
+        const right_inset = panel.x + panel.width - image.x - image.width;
+        const top_inset = image.y - panel.y;
+        if (left_inset > 0.75 or right_inset > 0.75 or top_inset > 0.75) issues += 1;
+    }
+    return issues;
+}
+
 /// 0/1 move focus backward/forward, 2 activates the focused `.native`
 /// handler, and 3 dispatches the console Back message.
 export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
@@ -1421,7 +1497,10 @@ fn renderReference(
         .full_repaint = full_repaint,
         .dirty_bounds = dirty_bounds,
         .commands = render_plan.commands,
-    }, canvas.Color.rgb8(10, 10, 12)) catch {
+    }, if (model.screen == .player and model.playbackLoaded)
+        canvas.Color.rgba8(0, 0, 0, 0)
+    else
+        canvas.Color.rgb8(10, 10, 12)) catch {
         reference_render_stage = 0x108;
         return 0;
     };

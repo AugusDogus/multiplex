@@ -71,6 +71,8 @@
 #define WATCH_TOGETHER_RECONNECT_DELAY_MS 1000u
 #define SEGMENT_PREFETCH_MARGIN_MS 8000u
 #define SEGMENT_HANDOFF_MARGIN_MS 64u
+#define PLAYER_CONTROLS_IDLE_MS 4000u
+#define PLAYER_CONTROLS_FADE_MS 180u
 #define POSTER_JPEG_CAPACITY (256u * 1024u)
 #define PLEX_POSTER_JPEG_CAPACITY (32u * 1024u)
 #define HOME_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS
@@ -100,6 +102,8 @@ static uint8_t *poster_texture_pixels;
 static uint16_t poster_texture_count;
 static MultiplexVideoSurface video_surface;
 static bool native_frame_dirty = true;
+static uint8_t ui_frame_alpha = 255;
+static bool player_controls_overlay_visible = true;
 static FrameProfile profile;
 static uint32_t presentation_frames;
 static uint32_t presentation_started;
@@ -137,6 +141,8 @@ static uint32_t video_decode_request_count;
 static uint32_t video_decode_completion_count;
 static bool video_texture_ready;
 static bool video_was_playing;
+static unsigned video_content_width;
+static unsigned video_content_height;
 static uint32_t video_rate_millihertz =
     (VIDEO_RATE_NUMERATOR * 1000u) / VIDEO_RATE_DENOMINATOR;
 static AudioDma *audio_output;
@@ -445,6 +451,8 @@ static bool start_video_decoder(VideoCodec codec, void *reader_context,
   video_upload_total_us = 0;
   video_upload_max_us = 0;
   video_rate_millihertz = rate_millihertz;
+  video_content_width = width;
+  video_content_height = height;
   video_decoder = video_decoder_create(codec, reader_context, read);
   if (video_decoder == NULL) {
     SYS_Report("REFERENCE GX: MPEG-2 decoder initialization failed\n");
@@ -511,10 +519,15 @@ static void stop_video_decoder(void) {
   yuv420_gx_destroy();
   video_decoder_destroy(video_decoder);
   video_decoder = NULL;
+  video_content_width = 0;
+  video_content_height = 0;
 }
 
-static void convert_reference_to_rgba8_tiles(void) {
-  for (unsigned tile_y = 0; tile_y < TILE_ROWS; ++tile_y) {
+static void convert_reference_to_rgba8_tile_rows(unsigned first_tile_y,
+                                                 unsigned tile_row_count,
+                                                 uint8_t alpha_scale) {
+  const unsigned last_tile_y = first_tile_y + tile_row_count;
+  for (unsigned tile_y = first_tile_y; tile_y < last_tile_y; ++tile_y) {
     for (unsigned tile_x = 0; tile_x < TILE_COLUMNS; ++tile_x) {
       const unsigned tile_index = tile_y * TILE_COLUMNS + tile_x;
       uint8_t *tile = texture_pixels + tile_index * TILE_BYTES;
@@ -533,7 +546,8 @@ static void convert_reference_to_rgba8_tiles(void) {
                   (source_y * LOGICAL_WIDTH + source_x) * 4;
               const unsigned plane_offset = (inner_y * 4 + inner_x) * 2;
 
-              block[plane_offset] = source[3];
+              block[plane_offset] =
+                  (uint8_t)(((uint16_t)source[3] * alpha_scale) / 255u);
               block[plane_offset + 1] = source[0];
               block[32 + plane_offset] = source[1];
               block[32 + plane_offset + 1] = source[2];
@@ -543,7 +557,16 @@ static void convert_reference_to_rgba8_tiles(void) {
       }
     }
   }
-  DCFlushRange(texture_pixels, TILE_COUNT * TILE_BYTES);
+  DCFlushRange(texture_pixels + first_tile_y * TILE_COLUMNS * TILE_BYTES,
+               tile_row_count * TILE_COLUMNS * TILE_BYTES);
+}
+
+static void convert_reference_to_rgba8_tiles(void) {
+  convert_reference_to_rgba8_tile_rows(0, TILE_ROWS, 255);
+}
+
+static void set_player_controls_texture_alpha(uint8_t alpha) {
+  convert_reference_to_rgba8_tile_rows(TILE_ROWS - 1u, 1, alpha);
 }
 
 static bool refresh_reference_frame(bool initialize) {
@@ -580,6 +603,15 @@ static bool refresh_reference_frame(bool initialize) {
         (int)rendered_surface.width, (int)rendered_surface.height,
         rendered_surface.playing);
   }
+  uint32_t first_layout_rule = 0;
+  uint32_t first_layout_node = 0;
+  const uint32_t layout_findings = multiplex_native_app_layout_audit(
+      &first_layout_rule, &first_layout_node);
+  SYS_Report("REFERENCE GX: layout-audit findings=%u first-rule=%u "
+             "first-node=%u\n",
+             layout_findings, first_layout_rule, first_layout_node);
+  SYS_Report("REFERENCE GX: poster-inset-audit findings=%u\n",
+             multiplex_native_app_poster_inset_audit());
   SYS_Report("REFERENCE GX: commands=%u passes=%u signature=%08x render=%uus "
              "conversion=%uus stages=%u/%u/%u/%u/%u/%uus memo=%u/%u "
              "cache=%u/%uKiB\n",
@@ -625,6 +657,8 @@ static void configure_ui_pipeline(void) {
   GX_SetNumTevStages(1);
   GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
   GX_SetTevOp(GX_TEVSTAGE0, GX_REPLACE);
+  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
+                  GX_LO_CLEAR);
 }
 
 static void initialize_video_and_gx(void) {
@@ -2132,10 +2166,23 @@ static void draw_video_surface(void) {
     return;
   }
 
-  const float left = video_surface.x;
-  const float top = video_surface.y;
-  const float right = left + video_surface.width;
-  const float bottom = top + video_surface.height;
+  float left = video_surface.x;
+  float top = video_surface.y;
+  float width = video_surface.width;
+  float height = video_surface.height;
+  if (video_content_width > 0 && video_content_height > 0) {
+    const float width_scale = width / (float)video_content_width;
+    const float height_scale = height / (float)video_content_height;
+    const float scale = width_scale < height_scale ? width_scale : height_scale;
+    const float fitted_width = (float)video_content_width * scale;
+    const float fitted_height = (float)video_content_height * scale;
+    left += (width - fitted_width) * 0.5f;
+    top += (height - fitted_height) * 0.5f;
+    width = fitted_width;
+    height = fitted_height;
+  }
+  const float right = left + width;
+  const float bottom = top + height;
   yuv420_gx_draw(left, top, right, bottom);
 }
 
@@ -2168,10 +2215,12 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
     native_frame_dirty = false;
   }
 
-  draw_reference_frame();
-  draw_poster_surfaces();
   draw_video_surface();
-  draw_playback_progress(playback_manifest);
+  if (video_surface.visible == 0 || player_controls_overlay_visible) {
+    draw_reference_frame();
+    draw_poster_surfaces();
+    draw_playback_progress(playback_manifest);
+  }
   GX_CopyDisp(framebuffers[framebuffer_index], GX_TRUE);
   GX_DrawDone();
   VIDEO_SetNextFramebuffer(framebuffers[framebuffer_index]);
@@ -2654,6 +2703,8 @@ static void *run_app(void *unused) {
   direct_page_poster_loader.thread = LWP_THREAD_NULL;
   bool timeline_player_visible = false;
   bool timeline_started = false;
+  uint64_t player_controls_last_input_ms = 0;
+  uint64_t player_controls_fade_started_ms = 0;
   MultiplexGatewayCatalog catalog;
   memset(&catalog, 0, sizeof(catalog));
   MultiplexTrpcRoomList watch_together_rooms;
@@ -2889,6 +2940,32 @@ static void *run_app(void *unused) {
 #endif
     if (pressed != 0) {
       SYS_Report("REFERENCE GX: controller buttons %08x\n", pressed);
+    }
+    const uint64_t input_now_ms = ticks_to_millisecs(gettime());
+    if (video_surface.visible != 0) {
+      if (player_controls_last_input_ms == 0) {
+        player_controls_last_input_ms = input_now_ms;
+      }
+      if (pressed != 0) {
+        player_controls_last_input_ms = input_now_ms;
+        player_controls_fade_started_ms = 0;
+        if (ui_frame_alpha != 255) {
+          ui_frame_alpha = 255;
+          set_player_controls_texture_alpha(ui_frame_alpha);
+        }
+        if (!player_controls_overlay_visible) {
+          player_controls_overlay_visible = true;
+          SYS_Report("REFERENCE GX: player controls visible=1\n");
+        }
+      }
+    } else {
+      player_controls_last_input_ms = 0;
+      player_controls_fade_started_ms = 0;
+      if (ui_frame_alpha != 255) {
+        ui_frame_alpha = 255;
+        set_player_controls_texture_alpha(ui_frame_alpha);
+      }
+      player_controls_overlay_visible = true;
     }
 #if MULTIPLEX_PAIRING_ENABLED
     uint32_t held = PAD_ButtonsHeld(0);
@@ -3340,6 +3417,35 @@ static void *run_app(void *unused) {
       }
     }
 #endif
+    const uint64_t present_now_ms = ticks_to_millisecs(gettime());
+    if (video_surface.visible != 0 && player_controls_overlay_visible &&
+        player_controls_last_input_ms != 0) {
+      if (player_controls_fade_started_ms == 0 &&
+          present_now_ms - player_controls_last_input_ms >=
+              PLAYER_CONTROLS_IDLE_MS) {
+        player_controls_fade_started_ms = present_now_ms;
+      }
+      if (player_controls_fade_started_ms != 0) {
+        const uint64_t fade_elapsed_ms =
+            present_now_ms - player_controls_fade_started_ms;
+        if (fade_elapsed_ms >= PLAYER_CONTROLS_FADE_MS) {
+          player_controls_overlay_visible = false;
+          player_controls_last_input_ms = 0;
+          player_controls_fade_started_ms = 0;
+          SYS_Report("REFERENCE GX: player controls visible=0 idle-ms=%u "
+                     "fade-ms=%u\n",
+                     PLAYER_CONTROLS_IDLE_MS, PLAYER_CONTROLS_FADE_MS);
+        } else {
+          const uint8_t next_alpha = (uint8_t)(
+              255u * (PLAYER_CONTROLS_FADE_MS - (uint32_t)fade_elapsed_ms) /
+              PLAYER_CONTROLS_FADE_MS);
+          if (next_alpha != ui_frame_alpha) {
+            ui_frame_alpha = next_alpha;
+            set_player_controls_texture_alpha(ui_frame_alpha);
+          }
+        }
+      }
+    }
     present_frame(&playback_manifest);
     if (!recover_stalled_media_startup(&media_startup_watchdog,
                                        &playback_manifest, &client, &demux,

@@ -642,7 +642,16 @@ export function loadPlayback(model: Model): Model {
 
 export function failPlayback(model: Model): Model {
   if (model.screen !== "player") return model;
-  return { ...model, screen: "details", playbackLoaded: false, playing: false };
+  return {
+    ...model,
+    screen: "details",
+    playbackLoaded: false,
+    playing: false,
+  };
+}
+
+export function playbackToggleIcon(model: Model): Uint8Array {
+  return model.playing ? asciiBytes("pause") : asciiBytes("play");
 }
 
 export function visibleItems(model: Model): readonly CatalogItem[] {
@@ -1279,7 +1288,11 @@ export function update(model: Model, msg: Msg): Model {
       if (model.screen === "player") {
         if (model.watchTogetherActive) return leaveWatchTogether(model);
         const progressed = commitSelectedProgress(model);
-        return { ...progressed, screen: "details", playing: false };
+        return {
+          ...progressed,
+          screen: "details",
+          playing: false,
+        };
       }
       if (model.screen === "details") {
         if (model.detailsHistory.length > 0) {
