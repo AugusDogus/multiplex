@@ -92,6 +92,15 @@ static int wait_socket(int socket, bool write, unsigned timeout_seconds) {
                     write ? &writable : NULL, NULL, &timeout);
 }
 
+static int flush_network_socket(int socket) {
+#if defined(HW_DOL)
+  return net_flush(socket);
+#else
+  (void)socket;
+  return 0;
+#endif
+}
+
 static int tls_send(void *context, const unsigned char *bytes, size_t size) {
   MultiplexTlsClient *client = context;
   /*
@@ -101,7 +110,7 @@ static int tls_send(void *context, const unsigned char *bytes, size_t size) {
    * next TLS record.
    */
   const int result = net_write(client->socket, bytes, size);
-  const int flush_result = result > 0 ? net_flush(client->socket) : 0;
+  const int flush_result = result > 0 ? flush_network_socket(client->socket) : 0;
   if (flush_result < 0) {
     return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
   }
@@ -220,7 +229,7 @@ bool multiplex_tls_client_write_all(MultiplexTlsClient *client,
       report_tls_error("write", result);
       return false;
     }
-    if (net_flush(client->socket) < 0) {
+    if (flush_network_socket(client->socket) < 0) {
       SYS_Report("REFERENCE GX: TLS transport flush failed\n");
       return false;
     }

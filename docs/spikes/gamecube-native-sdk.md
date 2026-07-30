@@ -565,10 +565,19 @@ with stable audio pause/resume and a clean invalid-access log after extraction.
 
 Next Dolphin milestones:
 
-1. build the Wii fast-follow from the same TypeScript, markup, validated RGBA
-   frame, and GX presenter architecture;
-2. add a Dreamcast presenter that consumes the same validated frame after the
+1. add Wii Remote input and Wii-native persisted auth to the Wii fast-follow;
+2. run the direct Plex and Watch Together smokes through Dolphin's Wii network
+   stack;
+3. add a Dreamcast presenter that consumes the same validated frame after the
    Wii path is working.
+
+The initial Wii tracer bullet now builds a 2,991,344-byte DOL from the same
+TypeScript, markup, PowerPC core, validated frame, GX presenter, and embedded
+media pipeline. The only transport change was excluding libogc2's
+GameCube-only `net_flush` extension when compiling against Wii's native IOS
+network stack. Dolphin detected the Wii executable, rendered at 60.4 fps, and
+passed the shared navigation, timestamped MPEG-2/MP2 playback, audio
+pause/resume, and invalid-access smoke using a GameCube controller.
 
 Hardware profiling remains deferred until the Dolphin app is materially
 useful; it is not a gate on these milestones.

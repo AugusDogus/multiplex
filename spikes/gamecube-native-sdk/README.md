@@ -19,6 +19,8 @@ bun run spike:gamecube:reference:log-check
 bun run spike:gamecube:reference:smoke-player
 bun run spike:gamecube:reference:smoke-http-tap
 bun run spike:gamecube:reference:plex
+bun run spike:wii:reference:dol
+bun run spike:wii:reference:smoke-player
 ```
 
 `spike:gamecube:reference:run` uses an isolated Dolphin profile and replaces
@@ -32,6 +34,14 @@ cleanup behavior, and prevents an apparently 60 fps guest from advancing much
 slower than wall time. The isolated profiles also pin Dolphin's fallback
 region to North America so region-free DOL boots consistently reopen the same
 `MemoryCardA.USA.raw` sign-in save.
+
+The Wii fast-follow compiles the same TypeScript, `.native` markup, PowerPC
+core, validated RGBA frame, direct GX presenter, and embedded media pipeline
+with libogc2's Wii runtime. `spike:wii:reference:smoke-player` boots the Wii DOL
+in Dolphin and runs the same navigation, MPEG-2/MP2 playback, 60 fps,
+pause/resume, and invalid-access gates as GameCube. The first tracer bullet uses
+a GameCube controller, which Wii libogc2 and Dolphin both expose in Wii mode.
+Wii Remote input and Wii-native persisted auth remain platform follow-ups.
 
 When `MULTIPLEX_BASE_URL` is an HTTPS `*.localhost` origin, the reference build
 automatically embeds the public Portless CA from `~/.portless/ca.pem`.

@@ -3,7 +3,9 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 spike_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
-dol="$spike_dir/multiplex-gamecube-native-reference.dol"
+dol=${MULTIPLEX_REFERENCE_DOL:-"$spike_dir/multiplex-gamecube-native-reference.dol"}
+reference_build_script=${MULTIPLEX_REFERENCE_BUILD_SCRIPT:-build-native-reference-dol.sh}
+console_name=${MULTIPLEX_CONSOLE_NAME:-GameCube}
 user_dir="$spike_dir/.dolphin-user"
 log="$user_dir/Logs/dolphin.log"
 pipe="$user_dir/Pipes/multiplex1"
@@ -11,11 +13,11 @@ expected_media_source=${GAMECUBE_EXPECT_MEDIA_SOURCE:-embedded}
 
 if [ "$expected_media_source" = embedded ]; then
   GAMECUBE_MEDIA_URL= GAMECUBE_GATEWAY_URL= \
-    sh "$script_dir/build-native-reference-dol.sh" >/dev/null
+    sh "$script_dir/$reference_build_script" >/dev/null
 fi
 
 if [ ! -s "$dol" ]; then
-  echo "Missing $dol; run bun run spike:gamecube:reference:dol first." >&2
+  echo "Missing $console_name reference DOL at $dol." >&2
   exit 1
 fi
 
@@ -305,4 +307,4 @@ if [ "$(line_count "playback=playing clock=audio")" -lt 2 ]; then
 fi
 
 sh "$script_dir/check-dolphin-log.sh"
-echo "Dolphin player smoke passed with $expected_media_source media: navigation, timestamped MPEG-PS playback, 60 fps presentation, pause/resume, and clean memory log."
+echo "$console_name Dolphin player smoke passed with $expected_media_source media: navigation, timestamped MPEG-PS playback, 60 fps presentation, pause/resume, and clean memory log."

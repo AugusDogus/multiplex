@@ -16,6 +16,7 @@
 build/
 build-raylib-reference/
 build-native-reference/
+build-native-reference-wii/
 generated/
 *.dol
 *.elf
