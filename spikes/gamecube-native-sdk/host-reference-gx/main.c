@@ -66,6 +66,7 @@
 #define HLS_AUDIO_PREBUFFER_BYTES (16u * 1024u)
 #define HLS_READINESS_TIMEOUT_MS 60000u
 #define WATCH_TOGETHER_AUTO_START_DELAY_MS 1200u
+#define WATCH_TOGETHER_RECONNECT_DELAY_MS 1000u
 #define SEGMENT_PREFETCH_MARGIN_MS 8000u
 #define SEGMENT_HANDOFF_MARGIN_MS 64u
 #define POSTER_JPEG_CAPACITY (256u * 1024u)
@@ -2594,6 +2595,7 @@ static void *run_app(void *unused) {
   MultiplexSyncplaySession *syncplay_session = NULL;
   uint32_t joined_watch_together_room = UINT32_MAX;
   uint64_t watch_together_all_present_since_ms = 0;
+  uint64_t watch_together_reconnect_at_ms = 0;
   uint32_t plex_user_id = 0;
   bool watch_together_lobby = false;
 #endif
@@ -2821,6 +2823,7 @@ static void *run_app(void *unused) {
         syncplay_session = NULL;
         joined_watch_together_room = UINT32_MAX;
         watch_together_all_present_since_ms = 0;
+        watch_together_reconnect_at_ms = 0;
         watch_together_lobby = false;
         plex_user_id = 0;
         pairing_linked = false;
@@ -2925,6 +2928,15 @@ static void *run_app(void *unused) {
         SYS_Report("REFERENCE GX: browse-page load failed\n");
       }
 #if MULTIPLEX_PAIRING_ENABLED
+      if (multiplex_native_app_watch_together_reconnect_request() != 0) {
+        multiplex_syncplay_session_destroy(syncplay_session);
+        syncplay_session = NULL;
+        multiplex_native_app_watch_together_presence(0, 0);
+        watch_together_reconnect_at_ms = ticks_to_millisecs(gettime());
+        multiplex_native_app_watch_together_reconnect_commit();
+        SYS_Report("REFERENCE GX: Syncplay reconnect requested room=%u\n",
+                   joined_watch_together_room);
+      }
       if (multiplex_native_app_watch_together_leave_request() != 0) {
         const uint32_t left_room = joined_watch_together_room;
         flush_timeline_report(
@@ -2940,6 +2952,7 @@ static void *run_app(void *unused) {
         syncplay_session = NULL;
         joined_watch_together_room = UINT32_MAX;
         watch_together_all_present_since_ms = 0;
+        watch_together_reconnect_at_ms = 0;
         watch_together_lobby = false;
         multiplex_native_app_watch_together_leave_commit();
         if (!refresh_watch_together_rooms(&auth_credentials,
@@ -2982,6 +2995,9 @@ static void *run_app(void *unused) {
             &auth_credentials, &watch_together_rooms, &syncplay_session,
             &joined_watch_together_room, plex_user_id, &watch_together_lobby,
             &watch_together_all_present_since_ms);
+        if (syncplay_session != NULL) {
+          watch_together_reconnect_at_ms = 0;
+        }
       }
 #endif
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
@@ -3113,6 +3129,28 @@ static void *run_app(void *unused) {
         }
       }
     }
+    if (!watch_together_lobby && syncplay_session == NULL &&
+        joined_watch_together_room < watch_together_rooms.room_count &&
+        watch_together_reconnect_at_ms != 0 &&
+        ticks_to_millisecs(gettime()) >= watch_together_reconnect_at_ms) {
+      syncplay_session = multiplex_syncplay_session_connect(
+          &watch_together_rooms.rooms[joined_watch_together_room],
+          auth_credentials.plex_client_id, plex_user_id, false);
+      if (syncplay_session == NULL) {
+        watch_together_reconnect_at_ms =
+            ticks_to_millisecs(gettime()) + WATCH_TOGETHER_RECONNECT_DELAY_MS;
+        SYS_Report("REFERENCE GX: Syncplay reconnect retry room=%u\n",
+                   joined_watch_together_room);
+      } else {
+        watch_together_reconnect_at_ms = 0;
+        multiplex_syncplay_session_adopt_playback(
+            syncplay_session, video_surface.playing == 0,
+            playback_position_ms(&playback_manifest));
+        multiplex_native_app_watch_together_presence(1, 1);
+        SYS_Report("REFERENCE GX: Syncplay reconnected room=%u\n",
+                   joined_watch_together_room);
+      }
+    }
     if (!watch_together_lobby && syncplay_session != NULL) {
       multiplex_syncplay_session_set_playback(
           syncplay_session, video_surface.playing == 0,
@@ -3122,7 +3160,8 @@ static void *run_app(void *unused) {
         multiplex_native_app_watch_together_presence(0, 0);
         multiplex_syncplay_session_destroy(syncplay_session);
         syncplay_session = NULL;
-        joined_watch_together_room = UINT32_MAX;
+        watch_together_reconnect_at_ms =
+            ticks_to_millisecs(gettime()) + WATCH_TOGETHER_RECONNECT_DELAY_MS;
       } else {
         multiplex_native_app_watch_together_presence(
             1, multiplex_syncplay_session_participant_count(syncplay_session));
@@ -3151,6 +3190,7 @@ static void *run_app(void *unused) {
             }
             if (!applied) {
               joined_watch_together_room = UINT32_MAX;
+              watch_together_reconnect_at_ms = 0;
               SYS_Report("REFERENCE GX: Syncplay remote seek failed "
                          "position=%u\n",
                          remote_position_ms);

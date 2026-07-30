@@ -620,6 +620,19 @@ export fn multiplex_native_app_watch_together_leave_commit() callconv(.c) u32 {
     return 1;
 }
 
+export fn multiplex_native_app_watch_together_reconnect_request() callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    return @intFromBool(app_model.watchTogetherReconnectRequested);
+}
+
+export fn multiplex_native_app_watch_together_reconnect_commit() callconv(.c) u32 {
+    if (!app_initialized or !app_model.watchTogetherReconnectRequested) return 0;
+    commitAppModel(core.completeWatchTogetherReconnect(app_model));
+    focused_handler = 0;
+    reference_full_repaint = true;
+    return 1;
+}
+
 export fn multiplex_native_app_watch_together_playback(
     rating_key: u32,
     duration_ms: u32,
@@ -639,6 +652,7 @@ export fn multiplex_native_app_watch_together_playback(
     next.playing = true;
     next.watchTogetherActive = true;
     next.watchTogetherLeaveRequested = false;
+    next.watchTogetherReconnectRequested = false;
     commitAppModel(next);
     focused_handler = 0;
     reference_full_repaint = true;
@@ -1051,6 +1065,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .invite_watch_together => 26,
                 .join_watch_together => 27,
                 .leave_watch_together => 28,
+                .reconnect_watch_together => 29,
                 .search_key => 14,
                 .search_delete => 15,
                 .search_submit => 16,

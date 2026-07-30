@@ -106,6 +106,7 @@ export interface Model {
   readonly watchTogetherActive: boolean;
   readonly watchTogetherPresentCount: number;
   readonly watchTogetherLeaveRequested: boolean;
+  readonly watchTogetherReconnectRequested: boolean;
   readonly detailsLoaded: boolean;
   readonly detailsPlayable: boolean;
   readonly detailsSecondary: Uint8Array;
@@ -140,6 +141,7 @@ export type Msg =
   | { readonly kind: "invite_watch_together"; readonly index: number }
   | { readonly kind: "join_watch_together"; readonly index: number }
   | { readonly kind: "leave_watch_together" }
+  | { readonly kind: "reconnect_watch_together" }
   | { readonly kind: "open_item"; readonly index: number }
   | { readonly kind: "play" }
   | { readonly kind: "seek_backward" }
@@ -328,6 +330,7 @@ export function initialModel(): Model {
     watchTogetherActive: false,
     watchTogetherPresentCount: 0,
     watchTogetherLeaveRequested: false,
+    watchTogetherReconnectRequested: false,
     detailsLoaded: true,
     detailsPlayable: true,
     detailsSecondary: asciiBytes("Native SDK media prototype"),
@@ -490,6 +493,12 @@ export function completeWatchTogetherLeave(model: Model): Model {
     : model;
 }
 
+export function completeWatchTogetherReconnect(model: Model): Model {
+  return model.watchTogetherReconnectRequested
+    ? { ...model, watchTogetherReconnectRequested: false }
+    : model;
+}
+
 function leaveWatchTogether(model: Model): Model {
   if (!model.watchTogetherActive) return model;
   const progressed = commitSelectedProgress(model);
@@ -504,6 +513,7 @@ function leaveWatchTogether(model: Model): Model {
     watchTogetherActive: false,
     watchTogetherPresentCount: 0,
     watchTogetherLeaveRequested: true,
+    watchTogetherReconnectRequested: false,
   };
 }
 
@@ -1001,9 +1011,13 @@ export function update(model: Model, msg: Msg): Model {
         watchTogetherActive: false,
         watchTogetherPresentCount: 0,
         watchTogetherLeaveRequested: false,
+        watchTogetherReconnectRequested: false,
       };
     case "leave_watch_together":
       return model.screen === "player" ? leaveWatchTogether(model) : model;
+    case "reconnect_watch_together":
+      if (model.screen !== "player" || !model.watchTogetherActive) return model;
+      return { ...model, watchTogetherReconnectRequested: true };
     case "open_item": {
       const items =
         model.screen === "browse"

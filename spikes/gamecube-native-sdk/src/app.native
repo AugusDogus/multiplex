@@ -458,6 +458,7 @@
           <button variant="primary" on-press="toggle_playback">Play / Pause</button>
           <if test="{watchTogetherActive}">
             <button variant="secondary" on-press="leave_watch_together">Leave room</button>
+            <button variant="secondary" on-press="reconnect_watch_together">Reconnect</button>
           </if>
           <if test="{watchTogetherInactive}">
             <button variant="secondary" on-press="back">Back to details</button>

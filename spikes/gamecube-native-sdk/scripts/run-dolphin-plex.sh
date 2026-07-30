@@ -790,6 +790,18 @@ if grep -Eq 'underruns=[1-9][0-9]*' "$log"; then
 fi
 wait_log "$timeline_pattern rating-key=$selected_rating_key .*state=playing reported=1" 600
 if [ "$watch_together_browser_guest" -eq 1 ]; then
+  reconnect_requested_count=$(line_count "Syncplay reconnect requested room=")
+  reconnected_count=$(line_count "Syncplay reconnected room=")
+  reconnect_participants_count=$(line_count "Syncplay participants=2")
+  press D_RIGHT
+  press D_RIGHT
+  press A
+  wait_for_new "Syncplay reconnect requested room=" \
+    "$reconnect_requested_count" 600
+  wait_for_new "Syncplay reconnected room=" "$reconnected_count" 600
+  wait_for_new "Syncplay participants=2" "$reconnect_participants_count" 600
+  wait_for_synced_playback_state playing 1200
+
   left_room_count=$(line_count "Watch Together left room=")
   stopped_timeline_count=$(line_count "$timeline_pattern .*state=stopped reported=1")
   press D_RIGHT
