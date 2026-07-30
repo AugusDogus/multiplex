@@ -991,6 +991,36 @@ export fn multiplex_native_app_playback_commit() callconv(.c) u32 {
     return 1;
 }
 
+export fn multiplex_native_app_playback_advance(
+    rating_key: u32,
+    title: [*]const u8,
+    title_length: u32,
+    duration_ms: u32,
+) callconv(.c) u32 {
+    if (!app_initialized or app_model.screen != .player or !app_model.playbackLoaded or rating_key == 0 or duration_ms <= 1) return 0;
+    const stored_title = copyDetailsString(&details_title_buffer, title, title_length) orelse return 0;
+    const completed = core.update(app_model, .complete_playback);
+    const next = core.rt.frameCreate(core.Model, completed.*);
+    next.selectedRatingKey = @intCast(rating_key);
+    next.selectedTitle = stored_title;
+    next.selectedDurationMs = @intCast(duration_ms);
+    next.selectedViewOffsetMs = 0;
+    next.playbackOffsetMs = 0;
+    next.playbackLoaded = false;
+    next.playing = false;
+    next.detailsLoaded = false;
+    next.detailsChildren = &.{};
+    next.detailsChildrenStart = 0;
+    next.detailsChildrenPageNumber = 1;
+    next.detailsChildrenPageCount = 1;
+    next.detailsChildrenTotal = 0;
+    next.detailsChildrenLoaded = false;
+    commitAppModel(next);
+    focused_handler = 0;
+    reference_full_repaint = true;
+    return 1;
+}
+
 export fn multiplex_native_app_playback_fail() callconv(.c) u32 {
     if (!app_initialized or core.playbackRequestRatingKey(app_model) == 0) return 0;
     commitAppModel(core.failPlayback(app_model));

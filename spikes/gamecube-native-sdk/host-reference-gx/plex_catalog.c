@@ -624,6 +624,10 @@ bool multiplex_plex_catalog_parse_details(const char *json, size_t size,
                    sizeof(details->media_type))) {
     return false;
   }
+  json_unsigned(object, "parentRatingKey", &details->parent_rating_key);
+  json_unsigned(object, "grandparentRatingKey",
+                &details->grandparent_rating_key);
+  json_unsigned(object, "index", &details->index);
   capitalize_first(details->media_type);
   if (!json_string(object, "grandparentTitle", details->secondary,
                    sizeof(details->secondary))) {
@@ -942,6 +946,101 @@ bool multiplex_plex_load_children(
                rating_key, start, page->item_count, page->total_size);
   }
   return loaded;
+}
+
+static MultiplexPlexNextEpisodeResult find_next_child(
+    const MultiplexAuthCredentials *credentials, uint32_t parent_rating_key,
+    uint32_t current_rating_key, MultiplexGatewayItem *next) {
+  uint32_t start = 0;
+  bool found_current = false;
+  for (;;) {
+    if (start > UINT16_MAX) {
+      return MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
+    }
+    MultiplexGatewayChildrenPage page;
+    if (!multiplex_plex_load_children(credentials, parent_rating_key,
+                                      (uint16_t)start, &page)) {
+      return MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
+    }
+    for (uint16_t index = 0; index < page.item_count; ++index) {
+      if (found_current) {
+        *next = page.items[index];
+        return MULTIPLEX_PLEX_NEXT_EPISODE_FOUND;
+      }
+      if (page.items[index].rating_key == current_rating_key) {
+        found_current = true;
+      }
+    }
+    const uint32_t following_start = start + page.item_count;
+    if (page.item_count == 0 || following_start >= page.total_size) {
+      return found_current ? MULTIPLEX_PLEX_NEXT_EPISODE_NONE
+                           : MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
+    }
+    start = following_start;
+  }
+}
+
+static MultiplexPlexNextEpisodeResult find_next_season_episode(
+    const MultiplexAuthCredentials *credentials, uint32_t show_rating_key,
+    uint32_t current_season_rating_key, MultiplexGatewayItem *next) {
+  uint32_t start = 0;
+  bool found_current_season = false;
+  for (;;) {
+    if (start > UINT16_MAX) {
+      return MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
+    }
+    MultiplexGatewayChildrenPage seasons;
+    if (!multiplex_plex_load_children(credentials, show_rating_key,
+                                      (uint16_t)start, &seasons)) {
+      return MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
+    }
+    for (uint16_t index = 0; index < seasons.item_count; ++index) {
+      const uint32_t season_rating_key = seasons.items[index].rating_key;
+      if (!found_current_season) {
+        found_current_season = season_rating_key == current_season_rating_key;
+        continue;
+      }
+      MultiplexGatewayChildrenPage episodes;
+      if (!multiplex_plex_load_children(credentials, season_rating_key, 0,
+                                        &episodes)) {
+        return MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
+      }
+      if (episodes.item_count != 0) {
+        *next = episodes.items[0];
+        return MULTIPLEX_PLEX_NEXT_EPISODE_FOUND;
+      }
+    }
+    const uint32_t following_start = start + seasons.item_count;
+    if (seasons.item_count == 0 || following_start >= seasons.total_size) {
+      return found_current_season ? MULTIPLEX_PLEX_NEXT_EPISODE_NONE
+                                  : MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
+    }
+    start = following_start;
+  }
+}
+
+MultiplexPlexNextEpisodeResult multiplex_plex_load_next_episode(
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
+    MultiplexGatewayItem *episode) {
+  if (credentials == NULL || rating_key == 0 || episode == NULL) {
+    return MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
+  }
+  MultiplexGatewayDetails current;
+  if (!multiplex_plex_load_details(credentials, rating_key, &current)) {
+    return MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
+  }
+  if (strcmp(current.media_type, "Episode") != 0 ||
+      current.parent_rating_key == 0) {
+    return MULTIPLEX_PLEX_NEXT_EPISODE_NONE;
+  }
+  const MultiplexPlexNextEpisodeResult sibling = find_next_child(
+      credentials, current.parent_rating_key, rating_key, episode);
+  if (sibling != MULTIPLEX_PLEX_NEXT_EPISODE_NONE ||
+      current.grandparent_rating_key == 0) {
+    return sibling;
+  }
+  return find_next_season_episode(credentials, current.grandparent_rating_key,
+                                  current.parent_rating_key, episode);
 }
 
 static bool encode_url_value(const char *value, char *destination,

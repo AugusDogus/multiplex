@@ -71,6 +71,7 @@
 #define WATCH_TOGETHER_RECONNECT_DELAY_MS 1000u
 #define SEGMENT_PREFETCH_MARGIN_MS 8000u
 #define SEGMENT_HANDOFF_MARGIN_MS 64u
+#define DIRECT_PLAYBACK_END_MARGIN_MS 64u
 #define PLAYER_CONTROLS_IDLE_MS 4000u
 #define PLAYER_CONTROLS_FADE_MS 180u
 #define POSTER_JPEG_CAPACITY (256u * 1024u)
@@ -149,6 +150,8 @@ static AudioDma *audio_output;
 static MpegPsDemux *media_demux;
 static PlexHlsDemux *direct_hls_demux;
 static char direct_hls_session_id[MULTIPLEX_PLEX_HLS_SESSION_ID_CAPACITY];
+static bool direct_playback_start_offset_pending =
+    MULTIPLEX_PLAYBACK_START_OFFSET_MS != 0;
 
 typedef struct {
   const char *gateway_url;
@@ -1962,8 +1965,14 @@ load_selected_direct_playback(const MultiplexAuthCredentials *credentials,
   if (rating_key == 0) {
     return true;
   }
-  return load_direct_playback(credentials, rating_key,
-                              multiplex_native_app_playback_offset_request(),
+  uint32_t offset_ms = multiplex_native_app_playback_offset_request();
+  if (direct_playback_start_offset_pending) {
+    offset_ms = MULTIPLEX_PLAYBACK_START_OFFSET_MS;
+    direct_playback_start_offset_pending = false;
+    SYS_Report("REFERENCE GX: direct playback start override offset=%u\n",
+               offset_ms);
+  }
+  return load_direct_playback(credentials, rating_key, offset_ms,
                               false, active_manifest, client, demux);
 }
 
@@ -2370,6 +2379,76 @@ static bool continue_playback_if_needed(
   native_frame_dirty = true;
   return true;
 }
+
+#if MULTIPLEX_PAIRING_ENABLED
+static bool advance_direct_playback_if_complete(
+    const MultiplexAuthCredentials *credentials,
+    MultiplexGatewayPlaybackManifest *active_manifest, HttpClient **client,
+    MpegPsDemux **demux, TimelineReporter *timeline_reporter,
+    bool *advanced) {
+  *advanced = false;
+  if (credentials == NULL || active_manifest == NULL ||
+      active_manifest->rating_key == 0 || direct_hls_demux == NULL ||
+      audio_output == NULL || !video_was_playing ||
+      plex_hls_demux_failed(direct_hls_demux) ||
+      !plex_hls_demux_complete(direct_hls_demux)) {
+    return true;
+  }
+  const uint32_t position_ms = playback_position_ms(active_manifest);
+  if ((uint64_t)position_ms + DIRECT_PLAYBACK_END_MARGIN_MS <
+      active_manifest->media_duration_ms) {
+    return true;
+  }
+
+  const MultiplexGatewayPlaybackManifest completed_manifest =
+      *active_manifest;
+  char completed_session_id[MULTIPLEX_PLEX_HLS_SESSION_ID_CAPACITY];
+  snprintf(completed_session_id, sizeof(completed_session_id), "%s",
+           direct_hls_session_id);
+  multiplex_native_app_playback_position(
+      completed_manifest.media_duration_ms);
+  audio_dma_update(audio_output, false);
+  flush_timeline_report(timeline_reporter, "", credentials,
+                        completed_session_id, &completed_manifest,
+                        completed_manifest.media_duration_ms, "stopped");
+
+  MultiplexGatewayItem next_episode;
+  const MultiplexPlexNextEpisodeResult next_result =
+      multiplex_plex_load_next_episode(credentials,
+                                       completed_manifest.rating_key,
+                                       &next_episode);
+  if (next_result != MULTIPLEX_PLEX_NEXT_EPISODE_FOUND) {
+    if (multiplex_native_app_playback_complete() == 0) {
+      return false;
+    }
+    native_frame_dirty = true;
+    SYS_Report("REFERENCE GX: direct playback complete rating-key=%u "
+               "next=%s\n",
+               completed_manifest.rating_key,
+               next_result == MULTIPLEX_PLEX_NEXT_EPISODE_NONE ? "none"
+                                                               : "error");
+    return true;
+  }
+
+  if (multiplex_native_app_playback_advance(
+          next_episode.rating_key, (const uint8_t *)next_episode.title,
+          next_episode.title_length, next_episode.duration_ms) == 0 ||
+      !load_selected_direct_playback(credentials, active_manifest, client,
+                                     demux)) {
+    SYS_Report("REFERENCE GX: direct autoplay switch failed previous=%u "
+               "requested=%u\n",
+               completed_manifest.rating_key, next_episode.rating_key);
+    return false;
+  }
+  native_frame_dirty = true;
+  *advanced = true;
+  SYS_Report("REFERENCE GX: direct autoplay-next previous=%u active=%u "
+             "title=%s\n",
+             completed_manifest.rating_key, next_episode.rating_key,
+             next_episode.title);
+  return true;
+}
+#endif
 
 static void stage_following_media_if_due(
     StagedMediaSession *staged, const char *gateway_url,
@@ -3485,6 +3564,23 @@ static void *run_app(void *unused) {
       SYS_Report("REFERENCE GX: playback continuation failed\n");
       break;
     }
+#if MULTIPLEX_PAIRING_ENABLED
+    bool autoplay_advanced = false;
+    if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked &&
+        syncplay_session == NULL &&
+        !advance_direct_playback_if_complete(
+            &auth_credentials, &playback_manifest, &client, &demux,
+            &timeline_reporter, &autoplay_advanced)) {
+      SYS_Report("REFERENCE GX: direct playback completion failed\n");
+      break;
+    }
+    if (autoplay_advanced) {
+      ui_frame_alpha = 255;
+      player_controls_overlay_visible = true;
+      player_controls_last_input_ms = ticks_to_millisecs(gettime());
+      player_controls_fade_started_ms = 0;
+    }
+#endif
   }
 
   discard_staged_media_session(&staged_media);

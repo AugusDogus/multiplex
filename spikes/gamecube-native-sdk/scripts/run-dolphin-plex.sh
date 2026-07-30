@@ -29,6 +29,9 @@ tv_season_index=${GAMECUBE_PLEX_TV_SEASON_INDEX:-0}
 tv_episode_page=${GAMECUBE_PLEX_TV_EPISODE_PAGE:-0}
 tv_episode_index=${GAMECUBE_PLEX_TV_EPISODE_INDEX:-0}
 focus_audit=${GAMECUBE_PLEX_FOCUS_AUDIT:-0}
+start_offset_ms=${GAMECUBE_PLEX_START_OFFSET_MS:-0}
+expect_autoplay_next=${GAMECUBE_PLEX_EXPECT_AUTOPLAY_NEXT:-0}
+expected_autoplay_rating_key=${GAMECUBE_PLEX_AUTOPLAY_RATING_KEY:-}
 plex_base_url=${PLEX_BASE_URL:-}
 multiplex_base_url=${MULTIPLEX_BASE_URL:-}
 console_name=${MULTIPLEX_CONSOLE_NAME:-GameCube}
@@ -152,6 +155,32 @@ case "$focus_audit" in
     exit 1
     ;;
 esac
+case "$start_offset_ms" in
+  '' | *[!0-9]*)
+    echo "GAMECUBE_PLEX_START_OFFSET_MS must be an unsigned integer." >&2
+    exit 1
+    ;;
+esac
+case "$expect_autoplay_next" in
+  0 | 1) ;;
+  *)
+    echo "GAMECUBE_PLEX_EXPECT_AUTOPLAY_NEXT must be 0 or 1." >&2
+    exit 1
+    ;;
+esac
+if [ "$expect_autoplay_next" -eq 1 ]; then
+  case "$expected_autoplay_rating_key" in
+    '' | *[!0-9]*)
+      echo "Autoplay testing requires a numeric GAMECUBE_PLEX_AUTOPLAY_RATING_KEY." >&2
+      exit 1
+      ;;
+  esac
+  if [ "$direct_plex" -ne 1 ] || [ "$start_offset_ms" -eq 0 ] ||
+    [ "$watch_together" -eq 1 ]; then
+    echo "Autoplay testing requires direct Plex, a nonzero start offset, and local playback." >&2
+    exit 1
+  fi
+fi
 if [ "$watch_together" -eq 1 ] && [ "$direct_plex" -ne 1 ]; then
   echo "Watch Together smoke testing requires GAMECUBE_DIRECT_PLEX=1." >&2
   exit 1
@@ -282,6 +311,7 @@ if [ "$direct_plex" -eq 1 ]; then
     GAMECUBE_PLEX_BASE_URL="$plex_base_url" \
     GAMECUBE_PLEX_VIDEO_RESOLUTION="$plex_video_resolution" \
     GAMECUBE_PLEX_MAX_VIDEO_BITRATE="$plex_max_video_bitrate" \
+    GAMECUBE_PLEX_START_OFFSET_MS="$start_offset_ms" \
     MULTIPLEX_BASE_URL="$multiplex_base_url" \
     sh "$script_dir/$reference_build_script"
 else
@@ -820,6 +850,42 @@ sleep 1
 ensure_playback_playing
 if [ "$watch_together_browser_guest" -eq 1 ]; then
   wait_for_browser_guest "Browser guest advancing room=$created_room_id" 0 1200
+fi
+
+if [ "$expect_autoplay_next" -eq 1 ]; then
+  selected_rating_key=$(sed -n \
+    "s/.*$playback_ready_pattern rating-key=\([0-9][0-9]*\).*/\1/p" \
+    "$log" | head -1)
+  wait_log "direct autoplay-next previous=$selected_rating_key active=$expected_autoplay_rating_key" 3600
+  wait_log "direct playback ready rating-key=$expected_autoplay_rating_key offset=0" 3600
+  wait_for_new "playback=playing" "$((playing_count + 1))" 1200
+  wait_log "direct Plex timeline rating-key=$selected_rating_key .*state=stopped reported=1" 600
+  sleep "$sustain_seconds"
+  sh "$script_dir/check-dolphin-log.sh" "$log"
+  if grep -Eq 'layout-audit findings=([1-9][0-9]*|4294967295)' "$log"; then
+    echo "Native SDK layout audit found damage during autoplay." >&2
+    exit 1
+  fi
+  if grep -Eq 'poster-inset-audit findings=([1-9][0-9]*|4294967295)' "$log"; then
+    echo "Poster cards contain unintended image padding during autoplay." >&2
+    exit 1
+  fi
+  if ! grep -q 'video-surface x=0 y=0 width=640 height=480' "$log"; then
+    echo "The autoplayed episode did not retain fullscreen video." >&2
+    exit 1
+  fi
+  echo "Automatically advanced Plex episode $selected_rating_key to $expected_autoplay_rating_key in Dolphin."
+  if [ -n "$mute_pid" ]; then
+    wait "$mute_pid" 2>/dev/null || true
+    mute_pid=
+  fi
+  if [ -f "$mute_marker" ]; then
+    echo "Dolphin host audio is muted; emulated AI DMA remains active for timing tests."
+  fi
+  if [ "$keep_open" -eq 1 ]; then
+    wait "$launcher_pid"
+  fi
+  exit 0
 fi
 
 selected_rating_key=$(sed -n "s/.*$playback_ready_pattern rating-key=\\([0-9][0-9]*\\).*/\\1/p" "$log" | tail -1)

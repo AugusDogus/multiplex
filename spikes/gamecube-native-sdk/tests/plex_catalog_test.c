@@ -121,6 +121,25 @@ static void test_parses_item_details(void) {
   assert((details.flags & 1u) != 0);
 }
 
+static void test_parses_episode_hierarchy(void) {
+  static const char json[] =
+      "{\"MediaContainer\":{\"Metadata\":[{"
+      "\"ratingKey\":\"380571\",\"type\":\"episode\","
+      "\"title\":\"Ballad of Fallen Angels\",\"index\":5,"
+      "\"parentRatingKey\":\"380566\","
+      "\"grandparentRatingKey\":\"380565\",\"duration\":1441719,"
+      "\"Media\":[{\"videoResolution\":\"1080\"}]"
+      "}]}}";
+  MultiplexGatewayDetails details = {0};
+
+  assert(multiplex_plex_catalog_parse_details(json, strlen(json), &details));
+  assert(strcmp(details.media_type, "Episode") == 0);
+  assert(details.rating_key == 380571);
+  assert(details.parent_rating_key == 380566);
+  assert(details.grandparent_rating_key == 380565);
+  assert(details.index == 5);
+}
+
 static void test_parses_item_children(void) {
   static const char json[] =
       "{\"MediaContainer\":{\"size\":2,\"totalSize\":9,\"Metadata\":["
@@ -173,6 +192,7 @@ int main(void) {
   test_parses_libraries();
   test_parses_browse_page();
   test_parses_item_details();
+  test_parses_episode_hierarchy();
   test_parses_item_children();
   test_parses_search_results();
   puts("GameCube direct Plex catalog tests passed.");

@@ -7,6 +7,12 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+typedef enum {
+  MULTIPLEX_PLEX_NEXT_EPISODE_ERROR = -1,
+  MULTIPLEX_PLEX_NEXT_EPISODE_NONE = 0,
+  MULTIPLEX_PLEX_NEXT_EPISODE_FOUND = 1,
+} MultiplexPlexNextEpisodeResult;
+
 bool multiplex_plex_catalog_parse_hubs(const char *json, size_t size,
                                        MultiplexGatewayCatalog *catalog);
 bool multiplex_plex_catalog_parse_libraries(const char *json, size_t size,
@@ -35,6 +41,9 @@ bool multiplex_plex_load_details(
 bool multiplex_plex_load_children(
     const MultiplexAuthCredentials *credentials, uint32_t rating_key,
     uint16_t start, MultiplexGatewayChildrenPage *page);
+MultiplexPlexNextEpisodeResult multiplex_plex_load_next_episode(
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
+    MultiplexGatewayItem *episode);
 bool multiplex_plex_load_search(
     const MultiplexAuthCredentials *credentials, const char *query,
     uint16_t query_length, MultiplexGatewaySearchPage *page);

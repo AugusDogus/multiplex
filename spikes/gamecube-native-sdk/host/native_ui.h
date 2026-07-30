@@ -156,6 +156,9 @@ uint32_t multiplex_native_app_details_fail(void);
 uint32_t multiplex_native_app_playback_request(void);
 uint32_t multiplex_native_app_playback_offset_request(void);
 uint32_t multiplex_native_app_playback_commit(void);
+uint32_t multiplex_native_app_playback_advance(
+    uint32_t rating_key, const uint8_t *title, uint32_t title_length,
+    uint32_t duration_ms);
 uint32_t multiplex_native_app_playback_fail(void);
 uint32_t multiplex_native_app_playback_position(uint32_t position_ms);
 uint32_t multiplex_native_app_playback_continue(uint32_t position_ms);

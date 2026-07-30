@@ -8,6 +8,7 @@ multiplex_base_url=${MULTIPLEX_BASE_URL:-}
 plex_base_url=${GAMECUBE_PLEX_BASE_URL:-}
 plex_video_resolution=${GAMECUBE_PLEX_VIDEO_RESOLUTION:-480x270}
 plex_max_video_bitrate=${GAMECUBE_PLEX_MAX_VIDEO_BITRATE:-700}
+playback_start_offset_ms=${GAMECUBE_PLEX_START_OFFSET_MS:-0}
 video_bytes=${GAMECUBE_MEDIA_VIDEO_BYTES:-0}
 audio_bytes=${GAMECUBE_MEDIA_AUDIO_BYTES:-0}
 video_packets=${GAMECUBE_MEDIA_VIDEO_PACKETS:-0}
@@ -53,6 +54,12 @@ case "$plex_max_video_bitrate" in
     exit 1
     ;;
 esac
+case "$playback_start_offset_ms" in
+  '' | *[!0-9]*)
+    echo "GAMECUBE_PLEX_START_OFFSET_MS must be an unsigned integer." >&2
+    exit 1
+    ;;
+esac
 
 for value in "$video_bytes" "$audio_bytes" "$video_packets" "$audio_packets"; do
   case "$value" in
@@ -94,6 +101,7 @@ trap 'rm -f "$temporary"' EXIT INT TERM
   printf '#define MULTIPLEX_EMULATOR_HOST_IP "%s"\n' "$emulator_host_ip"
   printf '#define MULTIPLEX_PLEX_VIDEO_RESOLUTION "%s"\n' "$plex_video_resolution"
   printf '#define MULTIPLEX_PLEX_MAX_VIDEO_BITRATE "%s"\n' "$plex_max_video_bitrate"
+  printf '#define MULTIPLEX_PLAYBACK_START_OFFSET_MS %su\n' "$playback_start_offset_ms"
   printf '#define MULTIPLEX_PAIRING_ENABLED %s\n' "$pairing_enabled"
   printf '#define MULTIPLEX_MEDIA_HAS_INFO %s\n' "$has_info"
   printf '#define MULTIPLEX_MEDIA_VIDEO_BYTES %su\n' "$video_bytes"

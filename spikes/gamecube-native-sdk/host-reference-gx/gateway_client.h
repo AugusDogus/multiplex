@@ -96,6 +96,9 @@ typedef struct {
   uint16_t version;
   uint16_t flags;
   uint32_t rating_key;
+  uint32_t parent_rating_key;
+  uint32_t grandparent_rating_key;
+  uint32_t index;
   uint32_t duration_ms;
   uint32_t view_offset_ms;
   uint16_t year;

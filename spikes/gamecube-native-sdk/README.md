@@ -117,6 +117,14 @@ also repeatable through `GAMECUBE_PLEX_VIDEO_RESOLUTION` and
 `GAMECUBE_PLEX_SUSTAIN_SECONDS` controls the post-resume failure window and
 defaults to 45 seconds.
 
+Direct Plex playback automatically advances episodes in server order. The
+resolver follows the current season first, then crosses into the first episode
+of the next non-empty season. The outgoing episode reports its final stopped
+timeline before the next HLS session starts at offset zero. For the accelerated
+Dolphin regression, set `GAMECUBE_PLEX_START_OFFSET_MS` near the selected
+episode's duration, `GAMECUBE_PLEX_EXPECT_AUTOPLAY_NEXT=1`, and
+`GAMECUBE_PLEX_AUTOPLAY_RATING_KEY` to the expected next episode.
+
 The GameCube shell now uses the Multiplex mark, flush 140x210 poster art, and
 Native SDK's focus treatment without prototype badges or duplicate navigation
 actions. Playback is aspect-fitted inside a fullscreen 640x480 video surface.
