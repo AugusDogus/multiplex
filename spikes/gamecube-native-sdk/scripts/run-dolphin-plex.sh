@@ -320,6 +320,16 @@ wait_for_browser_guest() {
   exit 1
 }
 
+start_browser_guest() {
+  rm -f "$browser_guest_control"
+  : >"$browser_guest_log"
+  MULTIPLEX_BROWSER_BASE_URL="$multiplex_base_url" \
+    bun "$script_dir/watch-together-browser-guest.ts" \
+      "$created_room_id" "$browser_guest_control" \
+      >"$browser_guest_log" 2>&1 &
+  lobby_pid=$!
+}
+
 wait_for_browser_guest_seek() {
   minimum=$1
   maximum=$2
@@ -387,14 +397,14 @@ press() {
   attempt=0
   while [ "$attempt" -lt "$max_attempts" ]; do
     printf 'RELEASE %s\n' "$button" >&3
-    sleep 0.05
+    sleep 0.5
     printf 'PRESS %s\n' "$button" >&3
     poll=0
     while [ "$poll" -lt 5 ]; do
       current=$(grep -c "controller buttons" "$log" 2>/dev/null || true)
       if [ "$current" -gt "$previous" ]; then
         printf 'RELEASE %s\n' "$button" >&3
-        sleep 0.2
+        sleep 0.5
         return
       fi
       if ! kill -0 "$launcher_pid" 2>/dev/null; then
@@ -410,6 +420,23 @@ press() {
   printf 'RELEASE %s\n' "$button" >&3
   echo "Timed out after $max_attempts attempts waiting for Dolphin to sample controller button: $button" >&2
   tail -60 "$log" >&2 || true
+  exit 1
+}
+
+ensure_playback_playing() {
+  attempt=0
+  while [ "$attempt" -lt 5 ]; do
+    playback_state=$(sed -n \
+      's/.*REFERENCE GX: playback=\(playing\|paused\).*/\1/p' \
+      "$log" 2>/dev/null | tail -1)
+    if [ "$playback_state" = "playing" ]; then
+      return
+    fi
+    press A
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+  echo "Could not establish playing state after $attempt controller attempts; latest state was ${playback_state:-unknown}." >&2
   exit 1
 }
 
@@ -601,18 +628,13 @@ if [ "$watch_together" -eq 1 ]; then
   wait_for_new "Watch Together lobby room=0 connected=1 invited=2" \
     "$join_count" 3600
   if [ "$watch_together_browser_guest" -eq 1 ]; then
-    rm -f "$browser_guest_control"
-    : >"$browser_guest_log"
-    MULTIPLEX_BROWSER_BASE_URL="$multiplex_base_url" \
-      bun "$script_dir/watch-together-browser-guest.ts" \
-        "$created_room_id" "$browser_guest_control" \
-        >"$browser_guest_log" 2>&1 &
+    start_browser_guest
   else
     MULTIPLEX_WATCH_TOGETHER_ROOM_ID="$created_room_id" \
       bun "$script_dir/syncplay-room-control.ts" join-lobby \
         "$watch_together_invitee_id" >"$cache_dir/syncplay-lobby.log" 2>&1 &
+    lobby_pid=$!
   fi
-  lobby_pid=$!
   if [ "$watch_together_browser_guest" -eq 1 ]; then
     wait_for_browser_guest "Browser guest joined room=$created_room_id" 0 600
   fi
@@ -621,13 +643,8 @@ else
 fi
 wait_for_new "$playback_activation_pattern" "$playback_activation_count" 3600
 wait_for_new "$playback_ready_pattern" "$playback_session_count" 1200
-wait_for_new "playback=playing" "$playing_count" 1200
 sleep 1
-if [ "$(line_count "playback=paused")" -gt "$paused_count" ]; then
-  playing_count=$(line_count "playback=playing")
-  press A
-  wait_for_new "playback=playing" "$playing_count" 120
-fi
+ensure_playback_playing
 if [ "$watch_together_browser_guest" -eq 1 ]; then
   wait_for_browser_guest "Browser guest advancing room=$created_room_id" 0 1200
 fi
@@ -740,6 +757,30 @@ if [ "$watch_together" -eq 1 ]; then
     wait_for_browser_guest_seek \
       "$browser_minimum_seek_offset" "$browser_maximum_seek_offset" 1200
     wait_for_synced_playback_state playing 1200
+
+    participant_left_count=$(line_count "Syncplay participants=1")
+    printf 'disconnect\n' >"$browser_guest_control"
+    wait_for_browser_guest "Browser guest command=disconnect" 0 300
+    wait "$lobby_pid"
+    lobby_pid=
+    wait_for_new "Syncplay participants=1" "$participant_left_count" 600
+
+    participant_rejoined_count=$(line_count "Syncplay participants=2")
+    start_browser_guest
+    wait_for_browser_guest "Browser guest joined room=$created_room_id" 0 600
+    wait_for_new "Syncplay participants=2" "$participant_rejoined_count" 600
+    browser_reconnect_minimum_offset=$((browser_seek_offset - 5000))
+    browser_reconnect_maximum_offset=$((browser_seek_offset + 30000))
+    wait_for_browser_guest_seek \
+      "$browser_reconnect_minimum_offset" "$browser_reconnect_maximum_offset" 1200
+    wait_for_synced_playback_state playing 1200
+    rejoined_participants=$(sed -n \
+      's/.*REFERENCE GX: Syncplay participants=\([0-9][0-9]*\).*/\1/p' \
+      "$log" | tail -1)
+    if [ "$rejoined_participants" != "2" ]; then
+      echo "The recovered room did not retain both participants; latest count was ${rejoined_participants:-unknown}." >&2
+      exit 1
+    fi
   fi
 fi
 sleep "$sustain_seconds"

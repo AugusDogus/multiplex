@@ -562,8 +562,7 @@ Next Dolphin milestones:
 
 1. expose room participants, leave/disband actions, and reconnect state in the
    Native SDK UI without duplicating the web app's tRPC procedures;
-2. cover room recovery after a participant disconnects;
-3. decide whether to repair raylib/OpenGX or extract a smaller portable
+2. decide whether to repair raylib/OpenGX or extract a smaller portable
    framebuffer/presenter interface before the Dreamcast pass.
 
 Hardware profiling remains deferred until the Dolphin app is materially

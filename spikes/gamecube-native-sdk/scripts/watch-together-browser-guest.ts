@@ -136,6 +136,10 @@ try {
               }),
             );
           });
+        } else if (command === "disconnect") {
+          await page.keyboard.press("Escape");
+          await page.waitForTimeout(1_500);
+          stopping = true;
         } else {
           throw new Error(`Unknown browser guest command: ${command}`);
         }
@@ -146,7 +150,7 @@ try {
     await Bun.sleep(250);
   }
 
-  await context.close();
+  await context.close().catch(() => undefined);
 } finally {
   await activePage?.keyboard.press("Escape").catch(() => undefined);
   await activePage?.waitForTimeout(1_500).catch(() => undefined);
