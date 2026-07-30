@@ -114,6 +114,7 @@ fi
 mkdir -p "$user_dir/Config" "$user_dir/Pipes"
 cp "$config_profile" "$user_dir/Config/Dolphin.ini"
 cp "$spike_dir/dolphin/GCPadNew.ini" "$user_dir/Config/GCPadNew.ini"
+cp "$spike_dir/dolphin/WiimoteNew.ini" "$user_dir/Config/WiimoteNew.ini"
 cp "$spike_dir/dolphin/GFX.ini" "$user_dir/Config/GFX.ini"
 cp "$spike_dir/dolphin/Logger.ini" "$user_dir/Config/Logger.ini"
 if [ -f "$user_dir/Logs/dolphin.log" ]; then
@@ -125,6 +126,13 @@ if [ ! -p "$user_dir/Pipes/multiplex1" ]; then
     exit 1
   fi
   mkfifo "$user_dir/Pipes/multiplex1"
+fi
+if [ ! -p "$user_dir/Pipes/multiplex-wii1" ]; then
+  if [ -e "$user_dir/Pipes/multiplex-wii1" ]; then
+    echo "$user_dir/Pipes/multiplex-wii1 exists but is not a named pipe." >&2
+    exit 1
+  fi
+  mkfifo "$user_dir/Pipes/multiplex-wii1"
 fi
 echo "$$" >"$pid_file"
 

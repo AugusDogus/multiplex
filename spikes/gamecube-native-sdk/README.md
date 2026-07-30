@@ -40,8 +40,8 @@ core, validated RGBA frame, direct GX presenter, and embedded media pipeline
 with libogc2's Wii runtime. `spike:wii:reference:smoke-player` boots the Wii DOL
 in Dolphin and runs the same navigation, MPEG-2/MP2 playback, 60 fps,
 pause/resume, and invalid-access gates as GameCube. The first tracer bullet uses
-a GameCube controller, which Wii libogc2 and Dolphin both expose in Wii mode.
-Wii Remote input and Wii-native persisted auth remain platform follow-ups.
+Wii Remote input directly, with matching Classic Controller and GameCube pad
+fallbacks. Wii-native persisted auth remains a platform follow-up.
 
 When `MULTIPLEX_BASE_URL` is an HTTPS `*.localhost` origin, the reference build
 automatically embeds the public Portless CA from `~/.portless/ca.pem`.

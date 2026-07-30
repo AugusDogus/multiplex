@@ -6,9 +6,10 @@ spike_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 dol=${MULTIPLEX_REFERENCE_DOL:-"$spike_dir/multiplex-gamecube-native-reference.dol"}
 reference_build_script=${MULTIPLEX_REFERENCE_BUILD_SCRIPT:-build-native-reference-dol.sh}
 console_name=${MULTIPLEX_CONSOLE_NAME:-GameCube}
+controller_pipe_name=${MULTIPLEX_CONTROLLER_PIPE:-multiplex1}
 user_dir="$spike_dir/.dolphin-user"
 log="$user_dir/Logs/dolphin.log"
-pipe="$user_dir/Pipes/multiplex1"
+pipe="$user_dir/Pipes/$controller_pipe_name"
 expected_media_source=${GAMECUBE_EXPECT_MEDIA_SOURCE:-embedded}
 
 if [ "$expected_media_source" = embedded ]; then

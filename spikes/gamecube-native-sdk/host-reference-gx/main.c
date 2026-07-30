@@ -24,6 +24,9 @@
 #include <ogc/lwp.h>
 #include <ogc/lwp_watchdog.h>
 #include <ogc/mutex.h>
+#if defined(HW_RVL)
+#include <wiiuse/wpad.h>
+#endif
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -206,6 +209,49 @@ static void discard_staged_media_session(StagedMediaSession *staged);
 static uint32_t elapsed_us(uint32_t started) {
   return (uint32_t)ticks_to_microsecs((uint32_t)(gettick() - started));
 }
+
+#if defined(HW_RVL)
+static uint32_t wii_buttons_as_gamecube(uint32_t buttons) {
+  uint32_t mapped = 0;
+  if ((buttons & (WPAD_BUTTON_LEFT | WPAD_CLASSIC_BUTTON_LEFT)) != 0) {
+    mapped |= PAD_BUTTON_LEFT;
+  }
+  if ((buttons & (WPAD_BUTTON_RIGHT | WPAD_CLASSIC_BUTTON_RIGHT)) != 0) {
+    mapped |= PAD_BUTTON_RIGHT;
+  }
+  if ((buttons & (WPAD_BUTTON_UP | WPAD_CLASSIC_BUTTON_UP)) != 0) {
+    mapped |= PAD_BUTTON_UP;
+  }
+  if ((buttons & (WPAD_BUTTON_DOWN | WPAD_CLASSIC_BUTTON_DOWN)) != 0) {
+    mapped |= PAD_BUTTON_DOWN;
+  }
+  if ((buttons & (WPAD_BUTTON_A | WPAD_CLASSIC_BUTTON_A)) != 0) {
+    mapped |= PAD_BUTTON_A;
+  }
+  if ((buttons & (WPAD_BUTTON_B | WPAD_CLASSIC_BUTTON_B)) != 0) {
+    mapped |= PAD_BUTTON_B;
+  }
+  if ((buttons & (WPAD_BUTTON_2 | WPAD_CLASSIC_BUTTON_X)) != 0) {
+    mapped |= PAD_BUTTON_X;
+  }
+  if ((buttons & (WPAD_BUTTON_1 | WPAD_CLASSIC_BUTTON_Y)) != 0) {
+    mapped |= PAD_BUTTON_Y;
+  }
+  if ((buttons & WPAD_CLASSIC_BUTTON_ZR) != 0) {
+    mapped |= PAD_TRIGGER_Z;
+  }
+  if ((buttons & WPAD_CLASSIC_BUTTON_FULL_L) != 0) {
+    mapped |= PAD_TRIGGER_L;
+  }
+  if ((buttons & WPAD_CLASSIC_BUTTON_FULL_R) != 0) {
+    mapped |= PAD_TRIGGER_R;
+  }
+  if ((buttons & (WPAD_BUTTON_PLUS | WPAD_CLASSIC_BUTTON_PLUS)) != 0) {
+    mapped |= PAD_BUTTON_START;
+  }
+  return mapped;
+}
+#endif
 
 void multiplex_native_input_trace(uint32_t action, uint32_t focus,
                                   uint32_t count, uint32_t message) {
@@ -584,7 +630,13 @@ static void configure_ui_pipeline(void) {
 static void initialize_video_and_gx(void) {
   VIDEO_Init();
   const uint32_t pad_initialized = PAD_Init();
+#if defined(HW_RVL)
+  const int32_t wpad_initialized = WPAD_Init();
+  SYS_Report("REFERENCE GX: controller init=%u wii-remote=%d\n",
+             pad_initialized, wpad_initialized);
+#else
   SYS_Report("REFERENCE GX: controller init=%u\n", pad_initialized);
+#endif
   video_mode = select_video_mode();
   const uint32_t framebuffer_bytes = VIDEO_GetFrameBufferSize(video_mode);
   for (unsigned index = 0; index < 2; ++index) {
@@ -2706,13 +2758,26 @@ static void *run_app(void *unused) {
       break;
     }
     const uint32_t connected_pads = PAD_ScanPads();
+#if defined(HW_RVL)
+    const int32_t connected_wii_remotes = WPAD_ScanPads();
+#endif
     if (!controller_status_reported) {
       uint32_t controller_type = 0;
       const uint32_t type_status = PAD_GetType(0, &controller_type);
+#if defined(HW_RVL)
+      uint32_t wii_remote_type = 0;
+      const int32_t wii_remote_status = WPAD_Probe(0, &wii_remote_type);
+      SYS_Report(
+          "REFERENCE GX: controller scan=%08x type-status=%08x type=%08x "
+          "held=%08x wii-scan=%d wii-status=%d wii-type=%08x\n",
+          connected_pads, type_status, controller_type, PAD_ButtonsHeld(0),
+          connected_wii_remotes, wii_remote_status, wii_remote_type);
+#else
       SYS_Report(
           "REFERENCE GX: controller scan=%08x type-status=%08x type=%08x "
           "held=%08x\n",
           connected_pads, type_status, controller_type, PAD_ButtonsHeld(0));
+#endif
       controller_status_reported = true;
     }
 #if MULTIPLEX_PAIRING_ENABLED
@@ -2771,14 +2836,21 @@ static void *run_app(void *unused) {
     }
 #endif
     uint32_t pressed = PAD_ButtonsDown(0);
+#if defined(HW_RVL)
+    pressed |= wii_buttons_as_gamecube(WPAD_ButtonsDown(0));
+#endif
     if (pressed != 0) {
       SYS_Report("REFERENCE GX: controller buttons %08x\n", pressed);
     }
 #if MULTIPLEX_PAIRING_ENABLED
+    uint32_t held = PAD_ButtonsHeld(0);
+#if defined(HW_RVL)
+    held |= wii_buttons_as_gamecube(WPAD_ButtonsHeld(0));
+#endif
     const uint32_t auth_reset_buttons =
         PAD_TRIGGER_L | PAD_TRIGGER_R | PAD_TRIGGER_Z;
     const bool auth_reset_held =
-        (PAD_ButtonsHeld(0) & auth_reset_buttons) == auth_reset_buttons;
+        (held & auth_reset_buttons) == auth_reset_buttons;
     if (pairing_linked && auth_reset_held && !auth_reset_latched) {
       auth_reset_latched = true;
       stop_direct_poster_loader(&direct_home_poster_loader);
