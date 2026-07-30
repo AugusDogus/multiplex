@@ -53,6 +53,10 @@ bounded to 16 KiB because libogc allocates an IOS IPC buffer matching each
 `net_recv` request. The direct-Plex smoke loaded the authenticated tRPC user,
 rooms, and invitees, read the 100,005-byte Plex home response, decoded all 12
 posters, and played a real Plex item with a clean Dolphin invalid-access log.
+The Wii Watch Together smoke resolves Plex's public Syncplay host through IOS,
+gates playback on both invited users, and passes synchronized seek,
+bidirectional pause/resume, browser disconnect/rejoin, room disband, and PMS
+cleanup through the same Portless-backed Multiplex API.
 
 When `MULTIPLEX_BASE_URL` is an HTTPS `*.localhost` origin, the reference build
 automatically embeds the public Portless CA from `~/.portless/ca.pem`.

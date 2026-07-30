@@ -82,6 +82,18 @@ static bool resolve_ipv4(const char *host, struct in_addr *address) {
   if (inet_aton(host, address) != 0) {
     return true;
   }
+#if defined(HW_RVL)
+  const struct hostent *resolved_host = net_gethostbyname(host);
+  if (resolved_host == NULL || resolved_host->h_addrtype != AF_INET ||
+      resolved_host->h_length != sizeof(address->s_addr) ||
+      resolved_host->h_addr_list == NULL ||
+      resolved_host->h_addr_list[0] == NULL) {
+    return false;
+  }
+  memcpy(&address->s_addr, resolved_host->h_addr_list[0],
+         sizeof(address->s_addr));
+  const bool resolved = true;
+#else
   const char *gateway = http_client_network_gateway();
   if (gateway == NULL || gateway[0] == '\0') {
     return false;
@@ -179,6 +191,7 @@ static bool resolve_ipv4(const char *host, struct in_addr *address) {
     }
   }
   net_close(socket);
+#endif
   if (resolved) {
     char resolved_address[16];
     inet_ntoa_r(*address, resolved_address, sizeof(resolved_address));
