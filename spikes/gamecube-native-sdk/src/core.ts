@@ -112,6 +112,7 @@ export interface Model {
   readonly watchTogetherDisbandFailed: boolean;
   readonly detailsLoaded: boolean;
   readonly detailsPlayable: boolean;
+  readonly detailsHierarchy: Uint8Array;
   readonly detailsSecondary: Uint8Array;
   readonly detailsType: Uint8Array;
   readonly detailsLibrary: Uint8Array;
@@ -132,6 +133,7 @@ export interface Model {
   readonly playing: boolean;
   readonly subtitleStreamCount: number;
   readonly selectedSubtitleStream: number;
+  readonly startMenuOpen: boolean;
 }
 
 export type Msg =
@@ -147,6 +149,12 @@ export type Msg =
   | { readonly kind: "search_delete" }
   | { readonly kind: "search_submit" }
   | { readonly kind: "open_watch_together" }
+  | { readonly kind: "open_start_menu" }
+  | { readonly kind: "close_start_menu" }
+  | { readonly kind: "start_menu_play" }
+  | { readonly kind: "start_menu_watch_together" }
+  | { readonly kind: "start_menu_libraries" }
+  | { readonly kind: "start_menu_search" }
   | { readonly kind: "create_watch_together" }
   | { readonly kind: "watch_together_invitees_previous" }
   | { readonly kind: "watch_together_invitees_next" }
@@ -353,6 +361,7 @@ export function initialModel(): Model {
     watchTogetherDisbandFailed: false,
     detailsLoaded: true,
     detailsPlayable: true,
+    detailsHierarchy: new Uint8Array(0),
     detailsSecondary: asciiBytes("Native SDK media prototype"),
     detailsType: asciiBytes("Movie"),
     detailsLibrary: asciiBytes("Demo library"),
@@ -375,6 +384,7 @@ export function initialModel(): Model {
     playing: false,
     subtitleStreamCount: 0,
     selectedSubtitleStream: 0,
+    startMenuOpen: false,
   };
 }
 
@@ -576,6 +586,7 @@ export function loadDetails(
   model: Model,
   title: Uint8Array,
   secondary: Uint8Array,
+  hierarchy: Uint8Array,
   mediaType: Uint8Array,
   library: Uint8Array,
   contentRating: Uint8Array,
@@ -591,6 +602,7 @@ export function loadDetails(
     selectedTitle: title,
     detailsLoaded: true,
     detailsPlayable: playable,
+    detailsHierarchy: hierarchy,
     detailsSecondary: secondary,
     detailsType: mediaType,
     detailsLibrary: library,
@@ -776,6 +788,10 @@ export function detailsHasSecondary(model: Model): boolean {
   return model.detailsSecondary.length > 0;
 }
 
+export function detailsHasHierarchy(model: Model): boolean {
+  return model.detailsHierarchy.length > 0;
+}
+
 export function detailsHasContentRating(model: Model): boolean {
   return model.detailsContentRating.length > 0;
 }
@@ -814,6 +830,14 @@ export function browsePreviousDisabled(model: Model): boolean {
 
 export function browseNextDisabled(model: Model): boolean {
   return !browseHasNext(model);
+}
+
+export function detailsChildrenPreviousDisabled(model: Model): boolean {
+  return !detailsChildrenHasPrevious(model);
+}
+
+export function detailsChildrenNextDisabled(model: Model): boolean {
+  return !detailsChildrenHasNext(model);
 }
 
 export function browseLoading(model: Model): boolean {
@@ -1114,7 +1138,28 @@ export function update(model: Model, msg: Msg): Model {
       return { ...model, screen: "search_results", searchItems: [], searchLoaded: false };
     case "open_watch_together":
       if (!model.pairingLinked || model.screen === "player") return model;
-      return { ...model, screen: "watch_together" };
+      return { ...model, screen: "watch_together", startMenuOpen: false };
+    case "open_start_menu":
+      if (!model.pairingLinked || model.screen === "player") return model;
+      return { ...model, startMenuOpen: true };
+    case "close_start_menu":
+      return model.startMenuOpen ? { ...model, startMenuOpen: false } : model;
+    case "start_menu_play":
+      return model.startMenuOpen
+        ? update({ ...model, startMenuOpen: false }, { kind: "play" })
+        : model;
+    case "start_menu_watch_together":
+      return model.startMenuOpen
+        ? update({ ...model, startMenuOpen: false }, { kind: "open_watch_together" })
+        : model;
+    case "start_menu_libraries":
+      return model.startMenuOpen
+        ? update({ ...model, startMenuOpen: false }, { kind: "open_libraries" })
+        : model;
+    case "start_menu_search":
+      return model.startMenuOpen
+        ? update({ ...model, startMenuOpen: false }, { kind: "open_search" })
+        : model;
     case "create_watch_together":
       if (
         !model.pairingLinked ||
@@ -1126,6 +1171,7 @@ export function update(model: Model, msg: Msg): Model {
       return {
         ...model,
         screen: "watch_together_invite",
+        startMenuOpen: false,
         watchTogetherInviteePage: 0,
         watchTogetherCreateFailed: false,
       };
@@ -1204,6 +1250,7 @@ export function update(model: Model, msg: Msg): Model {
         selectedFromBrowse: model.screen === "browse",
         selectedFromSearch: model.screen === "search_results",
         detailsLoaded: !model.gatewayConnected,
+        detailsHierarchy: new Uint8Array(0),
         detailsChildren: [],
         detailsChildrenStart: 0,
         detailsChildrenPageNumber: 1,
@@ -1239,6 +1286,7 @@ export function update(model: Model, msg: Msg): Model {
         selectedDurationMs: child.durationMs,
         selectedViewOffsetMs: child.viewOffsetMs,
         detailsLoaded: false,
+        detailsHierarchy: new Uint8Array(0),
         detailsChildren: [],
         detailsChildrenStart: 0,
         detailsChildrenPageNumber: 1,
@@ -1341,6 +1389,7 @@ export function update(model: Model, msg: Msg): Model {
         playing: false,
       };
     case "back":
+      if (model.startMenuOpen) return { ...model, startMenuOpen: false };
       if (model.screen === "player") {
         if (model.watchTogetherActive) return leaveWatchTogether(model);
         const progressed = commitSelectedProgress(model);

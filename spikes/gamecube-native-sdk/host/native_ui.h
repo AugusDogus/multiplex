@@ -146,12 +146,14 @@ uint32_t multiplex_native_app_details_child(
 uint32_t multiplex_native_app_details_children_commit(void);
 uint32_t multiplex_native_app_details_commit(
     const uint8_t *title, uint32_t title_length, const uint8_t *secondary,
-    uint32_t secondary_length, const uint8_t *media_type,
-    uint32_t media_type_length, const uint8_t *library, uint32_t library_length,
-    const uint8_t *content_rating, uint32_t content_rating_length,
-    const uint8_t *facts, uint32_t facts_length, const uint8_t *summary,
-    uint32_t summary_length, const uint8_t *genres, uint32_t genres_length,
-    const uint8_t *directors, uint32_t directors_length, uint32_t playable);
+    uint32_t secondary_length, const uint8_t *hierarchy,
+    uint32_t hierarchy_length, const uint8_t *media_type,
+    uint32_t media_type_length, const uint8_t *library,
+    uint32_t library_length, const uint8_t *content_rating,
+    uint32_t content_rating_length, const uint8_t *facts,
+    uint32_t facts_length, const uint8_t *summary, uint32_t summary_length,
+    const uint8_t *genres, uint32_t genres_length, const uint8_t *directors,
+    uint32_t directors_length, uint32_t playable);
 uint32_t multiplex_native_app_details_fail(void);
 uint32_t multiplex_native_app_subtitles(uint32_t count, uint32_t selected);
 uint32_t multiplex_native_app_subtitle_selection(void);

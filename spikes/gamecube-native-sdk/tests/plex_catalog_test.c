@@ -142,7 +142,7 @@ static void test_parses_episode_hierarchy(void) {
   static const char json[] =
       "{\"MediaContainer\":{\"Metadata\":[{"
       "\"ratingKey\":\"380571\",\"type\":\"episode\","
-      "\"title\":\"Ballad of Fallen Angels\",\"index\":5,"
+      "\"title\":\"Ballad of Fallen Angels\",\"parentIndex\":1,\"index\":5,"
       "\"parentRatingKey\":\"380566\","
       "\"grandparentRatingKey\":\"380565\",\"duration\":1441719,"
       "\"Media\":[{\"videoResolution\":\"1080\"}]"
@@ -154,6 +154,7 @@ static void test_parses_episode_hierarchy(void) {
   assert(details.rating_key == 380571);
   assert(details.parent_rating_key == 380566);
   assert(details.grandparent_rating_key == 380565);
+  assert(details.parent_index == 1);
   assert(details.index == 5);
 }
 

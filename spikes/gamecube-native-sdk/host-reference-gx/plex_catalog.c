@@ -710,6 +710,7 @@ bool multiplex_plex_catalog_parse_details(const char *json, size_t size,
   json_unsigned(object, "parentRatingKey", &details->parent_rating_key);
   json_unsigned(object, "grandparentRatingKey",
                 &details->grandparent_rating_key);
+  json_unsigned(object, "parentIndex", &details->parent_index);
   json_unsigned(object, "index", &details->index);
   capitalize_first(details->media_type);
   if (!json_string(object, "grandparentTitle", details->secondary,

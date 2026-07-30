@@ -62,6 +62,7 @@ var staged_watch_together_invitee_count: usize = 0;
 var staged_watch_together_invitees_available = false;
 var details_title_buffer: [96]u8 = undefined;
 var details_secondary_buffer: [96]u8 = undefined;
+var details_hierarchy_buffer: [48]u8 = undefined;
 var details_type_buffer: [32]u8 = undefined;
 var details_library_buffer: [96]u8 = undefined;
 var details_content_rating_buffer: [32]u8 = undefined;
@@ -347,8 +348,14 @@ fn commitAppModel(next: *const core.Model) void {
     core.rt.frameReset();
 }
 
-fn prefersFocus(screen: core.Screen, msg: core.Msg) bool {
-    return switch (screen) {
+fn prefersFocus(model: *const core.Model, msg: core.Msg) bool {
+    if (model.startMenuOpen) {
+        return switch (msg) {
+            .start_menu_play, .start_menu_watch_together => true,
+            else => false,
+        };
+    }
+    return switch (model.screen) {
         .home, .browse, .search_results => switch (msg) {
             .open_item => true,
             else => false,
@@ -373,16 +380,16 @@ fn prefersFocus(screen: core.Screen, msg: core.Msg) bool {
     };
 }
 
-fn resolveFocusedHandler(tree: anytype, press_ids: []const canvas.ObjectId, screen: core.Screen) void {
-    if (focused_screen != screen) {
-        focused_screen = screen;
+fn resolveFocusedHandler(tree: anytype, press_ids: []const canvas.ObjectId, model: *const core.Model) void {
+    if (focused_screen != model.screen) {
+        focused_screen = model.screen;
         focused_handler = invalid_focused_handler;
     }
     if (focused_handler < press_ids.len) return;
     focused_handler = 0;
     for (press_ids, 0..) |id, index| {
         const msg = tree.msgFor(id, .press) orelse continue;
-        if (!prefersFocus(screen, msg)) continue;
+        if (!prefersFocus(model, msg)) continue;
         focused_handler = index;
         return;
     }
@@ -819,7 +826,6 @@ export fn multiplex_native_app_browse_commit() callconv(.c) u32 {
         if (staged_browse_total == 0) 1 else (staged_browse_total - 1) / 4 + 1,
         staged_browse_item_ptrs[0..staged_browse_item_count],
     ));
-    focused_handler = 0;
     reference_full_repaint = true;
     return 1;
 }
@@ -875,7 +881,7 @@ export fn multiplex_native_app_search_commit() callconv(.c) u32 {
         staged_browse_title,
         staged_browse_item_ptrs[0..staged_browse_item_count],
     ));
-    focused_handler = 0;
+    focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
     return 1;
 }
@@ -950,7 +956,6 @@ export fn multiplex_native_app_details_children_commit() callconv(.c) u32 {
         if (staged_browse_total == 0) 1 else (staged_browse_total - 1) / 4 + 1,
         staged_browse_item_ptrs[0..staged_browse_item_count],
     ));
-    focused_handler = 0;
     reference_full_repaint = true;
     return 1;
 }
@@ -966,6 +971,8 @@ export fn multiplex_native_app_details_commit(
     title_length: u32,
     secondary: [*]const u8,
     secondary_length: u32,
+    hierarchy: [*]const u8,
+    hierarchy_length: u32,
     media_type: [*]const u8,
     media_type_length: u32,
     library: [*]const u8,
@@ -985,6 +992,7 @@ export fn multiplex_native_app_details_commit(
     if (!app_initialized or title_length == 0) return 0;
     const stored_title = copyDetailsString(&details_title_buffer, title, title_length) orelse return 0;
     const stored_secondary = copyDetailsString(&details_secondary_buffer, secondary, secondary_length) orelse return 0;
+    const stored_hierarchy = copyDetailsString(&details_hierarchy_buffer, hierarchy, hierarchy_length) orelse return 0;
     const stored_media_type = copyDetailsString(&details_type_buffer, media_type, media_type_length) orelse return 0;
     const stored_library = copyDetailsString(&details_library_buffer, library, library_length) orelse return 0;
     const stored_content_rating = copyDetailsString(&details_content_rating_buffer, content_rating, content_rating_length) orelse return 0;
@@ -996,6 +1004,7 @@ export fn multiplex_native_app_details_commit(
         app_model,
         stored_title,
         stored_secondary,
+        stored_hierarchy,
         stored_media_type,
         stored_library,
         stored_content_rating,
@@ -1005,7 +1014,7 @@ export fn multiplex_native_app_details_commit(
         stored_directors,
         playable != 0,
     ));
-    focused_handler = 0;
+    focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
     return 1;
 }
@@ -1013,7 +1022,7 @@ export fn multiplex_native_app_details_commit(
 export fn multiplex_native_app_details_fail() callconv(.c) u32 {
     if (!app_initialized or core.detailsRequestRatingKey(app_model) == 0) return 0;
     commitAppModel(core.failDetails(app_model));
-    focused_handler = 0;
+    focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
     return 1;
 }
@@ -1256,12 +1265,12 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         return 1;
     }
     if (action == 11) {
-        const opened = core.update(model, .open_watch_together);
-        if (opened.screen == model.screen) return 0;
+        const opened = core.update(model, .open_start_menu);
+        if (!opened.startMenuOpen) return 0;
         commitAppModel(opened);
-        focused_handler = 0;
+        focused_handler = invalid_focused_handler;
         reference_full_repaint = true;
-        multiplex_native_input_trace(action, 0, 0, 22);
+        multiplex_native_input_trace(action, 0, 0, 35);
         return 1;
     }
     var fixed = std.heap.FixedBufferAllocator.init(&ui_arena);
@@ -1283,13 +1292,13 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
     }
     if (action == 3) {
         commitAppModel(core.update(model, .back));
-        focused_handler = 0;
+        focused_handler = invalid_focused_handler;
         reference_full_repaint = true;
         multiplex_native_input_trace(action, 0, @intCast(press_count), 12);
         return 1;
     }
     if (press_count == 0) return 0;
-    resolveFocusedHandler(tree, press_ids[0..press_count], model.screen);
+    resolveFocusedHandler(tree, press_ids[0..press_count], model);
 
     var message_kind: u32 = 0;
     var traced_focus = focused_handler;
@@ -1342,6 +1351,12 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .browse_next => 7,
                 .open_search => 13,
                 .open_watch_together => 22,
+                .open_start_menu => 35,
+                .close_start_menu => 36,
+                .start_menu_play => 37,
+                .start_menu_watch_together => 38,
+                .start_menu_libraries => 39,
+                .start_menu_search => 40,
                 .create_watch_together => 23,
                 .watch_together_invitees_previous => 24,
                 .watch_together_invitees_next => 25,
@@ -1422,7 +1437,7 @@ export fn multiplex_native_app_render(output: [*]GxCommand, capacity: u32) callc
             press_count += 1;
         }
     }
-    if (press_count > 0) resolveFocusedHandler(tree, press_ids[0..press_count], model.screen);
+    if (press_count > 0) resolveFocusedHandler(tree, press_ids[0..press_count], model);
     const focused_id: ?canvas.ObjectId = if (press_count > 0) press_ids[focused_handler] else null;
 
     display_builder = canvas.Builder.init(&display_commands);
@@ -1562,7 +1577,7 @@ fn renderReference(
             press_count += 1;
         }
     }
-    if (press_count > 0) resolveFocusedHandler(tree, press_ids[0..press_count], model.screen);
+    if (press_count > 0) resolveFocusedHandler(tree, press_ids[0..press_count], model);
     const focused_id: ?canvas.ObjectId = if (press_count > 0) press_ids[focused_handler] else null;
     const render_state = canvas.WidgetRenderState{
         .focused_id = focused_id,

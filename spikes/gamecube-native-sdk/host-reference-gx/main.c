@@ -1221,6 +1221,31 @@ static bool bind_item_subtitles(const MultiplexGatewayDetails *details) {
 
 static bool bind_item_details(const MultiplexGatewayDetails *details) {
   char facts[MULTIPLEX_GATEWAY_DETAIL_SHORT_CAPACITY] = {0};
+  char hierarchy[48] = {0};
+  uint32_t season = details->parent_index;
+  uint32_t episode = details->index;
+  uint16_t secondary_length = details->secondary_length;
+  const char *episode_marker = strstr(details->secondary, " \xC2\xB7 S");
+  if (episode_marker != NULL) {
+    unsigned parsed_season = 0;
+    unsigned parsed_episode = 0;
+    if (sscanf(episode_marker + 4, "S%u E%u", &parsed_season,
+               &parsed_episode) == 2) {
+      season = parsed_season;
+      episode = parsed_episode;
+      secondary_length = (uint16_t)(episode_marker - details->secondary);
+    }
+  }
+  int hierarchy_length = 0;
+  if (strcmp(details->media_type, "Episode") == 0 && season != 0 &&
+      episode != 0) {
+    hierarchy_length = snprintf(hierarchy, sizeof(hierarchy),
+                                "Season %u | Episode %u", (unsigned)season,
+                                (unsigned)episode);
+  }
+  if (hierarchy_length < 0 || (size_t)hierarchy_length >= sizeof(hierarchy)) {
+    return false;
+  }
   const uint32_t minutes =
       details->duration_ms == 0 ? 0 : (details->duration_ms + 30000u) / 60000u;
   int facts_length = 0;
@@ -1242,7 +1267,8 @@ static bool bind_item_details(const MultiplexGatewayDetails *details) {
 
   if (multiplex_native_app_details_commit(
           (const uint8_t *)details->title, details->title_length,
-          (const uint8_t *)details->secondary, details->secondary_length,
+          (const uint8_t *)details->secondary, secondary_length,
+          (const uint8_t *)hierarchy, (uint32_t)hierarchy_length,
           (const uint8_t *)details->media_type, details->media_type_length,
           (const uint8_t *)details->library, details->library_length,
           (const uint8_t *)details->content_rating,
@@ -3365,20 +3391,6 @@ static void *run_app(void *unused) {
     if ((pressed & PAD_TRIGGER_Z) != 0 && multiplex_native_app_input(10) != 0) {
       app_changed = true;
     }
-#if MULTIPLEX_PAIRING_ENABLED
-    if (pairing_linked && (pressed & PAD_BUTTON_START) != 0) {
-      stop_direct_poster_loader(&direct_home_poster_loader);
-      stop_direct_poster_loader(&direct_page_poster_loader);
-      if (!refresh_watch_together_rooms(&auth_credentials,
-                                        &watch_together_rooms)) {
-        SYS_Report("REFERENCE GX: Watch Together refresh failed\n");
-      }
-      if (!refresh_watch_together_invitees(
-              &auth_credentials, &watch_together_invitees)) {
-        SYS_Report("REFERENCE GX: Watch Together invitee refresh failed\n");
-      }
-    }
-#endif
     if ((pressed & PAD_BUTTON_START) != 0 &&
         multiplex_native_app_input(11) != 0) {
       app_changed = true;
