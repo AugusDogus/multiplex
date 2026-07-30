@@ -58,5 +58,8 @@ bool multiplex_trpc_create_watch_together_room(
     const char *base_url, const char *bearer_token, const char *server_id,
     uint32_t rating_key, const char *title, uint32_t invitee_user_id,
     MultiplexTrpcRoom *room);
+bool multiplex_trpc_delete_watch_together_room(const char *base_url,
+                                                const char *bearer_token,
+                                                const char *room_id);
 
 #endif

@@ -58,7 +58,7 @@ static bool append_json_string(char *destination, size_t capacity,
   return true;
 }
 
-static bool safe_server_id(const char *value) {
+static bool safe_identifier(const char *value) {
   if (value == NULL || value[0] == '\0') {
     return false;
   }
@@ -185,7 +185,7 @@ bool multiplex_trpc_create_watch_together_room(
     MultiplexTrpcRoom *room) {
   if (base_url == NULL || base_url[0] == '\0' || bearer_token == NULL ||
       bearer_token[0] == '\0' || server_id == NULL || server_id[0] == '\0' ||
-      !safe_server_id(server_id) || rating_key == 0 || title == NULL ||
+      !safe_identifier(server_id) || rating_key == 0 || title == NULL ||
       title[0] == '\0' || invitee_user_id == 0 || room == NULL) {
     return false;
   }
@@ -233,4 +233,38 @@ bool multiplex_trpc_create_watch_together_room(
   SYS_Report("REFERENCE GX: tRPC Watch Together create status=%u\n",
              created ? 1u : 0u);
   return created;
+}
+
+bool multiplex_trpc_delete_watch_together_room(const char *base_url,
+                                                const char *bearer_token,
+                                                const char *room_id) {
+  if (base_url == NULL || base_url[0] == '\0' || bearer_token == NULL ||
+      bearer_token[0] == '\0' || !safe_identifier(room_id)) {
+    return false;
+  }
+  const size_t base_size = strlen(base_url);
+  char url[TRPC_URL_CAPACITY];
+  const int url_size = snprintf(
+      url, sizeof(url), "%s%sapi/trpc/plex.deleteWatchTogetherRoom", base_url,
+      base_size != 0 && base_url[base_size - 1u] == '/' ? "" : "/");
+  if (url_size <= 0 || (size_t)url_size >= sizeof(url)) {
+    return false;
+  }
+
+  char body[TRPC_BODY_CAPACITY];
+  const int body_size =
+      snprintf(body, sizeof(body), "{\"json\":{\"roomId\":\"%s\"}}", room_id);
+  if (body_size <= 0 || (size_t)body_size >= sizeof(body)) {
+    return false;
+  }
+
+  char response_body[256];
+  HttpJsonResponse response;
+  const bool deleted = http_client_request_json(
+                           "POST", url, bearer_token, body, response_body,
+                           sizeof(response_body), &response) &&
+                       response.status == 200;
+  SYS_Report("REFERENCE GX: tRPC Watch Together delete status=%u\n",
+             deleted ? 1u : 0u);
+  return deleted;
 }

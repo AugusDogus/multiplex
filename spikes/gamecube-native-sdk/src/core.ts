@@ -105,8 +105,11 @@ export interface Model {
   readonly watchTogetherJoinFailed: boolean;
   readonly watchTogetherActive: boolean;
   readonly watchTogetherPresentCount: number;
+  readonly watchTogetherHost: boolean;
   readonly watchTogetherLeaveRequested: boolean;
   readonly watchTogetherReconnectRequested: boolean;
+  readonly watchTogetherDisbandRequested: boolean;
+  readonly watchTogetherDisbandFailed: boolean;
   readonly detailsLoaded: boolean;
   readonly detailsPlayable: boolean;
   readonly detailsSecondary: Uint8Array;
@@ -142,6 +145,7 @@ export type Msg =
   | { readonly kind: "join_watch_together"; readonly index: number }
   | { readonly kind: "leave_watch_together" }
   | { readonly kind: "reconnect_watch_together" }
+  | { readonly kind: "disband_watch_together" }
   | { readonly kind: "open_item"; readonly index: number }
   | { readonly kind: "play" }
   | { readonly kind: "seek_backward" }
@@ -329,8 +333,11 @@ export function initialModel(): Model {
     watchTogetherJoinFailed: false,
     watchTogetherActive: false,
     watchTogetherPresentCount: 0,
+    watchTogetherHost: false,
     watchTogetherLeaveRequested: false,
     watchTogetherReconnectRequested: false,
+    watchTogetherDisbandRequested: false,
+    watchTogetherDisbandFailed: false,
     detailsLoaded: true,
     detailsPlayable: true,
     detailsSecondary: asciiBytes("Native SDK media prototype"),
@@ -489,13 +496,28 @@ export function updateWatchTogetherPresence(
 
 export function completeWatchTogetherLeave(model: Model): Model {
   return model.watchTogetherLeaveRequested
-    ? { ...model, watchTogetherLeaveRequested: false }
+    ? { ...model, watchTogetherHost: false, watchTogetherLeaveRequested: false }
     : model;
 }
 
 export function completeWatchTogetherReconnect(model: Model): Model {
   return model.watchTogetherReconnectRequested
     ? { ...model, watchTogetherReconnectRequested: false }
+    : model;
+}
+
+export function setWatchTogetherHost(model: Model, host: boolean): Model {
+  return model.watchTogetherHost === host ? model : { ...model, watchTogetherHost: host };
+}
+
+export function completeWatchTogetherDisband(model: Model, deleted: boolean): Model {
+  return model.watchTogetherDisbandRequested
+    ? {
+        ...model,
+        watchTogetherHost: deleted ? false : model.watchTogetherHost,
+        watchTogetherDisbandRequested: false,
+        watchTogetherDisbandFailed: !deleted,
+      }
     : model;
 }
 
@@ -514,6 +536,17 @@ function leaveWatchTogether(model: Model): Model {
     watchTogetherPresentCount: 0,
     watchTogetherLeaveRequested: true,
     watchTogetherReconnectRequested: false,
+  };
+}
+
+function disbandWatchTogether(model: Model): Model {
+  if (!model.watchTogetherActive || !model.watchTogetherHost) return model;
+  const left = leaveWatchTogether(model);
+  return {
+    ...left,
+    watchTogetherLeaveRequested: false,
+    watchTogetherDisbandRequested: true,
+    watchTogetherDisbandFailed: false,
   };
 }
 
@@ -1010,14 +1043,19 @@ export function update(model: Model, msg: Msg): Model {
         watchTogetherJoinFailed: false,
         watchTogetherActive: false,
         watchTogetherPresentCount: 0,
+        watchTogetherHost: false,
         watchTogetherLeaveRequested: false,
         watchTogetherReconnectRequested: false,
+        watchTogetherDisbandRequested: false,
+        watchTogetherDisbandFailed: false,
       };
     case "leave_watch_together":
       return model.screen === "player" ? leaveWatchTogether(model) : model;
     case "reconnect_watch_together":
       if (model.screen !== "player" || !model.watchTogetherActive) return model;
       return { ...model, watchTogetherReconnectRequested: true };
+    case "disband_watch_together":
+      return model.screen === "player" ? disbandWatchTogether(model) : model;
     case "open_item": {
       const items =
         model.screen === "browse"

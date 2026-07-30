@@ -2409,7 +2409,8 @@ refresh_watch_together_rooms(const MultiplexAuthCredentials *credentials,
 }
 
 static void create_requested_watch_together_room(
-    const MultiplexAuthCredentials *credentials, MultiplexTrpcRoomList *rooms) {
+    const MultiplexAuthCredentials *credentials, MultiplexTrpcRoomList *rooms,
+    char *hosted_room_id, size_t hosted_room_id_capacity) {
   uint32_t rating_key = 0;
   uint32_t invitee_user_id = 0;
   char title[MULTIPLEX_TRPC_ROOM_TITLE_CAPACITY];
@@ -2453,6 +2454,13 @@ static void create_requested_watch_together_room(
   }
   if (!bind_watch_together_rooms(rooms, true)) {
     multiplex_native_app_watch_together_create_fail();
+    return;
+  }
+  const int hosted_id_size =
+      snprintf(hosted_room_id, hosted_room_id_capacity, "%s", created.id);
+  if (hosted_id_size <= 0 ||
+      (size_t)hosted_id_size >= hosted_room_id_capacity) {
+    hosted_room_id[0] = '\0';
   }
   SYS_Report("REFERENCE GX: Watch Together room created id=%s "
              "rating-key=%u\n",
@@ -2482,7 +2490,8 @@ join_requested_watch_together_room(const MultiplexAuthCredentials *credentials,
                                    MultiplexSyncplaySession **session,
                                    uint32_t *joined_room_index,
                                    uint32_t plex_user_id, bool *in_lobby,
-                                   uint64_t *all_present_since_ms) {
+                                   uint64_t *all_present_since_ms,
+                                   const char *hosted_room_id) {
   const uint32_t requested = multiplex_native_app_watch_together_join_request();
   if (requested == 0) {
     return;
@@ -2515,6 +2524,11 @@ join_requested_watch_together_room(const MultiplexAuthCredentials *credentials,
     return;
   }
   multiplex_native_app_watch_together_join_commit(1);
+  multiplex_native_app_watch_together_host(
+      hosted_room_id != NULL && hosted_room_id[0] != '\0' &&
+              strcmp(rooms->rooms[index].id, hosted_room_id) == 0
+          ? 1u
+          : 0u);
   multiplex_native_app_watch_together_presence(1, 1);
   *joined_room_index = index;
   *in_lobby = true;
@@ -2598,6 +2612,7 @@ static void *run_app(void *unused) {
   uint64_t watch_together_reconnect_at_ms = 0;
   uint32_t plex_user_id = 0;
   bool watch_together_lobby = false;
+  char hosted_watch_together_room_id[MULTIPLEX_TRPC_ROOM_ID_CAPACITY] = "";
 #endif
   bool has_catalog =
       MULTIPLEX_GATEWAY_URL[0] != '\0' &&
@@ -2937,8 +2952,16 @@ static void *run_app(void *unused) {
         SYS_Report("REFERENCE GX: Syncplay reconnect requested room=%u\n",
                    joined_watch_together_room);
       }
-      if (multiplex_native_app_watch_together_leave_request() != 0) {
+      const bool disband_watch_together =
+          multiplex_native_app_watch_together_disband_request() != 0;
+      if (multiplex_native_app_watch_together_leave_request() != 0 ||
+          disband_watch_together) {
         const uint32_t left_room = joined_watch_together_room;
+        char left_room_id[MULTIPLEX_TRPC_ROOM_ID_CAPACITY] = "";
+        if (left_room < watch_together_rooms.room_count) {
+          snprintf(left_room_id, sizeof(left_room_id), "%s",
+                   watch_together_rooms.rooms[left_room].id);
+        }
         flush_timeline_report(
             &timeline_reporter, MULTIPLEX_GATEWAY_URL,
             timeline_plex_credentials, direct_hls_session_id,
@@ -2954,13 +2977,34 @@ static void *run_app(void *unused) {
         watch_together_all_present_since_ms = 0;
         watch_together_reconnect_at_ms = 0;
         watch_together_lobby = false;
-        multiplex_native_app_watch_together_leave_commit();
+        bool deleted = false;
+        if (disband_watch_together && left_room_id[0] != '\0' &&
+            strcmp(left_room_id, hosted_watch_together_room_id) == 0) {
+          deleted = multiplex_trpc_delete_watch_together_room(
+              MULTIPLEX_BASE_URL, auth_credentials.session_token,
+              left_room_id);
+          if (deleted) {
+            hosted_watch_together_room_id[0] = '\0';
+          }
+        }
+        if (disband_watch_together) {
+          multiplex_native_app_watch_together_disband_commit(deleted ? 1u
+                                                                     : 0u);
+        } else {
+          multiplex_native_app_watch_together_leave_commit();
+        }
         if (!refresh_watch_together_rooms(&auth_credentials,
                                           &watch_together_rooms)) {
-          SYS_Report("REFERENCE GX: Watch Together rooms refresh after leave "
+          SYS_Report("REFERENCE GX: Watch Together rooms refresh after exit "
                      "failed\n");
         }
-        SYS_Report("REFERENCE GX: Watch Together left room=%u\n", left_room);
+        if (disband_watch_together) {
+          SYS_Report("REFERENCE GX: Watch Together disbanded room=%s "
+                     "deleted=%u\n",
+                     left_room_id, deleted ? 1u : 0u);
+        } else {
+          SYS_Report("REFERENCE GX: Watch Together left room=%u\n", left_room);
+        }
       }
       if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked && has_catalog &&
           !load_direct_browse_page(&auth_credentials, &catalog,
@@ -2989,12 +3033,15 @@ static void *run_app(void *unused) {
         SYS_Report("REFERENCE GX: direct details-page load failed\n");
       }
       if (pairing_linked) {
-        create_requested_watch_together_room(&auth_credentials,
-                                             &watch_together_rooms);
+        create_requested_watch_together_room(
+            &auth_credentials, &watch_together_rooms,
+            hosted_watch_together_room_id,
+            sizeof(hosted_watch_together_room_id));
         join_requested_watch_together_room(
             &auth_credentials, &watch_together_rooms, &syncplay_session,
             &joined_watch_together_room, plex_user_id, &watch_together_lobby,
-            &watch_together_all_present_since_ms);
+            &watch_together_all_present_since_ms,
+            hosted_watch_together_room_id);
         if (syncplay_session != NULL) {
           watch_together_reconnect_at_ms = 0;
         }

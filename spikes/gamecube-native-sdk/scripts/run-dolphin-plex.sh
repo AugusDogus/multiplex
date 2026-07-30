@@ -28,6 +28,7 @@ launcher_pid=
 mute_pid=
 lobby_pid=
 created_room_id=
+disbanded_room_id=
 cleanup_started=0
 browser_guest_log="$cache_dir/watch-together-browser-guest.log"
 browser_guest_control="$cache_dir/watch-together-browser-guest.control"
@@ -802,20 +803,31 @@ if [ "$watch_together_browser_guest" -eq 1 ]; then
   wait_for_new "Syncplay participants=2" "$reconnect_participants_count" 600
   wait_for_synced_playback_state playing 1200
 
-  left_room_count=$(line_count "Watch Together left room=")
+  disbanded_room_count=$(line_count "Watch Together disbanded room=")
   stopped_timeline_count=$(line_count "$timeline_pattern .*state=stopped reported=1")
   press D_RIGHT
+  press D_RIGHT
+  press D_RIGHT
   press A
-  wait_for_new "Watch Together left room=" "$left_room_count" 600
+  wait_for_new "Watch Together disbanded room=$created_room_id deleted=1" \
+    "$disbanded_room_count" 600
   wait_for_new "$timeline_pattern .*state=stopped reported=1" \
     "$stopped_timeline_count" 600
+  rooms_after_disband=$(bun "$script_dir/syncplay-room-control.ts" list-rooms)
+  if printf '%s\n' "$rooms_after_disband" | awk -v id="$created_room_id" \
+    '$1 == id { found = 1 } END { exit found ? 0 : 1 }'; then
+    echo "GameCube reported disbanding room $created_room_id, but Multiplex still lists it." >&2
+    exit 1
+  fi
+  disbanded_room_id=$created_room_id
+  created_room_id=
 fi
 sh "$script_dir/check-dolphin-log.sh" "$log"
 
 if [ "$direct_plex" -eq 1 ]; then
   if [ "$watch_together" -eq 1 ]; then
     if [ "$watch_together_browser_guest" -eq 1 ]; then
-      echo "Completed playback, synchronization, recovery, and leave checks for Plex item $selected_rating_key in Watch Together room $created_room_id."
+      echo "Completed playback, synchronization, recovery, reconnect, and disband checks for Plex item $selected_rating_key in Watch Together room $disbanded_room_id."
     else
       echo "Playing selected Plex item $selected_rating_key in Watch Together room $created_room_id directly from PMS at ${seek_offset}ms in Dolphin."
     fi

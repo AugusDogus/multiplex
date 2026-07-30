@@ -324,6 +324,12 @@
           <text foreground="text_muted">Return to the item and try again.</text>
         </column>
       </if>
+      <if test="{watchTogetherDisbandFailed}">
+        <column grow="1" main="center" cross="center" gap="10">
+          <text size="heading">Room disband failed</text>
+          <text foreground="text_muted">The room is still available. Re-enter it and try again.</text>
+        </column>
+      </if>
     </column>
   </if>
 
@@ -459,6 +465,9 @@
           <if test="{watchTogetherActive}">
             <button variant="secondary" on-press="leave_watch_together">Leave room</button>
             <button variant="secondary" on-press="reconnect_watch_together">Reconnect</button>
+            <if test="{watchTogetherHost}">
+              <button variant="secondary" on-press="disband_watch_together">Disband room</button>
+            </if>
           </if>
           <if test="{watchTogetherInactive}">
             <button variant="secondary" on-press="back">Back to details</button>

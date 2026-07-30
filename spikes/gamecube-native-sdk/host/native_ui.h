@@ -102,6 +102,9 @@ uint32_t multiplex_native_app_watch_together_leave_request(void);
 uint32_t multiplex_native_app_watch_together_leave_commit(void);
 uint32_t multiplex_native_app_watch_together_reconnect_request(void);
 uint32_t multiplex_native_app_watch_together_reconnect_commit(void);
+uint32_t multiplex_native_app_watch_together_host(uint32_t host);
+uint32_t multiplex_native_app_watch_together_disband_request(void);
+uint32_t multiplex_native_app_watch_together_disband_commit(uint32_t deleted);
 uint32_t multiplex_native_app_watch_together_playback(uint32_t rating_key,
                                                        uint32_t duration_ms,
                                                        uint32_t offset_ms);

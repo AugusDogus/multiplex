@@ -101,12 +101,13 @@ advances in both clients, exercises play/pause synchronization in both
 directions, and verifies browser-originated seeking reloads both clients at the
 same PMS offset. It also disconnects and rejoins the browser participant without
 recreating the room. The browser is headless and muted while Dolphin remains
-visible. During playback the Native UI shows live participant presence and a
-Leave room action, plus a Reconnect action backed by automatic one-second
-Syncplay retries. The smoke requires a fresh GameCube Syncplay connection, then
-requires Leave room to stop Plex playback and close Syncplay before it passes.
-The runner then disbands its test room, closes both clients, and clears the exact
-GameCube client session from PMS during cleanup.
+visible. During playback the Native UI shows live participant presence, Leave
+room, and a Reconnect action backed by automatic one-second Syncplay retries. A
+host-only Disband room action reuses the web app's existing
+`plex.deleteWatchTogetherRoom` mutation. The smoke requires a fresh GameCube
+Syncplay connection, then requires Disband room to stop Plex playback, close
+Syncplay, and remove the room from the shared API before it passes. Cleanup
+closes both clients and clears the exact GameCube client session from PMS.
 
 `scripts/plex-pair.py` implements Plex's current device-key PIN flow without
 placing an account password or long-lived legacy token on the console. `start`
