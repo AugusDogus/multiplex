@@ -103,6 +103,9 @@ export interface Model {
   readonly watchTogetherJoining: boolean;
   readonly watchTogetherConnected: boolean;
   readonly watchTogetherJoinFailed: boolean;
+  readonly watchTogetherActive: boolean;
+  readonly watchTogetherPresentCount: number;
+  readonly watchTogetherLeaveRequested: boolean;
   readonly detailsLoaded: boolean;
   readonly detailsPlayable: boolean;
   readonly detailsSecondary: Uint8Array;
@@ -136,6 +139,7 @@ export type Msg =
   | { readonly kind: "watch_together_invitees_next" }
   | { readonly kind: "invite_watch_together"; readonly index: number }
   | { readonly kind: "join_watch_together"; readonly index: number }
+  | { readonly kind: "leave_watch_together" }
   | { readonly kind: "open_item"; readonly index: number }
   | { readonly kind: "play" }
   | { readonly kind: "seek_backward" }
@@ -321,6 +325,9 @@ export function initialModel(): Model {
     watchTogetherJoining: false,
     watchTogetherConnected: false,
     watchTogetherJoinFailed: false,
+    watchTogetherActive: false,
+    watchTogetherPresentCount: 0,
+    watchTogetherLeaveRequested: false,
     detailsLoaded: true,
     detailsPlayable: true,
     detailsSecondary: asciiBytes("Native SDK media prototype"),
@@ -454,6 +461,49 @@ export function completeWatchTogetherJoin(model: Model, connected: boolean): Mod
     watchTogetherJoining: false,
     watchTogetherConnected: connected,
     watchTogetherJoinFailed: !connected,
+    watchTogetherPresentCount: connected ? Math.max(1, model.watchTogetherPresentCount) : 0,
+  };
+}
+
+export function updateWatchTogetherPresence(
+  model: Model,
+  connected: boolean,
+  presentCount: number,
+): Model {
+  const normalizedCount = connected ? Math.max(1, presentCount) : 0;
+  if (
+    model.watchTogetherConnected === connected &&
+    model.watchTogetherPresentCount === normalizedCount
+  )
+    return model;
+  return {
+    ...model,
+    watchTogetherConnected: connected,
+    watchTogetherPresentCount: normalizedCount,
+    watchTogetherJoinFailed: false,
+  };
+}
+
+export function completeWatchTogetherLeave(model: Model): Model {
+  return model.watchTogetherLeaveRequested
+    ? { ...model, watchTogetherLeaveRequested: false }
+    : model;
+}
+
+function leaveWatchTogether(model: Model): Model {
+  if (!model.watchTogetherActive) return model;
+  const progressed = commitSelectedProgress(model);
+  return {
+    ...progressed,
+    screen: "watch_together",
+    playbackLoaded: false,
+    playing: false,
+    watchTogetherJoining: false,
+    watchTogetherConnected: false,
+    watchTogetherJoinFailed: false,
+    watchTogetherActive: false,
+    watchTogetherPresentCount: 0,
+    watchTogetherLeaveRequested: true,
   };
 }
 
@@ -748,6 +798,14 @@ export function selectedWatchTogetherParticipantCount(model: Model): number {
   return model.watchTogetherRooms[model.selectedWatchTogetherRoomIndex].participantCount;
 }
 
+export function watchTogetherInactive(model: Model): boolean {
+  return !model.watchTogetherActive;
+}
+
+export function watchTogetherDisconnected(model: Model): boolean {
+  return model.watchTogetherActive && !model.watchTogetherConnected;
+}
+
 export function watchTogetherJoinRequestIndex(model: Model): number {
   return model.screen === "watch_together_room" && model.watchTogetherJoining
     ? model.selectedWatchTogetherRoomIndex + 1
@@ -940,7 +998,12 @@ export function update(model: Model, msg: Msg): Model {
         watchTogetherJoining: true,
         watchTogetherConnected: false,
         watchTogetherJoinFailed: false,
+        watchTogetherActive: false,
+        watchTogetherPresentCount: 0,
+        watchTogetherLeaveRequested: false,
       };
+    case "leave_watch_together":
+      return model.screen === "player" ? leaveWatchTogether(model) : model;
     case "open_item": {
       const items =
         model.screen === "browse"
@@ -1040,6 +1103,7 @@ export function update(model: Model, msg: Msg): Model {
       return { ...model, playing: !model.playing };
     case "back":
       if (model.screen === "player") {
+        if (model.watchTogetherActive) return leaveWatchTogether(model);
         const progressed = commitSelectedProgress(model);
         return { ...progressed, screen: "details", playing: false };
       }

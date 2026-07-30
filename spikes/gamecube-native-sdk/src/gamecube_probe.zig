@@ -588,6 +588,38 @@ export fn multiplex_native_app_watch_together_join_commit(connected: u32) callco
     return 1;
 }
 
+export fn multiplex_native_app_watch_together_presence(
+    connected: u32,
+    participant_count: u32,
+) callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    const is_connected = connected != 0;
+    const normalized_count: f64 = if (is_connected) @floatFromInt(@max(participant_count, 1)) else 0;
+    if (app_model.watchTogetherConnected == is_connected and
+        app_model.watchTogetherPresentCount == normalized_count) return 1;
+    const next = core.updateWatchTogetherPresence(
+        app_model,
+        is_connected,
+        @floatFromInt(participant_count),
+    );
+    commitAppModel(next);
+    reference_full_repaint = true;
+    return 1;
+}
+
+export fn multiplex_native_app_watch_together_leave_request() callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    return @intFromBool(app_model.watchTogetherLeaveRequested);
+}
+
+export fn multiplex_native_app_watch_together_leave_commit() callconv(.c) u32 {
+    if (!app_initialized or !app_model.watchTogetherLeaveRequested) return 0;
+    commitAppModel(core.completeWatchTogetherLeave(app_model));
+    focused_handler = 0;
+    reference_full_repaint = true;
+    return 1;
+}
+
 export fn multiplex_native_app_watch_together_playback(
     rating_key: u32,
     duration_ms: u32,
@@ -605,6 +637,8 @@ export fn multiplex_native_app_watch_together_playback(
     next.playbackOffsetMs = @intCast(offset_ms);
     next.playbackLoaded = true;
     next.playing = true;
+    next.watchTogetherActive = true;
+    next.watchTogetherLeaveRequested = false;
     commitAppModel(next);
     focused_handler = 0;
     reference_full_repaint = true;
@@ -1016,6 +1050,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .watch_together_invitees_next => 25,
                 .invite_watch_together => 26,
                 .join_watch_together => 27,
+                .leave_watch_together => 28,
                 .search_key => 14,
                 .search_delete => 15,
                 .search_submit => 16,

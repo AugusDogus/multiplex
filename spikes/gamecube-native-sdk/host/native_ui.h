@@ -96,6 +96,10 @@ uint32_t multiplex_native_app_watch_together_create_request(
 uint32_t multiplex_native_app_watch_together_create_fail(void);
 uint32_t multiplex_native_app_watch_together_join_request(void);
 uint32_t multiplex_native_app_watch_together_join_commit(uint32_t connected);
+uint32_t multiplex_native_app_watch_together_presence(uint32_t connected,
+                                                       uint32_t participant_count);
+uint32_t multiplex_native_app_watch_together_leave_request(void);
+uint32_t multiplex_native_app_watch_together_leave_commit(void);
 uint32_t multiplex_native_app_watch_together_playback(uint32_t rating_key,
                                                        uint32_t duration_ms,
                                                        uint32_t offset_ms);

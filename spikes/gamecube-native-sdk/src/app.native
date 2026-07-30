@@ -347,6 +347,7 @@
       <if test="{watchTogetherConnected}">
         <column grow="1" main="center" cross="center" gap="10">
           <text size="heading">Waiting for everyone</text>
+          <badge variant="secondary">{watchTogetherPresentCount} of {selectedWatchTogetherParticipantCount} viewers present</badge>
           <text foreground="text_muted">Playback starts after every invited viewer joins the lobby.</text>
         </column>
       </if>
@@ -433,7 +434,17 @@
           <text foreground="text_muted">Live GameCube media surface</text>
         </column>
         <spacer grow="1" />
-        <badge variant="secondary">Streaming from {gatewayName}</badge>
+        <if test="{watchTogetherActive}">
+          <if test="{watchTogetherConnected}">
+            <badge variant="secondary">{watchTogetherPresentCount} of {selectedWatchTogetherParticipantCount} viewers</badge>
+          </if>
+          <if test="{watchTogetherDisconnected}">
+            <badge variant="outline">Room disconnected</badge>
+          </if>
+        </if>
+        <if test="{watchTogetherInactive}">
+          <badge variant="secondary">Streaming from {gatewayName}</badge>
+        </if>
       </row>
       <if test="{playbackLoading}">
         <column grow="1" main="center" cross="center" gap="8">
@@ -445,7 +456,12 @@
         <video src="demo://multiplex-test-card" autoplay loop muted grow="1" label="{selectedTitle}"/>
         <row gap="10" main="center">
           <button variant="primary" on-press="toggle_playback">Play / Pause</button>
-          <button variant="secondary" on-press="back">Back to details</button>
+          <if test="{watchTogetherActive}">
+            <button variant="secondary" on-press="leave_watch_together">Leave room</button>
+          </if>
+          <if test="{watchTogetherInactive}">
+            <button variant="secondary" on-press="back">Back to details</button>
+          </if>
           <badge variant="outline">L -30s · R +30s</badge>
         </row>
       </if>

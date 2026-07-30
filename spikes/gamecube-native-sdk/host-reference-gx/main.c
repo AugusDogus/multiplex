@@ -2514,6 +2514,7 @@ join_requested_watch_together_room(const MultiplexAuthCredentials *credentials,
     return;
   }
   multiplex_native_app_watch_together_join_commit(1);
+  multiplex_native_app_watch_together_presence(1, 1);
   *joined_room_index = index;
   *in_lobby = true;
   SYS_Report("REFERENCE GX: Watch Together lobby room=%u connected=1 "
@@ -2924,6 +2925,30 @@ static void *run_app(void *unused) {
         SYS_Report("REFERENCE GX: browse-page load failed\n");
       }
 #if MULTIPLEX_PAIRING_ENABLED
+      if (multiplex_native_app_watch_together_leave_request() != 0) {
+        const uint32_t left_room = joined_watch_together_room;
+        flush_timeline_report(
+            &timeline_reporter, MULTIPLEX_GATEWAY_URL,
+            timeline_plex_credentials, direct_hls_session_id,
+            &playback_manifest, playback_position_ms(&playback_manifest),
+            "stopped");
+        timeline_player_visible = false;
+        discard_staged_media_session(&staged_media);
+        close_media_session(&client, &demux);
+        memset(&playback_manifest, 0, sizeof(playback_manifest));
+        multiplex_syncplay_session_destroy(syncplay_session);
+        syncplay_session = NULL;
+        joined_watch_together_room = UINT32_MAX;
+        watch_together_all_present_since_ms = 0;
+        watch_together_lobby = false;
+        multiplex_native_app_watch_together_leave_commit();
+        if (!refresh_watch_together_rooms(&auth_credentials,
+                                          &watch_together_rooms)) {
+          SYS_Report("REFERENCE GX: Watch Together rooms refresh after leave "
+                     "failed\n");
+        }
+        SYS_Report("REFERENCE GX: Watch Together left room=%u\n", left_room);
+      }
       if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked && has_catalog &&
           !load_direct_browse_page(&auth_credentials, &catalog,
                                    &direct_page_poster_loader)) {
@@ -3028,6 +3053,7 @@ static void *run_app(void *unused) {
         watch_together_lobby = false;
       } else if (!multiplex_syncplay_session_poll(syncplay_session)) {
         SYS_Report("REFERENCE GX: Watch Together lobby disconnected\n");
+        multiplex_native_app_watch_together_presence(0, 0);
         multiplex_syncplay_session_destroy(syncplay_session);
         syncplay_session = NULL;
         joined_watch_together_room = UINT32_MAX;
@@ -3041,6 +3067,7 @@ static void *run_app(void *unused) {
             &watch_together_rooms.rooms[joined_watch_together_room];
         const unsigned present =
             multiplex_syncplay_session_participant_count(syncplay_session);
+        multiplex_native_app_watch_together_presence(1, present);
         const bool everyone_present =
             room->user_count > 1u && present >= room->user_count;
         const uint64_t now_ms = ticks_to_millisecs(gettime());
@@ -3092,10 +3119,13 @@ static void *run_app(void *unused) {
           playback_position_ms(&playback_manifest));
       if (!multiplex_syncplay_session_poll(syncplay_session)) {
         SYS_Report("REFERENCE GX: Syncplay session disconnected\n");
+        multiplex_native_app_watch_together_presence(0, 0);
         multiplex_syncplay_session_destroy(syncplay_session);
         syncplay_session = NULL;
         joined_watch_together_room = UINT32_MAX;
       } else {
+        multiplex_native_app_watch_together_presence(
+            1, multiplex_syncplay_session_participant_count(syncplay_session));
         bool remote_paused = false;
         bool remote_seek = false;
         uint32_t remote_position_ms = 0;
