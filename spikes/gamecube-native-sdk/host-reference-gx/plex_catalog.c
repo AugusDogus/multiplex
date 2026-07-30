@@ -144,6 +144,24 @@ static bool json_unsigned(JsonSpan span, const char *key,
   return true;
 }
 
+static bool json_boolean(JsonSpan span, const char *key, bool *destination) {
+  const char *cursor = NULL;
+  if (!json_value(span, key, &cursor)) {
+    return false;
+  }
+  if ((size_t)(span.end - cursor) >= 4u &&
+      memcmp(cursor, "true", 4u) == 0) {
+    *destination = true;
+    return true;
+  }
+  if ((size_t)(span.end - cursor) >= 5u &&
+      memcmp(cursor, "false", 5u) == 0) {
+    *destination = false;
+    return true;
+  }
+  return false;
+}
+
 static bool json_decimal_tenths(JsonSpan span, const char *key,
                                 uint16_t *destination) {
   const char *cursor = NULL;
@@ -598,6 +616,71 @@ static bool json_tag_list(JsonSpan object, const char *key, char *destination,
   return false;
 }
 
+static bool parse_subtitle_streams(JsonSpan metadata,
+                                   MultiplexGatewayDetails *details) {
+  const char *media_array = NULL;
+  if (!json_value(metadata, "Media", &media_array) || *media_array != '[') {
+    return true;
+  }
+  JsonSpan media;
+  const char *next = NULL;
+  if (!json_object(media_array + 1, metadata.end, &media, &next)) {
+    return true;
+  }
+  const char *part_array = NULL;
+  if (!json_value(media, "Part", &part_array) || *part_array != '[') {
+    return true;
+  }
+  JsonSpan part;
+  if (!json_object(part_array + 1, media.end, &part, &next)) {
+    return true;
+  }
+  const char *stream_array = NULL;
+  if (!json_value(part, "Stream", &stream_array) || *stream_array != '[') {
+    return true;
+  }
+
+  const char *cursor = stream_array + 1;
+  while (cursor < part.end) {
+    cursor = skip_space(cursor, part.end);
+    if (cursor < part.end && *cursor == ']') {
+      return true;
+    }
+    JsonSpan stream;
+    if (!json_object(cursor, part.end, &stream, &next)) {
+      return false;
+    }
+    uint32_t stream_type = 0;
+    if (json_unsigned(stream, "streamType", &stream_type) &&
+        stream_type == 3u &&
+        details->subtitle_stream_count <
+            MULTIPLEX_GATEWAY_MAX_SUBTITLE_STREAMS) {
+      MultiplexGatewaySubtitleStream *subtitle =
+          &details->subtitle_streams[details->subtitle_stream_count];
+      memset(subtitle, 0, sizeof(*subtitle));
+      if (!json_unsigned(stream, "id", &subtitle->id) || subtitle->id == 0 ||
+          !json_string(stream, "codec", subtitle->codec,
+                       sizeof(subtitle->codec))) {
+        return false;
+      }
+      subtitle->has_index = json_unsigned(stream, "index", &subtitle->index);
+      json_boolean(stream, "selected", &subtitle->selected);
+      if (!json_string(stream, "displayTitle", subtitle->label,
+                       sizeof(subtitle->label)) &&
+          !json_string(stream, "title", subtitle->label,
+                       sizeof(subtitle->label)) &&
+          !json_string(stream, "language", subtitle->label,
+                       sizeof(subtitle->label))) {
+        const size_t codec_size = strlen(subtitle->codec);
+        memcpy(subtitle->label, subtitle->codec, codec_size + 1u);
+      }
+      ++details->subtitle_stream_count;
+    }
+    cursor = next;
+  }
+  return false;
+}
+
 bool multiplex_plex_catalog_parse_details(const char *json, size_t size,
                                           MultiplexGatewayDetails *details) {
   if (json == NULL || size == 0 || details == NULL) {
@@ -648,7 +731,8 @@ bool multiplex_plex_catalog_parse_details(const char *json, size_t size,
   if (!json_tag_list(object, "Genre", details->genres,
                      sizeof(details->genres)) ||
       !json_tag_list(object, "Director", details->directors,
-                     sizeof(details->directors))) {
+                     sizeof(details->directors)) ||
+      !parse_subtitle_streams(object, details)) {
     return false;
   }
   const char *media = NULL;

@@ -1417,9 +1417,12 @@ static bool start_hls_pipeline(PlexHlsDemux *demux, uint32_t rating_key) {
 static bool open_direct_hls_session(const MultiplexAuthCredentials *credentials,
                                     uint32_t rating_key, uint32_t offset_ms,
                                     const char *session_id,
+                                    bool burn_subtitles,
+                                    uint32_t subtitle_stream_index,
                                     PlexHlsDemux **demux_out) {
-  PlexHlsDemux *demux =
-      plex_hls_demux_create(credentials, rating_key, offset_ms, session_id);
+  PlexHlsDemux *demux = plex_hls_demux_create(
+      credentials, rating_key, offset_ms, session_id, burn_subtitles,
+      subtitle_stream_index);
   if (demux == NULL || !plex_hls_demux_start(demux) ||
       !plex_hls_demux_wait_ready(demux, HLS_VIDEO_PREBUFFER_BYTES,
                                  HLS_AUDIO_PREBUFFER_BYTES,
@@ -1877,6 +1880,7 @@ load_direct_playback(const MultiplexAuthCredentials *credentials,
           ? active_manifest->media_duration_ms
           : 0;
   MultiplexGatewayDetails details;
+  memset(&details, 0, sizeof(details));
   if (duration_ms == 0 &&
       (!multiplex_plex_load_details(credentials, rating_key, &details) ||
        details.duration_ms == 0)) {
@@ -1896,6 +1900,22 @@ load_direct_playback(const MultiplexAuthCredentials *credentials,
   }
   if (duration_ms == 0) {
     duration_ms = details.duration_ms;
+  }
+  bool burn_subtitles = active_manifest->rating_key == rating_key &&
+                        active_manifest->burn_subtitles;
+  uint32_t subtitle_stream_index = active_manifest->subtitle_stream_index;
+  if (active_manifest->rating_key != rating_key) {
+    burn_subtitles = false;
+    subtitle_stream_index = 0;
+    for (uint8_t index = 0; index < details.subtitle_stream_count; ++index) {
+      const MultiplexGatewaySubtitleStream *subtitle =
+          &details.subtitle_streams[index];
+      if (subtitle->selected && subtitle->has_index) {
+        burn_subtitles = true;
+        subtitle_stream_index = subtitle->index;
+        break;
+      }
+    }
   }
   const uint32_t offset_ms =
       requested_offset < duration_ms ? requested_offset : 0;
@@ -1923,7 +1943,8 @@ load_direct_playback(const MultiplexAuthCredentials *credentials,
                released / 1024u);
     PlexHlsDemux *hls = NULL;
     if (!open_direct_hls_session(credentials, rating_key, offset_ms,
-                                 resume_session_id, &hls)) {
+                                 resume_session_id, burn_subtitles,
+                                 subtitle_stream_index, &hls)) {
       if (transition_from_watch_together) {
         SYS_Report("REFERENCE GX: direct playback switch failed requested=%u\n",
                    rating_key);
@@ -1942,9 +1963,12 @@ load_direct_playback(const MultiplexAuthCredentials *credentials,
     active_manifest->media_duration_ms = duration_ms;
     active_manifest->segment_start_ms = offset_ms;
     active_manifest->segment_duration_ms = duration_ms - offset_ms;
+    active_manifest->burn_subtitles = burn_subtitles;
+    active_manifest->subtitle_stream_index = subtitle_stream_index;
     SYS_Report("REFERENCE GX: direct playback activated previous=%u active=%u "
-               "offset=%u duration=%u\n",
-               previous_rating_key, rating_key, offset_ms, duration_ms);
+               "offset=%u duration=%u subtitles=%s index=%u\n",
+               previous_rating_key, rating_key, offset_ms, duration_ms,
+               burn_subtitles ? "burn" : "none", subtitle_stream_index);
   }
   if (!transition_from_watch_together &&
       multiplex_native_app_playback_commit() == 0) {

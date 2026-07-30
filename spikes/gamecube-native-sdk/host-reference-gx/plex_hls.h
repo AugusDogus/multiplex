@@ -23,7 +23,8 @@ typedef struct {
 
 bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
                               uint32_t rating_key, uint32_t offset_ms,
-                              const char *session_id,
+                              const char *session_id, bool burn_subtitles,
+                              uint32_t subtitle_stream_index,
                               MultiplexPlexHlsSession *session);
 bool multiplex_plex_hls_refresh(
     const MultiplexAuthCredentials *credentials,

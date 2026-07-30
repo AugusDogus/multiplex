@@ -19,12 +19,24 @@
 #define MULTIPLEX_GATEWAY_DETAIL_SHORT_CAPACITY 128
 #define MULTIPLEX_GATEWAY_DETAIL_SUMMARY_CAPACITY 384
 #define MULTIPLEX_GATEWAY_MEDIA_URL_CAPACITY 768
+#define MULTIPLEX_GATEWAY_MAX_SUBTITLE_STREAMS 4
+#define MULTIPLEX_GATEWAY_SUBTITLE_LABEL_CAPACITY 64
+#define MULTIPLEX_GATEWAY_SUBTITLE_CODEC_CAPACITY 16
 #define MULTIPLEX_GATEWAY_PAIRING_CODE_CAPACITY 5
 #define MULTIPLEX_GATEWAY_PAIRING_URL_CAPACITY 256
 #define MULTIPLEX_GATEWAY_ARTWORK_WIDTH 80
 #define MULTIPLEX_GATEWAY_ARTWORK_HEIGHT 120
 #define MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES \
   (MULTIPLEX_GATEWAY_ARTWORK_WIDTH * MULTIPLEX_GATEWAY_ARTWORK_HEIGHT * 2)
+
+typedef struct {
+  uint32_t id;
+  uint32_t index;
+  char label[MULTIPLEX_GATEWAY_SUBTITLE_LABEL_CAPACITY];
+  char codec[MULTIPLEX_GATEWAY_SUBTITLE_CODEC_CAPACITY];
+  bool has_index;
+  bool selected;
+} MultiplexGatewaySubtitleStream;
 
 typedef struct {
   uint32_t rating_key;
@@ -119,6 +131,9 @@ typedef struct {
   uint16_t genres_length;
   char directors[MULTIPLEX_GATEWAY_DETAIL_SHORT_CAPACITY];
   uint16_t directors_length;
+  uint8_t subtitle_stream_count;
+  MultiplexGatewaySubtitleStream
+      subtitle_streams[MULTIPLEX_GATEWAY_MAX_SUBTITLE_STREAMS];
 } MultiplexGatewayDetails;
 
 typedef struct {
@@ -135,6 +150,8 @@ typedef struct {
   uint32_t audio_packets;
   int64_t first_video_pts90k;
   int64_t first_audio_pts90k;
+  uint32_t subtitle_stream_index;
+  bool burn_subtitles;
   char media_url[MULTIPLEX_GATEWAY_MEDIA_URL_CAPACITY];
 } MultiplexGatewayPlaybackManifest;
 

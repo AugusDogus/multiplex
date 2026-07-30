@@ -160,6 +160,7 @@ static size_t control_headers(const MultiplexAuthCredentials *credentials,
 static bool configure_hls_session(
     const MultiplexAuthCredentials *credentials, uint32_t rating_key,
     uint32_t offset_ms, const char *requested_session_id,
+    bool burn_subtitles, uint32_t subtitle_stream_index,
     MultiplexPlexHlsSession *session) {
   memset(session, 0, sizeof(*session));
   if (requested_session_id != NULL && requested_session_id[0] != '\0') {
@@ -181,6 +182,18 @@ static bool configure_hls_session(
       return false;
     }
   }
+  char subtitle_query[64];
+  const int subtitle_size =
+      burn_subtitles
+          ? snprintf(subtitle_query, sizeof(subtitle_query),
+                     "&subtitles=burn&subtitleStreamID=%u",
+                     subtitle_stream_index)
+          : snprintf(subtitle_query, sizeof(subtitle_query),
+                     "&subtitles=none");
+  if (subtitle_size <= 0 ||
+      (size_t)subtitle_size >= sizeof(subtitle_query)) {
+    return false;
+  }
   char path[MULTIPLEX_PLEX_HLS_URL_CAPACITY];
   const int path_size = snprintf(
       path, sizeof(path),
@@ -190,9 +203,8 @@ static bool configure_hls_session(
       "directStreamAudio=0&videoQuality=100&videoResolution="
       MULTIPLEX_PLEX_VIDEO_RESOLUTION "&maxVideoBitrate="
       MULTIPLEX_PLEX_MAX_VIDEO_BITRATE
-      "&subtitles=none&location=lan&hasMDE=1&"
-      "session=%s%s",
-      rating_key, session->session_id, offset_query);
+      "&location=lan&hasMDE=1&session=%s%s%s",
+      rating_key, session->session_id, offset_query, subtitle_query);
   return path_size > 0 && (size_t)path_size < sizeof(path) &&
          server_url(credentials, path, session->master_url,
                     sizeof(session->master_url));
@@ -234,7 +246,8 @@ static bool request_transcode_decision(
 
 bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
                               uint32_t rating_key, uint32_t offset_ms,
-                              const char *session_id,
+                              const char *session_id, bool burn_subtitles,
+                              uint32_t subtitle_stream_index,
                               MultiplexPlexHlsSession *session) {
   if (credentials == NULL || session == NULL || rating_key == 0 ||
       credentials->plex_server_url[0] == '\0' ||
@@ -242,7 +255,7 @@ bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
     return false;
   }
   if (!configure_hls_session(credentials, rating_key, offset_ms, session_id,
-                             session)) {
+                             burn_subtitles, subtitle_stream_index, session)) {
     return false;
   }
   char established_session_id[MULTIPLEX_PLEX_HLS_SESSION_ID_CAPACITY];
@@ -258,7 +271,8 @@ bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
       SYS_Report(
           "REFERENCE GX: Plex HLS resume rejected; retrying from beginning\n");
       if (!configure_hls_session(credentials, rating_key, 0,
-                                 established_session_id, session)) {
+                                 established_session_id, burn_subtitles,
+                                 subtitle_stream_index, session)) {
         return false;
       }
     }

@@ -158,7 +158,8 @@ static void *run_hls_producer(void *context) {
 
 PlexHlsDemux *plex_hls_demux_create(
     const MultiplexAuthCredentials *credentials, uint32_t rating_key,
-    uint32_t offset_ms, const char *session_id) {
+    uint32_t offset_ms, const char *session_id, bool burn_subtitles,
+    uint32_t subtitle_stream_index) {
   if (credentials == NULL || rating_key == 0) {
     return NULL;
   }
@@ -172,6 +173,7 @@ PlexHlsDemux *plex_hls_demux_create(
   demux->audio = media_byte_queue_create(HLS_AUDIO_QUEUE_SIZE);
   if (demux->video == NULL || demux->audio == NULL ||
       !multiplex_plex_hls_start(credentials, rating_key, offset_ms, session_id,
+                                burn_subtitles, subtitle_stream_index,
                                 &demux->session)) {
     plex_hls_demux_destroy(demux);
     return NULL;

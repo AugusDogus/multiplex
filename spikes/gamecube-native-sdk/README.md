@@ -129,6 +129,12 @@ moves both clients to the next episode, and deletes the completed room. Add the
 normal Watch Together test variables to run that transition through Dolphin
 and the real browser guest.
 
+Direct playback also parses Plex's bounded subtitle stream metadata. When a
+track with a transcode index is selected on the server, the GameCube HLS
+session asks Plex to burn that track into the DVD-resolution video and retains
+the selection across seeks. Unsupported or unselected tracks leave subtitles
+disabled without changing the audio/video pipeline.
+
 The GameCube shell now uses the Multiplex mark, flush 140x210 poster art, and
 Native SDK's focus treatment without prototype badges or duplicate navigation
 actions. Playback is aspect-fitted inside a fullscreen 640x480 video surface.

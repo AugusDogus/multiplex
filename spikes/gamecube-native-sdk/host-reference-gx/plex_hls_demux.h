@@ -12,7 +12,8 @@ typedef struct PlexHlsDemux PlexHlsDemux;
 
 PlexHlsDemux *plex_hls_demux_create(
     const MultiplexAuthCredentials *credentials, uint32_t rating_key,
-    uint32_t offset_ms, const char *session_id);
+    uint32_t offset_ms, const char *session_id, bool burn_subtitles,
+    uint32_t subtitle_stream_index);
 bool plex_hls_demux_start(PlexHlsDemux *demux);
 bool plex_hls_demux_wait_ready(PlexHlsDemux *demux, size_t video_bytes,
                                size_t audio_bytes, uint32_t timeout_ms);

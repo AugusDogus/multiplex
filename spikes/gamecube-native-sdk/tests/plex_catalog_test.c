@@ -100,7 +100,12 @@ static void test_parses_item_details(void) {
       "\"duration\":7260000,\"viewOffset\":60000,\"year\":2025,"
       "\"rating\":8.65,\"Genre\":[{\"tag\":\"Drama\"},{\"tag\":\"Mystery\"}],"
       "\"Director\":[{\"tag\":\"A. Director\"}],"
-      "\"Media\":[{\"videoResolution\":\"1080\"}]"
+      "\"Media\":[{\"videoResolution\":\"1080\",\"Part\":[{\"Stream\":["
+      "{\"id\":10,\"streamType\":1,\"codec\":\"h264\"},"
+      "{\"id\":20,\"streamType\":3,\"index\":2,\"codec\":\"srt\","
+      "\"displayTitle\":\"English (SRT)\",\"selected\":true},"
+      "{\"id\":21,\"streamType\":3,\"codec\":\"pgs\","
+      "\"language\":\"Japanese\"}]}]}]}]"
       "}]}}";
   MultiplexGatewayDetails details = {0};
 
@@ -119,6 +124,18 @@ static void test_parses_item_details(void) {
   assert(details.year == 2025);
   assert(details.rating_tenths == 87);
   assert((details.flags & 1u) != 0);
+  assert(details.subtitle_stream_count == 2);
+  assert(details.subtitle_streams[0].id == 20);
+  assert(details.subtitle_streams[0].has_index);
+  assert(details.subtitle_streams[0].index == 2);
+  assert(details.subtitle_streams[0].selected);
+  assert(strcmp(details.subtitle_streams[0].label, "English (SRT)") == 0);
+  assert(strcmp(details.subtitle_streams[0].codec, "srt") == 0);
+  assert(details.subtitle_streams[1].id == 21);
+  assert(!details.subtitle_streams[1].has_index);
+  assert(!details.subtitle_streams[1].selected);
+  assert(strcmp(details.subtitle_streams[1].label, "Japanese") == 0);
+  assert(strcmp(details.subtitle_streams[1].codec, "pgs") == 0);
 }
 
 static void test_parses_episode_hierarchy(void) {

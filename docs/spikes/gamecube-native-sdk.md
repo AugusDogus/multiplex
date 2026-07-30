@@ -565,10 +565,12 @@ with stable audio pause/resume and a clean invalid-access log after extraction.
 
 Next GameCube parity milestones:
 
-1. advance completed episodes through a bounded Plex play queue, including
-   Watch Together rotation;
-2. expose Plex subtitle selection and render supported caption tracks;
-3. close the remaining web details gaps such as watched state and playlists.
+1. expose Plex subtitle selection in the player (selected indexed tracks now
+   render through Plex burn-in and survive seeks);
+2. close the remaining web details gaps such as watched state and playlists.
+
+Completed: bounded episode advance now crosses seasons and rotates Watch
+Together clients into a matching next room without closing the player.
 
 The initial Wii tracer bullet now builds a 3,081,460-byte DOL from the same
 TypeScript, markup, PowerPC core, validated frame, GX presenter, and embedded
