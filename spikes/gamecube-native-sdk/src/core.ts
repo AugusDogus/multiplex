@@ -120,6 +120,13 @@ export interface Model {
   readonly detailsSummary: Uint8Array;
   readonly detailsGenres: Uint8Array;
   readonly detailsDirectors: Uint8Array;
+  readonly detailsChildren: readonly CatalogItem[];
+  readonly detailsChildrenStart: number;
+  readonly detailsChildrenPageNumber: number;
+  readonly detailsChildrenPageCount: number;
+  readonly detailsChildrenTotal: number;
+  readonly detailsChildrenLoaded: boolean;
+  readonly detailsHistory: readonly CatalogItem[];
   readonly playbackOffsetMs: number;
   readonly playbackLoaded: boolean;
   readonly playing: boolean;
@@ -147,6 +154,9 @@ export type Msg =
   | { readonly kind: "reconnect_watch_together" }
   | { readonly kind: "disband_watch_together" }
   | { readonly kind: "open_item"; readonly index: number }
+  | { readonly kind: "open_details_child"; readonly index: number }
+  | { readonly kind: "details_children_previous" }
+  | { readonly kind: "details_children_next" }
   | { readonly kind: "play" }
   | { readonly kind: "seek_backward" }
   | { readonly kind: "seek_forward" }
@@ -350,6 +360,13 @@ export function initialModel(): Model {
     ),
     detailsGenres: new Uint8Array(0),
     detailsDirectors: new Uint8Array(0),
+    detailsChildren: [],
+    detailsChildrenStart: 0,
+    detailsChildrenPageNumber: 1,
+    detailsChildrenPageCount: 1,
+    detailsChildrenTotal: 0,
+    detailsChildrenLoaded: true,
+    detailsHistory: [],
     playbackOffsetMs: 0,
     playbackLoaded: true,
     playing: false,
@@ -580,6 +597,27 @@ export function loadDetails(
   };
 }
 
+export function loadDetailsChildren(
+  model: Model,
+  ratingKey: number,
+  start: number,
+  total: number,
+  pageNumber: number,
+  pageCount: number,
+  children: readonly CatalogItem[],
+): Model {
+  if (model.screen !== "details" || ratingKey !== model.selectedRatingKey) return model;
+  return {
+    ...model,
+    detailsChildren: children,
+    detailsChildrenStart: start,
+    detailsChildrenPageNumber: pageNumber,
+    detailsChildrenPageCount: pageCount,
+    detailsChildrenTotal: total,
+    detailsChildrenLoaded: true,
+  };
+}
+
 export function failDetails(model: Model): Model {
   if (model.screen !== "details") return model;
   return {
@@ -654,6 +692,41 @@ export function playbackLoading(model: Model): boolean {
 
 export function detailsUnplayable(model: Model): boolean {
   return model.detailsLoaded && !model.detailsPlayable;
+}
+
+export function detailsChildrenLoading(model: Model): boolean {
+  return model.detailsLoaded && !model.detailsPlayable && !model.detailsChildrenLoaded;
+}
+
+export function detailsHasChildren(model: Model): boolean {
+  return model.detailsChildrenLoaded && model.detailsChildren.length > 0;
+}
+
+export function detailsNoChildren(model: Model): boolean {
+  return (
+    model.detailsChildrenLoaded && !model.detailsPlayable && model.detailsChildren.length === 0
+  );
+}
+
+export function detailsChildrenHasPrevious(model: Model): boolean {
+  return model.detailsChildrenStart > 0;
+}
+
+export function detailsChildrenHasNext(model: Model): boolean {
+  return model.detailsChildrenStart + model.detailsChildren.length < model.detailsChildrenTotal;
+}
+
+export function detailsChildrenRequestRatingKey(model: Model): number {
+  return model.screen === "details" &&
+    model.detailsLoaded &&
+    !model.detailsPlayable &&
+    !model.detailsChildrenLoaded
+    ? model.selectedRatingKey
+    : 0;
+}
+
+export function detailsChildrenRequestStart(model: Model): number {
+  return model.detailsChildrenStart;
 }
 
 export function detailsHasSecondary(model: Model): boolean {
@@ -738,9 +811,7 @@ export function searchNoResults(model: Model): boolean {
 
 export function watchTogetherHasRooms(model: Model): boolean {
   return (
-    model.watchTogetherLoaded &&
-    model.watchTogetherAvailable &&
-    model.watchTogetherRooms.length > 0
+    model.watchTogetherLoaded && model.watchTogetherAvailable && model.watchTogetherRooms.length > 0
   );
 }
 
@@ -899,6 +970,9 @@ function commitSelectedProgress(model: Model): Model {
     Math.max(0, model.playbackOffsetMs),
     Math.max(0, model.selectedDurationMs - 1),
   );
+  if (model.detailsHistory.length > 0) {
+    return { ...model, selectedViewOffsetMs: selectedViewOffsetMs };
+  }
   if (model.selectedFromBrowse) {
     const browseItems = model.browseItems.slice();
     browseItems[model.selectedIndex] = updateItemProgress(
@@ -1077,8 +1151,62 @@ export function update(model: Model, msg: Msg): Model {
         selectedFromBrowse: model.screen === "browse",
         selectedFromSearch: model.screen === "search_results",
         detailsLoaded: !model.gatewayConnected,
+        detailsChildren: [],
+        detailsChildrenStart: 0,
+        detailsChildrenPageNumber: 1,
+        detailsChildrenPageCount: 1,
+        detailsChildrenTotal: 0,
+        detailsChildrenLoaded: !model.gatewayConnected,
+        detailsHistory: [],
       };
     }
+    case "open_details_child": {
+      if (
+        model.screen !== "details" ||
+        !model.detailsChildrenLoaded ||
+        msg.index < 0 ||
+        msg.index >= model.detailsChildren.length
+      )
+        return model;
+      const child = model.detailsChildren[msg.index];
+      const parent: CatalogItem = {
+        id: model.detailsHistory.length,
+        ratingKey: model.selectedRatingKey,
+        title: model.selectedTitle,
+        subtitle: model.detailsType,
+        imageId: model.selectedImageId,
+        durationMs: model.selectedDurationMs,
+        viewOffsetMs: model.selectedViewOffsetMs,
+        progressPercent: 0,
+      };
+      return {
+        ...model,
+        selectedRatingKey: child.ratingKey,
+        selectedTitle: child.title,
+        selectedDurationMs: child.durationMs,
+        selectedViewOffsetMs: child.viewOffsetMs,
+        detailsLoaded: false,
+        detailsChildren: [],
+        detailsChildrenStart: 0,
+        detailsChildrenPageNumber: 1,
+        detailsChildrenPageCount: 1,
+        detailsChildrenTotal: 0,
+        detailsChildrenLoaded: false,
+        detailsHistory: [...model.detailsHistory, parent],
+      };
+    }
+    case "details_children_previous": {
+      if (model.screen !== "details" || model.detailsChildrenStart === 0) return model;
+      const start = model.detailsChildrenStart < 4 ? 0 : model.detailsChildrenStart - 4;
+      return { ...model, detailsChildrenStart: start, detailsChildrenLoaded: false };
+    }
+    case "details_children_next":
+      if (model.screen !== "details" || !detailsChildrenHasNext(model)) return model;
+      return {
+        ...model,
+        detailsChildrenStart: model.detailsChildrenStart + 4,
+        detailsChildrenLoaded: false,
+      };
     case "play":
       if (model.screen !== "details" || !model.detailsLoaded || !model.detailsPlayable)
         return model;
@@ -1121,20 +1249,14 @@ export function update(model: Model, msg: Msg): Model {
       if (model.screen !== "player" || !model.playbackLoaded || model.selectedDurationMs <= 1) {
         return model;
       }
-      const playbackOffsetMs = Math.min(
-        Math.max(0, msg.positionMs),
-        model.selectedDurationMs - 1,
-      );
+      const playbackOffsetMs = Math.min(Math.max(0, msg.positionMs), model.selectedDurationMs - 1);
       return { ...model, playbackOffsetMs: playbackOffsetMs };
     }
     case "continue_playback": {
       if (model.screen !== "player" || !model.playbackLoaded || model.selectedDurationMs <= 1) {
         return model;
       }
-      const playbackOffsetMs = Math.min(
-        Math.max(0, msg.positionMs),
-        model.selectedDurationMs - 1,
-      );
+      const playbackOffsetMs = Math.min(Math.max(0, msg.positionMs), model.selectedDurationMs - 1);
       if (playbackOffsetMs <= model.playbackOffsetMs) return model;
       return {
         ...model,
@@ -1160,6 +1282,26 @@ export function update(model: Model, msg: Msg): Model {
         return { ...progressed, screen: "details", playing: false };
       }
       if (model.screen === "details") {
+        if (model.detailsHistory.length > 0) {
+          const historyIndex = model.detailsHistory.length - 1;
+          const parent = model.detailsHistory[historyIndex];
+          return {
+            ...model,
+            selectedRatingKey: parent.ratingKey,
+            selectedImageId: parent.imageId,
+            selectedTitle: parent.title,
+            selectedDurationMs: parent.durationMs,
+            selectedViewOffsetMs: parent.viewOffsetMs,
+            detailsLoaded: false,
+            detailsChildren: [],
+            detailsChildrenStart: 0,
+            detailsChildrenPageNumber: 1,
+            detailsChildrenPageCount: 1,
+            detailsChildrenTotal: 0,
+            detailsChildrenLoaded: false,
+            detailsHistory: model.detailsHistory.slice(0, historyIndex),
+          };
+        }
         return {
           ...model,
           screen: model.selectedFromBrowse

@@ -134,6 +134,16 @@ uint32_t multiplex_native_app_search_item(
     uint32_t progress_percent);
 uint32_t multiplex_native_app_search_commit(void);
 uint32_t multiplex_native_app_details_request(void);
+uint32_t multiplex_native_app_details_children_request(uint32_t *rating_key,
+                                                       uint32_t *start);
+uint32_t multiplex_native_app_details_children_begin(
+    uint32_t rating_key, uint32_t start, uint32_t total, uint32_t item_count);
+uint32_t multiplex_native_app_details_child(
+    uint32_t item_index, uint32_t rating_key, const uint8_t *title,
+    uint32_t title_length, const uint8_t *subtitle, uint32_t subtitle_length,
+    uint32_t artwork_slot, uint32_t duration_ms, uint32_t view_offset_ms,
+    uint32_t progress_percent);
+uint32_t multiplex_native_app_details_children_commit(void);
 uint32_t multiplex_native_app_details_commit(
     const uint8_t *title, uint32_t title_length, const uint8_t *secondary,
     uint32_t secondary_length, const uint8_t *media_type,

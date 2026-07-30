@@ -403,25 +403,56 @@
               <if test="{detailsHasFacts}">
                 <text size="sm" foreground="text_muted">{detailsFacts}</text>
               </if>
-              <if test="{detailsHasDirectors}">
-                <text size="sm">{detailsDirectors}</text>
+              <if test="{detailsPlayable}">
+                <if test="{detailsHasDirectors}">
+                  <text size="sm">{detailsDirectors}</text>
+                </if>
+                <if test="{detailsHasGenres}">
+                  <text size="sm" foreground="text_muted">{detailsGenres}</text>
+                </if>
+                <if test="{detailsHasSummary}">
+                  <text size="sm" foreground="text_muted" wrap="true">{detailsSummary}</text>
+                </if>
               </if>
-              <if test="{detailsHasGenres}">
-                <text size="sm" foreground="text_muted">{detailsGenres}</text>
+              <if test="{detailsChildrenLoading}">
+                <text size="sm" foreground="text_muted">Loading seasons and episodes...</text>
               </if>
-              <if test="{detailsHasSummary}">
-                <text size="sm" foreground="text_muted" wrap="true">{detailsSummary}</text>
+              <if test="{detailsHasChildren}">
+                <row cross="center">
+                  <text size="sm" foreground="text_muted">Choose what to watch</text>
+                  <spacer grow="1" />
+                  <badge variant="secondary">Page {detailsChildrenPageNumber} of {detailsChildrenPageCount}</badge>
+                </row>
+                <row grow="1" gap="6">
+                  <for each="detailsChildren" as="child" key="ratingKey">
+                    <panel width="92" grow="1" padding="8" background="background" border-color="border" radius="lg" on-press="open_details_child:{child.id}" label="{child.title}">
+                      <column grow="1" main="center" cross="center" gap="5">
+                        <text size="sm" wrap="true">{child.title}</text>
+                        <text size="sm" foreground="text_muted">{child.subtitle}</text>
+                        <progress value="{child.progressPercent}" height="4" />
+                      </column>
+                    </panel>
+                  </for>
+                </row>
+                <row gap="8" main="center">
+                  <if test="{detailsChildrenHasPrevious}">
+                    <button variant="secondary" on-press="details_children_previous">Previous</button>
+                  </if>
+                  <if test="{detailsChildrenHasNext}">
+                    <button variant="primary" on-press="details_children_next">Next</button>
+                  </if>
+                </row>
+              </if>
+              <if test="{detailsNoChildren}">
+                <text size="sm" foreground="text_muted">No playable seasons or episodes were returned by Plex.</text>
               </if>
               <spacer grow="1" />
               <row gap="10">
                 <if test="{detailsPlayable}">
                   <button variant="primary" on-press="play">Play</button>
-                </if>
-                <if test="{pairingLinked}">
-                  <button variant="secondary" on-press="create_watch_together">Host Watch Together</button>
-                </if>
-                <if test="{detailsUnplayable}">
-                  <badge variant="secondary">Choose a playable child</badge>
+                  <if test="{pairingLinked}">
+                    <button variant="secondary" on-press="create_watch_together">Host Watch Together</button>
+                  </if>
                 </if>
                 <button variant="secondary" on-press="back">Return</button>
               </row>

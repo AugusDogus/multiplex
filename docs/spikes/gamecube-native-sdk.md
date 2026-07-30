@@ -563,13 +563,12 @@ test covers size rejection, initialization, rerendering, guard corruption, and
 empty-render failures. The direct-GX Dolphin playback smoke remained at 60 fps
 with stable audio pause/resume and a clean invalid-access log after extraction.
 
-Next Dolphin milestones:
+Next GameCube parity milestones:
 
-1. add Wii-native persisted auth to the Wii fast-follow;
-2. run the direct Plex and Watch Together smokes through Dolphin's Wii network
-   stack;
-3. add a Dreamcast presenter that consumes the same validated frame after the
-   Wii path is working.
+1. advance completed episodes through a bounded Plex play queue, including
+   Watch Together rotation;
+2. expose Plex subtitle selection and render supported caption tracks;
+3. close the remaining web details gaps such as watched state and playlists.
 
 The initial Wii tracer bullet now builds a 3,081,460-byte DOL from the same
 TypeScript, markup, PowerPC core, validated frame, GX presenter, and embedded
@@ -582,6 +581,9 @@ host also maps a Classic Controller naturally and retains GameCube pad support.
 
 Hardware profiling remains deferred until the Dolphin app is materially
 useful; it is not a gate on these milestones.
+
+Wii and Dreamcast remain fast-follow ports, but further port work is paused
+until the GameCube client reaches the web application's core playback parity.
 
 The Wii fast-follow should share the TypeScript, markup, Native SDK adapter,
 and most GX code. Platform differences should stay in video mode, input,

@@ -286,6 +286,50 @@ static bool parse_item(JsonSpan object, MultiplexGatewayItem *item,
   return item->title_length != 0;
 }
 
+static bool parse_child(JsonSpan object, MultiplexGatewayItem *item,
+                        uint16_t artwork_slot) {
+  char type[32];
+  uint32_t rating_key = 0;
+  if (!json_unsigned(object, "ratingKey", &rating_key) || rating_key == 0 ||
+      !json_string(object, "type", type, sizeof(type)) ||
+      !json_string(object, "title", item->title, sizeof(item->title))) {
+    return false;
+  }
+  item->rating_key = rating_key;
+  item->title_length = (uint16_t)strlen(item->title);
+  if (!json_string(object, "thumb", item->artwork_path,
+                   sizeof(item->artwork_path))) {
+    json_string(object, "grandparentThumb", item->artwork_path,
+                sizeof(item->artwork_path));
+  }
+  json_unsigned(object, "duration", &item->duration_ms);
+  json_unsigned(object, "viewOffset", &item->view_offset_ms);
+  item->artwork_slot = artwork_slot;
+  item->progress_percent =
+      item->duration_ms == 0
+          ? 0
+          : (uint8_t)(((uint64_t)item->view_offset_ms * 100u) /
+                      item->duration_ms);
+  if (item->progress_percent > 100u) {
+    item->progress_percent = 100u;
+  }
+  if (strcmp(type, "episode") == 0) {
+    uint32_t season = 0;
+    uint32_t episode = 0;
+    if (json_unsigned(object, "parentIndex", &season) &&
+        json_unsigned(object, "index", &episode)) {
+      snprintf(item->subtitle, sizeof(item->subtitle), "S%02u E%02u",
+               (unsigned)season, (unsigned)episode);
+    } else {
+      strcpy(item->subtitle, "Episode");
+    }
+  } else {
+    item_subtitle(object, type, item);
+  }
+  item->subtitle_length = (uint16_t)strlen(item->subtitle);
+  return item->title_length != 0;
+}
+
 static bool parse_hub_items(JsonSpan hub, MultiplexGatewayCatalog *catalog,
                             MultiplexGatewayRow *row) {
   const char *array = NULL;
@@ -621,6 +665,52 @@ bool multiplex_plex_catalog_parse_details(const char *json, size_t size,
   return details->title_length != 0 && details->media_type_length != 0;
 }
 
+bool multiplex_plex_catalog_parse_children(
+    const char *json, size_t size, uint16_t start,
+    MultiplexGatewayChildrenPage *page) {
+  if (json == NULL || size == 0 || page == NULL) {
+    return false;
+  }
+  JsonSpan document = {.begin = json, .end = json + size};
+  const char *array = NULL;
+  if (!json_value(document, "Metadata", &array) || *array != '[') {
+    return false;
+  }
+  memset(page, 0, sizeof(*page));
+  page->version = 1;
+  page->start = start;
+  uint32_t total_size = 0;
+  json_unsigned(document, "totalSize", &total_size);
+  if (total_size > UINT16_MAX) {
+    total_size = UINT16_MAX;
+  }
+  page->total_size = (uint16_t)total_size;
+
+  const char *cursor = array + 1;
+  while (cursor < document.end &&
+         page->item_count < MULTIPLEX_GATEWAY_MAX_ITEMS) {
+    cursor = skip_space(cursor, document.end);
+    if (cursor < document.end && *cursor == ']') {
+      break;
+    }
+    JsonSpan object;
+    const char *next = NULL;
+    if (!json_object(cursor, document.end, &object, &next)) {
+      return false;
+    }
+    MultiplexGatewayItem *item = &page->items[page->item_count];
+    memset(item, 0, sizeof(*item));
+    if (parse_child(object, item, page->item_count)) {
+      ++page->item_count;
+    }
+    cursor = next;
+  }
+  if (page->total_size == 0) {
+    page->total_size = (uint16_t)(start + page->item_count);
+  }
+  return true;
+}
+
 bool multiplex_plex_catalog_parse_search(
     const char *json, size_t size, const char *query, uint16_t query_length,
     MultiplexGatewaySearchPage *page) {
@@ -817,6 +907,39 @@ bool multiplex_plex_load_details(
   if (loaded) {
     SYS_Report("REFERENCE GX: direct Plex details rating-key=%u\n",
                rating_key);
+  }
+  return loaded;
+}
+
+bool multiplex_plex_load_children(
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
+    uint16_t start, MultiplexGatewayChildrenPage *page) {
+  if (credentials == NULL || rating_key == 0 || page == NULL ||
+      credentials->plex_server_url[0] == '\0' ||
+      credentials->plex_server_token[0] == '\0') {
+    return false;
+  }
+  char path[160];
+  const int path_size = snprintf(
+      path, sizeof(path),
+      "library/metadata/%u/children?X-Plex-Container-Start=%u&X-Plex-Container-Size=%u",
+      rating_key, start, MULTIPLEX_GATEWAY_MAX_ITEMS);
+  if (path_size <= 0 || (size_t)path_size >= sizeof(path)) {
+    return false;
+  }
+  char *response = malloc(PLEX_DETAILS_RESPONSE_CAPACITY);
+  size_t response_size = 0;
+  const bool loaded =
+      response != NULL &&
+      request_plex_json(credentials, path, response,
+                        PLEX_DETAILS_RESPONSE_CAPACITY, &response_size) &&
+      multiplex_plex_catalog_parse_children(response, response_size, start,
+                                             page);
+  free(response);
+  if (loaded) {
+    SYS_Report("REFERENCE GX: direct Plex children rating-key=%u start=%u "
+               "items=%u total=%u\n",
+               rating_key, start, page->item_count, page->total_size);
   }
   return loaded;
 }

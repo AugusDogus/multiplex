@@ -86,6 +86,14 @@ typedef struct {
 
 typedef struct {
   uint16_t version;
+  uint16_t item_count;
+  uint16_t start;
+  uint16_t total_size;
+  MultiplexGatewayItem items[MULTIPLEX_GATEWAY_MAX_ITEMS];
+} MultiplexGatewayChildrenPage;
+
+typedef struct {
+  uint16_t version;
   uint16_t flags;
   uint32_t rating_key;
   uint32_t duration_ms;

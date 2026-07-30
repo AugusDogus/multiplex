@@ -326,6 +326,16 @@ holding the 24 fps source predominantly at 23.7–24.5 decoded fps. It retained
 acknowledgements, zero audio underruns, and a clean invalid-access log. The
 45-second smoke window is intentionally long enough to reject the delayed
 failure observed at 360p.
+Show and season details now load Plex's existing
+`/library/metadata/{ratingKey}/children` hierarchy in bounded four-item pages.
+The Native SDK details view can traverse show → season → episode, page with
+L/R, return through its bounded navigation history, and start the selected
+episode without a console-only API. The direct-PMS Dolphin smoke searched for
+Cowboy Bebop, selected Season 1, paged to episodes 5–8, played episode rating
+key `380571`, sought to 31 seconds, paused/resumed, returned to 60.4 fps, and
+reported zero audio underruns and no invalid accesses. Set
+`GAMECUBE_PLEX_KEEP_OPEN=0` when the runner should force-close Dolphin after a
+successful automated check.
 The first Watch Together increment also calls the web app's existing
 `plex.getWatchTogetherRooms` tRPC procedure rather than adding a console-only
 query. Dolphin completed TLS 1.2 through Portless, authenticated the restored

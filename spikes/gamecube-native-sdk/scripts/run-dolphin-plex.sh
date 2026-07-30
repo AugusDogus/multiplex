@@ -15,12 +15,19 @@ expect_continuation=${GAMECUBE_PLEX_EXPECT_CONTINUATION:-0}
 direct_plex=${GAMECUBE_DIRECT_PLEX:-0}
 wait_artwork=${GAMECUBE_PLEX_WAIT_ARTWORK:-1}
 sustain_seconds=${GAMECUBE_PLEX_SUSTAIN_SECONDS:-45}
+keep_open=${GAMECUBE_PLEX_KEEP_OPEN:-1}
 plex_video_resolution=${GAMECUBE_PLEX_VIDEO_RESOLUTION:-480x270}
 plex_max_video_bitrate=${GAMECUBE_PLEX_MAX_VIDEO_BITRATE:-700}
 watch_together=${GAMECUBE_PLEX_WATCH_TOGETHER:-0}
 watch_together_invitee_id=${GAMECUBE_WATCH_TOGETHER_INVITEE_ID:-}
 watch_together_browser_guest=${GAMECUBE_WATCH_TOGETHER_BROWSER_GUEST:-0}
 rating_key=${GAMECUBE_PLEX_RATING_KEY:-}
+search_query=${GAMECUBE_PLEX_SEARCH_QUERY:-FRESH}
+search_result_index=${GAMECUBE_PLEX_SEARCH_RESULT_INDEX:-0}
+tv_hierarchy=${GAMECUBE_PLEX_TV_HIERARCHY:-0}
+tv_season_index=${GAMECUBE_PLEX_TV_SEASON_INDEX:-0}
+tv_episode_page=${GAMECUBE_PLEX_TV_EPISODE_PAGE:-0}
+tv_episode_index=${GAMECUBE_PLEX_TV_EPISODE_INDEX:-0}
 plex_base_url=${PLEX_BASE_URL:-}
 multiplex_base_url=${MULTIPLEX_BASE_URL:-}
 console_name=${MULTIPLEX_CONSOLE_NAME:-GameCube}
@@ -37,6 +44,7 @@ disbanded_room_id=
 cleanup_started=0
 browser_guest_log="$cache_dir/watch-together-browser-guest.log"
 browser_guest_control="$cache_dir/watch-together-browser-guest.control"
+launcher_log="$cache_dir/dolphin-launcher.log"
 pipe_open=0
 mute_marker="$cache_dir/audio-muted"
 
@@ -93,6 +101,46 @@ case "$watch_together_browser_guest" in
   0 | 1) ;;
   *)
     echo "GAMECUBE_WATCH_TOGETHER_BROWSER_GUEST must be 0 or 1." >&2
+    exit 1
+    ;;
+esac
+case "$keep_open" in
+  0 | 1) ;;
+  *)
+    echo "GAMECUBE_PLEX_KEEP_OPEN must be 0 or 1." >&2
+    exit 1
+    ;;
+esac
+case "$search_query" in
+  '' | *[!A-Z]*)
+    echo "GAMECUBE_PLEX_SEARCH_QUERY must contain 1-24 uppercase A-Z characters." >&2
+    exit 1
+    ;;
+esac
+if [ "${#search_query}" -gt 24 ]; then
+  echo "GAMECUBE_PLEX_SEARCH_QUERY must contain 1-24 uppercase A-Z characters." >&2
+  exit 1
+fi
+for value_name in search_result_index tv_season_index tv_episode_index; do
+  eval "value=\${$value_name}"
+  case "$value" in
+    0 | 1 | 2 | 3) ;;
+    *)
+      echo "$value_name must be an integer from 0 through 3." >&2
+      exit 1
+      ;;
+  esac
+done
+case "$tv_episode_page" in
+  '' | *[!0-9]*)
+    echo "GAMECUBE_PLEX_TV_EPISODE_PAGE must be an unsigned integer." >&2
+    exit 1
+    ;;
+esac
+case "$tv_hierarchy" in
+  0 | 1) ;;
+  *)
+    echo "GAMECUBE_PLEX_TV_HIERARCHY must be 0 or 1." >&2
     exit 1
     ;;
 esac
@@ -251,7 +299,7 @@ setsid env \
   DOLPHIN_EMU="$dolphin_emu" \
   GAMECUBE_PASTA_BIN="${GAMECUBE_PASTA_BIN:-$spike_dir/.passt/pasta}" \
   sh "$script_dir/run-dolphin.sh" \
-    "$reference_dol" >/dev/null 2>&1 &
+    "$reference_dol" >"$launcher_log" 2>&1 &
 launcher_pid=$!
 
 rm -f "$mute_marker"
@@ -451,6 +499,33 @@ press() {
   exit 1
 }
 
+type_search_query() {
+  query=$1
+  focus=0
+  for code in $(printf '%s' "$query" | od -An -tu1); do
+    target=$((code - 64))
+    right_distance=$(((target - focus + 27) % 27))
+    left_distance=$(((focus - target + 27) % 27))
+    if [ "$right_distance" -le "$left_distance" ]; then
+      moves=$right_distance
+      direction=D_RIGHT
+    else
+      moves=$left_distance
+      direction=D_LEFT
+    fi
+    while [ "$moves" -gt 0 ]; do
+      signature_count=$(line_count "signature=")
+      press "$direction"
+      wait_for_new "signature=" "$signature_count"
+      moves=$((moves - 1))
+    done
+    signature_count=$(line_count "signature=")
+    press A
+    wait_for_new "signature=" "$signature_count"
+    focus=$target
+  done
+}
+
 ensure_playback_playing() {
   attempt=0
   while [ "$attempt" -lt 5 ]; do
@@ -496,84 +571,74 @@ else
   wait_for_new "signature=" "$signature_count"
 fi
 
-# Search is fully controller-authored. Type FRESH on the 9-column keyboard:
-# Z opens it, A enters the focused letter, and R submits the query.
+# Search is fully controller-authored. Z opens it, A enters each focused
+# letter, and R submits the query.
 signature_count=$(line_count "signature=")
 press Z
 wait_for_new "signature=" "$signature_count"
-for move in 1 2 3 4 5 6; do
-  signature_count=$(line_count "signature=")
-  press D_RIGHT
-  wait_for_new "signature=" "$signature_count"
-done
-signature_count=$(line_count "signature=")
-press A
-wait_for_new "signature=" "$signature_count"
-signature_count=$(line_count "signature=")
-press D_DOWN
-wait_for_new "signature=" "$signature_count"
-for move in 1 2 3; do
-  signature_count=$(line_count "signature=")
-  press D_RIGHT
-  wait_for_new "signature=" "$signature_count"
-done
-signature_count=$(line_count "signature=")
-press A
-wait_for_new "signature=" "$signature_count"
-signature_count=$(line_count "signature=")
-press D_UP
-wait_for_new "signature=" "$signature_count"
-for move in 1 2 3 4; do
-  signature_count=$(line_count "signature=")
-  press D_LEFT
-  wait_for_new "signature=" "$signature_count"
-done
-signature_count=$(line_count "signature=")
-press A
-wait_for_new "signature=" "$signature_count"
-for move in 1 2; do
-  signature_count=$(line_count "signature=")
-  press D_DOWN
-  wait_for_new "signature=" "$signature_count"
-done
-for move in 1 2 3 4; do
-  signature_count=$(line_count "signature=")
-  press D_LEFT
-  wait_for_new "signature=" "$signature_count"
-done
-signature_count=$(line_count "signature=")
-press A
-wait_for_new "signature=" "$signature_count"
-for move in 1 2; do
-  signature_count=$(line_count "signature=")
-  press D_UP
-  wait_for_new "signature=" "$signature_count"
-done
-for move in 1 2 3 4 5 6 7; do
-  signature_count=$(line_count "signature=")
-  press D_RIGHT
-  wait_for_new "signature=" "$signature_count"
-done
-signature_count=$(line_count "signature=")
-press A
-wait_for_new "signature=" "$signature_count"
-search_count=$(line_count "search-page ready query=FRESH")
+type_search_query "$search_query"
+search_count=$(line_count "search-page ready query=$search_query")
 signature_count=$(line_count "signature=")
 press R
-wait_for_new "search-page ready query=FRESH" "$search_count" 1200
+wait_for_new "search-page ready query=$search_query" "$search_count" 1200
 wait_for_new "signature=" "$signature_count"
 
-# Open the top real search result and exercise playback from that origin. The
+# Open the selected real search result and exercise playback from that origin. The
 # browse paging route has its own committed coverage; keeping it out of this
 # player smoke avoids unrelated poster transfers before every seek test.
-signature_count=$(line_count "signature=")
-press D_RIGHT
-wait_for_new "signature=" "$signature_count"
+result_focus=0
+while [ "$result_focus" -le "$search_result_index" ]; do
+  signature_count=$(line_count "signature=")
+  press D_RIGHT
+  wait_for_new "signature=" "$signature_count"
+  result_focus=$((result_focus + 1))
+done
 signature_count=$(line_count "signature=")
 details_count=$(line_count "details-page ready")
+if [ "$tv_hierarchy" -eq 1 ]; then
+  children_count=$(line_count "details children ready")
+fi
 press A
 wait_for_new "details-page ready" "$details_count" 1200
 wait_for_new "signature=" "$signature_count"
+if [ "$tv_hierarchy" -eq 1 ]; then
+  wait_for_new "details children ready" "$children_count" 1200
+  season_focus=0
+  while [ "$season_focus" -le "$tv_season_index" ]; do
+    signature_count=$(line_count "signature=")
+    press D_RIGHT
+    wait_for_new "signature=" "$signature_count"
+    season_focus=$((season_focus + 1))
+  done
+  details_count=$(line_count "details-page ready")
+  children_count=$(line_count "details children ready")
+  signature_count=$(line_count "signature=")
+  press A
+  wait_for_new "details-page ready" "$details_count" 1200
+  wait_for_new "details children ready" "$children_count" 1200
+  wait_for_new "signature=" "$signature_count"
+  current_episode_page=0
+  while [ "$current_episode_page" -lt "$tv_episode_page" ]; do
+    children_count=$(line_count "details children ready")
+    signature_count=$(line_count "signature=")
+    press R
+    wait_for_new "details children ready" "$children_count" 1200
+    wait_for_new "signature=" "$signature_count"
+    current_episode_page=$((current_episode_page + 1))
+  done
+  episode_focus=0
+  while [ "$episode_focus" -le "$tv_episode_index" ]; do
+    signature_count=$(line_count "signature=")
+    press D_RIGHT
+    wait_for_new "signature=" "$signature_count"
+    episode_focus=$((episode_focus + 1))
+  done
+  details_count=$(line_count "details-page ready")
+  signature_count=$(line_count "signature=")
+  press A
+  wait_for_new "details-page ready" "$details_count" 1200
+  wait_for_new "signature=" "$signature_count"
+fi
 signature_count=$(line_count "signature=")
 press D_RIGHT
 wait_for_new "signature=" "$signature_count"
@@ -873,4 +938,6 @@ if [ -f "$mute_marker" ]; then
 else
   echo "Dolphin host audio could not be muted; emulated playback remains active."
 fi
-wait "$launcher_pid"
+if [ "$keep_open" -eq 1 ]; then
+  wait "$launcher_pid"
+fi

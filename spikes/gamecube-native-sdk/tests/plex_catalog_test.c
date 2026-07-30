@@ -121,6 +121,30 @@ static void test_parses_item_details(void) {
   assert((details.flags & 1u) != 0);
 }
 
+static void test_parses_item_children(void) {
+  static const char json[] =
+      "{\"MediaContainer\":{\"size\":2,\"totalSize\":9,\"Metadata\":["
+      "{\"ratingKey\":\"71\",\"type\":\"season\",\"title\":\"Season 1\","
+      "\"thumb\":\"/library/metadata/71/thumb/1\"},"
+      "{\"ratingKey\":\"72\",\"type\":\"episode\",\"title\":\"Pilot\","
+      "\"parentIndex\":1,\"index\":1,\"duration\":3600000,"
+      "\"viewOffset\":900000,\"thumb\":\"/library/metadata/72/thumb/1\"}"
+      "]}}";
+  MultiplexGatewayChildrenPage page = {0};
+
+  assert(multiplex_plex_catalog_parse_children(json, strlen(json), 4, &page));
+  assert(page.version == 1);
+  assert(page.start == 4);
+  assert(page.total_size == 9);
+  assert(page.item_count == 2);
+  assert(page.items[0].rating_key == 71);
+  assert(strcmp(page.items[0].title, "Season 1") == 0);
+  assert(strcmp(page.items[0].subtitle, "Season") == 0);
+  assert(strcmp(page.items[1].title, "Pilot") == 0);
+  assert(strcmp(page.items[1].subtitle, "S01 E01") == 0);
+  assert(page.items[1].progress_percent == 25);
+}
+
 static void test_parses_search_results(void) {
   static const char json[] =
       "{\"MediaContainer\":{\"size\":3,\"SearchResult\":["
@@ -149,6 +173,7 @@ int main(void) {
   test_parses_libraries();
   test_parses_browse_page();
   test_parses_item_details();
+  test_parses_item_children();
   test_parses_search_results();
   puts("GameCube direct Plex catalog tests passed.");
   return 0;

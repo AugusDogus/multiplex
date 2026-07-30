@@ -16,6 +16,9 @@ bool multiplex_plex_catalog_parse_browse(
     uint16_t start, MultiplexGatewayBrowsePage *page);
 bool multiplex_plex_catalog_parse_details(const char *json, size_t size,
                                           MultiplexGatewayDetails *details);
+bool multiplex_plex_catalog_parse_children(
+    const char *json, size_t size, uint16_t start,
+    MultiplexGatewayChildrenPage *page);
 bool multiplex_plex_catalog_parse_search(
     const char *json, size_t size, const char *query, uint16_t query_length,
     MultiplexGatewaySearchPage *page);
@@ -29,6 +32,9 @@ bool multiplex_plex_load_browse(
 bool multiplex_plex_load_details(
     const MultiplexAuthCredentials *credentials, uint32_t rating_key,
     MultiplexGatewayDetails *details);
+bool multiplex_plex_load_children(
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
+    uint16_t start, MultiplexGatewayChildrenPage *page);
 bool multiplex_plex_load_search(
     const MultiplexAuthCredentials *credentials, const char *query,
     uint16_t query_length, MultiplexGatewaySearchPage *page);

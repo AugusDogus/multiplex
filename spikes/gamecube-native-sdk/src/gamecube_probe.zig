@@ -831,6 +831,74 @@ export fn multiplex_native_app_details_request() callconv(.c) u32 {
     return @intCast(rating_key);
 }
 
+export fn multiplex_native_app_details_children_request(
+    rating_key: *u32,
+    start: *u32,
+) callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    const requested = core.detailsChildrenRequestRatingKey(app_model);
+    if (requested <= 0 or requested > std.math.maxInt(u32)) return 0;
+    rating_key.* = @intCast(requested);
+    start.* = @intFromFloat(core.detailsChildrenRequestStart(app_model));
+    return 1;
+}
+
+export fn multiplex_native_app_details_children_begin(
+    rating_key: u32,
+    start: u32,
+    total: u32,
+    item_count: u32,
+) callconv(.c) u32 {
+    if (!app_initialized or rating_key == 0 or item_count > 4) return 0;
+    staged_browse_section_id = rating_key;
+    staged_browse_start = start;
+    staged_browse_total = total;
+    staged_browse_item_count = item_count;
+    return 1;
+}
+
+export fn multiplex_native_app_details_child(
+    item_index: u32,
+    rating_key: u32,
+    title: [*]const u8,
+    title_length: u32,
+    subtitle: [*]const u8,
+    subtitle_length: u32,
+    artwork_slot: u32,
+    duration_ms: u32,
+    view_offset_ms: u32,
+    progress_percent: u32,
+) callconv(.c) u32 {
+    return multiplex_native_app_browse_item(
+        item_index,
+        rating_key,
+        title,
+        title_length,
+        subtitle,
+        subtitle_length,
+        artwork_slot,
+        duration_ms,
+        view_offset_ms,
+        progress_percent,
+    );
+}
+
+export fn multiplex_native_app_details_children_commit() callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    commitAppModel(core.loadDetailsChildren(
+        app_model,
+        @as(f64, @floatFromInt(staged_browse_section_id)),
+        @as(f64, @floatFromInt(staged_browse_start)),
+        staged_browse_total,
+        staged_browse_start / 4 + 1,
+        if (staged_browse_total == 0) 1 else (staged_browse_total - 1) / 4 + 1,
+        staged_browse_item_ptrs[0..staged_browse_item_count],
+    ));
+    focused_handler = 0;
+    reference_full_repaint = true;
+    return 1;
+}
+
 fn copyDetailsString(destination: []u8, source: [*]const u8, length: u32) ?[]const u8 {
     if (length >= destination.len) return null;
     @memcpy(destination[0..length], source[0..length]);
@@ -972,12 +1040,14 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
             .search_submit
         else if (model.screen == .player)
             .seek_forward
+        else if (model.screen == .details)
+            .details_children_next
         else
             .browse_next;
         commitAppModel(core.update(model, message));
         focused_handler = 0;
         reference_full_repaint = true;
-        multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 16 else if (model.screen == .player) 18 else 7);
+        multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 16 else if (model.screen == .player) 18 else if (model.screen == .details) 33 else 7);
         return 1;
     }
     if (action == 7) {
@@ -985,12 +1055,14 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
             .search_delete
         else if (model.screen == .player)
             .seek_backward
+        else if (model.screen == .details)
+            .details_children_previous
         else
             .browse_previous;
         commitAppModel(core.update(model, message));
         focused_handler = 0;
         reference_full_repaint = true;
-        multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 15 else if (model.screen == .player) 17 else 6);
+        multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 15 else if (model.screen == .player) 17 else if (model.screen == .details) 32 else 6);
         return 1;
     }
     if (action == 10) {
@@ -1092,6 +1164,9 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .search_delete => 15,
                 .search_submit => 16,
                 .open_item => 8,
+                .open_details_child => 31,
+                .details_children_previous => 32,
+                .details_children_next => 33,
                 .play => 9,
                 .seek_backward => 17,
                 .seek_forward => 18,

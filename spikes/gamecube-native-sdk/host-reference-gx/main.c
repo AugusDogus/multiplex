@@ -1221,6 +1221,54 @@ load_direct_item_details(const MultiplexAuthCredentials *credentials) {
   return bind_item_details(&details);
 }
 
+static bool bind_item_children(uint32_t rating_key,
+                               const MultiplexGatewayChildrenPage *page) {
+  if (multiplex_native_app_details_children_begin(
+          rating_key, page->start, page->total_size, page->item_count) == 0) {
+    return false;
+  }
+  for (uint16_t index = 0; index < page->item_count; ++index) {
+    const MultiplexGatewayItem *item = &page->items[index];
+    if (multiplex_native_app_details_child(
+            index, item->rating_key, (const uint8_t *)item->title,
+            item->title_length, (const uint8_t *)item->subtitle,
+            item->subtitle_length, item->artwork_slot, item->duration_ms,
+            item->view_offset_ms, item->progress_percent) == 0) {
+      return false;
+    }
+  }
+  if (multiplex_native_app_details_children_commit() == 0) {
+    return false;
+  }
+  SYS_Report("REFERENCE GX: details children ready rating-key=%u start=%u "
+             "items=%u total=%u\n",
+             rating_key, page->start, page->item_count, page->total_size);
+  return true;
+}
+
+static bool
+load_direct_item_children(const MultiplexAuthCredentials *credentials) {
+  uint32_t rating_key = 0;
+  uint32_t start = 0;
+  if (multiplex_native_app_details_children_request(&rating_key, &start) == 0) {
+    return true;
+  }
+  if (rating_key == 0 || start > UINT16_MAX) {
+    return false;
+  }
+  MultiplexGatewayChildrenPage page;
+  if (!multiplex_plex_load_children(credentials, rating_key, (uint16_t)start,
+                                    &page)) {
+    memset(&page, 0, sizeof(page));
+    page.version = 1;
+    page.start = (uint16_t)start;
+    SYS_Report("REFERENCE GX: details children unavailable rating-key=%u "
+               "start=%u\n",
+               rating_key, start);
+  }
+  return bind_item_children(rating_key, &page);
+}
+
 static void close_media_session(HttpClient **client, MpegPsDemux **demux) {
   if (audio_output != NULL) {
     audio_dma_request_stop(audio_output);
@@ -3058,6 +3106,10 @@ static void *run_app(void *unused) {
       if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked &&
           !load_direct_item_details(&auth_credentials)) {
         SYS_Report("REFERENCE GX: direct details-page load failed\n");
+      }
+      if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked &&
+          !load_direct_item_children(&auth_credentials)) {
+        SYS_Report("REFERENCE GX: direct details children load failed\n");
       }
       if (pairing_linked) {
         create_requested_watch_together_room(
