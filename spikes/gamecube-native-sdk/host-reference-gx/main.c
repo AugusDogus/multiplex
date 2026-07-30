@@ -150,6 +150,11 @@ static AudioDma *audio_output;
 static MpegPsDemux *media_demux;
 static PlexHlsDemux *direct_hls_demux;
 static char direct_hls_session_id[MULTIPLEX_PLEX_HLS_SESSION_ID_CAPACITY];
+static uint32_t direct_subtitle_indices[MULTIPLEX_GATEWAY_MAX_SUBTITLE_STREAMS];
+static uint8_t direct_subtitle_count;
+static bool direct_subtitle_override_pending;
+static bool direct_subtitle_override_burn;
+static uint32_t direct_subtitle_override_index;
 static bool direct_playback_start_offset_pending =
     MULTIPLEX_PLAYBACK_START_OFFSET_MS != 0;
 
@@ -1194,6 +1199,26 @@ static bool fail_item_details(uint32_t rating_key) {
   return true;
 }
 
+static bool bind_item_subtitles(const MultiplexGatewayDetails *details) {
+  direct_subtitle_count = 0;
+  uint32_t selected_subtitle = 0;
+  for (uint8_t index = 0; index < details->subtitle_stream_count; ++index) {
+    const MultiplexGatewaySubtitleStream *subtitle =
+        &details->subtitle_streams[index];
+    if (!subtitle->has_index ||
+        direct_subtitle_count >= MULTIPLEX_GATEWAY_MAX_SUBTITLE_STREAMS) {
+      continue;
+    }
+    direct_subtitle_indices[direct_subtitle_count] = subtitle->index;
+    ++direct_subtitle_count;
+    if (subtitle->selected) {
+      selected_subtitle = direct_subtitle_count;
+    }
+  }
+  return multiplex_native_app_subtitles(direct_subtitle_count,
+                                         selected_subtitle) != 0;
+}
+
 static bool bind_item_details(const MultiplexGatewayDetails *details) {
   char facts[MULTIPLEX_GATEWAY_DETAIL_SHORT_CAPACITY] = {0};
   const uint32_t minutes =
@@ -1226,6 +1251,9 @@ static bool bind_item_details(const MultiplexGatewayDetails *details) {
           details->summary_length, (const uint8_t *)details->genres,
           details->genres_length, (const uint8_t *)details->directors,
           details->directors_length, (details->flags & 1u) != 0) == 0) {
+    return false;
+  }
+  if (!bind_item_subtitles(details)) {
     return false;
   }
   SYS_Report("REFERENCE GX: details-page ready rating-key=%u title=%s\n",
@@ -1901,6 +1929,10 @@ load_direct_playback(const MultiplexAuthCredentials *credentials,
   if (duration_ms == 0) {
     duration_ms = details.duration_ms;
   }
+  if (active_manifest->rating_key != rating_key &&
+      !bind_item_subtitles(&details)) {
+    return false;
+  }
   bool burn_subtitles = active_manifest->rating_key == rating_key &&
                         active_manifest->burn_subtitles;
   uint32_t subtitle_stream_index = active_manifest->subtitle_stream_index;
@@ -1917,11 +1949,20 @@ load_direct_playback(const MultiplexAuthCredentials *credentials,
       }
     }
   }
+  if (direct_subtitle_override_pending) {
+    burn_subtitles = direct_subtitle_override_burn;
+    subtitle_stream_index = direct_subtitle_override_index;
+    direct_subtitle_override_pending = false;
+  }
   const uint32_t offset_ms =
       requested_offset < duration_ms ? requested_offset : 0;
   const bool same_session = direct_hls_demux != NULL &&
                             active_manifest->rating_key == rating_key &&
-                            active_manifest->segment_start_ms == offset_ms;
+                            active_manifest->segment_start_ms == offset_ms &&
+                            active_manifest->burn_subtitles == burn_subtitles &&
+                            (!burn_subtitles ||
+                             active_manifest->subtitle_stream_index ==
+                                 subtitle_stream_index);
   if (!same_session) {
     const uint32_t previous_rating_key = active_manifest->rating_key;
     const char *resume_session_id =
@@ -1990,6 +2031,15 @@ load_selected_direct_playback(const MultiplexAuthCredentials *credentials,
     return true;
   }
   uint32_t offset_ms = multiplex_native_app_playback_offset_request();
+  const uint32_t subtitle_selection =
+      multiplex_native_app_subtitle_selection();
+  direct_subtitle_override_pending = true;
+  direct_subtitle_override_burn =
+      subtitle_selection > 0 && subtitle_selection <= direct_subtitle_count;
+  direct_subtitle_override_index =
+      direct_subtitle_override_burn
+          ? direct_subtitle_indices[subtitle_selection - 1u]
+          : 0;
   if (direct_playback_start_offset_pending) {
     offset_ms = MULTIPLEX_PLAYBACK_START_OFFSET_MS;
     direct_playback_start_offset_pending = false;

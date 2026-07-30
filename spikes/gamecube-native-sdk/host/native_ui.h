@@ -153,6 +153,8 @@ uint32_t multiplex_native_app_details_commit(
     uint32_t summary_length, const uint8_t *genres, uint32_t genres_length,
     const uint8_t *directors, uint32_t directors_length, uint32_t playable);
 uint32_t multiplex_native_app_details_fail(void);
+uint32_t multiplex_native_app_subtitles(uint32_t count, uint32_t selected);
+uint32_t multiplex_native_app_subtitle_selection(void);
 uint32_t multiplex_native_app_playback_request(void);
 uint32_t multiplex_native_app_playback_offset_request(void);
 uint32_t multiplex_native_app_playback_commit(void);

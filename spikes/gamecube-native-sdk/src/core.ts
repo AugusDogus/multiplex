@@ -130,6 +130,8 @@ export interface Model {
   readonly playbackOffsetMs: number;
   readonly playbackLoaded: boolean;
   readonly playing: boolean;
+  readonly subtitleStreamCount: number;
+  readonly selectedSubtitleStream: number;
 }
 
 export type Msg =
@@ -164,6 +166,7 @@ export type Msg =
   | { readonly kind: "continue_playback"; readonly positionMs: number }
   | { readonly kind: "complete_playback" }
   | { readonly kind: "toggle_playback" }
+  | { readonly kind: "cycle_subtitles" }
   | { readonly kind: "back" };
 
 const demoItems: readonly CatalogItem[] = [
@@ -370,6 +373,8 @@ export function initialModel(): Model {
     playbackOffsetMs: 0,
     playbackLoaded: true,
     playing: false,
+    subtitleStreamCount: 0,
+    selectedSubtitleStream: 0,
   };
 }
 
@@ -652,6 +657,27 @@ export function failPlayback(model: Model): Model {
 
 export function playbackToggleIcon(model: Model): Uint8Array {
   return model.playing ? asciiBytes("pause") : asciiBytes("play");
+}
+
+export function loadSubtitleStreams(model: Model, count: number, selected: number): Model {
+  const boundedCount = Math.max(0, count);
+  return {
+    ...model,
+    subtitleStreamCount: boundedCount,
+    selectedSubtitleStream: Math.min(Math.max(0, selected), boundedCount),
+  };
+}
+
+export function subtitlesAvailable(model: Model): boolean {
+  return model.subtitleStreamCount > 0;
+}
+
+export function subtitlesEnabled(model: Model): boolean {
+  return model.selectedSubtitleStream > 0;
+}
+
+export function playbackSubtitleSelection(model: Model): number {
+  return model.screen === "player" ? model.selectedSubtitleStream : 0;
 }
 
 export function visibleItems(model: Model): readonly CatalogItem[] {
@@ -1284,6 +1310,18 @@ export function update(model: Model, msg: Msg): Model {
     case "toggle_playback":
       if (model.screen !== "player" || !model.playbackLoaded) return model;
       return { ...model, playing: !model.playing };
+    case "cycle_subtitles":
+      if (model.screen !== "player" || !model.playbackLoaded || model.subtitleStreamCount === 0)
+        return model;
+      return {
+        ...model,
+        selectedSubtitleStream:
+          model.selectedSubtitleStream >= model.subtitleStreamCount
+            ? 0
+            : model.selectedSubtitleStream + 1,
+        playbackLoaded: false,
+        playing: false,
+      };
     case "back":
       if (model.screen === "player") {
         if (model.watchTogetherActive) return leaveWatchTogether(model);

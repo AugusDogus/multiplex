@@ -32,6 +32,7 @@ focus_audit=${GAMECUBE_PLEX_FOCUS_AUDIT:-0}
 start_offset_ms=${GAMECUBE_PLEX_START_OFFSET_MS:-0}
 expect_autoplay_next=${GAMECUBE_PLEX_EXPECT_AUTOPLAY_NEXT:-0}
 expected_autoplay_rating_key=${GAMECUBE_PLEX_AUTOPLAY_RATING_KEY:-}
+test_subtitle_cycle=${GAMECUBE_PLEX_TEST_SUBTITLE_CYCLE:-0}
 plex_base_url=${PLEX_BASE_URL:-}
 multiplex_base_url=${MULTIPLEX_BASE_URL:-}
 console_name=${MULTIPLEX_CONSOLE_NAME:-GameCube}
@@ -98,6 +99,13 @@ case "$watch_together" in
   0 | 1) ;;
   *)
     echo "GAMECUBE_PLEX_WATCH_TOGETHER must be 0 or 1." >&2
+    exit 1
+    ;;
+esac
+case "$test_subtitle_cycle" in
+  0 | 1) ;;
+  *)
+    echo "GAMECUBE_PLEX_TEST_SUBTITLE_CYCLE must be 0 or 1." >&2
     exit 1
     ;;
 esac
@@ -851,6 +859,35 @@ wait_for_new "$playback_activation_pattern" "$playback_activation_count" 3600
 wait_for_new "$playback_ready_pattern" "$playback_session_count" 1200
 sleep 1
 ensure_playback_playing
+if [ "$test_subtitle_cycle" -eq 1 ]; then
+  if ! grep -q "$playback_activation_pattern .*subtitles=burn" "$log"; then
+    echo "Subtitle cycling requires a server-selected indexed subtitle track." >&2
+    exit 1
+  fi
+  initial_subtitle_mode=$(sed -n \
+    "s/.*$playback_activation_pattern .*subtitles=\([^ ]*\) index=\([0-9][0-9]*\).*/\1:\2/p" \
+    "$log" | tail -1)
+  subtitle_switch_count=$(line_count "$playback_switch_pattern")
+  subtitle_focus=0
+  while [ "$subtitle_focus" -lt 3 ]; do
+    signature_count=$(line_count "signature=")
+    press D_RIGHT
+    wait_for_new "signature=" "$signature_count"
+    subtitle_focus=$((subtitle_focus + 1))
+  done
+  press A
+  wait_for_new "$playback_switch_pattern" "$subtitle_switch_count" 3600
+  selected_subtitle_mode=$(sed -n \
+    "s/.*$playback_activation_pattern .*subtitles=\([^ ]*\) index=\([0-9][0-9]*\).*/\1:\2/p" \
+    "$log" | tail -1)
+  if [ -z "$selected_subtitle_mode" ] || \
+    [ "$selected_subtitle_mode" = "$initial_subtitle_mode" ]; then
+    echo "The subtitle control did not restart playback with a different track." >&2
+    exit 1
+  fi
+  ensure_playback_playing
+  echo "Cycled the Plex subtitle selection from $initial_subtitle_mode to $selected_subtitle_mode through the Native SDK player control."
+fi
 if [ "$watch_together_browser_guest" -eq 1 ]; then
   wait_for_browser_guest "Browser guest advancing room=$created_room_id" 0 1200
 fi

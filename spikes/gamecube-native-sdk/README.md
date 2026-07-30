@@ -132,8 +132,12 @@ and the real browser guest.
 Direct playback also parses Plex's bounded subtitle stream metadata. When a
 track with a transcode index is selected on the server, the GameCube HLS
 session asks Plex to burn that track into the DVD-resolution video and retains
-the selection across seeks. Unsupported or unselected tracks leave subtitles
-disabled without changing the audio/video pipeline.
+the selection across seeks. A focusable icon-only player control cycles among
+the available indexed tracks and Off, with its active treatment reflecting
+whether captions are enabled. Unsupported or unselected tracks leave
+subtitles disabled without changing the audio/video pipeline. Set
+`GAMECUBE_PLEX_TEST_SUBTITLE_CYCLE=1` to exercise the control against an item
+whose server metadata already selects an indexed track.
 
 The GameCube shell now uses the Multiplex mark, flush 140x210 poster art, and
 Native SDK's focus treatment without prototype badges or duplicate navigation

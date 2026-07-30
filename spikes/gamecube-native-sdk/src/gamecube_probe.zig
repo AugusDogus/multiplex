@@ -974,6 +974,20 @@ export fn multiplex_native_app_details_fail() callconv(.c) u32 {
     return 1;
 }
 
+export fn multiplex_native_app_subtitles(count: u32, selected: u32) callconv(.c) u32 {
+    if (!app_initialized or count > 4 or selected > count) return 0;
+    commitAppModel(core.loadSubtitleStreams(app_model, @floatFromInt(count), @floatFromInt(selected)));
+    reference_full_repaint = true;
+    return 1;
+}
+
+export fn multiplex_native_app_subtitle_selection() callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    const selected = core.playbackSubtitleSelection(app_model);
+    if (selected < 0 or selected > 4) return 0;
+    return @intFromFloat(selected);
+}
+
 export fn multiplex_native_app_playback_request() callconv(.c) u32 {
     if (!app_initialized) return 0;
     const rating_key = core.playbackRequestRatingKey(app_model);
@@ -1285,6 +1299,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .continue_playback => 20,
                 .complete_playback => 21,
                 .toggle_playback => 10,
+                .cycle_subtitles => 34,
                 .back => 11,
             };
             commitAppModel(core.update(model, msg));
