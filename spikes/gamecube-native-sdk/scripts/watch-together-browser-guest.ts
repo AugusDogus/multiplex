@@ -127,6 +127,15 @@ try {
           await video.evaluate((element: HTMLVideoElement) =>
             element.play().catch(() => undefined),
           );
+        } else if (command === "seek-10-percent") {
+          await page.evaluate(() => {
+            document.dispatchEvent(
+              new KeyboardEvent("keydown", {
+                bubbles: true,
+                code: "Digit1",
+              }),
+            );
+          });
         } else {
           throw new Error(`Unknown browser guest command: ${command}`);
         }

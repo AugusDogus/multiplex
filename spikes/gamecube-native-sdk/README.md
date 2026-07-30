@@ -97,8 +97,9 @@ Set `GAMECUBE_PLEX_WATCH_TOGETHER=1`,
 `GAMECUBE_WATCH_TOGETHER_BROWSER_GUEST=1` to run the cross-platform Watch
 Together smoke. It uses the real guest session saved by the web Playwright
 setup, has that account join the room created in Dolphin, verifies playback
-advances in both clients, and exercises play/pause synchronization in both
-directions. The browser is headless and muted while Dolphin remains visible;
+advances in both clients, exercises play/pause synchronization in both
+directions, and verifies browser-originated seeking reloads both clients at the
+same PMS offset. The browser is headless and muted while Dolphin remains visible;
 the runner disbands its room, closes both clients, and clears the exact
 GameCube client session from PMS during cleanup.
 

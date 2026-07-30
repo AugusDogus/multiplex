@@ -622,14 +622,14 @@ fi
 wait_for_new "$playback_activation_pattern" "$playback_activation_count" 3600
 wait_for_new "$playback_ready_pattern" "$playback_session_count" 1200
 wait_for_new "playback=playing" "$playing_count" 1200
-if [ "$watch_together_browser_guest" -eq 1 ]; then
-  wait_for_browser_guest "Browser guest advancing room=$created_room_id" 0 1200
-fi
 sleep 1
 if [ "$(line_count "playback=paused")" -gt "$paused_count" ]; then
   playing_count=$(line_count "playback=playing")
   press A
   wait_for_new "playback=playing" "$playing_count" 120
+fi
+if [ "$watch_together_browser_guest" -eq 1 ]; then
+  wait_for_browser_guest "Browser guest advancing room=$created_room_id" 0 1200
 fi
 
 selected_rating_key=$(sed -n "s/.*$playback_ready_pattern rating-key=\\([0-9][0-9]*\\).*/\\1/p" "$log" | tail -1)
@@ -667,6 +667,14 @@ if [ "$expect_continuation" -eq 1 ]; then
     exit 1
   fi
   echo "Automatically continued selected Plex item $selected_rating_key from ${seek_offset}ms to ${continuation_offset}ms."
+fi
+
+# The web Syncplay controller deliberately ignores remote pauses for five
+# seconds after connecting so the room's paused lobby baseline cannot defeat
+# autoplay. Let that grace period expire before testing a deliberate GameCube
+# pause, otherwise a fast run can race the intended startup behavior.
+if [ "$watch_together_browser_guest" -eq 1 ]; then
+  sleep 6
 fi
 
 # Prove deliberate player state edges reach Plex as well as periodic progress.
@@ -711,6 +719,26 @@ if [ "$watch_together" -eq 1 ]; then
   fi
   wait_for_new "Syncplay remote playback paused=0" "$remote_resume_count" 600
   if [ "$watch_together_browser_guest" -eq 1 ]; then
+    wait_for_synced_playback_state playing 1200
+    remote_seek_count=$(line_count "Syncplay remote playback .*seek=1")
+    playback_ready_count=$(line_count "$playback_ready_pattern")
+    printf 'seek-10-percent\n' >"$browser_guest_control"
+    wait_for_browser_guest "Browser guest command=seek-10-percent" 0 300
+    wait_for_new "Syncplay remote playback .*seek=1" "$remote_seek_count" 1200
+    wait_for_new "$playback_ready_pattern" "$playback_ready_count" 3600
+    browser_seek_offset=$(sed -n \
+      "s/.*$playback_ready_pattern rating-key=[0-9][0-9]* offset=\\([0-9][0-9]*\\).*/\\1/p" \
+      "$log" | tail -1)
+    case "$browser_seek_offset" in
+      '' | *[!0-9]*)
+        echo "The GameCube remote-seek offset was not found in the Dolphin log." >&2
+        exit 1
+        ;;
+    esac
+    browser_minimum_seek_offset=$((browser_seek_offset - 5000))
+    browser_maximum_seek_offset=$((browser_seek_offset + 5000))
+    wait_for_browser_guest_seek \
+      "$browser_minimum_seek_offset" "$browser_maximum_seek_offset" 1200
     wait_for_synced_playback_state playing 1200
   fi
 fi
