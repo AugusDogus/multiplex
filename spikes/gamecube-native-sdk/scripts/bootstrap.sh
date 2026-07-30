@@ -42,6 +42,7 @@ apply_sdk_patch() {
 
 apply_sdk_patch "$spike_dir/patches/native-sdk-single-threaded-canvas.patch"
 apply_sdk_patch "$spike_dir/patches/native-sdk-reference-render-fast-paths.patch"
+apply_sdk_patch "$spike_dir/patches/native-sdk-panel-focus-ring.patch"
 
 actual_zig=$(zig version)
 if [ "$actual_zig" != "$ZIG_VERSION" ]; then

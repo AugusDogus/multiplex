@@ -49,7 +49,10 @@
     </row>
     <spacer grow="1" />
     <if test="{pairingLinked}">
-      <text size="sm" foreground="text_muted">START Watch Together</text>
+      <button-group>
+        <button width="38" size="sm" icon="folder" variant="secondary" on-press="open_libraries" label="Libraries"></button>
+        <button width="38" size="sm" icon="search" variant="secondary" on-press="open_search" label="Search"></button>
+      </button-group>
     </if>
   </row>
   <separator />
@@ -95,28 +98,27 @@
         <spacer grow="1" />
         <badge variant="secondary">Row {rowNumber} of {rowCount}</badge>
       </row>
-      <row grow="1" gap="8" main="center">
-        <for each="visibleItems" as="item" key="ratingKey">
-          <panel width="140" padding="0" background="background" border-color="background" radius="lg" on-press="open_item:{item.id}" label="{item.title}">
-            <column grow="1" gap="4">
-              <image image="{item.imageId}" width="140" height="210" label="{item.title}" />
-              <progress value="{item.progressPercent}" height="4" />
-              <text size="sm" wrap="false">{item.title}</text>
-              <text size="sm" foreground="text_muted" wrap="false">{item.subtitle}</text>
-            </column>
-          </panel>
-        </for>
-      </row>
-      <if test="{hasMultipleRows}">
-        <row gap="8" main="center">
-          <button variant="secondary" on-press="previous_row">Previous row</button>
-          <button variant="secondary" on-press="next_row">Next row</button>
-          <if test="{hasLibraries}">
-            <button variant="primary" on-press="open_libraries">Libraries</button>
-          </if>
-          <button variant="secondary" on-press="open_search">Search</button>
+      <row grow="1" gap="8" main="center" cross="center">
+        <button width="34" size="sm" icon="chevron-left" variant="ghost" on-press="previous_row" disabled="{rowPreviousDisabled}" label="Previous row"></button>
+        <row grow="1" gap="8" main="center">
+          <for each="visibleItems" as="item" key="ratingKey">
+            <panel width="124" padding="0" background="background" border-color="background" radius="lg" on-press="open_item:{item.id}" label="{item.title}">
+              <column grow="1" gap="4">
+                <image image="{item.imageId}" width="124" height="186" radius="lg" label="{item.title}" />
+                <if test="{item.progressPercent > 0 and item.progressPercent < 100}">
+                  <progress value="{item.progressPercent}" height="4" />
+                </if>
+                <else>
+                  <spacer height="4" />
+                </else>
+                <text size="sm" wrap="false">{item.title}</text>
+                <text size="sm" foreground="text_muted" wrap="false">{item.subtitle}</text>
+              </column>
+            </panel>
+          </for>
         </row>
-      </if>
+        <button width="34" size="sm" icon="chevron-right" variant="ghost" on-press="next_row" disabled="{rowNextDisabled}" label="Next row"></button>
+      </row>
     </column>
   </if>
 
@@ -231,25 +233,26 @@
         <badge variant="secondary">Page {browsePageNumber} of {browsePageCount}</badge>
       </row>
       <if test="{browseLoaded}">
-        <row grow="1" gap="8" main="center">
-          <for each="browseItems" as="item" key="ratingKey">
-            <panel width="140" padding="0" background="background" border-color="background" radius="lg" on-press="open_item:{item.id}" label="{item.title}">
-              <column grow="1" gap="4">
-                <image image="{item.imageId}" width="140" height="210" label="{item.title}" />
-                <progress value="{item.progressPercent}" height="4" />
-                <text size="sm" wrap="false">{item.title}</text>
-                <text size="sm" foreground="text_muted" wrap="false">{item.subtitle}</text>
-              </column>
-            </panel>
-          </for>
-        </row>
-        <row gap="8" main="center">
-          <if test="{browseHasPrevious}">
-            <button variant="secondary" on-press="browse_previous">Previous page</button>
-          </if>
-          <if test="{browseHasNext}">
-            <button variant="primary" on-press="browse_next">Next page</button>
-          </if>
+        <row grow="1" gap="8" main="center" cross="center">
+          <button width="34" size="sm" icon="chevron-left" variant="ghost" on-press="browse_previous" disabled="{browsePreviousDisabled}" label="Previous page"></button>
+          <row grow="1" gap="8" main="center">
+            <for each="browseItems" as="item" key="ratingKey">
+              <panel width="124" padding="0" background="background" border-color="background" radius="lg" on-press="open_item:{item.id}" label="{item.title}">
+                <column grow="1" gap="4">
+                  <image image="{item.imageId}" width="124" height="186" radius="lg" label="{item.title}" />
+                  <if test="{item.progressPercent > 0 and item.progressPercent < 100}">
+                    <progress value="{item.progressPercent}" height="4" />
+                  </if>
+                  <else>
+                    <spacer height="4" />
+                  </else>
+                  <text size="sm" wrap="false">{item.title}</text>
+                  <text size="sm" foreground="text_muted" wrap="false">{item.subtitle}</text>
+                </column>
+              </panel>
+            </for>
+          </row>
+          <button width="34" size="sm" icon="chevron-right" variant="ghost" on-press="browse_next" disabled="{browseNextDisabled}" label="Next page"></button>
         </row>
       </if>
       <if test="{browseLoading}">

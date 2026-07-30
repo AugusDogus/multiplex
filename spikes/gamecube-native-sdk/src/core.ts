@@ -696,6 +696,14 @@ export function hasMultipleRows(model: Model): boolean {
   return model.rows.length > 1;
 }
 
+export function rowPreviousDisabled(model: Model): boolean {
+  return model.rowIndex === 0;
+}
+
+export function rowNextDisabled(model: Model): boolean {
+  return model.rowIndex + 1 >= model.rows.length;
+}
+
 export function pairingDemo(model: Model): boolean {
   return !model.pairingEnabled;
 }
@@ -798,6 +806,14 @@ export function browseHasPrevious(model: Model): boolean {
 
 export function browseHasNext(model: Model): boolean {
   return model.browseStart + model.browseItems.length < model.browseTotal;
+}
+
+export function browsePreviousDisabled(model: Model): boolean {
+  return !browseHasPrevious(model);
+}
+
+export function browseNextDisabled(model: Model): boolean {
+  return !browseHasNext(model);
 }
 
 export function browseLoading(model: Model): boolean {
@@ -1037,11 +1053,13 @@ export function update(model: Model, msg: Msg): Model {
     case "connect_demo":
       return model.pairingEnabled ? model : { ...model, screen: "home" };
     case "previous_row": {
-      const rowIndex = model.rowIndex === 0 ? model.rows.length - 1 : model.rowIndex - 1;
+      if (model.rowIndex === 0) return model;
+      const rowIndex = model.rowIndex - 1;
       return { ...model, rowIndex: rowIndex, rowNumber: rowIndex + 1 };
     }
     case "next_row": {
-      const rowIndex = model.rowIndex === model.rows.length - 1 ? 0 : model.rowIndex + 1;
+      if (model.rowIndex + 1 >= model.rows.length) return model;
+      const rowIndex = model.rowIndex + 1;
       return { ...model, rowIndex: rowIndex, rowNumber: rowIndex + 1 };
     }
     case "open_libraries":
