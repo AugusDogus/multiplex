@@ -8,6 +8,7 @@
  */
 
 #include "http_client.h"
+#include "media-source.h"
 #include "tls_client.h"
 
 #include <fcntl.h>
@@ -36,6 +37,7 @@
 #define HTTP_RANGE_ATTEMPTS 4
 #define HTTP_JSON_REQUEST_LIMIT 4096
 #define HTTP_JSON_FRAMING_ALLOWANCE 2048
+#define HTTP_WII_RECV_CHUNK_SIZE (16u * 1024u)
 
 typedef struct {
   unsigned status;
@@ -191,8 +193,13 @@ static bool initialize_network(void) {
                status);
     return false;
   }
+#if defined(HW_RVL)
+  SYS_Report("REFERENCE GX: network=wii ip=%s netmask=%s gateway=%s\n",
+             local_ip, netmask, gateway);
+#else
   SYS_Report("REFERENCE GX: network=bba ip=%s netmask=%s gateway=%s\n",
              local_ip, netmask, gateway);
+#endif
   strcpy(network_gateway, gateway);
   if (!http_transaction_mutex_ready) {
     if (LWP_MutexInit(&http_transaction_mutex, false) != 0) {
@@ -234,17 +241,20 @@ static bool connect_client(HttpClient *client) {
     const size_t host_size = strlen(client->host);
     static const char localhost_suffix[] = ".localhost";
     const size_t suffix_size = sizeof(localhost_suffix) - 1u;
+    const char *emulator_host_ip = MULTIPLEX_EMULATOR_HOST_IP[0] != '\0'
+                                       ? MULTIPLEX_EMULATOR_HOST_IP
+                                       : network_gateway;
     if (host_size <= suffix_size ||
         strcmp(client->host + host_size - suffix_size, localhost_suffix) !=
             0 ||
-        inet_aton(network_gateway, &address.sin_addr) == 0) {
+        inet_aton(emulator_host_ip, &address.sin_addr) == 0) {
       SYS_Report("REFERENCE GX: HTTP hostname unresolved host=%s\n",
                  client->host);
       disconnect_client(client);
       return false;
     }
     SYS_Report("REFERENCE GX: HTTP emulator host=%s gateway=%s\n",
-               client->host, network_gateway);
+               client->host, emulator_host_ip);
   }
   if (net_connect(client->socket, (struct sockaddr *)&address,
                   sizeof(address)) < 0) {
@@ -296,6 +306,11 @@ static int read_available_with_timeout(HttpClient *client, void *destination,
        *client->external_cancelled)) {
     return -1;
   }
+#if defined(HW_RVL)
+  if (size > HTTP_WII_RECV_CHUNK_SIZE) {
+    size = HTTP_WII_RECV_CHUNK_SIZE;
+  }
+#endif
   if (client->tls != NULL) {
     return multiplex_tls_client_read(client->tls, destination, size,
                                      timeout_seconds);
@@ -326,13 +341,17 @@ static int read_available_with_timeout(HttpClient *client, void *destination,
      * blocking recv would wait forever. Switch modes only around this recv so
      * connection setup and writes retain their proven blocking semantics.
      */
+#if defined(HW_DOL)
     if (net_fcntl(client->socket, F_SETFL, O_NONBLOCK) < 0) {
       return -1;
     }
+#endif
     const int received = net_recv(client->socket, destination, size, 0);
+#if defined(HW_DOL)
     if (net_fcntl(client->socket, F_SETFL, 0) < 0) {
       return -1;
     }
+#endif
     return received;
   }
   return -1;

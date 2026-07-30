@@ -14,6 +14,7 @@ video_packets=${GAMECUBE_MEDIA_VIDEO_PACKETS:-0}
 audio_packets=${GAMECUBE_MEDIA_AUDIO_PACKETS:-0}
 video_pts=${GAMECUBE_MEDIA_VIDEO_PTS90K:--1}
 audio_pts=${GAMECUBE_MEDIA_AUDIO_PTS90K:--1}
+emulator_host_ip=${MULTIPLEX_EMULATOR_HOST_IP:-}
 
 if [ -n "$media_url" ] &&
   printf '%s' "$media_url" | LC_ALL=C grep -q '[^A-Za-z0-9:/?&=._%+~-]'; then
@@ -33,6 +34,12 @@ fi
 if [ -n "$plex_base_url" ] &&
   printf '%s' "$plex_base_url" | LC_ALL=C grep -q '[^A-Za-z0-9:/?&=._%+~-]'; then
   echo "GAMECUBE_PLEX_BASE_URL contains unsupported characters." >&2
+  exit 1
+fi
+if [ -n "$emulator_host_ip" ] &&
+  ! printf '%s' "$emulator_host_ip" | LC_ALL=C grep -Eq \
+    '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
+  echo "MULTIPLEX_EMULATOR_HOST_IP must be an IPv4 address." >&2
   exit 1
 fi
 if ! printf '%s' "$plex_video_resolution" |
@@ -84,6 +91,7 @@ trap 'rm -f "$temporary"' EXIT INT TERM
   printf '#define MULTIPLEX_GATEWAY_URL "%s"\n' "$gateway_url"
   printf '#define MULTIPLEX_BASE_URL "%s"\n' "$multiplex_base_url"
   printf '#define MULTIPLEX_PLEX_BASE_URL "%s"\n' "$plex_base_url"
+  printf '#define MULTIPLEX_EMULATOR_HOST_IP "%s"\n' "$emulator_host_ip"
   printf '#define MULTIPLEX_PLEX_VIDEO_RESOLUTION "%s"\n' "$plex_video_resolution"
   printf '#define MULTIPLEX_PLEX_MAX_VIDEO_BITRATE "%s"\n' "$plex_max_video_bitrate"
   printf '#define MULTIPLEX_PAIRING_ENABLED %s\n' "$pairing_enabled"

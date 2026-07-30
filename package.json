@@ -36,7 +36,8 @@
     "spike:gamecube:raylib:dol": "sh spikes/gamecube-native-sdk/scripts/build-raylib-reference-dol.sh",
     "spike:gamecube:raylib:run": "sh spikes/gamecube-native-sdk/scripts/run-dolphin.sh spikes/gamecube-native-sdk/multiplex-gamecube-raylib-reference.dol",
     "spike:wii:reference:dol": "sh spikes/gamecube-native-sdk/scripts/build-native-reference-wii-dol.sh",
-    "spike:wii:reference:smoke-player": "MULTIPLEX_REFERENCE_DOL=spikes/gamecube-native-sdk/multiplex-wii-native-reference.dol MULTIPLEX_REFERENCE_BUILD_SCRIPT=build-native-reference-wii-dol.sh MULTIPLEX_CONSOLE_NAME=Wii MULTIPLEX_CONTROLLER_PIPE=multiplex-wii1 sh spikes/gamecube-native-sdk/scripts/smoke-dolphin-player.sh"
+    "spike:wii:reference:smoke-player": "MULTIPLEX_REFERENCE_DOL=spikes/gamecube-native-sdk/multiplex-wii-native-reference.dol MULTIPLEX_REFERENCE_BUILD_SCRIPT=build-native-reference-wii-dol.sh MULTIPLEX_CONSOLE_NAME=Wii MULTIPLEX_CONTROLLER_PIPE=multiplex-wii1 sh spikes/gamecube-native-sdk/scripts/smoke-dolphin-player.sh",
+    "spike:wii:reference:plex": "MULTIPLEX_REFERENCE_DOL=spikes/gamecube-native-sdk/multiplex-wii-native-reference.dol MULTIPLEX_REFERENCE_BUILD_SCRIPT=build-native-reference-wii-dol.sh MULTIPLEX_CONSOLE_NAME=Wii MULTIPLEX_CONTROLLER_PIPE=multiplex-wii1 MULTIPLEX_DOLPHIN_NETWORK=native sh spikes/gamecube-native-sdk/scripts/run-dolphin-plex.sh"
   },
   "devDependencies": {
     "oxfmt": "^0.26.0",

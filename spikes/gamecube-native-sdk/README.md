@@ -21,6 +21,7 @@ bun run spike:gamecube:reference:smoke-http-tap
 bun run spike:gamecube:reference:plex
 bun run spike:wii:reference:dol
 bun run spike:wii:reference:smoke-player
+bun run spike:wii:reference:plex
 ```
 
 `spike:gamecube:reference:run` uses an isolated Dolphin profile and replaces
@@ -41,7 +42,17 @@ with libogc2's Wii runtime. `spike:wii:reference:smoke-player` boots the Wii DOL
 in Dolphin and runs the same navigation, MPEG-2/MP2 playback, 60 fps,
 pause/resume, and invalid-access gates as GameCube. The first tracer bullet uses
 Wii Remote input directly, with matching Classic Controller and GameCube pad
-fallbacks. Wii-native persisted auth remains a platform follow-up.
+fallbacks. `spike:wii:reference:plex` uses Dolphin's native Wii IOS network
+stack for direct PMS traffic and the same persisted Multiplex memory-card
+session as GameCube. It reaches Multiplex only through the HTTPS Portless
+origin, `https://multiplex.localhost`; the runner maps that hostname to the
+host loopback address inside Dolphin while retaining its TLS hostname and
+embedded Portless CA. No TAP device, pasta process, alternate Multiplex port,
+or Portless service change is required. Wii network receives are intentionally
+bounded to 16 KiB because libogc allocates an IOS IPC buffer matching each
+`net_recv` request. The direct-Plex smoke loaded the authenticated tRPC user,
+rooms, and invitees, read the 100,005-byte Plex home response, decoded all 12
+posters, and played a real Plex item with a clean Dolphin invalid-access log.
 
 When `MULTIPLEX_BASE_URL` is an HTTPS `*.localhost` origin, the reference build
 automatically embeds the public Portless CA from `~/.portless/ca.pem`.

@@ -72,6 +72,7 @@ multiplex-dvd-demo-program.s: $(SPIKE_ROOT)/assets/multiplex-dvd-demo.mpg
 multiplex-dvd-demo-program.h: multiplex-dvd-demo-program.s
 
 main.o: media-source.h multiplex-dvd-demo-program.h
+http_client.o: media-source.h
 tls_client.o: tls-ca.h
 
 media-source.h:

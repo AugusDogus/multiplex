@@ -237,16 +237,16 @@ static uint32_t wii_buttons_as_gamecube(uint32_t buttons) {
   if ((buttons & (WPAD_BUTTON_1 | WPAD_CLASSIC_BUTTON_Y)) != 0) {
     mapped |= PAD_BUTTON_Y;
   }
-  if ((buttons & WPAD_CLASSIC_BUTTON_ZR) != 0) {
+  if ((buttons & (WPAD_BUTTON_MINUS | WPAD_CLASSIC_BUTTON_ZR)) != 0) {
     mapped |= PAD_TRIGGER_Z;
   }
-  if ((buttons & WPAD_CLASSIC_BUTTON_FULL_L) != 0) {
+  if ((buttons & (WPAD_BUTTON_HOME | WPAD_CLASSIC_BUTTON_FULL_L)) != 0) {
     mapped |= PAD_TRIGGER_L;
   }
-  if ((buttons & WPAD_CLASSIC_BUTTON_FULL_R) != 0) {
+  if ((buttons & (WPAD_BUTTON_PLUS | WPAD_CLASSIC_BUTTON_FULL_R)) != 0) {
     mapped |= PAD_TRIGGER_R;
   }
-  if ((buttons & (WPAD_BUTTON_PLUS | WPAD_CLASSIC_BUTTON_PLUS)) != 0) {
+  if ((buttons & WPAD_CLASSIC_BUTTON_PLUS) != 0) {
     mapped |= PAD_BUTTON_START;
   }
   return mapped;

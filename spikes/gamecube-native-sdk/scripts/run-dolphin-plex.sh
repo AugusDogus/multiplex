@@ -23,6 +23,11 @@ watch_together_browser_guest=${GAMECUBE_WATCH_TOGETHER_BROWSER_GUEST:-0}
 rating_key=${GAMECUBE_PLEX_RATING_KEY:-}
 plex_base_url=${PLEX_BASE_URL:-}
 multiplex_base_url=${MULTIPLEX_BASE_URL:-}
+console_name=${MULTIPLEX_CONSOLE_NAME:-GameCube}
+reference_dol=${MULTIPLEX_REFERENCE_DOL:-"$spike_dir/multiplex-gamecube-native-reference.dol"}
+reference_build_script=${MULTIPLEX_REFERENCE_BUILD_SCRIPT:-build-native-reference-dol.sh}
+controller_pipe_name=${MULTIPLEX_CONTROLLER_PIPE:-multiplex1}
+dolphin_network=${MULTIPLEX_DOLPHIN_NETWORK:-rootless-tap}
 server_pid=
 launcher_pid=
 mute_pid=
@@ -102,6 +107,21 @@ if [ "$watch_together" -eq 1 ]; then
       exit 1
       ;;
   esac
+fi
+case "$dolphin_network" in
+  rootless-tap | native) ;;
+  *)
+    echo "MULTIPLEX_DOLPHIN_NETWORK must be rootless-tap or native." >&2
+    exit 1
+    ;;
+esac
+if [ "$dolphin_network" = native ] && [ "$direct_plex" -ne 1 ]; then
+  echo "$console_name native Dolphin networking currently requires GAMECUBE_DIRECT_PLEX=1." >&2
+  exit 1
+fi
+if [ "$dolphin_network" = native ]; then
+  MULTIPLEX_EMULATOR_HOST_IP=${MULTIPLEX_EMULATOR_HOST_IP:-127.0.0.1}
+  export MULTIPLEX_EMULATOR_HOST_IP
 fi
 
 mkdir -p "$cache_dir"
@@ -207,24 +227,31 @@ if [ "$direct_plex" -eq 1 ]; then
     GAMECUBE_PLEX_VIDEO_RESOLUTION="$plex_video_resolution" \
     GAMECUBE_PLEX_MAX_VIDEO_BITRATE="$plex_max_video_bitrate" \
     MULTIPLEX_BASE_URL="$multiplex_base_url" \
-    sh "$script_dir/build-native-reference-dol.sh"
+    sh "$script_dir/$reference_build_script"
 else
   GAMECUBE_GATEWAY_URL="$gateway_url" \
-    sh "$script_dir/build-native-reference-dol.sh"
+    sh "$script_dir/$reference_build_script"
 fi
 
 user_dir="$spike_dir/.dolphin-user"
 log="$user_dir/Logs/dolphin.log"
-pipe="$user_dir/Pipes/multiplex1"
+pipe="$user_dir/Pipes/$controller_pipe_name"
 if [ -f "$log" ]; then
   mv -f "$log" "$user_dir/Logs/dolphin.previous.log"
 fi
+if [ "$dolphin_network" = rootless-tap ]; then
+  dolphin_config_profile="$spike_dir/dolphin/Dolphin.tap.ini"
+  dolphin_emu="$script_dir/run-dolphin-rootless-tap.sh"
+else
+  dolphin_config_profile="$spike_dir/dolphin/Dolphin.ini"
+  dolphin_emu=${DOLPHIN_EMU:-dolphin-emu}
+fi
 setsid env \
-  DOLPHIN_CONFIG_PROFILE="$spike_dir/dolphin/Dolphin.tap.ini" \
-  DOLPHIN_EMU="$script_dir/run-dolphin-rootless-tap.sh" \
+  DOLPHIN_CONFIG_PROFILE="$dolphin_config_profile" \
+  DOLPHIN_EMU="$dolphin_emu" \
   GAMECUBE_PASTA_BIN="${GAMECUBE_PASTA_BIN:-$spike_dir/.passt/pasta}" \
   sh "$script_dir/run-dolphin.sh" \
-    "$spike_dir/multiplex-gamecube-native-reference.dol" >/dev/null 2>&1 &
+    "$reference_dol" >/dev/null 2>&1 &
 launcher_pid=$!
 
 rm -f "$mute_marker"
