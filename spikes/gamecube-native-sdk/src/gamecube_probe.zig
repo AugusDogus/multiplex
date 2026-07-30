@@ -661,15 +661,20 @@ export fn multiplex_native_app_watch_together_disband_commit(deleted: u32) callc
 }
 
 export fn multiplex_native_app_watch_together_playback(
+    room_index: u32,
     rating_key: u32,
+    title: [*]const u8,
+    title_length: u32,
     duration_ms: u32,
     offset_ms: u32,
 ) callconv(.c) u32 {
-    if (!app_initialized or rating_key == 0 or duration_ms == 0) return 0;
+    if (!app_initialized or room_index >= app_model.watchTogetherRooms.len or rating_key == 0 or duration_ms == 0) return 0;
+    const stored_title = copyDetailsString(&details_title_buffer, title, title_length) orelse return 0;
     const next = core.rt.frameCreate(core.Model, app_model.*);
     next.screen = .player;
+    next.selectedWatchTogetherRoomIndex = @intCast(room_index);
     next.selectedRatingKey = @intCast(rating_key);
-    next.selectedTitle = core.selectedWatchTogetherRoomTitle(app_model);
+    next.selectedTitle = stored_title;
     next.selectedDurationMs = @intCast(duration_ms);
     next.selectedViewOffsetMs = @intCast(offset_ms);
     next.selectedFromBrowse = false;

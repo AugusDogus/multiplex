@@ -2380,6 +2380,20 @@ static bool continue_playback_if_needed(
   return true;
 }
 
+static bool direct_playback_reached_end(
+    const MultiplexGatewayPlaybackManifest *active_manifest) {
+  if (active_manifest == NULL ||
+      active_manifest->rating_key == 0 || direct_hls_demux == NULL ||
+      audio_output == NULL || !video_was_playing ||
+      plex_hls_demux_failed(direct_hls_demux) ||
+      !plex_hls_demux_complete(direct_hls_demux)) {
+    return false;
+  }
+  const uint32_t position_ms = playback_position_ms(active_manifest);
+  return (uint64_t)position_ms + DIRECT_PLAYBACK_END_MARGIN_MS >=
+         active_manifest->media_duration_ms;
+}
+
 #if MULTIPLEX_PAIRING_ENABLED
 static bool advance_direct_playback_if_complete(
     const MultiplexAuthCredentials *credentials,
@@ -2387,16 +2401,7 @@ static bool advance_direct_playback_if_complete(
     MpegPsDemux **demux, TimelineReporter *timeline_reporter,
     bool *advanced) {
   *advanced = false;
-  if (credentials == NULL || active_manifest == NULL ||
-      active_manifest->rating_key == 0 || direct_hls_demux == NULL ||
-      audio_output == NULL || !video_was_playing ||
-      plex_hls_demux_failed(direct_hls_demux) ||
-      !plex_hls_demux_complete(direct_hls_demux)) {
-    return true;
-  }
-  const uint32_t position_ms = playback_position_ms(active_manifest);
-  if ((uint64_t)position_ms + DIRECT_PLAYBACK_END_MARGIN_MS <
-      active_manifest->media_duration_ms) {
+  if (credentials == NULL || !direct_playback_reached_end(active_manifest)) {
     return true;
   }
 
@@ -2591,9 +2596,33 @@ refresh_watch_together_rooms(const MultiplexAuthCredentials *credentials,
   return bind_watch_together_rooms(rooms, available);
 }
 
+static bool retain_watch_together_room(MultiplexTrpcRoomList *rooms,
+                                       const MultiplexTrpcRoom *room) {
+  uint8_t existing = rooms->room_count;
+  for (uint8_t index = 0; index < rooms->room_count; ++index) {
+    if (strcmp(rooms->rooms[index].id, room->id) == 0) {
+      existing = index;
+      break;
+    }
+  }
+  if (existing < rooms->room_count) {
+    rooms->rooms[existing] = *room;
+  } else {
+    const uint8_t retained = rooms->room_count < MULTIPLEX_TRPC_MAX_ROOMS
+                                 ? rooms->room_count
+                                 : MULTIPLEX_TRPC_MAX_ROOMS - 1u;
+    memmove(&rooms->rooms[1], &rooms->rooms[0],
+            (size_t)retained * sizeof(rooms->rooms[0]));
+    rooms->rooms[0] = *room;
+    rooms->room_count = retained + 1u;
+  }
+  return bind_watch_together_rooms(rooms, true);
+}
+
 static void create_requested_watch_together_room(
     const MultiplexAuthCredentials *credentials, MultiplexTrpcRoomList *rooms,
-    char *hosted_room_id, size_t hosted_room_id_capacity) {
+    char *hosted_room_id, size_t hosted_room_id_capacity,
+    uint32_t *hosted_invitee_user_id) {
   uint32_t rating_key = 0;
   uint32_t invitee_user_id = 0;
   char title[MULTIPLEX_TRPC_ROOM_TITLE_CAPACITY];
@@ -2617,25 +2646,7 @@ static void create_requested_watch_together_room(
     return;
   }
 
-  uint8_t existing = rooms->room_count;
-  for (uint8_t index = 0; index < rooms->room_count; ++index) {
-    if (strcmp(rooms->rooms[index].id, created.id) == 0) {
-      existing = index;
-      break;
-    }
-  }
-  if (existing < rooms->room_count) {
-    rooms->rooms[existing] = created;
-  } else {
-    const uint8_t retained = rooms->room_count < MULTIPLEX_TRPC_MAX_ROOMS
-                                 ? rooms->room_count
-                                 : MULTIPLEX_TRPC_MAX_ROOMS - 1u;
-    memmove(&rooms->rooms[1], &rooms->rooms[0],
-            (size_t)retained * sizeof(rooms->rooms[0]));
-    rooms->rooms[0] = created;
-    rooms->room_count = retained + 1u;
-  }
-  if (!bind_watch_together_rooms(rooms, true)) {
+  if (!retain_watch_together_room(rooms, &created)) {
     multiplex_native_app_watch_together_create_fail();
     return;
   }
@@ -2644,6 +2655,9 @@ static void create_requested_watch_together_room(
   if (hosted_id_size <= 0 ||
       (size_t)hosted_id_size >= hosted_room_id_capacity) {
     hosted_room_id[0] = '\0';
+    *hosted_invitee_user_id = 0;
+  } else {
+    *hosted_invitee_user_id = invitee_user_id;
   }
   SYS_Report("REFERENCE GX: Watch Together room created id=%s "
              "rating-key=%u\n",
@@ -2732,16 +2746,25 @@ static bool start_joined_watch_together_playback(
   }
   const MultiplexTrpcRoom *room = &rooms->rooms[room_index];
   const uint32_t rating_key = watch_together_rating_key(room);
+  uint32_t playback_offset_ms = offset_ms;
+  if (direct_playback_start_offset_pending) {
+    playback_offset_ms = MULTIPLEX_PLAYBACK_START_OFFSET_MS;
+    direct_playback_start_offset_pending = false;
+    SYS_Report("REFERENCE GX: Watch Together playback start override "
+               "offset=%u\n",
+               playback_offset_ms);
+  }
   if (rating_key == 0 ||
-      !load_direct_playback(credentials, rating_key, offset_ms, true, manifest,
-                            client, demux)) {
+      !load_direct_playback(credentials, rating_key, playback_offset_ms, true,
+                            manifest, client, demux)) {
     return false;
   }
   *session = multiplex_syncplay_session_connect(
       room, credentials->plex_client_id, plex_user_id, false);
   if (*session == NULL ||
       multiplex_native_app_watch_together_playback(
-          rating_key, manifest->media_duration_ms,
+          room_index, rating_key, (const uint8_t *)room->title,
+          strlen(room->title), manifest->media_duration_ms,
           manifest->segment_start_ms) == 0) {
     multiplex_syncplay_session_destroy(*session);
     *session = NULL;
@@ -2753,6 +2776,123 @@ static bool start_joined_watch_together_playback(
   SYS_Report("REFERENCE GX: Watch Together playback room=%u rating-key=%u "
              "offset=%u\n",
              room_index, rating_key, manifest->segment_start_ms);
+  return true;
+}
+
+static uint32_t find_watch_together_rotation_room(
+    const MultiplexTrpcRoomList *rooms, const char *previous_room_id,
+    uint32_t rating_key, uint8_t user_count) {
+  for (uint32_t index = 0; index < rooms->room_count; ++index) {
+    const MultiplexTrpcRoom *room = &rooms->rooms[index];
+    if (strcmp(room->id, previous_room_id) != 0 &&
+        room->user_count == user_count &&
+        watch_together_rating_key(room) == rating_key) {
+      return index;
+    }
+  }
+  return UINT32_MAX;
+}
+
+static bool rotate_watch_together_if_complete(
+    const MultiplexAuthCredentials *credentials, MultiplexTrpcRoomList *rooms,
+    MultiplexSyncplaySession **session, uint32_t *joined_room_index,
+    uint32_t plex_user_id, char *hosted_room_id,
+    size_t hosted_room_id_capacity, uint32_t hosted_invitee_user_id,
+    MultiplexGatewayPlaybackManifest *active_manifest, HttpClient **client,
+    MpegPsDemux **demux, TimelineReporter *timeline_reporter,
+    bool *advanced) {
+  *advanced = false;
+  if (!direct_playback_reached_end(active_manifest)) {
+    return true;
+  }
+  if (*joined_room_index >= rooms->room_count) {
+    return false;
+  }
+
+  const MultiplexGatewayPlaybackManifest completed_manifest =
+      *active_manifest;
+  const MultiplexTrpcRoom previous_room = rooms->rooms[*joined_room_index];
+  char completed_session_id[MULTIPLEX_PLEX_HLS_SESSION_ID_CAPACITY];
+  snprintf(completed_session_id, sizeof(completed_session_id), "%s",
+           direct_hls_session_id);
+  multiplex_native_app_playback_position(
+      completed_manifest.media_duration_ms);
+  audio_dma_update(audio_output, false);
+  flush_timeline_report(timeline_reporter, "", credentials,
+                        completed_session_id, &completed_manifest,
+                        completed_manifest.media_duration_ms, "stopped");
+
+  MultiplexGatewayItem next_episode;
+  const MultiplexPlexNextEpisodeResult next_result =
+      multiplex_plex_load_next_episode(credentials,
+                                       completed_manifest.rating_key,
+                                       &next_episode);
+  if (next_result != MULTIPLEX_PLEX_NEXT_EPISODE_FOUND) {
+    multiplex_native_app_playback_complete();
+    native_frame_dirty = true;
+    SYS_Report("REFERENCE GX: Watch Together playback complete rating-key=%u "
+               "next=%s\n",
+               completed_manifest.rating_key,
+               next_result == MULTIPLEX_PLEX_NEXT_EPISODE_NONE ? "none"
+                                                               : "error");
+    return true;
+  }
+
+  if (!refresh_watch_together_rooms(credentials, rooms)) {
+    return false;
+  }
+  uint32_t next_room_index = find_watch_together_rotation_room(
+      rooms, previous_room.id, next_episode.rating_key,
+      previous_room.user_count);
+  bool created = false;
+  if (next_room_index == UINT32_MAX && hosted_invitee_user_id != 0) {
+    MultiplexTrpcRoom next_room;
+    memset(&next_room, 0, sizeof(next_room));
+    created = multiplex_trpc_create_watch_together_room(
+        MULTIPLEX_BASE_URL, credentials->session_token,
+        credentials->plex_server_id, next_episode.rating_key,
+        next_episode.title, hosted_invitee_user_id, &next_room);
+    if (created && retain_watch_together_room(rooms, &next_room)) {
+      next_room_index = find_watch_together_rotation_room(
+          rooms, previous_room.id, next_episode.rating_key,
+          previous_room.user_count);
+      snprintf(hosted_room_id, hosted_room_id_capacity, "%s", next_room.id);
+    } else {
+      created = false;
+    }
+  }
+  if (next_room_index == UINT32_MAX) {
+    multiplex_native_app_playback_complete();
+    native_frame_dirty = true;
+    SYS_Report("REFERENCE GX: Watch Together autoplay room unavailable "
+               "rating-key=%u\n",
+               next_episode.rating_key);
+    return true;
+  }
+
+  multiplex_syncplay_session_destroy(*session);
+  *session = NULL;
+  if (!start_joined_watch_together_playback(
+          credentials, rooms, next_room_index, plex_user_id, 0, session,
+          active_manifest, client, demux)) {
+    multiplex_native_app_playback_complete();
+    native_frame_dirty = true;
+    return true;
+  }
+  *joined_room_index = next_room_index;
+  multiplex_native_app_watch_together_host(created ? 1u : 0u);
+  if (!created) {
+    hosted_room_id[0] = '\0';
+  }
+  const bool deleted = multiplex_trpc_delete_watch_together_room(
+      MULTIPLEX_BASE_URL, credentials->session_token, previous_room.id);
+  native_frame_dirty = true;
+  *advanced = true;
+  SYS_Report("REFERENCE GX: Watch Together autoplay-next previous=%u "
+             "active=%u room=%s created=%u old-deleted=%u\n",
+             completed_manifest.rating_key, next_episode.rating_key,
+             rooms->rooms[next_room_index].id, created ? 1u : 0u,
+             deleted ? 1u : 0u);
   return true;
 }
 #endif
@@ -2798,6 +2938,7 @@ static void *run_app(void *unused) {
   uint32_t plex_user_id = 0;
   bool watch_together_lobby = false;
   char hosted_watch_together_room_id[MULTIPLEX_TRPC_ROOM_ID_CAPACITY] = "";
+  uint32_t hosted_watch_together_invitee_user_id = 0;
 #endif
   bool has_catalog =
       MULTIPLEX_GATEWAY_URL[0] != '\0' &&
@@ -3271,7 +3412,8 @@ static void *run_app(void *unused) {
         create_requested_watch_together_room(
             &auth_credentials, &watch_together_rooms,
             hosted_watch_together_room_id,
-            sizeof(hosted_watch_together_room_id));
+            sizeof(hosted_watch_together_room_id),
+            &hosted_watch_together_invitee_user_id);
         join_requested_watch_together_room(
             &auth_credentials, &watch_together_rooms, &syncplay_session,
             &joined_watch_together_room, plex_user_id, &watch_together_lobby,
@@ -3566,13 +3708,26 @@ static void *run_app(void *unused) {
     }
 #if MULTIPLEX_PAIRING_ENABLED
     bool autoplay_advanced = false;
-    if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked &&
-        syncplay_session == NULL &&
-        !advance_direct_playback_if_complete(
-            &auth_credentials, &playback_manifest, &client, &demux,
-            &timeline_reporter, &autoplay_advanced)) {
-      SYS_Report("REFERENCE GX: direct playback completion failed\n");
-      break;
+    if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked) {
+      if (syncplay_session == NULL &&
+          !advance_direct_playback_if_complete(
+              &auth_credentials, &playback_manifest, &client, &demux,
+              &timeline_reporter, &autoplay_advanced)) {
+        SYS_Report("REFERENCE GX: direct playback completion failed\n");
+        break;
+      }
+      if (syncplay_session != NULL && !watch_together_lobby &&
+          !rotate_watch_together_if_complete(
+              &auth_credentials, &watch_together_rooms, &syncplay_session,
+              &joined_watch_together_room, plex_user_id,
+              hosted_watch_together_room_id,
+              sizeof(hosted_watch_together_room_id),
+              hosted_watch_together_invitee_user_id, &playback_manifest,
+              &client, &demux, &timeline_reporter, &autoplay_advanced)) {
+        SYS_Report("REFERENCE GX: Watch Together playback completion "
+                   "failed\n");
+        break;
+      }
     }
     if (autoplay_advanced) {
       ui_frame_alpha = 255;

@@ -57,13 +57,14 @@ try {
   const video = page.locator("video");
   await video.waitFor({ state: "visible", timeout: 120_000 });
   let lastPaused: boolean | undefined;
+  let lastRatingKey: string | undefined;
   let lastOffsetMs: number | undefined;
   let lastAdvancingOffsetMs: number | undefined;
   let lastTime = 0;
   let ready = false;
   let lastCommand = "";
   let lastPlayNudgeAt = 0;
-  const readyDeadline = Date.now() + 120_000;
+  let readyDeadline = Date.now() + 120_000;
 
   while (!stopping) {
     const state = await video
@@ -74,6 +75,16 @@ try {
       }))
       .catch(() => undefined);
     if (state) {
+      const ratingKey = /\/library\/metadata\/(\d+)/.exec(
+        decodeURIComponent(state.currentSrc),
+      )?.[1];
+      if (ratingKey && ratingKey !== lastRatingKey) {
+        lastRatingKey = ratingKey;
+        lastTime = 0;
+        ready = false;
+        readyDeadline = Date.now() + 120_000;
+        console.log(`Browser guest rating-key=${ratingKey} initial-room=${roomId}`);
+      }
       if (state.paused !== lastPaused) {
         console.log(`Browser guest playback=${state.paused ? "paused" : "playing"} room=${roomId}`);
         lastPaused = state.paused;
@@ -92,7 +103,9 @@ try {
       if (!state.paused && state.currentTime > lastTime + 0.1) {
         if (!ready) {
           ready = true;
-          console.log(`Browser guest advancing room=${roomId}`);
+          console.log(
+            `Browser guest advancing room=${roomId}${lastRatingKey ? ` rating-key=${lastRatingKey}` : ""}`,
+          );
         }
         if (lastOffsetMs !== undefined && lastAdvancingOffsetMs !== lastOffsetMs) {
           console.log(`Browser guest advancing offset-ms=${lastOffsetMs} room=${roomId}`);

@@ -105,9 +105,9 @@ uint32_t multiplex_native_app_watch_together_reconnect_commit(void);
 uint32_t multiplex_native_app_watch_together_host(uint32_t host);
 uint32_t multiplex_native_app_watch_together_disband_request(void);
 uint32_t multiplex_native_app_watch_together_disband_commit(uint32_t deleted);
-uint32_t multiplex_native_app_watch_together_playback(uint32_t rating_key,
-                                                       uint32_t duration_ms,
-                                                       uint32_t offset_ms);
+uint32_t multiplex_native_app_watch_together_playback(
+    uint32_t room_index, uint32_t rating_key, const uint8_t *title,
+    uint32_t title_length, uint32_t duration_ms, uint32_t offset_ms);
 uint32_t multiplex_native_app_playback_state(void);
 uint32_t multiplex_native_app_playback_set_paused(uint32_t paused);
 uint32_t multiplex_native_app_browse_request(uint32_t *section_id,

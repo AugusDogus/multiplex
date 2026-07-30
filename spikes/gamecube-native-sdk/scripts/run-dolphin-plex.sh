@@ -175,9 +175,12 @@ if [ "$expect_autoplay_next" -eq 1 ]; then
       exit 1
       ;;
   esac
-  if [ "$direct_plex" -ne 1 ] || [ "$start_offset_ms" -eq 0 ] ||
-    [ "$watch_together" -eq 1 ]; then
-    echo "Autoplay testing requires direct Plex, a nonzero start offset, and local playback." >&2
+  if [ "$direct_plex" -ne 1 ] || [ "$start_offset_ms" -eq 0 ]; then
+    echo "Autoplay testing requires direct Plex and a nonzero start offset." >&2
+    exit 1
+  fi
+  if [ "$watch_together" -eq 1 ] && [ "$watch_together_browser_guest" -ne 1 ]; then
+    echo "Watch Together autoplay testing requires the browser guest." >&2
     exit 1
   fi
 fi
@@ -856,9 +859,28 @@ if [ "$expect_autoplay_next" -eq 1 ]; then
   selected_rating_key=$(sed -n \
     "s/.*$playback_ready_pattern rating-key=\([0-9][0-9]*\).*/\1/p" \
     "$log" | head -1)
-  wait_log "direct autoplay-next previous=$selected_rating_key active=$expected_autoplay_rating_key" 3600
+  if [ "$watch_together" -eq 1 ]; then
+    autoplay_pattern="Watch Together autoplay-next"
+  else
+    autoplay_pattern="direct autoplay-next"
+  fi
+  wait_log "$autoplay_pattern previous=$selected_rating_key active=$expected_autoplay_rating_key" 3600
+  if [ "$watch_together" -eq 1 ]; then
+    rotated_room_id=$(sed -n \
+      "s/.*$autoplay_pattern previous=[0-9][0-9]* active=[0-9][0-9]* room=\([A-Za-z0-9][A-Za-z0-9]*\).*/\1/p" \
+      "$log" | tail -1)
+    if [ -z "$rotated_room_id" ]; then
+      echo "The rotated Watch Together room id was not found in the Dolphin log." >&2
+      exit 1
+    fi
+    created_room_id=$rotated_room_id
+  fi
   wait_log "direct playback ready rating-key=$expected_autoplay_rating_key offset=0" 3600
   wait_for_new "playback=playing" "$((playing_count + 1))" 1200
+  if [ "$watch_together" -eq 1 ]; then
+    wait_for_browser_guest "Browser guest rating-key=$expected_autoplay_rating_key" 0 1200
+    wait_for_browser_guest "Browser guest advancing .*rating-key=$expected_autoplay_rating_key" 0 1200
+  fi
   wait_log "direct Plex timeline rating-key=$selected_rating_key .*state=stopped reported=1" 600
   sleep "$sustain_seconds"
   sh "$script_dir/check-dolphin-log.sh" "$log"
@@ -874,7 +896,11 @@ if [ "$expect_autoplay_next" -eq 1 ]; then
     echo "The autoplayed episode did not retain fullscreen video." >&2
     exit 1
   fi
-  echo "Automatically advanced Plex episode $selected_rating_key to $expected_autoplay_rating_key in Dolphin."
+  if [ "$watch_together" -eq 1 ]; then
+    echo "Automatically advanced Plex episode $selected_rating_key to $expected_autoplay_rating_key across Dolphin and the browser guest."
+  else
+    echo "Automatically advanced Plex episode $selected_rating_key to $expected_autoplay_rating_key in Dolphin."
+  fi
   if [ -n "$mute_pid" ]; then
     wait "$mute_pid" 2>/dev/null || true
     mute_pid=
