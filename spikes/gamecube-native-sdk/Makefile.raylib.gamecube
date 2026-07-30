@@ -13,8 +13,8 @@ include $(DEVKITPRO)/libogc2/gamecube_rules
 
 TARGET := multiplex-gamecube-raylib-reference
 BUILD := build-raylib-reference
-SOURCES := host-raylib
-INCLUDES := host .raylib/src .opengx/src .opengx/include
+SOURCES := host-raylib host-reference
+INCLUDES := host host-reference .raylib/src .opengx/src .opengx/include
 
 CFLAGS := -g -O2 -Wall -Wextra $(MACHDEP) $(INCLUDE)
 CXXFLAGS := $(CFLAGS)

@@ -12,6 +12,7 @@
 #include "plex_hls.h"
 #include "plex_hls_demux.h"
 #include "poster_jpeg.h"
+#include "reference_frame.h"
 #include "syncplay_probe.h"
 #include "trpc_client.h"
 #include "video_decoder.h"
@@ -37,8 +38,6 @@
 #define TILE_ROWS (LOGICAL_HEIGHT / TILE_HEIGHT)
 #define TILE_COUNT (TILE_COLUMNS * TILE_ROWS)
 #define TILE_BYTES (TILE_WIDTH * TILE_HEIGHT * 4)
-#define BUFFER_GUARD_BYTES 64
-#define BUFFER_GUARD_VALUE 0xa5
 #define APP_STACK_SIZE (512 * 1024)
 #define VIDEO_DECODER_STACK_SIZE (256 * 1024)
 #define MEDIA_PREFETCH_STACK_SIZE (256 * 1024)
@@ -89,13 +88,9 @@ static GXRModeObj *video_mode;
 static void *framebuffers[2];
 static unsigned framebuffer_index;
 static void *gx_fifo;
-static uint8_t *reference_pixels_allocation;
-static uint8_t *reference_scratch_allocation;
-static uint8_t *reference_pixels;
-static uint8_t *reference_scratch;
+static MultiplexReferenceFrame reference_frame;
 static uint8_t *texture_pixels_allocation;
 static uint8_t *texture_pixels;
-static uint32_t reference_bytes;
 static GXTexObj textures[TILE_COUNT];
 static GXTexObj poster_textures[POSTER_TEXTURE_COUNT];
 static uint8_t *poster_texture_pixels;
@@ -256,53 +251,24 @@ void multiplex_native_profile_mark(uint32_t stage) {
   profile_stage_started = now;
 }
 
-static uint32_t hash_bytes(const uint8_t *bytes, uint32_t length) {
-  uint32_t hash = 2166136261u;
-  for (uint32_t index = 0; index < length; ++index) {
-    hash ^= bytes[index];
-    hash *= 16777619u;
-  }
-  return hash;
-}
-
-static bool guard_is_intact(const uint8_t *allocation, uint32_t payload_bytes) {
-  for (unsigned index = 0; index < BUFFER_GUARD_BYTES; ++index) {
-    if (allocation[index] != BUFFER_GUARD_VALUE ||
-        allocation[BUFFER_GUARD_BYTES + payload_bytes + index] !=
-            BUFFER_GUARD_VALUE) {
-      return false;
-    }
-  }
-  return true;
-}
-
 static bool allocate_buffers(void) {
-  reference_bytes = multiplex_native_reference_pixel_bytes();
-  if (reference_bytes != LOGICAL_WIDTH * LOGICAL_HEIGHT * 4u) {
-    SYS_Report("REFERENCE GX: unexpected framebuffer size %u\n",
-               reference_bytes);
+  const MultiplexReferenceFrameStatus frame_status =
+      multiplex_reference_frame_initialize(
+          &reference_frame, LOGICAL_WIDTH * LOGICAL_HEIGHT * 4u);
+  if (frame_status != MULTIPLEX_REFERENCE_FRAME_OK) {
+    SYS_Report("REFERENCE GX: Native frame initialization failed: %s\n",
+               multiplex_reference_frame_status_name(frame_status));
     return false;
   }
 
-  const uint32_t guarded_bytes = reference_bytes + 2u * BUFFER_GUARD_BYTES;
-  reference_pixels_allocation = malloc(guarded_bytes);
-  reference_scratch_allocation = malloc(guarded_bytes);
   texture_pixels_allocation = malloc(TILE_COUNT * TILE_BYTES + 31u);
-  if (reference_pixels_allocation == NULL ||
-      reference_scratch_allocation == NULL ||
-      texture_pixels_allocation == NULL) {
+  if (texture_pixels_allocation == NULL) {
     SYS_Report("REFERENCE GX: buffer allocation failed\n");
     return false;
   }
 
-  reference_pixels = reference_pixels_allocation + BUFFER_GUARD_BYTES;
-  reference_scratch = reference_scratch_allocation + BUFFER_GUARD_BYTES;
   texture_pixels = (uint8_t *)(((uintptr_t)texture_pixels_allocation + 31u) &
                                ~(uintptr_t)31u);
-  memset(reference_pixels_allocation, BUFFER_GUARD_VALUE, guarded_bytes);
-  memset(reference_scratch_allocation, BUFFER_GUARD_VALUE, guarded_bytes);
-  memset(reference_pixels, 0, reference_bytes);
-  memset(reference_scratch, 0, reference_bytes);
   memset(texture_pixels, 0, TILE_COUNT * TILE_BYTES);
   return true;
 }
@@ -517,7 +483,8 @@ static void convert_reference_to_rgba8_tiles(void) {
               const unsigned source_y =
                   tile_y * TILE_HEIGHT + block_y * 4 + inner_y;
               const uint8_t *source =
-                  reference_pixels + (source_y * LOGICAL_WIDTH + source_x) * 4;
+                  reference_frame.pixels +
+                  (source_y * LOGICAL_WIDTH + source_x) * 4;
               const unsigned plane_offset = (inner_y * 4 + inner_x) * 2;
 
               block[plane_offset] = source[3];
@@ -535,36 +502,24 @@ static void convert_reference_to_rgba8_tiles(void) {
 
 static bool refresh_reference_frame(bool initialize) {
   const uint32_t render_started = gettick();
-  const uint32_t memo_hits_before = multiplex_native_reference_memo_hits();
-  const uint32_t memo_misses_before = multiplex_native_reference_memo_misses();
   memset(profile_stage_us, 0, sizeof(profile_stage_us));
   profile_stage_current = 0;
 
-  const uint32_t commands =
-      initialize ? multiplex_native_app_init_and_render_reference(
-                       reference_pixels, reference_bytes, reference_scratch,
-                       reference_bytes)
-                 : multiplex_native_app_render_reference(
-                       reference_pixels, reference_bytes, reference_scratch,
-                       reference_bytes);
-  if (!guard_is_intact(reference_pixels_allocation, reference_bytes) ||
-      !guard_is_intact(reference_scratch_allocation, reference_bytes)) {
-    SYS_Report("REFERENCE GX: Native renderer buffer guard corrupted\n");
-    return false;
-  }
-  if (commands == 0) {
-    SYS_Report("REFERENCE GX: Native renderer returned no commands at "
-               "stage %08x\n",
+  MultiplexReferenceFrameRender render;
+  const MultiplexReferenceFrameStatus frame_status =
+      multiplex_reference_frame_render(&reference_frame, initialize, &render);
+  if (frame_status != MULTIPLEX_REFERENCE_FRAME_OK) {
+    SYS_Report("REFERENCE GX: Native frame render failed: %s at stage %08x\n",
+               multiplex_reference_frame_status_name(frame_status),
                multiplex_native_reference_render_stage());
     return false;
   }
-  profile.commands = commands;
+  profile.commands = render.commands;
   profile.passes = 1;
-  profile.signature = hash_bytes(reference_pixels, reference_bytes);
+  profile.signature = render.signature;
   profile.render_us = elapsed_us(render_started);
-  profile.memo_hits = multiplex_native_reference_memo_hits() - memo_hits_before;
-  profile.memo_misses =
-      multiplex_native_reference_memo_misses() - memo_misses_before;
+  profile.memo_hits = render.memo_hits;
+  profile.memo_misses = render.memo_misses;
 
   const uint32_t upload_started = gettick();
   convert_reference_to_rgba8_tiles();

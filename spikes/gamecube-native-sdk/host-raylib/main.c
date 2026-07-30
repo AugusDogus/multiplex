@@ -1,4 +1,5 @@
 #include "native_ui.h"
+#include "reference_frame.h"
 #include "raylib.h"
 
 #include <gccore.h>
@@ -16,8 +17,6 @@
 #define TILE_COLUMNS (LOGICAL_WIDTH / TILE_WIDTH)
 #define TILE_ROWS (LOGICAL_HEIGHT / TILE_HEIGHT)
 #define TILE_COUNT (TILE_COLUMNS * TILE_ROWS)
-#define BUFFER_GUARD_BYTES 64
-#define BUFFER_GUARD_VALUE 0xa5
 #define MAX_CONVERGENCE_PASSES 8
 
 typedef struct {
@@ -29,41 +28,53 @@ typedef struct {
   uint32_t signature;
 } FrameProfile;
 
-static uint8_t *reference_pixels;
-static uint8_t *reference_scratch;
-static uint8_t *reference_pixels_allocation;
-static uint8_t *reference_scratch_allocation;
+static MultiplexReferenceFrame reference_frame;
 static uint8_t *tile_pixels;
-static uint32_t reference_bytes;
 static Texture2D reference_textures[TILE_COUNT];
 static bool native_frame_dirty = true;
 static bool native_initialized = false;
 static bool show_profile = false;
 static FrameProfile profile;
 
-static bool guard_is_intact(const uint8_t *allocation, uint32_t payload_bytes) {
-  for (unsigned index = 0; index < BUFFER_GUARD_BYTES; ++index) {
-    if (allocation[index] != BUFFER_GUARD_VALUE ||
-        allocation[BUFFER_GUARD_BYTES + payload_bytes + index] !=
-            BUFFER_GUARD_VALUE) {
-      return false;
-    }
-  }
-  return true;
-}
-
 static uint32_t elapsed_us(uint32_t started) {
   return (uint32_t)ticks_to_microsecs((uint32_t)(gettick() - started));
 }
 
-static uint32_t hash_bytes(const uint8_t *bytes, uint32_t length) {
-  uint32_t hash = 2166136261u;
-  for (uint32_t index = 0; index < length; ++index) {
-    hash ^= bytes[index];
-    hash *= 16777619u;
-  }
-  return hash;
+void multiplex_native_input_trace(uint32_t action, uint32_t focus,
+                                  uint32_t count, uint32_t message) {
+  TraceLog(LOG_INFO, "REFERENCE: input action=%u focus=%u count=%u message=%u",
+           action, focus, count, message);
 }
+
+void *multiplex_native_cache_alloc(uint32_t len, uint32_t alignment) {
+  if (len == 0 || alignment == 0 || (alignment & (alignment - 1u)) != 0) {
+    return NULL;
+  }
+  if (alignment < sizeof(void *)) {
+    alignment = sizeof(void *);
+  }
+  const uint32_t overhead = alignment - 1u + sizeof(void *);
+  if (len > UINT32_MAX - overhead) {
+    return NULL;
+  }
+  uint8_t *allocation = malloc(len + overhead);
+  if (allocation == NULL) {
+    return NULL;
+  }
+  const uintptr_t aligned =
+      ((uintptr_t)allocation + sizeof(void *) + alignment - 1u) &
+      ~(uintptr_t)(alignment - 1u);
+  ((void **)aligned)[-1] = allocation;
+  return (void *)aligned;
+}
+
+void multiplex_native_cache_free(void *memory) {
+  if (memory != NULL) {
+    free(((void **)memory)[-1]);
+  }
+}
+
+void multiplex_native_profile_mark(uint32_t stage) { (void)stage; }
 
 static void trace_reference_bounds(void) {
   unsigned min_x = LOGICAL_WIDTH;
@@ -74,10 +85,10 @@ static void trace_reference_bounds(void) {
   for (unsigned y = 0; y < LOGICAL_HEIGHT; ++y) {
     for (unsigned x = 0; x < LOGICAL_WIDTH; ++x) {
       const uint32_t offset = (y * LOGICAL_WIDTH + x) * 4u;
-      const bool background = reference_pixels[offset] == 10 &&
-                              reference_pixels[offset + 1] == 10 &&
-                              reference_pixels[offset + 2] == 12 &&
-                              reference_pixels[offset + 3] == 255;
+      const bool background = reference_frame.pixels[offset] == 10 &&
+                              reference_frame.pixels[offset + 1] == 10 &&
+                              reference_frame.pixels[offset + 2] == 12 &&
+                              reference_frame.pixels[offset + 3] == 255;
       if (background) {
         continue;
       }
@@ -101,32 +112,26 @@ static void trace_reference_bounds(void) {
 }
 
 static bool allocate_reference_buffers(void) {
-  reference_bytes = multiplex_native_reference_pixel_bytes();
-  if (reference_bytes != LOGICAL_WIDTH * LOGICAL_HEIGHT * 4u) {
-    TraceLog(LOG_ERROR, "Unexpected Native SDK framebuffer size: %u",
-             reference_bytes);
+  const MultiplexReferenceFrameStatus frame_status =
+      multiplex_reference_frame_initialize(
+          &reference_frame, LOGICAL_WIDTH * LOGICAL_HEIGHT * 4u);
+  if (frame_status != MULTIPLEX_REFERENCE_FRAME_OK) {
+    TraceLog(LOG_ERROR, "Native frame initialization failed: %s",
+             multiplex_reference_frame_status_name(frame_status));
     return false;
   }
 
-  const uint32_t guarded_bytes = reference_bytes + 2u * BUFFER_GUARD_BYTES;
-  reference_pixels_allocation = malloc(guarded_bytes);
-  reference_scratch_allocation = malloc(guarded_bytes);
   tile_pixels = malloc(TILE_WIDTH * TILE_HEIGHT * 4u);
-  if (reference_pixels_allocation == NULL ||
-      reference_scratch_allocation == NULL || tile_pixels == NULL) {
+  if (tile_pixels == NULL) {
     TraceLog(LOG_ERROR, "Could not allocate Native SDK reference buffers");
+    multiplex_reference_frame_destroy(&reference_frame);
     return false;
   }
-  reference_pixels = reference_pixels_allocation + BUFFER_GUARD_BYTES;
-  reference_scratch = reference_scratch_allocation + BUFFER_GUARD_BYTES;
-  memset(reference_pixels_allocation, BUFFER_GUARD_VALUE, guarded_bytes);
-  memset(reference_scratch_allocation, BUFFER_GUARD_VALUE, guarded_bytes);
-  memset(reference_pixels, 0, reference_bytes);
-  memset(reference_scratch, 0, reference_bytes);
   memset(tile_pixels, 0, TILE_WIDTH * TILE_HEIGHT * 4u);
   TraceLog(LOG_INFO,
            "REFERENCE: pixels=%p scratch=%p tile=%p (%u-byte guarded buffers)",
-           reference_pixels, reference_scratch, tile_pixels, guarded_bytes);
+           reference_frame.pixels, reference_frame.scratch, tile_pixels,
+           reference_frame.byte_count + 128u);
   return true;
 }
 
@@ -140,7 +145,7 @@ static bool upload_reference_tiles(void) {
              tile_x * TILE_WIDTH) *
             4u;
         memcpy(tile_pixels + row * TILE_WIDTH * 4u,
-               reference_pixels + source_offset, TILE_WIDTH * 4u);
+               reference_frame.pixels + source_offset, TILE_WIDTH * 4u);
       }
 
       if (IsTextureValid(reference_textures[tile_index])) {
@@ -176,29 +181,20 @@ static bool refresh_reference_frame(void) {
   const bool initialize = !native_initialized;
   for (unsigned pass = 0; pass < MAX_CONVERGENCE_PASSES; ++pass) {
     TraceLog(LOG_INFO, "REFERENCE: rendering pass %u", pass + 1);
-    const uint32_t commands =
-        initialize
-            ? multiplex_native_app_init_and_render_reference(
-                  reference_pixels, reference_bytes, reference_scratch,
-                  reference_bytes)
-            : multiplex_native_app_render_reference(
-                  reference_pixels, reference_bytes, reference_scratch,
-                  reference_bytes);
+    MultiplexReferenceFrameRender frame_render;
+    const MultiplexReferenceFrameStatus frame_status =
+        multiplex_reference_frame_render(&reference_frame, initialize,
+                                         &frame_render);
     TraceLog(LOG_INFO, "REFERENCE: rendered pass %u", pass + 1);
-    if (!guard_is_intact(reference_pixels_allocation, reference_bytes) ||
-        !guard_is_intact(reference_scratch_allocation, reference_bytes)) {
-      TraceLog(LOG_ERROR,
-               "REFERENCE: buffer guard corrupted during render pass %u",
-               pass + 1);
-      return false;
-    }
-    if (commands == 0) {
-      TraceLog(LOG_ERROR, "Native SDK reference renderer returned no commands");
+    if (frame_status != MULTIPLEX_REFERENCE_FRAME_OK) {
+      TraceLog(LOG_ERROR, "Native frame render failed during pass %u: %s",
+               pass + 1,
+               multiplex_reference_frame_status_name(frame_status));
       return false;
     }
 
-    const uint32_t signature = hash_bytes(reference_pixels, reference_bytes);
-    profile.commands = commands;
+    const uint32_t signature = frame_render.signature;
+    profile.commands = frame_render.commands;
     profile.passes = initialize ? 3 : pass + 1;
     profile.signature = signature;
     if (initialize) {
@@ -237,8 +233,10 @@ static bool refresh_reference_frame(void) {
        index < sizeof(sample_offsets) / sizeof(sample_offsets[0]); ++index) {
     const uint32_t offset = sample_offsets[index];
     TraceLog(LOG_INFO, "REFERENCE: sample %u = %u,%u,%u,%u", index,
-             reference_pixels[offset], reference_pixels[offset + 1],
-             reference_pixels[offset + 2], reference_pixels[offset + 3]);
+             reference_frame.pixels[offset],
+             reference_frame.pixels[offset + 1],
+             reference_frame.pixels[offset + 2],
+             reference_frame.pixels[offset + 3]);
   }
   trace_reference_bounds();
 
@@ -340,8 +338,7 @@ int main(void) {
     UnloadTexture(reference_textures[tile_index]);
   }
   free(tile_pixels);
-  free(reference_scratch_allocation);
-  free(reference_pixels_allocation);
+  multiplex_reference_frame_destroy(&reference_frame);
   CloseWindow();
   return 0;
 }

@@ -555,15 +555,20 @@ separate Multiplex web application.
 ## Decision
 
 Continue with Native SDK for the GameCube prototype. Keep the direct GX
-presenter as the parity oracle and treat raylib as a portability experiment,
-not as the committed GameCube renderer yet.
+presenter as the parity oracle. Do not make raylib a dependency of the console
+ports: a small platform-neutral module now owns the guarded 640x480 RGBA frame,
+Native SDK render call, memo counters, and deterministic signature. Both the GX
+and experimental raylib presenters compile against that boundary. Its host unit
+test covers size rejection, initialization, rerendering, guard corruption, and
+empty-render failures. The direct-GX Dolphin playback smoke remained at 60 fps
+with stable audio pause/resume and a clean invalid-access log after extraction.
 
 Next Dolphin milestones:
 
-1. add a host-only disband action to the Native SDK UI without duplicating the
-   web app's tRPC procedures;
-2. decide whether to repair raylib/OpenGX or extract a smaller portable
-   framebuffer/presenter interface before the Dreamcast pass.
+1. build the Wii fast-follow from the same TypeScript, markup, validated RGBA
+   frame, and GX presenter architecture;
+2. add a Dreamcast presenter that consumes the same validated frame after the
+   Wii path is working.
 
 Hardware profiling remains deferred until the Dolphin app is materially
 useful; it is not a gate on these milestones.

@@ -143,6 +143,8 @@ backward/forward without walking focus through every poster.
 - `src/gamecube_probe.zig`: compiled view, layout, focus/handler resolution,
   GPU-packet translation, and C ABI
 - `host-reference-gx/main.c`: reference framebuffer and direct-GX presenter
+- `host-reference/reference_frame.c`: platform-neutral guarded RGBA frame
+  allocation, Native SDK rendering, and deterministic frame signatures
 - `host-reference-gx/trpc_client.c`: bounded Better Auth bearer transport for
   the same tRPC procedures used by the web client
 - `host-reference-gx/trpc_rooms.c`: fixed-capacity Watch Together room parser

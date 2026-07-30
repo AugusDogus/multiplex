@@ -14,11 +14,11 @@ include $(DEVKITPRO)/libogc2/gamecube_rules
 
 TARGET := multiplex-gamecube-native-reference
 BUILD := build-native-reference
-SOURCES := host-reference-gx
+SOURCES := host-reference-gx host-reference
 MPLAYER_ROOT := $(SPIKE_ROOT)/.mplayer-ce-libogc2/mplayer
 FFMPEG_ROOT := $(MPLAYER_ROOT)/ffmpeg
 MBEDTLS_ROOT := $(SPIKE_ROOT)/.mbedtls-stage
-INCLUDES := host host-reference-gx
+INCLUDES := host host-reference host-reference-gx
 
 CFLAGS := -g -O2 -Wall -Wextra $(MACHDEP) $(INCLUDE)
 CXXFLAGS := $(CFLAGS)

@@ -15,6 +15,7 @@ sh "$script_dir/test-plex-catalog.sh"
 sh "$script_dir/test-hls-playlist.sh"
 sh "$script_dir/test-mpeg-ts-parser.sh"
 sh "$script_dir/test-trpc-rooms.sh"
+sh "$script_dir/test-reference-frame.sh"
 
 cd "$spike_dir"
 
