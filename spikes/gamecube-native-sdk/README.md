@@ -199,8 +199,11 @@ when needed, builds the linked Plex DOL, and opens an interactive TAP-backed
 Dolphin session. `press right a` sends controller input through that same pipe.
 `status`, `check`, and `screenshot [name]` expose the current render telemetry,
 validate the Dolphin log, and capture the emulated framebuffer without
-activating a Dolphin window. `scenario navigation` captures repeatable Home,
-Search, and Libraries baselines under `.dolphin-user/QACaptures`.
+activating a Dolphin window. `scenario navigation` relaunches and captures
+repeatable Home, Search, and Libraries baselines under
+`.dolphin-user/QACaptures`. `scenario playback` relaunches, opens the first
+Continue Watching item, and verifies details, fullscreen video, control fade,
+reveal-only A, second-A pause, resume, clean logs, and stable presentation.
 The screenshot hotkey uses a separate Dolphin pipe, so this workflow does not
 invoke desktop automation or GNOME Remote Desktop. The tracked controller
 profile also accepts the connected Steam Controller alongside the QA pipe.

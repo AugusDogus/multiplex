@@ -26,7 +26,8 @@ Commands:
   screenshot [NAME]            Capture Dolphin's framebuffer without focus.
   wait-log PATTERN [SECONDS]   Wait for a new matching Dolphin log line.
   check                        Check memory, rendering, layout, and FPS logs.
-  scenario navigation         Capture Home, Search, and Libraries baselines.
+  scenario navigation         Relaunch and capture catalog navigation baselines.
+  scenario playback           Relaunch and verify details and player behavior.
 
 Buttons: a b x y z start l r up down left right
 EOF
@@ -278,7 +279,7 @@ press_and_wait() {
 }
 
 navigation_scenario() {
-  require_dolphin
+  launch
   if ! rg -q 'direct Plex posters decoded=12/12' "$log"; then
     echo "The linked Plex catalog is not ready for navigation QA." >&2
     exit 1
@@ -293,6 +294,51 @@ navigation_scenario() {
   press_and_wait B
   check
   echo "Navigation captures are ready in $capture_dir."
+}
+
+playback_scenario() {
+  launch
+  details_before=$(line_count 'details-page ready')
+  press_and_wait A
+  wait_for_count 'details-page ready' "$details_before" 60
+  capture_screenshot playback-details
+
+  activation_before=$(line_count 'direct playback activated')
+  ready_before=$(line_count 'direct playback ready')
+  playing_before=$(line_count 'playback=playing')
+  press_button A
+  wait_for_count 'direct playback activated' "$activation_before" 120
+  wait_for_count 'direct playback ready' "$ready_before" 120
+  wait_for_count 'playback=playing' "$playing_before" 30
+  capture_screenshot playback-controls-initial
+
+  controls_state=$(sed -n \
+    's/.*player controls visible=\([01]\).*/\1/p' "$log" | tail -1)
+  if [ "$controls_state" != 0 ]; then
+    hidden_before=$(line_count 'player controls visible=0')
+    wait_for_count 'player controls visible=0' "$hidden_before" 30
+  fi
+  capture_screenshot playback-fullscreen
+
+  visible_before=$(line_count 'player controls visible=1')
+  paused_before=$(line_count 'playback=paused')
+  press_button A
+  wait_for_count 'player controls visible=1' "$visible_before" 10
+  if [ "$(line_count 'playback=paused')" -ne "$paused_before" ]; then
+    echo "The first A press paused playback instead of revealing controls." >&2
+    exit 1
+  fi
+  capture_screenshot playback-controls-revealed
+
+  press_button A
+  wait_for_count 'playback=paused' "$paused_before" 10
+  capture_screenshot playback-paused
+
+  resumed_before=$(line_count 'playback=playing')
+  press_button A
+  wait_for_count 'playback=playing' "$resumed_before" 10
+  check
+  echo "Playback captures are ready in $capture_dir."
 }
 
 status() {
@@ -410,6 +456,7 @@ case "$command" in
     shift
     case "${1:-}" in
       navigation) navigation_scenario ;;
+      playback) playback_scenario ;;
       *) usage >&2; exit 1 ;;
     esac
     ;;
