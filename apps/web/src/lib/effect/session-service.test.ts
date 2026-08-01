@@ -1,4 +1,5 @@
 import { expect, mock, test } from "bun:test";
+import { fromPartial } from "@total-typescript/shoehorn";
 import type {
   SessionState,
   SyncplayParticipantState,
@@ -43,7 +44,7 @@ const room = (
     { id: 2, title: "Guest", username: "guest", thumb: null },
   ],
 ): WatchTogetherRoom =>
-  ({
+  fromPartial<WatchTogetherRoom>({
     id,
     sourceUri: `server://srv/com.plexapp.plugins.library/library/metadata/${ratingKey}`,
     title: `Room ${id}`,
@@ -51,10 +52,10 @@ const room = (
     syncplayHost: "syncplay.example.com",
     syncplayPort: 443,
     users,
-  }) as WatchTogetherRoom;
+  });
 
 const item = (ratingKey: string): MediaPlayerItem =>
-  ({
+  fromPartial<MediaPlayerItem>({
     ratingKey,
     key: `/library/metadata/${ratingKey}`,
     title: `Item ${ratingKey}`,
@@ -67,7 +68,7 @@ const item = (ratingKey: string): MediaPlayerItem =>
     duration: 600_000,
     index: 1,
     parentIndex: 1,
-  }) as MediaPlayerItem;
+  });
 
 const localUser: SyncplayUser = {
   id: 1,
@@ -174,11 +175,14 @@ const withSession = async <A>(
   const { makeController, controllers } = options?.makeController
     ? {
         makeController: options.makeController,
-        controllers: [] as StubController[],
+        controllers: fromPartial<StubController[]>([]),
       }
     : makeStubControllerFactory();
   const { makeObserver, observers } = options?.makeObserver
-    ? { makeObserver: options.makeObserver, observers: [] as StubObserver[] }
+    ? {
+        makeObserver: options.makeObserver,
+        observers: fromPartial<StubObserver[]>([]),
+      }
     : makeStubObserverFactory();
 
   let layer = WatchTogetherSession.layer({

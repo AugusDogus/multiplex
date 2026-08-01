@@ -1,11 +1,12 @@
 import { beforeEach, expect, mock, spyOn, test } from "bun:test";
+import { fromPartial } from "@total-typescript/shoehorn";
 
 import { makePlayerPort } from "./player-port";
 import { createPlayerService } from "./player-service";
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import type { MediaPlayerItem } from "~/types/media-player";
 
-const sampleItem = {
+const sampleItem = fromPartial<MediaPlayerItem>({
   ratingKey: "100",
   key: "/library/metadata/100",
   title: "Test Episode",
@@ -16,7 +17,7 @@ const sampleItem = {
   serverUrl: "https://plex.example",
   authToken: "token",
   duration: 600_000,
-} as MediaPlayerItem;
+});
 
 function makeIsolatedPort() {
   const player = createPlayerService();
