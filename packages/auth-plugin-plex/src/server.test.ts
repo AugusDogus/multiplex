@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { fromAny, fromPartial } from "@total-typescript/shoehorn";
+import { fromPartial } from "@total-typescript/shoehorn";
 import { PlexTvAuthService, type PlexUserInfo } from "@multiplex/plex-query";
 import { createEndpoint } from "better-call";
 import { decodeOAuthState } from "./return-to";
@@ -192,7 +192,7 @@ async function initiate(
 ) {
   const response = requireResponse(
     await plex().endpoints.initiatePlexAuth(
-      fromAny({
+      fromPartial({
         asResponse: true,
         context,
         query,
@@ -210,7 +210,7 @@ async function callback(
 ) {
   const response = requireResponse(
     await plex().endpoints.plexCallback(
-      fromAny({
+      fromPartial({
         asResponse: true,
         context,
         headers: new Headers({ cookie: jar.header() }),
