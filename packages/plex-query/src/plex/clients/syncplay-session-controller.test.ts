@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { fromAny, fromPartial } from "@total-typescript/shoehorn";
 import {
   encodeSyncplayUser,
   type SyncplayRemoteAction,
@@ -54,7 +55,9 @@ class FakeWebSocket implements SyncplayWebSocketLike {
   }
 
   message(frame: unknown): void {
-    const event = { data: JSON.stringify(frame) } as MessageEvent<string>;
+    const event = fromPartial<MessageEvent<string>>({
+      data: JSON.stringify(frame),
+    });
     for (const listener of this.listeners.message) listener(event);
   }
 
@@ -116,7 +119,7 @@ function createController(options: {
       options.setTimeout ??
       ((callback) => {
         callback();
-        return 0 as unknown as ReturnType<typeof setTimeout>;
+        return fromAny(0);
       }),
     clearTimeout: options.clearTimeout ?? (() => undefined),
   });

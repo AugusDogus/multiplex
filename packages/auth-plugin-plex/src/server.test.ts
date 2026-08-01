@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { fromPartial } from "@total-typescript/shoehorn";
 import { PlexTvAuthService, type PlexUserInfo } from "@multiplex/plex-query";
 import { createEndpoint } from "better-call";
 import { decodeOAuthState } from "./return-to";
@@ -36,7 +37,7 @@ const pinResponse = {
   newRegistration: null,
 };
 
-const plexUser = {
+const plexUser = fromPartial<PlexUserInfo>({
   id: 7,
   uuid: "plex-user-uuid",
   username: "plex-user",
@@ -44,7 +45,7 @@ const plexUser = {
   friendlyName: "Plex User",
   thumb: "https://example.com/avatar.png",
   confirmed: true,
-} as PlexUserInfo;
+});
 
 const betterAuthUser = {
   id: "better-auth-user",

@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { fromPartial } from "@total-typescript/shoehorn";
 import type {
   ItemMetadata,
   PlexDevice,
@@ -64,19 +65,19 @@ const SERVER: PlexDevice = {
   ],
 };
 
-const ITEM = {
+const ITEM = fromPartial<ItemMetadata>({
   ratingKey: "42",
   key: "/library/metadata/42",
   title: "Movie",
   type: "movie",
   Media: [{ Part: [{ key: "/library/parts/42/file.mp4" }] }],
-} as ItemMetadata;
+});
 
 test("reports when only the Home admin can enable a missing Guest", async () => {
-  const host = {
+  const host = fromPartial<PlexTvClient>({
     getHomeUsers: mock(async () => [HOME_USERS[0]]),
     getUserInfo: mock(async () => ({ id: 1 })),
-  } as unknown as PlexTvClient;
+  });
 
   const result = await resolveGuestAccess(host, {
     serverId: "server-1",
@@ -93,14 +94,14 @@ test("reports when only the Home admin can enable a missing Guest", async () => 
 describe("resolveGuestAccess", () => {
   test("proves Guest access to the selected server and item", async () => {
     const getItemMetadata = mock(async () => ITEM);
-    const serverClient = {
+    const serverClient = fromPartial<PlexServerClient>({
       getItemMetadata,
-    } as unknown as PlexServerClient;
-    const guestPlex = {
+    });
+    const guestPlex = fromPartial<PlexTvClient>({
       getServers: mock(async () => [SERVER]),
       createServerClient: mock(() => serverClient),
-    } as unknown as PlexTvClient;
-    const host = {
+    });
+    const host = fromPartial<PlexTvClient>({
       getHomeUsers: mock(async () => HOME_USERS),
       getUserInfo: mock(async () => ({ id: 1 })),
       switchHomeUser: mock(async () => ({
@@ -111,7 +112,7 @@ describe("resolveGuestAccess", () => {
         guest: true,
         restricted: true,
       })),
-    } as unknown as PlexTvClient;
+    });
 
     const result = await resolveGuestAccess(
       host,
@@ -127,10 +128,10 @@ describe("resolveGuestAccess", () => {
   });
 
   test("does not treat host access as Guest server access", async () => {
-    const guestPlex = {
+    const guestPlex = fromPartial<PlexTvClient>({
       getServers: mock(async () => []),
-    } as unknown as PlexTvClient;
-    const host = {
+    });
+    const host = fromPartial<PlexTvClient>({
       getHomeUsers: mock(async () => HOME_USERS),
       getUserInfo: mock(async () => ({ id: 1 })),
       switchHomeUser: mock(async () => ({
@@ -141,7 +142,7 @@ describe("resolveGuestAccess", () => {
         guest: true,
         restricted: true,
       })),
-    } as unknown as PlexTvClient;
+    });
 
     const result = await resolveGuestAccess(
       host,
