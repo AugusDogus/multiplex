@@ -46,7 +46,7 @@ class FakeWebSocket implements SyncplayWebSocketLike {
     type: keyof FakeWebSocket["listeners"],
     listener: (() => void) | ((event: MessageEvent<string>) => void) | ((event: Event) => void),
   ): void {
-    this.listeners[type].push(listener as never);
+    this.listeners[type].push(fromAny(listener));
   }
 
   open(): void {

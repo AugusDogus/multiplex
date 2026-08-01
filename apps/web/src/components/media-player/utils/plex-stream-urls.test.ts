@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { fromPartial } from "@total-typescript/shoehorn";
 
 import type { MediaPlayerItem } from "~/types/media-player";
 import type { PlexPlaybackPlan } from "./plex-playback-plan";
@@ -12,7 +13,7 @@ import {
   stopTranscodeSessionBeforeReplacement,
 } from "./plex-stream-urls";
 
-const TRANSCODE_ITEM = {
+const TRANSCODE_ITEM = fromPartial<MediaPlayerItem>({
   ratingKey: "42",
   key: "/library/metadata/42",
   serverId: "server-1",
@@ -26,7 +27,7 @@ const TRANSCODE_ITEM = {
       Part: [{ key: "/library/parts/42/file.mkv" }],
     },
   ],
-} as MediaPlayerItem;
+});
 
 const TRANSCODE_WITHOUT_SUBTITLES: PlexPlaybackPlan = {
   streamDecision: "direct-stream",

@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { fromPartial } from "@total-typescript/shoehorn";
 
 import type { SyncEngineCollections } from "./collections";
 import { resolveSyncEngineCollections } from "./collection-access";
 
-const collections = {} as SyncEngineCollections;
-const otherCollections = {} as SyncEngineCollections;
+const collections = fromPartial<SyncEngineCollections>({});
+const otherCollections = fromPartial<SyncEngineCollections>({});
 
 describe("resolveSyncEngineCollections", () => {
   test("uses the active account registry outside the provider tree", () => {

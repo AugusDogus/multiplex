@@ -1,4 +1,5 @@
 import { expect, mock, test } from "bun:test";
+import { fromPartial } from "@total-typescript/shoehorn";
 import type {
   SessionState,
   SyncplaySessionControllerOptions,
@@ -37,7 +38,7 @@ const localUser: SyncplayUser = {
   deviceName: "Multiplex Web",
 };
 
-const item = {
+const item = fromPartial<MediaPlayerItem>({
   ratingKey: "100",
   key: "/library/metadata/100",
   title: "Item 100",
@@ -48,7 +49,7 @@ const item = {
   serverUrl: "https://plex.example",
   authToken: "token",
   duration: 600_000,
-} as MediaPlayerItem;
+});
 
 const makeController: MakeSessionController = (
   _options: SyncplaySessionControllerOptions,

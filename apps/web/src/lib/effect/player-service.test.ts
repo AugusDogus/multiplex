@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { fromPartial } from "@total-typescript/shoehorn";
+import { fromAny, fromPartial } from "@total-typescript/shoehorn";
 import type { ItemMetadata } from "@multiplex/plex-query";
 
 import {
@@ -177,9 +177,9 @@ describe("openPlayer resume math", () => {
   test("clears item-scoped state atomically", () => {
     player.openPlayer(sampleItem, { resume: false });
     player.updatePlaybackState({
-      playQueue: { MediaContainer: {} } as never,
+      playQueue: fromAny({ MediaContainer: {} }),
       playQueueId: "queue-1",
-      markers: [{ id: 1 }] as never,
+      markers: fromAny([{ id: 1 }]),
     });
     player.startAutoPlayCountdown(nextEpisode);
 

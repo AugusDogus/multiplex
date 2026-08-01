@@ -1,4 +1,5 @@
 import { beforeEach, expect, mock, test } from "bun:test";
+import { fromAny, fromPartial } from "@total-typescript/shoehorn";
 import {
   CREATE_BASE_DELAY_MS,
   CREATE_STAGGER_MS,
@@ -51,7 +52,7 @@ const room = (
     { id: 2, title: "Guest", username: "guest", thumb: null },
   ],
 ): WatchTogetherRoom =>
-  ({
+  fromPartial<WatchTogetherRoom>({
     id,
     sourceUri: `server://srv/com.plexapp.plugins.library/library/metadata/${ratingKey}`,
     title: `Room ${id}`,
@@ -60,10 +61,10 @@ const room = (
     syncplayPort: 443,
     users,
     updatedAt: Math.floor(NOW / 1000),
-  }) as WatchTogetherRoom;
+  });
 
 const item = (ratingKey: string): MediaPlayerItem =>
-  ({
+  fromPartial<MediaPlayerItem>({
     ratingKey,
     key: `/library/metadata/${ratingKey}`,
     title: `Item ${ratingKey}`,
@@ -76,7 +77,7 @@ const item = (ratingKey: string): MediaPlayerItem =>
     duration: 1_200_000,
     index: 1,
     parentIndex: 1,
-  }) as MediaPlayerItem;
+  });
 
 const nextEpisode: NextEpisodeInfo = {
   ratingKey: "200",
@@ -234,16 +235,18 @@ const makeStubApi = (overrides?: {
         key: `/library/metadata/${input.ratingKey}`,
         title: `Meta ${input.ratingKey}`,
         type: "episode",
-        Media: [{ id: Number(input.ratingKey) }] as MediaPlayerItem["Media"],
+        Media: fromPartial<NonNullable<MediaPlayerItem["Media"]>>([
+          { id: Number(input.ratingKey) },
+        ]),
       });
     },
   );
 
   const api: WatchTogetherApiShape = {
-    listRooms: () => listRooms() as never,
-    createRoom: (input) => createRoom(input) as never,
-    deleteRoom: (roomId) => deleteRoom(roomId) as never,
-    getItemMetadata: (input) => getItemMetadata(input) as never,
+    listRooms: () => fromAny(listRooms()),
+    createRoom: (input) => fromAny(createRoom(input)),
+    deleteRoom: (roomId) => fromAny(deleteRoom(roomId)),
+    getItemMetadata: (input) => fromAny(getItemMetadata(input)),
   };
 
   return { api, createRoom, deleteRoom, listRooms, getItemMetadata };
@@ -275,7 +278,7 @@ const withRotationSession = async <A>(
   const player = makeControllablePlayer();
   const { makeController, controllers } = makeStubControllerFactory();
   const { makeObserver, observers } = makeStubObserverFactory();
-  let roomsFn = options?.rooms ?? (() => [] as WatchTogetherRoom[]);
+  let roomsFn = options?.rooms ?? (() => fromPartial<WatchTogetherRoom[]>([]));
   let listRoomsFailing = false;
   const { api, createRoom, deleteRoom, getItemMetadata } = makeStubApi({
     listRoomsEffect: () => {

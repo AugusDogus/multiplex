@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { fromPartial } from "@total-typescript/shoehorn";
+import { fromAny, fromPartial } from "@total-typescript/shoehorn";
 import {
   encodeSyncplayUser,
   SyncplayClient,
@@ -61,7 +61,7 @@ class FakeWebSocket implements SyncplayWebSocketLike {
     type: keyof FakeWebSocket["listeners"],
     listener: (() => void) | ((event: MessageEvent<string>) => void) | ((event: Event) => void),
   ): void {
-    this.listeners[type].push(listener as never);
+    this.listeners[type].push(fromAny(listener));
   }
 
   open(): void {
