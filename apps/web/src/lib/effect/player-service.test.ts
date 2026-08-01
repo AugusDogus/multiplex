@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { fromPartial } from "@total-typescript/shoehorn";
 import type { ItemMetadata } from "@multiplex/plex-query";
 
 import {
@@ -16,21 +17,23 @@ import {
 import type { MediaPlayerItem, NextEpisodeInfo } from "~/types/media-player";
 import { buildPlexPlaybackPlan } from "~/components/media-player/utils/plex-playback-plan";
 
-const directPlayMedia = {
+type MediaEntry = NonNullable<MediaPlayerItem["Media"]>[number];
+
+const directPlayMedia = fromPartial<MediaEntry>({
   audioCodec: "aac",
   videoCodec: "h264",
   container: "mp4",
   Part: [
     {
       Stream: [
-        { id: 1, streamType: 1 as const, codec: "h264", selected: true },
+        { id: 1, streamType: 1 as const, codec: "h264" },
         { id: 2, streamType: 2 as const, codec: "aac", selected: true },
       ],
     },
   ],
-} as MediaPlayerItem["Media"] extends (infer M)[] | undefined ? M : never;
+});
 
-const sampleItem = {
+const sampleItem = fromPartial<MediaPlayerItem>({
   ratingKey: "100",
   key: "/library/metadata/100",
   title: "Test Episode",
@@ -41,7 +44,7 @@ const sampleItem = {
   serverUrl: "https://plex.example",
   authToken: "token",
   duration: 600_000,
-} as MediaPlayerItem;
+});
 
 const nextEpisode: NextEpisodeInfo = {
   ratingKey: "101",
@@ -68,7 +71,7 @@ beforeEach(() => {
 });
 
 function createTranscodedSubtitleItem(selected: boolean): MediaPlayerItem {
-  return {
+  return fromPartial<MediaPlayerItem>({
     ...sampleItem,
     Media: [
       {
@@ -92,14 +95,14 @@ function createTranscodedSubtitleItem(selected: boolean): MediaPlayerItem {
         ],
       },
     ],
-  } as MediaPlayerItem;
+  });
 }
 
 function withSubtitleSelection(
   item: MediaPlayerItem,
   selected: boolean,
 ): ItemMetadata {
-  return {
+  return fromPartial<ItemMetadata>({
     ...item,
     Media: [
       {
@@ -116,7 +119,7 @@ function withSubtitleSelection(
         ],
       },
     ],
-  } as ItemMetadata;
+  });
 }
 
 describe("openPlayer resume math", () => {
@@ -288,10 +291,13 @@ describe("applyPlaybackMetadata", () => {
     player.openPlayer(item, { resume: false });
     const before = player.snapshot().currentItem;
     const beforeGeneration = player.snapshot().sourceGeneration;
-    player.applyPlaybackMetadata(player.playbackIdentity()!, {
-      ...item,
-      title: "Updated Title",
-    } as ItemMetadata);
+    player.applyPlaybackMetadata(
+      player.playbackIdentity()!,
+      fromPartial<ItemMetadata>({
+        ...item,
+        title: "Updated Title",
+      }),
+    );
     // Streams equal → early return; title not applied
     expect(player.snapshot().currentItem?.title).toBe(before!.title);
     expect(player.snapshot().sourceGeneration).toBe(beforeGeneration);
@@ -303,7 +309,7 @@ describe("applyPlaybackMetadata", () => {
     player.updatePlaybackState({ currentTime: 40 });
     player.applyPlaybackMetadata(
       player.playbackIdentity()!,
-      sampleItem as unknown as ItemMetadata,
+      fromPartial<ItemMetadata>(sampleItem),
       {
         reloadVideo: true,
         preserveCurrentTime: 40,
@@ -381,7 +387,7 @@ describe("applyPlaybackMetadata", () => {
 
     player.applyPlaybackMetadata(
       player.playbackIdentity()!,
-      sampleItem as unknown as ItemMetadata,
+      fromPartial<ItemMetadata>(sampleItem),
       {
         reloadVideo: true,
         previousVideoUsesTranscode: true,
@@ -397,29 +403,32 @@ describe("applyPlaybackMetadata", () => {
     player.openPlayer(item, { resume: false });
     const beforeGeneration = player.snapshot().sourceGeneration;
 
-    player.applyPlaybackMetadata(player.playbackIdentity()!, {
-      ...item,
-      Media: [
-        {
-          ...directPlayMedia,
-          Part: [
-            {
-              ...directPlayMedia.Part?.[0],
-              Stream: [
-                ...(directPlayMedia.Part?.[0]?.Stream ?? []),
-                {
-                  id: 3,
-                  streamType: 3,
-                  codec: "srt",
-                  key: "/library/streams/3",
-                  selected: true,
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    } as ItemMetadata);
+    player.applyPlaybackMetadata(
+      player.playbackIdentity()!,
+      fromPartial<ItemMetadata>({
+        ...item,
+        Media: [
+          {
+            ...directPlayMedia,
+            Part: [
+              {
+                ...directPlayMedia.Part?.[0],
+                Stream: [
+                  ...(directPlayMedia.Part?.[0]?.Stream ?? []),
+                  {
+                    id: 3,
+                    streamType: 3,
+                    codec: "srt",
+                    key: "/library/streams/3",
+                    selected: true,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    );
 
     expect(player.snapshot().sourceGeneration).toBe(beforeGeneration);
   });
@@ -431,7 +440,7 @@ describe("applyPlaybackMetadata", () => {
 
     player.applyPlaybackMetadata(
       player.playbackIdentity()!,
-      {
+      fromPartial<ItemMetadata>({
         ...item,
         title: "Hydrated",
         Media: [
@@ -454,7 +463,7 @@ describe("applyPlaybackMetadata", () => {
             ],
           },
         ],
-      } as ItemMetadata,
+      }),
       { reloadVideo: true, previousVideoUsesTranscode: false },
     );
 
@@ -469,11 +478,14 @@ describe("applyPlaybackMetadata", () => {
     player.updatePlaybackState({ currentTime: 25, streamOffset: 0 });
     const beforeGeneration = player.snapshot().sourceGeneration;
     // Apply metadata without Media codecs → plan becomes transcode
-    player.applyPlaybackMetadata(player.playbackIdentity()!, {
-      ...sampleItem,
-      title: "Hydrated",
-      Media: undefined,
-    } as ItemMetadata);
+    player.applyPlaybackMetadata(
+      player.playbackIdentity()!,
+      fromPartial<ItemMetadata>({
+        ...sampleItem,
+        title: "Hydrated",
+        Media: undefined,
+      }),
+    );
     expect(player.snapshot().streamOffset).toBe(25);
     expect(player.snapshot().currentItem?.title).toBe("Hydrated");
     expect(player.snapshot().sourceGeneration).toBe(beforeGeneration + 1);
@@ -487,10 +499,13 @@ describe("applyPlaybackMetadata", () => {
       { resume: false },
     );
 
-    player.applyPlaybackMetadata(firstServer, {
-      ...sampleItem,
-      title: "Stale server metadata",
-    } as ItemMetadata);
+    player.applyPlaybackMetadata(
+      firstServer,
+      fromPartial<ItemMetadata>({
+        ...sampleItem,
+        title: "Stale server metadata",
+      }),
+    );
 
     expect(player.snapshot().currentItem?.title).toBe("Server 2");
   });
@@ -500,10 +515,13 @@ describe("applyPlaybackMetadata", () => {
     const firstGeneration = player.playbackIdentity()!;
     player.openPlayer({ ...sampleItem, title: "Replay" }, { resume: false });
 
-    player.applyPlaybackMetadata(firstGeneration, {
-      ...sampleItem,
-      title: "Stale generation metadata",
-    } as ItemMetadata);
+    player.applyPlaybackMetadata(
+      firstGeneration,
+      fromPartial<ItemMetadata>({
+        ...sampleItem,
+        title: "Stale generation metadata",
+      }),
+    );
 
     expect(player.snapshot().currentItem?.title).toBe("Replay");
   });

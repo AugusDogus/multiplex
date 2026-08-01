@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { fromAny, fromPartial } from "@total-typescript/shoehorn";
 import type {
   ItemMetadata,
   PlexDevice,
@@ -28,18 +29,18 @@ const ROOM: WatchTogetherRoom = {
   ],
 };
 
-const ITEM = {
+const ITEM = fromPartial<ItemMetadata>({
   ratingKey: "42",
   key: "/library/metadata/42",
   title: "Movie",
   type: "movie",
   Media: [{ Part: [{ key: "/library/parts/42/file.mp4" }] }],
-} as ItemMetadata;
+});
 
-const SERVER = {
+const SERVER = fromPartial<PlexDevice>({
   clientIdentifier: "server-1",
   accessToken: "durable-guest-token",
-} as PlexDevice;
+});
 
 async function makeCapability(options?: { expired?: boolean }) {
   return createGuestCapabilityCodec("test-secret").sign({
@@ -59,7 +60,7 @@ function makeService(options?: {
   roomFails?: boolean;
 }) {
   const issueTransientToken = mock(async () => "transient-guest-token");
-  const serverClient = {
+  const serverClient = fromPartial<PlexServerClient>({
     issueTransientToken,
     createPlayQueue: mock(async () => ({
       MediaContainer: {
@@ -86,29 +87,31 @@ function makeService(options?: {
         ],
       },
     })),
-  } as unknown as PlexServerClient;
-  const hostPlex = {} as PlexTvClient;
-  const resolveAccess = mock(async () => ({
-    ok: true as const,
-    value: {
-      hostPlexUserId: 1,
-      guest: {
-        id: 2,
-        uuid: "guest-uuid",
-        title: "Guest",
-        admin: false,
-        guest: true,
-        protected: false,
-        restricted: true,
+  });
+  const hostPlex = fromPartial<PlexTvClient>({});
+  const resolveAccess: typeof resolveGuestAccess = fromAny(
+    mock(async () => ({
+      ok: true as const,
+      value: {
+        hostPlexUserId: 1,
+        guest: {
+          id: 2,
+          uuid: "guest-uuid",
+          title: "Guest",
+          admin: false,
+          guest: true,
+          protected: false,
+          restricted: true,
+        },
+        guestPlex: fromPartial<PlexTvClient>({}),
+        guestServer: SERVER,
+        guestServerClient: serverClient,
+        guestServerUrl: "https://example.plex.direct",
+        guestDurableToken: "durable-guest-token",
+        item: { ...ITEM, streamPartKey: "/library/parts/42/file.mp4" },
       },
-      guestPlex: {} as PlexTvClient,
-      guestServer: SERVER,
-      guestServerClient: serverClient,
-      guestServerUrl: "https://example.plex.direct",
-      guestDurableToken: "durable-guest-token",
-      item: { ...ITEM, streamPartKey: "/library/parts/42/file.mp4" },
-    },
-  })) as unknown as typeof resolveGuestAccess;
+    })),
+  );
 
   const service = createGuestBootstrapService({
     capabilityCodec: createGuestCapabilityCodec("test-secret"),
@@ -162,14 +165,14 @@ describe("guest bootstrap", () => {
       updatedAt: Math.floor(Date.now() / 1000),
     };
     const issueTransientToken = mock(async () => "next-transient-token");
-    const serverClient = {
+    const serverClient = fromPartial<PlexServerClient>({
       issueTransientToken,
       createPlayQueue: mock(async () => ({
         MediaContainer: { playQueueID: 2, Metadata: [] },
       })),
-    } as unknown as PlexServerClient;
-    const resolveAccess = mock(
-      async (_host: PlexTvClient, input: { ratingKey: string }) => ({
+    });
+    const resolveAccess: typeof resolveGuestAccess = fromAny(
+      mock(async (_host: PlexTvClient, input: { ratingKey: string }) => ({
         ok: true as const,
         value: {
           hostPlexUserId: 1,
@@ -182,7 +185,7 @@ describe("guest bootstrap", () => {
             protected: false,
             restricted: true,
           },
-          guestPlex: {} as PlexTvClient,
+          guestPlex: fromPartial<PlexTvClient>({}),
           guestServer: SERVER,
           guestServerClient: serverClient,
           guestServerUrl: "https://example.plex.direct",
@@ -194,13 +197,13 @@ describe("guest bootstrap", () => {
             streamPartKey: `/library/parts/${input.ratingKey}/file.mp4`,
           },
         },
-      }),
-    ) as unknown as typeof resolveGuestAccess;
+      })),
+    );
     const codec = createGuestCapabilityCodec("test-secret");
     const service = createGuestContinuationService({
       capabilityCodec: codec,
       loadHostToken: mock(async () => "host-account-token"),
-      createPlexClient: mock(() => ({}) as PlexTvClient),
+      createPlexClient: mock(() => fromPartial<PlexTvClient>({})),
       createWatchTogetherClient: mock(() => ({
         getRoom: mock(async () => ROOM),
         listRooms: mock(async () => [ROOM, nextRoom]),

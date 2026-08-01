@@ -1,5 +1,6 @@
 import { Effect, Exit, Result } from "effect";
 import { expect, mock, test } from "bun:test";
+import { fromPartial } from "@total-typescript/shoehorn";
 
 import {
   makeWatchTogetherApi,
@@ -32,7 +33,7 @@ const makeStubClient = (
     [K in keyof WatchTogetherTrpcClient]: Partial<WatchTogetherTrpcClient[K]>;
   }> = {},
 ): WatchTogetherTrpcClient =>
-  ({
+  fromPartial<WatchTogetherTrpcClient>({
     getWatchTogetherRooms: {
       query: mock().mockResolvedValue([]),
       ...overrides.getWatchTogetherRooms,
@@ -49,7 +50,7 @@ const makeStubClient = (
       query: mock(),
       ...overrides.getItemMetadata,
     },
-  }) as WatchTogetherTrpcClient;
+  });
 
 test("listRooms succeeds with the client response", async () => {
   const rooms = [
@@ -88,13 +89,13 @@ test("rejections become WatchTogetherApiError on the error channel", async () =>
 });
 
 test("getItemMetadata returns the client payload when sync engine is inactive", async () => {
-  const metadata = {
+  const metadata = fromPartial<
+    Awaited<ReturnType<WatchTogetherTrpcClient["getItemMetadata"]["query"]>>
+  >({
     ratingKey: "42",
     type: "movie",
     title: "Test",
-  } as unknown as Awaited<
-    ReturnType<WatchTogetherTrpcClient["getItemMetadata"]["query"]>
-  >;
+  });
   const client = makeStubClient({
     getItemMetadata: {
       query: mock().mockResolvedValue(metadata),

@@ -1,4 +1,5 @@
 import { beforeEach, expect, mock, spyOn, test } from "bun:test";
+import { fromAny, fromPartial } from "@total-typescript/shoehorn";
 import type {
   PlexDevice,
   PlexServerClient,
@@ -65,12 +66,14 @@ const makeCaller = (
   plex: PlexTvClient | null,
   authSession: typeof AUTH_SESSION | null = AUTH_SESSION,
 ) =>
-  plexRouter.createCaller({
-    authSession,
-    plex,
-    db: {},
-    headers: new Headers(),
-  } as never);
+  plexRouter.createCaller(
+    fromAny({
+      authSession,
+      plex,
+      db: {},
+      headers: new Headers(),
+    }),
+  );
 
 const PLAYLIST = {
   ratingKey: "42",
@@ -150,10 +153,10 @@ function makePlaylistCaller(
     }),
     ...overrides,
   };
-  const plex = {
+  const plex = fromPartial<PlexTvClient>({
     getToken: () => "MASTER_TOKEN_SENTINEL",
     createServerClient: mock(() => serverClient),
-  } as unknown as PlexTvClient;
+  });
   getServersQuery.mockResolvedValue([SERVER]);
 
   return { caller: makeCaller(plex), serverClient };
@@ -214,7 +217,7 @@ test("playlist detail and contents are explicit credential-free DTOs", async () 
 });
 
 test("playlist queries reject unknown servers and mismatched playlist ids", async () => {
-  const plex = { createServerClient: mock() } as unknown as PlexTvClient;
+  const plex = fromPartial<PlexTvClient>({ createServerClient: mock() });
   getServersQuery.mockResolvedValue([SERVER]);
   const unknownError = await catchError(
     makeCaller(plex).getPlaylist({
@@ -629,11 +632,11 @@ test("createWatchTogetherRoom resolves the server before creating the room", asy
     syncplayPort: 443,
     users: [],
   };
-  const createServerClient = mock(() => ({}) as PlexServerClient);
-  const plex = {
+  const createServerClient = mock(() => fromPartial<PlexServerClient>({}));
+  const plex = fromPartial<PlexTvClient>({
     createServerClient,
     getToken: mock(() => "account-token"),
-  } as unknown as PlexTvClient;
+  });
   getServersQuery.mockResolvedValue([SERVER]);
   createRoom.mockResolvedValue(createdRoom);
 
@@ -657,9 +660,9 @@ test("createWatchTogetherRoom resolves the server before creating the room", asy
 });
 
 test("createWatchTogetherRoom rejects unknown server IDs", async () => {
-  const plex = {
+  const plex = fromPartial<PlexTvClient>({
     createServerClient: mock(),
-  } as unknown as PlexTvClient;
+  });
   getServersQuery.mockResolvedValue([SERVER]);
 
   const error = await catchError(
@@ -676,9 +679,9 @@ test("createWatchTogetherRoom rejects unknown server IDs", async () => {
 });
 
 test("createWatchTogetherRoom rejects unavailable authenticated servers", async () => {
-  const plex = {
+  const plex = fromPartial<PlexTvClient>({
     createServerClient: mock(),
-  } as unknown as PlexTvClient;
+  });
   getServersQuery.mockResolvedValue([{ ...SERVER, presence: false }]);
 
   const error = await catchError(
@@ -697,14 +700,14 @@ test("createWatchTogetherRoom rejects unavailable authenticated servers", async 
 test("createPlayQueue resolves the server and constructs the Plex URI", async () => {
   const createdQueue = { MediaContainer: { playQueueID: 10 } };
   const createPlayQueue = mock().mockResolvedValue(createdQueue);
-  const serverClient = { createPlayQueue } as unknown as PlexServerClient;
+  const serverClient = fromPartial<PlexServerClient>({ createPlayQueue });
   const createServerClient = mock((server: PlexDevice) => {
     expect(server).toBe(SERVER);
     return serverClient;
   });
-  const plex = {
+  const plex = fromPartial<PlexTvClient>({
     createServerClient,
-  } as unknown as PlexTvClient;
+  });
   getServersQuery.mockResolvedValue([SERVER]);
 
   const result = await makeCaller(plex).createPlayQueue({
@@ -729,9 +732,9 @@ test("createPlayQueue resolves the server and constructs the Plex URI", async ()
 });
 
 test("server procedures reject unknown server IDs", async () => {
-  const plex = {
+  const plex = fromPartial<PlexTvClient>({
     createServerClient: mock(),
-  } as unknown as PlexTvClient;
+  });
   getServersQuery.mockResolvedValue([SERVER]);
 
   const error = await catchError(
@@ -745,9 +748,9 @@ test("server procedures reject unknown server IDs", async () => {
 });
 
 test("server procedures reject unavailable authenticated servers", async () => {
-  const plex = {
+  const plex = fromPartial<PlexTvClient>({
     createServerClient: mock(),
-  } as unknown as PlexTvClient;
+  });
   getServersQuery.mockResolvedValue([{ ...SERVER, presence: false }]);
 
   const error = await catchError(
@@ -780,15 +783,15 @@ test("guide reads return an empty lineup without reloads or timers", async () =>
   });
   const reloadGuide = mock();
   const reloadAllGuides = mock();
-  const serverClient = {
+  const serverClient = fromPartial<PlexServerClient>({
     getChannels,
     getGrid,
     reloadGuide,
     reloadAllGuides,
-  } as unknown as PlexServerClient;
-  const plex = {
+  });
+  const plex = fromPartial<PlexTvClient>({
     createServerClient: mock(() => serverClient),
-  } as unknown as PlexTvClient;
+  });
   const timeoutSpy = spyOn(globalThis, "setTimeout");
   getServersQuery.mockResolvedValue([SERVER]);
 
@@ -835,13 +838,13 @@ test("reloadServerGuide reloads the DVR matching the authorized provider", async
   });
   const reloadGuide = mock().mockResolvedValue(undefined);
   const reloadAllGuides = mock().mockResolvedValue(undefined);
-  const serverClient = {
+  const serverClient = fromPartial<PlexServerClient>({
     getDVRs,
     reloadGuide,
     reloadAllGuides,
-  } as unknown as PlexServerClient;
+  });
   const createServerClient = mock(() => serverClient);
-  const plex = { createServerClient } as unknown as PlexTvClient;
+  const plex = fromPartial<PlexTvClient>({ createServerClient });
   getServersQuery.mockResolvedValue([SERVER]);
 
   const result = await makeCaller(plex).reloadServerGuide({
@@ -863,14 +866,14 @@ test("reloadServerGuide reloads the DVR matching the authorized provider", async
 
 test("reloadServerGuide documents its all-guides fallback", async () => {
   const reloadAllGuides = mock().mockResolvedValue(undefined);
-  const serverClient = {
+  const serverClient = fromPartial<PlexServerClient>({
     getDVRs: mock().mockResolvedValue({ MediaContainer: { Dvr: [] } }),
     reloadGuide: mock(),
     reloadAllGuides,
-  } as unknown as PlexServerClient;
-  const plex = {
+  });
+  const plex = fromPartial<PlexTvClient>({
     createServerClient: mock(() => serverClient),
-  } as unknown as PlexTvClient;
+  });
   getServersQuery.mockResolvedValue([SERVER]);
 
   const result = await makeCaller(plex).reloadServerGuide({
@@ -914,14 +917,14 @@ test.each(["getDVRs", "reloadGuide", "reloadAllGuides"] as const)(
       failingOperation === "reloadAllGuides"
         ? mock().mockRejectedValue(upstreamError)
         : mock().mockResolvedValue(undefined);
-    const serverClient = {
+    const serverClient = fromPartial<PlexServerClient>({
       getDVRs,
       reloadGuide,
       reloadAllGuides,
-    } as unknown as PlexServerClient;
-    const plex = {
+    });
+    const plex = fromPartial<PlexTvClient>({
       createServerClient: mock(() => serverClient),
-    } as unknown as PlexTvClient;
+    });
     getServersQuery.mockResolvedValue([SERVER]);
 
     const error = await catchError(
@@ -941,7 +944,7 @@ test.each(["getDVRs", "reloadGuide", "reloadAllGuides"] as const)(
 
 test("reloadServerGuide rejects unknown servers", async () => {
   const createServerClient = mock();
-  const plex = { createServerClient } as unknown as PlexTvClient;
+  const plex = fromPartial<PlexTvClient>({ createServerClient });
   getServersQuery.mockResolvedValue([SERVER]);
 
   const error = await catchError(
@@ -957,15 +960,17 @@ test("reloadServerGuide rejects unknown servers", async () => {
 
 test("reloadServerGuide rejects client-supplied URLs", async () => {
   const createServerClient = mock();
-  const plex = { createServerClient } as unknown as PlexTvClient;
+  const plex = fromPartial<PlexTvClient>({ createServerClient });
   getServersQuery.mockResolvedValue([SERVER]);
 
   const error = await catchError(
-    makeCaller(plex).reloadServerGuide({
-      machineIdentifier: SERVER.clientIdentifier,
-      providerIdentifier: "https://untrusted.example.test/livetv/dvrs/71",
-      serverUrl: "https://untrusted.example.test",
-    } as never),
+    makeCaller(plex).reloadServerGuide(
+      fromAny({
+        machineIdentifier: SERVER.clientIdentifier,
+        providerIdentifier: "https://untrusted.example.test/livetv/dvrs/71",
+        serverUrl: "https://untrusted.example.test",
+      }),
+    ),
   );
 
   expect(error).toMatchObject({ code: "BAD_REQUEST" });
