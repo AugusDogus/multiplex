@@ -16,6 +16,7 @@ direct_plex=${GAMECUBE_DIRECT_PLEX:-0}
 wait_artwork=${GAMECUBE_PLEX_WAIT_ARTWORK:-1}
 sustain_seconds=${GAMECUBE_PLEX_SUSTAIN_SECONDS:-45}
 keep_open=${GAMECUBE_PLEX_KEEP_OPEN:-1}
+interactive=${GAMECUBE_PLEX_INTERACTIVE:-0}
 plex_video_resolution=${GAMECUBE_PLEX_VIDEO_RESOLUTION:-480x270}
 plex_max_video_bitrate=${GAMECUBE_PLEX_MAX_VIDEO_BITRATE:-700}
 watch_together=${GAMECUBE_PLEX_WATCH_TOGETHER:-0}
@@ -120,6 +121,13 @@ case "$keep_open" in
   0 | 1) ;;
   *)
     echo "GAMECUBE_PLEX_KEEP_OPEN must be 0 or 1." >&2
+    exit 1
+    ;;
+esac
+case "$interactive" in
+  0 | 1) ;;
+  *)
+    echo "GAMECUBE_PLEX_INTERACTIVE must be 0 or 1." >&2
     exit 1
     ;;
 esac
@@ -644,6 +652,12 @@ if [ -n "$multiplex_base_url" ]; then
 else
   press A
   wait_for_new "signature=" "$signature_count"
+fi
+
+if [ "$interactive" -eq 1 ]; then
+  echo "$console_name interactive Plex QA is ready."
+  wait "$launcher_pid"
+  exit 0
 fi
 
 if [ "$focus_audit" -eq 1 ]; then

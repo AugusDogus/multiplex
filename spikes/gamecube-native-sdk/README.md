@@ -194,6 +194,17 @@ test. In the app, Z opens Search, Y opens Libraries, X advances the home hub,
 and L/R either delete/submit the on-screen search query or page a library
 backward/forward without walking focus through every poster.
 
+For focus-free manual QA, `bun run spike:gamecube:qa -- launch` starts Portless
+when needed, builds the linked Plex DOL, and opens an interactive TAP-backed
+Dolphin session. `press right a` sends controller input through that same pipe.
+`status`, `check`, and `screenshot [name]` expose the current render telemetry,
+validate the Dolphin log, and capture the emulated framebuffer without
+activating a Dolphin window. `scenario navigation` captures repeatable Home,
+Search, and Libraries baselines under `.dolphin-user/QACaptures`.
+The screenshot hotkey uses a separate Dolphin pipe, so this workflow does not
+invoke desktop automation or GNOME Remote Desktop. The tracked controller
+profile also accepts the connected Steam Controller alongside the QA pipe.
+
 ## Source map
 
 - `src/core.ts`: application model and update function

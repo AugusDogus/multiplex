@@ -117,6 +117,7 @@ cp "$spike_dir/dolphin/GCPadNew.ini" "$user_dir/Config/GCPadNew.ini"
 cp "$spike_dir/dolphin/WiimoteNew.ini" "$user_dir/Config/WiimoteNew.ini"
 cp "$spike_dir/dolphin/GFX.ini" "$user_dir/Config/GFX.ini"
 cp "$spike_dir/dolphin/Logger.ini" "$user_dir/Config/Logger.ini"
+cp "$spike_dir/dolphin/Hotkeys.ini" "$user_dir/Config/Hotkeys.ini"
 if [ -f "$user_dir/Logs/dolphin.log" ]; then
   mv -f "$user_dir/Logs/dolphin.log" "$user_dir/Logs/dolphin.previous.log"
 fi
@@ -133,6 +134,13 @@ if [ ! -p "$user_dir/Pipes/multiplex-wii1" ]; then
     exit 1
   fi
   mkfifo "$user_dir/Pipes/multiplex-wii1"
+fi
+if [ ! -p "$user_dir/Pipes/multiplex-hotkeys" ]; then
+  if [ -e "$user_dir/Pipes/multiplex-hotkeys" ]; then
+    echo "$user_dir/Pipes/multiplex-hotkeys exists but is not a named pipe." >&2
+    exit 1
+  fi
+  mkfifo "$user_dir/Pipes/multiplex-hotkeys"
 fi
 echo "$$" >"$pid_file"
 
