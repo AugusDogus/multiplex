@@ -57,7 +57,10 @@ export type GuestBootstrapDependencies = {
   readonly createWatchTogetherClient: (
     token: string,
   ) => Pick<WatchTogetherClient, "getRoom">;
-  readonly resolveAccess: typeof resolveGuestAccess;
+  readonly resolveAccess: (
+    hostPlex: Parameters<typeof resolveGuestAccess>[0],
+    input: Parameters<typeof resolveGuestAccess>[1],
+  ) => ReturnType<typeof resolveGuestAccess>;
 };
 
 export type GuestContinuationResult =

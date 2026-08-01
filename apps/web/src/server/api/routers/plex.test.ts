@@ -62,12 +62,14 @@ beforeEach(() => {
   createRoom.mockReset();
 });
 
+type PlexRouterContext = Parameters<typeof plexRouter.createCaller>[0];
+
 const makeCaller = (
   plex: PlexTvClient | null,
   authSession: typeof AUTH_SESSION | null = AUTH_SESSION,
 ) =>
   plexRouter.createCaller(
-    fromAny({
+    fromPartial<PlexRouterContext>({
       authSession,
       plex,
       db: {},

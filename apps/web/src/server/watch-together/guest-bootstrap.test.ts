@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import { fromAny, fromPartial } from "@total-typescript/shoehorn";
+import { fromPartial } from "@total-typescript/shoehorn";
 import type {
   ItemMetadata,
   PlexDevice,
@@ -8,10 +8,11 @@ import type {
   WatchTogetherRoom,
 } from "@multiplex/plex-query";
 
-import type { resolveGuestAccess } from "./guest-access";
+import type { GuestAccessResolution } from "./guest-access";
 import {
   createGuestBootstrapService,
   createGuestContinuationService,
+  type GuestBootstrapDependencies,
 } from "./guest-bootstrap";
 import { createGuestCapabilityCodec } from "./guest-capability";
 
@@ -89,9 +90,9 @@ function makeService(options?: {
     })),
   });
   const hostPlex = fromPartial<PlexTvClient>({});
-  const resolveAccess: typeof resolveGuestAccess = fromAny(
-    mock(async () => ({
-      ok: true as const,
+  const resolveAccess: GuestBootstrapDependencies["resolveAccess"] = mock(
+    async (): Promise<GuestAccessResolution> => ({
+      ok: true,
       value: {
         hostPlexUserId: 1,
         guest: {
@@ -110,7 +111,7 @@ function makeService(options?: {
         guestDurableToken: "durable-guest-token",
         item: { ...ITEM, streamPartKey: "/library/parts/42/file.mp4" },
       },
-    })),
+    }),
   );
 
   const service = createGuestBootstrapService({
@@ -171,9 +172,12 @@ describe("guest bootstrap", () => {
         MediaContainer: { playQueueID: 2, Metadata: [] },
       })),
     });
-    const resolveAccess: typeof resolveGuestAccess = fromAny(
-      mock(async (_host: PlexTvClient, input: { ratingKey: string }) => ({
-        ok: true as const,
+    const resolveAccess: GuestBootstrapDependencies["resolveAccess"] = mock(
+      async (
+        _host: PlexTvClient,
+        input: { ratingKey: string },
+      ): Promise<GuestAccessResolution> => ({
+        ok: true,
         value: {
           hostPlexUserId: 1,
           guest: {
@@ -197,7 +201,7 @@ describe("guest bootstrap", () => {
             streamPartKey: `/library/parts/${input.ratingKey}/file.mp4`,
           },
         },
-      })),
+      }),
     );
     const codec = createGuestCapabilityCodec("test-secret");
     const service = createGuestContinuationService({

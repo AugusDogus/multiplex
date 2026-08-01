@@ -1,5 +1,5 @@
 import { beforeEach, expect, mock, test } from "bun:test";
-import { fromAny, fromPartial } from "@total-typescript/shoehorn";
+import { fromPartial } from "@total-typescript/shoehorn";
 import {
   CREATE_BASE_DELAY_MS,
   CREATE_STAGGER_MS,
@@ -211,42 +211,55 @@ const makeStubApi = (overrides?: {
   getItemMetadata: ReturnType<typeof mock>;
 } => {
   const createRoom = mock(
-    (input: Parameters<WatchTogetherApiShape["createRoom"]>[0]) => {
+    (
+      input: Parameters<WatchTogetherApiShape["createRoom"]>[0],
+    ): ReturnType<WatchTogetherApiShape["createRoom"]> => {
       if (overrides?.createRoomEffect) {
-        return overrides.createRoomEffect(input);
+        // Test overrides may use a looser error channel than WatchTogetherApiError.
+        return overrides.createRoomEffect(input) as ReturnType<
+          WatchTogetherApiShape["createRoom"]
+        >;
       }
       return Effect.succeed(room("r-created", "200"));
     },
   );
-  const deleteRoom = mock((_roomId: string) => Effect.void);
-  const listRooms = mock(() => {
+  const deleteRoom = mock(
+    (
+      _roomId: Parameters<WatchTogetherApiShape["deleteRoom"]>[0],
+    ): ReturnType<WatchTogetherApiShape["deleteRoom"]> => Effect.void,
+  );
+  const listRooms = mock((): ReturnType<WatchTogetherApiShape["listRooms"]> => {
     if (overrides?.listRoomsEffect) {
-      return overrides.listRoomsEffect();
+      return overrides.listRoomsEffect() as ReturnType<
+        WatchTogetherApiShape["listRooms"]
+      >;
     }
     return Effect.succeed(overrides?.rooms ? overrides.rooms() : []);
   });
   const getItemMetadata = mock(
-    (input: Parameters<WatchTogetherApiShape["getItemMetadata"]>[0]) => {
+    (
+      input: Parameters<WatchTogetherApiShape["getItemMetadata"]>[0],
+    ): ReturnType<WatchTogetherApiShape["getItemMetadata"]> => {
       if (overrides?.getItemMetadata) {
         return overrides.getItemMetadata(input);
       }
-      return Effect.succeed({
-        ratingKey: input.ratingKey,
-        key: `/library/metadata/${input.ratingKey}`,
-        title: `Meta ${input.ratingKey}`,
-        type: "episode",
-        Media: fromPartial<NonNullable<MediaPlayerItem["Media"]>>([
-          { id: Number(input.ratingKey) },
-        ]),
-      });
+      return Effect.succeed(
+        fromPartial({
+          ratingKey: input.ratingKey,
+          key: `/library/metadata/${input.ratingKey}`,
+          title: `Meta ${input.ratingKey}`,
+          type: "episode",
+          Media: [{ id: Number(input.ratingKey) }],
+        }),
+      );
     },
   );
 
   const api: WatchTogetherApiShape = {
-    listRooms: () => fromAny(listRooms()),
-    createRoom: (input) => fromAny(createRoom(input)),
-    deleteRoom: (roomId) => fromAny(deleteRoom(roomId)),
-    getItemMetadata: (input) => fromAny(getItemMetadata(input)),
+    listRooms: () => listRooms(),
+    createRoom: (input) => createRoom(input),
+    deleteRoom: (roomId) => deleteRoom(roomId),
+    getItemMetadata: (input) => getItemMetadata(input),
   };
 
   return { api, createRoom, deleteRoom, listRooms, getItemMetadata };
