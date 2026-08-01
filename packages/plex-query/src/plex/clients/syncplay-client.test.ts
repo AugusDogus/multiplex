@@ -46,7 +46,7 @@ class FakeWebSocket implements SyncplayWebSocketLike {
   }
 
   send(data: string): void {
-    this.sent.push(JSON.parse(data) as unknown);
+    this.sent.push(JSON.parse(data));
   }
 
   close(): void {
