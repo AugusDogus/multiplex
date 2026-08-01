@@ -240,8 +240,8 @@ backward/forward without walking focus through every poster.
   changes applied to the pinned Native SDK checkout
 - `patches/native-sdk-reference-render-fast-paths.patch`: exact-output
   scanline and solid-blend fast paths for rounded fills, borders, and shadows
-- `patches/native-sdk-panel-focus-ring.patch`: draws the standard focus ring
-  around pressable panels, including poster cards
+- `patches/native-sdk-panel-focus-indicator.patch`: draws a compact accent
+  underline beneath focused poster cards and other pressable panels
 - `patches/libogc2-lwip-rfc-snd-nxt.patch`: upstream lwIP sequence-number
   semantics backported to libogc2's historical TCP stack
 - `patches/libogc2-flush-tcp-window-updates.patch`: immediately ACKs consumed

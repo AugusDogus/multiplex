@@ -44,6 +44,9 @@ bool multiplex_plex_load_children(
 MultiplexPlexNextEpisodeResult multiplex_plex_load_next_episode(
     const MultiplexAuthCredentials *credentials, uint32_t rating_key,
     MultiplexGatewayItem *episode);
+MultiplexPlexNextEpisodeResult multiplex_plex_load_previous_episode(
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
+    MultiplexGatewayItem *episode);
 bool multiplex_plex_load_search(
     const MultiplexAuthCredentials *credentials, const char *query,
     uint16_t query_length, MultiplexGatewaySearchPage *page);

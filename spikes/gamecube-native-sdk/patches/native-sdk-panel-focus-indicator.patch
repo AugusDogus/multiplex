@@ -1,0 +1,30 @@
+diff --git a/src/primitives/canvas/widget_render_surfaces.zig b/src/primitives/canvas/widget_render_surfaces.zig
+index 8f95ae85..40f31ac6 100644
+--- a/src/primitives/canvas/widget_render_surfaces.zig
++++ b/src/primitives/canvas/widget_render_surfaces.zig
+@@ -276,2 +276,3 @@ pub fn emitPanelWidgetChrome(builder: *Builder, widget: Widget, tokens: DesignTo
+     }));
++    if (widget.state.focused) try emitPanelFocusIndicator(builder, widget, tokens);
+     if (widget.kind == .resizable) try emitResizableWidgetHandle(builder, widget, tokens, visual);
+@@ -278,3 +279,20 @@ pub fn emitPanelWidgetChrome(builder: *Builder, widget: Widget, tokens: DesignTo
+ }
+-
++
++fn emitPanelFocusIndicator(builder: *Builder, widget: Widget, tokens: DesignTokens) Error!void {
++    const frame = widget.frame.normalized();
++    const height = @max(2, tokens.stroke.focus);
++    const width = @min(32, @max(12, frame.width * 0.22));
++    try builder.fillRoundedRect(.{
++        .id = widgetPartId(widget.id, 4),
++        .rect = geometry.RectF.init(
++            frame.x + (frame.width - width) * 0.5,
++            frame.maxY() + @max(1, tokens.stroke.focus_offset),
++            width,
++            height,
++        ),
++        .radius = Radius.all(height * 0.5),
++        .fill = widgetFocusRingFill(widget, tokens),
++    });
++}
++
+ /// The chat bubble's corner arc: `radius.lg + 12` (22 at the default

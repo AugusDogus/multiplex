@@ -157,6 +157,14 @@ uint32_t multiplex_native_app_details_commit(
 uint32_t multiplex_native_app_details_fail(void);
 uint32_t multiplex_native_app_subtitles(uint32_t count, uint32_t selected);
 uint32_t multiplex_native_app_subtitle_selection(void);
+uint32_t multiplex_native_app_player_settings_open(void);
+int32_t multiplex_native_app_playback_navigation_request(void);
+uint32_t multiplex_native_app_playback_navigation_clear(void);
+uint32_t multiplex_native_app_playback_navigate(
+    uint32_t rating_key, const uint8_t *title, uint32_t title_length,
+    const uint8_t *secondary, uint32_t secondary_length,
+    const uint8_t *hierarchy, uint32_t hierarchy_length,
+    uint32_t duration_ms);
 uint32_t multiplex_native_app_playback_request(void);
 uint32_t multiplex_native_app_playback_offset_request(void);
 uint32_t multiplex_native_app_playback_commit(void);

@@ -11,9 +11,15 @@ const canvas = @import("canvas");
 const geometry = @import("geometry");
 
 const multiplex_icon = canvas.svg_icon.parseComptime(@embedFile("icons/multiplex.svg"));
+const back_10_icon = canvas.svg_icon.parseComptime(@embedFile("icons/back-10.svg"));
+const forward_30_icon = canvas.svg_icon.parseComptime(@embedFile("icons/forward-30.svg"));
+const stop_icon = canvas.svg_icon.parseComptime(@embedFile("icons/stop.svg"));
 
 pub const app_icons = [_]canvas.icons.Entry{
+    .{ .name = "back-10", .icon = &back_10_icon },
+    .{ .name = "forward-30", .icon = &forward_30_icon },
     .{ .name = "multiplex", .icon = &multiplex_icon },
+    .{ .name = "stop", .icon = &stop_icon },
 };
 
 const CompiledView = canvas.CompiledMarkupView(
@@ -349,6 +355,12 @@ fn commitAppModel(next: *const core.Model) void {
 }
 
 fn prefersFocus(model: *const core.Model, msg: core.Msg) bool {
+    if (model.playerSettingsOpen) {
+        return switch (msg) {
+            .cycle_subtitles, .close_player_settings => true,
+            else => false,
+        };
+    }
     if (model.startMenuOpen) {
         return switch (msg) {
             .start_menu_play, .start_menu_watch_together => true,
@@ -1041,6 +1053,60 @@ export fn multiplex_native_app_subtitle_selection() callconv(.c) u32 {
     return @intFromFloat(selected);
 }
 
+export fn multiplex_native_app_player_settings_open() callconv(.c) u32 {
+    return if (app_initialized and app_model.playerSettingsOpen) 1 else 0;
+}
+
+export fn multiplex_native_app_playback_navigation_request() callconv(.c) i32 {
+    if (!app_initialized) return 0;
+    return @intCast(core.playbackRequestedNavigation(app_model));
+}
+
+export fn multiplex_native_app_playback_navigation_clear() callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    commitAppModel(core.clearPlaybackNavigationRequest(app_model));
+    reference_full_repaint = true;
+    return 1;
+}
+
+export fn multiplex_native_app_playback_navigate(
+    rating_key: u32,
+    title: [*]const u8,
+    title_length: u32,
+    secondary: [*]const u8,
+    secondary_length: u32,
+    hierarchy: [*]const u8,
+    hierarchy_length: u32,
+    duration_ms: u32,
+) callconv(.c) u32 {
+    if (!app_initialized or app_model.screen != .player or !app_model.playbackLoaded or rating_key == 0 or title_length == 0 or duration_ms <= 1) return 0;
+    const stored_title = copyDetailsString(&details_title_buffer, title, title_length) orelse return 0;
+    const stored_secondary = copyDetailsString(&details_secondary_buffer, secondary, secondary_length) orelse return 0;
+    const stored_hierarchy = copyDetailsString(&details_hierarchy_buffer, hierarchy, hierarchy_length) orelse return 0;
+    const next = core.rt.frameCreate(core.Model, app_model.*);
+    next.selectedRatingKey = @intCast(rating_key);
+    next.selectedTitle = stored_title;
+    next.selectedDurationMs = @intCast(duration_ms);
+    next.selectedViewOffsetMs = 0;
+    next.playbackOffsetMs = 0;
+    next.playbackLoaded = false;
+    next.playing = false;
+    next.playbackNavigationRequest = 0;
+    next.detailsLoaded = false;
+    next.detailsSecondary = stored_secondary;
+    next.detailsHierarchy = stored_hierarchy;
+    next.detailsChildren = &.{};
+    next.detailsChildrenStart = 0;
+    next.detailsChildrenPageNumber = 1;
+    next.detailsChildrenPageCount = 1;
+    next.detailsChildrenTotal = 0;
+    next.detailsChildrenLoaded = false;
+    commitAppModel(next);
+    focused_handler = invalid_focused_handler;
+    reference_full_repaint = true;
+    return 1;
+}
+
 export fn multiplex_native_app_playback_request() callconv(.c) u32 {
     if (!app_initialized) return 0;
     const rating_key = core.playbackRequestRatingKey(app_model);
@@ -1080,6 +1146,7 @@ export fn multiplex_native_app_playback_advance(
     next.playbackOffsetMs = 0;
     next.playbackLoaded = false;
     next.playing = false;
+    next.playbackNavigationRequest = 0;
     next.detailsLoaded = false;
     next.detailsChildren = &.{};
     next.detailsChildrenStart = 0;
@@ -1375,6 +1442,11 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .play => 9,
                 .seek_backward => 17,
                 .seek_forward => 18,
+                .open_player_settings => 41,
+                .close_player_settings => 42,
+                .stop_playback => 43,
+                .play_previous => 44,
+                .play_next => 45,
                 .sync_playback => 19,
                 .continue_playback => 20,
                 .complete_playback => 21,

@@ -134,6 +134,8 @@ export interface Model {
   readonly subtitleStreamCount: number;
   readonly selectedSubtitleStream: number;
   readonly startMenuOpen: boolean;
+  readonly playerSettingsOpen: boolean;
+  readonly playbackNavigationRequest: number;
 }
 
 export type Msg =
@@ -170,6 +172,11 @@ export type Msg =
   | { readonly kind: "play" }
   | { readonly kind: "seek_backward" }
   | { readonly kind: "seek_forward" }
+  | { readonly kind: "open_player_settings" }
+  | { readonly kind: "close_player_settings" }
+  | { readonly kind: "stop_playback" }
+  | { readonly kind: "play_previous" }
+  | { readonly kind: "play_next" }
   | { readonly kind: "sync_playback"; readonly positionMs: number }
   | { readonly kind: "continue_playback"; readonly positionMs: number }
   | { readonly kind: "complete_playback" }
@@ -385,6 +392,8 @@ export function initialModel(): Model {
     subtitleStreamCount: 0,
     selectedSubtitleStream: 0,
     startMenuOpen: false,
+    playerSettingsOpen: false,
+    playbackNavigationRequest: 0,
   };
 }
 
@@ -690,6 +699,40 @@ export function subtitlesEnabled(model: Model): boolean {
 
 export function playbackSubtitleSelection(model: Model): number {
   return model.screen === "player" ? model.selectedSubtitleStream : 0;
+}
+
+export function playbackElapsedMinutes(model: Model): number {
+  return intDiv(model.playbackOffsetMs, 60_000);
+}
+
+export function playbackElapsedSeconds(model: Model): number {
+  return intDiv(model.playbackOffsetMs, 1_000) - playbackElapsedMinutes(model) * 60;
+}
+
+export function playbackRemainingMinutes(model: Model): number {
+  return intDiv(Math.max(0, model.selectedDurationMs - model.playbackOffsetMs), 60_000);
+}
+
+export function playbackRemainingSeconds(model: Model): number {
+  const remainingSeconds = intDiv(
+    Math.max(0, model.selectedDurationMs - model.playbackOffsetMs),
+    1_000,
+  );
+  return remainingSeconds - playbackRemainingMinutes(model) * 60;
+}
+
+export function playbackRequestedNavigation(model: Model): number {
+  return model.screen === "player" ? model.playbackNavigationRequest : 0;
+}
+
+export function playbackEpisodeNavigationDisabled(model: Model): boolean {
+  return model.detailsHierarchy.length === 0 || model.watchTogetherActive;
+}
+
+export function clearPlaybackNavigationRequest(model: Model): Model {
+  return model.playbackNavigationRequest === 0
+    ? model
+    : { ...model, playbackNavigationRequest: 0 };
 }
 
 export function visibleItems(model: Model): readonly CatalogItem[] {
@@ -1320,10 +1363,11 @@ export function update(model: Model, msg: Msg): Model {
         ),
         playbackLoaded: !model.gatewayConnected,
         playing: !model.gatewayConnected,
+        playbackNavigationRequest: 0,
       };
     case "seek_backward": {
       if (model.screen !== "player" || !model.playbackLoaded) return model;
-      const playbackOffsetMs = Math.max(0, model.playbackOffsetMs - 30_000);
+      const playbackOffsetMs = Math.max(0, model.playbackOffsetMs - 10_000);
       if (playbackOffsetMs === model.playbackOffsetMs) return model;
       return {
         ...model,
@@ -1346,6 +1390,19 @@ export function update(model: Model, msg: Msg): Model {
         playing: false,
       };
     }
+    case "open_player_settings":
+      if (model.screen !== "player" || !model.playbackLoaded) return model;
+      return { ...model, playerSettingsOpen: true };
+    case "close_player_settings":
+      return model.playerSettingsOpen ? { ...model, playerSettingsOpen: false } : model;
+    case "stop_playback":
+      return model.screen === "player" ? update(model, { kind: "back" }) : model;
+    case "play_previous":
+      if (model.screen !== "player" || !model.playbackLoaded) return model;
+      return { ...model, playbackNavigationRequest: -1 };
+    case "play_next":
+      if (model.screen !== "player" || !model.playbackLoaded) return model;
+      return { ...model, playbackNavigationRequest: 1 };
     case "sync_playback": {
       if (model.screen !== "player" || !model.playbackLoaded || model.selectedDurationMs <= 1) {
         return model;
@@ -1389,6 +1446,7 @@ export function update(model: Model, msg: Msg): Model {
         playing: false,
       };
     case "back":
+      if (model.playerSettingsOpen) return { ...model, playerSettingsOpen: false };
       if (model.startMenuOpen) return { ...model, startMenuOpen: false };
       if (model.screen === "player") {
         if (model.watchTogetherActive) return leaveWatchTogether(model);

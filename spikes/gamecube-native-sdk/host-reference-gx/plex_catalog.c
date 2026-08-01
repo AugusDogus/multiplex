@@ -1128,6 +1128,117 @@ MultiplexPlexNextEpisodeResult multiplex_plex_load_next_episode(
                                   current.parent_rating_key, episode);
 }
 
+static MultiplexPlexNextEpisodeResult find_previous_child(
+    const MultiplexAuthCredentials *credentials, uint32_t parent_rating_key,
+    uint32_t current_rating_key, MultiplexGatewayItem *previous) {
+  uint32_t start = 0;
+  bool have_previous = false;
+  for (;;) {
+    if (start > UINT16_MAX) {
+      return MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
+    }
+    MultiplexGatewayChildrenPage page;
+    if (!multiplex_plex_load_children(credentials, parent_rating_key,
+                                      (uint16_t)start, &page)) {
+      return MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
+    }
+    for (uint16_t index = 0; index < page.item_count; ++index) {
+      if (page.items[index].rating_key == current_rating_key) {
+        return have_previous ? MULTIPLEX_PLEX_NEXT_EPISODE_FOUND
+                             : MULTIPLEX_PLEX_NEXT_EPISODE_NONE;
+      }
+      *previous = page.items[index];
+      have_previous = true;
+    }
+    const uint32_t following_start = start + page.item_count;
+    if (page.item_count == 0 || following_start >= page.total_size) {
+      return MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
+    }
+    start = following_start;
+  }
+}
+
+static MultiplexPlexNextEpisodeResult find_last_season_episode(
+    const MultiplexAuthCredentials *credentials, uint32_t show_rating_key,
+    uint32_t current_season_rating_key, MultiplexGatewayItem *previous) {
+  uint32_t start = 0;
+  uint32_t previous_season_rating_key = 0;
+  for (;;) {
+    if (start > UINT16_MAX) {
+      return MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
+    }
+    MultiplexGatewayChildrenPage seasons;
+    if (!multiplex_plex_load_children(credentials, show_rating_key,
+                                      (uint16_t)start, &seasons)) {
+      return MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
+    }
+    for (uint16_t index = 0; index < seasons.item_count; ++index) {
+      const uint32_t season_rating_key = seasons.items[index].rating_key;
+      if (season_rating_key == current_season_rating_key) {
+        if (previous_season_rating_key == 0) {
+          return MULTIPLEX_PLEX_NEXT_EPISODE_NONE;
+        }
+        uint32_t episode_start = 0;
+        bool found_episode = false;
+        for (;;) {
+          if (episode_start > UINT16_MAX) {
+            return MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
+          }
+          MultiplexGatewayChildrenPage episodes;
+          if (!multiplex_plex_load_children(
+                  credentials, previous_season_rating_key,
+                  (uint16_t)episode_start, &episodes)) {
+            return MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
+          }
+          for (uint16_t episode_index = 0;
+               episode_index < episodes.item_count; ++episode_index) {
+            *previous = episodes.items[episode_index];
+            found_episode = true;
+          }
+          const uint32_t following_episode =
+              episode_start + episodes.item_count;
+          if (episodes.item_count == 0 ||
+              following_episode >= episodes.total_size) {
+            return found_episode ? MULTIPLEX_PLEX_NEXT_EPISODE_FOUND
+                                 : MULTIPLEX_PLEX_NEXT_EPISODE_NONE;
+          }
+          episode_start = following_episode;
+        }
+      }
+      previous_season_rating_key = season_rating_key;
+    }
+    const uint32_t following_start = start + seasons.item_count;
+    if (seasons.item_count == 0 || following_start >= seasons.total_size) {
+      return MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
+    }
+    start = following_start;
+  }
+}
+
+MultiplexPlexNextEpisodeResult multiplex_plex_load_previous_episode(
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
+    MultiplexGatewayItem *episode) {
+  if (credentials == NULL || rating_key == 0 || episode == NULL) {
+    return MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
+  }
+  MultiplexGatewayDetails current;
+  if (!multiplex_plex_load_details(credentials, rating_key, &current)) {
+    return MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
+  }
+  if (strcmp(current.media_type, "Episode") != 0 ||
+      current.parent_rating_key == 0) {
+    return MULTIPLEX_PLEX_NEXT_EPISODE_NONE;
+  }
+  const MultiplexPlexNextEpisodeResult sibling = find_previous_child(
+      credentials, current.parent_rating_key, rating_key, episode);
+  if (sibling != MULTIPLEX_PLEX_NEXT_EPISODE_NONE ||
+      current.grandparent_rating_key == 0) {
+    return sibling;
+  }
+  return find_last_season_episode(credentials, current.grandparent_rating_key,
+                                  current.parent_rating_key, episode);
+}
+
 static bool encode_url_value(const char *value, char *destination,
                              size_t capacity) {
   static const char hex[] = "0123456789ABCDEF";

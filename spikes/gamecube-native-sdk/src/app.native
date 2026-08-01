@@ -13,27 +13,31 @@
           </panel>
         </if>
         <if test="{playbackLoaded}">
-          <panel padding="8" background="scrim" radius="lg">
-            <row gap="6" main="center" cross="center">
-              <text width="170" size="sm" wrap="false">{selectedTitle}</text>
-              <button width="38" size="sm" icon="{playbackToggleIcon}" variant="primary" on-press="toggle_playback" label="Play or pause"></button>
-              <button width="38" size="sm" icon="skip-back" variant="ghost" on-press="seek_backward" label="Back 30 seconds"></button>
-              <button width="38" size="sm" icon="skip-forward" variant="ghost" on-press="seek_forward" label="Forward 30 seconds"></button>
-              <if test="{subtitlesAvailable}">
-                <if test="{subtitlesEnabled}">
-                  <button width="38" size="sm" icon="file-text" variant="primary" on-press="cycle_subtitles" label="Change subtitles"></button>
+          <panel width="620" padding="10" background="scrim" radius="sm">
+            <row gap="8" cross="center">
+              <column width="250" gap="2">
+                <if test="{detailsHasHierarchy}">
+                  <text size="sm" wrap="false">{detailsSecondary}</text>
+                  <text size="sm" foreground="text_muted" wrap="false">{detailsHierarchy} - {selectedTitle}</text>
                 </if>
                 <else>
-                  <button width="38" size="sm" icon="file-text" variant="ghost" on-press="cycle_subtitles" label="Turn on subtitles"></button>
+                  <text size="sm" wrap="false">{selectedTitle}</text>
+                  <if test="{detailsHasSecondary}">
+                    <text size="sm" foreground="text_muted" wrap="false">{detailsSecondary}</text>
+                  </if>
                 </else>
-              </if>
-              <if test="{watchTogetherActive}">
-                <button width="38" size="sm" icon="x" variant="ghost" on-press="leave_watch_together" label="Leave room"></button>
-                <button width="38" size="sm" icon="refresh-cw" variant="ghost" on-press="reconnect_watch_together" label="Reconnect room"></button>
-                <if test="{watchTogetherHost}">
-                  <button width="38" size="sm" icon="trash" variant="ghost" on-press="disband_watch_together" label="Disband room"></button>
-                </if>
-              </if>
+                <text size="sm" foreground="text_muted">{playbackElapsedMinutes}:{pad(playbackElapsedSeconds, 2)} / -{playbackRemainingMinutes}:{pad(playbackRemainingSeconds, 2)}</text>
+              </column>
+              <spacer grow="1" />
+              <row gap="6" cross="center">
+                <button width="38" size="sm" icon="skip-back" variant="ghost" on-press="play_previous" disabled="{playbackEpisodeNavigationDisabled}" label="Previous"></button>
+                <button width="38" size="sm" icon="app:back-10" variant="ghost" on-press="seek_backward" label="Back 10 seconds"></button>
+                <button width="44" size="sm" icon="{playbackToggleIcon}" variant="primary" on-press="toggle_playback" label="Play or pause"></button>
+                <button width="38" size="sm" icon="app:forward-30" variant="ghost" on-press="seek_forward" label="Forward 30 seconds"></button>
+                <button width="38" size="sm" icon="skip-forward" variant="ghost" on-press="play_next" disabled="{playbackEpisodeNavigationDisabled}" label="Next"></button>
+                <button width="38" size="sm" icon="app:stop" variant="ghost" on-press="stop_playback" label="Stop"></button>
+                <button width="38" size="sm" icon="settings" variant="ghost" on-press="open_player_settings" label="Playback settings"></button>
+              </row>
             </row>
           </panel>
         </if>
@@ -528,6 +532,39 @@
             <button size="sm" icon="search" variant="secondary" on-press="start_menu_search">Search</button>
             <spacer grow="1" />
             <button size="sm" variant="ghost" on-press="close_start_menu">Close</button>
+          </column>
+        </dialog>
+      </column>
+    </panel>
+  </if>
+  <if test="{playerSettingsOpen}">
+    <panel background="scrim" on-press="close_player_settings" label="Playback settings backdrop">
+      <column main="center" cross="center">
+        <dialog width="310" height="230" label="Playback settings">
+          <column padding="16" gap="8">
+            <text size="heading">Playback settings</text>
+            <separator />
+            <if test="{subtitlesAvailable}">
+              <text size="sm" foreground="text_muted">Subtitles</text>
+              <if test="{subtitlesEnabled}">
+                <button size="sm" icon="file-text" variant="primary" on-press="cycle_subtitles">Track {selectedSubtitleStream} of {subtitleStreamCount}</button>
+              </if>
+              <else>
+                <button size="sm" icon="file-text" variant="secondary" on-press="cycle_subtitles">Off</button>
+              </else>
+            </if>
+            <else>
+              <text size="sm" foreground="text_muted">No subtitles are available for this item.</text>
+            </else>
+            <if test="{watchTogetherActive}">
+              <button size="sm" variant="secondary" on-press="leave_watch_together">Leave Watch Together</button>
+              <button size="sm" variant="secondary" on-press="reconnect_watch_together">Reconnect room</button>
+              <if test="{watchTogetherHost}">
+                <button size="sm" variant="destructive" on-press="disband_watch_together">Disband room</button>
+              </if>
+            </if>
+            <spacer grow="1" />
+            <button size="sm" variant="ghost" on-press="close_player_settings">Close</button>
           </column>
         </dialog>
       </column>

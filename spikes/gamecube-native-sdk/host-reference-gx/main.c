@@ -574,7 +574,40 @@ static void convert_reference_to_rgba8_tiles(void) {
 }
 
 static void set_player_controls_texture_alpha(uint8_t alpha) {
-  convert_reference_to_rgba8_tile_rows(TILE_ROWS - 1u, 1, alpha);
+  convert_reference_to_rgba8_tile_rows(TILE_ROWS - 2u, 2, alpha);
+}
+
+static void make_video_placeholder_transparent(
+    const MultiplexVideoSurface *surface) {
+  if (surface == NULL || surface->visible == 0 || surface->x < 0 ||
+      surface->y < 0 || surface->width <= 0 || surface->height <= 0 ||
+      surface->x >= LOGICAL_WIDTH ||
+      surface->y >= LOGICAL_HEIGHT) {
+    return;
+  }
+  const uint8_t *key =
+      reference_frame.pixels +
+      ((unsigned)surface->y * LOGICAL_WIDTH + (unsigned)surface->x) * 4u;
+  const unsigned left = (unsigned)surface->x;
+  const unsigned top = (unsigned)surface->y;
+  const unsigned right =
+      (unsigned)(surface->x + surface->width) < LOGICAL_WIDTH
+          ? (unsigned)(surface->x + surface->width)
+          : LOGICAL_WIDTH;
+  const unsigned bottom =
+      (unsigned)(surface->y + surface->height) < LOGICAL_HEIGHT
+          ? (unsigned)(surface->y + surface->height)
+          : LOGICAL_HEIGHT;
+  for (unsigned y = top; y < bottom; ++y) {
+    for (unsigned x = left; x < right; ++x) {
+      uint8_t *pixel =
+          reference_frame.pixels + (y * LOGICAL_WIDTH + x) * 4u;
+      if (pixel[0] == key[0] && pixel[1] == key[1] &&
+          pixel[2] == key[2]) {
+        pixel[3] = 0;
+      }
+    }
+  }
 }
 
 static bool refresh_reference_frame(bool initialize) {
@@ -598,19 +631,20 @@ static bool refresh_reference_frame(bool initialize) {
   profile.memo_hits = render.memo_hits;
   profile.memo_misses = render.memo_misses;
 
-  const uint32_t upload_started = gettick();
-  convert_reference_to_rgba8_tiles();
-  profile.upload_us = elapsed_us(upload_started);
-  native_frame_dirty = false;
   MultiplexVideoSurface rendered_surface;
   memset(&rendered_surface, 0, sizeof(rendered_surface));
   if (multiplex_native_video_surface(&rendered_surface) != 0) {
+    make_video_placeholder_transparent(&rendered_surface);
     SYS_Report(
         "REFERENCE GX: video-surface x=%d y=%d width=%d height=%d playing=%u\n",
         (int)rendered_surface.x, (int)rendered_surface.y,
         (int)rendered_surface.width, (int)rendered_surface.height,
         rendered_surface.playing);
   }
+  const uint32_t upload_started = gettick();
+  convert_reference_to_rgba8_tiles();
+  profile.upload_us = elapsed_us(upload_started);
+  native_frame_dirty = false;
   uint32_t first_layout_rule = 0;
   uint32_t first_layout_node = 0;
   const uint32_t layout_findings = multiplex_native_app_layout_audit(
@@ -1219,12 +1253,18 @@ static bool bind_item_subtitles(const MultiplexGatewayDetails *details) {
                                          selected_subtitle) != 0;
 }
 
-static bool bind_item_details(const MultiplexGatewayDetails *details) {
-  char facts[MULTIPLEX_GATEWAY_DETAIL_SHORT_CAPACITY] = {0};
-  char hierarchy[48] = {0};
+static bool format_episode_metadata(const MultiplexGatewayDetails *details,
+                                    uint16_t *secondary_length,
+                                    char *hierarchy,
+                                    size_t hierarchy_capacity,
+                                    uint32_t *hierarchy_length) {
+  if (details == NULL || secondary_length == NULL || hierarchy == NULL ||
+      hierarchy_capacity == 0 || hierarchy_length == NULL) {
+    return false;
+  }
   uint32_t season = details->parent_index;
   uint32_t episode = details->index;
-  uint16_t secondary_length = details->secondary_length;
+  *secondary_length = details->secondary_length;
   const char *episode_marker = strstr(details->secondary, " \xC2\xB7 S");
   if (episode_marker != NULL) {
     unsigned parsed_season = 0;
@@ -1233,17 +1273,31 @@ static bool bind_item_details(const MultiplexGatewayDetails *details) {
                &parsed_episode) == 2) {
       season = parsed_season;
       episode = parsed_episode;
-      secondary_length = (uint16_t)(episode_marker - details->secondary);
+      *secondary_length = (uint16_t)(episode_marker - details->secondary);
     }
   }
-  int hierarchy_length = 0;
+  int formatted_length = 0;
   if (strcmp(details->media_type, "Episode") == 0 && season != 0 &&
       episode != 0) {
-    hierarchy_length = snprintf(hierarchy, sizeof(hierarchy),
-                                "Season %u | Episode %u", (unsigned)season,
-                                (unsigned)episode);
+    formatted_length =
+        snprintf(hierarchy, hierarchy_capacity, "Season %u | Episode %u",
+                 (unsigned)season, (unsigned)episode);
   }
-  if (hierarchy_length < 0 || (size_t)hierarchy_length >= sizeof(hierarchy)) {
+  if (formatted_length < 0 ||
+      (size_t)formatted_length >= hierarchy_capacity) {
+    return false;
+  }
+  *hierarchy_length = (uint32_t)formatted_length;
+  return true;
+}
+
+static bool bind_item_details(const MultiplexGatewayDetails *details) {
+  char facts[MULTIPLEX_GATEWAY_DETAIL_SHORT_CAPACITY] = {0};
+  char hierarchy[48] = {0};
+  uint16_t secondary_length = 0;
+  uint32_t hierarchy_length = 0;
+  if (!format_episode_metadata(details, &secondary_length, hierarchy,
+                               sizeof(hierarchy), &hierarchy_length)) {
     return false;
   }
   const uint32_t minutes =
@@ -1268,7 +1322,7 @@ static bool bind_item_details(const MultiplexGatewayDetails *details) {
   if (multiplex_native_app_details_commit(
           (const uint8_t *)details->title, details->title_length,
           (const uint8_t *)details->secondary, secondary_length,
-          (const uint8_t *)hierarchy, (uint32_t)hierarchy_length,
+          (const uint8_t *)hierarchy, hierarchy_length,
           (const uint8_t *)details->media_type, details->media_type_length,
           (const uint8_t *)details->library, details->library_length,
           (const uint8_t *)details->content_rating,
@@ -2089,6 +2143,107 @@ playback_position_ms(const MultiplexGatewayPlaybackManifest *manifest) {
   }
   return (uint32_t)position;
 }
+
+#if MULTIPLEX_PAIRING_ENABLED
+static bool navigate_direct_playback_if_requested(
+    const MultiplexAuthCredentials *credentials,
+    MultiplexGatewayPlaybackManifest *active_manifest, HttpClient **client,
+    MpegPsDemux **demux, TimelineReporter *timeline_reporter) {
+  const int32_t direction =
+      multiplex_native_app_playback_navigation_request();
+  if (direction == 0) {
+    return true;
+  }
+  if (credentials == NULL || active_manifest == NULL ||
+      active_manifest->rating_key == 0) {
+    return multiplex_native_app_playback_navigation_clear() != 0;
+  }
+
+  MultiplexGatewayItem target;
+  const MultiplexPlexNextEpisodeResult result =
+      direction < 0
+          ? multiplex_plex_load_previous_episode(
+                credentials, active_manifest->rating_key, &target)
+          : multiplex_plex_load_next_episode(
+                credentials, active_manifest->rating_key, &target);
+  if (result != MULTIPLEX_PLEX_NEXT_EPISODE_FOUND) {
+    if (multiplex_native_app_playback_navigation_clear() == 0) {
+      return false;
+    }
+    native_frame_dirty = true;
+    SYS_Report("REFERENCE GX: direct playback navigation direction=%s "
+               "result=%s rating-key=%u\n",
+               direction < 0 ? "previous" : "next",
+               result == MULTIPLEX_PLEX_NEXT_EPISODE_NONE ? "none" : "error",
+               active_manifest->rating_key);
+    return true;
+  }
+
+  MultiplexGatewayDetails details;
+  char hierarchy[48] = {0};
+  uint16_t secondary_length = 0;
+  uint32_t hierarchy_length = 0;
+  if (!multiplex_plex_load_details(credentials, target.rating_key, &details) ||
+      !format_episode_metadata(&details, &secondary_length, hierarchy,
+                               sizeof(hierarchy), &hierarchy_length)) {
+    multiplex_native_app_playback_navigation_clear();
+    SYS_Report("REFERENCE GX: direct playback navigation metadata failed "
+               "requested=%u\n",
+               target.rating_key);
+    return true;
+  }
+
+  const uint32_t previous_rating_key = active_manifest->rating_key;
+  const uint32_t previous_position_ms =
+      playback_position_ms(active_manifest);
+  audio_dma_update(audio_output, false);
+  flush_timeline_report(timeline_reporter, "", credentials,
+                        direct_hls_session_id, active_manifest,
+                        previous_position_ms, "stopped");
+  if (multiplex_native_app_playback_navigate(
+          target.rating_key, (const uint8_t *)details.title,
+          details.title_length, (const uint8_t *)details.secondary,
+          secondary_length, (const uint8_t *)hierarchy, hierarchy_length,
+          details.duration_ms) == 0 ||
+      !load_selected_direct_playback(credentials, active_manifest, client,
+                                     demux)) {
+    SYS_Report("REFERENCE GX: direct playback navigation switch failed "
+               "previous=%u requested=%u\n",
+               previous_rating_key, target.rating_key);
+    return false;
+  }
+  native_frame_dirty = true;
+  SYS_Report("REFERENCE GX: direct playback navigation direction=%s "
+             "previous=%u active=%u title=%s\n",
+             direction < 0 ? "previous" : "next", previous_rating_key,
+             active_manifest->rating_key, details.title);
+  return true;
+}
+
+static void stop_direct_playback_if_hidden(
+    const MultiplexAuthCredentials *credentials,
+    MultiplexGatewayPlaybackManifest *active_manifest, HttpClient **client,
+    MpegPsDemux **demux, TimelineReporter *timeline_reporter,
+    bool *timeline_player_visible) {
+  if (active_manifest == NULL || active_manifest->rating_key == 0 ||
+      (multiplex_native_app_playback_state() & 1u) != 0) {
+    return;
+  }
+  const uint32_t stopped_rating_key = active_manifest->rating_key;
+  const uint32_t stopped_position_ms = playback_position_ms(active_manifest);
+  audio_dma_update(audio_output, false);
+  flush_timeline_report(timeline_reporter, "", credentials,
+                        direct_hls_session_id, active_manifest,
+                        stopped_position_ms, "stopped");
+  close_media_session(client, demux);
+  memset(active_manifest, 0, sizeof(*active_manifest));
+  direct_hls_session_id[0] = '\0';
+  *timeline_player_visible = false;
+  SYS_Report("REFERENCE GX: direct playback stopped rating-key=%u "
+             "position=%u\n",
+             stopped_rating_key, stopped_position_ms);
+}
+#endif
 
 static void texture_vertex(float x, float y, float u, float v) {
   GX_Position3f32(x, y, 0.0f);
@@ -3262,6 +3417,9 @@ static void *run_app(void *unused) {
       SYS_Report("REFERENCE GX: controller buttons %08x\n", pressed);
     }
     const uint64_t input_now_ms = ticks_to_millisecs(gettime());
+    const bool reveal_player_controls_only =
+        video_surface.visible != 0 && !player_controls_overlay_visible &&
+        (pressed & PAD_BUTTON_A) != 0;
     if (video_surface.visible != 0) {
       if (player_controls_last_input_ms == 0) {
         player_controls_last_input_ms = input_now_ms;
@@ -3286,6 +3444,10 @@ static void *run_app(void *unused) {
         set_player_controls_texture_alpha(ui_frame_alpha);
       }
       player_controls_overlay_visible = true;
+    }
+    if (reveal_player_controls_only) {
+      pressed &= ~PAD_BUTTON_A;
+      SYS_Report("REFERENCE GX: player controls reveal consumed A\n");
     }
 #if MULTIPLEX_PAIRING_ENABLED
     uint32_t held = PAD_ButtonsHeld(0);
@@ -3520,6 +3682,17 @@ static void *run_app(void *unused) {
         SYS_Report("REFERENCE GX: playback-session load failed\n");
       }
 #if MULTIPLEX_PAIRING_ENABLED
+      if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked) {
+        stop_direct_playback_if_hidden(
+            &auth_credentials, &playback_manifest, &client, &demux,
+            &timeline_reporter, &timeline_player_visible);
+        if (syncplay_session == NULL &&
+            !navigate_direct_playback_if_requested(
+                &auth_credentials, &playback_manifest, &client, &demux,
+                &timeline_reporter)) {
+          SYS_Report("REFERENCE GX: direct playback navigation failed\n");
+        }
+      }
       const uint32_t local_playback_request =
           multiplex_native_app_playback_request();
       const uint32_t local_playback_offset =
@@ -3726,7 +3899,8 @@ static void *run_app(void *unused) {
 #endif
     const uint64_t present_now_ms = ticks_to_millisecs(gettime());
     if (video_surface.visible != 0 && player_controls_overlay_visible &&
-        player_controls_last_input_ms != 0) {
+        player_controls_last_input_ms != 0 &&
+        multiplex_native_app_player_settings_open() == 0) {
       if (player_controls_fade_started_ms == 0 &&
           present_now_ms - player_controls_last_input_ms >=
               PLAYER_CONTROLS_IDLE_MS) {
