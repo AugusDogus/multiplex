@@ -275,38 +275,44 @@ launch() {
     fi
   done
   ensure_portless
-  if systemctl --user --quiet is-active "$qa_service"; then
-    systemctl --user stop "$qa_service"
-  fi
-  systemctl --user reset-failed "$qa_service" 2>/dev/null || true
-  systemd-run --user --collect \
-    --unit="$qa_service" \
-    --property=CPUSchedulingPolicy=other \
-    --working-directory="$repo_dir" \
-    --setenv="PATH=$PATH" \
-    --setenv="PLEX_BASE_URL=${PLEX_BASE_URL:-}" \
-    --setenv="MULTIPLEX_BASE_URL=${MULTIPLEX_BASE_URL:-https://multiplex.localhost}" \
-    --setenv=GAMECUBE_DIRECT_PLEX=1 \
-    --setenv=GAMECUBE_PLEX_INTERACTIVE=1 \
-    --setenv=GAMECUBE_PLEX_KEEP_OPEN=1 \
-    /bin/sh "$script_dir/run-dolphin-plex.sh" >/dev/null
-  attempt=0
-  while [ "$attempt" -lt 480 ]; do
-    if dolphin_pid >/dev/null &&
-      rg -q 'direct Plex posters decoded=[0-9]+/[0-9]+' "$log" 2>/dev/null; then
-      echo "Interactive linked Plex QA is ready."
-      status
-      return
+  launch_attempt=1
+  while [ "$launch_attempt" -le 3 ]; do
+    if systemctl --user --quiet is-active "$qa_service"; then
+      systemctl --user stop "$qa_service"
     fi
-    if ! systemctl --user --quiet is-active "$qa_service"; then
-      echo "Interactive Dolphin QA exited during startup." >&2
-      journalctl --user-unit "$qa_service" -n 80 --no-pager >&2 || true
-      exit 1
+    systemctl --user reset-failed "$qa_service" 2>/dev/null || true
+    systemd-run --user --collect \
+      --unit="$qa_service" \
+      --property=CPUSchedulingPolicy=other \
+      --working-directory="$repo_dir" \
+      --setenv="PATH=$PATH" \
+      --setenv="PLEX_BASE_URL=${PLEX_BASE_URL:-}" \
+      --setenv="MULTIPLEX_BASE_URL=${MULTIPLEX_BASE_URL:-https://multiplex.localhost}" \
+      --setenv=GAMECUBE_DIRECT_PLEX=1 \
+      --setenv=GAMECUBE_PLEX_INTERACTIVE=1 \
+      --setenv=GAMECUBE_PLEX_KEEP_OPEN=1 \
+      /bin/sh "$script_dir/run-dolphin-plex.sh" >/dev/null
+    readiness_attempt=0
+    while [ "$readiness_attempt" -lt 480 ]; do
+      if dolphin_pid >/dev/null &&
+        rg -q 'direct Plex posters decoded=[0-9]+/[0-9]+' "$log" 2>/dev/null; then
+        echo "Interactive linked Plex QA is ready."
+        status
+        return
+      fi
+      if ! systemctl --user --quiet is-active "$qa_service"; then
+        break
+      fi
+      sleep 0.5
+      readiness_attempt=$((readiness_attempt + 1))
+    done
+    if [ "$launch_attempt" -lt 3 ]; then
+      echo "Interactive Dolphin QA failed during startup; retrying ($launch_attempt/3)." >&2
     fi
-    sleep 0.5
-    attempt=$((attempt + 1))
+    launch_attempt=$((launch_attempt + 1))
   done
-  echo "Interactive Dolphin QA did not become ready within four minutes." >&2
+  echo "Interactive Dolphin QA did not become ready after three attempts." >&2
+  journalctl --user-unit "$qa_service" -n 80 --no-pager >&2 || true
   exit 1
 }
 
