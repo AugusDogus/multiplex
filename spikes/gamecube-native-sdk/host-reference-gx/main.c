@@ -2842,12 +2842,16 @@ static void configure_font_pipeline(void) {
 }
 
 static GXColor command_color(uint32_t rgba) {
-  return (GXColor){
+  GXColor color = {
       .r = (uint8_t)(rgba >> 24u),
       .g = (uint8_t)(rgba >> 16u),
       .b = (uint8_t)(rgba >> 8u),
       .a = (uint8_t)rgba,
   };
+  if (presented_screen == MULTIPLEX_SCREEN_PLAYER) {
+    color.a = (uint8_t)(((uint16_t)color.a * ui_frame_alpha + 127u) / 255u);
+  }
+  return color;
 }
 
 static void set_text_scissor(const MultiplexGxCommand *command) {
