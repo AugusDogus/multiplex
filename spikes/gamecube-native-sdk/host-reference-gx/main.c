@@ -2456,11 +2456,17 @@ draw_playback_progress(const MultiplexGatewayPlaybackManifest *manifest) {
       manifest->rating_key == 0 || manifest->media_duration_ms == 0) {
     return;
   }
+  MultiplexPlayerControlsSurface controls;
+  memset(&controls, 0, sizeof(controls));
+  if (multiplex_native_player_controls_surface(&controls) == 0 ||
+      controls.width <= 0 || controls.height <= 0) {
+    return;
+  }
   const uint32_t position_ms = playback_position_ms(manifest);
-  const float left = video_surface.x + 10.0f;
-  const float right = video_surface.x + video_surface.width - 10.0f;
-  const float bottom = video_surface.y + video_surface.height - 8.0f;
-  const float top = bottom - 4.0f;
+  const float left = controls.x + 1.0f;
+  const float right = controls.x + controls.width - 1.0f;
+  const float top = controls.y;
+  const float bottom = top + 4.0f;
   const float progress =
       (float)position_ms / (float)manifest->media_duration_ms;
   const float filled = left + (right - left) * progress;

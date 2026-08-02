@@ -87,6 +87,7 @@ var reference_memo_allocator: BoundedMemoAllocator = .{};
 var reference_render_memo: canvas.ReferenceRenderMemo = undefined;
 var reference_render_memo_initialized = false;
 var video_surface: VideoSurface = .{};
+var player_controls_surface: PlayerControlsSurface = .{};
 var poster_surfaces: [4]PosterSurface = [_]PosterSurface{.{}} ** 4;
 var poster_surface_count: u32 = 0;
 
@@ -205,6 +206,14 @@ pub const GxCommand = extern struct {
 pub const VideoSurface = extern struct {
     visible: u32 = 0,
     playing: u32 = 0,
+    x: f32 = 0,
+    y: f32 = 0,
+    width: f32 = 0,
+    height: f32 = 0,
+};
+
+pub const PlayerControlsSurface = extern struct {
+    visible: u32 = 0,
     x: f32 = 0,
     y: f32 = 0,
     width: f32 = 0,
@@ -345,6 +354,7 @@ fn initializeApp() void {
     previous_render_state = .{};
     previous_render_state_valid = false;
     video_surface = .{};
+    player_controls_surface = .{};
     poster_surfaces = [_]PosterSurface{.{}} ** 4;
     poster_surface_count = 0;
 }
@@ -1513,6 +1523,11 @@ export fn multiplex_native_video_surface(output: *VideoSurface) callconv(.c) u32
     return video_surface.visible;
 }
 
+export fn multiplex_native_player_controls_surface(output: *PlayerControlsSurface) callconv(.c) u32 {
+    output.* = player_controls_surface;
+    return player_controls_surface.visible;
+}
+
 export fn multiplex_native_poster_surfaces(output: [*]PosterSurface, capacity: u32) callconv(.c) u32 {
     const count = @min(capacity, poster_surface_count);
     @memcpy(output[0..count], poster_surfaces[0..count]);
@@ -1538,6 +1553,7 @@ export fn multiplex_native_app_render(output: [*]GxCommand, capacity: u32) callc
         &layout_nodes,
     ) catch return 0;
     captureVideoSurface(layout.nodes, model);
+    capturePlayerControlsSurface(layout.nodes);
     capturePosterSurfaces(layout.nodes);
 
     var press_ids: [32]canvas.ObjectId = undefined;
@@ -1665,6 +1681,7 @@ fn renderReference(
         return 0;
     };
     captureVideoSurface(layout.nodes, model);
+    capturePlayerControlsSurface(layout.nodes);
     capturePosterSurfaces(layout.nodes);
     reference_render_stage = 3;
     multiplex_native_profile_mark(reference_render_stage);
@@ -1746,6 +1763,23 @@ fn captureVideoSurface(nodes: []const canvas.WidgetLayoutNode, model: *const cor
         video_surface = .{
             .visible = 1,
             .playing = @intFromBool(model.playing),
+            .x = frame.x,
+            .y = frame.y,
+            .width = frame.width,
+            .height = frame.height,
+        };
+        return;
+    }
+}
+
+fn capturePlayerControlsSurface(nodes: []const canvas.WidgetLayoutNode) void {
+    player_controls_surface = .{};
+    for (nodes) |node| {
+        if (!std.mem.eql(u8, node.widget.semantics.label, "Player controls")) continue;
+        const frame = node.frame.normalized();
+        if (frame.isEmpty()) continue;
+        player_controls_surface = .{
+            .visible = 1,
             .x = frame.x,
             .y = frame.y,
             .width = frame.width,

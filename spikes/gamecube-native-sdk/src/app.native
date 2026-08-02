@@ -13,7 +13,7 @@
           </panel>
         </if>
         <if test="{playbackLoaded}">
-          <panel width="620" padding="10" background="surface" border-color="border" radius="sm">
+          <panel width="620" padding="10" background="surface" border-color="border" radius="sm" label="Player controls">
             <row gap="8" cross="center">
               <column width="220" gap="2">
                 <if test="{detailsHasHierarchy}">

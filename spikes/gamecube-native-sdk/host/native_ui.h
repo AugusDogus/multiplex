@@ -45,6 +45,14 @@ typedef struct {
 } MultiplexVideoSurface;
 
 typedef struct {
+  uint32_t visible;
+  float x;
+  float y;
+  float width;
+  float height;
+} MultiplexPlayerControlsSurface;
+
+typedef struct {
   uint32_t image_id;
   float x;
   float y;
@@ -180,6 +188,8 @@ uint32_t multiplex_native_app_layout_audit(uint32_t *first_rule,
 uint32_t multiplex_native_app_poster_inset_audit(void);
 uint32_t multiplex_native_app_input(uint32_t action);
 uint32_t multiplex_native_video_surface(MultiplexVideoSurface *output);
+uint32_t multiplex_native_player_controls_surface(
+    MultiplexPlayerControlsSurface *output);
 uint32_t multiplex_native_poster_surfaces(MultiplexPosterSurface *output,
                                           uint32_t capacity);
 uint32_t multiplex_native_app_render(MultiplexGxCommand *output,
