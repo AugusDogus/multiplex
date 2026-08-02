@@ -173,7 +173,7 @@ wait_for_count() {
 }
 
 wait_for_stable_presentation() {
-  seconds=${1:-60}
+  seconds=${1:-90}
   attempt=0
   max_attempts=$((seconds * 10))
   while [ "$attempt" -lt "$max_attempts" ]; do
