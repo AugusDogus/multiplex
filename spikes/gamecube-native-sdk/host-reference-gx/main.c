@@ -857,6 +857,12 @@ static bool command_intersects_rect(const MultiplexGxCommand *command,
     right = fmaxf(command->x, command->x2) + command->stroke_width;
     bottom = fmaxf(command->y, command->y2) + command->stroke_width;
   }
+  if (command->kind == MULTIPLEX_GX_FILL_TRIANGLE) {
+    left = fminf(command->x, fminf(command->x2, command->width));
+    top = fminf(command->y, fminf(command->y2, command->height));
+    right = fmaxf(command->x, fmaxf(command->x2, command->width));
+    bottom = fmaxf(command->y, fmaxf(command->y2, command->height));
+  }
   return right >= rect_x && left <= rect_x + rect_width &&
          bottom >= rect_y && top <= rect_y + rect_height;
 }
@@ -3237,6 +3243,13 @@ static void draw_native_shapes(void) {
       GX_End();
       break;
     }
+    case MULTIPLEX_GX_FILL_TRIANGLE:
+      GX_Begin(GX_TRIANGLES, GX_VTXFMT0, 3);
+      color_vertex(command->x, command->y, color);
+      color_vertex(command->x2, command->y2, color);
+      color_vertex(command->width, command->height, color);
+      GX_End();
+      break;
     default:
       break;
     }

@@ -266,6 +266,7 @@ const gx_text: u32 = 5;
 const gx_shadow: u32 = 6;
 const gx_glyph: u32 = 7;
 const gx_path_line: u32 = 8;
+const gx_fill_triangle: u32 = 9;
 
 export fn multiplex_core_abi_version() callconv(.c) u32 {
     return 1;
@@ -1740,6 +1741,14 @@ fn lowerGxCommands(
     var output_len: usize = 0;
     for (packet.commands) |command| {
         if (output_len >= capacity) break;
+        if (command.kind == .fill_path) {
+            output_len += emitGxFillPath(
+                command,
+                output + output_len,
+                @as(usize, capacity) - output_len,
+            );
+            continue;
+        }
         if (command.kind == .stroke_path) {
             output_len += emitGxStrokePath(
                 command,
@@ -2019,6 +2028,7 @@ fn isGpuChrome(command: canvas.RenderCommand, model: *const core.Model) bool {
         .fill_rect, .fill_rounded_rect, .stroke_rect, .draw_line,
         .stroke_path, .shadow,
         => true,
+        .fill_path => model.screen == .player,
         else => false,
     };
     if (!supported) return false;
@@ -2383,6 +2393,144 @@ fn emitGxStrokePath(
         if (output_len >= capacity) break;
     }
     return output_len;
+}
+
+fn emitGxFillPath(
+    command: canvas.CanvasGpuCommand,
+    output: [*]GxCommand,
+    capacity: usize,
+) usize {
+    if (command.shape != .path or capacity == 0) return 0;
+    const transform = command.transform;
+    const color = paintRgba(command.paint, command.opacity);
+    var first = geometry.PointF.zero();
+    var current = geometry.PointF.zero();
+    var edge_count: usize = 0;
+    var has_current = false;
+    var output_len: usize = 0;
+
+    for (command.shape.path) |element| {
+        switch (element.verb) {
+            .move_to => {
+                first = transform.transformPoint(element.points[0]);
+                current = first;
+                edge_count = 0;
+                has_current = true;
+            },
+            .line_to => {
+                if (!has_current) continue;
+                const endpoint = transform.transformPoint(element.points[0]);
+                output_len += emitGxFillTriangle(
+                    output + output_len,
+                    capacity - output_len,
+                    first,
+                    current,
+                    endpoint,
+                    edge_count,
+                    color,
+                    command.clip,
+                );
+                current = endpoint;
+                edge_count += 1;
+            },
+            .quad_to => {
+                if (!has_current) continue;
+                const start = current;
+                const control = transform.transformPoint(element.points[0]);
+                const endpoint = transform.transformPoint(element.points[1]);
+                const segment_count: usize = 4;
+                for (1..segment_count + 1) |segment| {
+                    if (output_len >= capacity) break;
+                    const t = @as(f32, @floatFromInt(segment)) /
+                        @as(f32, @floatFromInt(segment_count));
+                    const inverse = 1 - t;
+                    const point = geometry.PointF.init(
+                        inverse * inverse * start.x + 2 * inverse * t * control.x + t * t * endpoint.x,
+                        inverse * inverse * start.y + 2 * inverse * t * control.y + t * t * endpoint.y,
+                    );
+                    output_len += emitGxFillTriangle(
+                        output + output_len,
+                        capacity - output_len,
+                        first,
+                        current,
+                        point,
+                        edge_count,
+                        color,
+                        command.clip,
+                    );
+                    current = point;
+                    edge_count += 1;
+                }
+                current = endpoint;
+            },
+            .cubic_to => {
+                if (!has_current) continue;
+                const start = current;
+                const control_a = transform.transformPoint(element.points[0]);
+                const control_b = transform.transformPoint(element.points[1]);
+                const endpoint = transform.transformPoint(element.points[2]);
+                const segment_count: usize = 4;
+                for (1..segment_count + 1) |segment| {
+                    if (output_len >= capacity) break;
+                    const t = @as(f32, @floatFromInt(segment)) /
+                        @as(f32, @floatFromInt(segment_count));
+                    const inverse = 1 - t;
+                    const point = geometry.PointF.init(
+                        inverse * inverse * inverse * start.x +
+                            3 * inverse * inverse * t * control_a.x +
+                            3 * inverse * t * t * control_b.x +
+                            t * t * t * endpoint.x,
+                        inverse * inverse * inverse * start.y +
+                            3 * inverse * inverse * t * control_a.y +
+                            3 * inverse * t * t * control_b.y +
+                            t * t * t * endpoint.y,
+                    );
+                    output_len += emitGxFillTriangle(
+                        output + output_len,
+                        capacity - output_len,
+                        first,
+                        current,
+                        point,
+                        edge_count,
+                        color,
+                        command.clip,
+                    );
+                    current = point;
+                    edge_count += 1;
+                }
+                current = endpoint;
+            },
+            .close => {},
+        }
+        if (output_len >= capacity) break;
+    }
+    return output_len;
+}
+
+fn emitGxFillTriangle(
+    output: [*]GxCommand,
+    capacity: usize,
+    first: geometry.PointF,
+    previous: geometry.PointF,
+    endpoint: geometry.PointF,
+    edge_count: usize,
+    color_rgba: u32,
+    clip_value: ?geometry.RectF,
+) usize {
+    if (capacity == 0 or edge_count == 0) return 0;
+    var translated = GxCommand{
+        .kind = gx_fill_triangle,
+        .x = first.x,
+        .y = first.y,
+        .x2 = previous.x,
+        .y2 = previous.y,
+        .width = endpoint.x,
+        .height = endpoint.y,
+        .color_rgba = color_rgba,
+    };
+    copyClip(&translated, clip_value);
+    output[0] = translated;
+    return 1;
 }
 
 fn emitGxPathLine(
