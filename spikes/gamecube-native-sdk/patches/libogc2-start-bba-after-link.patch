@@ -1,0 +1,13 @@
+diff --git a/lwip/arch/gc/netif/gcif.c b/lwip/arch/gc/netif/gcif.c
+index 20fd9d6..527e0cb 100644
+--- a/lwip/arch/gc/netif/gcif.c
++++ b/lwip/arch/gc/netif/gcif.c
+@@ -396,7 +396,7 @@ static u32 __bba_get_linkstate()
+ 		if(diff_sec(start,end)>=5) break;
+ 		LWP_YieldThread();
+ 	}
+-	if(ret) sleep(5);
++	if(ret) usleep(100000);
+ 	return ret;
+ }
+ 

@@ -76,7 +76,10 @@ libogc2_bba_recovery_patch="$spike_dir/patches/libogc2-recover-malformed-bba-des
 libogc2_bba_pbuf_patch="$spike_dir/patches/libogc2-drop-bba-packet-on-pbuf-exhaustion.patch"
 libogc2_tcp_sequence_patch="$spike_dir/patches/libogc2-lwip-rfc-snd-nxt.patch"
 libogc2_tcp_window_patch="$spike_dir/patches/libogc2-flush-tcp-window-updates.patch"
-for patch_file in "$libogc2_patch" "$libogc2_bba_wrap_patch" "$libogc2_bba_recovery_patch" "$libogc2_bba_pbuf_patch" "$libogc2_tcp_sequence_patch" "$libogc2_tcp_window_patch"; do
+libogc2_bba_link_patch="$spike_dir/patches/libogc2-start-bba-after-link.patch"
+libogc2_dhcp_worker_patch="$spike_dir/patches/libogc2-start-network-worker-before-dhcp.patch"
+libogc2_dhcp_state_patch="$spike_dir/patches/libogc2-arm-dhcp-state-before-send.patch"
+for patch_file in "$libogc2_patch" "$libogc2_bba_wrap_patch" "$libogc2_bba_recovery_patch" "$libogc2_bba_pbuf_patch" "$libogc2_tcp_sequence_patch" "$libogc2_tcp_window_patch" "$libogc2_bba_link_patch" "$libogc2_dhcp_worker_patch" "$libogc2_dhcp_state_patch"; do
   if git -C "$libogc2_dir" apply --reverse --check "$patch_file" >/dev/null 2>&1; then
     :
   elif git -C "$libogc2_dir" apply --check "$patch_file"; then
@@ -87,7 +90,7 @@ for patch_file in "$libogc2_patch" "$libogc2_bba_wrap_patch" "$libogc2_bba_recov
   fi
 done
 
-libogc2_input="$LIBOGC2_COMMIT $(cksum "$libogc2_patch") $(cksum "$libogc2_bba_wrap_patch") $(cksum "$libogc2_bba_recovery_patch") $(cksum "$libogc2_bba_pbuf_patch") $(cksum "$libogc2_tcp_sequence_patch") $(cksum "$libogc2_tcp_window_patch")"
+libogc2_input="$LIBOGC2_COMMIT $(cksum "$libogc2_patch") $(cksum "$libogc2_bba_wrap_patch") $(cksum "$libogc2_bba_recovery_patch") $(cksum "$libogc2_bba_pbuf_patch") $(cksum "$libogc2_tcp_sequence_patch") $(cksum "$libogc2_tcp_window_patch") $(cksum "$libogc2_bba_link_patch") $(cksum "$libogc2_dhcp_worker_patch") $(cksum "$libogc2_dhcp_state_patch")"
 libogc2_stamp="$libogc2_stage/.build-input"
 if [ ! -s "$libogc2_stage/opt/devkitpro/libogc2/gamecube/lib/libogc.a" ] ||
   [ ! -s "$libogc2_stage/opt/devkitpro/libogc2/wii/lib/libogc.a" ] ||

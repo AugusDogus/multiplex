@@ -278,6 +278,12 @@ profile also accepts the connected Steam Controller alongside the QA pipe.
   underline beneath focused poster cards and other pressable panels
 - `patches/libogc2-lwip-rfc-snd-nxt.patch`: upstream lwIP sequence-number
   semantics backported to libogc2's historical TCP stack
+- `patches/libogc2-start-bba-after-link.patch`: starts DHCP 100 ms after BBA
+  link-up instead of imposing a five-second switch compatibility delay
+- `patches/libogc2-start-network-worker-before-dhcp.patch`: starts lwIP packet
+  processing before sending DHCP discovery so immediate offers are not missed
+- `patches/libogc2-arm-dhcp-state-before-send.patch`: arms DHCP receive states
+  before transmitting and retries a lost initial discovery after 500 ms
 - `patches/libogc2-flush-tcp-window-updates.patch`: immediately ACKs consumed
   TCP data, advertises receive space in complete windows, and limits the
   Dolphin TAP test path to one in-flight Ethernet frame

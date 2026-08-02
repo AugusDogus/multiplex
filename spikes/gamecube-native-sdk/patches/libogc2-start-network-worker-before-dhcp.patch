@@ -1,0 +1,26 @@
+diff --git a/lwip/network.c b/lwip/network.c
+index 2d97721..05053bd 100644
+--- a/lwip/network.c
++++ b/lwip/network.c
+@@ -1512,6 +1512,10 @@ s32 if_configex(struct in_addr *local_ip,struct in_addr *netmask,struct in_addr
+ 		pnet = netif_add(&g_hNetIF,&loc_ip,&mask,&gw,NULL,w5500if_init,net_input);
+ 	if(!pnet)
+ 		pnet = netif_add(&g_hNetIF,&loc_ip,&mask,&gw,NULL,enc28j60if_init,net_input);
++	if(!pnet) return -1;
++	// Start packet processing before DHCP sends its first discovery frame.
++	ret = net_init();
++	if(ret<0) return ret;
+ 	if(pnet) {
+ 		netif_set_up(pnet);
+ 		netif_set_default(pnet);
+@@ -1545,10 +1549,6 @@ s32 if_configex(struct in_addr *local_ip,struct in_addr *netmask,struct in_addr
+ 	IP4_ADDR(&gw, 127,0,0,1);
+ 	pnet = netif_add(&g_hLoopIF,&loc_ip,&mask,&gw,NULL,loopif_init,net_input);
+ 
+-	//last and least start the tcpip layer
+-	ret = net_init();
+-	if(ret<0) return ret;
+-
+ 	if ( (g_hNetIF.flags & NETIF_FLAG_LINK_UP) == 0 ) return -2;
+ 	if ( g_hNetIF.dhcp != NULL ) {
+ 		// wait for dhcp to bind
