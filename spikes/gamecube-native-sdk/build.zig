@@ -3,6 +3,7 @@ const native_sdk = @import("native_sdk");
 
 const frame_capacity = 128 * 1024;
 const heap_capacity = 256 * 1024;
+const gamecube_optimize = std.builtin.OptimizeMode.ReleaseFast;
 
 pub fn build(b: *std.Build) void {
     const dependency = b.dependency("native_sdk", .{});
@@ -55,19 +56,19 @@ fn addGameCubeCoreProbe(b: *std.Build, dependency: *std.Build.Dependency) void {
     const geometry_module = b.createModule(.{
         .root_source_file = dependency.path("src/primitives/geometry/root.zig"),
         .target = target,
-        .optimize = .ReleaseSmall,
+        .optimize = gamecube_optimize,
         .single_threaded = true,
     });
     const json_module = b.createModule(.{
         .root_source_file = dependency.path("src/primitives/json/root.zig"),
         .target = target,
-        .optimize = .ReleaseSmall,
+        .optimize = gamecube_optimize,
         .single_threaded = true,
     });
     const canvas_module = b.createModule(.{
         .root_source_file = dependency.path("src/primitives/canvas/root.zig"),
         .target = target,
-        .optimize = .ReleaseSmall,
+        .optimize = gamecube_optimize,
         .single_threaded = true,
     });
     canvas_module.addImport("geometry", geometry_module);
@@ -76,7 +77,7 @@ fn addGameCubeCoreProbe(b: *std.Build, dependency: *std.Build.Dependency) void {
     const probe_module = b.createModule(.{
         .root_source_file = probe_root,
         .target = target,
-        .optimize = .ReleaseSmall,
+        .optimize = gamecube_optimize,
         .single_threaded = true,
     });
     probe_module.addImport("canvas", canvas_module);
