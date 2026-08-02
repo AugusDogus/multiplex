@@ -129,6 +129,7 @@ static MultiplexPosterSurface poster_surfaces[4];
 static uint32_t poster_surface_count;
 static uint32_t presented_screen = UINT32_MAX;
 static bool asynchronous_reference_enabled;
+static bool asynchronous_reference_requested;
 static ReferenceFrameRenderer reference_renderer;
 static bool network_activity_visible;
 static uint32_t network_activity_frame;
@@ -2693,9 +2694,12 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
   if (native_frame_dirty && reference_renderer.thread == LWP_THREAD_NULL) {
     const uint32_t target_screen = multiplex_native_app_screen();
     const bool asynchronous_transition =
-        asynchronous_reference_enabled && target_screen != presented_screen &&
+        asynchronous_reference_enabled &&
+        (target_screen != presented_screen ||
+         asynchronous_reference_requested) &&
         target_screen != MULTIPLEX_SCREEN_PLAYER;
     if (asynchronous_transition) {
+      asynchronous_reference_requested = false;
       if (!launch_reference_renderer()) {
         refresh_reference_frame(false);
       }
@@ -3521,6 +3525,7 @@ static void *run_app(void *unused) {
   bool timeline_started = false;
   uint64_t player_controls_last_input_ms = 0;
   uint64_t player_controls_fade_started_ms = 0;
+  uint64_t toast_dismiss_at_ms = 0;
   MultiplexGatewayCatalog catalog;
   memset(&catalog, 0, sizeof(catalog));
   MultiplexTrpcRoomList watch_together_rooms;
@@ -3855,6 +3860,12 @@ static void *run_app(void *unused) {
     pressed |= wii_buttons_as_gamecube(WPAD_ButtonsDown(0));
 #endif
     const uint64_t input_now_ms = ticks_to_millisecs(gettime());
+    if (toast_dismiss_at_ms != 0 && input_now_ms >= toast_dismiss_at_ms &&
+        multiplex_native_app_toast_dismiss() != 0) {
+      toast_dismiss_at_ms = 0;
+      asynchronous_reference_requested = true;
+      native_frame_dirty = true;
+    }
     const MultiplexGuiNavigationDirection stick_direction =
         multiplex_gui_navigation_poll(&gui_navigation, PAD_StickX(0),
                                       PAD_StickY(0), input_now_ms * 1000u);
@@ -4016,7 +4027,10 @@ static void *run_app(void *unused) {
                                                mark_watched_rating_key);
         }
 #endif
-        multiplex_native_app_mark_watched_commit(marked ? 1u : 0u);
+        if (multiplex_native_app_mark_watched_commit(marked ? 1u : 0u) != 0) {
+          toast_dismiss_at_ms = input_now_ms + 2500u;
+          asynchronous_reference_requested = true;
+        }
       }
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
           !load_browse_page(MULTIPLEX_GATEWAY_URL)) {

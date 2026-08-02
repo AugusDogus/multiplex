@@ -143,6 +143,8 @@ export interface Model {
   readonly subtitleStreams: readonly SubtitleStream[];
   readonly selectedSubtitleStream: number;
   readonly markWatchedRequested: boolean;
+  readonly toastVisible: boolean;
+  readonly toastMessage: Uint8Array;
   readonly startMenuOpen: boolean;
   readonly playerSettingsOpen: boolean;
   readonly playbackNavigationRequest: number;
@@ -419,6 +421,8 @@ export function initialModel(): Model {
     subtitleStreams: [],
     selectedSubtitleStream: 0,
     markWatchedRequested: false,
+    toastVisible: false,
+    toastMessage: new Uint8Array(0),
     startMenuOpen: false,
     playerSettingsOpen: false,
     playbackNavigationRequest: 0,
@@ -747,12 +751,25 @@ export function markWatchedRequestRatingKey(model: Model): number {
 
 export function completeMarkWatched(model: Model, succeeded: boolean): Model {
   if (!model.markWatchedRequested) return model;
-  if (!succeeded) return { ...model, markWatchedRequested: false };
+  if (!succeeded)
+    return {
+      ...model,
+      markWatchedRequested: false,
+      toastVisible: true,
+      toastMessage: asciiBytes("Could not mark as watched. Check Plex."),
+    };
   return {
     ...model,
     markWatchedRequested: false,
     selectedViewOffsetMs: 0,
+    toastVisible: true,
+    toastMessage: asciiBytes("Marked as watched"),
   };
+}
+
+export function dismissToast(model: Model): Model {
+  if (!model.toastVisible) return model;
+  return { ...model, toastVisible: false, toastMessage: new Uint8Array(0) };
 }
 
 export function playbackElapsedMinutes(model: Model): number {

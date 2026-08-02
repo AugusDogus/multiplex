@@ -1230,6 +1230,13 @@ export fn multiplex_native_app_mark_watched_commit(succeeded: u32) callconv(.c) 
     return 1;
 }
 
+export fn multiplex_native_app_toast_dismiss() callconv(.c) u32 {
+    if (!app_initialized or !app_model.toastVisible) return 0;
+    commitAppModel(core.dismissToast(app_model));
+    reference_full_repaint = true;
+    return 1;
+}
+
 export fn multiplex_native_app_player_settings_open() callconv(.c) u32 {
     return if (app_initialized and app_model.playerSettingsOpen) 1 else 0;
 }

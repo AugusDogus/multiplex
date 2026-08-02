@@ -560,4 +560,12 @@
       </column>
     </panel>
   </if>
+  <if test="{toastVisible}">
+    <column padding="20" cross="center">
+      <spacer grow="1" />
+      <panel padding="10" background="surface" border-color="border" radius="lg" label="Notification">
+        <text size="sm">{toastMessage}</text>
+      </panel>
+    </column>
+  </if>
 </stack>
