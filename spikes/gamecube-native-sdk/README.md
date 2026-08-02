@@ -465,10 +465,11 @@ backend](https://github.com/dolphin-emu/dolphin/blob/6094cfcf7b8fba733b3116fdf34
 Under sustained Plex responses that can overrun the emulated 4 KiB BBA ring
 before libogc2 advances its read pointer. `bun run
 spike:gamecube:dolphin:bootstrap` builds the pinned Dolphin source with a narrow
-patch that applies the existing eight-page backpressure threshold to TAP and
-checks receive enablement before consuming a host frame. The rootless TAP
-runner automatically prefers this local build and retains stock Dolphin as a
-fallback when it has not been built.
+patch that applies the existing eight-page backpressure threshold to TAP,
+checks receive enablement before consuming a host frame, and snapshots and
+validates every receive-ring page before copying packet bytes into the 4 KiB
+BBA memory. The rootless TAP runner automatically prefers this local build and
+retains stock Dolphin as a fallback when it has not been built.
 
 Pasta's interactive-flow ACK suppression also interacts badly with libogc2's
 historical two-MSS advertised window: repeated ACKs for tiny TLS records made a

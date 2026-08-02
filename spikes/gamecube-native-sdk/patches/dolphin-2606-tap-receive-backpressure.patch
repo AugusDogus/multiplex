@@ -1,20 +1,14 @@
 diff --git a/Source/Core/Core/HW/EXI/BBA/TAP_Unix.cpp b/Source/Core/Core/HW/EXI/BBA/TAP_Unix.cpp
-index a147cc7..628d327 100644
+index a147cc7..0290999 100644
 --- a/Source/Core/Core/HW/EXI/BBA/TAP_Unix.cpp
 +++ b/Source/Core/Core/HW/EXI/BBA/TAP_Unix.cpp
-@@ -3,7 +3,9 @@
- 
- #include "Core/HW/EXI/EXI_DeviceEthernet.h"
- 
+@@ -5,3 +5,5 @@
+
 +#include <chrono>
  #include <cstring>
 +#include <thread>
- 
- #ifndef _WIN32
- #include <unistd.h>
-@@ -127,6 +129,26 @@ void CEXIETHERNET::TAPNetworkInterface::ReadThreadHandler(TAPNetworkInterface* s
- {
-   while (!self->readThreadShutdown.IsSet())
+
+@@ -129,2 +131,30 @@ void CEXIETHERNET::TAPNetworkInterface::ReadThreadHandler(TAPNetworkInterface* s
    {
 +    if (!self->readEnabled.IsSet())
 +    {
@@ -22,8 +16,16 @@ index a147cc7..628d327 100644
 +      continue;
 +    }
 +
-+    u16 wp = self->m_eth_ref->page_ptr(BBA_RWP);
++    const u16 bp = self->m_eth_ref->page_ptr(BBA_BP);
 +    const u16 rp = self->m_eth_ref->page_ptr(BBA_RRP);
++    u16 wp = self->m_eth_ref->page_ptr(BBA_RWP);
++    const u16 rhbp = self->m_eth_ref->page_ptr(BBA_RHBP);
++    if (bp >= BBA_NUM_PAGES || rhbp >= BBA_NUM_PAGES || bp > rhbp || rp < bp || rp > rhbp ||
++        wp < bp || wp > rhbp)
++    {
++      std::this_thread::sleep_for(std::chrono::milliseconds(1));
++      continue;
++    }
 +    if (rp > wp)
 +      wp += 16;
 +
@@ -37,22 +39,51 @@ index a147cc7..628d327 100644
 +    }
 +
      fd_set rfds;
-     FD_ZERO(&rfds);
-     FD_SET(self->fd, &rfds);
-@@ -136,13 +158,15 @@ void CEXIETHERNET::TAPNetworkInterface::ReadThreadHandler(TAPNetworkInterface* s
-     timeout.tv_usec = 50000;
-     if (select(self->fd + 1, &rfds, nullptr, nullptr, &timeout) <= 0)
+@@ -138,2 +168,4 @@ void CEXIETHERNET::TAPNetworkInterface::ReadThreadHandler(TAPNetworkInterface* s
        continue;
 +    if (!self->readEnabled.IsSet())
 +      continue;
- 
-     int readBytes = read(self->fd, self->m_eth_ref->mRecvBuffer.get(), BBA_RECV_SIZE);
-     if (readBytes < 0)
-     {
-       ERROR_LOG_FMT(SP1, "Failed to read from BBA, err={}", readBytes);
+
+@@ -144,3 +176,3 @@ void CEXIETHERNET::TAPNetworkInterface::ReadThreadHandler(TAPNetworkInterface* s
      }
 -    else if (self->readEnabled.IsSet())
 +    else
      {
-       DEBUG_LOG_FMT(SP1, "Read data: {}",
-                     ArrayToString(self->m_eth_ref->mRecvBuffer.get(), readBytes, 0x10));
+diff --git a/Source/Core/Core/HW/EXI/EXI_DeviceEthernet.cpp b/Source/Core/Core/HW/EXI/EXI_DeviceEthernet.cpp
+index f1aa756..91b1b5c 100644
+--- a/Source/Core/Core/HW/EXI/EXI_DeviceEthernet.cpp
++++ b/Source/Core/Core/HW/EXI/EXI_DeviceEthernet.cpp
+@@ -555,5 +555,16 @@ bool CEXIETHERNET::RecvHandlePacket()
+   u32 status = 0;
+-  u16 rwp_initial = page_ptr(BBA_RWP);
++  const u16 bp = page_ptr(BBA_BP);
++  const u16 rrp = page_ptr(BBA_RRP);
++  const u16 rwp_initial = page_ptr(BBA_RWP);
++  const u16 rhbp = page_ptr(BBA_RHBP);
+   u16 current_rwp = 0;
+   u32 off = 4;
++  if (bp >= BBA_NUM_PAGES || rhbp >= BBA_NUM_PAGES || bp > rhbp || rrp < bp ||
++      rrp > rhbp || rwp_initial < bp || rwp_initial > rhbp)
++  {
++    ERROR_LOG_FMT(SP1, "Dropping frame with invalid BBA receive ring: bp={:#x}, rrp={:#x}, "
++                       "rwp={:#x}, rhbp={:#x}",
++                  bp, rrp, rwp_initial, rhbp);
++    goto wait_for_next;
++  }
+   if (!RecvMACFilter())
+@@ -584,3 +595,3 @@ bool CEXIETHERNET::RecvHandlePacket()
+       // sometime the OS can try to process when it's not completed
+-      current_rwp = current_rwp == page_ptr(BBA_RHBP) ? page_ptr(BBA_BP) : current_rwp + 1;
++      current_rwp = current_rwp == rhbp ? bp : current_rwp + 1;
+
+@@ -588,3 +599,3 @@ bool CEXIETHERNET::RecvHandlePacket()
+
+-      if (page_ptr(BBA_RRP) == current_rwp)
++      if (rrp == current_rwp)
+       {
+@@ -610,4 +621,4 @@ bool CEXIETHERNET::RecvHandlePacket()
+   if ((mRecvBufferLength + 4) % 256)
+-    current_rwp = current_rwp == page_ptr(BBA_RHBP) ? page_ptr(BBA_BP) : current_rwp + 1;
++    current_rwp = current_rwp == rhbp ? bp : current_rwp + 1;
+
+ #ifdef BBA_TRACK_PAGE_PTRS
