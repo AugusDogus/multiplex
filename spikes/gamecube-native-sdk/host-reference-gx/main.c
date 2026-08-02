@@ -83,6 +83,7 @@
 #define PLAYER_CONTROLS_IDLE_MS 4000u
 #define PLAYER_CONTROLS_FADE_MS 180u
 #define UI_ENTRY_FRAMES 6u
+#define MULTIPLEX_SCREEN_DETAILS 9u
 #define MULTIPLEX_PAIRING_CONNECTING 4u
 #define POSTER_JPEG_CAPACITY (256u * 1024u)
 #define PLEX_POSTER_JPEG_CAPACITY (32u * 1024u)
@@ -3454,6 +3455,21 @@ static float native_stroke_radius(uint32_t command_index,
   return 0.0f;
 }
 
+static bool details_backdrop_active(void) {
+  if (presented_screen != MULTIPLEX_SCREEN_DETAILS ||
+      poster_surface_count == 0 || poster_texture_count == 0) {
+    return false;
+  }
+  const uint32_t image_id = poster_surfaces[0].image_id;
+  return image_id != 0 && image_id <= poster_texture_count;
+}
+
+static bool is_details_background(const MultiplexGxCommand *command) {
+  return details_backdrop_active() && command->kind == MULTIPLEX_GX_FILL_RECT &&
+         command->x <= 0.0f && command->y <= 0.0f &&
+         command->width >= LOGICAL_WIDTH && command->height >= LOGICAL_HEIGHT;
+}
+
 static void draw_native_shapes(void) {
   if (presented_ui_packet.shape_command_count == 0) return;
   configure_color_pipeline();
@@ -3463,6 +3479,9 @@ static void draw_native_shapes(void) {
        ++index) {
     const MultiplexGxCommand *command =
         &presented_ui_packet.shape_commands[index];
+    if (is_details_background(command)) {
+      continue;
+    }
     set_text_scissor(command);
     const GXColor color = command_color(command->color_rgba);
     const float left = command->x;
@@ -3529,6 +3548,32 @@ static void draw_native_shapes(void) {
     }
   }
   GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
+}
+
+static void draw_details_backdrop(void) {
+  if (!details_backdrop_active()) {
+    return;
+  }
+  const uint32_t texture_index = poster_surfaces[0].image_id - 1u;
+  configure_ui_pipeline();
+  GX_LoadTexObj(&poster_textures[texture_index], GX_TEXMAP0);
+
+  /* Cover the screen with the center of the portrait. The heavy scrim turns
+   * the cached poster into ambient color without competing with the content. */
+  GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+  texture_vertex(0.0f, 0.0f, 0.0f, 0.25f);
+  texture_vertex(LOGICAL_WIDTH, 0.0f, 1.0f, 0.25f);
+  texture_vertex(LOGICAL_WIDTH, LOGICAL_HEIGHT, 1.0f, 0.75f);
+  texture_vertex(0.0f, LOGICAL_HEIGHT, 0.0f, 0.75f);
+  GX_End();
+
+  configure_color_pipeline();
+  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
+                  GX_LO_CLEAR);
+  fill_rect(0.0f, 0.0f, LOGICAL_WIDTH, LOGICAL_HEIGHT,
+            (GXColor){10, 10, 12, 224});
+  fill_rect(0.0f, 0.0f, 205.0f, LOGICAL_HEIGHT,
+            (GXColor){10, 10, 12, 44});
 }
 
 static void draw_reference_frame(void) {
@@ -3846,6 +3891,7 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
 
   draw_video_surface();
   if (video_surface.visible == 0 || player_controls_overlay_visible) {
+    draw_details_backdrop();
     float entry_offset = 0.0f;
     if (ui_entry_frame < UI_ENTRY_FRAMES) {
       const float progress = UI_ENTRY_FRAMES <= 1u
