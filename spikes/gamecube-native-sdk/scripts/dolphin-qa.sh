@@ -22,7 +22,8 @@ Commands:
   stop                         Stop the interactive Dolphin QA service.
   status                       Show Dolphin, render, input, and FPS status.
   press BUTTON...              Pulse GameCube buttons without window focus.
-  axis STICK X Y               Set MAIN or C stick axes from -1.0 to 1.0.
+  navigate DIRECTION           Move once with the MAIN analog stick.
+  axis STICK X Y               Set MAIN or C stick axes from 0.0 to 1.0 (0.5 is neutral).
   screenshot [NAME]            Capture Dolphin's framebuffer without focus.
   wait-log PATTERN [SECONDS]   Wait for a new matching Dolphin log line.
   check                        Check memory, rendering, layout, and FPS logs.
@@ -114,6 +115,25 @@ pulse_pipe() {
     printf "RELEASE %s\n" "$2" >&3
   ' sh "$target_pipe" "$token"; then
     echo "Dolphin did not open input pipe: $target_pipe" >&2
+    exit 1
+  fi
+}
+
+release_axis() {
+  if [ ! -p "$controller_pipe" ]; then
+    echo "Missing Dolphin input pipe: $controller_pipe" >&2
+    exit 1
+  fi
+  if ! timeout 3 sh -c '
+    exec 3>"$1"
+    remaining=20
+    while [ "$remaining" -gt 0 ]; do
+      printf "SET MAIN 0.5 0.5\n" >&3
+      sleep 0.05
+      remaining=$((remaining - 1))
+    done
+  ' sh "$controller_pipe"; then
+    echo "Dolphin did not open input pipe: $controller_pipe" >&2
     exit 1
   fi
 }
@@ -324,17 +344,45 @@ press_and_wait() {
   wait_for_count 'signature=' "$initial" 20
 }
 
+navigate_and_wait() {
+  direction=$1
+  case "$direction" in
+    LEFT) stick_x=0; stick_y=0.5 ;;
+    RIGHT) stick_x=1; stick_y=0.5 ;;
+    UP) stick_x=0.5; stick_y=1 ;;
+    DOWN) stick_x=0.5; stick_y=0 ;;
+    *) echo "Unknown navigation direction: $direction" >&2; exit 1 ;;
+  esac
+  initial=$(line_count 'signature=')
+  initial_input=$(line_count 'input action=')
+  attempt=0
+  while [ "$attempt" -lt 20 ]; do
+    send_pipe "$controller_pipe" "SET MAIN $stick_x $stick_y"
+    if [ "$(line_count 'input action=')" -gt "$initial_input" ]; then
+      break
+    fi
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  release_axis
+  if [ "$attempt" -eq 20 ]; then
+    echo "Dolphin did not sample the $direction analog navigation pulse." >&2
+    exit 1
+  fi
+  wait_for_count 'signature=' "$initial" 20
+}
+
 capture_focus_cycle() {
   screen=$1
   find "$capture_dir" -maxdepth 1 -type f \
     -name "focus-$screen-[0-9][0-9].png" -delete
   rm -f "$capture_dir/focus-$screen-contact-sheet.png"
 
-  press_and_wait D_RIGHT
+  navigate_and_wait RIGHT
   focus_trace=$(rg 'input action=1 focus=[0-9]+ count=[0-9]+' "$log" | tail -1)
   focus_count=$(printf '%s\n' "$focus_trace" | sed -n \
     's/.*focus=[0-9][0-9]* count=\([0-9][0-9]*\).*/\1/p')
-  next_focus=$(printf '%s\n' "$focus_trace" | sed -n \
+  previous_focus=$(printf '%s\n' "$focus_trace" | sed -n \
     's/.*focus=\([0-9][0-9]*\) count=[0-9][0-9]*.*/\1/p')
   case "$focus_count" in
     '' | *[!0-9]*)
@@ -342,7 +390,7 @@ capture_focus_cycle() {
       exit 1
       ;;
   esac
-  case "$next_focus" in
+  case "$previous_focus" in
     '' | *[!0-9]*)
       echo "Could not determine focus state for $screen." >&2
       exit 1
@@ -353,16 +401,16 @@ capture_focus_cycle() {
     exit 1
   fi
 
-  initial_focus=$(((next_focus + focus_count - 1) % focus_count))
-  press_and_wait D_LEFT
-  capture_screenshot "focus-$screen-$(printf '%02d' "$initial_focus")" >/dev/null
+  current_focus=$(((previous_focus + 1) % focus_count))
+  capture_screenshot "focus-$screen-$(printf '%02d' "$current_focus")" >/dev/null
 
   remaining=$((focus_count - 1))
   while [ "$remaining" -gt 0 ]; do
-    press_and_wait D_RIGHT
+    navigate_and_wait RIGHT
     current_focus=$(sed -n \
       's/.*input action=1 focus=\([0-9][0-9]*\) count=[0-9][0-9]*.*/\1/p' \
       "$log" | tail -1)
+    current_focus=$(((current_focus + 1) % focus_count))
     capture_screenshot "focus-$screen-$(printf '%02d' "$current_focus")" >/dev/null
     remaining=$((remaining - 1))
   done
@@ -399,14 +447,14 @@ move_focus_to_index() {
   right_steps=$(((target_focus + focus_count - current_focus) % focus_count))
   left_steps=$(((current_focus + focus_count - target_focus) % focus_count))
   if [ "$right_steps" -le "$left_steps" ]; then
-    button=D_RIGHT
+    direction=RIGHT
     steps=$right_steps
   else
-    button=D_LEFT
+    direction=LEFT
     steps=$left_steps
   fi
   while [ "$steps" -gt 0 ]; do
-    press_and_wait "$button"
+    navigate_and_wait "$direction"
     steps=$((steps - 1))
   done
 }
@@ -445,7 +493,7 @@ capture_catalog_focus_galleries() {
   capture_focus_cycle libraries
 
   # One step after a complete cycle returns to the preferred first library.
-  press_and_wait D_RIGHT
+  navigate_and_wait RIGHT
   browse_before=$(line_count 'browse-page ready')
   posters_before=$(line_count 'direct Plex posters decoded=')
   press_and_wait A
@@ -665,6 +713,16 @@ case "$command" in
       button=$(normalize_button "$requested_button")
       press_button "$button"
     done
+    ;;
+  navigate)
+    shift
+    if [ "$#" -ne 1 ]; then
+      usage >&2
+      exit 1
+    fi
+    require_dolphin
+    direction=$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')
+    navigate_and_wait "$direction"
     ;;
   axis)
     shift
