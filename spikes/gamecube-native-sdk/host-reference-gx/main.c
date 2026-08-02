@@ -88,14 +88,17 @@
 #define POSTER_TEXTURE_COUNT (HOME_POSTER_COUNT + BROWSE_POSTER_COUNT)
 #define UI_COMMAND_CAPACITY 256u
 #define UI_TEXT_COMMAND_CAPACITY 96u
+#define UI_SHAPE_COMMAND_CAPACITY 128u
 #define UI_TEXT_CAPACITY 4096u
 
 typedef struct {
-  MultiplexGxCommand commands[UI_TEXT_COMMAND_CAPACITY];
+  MultiplexGxCommand text_commands[UI_TEXT_COMMAND_CAPACITY];
+  MultiplexGxCommand shape_commands[UI_SHAPE_COMMAND_CAPACITY];
   uint8_t text[UI_TEXT_CAPACITY];
-  uint32_t command_count;
+  uint32_t text_command_count;
+  uint32_t shape_command_count;
   uint32_t text_length;
-} NativeTextPacket;
+} NativeUiPacket;
 
 typedef struct {
   uint32_t render_us;
@@ -113,7 +116,7 @@ typedef struct {
   void *stack;
   MultiplexReferenceFrameRender render;
   MultiplexReferenceFrameStatus status;
-  NativeTextPacket text_packet;
+  NativeUiPacket ui_packet;
   uint32_t render_us;
   uint32_t text_us;
   bool audit;
@@ -157,7 +160,7 @@ static uint8_t ui_frame_alpha = 255;
 static bool player_controls_overlay_visible = true;
 static MultiplexGuiNavigation gui_navigation;
 static FrameProfile profile;
-static NativeTextPacket presented_text_packet;
+static NativeUiPacket presented_ui_packet;
 static uint32_t presentation_frames;
 static uint32_t presentation_started;
 static uint32_t profile_stage_started;
@@ -775,16 +778,24 @@ static uint32_t copy_atlas_text(uint8_t *destination, uint32_t capacity,
   return output;
 }
 
-static void capture_native_text_packet(NativeTextPacket *packet) {
+static void capture_native_ui_packet(NativeUiPacket *packet) {
   MultiplexGxCommand commands[UI_COMMAND_CAPACITY];
   memset(packet, 0, sizeof(*packet));
   const uint32_t command_count =
       multiplex_native_app_render(commands, UI_COMMAND_CAPACITY);
+  const bool capture_shapes =
+      multiplex_native_app_screen() == MULTIPLEX_SCREEN_SEARCH;
   for (uint32_t index = 0; index < command_count; ++index) {
     const MultiplexGxCommand *command = &commands[index];
+    if (capture_shapes && command->kind != MULTIPLEX_GX_TEXT &&
+        command->kind != MULTIPLEX_GX_GLYPH &&
+        command->kind != MULTIPLEX_GX_SHADOW &&
+        packet->shape_command_count < UI_SHAPE_COMMAND_CAPACITY) {
+      packet->shape_commands[packet->shape_command_count++] = *command;
+    }
     if ((command->kind != MULTIPLEX_GX_TEXT &&
          command->kind != MULTIPLEX_GX_GLYPH) ||
-        packet->command_count >= UI_TEXT_COMMAND_CAPACITY) {
+        packet->text_command_count >= UI_TEXT_COMMAND_CAPACITY) {
       continue;
     }
     MultiplexGxCommand copy = *command;
@@ -802,24 +813,27 @@ static void capture_native_text_packet(NativeTextPacket *packet) {
       copy.text_ptr = destination;
       packet->text_length += copy.text_len;
     }
-    packet->commands[packet->command_count++] = copy;
+    packet->text_commands[packet->text_command_count++] = copy;
   }
 }
 
-static void present_native_text_packet(const NativeTextPacket *packet) {
-  memset(&presented_text_packet, 0, sizeof(presented_text_packet));
-  memcpy(presented_text_packet.text, packet->text, packet->text_length);
-  presented_text_packet.text_length = packet->text_length;
-  presented_text_packet.command_count = packet->command_count;
-  for (uint32_t index = 0; index < packet->command_count; ++index) {
-    presented_text_packet.commands[index] = packet->commands[index];
-    if (packet->commands[index].kind != MULTIPLEX_GX_TEXT) {
+static void present_native_ui_packet(const NativeUiPacket *packet) {
+  memset(&presented_ui_packet, 0, sizeof(presented_ui_packet));
+  memcpy(presented_ui_packet.text, packet->text, packet->text_length);
+  memcpy(presented_ui_packet.shape_commands, packet->shape_commands,
+         packet->shape_command_count * sizeof(MultiplexGxCommand));
+  presented_ui_packet.text_length = packet->text_length;
+  presented_ui_packet.text_command_count = packet->text_command_count;
+  presented_ui_packet.shape_command_count = packet->shape_command_count;
+  for (uint32_t index = 0; index < packet->text_command_count; ++index) {
+    presented_ui_packet.text_commands[index] = packet->text_commands[index];
+    if (packet->text_commands[index].kind != MULTIPLEX_GX_TEXT) {
       continue;
     }
     const size_t offset =
-        (size_t)(packet->commands[index].text_ptr - packet->text);
-    presented_text_packet.commands[index].text_ptr =
-        presented_text_packet.text + offset;
+        (size_t)(packet->text_commands[index].text_ptr - packet->text);
+    presented_ui_packet.text_commands[index].text_ptr =
+        presented_ui_packet.text + offset;
   }
 }
 
@@ -884,15 +898,15 @@ static bool refresh_reference_frame(bool initialize) {
     return false;
   }
   const uint32_t reference_render_us = elapsed_us(render_started);
-  NativeTextPacket text_packet;
+  NativeUiPacket ui_packet;
   const uint32_t text_started = gettick();
-  capture_native_text_packet(&text_packet);
+  capture_native_ui_packet(&ui_packet);
   profile.text_us = elapsed_us(text_started);
   const bool audit = initialize || presented_screen != multiplex_native_app_screen();
   if (!commit_reference_frame(&render, reference_render_us, audit)) {
     return false;
   }
-  present_native_text_packet(&text_packet);
+  present_native_ui_packet(&ui_packet);
   return true;
 }
 
@@ -940,7 +954,7 @@ static void *run_reference_renderer(void *context) {
   renderer->render_us = elapsed_us(started);
   if (renderer->status == MULTIPLEX_REFERENCE_FRAME_OK) {
     const uint32_t text_started = gettick();
-    capture_native_text_packet(&renderer->text_packet);
+    capture_native_ui_packet(&renderer->ui_packet);
     renderer->text_us = elapsed_us(text_started);
   }
   __sync_synchronize();
@@ -1002,7 +1016,7 @@ static bool poll_reference_renderer(void) {
                               reference_renderer.audit)) {
     return false;
   }
-  present_native_text_packet(&reference_renderer.text_packet);
+  present_native_ui_packet(&reference_renderer.ui_packet);
   SYS_Report("REFERENCE GX: screen transition ready from=%u to=%u us=%u\n",
              previous_screen, presented_screen,
              reference_renderer.render_us);
@@ -2726,14 +2740,16 @@ static void draw_native_text_command(const MultiplexGxCommand *command) {
   const unsigned size_index = geist_size_index(command->font_size);
   const float atlas_size = (float)geist_sizes[size_index];
   const float scale = command->font_size / atlas_size;
-  const float start_x = command->x;
+  const float start_x = command->has_clip != 0 && command->clip_x > command->x
+                            ? command->clip_x
+                            : command->x;
   float cursor_x = start_x;
   float baseline = command->y;
   uint32_t draw_length = command->text_len;
   uint32_t trailing_dots = 0;
   if (command->has_clip != 0) {
     const float available =
-        command->clip_x + command->clip_width - command->x;
+        command->clip_x + command->clip_width - start_x;
     float total_width = 0.0f;
     for (uint32_t index = 0; index < command->text_len; ++index) {
       uint8_t character = command->text_ptr[index];
@@ -2850,17 +2866,24 @@ static void draw_native_text_command(const MultiplexGxCommand *command) {
 }
 
 static void draw_native_text(void) {
-  if (presented_text_packet.command_count == 0) {
+  if (presented_ui_packet.text_command_count == 0) {
     return;
   }
   configure_font_pipeline();
-  for (uint32_t index = 0; index < presented_text_packet.command_count;
+  for (uint32_t index = 0; index < presented_ui_packet.text_command_count;
        ++index) {
     const MultiplexGxCommand *command =
-        &presented_text_packet.commands[index];
+        &presented_ui_packet.text_commands[index];
     set_text_scissor(command);
-    if (command->kind == MULTIPLEX_GX_GLYPH && command->glyph_id <= UINT8_MAX) {
-      const uint8_t character = (uint8_t)command->glyph_id;
+    if (command->kind == MULTIPLEX_GX_GLYPH) {
+      uint8_t character = '?';
+      for (uint32_t glyph_index = 0; glyph_index < GEIST_CHARACTER_COUNT;
+           ++glyph_index) {
+        if (geist_glyph_ids[glyph_index] == command->glyph_id) {
+          character = (uint8_t)(GEIST_FIRST_CHARACTER + glyph_index);
+          break;
+        }
+      }
       MultiplexGxCommand glyph = *command;
       glyph.text_ptr = &character;
       glyph.text_len = 1;
@@ -2932,6 +2955,145 @@ static void fill_rect(float left, float top, float right, float bottom,
   color_vertex(right, bottom, color);
   color_vertex(left, bottom, color);
   GX_End();
+}
+
+static const float rounded_arc[5][2] = {
+    {1.0f, 0.0f},
+    {0.9238795f, 0.3826834f},
+    {0.7071068f, 0.7071068f},
+    {0.3826834f, 0.9238795f},
+    {0.0f, 1.0f},
+};
+
+static void fill_rounded_corner(float center_x, float center_y, float radius,
+                                float x_sign, float y_sign, GXColor color) {
+  GX_Begin(GX_TRIANGLEFAN, GX_VTXFMT0, 6);
+  color_vertex(center_x, center_y, color);
+  for (unsigned index = 0; index < 5; ++index) {
+    color_vertex(center_x + x_sign * rounded_arc[index][0] * radius,
+                 center_y + y_sign * rounded_arc[index][1] * radius, color);
+  }
+  GX_End();
+}
+
+static void fill_rounded_color_rect(float left, float top, float right,
+                                    float bottom, float radius,
+                                    GXColor color) {
+  const float width = right - left;
+  const float height = bottom - top;
+  const float maximum = (width < height ? width : height) * 0.5f;
+  if (radius > maximum) radius = maximum;
+  if (radius < 1.0f) {
+    fill_rect(left, top, right, bottom, color);
+    return;
+  }
+  fill_rect(left + radius, top, right - radius, bottom, color);
+  fill_rect(left, top + radius, right, bottom - radius, color);
+  fill_rounded_corner(left + radius, top + radius, radius, -1.0f, -1.0f,
+                      color);
+  fill_rounded_corner(right - radius, top + radius, radius, 1.0f, -1.0f,
+                      color);
+  fill_rounded_corner(right - radius, bottom - radius, radius, 1.0f, 1.0f,
+                      color);
+  fill_rounded_corner(left + radius, bottom - radius, radius, -1.0f, 1.0f,
+                      color);
+}
+
+static void stroke_rounded_corner(float center_x, float center_y,
+                                  float outer_radius, float inner_radius,
+                                  float x_sign, float y_sign, GXColor color) {
+  GX_Begin(GX_TRIANGLESTRIP, GX_VTXFMT0, 10);
+  for (unsigned index = 0; index < 5; ++index) {
+    color_vertex(center_x + x_sign * rounded_arc[index][0] * outer_radius,
+                 center_y + y_sign * rounded_arc[index][1] * outer_radius,
+                 color);
+    color_vertex(center_x + x_sign * rounded_arc[index][0] * inner_radius,
+                 center_y + y_sign * rounded_arc[index][1] * inner_radius,
+                 color);
+  }
+  GX_End();
+}
+
+static void stroke_rounded_color_rect(float left, float top, float right,
+                                      float bottom, float radius, float stroke,
+                                      GXColor color) {
+  const float width = right - left;
+  const float height = bottom - top;
+  const float maximum = (width < height ? width : height) * 0.5f;
+  if (radius > maximum) radius = maximum;
+  if (stroke < 1.0f) stroke = 1.0f;
+  if (stroke * 2.0f >= width || stroke * 2.0f >= height || radius < 1.0f) {
+    fill_rect(left, top, right, top + stroke, color);
+    fill_rect(left, bottom - stroke, right, bottom, color);
+    fill_rect(left, top + stroke, left + stroke, bottom - stroke, color);
+    fill_rect(right - stroke, top + stroke, right, bottom - stroke, color);
+    return;
+  }
+  const float inner_radius = radius > stroke ? radius - stroke : 0.0f;
+  fill_rect(left + radius, top, right - radius, top + stroke, color);
+  fill_rect(left + radius, bottom - stroke, right - radius, bottom, color);
+  fill_rect(left, top + radius, left + stroke, bottom - radius, color);
+  fill_rect(right - stroke, top + radius, right, bottom - radius, color);
+  stroke_rounded_corner(left + radius, top + radius, radius, inner_radius,
+                        -1.0f, -1.0f, color);
+  stroke_rounded_corner(right - radius, top + radius, radius, inner_radius,
+                        1.0f, -1.0f, color);
+  stroke_rounded_corner(right - radius, bottom - radius, radius, inner_radius,
+                        1.0f, 1.0f, color);
+  stroke_rounded_corner(left + radius, bottom - radius, radius, inner_radius,
+                        -1.0f, 1.0f, color);
+}
+
+static void draw_native_shapes(void) {
+  if (presented_ui_packet.shape_command_count == 0) return;
+  configure_color_pipeline();
+  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
+                  GX_LO_CLEAR);
+  for (uint32_t index = 0; index < presented_ui_packet.shape_command_count;
+       ++index) {
+    const MultiplexGxCommand *command =
+        &presented_ui_packet.shape_commands[index];
+    set_text_scissor(command);
+    const GXColor color = command_color(command->color_rgba);
+    const float left = command->x;
+    const float top = command->y;
+    const float right = left + command->width;
+    const float bottom = top + command->height;
+    switch (command->kind) {
+    case MULTIPLEX_GX_FILL_RECT:
+      fill_rect(left, top, right, bottom, color);
+      break;
+    case MULTIPLEX_GX_FILL_ROUNDED_RECT:
+      fill_rounded_color_rect(left, top, right, bottom, command->radius,
+                              color);
+      break;
+    case MULTIPLEX_GX_STROKE_RECT:
+      stroke_rounded_color_rect(left, top, right, bottom, command->radius,
+                                command->stroke_width, color);
+      break;
+    case MULTIPLEX_GX_LINE: {
+      const float stroke = command->stroke_width < 1.0f
+                               ? 1.0f
+                               : command->stroke_width;
+      if (fabsf(command->x2 - command->x) >=
+          fabsf(command->y2 - command->y)) {
+        fill_rect(fminf(command->x, command->x2),
+                  fminf(command->y, command->y2) - stroke * 0.5f,
+                  fmaxf(command->x, command->x2),
+                  fminf(command->y, command->y2) + stroke * 0.5f, color);
+      } else {
+        fill_rect(fminf(command->x, command->x2) - stroke * 0.5f,
+                  fminf(command->y, command->y2),
+                  fminf(command->x, command->x2) + stroke * 0.5f,
+                  fmaxf(command->y, command->y2), color);
+      }
+      break;
+    }
+    default:
+      break;
+    }
+  }
+  GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
 }
 
 static void draw_reference_frame(void) {
@@ -3210,6 +3372,7 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
 
   draw_video_surface();
   if (video_surface.visible == 0 || player_controls_overlay_visible) {
+    draw_native_shapes();
     draw_reference_frame();
     if (modal_surface.visible == 0) {
       draw_poster_surfaces();

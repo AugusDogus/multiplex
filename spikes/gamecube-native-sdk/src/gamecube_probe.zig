@@ -1852,6 +1852,7 @@ fn renderReference(
     var reference_command_count: usize = 0;
     for (render_plan.commands) |command| {
         if (isPosterCardChrome(command, model)) continue;
+        if (reference_text_overlay_enabled and isSearchGpuChrome(command, model)) continue;
         if (reference_text_overlay_enabled and command.command == .draw_text) continue;
         render_commands[reference_command_count] = command;
         reference_command_count += 1;
@@ -1900,7 +1901,8 @@ fn renderReference(
         .full_repaint = full_repaint,
         .dirty_bounds = dirty_bounds,
         .commands = reference_commands,
-    }, if (model.screen == .player and model.playbackLoaded)
+    }, if (reference_text_overlay_enabled or
+        (model.screen == .player and model.playbackLoaded))
         canvas.Color.rgba8(0, 0, 0, 0)
     else
         canvas.Color.rgb8(10, 10, 12)) catch {
@@ -1930,6 +1932,14 @@ fn isPosterCardChrome(command: canvas.RenderCommand, model: *const core.Model) b
             command_id == canvas.widgetPartId(card_id, 3)) return true;
     }
     return false;
+}
+
+fn isSearchGpuChrome(command: canvas.RenderCommand, model: *const core.Model) bool {
+    if (model.screen != .search) return false;
+    return switch (command.command) {
+        .fill_rect, .fill_rounded_rect, .stroke_rect, .draw_line, .shadow => true,
+        else => false,
+    };
 }
 
 fn searchInputDirtyBounds(nodes: []const canvas.WidgetLayoutNode) ?geometry.RectF {
