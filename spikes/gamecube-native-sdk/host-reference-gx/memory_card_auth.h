@@ -16,6 +16,7 @@ typedef enum {
 typedef struct {
   int slot;
   uint32_t generation;
+  bool needs_presentation;
 } MultiplexMemoryCardLocation;
 
 MultiplexMemoryCardResult multiplex_memory_card_load_auth(

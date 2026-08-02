@@ -36,6 +36,11 @@ slower than wall time. The isolated profiles also pin Dolphin's fallback
 region to North America so region-free DOL boots consistently reopen the same
 `MemoryCardA.USA.raw` sign-in save.
 
+The GameCube save remains two blocks and now carries a native RGB5A3 icon
+rendered from the Multiplex logo plus two Memory Card Manager comment lines.
+Existing iconless saves migrate in place after their credentials load, while
+the two independently recoverable auth records remain intact.
+
 The Wii fast-follow compiles the same TypeScript, `.native` markup, PowerPC
 core, validated RGBA frame, direct GX presenter, and embedded media pipeline
 with libogc2's Wii runtime. `spike:wii:reference:smoke-player` boots the Wii DOL

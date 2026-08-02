@@ -3221,6 +3221,7 @@ static void *run_app(void *unused) {
   MultiplexMemoryCardLocation auth_location = {
       .slot = -1,
       .generation = 0,
+      .needs_presentation = false,
   };
   const MultiplexMemoryCardResult stored_auth =
       multiplex_memory_card_load_auth(&auth_credentials, &auth_location);
@@ -3244,8 +3245,10 @@ static void *run_app(void *unused) {
                                              MULTIPLEX_PLEX_BASE_URL)) {
       credentials_changed = true;
     }
-    if (credentials_changed) {
-      SYS_Report("REFERENCE GX: persisting refreshed Plex credentials\n");
+    if (credentials_changed || auth_location.needs_presentation) {
+      SYS_Report("REFERENCE GX: persisting refreshed Plex credentials "
+                 "presentation=%u\n",
+                 auth_location.needs_presentation ? 1u : 0u);
       const MultiplexMemoryCardResult refreshed =
           multiplex_memory_card_save_auth(&auth_credentials, &auth_location);
       SYS_Report("REFERENCE GX: Plex credential persistence=%s\n",
