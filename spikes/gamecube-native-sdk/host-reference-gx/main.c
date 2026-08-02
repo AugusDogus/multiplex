@@ -84,6 +84,9 @@
 #define PLAYER_CONTROLS_FADE_MS 180u
 #define UI_ENTRY_FRAMES 6u
 #define POSTER_FOCUS_FRAMES 7u
+#define MULTIPLEX_SCREEN_HOME 1u
+#define MULTIPLEX_SCREEN_BROWSE 3u
+#define MULTIPLEX_SCREEN_SEARCH_RESULTS 5u
 #define MULTIPLEX_SCREEN_DETAILS 9u
 #define MULTIPLEX_SCREEN_PLAYER 10u
 #define MULTIPLEX_PAIRING_CONNECTING 4u
@@ -1656,6 +1659,37 @@ static void stop_direct_poster_loader(DirectPosterLoader *loader) {
   loader->stopping = true;
   loader->pending = false;
   release_direct_poster_workers(loader);
+}
+
+static void suspend_direct_poster_loader(DirectPosterLoader *loader) {
+  if (loader == NULL ||
+      (!loader->pending && !direct_poster_loader_running(loader))) {
+    return;
+  }
+  loader->stopping = true;
+  release_direct_poster_workers(loader);
+  uint16_t remaining = 0;
+  for (uint16_t index = 0; index < loader->item_count; ++index) {
+    const uint16_t texture_slot = loader->texture_slots[index];
+    if (texture_slot < poster_texture_count &&
+        poster_texture_rating_keys[texture_slot] ==
+            loader->items[index].rating_key) {
+      continue;
+    }
+    if (remaining != index) {
+      loader->items[remaining] = loader->items[index];
+      loader->texture_slots[remaining] = texture_slot;
+    }
+    remaining += 1u;
+  }
+  loader->item_count = remaining;
+  loader->cache_hits = loader->requested_count - remaining;
+  loader->pending = remaining != 0;
+  loader->stopping = false;
+  loader->first_ready_reported = false;
+  SYS_Report("REFERENCE GX: direct Plex poster loader suspended "
+             "remaining=%u requested=%u\n",
+             remaining, loader->requested_count);
 }
 
 static bool bind_browse_page(const MultiplexGatewayBrowsePage *page) {
@@ -5127,10 +5161,17 @@ static void *run_app(void *unused) {
       break;
     }
 #endif
-    if (!direct_poster_loader_running(&direct_home_poster_loader) &&
-        !direct_home_poster_loader.pending &&
-        direct_page_poster_loader.pending &&
-        !direct_poster_loader_running(&direct_page_poster_loader)) {
+    const uint32_t active_screen = multiplex_native_app_screen();
+    if (active_screen == MULTIPLEX_SCREEN_HOME &&
+        direct_home_poster_loader.pending &&
+        !direct_poster_loader_running(&direct_home_poster_loader)) {
+      launch_direct_poster_loader(&direct_home_poster_loader);
+    } else if ((active_screen == MULTIPLEX_SCREEN_BROWSE ||
+                active_screen == MULTIPLEX_SCREEN_SEARCH_RESULTS) &&
+               !direct_poster_loader_running(&direct_home_poster_loader) &&
+               !direct_home_poster_loader.pending &&
+               direct_page_poster_loader.pending &&
+               !direct_poster_loader_running(&direct_page_poster_loader)) {
       launch_direct_poster_loader(&direct_page_poster_loader);
     }
     if (demux != NULL && mpeg_ps_demux_failed(demux)) {
@@ -5328,8 +5369,8 @@ static void *run_app(void *unused) {
      */
 #if MULTIPLEX_PAIRING_ENABLED
     if (pairing_linked && (pressed & (PAD_BUTTON_A | PAD_BUTTON_START)) != 0) {
-      stop_direct_poster_loader(&direct_home_poster_loader);
-      stop_direct_poster_loader(&direct_page_poster_loader);
+      suspend_direct_poster_loader(&direct_home_poster_loader);
+      suspend_direct_poster_loader(&direct_page_poster_loader);
     }
 #endif
     pause_audio_for_player_input(pressed, &playback_manifest);
