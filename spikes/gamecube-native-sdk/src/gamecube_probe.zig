@@ -42,6 +42,10 @@ var display_commands: [512]canvas.CanvasCommand = undefined;
 var display_builder: canvas.Builder = undefined;
 var render_commands: [512]canvas.RenderCommand = undefined;
 var gpu_commands: [512]canvas.CanvasGpuCommand = undefined;
+const gx_command_cache_capacity: usize = 1024;
+var gx_command_cache: [gx_command_cache_capacity]GxCommand = undefined;
+var gx_command_cache_count: u32 = 0;
+var gx_command_cache_valid = false;
 var app_model: *const core.Model = undefined;
 var app_initialized = false;
 var staged_gateway_name: []const u8 = &.{};
@@ -1680,6 +1684,12 @@ export fn multiplex_native_reference_text_overlay(enabled: u32) callconv(.c) voi
 /// the deliberately small command ABI consumed by the libogc GX presenter.
 export fn multiplex_native_app_render(output: [*]GxCommand, capacity: u32) callconv(.c) u32 {
     if (!app_initialized) return 0;
+    if (gx_command_cache_valid) {
+        const count_u32 = @min(gx_command_cache_count, capacity);
+        const count: usize = @intCast(count_u32);
+        @memcpy(output[0..count], gx_command_cache[0..count]);
+        return count_u32;
+    }
     const model = app_model;
     const tokens = canvas.DesignTokens.theme(.{
         .pack = .geist,
@@ -1710,6 +1720,14 @@ export fn multiplex_native_app_render(output: [*]GxCommand, capacity: u32) callc
         .focus_visible_id = focused_id,
     }) catch return 0;
     const render_plan = display_builder.displayList().renderPlan(&render_commands) catch return 0;
+    return lowerGxCommands(render_plan.commands, output, capacity);
+}
+
+fn lowerGxCommands(
+    commands: []const canvas.RenderCommand,
+    output: [*]GxCommand,
+    capacity: u32,
+) u32 {
     var packet_planner = canvas.CanvasGpuPacketPlanner.init(&gpu_commands);
     const packet = packet_planner.build(.{
         .frame_index = 1,
@@ -1717,9 +1735,8 @@ export fn multiplex_native_app_render(output: [*]GxCommand, capacity: u32) callc
         .scale = 1,
         .full_repaint = true,
         .dirty_bounds = geometry.RectF.init(0, 0, 640, 480),
-        .commands = render_plan.commands,
+        .commands = commands,
     }) catch return 0;
-
     var output_len: usize = 0;
     for (packet.commands) |command| {
         if (output_len >= capacity) break;
@@ -1858,6 +1875,12 @@ fn renderReference(
         reference_render_stage = 0x106;
         return 0;
     };
+    gx_command_cache_count = lowerGxCommands(
+        render_plan.commands,
+        &gx_command_cache,
+        @intCast(gx_command_cache_capacity),
+    );
+    gx_command_cache_valid = true;
     var reference_command_count: usize = 0;
     for (render_plan.commands) |command| {
         if (isPosterCardChrome(command, model)) continue;
