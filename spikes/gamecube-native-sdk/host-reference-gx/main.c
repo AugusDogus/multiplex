@@ -85,6 +85,7 @@
 #define UI_ENTRY_FRAMES 6u
 #define POSTER_FOCUS_FRAMES 7u
 #define MULTIPLEX_SCREEN_DETAILS 9u
+#define MULTIPLEX_SCREEN_PLAYER 10u
 #define MULTIPLEX_PAIRING_CONNECTING 4u
 #define POSTER_JPEG_CAPACITY (256u * 1024u)
 #define PLEX_POSTER_JPEG_CAPACITY (32u * 1024u)
@@ -172,6 +173,7 @@ static uint8_t ui_entry_frame = UI_ENTRY_FRAMES;
 static bool native_frame_dirty = true;
 static uint8_t ui_frame_alpha = 255;
 static bool player_controls_overlay_visible = true;
+static bool player_startup_backdrop_visible;
 static MultiplexGuiNavigation gui_navigation;
 static FrameProfile profile;
 static NativeUiPacket presented_ui_packet;
@@ -657,6 +659,7 @@ static void stop_video_decoder(void) {
   yuv420_gx_destroy();
   video_decoder_destroy(video_decoder);
   video_decoder = NULL;
+  video_texture_ready = false;
   video_content_width = 0;
   video_content_height = 0;
 }
@@ -3482,8 +3485,9 @@ static bool details_backdrop_active(void) {
   return image_id != 0 && image_id <= poster_texture_count;
 }
 
-static bool is_details_background(const MultiplexGxCommand *command) {
-  return details_backdrop_active() && command->kind == MULTIPLEX_GX_FILL_RECT &&
+static bool is_ambient_background(const MultiplexGxCommand *command) {
+  return (details_backdrop_active() || player_startup_backdrop_visible) &&
+         command->kind == MULTIPLEX_GX_FILL_RECT &&
          command->x <= 0.0f && command->y <= 0.0f &&
          command->width >= LOGICAL_WIDTH && command->height >= LOGICAL_HEIGHT;
 }
@@ -3497,7 +3501,7 @@ static void draw_native_shapes(void) {
        ++index) {
     const MultiplexGxCommand *command =
         &presented_ui_packet.shape_commands[index];
-    if (is_details_background(command)) {
+    if (is_ambient_background(command)) {
       continue;
     }
     set_text_scissor(command);
@@ -3568,11 +3572,8 @@ static void draw_native_shapes(void) {
   GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
 }
 
-static void draw_details_backdrop(void) {
-  if (!details_backdrop_active()) {
-    return;
-  }
-  const uint32_t texture_index = poster_surfaces[0].image_id - 1u;
+static void draw_ambient_poster(uint32_t texture_index, uint8_t scrim_alpha,
+                                uint8_t left_scrim_alpha) {
   configure_ui_pipeline();
   GX_LoadTexObj(&poster_textures[texture_index], GX_TEXMAP0);
 
@@ -3589,9 +3590,49 @@ static void draw_details_backdrop(void) {
   GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
                   GX_LO_CLEAR);
   fill_rect(0.0f, 0.0f, LOGICAL_WIDTH, LOGICAL_HEIGHT,
-            (GXColor){10, 10, 12, 224});
-  fill_rect(0.0f, 0.0f, 205.0f, LOGICAL_HEIGHT,
-            (GXColor){10, 10, 12, 44});
+            (GXColor){10, 10, 12, scrim_alpha});
+  if (left_scrim_alpha != 0) {
+    fill_rect(0.0f, 0.0f, 205.0f, LOGICAL_HEIGHT,
+              (GXColor){10, 10, 12, left_scrim_alpha});
+  }
+}
+
+static void draw_details_backdrop(void) {
+  if (details_backdrop_active()) {
+    draw_ambient_poster(poster_surfaces[0].image_id - 1u, 224u, 44u);
+  }
+}
+
+static int32_t poster_texture_for_rating_key(uint32_t rating_key) {
+  if (rating_key == 0) {
+    return -1;
+  }
+  for (uint16_t index = 0; index < poster_texture_count; ++index) {
+    if (poster_texture_rating_keys[index] == rating_key) {
+      return (int32_t)index;
+    }
+  }
+  return -1;
+}
+
+static void draw_player_startup_backdrop(
+    const MultiplexGatewayPlaybackManifest *playback_manifest) {
+  player_startup_backdrop_visible = false;
+  if (presented_screen != MULTIPLEX_SCREEN_PLAYER || video_texture_ready) {
+    return;
+  }
+  uint32_t rating_key =
+      playback_manifest == NULL ? 0 : playback_manifest->rating_key;
+  if (rating_key == 0 && direct_details_cache_valid) {
+    rating_key = direct_details_cache.rating_key;
+  }
+  const int32_t texture_index =
+      poster_texture_for_rating_key(rating_key);
+  if (texture_index < 0) {
+    return;
+  }
+  player_startup_backdrop_visible = true;
+  draw_ambient_poster((uint32_t)texture_index, 176u, 0u);
 }
 
 static void draw_reference_frame(void) {
@@ -3943,6 +3984,7 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
     }
   }
 
+  draw_player_startup_backdrop(playback_manifest);
   draw_video_surface();
   if (video_surface.visible == 0 || player_controls_overlay_visible) {
     draw_details_backdrop();
