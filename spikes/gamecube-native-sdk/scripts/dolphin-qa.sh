@@ -29,7 +29,7 @@ Commands:
   scenario navigation         Relaunch and capture catalog navigation baselines.
   scenario focus-gallery      Capture every focus target on catalog screens.
   scenario playback           Relaunch and verify details and player behavior.
-  scenario player-gallery     Capture Start menu and live player focus targets.
+  scenario player-gallery     Capture Start menu, player, and settings focus targets.
 
 Buttons: a b x y z start l r up down left right
 EOF
@@ -367,6 +367,43 @@ capture_focus_cycle() {
   echo "$screen: captured $focus_count focus targets."
 }
 
+move_focus_to_index() {
+  target_focus=$1
+  focus_trace=$(rg 'input action=1 focus=[0-9]+ count=[0-9]+' "$log" | tail -1)
+  traced_focus=$(printf '%s\n' "$focus_trace" | sed -n \
+    's/.*focus=\([0-9][0-9]*\) count=[0-9][0-9]*.*/\1/p')
+  focus_count=$(printf '%s\n' "$focus_trace" | sed -n \
+    's/.*focus=[0-9][0-9]* count=\([0-9][0-9]*\).*/\1/p')
+  case "$traced_focus:$focus_count:$target_focus" in
+    *[!0-9:]* | :* | *::* | *:)
+      echo "Could not determine the current focus state." >&2
+      exit 1
+      ;;
+  esac
+  if [ "$target_focus" -ge "$focus_count" ]; then
+    echo "Focus target $target_focus is outside the $focus_count available targets." >&2
+    exit 1
+  fi
+
+  # Directional input traces the focus before movement. This helper is called
+  # after a rightward focus cycle, so advance once to recover the live index.
+  current_focus=$(((traced_focus + 1) % focus_count))
+
+  right_steps=$(((target_focus + focus_count - current_focus) % focus_count))
+  left_steps=$(((current_focus + focus_count - target_focus) % focus_count))
+  if [ "$right_steps" -le "$left_steps" ]; then
+    button=D_RIGHT
+    steps=$right_steps
+  else
+    button=D_LEFT
+    steps=$left_steps
+  fi
+  while [ "$steps" -gt 0 ]; do
+    press_and_wait "$button"
+    steps=$((steps - 1))
+  done
+}
+
 navigation_scenario() {
   launch
   if ! rg -q 'direct Plex posters decoded=[0-9]+/[0-9]+' "$log"; then
@@ -493,7 +530,31 @@ player_gallery_scenario() {
   wait_for_count 'direct playback activated' "$activation_before" 120
   wait_for_count 'direct playback ready' "$ready_before" 120
   wait_for_count 'playback=playing' "$playing_before" 30
+
+  paused_before=$(line_count 'playback=paused')
+  press_button A
+  wait_for_count 'playback=paused' "$paused_before" 10
   capture_focus_cycle player
+
+  player_focus_trace=$(rg 'input action=1 focus=[0-9]+ count=[0-9]+' "$log" | tail -1)
+  player_focus_count=$(printf '%s\n' "$player_focus_trace" | sed -n \
+    's/.*focus=[0-9][0-9]* count=\([0-9][0-9]*\).*/\1/p')
+  case "$player_focus_count" in
+    '' | *[!0-9]* | 0)
+      echo "Could not determine the player focus target count." >&2
+      exit 1
+      ;;
+  esac
+  move_focus_to_index $((player_focus_count - 1))
+  settings_signature_before=$(line_count 'signature=')
+  press_button A
+  wait_for_count 'signature=' "$settings_signature_before" 30
+  capture_focus_cycle player-settings
+
+  press_and_wait B
+  resumed_before=$(line_count 'playback=playing')
+  press_button A
+  wait_for_count 'playback=playing' "$resumed_before" 10
 
   wait_for_stable_presentation
   check 1
