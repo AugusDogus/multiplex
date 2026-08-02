@@ -104,6 +104,7 @@ var video_surface: VideoSurface = .{};
 var player_controls_surface: PlayerControlsSurface = .{};
 var modal_surface: ModalSurface = .{};
 var poster_surfaces: [4]PosterSurface = [_]PosterSurface{.{}} ** 4;
+var poster_card_ids: [4]canvas.ObjectId = [_]canvas.ObjectId{0} ** 4;
 var poster_surface_count: u32 = 0;
 
 extern fn multiplex_native_profile_mark(stage: u32) callconv(.c) void;
@@ -381,6 +382,7 @@ fn initializeApp() void {
     player_controls_surface = .{};
     modal_surface = .{};
     poster_surfaces = [_]PosterSurface{.{}} ** 4;
+    poster_card_ids = [_]canvas.ObjectId{0} ** 4;
     poster_surface_count = 0;
 }
 
@@ -1839,6 +1841,13 @@ fn renderReference(
         reference_render_stage = 0x106;
         return 0;
     };
+    var reference_command_count: usize = 0;
+    for (render_plan.commands) |command| {
+        if (isPosterCardChrome(command, model)) continue;
+        render_commands[reference_command_count] = command;
+        reference_command_count += 1;
+    }
+    const reference_commands = render_commands[0..reference_command_count];
     reference_render_stage = 5;
     multiplex_native_profile_mark(reference_render_stage);
 
@@ -1881,7 +1890,7 @@ fn renderReference(
         .scale = 1,
         .full_repaint = full_repaint,
         .dirty_bounds = dirty_bounds,
-        .commands = render_plan.commands,
+        .commands = reference_commands,
     }, if (model.screen == .player and model.playbackLoaded)
         canvas.Color.rgba8(0, 0, 0, 0)
     else
@@ -1896,7 +1905,22 @@ fn renderReference(
     previous_render_state_valid = true;
     reference_full_repaint = false;
     reference_dirty_region = .none;
-    return @intCast(render_plan.commands.len);
+    return @intCast(reference_commands.len);
+}
+
+fn isPosterCardChrome(command: canvas.RenderCommand, model: *const core.Model) bool {
+    switch (model.screen) {
+        .home, .browse, .search_results => {},
+        else => return false,
+    }
+    const command_id = command.id orelse return false;
+    for (poster_card_ids[0..poster_surface_count]) |card_id| {
+        if (card_id == 0) continue;
+        if (command_id == canvas.widgetPartId(card_id, 1) or
+            command_id == canvas.widgetPartId(card_id, 2) or
+            command_id == canvas.widgetPartId(card_id, 3)) return true;
+    }
+    return false;
 }
 
 fn searchInputDirtyBounds(nodes: []const canvas.WidgetLayoutNode) ?geometry.RectF {
@@ -1967,6 +1991,7 @@ fn captureModalSurface(nodes: []const canvas.WidgetLayoutNode, model: *const cor
 
 fn capturePosterSurfaces(nodes: []const canvas.WidgetLayoutNode) void {
     poster_surfaces = [_]PosterSurface{.{}} ** 4;
+    poster_card_ids = [_]canvas.ObjectId{0} ** 4;
     poster_surface_count = 0;
     for (nodes) |node| {
         if (node.widget.kind != .image or node.widget.image_id == 0) continue;
@@ -1979,6 +2004,15 @@ fn capturePosterSurfaces(nodes: []const canvas.WidgetLayoutNode) void {
             .width = frame.width,
             .height = frame.height,
         };
+        var ancestor_index = node.parent_index;
+        while (ancestor_index) |index| {
+            const ancestor = nodes[index];
+            if (ancestor.widget.kind == .panel) {
+                poster_card_ids[poster_surface_count] = ancestor.widget.id;
+                break;
+            }
+            ancestor_index = ancestor.parent_index;
+        }
         poster_surface_count += 1;
     }
 }
