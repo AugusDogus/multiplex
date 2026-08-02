@@ -822,6 +822,16 @@ export function detailsPlayLabel(model: Model): Uint8Array {
   return hasResume(model) ? resumeLabel : playLabel;
 }
 
+export function detailsProgressPercent(model: Model): number {
+  if (model.selectedDurationMs <= 0 || model.selectedViewOffsetMs <= 0) return 0;
+  return Math.min(100, intDiv(model.selectedViewOffsetMs * 100, model.selectedDurationMs));
+}
+
+export function detailsHasProgress(model: Model): boolean {
+  const progress = detailsProgressPercent(model);
+  return progress > 0 && progress < 100;
+}
+
 export function pageTitle(model: Model): Uint8Array {
   switch (model.screen) {
     case "home":

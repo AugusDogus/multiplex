@@ -1278,7 +1278,7 @@ static bool format_episode_metadata(const MultiplexGatewayDetails *details,
   if (strcmp(details->media_type, "Episode") == 0 && season != 0 &&
       episode != 0) {
     formatted_length =
-        snprintf(hierarchy, hierarchy_capacity, "Season %u | Episode %u",
+        snprintf(hierarchy, hierarchy_capacity, "Season %u - Episode %u",
                  (unsigned)season, (unsigned)episode);
   }
   if (formatted_length < 0 ||
@@ -1303,11 +1303,11 @@ static bool bind_item_details(const MultiplexGatewayDetails *details) {
   int facts_length = 0;
   if (details->year != 0 && minutes != 0 && details->rating_tenths != 0) {
     facts_length = snprintf(
-        facts, sizeof(facts), "%u | %u min | Rating %u.%u/10", details->year,
+        facts, sizeof(facts), "%u - %u min - %u.%u/10", details->year,
         minutes, details->rating_tenths / 10u, details->rating_tenths % 10u);
   } else if (details->year != 0 && minutes != 0) {
     facts_length =
-        snprintf(facts, sizeof(facts), "%u | %u min", details->year, minutes);
+        snprintf(facts, sizeof(facts), "%u - %u min", details->year, minutes);
   } else if (minutes != 0) {
     facts_length = snprintf(facts, sizeof(facts), "%u min", minutes);
   } else if (details->year != 0) {

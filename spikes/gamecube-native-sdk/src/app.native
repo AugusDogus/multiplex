@@ -114,7 +114,7 @@
               <column grow="1" gap="4">
                 <image image="{item.imageId}" width="124" height="186" radius="lg" label="{item.title}" />
                 <if test="{item.progressPercent > 0 and item.progressPercent < 100}">
-                  <progress value="{item.progressPercent}" height="4" />
+                  <progress value="{item.progressPercent / 100}" height="4" />
                 </if>
                 <else>
                   <spacer height="4" />
@@ -138,9 +138,9 @@
       </row>
       <row grow="1" gap="10" cross="center">
         <for each="libraries" as="library" key="id">
-          <panel width="138" grow="1" padding="16" background="surface" border-color="border" radius="lg" on-press="open_library:{library.id}" label="{library.title}">
+          <panel width="138" grow="1" padding="14" background="surface" border-color="border" radius="lg" on-press="open_library:{library.id}" label="{library.title}">
             <column grow="1" main="center" cross="center" gap="8">
-              <badge variant="secondary">{library.typeLabel}</badge>
+              <icon name="folder" width="22" height="22" foreground="text_muted" label="Library" />
               <text wrap="true" text-alignment="center">{library.title}</text>
             </column>
           </panel>
@@ -157,6 +157,7 @@
       </row>
       <panel padding="14" background="surface" border-color="border" radius="lg">
         <row cross="center" gap="10">
+          <icon name="search" width="20" height="20" foreground="text_muted" label="Search" />
           <if test="{searchHasQuery}">
             <text size="heading"><span>{searchBeforeCursor}</span><span foreground="info">|</span><span>{searchAfterCursor}</span></text>
           </if>
@@ -164,7 +165,6 @@
             <text size="heading" foreground="text_muted">Search</text>
           </else>
           <spacer grow="1" />
-          <icon name="search" width="20" height="20" foreground="text_muted" label="Search" />
         </row>
       </panel>
       <column grow="1" main="center" gap="8">
@@ -240,7 +240,7 @@
                 <column grow="1" gap="4">
                   <image image="{item.imageId}" width="124" height="186" radius="lg" label="{item.title}" />
                   <if test="{item.progressPercent > 0 and item.progressPercent < 100}">
-                    <progress value="{item.progressPercent}" height="4" />
+                    <progress value="{item.progressPercent / 100}" height="4" />
                   </if>
                   <else>
                     <spacer height="4" />
@@ -413,19 +413,14 @@
         </column>
       </if>
       <if test="{detailsLoaded}">
-        <panel grow="1" padding="16" background="surface" border-color="border" radius="lg">
-          <row grow="1" gap="18">
+        <row grow="1" gap="18" padding="16">
             <column width="160" gap="8">
-              <image image="{selectedImageId}" width="160" height="240" label="{selectedTitle}" />
+              <image image="{selectedImageId}" width="160" height="240" radius="lg" label="{selectedTitle}" />
+              <if test="{detailsHasProgress}">
+                <progress value="{detailsProgressPercent / 100}" height="5" />
+              </if>
             </column>
             <column grow="1" gap="8">
-              <row gap="6" cross="center">
-                <badge variant="secondary">{detailsType}</badge>
-                <badge variant="outline">{detailsLibrary}</badge>
-                <if test="{detailsHasContentRating}">
-                  <badge variant="outline">{detailsContentRating}</badge>
-                </if>
-              </row>
               <if test="{detailsHasHierarchy}">
                 <text size="heading">{detailsSecondary}</text>
                 <text>{selectedTitle}</text>
@@ -437,18 +432,28 @@
                   <text foreground="text_muted">{detailsSecondary}</text>
                 </if>
               </else>
-              <if test="{detailsHasFacts}">
-                <text size="sm" foreground="text_muted">{detailsFacts}</text>
-              </if>
-              <if test="{detailsPlayable}">
-                <if test="{detailsHasDirectors}">
-                  <text size="sm">{detailsDirectors}</text>
+              <row gap="6" cross="center">
+                <if test="{detailsHasContentRating}">
+                  <badge variant="outline">{detailsContentRating}</badge>
                 </if>
-                <if test="{detailsHasGenres}">
-                  <text size="sm" foreground="text_muted">{detailsGenres}</text>
+                <if test="{detailsHasFacts}">
+                  <text size="sm" foreground="text_muted">{detailsFacts}</text>
+                </if>
+              </row>
+              <if test="{detailsPlayable}">
+                <row gap="8">
+                  <button size="sm" icon="play" variant="primary" on-press="play">{detailsPlayLabel}</button>
+                  <button width="40" size="sm" icon="check-circle" variant="secondary" on-press="mark_watched" label="Mark as Watched"></button>
+                  <button width="40" size="sm" icon="ellipsis" variant="secondary" on-press="open_start_menu" label="More actions"></button>
+                </row>
+                <if test="{detailsHasDirectors}">
+                  <row gap="4" cross="center">
+                    <text size="sm" foreground="text_muted">Directed by</text>
+                    <text size="sm">{detailsDirectors}</text>
+                  </row>
                 </if>
                 <if test="{detailsHasSummary}">
-                  <text size="sm" foreground="text_muted" wrap="true">{detailsSummary}</text>
+                  <text foreground="text_muted" wrap="true">{detailsSummary}</text>
                 </if>
               </if>
               <if test="{detailsChildrenLoading}">
@@ -469,7 +474,7 @@
                           <text size="sm" wrap="true">{child.title}</text>
                           <text size="sm" foreground="text_muted">{child.subtitle}</text>
                           <if test="{child.progressPercent > 0 and child.progressPercent < 100}">
-                            <progress value="{child.progressPercent}" height="4" />
+                            <progress value="{child.progressPercent / 100}" height="4" />
                           </if>
                           <else>
                             <spacer height="4" />
@@ -484,17 +489,8 @@
               <if test="{detailsNoChildren}">
                 <text size="sm" foreground="text_muted">No playable seasons or episodes were returned by Plex.</text>
               </if>
-              <spacer grow="1" />
-              <row gap="10">
-                <if test="{detailsPlayable}">
-                  <button size="sm" icon="play" variant="primary" on-press="play">{detailsPlayLabel}</button>
-                  <button width="40" size="sm" icon="check-circle" variant="secondary" on-press="mark_watched" label="Mark as Watched"></button>
-                  <button width="40" size="sm" icon="ellipsis" variant="secondary" on-press="open_start_menu" label="More actions"></button>
-                </if>
-              </row>
             </column>
-          </row>
-        </panel>
+        </row>
       </if>
     </column>
   </if>
