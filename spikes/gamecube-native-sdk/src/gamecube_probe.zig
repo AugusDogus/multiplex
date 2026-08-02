@@ -1539,32 +1539,29 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
     var message_kind: u32 = 0;
     var traced_focus = focused_handler;
     switch (action) {
-        0 => {
-            focused_handler = if (focused_handler == 0) press_count - 1 else focused_handler - 1;
-            reference_full_repaint = false;
-        },
-        1 => {
-            focused_handler = (focused_handler + 1) % press_count;
-            reference_full_repaint = false;
-        },
-        8 => {
+        0, 1, 8, 9 => {
             const layout = canvas.layoutWidgetTreeWithTokens(
                 tree.root,
                 geometry.RectF.init(0, 0, reference_width, reference_height),
                 canvas.DesignTokens.theme(.{ .pack = .geist, .color_scheme = .dark }),
                 &layout_nodes,
             ) catch return 0;
-            if (!moveFocusSpatial(press_ids[0..press_count], layout.nodes, 0, -1)) return 0;
-            reference_full_repaint = false;
-        },
-        9 => {
-            const layout = canvas.layoutWidgetTreeWithTokens(
-                tree.root,
-                geometry.RectF.init(0, 0, reference_width, reference_height),
-                canvas.DesignTokens.theme(.{ .pack = .geist, .color_scheme = .dark }),
-                &layout_nodes,
-            ) catch return 0;
-            if (!moveFocusSpatial(press_ids[0..press_count], layout.nodes, 0, 1)) return 0;
+            const horizontal: f32 = switch (action) {
+                0 => -1,
+                1 => 1,
+                else => 0,
+            };
+            const vertical: f32 = switch (action) {
+                8 => -1,
+                9 => 1,
+                else => 0,
+            };
+            if (!moveFocusSpatial(
+                press_ids[0..press_count],
+                layout.nodes,
+                horizontal,
+                vertical,
+            )) return 0;
             reference_full_repaint = false;
         },
         2 => {

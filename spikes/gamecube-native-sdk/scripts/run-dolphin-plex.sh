@@ -629,39 +629,58 @@ audit_focus_cycle() {
 
 type_search_query() {
   query=$1
-  # Search focuses Q when opened. The enabled focus order is the three header
-  # controls followed by the 26 QWERTY keys.
-  focus=3
+  # Search focuses Q when opened. Drive the same spatial QWERTY navigation a
+  # person uses instead of relying on the renderer's internal handler order.
+  row=0
+  column=0
   for code in $(printf '%s' "$query" | od -An -tu1); do
     case "$code" in
-      81) target=3 ;;  87) target=4 ;;  69) target=5 ;;  82) target=6 ;;
-      84) target=7 ;;  89) target=8 ;;  85) target=9 ;;  73) target=10 ;;
-      79) target=11 ;; 80) target=12 ;; 65) target=13 ;; 83) target=14 ;;
-      68) target=15 ;; 70) target=16 ;; 71) target=17 ;; 72) target=18 ;;
-      74) target=19 ;; 75) target=20 ;; 76) target=21 ;; 90) target=22 ;;
-      88) target=23 ;; 67) target=24 ;; 86) target=25 ;; 66) target=26 ;;
-      78) target=27 ;; 77) target=28 ;;
+      81) target_row=0; target_column=0 ;; 87) target_row=0; target_column=1 ;;
+      69) target_row=0; target_column=2 ;; 82) target_row=0; target_column=3 ;;
+      84) target_row=0; target_column=4 ;; 89) target_row=0; target_column=5 ;;
+      85) target_row=0; target_column=6 ;; 73) target_row=0; target_column=7 ;;
+      79) target_row=0; target_column=8 ;; 80) target_row=0; target_column=9 ;;
+      65) target_row=1; target_column=0 ;; 83) target_row=1; target_column=1 ;;
+      68) target_row=1; target_column=2 ;; 70) target_row=1; target_column=3 ;;
+      71) target_row=1; target_column=4 ;; 72) target_row=1; target_column=5 ;;
+      74) target_row=1; target_column=6 ;; 75) target_row=1; target_column=7 ;;
+      76) target_row=1; target_column=8 ;; 90) target_row=2; target_column=0 ;;
+      88) target_row=2; target_column=1 ;; 67) target_row=2; target_column=2 ;;
+      86) target_row=2; target_column=3 ;; 66) target_row=2; target_column=4 ;;
+      78) target_row=2; target_column=5 ;; 77) target_row=2; target_column=6 ;;
       *) echo "Unsupported search character code: $code" >&2; exit 1 ;;
     esac
-    right_distance=$(((target - focus + 29) % 29))
-    left_distance=$(((focus - target + 29) % 29))
-    if [ "$right_distance" -le "$left_distance" ]; then
-      moves=$right_distance
-      direction=D_RIGHT
-    else
-      moves=$left_distance
-      direction=D_LEFT
-    fi
-    while [ "$moves" -gt 0 ]; do
+
+    while [ "$row" -lt "$target_row" ]; do
       signature_count=$(line_count "signature=")
-      press "$direction"
+      press D_DOWN
       wait_for_new "signature=" "$signature_count"
-      moves=$((moves - 1))
+      column=$((column > 0 ? column - 1 : 0))
+      row=$((row + 1))
+      if [ "$row" -eq 2 ] && [ "$column" -gt 6 ]; then column=6; fi
+    done
+    while [ "$row" -gt "$target_row" ]; do
+      signature_count=$(line_count "signature=")
+      press D_UP
+      wait_for_new "signature=" "$signature_count"
+      if [ "$row" -eq 2 ]; then column=$((column + 1)); fi
+      row=$((row - 1))
+    done
+    while [ "$column" -lt "$target_column" ]; do
+      signature_count=$(line_count "signature=")
+      press D_RIGHT
+      wait_for_new "signature=" "$signature_count"
+      column=$((column + 1))
+    done
+    while [ "$column" -gt "$target_column" ]; do
+      signature_count=$(line_count "signature=")
+      press D_LEFT
+      wait_for_new "signature=" "$signature_count"
+      column=$((column - 1))
     done
     signature_count=$(line_count "signature=")
     press A
     wait_for_new "signature=" "$signature_count"
-    focus=$target
   done
 }
 
