@@ -1,4 +1,4 @@
-import { expect, mock } from "bun:test";
+import { expect, mock, type Mock } from "bun:test";
 import { fromPartial } from "@total-typescript/shoehorn";
 import {
   MULTIPLEX_SYNCPLAY_DEVICE_NAME,
@@ -31,7 +31,8 @@ import {
   type WatchTogetherApiShape,
 } from "./watch-together-api";
 
-export const NOW = Date.now();
+/** Wall-clock ms for room freshness fixtures (policy defaults to `Date.now()`). */
+export const nowMs = (): number => Date.now();
 
 export const multiplexUser = (
   id: number,
@@ -60,7 +61,7 @@ export const room = (
     syncplayHost: "syncplay.example.com",
     syncplayPort: 443,
     users,
-    updatedAt: Math.floor(NOW / 1000),
+    updatedAt: Math.floor(nowMs() / 1000),
   });
 
 export const item = (ratingKey: string): MediaPlayerItem =>
@@ -202,36 +203,30 @@ export const makeStubApi = (overrides?: {
   getItemMetadata?: WatchTogetherApiShape["getItemMetadata"];
 }): {
   api: WatchTogetherApiShape;
-  createRoom: ReturnType<typeof mock>;
-  deleteRoom: ReturnType<typeof mock>;
-  listRooms: ReturnType<typeof mock>;
-  getItemMetadata: ReturnType<typeof mock>;
+  createRoom: Mock<WatchTogetherApiShape["createRoom"]>;
+  deleteRoom: Mock<WatchTogetherApiShape["deleteRoom"]>;
+  listRooms: Mock<WatchTogetherApiShape["listRooms"]>;
+  getItemMetadata: Mock<WatchTogetherApiShape["getItemMetadata"]>;
 } => {
-  const createRoom = mock(
-    (
-      input: Parameters<WatchTogetherApiShape["createRoom"]>[0],
-    ): ReturnType<WatchTogetherApiShape["createRoom"]> => {
+  const createRoom: Mock<WatchTogetherApiShape["createRoom"]> = mock(
+    (input) => {
       if (overrides?.createRoomEffect) {
         return overrides.createRoomEffect(input);
       }
       return Effect.succeed(room("r-created", "200"));
     },
   );
-  const deleteRoom = mock(
-    (
-      _roomId: Parameters<WatchTogetherApiShape["deleteRoom"]>[0],
-    ): ReturnType<WatchTogetherApiShape["deleteRoom"]> => Effect.void,
+  const deleteRoom: Mock<WatchTogetherApiShape["deleteRoom"]> = mock(() =>
+    Effect.void,
   );
-  const listRooms = mock((): ReturnType<WatchTogetherApiShape["listRooms"]> => {
+  const listRooms: Mock<WatchTogetherApiShape["listRooms"]> = mock(() => {
     if (overrides?.listRoomsEffect) {
       return overrides.listRoomsEffect();
     }
     return Effect.succeed(overrides?.rooms ? overrides.rooms() : []);
   });
-  const getItemMetadata = mock(
-    (
-      input: Parameters<WatchTogetherApiShape["getItemMetadata"]>[0],
-    ): ReturnType<WatchTogetherApiShape["getItemMetadata"]> => {
+  const getItemMetadata: Mock<WatchTogetherApiShape["getItemMetadata"]> = mock(
+    (input) => {
       if (overrides?.getItemMetadata) {
         return overrides.getItemMetadata(input);
       }
@@ -261,9 +256,9 @@ export const withRotationSession = async <A>(
   f: (ctx: {
     session: WatchTogetherSessionShape;
     player: ReturnType<typeof makeControllablePlayer>;
-    createRoom: ReturnType<typeof mock>;
-    deleteRoom: ReturnType<typeof mock>;
-    getItemMetadata: ReturnType<typeof mock>;
+    createRoom: Mock<WatchTogetherApiShape["createRoom"]>;
+    deleteRoom: Mock<WatchTogetherApiShape["deleteRoom"]>;
+    getItemMetadata: Mock<WatchTogetherApiShape["getItemMetadata"]>;
     observers: StubObserver[];
     controllers: StubController[];
     setRooms: (rooms: WatchTogetherRoom[]) => void;
@@ -378,6 +373,7 @@ export const waitUntil = (
   session: WatchTogetherSessionShape,
   pred: (snap: ReturnType<WatchTogetherSessionShape["snapshot"]>) => boolean,
   maxSeconds = 20,
+  label = "waitUntil predicate",
 ) =>
   Effect.gen(function* () {
     for (let i = 0; i < maxSeconds; i++) {
@@ -385,5 +381,8 @@ export const waitUntil = (
       yield* TestClock.adjust("1 second");
       yield* Effect.yieldNow;
     }
-    expect(pred(session.snapshot())).toBe(true);
+    expect(
+      pred(session.snapshot()),
+      `${label} did not hold within ${maxSeconds}s; snapshot: ${JSON.stringify(session.snapshot())}`,
+    ).toBe(true);
   });
