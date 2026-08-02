@@ -125,6 +125,22 @@ class CatalogContractTest(unittest.TestCase):
         self.assertEqual(item[:6], (99, 200_000, 50_000, 0, 25, 0))
         self.assertEqual(item_count, 1)
 
+    def test_home_shelves_allow_eight_items_without_expanding_pages(self) -> None:
+        items = [
+            gateway.HomeItem(index + 1, 1000, 0, f"Item {index}", "2026", None)
+            for index in range(10)
+        ]
+        encoded = gateway.encode_home_catalog(
+            "Plex", [gateway.HomeRow("Recently Added", items)]
+        )
+        _, _, _, server_length, _ = struct.unpack(">4sHHHH", encoded[:12])
+        _, item_count = struct.unpack(
+            ">HH", encoded[12 + server_length : 16 + server_length]
+        )
+
+        self.assertEqual(item_count, gateway.MAX_HOME_ITEMS)
+        self.assertEqual(gateway.MAX_ITEMS, 4)
+
     def test_encodes_v3_bootstrap_libraries(self) -> None:
         rows = [
             gateway.HomeRow(

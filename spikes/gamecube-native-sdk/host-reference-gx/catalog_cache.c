@@ -133,7 +133,7 @@ bool multiplex_catalog_cache_encode(
   for (uint16_t index = 0; index < catalog->row_count; ++index) {
     const MultiplexGatewayRow *row = &catalog->rows[index];
     const uint8_t title_length = cached_length(row->title_length);
-    if (row->item_count > MULTIPLEX_GATEWAY_MAX_ITEMS ||
+    if (row->item_count > MULTIPLEX_GATEWAY_MAX_HOME_ITEMS ||
         row->item_offset + row->item_count > catalog->total_item_count ||
         !append_u8(destination, &cursor, (uint8_t)row->item_count) ||
         !append_u8(destination, &cursor, (uint8_t)row->item_offset) ||
@@ -226,7 +226,7 @@ bool multiplex_catalog_cache_decode(
     if (!read_u8(source, payload_end, &cursor, &cached_item_count) ||
         !read_u8(source, payload_end, &cursor, &cached_item_offset) ||
         !read_u8(source, payload_end, &cursor, &title_length) ||
-        cached_item_count > MULTIPLEX_GATEWAY_MAX_ITEMS ||
+        cached_item_count > MULTIPLEX_GATEWAY_MAX_HOME_ITEMS ||
         cached_item_offset + cached_item_count > item_count ||
         title_length >= sizeof(row->title) ||
         !read_bytes(source, payload_end, &cursor, row->title, title_length)) {

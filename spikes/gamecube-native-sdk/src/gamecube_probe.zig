@@ -31,17 +31,17 @@ const CompiledView = canvas.CompiledMarkupView(
     core.Msg,
     @embedFile("app.native"),
 );
-const ui_arena_capacity = 256 * 1024;
+const ui_arena_capacity = 512 * 1024;
 const reference_width: usize = 640;
 const reference_height: usize = 480;
 const reference_pixel_bytes: usize = reference_width * reference_height * 4;
 const reference_memo_budget_bytes: usize = 4 * 1024 * 1024;
 var ui_arena: [ui_arena_capacity]u8 = undefined;
-var layout_nodes: [256]canvas.WidgetLayoutNode = undefined;
-var display_commands: [512]canvas.CanvasCommand = undefined;
+var layout_nodes: [512]canvas.WidgetLayoutNode = undefined;
+var display_commands: [1024]canvas.CanvasCommand = undefined;
 var display_builder: canvas.Builder = undefined;
-var render_commands: [512]canvas.RenderCommand = undefined;
-var gpu_commands: [512]canvas.CanvasGpuCommand = undefined;
+var render_commands: [1024]canvas.RenderCommand = undefined;
+var gpu_commands: [1024]canvas.CanvasGpuCommand = undefined;
 const gx_command_cache_capacity: usize = 1024;
 var gx_command_cache: [gx_command_cache_capacity]GxCommand = undefined;
 var gx_command_cache_count: u32 = 0;
@@ -51,8 +51,9 @@ var app_initialized = false;
 var staged_gateway_name: []const u8 = &.{};
 var staged_rows: [3]core.CatalogRow = undefined;
 var staged_row_ptrs: [3]*const core.CatalogRow = undefined;
-var staged_items: [12]core.CatalogItem = undefined;
-var staged_item_ptrs: [12]*const core.CatalogItem = undefined;
+const home_items_per_row: usize = 8;
+var staged_items: [24]core.CatalogItem = undefined;
+var staged_item_ptrs: [24]*const core.CatalogItem = undefined;
 var staged_row_count: usize = 0;
 var staged_libraries: [8]core.LibrarySection = undefined;
 var staged_library_ptrs: [8]*const core.LibrarySection = undefined;
@@ -107,7 +108,7 @@ var reference_render_memo_initialized = false;
 var video_surface: VideoSurface = .{};
 var player_controls_surface: PlayerControlsSurface = .{};
 var modal_surface: ModalSurface = .{};
-const poster_surface_capacity = 8;
+const poster_surface_capacity = 12;
 var poster_surfaces: [poster_surface_capacity]PosterSurface =
     [_]PosterSurface{.{}} ** poster_surface_capacity;
 var poster_card_ids: [poster_surface_capacity]canvas.ObjectId =
@@ -488,6 +489,20 @@ fn resolveFocusedHandler(tree: anytype, press_ids: []const canvas.ObjectId, mode
     }
     if (focused_handler < press_ids.len) return;
     focused_handler = 0;
+    if (model.screen == .home) {
+        for (press_ids, 0..) |id, index| {
+            const msg = tree.msgFor(id, .press) orelse continue;
+            switch (msg) {
+                .open_item => |item_index| {
+                    if (item_index == model.selectedIndex) {
+                        focused_handler = index;
+                        return;
+                    }
+                },
+                else => {},
+            }
+        }
+    }
     for (press_ids, 0..) |id, index| {
         const msg = tree.msgFor(id, .press) orelse continue;
         if (!prefersFocus(model, msg)) continue;
@@ -652,9 +667,9 @@ export fn multiplex_native_app_catalog_row(
     title_length: u32,
     item_count: u32,
 ) callconv(.c) u32 {
-    if (row_index >= staged_row_count or title_length == 0 or item_count == 0 or item_count > 4) return 0;
+    if (row_index >= staged_row_count or title_length == 0 or item_count == 0 or item_count > home_items_per_row) return 0;
     const row: usize = row_index;
-    const offset = row * 4;
+    const offset = row * home_items_per_row;
     staged_rows[row] = .{
         .id = @intCast(row_index),
         .title = title[0..title_length],
@@ -677,8 +692,8 @@ export fn multiplex_native_app_catalog_item(
     view_offset_ms: u32,
     progress_percent: u32,
 ) callconv(.c) u32 {
-    if (row_index >= staged_row_count or item_index >= 4 or title_length == 0) return 0;
-    const flat: usize = @as(usize, row_index) * 4 + item_index;
+    if (row_index >= staged_row_count or item_index >= home_items_per_row or title_length == 0) return 0;
+    const flat: usize = @as(usize, row_index) * home_items_per_row + item_index;
     const subtitle_bytes = subtitle[0..subtitle_length];
     const subtitle_parts = splitCatalogSubtitle(subtitle_bytes);
     staged_items[flat] = .{
@@ -1616,6 +1631,46 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
     var traced_focus = focused_handler;
     switch (action) {
         0, 1, 8, 9 => {
+            const current_msg = tree.msgFor(press_ids[focused_handler], .press) orelse return 0;
+            if (model.screen == .home) {
+                switch (current_msg) {
+                    .open_item => {
+                        if (action == 1 and core.homeCarouselSelectionAtEnd(model)) {
+                            if (!core.homeCarouselNextDisabled(model)) {
+                                commitAppModel(core.moveHomeCarousel(model, 1));
+                                focused_handler = invalid_focused_handler;
+                                reference_full_repaint = true;
+                                multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 43);
+                            }
+                            return 1;
+                        }
+                        if (action == 0 and core.homeCarouselSelectionAtStart(model)) {
+                            if (!core.homeCarouselPreviousDisabled(model)) {
+                                commitAppModel(core.moveHomeCarousel(model, -1));
+                                focused_handler = invalid_focused_handler;
+                                reference_full_repaint = true;
+                                multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 44);
+                            }
+                            return 1;
+                        }
+                        if (action == 9 and !core.rowNextDisabled(model)) {
+                            commitAppModel(core.update(model, .next_row));
+                            focused_handler = invalid_focused_handler;
+                            reference_full_repaint = true;
+                            multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 3);
+                            return 1;
+                        }
+                        if (action == 8 and !core.rowPreviousDisabled(model)) {
+                            commitAppModel(core.update(model, .previous_row));
+                            focused_handler = invalid_focused_handler;
+                            reference_full_repaint = true;
+                            multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 2);
+                            return 1;
+                        }
+                    },
+                    else => {},
+                }
+            }
             const layout = canvas.layoutWidgetTreeWithTokens(
                 tree.root,
                 geometry.RectF.init(0, 0, reference_width, reference_height),
@@ -1638,6 +1693,20 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 horizontal,
                 vertical,
             )) {
+                if (model.screen == .home and action == 1 and !core.homeCarouselNextDisabled(model)) {
+                    commitAppModel(core.moveHomeCarousel(model, 1));
+                    focused_handler = invalid_focused_handler;
+                    reference_full_repaint = true;
+                    multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 43);
+                    return 1;
+                }
+                if (model.screen == .home and action == 0 and !core.homeCarouselPreviousDisabled(model)) {
+                    commitAppModel(core.moveHomeCarousel(model, -1));
+                    focused_handler = invalid_focused_handler;
+                    reference_full_repaint = true;
+                    multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 44);
+                    return 1;
+                }
                 if (model.screen == .home and action == 9 and !core.rowNextDisabled(model)) {
                     commitAppModel(core.update(model, .next_row));
                     focused_handler = invalid_focused_handler;

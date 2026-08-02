@@ -3,6 +3,7 @@
 #include "gateway_client.h"
 
 #include <gccore.h>
+#include <ogc/mutex.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -11,7 +12,31 @@
 
 extern AVCodec ff_mjpeg_decoder;
 
-#define ATLAS_COLUMNS MULTIPLEX_GATEWAY_MAX_ITEMS
+#define ATLAS_COLUMNS MULTIPLEX_GATEWAY_MAX_HOME_ITEMS
+
+static mutex_t poster_decoder_mutex;
+static bool poster_decoder_mutex_ready;
+
+bool poster_jpeg_initialize(void) {
+  if (poster_decoder_mutex_ready) {
+    return true;
+  }
+  if (LWP_MutexInit(&poster_decoder_mutex, false) != 0) {
+    SYS_Report("REFERENCE GX: poster JPEG decoder mutex unavailable\n");
+    return false;
+  }
+  poster_decoder_mutex_ready = true;
+  avcodec_init();
+  avcodec_register(&ff_mjpeg_decoder);
+  return true;
+}
+
+void poster_jpeg_shutdown(void) {
+  if (poster_decoder_mutex_ready) {
+    LWP_MutexDestroy(poster_decoder_mutex);
+    poster_decoder_mutex_ready = false;
+  }
+}
 
 static uint8_t clamp_byte(int value) {
   if (value < 0) {
@@ -95,8 +120,10 @@ static bool decode_jpeg(const uint8_t *encoded, size_t encoded_size,
     return false;
   }
 
-  avcodec_init();
-  avcodec_register(&ff_mjpeg_decoder);
+  if (!poster_decoder_mutex_ready) {
+    return false;
+  }
+  LWP_MutexLock(poster_decoder_mutex);
   AVCodec *codec = avcodec_find_decoder(CODEC_ID_MJPEG);
   AVCodecContext *context = avcodec_alloc_context();
   AVFrame *picture = avcodec_alloc_frame();
@@ -178,13 +205,23 @@ cleanup:
   if (picture != NULL) {
     av_free(picture);
   }
+  LWP_MutexUnlock(poster_decoder_mutex);
   return decoded;
 }
 
 bool poster_jpeg_decode(const uint8_t *encoded, size_t encoded_size,
                         uint16_t item_count, uint8_t *texture_pixels,
                         size_t texture_capacity) {
-  return decode_jpeg(encoded, encoded_size, item_count, ATLAS_COLUMNS, false,
+  return decode_jpeg(encoded, encoded_size, item_count,
+                     MULTIPLEX_GATEWAY_MAX_ITEMS, false, texture_pixels,
+                     texture_capacity);
+}
+
+bool poster_jpeg_decode_columns(const uint8_t *encoded, size_t encoded_size,
+                                uint16_t item_count, unsigned columns,
+                                uint8_t *texture_pixels,
+                                size_t texture_capacity) {
+  return decode_jpeg(encoded, encoded_size, item_count, columns, false,
                      texture_pixels, texture_capacity);
 }
 

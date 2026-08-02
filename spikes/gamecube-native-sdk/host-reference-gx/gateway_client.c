@@ -96,7 +96,8 @@ static bool parse_catalog(const uint8_t *bytes, size_t size,
     row->item_offset = catalog->total_item_count;
     cursor += 4u;
     if (row->title_length >= MULTIPLEX_GATEWAY_TITLE_CAPACITY ||
-        row->item_count == 0 || row->item_count > MULTIPLEX_GATEWAY_MAX_ITEMS ||
+        row->item_count == 0 ||
+        row->item_count > MULTIPLEX_GATEWAY_MAX_HOME_ITEMS ||
         catalog->total_item_count + row->item_count >
             MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS ||
         cursor + row->title_length > size) {

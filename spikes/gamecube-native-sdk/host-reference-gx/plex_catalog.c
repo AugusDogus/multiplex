@@ -367,7 +367,7 @@ static bool parse_hub_items(JsonSpan hub, MultiplexGatewayCatalog *catalog,
   row->item_offset = catalog->total_item_count;
   const char *cursor = array + 1;
   while (cursor < hub.end &&
-         row->item_count < MULTIPLEX_GATEWAY_MAX_ITEMS) {
+         row->item_count < MULTIPLEX_GATEWAY_MAX_HOME_ITEMS) {
     cursor = skip_space(cursor, hub.end);
     if (cursor < hub.end && *cursor == ']') {
       break;
@@ -924,7 +924,7 @@ bool multiplex_plex_load_catalog(
   const bool hubs_loaded =
       response != NULL &&
       request_plex_json(credentials,
-                        "hubs?onlyTransient=1&count=4&"
+                        "hubs?onlyTransient=1&count=8&"
                         PLEX_COMPACT_ITEMS_QUERY,
                         response, PLEX_HUB_RESPONSE_CAPACITY,
                         &response_size) &&

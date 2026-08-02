@@ -33,6 +33,7 @@ DETAILS_CATALOG_VERSION = 1
 PLAYBACK_MANIFEST_VERSION = 2
 PAIRING_STATUS_VERSION = 1
 MAX_ITEMS = 4
+MAX_HOME_ITEMS = 8
 MAX_ROWS = 3
 MAX_SERVER_NAME_BYTES = 63
 MAX_TITLE_BYTES = 95
@@ -278,7 +279,7 @@ def _item_subtitle(element: ET.Element) -> str:
 def fetch_home_catalog(base_url: str, token: str | None) -> tuple[str, list[HomeRow]]:
     root = _plex_xml(base_url, "/", token)
     server_name = root.get("friendlyName") or root.get("machineIdentifier") or "Plex"
-    hubs = _plex_xml(base_url, "/hubs?onlyTransient=1", token)
+    hubs = _plex_xml(base_url, "/hubs?onlyTransient=1&count=8", token)
     continue_rows: list[ET.Element] = []
     browse_rows: list[ET.Element] = []
     for hub in hubs.findall("Hub"):
@@ -293,7 +294,7 @@ def fetch_home_catalog(base_url: str, token: str | None) -> tuple[str, list[Home
     rows: list[HomeRow] = []
     for hub in (continue_rows[:1] + browse_rows[: MAX_ROWS - 1]):
         items: list[HomeItem] = []
-        for element in list(hub)[:MAX_ITEMS]:
+        for element in list(hub)[:MAX_HOME_ITEMS]:
             rating_key = element.get("ratingKey", "")
             if not rating_key.isdigit():
                 continue
@@ -455,7 +456,7 @@ def encode_home_catalog(server_name: str, rows: list[HomeRow]) -> bytes:
     artwork_slot = 0
     for row in bounded_rows:
         title = _bounded_utf8(row.title, MAX_TITLE_BYTES)
-        items = row.items[:MAX_ITEMS]
+        items = row.items[:MAX_HOME_ITEMS]
         body.extend(struct.pack(">HH", len(title), len(items)))
         body.extend(title)
         for item in items:
@@ -634,14 +635,19 @@ def _plex_bytes(base_url: str, path: str, token: str | None) -> bytes:
         return response.read()
 
 
-def build_artwork_atlas(base_url: str, token: str | None, rows: list[HomeRow]) -> bytes:
+def build_artwork_atlas(
+    base_url: str,
+    token: str | None,
+    rows: list[HomeRow],
+    columns: int = MAX_ITEMS,
+) -> bytes:
     from PIL import Image, ImageOps
 
     atlas_rows = max(1, min(MAX_ROWS, len(rows)))
-    atlas = Image.new("RGB", (ARTWORK_WIDTH * MAX_ITEMS, ARTWORK_HEIGHT * atlas_rows))
+    atlas = Image.new("RGB", (ARTWORK_WIDTH * columns, ARTWORK_HEIGHT * atlas_rows))
     slot = 0
     for row in rows[:MAX_ROWS]:
-        for item in row.items[:MAX_ITEMS]:
+        for item in row.items[:columns]:
             try:
                 if not item.artwork_path:
                     raise ValueError("missing artwork")
@@ -652,7 +658,7 @@ def build_artwork_atlas(base_url: str, token: str | None, rows: list[HomeRow]) -
                 image = Image.new("RGB", (ARTWORK_WIDTH, ARTWORK_HEIGHT), color)
             atlas.paste(
                 image,
-                ((slot % MAX_ITEMS) * ARTWORK_WIDTH, (slot // MAX_ITEMS) * ARTWORK_HEIGHT),
+                ((slot % columns) * ARTWORK_WIDTH, (slot // columns) * ARTWORK_HEIGHT),
             )
             slot += 1
     encoded = io.BytesIO()
@@ -1140,7 +1146,12 @@ def main() -> None:
     GatewayHandler.bootstrap_catalog_bytes = encode_bootstrap_catalog(
         home_server_name, rows, libraries
     )
-    GatewayHandler.artwork_bytes = build_artwork_atlas(arguments.plex_base_url, arguments.token, rows)
+    GatewayHandler.artwork_bytes = build_artwork_atlas(
+        arguments.plex_base_url,
+        arguments.token,
+        rows,
+        MAX_HOME_ITEMS,
+    )
     GatewayHandler.plex_base_url = arguments.plex_base_url
     GatewayHandler.plex_token = arguments.token
     GatewayHandler.segment_duration_seconds = arguments.segment_duration

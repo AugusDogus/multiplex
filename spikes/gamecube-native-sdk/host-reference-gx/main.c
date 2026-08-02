@@ -105,7 +105,7 @@
 #define HOME_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS
 #define BROWSE_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_ITEMS
 #define POSTER_TEXTURE_COUNT (HOME_POSTER_COUNT + BROWSE_POSTER_COUNT)
-#define POSTER_SURFACE_CAPACITY 8u
+#define POSTER_SURFACE_CAPACITY 12u
 #define UI_COMMAND_CAPACITY 1024u
 #define UI_TEXT_COMMAND_CAPACITY 96u
 #define UI_SHAPE_COMMAND_CAPACITY 896u
@@ -1431,8 +1431,10 @@ static bool initialize_poster_textures(const char *gateway_url,
   if (encoded == NULL || poster_texture_pixels == NULL ||
       !multiplex_gateway_load_artwork(gateway_url, encoded,
                                       POSTER_JPEG_CAPACITY, &encoded_size) ||
-      !poster_jpeg_decode(encoded, encoded_size, item_count,
-                          poster_texture_pixels, home_bytes)) {
+      !poster_jpeg_decode_columns(
+          encoded, encoded_size, item_count,
+          MULTIPLEX_GATEWAY_MAX_HOME_ITEMS, poster_texture_pixels,
+          home_bytes)) {
     free(encoded);
     multiplex_native_cache_free(poster_texture_pixels);
     poster_texture_pixels = NULL;
@@ -3928,29 +3930,8 @@ static bool details_backdrop_active(void) {
   return image_id != 0 && image_id <= poster_texture_count;
 }
 
-static int32_t focused_poster_texture_index(void) {
-  if (presented_screen != MULTIPLEX_SCREEN_HOME &&
-      presented_screen != MULTIPLEX_SCREEN_BROWSE &&
-      presented_screen != MULTIPLEX_SCREEN_SEARCH_RESULTS) {
-    return -1;
-  }
-  for (uint32_t index = 0; index < poster_surface_count; ++index) {
-    const uint32_t image_id = poster_surfaces[index].image_id;
-    if (poster_surfaces[index].focused != 0 && image_id != 0 &&
-        image_id <= poster_texture_count) {
-      return (int32_t)(image_id - 1u);
-    }
-  }
-  return -1;
-}
-
-static bool catalog_backdrop_active(void) {
-  return focused_poster_texture_index() >= 0;
-}
-
 static bool is_ambient_background(const MultiplexGxCommand *command) {
-  return (details_backdrop_active() || catalog_backdrop_active() ||
-          player_startup_backdrop_visible) &&
+  return (details_backdrop_active() || player_startup_backdrop_visible) &&
          command->kind == MULTIPLEX_GX_FILL_RECT &&
          command->x <= 0.0f && command->y <= 0.0f &&
          command->width >= LOGICAL_WIDTH && command->height >= LOGICAL_HEIGHT;
@@ -4064,13 +4045,6 @@ static void draw_ambient_poster(uint32_t texture_index, uint8_t scrim_alpha,
 static void draw_details_backdrop(void) {
   if (details_backdrop_active()) {
     draw_ambient_poster(poster_surfaces[0].image_id - 1u, 224u, 44u);
-  }
-}
-
-static void draw_catalog_backdrop(void) {
-  const int32_t texture_index = focused_poster_texture_index();
-  if (texture_index >= 0) {
-    draw_ambient_poster((uint32_t)texture_index, 232u, 0u);
   }
 }
 
@@ -4475,7 +4449,6 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
   draw_player_startup_backdrop(playback_manifest);
   draw_video_surface();
   if (video_surface.visible == 0 || player_controls_overlay_visible) {
-    draw_catalog_backdrop();
     draw_details_backdrop();
     float entry_offset = 0.0f;
     if (ui_entry_frame < UI_ENTRY_FRAMES) {
@@ -5447,7 +5420,11 @@ static void *run_app(void *unused) {
   memset(&reference_renderer, 0, sizeof(reference_renderer));
   reference_renderer.thread = LWP_THREAD_NULL;
   initialize_video_and_gx();
+  if (!poster_jpeg_initialize()) {
+    return (void *)(uintptr_t)1;
+  }
   if (!allocate_buffers()) {
+    poster_jpeg_shutdown();
     return (void *)(uintptr_t)1;
   }
   NetworkWarmup network_warmup;
@@ -6646,6 +6623,7 @@ static void *run_app(void *unused) {
   multiplex_native_cache_free(poster_texture_pixels);
   poster_texture_pixels = NULL;
   poster_texture_count = 0;
+  poster_jpeg_shutdown();
   return NULL;
 }
 

@@ -79,6 +79,7 @@ export interface Model {
   readonly libraries: readonly LibrarySection[];
   readonly rowIndex: number;
   readonly rowNumber: number;
+  readonly homeCarouselStart: number;
   readonly selectedIndex: number;
   readonly selectedRatingKey: number;
   readonly selectedImageId: number;
@@ -368,6 +369,7 @@ export function initialModel(): Model {
     libraries: demoLibraries,
     rowIndex: 0,
     rowNumber: 1,
+    homeCarouselStart: 0,
     selectedIndex: 0,
     selectedRatingKey: demoItems[0].ratingKey,
     selectedImageId: demoItems[0].imageId,
@@ -463,6 +465,7 @@ export function loadCatalog(
     libraries: libraries.length === 0 ? model.libraries : libraries,
     rowIndex: 0,
     rowNumber: 1,
+    homeCarouselStart: 0,
     selectedIndex: 0,
     selectedRatingKey: rows[0].items[0].ratingKey,
     selectedImageId: rows[0].items[0].imageId,
@@ -859,13 +862,14 @@ export function clearPlaybackNavigationRequest(model: Model): Model {
 }
 
 export function visibleItems(model: Model): readonly CatalogItem[] {
-  return model.rows[model.rowIndex].items;
+  const items = model.rows[model.rowIndex].items;
+  return items.slice(model.homeCarouselStart, model.homeCarouselStart + 6);
 }
 
 function catalogItems(model: Model): readonly CatalogItem[] {
   if (model.screen === "browse") return model.browseItems;
   if (model.screen === "search_results") return model.searchItems;
-  return visibleItems(model);
+  return model.rows[model.rowIndex].items;
 }
 
 function catalogPreviewItem(model: Model): CatalogItem {
@@ -930,7 +934,50 @@ export function homeNextShelfTitle(model: Model): Uint8Array {
 }
 
 export function homeNextShelfItems(model: Model): readonly CatalogItem[] {
-  return homeHasNextShelf(model) ? model.rows[model.rowIndex + 1].items : [];
+  return homeHasNextShelf(model) ? model.rows[model.rowIndex + 1].items.slice(0, 6) : [];
+}
+
+export function homeHasFollowingShelf(model: Model): boolean {
+  return model.rowIndex + 2 < model.rows.length;
+}
+
+export function homeFollowingShelfTitle(model: Model): Uint8Array {
+  return homeHasFollowingShelf(model)
+    ? model.rows[model.rowIndex + 2].title
+    : new Uint8Array(0);
+}
+
+export function homeCarouselPreviousDisabled(model: Model): boolean {
+  return model.homeCarouselStart === 0;
+}
+
+export function homeCarouselNextDisabled(model: Model): boolean {
+  return model.homeCarouselStart + 6 >= model.rows[model.rowIndex].items.length;
+}
+
+export function homeCarouselSelectionAtStart(model: Model): boolean {
+  return model.selectedIndex === model.homeCarouselStart;
+}
+
+export function homeCarouselSelectionAtEnd(model: Model): boolean {
+  return (
+    model.selectedIndex ===
+    Math.min(model.rows[model.rowIndex].items.length - 1, model.homeCarouselStart + 5)
+  );
+}
+
+export function moveHomeCarousel(model: Model, direction: number): Model {
+  const items = model.rows[model.rowIndex].items;
+  const nextStart =
+    direction < 0
+      ? Math.max(0, model.homeCarouselStart - 1)
+      : Math.min(model.homeCarouselStart + 1, Math.max(0, items.length - 6));
+  if (nextStart === model.homeCarouselStart) return model;
+  const selectedIndex = direction < 0 ? nextStart : Math.min(items.length - 1, nextStart + 5);
+  return previewCatalogItem(
+    { ...model, homeCarouselStart: nextStart, selectedIndex: selectedIndex },
+    selectedIndex,
+  );
 }
 
 export function rowCount(model: Model): number {
@@ -1376,12 +1423,18 @@ export function update(model: Model, msg: Msg): Model {
     case "previous_row": {
       if (model.rowIndex === 0) return model;
       const rowIndex = model.rowIndex - 1;
-      return previewCatalogItem({ ...model, rowIndex: rowIndex, rowNumber: rowIndex + 1 }, 0);
+      return previewCatalogItem(
+        { ...model, rowIndex: rowIndex, rowNumber: rowIndex + 1, homeCarouselStart: 0 },
+        0,
+      );
     }
     case "next_row": {
       if (model.rowIndex + 1 >= model.rows.length) return model;
       const rowIndex = model.rowIndex + 1;
-      return previewCatalogItem({ ...model, rowIndex: rowIndex, rowNumber: rowIndex + 1 }, 0);
+      return previewCatalogItem(
+        { ...model, rowIndex: rowIndex, rowNumber: rowIndex + 1, homeCarouselStart: 0 },
+        0,
+      );
     }
     case "open_libraries":
       return { ...model, screen: "libraries" };

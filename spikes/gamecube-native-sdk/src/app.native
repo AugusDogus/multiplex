@@ -105,33 +105,26 @@
   </if>
 
   <if test="{screen == 'home'}">
-    <column grow="1" gap="6">
-      <column height="46" gap="2">
-        <text size="heading" wrap="false">{catalogPreviewTitle}</text>
-        <row gap="8" cross="center">
-          <text size="sm" foreground="text_muted" wrap="false">{catalogPreviewSecondary}</text>
-          <if test="{catalogPreviewHasHierarchy}">
-            <text size="sm" foreground="text_muted">{catalogPreviewHierarchy}</text>
-          </if>
-          <if test="{catalogPreviewHasProgress}">
-            <text size="sm" foreground="text_muted">{catalogPreviewRemainingMinutes} min left</text>
-          </if>
-        </row>
-      </column>
+    <column grow="1" gap="5">
       <row cross="center">
         <text label="{visibleRowTitle}"><span weight="bold">{visibleRowTitle}</span></text>
       </row>
-      <row height="130" gap="10" main="center" cross="start">
-        <row gap="10" main="center">
+      <row height="150" gap="8" main="center" cross="start">
+        <row gap="8" main="center">
           <for each="visibleItems" as="item" key="ratingKey">
-            <column width="84" gap="3" on-press="open_item:{item.id}" label="{item.title}">
-              <image image="{item.imageId}" width="84" height="126" radius="lg" label="{item.title}" />
+            <column width="68" gap="2" on-press="open_item:{item.id}" label="{item.title}">
+              <image image="{item.imageId}" width="68" height="102" radius="lg" label="{item.title}" />
               <if test="{item.progressPercent > 0 and item.progressPercent < 100}">
                 <progress value="{item.progressPercent / 100}" height="3" />
               </if>
               <else>
                 <spacer height="3" />
               </else>
+              <text size="sm" wrap="false">{item.title}</text>
+              <text size="sm" foreground="text_muted" wrap="false">{item.secondary}</text>
+              <if test="{item.hasHierarchy}">
+                <text size="sm" foreground="text_muted" wrap="false">{item.hierarchy}</text>
+              </if>
             </column>
           </for>
         </row>
@@ -140,18 +133,28 @@
         <row cross="center">
           <text label="{homeNextShelfTitle}"><span weight="bold">{homeNextShelfTitle}</span></text>
         </row>
-        <row height="130" gap="10" main="center" cross="start">
+        <row height="150" gap="8" main="center" cross="start">
           <for each="homeNextShelfItems" as="item" key="ratingKey">
-            <column width="84" gap="3">
-              <image image="{item.imageId}" width="84" height="126" radius="lg" label="{item.title}" />
+            <column width="68" gap="2">
+              <image image="{item.imageId}" width="68" height="102" radius="lg" label="{item.title}" />
               <if test="{item.progressPercent > 0 and item.progressPercent < 100}">
                 <progress value="{item.progressPercent / 100}" height="3" />
               </if>
               <else>
                 <spacer height="3" />
               </else>
+              <text size="sm" wrap="false">{item.title}</text>
+              <text size="sm" foreground="text_muted" wrap="false">{item.secondary}</text>
+              <if test="{item.hasHierarchy}">
+                <text size="sm" foreground="text_muted" wrap="false">{item.hierarchy}</text>
+              </if>
             </column>
           </for>
+        </row>
+      </if>
+      <if test="{homeHasFollowingShelf}">
+        <row cross="center">
+          <text label="{homeFollowingShelfTitle}"><span weight="bold">{homeFollowingShelfTitle}</span></text>
         </row>
       </if>
     </column>
