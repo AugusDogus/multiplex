@@ -260,18 +260,6 @@
       </row>
       <if test="{searchHasResults}">
         <column grow="1" gap="8">
-          <column height="42" gap="2">
-            <text size="heading" wrap="false">{catalogPreviewTitle}</text>
-            <row gap="8" cross="center">
-              <text size="sm" foreground="text_muted" wrap="false">{catalogPreviewSecondary}</text>
-              <if test="{catalogPreviewHasHierarchy}">
-                <text size="sm" foreground="text_muted">{catalogPreviewHierarchy}</text>
-              </if>
-              <if test="{catalogPreviewHasProgress}">
-                <text size="sm" foreground="text_muted">{catalogPreviewRemainingMinutes} min left</text>
-              </if>
-            </row>
-          </column>
           <row grow="1" gap="8" main="center">
             <for each="searchItems" as="item" key="ratingKey">
               <column width="124" gap="4" on-press="open_item:{item.id}" label="{item.title}">
@@ -308,7 +296,7 @@
 
   <if test="{screen == 'browse'}">
     <column grow="1" gap="8">
-      <row cross="center">
+      <row cross="center" gap="8">
         <button focus-ring="text" width="42" size="sm" icon="app:back" variant="ghost" on-press="back" label="Back to libraries"></button>
         <spacer grow="1" />
         <text size="sm" foreground="text_muted">{browseTotal} items</text>
@@ -316,18 +304,6 @@
       </row>
       <if test="{browseLoaded}">
         <column grow="1" gap="8">
-          <column height="42" gap="2">
-            <text size="heading" wrap="false">{catalogPreviewTitle}</text>
-            <row gap="8" cross="center">
-              <text size="sm" foreground="text_muted" wrap="false">{catalogPreviewSecondary}</text>
-              <if test="{catalogPreviewHasHierarchy}">
-                <text size="sm" foreground="text_muted">{catalogPreviewHierarchy}</text>
-              </if>
-              <if test="{catalogPreviewHasProgress}">
-                <text size="sm" foreground="text_muted">{catalogPreviewRemainingMinutes} min left</text>
-              </if>
-            </row>
-          </column>
           <row grow="1" gap="8" main="center" cross="start">
             <column width="34" height="186" main="center">
               <button focus-ring="text" width="34" size="sm" icon="chevron-left" variant="ghost" on-press="browse_previous" disabled="{browsePreviousDisabled}" label="Previous page"></button>
