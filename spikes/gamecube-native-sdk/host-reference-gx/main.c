@@ -144,6 +144,7 @@ static GXTexObj poster_textures[POSTER_TEXTURE_COUNT];
 static uint8_t *poster_texture_pixels;
 static uint16_t poster_texture_count;
 static uint32_t poster_texture_rating_keys[POSTER_TEXTURE_COUNT];
+static uint8_t poster_texture_reveal_frames[POSTER_TEXTURE_COUNT];
 static MultiplexVideoSurface video_surface;
 static MultiplexPlayerControlsSurface player_controls_surface;
 static MultiplexModalSurface modal_surface;
@@ -1464,10 +1465,12 @@ static bool queue_direct_poster_loader(
                MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
       }
       poster_texture_rating_keys[target_slot] = items[index].rating_key;
+      poster_texture_reveal_frames[target_slot] = 0;
       ++loader->cache_hits;
     } else {
       fill_poster_fallback(pixels, items[index].rating_key);
       poster_texture_rating_keys[target_slot] = 0;
+      poster_texture_reveal_frames[target_slot] = 0;
       loader->items[download_count] = items[index];
       loader->texture_slots[download_count] = target_slot;
       ++download_count;
@@ -1515,6 +1518,7 @@ static void poll_direct_poster_loader(DirectPosterLoader *loader) {
              MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
       poster_texture_rating_keys[texture_slot] =
           loader->items[loader->item_index].rating_key;
+      poster_texture_reveal_frames[texture_slot] = 8u;
       DCFlushRange(pixels, MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
       GX_InvalidateTexAll();
     }
@@ -3430,6 +3434,30 @@ static void draw_poster_surfaces(void) {
     }
     GX_LoadTexObj(&poster_textures[surface->image_id - 1u], GX_TEXMAP0);
     draw_rounded_poster(surface);
+  }
+  bool configured_reveals = false;
+  for (uint32_t index = 0; index < poster_surface_count; ++index) {
+    const MultiplexPosterSurface *surface = &poster_surfaces[index];
+    if (surface->image_id == 0 || surface->image_id > poster_texture_count) {
+      continue;
+    }
+    const uint16_t texture_index = (uint16_t)(surface->image_id - 1u);
+    const uint8_t remaining = poster_texture_reveal_frames[texture_index];
+    if (remaining == 0) {
+      continue;
+    }
+    if (!configured_reveals) {
+      configure_color_pipeline();
+      GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
+                      GX_LO_CLEAR);
+      configured_reveals = true;
+    }
+    const uint8_t alpha = (uint8_t)((uint16_t)remaining * 200u / 8u);
+    fill_rounded_color_rect(
+        surface->x, surface->y, surface->x + surface->width,
+        surface->y + surface->height, surface->radius,
+        (GXColor){10, 10, 12, alpha});
+    poster_texture_reveal_frames[texture_index] = remaining - 1u;
   }
 }
 
