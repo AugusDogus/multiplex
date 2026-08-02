@@ -108,6 +108,7 @@ typedef struct {
   lwp_t thread;
   void *stack;
   bool ready;
+  volatile bool complete;
 } NetworkWarmup;
 
 static GXRModeObj *video_mode;
@@ -129,6 +130,8 @@ static uint32_t poster_surface_count;
 static uint32_t presented_screen = UINT32_MAX;
 static bool asynchronous_reference_enabled;
 static ReferenceFrameRenderer reference_renderer;
+static bool network_activity_visible;
+static uint32_t network_activity_frame;
 static bool native_frame_dirty = true;
 static uint8_t ui_frame_alpha = 255;
 static bool player_controls_overlay_visible = true;
@@ -710,6 +713,8 @@ static bool refresh_reference_frame(bool initialize) {
 static void *run_network_warmup(void *context) {
   NetworkWarmup *warmup = context;
   warmup->ready = http_client_initialize_network();
+  __sync_synchronize();
+  warmup->complete = true;
   return NULL;
 }
 
@@ -2433,6 +2438,38 @@ static void color_vertex(float x, float y, GXColor color) {
   GX_Color4u8(color.r, color.g, color.b, color.a);
 }
 
+static void fill_circle(float center_x, float center_y, float radius,
+                        GXColor color) {
+  static const int8_t unit_circle[9][2] = {
+      {1, 0},  {1, 1},  {0, 1},  {-1, 1}, {-1, 0},
+      {-1, -1}, {0, -1}, {1, -1}, {1, 0},
+  };
+  GX_Begin(GX_TRIANGLEFAN, GX_VTXFMT0, 10);
+  color_vertex(center_x, center_y, color);
+  for (unsigned index = 0; index < 9; ++index) {
+    color_vertex(center_x + unit_circle[index][0] * radius,
+                 center_y + unit_circle[index][1] * radius, color);
+  }
+  GX_End();
+}
+
+static void draw_network_activity(void) {
+  if (!network_activity_visible) {
+    return;
+  }
+  configure_color_pipeline();
+  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
+                  GX_LO_CLEAR);
+  const uint32_t active = (network_activity_frame / 10u) % 3u;
+  for (uint32_t index = 0; index < 3; ++index) {
+    const uint8_t alpha = index == active ? 230u : 72u;
+    fill_circle(312.0f + index * 8.0f, 380.0f, 2.0f,
+                (GXColor){212, 212, 216, alpha});
+  }
+  GX_SetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_CLEAR);
+  network_activity_frame += 1;
+}
+
 static void fill_rect(float left, float top, float right, float bottom,
                       GXColor color) {
   GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
@@ -2662,6 +2699,7 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
     }
     draw_playback_progress(playback_manifest);
   }
+  draw_network_activity();
   GX_CopyDisp(framebuffers[framebuffer_index], GX_TRUE);
   GX_DrawDone();
   VIDEO_SetNextFramebuffer(framebuffers[framebuffer_index]);
@@ -2702,6 +2740,30 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
     }
     presentation_frames = 0;
   }
+}
+
+static bool wait_network_warmup(
+    NetworkWarmup *warmup,
+    const MultiplexGatewayPlaybackManifest *playback_manifest) {
+  network_activity_visible = true;
+  network_activity_frame = 0;
+  while (!warmup->complete && SYS_MainLoop()) {
+    present_frame(playback_manifest);
+  }
+  __sync_synchronize();
+  network_activity_visible = false;
+  return finish_network_warmup(warmup);
+}
+
+static bool wait_reference_transition(
+    const MultiplexGatewayPlaybackManifest *playback_manifest) {
+  while (reference_renderer.thread != LWP_THREAD_NULL && SYS_MainLoop()) {
+    if (!poll_reference_renderer()) {
+      return false;
+    }
+    present_frame(playback_manifest);
+  }
+  return reference_renderer.thread == LWP_THREAD_NULL;
 }
 
 static void pause_audio_for_player_input(
@@ -3485,10 +3547,12 @@ static void *run_app(void *unused) {
     return (void *)(uintptr_t)1;
   }
   present_frame(&playback_manifest);
+  asynchronous_reference_enabled = true;
 
   if (network_warmup_pending && MULTIPLEX_GATEWAY_URL[0] != '\0') {
     SYS_Report("REFERENCE GX: network warmup ready=%u\n",
-               finish_network_warmup(&network_warmup) ? 1u : 0u);
+               wait_network_warmup(&network_warmup, &playback_manifest) ? 1u
+                                                                        : 0u);
     network_warmup_pending = false;
   }
 
@@ -3515,7 +3579,8 @@ static void *run_app(void *unused) {
       multiplex_memory_card_load_auth(&auth_credentials, &auth_location);
   if (network_warmup_pending) {
     SYS_Report("REFERENCE GX: network warmup ready=%u\n",
-               finish_network_warmup(&network_warmup) ? 1u : 0u);
+               wait_network_warmup(&network_warmup, &playback_manifest) ? 1u
+                                                                        : 0u);
     network_warmup_pending = false;
   }
   MultiplexDeviceAuth device_auth;
@@ -3585,14 +3650,20 @@ static void *run_app(void *unused) {
       return (void *)(uintptr_t)1;
     }
     native_frame_dirty = true;
+    network_activity_visible = true;
     present_frame(&playback_manifest);
+    if (!wait_reference_transition(&playback_manifest)) {
+      return (void *)(uintptr_t)1;
+    }
+    network_activity_visible = false;
     SYS_Report("REFERENCE GX: interactive home ready us=%u\n",
                elapsed_us(app_started));
   }
 #endif
   if (network_warmup_pending) {
     SYS_Report("REFERENCE GX: network warmup ready=%u\n",
-               finish_network_warmup(&network_warmup) ? 1u : 0u);
+               wait_network_warmup(&network_warmup, &playback_manifest) ? 1u
+                                                                        : 0u);
     network_warmup_pending = false;
   }
 #if MULTIPLEX_PAIRING_ENABLED
@@ -3614,7 +3685,6 @@ static void *run_app(void *unused) {
     return (void *)(uintptr_t)1;
   }
 
-  asynchronous_reference_enabled = true;
   uint32_t queued_transition_buttons = 0;
   uint32_t queued_transition_navigation = UINT32_MAX;
   while (SYS_MainLoop()) {
