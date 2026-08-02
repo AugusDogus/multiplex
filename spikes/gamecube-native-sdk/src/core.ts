@@ -1183,7 +1183,7 @@ export function browseHasPrevious(model: Model): boolean {
 }
 
 export function browseHasNext(model: Model): boolean {
-  return model.browseStart + model.browseItems.length < model.browseTotal;
+  return model.browseStart + browseVisibleItems < model.browseTotal;
 }
 
 export function detailsChildrenPreviousDisabled(model: Model): boolean {
