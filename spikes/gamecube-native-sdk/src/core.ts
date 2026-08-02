@@ -863,7 +863,12 @@ export function clearPlaybackNavigationRequest(model: Model): Model {
 
 export function visibleItems(model: Model): readonly CatalogItem[] {
   const items = model.rows[model.rowIndex].items;
-  return items.slice(model.homeCarouselStart, model.homeCarouselStart + 6);
+  return items.slice(model.homeCarouselStart, model.homeCarouselStart + 7);
+}
+
+export function homeCarouselPeekItems(model: Model): readonly CatalogItem[] {
+  const items = model.rows[model.rowIndex].items;
+  return items.slice(model.homeCarouselStart + 7, model.homeCarouselStart + 8);
 }
 
 function catalogItems(model: Model): readonly CatalogItem[] {
@@ -934,7 +939,11 @@ export function homeNextShelfTitle(model: Model): Uint8Array {
 }
 
 export function homeNextShelfItems(model: Model): readonly CatalogItem[] {
-  return homeHasNextShelf(model) ? model.rows[model.rowIndex + 1].items.slice(0, 6) : [];
+  return homeHasNextShelf(model) ? model.rows[model.rowIndex + 1].items.slice(0, 7) : [];
+}
+
+export function homeNextShelfPeekItems(model: Model): readonly CatalogItem[] {
+  return homeHasNextShelf(model) ? model.rows[model.rowIndex + 1].items.slice(7, 8) : [];
 }
 
 export function homeHasFollowingShelf(model: Model): boolean {
@@ -947,12 +956,20 @@ export function homeFollowingShelfTitle(model: Model): Uint8Array {
     : new Uint8Array(0);
 }
 
+export function homeFollowingShelfItems(model: Model): readonly CatalogItem[] {
+  return homeHasFollowingShelf(model) ? model.rows[model.rowIndex + 2].items.slice(0, 7) : [];
+}
+
+export function homeFollowingShelfPeekItems(model: Model): readonly CatalogItem[] {
+  return homeHasFollowingShelf(model) ? model.rows[model.rowIndex + 2].items.slice(7, 8) : [];
+}
+
 export function homeCarouselPreviousDisabled(model: Model): boolean {
   return model.homeCarouselStart === 0;
 }
 
 export function homeCarouselNextDisabled(model: Model): boolean {
-  return model.homeCarouselStart + 6 >= model.rows[model.rowIndex].items.length;
+  return model.homeCarouselStart + 7 >= model.rows[model.rowIndex].items.length;
 }
 
 export function homeCarouselSelectionAtStart(model: Model): boolean {
@@ -962,7 +979,7 @@ export function homeCarouselSelectionAtStart(model: Model): boolean {
 export function homeCarouselSelectionAtEnd(model: Model): boolean {
   return (
     model.selectedIndex ===
-    Math.min(model.rows[model.rowIndex].items.length - 1, model.homeCarouselStart + 5)
+    Math.min(model.rows[model.rowIndex].items.length - 1, model.homeCarouselStart + 6)
   );
 }
 
@@ -971,9 +988,9 @@ export function moveHomeCarousel(model: Model, direction: number): Model {
   const nextStart =
     direction < 0
       ? Math.max(0, model.homeCarouselStart - 1)
-      : Math.min(model.homeCarouselStart + 1, Math.max(0, items.length - 6));
+      : Math.min(model.homeCarouselStart + 1, Math.max(0, items.length - 7));
   if (nextStart === model.homeCarouselStart) return model;
-  const selectedIndex = direction < 0 ? nextStart : Math.min(items.length - 1, nextStart + 5);
+  const selectedIndex = direction < 0 ? nextStart : Math.min(items.length - 1, nextStart + 6);
   return previewCatalogItem(
     { ...model, homeCarouselStart: nextStart, selectedIndex: selectedIndex },
     selectedIndex,

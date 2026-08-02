@@ -88,6 +88,11 @@ typedef struct {
   float card_y;
   float card_width;
   float card_height;
+  uint32_t has_clip;
+  float clip_x;
+  float clip_y;
+  float clip_width;
+  float clip_height;
 } MultiplexPosterSurface;
 
 void multiplex_native_app_init(void);
@@ -225,6 +230,7 @@ uint32_t multiplex_native_app_layout_audit(uint32_t *first_rule,
                                            uint32_t *first_node);
 uint32_t multiplex_native_app_poster_inset_audit(void);
 uint32_t multiplex_native_app_input(uint32_t action);
+uint32_t multiplex_native_app_home_view_state(void);
 uint32_t multiplex_native_app_screen(void);
 uint32_t multiplex_native_video_surface(MultiplexVideoSurface *output);
 uint32_t multiplex_native_player_controls_surface(

@@ -66,7 +66,9 @@
       </if>
     </row>
   </row>
-  <separator />
+  <if test="{screen != 'home'}">
+    <separator />
+  </if>
 
   <if test="{screen == 'pairing'}">
     <column grow="1" main="center" cross="center" gap="12" label="Pair with Multiplex">
@@ -109,8 +111,8 @@
       <row cross="center">
         <text label="{visibleRowTitle}"><span weight="bold">{visibleRowTitle}</span></text>
       </row>
-      <row height="150" gap="8" main="center" cross="start">
-        <row gap="8" main="center">
+      <row height="138" gap="12">
+        <row gap="12">
           <for each="visibleItems" as="item" key="ratingKey">
             <column width="68" gap="2" on-press="open_item:{item.id}" label="{item.title}">
               <image image="{item.imageId}" width="68" height="102" radius="lg" label="{item.title}" />
@@ -121,11 +123,16 @@
                 <spacer height="3" />
               </else>
               <text size="sm" wrap="false">{item.title}</text>
-              <text size="sm" foreground="text_muted" wrap="false">{item.secondary}</text>
               <if test="{item.hasHierarchy}">
                 <text size="sm" foreground="text_muted" wrap="false">{item.hierarchy}</text>
               </if>
+              <else>
+                <text size="sm" foreground="text_muted" wrap="false">{item.secondary}</text>
+              </else>
             </column>
+          </for>
+          <for each="homeCarouselPeekItems" as="item" key="ratingKey">
+            <image image="{item.imageId}" width="40" height="102" radius="lg" label="{item.title}" />
           </for>
         </row>
       </row>
@@ -133,7 +140,8 @@
         <row cross="center">
           <text label="{homeNextShelfTitle}"><span weight="bold">{homeNextShelfTitle}</span></text>
         </row>
-        <row height="150" gap="8" main="center" cross="start">
+        <row height="138" gap="12">
+          <row gap="12">
           <for each="homeNextShelfItems" as="item" key="ratingKey">
             <column width="68" gap="2">
               <image image="{item.imageId}" width="68" height="102" radius="lg" label="{item.title}" />
@@ -144,17 +152,33 @@
                 <spacer height="3" />
               </else>
               <text size="sm" wrap="false">{item.title}</text>
-              <text size="sm" foreground="text_muted" wrap="false">{item.secondary}</text>
               <if test="{item.hasHierarchy}">
                 <text size="sm" foreground="text_muted" wrap="false">{item.hierarchy}</text>
               </if>
+              <else>
+                <text size="sm" foreground="text_muted" wrap="false">{item.secondary}</text>
+              </else>
             </column>
           </for>
+          <for each="homeNextShelfPeekItems" as="item" key="ratingKey">
+            <image image="{item.imageId}" width="40" height="102" radius="lg" label="{item.title}" />
+          </for>
+          </row>
         </row>
       </if>
       <if test="{homeHasFollowingShelf}">
         <row cross="center">
           <text label="{homeFollowingShelfTitle}"><span weight="bold">{homeFollowingShelfTitle}</span></text>
+        </row>
+        <row height="42" gap="12">
+          <row gap="12">
+            <for each="homeFollowingShelfItems" as="item" key="ratingKey">
+              <image image="{item.imageId}" width="68" height="42" radius="lg" label="{item.title}" />
+            </for>
+            <for each="homeFollowingShelfPeekItems" as="item" key="ratingKey">
+              <image image="{item.imageId}" width="40" height="42" radius="lg" label="{item.title}" />
+            </for>
+          </row>
         </row>
       </if>
     </column>

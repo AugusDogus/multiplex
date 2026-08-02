@@ -108,7 +108,7 @@ var reference_render_memo_initialized = false;
 var video_surface: VideoSurface = .{};
 var player_controls_surface: PlayerControlsSurface = .{};
 var modal_surface: ModalSurface = .{};
-const poster_surface_capacity = 12;
+const poster_surface_capacity = 24;
 var poster_surfaces: [poster_surface_capacity]PosterSurface =
     [_]PosterSurface{.{}} ** poster_surface_capacity;
 var poster_card_ids: [poster_surface_capacity]canvas.ObjectId =
@@ -265,6 +265,11 @@ pub const PosterSurface = extern struct {
     card_y: f32 = 0,
     card_width: f32 = 0,
     card_height: f32 = 0,
+    has_clip: u32 = 0,
+    clip_x: f32 = 0,
+    clip_y: f32 = 0,
+    clip_width: f32 = 0,
+    clip_height: f32 = 0,
 };
 
 const gx_fill_rect: u32 = 1;
@@ -971,6 +976,13 @@ export fn multiplex_native_app_screen() callconv(.c) u32 {
     };
 }
 
+export fn multiplex_native_app_home_view_state() callconv(.c) u32 {
+    if (!app_initialized or app_model.screen != .home) return std.math.maxInt(u32);
+    const row_index: u32 = @intCast(@min(app_model.rowIndex, std.math.maxInt(u16)));
+    const carousel_start: u32 = @intCast(@min(app_model.homeCarouselStart, std.math.maxInt(u16)));
+    return (row_index << 16) | carousel_start;
+}
+
 export fn multiplex_native_app_playback_set_paused(paused: u32) callconv(.c) u32 {
     if (!app_initialized or app_model.screen != .player or !app_model.playbackLoaded) return 0;
     const playing = paused == 0;
@@ -1509,7 +1521,10 @@ export fn multiplex_native_app_poster_inset_audit() callconv(.c) u32 {
     ) catch return std.math.maxInt(u32);
     var issues: u32 = 0;
     for (layout.nodes) |node| {
-        if (node.widget.kind != .image or node.frame.width < 100 or node.frame.width > 150) continue;
+        if (node.widget.kind != .image or
+            node.frame.width < 60 or
+            node.frame.width > 128 or
+            node.frame.height < node.frame.width * 1.3) continue;
         var ancestor_index = node.parent_index;
         var card_frame: ?geometry.RectF = null;
         while (ancestor_index) |index| {
@@ -2081,10 +2096,10 @@ fn renderReference(
     else if (content_dirty_bounds) |bounds|
         bounds
     else if (layout.renderStateDirtyBoundsWithTokens(
-            previous_render_state,
-            render_state,
-            tokens,
-        )) |bounds|
+        previous_render_state,
+        render_state,
+        tokens,
+    )) |bounds|
         bounds.inflate(geometry.InsetsF.all(1))
     else
         null;
@@ -2179,8 +2194,12 @@ fn isPosterCardChrome(command: canvas.RenderCommand, model: *const core.Model) b
 
 fn isGpuChrome(command: canvas.RenderCommand, model: *const core.Model) bool {
     const supported = switch (command.command) {
-        .fill_rect, .fill_rounded_rect, .stroke_rect, .draw_line,
-        .stroke_path, .shadow,
+        .fill_rect,
+        .fill_rounded_rect,
+        .stroke_rect,
+        .draw_line,
+        .stroke_path,
+        .shadow,
         => true,
         .fill_path => model.screen == .player,
         else => false,
@@ -2291,16 +2310,28 @@ fn capturePosterSurfaces(nodes: []const canvas.WidgetLayoutNode, focused_id: ?ca
         };
         var ancestor_index = node.parent_index;
         var card_index: ?usize = null;
+        var clip_frame: ?geometry.RectF = null;
+        var found_panel = false;
         while (ancestor_index) |index| {
             const ancestor = nodes[index];
-            if (ancestor.widget.kind == .panel) {
-                card_index = index;
-                break;
+            if (clip_frame == null and ancestor.widget.kind == .scroll_view) {
+                clip_frame = ancestor.frame.normalized();
             }
-            if (card_index == null and ancestor.widget.kind == .column) {
+            if (!found_panel and ancestor.widget.kind == .panel) {
+                card_index = index;
+                found_panel = true;
+            }
+            if (!found_panel and card_index == null and ancestor.widget.kind == .column) {
                 card_index = index;
             }
             ancestor_index = ancestor.parent_index;
+        }
+        if (clip_frame) |clip| {
+            poster_surfaces[poster_surface_count].has_clip = 1;
+            poster_surfaces[poster_surface_count].clip_x = clip.x;
+            poster_surfaces[poster_surface_count].clip_y = clip.y;
+            poster_surfaces[poster_surface_count].clip_width = clip.width;
+            poster_surfaces[poster_surface_count].clip_height = clip.height;
         }
         if (card_index) |index| {
             const card_node = nodes[index];
