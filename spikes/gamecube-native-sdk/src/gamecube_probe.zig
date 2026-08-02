@@ -251,11 +251,16 @@ pub const ModalSurface = extern struct {
 
 pub const PosterSurface = extern struct {
     image_id: u32 = 0,
+    focused: u32 = 0,
     x: f32 = 0,
     y: f32 = 0,
     width: f32 = 0,
     height: f32 = 0,
     radius: f32 = 0,
+    card_x: f32 = 0,
+    card_y: f32 = 0,
+    card_width: f32 = 0,
+    card_height: f32 = 0,
 };
 
 const gx_fill_rect: u32 = 1;
@@ -1708,12 +1713,12 @@ export fn multiplex_native_app_render(output: [*]GxCommand, capacity: u32) callc
     captureVideoSurface(layout.nodes, model);
     capturePlayerControlsSurface(layout.nodes);
     captureModalSurface(layout.nodes, model);
-    capturePosterSurfaces(layout.nodes);
 
     var press_ids: [32]canvas.ObjectId = undefined;
     const press_count = collectEnabledPressIds(tree, &press_ids, model);
     if (press_count > 0) resolveFocusedHandler(tree, press_ids[0..press_count], model);
     const focused_id: ?canvas.ObjectId = if (press_count > 0) press_ids[focused_handler] else null;
+    capturePosterSurfaces(layout.nodes, focused_id);
 
     display_builder = canvas.Builder.init(&display_commands);
     layout.emitDisplayListWithState(&display_builder, tokens, .{
@@ -1860,7 +1865,6 @@ fn renderReference(
     captureVideoSurface(layout.nodes, model);
     capturePlayerControlsSurface(layout.nodes);
     captureModalSurface(layout.nodes, model);
-    capturePosterSurfaces(layout.nodes);
     reference_render_stage = 3;
     multiplex_native_profile_mark(reference_render_stage);
 
@@ -1868,6 +1872,7 @@ fn renderReference(
     const press_count = collectEnabledPressIds(tree, &press_ids, model);
     if (press_count > 0) resolveFocusedHandler(tree, press_ids[0..press_count], model);
     const focused_id: ?canvas.ObjectId = if (press_count > 0) press_ids[focused_handler] else null;
+    capturePosterSurfaces(layout.nodes, focused_id);
     const render_state = canvas.WidgetRenderState{
         .focused_id = focused_id,
         .focus_visible_id = focused_id,
@@ -2119,7 +2124,7 @@ fn captureModalSurface(nodes: []const canvas.WidgetLayoutNode, model: *const cor
     }
 }
 
-fn capturePosterSurfaces(nodes: []const canvas.WidgetLayoutNode) void {
+fn capturePosterSurfaces(nodes: []const canvas.WidgetLayoutNode, focused_id: ?canvas.ObjectId) void {
     poster_surfaces = [_]PosterSurface{.{}} ** 4;
     poster_card_ids = [_]canvas.ObjectId{0} ** 4;
     poster_surface_count = 0;
@@ -2140,6 +2145,13 @@ fn capturePosterSurfaces(nodes: []const canvas.WidgetLayoutNode) void {
             const ancestor = nodes[index];
             if (ancestor.widget.kind == .panel) {
                 poster_card_ids[poster_surface_count] = ancestor.widget.id;
+                const card = ancestor.frame.normalized();
+                poster_surfaces[poster_surface_count].focused =
+                    if (focused_id != null and focused_id.? == ancestor.widget.id) 1 else 0;
+                poster_surfaces[poster_surface_count].card_x = card.x;
+                poster_surfaces[poster_surface_count].card_y = card.y;
+                poster_surfaces[poster_surface_count].card_width = card.width;
+                poster_surfaces[poster_surface_count].card_height = card.height;
                 break;
             }
             ancestor_index = ancestor.parent_index;

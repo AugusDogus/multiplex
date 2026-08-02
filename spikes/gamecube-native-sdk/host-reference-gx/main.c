@@ -3640,6 +3640,21 @@ static void draw_poster_surfaces(void) {
         (GXColor){10, 10, 12, alpha});
     poster_texture_reveal_frames[texture_index] = remaining - 1u;
   }
+  for (uint32_t index = 0; index < poster_surface_count; ++index) {
+    const MultiplexPosterSurface *surface = &poster_surfaces[index];
+    if (surface->focused == 0 || surface->card_width <= 0 ||
+        surface->card_height <= 0) {
+      continue;
+    }
+    configure_color_pipeline();
+    GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
+                    GX_LO_CLEAR);
+    const float center = surface->card_x + surface->card_width * 0.5f;
+    const float top = surface->card_y + surface->card_height + 2.0f;
+    fill_rounded_color_rect(center - 17.0f, top, center + 17.0f, top + 3.0f,
+                            1.5f, (GXColor){45, 162, 255, 255});
+    break;
+  }
 }
 
 static void draw_video_surface(void) {

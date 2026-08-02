@@ -78,11 +78,16 @@ typedef struct {
 
 typedef struct {
   uint32_t image_id;
+  uint32_t focused;
   float x;
   float y;
   float width;
   float height;
   float radius;
+  float card_x;
+  float card_y;
+  float card_width;
+  float card_height;
 } MultiplexPosterSurface;
 
 void multiplex_native_app_init(void);
