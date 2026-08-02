@@ -11,11 +11,8 @@ import type { NextEpisodeInfo } from "~/types/media-player";
 
 import { playerCommands } from "./player-atoms";
 import {
-  item,
-  localUser,
   multiplexUser,
-  nextEpisode,
-  NOW,
+  nowMs,
   room,
   startArmed,
   waitUntil,
@@ -70,9 +67,9 @@ test("grace path: gathering with missing participant swaps after grace", async (
 
 test("duplicate convergence: adopted room replaced by deterministic winner resets gathering", async () => {
   const early = room("r-early", "200");
-  early.updatedAt = Math.floor(NOW / 1000) - 10;
+  early.updatedAt = Math.floor(nowMs() / 1000) - 10;
   const winner = room("r-winner", "200");
-  winner.updatedAt = Math.floor(NOW / 1000);
+  winner.updatedAt = Math.floor(nowMs() / 1000);
 
   await withRotationSession(
     ({ session, player, setRooms, observers, controllers }) =>
@@ -235,23 +232,17 @@ test("changing nextEpisode resets target-specific work and prefetch", async () =
         yield* Effect.yieldNow;
 
         expect(
-          createRoom.mock.calls.some(
-            (call) => (call[0] as { ratingKey: string }).ratingKey === "100",
-          ),
+          createRoom.mock.calls.some((call) => call[0].ratingKey === "100"),
         ).toBe(false);
         expect(
-          createRoom.mock.calls.some(
-            (call) => (call[0] as { ratingKey: string }).ratingKey === "200",
-          ),
+          createRoom.mock.calls.some((call) => call[0].ratingKey === "200"),
         ).toBe(false);
         expect(
-          createRoom.mock.calls.some(
-            (call) => (call[0] as { ratingKey: string }).ratingKey === "300",
-          ),
+          createRoom.mock.calls.some((call) => call[0].ratingKey === "300"),
         ).toBe(true);
         expect(
           getItemMetadata.mock.calls.some(
-            (call) => (call[0] as { ratingKey: string }).ratingKey === "300",
+            (call) => call[0].ratingKey === "300",
           ),
         ).toBe(true);
 

@@ -15,7 +15,7 @@ import {
   localUser,
   multiplexUser,
   nextEpisode,
-  NOW,
+  nowMs,
   room,
   startArmed,
   waitUntil,
@@ -29,7 +29,7 @@ beforeEach(() => {
 
 test("discovery replaces a created room with the deterministic winner", async () => {
   const created = room("r-created", "200");
-  created.updatedAt = Math.floor(NOW / 1000) - 10;
+  created.updatedAt = Math.floor(nowMs() / 1000) - 10;
   const winner = room("r-winner", "200");
 
   await withRotationSession(
@@ -160,9 +160,7 @@ test("a create response for stale invitees retries against the live party", asyn
         yield* Effect.yieldNow;
 
         expect(createRoom).toHaveBeenCalledTimes(2);
-        expect(createRoom.mock.calls.at(-1)?.[0]).toEqual(
-          expect.objectContaining({ users: [3] }),
-        );
+        expect(createRoom.mock.calls.at(-1)?.[0]?.users).toEqual([3]);
         snap = session.snapshot();
         expect(
           snap._tag === "Playing" &&
@@ -240,7 +238,7 @@ test("rotation does not build the next item from unrelated player media", async 
   );
 });
 
-test("rank 1 stagger: no create before 9500ms", async () => {
+test("rank 1 stagger: no create before the staggered delay", async () => {
   const rank1User = multiplexUser(2);
   await withRotationSession(({ session, player, createRoom, controllers }) =>
     Effect.gen(function* () {
@@ -270,8 +268,14 @@ test("rank 1 stagger: no create before 9500ms", async () => {
       yield* Effect.yieldNow;
       expect(createRoom).toHaveBeenCalledTimes(0);
 
-      const snap = session.snapshot();
+      let snap = session.snapshot();
       expect(snap._tag === "Playing" && snap.rotation._tag).toBe("Armed");
+
+      yield* TestClock.adjust("200 millis");
+      yield* Effect.yieldNow;
+      expect(createRoom).toHaveBeenCalledTimes(1);
+      snap = session.snapshot();
+      expect(snap._tag === "Playing" && snap.rotation._tag).not.toBe("Armed");
     }),
   );
 });
