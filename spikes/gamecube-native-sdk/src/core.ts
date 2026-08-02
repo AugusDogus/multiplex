@@ -758,10 +758,10 @@ export function completeMarkWatched(model: Model, succeeded: boolean): Model {
       toastVisible: true,
       toastMessage: asciiBytes("Could not mark as watched. Check Plex."),
     };
+  const cleared = commitSelectedProgressAt(model, 0);
   return {
-    ...model,
+    ...cleared,
     markWatchedRequested: false,
-    selectedViewOffsetMs: 0,
     toastVisible: true,
     toastMessage: asciiBytes("Marked as watched"),
   };
@@ -1214,9 +1214,9 @@ function updateItemProgress(item: CatalogItem, positionMs: number): CatalogItem 
   return { ...item, viewOffsetMs: viewOffsetMs, progressPercent: progressPercent };
 }
 
-function commitSelectedProgress(model: Model): Model {
+function commitSelectedProgressAt(model: Model, positionMs: number): Model {
   const selectedViewOffsetMs = Math.min(
-    Math.max(0, model.playbackOffsetMs),
+    Math.max(0, positionMs),
     Math.max(0, model.selectedDurationMs - 1),
   );
   if (model.detailsHistory.length > 0) {
@@ -1244,6 +1244,10 @@ function commitSelectedProgress(model: Model): Model {
   items[model.selectedIndex] = updateItemProgress(items[model.selectedIndex], selectedViewOffsetMs);
   rows[model.rowIndex] = { ...row, items: items };
   return { ...model, selectedViewOffsetMs: selectedViewOffsetMs, rows: rows };
+}
+
+function commitSelectedProgress(model: Model): Model {
+  return commitSelectedProgressAt(model, model.playbackOffsetMs);
 }
 
 export function update(model: Model, msg: Msg): Model {
