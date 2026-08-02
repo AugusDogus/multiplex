@@ -106,6 +106,7 @@ var modal_surface: ModalSurface = .{};
 var poster_surfaces: [4]PosterSurface = [_]PosterSurface{.{}} ** 4;
 var poster_card_ids: [4]canvas.ObjectId = [_]canvas.ObjectId{0} ** 4;
 var poster_surface_count: u32 = 0;
+var reference_text_overlay_enabled = false;
 
 extern fn multiplex_native_profile_mark(stage: u32) callconv(.c) void;
 extern fn multiplex_native_input_trace(action: u32, focus: u32, count: u32, message: u32) callconv(.c) void;
@@ -1668,6 +1669,12 @@ export fn multiplex_native_poster_surfaces(output: [*]PosterSurface, capacity: u
     return count;
 }
 
+export fn multiplex_native_reference_text_overlay(enabled: u32) callconv(.c) void {
+    reference_text_overlay_enabled = enabled != 0;
+    reference_full_repaint = true;
+    previous_render_state_valid = false;
+}
+
 /// Build the current live app frame and lower Native SDK's GPU packet into
 /// the deliberately small command ABI consumed by the libogc GX presenter.
 export fn multiplex_native_app_render(output: [*]GxCommand, capacity: u32) callconv(.c) u32 {
@@ -1845,6 +1852,7 @@ fn renderReference(
     var reference_command_count: usize = 0;
     for (render_plan.commands) |command| {
         if (isPosterCardChrome(command, model)) continue;
+        if (reference_text_overlay_enabled and command.command == .draw_text) continue;
         render_commands[reference_command_count] = command;
         reference_command_count += 1;
     }
@@ -2117,6 +2125,9 @@ fn gxCommand(command: canvas.CanvasGpuCommand) ?GxCommand {
             result.kind = gx_text;
             result.x = text.origin.x;
             result.y = text.origin.y;
+            result.x2 = command.bounds.x + command.bounds.width;
+            result.y2 = command.bounds.y + command.bounds.height;
+            setCommandBoundsClip(&result, command.bounds);
             result.text_ptr = text.text.ptr;
             result.text_len = @intCast(text.text.len);
             result.font_size = text.size;
@@ -2146,6 +2157,24 @@ fn copyClip(output: *GxCommand, clip_value: ?geometry.RectF) void {
         output.clip_width = clip.width;
         output.clip_height = clip.height;
     }
+}
+
+fn setCommandBoundsClip(output: *GxCommand, bounds_value: geometry.RectF) void {
+    const bounds = bounds_value.normalized();
+    const clip = if (output.has_clip != 0)
+        geometry.RectF.intersection(bounds, geometry.RectF.init(
+            output.clip_x,
+            output.clip_y,
+            output.clip_width,
+            output.clip_height,
+        ))
+    else
+        bounds;
+    output.has_clip = 1;
+    output.clip_x = clip.x;
+    output.clip_y = clip.y;
+    output.clip_width = clip.width;
+    output.clip_height = clip.height;
 }
 
 fn setRect(output: *GxCommand, rect: geometry.RectF) void {

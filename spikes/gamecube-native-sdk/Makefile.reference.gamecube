@@ -18,7 +18,7 @@ SOURCES := host-reference-gx host-reference
 MPLAYER_ROOT := $(SPIKE_ROOT)/.mplayer-ce-libogc2/mplayer
 FFMPEG_ROOT := $(MPLAYER_ROOT)/ffmpeg
 MBEDTLS_ROOT := $(SPIKE_ROOT)/.mbedtls-stage
-INCLUDES := host host-reference host-reference-gx
+INCLUDES := host host-reference host-reference-gx generated
 
 CFLAGS := -g -O2 -Wall -Wextra $(MACHDEP) $(INCLUDE)
 CXXFLAGS := $(CFLAGS)
@@ -80,7 +80,8 @@ multiplex-dvd-demo-program.s: $(SPIKE_ROOT)/assets/multiplex-dvd-demo.mpg
 
 multiplex-dvd-demo-program.h: multiplex-dvd-demo-program.s
 
-main.o: media-source.h multiplex-dvd-demo-program.h
+main.o: media-source.h multiplex-dvd-demo-program.h \
+	$(SPIKE_ROOT)/generated/geist_atlas.h
 http_client.o: media-source.h
 tls_client.o: tls-ca.h
 

@@ -222,7 +222,8 @@ uint32_t multiplex_native_player_controls_surface(
     MultiplexPlayerControlsSurface *output);
 uint32_t multiplex_native_modal_surface(MultiplexModalSurface *output);
 uint32_t multiplex_native_poster_surfaces(MultiplexPosterSurface *output,
-                                          uint32_t capacity);
+                                           uint32_t capacity);
+void multiplex_native_reference_text_overlay(uint32_t enabled);
 uint32_t multiplex_native_app_render(MultiplexGxCommand *output,
                                      uint32_t capacity);
 uint32_t multiplex_native_reference_pixel_bytes(void);

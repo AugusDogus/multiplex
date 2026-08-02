@@ -1,6 +1,7 @@
 #include "audio_dma.h"
 #include "device_auth.h"
 #include "gateway_client.h"
+#include "geist_atlas.h"
 #include "gui_navigation.h"
 #include "http_client.h"
 #include "media-source.h"
@@ -21,6 +22,7 @@
 
 #include <gccore.h>
 #include <malloc.h>
+#include <math.h>
 #include <ogc/cond.h>
 #include <ogc/lwp.h>
 #include <ogc/lwp_watchdog.h>
@@ -84,6 +86,16 @@
 #define HOME_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS
 #define BROWSE_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_ITEMS
 #define POSTER_TEXTURE_COUNT (HOME_POSTER_COUNT + BROWSE_POSTER_COUNT)
+#define UI_COMMAND_CAPACITY 256u
+#define UI_TEXT_COMMAND_CAPACITY 96u
+#define UI_TEXT_CAPACITY 4096u
+
+typedef struct {
+  MultiplexGxCommand commands[UI_TEXT_COMMAND_CAPACITY];
+  uint8_t text[UI_TEXT_CAPACITY];
+  uint32_t command_count;
+  uint32_t text_length;
+} NativeTextPacket;
 
 typedef struct {
   uint32_t render_us;
@@ -93,6 +105,7 @@ typedef struct {
   uint32_t signature;
   uint32_t memo_hits;
   uint32_t memo_misses;
+  uint32_t text_us;
 } FrameProfile;
 
 typedef struct {
@@ -100,7 +113,9 @@ typedef struct {
   void *stack;
   MultiplexReferenceFrameRender render;
   MultiplexReferenceFrameStatus status;
+  NativeTextPacket text_packet;
   uint32_t render_us;
+  uint32_t text_us;
   bool audit;
   volatile bool complete;
 } ReferenceFrameRenderer;
@@ -120,6 +135,7 @@ static MultiplexReferenceFrame reference_frame;
 static uint8_t *texture_pixels_allocation;
 static uint8_t *texture_pixels;
 static GXTexObj textures[TILE_COUNT];
+static GXTexObj font_texture;
 static GXTexObj poster_textures[POSTER_TEXTURE_COUNT];
 static uint8_t *poster_texture_pixels;
 static uint16_t poster_texture_count;
@@ -141,6 +157,7 @@ static uint8_t ui_frame_alpha = 255;
 static bool player_controls_overlay_visible = true;
 static MultiplexGuiNavigation gui_navigation;
 static FrameProfile profile;
+static NativeTextPacket presented_text_packet;
 static uint32_t presentation_frames;
 static uint32_t presentation_started;
 static uint32_t profile_stage_started;
@@ -718,6 +735,94 @@ static void capture_reference_surfaces(void) {
   presented_screen = multiplex_native_app_screen();
 }
 
+static uint32_t copy_atlas_text(uint8_t *destination, uint32_t capacity,
+                                const uint8_t *source, uint32_t length) {
+  uint32_t input = 0;
+  uint32_t output = 0;
+  while (input < length && output < capacity) {
+    const uint8_t byte = source[input];
+    if (byte < 0x80u) {
+      destination[output++] = byte;
+      ++input;
+      continue;
+    }
+    if (input + 2u < length && byte == 0xe2u &&
+        source[input + 1u] == 0x80u) {
+      const uint8_t punctuation = source[input + 2u];
+      if (punctuation == 0xa6u) {
+        if (capacity - output < 3u) break;
+        destination[output++] = '.';
+        destination[output++] = '.';
+        destination[output++] = '.';
+      } else if (punctuation == 0x98u || punctuation == 0x99u) {
+        destination[output++] = '\'';
+      } else if (punctuation == 0x9cu || punctuation == 0x9du) {
+        destination[output++] = '"';
+      } else if (punctuation == 0x93u || punctuation == 0x94u) {
+        destination[output++] = '-';
+      } else if (punctuation == 0xa2u) {
+        destination[output++] = '*';
+      } else {
+        destination[output++] = '?';
+      }
+      input += 3u;
+      continue;
+    }
+    destination[output++] = '?';
+    ++input;
+    while (input < length && (source[input] & 0xc0u) == 0x80u) ++input;
+  }
+  return output;
+}
+
+static void capture_native_text_packet(NativeTextPacket *packet) {
+  MultiplexGxCommand commands[UI_COMMAND_CAPACITY];
+  memset(packet, 0, sizeof(*packet));
+  const uint32_t command_count =
+      multiplex_native_app_render(commands, UI_COMMAND_CAPACITY);
+  for (uint32_t index = 0; index < command_count; ++index) {
+    const MultiplexGxCommand *command = &commands[index];
+    if ((command->kind != MULTIPLEX_GX_TEXT &&
+         command->kind != MULTIPLEX_GX_GLYPH) ||
+        packet->command_count >= UI_TEXT_COMMAND_CAPACITY) {
+      continue;
+    }
+    MultiplexGxCommand copy = *command;
+    if (copy.kind == MULTIPLEX_GX_TEXT) {
+      if (copy.text_ptr == NULL || copy.text_len == 0) {
+        continue;
+      }
+      uint8_t *destination = packet->text + packet->text_length;
+      copy.text_len = copy_atlas_text(
+          destination, UI_TEXT_CAPACITY - packet->text_length,
+          copy.text_ptr, copy.text_len);
+      if (copy.text_len == 0) {
+        continue;
+      }
+      copy.text_ptr = destination;
+      packet->text_length += copy.text_len;
+    }
+    packet->commands[packet->command_count++] = copy;
+  }
+}
+
+static void present_native_text_packet(const NativeTextPacket *packet) {
+  memset(&presented_text_packet, 0, sizeof(presented_text_packet));
+  memcpy(presented_text_packet.text, packet->text, packet->text_length);
+  presented_text_packet.text_length = packet->text_length;
+  presented_text_packet.command_count = packet->command_count;
+  for (uint32_t index = 0; index < packet->command_count; ++index) {
+    presented_text_packet.commands[index] = packet->commands[index];
+    if (packet->commands[index].kind != MULTIPLEX_GX_TEXT) {
+      continue;
+    }
+    const size_t offset =
+        (size_t)(packet->commands[index].text_ptr - packet->text);
+    presented_text_packet.commands[index].text_ptr =
+        presented_text_packet.text + offset;
+  }
+}
+
 static bool commit_reference_frame(
     const MultiplexReferenceFrameRender *render, uint32_t render_us,
     bool audit) {
@@ -751,10 +856,11 @@ static bool commit_reference_frame(
                multiplex_native_app_poster_inset_audit());
   }
   SYS_Report("REFERENCE GX: commands=%u passes=%u signature=%08x render=%uus "
-             "conversion=%uus stages=%u/%u/%u/%u/%u/%uus memo=%u/%u "
+             "conversion=%uus text=%uus stages=%u/%u/%u/%u/%u/%uus memo=%u/%u "
              "cache=%u/%uKiB\n",
              profile.commands, profile.passes, profile.signature,
-             profile.render_us, profile.upload_us, profile_stage_us[1],
+             profile.render_us, profile.upload_us, profile.text_us,
+             profile_stage_us[1],
              profile_stage_us[2], profile_stage_us[3], profile_stage_us[4],
              profile_stage_us[5], profile_stage_us[6], profile.memo_hits,
              profile.memo_misses,
@@ -777,8 +883,17 @@ static bool refresh_reference_frame(bool initialize) {
                multiplex_native_reference_render_stage());
     return false;
   }
+  const uint32_t reference_render_us = elapsed_us(render_started);
+  NativeTextPacket text_packet;
+  const uint32_t text_started = gettick();
+  capture_native_text_packet(&text_packet);
+  profile.text_us = elapsed_us(text_started);
   const bool audit = initialize || presented_screen != multiplex_native_app_screen();
-  return commit_reference_frame(&render, elapsed_us(render_started), audit);
+  if (!commit_reference_frame(&render, reference_render_us, audit)) {
+    return false;
+  }
+  present_native_text_packet(&text_packet);
+  return true;
 }
 
 static void *run_network_warmup(void *context) {
@@ -823,6 +938,11 @@ static void *run_reference_renderer(void *context) {
   renderer->status = multiplex_reference_frame_render_with_options(
       &reference_frame, false, &renderer->render, 0);
   renderer->render_us = elapsed_us(started);
+  if (renderer->status == MULTIPLEX_REFERENCE_FRAME_OK) {
+    const uint32_t text_started = gettick();
+    capture_native_text_packet(&renderer->text_packet);
+    renderer->text_us = elapsed_us(text_started);
+  }
   __sync_synchronize();
   renderer->complete = true;
   return NULL;
@@ -876,11 +996,13 @@ static bool poll_reference_renderer(void) {
     return false;
   }
   const uint32_t previous_screen = presented_screen;
+  profile.text_us = reference_renderer.text_us;
   if (!commit_reference_frame(&reference_renderer.render,
                               reference_renderer.render_us,
                               reference_renderer.audit)) {
     return false;
   }
+  present_native_text_packet(&reference_renderer.text_packet);
   SYS_Report("REFERENCE GX: screen transition ready from=%u to=%u us=%u\n",
              previous_screen, presented_screen,
              reference_renderer.render_us);
@@ -1014,6 +1136,11 @@ static void initialize_textures(void) {
     GX_InitTexObjLOD(&textures[index], GX_NEAR, GX_NEAR, 0, 0, 0, GX_FALSE,
                      GX_FALSE, GX_ANISO_1);
   }
+  DCFlushRange(geist_atlas, sizeof(geist_atlas));
+  GX_InitTexObj(&font_texture, geist_atlas, GEIST_ATLAS_WIDTH,
+                GEIST_ATLAS_HEIGHT, GX_TF_I8, GX_CLAMP, GX_CLAMP, GX_FALSE);
+  GX_InitTexObjLOD(&font_texture, GX_LINEAR, GX_LINEAR, 0, 0, 0, GX_FALSE,
+                   GX_FALSE, GX_ANISO_1);
 }
 
 static bool initialize_poster_textures(const char *gateway_url,
@@ -2508,6 +2635,243 @@ static void configure_color_pipeline(void) {
   GX_SetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
 }
 
+static void configure_font_pipeline(void) {
+  GX_ClearVtxDesc();
+  GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
+  GX_SetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+  GX_SetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+  GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+  GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+  GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+  GX_SetNumChans(1);
+  GX_SetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_REG, GX_SRC_VTX,
+                 GX_LIGHTNULL, GX_DF_NONE, GX_AF_NONE);
+  GX_SetNumTexGens(1);
+  GX_SetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
+  GX_SetNumTevStages(1);
+  GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+  GX_SetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO,
+                   GX_CC_RASC);
+  GX_SetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1,
+                   GX_TRUE, GX_TEVPREV);
+  GX_SetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_TEXA, GX_CA_RASA,
+                   GX_CA_ZERO);
+  GX_SetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1,
+                   GX_TRUE, GX_TEVPREV);
+  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
+                  GX_LO_CLEAR);
+  GX_LoadTexObj(&font_texture, GX_TEXMAP0);
+}
+
+static GXColor command_color(uint32_t rgba) {
+  return (GXColor){
+      .r = (uint8_t)(rgba >> 24u),
+      .g = (uint8_t)(rgba >> 16u),
+      .b = (uint8_t)(rgba >> 8u),
+      .a = (uint8_t)rgba,
+  };
+}
+
+static void set_text_scissor(const MultiplexGxCommand *command) {
+  if (command->has_clip == 0) {
+    GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
+    return;
+  }
+  float left = command->clip_x;
+  float top = command->clip_y;
+  float right = left + command->clip_width;
+  float bottom = top + command->clip_height;
+  if (left < 0.0f) left = 0.0f;
+  if (top < 0.0f) top = 0.0f;
+  if (right > LOGICAL_WIDTH) right = LOGICAL_WIDTH;
+  if (bottom > LOGICAL_HEIGHT) bottom = LOGICAL_HEIGHT;
+  if (right <= left || bottom <= top) {
+    GX_SetScissor(0, 0, 0, 0);
+    return;
+  }
+  const float scale_x = video_mode->fbWidth / (float)LOGICAL_WIDTH;
+  const float scale_y = video_mode->efbHeight / (float)LOGICAL_HEIGHT;
+  GX_SetScissor((uint32_t)(left * scale_x), (uint32_t)(top * scale_y),
+                (uint32_t)((right - left) * scale_x),
+                (uint32_t)((bottom - top) * scale_y));
+}
+
+static unsigned geist_size_index(float size) {
+  unsigned closest = 0;
+  float closest_distance = fabsf(size - (float)geist_sizes[0]);
+  for (unsigned index = 1; index < GEIST_SIZE_COUNT; ++index) {
+    const float distance = fabsf(size - (float)geist_sizes[index]);
+    if (distance < closest_distance) {
+      closest = index;
+      closest_distance = distance;
+    }
+  }
+  return closest;
+}
+
+static void font_vertex(float x, float y, GXColor color, float u, float v) {
+  GX_Position3f32(x, y, 0.0f);
+  GX_Color4u8(color.r, color.g, color.b, color.a);
+  GX_TexCoord2f32(u, v);
+}
+
+static void draw_native_text_command(const MultiplexGxCommand *command) {
+  if (command->text_ptr == NULL || command->text_len == 0) {
+    return;
+  }
+  const GXColor color = command_color(command->color_rgba);
+  if (color.a == 0) {
+    return;
+  }
+  const unsigned size_index = geist_size_index(command->font_size);
+  const float atlas_size = (float)geist_sizes[size_index];
+  const float scale = command->font_size / atlas_size;
+  const float start_x = command->x;
+  float cursor_x = start_x;
+  float baseline = command->y;
+  uint32_t draw_length = command->text_len;
+  uint32_t trailing_dots = 0;
+  if (command->has_clip != 0) {
+    const float available =
+        command->clip_x + command->clip_width - command->x;
+    float total_width = 0.0f;
+    for (uint32_t index = 0; index < command->text_len; ++index) {
+      uint8_t character = command->text_ptr[index];
+      if (character == '\n') continue;
+      if (character < GEIST_FIRST_CHARACTER ||
+          character >= GEIST_FIRST_CHARACTER + GEIST_CHARACTER_COUNT) {
+        character = '?';
+      }
+      const GeistGlyphMetric *metric =
+          &geist_metrics[size_index][character - GEIST_FIRST_CHARACTER];
+      total_width += ((float)metric->advance_64 / 64.0f) * scale;
+    }
+    if (total_width > available) {
+      const GeistGlyphMetric *dot =
+          &geist_metrics[size_index]['.' - GEIST_FIRST_CHARACTER];
+      const float dot_width = ((float)dot->advance_64 / 64.0f) * scale;
+      trailing_dots = available >= dot_width * 3.0f
+                          ? 3u
+                          : (available >= dot_width ? 1u : 0u);
+      const float content_width = available - dot_width * trailing_dots;
+      float prefix_width = 0.0f;
+      draw_length = 0;
+      while (draw_length < command->text_len) {
+        uint8_t character = command->text_ptr[draw_length];
+        if (character == '\n') break;
+        if (character < GEIST_FIRST_CHARACTER ||
+            character >= GEIST_FIRST_CHARACTER + GEIST_CHARACTER_COUNT) {
+          character = '?';
+        }
+        const GeistGlyphMetric *metric =
+            &geist_metrics[size_index][character - GEIST_FIRST_CHARACTER];
+        const float advance =
+            ((float)metric->advance_64 / 64.0f) * scale;
+        if (prefix_width + advance > content_width) break;
+        prefix_width += advance;
+        ++draw_length;
+      }
+      while (draw_length > 0 && command->text_ptr[draw_length - 1u] == '.') {
+        --draw_length;
+      }
+    }
+  }
+  uint32_t glyph_count = 0;
+  for (uint32_t index = 0; index < draw_length; ++index) {
+    uint8_t character = command->text_ptr[index];
+    if (character == '\n') continue;
+    if (character < GEIST_FIRST_CHARACTER ||
+        character >= GEIST_FIRST_CHARACTER + GEIST_CHARACTER_COUNT) {
+      character = '?';
+    }
+    const GeistGlyphMetric *metric =
+        &geist_metrics[size_index][character - GEIST_FIRST_CHARACTER];
+    if (metric->width > 0 && metric->height > 0) ++glyph_count;
+  }
+  glyph_count += trailing_dots;
+  if (glyph_count == 0 || glyph_count > UINT16_MAX / 4u) {
+    return;
+  }
+
+  GX_Begin(GX_QUADS, GX_VTXFMT0, (uint16_t)(glyph_count * 4u));
+  for (uint32_t index = 0; index < draw_length; ++index) {
+    uint8_t character = command->text_ptr[index];
+    if (character == '\n') {
+      cursor_x = start_x;
+      baseline += command->font_size * 1.25f;
+      continue;
+    }
+    if (character < GEIST_FIRST_CHARACTER ||
+        character >= GEIST_FIRST_CHARACTER + GEIST_CHARACTER_COUNT) {
+      character = '?';
+    }
+    const GeistGlyphMetric *metric =
+        &geist_metrics[size_index][character - GEIST_FIRST_CHARACTER];
+    if (metric->width > 0 && metric->height > 0) {
+      const float left = cursor_x + (float)metric->bearing_x * scale;
+      const float top = baseline + (float)metric->bearing_y * scale;
+      const float right = left + (float)metric->width * scale;
+      const float bottom = top + (float)metric->height * scale;
+      const float u0 = (float)metric->u / (float)GEIST_ATLAS_WIDTH;
+      const float v0 = (float)metric->v / (float)GEIST_ATLAS_HEIGHT;
+      const float u1 = (float)(metric->u + metric->width) /
+                       (float)GEIST_ATLAS_WIDTH;
+      const float v1 = (float)(metric->v + metric->height) /
+                       (float)GEIST_ATLAS_HEIGHT;
+      font_vertex(left, top, color, u0, v0);
+      font_vertex(right, top, color, u1, v0);
+      font_vertex(right, bottom, color, u1, v1);
+      font_vertex(left, bottom, color, u0, v1);
+    }
+    cursor_x += ((float)metric->advance_64 / 64.0f) * scale;
+  }
+  const GeistGlyphMetric *dot =
+      &geist_metrics[size_index]['.' - GEIST_FIRST_CHARACTER];
+  for (uint32_t index = 0; index < trailing_dots; ++index) {
+    if (dot->width > 0 && dot->height > 0) {
+      const float left = cursor_x + (float)dot->bearing_x * scale;
+      const float top = baseline + (float)dot->bearing_y * scale;
+      const float right = left + (float)dot->width * scale;
+      const float bottom = top + (float)dot->height * scale;
+      const float u0 = (float)dot->u / (float)GEIST_ATLAS_WIDTH;
+      const float v0 = (float)dot->v / (float)GEIST_ATLAS_HEIGHT;
+      const float u1 =
+          (float)(dot->u + dot->width) / (float)GEIST_ATLAS_WIDTH;
+      const float v1 =
+          (float)(dot->v + dot->height) / (float)GEIST_ATLAS_HEIGHT;
+      font_vertex(left, top, color, u0, v0);
+      font_vertex(right, top, color, u1, v0);
+      font_vertex(right, bottom, color, u1, v1);
+      font_vertex(left, bottom, color, u0, v1);
+    }
+    cursor_x += ((float)dot->advance_64 / 64.0f) * scale;
+  }
+  GX_End();
+}
+
+static void draw_native_text(void) {
+  if (presented_text_packet.command_count == 0) {
+    return;
+  }
+  configure_font_pipeline();
+  for (uint32_t index = 0; index < presented_text_packet.command_count;
+       ++index) {
+    const MultiplexGxCommand *command =
+        &presented_text_packet.commands[index];
+    set_text_scissor(command);
+    if (command->kind == MULTIPLEX_GX_GLYPH && command->glyph_id <= UINT8_MAX) {
+      const uint8_t character = (uint8_t)command->glyph_id;
+      MultiplexGxCommand glyph = *command;
+      glyph.text_ptr = &character;
+      glyph.text_len = 1;
+      draw_native_text_command(&glyph);
+    } else if (command->kind == MULTIPLEX_GX_TEXT) {
+      draw_native_text_command(command);
+    }
+  }
+  GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
+}
+
 static void color_vertex(float x, float y, GXColor color) {
   GX_Position3f32(x, y, 0.0f);
   GX_Color4u8(color.r, color.g, color.b, color.a);
@@ -2850,6 +3214,7 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
     if (modal_surface.visible == 0) {
       draw_poster_surfaces();
     }
+    draw_native_text();
     draw_playback_progress(playback_manifest);
   }
   draw_activity();
@@ -3682,6 +4047,7 @@ static void *run_app(void *unused) {
   uint32_t hosted_watch_together_invitee_user_id = 0;
 #endif
   multiplex_native_app_init();
+  multiplex_native_reference_text_overlay(1);
 #if MULTIPLEX_PAIRING_ENABLED
   if (multiplex_native_app_pairing_status(
           MULTIPLEX_PAIRING_CONNECTING, (const uint8_t *)"", 0,
