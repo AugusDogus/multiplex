@@ -1884,6 +1884,7 @@ fn renderReference(
     var reference_command_count: usize = 0;
     for (render_plan.commands) |command| {
         if (isPosterCardChrome(command, model)) continue;
+        if (reference_text_overlay_enabled and isGpuImageSurface(command)) continue;
         if (reference_text_overlay_enabled and isGpuChrome(command, model)) continue;
         if (reference_text_overlay_enabled and command.command == .draw_text) continue;
         render_commands[reference_command_count] = command;
@@ -1926,21 +1927,25 @@ fn renderReference(
         null;
     reference_dirty_bounds = dirty_bounds;
     reference_last_full_repaint = full_repaint;
-    surface.renderPass(.{
-        .frame_index = 1,
-        .surface_size = geometry.SizeF.init(reference_width, reference_height),
-        .scale = 1,
-        .full_repaint = full_repaint,
-        .dirty_bounds = dirty_bounds,
-        .commands = reference_commands,
-    }, if (reference_text_overlay_enabled or
-        (model.screen == .player and model.playbackLoaded))
-        canvas.Color.rgba8(0, 0, 0, 0)
-    else
-        canvas.Color.rgb8(10, 10, 12)) catch {
-        reference_render_stage = 0x108;
-        return 0;
-    };
+    if (reference_text_overlay_enabled and reference_commands.len == 0) {
+        clearReferencePixels(pixels, if (full_repaint) null else dirty_bounds);
+    } else {
+        surface.renderPass(.{
+            .frame_index = 1,
+            .surface_size = geometry.SizeF.init(reference_width, reference_height),
+            .scale = 1,
+            .full_repaint = full_repaint,
+            .dirty_bounds = dirty_bounds,
+            .commands = reference_commands,
+        }, if (reference_text_overlay_enabled or
+            (model.screen == .player and model.playbackLoaded))
+            canvas.Color.rgba8(0, 0, 0, 0)
+        else
+            canvas.Color.rgb8(10, 10, 12)) catch {
+            reference_render_stage = 0x108;
+            return 0;
+        };
+    }
 
     reference_render_stage = 7;
     multiplex_native_profile_mark(reference_render_stage);
@@ -1949,6 +1954,49 @@ fn renderReference(
     reference_full_repaint = false;
     reference_dirty_region = .none;
     return @intCast(reference_commands.len);
+}
+
+fn clearReferencePixels(pixels: []u8, dirty_bounds: ?geometry.RectF) void {
+    const bounds = (dirty_bounds orelse
+        geometry.RectF.init(0, 0, reference_width, reference_height)).normalized();
+    const left: usize = @intFromFloat(@max(0, @floor(bounds.x)));
+    const top: usize = @intFromFloat(@max(0, @floor(bounds.y)));
+    const right: usize = @intFromFloat(@min(
+        reference_width,
+        @ceil(bounds.x + bounds.width),
+    ));
+    const bottom: usize = @intFromFloat(@min(
+        reference_height,
+        @ceil(bounds.y + bounds.height),
+    ));
+    if (right <= left or bottom <= top) return;
+    const first_byte = left * 4;
+    const row_bytes = (right - left) * 4;
+    for (top..bottom) |row| {
+        const row_start = row * reference_width * 4 + first_byte;
+        @memset(pixels[row_start .. row_start + row_bytes], 0);
+    }
+}
+
+fn isGpuImageSurface(command: canvas.RenderCommand) bool {
+    if (command.command != .draw_image) return false;
+    for (poster_surfaces[0..poster_surface_count]) |surface| {
+        const poster = geometry.RectF.init(
+            surface.x,
+            surface.y,
+            surface.width,
+            surface.height,
+        );
+        if (command.bounds.intersects(poster)) return true;
+    }
+    if (video_surface.visible == 0) return false;
+    const video = geometry.RectF.init(
+        video_surface.x,
+        video_surface.y,
+        video_surface.width,
+        video_surface.height,
+    );
+    return command.bounds.intersects(video);
 }
 
 fn isPosterCardChrome(command: canvas.RenderCommand, model: *const core.Model) bool {
