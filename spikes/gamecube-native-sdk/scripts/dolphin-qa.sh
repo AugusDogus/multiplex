@@ -30,6 +30,7 @@ Commands:
   scenario focus-gallery      Capture every focus target on catalog screens.
   scenario playback           Relaunch and verify details and player behavior.
   scenario player-gallery     Capture Start menu, player, and settings focus targets.
+  scenario full-gallery       Capture every catalog and player focus target.
 
 Buttons: a b x y z start l r up down left right
 EOF
@@ -428,14 +429,14 @@ navigation_scenario() {
   echo "Navigation captures are ready in $capture_dir."
 }
 
-focus_gallery_scenario() {
+require_magick() {
   if ! command -v magick >/dev/null 2>&1; then
     echo "ImageMagick is required to build focus contact sheets." >&2
     exit 1
   fi
-  launch
-  mkdir -p "$capture_dir"
+}
 
+capture_catalog_focus_galleries() {
   capture_focus_cycle home
   press_and_wait Z
   capture_focus_cycle search
@@ -458,7 +459,13 @@ focus_gallery_scenario() {
   press_and_wait A
   wait_for_count 'details-page ready' "$details_before" 60
   capture_focus_cycle details
+}
 
+focus_gallery_scenario() {
+  require_magick
+  launch
+  mkdir -p "$capture_dir"
+  capture_catalog_focus_galleries
   check
   echo "Focus contact sheets are ready in $capture_dir."
 }
@@ -509,20 +516,15 @@ playback_scenario() {
   echo "Playback captures are ready in $capture_dir."
 }
 
-player_gallery_scenario() {
-  if ! command -v magick >/dev/null 2>&1; then
-    echo "ImageMagick is required to build focus contact sheets." >&2
-    exit 1
-  fi
-  launch
-  mkdir -p "$capture_dir"
-
+open_initial_details() {
   details_before=$(line_count 'details-page ready')
   details_signature_before=$(line_count 'signature=')
   press_button A
   wait_for_count 'details-page ready' "$details_before" 60
   wait_for_count 'signature=' "$details_signature_before" 60
+}
 
+capture_player_focus_galleries() {
   menu_signature_before=$(line_count 'signature=')
   press_button START
   wait_for_count 'signature=' "$menu_signature_before" 120
@@ -564,7 +566,24 @@ player_gallery_scenario() {
 
   wait_for_stable_presentation
   check 1
+}
+
+player_gallery_scenario() {
+  require_magick
+  launch
+  mkdir -p "$capture_dir"
+  open_initial_details
+  capture_player_focus_galleries
   echo "Player focus contact sheets are ready in $capture_dir."
+}
+
+full_gallery_scenario() {
+  require_magick
+  launch
+  mkdir -p "$capture_dir"
+  capture_catalog_focus_galleries
+  capture_player_focus_galleries
+  echo "Full focus contact sheets are ready in $capture_dir."
 }
 
 status() {
@@ -691,6 +710,7 @@ case "$command" in
       focus-gallery) focus_gallery_scenario ;;
       playback) playback_scenario ;;
       player-gallery) player_gallery_scenario ;;
+      full-gallery) full_gallery_scenario ;;
       *) usage >&2; exit 1 ;;
     esac
     ;;
