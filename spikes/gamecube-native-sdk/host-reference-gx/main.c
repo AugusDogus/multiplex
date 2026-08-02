@@ -52,6 +52,7 @@
 #define POSTER_LOADER_LANE_COUNT 2u
 #define HLS_SESSION_PREFETCH_STACK_SIZE (128 * 1024)
 #define STARTUP_DATA_LOADER_STACK_SIZE (256 * 1024)
+#define CATALOG_LOADER_STACK_SIZE (256 * 1024)
 #define REFERENCE_RENDERER_STACK_SIZE (512 * 1024)
 #define NETWORK_WARMUP_STACK_SIZE (64 * 1024)
 #define TIMELINE_REPORT_INTERVAL_MS 10000u
@@ -77,6 +78,8 @@
 #define HLS_READINESS_TIMEOUT_MS 60000u
 #define WATCH_TOGETHER_AUTO_START_DELAY_MS 1200u
 #define WATCH_TOGETHER_RECONNECT_DELAY_MS 1000u
+#define CATALOG_RETRY_INITIAL_DELAY_MS 1000u
+#define CATALOG_RETRY_MAX_DELAY_MS 8000u
 #define SEGMENT_PREFETCH_MARGIN_MS 8000u
 #define SEGMENT_HANDOFF_MARGIN_MS 64u
 #define DIRECT_PLAYBACK_END_MARGIN_MS 64u
@@ -336,6 +339,23 @@ typedef struct {
   bool rooms_available;
   bool invitees_available;
 } StartupDataLoader;
+
+typedef struct {
+  const MultiplexAuthCredentials *credentials;
+  MultiplexGatewayCatalog *catalog;
+  lwp_t thread;
+  void *stack;
+  volatile bool complete;
+  bool started;
+  bool available;
+} CatalogLoader;
+
+typedef enum {
+  CATALOG_LOADER_IDLE = 0,
+  CATALOG_LOADER_LOADING,
+  CATALOG_LOADER_READY,
+  CATALOG_LOADER_FAILED,
+} CatalogLoaderStatus;
 
 static bool read_http_program(void *context, size_t offset,
                               uint8_t *destination, size_t size);
@@ -4477,6 +4497,73 @@ refresh_watch_together_rooms(const MultiplexAuthCredentials *credentials,
   return bind_watch_together_rooms(rooms, available);
 }
 
+static void *run_catalog_loader(void *context) {
+  CatalogLoader *loader = context;
+  loader->available =
+      multiplex_plex_load_catalog(loader->credentials, loader->catalog);
+  __sync_synchronize();
+  loader->complete = true;
+  return NULL;
+}
+
+static bool launch_catalog_loader(
+    CatalogLoader *loader, const MultiplexAuthCredentials *credentials,
+    MultiplexGatewayCatalog *catalog) {
+  if (loader == NULL || credentials == NULL || catalog == NULL ||
+      loader->started) {
+    return false;
+  }
+  free(loader->stack);
+  memset(loader, 0, sizeof(*loader));
+  loader->credentials = credentials;
+  loader->catalog = catalog;
+  loader->thread = LWP_THREAD_NULL;
+  loader->stack = malloc(CATALOG_LOADER_STACK_SIZE);
+  if (loader->stack == NULL) {
+    return false;
+  }
+  if (LWP_CreateThread(&loader->thread, run_catalog_loader, loader,
+                       loader->stack, CATALOG_LOADER_STACK_SIZE,
+                       LWP_PRIO_NORMAL / 2) != 0) {
+    free(loader->stack);
+    loader->stack = NULL;
+    return false;
+  }
+  loader->started = true;
+  SYS_Report("REFERENCE GX: Plex catalog load started\n");
+  return true;
+}
+
+static CatalogLoaderStatus poll_catalog_loader(CatalogLoader *loader) {
+  if (loader == NULL || !loader->started) {
+    return CATALOG_LOADER_IDLE;
+  }
+  if (!loader->complete) {
+    return CATALOG_LOADER_LOADING;
+  }
+  __sync_synchronize();
+  if (loader->thread != LWP_THREAD_NULL) {
+    LWP_JoinThread(loader->thread, NULL);
+    loader->thread = LWP_THREAD_NULL;
+  }
+  loader->started = false;
+  loader->complete = false;
+  return loader->available ? CATALOG_LOADER_READY : CATALOG_LOADER_FAILED;
+}
+
+static void stop_catalog_loader(CatalogLoader *loader) {
+  if (loader == NULL) {
+    return;
+  }
+  if (loader->thread != LWP_THREAD_NULL) {
+    LWP_JoinThread(loader->thread, NULL);
+    loader->thread = LWP_THREAD_NULL;
+  }
+  free(loader->stack);
+  memset(loader, 0, sizeof(*loader));
+  loader->thread = LWP_THREAD_NULL;
+}
+
 static void *run_startup_data_loader(void *context) {
   StartupDataLoader *loader = context;
   loader->user_available = multiplex_trpc_load_user_id(
@@ -4911,6 +4998,11 @@ static void *run_app(void *unused) {
   MultiplexTrpcInviteeList watch_together_invitees;
   memset(&watch_together_invitees, 0, sizeof(watch_together_invitees));
 #if MULTIPLEX_PAIRING_ENABLED
+  CatalogLoader catalog_loader;
+  memset(&catalog_loader, 0, sizeof(catalog_loader));
+  catalog_loader.thread = LWP_THREAD_NULL;
+  uint64_t catalog_retry_at_ms = 0;
+  uint32_t catalog_retry_delay_ms = CATALOG_RETRY_INITIAL_DELAY_MS;
   StartupDataLoader startup_data_loader;
   memset(&startup_data_loader, 0, sizeof(startup_data_loader));
   startup_data_loader.thread = LWP_THREAD_NULL;
@@ -5055,36 +5147,20 @@ static void *run_app(void *unused) {
   bool auth_reset_latched = false;
   uint32_t pairing_poll_frames = 0;
   if (pairing_linked && !has_catalog) {
-    if (multiplex_plex_load_catalog(&auth_credentials, &catalog)) {
-      has_catalog = bind_catalog_to_app(&catalog);
-      if (!has_catalog) {
+    if (launch_catalog_loader(&catalog_loader, &auth_credentials, &catalog)) {
+      network_activity_visible = true;
+    } else {
+      catalog_retry_at_ms = ticks_to_millisecs(gettime()) +
+                            CATALOG_RETRY_INITIAL_DELAY_MS;
+      if (multiplex_native_app_pairing_status(
+              MULTIPLEX_DEVICE_AUTH_UNAVAILABLE, (const uint8_t *)"", 0,
+              (const uint8_t *)"", 0) == 0) {
+        SYS_Report("REFERENCE GX: failed to bind network unavailable status\n");
         return (void *)(uintptr_t)1;
       }
-      if (!queue_direct_poster_loader(&direct_home_poster_loader,
-                                      &auth_credentials, catalog.items,
-                                      catalog.total_item_count, 0, false)) {
-        SYS_Report("REFERENCE GX: direct Plex artwork unavailable; using "
-                   "placeholders\n");
-      }
-    } else if (multiplex_native_app_pairing_status(
-                   MULTIPLEX_DEVICE_AUTH_UNAVAILABLE, (const uint8_t *)"", 0,
-                   (const uint8_t *)"", 0) == 0) {
-      SYS_Report("REFERENCE GX: failed to bind network unavailable status\n");
-      return (void *)(uintptr_t)1;
     }
     native_frame_dirty = true;
-    network_activity_visible = true;
     present_frame(&playback_manifest);
-    if (!wait_reference_transition(&playback_manifest)) {
-      return (void *)(uintptr_t)1;
-    }
-    network_activity_visible = false;
-    if (has_catalog && direct_home_poster_loader.pending &&
-        !launch_direct_poster_loader(&direct_home_poster_loader)) {
-      SYS_Report("REFERENCE GX: direct Plex artwork launch deferred\n");
-    }
-    SYS_Report("REFERENCE GX: interactive home ready us=%u\n",
-               elapsed_us(app_started));
   }
 #endif
   if (network_warmup_pending) {
@@ -5146,7 +5222,67 @@ static void *run_app(void *unused) {
       continue;
     }
 #if MULTIPLEX_PAIRING_ENABLED
-    if (pairing_linked && !startup_data_loader.started &&
+    const uint64_t catalog_now_ms = ticks_to_millisecs(gettime());
+    const CatalogLoaderStatus catalog_loader_status =
+        poll_catalog_loader(&catalog_loader);
+    if (catalog_loader_status == CATALOG_LOADER_READY) {
+      network_activity_visible = false;
+      if (multiplex_native_app_pairing_status(
+              MULTIPLEX_DEVICE_AUTH_LINKED, (const uint8_t *)"", 0,
+              (const uint8_t *)"", 0) == 0 ||
+          !bind_catalog_to_app(&catalog)) {
+        SYS_Report("REFERENCE GX: recovered Plex catalog binding failed\n");
+        break;
+      }
+      has_catalog = true;
+      catalog_retry_at_ms = 0;
+      catalog_retry_delay_ms = CATALOG_RETRY_INITIAL_DELAY_MS;
+      if (!queue_direct_poster_loader(&direct_home_poster_loader,
+                                      &auth_credentials, catalog.items,
+                                      catalog.total_item_count, 0, false)) {
+        SYS_Report("REFERENCE GX: direct Plex artwork unavailable; using "
+                   "placeholders\n");
+      }
+      native_frame_dirty = true;
+      SYS_Report("REFERENCE GX: Plex catalog ready after background load\n");
+      SYS_Report("REFERENCE GX: interactive home ready us=%u\n",
+                 elapsed_us(app_started));
+    } else if (catalog_loader_status == CATALOG_LOADER_FAILED) {
+      network_activity_visible = false;
+      if (multiplex_native_app_pairing_status(
+              MULTIPLEX_DEVICE_AUTH_UNAVAILABLE, (const uint8_t *)"", 0,
+              (const uint8_t *)"", 0) == 0) {
+        SYS_Report("REFERENCE GX: failed to bind network unavailable status\n");
+        break;
+      }
+      catalog_retry_at_ms = catalog_now_ms + catalog_retry_delay_ms;
+      if (catalog_retry_delay_ms < CATALOG_RETRY_MAX_DELAY_MS) {
+        catalog_retry_delay_ms *= 2u;
+        if (catalog_retry_delay_ms > CATALOG_RETRY_MAX_DELAY_MS) {
+          catalog_retry_delay_ms = CATALOG_RETRY_MAX_DELAY_MS;
+        }
+      }
+      native_frame_dirty = true;
+      SYS_Report("REFERENCE GX: Plex catalog retry scheduled delay-ms=%u\n",
+                 (uint32_t)(catalog_retry_at_ms - catalog_now_ms));
+    }
+    if (pairing_linked && !has_catalog && !catalog_loader.started &&
+        catalog_retry_at_ms != 0 && catalog_now_ms >= catalog_retry_at_ms) {
+      if (multiplex_native_app_pairing_status(
+              MULTIPLEX_PAIRING_CONNECTING, (const uint8_t *)"", 0,
+              (const uint8_t *)"", 0) == 0) {
+        SYS_Report("REFERENCE GX: failed to bind Plex retry status\n");
+        break;
+      }
+      if (launch_catalog_loader(&catalog_loader, &auth_credentials, &catalog)) {
+        network_activity_visible = true;
+        catalog_retry_at_ms = 0;
+      } else {
+        catalog_retry_at_ms = catalog_now_ms + catalog_retry_delay_ms;
+      }
+      native_frame_dirty = true;
+    }
+    if (pairing_linked && has_catalog && !startup_data_loader.started &&
         !direct_poster_loader_running(&direct_home_poster_loader) &&
         !direct_home_poster_loader.pending) {
       if (!launch_startup_data_loader(&startup_data_loader,
@@ -5163,6 +5299,7 @@ static void *run_app(void *unused) {
 #endif
     const uint32_t active_screen = multiplex_native_app_screen();
     if (active_screen == MULTIPLEX_SCREEN_HOME &&
+        presented_screen == active_screen &&
         direct_home_poster_loader.pending &&
         !direct_poster_loader_running(&direct_home_poster_loader)) {
       launch_direct_poster_loader(&direct_home_poster_loader);
@@ -5226,13 +5363,14 @@ static void *run_app(void *unused) {
                                               &auth_location);
           SYS_Report("REFERENCE GX: auth persistence=%s\n",
                      multiplex_memory_card_result_message(saved));
-          if (!has_catalog &&
-              multiplex_plex_load_catalog(&auth_credentials, &catalog)) {
-            has_catalog = bind_catalog_to_app(&catalog);
-            if (has_catalog) {
-              queue_direct_poster_loader(&direct_home_poster_loader,
-                                         &auth_credentials, catalog.items,
-                                         catalog.total_item_count, 0, true);
+          if (!has_catalog && !catalog_loader.started) {
+            if (launch_catalog_loader(&catalog_loader, &auth_credentials,
+                                      &catalog)) {
+              network_activity_visible = true;
+              catalog_retry_at_ms = 0;
+            } else {
+              catalog_retry_at_ms = ticks_to_millisecs(gettime()) +
+                                    CATALOG_RETRY_INITIAL_DELAY_MS;
             }
           }
         }
@@ -5319,6 +5457,7 @@ static void *run_app(void *unused) {
       stop_direct_poster_loader(&direct_home_poster_loader);
       stop_direct_poster_loader(&direct_page_poster_loader);
       discard_direct_hls_prefetch(&direct_hls_prefetch);
+      stop_catalog_loader(&catalog_loader);
       stop_startup_data_loader(&startup_data_loader);
       const MultiplexMemoryCardResult deleted =
           multiplex_memory_card_delete_auth(&auth_location);
@@ -5335,6 +5474,9 @@ static void *run_app(void *unused) {
         plex_user_id = 0;
         pairing_linked = false;
         has_catalog = false;
+        catalog_retry_at_ms = 0;
+        catalog_retry_delay_ms = CATALOG_RETRY_INITIAL_DELAY_MS;
+        network_activity_visible = false;
         memset(&auth_credentials, 0, sizeof(auth_credentials));
         memset(&watch_together_rooms, 0, sizeof(watch_together_rooms));
         if (!bind_watch_together_rooms(&watch_together_rooms, false)) {
@@ -5886,6 +6028,7 @@ static void *run_app(void *unused) {
   stop_reference_renderer();
 #if MULTIPLEX_PAIRING_ENABLED
   multiplex_syncplay_session_destroy(syncplay_session);
+  stop_catalog_loader(&catalog_loader);
   stop_startup_data_loader(&startup_data_loader);
 #endif
   stop_direct_poster_loader(&direct_home_poster_loader);

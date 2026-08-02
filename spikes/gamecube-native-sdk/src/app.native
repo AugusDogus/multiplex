@@ -72,8 +72,8 @@
     <column grow="1" main="center" cross="center" gap="12" label="Pair with Multiplex">
       <if test="{pairingEnabled}">
         <if test="{pairingConnecting}">
-          <text size="heading">Connecting to Multiplex</text>
-          <text foreground="text_muted">GameCube networking requires a Broadband Adapter and Ethernet connection.</text>
+          <text size="heading">Connecting</text>
+          <text foreground="text_muted">A Broadband Adapter and Ethernet connection are required.</text>
         </if>
         <if test="{pairingWaiting}">
           <badge variant="secondary">Link this GameCube</badge>
@@ -93,7 +93,7 @@
         </if>
         <if test="{pairingUnavailable}">
           <text size="heading">Network unavailable</text>
-          <text foreground="text_muted">Check Ethernet and that Multiplex and Plex are reachable, then restart.</text>
+          <text foreground="text_muted">Check Ethernet and Plex. Multiplex will keep trying.</text>
         </if>
       </if>
       <if test="{pairingDemo}">
