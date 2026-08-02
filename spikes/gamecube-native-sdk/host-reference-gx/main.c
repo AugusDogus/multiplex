@@ -1858,8 +1858,9 @@ load_direct_item_details(const MultiplexAuthCredentials *credentials) {
                                    &direct_details_cache)) {
     return fail_item_details(rating_key);
   }
-  direct_details_cache_valid = true;
-  return bind_item_details(&direct_details_cache);
+  const bool bound = bind_item_details(&direct_details_cache);
+  direct_details_cache_valid = bound;
+  return bound;
 }
 
 static bool bind_item_children(uint32_t rating_key,
@@ -3618,6 +3619,43 @@ static bool wait_reference_transition(
   return reference_renderer.thread == LWP_THREAD_NULL;
 }
 
+static bool has_pending_page_request(void) {
+  uint32_t section_id = 0;
+  uint32_t start = 0;
+  char query[MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY] = {0};
+
+  return multiplex_native_app_browse_request(&section_id, &start) != 0 ||
+         multiplex_native_app_search_request((uint8_t *)query,
+                                             sizeof(query) - 1u) != 0 ||
+         multiplex_native_app_details_request() != 0 ||
+         multiplex_native_app_details_children_request(&section_id, &start) !=
+             0;
+}
+
+static bool present_pending_page_transition(
+    const MultiplexGatewayPlaybackManifest *playback_manifest) {
+  if (!has_pending_page_request()) {
+    return true;
+  }
+
+  const uint32_t started = gettick();
+  network_activity_visible = true;
+  if (!wait_reference_transition(playback_manifest)) {
+    network_activity_visible = false;
+    return false;
+  }
+  native_frame_dirty = true;
+  if (!refresh_reference_frame(false)) {
+    network_activity_visible = false;
+    return false;
+  }
+  present_frame(playback_manifest);
+  network_activity_visible = false;
+  SYS_Report("REFERENCE GX: network transition presented us=%u screen=%u\n",
+             elapsed_us(started), multiplex_native_app_screen());
+  return true;
+}
+
 static void pause_audio_for_player_input(
     uint32_t pressed,
     const MultiplexGatewayPlaybackManifest *playback_manifest) {
@@ -4853,6 +4891,10 @@ static void *run_app(void *unused) {
       app_changed = true;
     }
     if (app_changed) {
+      if (!present_pending_page_transition(&playback_manifest)) {
+        SYS_Report("REFERENCE GX: network transition presentation failed\n");
+        break;
+      }
       const uint32_t mark_watched_rating_key =
           multiplex_native_app_mark_watched_request();
       if (mark_watched_rating_key != 0) {
