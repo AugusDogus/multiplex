@@ -20,6 +20,7 @@ typedef struct {
 typedef bool (*HttpBodyWrite)(void *context, const uint8_t *bytes,
                               size_t size);
 
+bool http_client_initialize_network(void);
 HttpClient *http_client_open(const char *url);
 HttpClient *http_client_open_with_headers(const char *url,
                                           const HttpRequestHeader *headers,

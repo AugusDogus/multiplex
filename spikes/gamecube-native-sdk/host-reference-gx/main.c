@@ -49,6 +49,7 @@
 #define POSTER_LOADER_STACK_SIZE (256 * 1024)
 #define STARTUP_DATA_LOADER_STACK_SIZE (256 * 1024)
 #define REFERENCE_RENDERER_STACK_SIZE (512 * 1024)
+#define NETWORK_WARMUP_STACK_SIZE (64 * 1024)
 #define TIMELINE_REPORT_INTERVAL_MS 10000u
 #define PAIRING_POLL_INTERVAL_FRAMES 60u
 #define MEDIA_STARTUP_STALL_TIMEOUT_US 5000000u
@@ -102,6 +103,12 @@ typedef struct {
   uint32_t render_us;
   volatile bool complete;
 } ReferenceFrameRenderer;
+
+typedef struct {
+  lwp_t thread;
+  void *stack;
+  bool ready;
+} NetworkWarmup;
 
 static GXRModeObj *video_mode;
 static void *framebuffers[2];
@@ -698,6 +705,40 @@ static bool refresh_reference_frame(bool initialize) {
     return false;
   }
   return commit_reference_frame(&render, elapsed_us(render_started));
+}
+
+static void *run_network_warmup(void *context) {
+  NetworkWarmup *warmup = context;
+  warmup->ready = http_client_initialize_network();
+  return NULL;
+}
+
+static bool launch_network_warmup(NetworkWarmup *warmup) {
+  memset(warmup, 0, sizeof(*warmup));
+  warmup->thread = LWP_THREAD_NULL;
+  warmup->stack = malloc(NETWORK_WARMUP_STACK_SIZE);
+  if (warmup->stack == NULL) {
+    return false;
+  }
+  if (LWP_CreateThread(&warmup->thread, run_network_warmup, warmup,
+                       warmup->stack, NETWORK_WARMUP_STACK_SIZE,
+                       LWP_PRIO_NORMAL / 2) != 0) {
+    free(warmup->stack);
+    warmup->stack = NULL;
+    warmup->thread = LWP_THREAD_NULL;
+    return false;
+  }
+  return true;
+}
+
+static bool finish_network_warmup(NetworkWarmup *warmup) {
+  if (warmup->thread != LWP_THREAD_NULL) {
+    LWP_JoinThread(warmup->thread, NULL);
+    warmup->thread = LWP_THREAD_NULL;
+  }
+  free(warmup->stack);
+  warmup->stack = NULL;
+  return warmup->ready;
 }
 
 static void *run_reference_renderer(void *context) {
@@ -3382,6 +3423,8 @@ static void *run_app(void *unused) {
   if (!allocate_buffers()) {
     return (void *)(uintptr_t)1;
   }
+  NetworkWarmup network_warmup;
+  bool network_warmup_pending = launch_network_warmup(&network_warmup);
 
   MpegPsDemux *demux = NULL;
   HttpClient *client = NULL;
@@ -3428,14 +3471,26 @@ static void *run_app(void *unused) {
           MULTIPLEX_PAIRING_CONNECTING, (const uint8_t *)"", 0,
           (const uint8_t *)"", 0) == 0) {
     SYS_Report("REFERENCE GX: failed to bind network startup status\n");
+    if (network_warmup_pending) {
+      finish_network_warmup(&network_warmup);
+    }
     return (void *)(uintptr_t)1;
   }
 #endif
   initialize_textures();
   if (!refresh_reference_frame(false)) {
+    if (network_warmup_pending) {
+      finish_network_warmup(&network_warmup);
+    }
     return (void *)(uintptr_t)1;
   }
   present_frame(&playback_manifest);
+
+  if (network_warmup_pending && MULTIPLEX_GATEWAY_URL[0] != '\0') {
+    SYS_Report("REFERENCE GX: network warmup ready=%u\n",
+               finish_network_warmup(&network_warmup) ? 1u : 0u);
+    network_warmup_pending = false;
+  }
 
   bool has_catalog =
       MULTIPLEX_GATEWAY_URL[0] != '\0' &&
@@ -3458,6 +3513,11 @@ static void *run_app(void *unused) {
   };
   const MultiplexMemoryCardResult stored_auth =
       multiplex_memory_card_load_auth(&auth_credentials, &auth_location);
+  if (network_warmup_pending) {
+    SYS_Report("REFERENCE GX: network warmup ready=%u\n",
+               finish_network_warmup(&network_warmup) ? 1u : 0u);
+    network_warmup_pending = false;
+  }
   MultiplexDeviceAuth device_auth;
   memset(&device_auth, 0, sizeof(device_auth));
   if (stored_auth == MULTIPLEX_MEMORY_CARD_OK) {
@@ -3530,6 +3590,11 @@ static void *run_app(void *unused) {
                elapsed_us(app_started));
   }
 #endif
+  if (network_warmup_pending) {
+    SYS_Report("REFERENCE GX: network warmup ready=%u\n",
+               finish_network_warmup(&network_warmup) ? 1u : 0u);
+    network_warmup_pending = false;
+  }
 #if MULTIPLEX_PAIRING_ENABLED
   const MultiplexAuthCredentials *timeline_plex_credentials =
       MULTIPLEX_GATEWAY_URL[0] == '\0' ? &auth_credentials : NULL;
@@ -3550,6 +3615,8 @@ static void *run_app(void *unused) {
   }
 
   asynchronous_reference_enabled = true;
+  uint32_t queued_transition_buttons = 0;
+  uint32_t queued_transition_navigation = UINT32_MAX;
   while (SYS_MainLoop()) {
     poll_direct_poster_loader(&direct_home_poster_loader);
     poll_direct_poster_loader(&direct_page_poster_loader);
@@ -3557,6 +3624,22 @@ static void *run_app(void *unused) {
       break;
     }
     if (reference_renderer.thread != LWP_THREAD_NULL) {
+      PAD_ScanPads();
+      queued_transition_buttons |= PAD_ButtonsDown(0);
+#if defined(HW_RVL)
+      WPAD_ScanPads();
+      queued_transition_buttons |=
+          wii_buttons_as_gamecube(WPAD_ButtonsDown(0));
+#endif
+      const uint64_t transition_input_ms = ticks_to_millisecs(gettime());
+      const uint32_t transition_navigation = navigation_action(
+          multiplex_gui_navigation_poll(&gui_navigation, PAD_StickX(0),
+                                          PAD_StickY(0),
+                                          transition_input_ms * 1000u));
+      if (queued_transition_navigation == UINT32_MAX &&
+          transition_navigation != UINT32_MAX) {
+        queued_transition_navigation = transition_navigation;
+      }
       present_frame(&playback_manifest);
       continue;
     }
@@ -3657,7 +3740,8 @@ static void *run_app(void *unused) {
       }
     }
 #endif
-    uint32_t pressed = PAD_ButtonsDown(0);
+    uint32_t pressed = PAD_ButtonsDown(0) | queued_transition_buttons;
+    queued_transition_buttons = 0;
 #if defined(HW_RVL)
     pressed |= wii_buttons_as_gamecube(WPAD_ButtonsDown(0));
 #endif
@@ -3665,7 +3749,11 @@ static void *run_app(void *unused) {
     const MultiplexGuiNavigationDirection stick_direction =
         multiplex_gui_navigation_poll(&gui_navigation, PAD_StickX(0),
                                       PAD_StickY(0), input_now_ms * 1000u);
-    const uint32_t stick_navigation = navigation_action(stick_direction);
+    const uint32_t stick_navigation =
+        queued_transition_navigation != UINT32_MAX
+            ? queued_transition_navigation
+            : navigation_action(stick_direction);
+    queued_transition_navigation = UINT32_MAX;
     const bool controller_input = pressed != 0 || stick_navigation != UINT32_MAX;
     if (pressed != 0) {
       SYS_Report("REFERENCE GX: controller buttons %08x\n", pressed);

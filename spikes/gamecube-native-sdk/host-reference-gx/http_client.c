@@ -211,6 +211,17 @@ static bool initialize_network(void) {
   return true;
 }
 
+bool http_client_initialize_network(void) {
+  if (network_initialized) {
+    return true;
+  }
+  if (!initialize_network()) {
+    return false;
+  }
+  network_initialized = true;
+  return true;
+}
+
 static void disconnect_client(HttpClient *client) {
   multiplex_tls_client_destroy(client->tls);
   client->tls = NULL;
@@ -817,13 +828,9 @@ HttpClient *http_client_open_with_headers(const char *url,
     http_client_destroy(client);
     return NULL;
   }
-  const bool first_connection = !network_initialized;
-  if (first_connection) {
-    if (!initialize_network()) {
-      http_client_destroy(client);
-      return NULL;
-    }
-    network_initialized = true;
+  if (!http_client_initialize_network()) {
+    http_client_destroy(client);
+    return NULL;
   }
   if (!connect_client(client) || !fetch_cache(client, 0)) {
     SYS_Report("REFERENCE GX: HTTP open failed host=%s port=%u\n", client->host,
@@ -1225,12 +1232,9 @@ static bool http_client_stream_get_with_headers_unlocked(
     free(client);
     return false;
   }
-  if (!network_initialized) {
-    if (!initialize_network()) {
-      free(client);
-      return false;
-    }
-    network_initialized = true;
+  if (!http_client_initialize_network()) {
+    free(client);
+    return false;
   }
   if (!connect_client(client)) {
     free(client);
@@ -1382,12 +1386,9 @@ static bool http_client_request_with_headers_unlocked(
     free(client);
     return false;
   }
-  if (!network_initialized) {
-    if (!initialize_network()) {
-      free(client);
-      return false;
-    }
-    network_initialized = true;
+  if (!http_client_initialize_network()) {
+    free(client);
+    return false;
   }
   if (!connect_client(client)) {
     free(client);
