@@ -132,6 +132,7 @@ static bool asynchronous_reference_enabled;
 static bool asynchronous_reference_requested;
 static ReferenceFrameRenderer reference_renderer;
 static bool network_activity_visible;
+static bool blocking_activity_visible;
 static uint32_t network_activity_frame;
 static uint32_t screen_transition_frame;
 static bool native_frame_dirty = true;
@@ -2475,6 +2476,10 @@ static void draw_activity(void) {
     network_activity_frame += 1;
     return;
   }
+  if (blocking_activity_visible) {
+    draw_activity_dots(462.0f, 0);
+    return;
+  }
   if (reference_renderer.thread != LWP_THREAD_NULL &&
       screen_transition_frame >= 8u) {
     draw_activity_dots(462.0f, screen_transition_frame - 8u);
@@ -4146,8 +4151,17 @@ static void *run_app(void *unused) {
         }
       }
 #endif
+      const uint32_t pending_playback_key =
+          multiplex_native_app_playback_request();
+      if (pending_playback_key != 0) {
+        const bool retained_dirty = native_frame_dirty;
+        native_frame_dirty = false;
+        blocking_activity_visible = true;
+        present_frame(&playback_manifest);
+        native_frame_dirty = retained_dirty;
+      }
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
-          multiplex_native_app_playback_request() != 0) {
+          pending_playback_key != 0) {
         discard_staged_media_session(&staged_media);
       }
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
@@ -4212,6 +4226,7 @@ static void *run_app(void *unused) {
         joined_watch_together_room = UINT32_MAX;
       }
 #endif
+      blocking_activity_visible = false;
       native_frame_dirty = true;
     }
 #if MULTIPLEX_PAIRING_ENABLED
