@@ -154,6 +154,7 @@ export type Msg =
   | { readonly kind: "open_start_menu" }
   | { readonly kind: "close_start_menu" }
   | { readonly kind: "start_menu_play" }
+  | { readonly kind: "start_menu_create_watch_together" }
   | { readonly kind: "start_menu_watch_together" }
   | { readonly kind: "start_menu_libraries" }
   | { readonly kind: "start_menu_search" }
@@ -1190,6 +1191,10 @@ export function update(model: Model, msg: Msg): Model {
     case "start_menu_play":
       return model.startMenuOpen
         ? update({ ...model, startMenuOpen: false }, { kind: "play" })
+        : model;
+    case "start_menu_create_watch_together":
+      return model.startMenuOpen
+        ? update({ ...model, startMenuOpen: false }, { kind: "create_watch_together" })
         : model;
     case "start_menu_watch_together":
       return model.startMenuOpen

@@ -376,7 +376,7 @@ fn prefersFocus(model: *const core.Model, msg: core.Msg) bool {
     }
     if (model.startMenuOpen) {
         return switch (msg) {
-            .start_menu_play, .start_menu_watch_together => true,
+            .start_menu_play, .start_menu_create_watch_together, .start_menu_watch_together => true,
             else => false,
         };
     }
@@ -405,6 +405,28 @@ fn prefersFocus(model: *const core.Model, msg: core.Msg) bool {
     };
 }
 
+fn receivesFocus(model: *const core.Model, msg: core.Msg) bool {
+    if (model.playerSettingsOpen) {
+        return switch (msg) {
+            .cycle_subtitles, .close_player_settings => true,
+            else => false,
+        };
+    }
+    if (model.startMenuOpen) {
+        return switch (msg) {
+            .start_menu_play,
+            .start_menu_create_watch_together,
+            .start_menu_watch_together,
+            .start_menu_libraries,
+            .start_menu_search,
+            .close_start_menu,
+            => true,
+            else => false,
+        };
+    }
+    return true;
+}
+
 fn resolveFocusedHandler(tree: anytype, press_ids: []const canvas.ObjectId, model: *const core.Model) void {
     if (focused_screen != model.screen) {
         focused_screen = model.screen;
@@ -420,10 +442,11 @@ fn resolveFocusedHandler(tree: anytype, press_ids: []const canvas.ObjectId, mode
     }
 }
 
-fn collectEnabledPressIds(tree: anytype, press_ids: []canvas.ObjectId) usize {
+fn collectEnabledPressIds(tree: anytype, press_ids: []canvas.ObjectId, model: *const core.Model) usize {
     var press_count: usize = 0;
     for (tree.handlers) |handler| {
-        if (tree.msgFor(handler.id, .press) == null) continue;
+        const msg = tree.msgFor(handler.id, .press) orelse continue;
+        if (!receivesFocus(model, msg)) continue;
         const widget = tree.findWidget(handler.id) orelse continue;
         if (widget.state.disabled) continue;
         var duplicate = false;
@@ -1376,7 +1399,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
     const tree = ui.finalizeWithTokens(CompiledView.build(&ui, model), .{}) catch return 0;
 
     var press_ids: [32]canvas.ObjectId = undefined;
-    const press_count = collectEnabledPressIds(tree, &press_ids);
+    const press_count = collectEnabledPressIds(tree, &press_ids, model);
     if (action == 3) {
         commitAppModel(core.update(model, .back));
         focused_handler = invalid_focused_handler;
@@ -1441,6 +1464,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .open_start_menu => 35,
                 .close_start_menu => 36,
                 .start_menu_play => 37,
+                .start_menu_create_watch_together => 41,
                 .start_menu_watch_together => 38,
                 .start_menu_libraries => 39,
                 .start_menu_search => 40,
@@ -1517,7 +1541,7 @@ export fn multiplex_native_app_render(output: [*]GxCommand, capacity: u32) callc
     capturePosterSurfaces(layout.nodes);
 
     var press_ids: [32]canvas.ObjectId = undefined;
-    const press_count = collectEnabledPressIds(tree, &press_ids);
+    const press_count = collectEnabledPressIds(tree, &press_ids, model);
     if (press_count > 0) resolveFocusedHandler(tree, press_ids[0..press_count], model);
     const focused_id: ?canvas.ObjectId = if (press_count > 0) press_ids[focused_handler] else null;
 
@@ -1646,7 +1670,7 @@ fn renderReference(
     multiplex_native_profile_mark(reference_render_stage);
 
     var press_ids: [32]canvas.ObjectId = undefined;
-    const press_count = collectEnabledPressIds(tree, &press_ids);
+    const press_count = collectEnabledPressIds(tree, &press_ids, model);
     if (press_count > 0) resolveFocusedHandler(tree, press_ids[0..press_count], model);
     const focused_id: ?canvas.ObjectId = if (press_count > 0) press_ids[focused_handler] else null;
     const render_state = canvas.WidgetRenderState{

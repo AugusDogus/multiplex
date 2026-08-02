@@ -513,9 +513,9 @@
 </column>
   </else>
   <if test="{startMenuOpen}">
-    <panel background="scrim" on-press="close_start_menu" label="Start menu backdrop">
+    <panel background="scrim">
       <column main="center" cross="center">
-        <dialog width="310" height="360" label="Multiplex menu">
+        <panel width="310" height="360" background="surface" border-color="border" radius="lg" label="Multiplex menu">
           <column padding="16" gap="8">
             <text size="heading">Multiplex</text>
             <text size="sm" foreground="text_muted">Choose an action</text>
@@ -524,7 +524,7 @@
               <button size="sm" icon="play" variant="primary" on-press="start_menu_play">Play</button>
             </if>
             <if test="{screen == 'details' and detailsPlayable}">
-              <button size="sm" variant="secondary" on-press="create_watch_together">Host Watch Together</button>
+              <button size="sm" variant="secondary" on-press="start_menu_create_watch_together">Host Watch Together</button>
             </if>
             <button size="sm" icon="menu" variant="secondary" on-press="start_menu_watch_together">Watch Together rooms</button>
             <button size="sm" icon="folder" variant="secondary" on-press="start_menu_libraries">Libraries</button>
@@ -532,14 +532,14 @@
             <spacer grow="1" />
             <button size="sm" variant="ghost" on-press="close_start_menu">Close</button>
           </column>
-        </dialog>
+        </panel>
       </column>
     </panel>
   </if>
   <if test="{playerSettingsOpen}">
-    <panel background="scrim" on-press="close_player_settings" label="Playback settings backdrop">
+    <panel background="scrim">
       <column main="center" cross="center">
-        <dialog width="310" height="230" label="Playback settings">
+        <panel width="310" height="230" background="surface" border-color="border" radius="lg" label="Playback settings">
           <column padding="16" gap="8">
             <text size="heading">Playback settings</text>
             <separator />
@@ -565,7 +565,7 @@
             <spacer grow="1" />
             <button size="sm" variant="ghost" on-press="close_player_settings">Close</button>
           </column>
-        </dialog>
+        </panel>
       </column>
     </panel>
   </if>
