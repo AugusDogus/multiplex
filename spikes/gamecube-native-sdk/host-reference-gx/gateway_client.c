@@ -13,7 +13,7 @@
 #define PLAYBACK_HEADER_BYTES 62u
 #define PAIRING_HEADER_BYTES 12u
 #define CATALOG_ITEM_HEADER_BYTES 20u
-#define CATALOG_MAX_BYTES 2048u
+#define CATALOG_MAX_BYTES 16384u
 #define PAIRING_MAX_BYTES 280u
 #define GATEWAY_URL_CAPACITY 768u
 
@@ -149,7 +149,7 @@ static bool parse_browse(const uint8_t *bytes, size_t size,
   page->title_length = read_be16(bytes + 14);
   if (page->version != 1 || page->section_id == 0 ||
       page->item_count == 0 ||
-      page->item_count > MULTIPLEX_GATEWAY_MAX_ITEMS ||
+      page->item_count > MULTIPLEX_GATEWAY_MAX_BROWSE_ITEMS ||
       page->title_length >= MULTIPLEX_GATEWAY_TITLE_CAPACITY ||
       BROWSE_HEADER_BYTES + page->title_length > size) {
     return false;

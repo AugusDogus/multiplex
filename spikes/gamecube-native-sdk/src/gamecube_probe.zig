@@ -52,6 +52,9 @@ var staged_gateway_name: []const u8 = &.{};
 var staged_rows: [3]core.CatalogRow = undefined;
 var staged_row_ptrs: [3]*const core.CatalogRow = undefined;
 const home_items_per_row: usize = 8;
+const browse_columns: usize = 7;
+const browse_window_items: usize = browse_columns * 3;
+const browse_image_offset: u32 = 25;
 var staged_items: [24]core.CatalogItem = undefined;
 var staged_item_ptrs: [24]*const core.CatalogItem = undefined;
 var staged_row_count: usize = 0;
@@ -491,7 +494,7 @@ fn resolveFocusedHandler(tree: anytype, press_ids: []const canvas.ObjectId, mode
     }
     if (focused_handler < press_ids.len) return;
     focused_handler = 0;
-    if (model.screen == .home) {
+    if (model.screen == .home or model.screen == .browse or model.screen == .search_results) {
         for (press_ids, 0..) |id, index| {
             const msg = tree.msgFor(id, .press) orelse continue;
             switch (msg) {
@@ -980,6 +983,11 @@ export fn multiplex_native_app_home_view_state() callconv(.c) u32 {
     return (row_index << 16) | carousel_start;
 }
 
+export fn multiplex_native_app_browse_view_start() callconv(.c) u32 {
+    if (!app_initialized or app_model.screen != .browse) return std.math.maxInt(u32);
+    return @intCast(app_model.browseStart);
+}
+
 export fn multiplex_native_app_playback_set_paused(paused: u32) callconv(.c) u32 {
     if (!app_initialized or app_model.screen != .player or !app_model.playbackLoaded) return 0;
     const playing = paused == 0;
@@ -995,7 +1003,7 @@ export fn multiplex_native_app_browse_request(section_id: *u32, start: *u32) cal
     const requested = core.browseRequestSection(app_model);
     if (requested == 0) return 0;
     section_id.* = @intFromFloat(requested);
-    start.* = @intFromFloat(core.browseRequestStart(app_model));
+    start.* = @intCast(core.browseRequestStart(app_model));
     return 1;
 }
 
@@ -1007,7 +1015,7 @@ export fn multiplex_native_app_browse_begin(
     total: u32,
     item_count: u32,
 ) callconv(.c) u32 {
-    if (!app_initialized or section_id == 0 or title_length == 0 or item_count == 0 or item_count > 4) return 0;
+    if (!app_initialized or section_id == 0 or title_length == 0 or item_count == 0 or item_count > browse_window_items) return 0;
     staged_browse_section_id = section_id;
     staged_browse_title = stageBytes(title[0..title_length]);
     staged_browse_start = start;
@@ -1028,7 +1036,7 @@ export fn multiplex_native_app_browse_item(
     view_offset_ms: u32,
     progress_percent: u32,
 ) callconv(.c) u32 {
-    if (item_index >= staged_browse_item_count or title_length == 0 or artwork_slot >= 4) return 0;
+    if (item_index >= staged_browse_item_count or title_length == 0 or artwork_slot >= browse_window_items) return 0;
     const slot: usize = item_index;
     const subtitle_parts = splitCatalogSubtitle(subtitle[0..subtitle_length]);
     staged_browse_items[slot] = .{
@@ -1039,7 +1047,7 @@ export fn multiplex_native_app_browse_item(
         .secondary = stageBytes(subtitle_parts.secondary),
         .hierarchy = stageBytes(subtitle_parts.hierarchy),
         .hasHierarchy = subtitle_parts.hierarchy.len > 0,
-        .imageId = @intCast(13 + artwork_slot),
+        .imageId = @intCast(browse_image_offset + artwork_slot),
         .durationMs = @intCast(duration_ms),
         .viewOffsetMs = @intCast(view_offset_ms),
         .progressPercent = @intCast(progress_percent),
@@ -1054,10 +1062,8 @@ export fn multiplex_native_app_browse_commit() callconv(.c) u32 {
         app_model,
         @as(f64, @floatFromInt(staged_browse_section_id)),
         staged_browse_title,
-        @as(f64, @floatFromInt(staged_browse_start)),
+        @as(i64, @intCast(staged_browse_start)),
         staged_browse_total,
-        staged_browse_start / 4 + 1,
-        if (staged_browse_total == 0) 1 else (staged_browse_total - 1) / 4 + 1,
         staged_browse_item_ptrs[0..staged_browse_item_count],
     ));
     focused_handler = invalid_focused_handler;
@@ -1584,7 +1590,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         else if (model.screen == .details)
             .details_children_next
         else
-            .browse_next;
+            .browse_next_row;
         commitAppModel(core.update(model, message));
         if (model.screen != .search and model.screen != .player and model.screen != .details) {
             focused_handler = invalid_focused_handler;
@@ -1600,7 +1606,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         else if (model.screen == .details)
             .details_children_previous
         else
-            .browse_previous;
+            .browse_previous_row;
         commitAppModel(core.update(model, message));
         if (model.screen != .player and model.screen != .details) focused_handler = invalid_focused_handler;
         reference_full_repaint = true;
@@ -1644,6 +1650,25 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
     switch (action) {
         0, 1, 8, 9 => {
             const current_msg = tree.msgFor(press_ids[focused_handler], .press) orelse return 0;
+            if (model.screen == .browse) {
+                switch (current_msg) {
+                    .open_item => {
+                        if (action == 9 and core.browseSelectionAtBottom(model) and core.browseHasNext(model)) {
+                            commitAppModel(core.update(model, .browse_next_row));
+                            reference_full_repaint = false;
+                            multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 7);
+                            return 1;
+                        }
+                        if (action == 8 and core.browseSelectionAtTop(model) and core.browseHasPrevious(model)) {
+                            commitAppModel(core.update(model, .browse_previous_row));
+                            reference_full_repaint = false;
+                            multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 6);
+                            return 1;
+                        }
+                    },
+                    else => {},
+                }
+            }
             if (model.screen == .home) {
                 switch (current_msg) {
                     .open_item => {
@@ -1733,6 +1758,18 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                     multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 2);
                     return 1;
                 }
+                if (model.screen == .browse and action == 9 and core.browseHasNext(model)) {
+                    commitAppModel(core.update(model, .browse_next_row));
+                    reference_full_repaint = false;
+                    multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 7);
+                    return 1;
+                }
+                if (model.screen == .browse and action == 8 and core.browseHasPrevious(model)) {
+                    commitAppModel(core.update(model, .browse_previous_row));
+                    reference_full_repaint = false;
+                    multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 6);
+                    return 1;
+                }
                 return 0;
             }
             const focused_msg = tree.msgFor(press_ids[focused_handler], .press) orelse return 0;
@@ -1760,8 +1797,8 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .next_row => 3,
                 .open_libraries => 4,
                 .open_library => 5,
-                .browse_previous => 6,
-                .browse_next => 7,
+                .browse_previous_row => 6,
+                .browse_next_row => 7,
                 .open_search => 13,
                 .open_watch_together => 22,
                 .open_start_menu => 35,

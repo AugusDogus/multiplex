@@ -33,6 +33,8 @@ DETAILS_CATALOG_VERSION = 1
 PLAYBACK_MANIFEST_VERSION = 2
 PAIRING_STATUS_VERSION = 1
 MAX_ITEMS = 4
+MAX_BROWSE_ITEMS = 21
+BROWSE_COLUMNS = 7
 MAX_HOME_ITEMS = 8
 MAX_ROWS = 3
 MAX_SERVER_NAME_BYTES = 63
@@ -339,12 +341,12 @@ def fetch_browse_page(
         {
             "sort": "titleSort:asc",
             "X-Plex-Container-Start": start,
-            "X-Plex-Container-Size": MAX_ITEMS,
+            "X-Plex-Container-Size": MAX_BROWSE_ITEMS,
         }
     )
     root = _plex_xml(base_url, f"/library/sections/{section.section_id}/all?{query}", token)
     items: list[HomeItem] = []
-    for element in list(root)[:MAX_ITEMS]:
+    for element in list(root)[:MAX_BROWSE_ITEMS]:
         rating_key = element.get("ratingKey", "")
         if not rating_key.isdigit():
             continue
@@ -508,20 +510,21 @@ def encode_bootstrap_catalog(
 
 def encode_browse_page(page: BrowsePage) -> bytes:
     title = _bounded_utf8(page.section.title, MAX_TITLE_BYTES)
+    items = page.items[:MAX_BROWSE_ITEMS]
     body = bytearray(
         struct.pack(
             ">4sHHHHHH",
             b"MPXB",
             BROWSE_CATALOG_VERSION,
             min(page.section.section_id, 0xFFFF),
-            len(page.items),
+            len(items),
             min(page.start, 0xFFFF),
             min(page.total_size, 0xFFFF),
             len(title),
         )
     )
     body.extend(title)
-    for artwork_slot, item in enumerate(page.items):
+    for artwork_slot, item in enumerate(items):
         item_title = _bounded_utf8(item.title, MAX_TITLE_BYTES)
         subtitle = _bounded_utf8(item.subtitle, MAX_SUBTITLE_BYTES)
         progress = 0 if item.duration_ms <= 0 else min(100, item.view_offset_ms * 100 // item.duration_ms)
@@ -666,6 +669,40 @@ def build_artwork_atlas(
     return encoded.getvalue()
 
 
+def build_browse_artwork_atlas(
+    base_url: str,
+    token: str | None,
+    items: list[HomeItem],
+) -> bytes:
+    from PIL import Image, ImageOps
+
+    rows = max(1, (len(items) + BROWSE_COLUMNS - 1) // BROWSE_COLUMNS)
+    atlas = Image.new(
+        "RGB",
+        (ARTWORK_WIDTH * BROWSE_COLUMNS, ARTWORK_HEIGHT * rows),
+    )
+    for slot, item in enumerate(items[:MAX_BROWSE_ITEMS]):
+        try:
+            if not item.artwork_path:
+                raise ValueError("missing artwork")
+            source = Image.open(io.BytesIO(_plex_bytes(base_url, item.artwork_path, token)))
+            image = ImageOps.fit(source.convert("RGB"), (ARTWORK_WIDTH, ARTWORK_HEIGHT))
+        except Exception:
+            color = (
+                (item.rating_key * 29) & 255,
+                (item.rating_key * 53) & 255,
+                (item.rating_key * 97) & 255,
+            )
+            image = Image.new("RGB", (ARTWORK_WIDTH, ARTWORK_HEIGHT), color)
+        atlas.paste(
+            image,
+            ((slot % BROWSE_COLUMNS) * ARTWORK_WIDTH, (slot // BROWSE_COLUMNS) * ARTWORK_HEIGHT),
+        )
+    encoded = io.BytesIO()
+    atlas.save(encoded, format="JPEG", quality=75, optimize=True, progressive=False)
+    return encoded.getvalue()
+
+
 class GatewayHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     media_path: pathlib.Path
@@ -704,10 +741,8 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
                 return cached
             page = fetch_browse_page(cls.plex_base_url, cls.plex_token, section, start)
             catalog = encode_browse_page(page)
-            artwork = build_artwork_atlas(
-                cls.plex_base_url,
-                cls.plex_token,
-                [HomeRow(section.title, page.items)],
+            artwork = build_browse_artwork_atlas(
+                cls.plex_base_url, cls.plex_token, page.items
             )
             cls.browse_cache[cache_key] = (catalog, artwork)
             return catalog, artwork

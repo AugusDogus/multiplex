@@ -140,6 +140,7 @@ class CatalogContractTest(unittest.TestCase):
 
         self.assertEqual(item_count, gateway.MAX_HOME_ITEMS)
         self.assertEqual(gateway.MAX_ITEMS, 4)
+        self.assertEqual(gateway.MAX_BROWSE_ITEMS, 21)
 
     def test_encodes_v3_bootstrap_libraries(self) -> None:
         rows = [
@@ -168,6 +169,20 @@ class CatalogContractTest(unittest.TestCase):
         encoded = gateway.encode_browse_page(page)
         header = struct.unpack(">4sHHHHHH", encoded[:16])
         self.assertEqual(header, (b"MPXB", 1, 4, 1, 4, 50, 5))
+
+    def test_browse_window_contains_three_seven_item_rows(self) -> None:
+        section = gateway.LibrarySection(4, "Anime", "show")
+        items = [
+            gateway.HomeItem(index + 1, 0, 0, f"Show {index}", "2026", None)
+            for index in range(30)
+        ]
+        encoded = gateway.encode_browse_page(
+            gateway.BrowsePage(section, 0, len(items), items)
+        )
+
+        _, _, _, item_count, _, _, _ = struct.unpack(">4sHHHHHH", encoded[:16])
+        self.assertEqual(item_count, gateway.MAX_BROWSE_ITEMS)
+        self.assertEqual(item_count, gateway.BROWSE_COLUMNS * 3)
 
     def test_encodes_search_page_with_shared_item_records(self) -> None:
         page = gateway.SearchPage(

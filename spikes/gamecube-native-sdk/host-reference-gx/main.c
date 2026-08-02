@@ -102,6 +102,8 @@
 #define HOME_SHELF_STRIDE 168.0f
 #define HOME_CAROUSEL_LEFT 20.0f
 #define HOME_CAROUSEL_RIGHT 620.0f
+#define BROWSE_GRID_TOP 118.0f
+#define BROWSE_ROW_STRIDE 155.0f
 #define MULTIPLEX_SCREEN_HOME 1u
 #define MULTIPLEX_SCREEN_BROWSE 3u
 #define MULTIPLEX_SCREEN_SEARCH_RESULTS 5u
@@ -111,7 +113,7 @@
 #define POSTER_JPEG_CAPACITY (256u * 1024u)
 #define PLEX_POSTER_JPEG_CAPACITY (32u * 1024u)
 #define HOME_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS
-#define BROWSE_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_ITEMS
+#define BROWSE_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_BROWSE_ITEMS
 #define POSTER_TEXTURE_COUNT (HOME_POSTER_COUNT + BROWSE_POSTER_COUNT)
 #define POSTER_SURFACE_CAPACITY 24u
 #define UI_COMMAND_CAPACITY 1024u
@@ -213,6 +215,7 @@ static uint32_t home_motion_previous_surface_count;
 static HomeMotionKind home_motion_kind;
 static int8_t home_motion_direction;
 static uint8_t home_motion_frame = HOME_MOTION_FRAMES;
+static int8_t browse_motion_pending_direction;
 static bool ui_draw_clip_active;
 static float ui_draw_clip_left;
 static float ui_draw_clip_top;
@@ -1159,6 +1162,24 @@ static void begin_home_motion(uint32_t before, uint32_t after) {
              after);
 }
 
+static void queue_browse_motion(uint32_t before, uint32_t after) {
+  if (before == UINT32_MAX || before == after) return;
+  browse_motion_pending_direction = after > before ? 1 : -1;
+}
+
+static void activate_pending_browse_motion(void) {
+  if (browse_motion_pending_direction == 0 ||
+      presented_screen != MULTIPLEX_SCREEN_BROWSE) {
+    return;
+  }
+  home_motion_kind = HOME_MOTION_VERTICAL;
+  home_motion_direction = browse_motion_pending_direction;
+  home_motion_frame = 0;
+  browse_motion_pending_direction = 0;
+  SYS_Report("REFERENCE GX: browse motion direction=%d\n",
+             (int)home_motion_direction);
+}
+
 static bool commit_reference_frame(
     const MultiplexReferenceFrameRender *render, uint32_t render_us,
     bool audit) {
@@ -1229,6 +1250,7 @@ static bool refresh_reference_frame(bool initialize) {
     return false;
   }
   present_native_ui_packet(&ui_packet);
+  activate_pending_browse_motion();
   return true;
 }
 
@@ -1339,6 +1361,7 @@ static bool poll_reference_renderer(void) {
     return false;
   }
   present_native_ui_packet(&reference_renderer.ui_packet);
+  activate_pending_browse_motion();
   SYS_Report("REFERENCE GX: screen transition ready from=%u to=%u us=%u\n",
              previous_screen, presented_screen,
              reference_renderer.render_us);
@@ -1683,6 +1706,27 @@ static bool queue_direct_poster_loader(
     DCFlushRange(poster_texture_pixels, total_bytes);
   }
   const uint16_t target_end = texture_offset + item_count;
+  const size_t window_bytes =
+      (size_t)item_count * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+  uint8_t *window_snapshot = NULL;
+  uint32_t *window_rating_keys = NULL;
+  if (poster_texture_count > texture_offset) {
+    window_snapshot = malloc(window_bytes);
+    window_rating_keys = malloc((size_t)item_count * sizeof(uint32_t));
+    if (window_snapshot != NULL && window_rating_keys != NULL) {
+      memcpy(window_snapshot,
+             poster_texture_pixels +
+                 (size_t)texture_offset * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES,
+             window_bytes);
+      memcpy(window_rating_keys, poster_texture_rating_keys + texture_offset,
+             (size_t)item_count * sizeof(uint32_t));
+    } else {
+      free(window_snapshot);
+      free(window_rating_keys);
+      window_snapshot = NULL;
+      window_rating_keys = NULL;
+    }
+  }
   uint16_t download_count = 0;
   for (uint16_t index = 0; index < item_count; ++index) {
     const uint16_t target_slot = texture_offset + index;
@@ -1690,6 +1734,7 @@ static bool queue_direct_poster_loader(
         poster_texture_pixels +
         (size_t)target_slot * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
     uint16_t cached_slot = UINT16_MAX;
+    uint16_t snapshot_slot = UINT16_MAX;
     for (uint16_t slot = 0; slot < poster_texture_count; ++slot) {
       const bool stable_source = slot < texture_offset || slot >= target_end ||
                                  slot == target_slot;
@@ -1699,6 +1744,14 @@ static bool queue_direct_poster_loader(
         break;
       }
     }
+    if (cached_slot == UINT16_MAX && window_rating_keys != NULL) {
+      for (uint16_t slot = 0; slot < item_count; ++slot) {
+        if (window_rating_keys[slot] == items[index].rating_key) {
+          snapshot_slot = slot;
+          break;
+        }
+      }
+    }
     if (cached_slot != UINT16_MAX) {
       if (cached_slot != target_slot) {
         memcpy(pixels,
@@ -1706,6 +1759,13 @@ static bool queue_direct_poster_loader(
                    (size_t)cached_slot * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES,
                MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
       }
+      poster_texture_rating_keys[target_slot] = items[index].rating_key;
+      ++loader->cache_hits;
+    } else if (snapshot_slot != UINT16_MAX) {
+      memcpy(pixels,
+             window_snapshot +
+                 (size_t)snapshot_slot * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES,
+             MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
       poster_texture_rating_keys[target_slot] = items[index].rating_key;
       ++loader->cache_hits;
     } else {
@@ -1734,6 +1794,8 @@ static bool queue_direct_poster_loader(
   loader->requested_count = item_count;
   loader->texture_offset = texture_offset;
   loader->pending = download_count != 0;
+  free(window_snapshot);
+  free(window_rating_keys);
   if (download_count == 0) {
     SYS_Report("REFERENCE GX: direct Plex posters reused=%u/%u\n",
                loader->cache_hits, loader->requested_count);
@@ -1869,6 +1931,7 @@ static bool load_browse_page(const char *gateway_url) {
   if (requested_section > UINT16_MAX || requested_start > UINT16_MAX) {
     return false;
   }
+  const uint32_t previous_start = multiplex_native_app_browse_view_start();
 
   MultiplexGatewayBrowsePage page;
   if (!multiplex_gateway_load_browse(gateway_url, (uint16_t)requested_section,
@@ -1886,8 +1949,9 @@ static bool load_browse_page(const char *gateway_url) {
       !multiplex_gateway_load_browse_artwork(
           gateway_url, page.section_id, page.start, encoded,
           POSTER_JPEG_CAPACITY, &encoded_size) ||
-      !poster_jpeg_decode(encoded, encoded_size, page.item_count, browse_pixels,
-                          browse_bytes)) {
+      !poster_jpeg_decode_columns(
+          encoded, encoded_size, page.item_count,
+          MULTIPLEX_GATEWAY_BROWSE_COLUMNS, browse_pixels, browse_bytes)) {
     free(encoded);
     return false;
   }
@@ -1904,7 +1968,9 @@ static bool load_browse_page(const char *gateway_url) {
   }
   DCFlushRange(browse_pixels, browse_bytes);
 
-  return bind_browse_page(&page);
+  const bool bound = bind_browse_page(&page);
+  if (bound) queue_browse_motion(previous_start, page.start);
+  return bound;
 }
 
 static void *run_direct_browse_loader(void *context) {
@@ -1991,6 +2057,7 @@ static bool poll_direct_browse_loader(
   }
   bool bound = false;
   if (loader->ready) {
+    const uint32_t previous_start = multiplex_native_app_browse_view_start();
     if (!queue_direct_poster_loader(poster_loader, credentials,
                                     loader->page.items,
                                     loader->page.item_count,
@@ -1999,6 +2066,7 @@ static bool poll_direct_browse_loader(
           "REFERENCE GX: direct browse artwork deferred; using placeholders\n");
     }
     bound = bind_browse_page(&loader->page);
+    if (bound) queue_browse_motion(previous_start, loader->page.start);
     SYS_Report(
         "REFERENCE GX: direct browse-page complete section=%u start=%u us=%u\n",
         requested_section, requested_start, elapsed_us(loader->started_tick));
@@ -4491,6 +4559,33 @@ static void draw_home_motion(void) {
                                    (float)(HOME_MOTION_FRAMES - 1u);
   const float eased = progress * progress * (3.0f - 2.0f * progress);
   const float direction = (float)home_motion_direction;
+  if (presented_screen == MULTIPLEX_SCREEN_BROWSE) {
+    const float current_y =
+        direction * BROWSE_ROW_STRIDE * (1.0f - eased);
+    draw_home_background();
+    draw_packet_shapes_region(&presented_ui_packet, 0.0f, BROWSE_GRID_TOP,
+                              0.0f, 0.0f);
+    draw_packet_shapes_region(&presented_ui_packet, BROWSE_GRID_TOP,
+                              LOGICAL_HEIGHT, 0.0f, current_y);
+    draw_packet_posters_region(poster_surfaces, poster_surface_count,
+                               BROWSE_GRID_TOP, LOGICAL_HEIGHT, 0.0f,
+                               current_y);
+    draw_packet_text_region(&presented_ui_packet, 0.0f, BROWSE_GRID_TOP,
+                            0.0f, 0.0f);
+    draw_packet_text_region(&presented_ui_packet, BROWSE_GRID_TOP,
+                            LOGICAL_HEIGHT, 0.0f, current_y);
+    clear_ui_draw_clip();
+    load_ui_translation_xy(0.0f, 0.0f);
+    GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
+    if (home_motion_frame + 1u >= HOME_MOTION_FRAMES) {
+      home_motion_frame = HOME_MOTION_FRAMES;
+      home_motion_kind = HOME_MOTION_NONE;
+      SYS_Report("REFERENCE GX: browse motion complete\n");
+    } else {
+      home_motion_frame += 1u;
+    }
+    return;
+  }
   float previous_x = 0.0f;
   float previous_y = 0.0f;
   float current_x = 0.0f;
@@ -4828,7 +4923,8 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
       ui_entry_frame += 1u;
     }
     if (home_motion_kind != HOME_MOTION_NONE &&
-        presented_screen == MULTIPLEX_SCREEN_HOME) {
+        (presented_screen == MULTIPLEX_SCREEN_HOME ||
+         presented_screen == MULTIPLEX_SCREEN_BROWSE)) {
       draw_home_motion();
     } else {
       load_ui_translation(entry_offset);

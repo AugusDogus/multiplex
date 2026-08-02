@@ -91,8 +91,7 @@ export interface Model {
   readonly selectedLibraryTitle: Uint8Array;
   readonly browseItems: readonly CatalogItem[];
   readonly browseStart: number;
-  readonly browsePageNumber: number;
-  readonly browsePageCount: number;
+  readonly browsePendingStart: number;
   readonly browseTotal: number;
   readonly browseLoaded: boolean;
   readonly browseFailed: boolean;
@@ -162,8 +161,8 @@ export type Msg =
   | { readonly kind: "next_row" }
   | { readonly kind: "open_libraries" }
   | { readonly kind: "open_library"; readonly index: number }
-  | { readonly kind: "browse_previous" }
-  | { readonly kind: "browse_next" }
+  | { readonly kind: "browse_previous_row" }
+  | { readonly kind: "browse_next_row" }
   | { readonly kind: "open_search" }
   | { readonly kind: "search_key"; readonly index: number }
   | { readonly kind: "search_delete" }
@@ -376,8 +375,7 @@ export function initialModel(): Model {
     selectedLibraryTitle: demoLibraries[0].title,
     browseItems: demoItems,
     browseStart: 0,
-    browsePageNumber: 1,
-    browsePageCount: 1,
+    browsePendingStart: 0,
     browseTotal: demoItems.length,
     browseLoaded: true,
     browseFailed: false,
@@ -496,29 +494,32 @@ export function loadBrowse(
   title: Uint8Array,
   start: number,
   total: number,
-  pageNumber: number,
-  pageCount: number,
   items: readonly CatalogItem[],
 ): Model {
   if (sectionId !== model.selectedLibraryId || items.length === 0) return model;
+  const selectedIndex = model.browseLoaded
+    ? Math.min(Math.max(0, model.selectedIndex), items.length - 1)
+    : 0;
   return previewCatalogItem(
     {
       ...model,
       selectedLibraryTitle: title,
       browseItems: items,
       browseStart: start,
-      browsePageNumber: pageNumber,
-      browsePageCount: pageCount,
+      browsePendingStart: start,
       browseTotal: total,
       browseLoaded: true,
       browseFailed: false,
     },
-    0,
+    selectedIndex,
   );
 }
 
 export function failBrowse(model: Model): Model {
-  return model.screen === "browse" ? { ...model, browseLoaded: false, browseFailed: true } : model;
+  if (model.screen !== "browse") return model;
+  return model.browseItems.length === 0
+    ? { ...model, browseLoaded: false, browseFailed: true }
+    : { ...model, browsePendingStart: model.browseStart, browseFailed: false };
 }
 
 export function loadSearch(model: Model, query: Uint8Array, items: readonly CatalogItem[]): Model {
@@ -1149,20 +1150,40 @@ export function hasLibraries(model: Model): boolean {
   return model.libraries.length > 0;
 }
 
+const browseColumns = 7;
+const browseVisibleItems = browseColumns * 2;
+const browseWindowItems = browseColumns * 3;
+
+export function browseFirstRowItems(model: Model): readonly CatalogItem[] {
+  return model.browseItems.slice(0, browseColumns);
+}
+
+export function browseSecondRowItems(model: Model): readonly CatalogItem[] {
+  return model.browseItems.slice(browseColumns, browseVisibleItems);
+}
+
+export function browseContinuationItems(model: Model): readonly CatalogItem[] {
+  return model.browseItems.slice(browseVisibleItems, browseWindowItems);
+}
+
+export function browseHasItems(model: Model): boolean {
+  return model.browseItems.length > 0;
+}
+
+export function browseSelectionAtTop(model: Model): boolean {
+  return model.selectedIndex < browseColumns;
+}
+
+export function browseSelectionAtBottom(model: Model): boolean {
+  return model.selectedIndex >= browseColumns && model.selectedIndex < browseVisibleItems;
+}
+
 export function browseHasPrevious(model: Model): boolean {
   return model.browseStart > 0;
 }
 
 export function browseHasNext(model: Model): boolean {
   return model.browseStart + model.browseItems.length < model.browseTotal;
-}
-
-export function browsePreviousDisabled(model: Model): boolean {
-  return !browseHasPrevious(model);
-}
-
-export function browseNextDisabled(model: Model): boolean {
-  return !browseHasNext(model);
 }
 
 export function detailsChildrenPreviousDisabled(model: Model): boolean {
@@ -1174,15 +1195,23 @@ export function detailsChildrenNextDisabled(model: Model): boolean {
 }
 
 export function browseLoading(model: Model): boolean {
-  return model.screen === "browse" && !model.browseLoaded && !model.browseFailed;
+  return (
+    model.screen === "browse" &&
+    model.browseItems.length === 0 &&
+    !model.browseLoaded &&
+    !model.browseFailed
+  );
 }
 
 export function browseRequestSection(model: Model): number {
-  return model.screen === "browse" && !model.browseLoaded ? model.selectedLibraryId : 0;
+  return model.screen === "browse" &&
+    (!model.browseLoaded || model.browsePendingStart !== model.browseStart)
+    ? model.selectedLibraryId
+    : 0;
 }
 
 export function browseRequestStart(model: Model): number {
-  return model.browseStart;
+  return model.browsePendingStart;
 }
 
 export function searchPrompt(model: Model): Uint8Array {
@@ -1466,24 +1495,28 @@ export function update(model: Model, msg: Msg): Model {
         selectedLibraryTitle: library.title,
         browseItems: [],
         browseStart: 0,
-        browsePageNumber: 1,
-        browsePageCount: 1,
+        browsePendingStart: 0,
         browseTotal: 0,
         browseLoaded: false,
         browseFailed: false,
       };
     }
-    case "browse_previous": {
+    case "browse_previous_row": {
       if (model.screen !== "browse" || model.browseStart === 0) return model;
-      const start = model.browseStart < 4 ? 0 : model.browseStart - 4;
-      return { ...model, browseStart: start, browseLoaded: false, browseFailed: false };
+      const start = Math.max(0, model.browseStart - browseColumns);
+      return {
+        ...model,
+        browsePendingStart: start,
+        selectedIndex: model.selectedIndex % browseColumns,
+        browseFailed: false,
+      };
     }
-    case "browse_next": {
+    case "browse_next_row": {
       if (model.screen !== "browse" || !browseHasNext(model)) return model;
       return {
         ...model,
-        browseStart: model.browseStart + 4,
-        browseLoaded: false,
+        browsePendingStart: model.browseStart + browseColumns,
+        selectedIndex: browseColumns + (model.selectedIndex % browseColumns),
         browseFailed: false,
       };
     }

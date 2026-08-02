@@ -231,6 +231,7 @@ uint32_t multiplex_native_app_layout_audit(uint32_t *first_rule,
 uint32_t multiplex_native_app_poster_inset_audit(void);
 uint32_t multiplex_native_app_input(uint32_t action);
 uint32_t multiplex_native_app_home_view_state(void);
+uint32_t multiplex_native_app_browse_view_start(void);
 uint32_t multiplex_native_app_screen(void);
 uint32_t multiplex_native_video_surface(MultiplexVideoSurface *output);
 uint32_t multiplex_native_player_controls_surface(

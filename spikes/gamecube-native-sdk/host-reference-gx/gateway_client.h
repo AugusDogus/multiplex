@@ -6,6 +6,9 @@
 #include <stdint.h>
 
 #define MULTIPLEX_GATEWAY_MAX_ITEMS 4
+#define MULTIPLEX_GATEWAY_BROWSE_COLUMNS 7
+#define MULTIPLEX_GATEWAY_MAX_BROWSE_ITEMS \
+  (MULTIPLEX_GATEWAY_BROWSE_COLUMNS * 3)
 #define MULTIPLEX_GATEWAY_MAX_HOME_ITEMS 8
 #define MULTIPLEX_GATEWAY_MAX_ROWS 3
 #define MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS \
@@ -86,7 +89,7 @@ typedef struct {
   uint16_t total_size;
   char title[MULTIPLEX_GATEWAY_TITLE_CAPACITY];
   uint16_t title_length;
-  MultiplexGatewayItem items[MULTIPLEX_GATEWAY_MAX_ITEMS];
+  MultiplexGatewayItem items[MULTIPLEX_GATEWAY_MAX_BROWSE_ITEMS];
 } MultiplexGatewayBrowsePage;
 
 typedef struct {

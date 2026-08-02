@@ -556,7 +556,7 @@ bool multiplex_plex_catalog_parse_browse(
 
   const char *cursor = array + 1;
   while (cursor < document.end &&
-         page->item_count < MULTIPLEX_GATEWAY_MAX_ITEMS) {
+         page->item_count < MULTIPLEX_GATEWAY_MAX_BROWSE_ITEMS) {
     cursor = skip_space(cursor, document.end);
     if (cursor < document.end && *cursor == ']') {
       break;
@@ -965,7 +965,7 @@ bool multiplex_plex_load_browse(
       "library/sections/%u/all?sort=addedAt%%3Adesc&"
       "X-Plex-Container-Start=%u&X-Plex-Container-Size=%u&"
       PLEX_COMPACT_ITEMS_QUERY,
-      library->section_id, start, MULTIPLEX_GATEWAY_MAX_ITEMS);
+      library->section_id, start, MULTIPLEX_GATEWAY_MAX_BROWSE_ITEMS);
   if (path_size <= 0 || (size_t)path_size >= sizeof(path)) {
     return false;
   }

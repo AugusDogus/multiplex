@@ -295,40 +295,48 @@
   </if>
 
   <if test="{screen == 'browse'}">
-    <column grow="1" gap="8">
+    <column grow="1" gap="6">
       <row cross="center" gap="8">
         <button focus-ring="text" width="42" size="sm" icon="app:back" variant="ghost" on-press="back" label="Back to libraries"></button>
         <spacer grow="1" />
         <text size="sm" foreground="text_muted">{browseTotal} items</text>
-        <text size="sm" foreground="text_muted">Page {browsePageNumber} of {browsePageCount}</text>
       </row>
-      <if test="{browseLoaded}">
-        <column grow="1" gap="8">
-          <row grow="1" gap="8" main="center" cross="start">
-            <column width="34" height="186" main="center">
-              <button focus-ring="text" width="34" size="sm" icon="chevron-left" variant="ghost" on-press="browse_previous" disabled="{browsePreviousDisabled}" label="Previous page"></button>
-            </column>
-            <row grow="1" gap="8" main="center">
-              <for each="browseItems" as="item" key="ratingKey">
-                <column width="124" gap="4" on-press="open_item:{item.id}" label="{item.title}">
-                  <image image="{item.imageId}" width="124" height="186" radius="lg" label="{item.title}" />
-                  <if test="{item.progressPercent > 0 and item.progressPercent < 100}">
-                    <progress value="{item.progressPercent / 100}" height="4" />
-                  </if>
-                  <else>
-                    <spacer height="4" />
-                  </else>
-                  <text size="sm" wrap="false">{item.title}</text>
-                  <text size="sm" foreground="text_muted" wrap="false">{item.secondary}</text>
-                  <if test="{item.hasHierarchy}">
-                    <text size="sm" foreground="text_muted" wrap="false">{item.hierarchy}</text>
-                  </if>
-                </column>
-              </for>
-            </row>
-            <column width="34" height="186" main="center">
-              <button focus-ring="text" width="34" size="sm" icon="chevron-right" variant="ghost" on-press="browse_next" disabled="{browseNextDisabled}" label="Next page"></button>
-            </column>
+      <if test="{browseHasItems}">
+        <column grow="1" gap="5">
+          <row height="136" gap="12">
+            <for each="browseFirstRowItems" as="item" key="ratingKey">
+              <column width="68" gap="2" on-press="open_item:{item.id}" label="{item.title}">
+                <image image="{item.imageId}" width="68" height="102" radius="lg" label="{item.title}" />
+                <if test="{item.progressPercent > 0 and item.progressPercent < 100}">
+                  <progress value="{item.progressPercent / 100}" height="3" />
+                </if>
+                <else>
+                  <spacer height="3" />
+                </else>
+                <text size="sm" wrap="false">{item.title}</text>
+                <text size="sm" foreground="text_muted" wrap="false">{item.secondary}</text>
+              </column>
+            </for>
+          </row>
+          <row height="136" gap="12">
+            <for each="browseSecondRowItems" as="item" key="ratingKey">
+              <column width="68" gap="2" on-press="open_item:{item.id}" label="{item.title}">
+                <image image="{item.imageId}" width="68" height="102" radius="lg" label="{item.title}" />
+                <if test="{item.progressPercent > 0 and item.progressPercent < 100}">
+                  <progress value="{item.progressPercent / 100}" height="3" />
+                </if>
+                <else>
+                  <spacer height="3" />
+                </else>
+                <text size="sm" wrap="false">{item.title}</text>
+                <text size="sm" foreground="text_muted" wrap="false">{item.secondary}</text>
+              </column>
+            </for>
+          </row>
+          <row height="42" gap="12">
+            <for each="browseContinuationItems" as="item" key="ratingKey">
+              <image image="{item.imageId}" width="68" height="42" radius="lg" label="{item.title}" />
+            </for>
           </row>
         </column>
       </if>
