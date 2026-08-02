@@ -83,6 +83,7 @@
 #define PLAYER_CONTROLS_IDLE_MS 4000u
 #define PLAYER_CONTROLS_FADE_MS 180u
 #define UI_ENTRY_FRAMES 6u
+#define POSTER_FOCUS_FRAMES 7u
 #define MULTIPLEX_SCREEN_DETAILS 9u
 #define MULTIPLEX_PAIRING_CONNECTING 4u
 #define POSTER_JPEG_CAPACITY (256u * 1024u)
@@ -154,6 +155,9 @@ static MultiplexPlayerControlsSurface player_controls_surface;
 static MultiplexModalSurface modal_surface;
 static MultiplexPosterSurface poster_surfaces[4];
 static uint32_t poster_surface_count;
+static float focused_poster_x = -1.0f;
+static float focused_poster_y = -1.0f;
+static uint8_t poster_focus_frame = POSTER_FOCUS_FRAMES;
 static MultiplexGatewayDetails direct_details_cache;
 static bool direct_details_cache_valid;
 static uint32_t presented_screen = UINT32_MAX;
@@ -836,6 +840,20 @@ static void capture_reference_surfaces(void) {
   poster_surface_count =
       multiplex_native_poster_surfaces(poster_surfaces, 4);
   presented_screen = multiplex_native_app_screen();
+  float next_focused_x = -1.0f;
+  float next_focused_y = -1.0f;
+  for (uint32_t index = 0; index < poster_surface_count; ++index) {
+    if (poster_surfaces[index].focused != 0) {
+      next_focused_x = poster_surfaces[index].card_x;
+      next_focused_y = poster_surfaces[index].card_y;
+      break;
+    }
+  }
+  if (next_focused_x != focused_poster_x || next_focused_y != focused_poster_y) {
+    focused_poster_x = next_focused_x;
+    focused_poster_y = next_focused_y;
+    poster_focus_frame = 0;
+  }
   if (presented_screen != previous_screen &&
       presented_screen != MULTIPLEX_SCREEN_PLAYER) {
     ui_entry_frame = 0;
@@ -3674,7 +3692,23 @@ static void draw_poster_surfaces(void) {
       continue;
     }
     GX_LoadTexObj(&poster_textures[surface->image_id - 1u], GX_TEXMAP0);
-    draw_rounded_poster(surface);
+    if (surface->focused != 0) {
+      const float progress =
+          POSTER_FOCUS_FRAMES <= 1u
+              ? 1.0f
+              : (float)poster_focus_frame / (float)(POSTER_FOCUS_FRAMES - 1u);
+      const float remaining = 1.0f - progress;
+      const float eased = 1.0f - remaining * remaining * remaining;
+      MultiplexPosterSurface lifted = *surface;
+      lifted.x -= eased * 2.0f;
+      lifted.y -= eased * 3.0f;
+      lifted.width += eased * 4.0f;
+      lifted.height += eased * 4.0f;
+      lifted.radius += eased;
+      draw_rounded_poster(&lifted);
+    } else {
+      draw_rounded_poster(surface);
+    }
   }
   bool configured_reveals = false;
   for (uint32_t index = 0; index < poster_surface_count; ++index) {
@@ -3702,6 +3736,15 @@ static void draw_poster_surfaces(void) {
   }
   for (uint32_t index = 0; index < poster_surface_count; ++index) {
     const MultiplexPosterSurface *surface = &poster_surfaces[index];
+    if (surface->focused == 0 && focused_poster_x >= 0.0f) {
+      configure_color_pipeline();
+      GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
+                      GX_LO_CLEAR);
+      fill_rounded_color_rect(
+          surface->x, surface->y, surface->x + surface->width,
+          surface->y + surface->height, surface->radius,
+          (GXColor){10, 10, 12, 42});
+    }
     if (surface->focused == 0 || surface->card_width <= 0 ||
         surface->card_height <= 0) {
       continue;
@@ -3711,9 +3754,20 @@ static void draw_poster_surfaces(void) {
                     GX_LO_CLEAR);
     const float center = surface->card_x + surface->card_width * 0.5f;
     const float top = surface->card_y + surface->card_height + 2.0f;
-    fill_rounded_color_rect(center - 17.0f, top, center + 17.0f, top + 3.0f,
-                            1.5f, (GXColor){45, 162, 255, 255});
+    const float progress =
+        POSTER_FOCUS_FRAMES <= 1u
+            ? 1.0f
+            : (float)poster_focus_frame / (float)(POSTER_FOCUS_FRAMES - 1u);
+    const float remaining = 1.0f - progress;
+    const float eased = 1.0f - remaining * remaining * remaining;
+    const float half_width = 7.0f + 10.0f * eased;
+    fill_rounded_color_rect(center - half_width, top, center + half_width,
+                            top + 3.0f, 1.5f,
+                            (GXColor){45, 162, 255, 255});
     break;
+  }
+  if (poster_focus_frame < POSTER_FOCUS_FRAMES) {
+    poster_focus_frame += 1u;
   }
 }
 
