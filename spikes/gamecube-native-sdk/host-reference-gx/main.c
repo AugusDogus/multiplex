@@ -2591,6 +2591,72 @@ static void draw_reference_frame(void) {
   }
 }
 
+static void poster_texture_vertex(const MultiplexPosterSurface *surface,
+                                  float x, float y) {
+  texture_vertex(x, y, (x - surface->x) / surface->width,
+                 (y - surface->y) / surface->height);
+}
+
+static void draw_poster_rect(const MultiplexPosterSurface *surface, float left,
+                             float top, float right, float bottom) {
+  GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+  poster_texture_vertex(surface, left, top);
+  poster_texture_vertex(surface, right, top);
+  poster_texture_vertex(surface, right, bottom);
+  poster_texture_vertex(surface, left, bottom);
+  GX_End();
+}
+
+static void draw_poster_corner(const MultiplexPosterSurface *surface,
+                               float center_x, float center_y, float radius,
+                               float x_sign, float y_sign) {
+  static const float arc[5][2] = {
+      {1.0f, 0.0f},
+      {0.9238795f, 0.3826834f},
+      {0.7071068f, 0.7071068f},
+      {0.3826834f, 0.9238795f},
+      {0.0f, 1.0f},
+  };
+  GX_Begin(GX_TRIANGLEFAN, GX_VTXFMT0, 6);
+  poster_texture_vertex(surface, center_x, center_y);
+  for (unsigned index = 0; index < 5; ++index) {
+    poster_texture_vertex(surface, center_x + x_sign * arc[index][0] * radius,
+                          center_y + y_sign * arc[index][1] * radius);
+  }
+  GX_End();
+}
+
+static void draw_rounded_poster(const MultiplexPosterSurface *surface) {
+  const float maximum =
+      (surface->width < surface->height ? surface->width : surface->height) *
+      0.5f;
+  float radius = surface->radius;
+  if (radius > maximum) {
+    radius = maximum;
+  }
+  if (radius < 1.0f) {
+    draw_poster_rect(surface, surface->x, surface->y,
+                     surface->x + surface->width,
+                     surface->y + surface->height);
+    return;
+  }
+
+  const float left = surface->x;
+  const float top = surface->y;
+  const float right = left + surface->width;
+  const float bottom = top + surface->height;
+  draw_poster_rect(surface, left + radius, top, right - radius, bottom);
+  draw_poster_rect(surface, left, top + radius, right, bottom - radius);
+  draw_poster_corner(surface, left + radius, top + radius, radius, -1.0f,
+                     -1.0f);
+  draw_poster_corner(surface, right - radius, top + radius, radius, 1.0f,
+                     -1.0f);
+  draw_poster_corner(surface, right - radius, bottom - radius, radius, 1.0f,
+                     1.0f);
+  draw_poster_corner(surface, left + radius, bottom - radius, radius, -1.0f,
+                     1.0f);
+}
+
 static void draw_poster_surfaces(void) {
   if (poster_texture_count == 0) {
     return;
@@ -2602,13 +2668,7 @@ static void draw_poster_surfaces(void) {
       continue;
     }
     GX_LoadTexObj(&poster_textures[surface->image_id - 1u], GX_TEXMAP0);
-    GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
-    texture_vertex(surface->x, surface->y, 0.0f, 0.0f);
-    texture_vertex(surface->x + surface->width, surface->y, 1.0f, 0.0f);
-    texture_vertex(surface->x + surface->width, surface->y + surface->height,
-                   1.0f, 1.0f);
-    texture_vertex(surface->x, surface->y + surface->height, 0.0f, 1.0f);
-    GX_End();
+    draw_rounded_poster(surface);
   }
 }
 

@@ -250,6 +250,7 @@ pub const PosterSurface = extern struct {
     y: f32 = 0,
     width: f32 = 0,
     height: f32 = 0,
+    radius: f32 = 0,
 };
 
 const gx_fill_rect: u32 = 1;
@@ -2003,6 +2004,7 @@ fn capturePosterSurfaces(nodes: []const canvas.WidgetLayoutNode) void {
             .y = frame.y,
             .width = frame.width,
             .height = frame.height,
+            .radius = node.widget.style.radius orelse 0,
         };
         var ancestor_index = node.parent_index;
         while (ancestor_index) |index| {

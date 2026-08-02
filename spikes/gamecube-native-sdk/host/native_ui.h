@@ -80,6 +80,7 @@ typedef struct {
   float y;
   float width;
   float height;
+  float radius;
 } MultiplexPosterSurface;
 
 void multiplex_native_app_init(void);
