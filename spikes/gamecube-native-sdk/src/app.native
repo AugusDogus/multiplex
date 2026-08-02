@@ -411,10 +411,15 @@
         <button width="42" size="sm" icon="app:back" variant="ghost" on-press="back" label="Back"></button>
       </row>
       <if test="{detailsLoading}">
-        <column grow="1" main="center" cross="center" gap="8">
-          <text size="heading">{selectedTitle}</text>
-          <text foreground="text_muted">Loading full Plex details...</text>
-        </column>
+        <row grow="1" gap="18" padding="16">
+          <column width="160">
+            <image image="{selectedImageId}" width="160" height="240" radius="lg" label="{selectedTitle}" />
+          </column>
+          <column grow="1" main="center" gap="8">
+            <text size="heading">{selectedTitle}</text>
+            <text size="sm" foreground="text_muted">Loading details and playback options...</text>
+          </column>
+        </row>
       </if>
       <if test="{detailsLoaded}">
         <row grow="1" gap="18" padding="16">
