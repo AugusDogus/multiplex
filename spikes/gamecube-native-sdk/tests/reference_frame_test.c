@@ -72,6 +72,11 @@ static void renders_validated_frames(void) {
   assert(render.memo_hits == 2);
   assert(render.memo_misses == 0);
   assert(frame.pixels[0] == 2);
+
+  assert(multiplex_reference_frame_render_with_options(&frame, false, &render,
+                                                       0) ==
+         MULTIPLEX_REFERENCE_FRAME_OK);
+  assert(render.signature == 0);
   multiplex_reference_frame_destroy(&frame);
   assert(frame.pixels == NULL);
   assert(frame.byte_count == 0);

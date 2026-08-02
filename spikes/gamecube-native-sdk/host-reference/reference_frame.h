@@ -13,6 +13,10 @@ typedef enum {
   MULTIPLEX_REFERENCE_FRAME_EMPTY_RENDER,
 } MultiplexReferenceFrameStatus;
 
+enum {
+  MULTIPLEX_REFERENCE_FRAME_HASH_SIGNATURE = 1u << 0,
+};
+
 typedef struct {
   uint8_t *pixels_allocation;
   uint8_t *scratch_allocation;
@@ -42,6 +46,9 @@ MultiplexReferenceFrameStatus
 multiplex_reference_frame_render(MultiplexReferenceFrame *frame,
                                  bool initialize,
                                  MultiplexReferenceFrameRender *render);
+MultiplexReferenceFrameStatus multiplex_reference_frame_render_with_options(
+    MultiplexReferenceFrame *frame, bool initialize,
+    MultiplexReferenceFrameRender *render, uint32_t options);
 const char *
 multiplex_reference_frame_status_name(MultiplexReferenceFrameStatus status);
 

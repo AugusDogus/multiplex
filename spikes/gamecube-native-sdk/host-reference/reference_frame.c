@@ -76,6 +76,13 @@ MultiplexReferenceFrameStatus
 multiplex_reference_frame_render(MultiplexReferenceFrame *frame,
                                  bool initialize,
                                  MultiplexReferenceFrameRender *render) {
+  return multiplex_reference_frame_render_with_options(
+      frame, initialize, render, MULTIPLEX_REFERENCE_FRAME_HASH_SIGNATURE);
+}
+
+MultiplexReferenceFrameStatus multiplex_reference_frame_render_with_options(
+    MultiplexReferenceFrame *frame, bool initialize,
+    MultiplexReferenceFrameRender *render, uint32_t options) {
   if (frame == NULL || render == NULL || frame->pixels_allocation == NULL ||
       frame->scratch_allocation == NULL || frame->pixels == NULL ||
       frame->scratch == NULL || frame->byte_count == 0) {
@@ -100,7 +107,10 @@ multiplex_reference_frame_render(MultiplexReferenceFrame *frame,
   }
 
   render->commands = commands;
-  render->signature = hash_bytes(frame->pixels, frame->byte_count);
+  render->signature =
+      (options & MULTIPLEX_REFERENCE_FRAME_HASH_SIGNATURE) != 0
+          ? hash_bytes(frame->pixels, frame->byte_count)
+          : 0;
   render->memo_hits = multiplex_native_reference_memo_hits() - memo_hits_before;
   render->memo_misses =
       multiplex_native_reference_memo_misses() - memo_misses_before;

@@ -769,7 +769,8 @@ static bool refresh_reference_frame(bool initialize) {
   profile_stage_current = 0;
   MultiplexReferenceFrameRender render;
   const MultiplexReferenceFrameStatus frame_status =
-      multiplex_reference_frame_render(&reference_frame, initialize, &render);
+      multiplex_reference_frame_render_with_options(&reference_frame,
+                                                    initialize, &render, 0);
   if (frame_status != MULTIPLEX_REFERENCE_FRAME_OK) {
     SYS_Report("REFERENCE GX: Native frame render failed: %s at stage %08x\n",
                multiplex_reference_frame_status_name(frame_status),
@@ -819,8 +820,8 @@ static bool finish_network_warmup(NetworkWarmup *warmup) {
 static void *run_reference_renderer(void *context) {
   ReferenceFrameRenderer *renderer = context;
   const uint32_t started = gettick();
-  renderer->status = multiplex_reference_frame_render(
-      &reference_frame, false, &renderer->render);
+  renderer->status = multiplex_reference_frame_render_with_options(
+      &reference_frame, false, &renderer->render, 0);
   renderer->render_us = elapsed_us(started);
   __sync_synchronize();
   renderer->complete = true;
