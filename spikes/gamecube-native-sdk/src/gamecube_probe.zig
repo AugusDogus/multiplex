@@ -11,13 +11,17 @@ const canvas = @import("canvas");
 const geometry = @import("geometry");
 
 const multiplex_icon = canvas.svg_icon.parseComptime(@embedFile("icons/multiplex.svg"));
+const back_icon = canvas.svg_icon.parseComptime(@embedFile("icons/back.svg"));
 const back_10_icon = canvas.svg_icon.parseComptime(@embedFile("icons/back-10.svg"));
 const forward_30_icon = canvas.svg_icon.parseComptime(@embedFile("icons/forward-30.svg"));
+const home_icon = canvas.svg_icon.parseComptime(@embedFile("icons/home.svg"));
 const stop_icon = canvas.svg_icon.parseComptime(@embedFile("icons/stop.svg"));
 
 pub const app_icons = [_]canvas.icons.Entry{
+    .{ .name = "back", .icon = &back_icon },
     .{ .name = "back-10", .icon = &back_10_icon },
     .{ .name = "forward-30", .icon = &forward_30_icon },
+    .{ .name = "home", .icon = &home_icon },
     .{ .name = "multiplex", .icon = &multiplex_icon },
     .{ .name = "stop", .icon = &stop_icon },
 };
@@ -66,6 +70,9 @@ var staged_watch_together_invitee_ptrs: [8]*const core.WatchTogetherInvitee = un
 var staged_watch_together_invitee_names: [8][64]u8 = undefined;
 var staged_watch_together_invitee_count: usize = 0;
 var staged_watch_together_invitees_available = false;
+var staged_subtitle_streams: [4]core.SubtitleStream = undefined;
+var staged_subtitle_stream_ptrs: [4]*const core.SubtitleStream = undefined;
+var staged_subtitle_labels: [4][64]u8 = undefined;
 var details_title_buffer: [96]u8 = undefined;
 var details_secondary_buffer: [96]u8 = undefined;
 var details_hierarchy_buffer: [48]u8 = undefined;
@@ -396,7 +403,7 @@ fn prefersFocus(model: *const core.Model, msg: core.Msg) bool {
     }
     if (model.startMenuOpen) {
         return switch (msg) {
-            .start_menu_play, .start_menu_create_watch_together, .start_menu_watch_together => true,
+            .start_menu_play, .start_menu_mark_watched, .start_menu_create_watch_together, .start_menu_watch_together => true,
             else => false,
         };
     }
@@ -435,6 +442,7 @@ fn receivesFocus(model: *const core.Model, msg: core.Msg) bool {
     if (model.startMenuOpen) {
         return switch (msg) {
             .start_menu_play,
+            .start_menu_mark_watched,
             .start_menu_create_watch_together,
             .start_menu_watch_together,
             .start_menu_libraries,
@@ -479,6 +487,46 @@ fn collectEnabledPressIds(tree: anytype, press_ids: []canvas.ObjectId, model: *c
         }
     }
     return press_count;
+}
+
+fn focusFrame(nodes: []const canvas.WidgetLayoutNode, id: canvas.ObjectId) ?geometry.RectF {
+    for (nodes) |node| {
+        if (node.widget.id == id) return node.frame.normalized();
+    }
+    return null;
+}
+
+fn moveFocusSpatial(
+    press_ids: []const canvas.ObjectId,
+    nodes: []const canvas.WidgetLayoutNode,
+    horizontal: f32,
+    vertical: f32,
+) bool {
+    if (focused_handler >= press_ids.len) return false;
+    const current = focusFrame(nodes, press_ids[focused_handler]) orelse return false;
+    const current_x = current.x + current.width * 0.5;
+    const current_y = current.y + current.height * 0.5;
+    var best_index: ?usize = null;
+    var best_score: f32 = std.math.floatMax(f32);
+    for (press_ids, 0..) |id, index| {
+        if (index == focused_handler) continue;
+        const candidate = focusFrame(nodes, id) orelse continue;
+        const delta_x = candidate.x + candidate.width * 0.5 - current_x;
+        const delta_y = candidate.y + candidate.height * 0.5 - current_y;
+        const primary = delta_x * horizontal + delta_y * vertical;
+        if (primary <= 1.0) continue;
+        const secondary = @abs(delta_x * vertical - delta_y * horizontal);
+        const score = primary + secondary * 2.5;
+        if (score < best_score) {
+            best_score = score;
+            best_index = index;
+        }
+    }
+    if (best_index) |index| {
+        focused_handler = index;
+        return true;
+    }
+    return false;
 }
 
 export fn multiplex_native_app_init() callconv(.c) void {
@@ -1113,9 +1161,29 @@ export fn multiplex_native_app_details_fail() callconv(.c) u32 {
     return 1;
 }
 
-export fn multiplex_native_app_subtitles(count: u32, selected: u32) callconv(.c) u32 {
-    if (!app_initialized or count > 4 or selected > count) return 0;
-    commitAppModel(core.loadSubtitleStreams(app_model, @floatFromInt(count), @floatFromInt(selected)));
+export fn multiplex_native_app_subtitles(
+    count: u32,
+    selected: u32,
+    labels: [*]const u8,
+    label_stride: u32,
+    label_lengths: [*]const u8,
+) callconv(.c) u32 {
+    if (!app_initialized or count > 4 or selected > count or label_stride == 0 or label_stride > 64) return 0;
+    for (0..count) |index| {
+        const label_length = label_lengths[index];
+        if (label_length == 0 or label_length >= 64 or label_length >= label_stride) return 0;
+        @memcpy(staged_subtitle_labels[index][0..label_length], labels[index * label_stride ..][0..label_length]);
+        staged_subtitle_streams[index] = .{
+            .id = @intCast(index),
+            .label = staged_subtitle_labels[index][0..label_length],
+        };
+        staged_subtitle_stream_ptrs[index] = &staged_subtitle_streams[index];
+    }
+    commitAppModel(core.loadSubtitleStreams(
+        app_model,
+        staged_subtitle_stream_ptrs[0..count],
+        @intCast(selected),
+    ));
     reference_full_repaint = true;
     return 1;
 }
@@ -1124,7 +1192,19 @@ export fn multiplex_native_app_subtitle_selection() callconv(.c) u32 {
     if (!app_initialized) return 0;
     const selected = core.playbackSubtitleSelection(app_model);
     if (selected < 0 or selected > 4) return 0;
-    return @intFromFloat(selected);
+    return @intCast(selected);
+}
+
+export fn multiplex_native_app_mark_watched_request() callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    return @intCast(core.markWatchedRequestRatingKey(app_model));
+}
+
+export fn multiplex_native_app_mark_watched_commit(succeeded: u32) callconv(.c) u32 {
+    if (!app_initialized or !app_model.markWatchedRequested) return 0;
+    commitAppModel(core.completeMarkWatched(app_model, succeeded != 0));
+    reference_full_repaint = true;
+    return 1;
 }
 
 export fn multiplex_native_app_player_settings_open() callconv(.c) u32 {
@@ -1340,23 +1420,6 @@ export fn multiplex_native_app_poster_inset_audit() callconv(.c) u32 {
 export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
     if (!app_initialized) return 0;
     const model = app_model;
-    if (action == 8 or action == 9) {
-        const message: ?core.Msg = switch (model.screen) {
-            .home => if (action == 8) .previous_row else .next_row,
-            .browse => if (action == 8) .browse_previous else .browse_next,
-            .details => if (action == 8) .details_children_previous else .details_children_next,
-            else => null,
-        };
-        if (message) |msg| {
-            const next = core.update(model, msg);
-            if (next != model) {
-                commitAppModel(next);
-                reference_full_repaint = true;
-                multiplex_native_input_trace(action, 0, 0, if (action == 8) 2 else 3);
-                return 1;
-            }
-        }
-    }
     if (action == 4) {
         commitAppModel(core.update(model, .open_libraries));
         focused_handler = 0;
@@ -1365,9 +1428,19 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         return 1;
     }
     if (action == 5) {
-        commitAppModel(core.update(model, .next_row));
+        const message: core.Msg = if (model.screen == .search) .search_delete else .next_row;
+        commitAppModel(core.update(model, message));
         reference_full_repaint = true;
-        multiplex_native_input_trace(action, 0, 0, 3);
+        multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 15 else 3);
+        return 1;
+    }
+    if (action == 12 or action == 13) {
+        const message: core.Msg = if (action == 12) .search_cursor_left else .search_cursor_right;
+        const next = core.update(model, message);
+        if (next == model) return 0;
+        commitAppModel(next);
+        reference_full_repaint = true;
+        multiplex_native_input_trace(action, 0, 0, if (action == 12) 46 else 47);
         return 1;
     }
     if (action == 6) {
@@ -1385,9 +1458,8 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         return 1;
     }
     if (action == 7) {
-        const message: core.Msg = if (model.screen == .search)
-            .search_delete
-        else if (model.screen == .player)
+        if (model.screen == .search) return 0;
+        const message: core.Msg = if (model.screen == .player)
             .seek_backward
         else if (model.screen == .details)
             .details_children_previous
@@ -1442,19 +1514,23 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
             reference_full_repaint = false;
         },
         8 => {
-            focused_handler = if (model.screen == .search)
-                (if (focused_handler < 9) focused_handler else focused_handler - 9)
-            else if (focused_handler == 0)
-                press_count - 1
-            else
-                focused_handler - 1;
+            const layout = canvas.layoutWidgetTreeWithTokens(
+                tree.root,
+                geometry.RectF.init(0, 0, reference_width, reference_height),
+                canvas.DesignTokens.theme(.{ .pack = .geist, .color_scheme = .dark }),
+                &layout_nodes,
+            ) catch return 0;
+            if (!moveFocusSpatial(press_ids[0..press_count], layout.nodes, 0, -1)) return 0;
             reference_full_repaint = false;
         },
         9 => {
-            focused_handler = if (model.screen == .search)
-                @min(focused_handler + 9, press_count - 1)
-            else
-                (focused_handler + 1) % press_count;
+            const layout = canvas.layoutWidgetTreeWithTokens(
+                tree.root,
+                geometry.RectF.init(0, 0, reference_width, reference_height),
+                canvas.DesignTokens.theme(.{ .pack = .geist, .color_scheme = .dark }),
+                &layout_nodes,
+            ) catch return 0;
+            if (!moveFocusSpatial(press_ids[0..press_count], layout.nodes, 0, 1)) return 0;
             reference_full_repaint = false;
         },
         2 => {
@@ -1498,12 +1574,15 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .disband_watch_together => 30,
                 .search_key => 14,
                 .search_delete => 15,
+                .search_cursor_left => 46,
+                .search_cursor_right => 47,
                 .search_submit => 16,
                 .open_item => 8,
                 .open_details_child => 31,
                 .details_children_previous => 32,
                 .details_children_next => 33,
                 .play => 9,
+                .mark_watched => 48,
                 .seek_backward => 17,
                 .seek_forward => 18,
                 .open_player_settings => 41,
@@ -1516,6 +1595,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .complete_playback => 21,
                 .toggle_playback => 10,
                 .cycle_subtitles => 34,
+                .start_menu_mark_watched => 49,
                 .back => 11,
             };
             commitAppModel(core.update(model, msg));

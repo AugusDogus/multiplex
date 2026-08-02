@@ -57,5 +57,7 @@ bool multiplex_plex_report_timeline(
     const MultiplexAuthCredentials *credentials, const char *session_id,
     uint32_t rating_key, uint32_t position_ms, uint32_t duration_ms,
     const char *state);
+bool multiplex_plex_mark_watched(
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key);
 
 #endif

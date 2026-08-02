@@ -1,6 +1,7 @@
 #include "audio_dma.h"
 #include "device_auth.h"
 #include "gateway_client.h"
+#include "gui_navigation.h"
 #include "http_client.h"
 #include "media-source.h"
 #include "memory_card_auth.h"
@@ -105,6 +106,7 @@ static MultiplexVideoSurface video_surface;
 static bool native_frame_dirty = true;
 static uint8_t ui_frame_alpha = 255;
 static bool player_controls_overlay_visible = true;
+static MultiplexGuiNavigation gui_navigation;
 static FrameProfile profile;
 static uint32_t presentation_frames;
 static uint32_t presentation_started;
@@ -222,6 +224,22 @@ static void discard_staged_media_session(StagedMediaSession *staged);
 
 static uint32_t elapsed_us(uint32_t started) {
   return (uint32_t)ticks_to_microsecs((uint32_t)(gettick() - started));
+}
+
+static uint32_t navigation_action(MultiplexGuiNavigationDirection direction) {
+  switch (direction) {
+  case MULTIPLEX_GUI_NAVIGATION_LEFT:
+    return 0;
+  case MULTIPLEX_GUI_NAVIGATION_RIGHT:
+    return 1;
+  case MULTIPLEX_GUI_NAVIGATION_UP:
+    return 8;
+  case MULTIPLEX_GUI_NAVIGATION_DOWN:
+    return 9;
+  case MULTIPLEX_GUI_NAVIGATION_NONE:
+    return UINT32_MAX;
+  }
+  return UINT32_MAX;
 }
 
 #if defined(HW_RVL)
@@ -1202,6 +1220,9 @@ static bool fail_item_details(uint32_t rating_key) {
 static bool bind_item_subtitles(const MultiplexGatewayDetails *details) {
   direct_subtitle_count = 0;
   uint32_t selected_subtitle = 0;
+  char labels[MULTIPLEX_GATEWAY_MAX_SUBTITLE_STREAMS]
+             [MULTIPLEX_GATEWAY_SUBTITLE_LABEL_CAPACITY] = {{0}};
+  uint8_t label_lengths[MULTIPLEX_GATEWAY_MAX_SUBTITLE_STREAMS] = {0};
   for (uint8_t index = 0; index < details->subtitle_stream_count; ++index) {
     const MultiplexGatewaySubtitleStream *subtitle =
         &details->subtitle_streams[index];
@@ -1210,13 +1231,24 @@ static bool bind_item_subtitles(const MultiplexGatewayDetails *details) {
       continue;
     }
     direct_subtitle_indices[direct_subtitle_count] = subtitle->index;
+    size_t label_length = strnlen(
+        subtitle->label, MULTIPLEX_GATEWAY_SUBTITLE_LABEL_CAPACITY - 1u);
+    if (label_length == 0) {
+      label_length = (size_t)snprintf(labels[direct_subtitle_count],
+                                      MULTIPLEX_GATEWAY_SUBTITLE_LABEL_CAPACITY,
+                                      "Subtitle %u", direct_subtitle_count + 1u);
+    } else {
+      memcpy(labels[direct_subtitle_count], subtitle->label, label_length);
+    }
+    label_lengths[direct_subtitle_count] = (uint8_t)label_length;
     ++direct_subtitle_count;
     if (subtitle->selected) {
       selected_subtitle = direct_subtitle_count;
     }
   }
-  return multiplex_native_app_subtitles(direct_subtitle_count,
-                                         selected_subtitle) != 0;
+  return multiplex_native_app_subtitles(
+             direct_subtitle_count, selected_subtitle, (const uint8_t *)labels,
+             MULTIPLEX_GATEWAY_SUBTITLE_LABEL_CAPACITY, label_lengths) != 0;
 }
 
 static bool format_episode_metadata(const MultiplexGatewayDetails *details,
@@ -3389,10 +3421,15 @@ static void *run_app(void *unused) {
 #if defined(HW_RVL)
     pressed |= wii_buttons_as_gamecube(WPAD_ButtonsDown(0));
 #endif
+    const uint64_t input_now_ms = ticks_to_millisecs(gettime());
+    const MultiplexGuiNavigationDirection stick_direction =
+        multiplex_gui_navigation_poll(&gui_navigation, PAD_StickX(0),
+                                      PAD_StickY(0), input_now_ms * 1000u);
+    const uint32_t stick_navigation = navigation_action(stick_direction);
+    const bool controller_input = pressed != 0 || stick_navigation != UINT32_MAX;
     if (pressed != 0) {
       SYS_Report("REFERENCE GX: controller buttons %08x\n", pressed);
     }
-    const uint64_t input_now_ms = ticks_to_millisecs(gettime());
     const bool reveal_player_controls_only =
         video_surface.visible != 0 && !player_controls_overlay_visible &&
         (pressed & PAD_BUTTON_A) != 0;
@@ -3400,7 +3437,7 @@ static void *run_app(void *unused) {
       if (player_controls_last_input_ms == 0) {
         player_controls_last_input_ms = input_now_ms;
       }
-      if (pressed != 0) {
+      if (controller_input) {
         player_controls_last_input_ms = input_now_ms;
         player_controls_fade_started_ms = 0;
         if (ui_frame_alpha != 255) {
@@ -3493,19 +3530,16 @@ static void *run_app(void *unused) {
 #endif
     pause_audio_for_player_input(pressed, &playback_manifest);
     bool app_changed = false;
+    if (stick_navigation != UINT32_MAX &&
+        multiplex_native_app_input(stick_navigation) != 0) {
+      app_changed = true;
+    }
     if ((pressed & PAD_BUTTON_LEFT) != 0 &&
-        multiplex_native_app_input(0) != 0) {
+        multiplex_native_app_input(12) != 0) {
       app_changed = true;
     }
     if ((pressed & PAD_BUTTON_RIGHT) != 0 &&
-        multiplex_native_app_input(1) != 0) {
-      app_changed = true;
-    }
-    if ((pressed & PAD_BUTTON_UP) != 0 && multiplex_native_app_input(8) != 0) {
-      app_changed = true;
-    }
-    if ((pressed & PAD_BUTTON_DOWN) != 0 &&
-        multiplex_native_app_input(9) != 0) {
+        multiplex_native_app_input(13) != 0) {
       app_changed = true;
     }
     if ((pressed & PAD_BUTTON_A) != 0 && multiplex_native_app_input(2) != 0) {
@@ -3534,6 +3568,18 @@ static void *run_app(void *unused) {
       app_changed = true;
     }
     if (app_changed) {
+      const uint32_t mark_watched_rating_key =
+          multiplex_native_app_mark_watched_request();
+      if (mark_watched_rating_key != 0) {
+        bool marked = false;
+#if MULTIPLEX_PAIRING_ENABLED
+        if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked) {
+          marked = multiplex_plex_mark_watched(&auth_credentials,
+                                               mark_watched_rating_key);
+        }
+#endif
+        multiplex_native_app_mark_watched_commit(marked ? 1u : 0u);
+      }
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
           !load_browse_page(MULTIPLEX_GATEWAY_URL)) {
         SYS_Report("REFERENCE GX: browse-page load failed\n");

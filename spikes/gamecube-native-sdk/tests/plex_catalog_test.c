@@ -1,8 +1,40 @@
 #include "plex_catalog.h"
 
+#include "http_client.h"
+
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+
+static unsigned request_count;
+static unsigned response_status = 200;
+static char requested_method[8];
+static char requested_url[512];
+static char requested_token[64];
+
+bool http_client_request_with_headers(const char *method, const char *url,
+                                      const HttpRequestHeader *headers,
+                                      size_t header_count, const char *body,
+                                      char *destination, size_t capacity,
+                                      HttpJsonResponse *response) {
+  (void)body;
+  ++request_count;
+  snprintf(requested_method, sizeof(requested_method), "%s", method);
+  snprintf(requested_url, sizeof(requested_url), "%s", url);
+  requested_token[0] = '\0';
+  for (size_t index = 0; index < header_count; ++index) {
+    if (strcmp(headers[index].name, "X-Plex-Token") == 0) {
+      snprintf(requested_token, sizeof(requested_token), "%s",
+               headers[index].value);
+    }
+  }
+  if (capacity > 0) {
+    destination[0] = '\0';
+  }
+  response->status = response_status;
+  response->body_size = 0;
+  return true;
+}
 
 static void test_parses_home_rows(void) {
   static const char hubs[] =
@@ -205,6 +237,31 @@ static void test_parses_search_results(void) {
   assert(page.items[1].artwork_slot == 1);
 }
 
+static void test_marks_item_watched(void) {
+  MultiplexAuthCredentials credentials = {0};
+  snprintf(credentials.plex_server_url,
+           sizeof(credentials.plex_server_url), "http://plex.local/");
+  snprintf(credentials.plex_server_token,
+           sizeof(credentials.plex_server_token), "server-token");
+  snprintf(credentials.plex_client_id, sizeof(credentials.plex_client_id),
+           "gamecube-client");
+  request_count = 0;
+  response_status = 200;
+
+  assert(multiplex_plex_mark_watched(&credentials, 44));
+  assert(request_count == 1);
+  assert(strcmp(requested_method, "GET") == 0);
+  assert(strcmp(requested_url,
+                "http://plex.local/:/scrobble?key=44&identifier="
+                "com.plexapp.plugins.library") == 0);
+  assert(strcmp(requested_token, "server-token") == 0);
+
+  response_status = 500;
+  assert(!multiplex_plex_mark_watched(&credentials, 44));
+  assert(!multiplex_plex_mark_watched(&credentials, 0));
+  assert(request_count == 2);
+}
+
 int main(void) {
   test_parses_home_rows();
   test_parses_libraries();
@@ -213,6 +270,7 @@ int main(void) {
   test_parses_episode_hierarchy();
   test_parses_item_children();
   test_parses_search_results();
+  test_marks_item_watched();
   puts("GameCube direct Plex catalog tests passed.");
   return 0;
 }

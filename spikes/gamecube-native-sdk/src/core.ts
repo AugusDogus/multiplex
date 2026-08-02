@@ -44,6 +44,11 @@ export interface KeyboardKey {
   readonly value: number;
 }
 
+export interface SubtitleStream {
+  readonly id: number;
+  readonly label: Uint8Array;
+}
+
 export interface WatchTogetherRoom {
   readonly id: number;
   readonly title: Uint8Array;
@@ -86,6 +91,7 @@ export interface Model {
   readonly browseTotal: number;
   readonly browseLoaded: boolean;
   readonly searchQuery: Uint8Array;
+  readonly searchCursor: number;
   readonly searchItems: readonly CatalogItem[];
   readonly searchLoaded: boolean;
   readonly selectedFromSearch: boolean;
@@ -133,7 +139,9 @@ export interface Model {
   readonly playbackLoaded: boolean;
   readonly playing: boolean;
   readonly subtitleStreamCount: number;
+  readonly subtitleStreams: readonly SubtitleStream[];
   readonly selectedSubtitleStream: number;
+  readonly markWatchedRequested: boolean;
   readonly startMenuOpen: boolean;
   readonly playerSettingsOpen: boolean;
   readonly playbackNavigationRequest: number;
@@ -150,11 +158,14 @@ export type Msg =
   | { readonly kind: "open_search" }
   | { readonly kind: "search_key"; readonly index: number }
   | { readonly kind: "search_delete" }
+  | { readonly kind: "search_cursor_left" }
+  | { readonly kind: "search_cursor_right" }
   | { readonly kind: "search_submit" }
   | { readonly kind: "open_watch_together" }
   | { readonly kind: "open_start_menu" }
   | { readonly kind: "close_start_menu" }
   | { readonly kind: "start_menu_play" }
+  | { readonly kind: "start_menu_mark_watched" }
   | { readonly kind: "start_menu_create_watch_together" }
   | { readonly kind: "start_menu_watch_together" }
   | { readonly kind: "start_menu_libraries" }
@@ -172,6 +183,7 @@ export type Msg =
   | { readonly kind: "details_children_previous" }
   | { readonly kind: "details_children_next" }
   | { readonly kind: "play" }
+  | { readonly kind: "mark_watched" }
   | { readonly kind: "seek_backward" }
   | { readonly kind: "seek_forward" }
   | { readonly kind: "open_player_settings" }
@@ -244,70 +256,78 @@ const demoLibraries: readonly LibrarySection[] = [
 ];
 
 const keyboardKeys: readonly KeyboardKey[] = [
-  { id: 0, label: asciiBytes("A"), value: 65 },
-  { id: 1, label: asciiBytes("B"), value: 66 },
-  { id: 2, label: asciiBytes("C"), value: 67 },
-  { id: 3, label: asciiBytes("D"), value: 68 },
-  { id: 4, label: asciiBytes("E"), value: 69 },
-  { id: 5, label: asciiBytes("F"), value: 70 },
-  { id: 6, label: asciiBytes("G"), value: 71 },
-  { id: 7, label: asciiBytes("H"), value: 72 },
-  { id: 8, label: asciiBytes("I"), value: 73 },
-  { id: 9, label: asciiBytes("J"), value: 74 },
-  { id: 10, label: asciiBytes("K"), value: 75 },
-  { id: 11, label: asciiBytes("L"), value: 76 },
-  { id: 12, label: asciiBytes("M"), value: 77 },
-  { id: 13, label: asciiBytes("N"), value: 78 },
-  { id: 14, label: asciiBytes("O"), value: 79 },
-  { id: 15, label: asciiBytes("P"), value: 80 },
-  { id: 16, label: asciiBytes("Q"), value: 81 },
-  { id: 17, label: asciiBytes("R"), value: 82 },
-  { id: 18, label: asciiBytes("S"), value: 83 },
-  { id: 19, label: asciiBytes("T"), value: 84 },
-  { id: 20, label: asciiBytes("U"), value: 85 },
-  { id: 21, label: asciiBytes("V"), value: 86 },
-  { id: 22, label: asciiBytes("W"), value: 87 },
-  { id: 23, label: asciiBytes("X"), value: 88 },
-  { id: 24, label: asciiBytes("Y"), value: 89 },
-  { id: 25, label: asciiBytes("Z"), value: 90 },
+  { id: 0, label: asciiBytes("Q"), value: 81 },
+  { id: 1, label: asciiBytes("W"), value: 87 },
+  { id: 2, label: asciiBytes("E"), value: 69 },
+  { id: 3, label: asciiBytes("R"), value: 82 },
+  { id: 4, label: asciiBytes("T"), value: 84 },
+  { id: 5, label: asciiBytes("Y"), value: 89 },
+  { id: 6, label: asciiBytes("U"), value: 85 },
+  { id: 7, label: asciiBytes("I"), value: 73 },
+  { id: 8, label: asciiBytes("O"), value: 79 },
+  { id: 9, label: asciiBytes("P"), value: 80 },
+  { id: 10, label: asciiBytes("A"), value: 65 },
+  { id: 11, label: asciiBytes("S"), value: 83 },
+  { id: 12, label: asciiBytes("D"), value: 68 },
+  { id: 13, label: asciiBytes("F"), value: 70 },
+  { id: 14, label: asciiBytes("G"), value: 71 },
+  { id: 15, label: asciiBytes("H"), value: 72 },
+  { id: 16, label: asciiBytes("J"), value: 74 },
+  { id: 17, label: asciiBytes("K"), value: 75 },
+  { id: 18, label: asciiBytes("L"), value: 76 },
+  { id: 19, label: asciiBytes("Z"), value: 90 },
+  { id: 20, label: asciiBytes("X"), value: 88 },
+  { id: 21, label: asciiBytes("C"), value: 67 },
+  { id: 22, label: asciiBytes("V"), value: 86 },
+  { id: 23, label: asciiBytes("B"), value: 66 },
+  { id: 24, label: asciiBytes("N"), value: 78 },
+  { id: 25, label: asciiBytes("M"), value: 77 },
 ];
 
 const keyboardRowOneKeys: readonly KeyboardKey[] = [
-  { id: 0, label: asciiBytes("A"), value: 65 },
-  { id: 1, label: asciiBytes("B"), value: 66 },
-  { id: 2, label: asciiBytes("C"), value: 67 },
-  { id: 3, label: asciiBytes("D"), value: 68 },
-  { id: 4, label: asciiBytes("E"), value: 69 },
-  { id: 5, label: asciiBytes("F"), value: 70 },
-  { id: 6, label: asciiBytes("G"), value: 71 },
-  { id: 7, label: asciiBytes("H"), value: 72 },
-  { id: 8, label: asciiBytes("I"), value: 73 },
+  { id: 0, label: asciiBytes("Q"), value: 81 },
+  { id: 1, label: asciiBytes("W"), value: 87 },
+  { id: 2, label: asciiBytes("E"), value: 69 },
+  { id: 3, label: asciiBytes("R"), value: 82 },
+  { id: 4, label: asciiBytes("T"), value: 84 },
+  { id: 5, label: asciiBytes("Y"), value: 89 },
+  { id: 6, label: asciiBytes("U"), value: 85 },
+  { id: 7, label: asciiBytes("I"), value: 73 },
+  { id: 8, label: asciiBytes("O"), value: 79 },
+  { id: 9, label: asciiBytes("P"), value: 80 },
 ];
 
 const keyboardRowTwoKeys: readonly KeyboardKey[] = [
-  { id: 9, label: asciiBytes("J"), value: 74 },
-  { id: 10, label: asciiBytes("K"), value: 75 },
-  { id: 11, label: asciiBytes("L"), value: 76 },
-  { id: 12, label: asciiBytes("M"), value: 77 },
-  { id: 13, label: asciiBytes("N"), value: 78 },
-  { id: 14, label: asciiBytes("O"), value: 79 },
-  { id: 15, label: asciiBytes("P"), value: 80 },
-  { id: 16, label: asciiBytes("Q"), value: 81 },
-  { id: 17, label: asciiBytes("R"), value: 82 },
+  { id: 10, label: asciiBytes("A"), value: 65 },
+  { id: 11, label: asciiBytes("S"), value: 83 },
+  { id: 12, label: asciiBytes("D"), value: 68 },
+  { id: 13, label: asciiBytes("F"), value: 70 },
+  { id: 14, label: asciiBytes("G"), value: 71 },
+  { id: 15, label: asciiBytes("H"), value: 72 },
+  { id: 16, label: asciiBytes("J"), value: 74 },
+  { id: 17, label: asciiBytes("K"), value: 75 },
+  { id: 18, label: asciiBytes("L"), value: 76 },
 ];
 
 const keyboardRowThreeKeys: readonly KeyboardKey[] = [
-  { id: 18, label: asciiBytes("S"), value: 83 },
-  { id: 19, label: asciiBytes("T"), value: 84 },
-  { id: 20, label: asciiBytes("U"), value: 85 },
-  { id: 21, label: asciiBytes("V"), value: 86 },
-  { id: 22, label: asciiBytes("W"), value: 87 },
-  { id: 23, label: asciiBytes("X"), value: 88 },
-  { id: 24, label: asciiBytes("Y"), value: 89 },
-  { id: 25, label: asciiBytes("Z"), value: 90 },
+  { id: 19, label: asciiBytes("Z"), value: 90 },
+  { id: 20, label: asciiBytes("X"), value: 88 },
+  { id: 21, label: asciiBytes("C"), value: 67 },
+  { id: 22, label: asciiBytes("V"), value: 86 },
+  { id: 23, label: asciiBytes("B"), value: 66 },
+  { id: 24, label: asciiBytes("N"), value: 78 },
+  { id: 25, label: asciiBytes("M"), value: 77 },
 ];
 
-const emptySearchPrompt = asciiBytes("Choose letters with A");
+const searchPlaceholder = asciiBytes("Search");
+const pageLibraries = asciiBytes("Libraries");
+const pageSearch = asciiBytes("Search");
+const pageSearchResults = asciiBytes("Search results");
+const pageWatchTogether = asciiBytes("Watch Together");
+const pageInvite = asciiBytes("Invite a friend");
+const pageDetails = asciiBytes("Details");
+const playLabel = asciiBytes("Play");
+const resumeLabel = asciiBytes("Resume");
 const unavailableDetailsType = asciiBytes("Plex result");
 const unavailableDetailsSummary = asciiBytes(
   "Full metadata is not available for this result yet. Return and choose a playable library item.",
@@ -344,6 +364,7 @@ export function initialModel(): Model {
     browseTotal: demoItems.length,
     browseLoaded: true,
     searchQuery: new Uint8Array(0),
+    searchCursor: 0,
     searchItems: [],
     searchLoaded: true,
     selectedFromSearch: false,
@@ -393,7 +414,9 @@ export function initialModel(): Model {
     playbackLoaded: true,
     playing: false,
     subtitleStreamCount: 0,
+    subtitleStreams: [],
     selectedSubtitleStream: 0,
+    markWatchedRequested: false,
     startMenuOpen: false,
     playerSettingsOpen: false,
     playbackNavigationRequest: 0,
@@ -683,11 +706,16 @@ export function playbackToggleIcon(model: Model): Uint8Array {
   return model.playing ? asciiBytes("pause") : asciiBytes("play");
 }
 
-export function loadSubtitleStreams(model: Model, count: number, selected: number): Model {
-  const boundedCount = Math.max(0, count);
+export function loadSubtitleStreams(
+  model: Model,
+  streams: readonly SubtitleStream[],
+  selected: number,
+): Model {
+  const boundedCount = streams.length;
   return {
     ...model,
     subtitleStreamCount: boundedCount,
+    subtitleStreams: streams,
     selectedSubtitleStream: Math.min(Math.max(0, selected), boundedCount),
   };
 }
@@ -700,8 +728,28 @@ export function subtitlesEnabled(model: Model): boolean {
   return model.selectedSubtitleStream > 0;
 }
 
+export function selectedSubtitleLabel(model: Model): Uint8Array {
+  if (model.selectedSubtitleStream <= 0 || model.selectedSubtitleStream > model.subtitleStreams.length)
+    return asciiBytes("Off");
+  return model.subtitleStreams[model.selectedSubtitleStream - 1].label;
+}
+
 export function playbackSubtitleSelection(model: Model): number {
   return model.screen === "player" ? model.selectedSubtitleStream : 0;
+}
+
+export function markWatchedRequestRatingKey(model: Model): number {
+  return model.markWatchedRequested ? model.selectedRatingKey : 0;
+}
+
+export function completeMarkWatched(model: Model, succeeded: boolean): Model {
+  if (!model.markWatchedRequested) return model;
+  if (!succeeded) return { ...model, markWatchedRequested: false };
+  return {
+    ...model,
+    markWatchedRequested: false,
+    selectedViewOffsetMs: 0,
+  };
 }
 
 export function playbackElapsedMinutes(model: Model): number {
@@ -768,6 +816,39 @@ export function pairingDemo(model: Model): boolean {
 
 export function hasResume(model: Model): boolean {
   return model.selectedViewOffsetMs > 0;
+}
+
+export function detailsPlayLabel(model: Model): Uint8Array {
+  return hasResume(model) ? resumeLabel : playLabel;
+}
+
+export function pageTitle(model: Model): Uint8Array {
+  switch (model.screen) {
+    case "home":
+      return visibleRowTitle(model);
+    case "libraries":
+      return pageLibraries;
+    case "browse":
+      return model.selectedLibraryTitle;
+    case "search":
+      return pageSearch;
+    case "search_results":
+      return pageSearchResults;
+    case "watch_together_invite":
+      return pageInvite;
+    case "watch_together":
+      return pageWatchTogether;
+    case "watch_together_room":
+      return selectedWatchTogetherRoomTitle(model);
+    case "details":
+      return pageDetails;
+    default:
+      return new Uint8Array(0);
+  }
+}
+
+export function hasPageTitle(model: Model): boolean {
+  return pageTitle(model).length > 0;
 }
 
 export function detailsRequestRatingKey(model: Model): number {
@@ -899,7 +980,15 @@ export function browseRequestStart(model: Model): number {
 }
 
 export function searchPrompt(model: Model): Uint8Array {
-  return model.searchQuery.length === 0 ? emptySearchPrompt : model.searchQuery;
+  return model.searchQuery.length === 0 ? searchPlaceholder : model.searchQuery;
+}
+
+export function searchBeforeCursor(model: Model): Uint8Array {
+  return model.searchQuery.slice(0, model.searchCursor);
+}
+
+export function searchAfterCursor(model: Model): Uint8Array {
+  return model.searchQuery.slice(model.searchCursor);
 }
 
 export function keyboardRowOne(_model: Model): readonly KeyboardKey[] {
@@ -1052,11 +1141,20 @@ export function searchRequestQuery(model: Model): Uint8Array {
   return model.searchQuery;
 }
 
-function appendSearchKey(query: Uint8Array, value: number): Uint8Array {
+function insertSearchKey(query: Uint8Array, cursor: number, value: number): Uint8Array {
   if (query.length >= 24) return query;
   const result = new Uint8Array(query.length + 1);
-  result.set(query, 0);
-  result[query.length] = value;
+  result.set(query.slice(0, cursor), 0);
+  result[cursor] = value;
+  result.set(query.slice(cursor), cursor + 1);
+  return result;
+}
+
+function deleteSearchKey(query: Uint8Array, cursor: number): Uint8Array {
+  if (cursor <= 0 || query.length === 0) return query;
+  const result = new Uint8Array(query.length - 1);
+  result.set(query.slice(0, cursor - 1), 0);
+  result.set(query.slice(cursor), cursor - 1);
   return result;
 }
 
@@ -1164,6 +1262,7 @@ export function update(model: Model, msg: Msg): Model {
         ...model,
         screen: "search",
         searchQuery: new Uint8Array(0),
+        searchCursor: 0,
         searchItems: [],
         searchLoaded: true,
       };
@@ -1173,12 +1272,27 @@ export function update(model: Model, msg: Msg): Model {
       }
       return {
         ...model,
-        searchQuery: appendSearchKey(model.searchQuery, keyboardKeys[msg.index].value),
+        searchQuery: insertSearchKey(
+          model.searchQuery,
+          model.searchCursor,
+          keyboardKeys[msg.index].value,
+        ),
+        searchCursor: Math.min(model.searchCursor + 1, 24),
       };
     }
     case "search_delete":
-      if (model.screen !== "search" || model.searchQuery.length === 0) return model;
-      return { ...model, searchQuery: model.searchQuery.slice(0, model.searchQuery.length - 1) };
+      if (model.screen !== "search" || model.searchCursor <= 0) return model;
+      return {
+        ...model,
+        searchQuery: deleteSearchKey(model.searchQuery, model.searchCursor),
+        searchCursor: model.searchCursor - 1,
+      };
+    case "search_cursor_left":
+      if (model.screen !== "search" || model.searchCursor <= 0) return model;
+      return { ...model, searchCursor: model.searchCursor - 1 };
+    case "search_cursor_right":
+      if (model.screen !== "search" || model.searchCursor >= model.searchQuery.length) return model;
+      return { ...model, searchCursor: model.searchCursor + 1 };
     case "search_submit":
       if (model.screen !== "search" || model.searchQuery.length === 0) return model;
       return { ...model, screen: "search_results", searchItems: [], searchLoaded: false };
@@ -1193,6 +1307,10 @@ export function update(model: Model, msg: Msg): Model {
     case "start_menu_play":
       return model.startMenuOpen
         ? update({ ...model, startMenuOpen: false }, { kind: "play" })
+        : model;
+    case "start_menu_mark_watched":
+      return model.startMenuOpen
+        ? update({ ...model, startMenuOpen: false }, { kind: "mark_watched" })
         : model;
     case "start_menu_create_watch_together":
       return model.startMenuOpen
@@ -1372,6 +1490,10 @@ export function update(model: Model, msg: Msg): Model {
         playing: !model.gatewayConnected,
         playbackNavigationRequest: 0,
       };
+    case "mark_watched":
+      if (model.screen !== "details" || !model.detailsLoaded || !model.detailsPlayable)
+        return model;
+      return { ...model, markWatchedRequested: true };
     case "seek_backward": {
       if (model.screen !== "player" || !model.playbackLoaded) return model;
       const playbackOffsetMs = Math.max(0, model.playbackOffsetMs - 10_000);

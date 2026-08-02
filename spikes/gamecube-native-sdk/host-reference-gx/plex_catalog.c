@@ -1414,3 +1414,44 @@ bool multiplex_plex_report_timeline(
       rating_key, position_ms, state, reported ? 1u : 0u);
   return reported;
 }
+
+bool multiplex_plex_mark_watched(
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key) {
+  if (credentials == NULL || credentials->plex_server_url[0] == '\0' ||
+      credentials->plex_server_token[0] == '\0' ||
+      credentials->plex_client_id[0] == '\0' || rating_key == 0) {
+    return false;
+  }
+  const size_t base_size = strlen(credentials->plex_server_url);
+  char url[PLEX_CATALOG_URL_CAPACITY];
+  const int url_size = snprintf(
+      url, sizeof(url),
+      "%s%s:/scrobble?key=%u&identifier=com.plexapp.plugins.library",
+      credentials->plex_server_url,
+      base_size != 0 && credentials->plex_server_url[base_size - 1u] == '/'
+          ? ""
+          : "/",
+      rating_key);
+  if (url_size <= 0 || (size_t)url_size >= sizeof(url)) {
+    return false;
+  }
+  const HttpRequestHeader headers[] = {
+      {.name = "Accept", .value = "application/xml"},
+      {.name = "X-Plex-Token", .value = credentials->plex_server_token},
+      {.name = "X-Plex-Product", .value = "Multiplex"},
+      {.name = "X-Plex-Version", .value = "0.1.0"},
+      {.name = "X-Plex-Platform", .value = "GameCube"},
+      {.name = "X-Plex-Client-Identifier",
+       .value = credentials->plex_client_id},
+  };
+  char response_body[256];
+  HttpJsonResponse response;
+  const bool marked = http_client_request_with_headers(
+                          "GET", url, headers,
+                          sizeof(headers) / sizeof(headers[0]), NULL,
+                          response_body, sizeof(response_body), &response) &&
+                      response.status == 200;
+  SYS_Report("REFERENCE GX: direct Plex scrobble rating-key=%u marked=%u\n",
+             rating_key, marked ? 1u : 0u);
+  return marked;
+}

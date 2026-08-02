@@ -47,17 +47,24 @@
   <else>
 <column padding="20" gap="12" background="background">
   <row cross="center">
-    <row cross="center" gap="8">
+    <row width="180" cross="center" gap="8">
       <icon name="app:multiplex" width="22" height="22" foreground="text" label="Multiplex" />
       <text size="heading">Multiplex</text>
     </row>
-    <spacer grow="1" />
-    <if test="{pairingLinked}">
-      <button-group>
-        <button width="38" size="sm" icon="folder" variant="secondary" on-press="open_libraries" label="Libraries"></button>
-        <button width="38" size="sm" icon="search" variant="secondary" on-press="open_search" label="Search"></button>
-      </button-group>
-    </if>
+    <row grow="1" main="center" cross="center">
+      <if test="{hasPageTitle}">
+        <text size="heading">{pageTitle}</text>
+      </if>
+    </row>
+    <row width="180" cross="center">
+      <spacer grow="1" />
+      <if test="{pairingLinked}">
+        <button-group>
+          <button width="38" size="sm" icon="folder" variant="secondary" on-press="open_libraries" label="Libraries"></button>
+          <button width="38" size="sm" icon="search" variant="secondary" on-press="open_search" label="Search"></button>
+        </button-group>
+      </if>
+    </row>
   </row>
   <separator />
 
@@ -96,9 +103,6 @@
   <if test="{screen == 'home'}">
     <column grow="1" gap="8">
       <row cross="center">
-        <column gap="1">
-          <text size="heading">{visibleRowTitle}</text>
-        </column>
         <spacer grow="1" />
         <badge variant="secondary">Row {rowNumber} of {rowCount}</badge>
       </row>
@@ -129,10 +133,7 @@
   <if test="{screen == 'libraries'}">
     <column grow="1" gap="14">
       <row cross="center">
-        <button width="90" variant="ghost" on-press="back">Home</button>
-        <column gap="1">
-          <text size="heading">Libraries</text>
-        </column>
+        <button width="42" size="sm" icon="app:home" variant="ghost" on-press="back" label="Home"></button>
         <spacer grow="1" />
       </row>
       <row grow="1" gap="10" cross="center">
@@ -151,49 +152,47 @@
   <if test="{screen == 'search'}">
     <column grow="1" gap="12">
       <row cross="center">
-        <button width="90" variant="ghost" on-press="back">Home</button>
-        <column gap="1">
-          <text size="heading">Search Plex</text>
-        </column>
+        <button width="42" size="sm" icon="app:home" variant="ghost" on-press="back" label="Home"></button>
         <spacer grow="1" />
       </row>
       <panel padding="14" background="surface" border-color="border" radius="lg">
         <row cross="center" gap="10">
-          <text size="heading">{searchPrompt}</text>
+          <if test="{searchHasQuery}">
+            <text size="heading"><span>{searchBeforeCursor}</span><span foreground="info">|</span><span>{searchAfterCursor}</span></text>
+          </if>
+          <else>
+            <text size="heading" foreground="text_muted">Search</text>
+          </else>
           <spacer grow="1" />
-          <badge variant="secondary">L delete</badge>
-          <badge variant="primary">R search</badge>
+          <icon name="search" width="20" height="20" foreground="text_muted" label="Search" />
         </row>
       </panel>
       <column grow="1" main="center" gap="8">
         <row gap="6" main="center">
           <for each="keyboardRowOne" as="key" key="id">
-            <button width="54" variant="secondary" on-press="search_key:{key.id}">{key.label}</button>
+            <button width="48" variant="secondary" on-press="search_key:{key.id}">{key.label}</button>
           </for>
         </row>
         <row gap="6" main="center">
           <for each="keyboardRowTwo" as="key" key="id">
-            <button width="54" variant="secondary" on-press="search_key:{key.id}">{key.label}</button>
+            <button width="48" variant="secondary" on-press="search_key:{key.id}">{key.label}</button>
           </for>
         </row>
         <row gap="6" main="center">
           <for each="keyboardRowThree" as="key" key="id">
-            <button width="54" variant="secondary" on-press="search_key:{key.id}">{key.label}</button>
+            <button width="48" variant="secondary" on-press="search_key:{key.id}">{key.label}</button>
           </for>
         </row>
       </column>
-      <row main="center" gap="8">
-        <text size="sm" foreground="text_muted">D-pad moves · A enters · B cancels · L deletes · R searches</text>
-      </row>
     </column>
   </if>
 
   <if test="{screen == 'search_results'}">
     <column grow="1" gap="8">
       <row cross="center">
-        <button width="90" variant="ghost" on-press="back">Search</button>
+        <button width="42" size="sm" icon="app:back" variant="ghost" on-press="back" label="Back to search"></button>
         <column gap="1">
-          <text size="heading">Results for {searchQuery}</text>
+          <text size="sm">Results for {searchQuery}</text>
           <text size="sm" foreground="text_muted">Movies, TV, music, and collections</text>
         </column>
       </row>
@@ -227,12 +226,9 @@
   <if test="{screen == 'browse'}">
     <column grow="1" gap="8">
       <row cross="center">
-        <button width="90" variant="ghost" on-press="back">Libraries</button>
-        <column gap="1">
-          <text size="heading">{selectedLibraryTitle}</text>
-          <text size="sm" foreground="text_muted">{browseTotal} items</text>
-        </column>
+        <button width="42" size="sm" icon="app:back" variant="ghost" on-press="back" label="Back to libraries"></button>
         <spacer grow="1" />
+        <text size="sm" foreground="text_muted">{browseTotal} items</text>
         <badge variant="secondary">Page {browsePageNumber} of {browsePageCount}</badge>
       </row>
       <if test="{browseLoaded}">
@@ -269,9 +265,8 @@
   <if test="{screen == 'watch_together_invite'}">
     <column grow="1" gap="14">
       <row cross="center">
-        <button width="82" size="sm" icon="chevron-left" variant="ghost" on-press="back">Back</button>
+        <button width="42" size="sm" icon="app:back" variant="ghost" on-press="back" label="Back"></button>
         <column gap="1">
-          <text size="heading">Invite a friend</text>
           <text size="sm" foreground="text_muted">Choose who should join {selectedTitle}</text>
         </column>
         <spacer grow="1" />
@@ -325,9 +320,8 @@
   <if test="{screen == 'watch_together'}">
     <column grow="1" gap="14">
       <row cross="center">
-        <button width="90" variant="ghost" on-press="back">Home</button>
+        <button width="42" size="sm" icon="app:home" variant="ghost" on-press="back" label="Home"></button>
         <column gap="1">
-          <text size="heading">Watch Together</text>
           <text size="sm" foreground="text_muted">Rooms from your Multiplex account</text>
         </column>
         <spacer grow="1" />
@@ -379,9 +373,8 @@
   <if test="{screen == 'watch_together_room'}">
     <column grow="1" gap="14">
       <row cross="center">
-        <button width="90" variant="ghost" on-press="back">Rooms</button>
+        <button width="42" size="sm" icon="app:back" variant="ghost" on-press="back" label="Back to rooms"></button>
         <column gap="1">
-          <text size="heading">{selectedWatchTogetherRoomTitle}</text>
           <text size="sm" foreground="text_muted">{selectedWatchTogetherParticipantCount} invited viewers</text>
         </column>
         <spacer grow="1" />
@@ -411,7 +404,7 @@
   <if test="{screen == 'details'}">
     <column grow="1" gap="10">
       <row cross="center">
-        <button width="90" variant="ghost" on-press="back">Back</button>
+        <button width="42" size="sm" icon="app:back" variant="ghost" on-press="back" label="Back"></button>
       </row>
       <if test="{detailsLoading}">
         <column grow="1" main="center" cross="center" gap="8">
@@ -424,9 +417,6 @@
           <row grow="1" gap="18">
             <column width="160" gap="8">
               <image image="{selectedImageId}" width="160" height="240" label="{selectedTitle}" />
-              <if test="{hasResume}">
-                <badge variant="secondary">Resume available</badge>
-              </if>
             </column>
             <column grow="1" gap="8">
               <row gap="6" cross="center">
@@ -497,10 +487,9 @@
               <spacer grow="1" />
               <row gap="10">
                 <if test="{detailsPlayable}">
-                  <button size="sm" icon="play" variant="primary" on-press="play">Play</button>
-                  <if test="{pairingLinked}">
-                    <button size="sm" variant="secondary" on-press="create_watch_together">Host Watch Together</button>
-                  </if>
+                  <button size="sm" icon="play" variant="primary" on-press="play">{detailsPlayLabel}</button>
+                  <button size="sm" icon="check-circle" variant="secondary" on-press="mark_watched">Mark as Watched</button>
+                  <button width="40" size="sm" icon="ellipsis" variant="secondary" on-press="open_start_menu" label="More actions"></button>
                 </if>
               </row>
             </column>
@@ -515,13 +504,14 @@
   <if test="{startMenuOpen}">
     <panel background="scrim">
       <column main="center" cross="center">
-        <panel width="310" height="360" background="surface" border-color="border" radius="lg" label="Multiplex menu">
+        <panel width="310" height="390" background="surface" border-color="border" radius="lg" label="Multiplex menu">
           <column padding="16" gap="8">
             <text size="heading">Multiplex</text>
             <text size="sm" foreground="text_muted">Choose an action</text>
             <separator />
             <if test="{screen == 'details' and detailsPlayable}">
-              <button size="sm" icon="play" variant="primary" on-press="start_menu_play">Play</button>
+              <button size="sm" icon="play" variant="primary" on-press="start_menu_play">{detailsPlayLabel}</button>
+              <button size="sm" icon="check-circle" variant="secondary" on-press="start_menu_mark_watched">Mark as Watched</button>
             </if>
             <if test="{screen == 'details' and detailsPlayable}">
               <button size="sm" variant="secondary" on-press="start_menu_create_watch_together">Host Watch Together</button>
@@ -546,7 +536,7 @@
             <if test="{subtitlesAvailable}">
               <text size="sm" foreground="text_muted">Subtitles</text>
               <if test="{subtitlesEnabled}">
-                <button size="sm" icon="file-text" variant="primary" on-press="cycle_subtitles">Track {selectedSubtitleStream} of {subtitleStreamCount}</button>
+                <button size="sm" icon="file-text" variant="primary" on-press="cycle_subtitles">{selectedSubtitleLabel}</button>
               </if>
               <else>
                 <button size="sm" icon="file-text" variant="secondary" on-press="cycle_subtitles">Off</button>

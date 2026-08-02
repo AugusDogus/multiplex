@@ -171,8 +171,13 @@ uint32_t multiplex_native_app_details_commit(
     const uint8_t *genres, uint32_t genres_length, const uint8_t *directors,
     uint32_t directors_length, uint32_t playable);
 uint32_t multiplex_native_app_details_fail(void);
-uint32_t multiplex_native_app_subtitles(uint32_t count, uint32_t selected);
+uint32_t multiplex_native_app_subtitles(uint32_t count, uint32_t selected,
+                                        const uint8_t *labels,
+                                        uint32_t label_stride,
+                                        const uint8_t *label_lengths);
 uint32_t multiplex_native_app_subtitle_selection(void);
+uint32_t multiplex_native_app_mark_watched_request(void);
+uint32_t multiplex_native_app_mark_watched_commit(uint32_t succeeded);
 uint32_t multiplex_native_app_player_settings_open(void);
 int32_t multiplex_native_app_playback_navigation_request(void);
 uint32_t multiplex_native_app_playback_navigation_clear(void);
