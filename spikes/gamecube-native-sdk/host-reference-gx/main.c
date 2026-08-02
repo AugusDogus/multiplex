@@ -50,6 +50,7 @@
 #define TIMELINE_REPORT_STACK_SIZE (128 * 1024)
 #define POSTER_LOADER_STACK_SIZE (256 * 1024)
 #define POSTER_LOADER_LANE_COUNT 2u
+#define HLS_SESSION_PREFETCH_STACK_SIZE (128 * 1024)
 #define STARTUP_DATA_LOADER_STACK_SIZE (256 * 1024)
 #define REFERENCE_RENDERER_STACK_SIZE (512 * 1024)
 #define NETWORK_WARMUP_STACK_SIZE (64 * 1024)
@@ -288,6 +289,24 @@ struct DirectPosterLoader {
   uint16_t cache_hits;
   uint16_t texture_offset;
 };
+
+typedef struct {
+  const MultiplexAuthCredentials *credentials;
+  MultiplexPlexHlsSession session;
+  HlsMediaPlaylist playlist;
+  lwp_t thread;
+  void *stack;
+  uint32_t rating_key;
+  uint32_t offset_ms;
+  uint32_t subtitle_stream_index;
+  uint32_t started_tick;
+  bool burn_subtitles;
+  bool started;
+  volatile bool complete;
+  volatile bool ready;
+} DirectHlsSessionPrefetch;
+
+static DirectHlsSessionPrefetch direct_hls_prefetch;
 
 typedef struct {
   const MultiplexAuthCredentials *credentials;
@@ -1950,6 +1969,98 @@ static bool load_item_details(const char *gateway_url) {
   return bind_item_details(&details);
 }
 
+static void reset_direct_hls_prefetch(DirectHlsSessionPrefetch *prefetch) {
+  memset(prefetch, 0, sizeof(*prefetch));
+  prefetch->thread = LWP_THREAD_NULL;
+}
+
+static void *run_direct_hls_prefetch(void *context) {
+  DirectHlsSessionPrefetch *prefetch = context;
+  prefetch->ready = multiplex_plex_hls_start(
+      prefetch->credentials, prefetch->rating_key, prefetch->offset_ms, NULL,
+      prefetch->burn_subtitles, prefetch->subtitle_stream_index,
+      &prefetch->session) &&
+      multiplex_plex_hls_refresh(prefetch->credentials, &prefetch->session,
+                                 &prefetch->playlist);
+  __sync_synchronize();
+  prefetch->complete = true;
+  return NULL;
+}
+
+static bool finish_direct_hls_prefetch(DirectHlsSessionPrefetch *prefetch,
+                                       bool wait) {
+  if (prefetch == NULL || !prefetch->started) {
+    return false;
+  }
+  if (prefetch->thread != LWP_THREAD_NULL) {
+    if (!wait && !prefetch->complete) {
+      return false;
+    }
+    LWP_JoinThread(prefetch->thread, NULL);
+    prefetch->thread = LWP_THREAD_NULL;
+    free(prefetch->stack);
+    prefetch->stack = NULL;
+    __sync_synchronize();
+    SYS_Report("REFERENCE GX: HLS session prefetch ready=%u rating-key=%u "
+               "us=%u\n",
+               prefetch->ready ? 1u : 0u, prefetch->rating_key,
+               elapsed_us(prefetch->started_tick));
+  }
+  return prefetch->ready;
+}
+
+static void discard_direct_hls_prefetch(DirectHlsSessionPrefetch *prefetch) {
+  if (prefetch == NULL || !prefetch->started) {
+    return;
+  }
+  finish_direct_hls_prefetch(prefetch, true);
+  if (prefetch->session.started) {
+    multiplex_plex_hls_stop(prefetch->credentials, &prefetch->session);
+  }
+  reset_direct_hls_prefetch(prefetch);
+}
+
+static bool start_direct_hls_prefetch(
+    DirectHlsSessionPrefetch *prefetch,
+    const MultiplexAuthCredentials *credentials,
+    const MultiplexGatewayDetails *details) {
+  if (prefetch == NULL || credentials == NULL || details == NULL ||
+      details->rating_key == 0 || details->duration_ms == 0) {
+    return false;
+  }
+  discard_direct_hls_prefetch(prefetch);
+  reset_direct_hls_prefetch(prefetch);
+  prefetch->credentials = credentials;
+  prefetch->rating_key = details->rating_key;
+  prefetch->offset_ms = details->view_offset_ms < details->duration_ms
+                            ? details->view_offset_ms
+                            : 0;
+  for (uint8_t index = 0; index < details->subtitle_stream_count; ++index) {
+    const MultiplexGatewaySubtitleStream *subtitle =
+        &details->subtitle_streams[index];
+    if (subtitle->selected && subtitle->has_index) {
+      prefetch->burn_subtitles = true;
+      prefetch->subtitle_stream_index = subtitle->index;
+      break;
+    }
+  }
+  prefetch->stack = malloc(HLS_SESSION_PREFETCH_STACK_SIZE);
+  prefetch->started_tick = gettick();
+  if (prefetch->stack == NULL ||
+      LWP_CreateThread(&prefetch->thread, run_direct_hls_prefetch, prefetch,
+                       prefetch->stack, HLS_SESSION_PREFETCH_STACK_SIZE,
+                       LWP_PRIO_NORMAL / 2) != 0) {
+    free(prefetch->stack);
+    reset_direct_hls_prefetch(prefetch);
+    return false;
+  }
+  prefetch->started = true;
+  SYS_Report("REFERENCE GX: HLS session prefetch started rating-key=%u "
+             "offset=%u\n",
+             prefetch->rating_key, prefetch->offset_ms);
+  return true;
+}
+
 static bool
 load_direct_item_details(const MultiplexAuthCredentials *credentials) {
   const uint32_t rating_key = multiplex_native_app_details_request();
@@ -1964,6 +2075,11 @@ load_direct_item_details(const MultiplexAuthCredentials *credentials) {
   }
   const bool bound = bind_item_details(&direct_details_cache);
   direct_details_cache_valid = bound;
+  if (bound && !start_direct_hls_prefetch(&direct_hls_prefetch, credentials,
+                                          &direct_details_cache)) {
+    SYS_Report("REFERENCE GX: HLS session prefetch unavailable rating-key=%u\n",
+               rating_key);
+  }
   return bound;
 }
 
@@ -2129,9 +2245,33 @@ static bool open_direct_hls_session(const MultiplexAuthCredentials *credentials,
                                     bool burn_subtitles,
                                     uint32_t subtitle_stream_index,
                                     PlexHlsDemux **demux_out) {
-  PlexHlsDemux *demux = plex_hls_demux_create(
-      credentials, rating_key, offset_ms, session_id, burn_subtitles,
-      subtitle_stream_index);
+  PlexHlsDemux *demux = NULL;
+  const bool prefetch_matches =
+      session_id == NULL && direct_hls_prefetch.started &&
+      direct_hls_prefetch.rating_key == rating_key &&
+      direct_hls_prefetch.offset_ms == offset_ms &&
+      direct_hls_prefetch.burn_subtitles == burn_subtitles &&
+      (!burn_subtitles || direct_hls_prefetch.subtitle_stream_index ==
+                                subtitle_stream_index) &&
+      finish_direct_hls_prefetch(&direct_hls_prefetch, true);
+  if (prefetch_matches) {
+    demux = plex_hls_demux_create_prepared(
+        credentials, &direct_hls_prefetch.session,
+        &direct_hls_prefetch.playlist);
+    if (demux != NULL) {
+      SYS_Report("REFERENCE GX: direct playback reused prefetched HLS "
+                 "rating-key=%u offset=%u\n",
+                 rating_key, offset_ms);
+      direct_hls_prefetch.session.started = false;
+      reset_direct_hls_prefetch(&direct_hls_prefetch);
+    }
+  }
+  if (demux == NULL) {
+    discard_direct_hls_prefetch(&direct_hls_prefetch);
+    demux = plex_hls_demux_create(credentials, rating_key, offset_ms,
+                                  session_id, burn_subtitles,
+                                  subtitle_stream_index);
+  }
   if (demux == NULL || !plex_hls_demux_start(demux) ||
       !plex_hls_demux_wait_ready(demux, HLS_VIDEO_PREBUFFER_BYTES,
                                  HLS_AUDIO_PREBUFFER_BYTES,
@@ -4530,6 +4670,7 @@ static void *run_app(void *unused) {
   for (uint16_t lane = 0; lane < POSTER_LOADER_LANE_COUNT; ++lane) {
     direct_page_poster_loader.threads[lane] = LWP_THREAD_NULL;
   }
+  reset_direct_hls_prefetch(&direct_hls_prefetch);
   bool timeline_player_visible = false;
   bool timeline_started = false;
   uint64_t player_controls_last_input_ms = 0;
@@ -4748,6 +4889,11 @@ static void *run_app(void *unused) {
   while (SYS_MainLoop()) {
     poll_direct_poster_loader(&direct_home_poster_loader);
     poll_direct_poster_loader(&direct_page_poster_loader);
+    finish_direct_hls_prefetch(&direct_hls_prefetch, false);
+    if (direct_hls_prefetch.ready &&
+        multiplex_native_app_screen() != MULTIPLEX_SCREEN_DETAILS) {
+      discard_direct_hls_prefetch(&direct_hls_prefetch);
+    }
     if (!poll_reference_renderer()) {
       break;
     }
@@ -4937,6 +5083,7 @@ static void *run_app(void *unused) {
       auth_reset_latched = true;
       stop_direct_poster_loader(&direct_home_poster_loader);
       stop_direct_poster_loader(&direct_page_poster_loader);
+      discard_direct_hls_prefetch(&direct_hls_prefetch);
       stop_startup_data_loader(&startup_data_loader);
       const MultiplexMemoryCardResult deleted =
           multiplex_memory_card_delete_auth(&auth_location);
@@ -5508,6 +5655,7 @@ static void *run_app(void *unused) {
 #endif
   stop_direct_poster_loader(&direct_home_poster_loader);
   stop_direct_poster_loader(&direct_page_poster_loader);
+  discard_direct_hls_prefetch(&direct_hls_prefetch);
   if (timeline_started) {
     flush_timeline_report(&timeline_reporter, MULTIPLEX_GATEWAY_URL,
                           timeline_plex_credentials, direct_hls_session_id,

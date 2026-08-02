@@ -32,6 +32,7 @@ struct PlexHlsDemux {
   MediaByteQueue *video;
   MediaByteQueue *audio;
   MpegTsParser parser;
+  HlsMediaPlaylist prefetched_playlist;
   lwp_t producer_thread;
   void *producer_stack;
   volatile bool started;
@@ -41,6 +42,7 @@ struct PlexHlsDemux {
   volatile uint32_t segment_count;
   volatile uint32_t video_bytes;
   volatile uint32_t audio_bytes;
+  bool has_prefetched_playlist;
 };
 
 static bool queue_elementary(void *context, MpegTsStream stream,
@@ -112,7 +114,16 @@ static void *run_hls_producer(void *context) {
   PlexHlsDemux *demux = context;
   unsigned playlist_failures = 0;
   HlsMediaPlaylist playlist;
-  bool has_playlist = false;
+  bool has_playlist = demux->has_prefetched_playlist;
+  if (has_playlist) {
+    playlist = demux->prefetched_playlist;
+    demux->has_prefetched_playlist = false;
+    SYS_Report("REFERENCE GX: HLS reused prefetched playlist segments=%u "
+               "first=%u\n",
+               (unsigned)playlist.segment_count,
+               playlist.segment_count == 0 ? 0u
+                                           : playlist.segments[0].sequence);
+  }
   while (!demux->stopping) {
     if (!has_playlist) {
       if (!multiplex_plex_hls_refresh(demux->credentials, &demux->session,
@@ -156,11 +167,9 @@ static void *run_hls_producer(void *context) {
   return NULL;
 }
 
-PlexHlsDemux *plex_hls_demux_create(
-    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
-    uint32_t offset_ms, const char *session_id, bool burn_subtitles,
-    uint32_t subtitle_stream_index) {
-  if (credentials == NULL || rating_key == 0) {
+static PlexHlsDemux *allocate_hls_demux(
+    const MultiplexAuthCredentials *credentials) {
+  if (credentials == NULL) {
     return NULL;
   }
   PlexHlsDemux *demux = calloc(1, sizeof(*demux));
@@ -171,14 +180,47 @@ PlexHlsDemux *plex_hls_demux_create(
   demux->producer_thread = LWP_THREAD_NULL;
   demux->video = media_byte_queue_create(HLS_VIDEO_QUEUE_SIZE);
   demux->audio = media_byte_queue_create(HLS_AUDIO_QUEUE_SIZE);
-  if (demux->video == NULL || demux->audio == NULL ||
+  if (demux->video == NULL || demux->audio == NULL) {
+    plex_hls_demux_destroy(demux);
+    return NULL;
+  }
+  mpeg_ts_parser_init(&demux->parser, queue_elementary, demux);
+  return demux;
+}
+
+PlexHlsDemux *plex_hls_demux_create(
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
+    uint32_t offset_ms, const char *session_id, bool burn_subtitles,
+    uint32_t subtitle_stream_index) {
+  if (rating_key == 0) {
+    return NULL;
+  }
+  PlexHlsDemux *demux = allocate_hls_demux(credentials);
+  if (demux == NULL ||
       !multiplex_plex_hls_start(credentials, rating_key, offset_ms, session_id,
                                 burn_subtitles, subtitle_stream_index,
                                 &demux->session)) {
     plex_hls_demux_destroy(demux);
     return NULL;
   }
-  mpeg_ts_parser_init(&demux->parser, queue_elementary, demux);
+  return demux;
+}
+
+PlexHlsDemux *plex_hls_demux_create_prepared(
+    const MultiplexAuthCredentials *credentials,
+    const MultiplexPlexHlsSession *session,
+    const HlsMediaPlaylist *playlist) {
+  if (session == NULL || playlist == NULL || !session->started ||
+      playlist->segment_count == 0) {
+    return NULL;
+  }
+  PlexHlsDemux *demux = allocate_hls_demux(credentials);
+  if (demux == NULL) {
+    return NULL;
+  }
+  demux->session = *session;
+  demux->prefetched_playlist = *playlist;
+  demux->has_prefetched_playlist = true;
   return demux;
 }
 
