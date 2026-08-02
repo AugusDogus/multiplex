@@ -16,6 +16,7 @@ import type { GuestNextEpisode } from "~/lib/guest-watch-together-bootstrap";
 import {
   resolveGuestAccess,
   type ResolveGuestAccess,
+  type ResolvedGuestAccess,
 } from "~/server/watch-together/guest-access";
 import {
   createGuestCapabilityCodec,
@@ -331,14 +332,9 @@ export function createGuestContinuationService(
   };
 }
 
-type GuestPartyAccess = Extract<
-  Awaited<ReturnType<typeof resolveGuestAccess>>,
-  { ok: true }
->["value"];
-
 function roomContainsGuestParty(
   room: WatchTogetherRoom,
-  access: GuestPartyAccess,
+  access: ResolvedGuestAccess,
 ): boolean {
   const ids = new Set(room.users.map((user) => user.id));
   return ids.has(access.hostPlexUserId) && ids.has(access.guest.id);

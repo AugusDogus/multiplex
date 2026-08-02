@@ -8,10 +8,7 @@ import type {
   WatchTogetherRoom,
 } from "@multiplex/plex-query";
 
-import type {
-  GuestAccessResolution,
-  ResolveGuestAccess,
-} from "./guest-access";
+import type { GuestAccessResolution, ResolveGuestAccess } from "./guest-access";
 import {
   createGuestBootstrapService,
   createGuestContinuationService,
