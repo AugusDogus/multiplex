@@ -554,7 +554,7 @@ export fn multiplex_native_app_pairing_status(
         code[0..code_length],
         link_url[0..link_url_length],
     ));
-    focused_handler = 0;
+    focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
     return 1;
 }
@@ -657,7 +657,7 @@ export fn multiplex_native_app_catalog_commit() callconv(.c) u32 {
         staged_row_ptrs[0..staged_row_count],
         staged_library_ptrs[0..staged_library_count],
     ));
-    focused_handler = 0;
+    focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
     return 1;
 }
@@ -697,7 +697,7 @@ export fn multiplex_native_app_watch_together_commit() callconv(.c) u32 {
         staged_watch_together_available,
         staged_watch_together_room_ptrs[0..staged_watch_together_room_count],
     ));
-    focused_handler = 0;
+    focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
     return 1;
 }
@@ -738,7 +738,7 @@ export fn multiplex_native_app_watch_together_invitees_commit() callconv(.c) u32
         staged_watch_together_invitees_available,
         staged_watch_together_invitee_ptrs[0..staged_watch_together_invitee_count],
     ));
-    focused_handler = 0;
+    focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
     return 1;
 }
@@ -766,7 +766,7 @@ export fn multiplex_native_app_watch_together_create_request(
 export fn multiplex_native_app_watch_together_create_fail() callconv(.c) u32 {
     if (!app_initialized or core.watchTogetherCreateRatingKey(app_model) == 0) return 0;
     commitAppModel(core.failWatchTogetherCreate(app_model));
-    focused_handler = 0;
+    focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
     return 1;
 }
@@ -781,7 +781,7 @@ export fn multiplex_native_app_watch_together_join_request() callconv(.c) u32 {
 export fn multiplex_native_app_watch_together_join_commit(connected: u32) callconv(.c) u32 {
     if (!app_initialized) return 0;
     commitAppModel(core.completeWatchTogetherJoin(app_model, connected != 0));
-    focused_handler = 0;
+    focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
     return 1;
 }
@@ -813,7 +813,7 @@ export fn multiplex_native_app_watch_together_leave_request() callconv(.c) u32 {
 export fn multiplex_native_app_watch_together_leave_commit() callconv(.c) u32 {
     if (!app_initialized or !app_model.watchTogetherLeaveRequested) return 0;
     commitAppModel(core.completeWatchTogetherLeave(app_model));
-    focused_handler = 0;
+    focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
     return 1;
 }
@@ -826,7 +826,7 @@ export fn multiplex_native_app_watch_together_reconnect_request() callconv(.c) u
 export fn multiplex_native_app_watch_together_reconnect_commit() callconv(.c) u32 {
     if (!app_initialized or !app_model.watchTogetherReconnectRequested) return 0;
     commitAppModel(core.completeWatchTogetherReconnect(app_model));
-    focused_handler = 0;
+    focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
     return 1;
 }
@@ -846,7 +846,7 @@ export fn multiplex_native_app_watch_together_disband_request() callconv(.c) u32
 export fn multiplex_native_app_watch_together_disband_commit(deleted: u32) callconv(.c) u32 {
     if (!app_initialized or !app_model.watchTogetherDisbandRequested) return 0;
     commitAppModel(core.completeWatchTogetherDisband(app_model, deleted != 0));
-    focused_handler = 0;
+    focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
     return 1;
 }
@@ -878,7 +878,7 @@ export fn multiplex_native_app_watch_together_playback(
     next.watchTogetherReconnectRequested = false;
     next.watchTogetherDisbandRequested = false;
     commitAppModel(next);
-    focused_handler = 0;
+    focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
     return 1;
 }
@@ -1301,7 +1301,7 @@ export fn multiplex_native_app_playback_offset_request() callconv(.c) u32 {
 export fn multiplex_native_app_playback_commit() callconv(.c) u32 {
     if (!app_initialized or core.playbackRequestRatingKey(app_model) == 0) return 0;
     commitAppModel(core.loadPlayback(app_model));
-    focused_handler = 0;
+    focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
     return 1;
 }
@@ -1332,7 +1332,7 @@ export fn multiplex_native_app_playback_advance(
     next.detailsChildrenTotal = 0;
     next.detailsChildrenLoaded = false;
     commitAppModel(next);
-    focused_handler = 0;
+    focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
     return 1;
 }
@@ -1340,7 +1340,7 @@ export fn multiplex_native_app_playback_advance(
 export fn multiplex_native_app_playback_fail() callconv(.c) u32 {
     if (!app_initialized or core.playbackRequestRatingKey(app_model) == 0) return 0;
     commitAppModel(core.failPlayback(app_model));
-    focused_handler = 0;
+    focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
     return 1;
 }
@@ -1356,7 +1356,7 @@ export fn multiplex_native_app_playback_continue(position_ms: u32) callconv(.c) 
     const continued = core.update(app_model, .{ .continue_playback = @intCast(position_ms) });
     if (core.playbackRequestRatingKey(continued) == 0) return 0;
     commitAppModel(continued);
-    focused_handler = 0;
+    focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
     return 1;
 }
@@ -1364,7 +1364,7 @@ export fn multiplex_native_app_playback_continue(position_ms: u32) callconv(.c) 
 export fn multiplex_native_app_playback_complete() callconv(.c) u32 {
     if (!app_initialized) return 0;
     commitAppModel(core.update(app_model, .complete_playback));
-    focused_handler = 0;
+    focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
     return 1;
 }
@@ -1445,7 +1445,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
     const model = app_model;
     if (action == 4) {
         commitAppModel(core.update(model, .open_libraries));
-        focused_handler = 0;
+        focused_handler = invalid_focused_handler;
         reference_full_repaint = true;
         multiplex_native_input_trace(action, 0, 0, 4);
         return 1;
@@ -1497,7 +1497,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
     }
     if (action == 10) {
         commitAppModel(core.update(model, .open_search));
-        focused_handler = 0;
+        focused_handler = invalid_focused_handler;
         reference_full_repaint = true;
         multiplex_native_input_trace(action, 0, 0, 13);
         return 1;
