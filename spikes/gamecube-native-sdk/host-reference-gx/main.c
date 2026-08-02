@@ -47,6 +47,7 @@
 #define MEDIA_PREFETCH_STACK_SIZE (256 * 1024)
 #define TIMELINE_REPORT_STACK_SIZE (128 * 1024)
 #define POSTER_LOADER_STACK_SIZE (256 * 1024)
+#define STARTUP_DATA_LOADER_STACK_SIZE (256 * 1024)
 #define TIMELINE_REPORT_INTERVAL_MS 10000u
 #define PAIRING_POLL_INTERVAL_FRAMES 60u
 #define MEDIA_STARTUP_STALL_TIMEOUT_US 5000000u
@@ -218,6 +219,21 @@ typedef struct {
   uint16_t item_count;
   uint16_t texture_offset;
 } DirectPosterLoader;
+
+typedef struct {
+  const MultiplexAuthCredentials *credentials;
+  MultiplexTrpcRoomList rooms;
+  MultiplexTrpcInviteeList invitees;
+  uint32_t user_id;
+  lwp_t thread;
+  void *stack;
+  volatile bool complete;
+  bool started;
+  bool applied;
+  bool user_available;
+  bool rooms_available;
+  bool invitees_available;
+} StartupDataLoader;
 
 static bool read_http_program(void *context, size_t offset,
                               uint8_t *destination, size_t size);
@@ -966,7 +982,6 @@ static void poll_direct_poster_loader(DirectPosterLoader *loader) {
              MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
       DCFlushRange(pixels, MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
       GX_InvalidateTexAll();
-      native_frame_dirty = true;
     }
     __sync_synchronize();
     loader->item_ready = false;
@@ -2823,12 +2838,11 @@ static bool bind_watch_together_rooms(const MultiplexTrpcRoomList *rooms,
   return true;
 }
 
-static bool refresh_watch_together_invitees(
-    const MultiplexAuthCredentials *credentials,
-    MultiplexTrpcInviteeList *invitees) {
-  memset(invitees, 0, sizeof(*invitees));
-  const bool available = multiplex_trpc_load_watch_together_invitees(
-      MULTIPLEX_BASE_URL, credentials->session_token, invitees);
+static bool bind_watch_together_invitees(
+    const MultiplexTrpcInviteeList *invitees, bool available) {
+  if (invitees == NULL) {
+    return false;
+  }
   if (multiplex_native_app_watch_together_invitees_begin(
           available ? 1u : 0u, available ? invitees->invitee_count : 0u) ==
       0) {
@@ -2858,6 +2872,92 @@ refresh_watch_together_rooms(const MultiplexAuthCredentials *credentials,
   const bool available = multiplex_trpc_load_watch_together_rooms(
       MULTIPLEX_BASE_URL, credentials->session_token, rooms);
   return bind_watch_together_rooms(rooms, available);
+}
+
+static void *run_startup_data_loader(void *context) {
+  StartupDataLoader *loader = context;
+  loader->user_available = multiplex_trpc_load_user_id(
+      loader->credentials->origin, loader->credentials->session_token,
+      &loader->user_id);
+  loader->rooms_available = multiplex_trpc_load_watch_together_rooms(
+      MULTIPLEX_BASE_URL, loader->credentials->session_token, &loader->rooms);
+  loader->invitees_available = multiplex_trpc_load_watch_together_invitees(
+      MULTIPLEX_BASE_URL, loader->credentials->session_token,
+      &loader->invitees);
+  __sync_synchronize();
+  loader->complete = true;
+  return NULL;
+}
+
+static bool launch_startup_data_loader(
+    StartupDataLoader *loader,
+    const MultiplexAuthCredentials *credentials) {
+  if (loader == NULL || credentials == NULL || loader->started) {
+    return false;
+  }
+  memset(loader, 0, sizeof(*loader));
+  loader->credentials = credentials;
+  loader->thread = LWP_THREAD_NULL;
+  loader->stack = malloc(STARTUP_DATA_LOADER_STACK_SIZE);
+  if (loader->stack == NULL) {
+    return false;
+  }
+  if (LWP_CreateThread(&loader->thread, run_startup_data_loader, loader,
+                       loader->stack, STARTUP_DATA_LOADER_STACK_SIZE,
+                       LWP_PRIO_NORMAL / 2) != 0) {
+    free(loader->stack);
+    loader->stack = NULL;
+    return false;
+  }
+  loader->started = true;
+  SYS_Report("REFERENCE GX: background account data started\n");
+  return true;
+}
+
+static bool poll_startup_data_loader(
+    StartupDataLoader *loader, uint32_t *user_id,
+    MultiplexTrpcRoomList *rooms, MultiplexTrpcInviteeList *invitees) {
+  if (loader == NULL || !loader->started || loader->applied ||
+      !loader->complete) {
+    return true;
+  }
+  __sync_synchronize();
+  if (loader->thread != LWP_THREAD_NULL) {
+    LWP_JoinThread(loader->thread, NULL);
+    loader->thread = LWP_THREAD_NULL;
+  }
+  if (loader->user_available) {
+    *user_id = loader->user_id;
+  }
+  *rooms = loader->rooms;
+  *invitees = loader->invitees;
+  if (!bind_watch_together_rooms(rooms, loader->rooms_available) ||
+      !bind_watch_together_invitees(invitees,
+                                    loader->invitees_available)) {
+    return false;
+  }
+  loader->applied = true;
+  SYS_Report("REFERENCE GX: background account data ready user=%u rooms=%u "
+             "invitees=%u\n",
+             loader->user_available ? 1u : 0u,
+             loader->rooms_available ? rooms->room_count : 0u,
+             loader->invitees_available ? invitees->invitee_count : 0u);
+  return true;
+}
+
+static void stop_startup_data_loader(StartupDataLoader *loader) {
+  if (loader == NULL) {
+    return;
+  }
+  if (loader->thread != LWP_THREAD_NULL) {
+    LWP_JoinThread(loader->thread, NULL);
+    loader->thread = LWP_THREAD_NULL;
+  }
+  free(loader->stack);
+  loader->stack = NULL;
+  loader->started = false;
+  loader->complete = false;
+  loader->applied = false;
 }
 
 static bool retain_watch_together_room(MultiplexTrpcRoomList *rooms,
@@ -3163,6 +3263,7 @@ static bool rotate_watch_together_if_complete(
 
 static void *run_app(void *unused) {
   (void)unused;
+  const uint32_t app_started = gettick();
   initialize_video_and_gx();
   if (!allocate_buffers()) {
     return (void *)(uintptr_t)1;
@@ -3195,6 +3296,9 @@ static void *run_app(void *unused) {
   MultiplexTrpcInviteeList watch_together_invitees;
   memset(&watch_together_invitees, 0, sizeof(watch_together_invitees));
 #if MULTIPLEX_PAIRING_ENABLED
+  StartupDataLoader startup_data_loader;
+  memset(&startup_data_loader, 0, sizeof(startup_data_loader));
+  startup_data_loader.thread = LWP_THREAD_NULL;
   MultiplexSyncplaySession *syncplay_session = NULL;
   uint32_t joined_watch_together_room = UINT32_MAX;
   uint64_t watch_together_all_present_since_ms = 0;
@@ -3292,6 +3396,12 @@ static void *run_app(void *unused) {
       if (!has_catalog) {
         return (void *)(uintptr_t)1;
       }
+      if (!queue_direct_poster_loader(&direct_home_poster_loader,
+                                      &auth_credentials, catalog.items,
+                                      catalog.total_item_count, 0, true)) {
+        SYS_Report("REFERENCE GX: direct Plex artwork unavailable; using "
+                   "placeholders\n");
+      }
     } else if (multiplex_native_app_pairing_status(
                    MULTIPLEX_DEVICE_AUTH_UNAVAILABLE, (const uint8_t *)"", 0,
                    (const uint8_t *)"", 0) == 0) {
@@ -3300,19 +3410,8 @@ static void *run_app(void *unused) {
     }
     native_frame_dirty = true;
     present_frame(&playback_manifest);
-  }
-  if (pairing_linked) {
-    multiplex_trpc_load_user_id(auth_credentials.origin,
-                                auth_credentials.session_token,
-                                &plex_user_id);
-  }
-  if (pairing_linked &&
-      !refresh_watch_together_rooms(&auth_credentials, &watch_together_rooms)) {
-    return (void *)(uintptr_t)1;
-  }
-  if (pairing_linked && !refresh_watch_together_invitees(
-                            &auth_credentials, &watch_together_invitees)) {
-    return (void *)(uintptr_t)1;
+    SYS_Report("REFERENCE GX: interactive home ready us=%u\n",
+               elapsed_us(app_started));
   }
 #endif
 #if MULTIPLEX_PAIRING_ENABLED
@@ -3329,29 +3428,30 @@ static void *run_app(void *unused) {
     SYS_Report("REFERENCE GX: playback-session deferred rating-key=%u until "
                "selected\n",
                playback_manifest.rating_key);
-  } else if (!open_initial_media_session(&client, &demux)) {
+  } else if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
+             !open_initial_media_session(&client, &demux)) {
     return (void *)(uintptr_t)1;
   }
-  if (!refresh_reference_frame(false)) {
-    close_media_session(&client, &demux);
-    return (void *)(uintptr_t)1;
-  }
-#if MULTIPLEX_PAIRING_ENABLED
-  if (has_catalog && MULTIPLEX_GATEWAY_URL[0] == '\0' &&
-      poster_texture_pixels == NULL) {
-    present_frame(&playback_manifest);
-    if (!queue_direct_poster_loader(&direct_home_poster_loader,
-                                    &auth_credentials, catalog.items,
-                                    catalog.total_item_count, 0, true)) {
-      SYS_Report("REFERENCE GX: direct Plex artwork unavailable; using "
-                 "placeholders\n");
-    }
-  }
-#endif
 
   while (SYS_MainLoop()) {
     poll_direct_poster_loader(&direct_home_poster_loader);
     poll_direct_poster_loader(&direct_page_poster_loader);
+#if MULTIPLEX_PAIRING_ENABLED
+    if (pairing_linked && !startup_data_loader.started &&
+        direct_home_poster_loader.thread == LWP_THREAD_NULL &&
+        !direct_home_poster_loader.pending) {
+      if (!launch_startup_data_loader(&startup_data_loader,
+                                      &auth_credentials)) {
+        SYS_Report("REFERENCE GX: background account data unavailable\n");
+      }
+    }
+    if (!poll_startup_data_loader(&startup_data_loader, &plex_user_id,
+                                  &watch_together_rooms,
+                                  &watch_together_invitees)) {
+      SYS_Report("REFERENCE GX: background account data binding failed\n");
+      break;
+    }
+#endif
     if (direct_home_poster_loader.thread == LWP_THREAD_NULL &&
         !direct_home_poster_loader.pending &&
         direct_page_poster_loader.pending &&
@@ -3405,9 +3505,6 @@ static void *run_app(void *unused) {
         if (pairing_linked) {
           multiplex_plex_bootstrap_credentials(&auth_credentials,
                                                MULTIPLEX_PLEX_BASE_URL);
-          multiplex_trpc_load_user_id(auth_credentials.origin,
-                                      auth_credentials.session_token,
-                                      &plex_user_id);
           const MultiplexMemoryCardResult saved =
               multiplex_memory_card_save_auth(&auth_credentials,
                                               &auth_location);
@@ -3421,14 +3518,6 @@ static void *run_app(void *unused) {
                                          &auth_credentials, catalog.items,
                                          catalog.total_item_count, 0, true);
             }
-          }
-          if (!refresh_watch_together_rooms(&auth_credentials,
-                                            &watch_together_rooms)) {
-            break;
-          }
-          if (!refresh_watch_together_invitees(
-                  &auth_credentials, &watch_together_invitees)) {
-            break;
           }
         }
         if (multiplex_native_app_pairing_status(
@@ -3502,6 +3591,7 @@ static void *run_app(void *unused) {
       auth_reset_latched = true;
       stop_direct_poster_loader(&direct_home_poster_loader);
       stop_direct_poster_loader(&direct_page_poster_loader);
+      stop_startup_data_loader(&startup_data_loader);
       const MultiplexMemoryCardResult deleted =
           multiplex_memory_card_delete_auth(&auth_location);
       SYS_Report("REFERENCE GX: linked-account reset=%s\n",
@@ -4050,6 +4140,7 @@ static void *run_app(void *unused) {
   discard_staged_media_session(&staged_media);
 #if MULTIPLEX_PAIRING_ENABLED
   multiplex_syncplay_session_destroy(syncplay_session);
+  stop_startup_data_loader(&startup_data_loader);
 #endif
   stop_direct_poster_loader(&direct_home_poster_loader);
   stop_direct_poster_loader(&direct_page_poster_loader);
