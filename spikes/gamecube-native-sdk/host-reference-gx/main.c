@@ -148,6 +148,8 @@ static MultiplexPlayerControlsSurface player_controls_surface;
 static MultiplexModalSurface modal_surface;
 static MultiplexPosterSurface poster_surfaces[4];
 static uint32_t poster_surface_count;
+static MultiplexGatewayDetails direct_details_cache;
+static bool direct_details_cache_valid;
 static uint32_t presented_screen = UINT32_MAX;
 static bool asynchronous_reference_enabled;
 static bool asynchronous_reference_requested;
@@ -1850,11 +1852,14 @@ load_direct_item_details(const MultiplexAuthCredentials *credentials) {
   if (rating_key == 0) {
     return true;
   }
-  MultiplexGatewayDetails details;
-  if (!multiplex_plex_load_details(credentials, rating_key, &details)) {
+  direct_details_cache_valid = false;
+  memset(&direct_details_cache, 0, sizeof(direct_details_cache));
+  if (!multiplex_plex_load_details(credentials, rating_key,
+                                   &direct_details_cache)) {
     return fail_item_details(rating_key);
   }
-  return bind_item_details(&details);
+  direct_details_cache_valid = true;
+  return bind_item_details(&direct_details_cache);
 }
 
 static bool bind_item_children(uint32_t rating_key,
@@ -2480,24 +2485,29 @@ load_direct_playback(const MultiplexAuthCredentials *credentials,
           : 0;
   MultiplexGatewayDetails details;
   memset(&details, 0, sizeof(details));
-  if (duration_ms == 0 &&
-      (!multiplex_plex_load_details(credentials, rating_key, &details) ||
-       details.duration_ms == 0)) {
-    if (transition_from_watch_together) {
+  if (duration_ms == 0) {
+    if (direct_details_cache_valid &&
+        direct_details_cache.rating_key == rating_key) {
+      details = direct_details_cache;
+      SYS_Report("REFERENCE GX: direct playback reused details rating-key=%u\n",
+                 rating_key);
+    } else if (!multiplex_plex_load_details(credentials, rating_key,
+                                            &details) ||
+               details.duration_ms == 0) {
+      if (transition_from_watch_together) {
+        SYS_Report("REFERENCE GX: direct playback metadata unavailable "
+                   "rating-key=%u\n",
+                   rating_key);
+        return false;
+      }
+      if (multiplex_native_app_playback_fail() == 0) {
+        return false;
+      }
       SYS_Report("REFERENCE GX: direct playback metadata unavailable "
                  "rating-key=%u\n",
                  rating_key);
-      return false;
+      return true;
     }
-    if (multiplex_native_app_playback_fail() == 0) {
-      return false;
-    }
-    SYS_Report("REFERENCE GX: direct playback metadata unavailable "
-               "rating-key=%u\n",
-               rating_key);
-    return true;
-  }
-  if (duration_ms == 0) {
     duration_ms = details.duration_ms;
   }
   if (active_manifest->rating_key != rating_key &&
