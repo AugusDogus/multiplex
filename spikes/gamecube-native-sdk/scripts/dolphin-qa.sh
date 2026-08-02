@@ -344,7 +344,7 @@ launch() {
   readiness_attempt=0
   while [ "$readiness_attempt" -lt 480 ]; do
     if dolphin_pid >/dev/null &&
-      rg -q 'direct Plex posters decoded=[0-9]+/[0-9]+' "$log" 2>/dev/null; then
+      rg -q 'direct Plex posters (decoded=[0-9]+ downloaded=[0-9]+|reused=[0-9]+/[0-9]+)' "$log" 2>/dev/null; then
       echo "Interactive linked Plex QA is ready."
       status
       return
