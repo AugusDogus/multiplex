@@ -52,19 +52,26 @@ export type GuestAccessResolution =
       readonly canEnableGuest: boolean;
     };
 
-type ResolveGuestAccessOptions = {
+export type ResolveGuestAccessOptions = {
   readonly createPlexClient?: (token: string) => PlexTvClient;
 };
+
+/** Injectable Guest-access resolver used by bootstrap/continuation services. */
+export type ResolveGuestAccess = (
+  hostPlex: PlexTvClient,
+  input: { serverId: string; ratingKey: string },
+  options?: ResolveGuestAccessOptions,
+) => Promise<GuestAccessResolution>;
 
 /**
  * Resolve the complete Guest authority chain and prove access to one selected
  * item. Credentials stay in this server-only result and are never serialized.
  */
-export async function resolveGuestAccess(
-  hostPlex: PlexTvClient,
-  input: { serverId: string; ratingKey: string },
-  options: ResolveGuestAccessOptions = {},
-): Promise<GuestAccessResolution> {
+export const resolveGuestAccess: ResolveGuestAccess = async (
+  hostPlex,
+  input,
+  options = {},
+) => {
   let homeUsers: PlexHomeUser[];
   let currentPlexUserId: number;
   try {
@@ -153,7 +160,7 @@ export async function resolveGuestAccess(
       item,
     },
   };
-}
+};
 
 export function toGuestShareEligibility(
   resolution: GuestAccessResolution,
