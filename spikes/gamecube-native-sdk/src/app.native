@@ -461,39 +461,34 @@
   </if>
 
   <if test="{screen == 'details'}">
-    <column grow="1" gap="10">
+    <column grow="1" gap="8">
       <row cross="center">
         <button width="42" size="sm" icon="app:back" variant="ghost" on-press="back" label="Back"></button>
       </row>
       <if test="{detailsLoading}">
-        <row grow="1" gap="18" padding="16">
-          <column width="160">
-            <image image="{selectedImageId}" width="160" height="240" radius="lg" label="{selectedTitle}" />
-          </column>
+        <row grow="1" gap="18" padding="8">
           <column grow="1" main="center" gap="8">
             <text size="heading">{selectedTitle}</text>
             <text size="sm" foreground="text_muted">Loading details and playback options...</text>
           </column>
+          <column width="132" main="center">
+            <image image="{selectedImageId}" width="132" height="198" radius="lg" label="{selectedTitle}" />
+          </column>
         </row>
       </if>
       <if test="{detailsLoaded}">
-        <row grow="1" gap="18" padding="16">
-            <column width="160" gap="8">
-              <image image="{selectedImageId}" width="160" height="240" radius="lg" label="{selectedTitle}" />
-              <if test="{detailsHasProgress}">
-                <progress value="{detailsProgressPercent / 100}" height="5" />
-              </if>
-            </column>
-            <column grow="1" gap="8">
+        <column grow="1" gap="10">
+          <row gap="18" padding="8">
+            <column grow="1" gap="7">
               <if test="{detailsHasHierarchy}">
-                <text size="heading">{detailsSecondary}</text>
-                <text>{selectedTitle}</text>
-                <text size="sm" foreground="text_muted">{detailsHierarchy}</text>
+                <text size="heading" wrap="false">{detailsSecondary}</text>
+                <text wrap="false">{selectedTitle}</text>
+                <text size="sm" foreground="text_muted" wrap="false">{detailsHierarchy}</text>
               </if>
               <else>
-                <text size="heading">{selectedTitle}</text>
+                <text size="heading" wrap="false">{selectedTitle}</text>
                 <if test="{detailsHasSecondary}">
-                  <text foreground="text_muted">{detailsSecondary}</text>
+                  <text foreground="text_muted" wrap="false">{detailsSecondary}</text>
                 </if>
               </else>
               <row gap="6" cross="center">
@@ -507,54 +502,63 @@
               <if test="{detailsPlayable}">
                 <row gap="8">
                   <button size="sm" icon="play" variant="primary" on-press="play">{detailsPlayLabel}</button>
-                  <button width="40" size="sm" icon="check-circle" variant="secondary" on-press="mark_watched" label="Mark as Watched"></button>
-                  <button width="40" size="sm" icon="ellipsis" variant="secondary" on-press="open_start_menu" label="More actions"></button>
+                  <button width="38" size="sm" icon="check-circle" variant="ghost" on-press="mark_watched" label="Mark as Watched"></button>
+                  <button width="38" size="sm" icon="ellipsis" variant="ghost" on-press="open_start_menu" label="More actions"></button>
                 </row>
+                <if test="{detailsHasSummary}">
+                  <text foreground="text_muted" wrap="true">{detailsSummary}</text>
+                </if>
                 <if test="{detailsHasDirectors}">
                   <row gap="4" cross="center">
                     <text size="sm" foreground="text_muted">Directed by</text>
                     <text size="sm">{detailsDirectors}</text>
                   </row>
                 </if>
-                <if test="{detailsHasSummary}">
-                  <text foreground="text_muted" wrap="true">{detailsSummary}</text>
-                </if>
-              </if>
-              <if test="{detailsChildrenLoading}">
-                <text size="sm" foreground="text_muted">Loading seasons and episodes...</text>
-              </if>
-              <if test="{detailsHasChildren}">
-                <row cross="center">
-                  <text size="sm" foreground="text_muted">Choose what to watch</text>
-                  <spacer grow="1" />
-                  <badge variant="secondary">Page {detailsChildrenPageNumber} of {detailsChildrenPageCount}</badge>
-                </row>
-                <row grow="1" gap="6" cross="center">
-                  <button width="32" size="sm" icon="chevron-left" variant="ghost" on-press="details_children_previous" disabled="{detailsChildrenPreviousDisabled}" label="Previous page"></button>
-                  <row grow="1" gap="6">
-                    <for each="detailsChildren" as="child" key="ratingKey">
-                      <panel width="82" grow="1" padding="8" background="background" border-color="border" radius="lg" on-press="open_details_child:{child.id}" label="{child.title}">
-                        <column grow="1" main="center" cross="center" gap="5">
-                          <text size="sm" wrap="true">{child.title}</text>
-                          <text size="sm" foreground="text_muted">{child.subtitle}</text>
-                          <if test="{child.progressPercent > 0 and child.progressPercent < 100}">
-                            <progress value="{child.progressPercent / 100}" height="4" />
-                          </if>
-                          <else>
-                            <spacer height="4" />
-                          </else>
-                        </column>
-                      </panel>
-                    </for>
-                  </row>
-                  <button width="32" size="sm" icon="chevron-right" variant="ghost" on-press="details_children_next" disabled="{detailsChildrenNextDisabled}" label="Next page"></button>
-                </row>
-              </if>
-              <if test="{detailsNoChildren}">
-                <text size="sm" foreground="text_muted">No playable seasons or episodes were returned by Plex.</text>
               </if>
             </column>
-        </row>
+            <column width="132" gap="5">
+              <image image="{selectedImageId}" width="132" height="198" radius="lg" label="{selectedTitle}" />
+              <if test="{detailsHasProgress}">
+                <progress value="{detailsProgressPercent / 100}" height="4" />
+              </if>
+              <else>
+                <spacer height="4" />
+              </else>
+            </column>
+          </row>
+          <if test="{detailsChildrenLoading}">
+            <text size="sm" foreground="text_muted">Loading seasons and episodes...</text>
+          </if>
+          <if test="{detailsHasChildren}">
+            <column gap="6">
+              <row cross="center">
+                <text><span weight="bold">Episodes &amp; seasons</span></text>
+                <spacer grow="1" />
+                <text size="sm" foreground="text_muted">Page {detailsChildrenPageNumber} of {detailsChildrenPageCount}</text>
+              </row>
+              <row gap="6" cross="center">
+                <button width="32" size="sm" icon="chevron-left" variant="ghost" on-press="details_children_previous" disabled="{detailsChildrenPreviousDisabled}" label="Previous page"></button>
+                <row grow="1" gap="6">
+                  <for each="detailsChildren" as="child" key="ratingKey">
+                    <panel width="112" height="68" padding="8" background="scrim" border-color="border" radius="lg" on-press="open_details_child:{child.id}" label="{child.title}">
+                      <column grow="1" main="center" gap="4">
+                        <text size="sm" wrap="false">{child.title}</text>
+                        <text size="sm" foreground="text_muted" wrap="false">{child.subtitle}</text>
+                        <if test="{child.progressPercent > 0 and child.progressPercent < 100}">
+                          <progress value="{child.progressPercent / 100}" height="3" />
+                        </if>
+                      </column>
+                    </panel>
+                  </for>
+                </row>
+                <button width="32" size="sm" icon="chevron-right" variant="ghost" on-press="details_children_next" disabled="{detailsChildrenNextDisabled}" label="Next page"></button>
+              </row>
+            </column>
+          </if>
+          <if test="{detailsNoChildren}">
+            <text size="sm" foreground="text_muted">No playable seasons or episodes were returned by Plex.</text>
+          </if>
+        </column>
       </if>
     </column>
   </if>

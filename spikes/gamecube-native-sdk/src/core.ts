@@ -345,7 +345,6 @@ const pageSearch = asciiBytes("Search");
 const pageSearchResults = asciiBytes("Search results");
 const pageWatchTogether = asciiBytes("Watch Together");
 const pageInvite = asciiBytes("Invite a friend");
-const pageDetails = asciiBytes("Details");
 const playLabel = asciiBytes("Play");
 const resumeLabel = asciiBytes("Resume");
 const unavailableDetailsType = asciiBytes("Plex result");
@@ -969,7 +968,7 @@ export function pageTitle(model: Model): Uint8Array {
     case "watch_together_room":
       return selectedWatchTogetherRoomTitle(model);
     case "details":
-      return pageDetails;
+      return new Uint8Array(0);
     default:
       return new Uint8Array(0);
   }
