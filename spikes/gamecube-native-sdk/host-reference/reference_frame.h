@@ -26,6 +26,12 @@ typedef struct {
   uint32_t signature;
   uint32_t memo_hits;
   uint32_t memo_misses;
+  uint32_t dirty;
+  uint32_t full_repaint;
+  float dirty_x;
+  float dirty_y;
+  float dirty_width;
+  float dirty_height;
 } MultiplexReferenceFrameRender;
 
 MultiplexReferenceFrameStatus

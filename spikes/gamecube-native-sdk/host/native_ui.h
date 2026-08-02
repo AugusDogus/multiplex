@@ -226,6 +226,8 @@ uint32_t multiplex_native_app_render(MultiplexGxCommand *output,
                                      uint32_t capacity);
 uint32_t multiplex_native_reference_pixel_bytes(void);
 uint32_t multiplex_native_reference_render_stage(void);
+uint32_t multiplex_native_reference_dirty_bounds(
+    float *x, float *y, float *width, float *height, uint32_t *full_repaint);
 uint32_t multiplex_native_reference_memo_hits(void);
 uint32_t multiplex_native_reference_memo_misses(void);
 uint32_t multiplex_native_reference_memo_bytes(void);

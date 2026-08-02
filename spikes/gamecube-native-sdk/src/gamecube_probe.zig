@@ -93,6 +93,8 @@ var focused_screen: core.Screen = .pairing;
 var reference_render_stage: u32 = 0;
 var reference_full_repaint = true;
 var reference_dirty_region: ReferenceDirtyRegion = .none;
+var reference_dirty_bounds: ?geometry.RectF = null;
+var reference_last_full_repaint = true;
 var previous_render_state: canvas.WidgetRenderState = .{};
 var previous_render_state_valid = false;
 var reference_memo_allocator: BoundedMemoAllocator = .{};
@@ -1874,6 +1876,8 @@ fn renderReference(
         bounds.inflate(geometry.InsetsF.all(1))
     else
         null;
+    reference_dirty_bounds = dirty_bounds;
+    reference_last_full_repaint = full_repaint;
     surface.renderPass(.{
         .frame_index = 1,
         .surface_size = geometry.SizeF.init(reference_width, reference_height),
@@ -2000,6 +2004,23 @@ export fn multiplex_native_app_render_reference(
         scratch_ptr,
         scratch_capacity,
     );
+}
+
+export fn multiplex_native_reference_dirty_bounds(
+    x: *f32,
+    y: *f32,
+    width: *f32,
+    height: *f32,
+    full_repaint: *u32,
+) callconv(.c) u32 {
+    full_repaint.* = @intFromBool(reference_last_full_repaint);
+    const bounds = reference_dirty_bounds orelse return 0;
+    const normalized = bounds.normalized();
+    x.* = normalized.x;
+    y.* = normalized.y;
+    width.* = normalized.width;
+    height.* = normalized.height;
+    return 1;
 }
 
 export fn multiplex_native_app_init_and_render_reference(

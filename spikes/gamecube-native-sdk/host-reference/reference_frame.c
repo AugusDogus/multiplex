@@ -104,6 +104,9 @@ multiplex_reference_frame_render(MultiplexReferenceFrame *frame,
   render->memo_hits = multiplex_native_reference_memo_hits() - memo_hits_before;
   render->memo_misses =
       multiplex_native_reference_memo_misses() - memo_misses_before;
+  render->dirty = multiplex_native_reference_dirty_bounds(
+      &render->dirty_x, &render->dirty_y, &render->dirty_width,
+      &render->dirty_height, &render->full_repaint);
   return MULTIPLEX_REFERENCE_FRAME_OK;
 }
 

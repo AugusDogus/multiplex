@@ -101,6 +101,7 @@ typedef struct {
   MultiplexReferenceFrameRender render;
   MultiplexReferenceFrameStatus status;
   uint32_t render_us;
+  bool audit;
   volatile bool complete;
 } ReferenceFrameRenderer;
 
@@ -596,12 +597,13 @@ static void stop_video_decoder(void) {
   video_content_height = 0;
 }
 
-static void convert_reference_to_rgba8_tile_rows(unsigned first_tile_y,
-                                                 unsigned tile_row_count,
-                                                 uint8_t alpha_scale) {
+static void convert_reference_to_rgba8_tile_rect(
+    unsigned first_tile_x, unsigned first_tile_y, unsigned tile_column_count,
+    unsigned tile_row_count, uint8_t alpha_scale) {
+  const unsigned last_tile_x = first_tile_x + tile_column_count;
   const unsigned last_tile_y = first_tile_y + tile_row_count;
   for (unsigned tile_y = first_tile_y; tile_y < last_tile_y; ++tile_y) {
-    for (unsigned tile_x = 0; tile_x < TILE_COLUMNS; ++tile_x) {
+    for (unsigned tile_x = first_tile_x; tile_x < last_tile_x; ++tile_x) {
       const unsigned tile_index = tile_y * TILE_COLUMNS + tile_x;
       uint8_t *tile = texture_pixels + tile_index * TILE_BYTES;
 
@@ -629,13 +631,74 @@ static void convert_reference_to_rgba8_tile_rows(unsigned first_tile_y,
         }
       }
     }
+    DCFlushRange(texture_pixels +
+                     (tile_y * TILE_COLUMNS + first_tile_x) * TILE_BYTES,
+                 tile_column_count * TILE_BYTES);
   }
-  DCFlushRange(texture_pixels + first_tile_y * TILE_COLUMNS * TILE_BYTES,
-               tile_row_count * TILE_COLUMNS * TILE_BYTES);
+}
+
+static void convert_reference_to_rgba8_tile_rows(unsigned first_tile_y,
+                                                 unsigned tile_row_count,
+                                                 uint8_t alpha_scale) {
+  convert_reference_to_rgba8_tile_rect(0, first_tile_y, TILE_COLUMNS,
+                                       tile_row_count, alpha_scale);
 }
 
 static void convert_reference_to_rgba8_tiles(void) {
   convert_reference_to_rgba8_tile_rows(0, TILE_ROWS, 255);
+}
+
+static void convert_reference_damage(const MultiplexReferenceFrameRender *render) {
+  if (render->full_repaint != 0) {
+    convert_reference_to_rgba8_tiles();
+    return;
+  }
+  if (render->dirty == 0) {
+    return;
+  }
+
+  float left = render->dirty_x;
+  float right = render->dirty_x + render->dirty_width;
+  float top = render->dirty_y;
+  float bottom = render->dirty_y + render->dirty_height;
+  if (left < 0.0f) {
+    left = 0.0f;
+  }
+  if (right > LOGICAL_WIDTH) {
+    right = LOGICAL_WIDTH;
+  }
+  if (top < 0.0f) {
+    top = 0.0f;
+  }
+  if (bottom > LOGICAL_HEIGHT) {
+    bottom = LOGICAL_HEIGHT;
+  }
+  if (right <= left || bottom <= top) {
+    return;
+  }
+  const unsigned first_tile_x = (unsigned)left / TILE_WIDTH;
+  const unsigned first_tile_y = (unsigned)top / TILE_HEIGHT;
+  unsigned right_pixel = (unsigned)right;
+  if (right > (float)right_pixel) {
+    ++right_pixel;
+  }
+  unsigned bottom_pixel = (unsigned)bottom;
+  if (bottom > (float)bottom_pixel) {
+    ++bottom_pixel;
+  }
+  unsigned last_tile_x =
+      (right_pixel + TILE_WIDTH - 1u) / TILE_WIDTH;
+  unsigned last_tile_y =
+      (bottom_pixel + TILE_HEIGHT - 1u) / TILE_HEIGHT;
+  if (last_tile_x > TILE_COLUMNS) {
+    last_tile_x = TILE_COLUMNS;
+  }
+  if (last_tile_y > TILE_ROWS) {
+    last_tile_y = TILE_ROWS;
+  }
+  convert_reference_to_rgba8_tile_rect(
+      first_tile_x, first_tile_y, last_tile_x - first_tile_x,
+      last_tile_y - first_tile_y, 255);
 }
 
 static void set_player_controls_texture_alpha(uint8_t alpha) {
@@ -656,7 +719,8 @@ static void capture_reference_surfaces(void) {
 }
 
 static bool commit_reference_frame(
-    const MultiplexReferenceFrameRender *render, uint32_t render_us) {
+    const MultiplexReferenceFrameRender *render, uint32_t render_us,
+    bool audit) {
   profile.commands = render->commands;
   profile.passes = 1;
   profile.signature = render->signature;
@@ -672,18 +736,20 @@ static bool commit_reference_frame(
         video_surface.playing);
   }
   const uint32_t upload_started = gettick();
-  convert_reference_to_rgba8_tiles();
+  convert_reference_damage(render);
   profile.upload_us = elapsed_us(upload_started);
   native_frame_dirty = false;
-  uint32_t first_layout_rule = 0;
-  uint32_t first_layout_node = 0;
-  const uint32_t layout_findings = multiplex_native_app_layout_audit(
-      &first_layout_rule, &first_layout_node);
-  SYS_Report("REFERENCE GX: layout-audit findings=%u first-rule=%u "
-             "first-node=%u\n",
-             layout_findings, first_layout_rule, first_layout_node);
-  SYS_Report("REFERENCE GX: poster-inset-audit findings=%u\n",
-             multiplex_native_app_poster_inset_audit());
+  if (audit) {
+    uint32_t first_layout_rule = 0;
+    uint32_t first_layout_node = 0;
+    const uint32_t layout_findings = multiplex_native_app_layout_audit(
+        &first_layout_rule, &first_layout_node);
+    SYS_Report("REFERENCE GX: layout-audit findings=%u first-rule=%u "
+               "first-node=%u\n",
+               layout_findings, first_layout_rule, first_layout_node);
+    SYS_Report("REFERENCE GX: poster-inset-audit findings=%u\n",
+               multiplex_native_app_poster_inset_audit());
+  }
   SYS_Report("REFERENCE GX: commands=%u passes=%u signature=%08x render=%uus "
              "conversion=%uus stages=%u/%u/%u/%u/%u/%uus memo=%u/%u "
              "cache=%u/%uKiB\n",
@@ -710,7 +776,8 @@ static bool refresh_reference_frame(bool initialize) {
                multiplex_native_reference_render_stage());
     return false;
   }
-  return commit_reference_frame(&render, elapsed_us(render_started));
+  const bool audit = initialize || presented_screen != multiplex_native_app_screen();
+  return commit_reference_frame(&render, elapsed_us(render_started), audit);
 }
 
 static void *run_network_warmup(void *context) {
@@ -765,6 +832,8 @@ static bool launch_reference_renderer(void) {
     return true;
   }
   memset(&reference_renderer, 0, sizeof(reference_renderer));
+  reference_renderer.audit =
+      presented_screen != multiplex_native_app_screen();
   reference_renderer.thread = LWP_THREAD_NULL;
   reference_renderer.stack = malloc(REFERENCE_RENDERER_STACK_SIZE);
   if (reference_renderer.stack == NULL) {
@@ -807,7 +876,8 @@ static bool poll_reference_renderer(void) {
   }
   const uint32_t previous_screen = presented_screen;
   if (!commit_reference_frame(&reference_renderer.render,
-                              reference_renderer.render_us)) {
+                              reference_renderer.render_us,
+                              reference_renderer.audit)) {
     return false;
   }
   SYS_Report("REFERENCE GX: screen transition ready from=%u to=%u us=%u\n",

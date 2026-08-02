@@ -14,6 +14,16 @@ uint32_t multiplex_native_reference_memo_hits(void) { return memo_hits; }
 
 uint32_t multiplex_native_reference_memo_misses(void) { return memo_misses; }
 
+uint32_t multiplex_native_reference_dirty_bounds(
+    float *x, float *y, float *width, float *height, uint32_t *full_repaint) {
+  *x = 0;
+  *y = 0;
+  *width = 2;
+  *height = 2;
+  *full_repaint = 1;
+  return 1;
+}
+
 uint32_t multiplex_native_app_init_and_render_reference(
     uint8_t *pixels, uint32_t pixels_capacity, uint8_t *scratch,
     uint32_t scratch_capacity) {
@@ -53,6 +63,8 @@ static void renders_validated_frames(void) {
   assert(render.commands == 7);
   assert(render.memo_hits == 0);
   assert(render.memo_misses == 1);
+  assert(render.dirty == 1);
+  assert(render.full_repaint == 1);
   assert(frame.pixels[0] == 1);
 
   assert(multiplex_reference_frame_render(&frame, false, &render) ==
