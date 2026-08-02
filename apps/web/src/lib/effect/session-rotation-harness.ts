@@ -216,8 +216,8 @@ export const makeStubApi = (overrides?: {
       return Effect.succeed(room("r-created", "200"));
     },
   );
-  const deleteRoom: Mock<WatchTogetherApiShape["deleteRoom"]> = mock(() =>
-    Effect.void,
+  const deleteRoom: Mock<WatchTogetherApiShape["deleteRoom"]> = mock(
+    () => Effect.void,
   );
   const listRooms: Mock<WatchTogetherApiShape["listRooms"]> = mock(() => {
     if (overrides?.listRoomsEffect) {
