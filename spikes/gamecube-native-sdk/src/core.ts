@@ -1423,17 +1423,25 @@ export function update(model: Model, msg: Msg): Model {
     case "previous_row": {
       if (model.rowIndex === 0) return model;
       const rowIndex = model.rowIndex - 1;
+      const selectedIndex = Math.min(
+        model.rows[rowIndex].items.length - 1,
+        Math.max(0, model.selectedIndex - model.homeCarouselStart),
+      );
       return previewCatalogItem(
         { ...model, rowIndex: rowIndex, rowNumber: rowIndex + 1, homeCarouselStart: 0 },
-        0,
+        selectedIndex,
       );
     }
     case "next_row": {
       if (model.rowIndex + 1 >= model.rows.length) return model;
       const rowIndex = model.rowIndex + 1;
+      const selectedIndex = Math.min(
+        model.rows[rowIndex].items.length - 1,
+        Math.max(0, model.selectedIndex - model.homeCarouselStart),
+      );
       return previewCatalogItem(
         { ...model, rowIndex: rowIndex, rowNumber: rowIndex + 1, homeCarouselStart: 0 },
-        0,
+        selectedIndex,
       );
     }
     case "open_libraries":
