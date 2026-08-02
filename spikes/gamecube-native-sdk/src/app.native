@@ -89,11 +89,12 @@
         </if>
         <if test="{pairingLinked}">
           <text size="heading">GameCube linked</text>
-          <text foreground="text_muted">Loading your Multiplex home...</text>
+          <text foreground="text_muted">Connecting to Plex...</text>
+          <text size="sm" foreground="text_muted">Still waiting? Check the Broadband Adapter and Ethernet.</text>
         </if>
         <if test="{pairingUnavailable}">
           <text size="heading">Network unavailable</text>
-          <text foreground="text_muted">Check the Broadband Adapter and Ethernet connection, then restart Multiplex.</text>
+          <text foreground="text_muted">Check Ethernet and that Multiplex and Plex are reachable, then restart.</text>
         </if>
       </if>
       <if test="{pairingDemo}">

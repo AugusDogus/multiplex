@@ -3286,6 +3286,21 @@ static void *run_app(void *unused) {
   bool pairing_linked = device_auth.status == MULTIPLEX_DEVICE_AUTH_LINKED;
   bool auth_reset_latched = false;
   uint32_t pairing_poll_frames = 0;
+  if (pairing_linked && !has_catalog) {
+    if (multiplex_plex_load_catalog(&auth_credentials, &catalog)) {
+      has_catalog = bind_catalog_to_app(&catalog);
+      if (!has_catalog) {
+        return (void *)(uintptr_t)1;
+      }
+    } else if (multiplex_native_app_pairing_status(
+                   MULTIPLEX_DEVICE_AUTH_UNAVAILABLE, (const uint8_t *)"", 0,
+                   (const uint8_t *)"", 0) == 0) {
+      SYS_Report("REFERENCE GX: failed to bind network unavailable status\n");
+      return (void *)(uintptr_t)1;
+    }
+    native_frame_dirty = true;
+    present_frame(&playback_manifest);
+  }
   if (pairing_linked) {
     multiplex_trpc_load_user_id(auth_credentials.origin,
                                 auth_credentials.session_token,
@@ -3298,13 +3313,6 @@ static void *run_app(void *unused) {
   if (pairing_linked && !refresh_watch_together_invitees(
                             &auth_credentials, &watch_together_invitees)) {
     return (void *)(uintptr_t)1;
-  }
-  if (pairing_linked && !has_catalog &&
-      multiplex_plex_load_catalog(&auth_credentials, &catalog)) {
-    has_catalog = bind_catalog_to_app(&catalog);
-    if (!has_catalog) {
-      return (void *)(uintptr_t)1;
-    }
   }
 #endif
 #if MULTIPLEX_PAIRING_ENABLED
