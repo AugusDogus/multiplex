@@ -49,7 +49,7 @@
 #define MEDIA_PREFETCH_STACK_SIZE (256 * 1024)
 #define TIMELINE_REPORT_STACK_SIZE (128 * 1024)
 #define POSTER_LOADER_STACK_SIZE (256 * 1024)
-#define POSTER_LOADER_LANE_COUNT 2u
+#define POSTER_LOADER_LANE_COUNT 4u
 #define HLS_SESSION_PREFETCH_STACK_SIZE (128 * 1024)
 #define STARTUP_DATA_LOADER_STACK_SIZE (256 * 1024)
 #define CATALOG_LOADER_STACK_SIZE (256 * 1024)
@@ -1662,8 +1662,10 @@ static void poll_direct_poster_loader(DirectPosterLoader *loader) {
   if (!all_complete) {
     return;
   }
-  const uint16_t decoded_count =
-      loader->decoded_count[0] + loader->decoded_count[1];
+  uint16_t decoded_count = 0;
+  for (uint16_t lane = 0; lane < loader->lane_count; ++lane) {
+    decoded_count += loader->decoded_count[lane];
+  }
   release_direct_poster_workers(loader);
   SYS_Report(
       "REFERENCE GX: direct Plex posters decoded=%u downloaded=%u cached=%u "
