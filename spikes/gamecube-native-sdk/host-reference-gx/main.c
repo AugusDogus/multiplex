@@ -2454,7 +2454,11 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
   draw_video_surface();
   if (video_surface.visible == 0 || player_controls_overlay_visible) {
     draw_reference_frame();
-    draw_poster_surfaces();
+    MultiplexModalSurface modal;
+    memset(&modal, 0, sizeof(modal));
+    if (multiplex_native_modal_surface(&modal) == 0) {
+      draw_poster_surfaces();
+    }
     draw_playback_progress(playback_manifest);
   }
   GX_CopyDisp(framebuffers[framebuffer_index], GX_TRUE);

@@ -88,6 +88,7 @@ var reference_render_memo: canvas.ReferenceRenderMemo = undefined;
 var reference_render_memo_initialized = false;
 var video_surface: VideoSurface = .{};
 var player_controls_surface: PlayerControlsSurface = .{};
+var modal_surface: ModalSurface = .{};
 var poster_surfaces: [4]PosterSurface = [_]PosterSurface{.{}} ** 4;
 var poster_surface_count: u32 = 0;
 
@@ -213,6 +214,14 @@ pub const VideoSurface = extern struct {
 };
 
 pub const PlayerControlsSurface = extern struct {
+    visible: u32 = 0,
+    x: f32 = 0,
+    y: f32 = 0,
+    width: f32 = 0,
+    height: f32 = 0,
+};
+
+pub const ModalSurface = extern struct {
     visible: u32 = 0,
     x: f32 = 0,
     y: f32 = 0,
@@ -355,6 +364,7 @@ fn initializeApp() void {
     previous_render_state_valid = false;
     video_surface = .{};
     player_controls_surface = .{};
+    modal_surface = .{};
     poster_surfaces = [_]PosterSurface{.{}} ** 4;
     poster_surface_count = 0;
 }
@@ -1528,6 +1538,11 @@ export fn multiplex_native_player_controls_surface(output: *PlayerControlsSurfac
     return player_controls_surface.visible;
 }
 
+export fn multiplex_native_modal_surface(output: *ModalSurface) callconv(.c) u32 {
+    output.* = modal_surface;
+    return modal_surface.visible;
+}
+
 export fn multiplex_native_poster_surfaces(output: [*]PosterSurface, capacity: u32) callconv(.c) u32 {
     const count = @min(capacity, poster_surface_count);
     @memcpy(output[0..count], poster_surfaces[0..count]);
@@ -1554,6 +1569,7 @@ export fn multiplex_native_app_render(output: [*]GxCommand, capacity: u32) callc
     ) catch return 0;
     captureVideoSurface(layout.nodes, model);
     capturePlayerControlsSurface(layout.nodes);
+    captureModalSurface(layout.nodes, model);
     capturePosterSurfaces(layout.nodes);
 
     var press_ids: [32]canvas.ObjectId = undefined;
@@ -1682,6 +1698,7 @@ fn renderReference(
     };
     captureVideoSurface(layout.nodes, model);
     capturePlayerControlsSurface(layout.nodes);
+    captureModalSurface(layout.nodes, model);
     capturePosterSurfaces(layout.nodes);
     reference_render_stage = 3;
     multiplex_native_profile_mark(reference_render_stage);
@@ -1725,12 +1742,14 @@ fn renderReference(
     const full_repaint = reference_full_repaint or !previous_render_state_valid;
     const dirty_bounds = if (full_repaint)
         geometry.RectF.init(0, 0, reference_width, reference_height)
-    else
-        layout.renderStateDirtyBoundsWithTokens(
+    else if (layout.renderStateDirtyBoundsWithTokens(
             previous_render_state,
             render_state,
             tokens,
-        );
+        )) |bounds|
+        bounds.inflate(geometry.InsetsF.all(1))
+    else
+        null;
     surface.renderPass(.{
         .frame_index = 1,
         .surface_size = geometry.SizeF.init(reference_width, reference_height),
@@ -1779,6 +1798,29 @@ fn capturePlayerControlsSurface(nodes: []const canvas.WidgetLayoutNode) void {
         const frame = node.frame.normalized();
         if (frame.isEmpty()) continue;
         player_controls_surface = .{
+            .visible = 1,
+            .x = frame.x,
+            .y = frame.y,
+            .width = frame.width,
+            .height = frame.height,
+        };
+        return;
+    }
+}
+
+fn captureModalSurface(nodes: []const canvas.WidgetLayoutNode, model: *const core.Model) void {
+    modal_surface = .{};
+    const label: []const u8 = if (model.playerSettingsOpen)
+        "Playback settings"
+    else if (model.startMenuOpen)
+        "Multiplex menu"
+    else
+        return;
+    for (nodes) |node| {
+        if (!std.mem.eql(u8, node.widget.semantics.label, label)) continue;
+        const frame = node.frame.normalized();
+        if (frame.isEmpty()) continue;
+        modal_surface = .{
             .visible = 1,
             .x = frame.x,
             .y = frame.y,

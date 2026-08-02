@@ -53,6 +53,14 @@ typedef struct {
 } MultiplexPlayerControlsSurface;
 
 typedef struct {
+  uint32_t visible;
+  float x;
+  float y;
+  float width;
+  float height;
+} MultiplexModalSurface;
+
+typedef struct {
   uint32_t image_id;
   float x;
   float y;
@@ -190,6 +198,7 @@ uint32_t multiplex_native_app_input(uint32_t action);
 uint32_t multiplex_native_video_surface(MultiplexVideoSurface *output);
 uint32_t multiplex_native_player_controls_surface(
     MultiplexPlayerControlsSurface *output);
+uint32_t multiplex_native_modal_surface(MultiplexModalSurface *output);
 uint32_t multiplex_native_poster_surfaces(MultiplexPosterSurface *output,
                                           uint32_t capacity);
 uint32_t multiplex_native_app_render(MultiplexGxCommand *output,
