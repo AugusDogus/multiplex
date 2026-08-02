@@ -13,9 +13,9 @@
           </panel>
         </if>
         <if test="{playbackLoaded}">
-          <panel width="620" padding="10" background="scrim" radius="sm">
+          <panel width="620" padding="10" background="surface" border-color="border" radius="sm">
             <row gap="8" cross="center">
-              <column width="250" gap="2">
+              <column width="220" gap="2">
                 <if test="{detailsHasHierarchy}">
                   <text size="sm" wrap="false">{detailsSecondary}</text>
                   <text size="sm" foreground="text_muted" wrap="false">{detailsHierarchy} - {selectedTitle}</text>
@@ -30,13 +30,13 @@
               </column>
               <spacer grow="1" />
               <row gap="6" cross="center">
-                <button width="38" size="sm" icon="skip-back" variant="ghost" on-press="play_previous" disabled="{playbackEpisodeNavigationDisabled}" label="Previous"></button>
-                <button width="38" size="sm" icon="app:back-10" variant="ghost" on-press="seek_backward" label="Back 10 seconds"></button>
-                <button width="44" size="sm" icon="{playbackToggleIcon}" variant="primary" on-press="toggle_playback" label="Play or pause"></button>
-                <button width="38" size="sm" icon="app:forward-30" variant="ghost" on-press="seek_forward" label="Forward 30 seconds"></button>
-                <button width="38" size="sm" icon="skip-forward" variant="ghost" on-press="play_next" disabled="{playbackEpisodeNavigationDisabled}" label="Next"></button>
-                <button width="38" size="sm" icon="app:stop" variant="ghost" on-press="stop_playback" label="Stop"></button>
-                <button width="38" size="sm" icon="settings" variant="ghost" on-press="open_player_settings" label="Playback settings"></button>
+                <button width="44" icon="skip-back" variant="ghost" on-press="play_previous" disabled="{playbackEpisodeNavigationDisabled}" label="Previous"></button>
+                <button width="44" icon="app:back-10" variant="ghost" on-press="seek_backward" label="Back 10 seconds"></button>
+                <button width="48" icon="{playbackToggleIcon}" variant="primary" on-press="toggle_playback" label="Play or pause"></button>
+                <button width="44" icon="app:forward-30" variant="ghost" on-press="seek_forward" label="Forward 30 seconds"></button>
+                <button width="44" icon="skip-forward" variant="ghost" on-press="play_next" disabled="{playbackEpisodeNavigationDisabled}" label="Next"></button>
+                <button width="44" icon="app:stop" variant="ghost" on-press="stop_playback" label="Stop"></button>
+                <button width="44" icon="settings" variant="ghost" on-press="open_player_settings" label="Playback settings"></button>
               </row>
             </row>
           </panel>
