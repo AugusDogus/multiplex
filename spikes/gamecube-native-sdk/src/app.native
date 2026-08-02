@@ -50,6 +50,10 @@
     <row width="180" cross="center" gap="8">
       <icon name="app:multiplex" width="22" height="22" foreground="text" label="Multiplex" />
       <text size="heading">Multiplex</text>
+      <if test="{screen == 'libraries'}">
+        <spacer grow="1" />
+        <button focus-ring="text" width="32" size="sm" icon="app:home" variant="ghost" on-press="back" label="Home"></button>
+      </if>
     </row>
     <row grow="1" main="center" cross="center">
       <if test="{hasPageTitle}">
@@ -186,18 +190,16 @@
 
   <if test="{screen == 'libraries'}">
     <column grow="1" gap="14">
-      <row cross="center">
-        <button focus-ring="text" width="42" size="sm" icon="app:home" variant="ghost" on-press="back" label="Home"></button>
-        <spacer grow="1" />
-      </row>
       <row grow="1" gap="10" cross="center">
         <for each="libraries" as="library" key="id">
-          <panel width="138" grow="1" padding="14" background="surface" border-color="border" radius="lg" on-press="open_library:{library.id}" label="{library.title}">
-            <column grow="1" main="center" cross="center" gap="8">
-              <icon name="folder" width="22" height="22" foreground="text_muted" label="Library" />
-              <text wrap="true" text-alignment="center">{library.title}</text>
-            </column>
-          </panel>
+          <list-item focus-ring="text" width="138" grow="1" padding="0" radius="lg" on-press="open_library:{library.id}" label="{library.title}">
+            <panel grow="1" padding="14" background="surface" border-color="border" radius="lg">
+              <column grow="1" main="center" cross="center" gap="8">
+                <icon name="folder" width="22" height="22" foreground="text_muted" label="Library" />
+                <text wrap="true" text-alignment="center">{library.title}</text>
+              </column>
+            </panel>
+          </list-item>
         </for>
       </row>
     </column>
