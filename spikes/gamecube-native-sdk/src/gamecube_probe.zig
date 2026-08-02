@@ -435,7 +435,7 @@ fn prefersFocus(model: *const core.Model, msg: core.Msg) bool {
     }
     if (model.startMenuOpen) {
         return switch (msg) {
-            .start_menu_play, .start_menu_mark_watched, .start_menu_create_watch_together, .start_menu_watch_together => true,
+            .start_menu_play, .start_menu_mark_watched, .start_menu_create_watch_together => true,
             else => false,
         };
     }
@@ -476,9 +476,6 @@ fn receivesFocus(model: *const core.Model, msg: core.Msg) bool {
             .start_menu_play,
             .start_menu_mark_watched,
             .start_menu_create_watch_together,
-            .start_menu_watch_together,
-            .start_menu_libraries,
-            .start_menu_search,
             .close_start_menu,
             => true,
             else => false,
@@ -1771,9 +1768,6 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .close_start_menu => 36,
                 .start_menu_play => 37,
                 .start_menu_create_watch_together => 41,
-                .start_menu_watch_together => 38,
-                .start_menu_libraries => 39,
-                .start_menu_search => 40,
                 .create_watch_together => 23,
                 .watch_together_invitees_previous => 24,
                 .watch_together_invitees_next => 25,

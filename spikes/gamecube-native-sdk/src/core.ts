@@ -176,9 +176,6 @@ export type Msg =
   | { readonly kind: "start_menu_play" }
   | { readonly kind: "start_menu_mark_watched" }
   | { readonly kind: "start_menu_create_watch_together" }
-  | { readonly kind: "start_menu_watch_together" }
-  | { readonly kind: "start_menu_libraries" }
-  | { readonly kind: "start_menu_search" }
   | { readonly kind: "create_watch_together" }
   | { readonly kind: "watch_together_invitees_previous" }
   | { readonly kind: "watch_together_invitees_next" }
@@ -1544,7 +1541,13 @@ export function update(model: Model, msg: Msg): Model {
       if (!model.pairingLinked || model.screen === "player") return model;
       return { ...model, screen: "watch_together", startMenuOpen: false };
     case "open_start_menu":
-      if (!model.pairingLinked || model.screen === "player") return model;
+      if (
+        !model.pairingLinked ||
+        model.screen !== "details" ||
+        !model.detailsLoaded ||
+        !model.detailsPlayable
+      )
+        return model;
       return { ...model, startMenuOpen: true };
     case "close_start_menu":
       return model.startMenuOpen ? { ...model, startMenuOpen: false } : model;
@@ -1559,18 +1562,6 @@ export function update(model: Model, msg: Msg): Model {
     case "start_menu_create_watch_together":
       return model.startMenuOpen
         ? update({ ...model, startMenuOpen: false }, { kind: "create_watch_together" })
-        : model;
-    case "start_menu_watch_together":
-      return model.startMenuOpen
-        ? update({ ...model, startMenuOpen: false }, { kind: "open_watch_together" })
-        : model;
-    case "start_menu_libraries":
-      return model.startMenuOpen
-        ? update({ ...model, startMenuOpen: false }, { kind: "open_libraries" })
-        : model;
-    case "start_menu_search":
-      return model.startMenuOpen
-        ? update({ ...model, startMenuOpen: false }, { kind: "open_search" })
         : model;
     case "create_watch_together":
       if (
