@@ -778,9 +778,9 @@ static uint32_t copy_atlas_text(uint8_t *destination, uint32_t capacity,
   return output;
 }
 
-static bool command_intersects_controls(
-    const MultiplexGxCommand *command,
-    const MultiplexPlayerControlsSurface *controls) {
+static bool command_intersects_rect(const MultiplexGxCommand *command,
+                                    float rect_x, float rect_y,
+                                    float rect_width, float rect_height) {
   float left = command->x;
   float top = command->y;
   float right = left + command->width;
@@ -791,10 +791,8 @@ static bool command_intersects_controls(
     right = fmaxf(command->x, command->x2);
     bottom = fmaxf(command->y, command->y2);
   }
-  return right >= controls->x &&
-         left <= controls->x + controls->width &&
-         bottom >= controls->y &&
-         top <= controls->y + controls->height;
+  return right >= rect_x && left <= rect_x + rect_width &&
+         bottom >= rect_y && top <= rect_y + rect_height;
 }
 
 static bool screen_uses_native_shapes(uint32_t screen) {
@@ -814,15 +812,22 @@ static void capture_native_ui_packet(NativeUiPacket *packet) {
   const uint32_t screen = multiplex_native_app_screen();
   MultiplexPlayerControlsSurface controls;
   memset(&controls, 0, sizeof(controls));
+  MultiplexModalSurface modal;
+  memset(&modal, 0, sizeof(modal));
   if (screen == MULTIPLEX_SCREEN_PLAYER) {
     multiplex_native_player_controls_surface(&controls);
+    multiplex_native_modal_surface(&modal);
   }
   for (uint32_t index = 0; index < command_count; ++index) {
     const MultiplexGxCommand *command = &commands[index];
     const bool capture_shape =
         screen_uses_native_shapes(screen) ||
         (screen == MULTIPLEX_SCREEN_PLAYER && controls.visible != 0 &&
-         command_intersects_controls(command, &controls));
+         command_intersects_rect(command, controls.x, controls.y,
+                                 controls.width, controls.height)) ||
+        (screen == MULTIPLEX_SCREEN_PLAYER && modal.visible != 0 &&
+         command_intersects_rect(command, modal.x, modal.y, modal.width,
+                                 modal.height));
     if (capture_shape && command->kind != MULTIPLEX_GX_TEXT &&
         command->kind != MULTIPLEX_GX_GLYPH &&
         command->kind != MULTIPLEX_GX_SHADOW &&

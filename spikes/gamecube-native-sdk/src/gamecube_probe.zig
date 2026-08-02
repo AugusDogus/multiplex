@@ -1943,14 +1943,24 @@ fn isGpuChrome(command: canvas.RenderCommand, model: *const core.Model) bool {
     if (model.screen == .home or model.screen == .browse or
         model.screen == .search or model.screen == .search_results or
         model.screen == .libraries or model.screen == .details) return true;
-    if (model.screen != .player or player_controls_surface.visible == 0) return false;
-    const controls = geometry.RectF.init(
-        player_controls_surface.x,
-        player_controls_surface.y,
-        player_controls_surface.width,
-        player_controls_surface.height,
+    if (model.screen != .player) return false;
+    if (player_controls_surface.visible != 0) {
+        const controls = geometry.RectF.init(
+            player_controls_surface.x,
+            player_controls_surface.y,
+            player_controls_surface.width,
+            player_controls_surface.height,
+        );
+        if (command.bounds.intersects(controls)) return true;
+    }
+    if (modal_surface.visible == 0) return false;
+    const modal = geometry.RectF.init(
+        modal_surface.x,
+        modal_surface.y,
+        modal_surface.width,
+        modal_surface.height,
     );
-    return command.bounds.intersects(controls);
+    return command.bounds.intersects(modal);
 }
 
 fn searchInputDirtyBounds(nodes: []const canvas.WidgetLayoutNode) ?geometry.RectF {
@@ -2005,6 +2015,7 @@ fn captureModalSurface(nodes: []const canvas.WidgetLayoutNode, model: *const cor
     else
         return;
     for (nodes) |node| {
+        if (node.widget.kind != .panel) continue;
         if (!std.mem.eql(u8, node.widget.semantics.label, label)) continue;
         const frame = node.frame.normalized();
         if (frame.isEmpty()) continue;

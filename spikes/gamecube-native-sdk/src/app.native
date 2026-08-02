@@ -503,9 +503,8 @@
 </column>
   </else>
   <if test="{startMenuOpen}">
-    <panel background="scrim">
-      <column main="center" cross="center">
-        <panel width="310" height="390" background="surface" border-color="border" radius="lg" label="Multiplex menu">
+    <column grow="1" main="center" cross="center" background="scrim">
+      <panel width="310" height="390" background="surface" border-color="border" radius="lg" label="Multiplex menu">
           <column padding="16" gap="8">
             <text size="heading">Multiplex</text>
             <text size="sm" foreground="text_muted">Choose an action</text>
@@ -523,14 +522,12 @@
             <spacer grow="1" />
             <button size="sm" variant="ghost" on-press="close_start_menu">Close</button>
           </column>
-        </panel>
-      </column>
-    </panel>
+      </panel>
+    </column>
   </if>
   <if test="{playerSettingsOpen}">
-    <panel background="scrim">
-      <column main="center" cross="center">
-        <panel width="310" height="230" background="surface" border-color="border" radius="lg" label="Playback settings">
+    <column grow="1" main="center" cross="center" background="scrim">
+      <panel width="310" height="230" background="surface" border-color="border" radius="lg" label="Playback settings">
           <column padding="16" gap="8">
             <text size="heading">Playback settings</text>
             <separator />
@@ -556,9 +553,8 @@
             <spacer grow="1" />
             <button size="sm" variant="ghost" on-press="close_player_settings">Close</button>
           </column>
-        </panel>
-      </column>
-    </panel>
+      </panel>
+    </column>
   </if>
   <if test="{toastVisible}">
     <column padding="20" cross="center">
