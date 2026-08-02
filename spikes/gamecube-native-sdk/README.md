@@ -148,7 +148,7 @@ The progress track fades with the rest of the chrome. Every Native repaint runs
 layout checks for text overflow, sibling overlap, viewport escape, and damaged
 hit targets, plus a dedicated zero-inset poster check. Set
 `GAMECUBE_PLEX_FOCUS_AUDIT=1` to cycle every focus target on Home, Libraries,
-a real library page, the complete A-Z keyboard, search results, the selected TV
+a real library page, the complete QWERTY keyboard, search results, the selected TV
 hierarchy, and the player before the real Plex smoke can pass.
 
 Set `GAMECUBE_PLEX_WATCH_TOGETHER=1`,
@@ -189,14 +189,16 @@ The spike retains three separate artifacts:
 
 The controller profile attaches a standard controller to SI port 1 and is
 backed by `.dolphin-user/Pipes/multiplex1`. Dolphin pipe commands such as
-`PRESS A`, `RELEASE A`, and `PRESS D_RIGHT` drive the automated player smoke
-test. In the app, Z opens Search, Y opens Libraries, X advances the home hub,
-and L/R either delete/submit the on-screen search query or page a library
-backward/forward without walking focus through every poster.
+`PRESS A`, `RELEASE A`, and `SET MAIN 1 0.5` drive the automated player smoke
+test. The main analog stick moves focus spatially using dead-zone and repeat
+behavior adapted from WiiMC-GCN's libwiigui. On Search, D-pad left/right moves
+the query cursor, X deletes before it, and R submits. Z opens Search, Y opens
+Libraries, and X advances the home hub outside Search.
 
 For focus-free manual QA, `bun run spike:gamecube:qa -- launch` starts Portless
 when needed, builds the linked Plex DOL, and opens an interactive TAP-backed
-Dolphin session. `press right a` sends controller input through that same pipe.
+Dolphin session. `navigate right` moves the analog stick once and `press a`
+sends a button through that same pipe.
 `status`, `check`, and `screenshot [name]` expose the current render telemetry,
 validate the Dolphin log, and capture the emulated framebuffer without
 activating a Dolphin window. `scenario navigation` relaunches and captures
@@ -209,6 +211,7 @@ Libraries, the first library page, and item details, then assembles a labeled
 contact sheet for each screen in the same capture directory.
 `scenario player-gallery` does the same for the Details Start menu and every
 player control while the real Plex stream plays, then enforces stable 60 FPS.
+`scenario full-gallery` combines both galleries.
 The screenshot hotkey uses a separate Dolphin pipe, so this workflow does not
 invoke desktop automation or GNOME Remote Desktop. The tracked controller
 profile also accepts the connected Steam Controller alongside the QA pipe.
@@ -221,6 +224,8 @@ profile also accepts the connected Steam Controller alongside the QA pipe.
 - `src/gamecube_probe.zig`: compiled view, layout, focus/handler resolution,
   GPU-packet translation, and C ABI
 - `host-reference-gx/main.c`: reference framebuffer and direct-GX presenter
+- `host-reference-gx/gui_navigation.c`: attributed libwiigui-style analog
+  dead-zone and repeat adapter
 - `host-reference/reference_frame.c`: platform-neutral guarded RGBA frame
   allocation, Native SDK rendering, and deterministic frame signatures
 - `host-reference-gx/trpc_client.c`: bounded Better Auth bearer transport for
@@ -506,8 +511,9 @@ log-check failure.
 The linked decoder comes from MPlayer CE's historical FFmpeg tree. Its source
 and license files remain in the pinned ignored checkout, and the bootstrap
 rebuilds the static libraries. The console runtime is intentionally
-GPL-2.0-or-later so it can directly use MPlayer CE's proven GX and codec work;
-this does not change the licensing of the separate Multiplex web application.
+GPL-3.0-or-later so it can directly use MPlayer CE's proven GX and codec work
+and WiiMC-GCN's libwiigui navigation behavior. This does not change the
+licensing of the separate Multiplex web application.
 
 Large CPU-side buffers deliberately use ordinary `malloc`. During the raylib
 experiment, large `memalign` calls returned corrupt pointers and produced

@@ -546,11 +546,12 @@ five-second pause and resumed from the exact logged count. A normal-priority
 Dolphin DSP LLE run completed the full flow without reporting an invalid
 access or missing the timing gate.
 
-The console spike is intentionally GPL-2.0-or-later so it can directly reuse
-MPlayer CE's proven GameCube work. Native SDK remains Apache-2.0 and the
-bundled FFmpeg subset is LGPL-2.1-or-later; their notices and source remain in
-the pinned checkouts. This console-specific choice does not relicense the
-separate Multiplex web application.
+The console spike is intentionally GPL-3.0-or-later so it can directly reuse
+MPlayer CE's proven GameCube work and WiiMC-GCN's libwiigui navigation
+behavior. Native SDK remains Apache-2.0 and the bundled FFmpeg subset is
+LGPL-2.1-or-later; their notices and source remain in the pinned checkouts.
+This console-specific choice does not relicense the separate Multiplex web
+application.
 
 ## Decision
 
