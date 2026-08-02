@@ -2454,22 +2454,43 @@ static bool start_direct_hls_prefetch(
       details->rating_key == 0 || details->duration_ms == 0) {
     return false;
   }
-  discard_direct_hls_prefetch(prefetch);
-  reset_direct_hls_prefetch(prefetch);
-  prefetch->credentials = credentials;
-  prefetch->rating_key = details->rating_key;
-  prefetch->offset_ms = details->view_offset_ms < details->duration_ms
-                            ? details->view_offset_ms
-                            : 0;
+  const uint32_t offset_ms = details->view_offset_ms < details->duration_ms
+                                 ? details->view_offset_ms
+                                 : 0;
+  bool burn_subtitles = false;
+  uint32_t subtitle_stream_index = 0;
   for (uint8_t index = 0; index < details->subtitle_stream_count; ++index) {
     const MultiplexGatewaySubtitleStream *subtitle =
         &details->subtitle_streams[index];
     if (subtitle->selected && subtitle->has_index) {
-      prefetch->burn_subtitles = true;
-      prefetch->subtitle_stream_index = subtitle->index;
+      burn_subtitles = true;
+      subtitle_stream_index = subtitle->index;
       break;
     }
   }
+  if (prefetch->started && prefetch->rating_key == details->rating_key &&
+      prefetch->offset_ms == offset_ms &&
+      prefetch->burn_subtitles == burn_subtitles &&
+      (!burn_subtitles ||
+       prefetch->subtitle_stream_index == subtitle_stream_index)) {
+    SYS_Report("REFERENCE GX: HLS session prefetch retained rating-key=%u "
+               "offset=%u\n",
+               details->rating_key, offset_ms);
+    return true;
+  }
+  if (prefetch->started && !prefetch->complete) {
+    SYS_Report("REFERENCE GX: HLS session prefetch deferred rating-key=%u "
+               "behind=%u\n",
+               details->rating_key, prefetch->rating_key);
+    return true;
+  }
+  discard_direct_hls_prefetch(prefetch);
+  reset_direct_hls_prefetch(prefetch);
+  prefetch->credentials = credentials;
+  prefetch->rating_key = details->rating_key;
+  prefetch->offset_ms = offset_ms;
+  prefetch->burn_subtitles = burn_subtitles;
+  prefetch->subtitle_stream_index = subtitle_stream_index;
   prefetch->stack = malloc(HLS_SESSION_PREFETCH_STACK_SIZE);
   prefetch->started_tick = gettick();
   if (prefetch->stack == NULL ||
@@ -6073,9 +6094,24 @@ static void *run_app(void *unused) {
     poll_direct_poster_loader(&direct_home_poster_loader);
     poll_direct_poster_loader(&direct_page_poster_loader);
     finish_direct_hls_prefetch(&direct_hls_prefetch, false);
-    if (direct_hls_prefetch.started && direct_hls_prefetch.complete &&
-        multiplex_native_app_screen() != MULTIPLEX_SCREEN_DETAILS) {
-      discard_direct_hls_prefetch(&direct_hls_prefetch);
+    if (direct_hls_prefetch.started && direct_hls_prefetch.complete) {
+      const uint32_t screen = multiplex_native_app_screen();
+      const bool stale_for_details =
+          screen == MULTIPLEX_SCREEN_DETAILS && direct_details_cache_valid &&
+          direct_hls_prefetch.rating_key != direct_details_cache.rating_key;
+      if (screen != MULTIPLEX_SCREEN_DETAILS || stale_for_details) {
+        discard_direct_hls_prefetch(&direct_hls_prefetch);
+#if MULTIPLEX_PAIRING_ENABLED
+        if (stale_for_details &&
+            !start_direct_hls_prefetch(&direct_hls_prefetch,
+                                       &auth_credentials,
+                                       &direct_details_cache)) {
+          SYS_Report("REFERENCE GX: deferred HLS session prefetch unavailable "
+                     "rating-key=%u\n",
+                     direct_details_cache.rating_key);
+        }
+#endif
+      }
     }
     if (!poll_reference_renderer()) {
       break;
