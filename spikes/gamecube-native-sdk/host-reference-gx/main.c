@@ -798,7 +798,10 @@ static bool command_intersects_controls(
 }
 
 static bool screen_uses_native_shapes(uint32_t screen) {
-  return screen == MULTIPLEX_SCREEN_SEARCH ||
+  return screen == MULTIPLEX_SCREEN_HOME ||
+         screen == MULTIPLEX_SCREEN_BROWSE ||
+         screen == MULTIPLEX_SCREEN_SEARCH ||
+         screen == MULTIPLEX_SCREEN_SEARCH_RESULTS ||
          screen == MULTIPLEX_SCREEN_LIBRARIES ||
          screen == MULTIPLEX_SCREEN_DETAILS;
 }

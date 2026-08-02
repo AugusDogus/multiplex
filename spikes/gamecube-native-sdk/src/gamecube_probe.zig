@@ -1940,8 +1940,9 @@ fn isGpuChrome(command: canvas.RenderCommand, model: *const core.Model) bool {
         else => false,
     };
     if (!supported) return false;
-    if (model.screen == .search or model.screen == .libraries or
-        model.screen == .details) return true;
+    if (model.screen == .home or model.screen == .browse or
+        model.screen == .search or model.screen == .search_results or
+        model.screen == .libraries or model.screen == .details) return true;
     if (model.screen != .player or player_controls_surface.visible == 0) return false;
     const controls = geometry.RectF.init(
         player_controls_surface.x,
