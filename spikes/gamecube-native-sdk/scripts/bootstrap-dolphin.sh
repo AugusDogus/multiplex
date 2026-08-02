@@ -46,10 +46,10 @@ if [ "$actual_commit" != "$DOLPHIN_COMMIT" ]; then
   exit 1
 fi
 
-if git -C "$dolphin_dir" apply --reverse --check "$patch_file" >/dev/null 2>&1; then
+if git -C "$dolphin_dir" apply --unidiff-zero --reverse --check "$patch_file" >/dev/null 2>&1; then
   :
-elif git -C "$dolphin_dir" apply --check "$patch_file"; then
-  git -C "$dolphin_dir" apply "$patch_file"
+elif git -C "$dolphin_dir" apply --unidiff-zero --check "$patch_file"; then
+  git -C "$dolphin_dir" apply --unidiff-zero "$patch_file"
 else
   echo "Dolphin patch does not apply cleanly: $patch_file" >&2
   exit 1

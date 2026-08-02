@@ -468,8 +468,10 @@ spike:gamecube:dolphin:bootstrap` builds the pinned Dolphin source with a narrow
 patch that applies the existing eight-page backpressure threshold to TAP,
 checks receive enablement before consuming a host frame, and snapshots and
 validates every receive-ring page before copying packet bytes into the 4 KiB
-BBA memory. The rootless TAP runner automatically prefers this local build and
-retains stock Dolphin as a fallback when it has not been built.
+BBA memory. Libogc's `RHBP=0x10` is the exclusive end of that memory, so the
+patch accepts the boundary but wraps before writing page `0x10`. The rootless
+TAP runner automatically prefers this local build and retains stock Dolphin as
+a fallback when it has not been built.
 
 Pasta's interactive-flow ACK suppression also interacts badly with libogc2's
 historical two-MSS advertised window: repeated ACKs for tiny TLS records made a
