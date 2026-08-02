@@ -1314,16 +1314,30 @@ static bool initialize_poster_textures(const char *gateway_url,
 }
 
 static void fill_poster_fallback(uint8_t *pixels, uint32_t rating_key) {
-  const uint8_t red = (uint8_t)(rating_key * 29u);
-  const uint8_t green = (uint8_t)(rating_key * 53u);
-  const uint8_t blue = (uint8_t)(rating_key * 97u);
-  const uint16_t color =
-      (uint16_t)(((uint16_t)(red & 0xf8u) << 8u) |
-                 ((uint16_t)(green & 0xfcu) << 3u) | (blue >> 3u));
-  for (size_t offset = 0; offset < MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
-       offset += 2u) {
-    pixels[offset] = (uint8_t)(color >> 8u);
-    pixels[offset + 1u] = (uint8_t)color;
+  const unsigned variation = rating_key & 3u;
+  const unsigned tile_columns = MULTIPLEX_GATEWAY_ARTWORK_WIDTH / 4u;
+  for (unsigned tile_y = 0; tile_y < MULTIPLEX_GATEWAY_ARTWORK_HEIGHT;
+       tile_y += 4u) {
+    for (unsigned tile_x = 0; tile_x < MULTIPLEX_GATEWAY_ARTWORK_WIDTH;
+         tile_x += 4u) {
+      uint8_t *tile =
+          pixels + ((size_t)(tile_y / 4u) * tile_columns + tile_x / 4u) * 32u;
+      for (unsigned row = 0; row < 4u; ++row) {
+        const unsigned y = tile_y + row;
+        const uint8_t luma = (uint8_t)(
+            13u + variation +
+            (MULTIPLEX_GATEWAY_ARTWORK_HEIGHT - y) * 10u /
+                MULTIPLEX_GATEWAY_ARTWORK_HEIGHT);
+        const uint16_t color =
+            (uint16_t)(((uint16_t)(luma & 0xf8u) << 8u) |
+                       ((uint16_t)(luma & 0xfcu) << 3u) | (luma >> 3u));
+        for (unsigned column = 0; column < 4u; ++column) {
+          const size_t offset = (row * 4u + column) * 2u;
+          tile[offset] = (uint8_t)(color >> 8u);
+          tile[offset + 1u] = (uint8_t)color;
+        }
+      }
+    }
   }
 }
 
