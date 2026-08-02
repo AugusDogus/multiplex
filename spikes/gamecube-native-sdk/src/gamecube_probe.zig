@@ -599,6 +599,30 @@ fn libraryTypeLabel(media_type: u32) []const u8 {
     };
 }
 
+const CatalogSubtitleParts = struct {
+    secondary: []const u8,
+    hierarchy: []const u8,
+};
+
+fn splitCatalogSubtitle(subtitle: []const u8) CatalogSubtitleParts {
+    var index: usize = 0;
+    while (index + 3 < subtitle.len) : (index += 1) {
+        if (subtitle[index] == ' ' and subtitle[index + 1] == '-' and
+            subtitle[index + 2] == ' ' and subtitle[index + 3] == 'S')
+        {
+            return .{ .secondary = subtitle[0..index], .hierarchy = subtitle[index + 3 ..] };
+        }
+        if (index + 5 < subtitle.len and subtitle[index] == ' ' and
+            subtitle[index + 1] == 0xe2 and subtitle[index + 2] == 0x80 and
+            subtitle[index + 3] == 0xa2 and subtitle[index + 4] == ' ' and
+            subtitle[index + 5] == 'S')
+        {
+            return .{ .secondary = subtitle[0..index], .hierarchy = subtitle[index + 5 ..] };
+        }
+    }
+    return .{ .secondary = subtitle, .hierarchy = &.{} };
+}
+
 export fn multiplex_native_app_catalog_library(
     index: u32,
     section_id: u32,
@@ -652,11 +676,16 @@ export fn multiplex_native_app_catalog_item(
 ) callconv(.c) u32 {
     if (row_index >= staged_row_count or item_index >= 4 or title_length == 0) return 0;
     const flat: usize = @as(usize, row_index) * 4 + item_index;
+    const subtitle_bytes = subtitle[0..subtitle_length];
+    const subtitle_parts = splitCatalogSubtitle(subtitle_bytes);
     staged_items[flat] = .{
         .id = @intCast(item_index),
         .ratingKey = @intCast(rating_key),
         .title = title[0..title_length],
-        .subtitle = subtitle[0..subtitle_length],
+        .subtitle = subtitle_bytes,
+        .secondary = subtitle_parts.secondary,
+        .hierarchy = subtitle_parts.hierarchy,
+        .hasHierarchy = subtitle_parts.hierarchy.len > 0,
         .imageId = @intCast(artwork_slot + 1),
         .durationMs = @intCast(duration_ms),
         .viewOffsetMs = @intCast(view_offset_ms),
@@ -974,11 +1003,15 @@ export fn multiplex_native_app_browse_item(
 ) callconv(.c) u32 {
     if (item_index >= staged_browse_item_count or title_length == 0 or artwork_slot >= 4) return 0;
     const slot: usize = item_index;
+    const subtitle_parts = splitCatalogSubtitle(subtitle[0..subtitle_length]);
     staged_browse_items[slot] = .{
         .id = @intCast(item_index),
         .ratingKey = @intCast(rating_key),
         .title = stageBytes(title[0..title_length]),
         .subtitle = stageBytes(subtitle[0..subtitle_length]),
+        .secondary = stageBytes(subtitle_parts.secondary),
+        .hierarchy = stageBytes(subtitle_parts.hierarchy),
+        .hasHierarchy = subtitle_parts.hierarchy.len > 0,
         .imageId = @intCast(13 + artwork_slot),
         .durationMs = @intCast(duration_ms),
         .viewOffsetMs = @intCast(view_offset_ms),
@@ -1000,6 +1033,7 @@ export fn multiplex_native_app_browse_commit() callconv(.c) u32 {
         if (staged_browse_total == 0) 1 else (staged_browse_total - 1) / 4 + 1,
         staged_browse_item_ptrs[0..staged_browse_item_count],
     ));
+    focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
     return 1;
 }
@@ -1496,6 +1530,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
     if (action == 5) {
         const message: core.Msg = if (model.screen == .search) .search_delete else .next_row;
         commitAppModel(core.update(model, message));
+        if (model.screen != .search) focused_handler = invalid_focused_handler;
         reference_full_repaint = model.screen != .search;
         reference_dirty_region = if (model.screen == .search) .search_input else .none;
         multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 15 else 3);
@@ -1521,6 +1556,9 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         else
             .browse_next;
         commitAppModel(core.update(model, message));
+        if (model.screen != .search and model.screen != .player and model.screen != .details) {
+            focused_handler = invalid_focused_handler;
+        }
         reference_full_repaint = true;
         multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 16 else if (model.screen == .player) 18 else if (model.screen == .details) 33 else 7);
         return 1;
@@ -1534,6 +1572,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         else
             .browse_previous;
         commitAppModel(core.update(model, message));
+        if (model.screen != .player and model.screen != .details) focused_handler = invalid_focused_handler;
         reference_full_repaint = true;
         multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 15 else if (model.screen == .player) 17 else if (model.screen == .details) 32 else 6);
         return 1;
@@ -1596,17 +1635,20 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 horizontal,
                 vertical,
             )) return 0;
-            reference_full_repaint = false;
+            const focused_msg = tree.msgFor(press_ids[focused_handler], .press) orelse return 0;
+            switch (focused_msg) {
+                .open_item => |index| {
+                    commitAppModel(core.previewCatalogItem(model, index));
+                    reference_full_repaint = true;
+                },
+                else => reference_full_repaint = false,
+            }
         },
         2 => {
             traced_focus = focused_handler;
             const msg = tree.msgFor(press_ids[focused_handler], .press) orelse return 0;
             const keep_focus = switch (msg) {
                 .search_key,
-                .previous_row,
-                .next_row,
-                .browse_previous,
-                .browse_next,
                 .details_children_previous,
                 .details_children_next,
                 => true,

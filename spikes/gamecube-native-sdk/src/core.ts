@@ -18,6 +18,9 @@ export interface CatalogItem {
   readonly ratingKey: number;
   readonly title: Uint8Array;
   readonly subtitle: Uint8Array;
+  readonly secondary: Uint8Array;
+  readonly hierarchy: Uint8Array;
+  readonly hasHierarchy: boolean;
   readonly imageId: number;
   readonly durationMs: number;
   readonly viewOffsetMs: number;
@@ -209,6 +212,9 @@ const demoItems: readonly CatalogItem[] = [
     ratingKey: 1,
     title: asciiBytes("The Fifth Element"),
     subtitle: asciiBytes("Movie"),
+    secondary: asciiBytes("Movie"),
+    hierarchy: new Uint8Array(0),
+    hasHierarchy: false,
     imageId: 1,
     durationMs: 0,
     viewOffsetMs: 0,
@@ -219,6 +225,9 @@ const demoItems: readonly CatalogItem[] = [
     ratingKey: 2,
     title: asciiBytes("Alien"),
     subtitle: asciiBytes("Movie"),
+    secondary: asciiBytes("Movie"),
+    hierarchy: new Uint8Array(0),
+    hasHierarchy: false,
     imageId: 2,
     durationMs: 0,
     viewOffsetMs: 0,
@@ -229,6 +238,9 @@ const demoItems: readonly CatalogItem[] = [
     ratingKey: 3,
     title: asciiBytes("Spirited Away"),
     subtitle: asciiBytes("Movie"),
+    secondary: asciiBytes("Movie"),
+    hierarchy: new Uint8Array(0),
+    hasHierarchy: false,
     imageId: 3,
     durationMs: 0,
     viewOffsetMs: 0,
@@ -239,6 +251,9 @@ const demoItems: readonly CatalogItem[] = [
     ratingKey: 4,
     title: asciiBytes("Twin Peaks"),
     subtitle: asciiBytes("TV Show"),
+    secondary: asciiBytes("TV Show"),
+    hierarchy: new Uint8Array(0),
+    hasHierarchy: false,
     imageId: 4,
     durationMs: 0,
     viewOffsetMs: 0,
@@ -489,17 +504,20 @@ export function loadBrowse(
   items: readonly CatalogItem[],
 ): Model {
   if (sectionId !== model.selectedLibraryId || items.length === 0) return model;
-  return {
-    ...model,
-    selectedLibraryTitle: title,
-    browseItems: items,
-    browseStart: start,
-    browsePageNumber: pageNumber,
-    browsePageCount: pageCount,
-    browseTotal: total,
-    browseLoaded: true,
-    browseFailed: false,
-  };
+  return previewCatalogItem(
+    {
+      ...model,
+      selectedLibraryTitle: title,
+      browseItems: items,
+      browseStart: start,
+      browsePageNumber: pageNumber,
+      browsePageCount: pageCount,
+      browseTotal: total,
+      browseLoaded: true,
+      browseFailed: false,
+    },
+    0,
+  );
 }
 
 export function failBrowse(model: Model): Model {
@@ -508,13 +526,25 @@ export function failBrowse(model: Model): Model {
 
 export function loadSearch(model: Model, query: Uint8Array, items: readonly CatalogItem[]): Model {
   if (model.screen !== "search_results" || query.length === 0) return model;
-  return {
-    ...model,
-    searchQuery: query,
-    searchItems: items,
-    searchLoaded: true,
-    searchFailed: false,
-  };
+  if (items.length === 0) {
+    return {
+      ...model,
+      searchQuery: query,
+      searchItems: items,
+      searchLoaded: true,
+      searchFailed: false,
+    };
+  }
+  return previewCatalogItem(
+    {
+      ...model,
+      searchQuery: query,
+      searchItems: items,
+      searchLoaded: true,
+      searchFailed: false,
+    },
+    0,
+  );
 }
 
 export function failSearch(model: Model): Model {
@@ -831,6 +861,51 @@ export function clearPlaybackNavigationRequest(model: Model): Model {
 
 export function visibleItems(model: Model): readonly CatalogItem[] {
   return model.rows[model.rowIndex].items;
+}
+
+function catalogItems(model: Model): readonly CatalogItem[] {
+  if (model.screen === "browse") return model.browseItems;
+  if (model.screen === "search_results") return model.searchItems;
+  return visibleItems(model);
+}
+
+function catalogPreviewItem(model: Model): CatalogItem {
+  const items = catalogItems(model);
+  const index = Math.min(Math.max(0, model.selectedIndex), items.length - 1);
+  return items[index];
+}
+
+export function catalogPreviewTitle(model: Model): Uint8Array {
+  return catalogPreviewItem(model).title;
+}
+
+export function catalogPreviewSecondary(model: Model): Uint8Array {
+  return catalogPreviewItem(model).secondary;
+}
+
+export function catalogPreviewHierarchy(model: Model): Uint8Array {
+  return catalogPreviewItem(model).hierarchy;
+}
+
+export function catalogPreviewHasHierarchy(model: Model): boolean {
+  return catalogPreviewItem(model).hasHierarchy;
+}
+
+export function previewCatalogItem(model: Model, index: number): Model {
+  const items = catalogItems(model);
+  if (index < 0 || index >= items.length) return model;
+  const item = items[index];
+  return {
+    ...model,
+    selectedIndex: index,
+    selectedRatingKey: item.ratingKey,
+    selectedImageId: item.imageId,
+    selectedTitle: item.title,
+    selectedDurationMs: item.durationMs,
+    selectedViewOffsetMs: item.viewOffsetMs,
+    selectedFromBrowse: model.screen === "browse",
+    selectedFromSearch: model.screen === "search_results",
+  };
 }
 
 export function visibleRowTitle(model: Model): Uint8Array {
@@ -1280,12 +1355,12 @@ export function update(model: Model, msg: Msg): Model {
     case "previous_row": {
       if (model.rowIndex === 0) return model;
       const rowIndex = model.rowIndex - 1;
-      return { ...model, rowIndex: rowIndex, rowNumber: rowIndex + 1 };
+      return previewCatalogItem({ ...model, rowIndex: rowIndex, rowNumber: rowIndex + 1 }, 0);
     }
     case "next_row": {
       if (model.rowIndex + 1 >= model.rows.length) return model;
       const rowIndex = model.rowIndex + 1;
-      return { ...model, rowIndex: rowIndex, rowNumber: rowIndex + 1 };
+      return previewCatalogItem({ ...model, rowIndex: rowIndex, rowNumber: rowIndex + 1 }, 0);
     }
     case "open_libraries":
       return { ...model, screen: "libraries" };
@@ -1512,6 +1587,9 @@ export function update(model: Model, msg: Msg): Model {
         ratingKey: model.selectedRatingKey,
         title: model.selectedTitle,
         subtitle: model.detailsType,
+        secondary: model.detailsType,
+        hierarchy: new Uint8Array(0),
+        hasHierarchy: false,
         imageId: model.selectedImageId,
         durationMs: model.selectedDurationMs,
         viewOffsetMs: model.selectedViewOffsetMs,
