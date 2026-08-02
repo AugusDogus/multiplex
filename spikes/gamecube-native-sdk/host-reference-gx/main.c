@@ -132,6 +132,7 @@ static bool asynchronous_reference_enabled;
 static ReferenceFrameRenderer reference_renderer;
 static bool network_activity_visible;
 static uint32_t network_activity_frame;
+static uint32_t screen_transition_frame;
 static bool native_frame_dirty = true;
 static uint8_t ui_frame_alpha = 255;
 static bool player_controls_overlay_visible = true;
@@ -780,6 +781,7 @@ static bool launch_reference_renderer(void) {
   }
   SYS_Report("REFERENCE GX: screen transition render started from=%u to=%u\n",
              presented_screen, multiplex_native_app_screen());
+  screen_transition_frame = 0;
   return true;
 }
 
@@ -2453,21 +2455,32 @@ static void fill_circle(float center_x, float center_y, float radius,
   GX_End();
 }
 
-static void draw_network_activity(void) {
-  if (!network_activity_visible) {
-    return;
-  }
+static void draw_activity_dots(float center_y, uint32_t frame) {
   configure_color_pipeline();
   GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
                   GX_LO_CLEAR);
-  const uint32_t active = (network_activity_frame / 10u) % 3u;
+  const uint32_t active = (frame / 10u) % 3u;
   for (uint32_t index = 0; index < 3; ++index) {
     const uint8_t alpha = index == active ? 230u : 72u;
-    fill_circle(312.0f + index * 8.0f, 380.0f, 2.0f,
+    fill_circle(312.0f + index * 8.0f, center_y, 2.0f,
                 (GXColor){212, 212, 216, alpha});
   }
   GX_SetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_CLEAR);
-  network_activity_frame += 1;
+}
+
+static void draw_activity(void) {
+  if (network_activity_visible) {
+    draw_activity_dots(380.0f, network_activity_frame);
+    network_activity_frame += 1;
+    return;
+  }
+  if (reference_renderer.thread != LWP_THREAD_NULL &&
+      screen_transition_frame >= 8u) {
+    draw_activity_dots(462.0f, screen_transition_frame - 8u);
+  }
+  if (reference_renderer.thread != LWP_THREAD_NULL) {
+    screen_transition_frame += 1;
+  }
 }
 
 static void fill_rect(float left, float top, float right, float bottom,
@@ -2699,7 +2712,7 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
     }
     draw_playback_progress(playback_manifest);
   }
-  draw_network_activity();
+  draw_activity();
   GX_CopyDisp(framebuffers[framebuffer_index], GX_TRUE);
   GX_DrawDone();
   VIDEO_SetNextFramebuffer(framebuffers[framebuffer_index]);
