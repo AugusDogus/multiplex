@@ -17,7 +17,7 @@
 #define PAIRING_MAX_BYTES 280u
 #define GATEWAY_URL_CAPACITY 768u
 
-#if MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES != 19200
+#if MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES != 27648
 #error "Gateway and GameCube artwork dimensions must stay in lockstep"
 #endif
 
