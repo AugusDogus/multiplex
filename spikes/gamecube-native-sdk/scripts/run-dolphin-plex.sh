@@ -39,6 +39,7 @@ multiplex_base_url=${MULTIPLEX_BASE_URL:-}
 console_name=${MULTIPLEX_CONSOLE_NAME:-GameCube}
 reference_dol=${MULTIPLEX_REFERENCE_DOL:-"$spike_dir/multiplex-gamecube-native-reference.dol"}
 reference_build_script=${MULTIPLEX_REFERENCE_BUILD_SCRIPT:-build-native-reference-dol.sh}
+skip_build=${GAMECUBE_SKIP_BUILD:-0}
 controller_pipe_name=${MULTIPLEX_CONTROLLER_PIPE:-multiplex1}
 dolphin_network=${MULTIPLEX_DOLPHIN_NETWORK:-rootless-tap}
 server_pid=
@@ -128,6 +129,13 @@ case "$interactive" in
   0 | 1) ;;
   *)
     echo "GAMECUBE_PLEX_INTERACTIVE must be 0 or 1." >&2
+    exit 1
+    ;;
+esac
+case "$skip_build" in
+  0 | 1) ;;
+  *)
+    echo "GAMECUBE_SKIP_BUILD must be 0 or 1." >&2
     exit 1
     ;;
 esac
@@ -325,7 +333,12 @@ if [ "$direct_plex" -ne 1 ]; then
   fi
   gateway_url="http://$gateway:$port"
 fi
-if [ "$direct_plex" -eq 1 ]; then
+if [ "$skip_build" -eq 1 ]; then
+  if [ ! -s "$reference_dol" ]; then
+    echo "GAMECUBE_SKIP_BUILD=1 requires an existing DOL at $reference_dol." >&2
+    exit 1
+  fi
+elif [ "$direct_plex" -eq 1 ]; then
   GAMECUBE_GATEWAY_URL= \
     GAMECUBE_PLEX_BASE_URL="$plex_base_url" \
     GAMECUBE_PLEX_VIDEO_RESOLUTION="$plex_video_resolution" \
