@@ -82,6 +82,7 @@
 #define DIRECT_PLAYBACK_END_MARGIN_MS 64u
 #define PLAYER_CONTROLS_IDLE_MS 4000u
 #define PLAYER_CONTROLS_FADE_MS 180u
+#define UI_ENTRY_FRAMES 6u
 #define MULTIPLEX_PAIRING_CONNECTING 4u
 #define POSTER_JPEG_CAPACITY (256u * 1024u)
 #define PLEX_POSTER_JPEG_CAPACITY (32u * 1024u)
@@ -162,6 +163,7 @@ static bool network_activity_visible;
 static bool blocking_activity_visible;
 static uint32_t network_activity_frame;
 static uint32_t screen_transition_frame;
+static uint8_t ui_entry_frame = UI_ENTRY_FRAMES;
 static bool native_frame_dirty = true;
 static uint8_t ui_frame_alpha = 255;
 static bool player_controls_overlay_visible = true;
@@ -822,6 +824,7 @@ static void set_player_controls_texture_alpha(uint8_t alpha) {
 }
 
 static void capture_reference_surfaces(void) {
+  const uint32_t previous_screen = presented_screen;
   memset(&video_surface, 0, sizeof(video_surface));
   multiplex_native_video_surface(&video_surface);
   memset(&player_controls_surface, 0, sizeof(player_controls_surface));
@@ -832,6 +835,12 @@ static void capture_reference_surfaces(void) {
   poster_surface_count =
       multiplex_native_poster_surfaces(poster_surfaces, 4);
   presented_screen = multiplex_native_app_screen();
+  if (presented_screen != previous_screen &&
+      presented_screen != MULTIPLEX_SCREEN_PLAYER) {
+    ui_entry_frame = 0;
+  } else if (presented_screen == MULTIPLEX_SCREEN_PLAYER) {
+    ui_entry_frame = UI_ENTRY_FRAMES;
+  }
 }
 
 static uint32_t copy_atlas_text(uint8_t *destination, uint32_t capacity,
@@ -2997,6 +3006,12 @@ static void texture_vertex(float x, float y, float u, float v) {
   GX_TexCoord2f32(u, v);
 }
 
+static void load_ui_translation(float y) {
+  Mtx transform;
+  guMtxTrans(transform, 0.0f, y, 0.0f);
+  GX_LoadPosMtxImm(transform, GX_PNMTX0);
+}
+
 static void configure_color_pipeline(void) {
   GX_ClearVtxDesc();
   GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
@@ -3831,6 +3846,17 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
 
   draw_video_surface();
   if (video_surface.visible == 0 || player_controls_overlay_visible) {
+    float entry_offset = 0.0f;
+    if (ui_entry_frame < UI_ENTRY_FRAMES) {
+      const float progress = UI_ENTRY_FRAMES <= 1u
+                                 ? 1.0f
+                                 : (float)ui_entry_frame /
+                                       (float)(UI_ENTRY_FRAMES - 1u);
+      const float remaining = 1.0f - progress;
+      entry_offset = 6.0f * remaining * remaining * remaining;
+      ui_entry_frame += 1u;
+    }
+    load_ui_translation(entry_offset);
     draw_native_shapes();
     draw_reference_frame();
     if (modal_surface.visible == 0) {
@@ -3838,6 +3864,7 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
     }
     draw_native_text();
     draw_playback_progress(playback_manifest);
+    load_ui_translation(0.0f);
   }
   draw_activity();
   GX_CopyDisp(framebuffers[framebuffer_index], GX_TRUE);
