@@ -88,9 +88,8 @@
           <text size="sm" foreground="text_muted">Waiting for your Multiplex account...</text>
         </if>
         <if test="{pairingLinked}">
-          <text size="heading">GameCube linked</text>
-          <text foreground="text_muted">Connecting to Plex...</text>
-          <text size="sm" foreground="text_muted">Still waiting? Check the Broadband Adapter and Ethernet.</text>
+          <text size="heading">Starting Multiplex</text>
+          <text foreground="text_muted">Loading your Plex home...</text>
         </if>
         <if test="{pairingUnavailable}">
           <text size="heading">Network unavailable</text>
