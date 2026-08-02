@@ -21,6 +21,11 @@
 #define PLEX_SEARCH_RESPONSE_CAPACITY (64u * 1024u)
 #define PLEX_CATALOG_URL_CAPACITY 1280u
 #define PLEX_REQUEST_ATTEMPTS 4u
+#define PLEX_COMPACT_ITEMS_QUERY                                               \
+  "excludeElements=Media,Image,Role,Writer,Director,Producer,Genre,Country&"  \
+  "excludeFields=summary,UltraBlurColors,guid,art,parentGuid,grandparentGuid," \
+  "grandparentArt,audienceRatingImage,librarySectionKey,grandparentTheme,"     \
+  "ratingImage"
 
 typedef struct {
   const char *begin;
@@ -913,8 +918,11 @@ bool multiplex_plex_load_catalog(
   size_t response_size = 0;
   const bool hubs_loaded =
       response != NULL &&
-      request_plex_json(credentials, "hubs?onlyTransient=1&count=4", response,
-                        PLEX_HUB_RESPONSE_CAPACITY, &response_size) &&
+      request_plex_json(credentials,
+                        "hubs?onlyTransient=1&count=4&"
+                        PLEX_COMPACT_ITEMS_QUERY,
+                        response, PLEX_HUB_RESPONSE_CAPACITY,
+                        &response_size) &&
       multiplex_plex_catalog_parse_hubs(response, response_size, catalog);
   free(response);
   if (!hubs_loaded) {
@@ -946,11 +954,12 @@ bool multiplex_plex_load_browse(
       page == NULL) {
     return false;
   }
-  char path[256];
+  char path[640];
   const int path_size = snprintf(
       path, sizeof(path),
       "library/sections/%u/all?sort=addedAt%%3Adesc&"
-      "X-Plex-Container-Start=%u&X-Plex-Container-Size=%u",
+      "X-Plex-Container-Start=%u&X-Plex-Container-Size=%u&"
+      PLEX_COMPACT_ITEMS_QUERY,
       library->section_id, start, MULTIPLEX_GATEWAY_MAX_ITEMS);
   if (path_size <= 0 || (size_t)path_size >= sizeof(path)) {
     return false;
@@ -1008,10 +1017,11 @@ bool multiplex_plex_load_children(
       credentials->plex_server_token[0] == '\0') {
     return false;
   }
-  char path[160];
+  char path[640];
   const int path_size = snprintf(
       path, sizeof(path),
-      "library/metadata/%u/children?X-Plex-Container-Start=%u&X-Plex-Container-Size=%u",
+      "library/metadata/%u/children?X-Plex-Container-Start=%u&"
+      "X-Plex-Container-Size=%u&" PLEX_COMPACT_ITEMS_QUERY,
       rating_key, start, MULTIPLEX_GATEWAY_MAX_ITEMS);
   if (path_size <= 0 || (size_t)path_size >= sizeof(path)) {
     return false;
@@ -1281,11 +1291,12 @@ bool multiplex_plex_load_search(
   if (!encode_url_value(query_copy, encoded_query, sizeof(encoded_query))) {
     return false;
   }
-  char path[256];
+  char path[640];
   const int path_size = snprintf(
       path, sizeof(path),
       "library/search?query=%s&limit=%u&searchTypes=movies%%2Ctv&"
-      "includeCollections=0&includeExternalMedia=0",
+      "includeCollections=0&includeExternalMedia=0&"
+      PLEX_COMPACT_ITEMS_QUERY,
       encoded_query, MULTIPLEX_GATEWAY_MAX_ITEMS);
   if (path_size <= 0 || (size_t)path_size >= sizeof(path)) {
     return false;
