@@ -80,6 +80,7 @@
 #define WATCH_TOGETHER_RECONNECT_DELAY_MS 1000u
 #define CATALOG_RETRY_INITIAL_DELAY_MS 1000u
 #define CATALOG_RETRY_MAX_DELAY_MS 8000u
+#define STARTUP_DATA_IDLE_DELAY_MS 2000u
 #define SEGMENT_PREFETCH_MARGIN_MS 8000u
 #define SEGMENT_HANDOFF_MARGIN_MS 64u
 #define DIRECT_PLAYBACK_END_MARGIN_MS 64u
@@ -5005,6 +5006,7 @@ static void *run_app(void *unused) {
   catalog_loader.thread = LWP_THREAD_NULL;
   uint64_t catalog_retry_at_ms = 0;
   uint32_t catalog_retry_delay_ms = CATALOG_RETRY_INITIAL_DELAY_MS;
+  uint64_t startup_data_not_before_ms = 0;
   StartupDataLoader startup_data_loader;
   memset(&startup_data_loader, 0, sizeof(startup_data_loader));
   startup_data_loader.thread = LWP_THREAD_NULL;
@@ -5239,6 +5241,7 @@ static void *run_app(void *unused) {
       has_catalog = true;
       catalog_retry_at_ms = 0;
       catalog_retry_delay_ms = CATALOG_RETRY_INITIAL_DELAY_MS;
+      startup_data_not_before_ms = catalog_now_ms + STARTUP_DATA_IDLE_DELAY_MS;
       if (!queue_direct_poster_loader(&direct_home_poster_loader,
                                       &auth_credentials, catalog.items,
                                       catalog.total_item_count, 0, false)) {
@@ -5283,14 +5286,6 @@ static void *run_app(void *unused) {
         catalog_retry_at_ms = catalog_now_ms + catalog_retry_delay_ms;
       }
       native_frame_dirty = true;
-    }
-    if (pairing_linked && has_catalog && !startup_data_loader.started &&
-        !direct_poster_loader_running(&direct_home_poster_loader) &&
-        !direct_home_poster_loader.pending) {
-      if (!launch_startup_data_loader(&startup_data_loader,
-                                      &auth_credentials)) {
-        SYS_Report("REFERENCE GX: background account data unavailable\n");
-      }
     }
     if (!poll_startup_data_loader(&startup_data_loader, &plex_user_id,
                                   &watch_together_rooms,
@@ -5409,6 +5404,27 @@ static void *run_app(void *unused) {
             ? queued_transition_navigation
             : navigation_action(stick_direction);
     queued_transition_navigation = UINT32_MAX;
+#if MULTIPLEX_PAIRING_ENABLED
+    if (!startup_data_loader.started &&
+        (pressed != 0 || stick_navigation != UINT32_MAX)) {
+      startup_data_not_before_ms =
+          input_now_ms + STARTUP_DATA_IDLE_DELAY_MS;
+    }
+    if (pairing_linked && has_catalog && !startup_data_loader.started &&
+        input_now_ms >= startup_data_not_before_ms &&
+        multiplex_native_app_screen() == MULTIPLEX_SCREEN_HOME &&
+        !direct_poster_loader_running(&direct_home_poster_loader) &&
+        !direct_home_poster_loader.pending &&
+        !direct_poster_loader_running(&direct_page_poster_loader) &&
+        !direct_page_poster_loader.pending && !direct_hls_prefetch.started) {
+      if (!launch_startup_data_loader(&startup_data_loader,
+                                      &auth_credentials)) {
+        startup_data_not_before_ms =
+            input_now_ms + STARTUP_DATA_IDLE_DELAY_MS;
+        SYS_Report("REFERENCE GX: background account data unavailable\n");
+      }
+    }
+#endif
     const bool controller_input = pressed != 0 || stick_navigation != UINT32_MAX;
     if (pressed != 0) {
       SYS_Report("REFERENCE GX: controller buttons %08x\n", pressed);
@@ -5478,6 +5494,7 @@ static void *run_app(void *unused) {
         has_catalog = false;
         catalog_retry_at_ms = 0;
         catalog_retry_delay_ms = CATALOG_RETRY_INITIAL_DELAY_MS;
+        startup_data_not_before_ms = 0;
         network_activity_visible = false;
         memset(&auth_credentials, 0, sizeof(auth_credentials));
         memset(&watch_together_rooms, 0, sizeof(watch_together_rooms));
