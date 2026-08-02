@@ -140,7 +140,7 @@
           <panel width="138" grow="1" padding="16" background="surface" border-color="border" radius="lg" on-press="open_library:{library.id}" label="{library.title}">
             <column grow="1" main="center" cross="center" gap="8">
               <badge variant="secondary">{library.typeLabel}</badge>
-              <text size="heading">{library.title}</text>
+              <text wrap="true" text-alignment="center">{library.title}</text>
             </column>
           </panel>
         </for>
