@@ -53,8 +53,8 @@ var staged_browse_title: []const u8 = &.{};
 var staged_browse_section_id: u32 = 0;
 var staged_browse_start: u32 = 0;
 var staged_browse_total: u32 = 0;
-var staged_browse_items: [4]core.CatalogItem = undefined;
-var staged_browse_item_ptrs: [4]*const core.CatalogItem = undefined;
+var staged_browse_items: []core.CatalogItem = &.{};
+var staged_browse_item_ptrs: []*const core.CatalogItem = &.{};
 var staged_browse_item_count: usize = 0;
 var staged_watch_together_rooms: [4]core.WatchTogetherRoom = undefined;
 var staged_watch_together_room_ptrs: [4]*const core.WatchTogetherRoom = undefined;
@@ -352,6 +352,19 @@ fn initializeApp() void {
 fn commitAppModel(next: *const core.Model) void {
     app_model = core.commitModelRoot(next);
     core.rt.frameReset();
+}
+
+fn stageBytes(bytes: []const u8) []const u8 {
+    if (bytes.len == 0) return &.{};
+    const staged = core.rt.frameAlloc(u8, bytes.len);
+    @memcpy(staged, bytes);
+    return staged;
+}
+
+fn beginStagedBrowseItems(item_count: usize) void {
+    staged_browse_items = core.rt.frameAlloc(core.CatalogItem, item_count);
+    staged_browse_item_ptrs = core.rt.frameAlloc(*const core.CatalogItem, item_count);
+    staged_browse_item_count = item_count;
 }
 
 fn prefersFocus(model: *const core.Model, msg: core.Msg) bool {
@@ -809,10 +822,10 @@ export fn multiplex_native_app_browse_begin(
 ) callconv(.c) u32 {
     if (!app_initialized or section_id == 0 or title_length == 0 or item_count == 0 or item_count > 4) return 0;
     staged_browse_section_id = section_id;
-    staged_browse_title = title[0..title_length];
+    staged_browse_title = stageBytes(title[0..title_length]);
     staged_browse_start = start;
     staged_browse_total = total;
-    staged_browse_item_count = item_count;
+    beginStagedBrowseItems(@intCast(item_count));
     return 1;
 }
 
@@ -833,8 +846,8 @@ export fn multiplex_native_app_browse_item(
     staged_browse_items[slot] = .{
         .id = @intCast(item_index),
         .ratingKey = @intCast(rating_key),
-        .title = title[0..title_length],
-        .subtitle = subtitle[0..subtitle_length],
+        .title = stageBytes(title[0..title_length]),
+        .subtitle = stageBytes(subtitle[0..subtitle_length]),
         .imageId = @intCast(13 + artwork_slot),
         .durationMs = @intCast(duration_ms),
         .viewOffsetMs = @intCast(view_offset_ms),
@@ -873,8 +886,8 @@ export fn multiplex_native_app_search_begin(
     item_count: u32,
 ) callconv(.c) u32 {
     if (!app_initialized or query_length == 0 or item_count > 4) return 0;
-    staged_browse_title = query[0..query_length];
-    staged_browse_item_count = item_count;
+    staged_browse_title = stageBytes(query[0..query_length]);
+    beginStagedBrowseItems(@intCast(item_count));
     return 1;
 }
 
@@ -945,7 +958,7 @@ export fn multiplex_native_app_details_children_begin(
     staged_browse_section_id = rating_key;
     staged_browse_start = start;
     staged_browse_total = total;
-    staged_browse_item_count = item_count;
+    beginStagedBrowseItems(@intCast(item_count));
     return 1;
 }
 
