@@ -1459,20 +1459,23 @@ export fn multiplex_native_app_poster_inset_audit() callconv(.c) u32 {
     for (layout.nodes) |node| {
         if (node.widget.kind != .image or node.frame.width < 100 or node.frame.width > 150) continue;
         var ancestor_index = node.parent_index;
-        var panel_frame: ?geometry.RectF = null;
+        var card_frame: ?geometry.RectF = null;
         while (ancestor_index) |index| {
             const ancestor = layout.nodes[index];
             if (ancestor.widget.kind == .panel) {
-                panel_frame = ancestor.frame.normalized();
+                card_frame = ancestor.frame.normalized();
                 break;
+            }
+            if (card_frame == null and ancestor.widget.kind == .column) {
+                card_frame = ancestor.frame.normalized();
             }
             ancestor_index = ancestor.parent_index;
         }
-        const panel = panel_frame orelse continue;
+        const card = card_frame orelse continue;
         const image = node.frame.normalized();
-        const left_inset = image.x - panel.x;
-        const right_inset = panel.x + panel.width - image.x - image.width;
-        const top_inset = image.y - panel.y;
+        const left_inset = image.x - card.x;
+        const right_inset = card.x + card.width - image.x - image.width;
+        const top_inset = image.y - card.y;
         if (left_inset > 0.75 or right_inset > 0.75 or top_inset > 0.75) issues += 1;
     }
     return issues;
@@ -2157,20 +2160,28 @@ fn capturePosterSurfaces(nodes: []const canvas.WidgetLayoutNode, focused_id: ?ca
             .radius = node.widget.style.radius orelse 0,
         };
         var ancestor_index = node.parent_index;
+        var card_index: ?usize = null;
         while (ancestor_index) |index| {
             const ancestor = nodes[index];
             if (ancestor.widget.kind == .panel) {
-                poster_card_ids[poster_surface_count] = ancestor.widget.id;
-                const card = ancestor.frame.normalized();
-                poster_surfaces[poster_surface_count].focused =
-                    if (focused_id != null and focused_id.? == ancestor.widget.id) 1 else 0;
-                poster_surfaces[poster_surface_count].card_x = card.x;
-                poster_surfaces[poster_surface_count].card_y = card.y;
-                poster_surfaces[poster_surface_count].card_width = card.width;
-                poster_surfaces[poster_surface_count].card_height = card.height;
+                card_index = index;
                 break;
             }
+            if (card_index == null and ancestor.widget.kind == .column) {
+                card_index = index;
+            }
             ancestor_index = ancestor.parent_index;
+        }
+        if (card_index) |index| {
+            const card_node = nodes[index];
+            poster_card_ids[poster_surface_count] = card_node.widget.id;
+            const card = card_node.frame.normalized();
+            poster_surfaces[poster_surface_count].focused =
+                if (focused_id != null and focused_id.? == card_node.widget.id) 1 else 0;
+            poster_surfaces[poster_surface_count].card_x = card.x;
+            poster_surfaces[poster_surface_count].card_y = card.y;
+            poster_surfaces[poster_surface_count].card_width = card.width;
+            poster_surfaces[poster_surface_count].card_height = card.height;
         }
         poster_surface_count += 1;
     }

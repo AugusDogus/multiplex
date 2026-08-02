@@ -60,8 +60,8 @@
       <spacer grow="1" />
       <if test="{pairingLinked}">
         <button-group>
-          <button width="38" size="sm" icon="folder" variant="secondary" on-press="open_libraries" label="Libraries"></button>
-          <button width="38" size="sm" icon="search" variant="secondary" on-press="open_search" label="Search"></button>
+          <button width="34" size="sm" icon="folder" variant="secondary" on-press="open_libraries" label="Libraries"></button>
+          <button width="34" size="sm" icon="search" variant="secondary" on-press="open_search" label="Search"></button>
         </button-group>
       </if>
     </row>
@@ -107,29 +107,28 @@
   <if test="{screen == 'home'}">
     <column grow="1" gap="8">
       <row cross="center">
+        <text size="heading" label="{visibleRowTitle}"><span weight="bold">{visibleRowTitle}</span></text>
         <spacer grow="1" />
-        <badge variant="secondary">Row {rowNumber} of {rowCount}</badge>
+        <badge variant="secondary">Page {rowNumber} of {rowCount}</badge>
       </row>
-      <row grow="1" gap="8" main="center" cross="center">
-        <button width="34" size="sm" icon="chevron-left" variant="ghost" on-press="previous_row" disabled="{rowPreviousDisabled}" label="Previous row"></button>
+      <row gap="8" main="center" cross="start">
+        <button width="34" size="sm" icon="chevron-left" variant="ghost" on-press="previous_row" disabled="{rowPreviousDisabled}" label="Previous page"></button>
         <row grow="1" gap="8" main="center">
           <for each="visibleItems" as="item" key="ratingKey">
-            <panel width="124" padding="0" background="background" border-color="background" radius="lg" on-press="open_item:{item.id}" label="{item.title}">
-              <column grow="1" gap="4">
-                <image image="{item.imageId}" width="124" height="186" radius="lg" label="{item.title}" />
-                <if test="{item.progressPercent > 0 and item.progressPercent < 100}">
-                  <progress value="{item.progressPercent / 100}" height="4" />
-                </if>
-                <else>
-                  <spacer height="4" />
-                </else>
-                <text size="sm" wrap="false">{item.title}</text>
-                <text size="sm" foreground="text_muted" wrap="false">{item.subtitle}</text>
-              </column>
-            </panel>
+            <column width="124" gap="4" on-press="open_item:{item.id}" label="{item.title}">
+              <image image="{item.imageId}" width="124" height="186" radius="lg" label="{item.title}" />
+              <if test="{item.progressPercent > 0 and item.progressPercent < 100}">
+                <progress value="{item.progressPercent / 100}" height="4" />
+              </if>
+              <else>
+                <spacer height="4" />
+              </else>
+              <text size="sm" wrap="false">{item.title}</text>
+              <text size="sm" foreground="text_muted" wrap="false">{item.subtitle}</text>
+            </column>
           </for>
         </row>
-        <button width="34" size="sm" icon="chevron-right" variant="ghost" on-press="next_row" disabled="{rowNextDisabled}" label="Next row"></button>
+        <button width="34" size="sm" icon="chevron-right" variant="ghost" on-press="next_row" disabled="{rowNextDisabled}" label="Next page"></button>
       </row>
     </column>
   </if>
@@ -203,13 +202,11 @@
       <if test="{searchHasResults}">
         <row grow="1" gap="8" main="center">
           <for each="searchItems" as="item" key="ratingKey">
-            <panel width="140" padding="0" background="background" border-color="background" radius="lg" on-press="open_item:{item.id}" label="{item.title}">
-              <column grow="1" gap="4">
-                <image image="{item.imageId}" width="140" height="210" label="{item.title}" />
-                <text size="sm" wrap="false">{item.title}</text>
-                <text size="sm" foreground="text_muted" wrap="false">{item.subtitle}</text>
-              </column>
-            </panel>
+            <column width="140" gap="4" on-press="open_item:{item.id}" label="{item.title}">
+              <image image="{item.imageId}" width="140" height="210" radius="lg" label="{item.title}" />
+              <text size="sm" wrap="false">{item.title}</text>
+              <text size="sm" foreground="text_muted" wrap="false">{item.subtitle}</text>
+            </column>
           </for>
         </row>
       </if>
@@ -246,19 +243,17 @@
           <button width="34" size="sm" icon="chevron-left" variant="ghost" on-press="browse_previous" disabled="{browsePreviousDisabled}" label="Previous page"></button>
           <row grow="1" gap="8" main="center">
             <for each="browseItems" as="item" key="ratingKey">
-              <panel width="124" padding="0" background="background" border-color="background" radius="lg" on-press="open_item:{item.id}" label="{item.title}">
-                <column grow="1" gap="4">
-                  <image image="{item.imageId}" width="124" height="186" radius="lg" label="{item.title}" />
-                  <if test="{item.progressPercent > 0 and item.progressPercent < 100}">
-                    <progress value="{item.progressPercent / 100}" height="4" />
-                  </if>
-                  <else>
-                    <spacer height="4" />
-                  </else>
-                  <text size="sm" wrap="false">{item.title}</text>
-                  <text size="sm" foreground="text_muted" wrap="false">{item.subtitle}</text>
-                </column>
-              </panel>
+              <column width="124" gap="4" on-press="open_item:{item.id}" label="{item.title}">
+                <image image="{item.imageId}" width="124" height="186" radius="lg" label="{item.title}" />
+                <if test="{item.progressPercent > 0 and item.progressPercent < 100}">
+                  <progress value="{item.progressPercent / 100}" height="4" />
+                </if>
+                <else>
+                  <spacer height="4" />
+                </else>
+                <text size="sm" wrap="false">{item.title}</text>
+                <text size="sm" foreground="text_muted" wrap="false">{item.subtitle}</text>
+              </column>
             </for>
           </row>
           <button width="34" size="sm" icon="chevron-right" variant="ghost" on-press="browse_next" disabled="{browseNextDisabled}" label="Next page"></button>

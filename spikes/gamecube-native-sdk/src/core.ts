@@ -878,7 +878,7 @@ export function detailsHasProgress(model: Model): boolean {
 export function pageTitle(model: Model): Uint8Array {
   switch (model.screen) {
     case "home":
-      return visibleRowTitle(model);
+      return new Uint8Array(0);
     case "libraries":
       return pageLibraries;
     case "browse":

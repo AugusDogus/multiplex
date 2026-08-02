@@ -4259,6 +4259,13 @@ static void draw_poster_surfaces(void) {
             : (float)poster_focus_frame / (float)(POSTER_FOCUS_FRAMES - 1u);
     const float remaining = 1.0f - progress;
     const float eased = 1.0f - remaining * remaining * remaining;
+    const float poster_left = surface->x - eased * 2.0f;
+    const float poster_top = surface->y - eased * 3.0f;
+    const float poster_right = surface->x + surface->width + eased * 2.0f;
+    const float poster_bottom = surface->y + surface->height + eased;
+    stroke_rounded_color_rect(poster_left, poster_top, poster_right,
+                              poster_bottom, surface->radius + eased, 1.5f,
+                              (GXColor){255, 255, 255, 176});
     const float half_width = 7.0f + 10.0f * eased;
     fill_rounded_color_rect(center - half_width, top, center + half_width,
                             top + 3.0f, 1.5f,
