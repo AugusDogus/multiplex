@@ -23,13 +23,12 @@ index a147cc7..5508732 100644
 +      std::this_thread::sleep_for(std::chrono::milliseconds(1));
 +      continue;
 +    }
-+    const u16 receive_pages = rhbp - bp;
 +    const u16 used_pages = wp >= rp ? wp - rp : (rhbp - rp) + (wp - bp);
 +
-+    // Match the receive-ring backpressure used by the built-in BBA backend.
-+    // A full-size Ethernet frame consumes up to seven 256-byte pages, so stop
-+    // reading TAP before the emulated adapter can overwrite unread packets.
-+    if (used_pages + 7 >= receive_pages)
++    // The receive interrupt and descriptor update are observed by the emulated
++    // CPU asynchronously. Admit one frame at a time so a fast TAP producer
++    // cannot append another descriptor before libogc retires the current one.
++    if (used_pages != 0)
 +    {
 +      std::this_thread::sleep_for(std::chrono::milliseconds(1));
 +      continue;

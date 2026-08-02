@@ -16,7 +16,7 @@ index feae677..20fd9d6 100644
  	rwp = bba_in12(BBA_RWP);
  	rrp = bba_in12(BBA_RRP);
 +	rx_start = bba_in12(BBA_BP)<<8;
-+	rx_end = (bba_in12(BBA_RHBP)+1)<<8;
++	rx_end = bba_in12(BBA_RHBP)<<8;
  	while(recvd<budget && rrp!=rwp) {
  		LWIP_DEBUGF(NETIF_DEBUG,("bba_start_rx(%04x,%04x)\n",rrp,rwp));
  		bba_ins(rrp<<8,(void*)(&cur_descr),sizeof(struct bba_descr));

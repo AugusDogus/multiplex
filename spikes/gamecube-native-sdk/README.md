@@ -258,8 +258,8 @@ profile also accepts the connected Steam Controller alongside the QA pipe.
   harness for exercising Dolphin's low-level BBA emulation without sudo
 - `scripts/bootstrap-dolphin.sh`: reproducible local Dolphin 2606 build using
   the installed 2606 system data and the TAP receive-pressure patch
-- `patches/dolphin-2606-tap-receive-backpressure.patch`: applies Dolphin's
-  existing BuiltIn BBA ring guard to Linux TAP before reading another frame
+- `patches/dolphin-2606-tap-receive-backpressure.patch`: admits one Linux TAP
+  frame at a time until libogc retires its BBA receive descriptor
 - `scripts/run-dolphin-plex.sh`: real Plex item → GameCube transcode gateway →
   muted Dolphin runner
 - `scripts/plex-gateway.py`: bounded binary home/search/library metadata and
@@ -465,13 +465,15 @@ backend](https://github.com/dolphin-emu/dolphin/blob/6094cfcf7b8fba733b3116fdf34
 Under sustained Plex responses that can overrun the emulated 4 KiB BBA ring
 before libogc2 advances its read pointer. `bun run
 spike:gamecube:dolphin:bootstrap` builds the pinned Dolphin source with a narrow
-patch that applies the existing eight-page backpressure threshold to TAP,
-checks receive enablement before consuming a host frame, and snapshots and
-validates every receive-ring page before copying packet bytes into the 4 KiB
-BBA memory. Libogc's `RHBP=0x10` is the exclusive end of that memory, so the
-patch accepts the boundary but wraps before writing page `0x10`. The rootless
-TAP runner automatically prefers this local build and retains stock Dolphin as
-a fallback when it has not been built.
+patch that waits for libogc to retire the current receive descriptor before
+reading another TAP frame, checks receive enablement before consuming it, and
+snapshots and validates every receive-ring page before copying packet bytes
+into the 4 KiB BBA memory. Libogc's `RHBP=0x10` is the exclusive end of that
+memory. Both its wrapped DMA reader and Dolphin now wrap before page `0x10`.
+This removes the dropped segment and one-second TCP retransmission cycle while
+preserving the real adapter's memory boundary. The rootless TAP runner
+automatically prefers this local build and retains stock Dolphin as a fallback
+when it has not been built.
 
 Pasta's interactive-flow ACK suppression also interacts badly with libogc2's
 historical two-MSS advertised window: repeated ACKs for tiny TLS records made a
