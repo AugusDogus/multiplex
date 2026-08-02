@@ -407,6 +407,24 @@ fn resolveFocusedHandler(tree: anytype, press_ids: []const canvas.ObjectId, mode
     }
 }
 
+fn collectEnabledPressIds(tree: anytype, press_ids: []canvas.ObjectId) usize {
+    var press_count: usize = 0;
+    for (tree.handlers) |handler| {
+        if (tree.msgFor(handler.id, .press) == null) continue;
+        const widget = tree.findWidget(handler.id) orelse continue;
+        if (widget.state.disabled) continue;
+        var duplicate = false;
+        for (press_ids[0..press_count]) |id| {
+            if (id == handler.id) duplicate = true;
+        }
+        if (!duplicate and press_count < press_ids.len) {
+            press_ids[press_count] = handler.id;
+            press_count += 1;
+        }
+    }
+    return press_count;
+}
+
 export fn multiplex_native_app_init() callconv(.c) void {
     initializeApp();
 }
@@ -1345,18 +1363,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
     const tree = ui.finalizeWithTokens(CompiledView.build(&ui, model), .{}) catch return 0;
 
     var press_ids: [32]canvas.ObjectId = undefined;
-    var press_count: usize = 0;
-    for (tree.handlers) |handler| {
-        if (tree.msgFor(handler.id, .press) == null) continue;
-        var duplicate = false;
-        for (press_ids[0..press_count]) |id| {
-            if (id == handler.id) duplicate = true;
-        }
-        if (!duplicate and press_count < press_ids.len) {
-            press_ids[press_count] = handler.id;
-            press_count += 1;
-        }
-    }
+    const press_count = collectEnabledPressIds(tree, &press_ids);
     if (action == 3) {
         commitAppModel(core.update(model, .back));
         focused_handler = invalid_focused_handler;
@@ -1497,18 +1504,7 @@ export fn multiplex_native_app_render(output: [*]GxCommand, capacity: u32) callc
     capturePosterSurfaces(layout.nodes);
 
     var press_ids: [32]canvas.ObjectId = undefined;
-    var press_count: usize = 0;
-    for (tree.handlers) |handler| {
-        if (tree.msgFor(handler.id, .press) == null) continue;
-        var duplicate = false;
-        for (press_ids[0..press_count]) |id| {
-            if (id == handler.id) duplicate = true;
-        }
-        if (!duplicate and press_count < press_ids.len) {
-            press_ids[press_count] = handler.id;
-            press_count += 1;
-        }
-    }
+    const press_count = collectEnabledPressIds(tree, &press_ids);
     if (press_count > 0) resolveFocusedHandler(tree, press_ids[0..press_count], model);
     const focused_id: ?canvas.ObjectId = if (press_count > 0) press_ids[focused_handler] else null;
 
@@ -1637,18 +1633,7 @@ fn renderReference(
     multiplex_native_profile_mark(reference_render_stage);
 
     var press_ids: [32]canvas.ObjectId = undefined;
-    var press_count: usize = 0;
-    for (tree.handlers) |handler| {
-        if (tree.msgFor(handler.id, .press) == null) continue;
-        var duplicate = false;
-        for (press_ids[0..press_count]) |id| {
-            if (id == handler.id) duplicate = true;
-        }
-        if (!duplicate and press_count < press_ids.len) {
-            press_ids[press_count] = handler.id;
-            press_count += 1;
-        }
-    }
+    const press_count = collectEnabledPressIds(tree, &press_ids);
     if (press_count > 0) resolveFocusedHandler(tree, press_ids[0..press_count], model);
     const focused_id: ?canvas.ObjectId = if (press_count > 0) press_ids[focused_handler] else null;
     const render_state = canvas.WidgetRenderState{
