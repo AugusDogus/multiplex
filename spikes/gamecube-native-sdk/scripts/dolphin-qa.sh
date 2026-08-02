@@ -288,7 +288,7 @@ ensure_portless() {
   systemd-run --user --collect \
     --unit="$web_service" \
     --working-directory="$repo_dir" \
-    --setenv="PATH=$PATH" \
+    --setenv="PATH=$service_path" \
     "$bun_bin" run dev >/dev/null
   attempt=0
   while [ "$attempt" -lt 120 ]; do
@@ -306,13 +306,24 @@ ensure_portless() {
   exit 1
 }
 
+resolve_service_path() {
+  node_bin=$(node --print 'process.execPath' 2>/dev/null || true)
+  if [ -z "$node_bin" ] || [ ! -x "$node_bin" ]; then
+    echo "Could not resolve the real Node.js executable behind the PATH shim." >&2
+    exit 1
+  fi
+  node_dir=$(CDPATH= cd -- "$(dirname -- "$node_bin")" && pwd)
+  service_path="$node_dir:$PATH"
+}
+
 launch() {
-  for required_command in bun curl systemctl systemd-run; do
+  for required_command in bun curl node systemctl systemd-run; do
     if ! command -v "$required_command" >/dev/null 2>&1; then
       echo "$required_command is required for interactive Dolphin QA." >&2
       exit 1
     fi
   done
+  resolve_service_path
   ensure_portless
   launch_attempt=1
   while [ "$launch_attempt" -le 3 ]; do
@@ -324,7 +335,7 @@ launch() {
       --unit="$qa_service" \
       --property=CPUSchedulingPolicy=other \
       --working-directory="$repo_dir" \
-      --setenv="PATH=$PATH" \
+      --setenv="PATH=$service_path" \
       --setenv="PLEX_BASE_URL=${PLEX_BASE_URL:-}" \
       --setenv="MULTIPLEX_BASE_URL=${MULTIPLEX_BASE_URL:-https://multiplex.localhost}" \
       --setenv=GAMECUBE_DIRECT_PLEX=1 \
