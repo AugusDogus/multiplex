@@ -4890,7 +4890,7 @@ static void *run_app(void *unused) {
     poll_direct_poster_loader(&direct_home_poster_loader);
     poll_direct_poster_loader(&direct_page_poster_loader);
     finish_direct_hls_prefetch(&direct_hls_prefetch, false);
-    if (direct_hls_prefetch.ready &&
+    if (direct_hls_prefetch.started && direct_hls_prefetch.complete &&
         multiplex_native_app_screen() != MULTIPLEX_SCREEN_DETAILS) {
       discard_direct_hls_prefetch(&direct_hls_prefetch);
     }
