@@ -778,16 +778,43 @@ static uint32_t copy_atlas_text(uint8_t *destination, uint32_t capacity,
   return output;
 }
 
+static bool command_intersects_controls(
+    const MultiplexGxCommand *command,
+    const MultiplexPlayerControlsSurface *controls) {
+  float left = command->x;
+  float top = command->y;
+  float right = left + command->width;
+  float bottom = top + command->height;
+  if (command->kind == MULTIPLEX_GX_LINE) {
+    left = fminf(command->x, command->x2);
+    top = fminf(command->y, command->y2);
+    right = fmaxf(command->x, command->x2);
+    bottom = fmaxf(command->y, command->y2);
+  }
+  return right >= controls->x &&
+         left <= controls->x + controls->width &&
+         bottom >= controls->y &&
+         top <= controls->y + controls->height;
+}
+
 static void capture_native_ui_packet(NativeUiPacket *packet) {
   MultiplexGxCommand commands[UI_COMMAND_CAPACITY];
   memset(packet, 0, sizeof(*packet));
   const uint32_t command_count =
       multiplex_native_app_render(commands, UI_COMMAND_CAPACITY);
-  const bool capture_shapes =
-      multiplex_native_app_screen() == MULTIPLEX_SCREEN_SEARCH;
+  const uint32_t screen = multiplex_native_app_screen();
+  MultiplexPlayerControlsSurface controls;
+  memset(&controls, 0, sizeof(controls));
+  if (screen == MULTIPLEX_SCREEN_PLAYER) {
+    multiplex_native_player_controls_surface(&controls);
+  }
   for (uint32_t index = 0; index < command_count; ++index) {
     const MultiplexGxCommand *command = &commands[index];
-    if (capture_shapes && command->kind != MULTIPLEX_GX_TEXT &&
+    const bool capture_shape =
+        screen == MULTIPLEX_SCREEN_SEARCH ||
+        (screen == MULTIPLEX_SCREEN_PLAYER && controls.visible != 0 &&
+         command_intersects_controls(command, &controls));
+    if (capture_shape && command->kind != MULTIPLEX_GX_TEXT &&
         command->kind != MULTIPLEX_GX_GLYPH &&
         command->kind != MULTIPLEX_GX_SHADOW &&
         packet->shape_command_count < UI_SHAPE_COMMAND_CAPACITY) {
@@ -3044,6 +3071,31 @@ static void stroke_rounded_color_rect(float left, float top, float right,
                         -1.0f, 1.0f, color);
 }
 
+static float native_stroke_radius(uint32_t command_index,
+                                  const MultiplexGxCommand *stroke) {
+  if (stroke->radius >= 1.0f) return stroke->radius;
+  for (uint32_t index = command_index; index > 0; --index) {
+    const MultiplexGxCommand *fill =
+        &presented_ui_packet.shape_commands[index - 1u];
+    if (fill->kind != MULTIPLEX_GX_FILL_ROUNDED_RECT) continue;
+    const float left_inset = fill->x - stroke->x;
+    const float top_inset = fill->y - stroke->y;
+    const float right_inset =
+        stroke->x + stroke->width - fill->x - fill->width;
+    const float bottom_inset =
+        stroke->y + stroke->height - fill->y - fill->height;
+    if (left_inset < 0.0f || top_inset < 0.0f || right_inset < 0.0f ||
+        bottom_inset < 0.0f || left_inset > 4.0f || top_inset > 4.0f ||
+        right_inset > 4.0f || bottom_inset > 4.0f) {
+      continue;
+    }
+    const float inset = fmaxf(fmaxf(left_inset, top_inset),
+                              fmaxf(right_inset, bottom_inset));
+    return fill->radius + inset;
+  }
+  return 0.0f;
+}
+
 static void draw_native_shapes(void) {
   if (presented_ui_packet.shape_command_count == 0) return;
   configure_color_pipeline();
@@ -3068,8 +3120,9 @@ static void draw_native_shapes(void) {
                               color);
       break;
     case MULTIPLEX_GX_STROKE_RECT:
-      stroke_rounded_color_rect(left, top, right, bottom, command->radius,
-                                command->stroke_width, color);
+      stroke_rounded_color_rect(
+          left, top, right, bottom, native_stroke_radius(index, command),
+          command->stroke_width, color);
       break;
     case MULTIPLEX_GX_LINE: {
       const float stroke = command->stroke_width < 1.0f

@@ -1852,7 +1852,7 @@ fn renderReference(
     var reference_command_count: usize = 0;
     for (render_plan.commands) |command| {
         if (isPosterCardChrome(command, model)) continue;
-        if (reference_text_overlay_enabled and isSearchGpuChrome(command, model)) continue;
+        if (reference_text_overlay_enabled and isGpuChrome(command, model)) continue;
         if (reference_text_overlay_enabled and command.command == .draw_text) continue;
         render_commands[reference_command_count] = command;
         reference_command_count += 1;
@@ -1934,12 +1934,21 @@ fn isPosterCardChrome(command: canvas.RenderCommand, model: *const core.Model) b
     return false;
 }
 
-fn isSearchGpuChrome(command: canvas.RenderCommand, model: *const core.Model) bool {
-    if (model.screen != .search) return false;
-    return switch (command.command) {
+fn isGpuChrome(command: canvas.RenderCommand, model: *const core.Model) bool {
+    const supported = switch (command.command) {
         .fill_rect, .fill_rounded_rect, .stroke_rect, .draw_line, .shadow => true,
         else => false,
     };
+    if (!supported) return false;
+    if (model.screen == .search) return true;
+    if (model.screen != .player or player_controls_surface.visible == 0) return false;
+    const controls = geometry.RectF.init(
+        player_controls_surface.x,
+        player_controls_surface.y,
+        player_controls_surface.width,
+        player_controls_surface.height,
+    );
+    return command.bounds.intersects(controls);
 }
 
 fn searchInputDirtyBounds(nodes: []const canvas.WidgetLayoutNode) ?geometry.RectF {
