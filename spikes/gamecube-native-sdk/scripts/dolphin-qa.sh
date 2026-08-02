@@ -700,6 +700,8 @@ check() {
   fi
   home_ready_values=$(rg 'interactive home ready us=' "$log" |
     sed -n 's/.*interactive home ready us=\([0-9][0-9]*\).*/\1/p' || true)
+  cached_home_values=$(rg 'cached catalog ready .* us=' "$log" |
+    sed -n 's/.* us=\([0-9][0-9]*\).*/\1/p' || true)
   poster_first_values=$(rg 'direct Plex poster first-ready .* us=' "$log" |
     sed -n 's/.* us=\([0-9][0-9]*\).*/\1/p' || true)
   poster_complete_values=$(rg 'direct Plex posters decoded=.* us=' "$log" |
@@ -713,6 +715,7 @@ check() {
   search_values=$(rg 'direct search-page complete .* us=' "$log" |
     sed -n 's/.* us=\([0-9][0-9]*\).*/\1/p' || true)
   assert_latency_budget "Home readiness" 4000000 "$home_ready_values"
+  assert_latency_budget "Cached home readiness" 1000000 "$cached_home_values"
   assert_latency_budget "First poster" 500000 "$poster_first_values"
   assert_latency_budget "Poster completion" 1200000 "$poster_complete_values"
   assert_latency_budget "Screen transition" 50000 "$transition_values"

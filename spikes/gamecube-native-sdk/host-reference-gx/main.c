@@ -1,4 +1,5 @@
 #include "audio_dma.h"
+#include "catalog_cache.h"
 #include "device_auth.h"
 #include "gateway_client.h"
 #include "geist_atlas.h"
@@ -56,6 +57,7 @@
 #define DIRECT_SEARCH_LOADER_STACK_SIZE (256 * 1024)
 #define STARTUP_DATA_LOADER_STACK_SIZE (256 * 1024)
 #define CATALOG_LOADER_STACK_SIZE (256 * 1024)
+#define CATALOG_CACHE_SAVER_STACK_SIZE (128 * 1024)
 #define REFERENCE_RENDERER_STACK_SIZE (512 * 1024)
 #define NETWORK_WARMUP_STACK_SIZE (64 * 1024)
 #define TIMELINE_REPORT_INTERVAL_MS 10000u
@@ -392,6 +394,16 @@ typedef struct {
   bool started;
   bool available;
 } CatalogLoader;
+
+typedef struct {
+  MultiplexMemoryCardLocation location;
+  uint8_t bytes[MULTIPLEX_CATALOG_CACHE_SIZE];
+  lwp_t thread;
+  void *stack;
+  volatile bool complete;
+  bool started;
+  MultiplexMemoryCardResult result;
+} CatalogCacheSaver;
 
 typedef enum {
   CATALOG_LOADER_IDLE = 0,
@@ -4946,6 +4958,69 @@ static void stop_catalog_loader(CatalogLoader *loader) {
   loader->thread = LWP_THREAD_NULL;
 }
 
+static void *run_catalog_cache_saver(void *context) {
+  CatalogCacheSaver *saver = context;
+  saver->result = multiplex_memory_card_save_cache(
+      &saver->location, saver->bytes, sizeof(saver->bytes));
+  __sync_synchronize();
+  saver->complete = true;
+  return NULL;
+}
+
+static bool launch_catalog_cache_saver(
+    CatalogCacheSaver *saver, const MultiplexMemoryCardLocation *location,
+    const MultiplexGatewayCatalog *catalog) {
+  if (saver == NULL || location == NULL || catalog == NULL || saver->started ||
+      (location->slot != 0 && location->slot != 1)) {
+    return false;
+  }
+  free(saver->stack);
+  memset(saver, 0, sizeof(*saver));
+  saver->location = *location;
+  saver->thread = LWP_THREAD_NULL;
+  if (!multiplex_catalog_cache_encode(saver->bytes, catalog)) {
+    return false;
+  }
+  saver->stack = malloc(CATALOG_CACHE_SAVER_STACK_SIZE);
+  if (saver->stack == NULL ||
+      LWP_CreateThread(&saver->thread, run_catalog_cache_saver, saver,
+                       saver->stack, CATALOG_CACHE_SAVER_STACK_SIZE,
+                       LWP_PRIO_NORMAL / 2) != 0) {
+    free(saver->stack);
+    saver->stack = NULL;
+    saver->thread = LWP_THREAD_NULL;
+    return false;
+  }
+  saver->started = true;
+  return true;
+}
+
+static void poll_catalog_cache_saver(CatalogCacheSaver *saver) {
+  if (saver == NULL || !saver->started || !saver->complete) {
+    return;
+  }
+  __sync_synchronize();
+  if (saver->thread != LWP_THREAD_NULL) {
+    LWP_JoinThread(saver->thread, NULL);
+    saver->thread = LWP_THREAD_NULL;
+  }
+  saver->started = false;
+  SYS_Report("REFERENCE GX: catalog cache persistence result=%u\n",
+             saver->result);
+}
+
+static void stop_catalog_cache_saver(CatalogCacheSaver *saver) {
+  if (saver == NULL) {
+    return;
+  }
+  if (saver->thread != LWP_THREAD_NULL) {
+    LWP_JoinThread(saver->thread, NULL);
+  }
+  free(saver->stack);
+  memset(saver, 0, sizeof(*saver));
+  saver->thread = LWP_THREAD_NULL;
+}
+
 static void *run_startup_data_loader(void *context) {
   StartupDataLoader *loader = context;
   loader->user_available = multiplex_trpc_load_user_id(
@@ -5392,6 +5467,11 @@ static void *run_app(void *unused) {
   CatalogLoader catalog_loader;
   memset(&catalog_loader, 0, sizeof(catalog_loader));
   catalog_loader.thread = LWP_THREAD_NULL;
+  CatalogCacheSaver catalog_cache_saver;
+  memset(&catalog_cache_saver, 0, sizeof(catalog_cache_saver));
+  catalog_cache_saver.thread = LWP_THREAD_NULL;
+  bool cached_catalog_loaded = false;
+  bool catalog_cache_save_pending = false;
   uint64_t catalog_retry_at_ms = 0;
   uint32_t catalog_retry_delay_ms = CATALOG_RETRY_INITIAL_DELAY_MS;
   uint64_t startup_data_not_before_ms = 0;
@@ -5458,8 +5538,11 @@ static void *run_app(void *unused) {
       .generation = 0,
       .needs_presentation = false,
   };
+  uint8_t cached_catalog[MULTIPLEX_CATALOG_CACHE_SIZE] = {0};
   const MultiplexMemoryCardResult stored_auth =
-      multiplex_memory_card_load_auth(&auth_credentials, &auth_location);
+      multiplex_memory_card_load_auth_with_cache(
+          &auth_credentials, &auth_location, cached_catalog,
+          sizeof(cached_catalog));
   MultiplexDeviceAuth device_auth;
   memset(&device_auth, 0, sizeof(device_auth));
   bool pairing_status_presented = false;
@@ -5472,6 +5555,14 @@ static void *run_app(void *unused) {
             (const uint8_t *)"", 0) == 0) {
       SYS_Report("REFERENCE GX: failed to bind restored authorization\n");
       return (void *)(uintptr_t)1;
+    }
+    if (multiplex_catalog_cache_decode(cached_catalog, &catalog) &&
+        bind_catalog_to_app(&catalog)) {
+      has_catalog = true;
+      cached_catalog_loaded = true;
+      SYS_Report("REFERENCE GX: cached catalog ready rows=%u items=%u us=%u\n",
+                 catalog.row_count, catalog.total_item_count,
+                 elapsed_us(app_started));
     }
     native_frame_dirty = true;
     present_frame(&playback_manifest);
@@ -5540,9 +5631,9 @@ static void *run_app(void *unused) {
   }
   bool auth_reset_latched = false;
   uint32_t pairing_poll_frames = 0;
-  if (pairing_linked && !has_catalog) {
+  if (pairing_linked && (!has_catalog || cached_catalog_loaded)) {
     if (launch_catalog_loader(&catalog_loader, &auth_credentials, &catalog)) {
-      network_activity_visible = true;
+      network_activity_visible = !has_catalog;
     } else {
       catalog_retry_at_ms = ticks_to_millisecs(gettime()) +
                             CATALOG_RETRY_INITIAL_DELAY_MS;
@@ -5553,8 +5644,10 @@ static void *run_app(void *unused) {
         return (void *)(uintptr_t)1;
       }
     }
-    native_frame_dirty = true;
-    present_frame(&playback_manifest);
+    if (!has_catalog) {
+      native_frame_dirty = true;
+      present_frame(&playback_manifest);
+    }
   }
 #endif
   if (network_warmup_pending) {
@@ -5634,6 +5727,7 @@ static void *run_app(void *unused) {
     const uint64_t catalog_now_ms = ticks_to_millisecs(gettime());
     const CatalogLoaderStatus catalog_loader_status =
         poll_catalog_loader(&catalog_loader);
+    poll_catalog_cache_saver(&catalog_cache_saver);
     if (catalog_loader_status == CATALOG_LOADER_READY) {
       network_activity_visible = false;
       if (multiplex_native_app_pairing_status(
@@ -5653,6 +5747,7 @@ static void *run_app(void *unused) {
         SYS_Report("REFERENCE GX: direct Plex artwork unavailable; using "
                    "placeholders\n");
       }
+      catalog_cache_save_pending = true;
       native_frame_dirty = true;
       SYS_Report("REFERENCE GX: Plex catalog ready after background load\n");
       SYS_Report("REFERENCE GX: interactive home ready us=%u\n",
@@ -5675,6 +5770,16 @@ static void *run_app(void *unused) {
       native_frame_dirty = true;
       SYS_Report("REFERENCE GX: Plex catalog retry scheduled delay-ms=%u\n",
                  (uint32_t)(catalog_retry_at_ms - catalog_now_ms));
+    }
+    if (catalog_cache_save_pending && !catalog_cache_saver.started &&
+        !direct_poster_loader_running(&direct_home_poster_loader) &&
+        !direct_home_poster_loader.pending &&
+        !direct_poster_loader_running(&direct_page_poster_loader) &&
+        !direct_page_poster_loader.pending) {
+      if (launch_catalog_cache_saver(&catalog_cache_saver, &auth_location,
+                                     &catalog)) {
+        catalog_cache_save_pending = false;
+      }
     }
     if (pairing_linked && !has_catalog && !catalog_loader.started &&
         catalog_retry_at_ms != 0 && catalog_now_ms >= catalog_retry_at_ms) {
@@ -5823,7 +5928,7 @@ static void *run_app(void *unused) {
         !direct_poster_loader_running(&direct_page_poster_loader) &&
         !direct_page_poster_loader.pending && !direct_hls_prefetch.started &&
         !direct_details_loader.started && !direct_browse_loader.started &&
-        !direct_search_loader.started) {
+        !direct_search_loader.started && !catalog_loader.started) {
       if (!launch_startup_data_loader(&startup_data_loader,
                                       &auth_credentials)) {
         startup_data_not_before_ms =
@@ -5886,6 +5991,7 @@ static void *run_app(void *unused) {
       stop_direct_search_loader(&direct_search_loader);
       stop_direct_details_loader(&direct_details_loader);
       stop_catalog_loader(&catalog_loader);
+      stop_catalog_cache_saver(&catalog_cache_saver);
       stop_startup_data_loader(&startup_data_loader);
       const MultiplexMemoryCardResult deleted =
           multiplex_memory_card_delete_auth(&auth_location);
@@ -5902,6 +6008,7 @@ static void *run_app(void *unused) {
         plex_user_id = 0;
         pairing_linked = false;
         has_catalog = false;
+        catalog_cache_save_pending = false;
         catalog_retry_at_ms = 0;
         catalog_retry_delay_ms = CATALOG_RETRY_INITIAL_DELAY_MS;
         startup_data_not_before_ms = 0;
@@ -6490,6 +6597,7 @@ static void *run_app(void *unused) {
   stop_direct_search_loader(&direct_search_loader);
   stop_direct_details_loader(&direct_details_loader);
   stop_catalog_loader(&catalog_loader);
+  stop_catalog_cache_saver(&catalog_cache_saver);
   stop_startup_data_loader(&startup_data_loader);
 #endif
   stop_direct_poster_loader(&direct_home_poster_loader);
