@@ -797,6 +797,12 @@ static bool command_intersects_controls(
          top <= controls->y + controls->height;
 }
 
+static bool screen_uses_native_shapes(uint32_t screen) {
+  return screen == MULTIPLEX_SCREEN_SEARCH ||
+         screen == MULTIPLEX_SCREEN_LIBRARIES ||
+         screen == MULTIPLEX_SCREEN_DETAILS;
+}
+
 static void capture_native_ui_packet(NativeUiPacket *packet) {
   MultiplexGxCommand commands[UI_COMMAND_CAPACITY];
   memset(packet, 0, sizeof(*packet));
@@ -811,7 +817,7 @@ static void capture_native_ui_packet(NativeUiPacket *packet) {
   for (uint32_t index = 0; index < command_count; ++index) {
     const MultiplexGxCommand *command = &commands[index];
     const bool capture_shape =
-        screen == MULTIPLEX_SCREEN_SEARCH ||
+        screen_uses_native_shapes(screen) ||
         (screen == MULTIPLEX_SCREEN_PLAYER && controls.visible != 0 &&
          command_intersects_controls(command, &controls));
     if (capture_shape && command->kind != MULTIPLEX_GX_TEXT &&
