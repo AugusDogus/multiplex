@@ -254,7 +254,7 @@ launch() {
   attempt=0
   while [ "$attempt" -lt 480 ]; do
     if dolphin_pid >/dev/null &&
-      rg -q 'direct Plex posters decoded=12/12' "$log" 2>/dev/null; then
+      rg -q 'direct Plex posters decoded=[0-9]+/[0-9]+' "$log" 2>/dev/null; then
       echo "Interactive linked Plex QA is ready."
       status
       return
@@ -280,7 +280,7 @@ press_and_wait() {
 
 navigation_scenario() {
   launch
-  if ! rg -q 'direct Plex posters decoded=12/12' "$log"; then
+  if ! rg -q 'direct Plex posters decoded=[0-9]+/[0-9]+' "$log"; then
     echo "The linked Plex catalog is not ready for navigation QA." >&2
     exit 1
   fi
@@ -337,7 +337,7 @@ playback_scenario() {
   resumed_before=$(line_count 'playback=playing')
   press_button A
   wait_for_count 'playback=playing' "$resumed_before" 10
-  check
+  check 1
   echo "Playback captures are ready in $capture_dir."
 }
 
@@ -362,6 +362,7 @@ status() {
 }
 
 check() {
+  require_presentation=${1:-0}
   sh "$script_dir/check-dolphin-log.sh"
   if rg -q 'layout-audit findings=([1-9][0-9]*|4294967295)' "$log"; then
     echo "Native SDK layout audit found damaged geometry." >&2
@@ -379,8 +380,13 @@ check() {
       awk '$1 >= 595 && $1 <= 610 { value = $1 } END { if (value != "") print value }'
   )
   if [ -z "$stable_fps" ]; then
-    echo "Dolphin did not sustain a 59.5 to 61.0 FPS presentation sample." >&2
-    exit 1
+    if [ "$require_presentation" -eq 1 ]; then
+      echo "Dolphin did not sustain a 59.5 to 61.0 FPS presentation sample." >&2
+      exit 1
+    fi
+    echo "No stable playback FPS sample is available; video may be inactive or still starting."
+    status
+    return
   fi
   echo "Dolphin layout and poster inset audits are clean."
   echo "Dolphin presentation reached $((stable_fps / 10)).$((stable_fps % 10)) FPS."

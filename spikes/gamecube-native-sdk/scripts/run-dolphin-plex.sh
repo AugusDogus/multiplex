@@ -669,10 +669,7 @@ if [ "$focus_audit" -eq 1 ]; then
   wait_for_new "signature=" "$signature_count"
   audit_focus_cycle
 
-  # Libraries focus starts at Home and Search, followed by real Plex libraries.
-  signature_count=$(line_count "signature=")
-  press D_RIGHT
-  wait_for_new "signature=" "$signature_count"
+  # Libraries focus starts at Home, followed by real Plex libraries.
   signature_count=$(line_count "signature=")
   press D_RIGHT
   wait_for_new "signature=" "$signature_count"

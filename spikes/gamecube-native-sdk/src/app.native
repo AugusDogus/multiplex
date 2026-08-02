@@ -134,7 +134,6 @@
           <text size="heading">Libraries</text>
         </column>
         <spacer grow="1" />
-        <button variant="secondary" on-press="open_search">Search</button>
       </row>
       <row grow="1" gap="10" cross="center">
         <for each="libraries" as="library" key="id">
