@@ -523,8 +523,53 @@ wait_for_synced_playback_state() {
   exit 1
 }
 
+navigate() {
+  direction=$1
+  case "$direction" in
+    D_LEFT) axis_x=0.0; axis_y=0.5; action=0 ;;
+    D_RIGHT) axis_x=1.0; axis_y=0.5; action=1 ;;
+    D_UP) axis_x=0.5; axis_y=1.0; action=8 ;;
+    D_DOWN) axis_x=0.5; axis_y=0.0; action=9 ;;
+    *) echo "Unsupported analog navigation direction: $direction" >&2; exit 1 ;;
+  esac
+  previous=$(line_count "input action=$action")
+  max_attempts=${GAMECUBE_CONTROLLER_ATTEMPTS:-60}
+  attempt=0
+  while [ "$attempt" -lt "$max_attempts" ]; do
+    printf 'SET MAIN 0.5 0.5\n' >&3
+    sleep 0.3
+    printf 'SET MAIN %s %s\n' "$axis_x" "$axis_y" >&3
+    poll=0
+    while [ "$poll" -lt 8 ]; do
+      current=$(line_count "input action=$action")
+      if [ "$current" -gt "$previous" ]; then
+        printf 'SET MAIN 0.5 0.5\n' >&3
+        sleep 0.3
+        return
+      fi
+      if ! kill -0 "$launcher_pid" 2>/dev/null; then
+        printf 'SET MAIN 0.5 0.5\n' >&3
+        echo "Dolphin exited while waiting to sample analog navigation: $direction" >&2
+        exit 1
+      fi
+      sleep 0.1
+      poll=$((poll + 1))
+    done
+    attempt=$((attempt + 1))
+  done
+  printf 'SET MAIN 0.5 0.5\n' >&3
+  echo "Timed out waiting for Dolphin to sample analog navigation: $direction" >&2
+  exit 1
+}
+
 press() {
   button=$1
+  case "$button" in
+    D_LEFT | D_RIGHT | D_UP | D_DOWN)
+      navigate "$button"
+      return
+      ;;
+  esac
   previous=$(grep -c "controller buttons" "$log" 2>/dev/null || true)
   max_attempts=${GAMECUBE_CONTROLLER_ATTEMPTS:-60}
   attempt=0
@@ -584,11 +629,22 @@ audit_focus_cycle() {
 
 type_search_query() {
   query=$1
-  focus=0
+  # Search focuses Q when opened. The enabled focus order is the three header
+  # controls followed by the 26 QWERTY keys.
+  focus=3
   for code in $(printf '%s' "$query" | od -An -tu1); do
-    target=$((code - 64))
-    right_distance=$(((target - focus + 27) % 27))
-    left_distance=$(((focus - target + 27) % 27))
+    case "$code" in
+      81) target=3 ;;  87) target=4 ;;  69) target=5 ;;  82) target=6 ;;
+      84) target=7 ;;  89) target=8 ;;  85) target=9 ;;  73) target=10 ;;
+      79) target=11 ;; 80) target=12 ;; 65) target=13 ;; 83) target=14 ;;
+      68) target=15 ;; 70) target=16 ;; 71) target=17 ;; 72) target=18 ;;
+      74) target=19 ;; 75) target=20 ;; 76) target=21 ;; 90) target=22 ;;
+      88) target=23 ;; 67) target=24 ;; 86) target=25 ;; 66) target=26 ;;
+      78) target=27 ;; 77) target=28 ;;
+      *) echo "Unsupported search character code: $code" >&2; exit 1 ;;
+    esac
+    right_distance=$(((target - focus + 29) % 29))
+    left_distance=$(((focus - target + 29) % 29))
     if [ "$right_distance" -le "$left_distance" ]; then
       moves=$right_distance
       direction=D_RIGHT
@@ -641,9 +697,8 @@ exec 3>"$pipe"
 pipe_open=1
 signature_count=$(line_count "signature=")
 if [ -n "$multiplex_base_url" ]; then
-  if grep -q "auth restored" "$log" &&
-    grep -q "tRPC Watch Together rooms=.* loaded=1" "$log"; then
-    :
+  if grep -q "auth restored" "$log"; then
+    wait_log "background account data ready" 1200
   elif ! grep -q "gateway-pairing status=2" "$log"; then
     wait_log "gateway-pairing status=1" 600
     wait_for_new "gateway-pairing status=2" 0 3600
@@ -710,7 +765,7 @@ fi
 # browse paging route has its own committed coverage; keeping it out of this
 # player smoke avoids unrelated poster transfers before every seek test.
 result_focus=0
-while [ "$result_focus" -le "$search_result_index" ]; do
+while [ "$result_focus" -lt "$search_result_index" ]; do
   signature_count=$(line_count "signature=")
   press D_RIGHT
   wait_for_new "signature=" "$signature_count"
@@ -730,7 +785,7 @@ if [ "$tv_hierarchy" -eq 1 ]; then
     audit_focus_cycle
   fi
   season_focus=0
-  while [ "$season_focus" -le "$tv_season_index" ]; do
+  while [ "$season_focus" -lt "$tv_season_index" ]; do
     signature_count=$(line_count "signature=")
     press D_RIGHT
     wait_for_new "signature=" "$signature_count"
@@ -756,7 +811,7 @@ if [ "$tv_hierarchy" -eq 1 ]; then
     current_episode_page=$((current_episode_page + 1))
   done
   episode_focus=0
-  while [ "$episode_focus" -le "$tv_episode_index" ]; do
+  while [ "$episode_focus" -lt "$tv_episode_index" ]; do
     signature_count=$(line_count "signature=")
     press D_RIGHT
     wait_for_new "signature=" "$signature_count"
@@ -771,13 +826,11 @@ fi
 if [ "$focus_audit" -eq 1 ]; then
   audit_focus_cycle
 fi
-signature_count=$(line_count "signature=")
-press D_RIGHT
-wait_for_new "signature=" "$signature_count"
 if [ "$watch_together" -eq 1 ]; then
-  # Focus the details screen's Host Watch Together action.
+  # Watch Together creation lives in the Start menu, matching Plex's More
+  # actions flow. START opens it with its primary action focused.
   signature_count=$(line_count "signature=")
-  press D_RIGHT
+  press START
   wait_for_new "signature=" "$signature_count"
 fi
 playing_count=$(line_count "playback=playing")
@@ -1014,6 +1067,10 @@ fi
 paused_count=$(line_count "playback=paused")
 paused_timeline_count=$(line_count "$timeline_pattern .*state=paused reported=1")
 press A
+if [ "$(line_count "playback=paused")" -le "$paused_count" ]; then
+  # An idle player consumes the first A to reveal its hidden controls.
+  press A
+fi
 wait_for_new "playback=paused" "$paused_count" 120
 wait_for_new "$timeline_pattern .*state=paused reported=1" "$paused_timeline_count" 600
 if [ "$watch_together_browser_guest" -eq 1 ]; then
