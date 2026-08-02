@@ -50,7 +50,7 @@
     <row width="180" cross="center" gap="8">
       <icon name="app:multiplex" width="22" height="22" foreground="text" label="Multiplex" />
       <text size="heading">Multiplex</text>
-      <if test="{screen == 'libraries'}">
+      <if test="{screen == 'libraries' or screen == 'search'}">
         <spacer grow="1" />
         <button focus-ring="text" width="32" size="sm" icon="app:home" variant="ghost" on-press="back" label="Home"></button>
       </if>
@@ -64,8 +64,18 @@
       <spacer grow="1" />
       <if test="{pairingLinked}">
         <row gap="8">
-          <button focus-ring="text" width="32" size="sm" icon="folder" variant="ghost" on-press="open_libraries" label="Libraries"></button>
-          <button focus-ring="text" width="32" size="sm" icon="search" variant="ghost" on-press="open_search" label="Search"></button>
+          <if test="{screen == 'libraries' or screen == 'browse'}">
+            <button focus-ring="text" width="32" size="sm" icon="folder" variant="secondary" selected="true" on-press="open_libraries" label="Libraries"></button>
+          </if>
+          <else>
+            <button focus-ring="text" width="32" size="sm" icon="folder" variant="ghost" on-press="open_libraries" label="Libraries"></button>
+          </else>
+          <if test="{screen == 'search' or screen == 'search_results'}">
+            <button focus-ring="text" width="32" size="sm" icon="search" variant="secondary" selected="true" on-press="open_search" label="Search"></button>
+          </if>
+          <else>
+            <button focus-ring="text" width="32" size="sm" icon="search" variant="ghost" on-press="open_search" label="Search"></button>
+          </else>
         </row>
       </if>
     </row>
@@ -207,10 +217,6 @@
 
   <if test="{screen == 'search'}">
     <column grow="1" gap="12">
-      <row cross="center">
-        <button focus-ring="text" width="42" size="sm" icon="app:home" variant="ghost" on-press="back" label="Home"></button>
-        <spacer grow="1" />
-      </row>
       <panel padding="14" background="surface" border-color="border" radius="lg" label="Search input">
         <row cross="center" gap="10">
           <icon name="search" width="20" height="20" foreground="text_muted" label="Search" />

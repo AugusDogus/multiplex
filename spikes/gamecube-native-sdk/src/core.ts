@@ -338,8 +338,6 @@ const keyboardRowThreeKeys: readonly KeyboardKey[] = [
 ];
 
 const searchPlaceholder = asciiBytes("Search");
-const pageLibraries = asciiBytes("Libraries");
-const pageSearch = asciiBytes("Search");
 const pageSearchResults = asciiBytes("Search results");
 const pageWatchTogether = asciiBytes("Watch Together");
 const pageInvite = asciiBytes("Invite a friend");
@@ -1035,13 +1033,11 @@ export function detailsHasProgress(model: Model): boolean {
 export function pageTitle(model: Model): Uint8Array {
   switch (model.screen) {
     case "home":
-      return new Uint8Array(0);
     case "libraries":
-      return pageLibraries;
+    case "search":
+      return new Uint8Array(0);
     case "browse":
       return model.selectedLibraryTitle;
-    case "search":
-      return pageSearch;
     case "search_results":
       return pageSearchResults;
     case "watch_together_invite":
