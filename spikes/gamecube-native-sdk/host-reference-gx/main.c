@@ -86,9 +86,9 @@
 #define HOME_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS
 #define BROWSE_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_ITEMS
 #define POSTER_TEXTURE_COUNT (HOME_POSTER_COUNT + BROWSE_POSTER_COUNT)
-#define UI_COMMAND_CAPACITY 256u
+#define UI_COMMAND_CAPACITY 1024u
 #define UI_TEXT_COMMAND_CAPACITY 96u
-#define UI_SHAPE_COMMAND_CAPACITY 128u
+#define UI_SHAPE_COMMAND_CAPACITY 896u
 #define UI_TEXT_CAPACITY 4096u
 
 typedef struct {
@@ -862,6 +862,12 @@ static bool command_intersects_rect(const MultiplexGxCommand *command,
     top = fminf(command->y, command->y2);
     right = fmaxf(command->x, command->x2);
     bottom = fmaxf(command->y, command->y2);
+  }
+  if (command->kind == MULTIPLEX_GX_PATH_LINE) {
+    left = fminf(command->x, command->x2) - command->stroke_width;
+    top = fminf(command->y, command->y2) - command->stroke_width;
+    right = fmaxf(command->x, command->x2) + command->stroke_width;
+    bottom = fmaxf(command->y, command->y2) + command->stroke_width;
   }
   return right >= rect_x && left <= rect_x + rect_width &&
          bottom >= rect_y && top <= rect_y + rect_height;
@@ -3010,9 +3016,12 @@ static void color_vertex(float x, float y, GXColor color) {
 
 static void fill_circle(float center_x, float center_y, float radius,
                         GXColor color) {
-  static const int8_t unit_circle[9][2] = {
-      {1, 0},  {1, 1},  {0, 1},  {-1, 1}, {-1, 0},
-      {-1, -1}, {0, -1}, {1, -1}, {1, 0},
+  static const float unit_circle[9][2] = {
+      {1.0f, 0.0f},        {0.7071068f, 0.7071068f},
+      {0.0f, 1.0f},        {-0.7071068f, 0.7071068f},
+      {-1.0f, 0.0f},       {-0.7071068f, -0.7071068f},
+      {0.0f, -1.0f},       {0.7071068f, -0.7071068f},
+      {1.0f, 0.0f},
   };
   GX_Begin(GX_TRIANGLEFAN, GX_VTXFMT0, 10);
   color_vertex(center_x, center_y, color);
@@ -3221,6 +3230,23 @@ static void draw_native_shapes(void) {
                   fminf(command->x, command->x2) + stroke * 0.5f,
                   fmaxf(command->y, command->y2), color);
       }
+      break;
+    }
+    case MULTIPLEX_GX_PATH_LINE: {
+      const float dx = command->x2 - command->x;
+      const float dy = command->y2 - command->y;
+      const float length = sqrtf(dx * dx + dy * dy);
+      if (length <= 0.001f) {
+        break;
+      }
+      unsigned line_width = (unsigned)(command->stroke_width * 6.0f + 0.5f);
+      if (line_width < 6u) line_width = 6u;
+      if (line_width > 255u) line_width = 255u;
+      GX_SetLineWidth((uint8_t)line_width, GX_TO_ZERO);
+      GX_Begin(GX_LINES, GX_VTXFMT0, 2);
+      color_vertex(command->x, command->y, color);
+      color_vertex(command->x2, command->y2, color);
+      GX_End();
       break;
     }
     default:

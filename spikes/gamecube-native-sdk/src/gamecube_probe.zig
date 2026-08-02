@@ -261,6 +261,7 @@ const gx_line: u32 = 4;
 const gx_text: u32 = 5;
 const gx_shadow: u32 = 6;
 const gx_glyph: u32 = 7;
+const gx_path_line: u32 = 8;
 
 export fn multiplex_core_abi_version() callconv(.c) u32 {
     return 1;
@@ -1722,6 +1723,14 @@ export fn multiplex_native_app_render(output: [*]GxCommand, capacity: u32) callc
     var output_len: usize = 0;
     for (packet.commands) |command| {
         if (output_len >= capacity) break;
+        if (command.kind == .stroke_path) {
+            output_len += emitGxStrokePath(
+                command,
+                output + output_len,
+                @as(usize, capacity) - output_len,
+            );
+            continue;
+        }
         if (command.kind == .draw_text) {
             if (command.text) |text| {
                 if (text.text.len == 0 and text.glyphs.len > 0) {
@@ -1936,7 +1945,9 @@ fn isPosterCardChrome(command: canvas.RenderCommand, model: *const core.Model) b
 
 fn isGpuChrome(command: canvas.RenderCommand, model: *const core.Model) bool {
     const supported = switch (command.command) {
-        .fill_rect, .fill_rounded_rect, .stroke_rect, .draw_line, .shadow => true,
+        .fill_rect, .fill_rounded_rect, .stroke_rect, .draw_line,
+        .stroke_path, .shadow,
+        => true,
         else => false,
     };
     if (!supported) return false;
@@ -2176,6 +2187,158 @@ fn gxCommand(command: canvas.CanvasGpuCommand) ?GxCommand {
         else => return null,
     }
     return result;
+}
+
+fn emitGxStrokePath(
+    command: canvas.CanvasGpuCommand,
+    output: [*]GxCommand,
+    capacity: usize,
+) usize {
+    if (command.shape != .path or capacity == 0) return 0;
+    const elements = command.shape.path;
+    const transform = command.transform;
+    const scale_x = @sqrt(transform.a * transform.a + transform.b * transform.b);
+    const scale_y = @sqrt(transform.c * transform.c + transform.d * transform.d);
+    const stroke_width = @max(1, command.stroke_width * (scale_x + scale_y) * 0.5);
+    const color = paintRgba(command.paint, command.opacity);
+    const round_caps: f32 = if (command.cap == .round) 1 else 0;
+    var current = geometry.PointF.zero();
+    var subpath_start = geometry.PointF.zero();
+    var has_current = false;
+    var output_len: usize = 0;
+
+    for (elements) |element| {
+        switch (element.verb) {
+            .move_to => {
+                current = transform.transformPoint(element.points[0]);
+                subpath_start = current;
+                has_current = true;
+            },
+            .line_to => {
+                if (!has_current) continue;
+                const endpoint = transform.transformPoint(element.points[0]);
+                output_len += emitGxPathLine(
+                    output + output_len,
+                    capacity - output_len,
+                    current,
+                    endpoint,
+                    stroke_width,
+                    color,
+                    round_caps,
+                    command.clip,
+                );
+                current = endpoint;
+            },
+            .quad_to => {
+                if (!has_current) continue;
+                const start = current;
+                const control = transform.transformPoint(element.points[0]);
+                const endpoint = transform.transformPoint(element.points[1]);
+                const segment_count: usize = 4;
+                for (1..segment_count + 1) |segment| {
+                    if (output_len >= capacity) break;
+                    const t = @as(f32, @floatFromInt(segment)) /
+                        @as(f32, @floatFromInt(segment_count));
+                    const inverse = 1 - t;
+                    const point = geometry.PointF.init(
+                        inverse * inverse * start.x + 2 * inverse * t * control.x + t * t * endpoint.x,
+                        inverse * inverse * start.y + 2 * inverse * t * control.y + t * t * endpoint.y,
+                    );
+                    output_len += emitGxPathLine(
+                        output + output_len,
+                        capacity - output_len,
+                        current,
+                        point,
+                        stroke_width,
+                        color,
+                        round_caps,
+                        command.clip,
+                    );
+                    current = point;
+                }
+                current = endpoint;
+            },
+            .cubic_to => {
+                if (!has_current) continue;
+                const start = current;
+                const control_a = transform.transformPoint(element.points[0]);
+                const control_b = transform.transformPoint(element.points[1]);
+                const endpoint = transform.transformPoint(element.points[2]);
+                const segment_count: usize = 4;
+                for (1..segment_count + 1) |segment| {
+                    if (output_len >= capacity) break;
+                    const t = @as(f32, @floatFromInt(segment)) /
+                        @as(f32, @floatFromInt(segment_count));
+                    const inverse = 1 - t;
+                    const point = geometry.PointF.init(
+                        inverse * inverse * inverse * start.x +
+                            3 * inverse * inverse * t * control_a.x +
+                            3 * inverse * t * t * control_b.x +
+                            t * t * t * endpoint.x,
+                        inverse * inverse * inverse * start.y +
+                            3 * inverse * inverse * t * control_a.y +
+                            3 * inverse * t * t * control_b.y +
+                            t * t * t * endpoint.y,
+                    );
+                    output_len += emitGxPathLine(
+                        output + output_len,
+                        capacity - output_len,
+                        current,
+                        point,
+                        stroke_width,
+                        color,
+                        round_caps,
+                        command.clip,
+                    );
+                    current = point;
+                }
+                current = endpoint;
+            },
+            .close => {
+                if (!has_current) continue;
+                output_len += emitGxPathLine(
+                    output + output_len,
+                    capacity - output_len,
+                    current,
+                    subpath_start,
+                    stroke_width,
+                    color,
+                    round_caps,
+                    command.clip,
+                );
+                current = subpath_start;
+            },
+        }
+        if (output_len >= capacity) break;
+    }
+    return output_len;
+}
+
+fn emitGxPathLine(
+    output: [*]GxCommand,
+    capacity: usize,
+    start: geometry.PointF,
+    endpoint: geometry.PointF,
+    stroke_width: f32,
+    color_rgba: u32,
+    round_caps: f32,
+    clip_value: ?geometry.RectF,
+) usize {
+    if (capacity == 0 or
+        (@abs(endpoint.x - start.x) < 0.001 and @abs(endpoint.y - start.y) < 0.001)) return 0;
+    var translated = GxCommand{
+        .kind = gx_path_line,
+        .x = start.x,
+        .y = start.y,
+        .x2 = endpoint.x,
+        .y2 = endpoint.y,
+        .stroke_width = stroke_width,
+        .radius = round_caps,
+        .color_rgba = color_rgba,
+    };
+    copyClip(&translated, clip_value);
+    output[0] = translated;
+    return 1;
 }
 
 fn copyClip(output: *GxCommand, clip_value: ?geometry.RectF) void {

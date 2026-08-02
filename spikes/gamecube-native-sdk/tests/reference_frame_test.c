@@ -82,7 +82,7 @@ static void renders_validated_frames(void) {
   assert(frame.byte_count == 0);
 }
 
-static void detects_guard_corruption_and_empty_renders(void) {
+static void detects_guard_corruption_and_accepts_native_only_renders(void) {
   MultiplexReferenceFrame frame;
   MultiplexReferenceFrameRender render;
   assert(multiplex_reference_frame_initialize(&frame, 16) ==
@@ -96,14 +96,15 @@ static void detects_guard_corruption_and_empty_renders(void) {
          MULTIPLEX_REFERENCE_FRAME_OK);
   render_commands = 0;
   assert(multiplex_reference_frame_render(&frame, false, &render) ==
-         MULTIPLEX_REFERENCE_FRAME_EMPTY_RENDER);
+         MULTIPLEX_REFERENCE_FRAME_OK);
+  assert(render.commands == 0);
   multiplex_reference_frame_destroy(&frame);
 }
 
 int main(void) {
   rejects_unexpected_frame_size();
   renders_validated_frames();
-  detects_guard_corruption_and_empty_renders();
+  detects_guard_corruption_and_accepts_native_only_renders();
   puts("GameCube portable reference frame tests passed.");
   return 0;
 }

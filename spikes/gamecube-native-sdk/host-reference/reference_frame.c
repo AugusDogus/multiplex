@@ -102,10 +102,6 @@ MultiplexReferenceFrameStatus multiplex_reference_frame_render_with_options(
       !guard_is_intact(frame->scratch_allocation, frame->byte_count)) {
     return MULTIPLEX_REFERENCE_FRAME_GUARD_CORRUPTED;
   }
-  if (commands == 0) {
-    return MULTIPLEX_REFERENCE_FRAME_EMPTY_RENDER;
-  }
-
   render->commands = commands;
   render->signature =
       (options & MULTIPLEX_REFERENCE_FRAME_HASH_SIGNATURE) != 0
