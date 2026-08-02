@@ -488,7 +488,7 @@
               <row gap="10">
                 <if test="{detailsPlayable}">
                   <button size="sm" icon="play" variant="primary" on-press="play">{detailsPlayLabel}</button>
-                  <button size="sm" icon="check-circle" variant="secondary" on-press="mark_watched">Mark as Watched</button>
+                  <button width="40" size="sm" icon="check-circle" variant="secondary" on-press="mark_watched" label="Mark as Watched"></button>
                   <button width="40" size="sm" icon="ellipsis" variant="secondary" on-press="open_start_menu" label="More actions"></button>
                 </if>
               </row>
