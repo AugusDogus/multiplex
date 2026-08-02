@@ -49,6 +49,7 @@
 #define MEDIA_PREFETCH_STACK_SIZE (256 * 1024)
 #define TIMELINE_REPORT_STACK_SIZE (128 * 1024)
 #define POSTER_LOADER_STACK_SIZE (256 * 1024)
+#define POSTER_LOADER_LANE_COUNT 2u
 #define STARTUP_DATA_LOADER_STACK_SIZE (256 * 1024)
 #define REFERENCE_RENDERER_STACK_SIZE (512 * 1024)
 #define NETWORK_WARMUP_STACK_SIZE (64 * 1024)
@@ -259,25 +260,34 @@ typedef struct {
   bool playback_started;
 } MediaStartupWatchdog;
 
+typedef struct DirectPosterLoader DirectPosterLoader;
+
 typedef struct {
+  DirectPosterLoader *loader;
+  uint16_t lane;
+} DirectPosterWorker;
+
+struct DirectPosterLoader {
   const MultiplexAuthCredentials *credentials;
   MultiplexGatewayItem items[MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS];
   uint16_t texture_slots[MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS];
-  lwp_t thread;
-  void *stack;
-  uint8_t *decoded_pixels;
-  volatile bool item_ready;
-  volatile bool item_decoded;
-  volatile bool complete;
+  lwp_t threads[POSTER_LOADER_LANE_COUNT];
+  void *stacks[POSTER_LOADER_LANE_COUNT];
+  uint8_t *decoded_pixels[POSTER_LOADER_LANE_COUNT];
+  DirectPosterWorker workers[POSTER_LOADER_LANE_COUNT];
+  volatile bool item_ready[POSTER_LOADER_LANE_COUNT];
+  volatile bool item_decoded[POSTER_LOADER_LANE_COUNT];
+  volatile bool complete[POSTER_LOADER_LANE_COUNT];
   volatile bool stopping;
   bool pending;
-  volatile uint16_t item_index;
-  volatile uint16_t decoded_count;
+  volatile uint16_t item_index[POSTER_LOADER_LANE_COUNT];
+  volatile uint16_t decoded_count[POSTER_LOADER_LANE_COUNT];
+  uint16_t lane_count;
   uint16_t item_count;
   uint16_t requested_count;
   uint16_t cache_hits;
   uint16_t texture_offset;
-} DirectPosterLoader;
+};
 
 typedef struct {
   const MultiplexAuthCredentials *credentials;
@@ -1343,14 +1353,17 @@ static void fill_poster_fallback(uint8_t *pixels, uint32_t rating_key) {
 }
 
 static void *run_direct_poster_loader(void *context) {
-  DirectPosterLoader *loader = context;
+  DirectPosterWorker *worker = context;
+  DirectPosterLoader *loader = worker->loader;
+  const uint16_t lane = worker->lane;
   uint8_t *encoded = calloc(1, PLEX_POSTER_JPEG_CAPACITY + 64u);
   if (encoded == NULL) {
-    loader->complete = true;
+    loader->complete[lane] = true;
     return NULL;
   }
-  for (uint16_t index = 0; index < loader->item_count; ++index) {
-    while (loader->item_ready && !loader->stopping) {
+  for (uint16_t index = lane; index < loader->item_count;
+       index += loader->lane_count) {
+    while (loader->item_ready[lane] && !loader->stopping) {
       LWP_YieldThread();
     }
     if (loader->stopping) {
@@ -1363,57 +1376,84 @@ static void *run_direct_poster_loader(void *context) {
         multiplex_plex_load_artwork(loader->credentials, item->artwork_path,
                                     encoded, PLEX_POSTER_JPEG_CAPACITY,
                                     &encoded_size) &&
-        poster_jpeg_decode_single(encoded, encoded_size, loader->decoded_pixels,
+        poster_jpeg_decode_single(encoded, encoded_size,
+                                  loader->decoded_pixels[lane],
                                   MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
     if (decoded) {
-      ++loader->decoded_count;
+      ++loader->decoded_count[lane];
     }
-    loader->item_index = index;
-    loader->item_decoded = decoded;
+    loader->item_index[lane] = index;
+    loader->item_decoded[lane] = decoded;
     __sync_synchronize();
-    loader->item_ready = true;
+    loader->item_ready[lane] = true;
   }
   free(encoded);
   __sync_synchronize();
-  loader->complete = true;
+  loader->complete[lane] = true;
   return NULL;
 }
 
+static bool direct_poster_loader_running(const DirectPosterLoader *loader) {
+  if (loader == NULL) {
+    return false;
+  }
+  for (uint16_t lane = 0; lane < POSTER_LOADER_LANE_COUNT; ++lane) {
+    if (loader->threads[lane] != LWP_THREAD_NULL) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static void release_direct_poster_workers(DirectPosterLoader *loader) {
+  for (uint16_t lane = 0; lane < POSTER_LOADER_LANE_COUNT; ++lane) {
+    if (loader->threads[lane] != LWP_THREAD_NULL) {
+      LWP_JoinThread(loader->threads[lane], NULL);
+      loader->threads[lane] = LWP_THREAD_NULL;
+    }
+    free(loader->decoded_pixels[lane]);
+    loader->decoded_pixels[lane] = NULL;
+    free(loader->stacks[lane]);
+    loader->stacks[lane] = NULL;
+  }
+  loader->lane_count = 0;
+}
+
 static bool launch_direct_poster_loader(DirectPosterLoader *loader) {
-  if (loader == NULL || !loader->pending || loader->thread != LWP_THREAD_NULL) {
+  if (loader == NULL || !loader->pending ||
+      direct_poster_loader_running(loader)) {
     return false;
   }
-  loader->complete = false;
   loader->stopping = false;
-  loader->item_ready = false;
-  loader->decoded_count = 0;
-  loader->decoded_pixels = memalign(32, MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
-  loader->stack = malloc(POSTER_LOADER_STACK_SIZE);
-  if (loader->decoded_pixels == NULL || loader->stack == NULL) {
-    free(loader->decoded_pixels);
-    loader->decoded_pixels = NULL;
-    free(loader->stack);
-    loader->stack = NULL;
-    loader->pending = false;
-    return false;
-  }
-  if (LWP_CreateThread(&loader->thread, run_direct_poster_loader, loader,
-                       loader->stack, POSTER_LOADER_STACK_SIZE,
-                       LWP_PRIO_NORMAL / 2) != 0) {
-    free(loader->decoded_pixels);
-    loader->decoded_pixels = NULL;
-    free(loader->stack);
-    loader->stack = NULL;
-    loader->thread = LWP_THREAD_NULL;
-    loader->pending = false;
-    return false;
+  loader->lane_count =
+      loader->item_count < POSTER_LOADER_LANE_COUNT
+          ? loader->item_count
+          : POSTER_LOADER_LANE_COUNT;
+  for (uint16_t lane = 0; lane < loader->lane_count; ++lane) {
+    loader->complete[lane] = false;
+    loader->item_ready[lane] = false;
+    loader->decoded_count[lane] = 0;
+    loader->decoded_pixels[lane] =
+        memalign(32, MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
+    loader->stacks[lane] = malloc(POSTER_LOADER_STACK_SIZE);
+    loader->workers[lane].loader = loader;
+    loader->workers[lane].lane = lane;
+    if (loader->decoded_pixels[lane] == NULL || loader->stacks[lane] == NULL ||
+        LWP_CreateThread(&loader->threads[lane], run_direct_poster_loader,
+                         &loader->workers[lane], loader->stacks[lane],
+                         POSTER_LOADER_STACK_SIZE, LWP_PRIO_NORMAL / 2) != 0) {
+      loader->stopping = true;
+      release_direct_poster_workers(loader);
+      loader->pending = false;
+      return false;
+    }
   }
   loader->pending = false;
   SYS_Report(
       "REFERENCE GX: direct Plex poster loader started items=%u cached=%u "
-      "requested=%u offset=%u\n",
+      "requested=%u offset=%u lanes=%u\n",
       loader->item_count, loader->cache_hits, loader->requested_count,
-      loader->texture_offset);
+      loader->texture_offset, loader->lane_count);
   return true;
 }
 
@@ -1422,14 +1462,16 @@ static bool queue_direct_poster_loader(
     const MultiplexGatewayItem *items, uint16_t item_count,
     uint16_t texture_offset, bool launch_now) {
   if (loader == NULL || credentials == NULL || items == NULL ||
-      loader->thread != LWP_THREAD_NULL || item_count == 0 ||
+      direct_poster_loader_running(loader) || item_count == 0 ||
       item_count > MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS ||
       texture_offset > POSTER_TEXTURE_COUNT ||
       item_count > POSTER_TEXTURE_COUNT - texture_offset) {
     return false;
   }
   memset(loader, 0, sizeof(*loader));
-  loader->thread = LWP_THREAD_NULL;
+  for (uint16_t lane = 0; lane < POSTER_LOADER_LANE_COUNT; ++lane) {
+    loader->threads[lane] = LWP_THREAD_NULL;
+  }
   if (poster_texture_pixels == NULL) {
     const size_t total_bytes =
         (size_t)POSTER_TEXTURE_COUNT * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
@@ -1503,41 +1545,47 @@ static bool queue_direct_poster_loader(
 }
 
 static void poll_direct_poster_loader(DirectPosterLoader *loader) {
-  if (loader == NULL || loader->thread == LWP_THREAD_NULL) {
+  if (loader == NULL || !direct_poster_loader_running(loader)) {
     return;
   }
-  if (loader->item_ready) {
-    __sync_synchronize();
-    if (loader->item_decoded) {
-      const uint16_t texture_slot =
-          loader->texture_slots[loader->item_index];
-      uint8_t *pixels = poster_texture_pixels +
-                        (size_t)texture_slot *
-                            MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
-      memcpy(pixels, loader->decoded_pixels,
-             MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
-      poster_texture_rating_keys[texture_slot] =
-          loader->items[loader->item_index].rating_key;
-      poster_texture_reveal_frames[texture_slot] = 8u;
-      DCFlushRange(pixels, MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
-      GX_InvalidateTexAll();
+  bool all_complete = true;
+  bool texture_changed = false;
+  for (uint16_t lane = 0; lane < loader->lane_count; ++lane) {
+    if (loader->item_ready[lane]) {
+      __sync_synchronize();
+      if (loader->item_decoded[lane]) {
+        const uint16_t item_index = loader->item_index[lane];
+        const uint16_t texture_slot = loader->texture_slots[item_index];
+        uint8_t *pixels = poster_texture_pixels +
+                          (size_t)texture_slot *
+                              MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+        memcpy(pixels, loader->decoded_pixels[lane],
+               MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
+        poster_texture_rating_keys[texture_slot] =
+            loader->items[item_index].rating_key;
+        poster_texture_reveal_frames[texture_slot] = 8u;
+        DCFlushRange(pixels, MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
+        texture_changed = true;
+      }
+      __sync_synchronize();
+      loader->item_ready[lane] = false;
     }
-    __sync_synchronize();
-    loader->item_ready = false;
+    all_complete = all_complete && loader->complete[lane] &&
+                   !loader->item_ready[lane];
   }
-  if (!loader->complete || loader->item_ready) {
+  if (texture_changed) {
+    GX_InvalidateTexAll();
+  }
+  if (!all_complete) {
     return;
   }
-  LWP_JoinThread(loader->thread, NULL);
-  loader->thread = LWP_THREAD_NULL;
-  free(loader->decoded_pixels);
-  loader->decoded_pixels = NULL;
-  free(loader->stack);
-  loader->stack = NULL;
+  const uint16_t decoded_count =
+      loader->decoded_count[0] + loader->decoded_count[1];
+  release_direct_poster_workers(loader);
   SYS_Report(
       "REFERENCE GX: direct Plex posters decoded=%u downloaded=%u cached=%u "
       "requested=%u\n",
-      loader->decoded_count, loader->item_count, loader->cache_hits,
+      decoded_count, loader->item_count, loader->cache_hits,
       loader->requested_count);
 }
 
@@ -1547,14 +1595,7 @@ static void stop_direct_poster_loader(DirectPosterLoader *loader) {
   }
   loader->stopping = true;
   loader->pending = false;
-  if (loader->thread != LWP_THREAD_NULL) {
-    LWP_JoinThread(loader->thread, NULL);
-    loader->thread = LWP_THREAD_NULL;
-  }
-  free(loader->decoded_pixels);
-  loader->decoded_pixels = NULL;
-  free(loader->stack);
-  loader->stack = NULL;
+  release_direct_poster_workers(loader);
 }
 
 static bool bind_browse_page(const MultiplexGatewayBrowsePage *page) {
@@ -4481,10 +4522,14 @@ static void *run_app(void *unused) {
   memset(&media_startup_watchdog, 0, sizeof(media_startup_watchdog));
   DirectPosterLoader direct_home_poster_loader;
   memset(&direct_home_poster_loader, 0, sizeof(direct_home_poster_loader));
-  direct_home_poster_loader.thread = LWP_THREAD_NULL;
+  for (uint16_t lane = 0; lane < POSTER_LOADER_LANE_COUNT; ++lane) {
+    direct_home_poster_loader.threads[lane] = LWP_THREAD_NULL;
+  }
   DirectPosterLoader direct_page_poster_loader;
   memset(&direct_page_poster_loader, 0, sizeof(direct_page_poster_loader));
-  direct_page_poster_loader.thread = LWP_THREAD_NULL;
+  for (uint16_t lane = 0; lane < POSTER_LOADER_LANE_COUNT; ++lane) {
+    direct_page_poster_loader.threads[lane] = LWP_THREAD_NULL;
+  }
   bool timeline_player_visible = false;
   bool timeline_started = false;
   uint64_t player_controls_last_input_ms = 0;
@@ -4728,7 +4773,7 @@ static void *run_app(void *unused) {
     }
 #if MULTIPLEX_PAIRING_ENABLED
     if (pairing_linked && !startup_data_loader.started &&
-        direct_home_poster_loader.thread == LWP_THREAD_NULL &&
+        !direct_poster_loader_running(&direct_home_poster_loader) &&
         !direct_home_poster_loader.pending) {
       if (!launch_startup_data_loader(&startup_data_loader,
                                       &auth_credentials)) {
@@ -4742,10 +4787,10 @@ static void *run_app(void *unused) {
       break;
     }
 #endif
-    if (direct_home_poster_loader.thread == LWP_THREAD_NULL &&
+    if (!direct_poster_loader_running(&direct_home_poster_loader) &&
         !direct_home_poster_loader.pending &&
         direct_page_poster_loader.pending &&
-        direct_page_poster_loader.thread == LWP_THREAD_NULL) {
+        !direct_poster_loader_running(&direct_page_poster_loader)) {
       launch_direct_poster_loader(&direct_page_poster_loader);
     }
     if (demux != NULL && mpeg_ps_demux_failed(demux)) {
