@@ -22,10 +22,15 @@
 #define PLEX_CATALOG_URL_CAPACITY 1280u
 #define PLEX_REQUEST_ATTEMPTS 4u
 #define PLEX_COMPACT_ITEMS_QUERY                                               \
-  "excludeElements=Media,Image,Role,Writer,Director,Producer,Genre,Country&"  \
+  "excludeElements=Media,Image,Role,Writer,Director,Producer,Genre,Country,"  \
+  "UltraBlurColors,Rating,Guid&"                                              \
   "excludeFields=summary,UltraBlurColors,guid,art,parentGuid,grandparentGuid," \
   "grandparentArt,audienceRatingImage,librarySectionKey,grandparentTheme,"     \
-  "ratingImage"
+  "ratingImage,key,parentThumb,grandparentKey,parentKey,tagline,"              \
+  "originallyAvailableAt,addedAt,updatedAt,studio,slug,grandparentSlug,"       \
+  "librarySectionTitle,composite,lastViewedAt,contentRating,parentTitle,"      \
+  "chapterSource,originalTitle,parentRatingKey,grandparentRatingKey,"          \
+  "titleSort,rating"
 
 typedef struct {
   const char *begin;
