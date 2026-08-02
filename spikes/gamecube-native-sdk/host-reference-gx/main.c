@@ -138,6 +138,7 @@ static MultiplexReferenceFrame reference_frame;
 static uint8_t *texture_pixels_allocation;
 static uint8_t *texture_pixels;
 static GXTexObj textures[TILE_COUNT];
+static bool reference_tile_active[TILE_COUNT];
 static GXTexObj font_texture;
 static GXTexObj poster_textures[POSTER_TEXTURE_COUNT];
 static uint8_t *poster_texture_pixels;
@@ -664,13 +665,79 @@ static void convert_reference_to_rgba8_tile_rows(unsigned first_tile_y,
                                        tile_row_count, alpha_scale);
 }
 
-static void convert_reference_to_rgba8_tiles(void) {
-  convert_reference_to_rgba8_tile_rows(0, TILE_ROWS, 255);
+static bool reference_tile_has_visible_pixels(unsigned tile_x,
+                                              unsigned tile_y) {
+  const unsigned first_x = tile_x * TILE_WIDTH;
+  const unsigned first_y = tile_y * TILE_HEIGHT;
+  const unsigned last_x = first_x + TILE_WIDTH;
+  const unsigned last_y = first_y + TILE_HEIGHT;
+  for (unsigned source_y = first_y; source_y < last_y; ++source_y) {
+    const uint8_t *source =
+        reference_frame.pixels +
+        (source_y * LOGICAL_WIDTH + first_x) * 4u + 3u;
+    for (unsigned source_x = first_x; source_x < last_x; ++source_x) {
+      if (*source != 0) {
+        return true;
+      }
+      source += 4;
+    }
+  }
+  return false;
+}
+
+static void clear_reference_texture_tile(unsigned tile_index) {
+  uint8_t *tile = texture_pixels + tile_index * TILE_BYTES;
+  memset(tile, 0, TILE_BYTES);
+  DCFlushRange(tile, TILE_BYTES);
+}
+
+static void convert_reference_full_repaint(void) {
+  for (unsigned tile_y = 0; tile_y < TILE_ROWS; ++tile_y) {
+    unsigned run_start = 0;
+    bool run_active = false;
+    for (unsigned tile_x = 0; tile_x <= TILE_COLUMNS; ++tile_x) {
+      const bool tile_exists = tile_x < TILE_COLUMNS;
+      const unsigned tile_index = tile_y * TILE_COLUMNS + tile_x;
+      const bool visible =
+          tile_exists && reference_tile_has_visible_pixels(tile_x, tile_y);
+      if (visible && !run_active) {
+        run_start = tile_x;
+        run_active = true;
+      }
+      if (!visible && run_active) {
+        convert_reference_to_rgba8_tile_rect(
+            run_start, tile_y, tile_x - run_start, 1, 255);
+        run_active = false;
+      }
+      if (!tile_exists) {
+        continue;
+      }
+      if (!visible && reference_tile_active[tile_index]) {
+        clear_reference_texture_tile(tile_index);
+      }
+      reference_tile_active[tile_index] = visible;
+    }
+  }
+}
+
+static void update_reference_tile_activity(unsigned first_tile_x,
+                                           unsigned first_tile_y,
+                                           unsigned tile_column_count,
+                                           unsigned tile_row_count) {
+  const unsigned last_tile_x = first_tile_x + tile_column_count;
+  const unsigned last_tile_y = first_tile_y + tile_row_count;
+  for (unsigned tile_y = first_tile_y; tile_y < last_tile_y; ++tile_y) {
+    for (unsigned tile_x = first_tile_x; tile_x < last_tile_x; ++tile_x) {
+      reference_tile_active[tile_y * TILE_COLUMNS + tile_x] =
+          reference_tile_has_visible_pixels(tile_x, tile_y);
+    }
+  }
 }
 
 static void convert_reference_damage(const MultiplexReferenceFrameRender *render) {
   if (render->full_repaint != 0) {
-    convert_reference_to_rgba8_tiles();
+    convert_reference_full_repaint();
+    GX_InvalidateTexAll();
     return;
   }
   if (render->dirty == 0) {
@@ -719,10 +786,15 @@ static void convert_reference_damage(const MultiplexReferenceFrameRender *render
   convert_reference_to_rgba8_tile_rect(
       first_tile_x, first_tile_y, last_tile_x - first_tile_x,
       last_tile_y - first_tile_y, 255);
+  update_reference_tile_activity(
+      first_tile_x, first_tile_y, last_tile_x - first_tile_x,
+      last_tile_y - first_tile_y);
+  GX_InvalidateTexAll();
 }
 
 static void set_player_controls_texture_alpha(uint8_t alpha) {
   convert_reference_to_rgba8_tile_rows(TILE_ROWS - 2u, 2, alpha);
+  GX_InvalidateTexAll();
 }
 
 static void capture_reference_surfaces(void) {
