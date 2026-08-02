@@ -93,7 +93,7 @@
 #define PLAYER_CONTROLS_IDLE_MS 4000u
 #define PLAYER_CONTROLS_FADE_MS 180u
 #define UI_ENTRY_FRAMES 6u
-#define POSTER_FOCUS_FRAMES 7u
+#define POSTER_FOCUS_FRAMES 1u
 #define MULTIPLEX_SCREEN_HOME 1u
 #define MULTIPLEX_SCREEN_BROWSE 3u
 #define MULTIPLEX_SCREEN_SEARCH_RESULTS 5u
@@ -4251,8 +4251,6 @@ static void draw_poster_surfaces(void) {
     configure_color_pipeline();
     GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
                     GX_LO_CLEAR);
-    const float center = surface->card_x + surface->card_width * 0.5f;
-    const float top = surface->card_y + surface->card_height + 2.0f;
     const float progress =
         POSTER_FOCUS_FRAMES <= 1u
             ? 1.0f
@@ -4266,10 +4264,6 @@ static void draw_poster_surfaces(void) {
     stroke_rounded_color_rect(poster_left, poster_top, poster_right,
                               poster_bottom, surface->radius + eased, 1.5f,
                               (GXColor){255, 255, 255, 176});
-    const float half_width = 7.0f + 10.0f * eased;
-    fill_rounded_color_rect(center - half_width, top, center + half_width,
-                            top + 3.0f, 1.5f,
-                            (GXColor){45, 162, 255, 255});
     break;
   }
   if (poster_focus_frame < POSTER_FOCUS_FRAMES) {

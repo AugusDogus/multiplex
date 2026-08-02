@@ -112,7 +112,9 @@
         <badge variant="secondary">Page {rowNumber} of {rowCount}</badge>
       </row>
       <row gap="8" main="center" cross="start">
-        <button width="34" size="sm" icon="chevron-left" variant="ghost" on-press="previous_row" disabled="{rowPreviousDisabled}" label="Previous page"></button>
+        <column width="34" height="186" main="center">
+          <button width="34" size="sm" icon="chevron-left" variant="ghost" on-press="previous_row" disabled="{rowPreviousDisabled}" label="Previous page"></button>
+        </column>
         <row grow="1" gap="8" main="center">
           <for each="visibleItems" as="item" key="ratingKey">
             <column width="124" gap="4" on-press="open_item:{item.id}" label="{item.title}">
@@ -128,7 +130,9 @@
             </column>
           </for>
         </row>
-        <button width="34" size="sm" icon="chevron-right" variant="ghost" on-press="next_row" disabled="{rowNextDisabled}" label="Next page"></button>
+        <column width="34" height="186" main="center">
+          <button width="34" size="sm" icon="chevron-right" variant="ghost" on-press="next_row" disabled="{rowNextDisabled}" label="Next page"></button>
+        </column>
       </row>
     </column>
   </if>
@@ -240,7 +244,9 @@
       </row>
       <if test="{browseLoaded}">
         <row grow="1" gap="8" main="center" cross="center">
-          <button width="34" size="sm" icon="chevron-left" variant="ghost" on-press="browse_previous" disabled="{browsePreviousDisabled}" label="Previous page"></button>
+          <column width="34" height="186" main="center">
+            <button width="34" size="sm" icon="chevron-left" variant="ghost" on-press="browse_previous" disabled="{browsePreviousDisabled}" label="Previous page"></button>
+          </column>
           <row grow="1" gap="8" main="center">
             <for each="browseItems" as="item" key="ratingKey">
               <column width="124" gap="4" on-press="open_item:{item.id}" label="{item.title}">
@@ -256,7 +262,9 @@
               </column>
             </for>
           </row>
-          <button width="34" size="sm" icon="chevron-right" variant="ghost" on-press="browse_next" disabled="{browseNextDisabled}" label="Next page"></button>
+          <column width="34" height="186" main="center">
+            <button width="34" size="sm" icon="chevron-right" variant="ghost" on-press="browse_next" disabled="{browseNextDisabled}" label="Next page"></button>
+          </column>
         </row>
       </if>
       <if test="{browseLoading}">
