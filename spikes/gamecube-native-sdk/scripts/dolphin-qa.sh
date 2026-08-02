@@ -29,6 +29,7 @@ Commands:
   scenario navigation         Relaunch and capture catalog navigation baselines.
   scenario focus-gallery      Capture every focus target on catalog screens.
   scenario playback           Relaunch and verify details and player behavior.
+  scenario player-gallery     Capture Start menu and live player focus targets.
 
 Buttons: a b x y z start l r up down left right
 EOF
@@ -168,6 +169,28 @@ wait_for_count() {
     attempt=$((attempt + 1))
   done
   echo "Timed out waiting for a new Dolphin log line matching: $pattern" >&2
+  exit 1
+}
+
+wait_for_stable_presentation() {
+  seconds=${1:-60}
+  attempt=0
+  max_attempts=$((seconds * 10))
+  while [ "$attempt" -lt "$max_attempts" ]; do
+    fps_tenths=$(
+      rg 'presentation=120 frames/' "$log" 2>/dev/null |
+        tail -1 |
+        sed -n 's/.*(\([0-9][0-9]*\)\.\([0-9]\) fps).*/\1\2/p'
+    )
+    if [ -n "$fps_tenths" ] &&
+      [ "$fps_tenths" -ge 595 ] &&
+      [ "$fps_tenths" -le 610 ]; then
+      return
+    fi
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  echo "Timed out waiting for stable 60 FPS Dolphin presentation." >&2
   exit 1
 }
 
@@ -438,8 +461,43 @@ playback_scenario() {
   resumed_before=$(line_count 'playback=playing')
   press_button A
   wait_for_count 'playback=playing' "$resumed_before" 10
+  wait_for_stable_presentation
   check 1
   echo "Playback captures are ready in $capture_dir."
+}
+
+player_gallery_scenario() {
+  if ! command -v magick >/dev/null 2>&1; then
+    echo "ImageMagick is required to build focus contact sheets." >&2
+    exit 1
+  fi
+  launch
+  mkdir -p "$capture_dir"
+
+  details_before=$(line_count 'details-page ready')
+  details_signature_before=$(line_count 'signature=')
+  press_button A
+  wait_for_count 'details-page ready' "$details_before" 60
+  wait_for_count 'signature=' "$details_signature_before" 60
+
+  menu_signature_before=$(line_count 'signature=')
+  press_button START
+  wait_for_count 'signature=' "$menu_signature_before" 120
+  capture_focus_cycle start-menu
+  press_and_wait B
+
+  activation_before=$(line_count 'direct playback activated')
+  ready_before=$(line_count 'direct playback ready')
+  playing_before=$(line_count 'playback=playing')
+  press_button A
+  wait_for_count 'direct playback activated' "$activation_before" 120
+  wait_for_count 'direct playback ready' "$ready_before" 120
+  wait_for_count 'playback=playing' "$playing_before" 30
+  capture_focus_cycle player
+
+  wait_for_stable_presentation
+  check 1
+  echo "Player focus contact sheets are ready in $capture_dir."
 }
 
 status() {
@@ -565,6 +623,7 @@ case "$command" in
       navigation) navigation_scenario ;;
       focus-gallery) focus_gallery_scenario ;;
       playback) playback_scenario ;;
+      player-gallery) player_gallery_scenario ;;
       *) usage >&2; exit 1 ;;
     esac
     ;;

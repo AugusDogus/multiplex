@@ -207,6 +207,8 @@ reveal-only A, second-A pause, resume, clean logs, and stable presentation.
 `scenario focus-gallery` captures every focus target on Home, Search,
 Libraries, the first library page, and item details, then assembles a labeled
 contact sheet for each screen in the same capture directory.
+`scenario player-gallery` does the same for the Details Start menu and every
+player control while the real Plex stream plays, then enforces stable 60 FPS.
 The screenshot hotkey uses a separate Dolphin pipe, so this workflow does not
 invoke desktop automation or GNOME Remote Desktop. The tracked controller
 profile also accepts the connected Steam Controller alongside the QA pipe.
