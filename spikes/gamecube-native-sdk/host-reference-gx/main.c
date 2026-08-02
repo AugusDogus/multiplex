@@ -48,6 +48,7 @@
 #define TIMELINE_REPORT_STACK_SIZE (128 * 1024)
 #define POSTER_LOADER_STACK_SIZE (256 * 1024)
 #define STARTUP_DATA_LOADER_STACK_SIZE (256 * 1024)
+#define REFERENCE_RENDERER_STACK_SIZE (512 * 1024)
 #define TIMELINE_REPORT_INTERVAL_MS 10000u
 #define PAIRING_POLL_INTERVAL_FRAMES 60u
 #define MEDIA_STARTUP_STALL_TIMEOUT_US 5000000u
@@ -93,6 +94,15 @@ typedef struct {
   uint32_t memo_misses;
 } FrameProfile;
 
+typedef struct {
+  lwp_t thread;
+  void *stack;
+  MultiplexReferenceFrameRender render;
+  MultiplexReferenceFrameStatus status;
+  uint32_t render_us;
+  volatile bool complete;
+} ReferenceFrameRenderer;
+
 static GXRModeObj *video_mode;
 static void *framebuffers[2];
 static unsigned framebuffer_index;
@@ -105,6 +115,13 @@ static GXTexObj poster_textures[POSTER_TEXTURE_COUNT];
 static uint8_t *poster_texture_pixels;
 static uint16_t poster_texture_count;
 static MultiplexVideoSurface video_surface;
+static MultiplexPlayerControlsSurface player_controls_surface;
+static MultiplexModalSurface modal_surface;
+static MultiplexPosterSurface poster_surfaces[4];
+static uint32_t poster_surface_count;
+static uint32_t presented_screen = UINT32_MAX;
+static bool asynchronous_reference_enabled;
+static ReferenceFrameRenderer reference_renderer;
 static bool native_frame_dirty = true;
 static uint8_t ui_frame_alpha = 255;
 static bool player_controls_overlay_visible = true;
@@ -612,35 +629,34 @@ static void set_player_controls_texture_alpha(uint8_t alpha) {
   convert_reference_to_rgba8_tile_rows(TILE_ROWS - 2u, 2, alpha);
 }
 
-static bool refresh_reference_frame(bool initialize) {
-  const uint32_t render_started = gettick();
-  memset(profile_stage_us, 0, sizeof(profile_stage_us));
-  profile_stage_current = 0;
+static void capture_reference_surfaces(void) {
+  memset(&video_surface, 0, sizeof(video_surface));
+  multiplex_native_video_surface(&video_surface);
+  memset(&player_controls_surface, 0, sizeof(player_controls_surface));
+  multiplex_native_player_controls_surface(&player_controls_surface);
+  memset(&modal_surface, 0, sizeof(modal_surface));
+  multiplex_native_modal_surface(&modal_surface);
+  memset(poster_surfaces, 0, sizeof(poster_surfaces));
+  poster_surface_count =
+      multiplex_native_poster_surfaces(poster_surfaces, 4);
+  presented_screen = multiplex_native_app_screen();
+}
 
-  MultiplexReferenceFrameRender render;
-  const MultiplexReferenceFrameStatus frame_status =
-      multiplex_reference_frame_render(&reference_frame, initialize, &render);
-  if (frame_status != MULTIPLEX_REFERENCE_FRAME_OK) {
-    SYS_Report("REFERENCE GX: Native frame render failed: %s at stage %08x\n",
-               multiplex_reference_frame_status_name(frame_status),
-               multiplex_native_reference_render_stage());
-    return false;
-  }
-  profile.commands = render.commands;
+static bool commit_reference_frame(
+    const MultiplexReferenceFrameRender *render, uint32_t render_us) {
+  profile.commands = render->commands;
   profile.passes = 1;
-  profile.signature = render.signature;
-  profile.render_us = elapsed_us(render_started);
-  profile.memo_hits = render.memo_hits;
-  profile.memo_misses = render.memo_misses;
-
-  MultiplexVideoSurface rendered_surface;
-  memset(&rendered_surface, 0, sizeof(rendered_surface));
-  if (multiplex_native_video_surface(&rendered_surface) != 0) {
+  profile.signature = render->signature;
+  profile.render_us = render_us;
+  profile.memo_hits = render->memo_hits;
+  profile.memo_misses = render->memo_misses;
+  capture_reference_surfaces();
+  if (video_surface.visible != 0) {
     SYS_Report(
         "REFERENCE GX: video-surface x=%d y=%d width=%d height=%d playing=%u\n",
-        (int)rendered_surface.x, (int)rendered_surface.y,
-        (int)rendered_surface.width, (int)rendered_surface.height,
-        rendered_surface.playing);
+        (int)video_surface.x, (int)video_surface.y,
+        (int)video_surface.width, (int)video_surface.height,
+        video_surface.playing);
   }
   const uint32_t upload_started = gettick();
   convert_reference_to_rgba8_tiles();
@@ -666,6 +682,97 @@ static bool refresh_reference_frame(bool initialize) {
              multiplex_native_reference_memo_bytes() / 1024u,
              multiplex_native_reference_memo_peak_bytes() / 1024u);
   return true;
+}
+
+static bool refresh_reference_frame(bool initialize) {
+  const uint32_t render_started = gettick();
+  memset(profile_stage_us, 0, sizeof(profile_stage_us));
+  profile_stage_current = 0;
+  MultiplexReferenceFrameRender render;
+  const MultiplexReferenceFrameStatus frame_status =
+      multiplex_reference_frame_render(&reference_frame, initialize, &render);
+  if (frame_status != MULTIPLEX_REFERENCE_FRAME_OK) {
+    SYS_Report("REFERENCE GX: Native frame render failed: %s at stage %08x\n",
+               multiplex_reference_frame_status_name(frame_status),
+               multiplex_native_reference_render_stage());
+    return false;
+  }
+  return commit_reference_frame(&render, elapsed_us(render_started));
+}
+
+static void *run_reference_renderer(void *context) {
+  ReferenceFrameRenderer *renderer = context;
+  const uint32_t started = gettick();
+  renderer->status = multiplex_reference_frame_render(
+      &reference_frame, false, &renderer->render);
+  renderer->render_us = elapsed_us(started);
+  __sync_synchronize();
+  renderer->complete = true;
+  return NULL;
+}
+
+static bool launch_reference_renderer(void) {
+  if (reference_renderer.thread != LWP_THREAD_NULL) {
+    return true;
+  }
+  memset(&reference_renderer, 0, sizeof(reference_renderer));
+  reference_renderer.thread = LWP_THREAD_NULL;
+  reference_renderer.stack = malloc(REFERENCE_RENDERER_STACK_SIZE);
+  if (reference_renderer.stack == NULL) {
+    return false;
+  }
+  memset(profile_stage_us, 0, sizeof(profile_stage_us));
+  profile_stage_current = 0;
+  if (LWP_CreateThread(&reference_renderer.thread, run_reference_renderer,
+                       &reference_renderer, reference_renderer.stack,
+                       REFERENCE_RENDERER_STACK_SIZE,
+                       LWP_PRIO_NORMAL / 2) != 0) {
+    free(reference_renderer.stack);
+    reference_renderer.stack = NULL;
+    reference_renderer.thread = LWP_THREAD_NULL;
+    return false;
+  }
+  SYS_Report("REFERENCE GX: screen transition render started from=%u to=%u\n",
+             presented_screen, multiplex_native_app_screen());
+  return true;
+}
+
+static bool poll_reference_renderer(void) {
+  if (reference_renderer.thread == LWP_THREAD_NULL ||
+      !reference_renderer.complete) {
+    return true;
+  }
+  __sync_synchronize();
+  LWP_JoinThread(reference_renderer.thread, NULL);
+  reference_renderer.thread = LWP_THREAD_NULL;
+  free(reference_renderer.stack);
+  reference_renderer.stack = NULL;
+  if (reference_renderer.status != MULTIPLEX_REFERENCE_FRAME_OK) {
+    SYS_Report("REFERENCE GX: screen transition render failed: %s at stage "
+               "%08x\n",
+               multiplex_reference_frame_status_name(reference_renderer.status),
+               multiplex_native_reference_render_stage());
+    native_frame_dirty = false;
+    return false;
+  }
+  const uint32_t previous_screen = presented_screen;
+  if (!commit_reference_frame(&reference_renderer.render,
+                              reference_renderer.render_us)) {
+    return false;
+  }
+  SYS_Report("REFERENCE GX: screen transition ready from=%u to=%u us=%u\n",
+             previous_screen, presented_screen,
+             reference_renderer.render_us);
+  return true;
+}
+
+static void stop_reference_renderer(void) {
+  if (reference_renderer.thread != LWP_THREAD_NULL) {
+    LWP_JoinThread(reference_renderer.thread, NULL);
+    reference_renderer.thread = LWP_THREAD_NULL;
+  }
+  free(reference_renderer.stack);
+  reference_renderer.stack = NULL;
 }
 
 static GXRModeObj *select_video_mode(void) {
@@ -2320,11 +2427,9 @@ static void draw_poster_surfaces(void) {
   if (poster_texture_count == 0) {
     return;
   }
-  MultiplexPosterSurface surfaces[4];
-  const uint32_t count = multiplex_native_poster_surfaces(surfaces, 4);
   configure_ui_pipeline();
-  for (uint32_t index = 0; index < count; ++index) {
-    const MultiplexPosterSurface *surface = &surfaces[index];
+  for (uint32_t index = 0; index < poster_surface_count; ++index) {
+    const MultiplexPosterSurface *surface = &poster_surfaces[index];
     if (surface->image_id == 0 || surface->image_id > poster_texture_count) {
       continue;
     }
@@ -2340,9 +2445,8 @@ static void draw_poster_surfaces(void) {
 }
 
 static void draw_video_surface(void) {
-  memset(&video_surface, 0, sizeof(video_surface));
-  if (multiplex_native_video_surface(&video_surface) == 0 ||
-      video_surface.width <= 0 || video_surface.height <= 0) {
+  if (video_surface.visible == 0 || video_surface.width <= 0 ||
+      video_surface.height <= 0) {
     audio_dma_update(audio_output, false);
     video_audio_clock_started = false;
     video_was_playing = false;
@@ -2470,16 +2574,16 @@ draw_playback_progress(const MultiplexGatewayPlaybackManifest *manifest) {
       manifest->rating_key == 0 || manifest->media_duration_ms == 0) {
     return;
   }
-  MultiplexPlayerControlsSurface controls;
-  memset(&controls, 0, sizeof(controls));
-  if (multiplex_native_player_controls_surface(&controls) == 0 ||
-      controls.width <= 0 || controls.height <= 0) {
+  if (player_controls_surface.visible == 0 ||
+      player_controls_surface.width <= 0 ||
+      player_controls_surface.height <= 0) {
     return;
   }
   const uint32_t position_ms = playback_position_ms(manifest);
-  const float left = controls.x + 1.0f;
-  const float right = controls.x + controls.width - 1.0f;
-  const float top = controls.y;
+  const float left = player_controls_surface.x + 1.0f;
+  const float right = player_controls_surface.x +
+                      player_controls_surface.width - 1.0f;
+  const float top = player_controls_surface.y;
   const float bottom = top + 4.0f;
   const float progress =
       (float)position_ms / (float)manifest->media_duration_ms;
@@ -2495,16 +2599,24 @@ draw_playback_progress(const MultiplexGatewayPlaybackManifest *manifest) {
 
 static void
 present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
-  if (native_frame_dirty && !refresh_reference_frame(false)) {
-    native_frame_dirty = false;
+  if (native_frame_dirty && reference_renderer.thread == LWP_THREAD_NULL) {
+    const uint32_t target_screen = multiplex_native_app_screen();
+    const bool asynchronous_transition =
+        asynchronous_reference_enabled && target_screen != presented_screen &&
+        target_screen != MULTIPLEX_SCREEN_PLAYER;
+    if (asynchronous_transition) {
+      if (!launch_reference_renderer()) {
+        refresh_reference_frame(false);
+      }
+    } else if (!refresh_reference_frame(false)) {
+      native_frame_dirty = false;
+    }
   }
 
   draw_video_surface();
   if (video_surface.visible == 0 || player_controls_overlay_visible) {
     draw_reference_frame();
-    MultiplexModalSurface modal;
-    memset(&modal, 0, sizeof(modal));
-    if (multiplex_native_modal_surface(&modal) == 0) {
+    if (modal_surface.visible == 0) {
       draw_poster_surfaces();
     }
     draw_playback_progress(playback_manifest);
@@ -2556,9 +2668,7 @@ static void pause_audio_for_player_input(
     const MultiplexGatewayPlaybackManifest *playback_manifest) {
   if ((pressed &
        (PAD_BUTTON_A | PAD_BUTTON_B | PAD_TRIGGER_L | PAD_TRIGGER_R)) != 0) {
-    MultiplexVideoSurface current_surface;
-    memset(&current_surface, 0, sizeof(current_surface));
-    if (multiplex_native_video_surface(&current_surface) != 0) {
+    if (video_surface.visible != 0) {
       /*
        * The exact player repaint takes longer than one VBlank. Stop the media
        * clock before dispatching pause/resume/exit; resume stays paused until
@@ -3263,7 +3373,11 @@ static bool rotate_watch_together_if_complete(
 
 static void *run_app(void *unused) {
   (void)unused;
+#if MULTIPLEX_PAIRING_ENABLED
   const uint32_t app_started = gettick();
+#endif
+  memset(&reference_renderer, 0, sizeof(reference_renderer));
+  reference_renderer.thread = LWP_THREAD_NULL;
   initialize_video_and_gx();
   if (!allocate_buffers()) {
     return (void *)(uintptr_t)1;
@@ -3435,9 +3549,17 @@ static void *run_app(void *unused) {
     return (void *)(uintptr_t)1;
   }
 
+  asynchronous_reference_enabled = true;
   while (SYS_MainLoop()) {
     poll_direct_poster_loader(&direct_home_poster_loader);
     poll_direct_poster_loader(&direct_page_poster_loader);
+    if (!poll_reference_renderer()) {
+      break;
+    }
+    if (reference_renderer.thread != LWP_THREAD_NULL) {
+      present_frame(&playback_manifest);
+      continue;
+    }
 #if MULTIPLEX_PAIRING_ENABLED
     if (pairing_linked && !startup_data_loader.started &&
         direct_home_poster_loader.thread == LWP_THREAD_NULL &&
@@ -4140,6 +4262,7 @@ static void *run_app(void *unused) {
   }
 
   discard_staged_media_session(&staged_media);
+  stop_reference_renderer();
 #if MULTIPLEX_PAIRING_ENABLED
   multiplex_syncplay_session_destroy(syncplay_session);
   stop_startup_data_loader(&startup_data_loader);

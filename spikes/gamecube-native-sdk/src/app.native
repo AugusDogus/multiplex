@@ -160,7 +160,7 @@
         <button width="42" size="sm" icon="app:home" variant="ghost" on-press="back" label="Home"></button>
         <spacer grow="1" />
       </row>
-      <panel padding="14" background="surface" border-color="border" radius="lg">
+      <panel padding="14" background="surface" border-color="border" radius="lg" label="Search input">
         <row cross="center" gap="10">
           <icon name="search" width="20" height="20" foreground="text_muted" label="Search" />
           <if test="{searchHasQuery}">

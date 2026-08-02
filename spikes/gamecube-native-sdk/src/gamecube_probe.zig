@@ -84,10 +84,15 @@ var details_summary_buffer: [384]u8 = undefined;
 var details_genres_buffer: [128]u8 = undefined;
 var details_directors_buffer: [128]u8 = undefined;
 const invalid_focused_handler = std.math.maxInt(usize);
+const ReferenceDirtyRegion = enum {
+    none,
+    search_input,
+};
 var focused_handler: usize = invalid_focused_handler;
 var focused_screen: core.Screen = .pairing;
 var reference_render_stage: u32 = 0;
 var reference_full_repaint = true;
+var reference_dirty_region: ReferenceDirtyRegion = .none;
 var previous_render_state: canvas.WidgetRenderState = .{};
 var previous_render_state_valid = false;
 var reference_memo_allocator: BoundedMemoAllocator = .{};
@@ -367,6 +372,7 @@ fn initializeApp() void {
     focused_handler = invalid_focused_handler;
     focused_screen = .pairing;
     reference_full_repaint = true;
+    reference_dirty_region = .none;
     previous_render_state = .{};
     previous_render_state_valid = false;
     video_surface = .{};
@@ -882,6 +888,23 @@ export fn multiplex_native_app_playback_state() callconv(.c) u32 {
     return @as(u32, @intFromBool(app_model.screen == .player)) |
         (@as(u32, @intFromBool(app_model.playbackLoaded)) << 1) |
         (@as(u32, @intFromBool(app_model.playing)) << 2);
+}
+
+export fn multiplex_native_app_screen() callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    return switch (app_model.screen) {
+        .pairing => 0,
+        .home => 1,
+        .libraries => 2,
+        .browse => 3,
+        .search => 4,
+        .search_results => 5,
+        .watch_together_invite => 6,
+        .watch_together => 7,
+        .watch_together_room => 8,
+        .details => 9,
+        .player => 10,
+    };
 }
 
 export fn multiplex_native_app_playback_set_paused(paused: u32) callconv(.c) u32 {
@@ -1430,7 +1453,8 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
     if (action == 5) {
         const message: core.Msg = if (model.screen == .search) .search_delete else .next_row;
         commitAppModel(core.update(model, message));
-        reference_full_repaint = true;
+        reference_full_repaint = model.screen != .search;
+        reference_dirty_region = if (model.screen == .search) .search_input else .none;
         multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 15 else 3);
         return 1;
     }
@@ -1439,7 +1463,8 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         const next = core.update(model, message);
         if (next == model) return 0;
         commitAppModel(next);
-        reference_full_repaint = true;
+        reference_full_repaint = false;
+        reference_dirty_region = .search_input;
         multiplex_native_input_trace(action, 0, 0, if (action == 12) 46 else 47);
         return 1;
     }
@@ -1600,7 +1625,12 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
             };
             commitAppModel(core.update(model, msg));
             if (!keep_focus) focused_handler = invalid_focused_handler;
-            reference_full_repaint = true;
+            const search_input_changed = switch (msg) {
+                .search_key, .search_delete, .search_cursor_left, .search_cursor_right => true,
+                else => false,
+            };
+            reference_full_repaint = !search_input_changed;
+            reference_dirty_region = if (search_input_changed) .search_input else .none;
         },
         else => return 0,
     }
@@ -1819,9 +1849,16 @@ fn renderReference(
     }).withRenderMemo(referenceRenderMemo());
     reference_render_stage = 6;
     multiplex_native_profile_mark(reference_render_stage);
-    const full_repaint = reference_full_repaint or !previous_render_state_valid;
+    const content_dirty_bounds: ?geometry.RectF = switch (reference_dirty_region) {
+        .none => null,
+        .search_input => searchInputDirtyBounds(layout.nodes),
+    };
+    const full_repaint = reference_full_repaint or !previous_render_state_valid or
+        (reference_dirty_region != .none and content_dirty_bounds == null);
     const dirty_bounds = if (full_repaint)
         geometry.RectF.init(0, 0, reference_width, reference_height)
+    else if (content_dirty_bounds) |bounds|
+        bounds
     else if (layout.renderStateDirtyBoundsWithTokens(
             previous_render_state,
             render_state,
@@ -1850,7 +1887,16 @@ fn renderReference(
     previous_render_state = render_state;
     previous_render_state_valid = true;
     reference_full_repaint = false;
+    reference_dirty_region = .none;
     return @intCast(render_plan.commands.len);
+}
+
+fn searchInputDirtyBounds(nodes: []const canvas.WidgetLayoutNode) ?geometry.RectF {
+    for (nodes) |node| {
+        if (!std.mem.eql(u8, node.widget.semantics.label, "Search input")) continue;
+        return node.frame.normalized().inflate(geometry.InsetsF.all(2));
+    }
+    return null;
 }
 
 fn captureVideoSurface(nodes: []const canvas.WidgetLayoutNode, model: *const core.Model) void {

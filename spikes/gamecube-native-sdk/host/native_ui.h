@@ -13,6 +13,20 @@ enum {
   MULTIPLEX_GX_GLYPH = 7,
 };
 
+enum {
+  MULTIPLEX_SCREEN_PAIRING = 0,
+  MULTIPLEX_SCREEN_HOME = 1,
+  MULTIPLEX_SCREEN_LIBRARIES = 2,
+  MULTIPLEX_SCREEN_BROWSE = 3,
+  MULTIPLEX_SCREEN_SEARCH = 4,
+  MULTIPLEX_SCREEN_SEARCH_RESULTS = 5,
+  MULTIPLEX_SCREEN_WATCH_TOGETHER_INVITE = 6,
+  MULTIPLEX_SCREEN_WATCH_TOGETHER = 7,
+  MULTIPLEX_SCREEN_WATCH_TOGETHER_ROOM = 8,
+  MULTIPLEX_SCREEN_DETAILS = 9,
+  MULTIPLEX_SCREEN_PLAYER = 10,
+};
+
 typedef struct {
   uint32_t kind;
   float x;
@@ -200,6 +214,7 @@ uint32_t multiplex_native_app_layout_audit(uint32_t *first_rule,
                                            uint32_t *first_node);
 uint32_t multiplex_native_app_poster_inset_audit(void);
 uint32_t multiplex_native_app_input(uint32_t action);
+uint32_t multiplex_native_app_screen(void);
 uint32_t multiplex_native_video_surface(MultiplexVideoSurface *output);
 uint32_t multiplex_native_player_controls_surface(
     MultiplexPlayerControlsSurface *output);
