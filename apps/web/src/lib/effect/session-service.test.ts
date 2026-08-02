@@ -172,16 +172,18 @@ const withSession = async <A>(
   const player =
     (options?.player as ReturnType<typeof makeStubPlayer> | undefined) ??
     makeStubPlayer();
+  const emptyControllers: StubController[] = [];
+  const emptyObservers: StubObserver[] = [];
   const { makeController, controllers } = options?.makeController
     ? {
         makeController: options.makeController,
-        controllers: fromPartial<StubController[]>([]),
+        controllers: emptyControllers,
       }
     : makeStubControllerFactory();
   const { makeObserver, observers } = options?.makeObserver
     ? {
         makeObserver: options.makeObserver,
-        observers: fromPartial<StubObserver[]>([]),
+        observers: emptyObservers,
       }
     : makeStubObserverFactory();
 

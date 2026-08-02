@@ -13,7 +13,10 @@ import { eq } from "drizzle-orm";
 
 import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
 import type { GuestNextEpisode } from "~/lib/guest-watch-together-bootstrap";
-import { resolveGuestAccess } from "~/server/watch-together/guest-access";
+import {
+  resolveGuestAccess,
+  type ResolveGuestAccess,
+} from "~/server/watch-together/guest-access";
 import {
   createGuestCapabilityCodec,
   type GuestCapabilityCodec,
@@ -57,10 +60,7 @@ export type GuestBootstrapDependencies = {
   readonly createWatchTogetherClient: (
     token: string,
   ) => Pick<WatchTogetherClient, "getRoom">;
-  readonly resolveAccess: (
-    hostPlex: Parameters<typeof resolveGuestAccess>[0],
-    input: Parameters<typeof resolveGuestAccess>[1],
-  ) => ReturnType<typeof resolveGuestAccess>;
+  readonly resolveAccess: ResolveGuestAccess;
 };
 
 export type GuestContinuationResult =

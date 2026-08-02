@@ -8,11 +8,13 @@ import type {
   WatchTogetherRoom,
 } from "@multiplex/plex-query";
 
-import type { GuestAccessResolution } from "./guest-access";
+import type {
+  GuestAccessResolution,
+  ResolveGuestAccess,
+} from "./guest-access";
 import {
   createGuestBootstrapService,
   createGuestContinuationService,
-  type GuestBootstrapDependencies,
 } from "./guest-bootstrap";
 import { createGuestCapabilityCodec } from "./guest-capability";
 
@@ -90,7 +92,7 @@ function makeService(options?: {
     })),
   });
   const hostPlex = fromPartial<PlexTvClient>({});
-  const resolveAccess: GuestBootstrapDependencies["resolveAccess"] = mock(
+  const resolveAccess: ResolveGuestAccess = mock(
     async (): Promise<GuestAccessResolution> => ({
       ok: true,
       value: {
@@ -172,7 +174,7 @@ describe("guest bootstrap", () => {
         MediaContainer: { playQueueID: 2, Metadata: [] },
       })),
     });
-    const resolveAccess: GuestBootstrapDependencies["resolveAccess"] = mock(
+    const resolveAccess: ResolveGuestAccess = mock(
       async (
         _host: PlexTvClient,
         input: { ratingKey: string },

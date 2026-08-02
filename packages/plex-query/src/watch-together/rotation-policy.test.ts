@@ -1,5 +1,4 @@
 import { describe, expect, it } from "bun:test";
-import { fromPartial } from "@total-typescript/shoehorn";
 import type { SyncplayParticipantState, SyncplayUser } from "../plex/clients/syncplay-client";
 import type { WatchTogetherRoom } from "../plex/schemas/watch-together-schemas";
 import {
@@ -67,12 +66,14 @@ const currentRoom = {
   ],
 };
 
+const emptyVisibleRooms: WatchTogetherRoom[] = [];
+
 const baseDecide = {
   durationSeconds: 1200,
   currentTimeSeconds: 1160,
   timeRemainingSeconds: 40,
   rank: 0,
-  visibleRooms: fromPartial<WatchTogetherRoom[]>([]),
+  visibleRooms: emptyVisibleRooms,
   everyoneJoined: false,
   graceElapsed: false,
   autoPlayEnabled: true,

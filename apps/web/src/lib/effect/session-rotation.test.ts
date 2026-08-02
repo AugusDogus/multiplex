@@ -6,6 +6,7 @@ import {
   DISCOVERY_POLL_MS,
   EVERYONE_JOINED_GRACE_MS,
   MULTIPLEX_SYNCPLAY_DEVICE_NAME,
+  type ItemMetadata,
   type SyncplayParticipantState,
   type SyncplayUser,
   type WatchTogetherRoom,
@@ -31,6 +32,7 @@ import {
 } from "./session-service";
 import {
   WatchTogetherApi,
+  WatchTogetherApiError,
   type WatchTogetherApiShape,
 } from "./watch-together-api";
 
@@ -197,11 +199,8 @@ const makeStubApi = (overrides?: {
   /** When provided, each call returns this Effect (for failure/retry tests). */
   createRoomEffect?: (
     input: Parameters<WatchTogetherApiShape["createRoom"]>[0],
-  ) => Effect.Effect<WatchTogetherRoom, { _tag: string }>;
-  listRoomsEffect?: () => Effect.Effect<
-    WatchTogetherRoom[],
-    { _tag: string; cause?: string; operation?: string }
-  >;
+  ) => ReturnType<WatchTogetherApiShape["createRoom"]>;
+  listRoomsEffect?: () => ReturnType<WatchTogetherApiShape["listRooms"]>;
   getItemMetadata?: WatchTogetherApiShape["getItemMetadata"];
 }): {
   api: WatchTogetherApiShape;
@@ -215,10 +214,7 @@ const makeStubApi = (overrides?: {
       input: Parameters<WatchTogetherApiShape["createRoom"]>[0],
     ): ReturnType<WatchTogetherApiShape["createRoom"]> => {
       if (overrides?.createRoomEffect) {
-        // Test overrides may use a looser error channel than WatchTogetherApiError.
-        return overrides.createRoomEffect(input) as ReturnType<
-          WatchTogetherApiShape["createRoom"]
-        >;
+        return overrides.createRoomEffect(input);
       }
       return Effect.succeed(room("r-created", "200"));
     },
@@ -230,9 +226,7 @@ const makeStubApi = (overrides?: {
   );
   const listRooms = mock((): ReturnType<WatchTogetherApiShape["listRooms"]> => {
     if (overrides?.listRoomsEffect) {
-      return overrides.listRoomsEffect() as ReturnType<
-        WatchTogetherApiShape["listRooms"]
-      >;
+      return overrides.listRoomsEffect();
     }
     return Effect.succeed(overrides?.rooms ? overrides.rooms() : []);
   });
@@ -244,7 +238,7 @@ const makeStubApi = (overrides?: {
         return overrides.getItemMetadata(input);
       }
       return Effect.succeed(
-        fromPartial({
+        fromPartial<ItemMetadata>({
           ratingKey: input.ratingKey,
           key: `/library/metadata/${input.ratingKey}`,
           title: `Meta ${input.ratingKey}`,
@@ -285,22 +279,24 @@ const withRotationSession = async <A>(
     rooms?: () => WatchTogetherRoom[];
     createRoomEffect?: (
       input: Parameters<WatchTogetherApiShape["createRoom"]>[0],
-    ) => Effect.Effect<WatchTogetherRoom, { _tag: string }>;
+    ) => ReturnType<WatchTogetherApiShape["createRoom"]>;
   },
 ): Promise<A> => {
   const player = makeControllablePlayer();
   const { makeController, controllers } = makeStubControllerFactory();
   const { makeObserver, observers } = makeStubObserverFactory();
-  let roomsFn = options?.rooms ?? (() => fromPartial<WatchTogetherRoom[]>([]));
+  const emptyRooms: WatchTogetherRoom[] = [];
+  let roomsFn = options?.rooms ?? (() => emptyRooms);
   let listRoomsFailing = false;
   const { api, createRoom, deleteRoom, getItemMetadata } = makeStubApi({
     listRoomsEffect: () => {
       if (listRoomsFailing) {
-        return Effect.fail({
-          _tag: "WatchTogetherApiError",
-          cause: "network blip",
-          operation: "listRooms",
-        });
+        return Effect.fail(
+          new WatchTogetherApiError({
+            cause: "network blip",
+            operation: "listRooms",
+          }),
+        );
       }
       return Effect.succeed(roomsFn());
     },
@@ -911,11 +907,12 @@ test("create failure retries after re-arming the staggered delay", async () => {
       createRoomEffect: () => {
         attempts += 1;
         if (attempts === 1) {
-          return Effect.fail({
-            _tag: "WatchTogetherApiError",
-            cause: "transient",
-            operation: "createRoom",
-          });
+          return Effect.fail(
+            new WatchTogetherApiError({
+              cause: "transient",
+              operation: "createRoom",
+            }),
+          );
         }
         return Effect.succeed(room("r-created", "200"));
       },
