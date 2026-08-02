@@ -161,6 +161,7 @@ uint32_t multiplex_native_app_browse_item(
     uint32_t artwork_slot, uint32_t duration_ms, uint32_t view_offset_ms,
     uint32_t progress_percent);
 uint32_t multiplex_native_app_browse_commit(void);
+uint32_t multiplex_native_app_browse_fail(void);
 uint32_t multiplex_native_app_search_request(uint8_t *query, uint32_t capacity);
 uint32_t multiplex_native_app_search_begin(const uint8_t *query,
                                            uint32_t query_length,

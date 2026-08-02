@@ -708,11 +708,14 @@ check() {
     sed -n 's/.*presented us=\([0-9][0-9]*\).*/\1/p' || true)
   playback_prefetch_values=$(rg 'HLS session prefetch ready=1 .* us=' "$log" |
     sed -n 's/.* us=\([0-9][0-9]*\).*/\1/p' || true)
+  browse_values=$(rg 'direct browse-page complete .* us=' "$log" |
+    sed -n 's/.* us=\([0-9][0-9]*\).*/\1/p' || true)
   assert_latency_budget "Home readiness" 4000000 "$home_ready_values"
   assert_latency_budget "First poster" 500000 "$poster_first_values"
   assert_latency_budget "Poster completion" 1200000 "$poster_complete_values"
   assert_latency_budget "Screen transition" 50000 "$transition_values"
   assert_latency_budget "Playback prefetch" 750000 "$playback_prefetch_values"
+  assert_latency_budget "Library page" 500000 "$browse_values"
   stable_fps=$(
     rg 'presentation=120 frames/' "$log" |
       sed -n 's/.*(\([0-9][0-9]*\)\.\([0-9]\) fps).*/\1\2/p' |

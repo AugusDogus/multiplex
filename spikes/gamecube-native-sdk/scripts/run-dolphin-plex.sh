@@ -30,6 +30,7 @@ tv_season_index=${GAMECUBE_PLEX_TV_SEASON_INDEX:-0}
 tv_episode_page=${GAMECUBE_PLEX_TV_EPISODE_PAGE:-0}
 tv_episode_index=${GAMECUBE_PLEX_TV_EPISODE_INDEX:-0}
 focus_audit=${GAMECUBE_PLEX_FOCUS_AUDIT:-0}
+browse_audit=${GAMECUBE_PLEX_BROWSE_AUDIT:-0}
 start_offset_ms=${GAMECUBE_PLEX_START_OFFSET_MS:-0}
 expect_autoplay_next=${GAMECUBE_PLEX_EXPECT_AUTOPLAY_NEXT:-0}
 expected_autoplay_rating_key=${GAMECUBE_PLEX_AUTOPLAY_RATING_KEY:-}
@@ -176,6 +177,13 @@ case "$focus_audit" in
   0 | 1) ;;
   *)
     echo "GAMECUBE_PLEX_FOCUS_AUDIT must be 0 or 1." >&2
+    exit 1
+    ;;
+esac
+case "$browse_audit" in
+  0 | 1) ;;
+  *)
+    echo "GAMECUBE_PLEX_BROWSE_AUDIT must be 0 or 1." >&2
     exit 1
     ;;
 esac
@@ -767,6 +775,27 @@ if [ "$focus_audit" -eq 1 ]; then
   wait_for_new "signature=" "$signature_count"
   audit_focus_cycle
 
+  signature_count=$(line_count "signature=")
+  press B
+  wait_for_new "signature=" "$signature_count"
+  signature_count=$(line_count "signature=")
+  press B
+  wait_for_new "signature=" "$signature_count"
+fi
+
+if [ "$browse_audit" -eq 1 ] && [ "$focus_audit" -eq 0 ]; then
+  # Exercise the library network path without the longer focus-gallery audit.
+  signature_count=$(line_count "signature=")
+  press Y
+  wait_for_new "signature=" "$signature_count"
+  signature_count=$(line_count "signature=")
+  press D_RIGHT
+  wait_for_new "signature=" "$signature_count"
+  browse_count=$(line_count "browse-page ready")
+  signature_count=$(line_count "signature=")
+  press A
+  wait_for_new "browse-page ready" "$browse_count" 1200
+  wait_for_new "signature=" "$signature_count"
   signature_count=$(line_count "signature=")
   press B
   wait_for_new "signature=" "$signature_count"

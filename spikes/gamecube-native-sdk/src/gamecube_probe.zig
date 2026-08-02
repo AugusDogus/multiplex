@@ -1004,6 +1004,14 @@ export fn multiplex_native_app_browse_commit() callconv(.c) u32 {
     return 1;
 }
 
+export fn multiplex_native_app_browse_fail() callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    commitAppModel(core.failBrowse(app_model));
+    focused_handler = invalid_focused_handler;
+    reference_full_repaint = true;
+    return 1;
+}
+
 export fn multiplex_native_app_search_request(output: [*]u8, capacity: u32) callconv(.c) u32 {
     const query = core.searchRequestQuery(app_model);
     if (query.len == 0 or query.len > capacity) return 0;

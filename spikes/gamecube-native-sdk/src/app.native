@@ -263,6 +263,12 @@
           <text foreground="text_muted">Loading library page...</text>
         </column>
       </if>
+      <if test="{browseFailed}">
+        <column grow="1" main="center" cross="center" gap="8">
+          <text size="heading">Library unavailable</text>
+          <text foreground="text_muted">Return to Libraries and try again.</text>
+        </column>
+      </if>
     </column>
   </if>
 

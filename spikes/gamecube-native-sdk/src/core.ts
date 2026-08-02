@@ -91,6 +91,7 @@ export interface Model {
   readonly browsePageCount: number;
   readonly browseTotal: number;
   readonly browseLoaded: boolean;
+  readonly browseFailed: boolean;
   readonly searchQuery: Uint8Array;
   readonly searchCursor: number;
   readonly searchItems: readonly CatalogItem[];
@@ -367,6 +368,7 @@ export function initialModel(): Model {
     browsePageCount: 1,
     browseTotal: demoItems.length,
     browseLoaded: true,
+    browseFailed: false,
     searchQuery: new Uint8Array(0),
     searchCursor: 0,
     searchItems: [],
@@ -494,7 +496,12 @@ export function loadBrowse(
     browsePageCount: pageCount,
     browseTotal: total,
     browseLoaded: true,
+    browseFailed: false,
   };
+}
+
+export function failBrowse(model: Model): Model {
+  return model.screen === "browse" ? { ...model, browseLoaded: false, browseFailed: true } : model;
 }
 
 export function loadSearch(model: Model, query: Uint8Array, items: readonly CatalogItem[]): Model {
@@ -1000,7 +1007,7 @@ export function detailsChildrenNextDisabled(model: Model): boolean {
 }
 
 export function browseLoading(model: Model): boolean {
-  return !model.browseLoaded;
+  return model.screen === "browse" && !model.browseLoaded && !model.browseFailed;
 }
 
 export function browseRequestSection(model: Model): number {
@@ -1282,16 +1289,22 @@ export function update(model: Model, msg: Msg): Model {
         browsePageCount: 1,
         browseTotal: 0,
         browseLoaded: false,
+        browseFailed: false,
       };
     }
     case "browse_previous": {
       if (model.screen !== "browse" || model.browseStart === 0) return model;
       const start = model.browseStart < 4 ? 0 : model.browseStart - 4;
-      return { ...model, browseStart: start, browseLoaded: false };
+      return { ...model, browseStart: start, browseLoaded: false, browseFailed: false };
     }
     case "browse_next": {
       if (model.screen !== "browse" || !browseHasNext(model)) return model;
-      return { ...model, browseStart: model.browseStart + 4, browseLoaded: false };
+      return {
+        ...model,
+        browseStart: model.browseStart + 4,
+        browseLoaded: false,
+        browseFailed: false,
+      };
     }
     case "open_search":
       return {

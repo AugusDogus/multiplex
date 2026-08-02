@@ -52,6 +52,7 @@
 #define POSTER_LOADER_LANE_COUNT 4u
 #define HLS_SESSION_PREFETCH_STACK_SIZE (128 * 1024)
 #define DIRECT_DETAILS_LOADER_STACK_SIZE (256 * 1024)
+#define DIRECT_BROWSE_LOADER_STACK_SIZE (256 * 1024)
 #define STARTUP_DATA_LOADER_STACK_SIZE (256 * 1024)
 #define CATALOG_LOADER_STACK_SIZE (256 * 1024)
 #define REFERENCE_RENDERER_STACK_SIZE (512 * 1024)
@@ -339,6 +340,19 @@ typedef struct {
   bool ready;
   bool foreground;
 } DirectDetailsLoader;
+
+typedef struct {
+  const MultiplexAuthCredentials *credentials;
+  MultiplexGatewayLibrary library;
+  MultiplexGatewayBrowsePage page;
+  lwp_t thread;
+  void *stack;
+  uint32_t started_tick;
+  uint16_t start;
+  volatile bool complete;
+  bool started;
+  bool ready;
+} DirectBrowseLoader;
 
 typedef struct {
   const MultiplexAuthCredentials *credentials;
@@ -1803,9 +1817,116 @@ static bool load_browse_page(const char *gateway_url) {
   return bind_browse_page(&page);
 }
 
+static void *run_direct_browse_loader(void *context) {
+  DirectBrowseLoader *loader = context;
+  loader->ready = multiplex_plex_load_browse(
+      loader->credentials, &loader->library, loader->start, &loader->page);
+  __sync_synchronize();
+  loader->complete = true;
+  return NULL;
+}
+
+static bool launch_direct_browse_loader(
+    DirectBrowseLoader *loader,
+    const MultiplexAuthCredentials *credentials,
+    const MultiplexGatewayLibrary *library, uint16_t start) {
+  if (loader == NULL || credentials == NULL || library == NULL ||
+      library->section_id == 0 || loader->started) {
+    return false;
+  }
+  free(loader->stack);
+  memset(loader, 0, sizeof(*loader));
+  loader->credentials = credentials;
+  loader->library = *library;
+  loader->start = start;
+  loader->thread = LWP_THREAD_NULL;
+  loader->stack = malloc(DIRECT_BROWSE_LOADER_STACK_SIZE);
+  if (loader->stack == NULL ||
+      LWP_CreateThread(&loader->thread, run_direct_browse_loader, loader,
+                       loader->stack, DIRECT_BROWSE_LOADER_STACK_SIZE,
+                       LWP_PRIO_NORMAL / 2) != 0) {
+    free(loader->stack);
+    loader->stack = NULL;
+    loader->thread = LWP_THREAD_NULL;
+    return false;
+  }
+  loader->started = true;
+  loader->started_tick = gettick();
+  network_activity_visible = true;
+  SYS_Report("REFERENCE GX: browse-page load started section=%u start=%u\n",
+             library->section_id, start);
+  return true;
+}
+
+static void stop_direct_browse_loader(DirectBrowseLoader *loader) {
+  if (loader == NULL) {
+    return;
+  }
+  if (loader->thread != LWP_THREAD_NULL) {
+    LWP_JoinThread(loader->thread, NULL);
+  }
+  free(loader->stack);
+  memset(loader, 0, sizeof(*loader));
+  loader->thread = LWP_THREAD_NULL;
+}
+
+static bool poll_direct_browse_loader(
+    DirectBrowseLoader *loader,
+    const MultiplexAuthCredentials *credentials,
+    DirectPosterLoader *poster_loader) {
+  if (loader == NULL || !loader->started) {
+    return true;
+  }
+  uint32_t requested_section = 0;
+  uint32_t requested_start = 0;
+  const bool still_requested =
+      multiplex_native_app_browse_request(&requested_section,
+                                          &requested_start) != 0;
+  if (!loader->complete) {
+    if (!still_requested) {
+      network_activity_visible = false;
+    }
+    return true;
+  }
+  __sync_synchronize();
+  if (loader->thread != LWP_THREAD_NULL) {
+    LWP_JoinThread(loader->thread, NULL);
+    loader->thread = LWP_THREAD_NULL;
+  }
+  loader->started = false;
+  network_activity_visible = false;
+  if (!still_requested || requested_section != loader->library.section_id ||
+      requested_start != loader->start) {
+    return true;
+  }
+  bool bound = false;
+  if (loader->ready) {
+    if (!queue_direct_poster_loader(poster_loader, credentials,
+                                    loader->page.items,
+                                    loader->page.item_count,
+                                    HOME_POSTER_COUNT, false)) {
+      SYS_Report(
+          "REFERENCE GX: direct browse artwork deferred; using placeholders\n");
+    }
+    bound = bind_browse_page(&loader->page);
+    SYS_Report(
+        "REFERENCE GX: direct browse-page complete section=%u start=%u us=%u\n",
+        requested_section, requested_start, elapsed_us(loader->started_tick));
+  } else {
+    bound = multiplex_native_app_browse_fail() != 0;
+    SYS_Report("REFERENCE GX: browse-page unavailable section=%u start=%u\n",
+               requested_section, requested_start);
+  }
+  if (bound) {
+    asynchronous_reference_requested = true;
+    native_frame_dirty = true;
+  }
+  return bound;
+}
+
 static bool load_direct_browse_page(const MultiplexAuthCredentials *credentials,
                                     const MultiplexGatewayCatalog *catalog,
-                                    DirectPosterLoader *poster_loader) {
+                                    DirectBrowseLoader *loader) {
   uint32_t requested_section = 0;
   uint32_t requested_start = 0;
   if (multiplex_native_app_browse_request(&requested_section,
@@ -1826,17 +1947,11 @@ static bool load_direct_browse_page(const MultiplexAuthCredentials *credentials,
   if (library == NULL) {
     return false;
   }
-  MultiplexGatewayBrowsePage page;
-  if (!multiplex_plex_load_browse(credentials, library,
-                                  (uint16_t)requested_start, &page)) {
-    return false;
+  if (loader->started) {
+    return true;
   }
-  if (!queue_direct_poster_loader(poster_loader, credentials, page.items,
-                                  page.item_count, HOME_POSTER_COUNT, false)) {
-    SYS_Report(
-        "REFERENCE GX: direct browse artwork deferred; using placeholders\n");
-  }
-  return bind_browse_page(&page);
+  return launch_direct_browse_loader(loader, credentials, library,
+                                     (uint16_t)requested_start);
 }
 
 static bool bind_search_page(const MultiplexGatewaySearchPage *page) {
@@ -5148,6 +5263,9 @@ static void *run_app(void *unused) {
   MultiplexTrpcInviteeList watch_together_invitees;
   memset(&watch_together_invitees, 0, sizeof(watch_together_invitees));
 #if MULTIPLEX_PAIRING_ENABLED
+  DirectBrowseLoader direct_browse_loader;
+  memset(&direct_browse_loader, 0, sizeof(direct_browse_loader));
+  direct_browse_loader.thread = LWP_THREAD_NULL;
   DirectDetailsLoader direct_details_loader;
   memset(&direct_details_loader, 0, sizeof(direct_details_loader));
   direct_details_loader.thread = LWP_THREAD_NULL;
@@ -5378,6 +5496,11 @@ static void *run_app(void *unused) {
       continue;
     }
 #if MULTIPLEX_PAIRING_ENABLED
+    if (!poll_direct_browse_loader(&direct_browse_loader, &auth_credentials,
+                                   &direct_page_poster_loader)) {
+      SYS_Report("REFERENCE GX: background browse binding failed\n");
+      break;
+    }
     if (!poll_direct_details_loader(&direct_details_loader,
                                     &auth_credentials)) {
       SYS_Report("REFERENCE GX: background details binding failed\n");
@@ -5574,7 +5697,7 @@ static void *run_app(void *unused) {
         !direct_home_poster_loader.pending &&
         !direct_poster_loader_running(&direct_page_poster_loader) &&
         !direct_page_poster_loader.pending && !direct_hls_prefetch.started &&
-        !direct_details_loader.started) {
+        !direct_details_loader.started && !direct_browse_loader.started) {
       if (!launch_startup_data_loader(&startup_data_loader,
                                       &auth_credentials)) {
         startup_data_not_before_ms =
@@ -5633,6 +5756,7 @@ static void *run_app(void *unused) {
       stop_direct_poster_loader(&direct_home_poster_loader);
       stop_direct_poster_loader(&direct_page_poster_loader);
       discard_direct_hls_prefetch(&direct_hls_prefetch);
+      stop_direct_browse_loader(&direct_browse_loader);
       stop_direct_details_loader(&direct_details_loader);
       stop_catalog_loader(&catalog_loader);
       stop_startup_data_loader(&startup_data_loader);
@@ -5824,7 +5948,7 @@ static void *run_app(void *unused) {
       }
       if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked && has_catalog &&
           !load_direct_browse_page(&auth_credentials, &catalog,
-                                   &direct_page_poster_loader)) {
+                                   &direct_browse_loader)) {
         SYS_Report("REFERENCE GX: direct browse-page load failed\n");
       }
 #endif
@@ -5966,6 +6090,7 @@ static void *run_app(void *unused) {
         !direct_home_poster_loader.pending &&
         !direct_poster_loader_running(&direct_page_poster_loader) &&
         !direct_page_poster_loader.pending && !direct_hls_prefetch.started &&
+        !direct_browse_loader.started &&
         (!startup_data_loader.started || startup_data_loader.complete)) {
       if (launch_direct_details_loader(
               &direct_details_loader, &auth_credentials,
@@ -6234,6 +6359,7 @@ static void *run_app(void *unused) {
   stop_reference_renderer();
 #if MULTIPLEX_PAIRING_ENABLED
   multiplex_syncplay_session_destroy(syncplay_session);
+  stop_direct_browse_loader(&direct_browse_loader);
   stop_direct_details_loader(&direct_details_loader);
   stop_catalog_loader(&catalog_loader);
   stop_startup_data_loader(&startup_data_loader);
