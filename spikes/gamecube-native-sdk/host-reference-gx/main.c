@@ -297,6 +297,8 @@ struct DirectPosterLoader {
   uint16_t requested_count;
   uint16_t cache_hits;
   uint16_t texture_offset;
+  uint32_t started_tick;
+  bool first_ready_reported;
 };
 
 typedef struct {
@@ -1475,6 +1477,7 @@ static bool launch_direct_poster_loader(DirectPosterLoader *loader) {
     return false;
   }
   loader->stopping = false;
+  loader->started_tick = gettick();
   loader->lane_count =
       loader->item_count < POSTER_LOADER_LANE_COUNT
           ? loader->item_count
@@ -1616,6 +1619,13 @@ static void poll_direct_poster_loader(DirectPosterLoader *loader) {
         poster_texture_reveal_frames[texture_slot] = 8u;
         DCFlushRange(pixels, MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
         texture_changed = true;
+        if (!loader->first_ready_reported) {
+          loader->first_ready_reported = true;
+          SYS_Report(
+              "REFERENCE GX: direct Plex poster first-ready requested=%u "
+              "us=%u\n",
+              loader->requested_count, elapsed_us(loader->started_tick));
+        }
       }
       __sync_synchronize();
       loader->item_ready[lane] = false;
@@ -1634,9 +1644,9 @@ static void poll_direct_poster_loader(DirectPosterLoader *loader) {
   release_direct_poster_workers(loader);
   SYS_Report(
       "REFERENCE GX: direct Plex posters decoded=%u downloaded=%u cached=%u "
-      "requested=%u\n",
+      "requested=%u us=%u\n",
       decoded_count, loader->item_count, loader->cache_hits,
-      loader->requested_count);
+      loader->requested_count, elapsed_us(loader->started_tick));
 }
 
 static void stop_direct_poster_loader(DirectPosterLoader *loader) {

@@ -672,6 +672,19 @@ status() {
   [ -z "$latest_decoder" ] || echo "Decoder: ${latest_decoder#*REFERENCE GX: }"
 }
 
+assert_latency_budget() {
+  label=$1
+  maximum_us=$2
+  values=$3
+  [ -z "$values" ] && return
+  peak_us=$(printf '%s\n' "$values" | awk 'NF { if ($1 > peak) peak = $1 } END { print peak + 0 }')
+  if [ "$peak_us" -gt "$maximum_us" ]; then
+    echo "$label exceeded its QA budget: ${peak_us}us > ${maximum_us}us." >&2
+    exit 1
+  fi
+  echo "$label stayed within budget (${peak_us}us <= ${maximum_us}us)."
+}
+
 check() {
   require_presentation=${1:-0}
   sh "$script_dir/check-dolphin-log.sh"
@@ -685,6 +698,21 @@ check() {
     rg 'poster-inset-audit findings=' "$log" | tail -5 >&2
     exit 1
   fi
+  home_ready_values=$(rg 'interactive home ready us=' "$log" |
+    sed -n 's/.*interactive home ready us=\([0-9][0-9]*\).*/\1/p' || true)
+  poster_first_values=$(rg 'direct Plex poster first-ready .* us=' "$log" |
+    sed -n 's/.* us=\([0-9][0-9]*\).*/\1/p' || true)
+  poster_complete_values=$(rg 'direct Plex posters decoded=.* us=' "$log" |
+    sed -n 's/.* us=\([0-9][0-9]*\).*/\1/p' || true)
+  transition_values=$(rg 'network transition presented us=' "$log" |
+    sed -n 's/.*presented us=\([0-9][0-9]*\).*/\1/p' || true)
+  playback_prefetch_values=$(rg 'HLS session prefetch ready=1 .* us=' "$log" |
+    sed -n 's/.* us=\([0-9][0-9]*\).*/\1/p' || true)
+  assert_latency_budget "Home readiness" 4000000 "$home_ready_values"
+  assert_latency_budget "First poster" 500000 "$poster_first_values"
+  assert_latency_budget "Poster completion" 1200000 "$poster_complete_values"
+  assert_latency_budget "Screen transition" 50000 "$transition_values"
+  assert_latency_budget "Playback prefetch" 750000 "$playback_prefetch_values"
   stable_fps=$(
     rg 'presentation=120 frames/' "$log" |
       sed -n 's/.*(\([0-9][0-9]*\)\.\([0-9]\) fps).*/\1\2/p' |
