@@ -3577,18 +3577,32 @@ static void *run_app(void *unused) {
   };
   const MultiplexMemoryCardResult stored_auth =
       multiplex_memory_card_load_auth(&auth_credentials, &auth_location);
-  if (network_warmup_pending) {
-    SYS_Report("REFERENCE GX: network warmup ready=%u\n",
-               wait_network_warmup(&network_warmup, &playback_manifest) ? 1u
-                                                                        : 0u);
-    network_warmup_pending = false;
-  }
   MultiplexDeviceAuth device_auth;
   memset(&device_auth, 0, sizeof(device_auth));
+  bool pairing_status_presented = false;
   if (stored_auth == MULTIPLEX_MEMORY_CARD_OK) {
     device_auth.status = MULTIPLEX_DEVICE_AUTH_LINKED;
     SYS_Report("REFERENCE GX: auth restored slot=%c generation=%u\n",
                auth_location.slot == 0 ? 'A' : 'B', auth_location.generation);
+    if (multiplex_native_app_pairing_status(
+            device_auth.status, (const uint8_t *)"", 0,
+            (const uint8_t *)"", 0) == 0) {
+      SYS_Report("REFERENCE GX: failed to bind restored authorization\n");
+      return (void *)(uintptr_t)1;
+    }
+    native_frame_dirty = true;
+    present_frame(&playback_manifest);
+    if (!wait_reference_transition(&playback_manifest)) {
+      return (void *)(uintptr_t)1;
+    }
+    pairing_status_presented = true;
+    if (network_warmup_pending) {
+      SYS_Report("REFERENCE GX: network warmup ready=%u\n",
+                 wait_network_warmup(&network_warmup, &playback_manifest)
+                     ? 1u
+                     : 0u);
+      network_warmup_pending = false;
+    }
     bool credentials_changed = false;
     if (auth_credentials.plex_token[0] == '\0') {
       const bool credentials_refreshed =
@@ -3612,22 +3626,34 @@ static void *run_app(void *unused) {
       SYS_Report("REFERENCE GX: Plex credential persistence=%s\n",
                  multiplex_memory_card_result_message(refreshed));
     }
-  } else if (!multiplex_device_auth_begin(MULTIPLEX_BASE_URL, &device_auth)) {
-    device_auth.status = MULTIPLEX_DEVICE_AUTH_UNAVAILABLE;
-    SYS_Report("REFERENCE GX: device authorization unavailable card=%s\n",
-               multiplex_memory_card_result_message(stored_auth));
+  } else {
+    if (network_warmup_pending) {
+      SYS_Report("REFERENCE GX: network warmup ready=%u\n",
+                 wait_network_warmup(&network_warmup, &playback_manifest)
+                     ? 1u
+                     : 0u);
+      network_warmup_pending = false;
+    }
+    if (!multiplex_device_auth_begin(MULTIPLEX_BASE_URL, &device_auth)) {
+      device_auth.status = MULTIPLEX_DEVICE_AUTH_UNAVAILABLE;
+      SYS_Report("REFERENCE GX: device authorization unavailable card=%s\n",
+                 multiplex_memory_card_result_message(stored_auth));
+    }
   }
   bool pairing_linked = device_auth.status == MULTIPLEX_DEVICE_AUTH_LINKED;
-  if (multiplex_native_app_pairing_status(
-          device_auth.status, (const uint8_t *)device_auth.user_code,
-          strlen(device_auth.user_code), (const uint8_t *)device_auth.link_url,
-          strlen(device_auth.link_url)) == 0) {
-    SYS_Report("REFERENCE GX: failed to bind device authorization status\n");
-    return (void *)(uintptr_t)1;
-  }
-  native_frame_dirty = true;
-  if (!pairing_linked || has_catalog) {
-    present_frame(&playback_manifest);
+  if (!pairing_status_presented) {
+    if (multiplex_native_app_pairing_status(
+            device_auth.status, (const uint8_t *)device_auth.user_code,
+            strlen(device_auth.user_code),
+            (const uint8_t *)device_auth.link_url,
+            strlen(device_auth.link_url)) == 0) {
+      SYS_Report("REFERENCE GX: failed to bind device authorization status\n");
+      return (void *)(uintptr_t)1;
+    }
+    native_frame_dirty = true;
+    if (!pairing_linked || has_catalog) {
+      present_frame(&playback_manifest);
+    }
   }
   bool auth_reset_latched = false;
   uint32_t pairing_poll_frames = 0;
