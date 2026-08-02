@@ -3378,6 +3378,7 @@ static void *run_app(void *unused) {
     SYS_Report("REFERENCE GX: device authorization unavailable card=%s\n",
                multiplex_memory_card_result_message(stored_auth));
   }
+  bool pairing_linked = device_auth.status == MULTIPLEX_DEVICE_AUTH_LINKED;
   if (multiplex_native_app_pairing_status(
           device_auth.status, (const uint8_t *)device_auth.user_code,
           strlen(device_auth.user_code), (const uint8_t *)device_auth.link_url,
@@ -3386,8 +3387,9 @@ static void *run_app(void *unused) {
     return (void *)(uintptr_t)1;
   }
   native_frame_dirty = true;
-  present_frame(&playback_manifest);
-  bool pairing_linked = device_auth.status == MULTIPLEX_DEVICE_AUTH_LINKED;
+  if (!pairing_linked || has_catalog) {
+    present_frame(&playback_manifest);
+  }
   bool auth_reset_latched = false;
   uint32_t pairing_poll_frames = 0;
   if (pairing_linked && !has_catalog) {
