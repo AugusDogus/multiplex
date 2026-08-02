@@ -51,6 +51,7 @@
 #define POSTER_LOADER_STACK_SIZE (256 * 1024)
 #define POSTER_LOADER_LANE_COUNT 4u
 #define HLS_SESSION_PREFETCH_STACK_SIZE (128 * 1024)
+#define DIRECT_DETAILS_LOADER_STACK_SIZE (256 * 1024)
 #define STARTUP_DATA_LOADER_STACK_SIZE (256 * 1024)
 #define CATALOG_LOADER_STACK_SIZE (256 * 1024)
 #define REFERENCE_RENDERER_STACK_SIZE (512 * 1024)
@@ -328,6 +329,17 @@ static DirectHlsSessionPrefetch direct_hls_prefetch;
 
 typedef struct {
   const MultiplexAuthCredentials *credentials;
+  MultiplexGatewayDetails details;
+  lwp_t thread;
+  void *stack;
+  uint32_t rating_key;
+  volatile bool complete;
+  bool started;
+  bool ready;
+} DirectDetailsLoader;
+
+typedef struct {
+  const MultiplexAuthCredentials *credentials;
   MultiplexTrpcRoomList rooms;
   MultiplexTrpcInviteeList invitees;
   uint32_t user_id;
@@ -361,6 +373,8 @@ typedef enum {
 static bool read_http_program(void *context, size_t offset,
                               uint8_t *destination, size_t size);
 static void discard_staged_media_session(StagedMediaSession *staged);
+static bool
+load_direct_item_children(const MultiplexAuthCredentials *credentials);
 
 static uint32_t elapsed_us(uint32_t started) {
   return (uint32_t)ticks_to_microsecs((uint32_t)(gettick() - started));
@@ -2159,26 +2173,132 @@ static bool start_direct_hls_prefetch(
   return true;
 }
 
-static bool
-load_direct_item_details(const MultiplexAuthCredentials *credentials) {
+static void *run_direct_details_loader(void *context) {
+  DirectDetailsLoader *loader = context;
+  loader->ready = multiplex_plex_load_details(
+      loader->credentials, loader->rating_key, &loader->details);
+  __sync_synchronize();
+  loader->complete = true;
+  return NULL;
+}
+
+static bool launch_direct_details_loader(
+    DirectDetailsLoader *loader,
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key) {
+  if (loader == NULL || credentials == NULL || rating_key == 0 ||
+      loader->started) {
+    return false;
+  }
+  free(loader->stack);
+  memset(loader, 0, sizeof(*loader));
+  loader->credentials = credentials;
+  loader->rating_key = rating_key;
+  loader->thread = LWP_THREAD_NULL;
+  loader->stack = malloc(DIRECT_DETAILS_LOADER_STACK_SIZE);
+  if (loader->stack == NULL ||
+      LWP_CreateThread(&loader->thread, run_direct_details_loader, loader,
+                       loader->stack, DIRECT_DETAILS_LOADER_STACK_SIZE,
+                       LWP_PRIO_NORMAL / 2) != 0) {
+    free(loader->stack);
+    loader->stack = NULL;
+    loader->thread = LWP_THREAD_NULL;
+    return false;
+  }
+  loader->started = true;
+  network_activity_visible = true;
+  SYS_Report("REFERENCE GX: details-page load started rating-key=%u\n",
+             rating_key);
+  return true;
+}
+
+static void stop_direct_details_loader(DirectDetailsLoader *loader) {
+  if (loader == NULL) {
+    return;
+  }
+  if (loader->thread != LWP_THREAD_NULL) {
+    LWP_JoinThread(loader->thread, NULL);
+  }
+  free(loader->stack);
+  memset(loader, 0, sizeof(*loader));
+  loader->thread = LWP_THREAD_NULL;
+}
+
+static bool load_direct_item_details(
+    const MultiplexAuthCredentials *credentials,
+    DirectDetailsLoader *loader) {
   const uint32_t rating_key = multiplex_native_app_details_request();
   if (rating_key == 0) {
     return true;
   }
-  direct_details_cache_valid = false;
-  memset(&direct_details_cache, 0, sizeof(direct_details_cache));
-  if (!multiplex_plex_load_details(credentials, rating_key,
+  if (direct_details_cache_valid &&
+      direct_details_cache.rating_key == rating_key) {
+    const bool bound = bind_item_details(&direct_details_cache);
+    if (bound && !start_direct_hls_prefetch(
+                     &direct_hls_prefetch, credentials,
+                     &direct_details_cache)) {
+      SYS_Report("REFERENCE GX: HLS session prefetch unavailable "
+                 "rating-key=%u\n",
+                 rating_key);
+    }
+    return bound;
+  }
+  if (loader->started) {
+    network_activity_visible = true;
+    return true;
+  }
+  return launch_direct_details_loader(loader, credentials, rating_key);
+}
+
+static bool poll_direct_details_loader(
+    DirectDetailsLoader *loader,
+    const MultiplexAuthCredentials *credentials) {
+  if (loader == NULL || !loader->started) {
+    return true;
+  }
+  if (!loader->complete) {
+    if (multiplex_native_app_details_request() == 0) {
+      network_activity_visible = false;
+    }
+    return true;
+  }
+  __sync_synchronize();
+  if (loader->thread != LWP_THREAD_NULL) {
+    LWP_JoinThread(loader->thread, NULL);
+    loader->thread = LWP_THREAD_NULL;
+  }
+  loader->started = false;
+  network_activity_visible = false;
+  const uint32_t completed_rating_key = loader->rating_key;
+  const uint32_t requested_rating_key = multiplex_native_app_details_request();
+  if (loader->ready) {
+    direct_details_cache = loader->details;
+    direct_details_cache_valid = true;
+  }
+  if (requested_rating_key == completed_rating_key) {
+    const bool bound = loader->ready
+                           ? bind_item_details(&direct_details_cache)
+                           : fail_item_details(completed_rating_key);
+    if (!bound) {
+      return false;
+    }
+    if (loader->ready &&
+        !start_direct_hls_prefetch(&direct_hls_prefetch, credentials,
                                    &direct_details_cache)) {
-    return fail_item_details(rating_key);
+      SYS_Report("REFERENCE GX: HLS session prefetch unavailable "
+                 "rating-key=%u\n",
+                 completed_rating_key);
+    }
+    if (!load_direct_item_children(credentials)) {
+      SYS_Report("REFERENCE GX: direct details children load failed\n");
+    }
+    asynchronous_reference_requested = true;
+    native_frame_dirty = true;
+  } else if (requested_rating_key != 0 &&
+             !launch_direct_details_loader(loader, credentials,
+                                           requested_rating_key)) {
+    return false;
   }
-  const bool bound = bind_item_details(&direct_details_cache);
-  direct_details_cache_valid = bound;
-  if (bound && !start_direct_hls_prefetch(&direct_hls_prefetch, credentials,
-                                          &direct_details_cache)) {
-    SYS_Report("REFERENCE GX: HLS session prefetch unavailable rating-key=%u\n",
-               rating_key);
-  }
-  return bound;
+  return true;
 }
 
 static bool bind_item_children(uint32_t rating_key,
@@ -5001,6 +5121,9 @@ static void *run_app(void *unused) {
   MultiplexTrpcInviteeList watch_together_invitees;
   memset(&watch_together_invitees, 0, sizeof(watch_together_invitees));
 #if MULTIPLEX_PAIRING_ENABLED
+  DirectDetailsLoader direct_details_loader;
+  memset(&direct_details_loader, 0, sizeof(direct_details_loader));
+  direct_details_loader.thread = LWP_THREAD_NULL;
   CatalogLoader catalog_loader;
   memset(&catalog_loader, 0, sizeof(catalog_loader));
   catalog_loader.thread = LWP_THREAD_NULL;
@@ -5226,6 +5349,11 @@ static void *run_app(void *unused) {
       continue;
     }
 #if MULTIPLEX_PAIRING_ENABLED
+    if (!poll_direct_details_loader(&direct_details_loader,
+                                    &auth_credentials)) {
+      SYS_Report("REFERENCE GX: background details binding failed\n");
+      break;
+    }
     const uint64_t catalog_now_ms = ticks_to_millisecs(gettime());
     const CatalogLoaderStatus catalog_loader_status =
         poll_catalog_loader(&catalog_loader);
@@ -5475,6 +5603,7 @@ static void *run_app(void *unused) {
       stop_direct_poster_loader(&direct_home_poster_loader);
       stop_direct_poster_loader(&direct_page_poster_loader);
       discard_direct_hls_prefetch(&direct_hls_prefetch);
+      stop_direct_details_loader(&direct_details_loader);
       stop_catalog_loader(&catalog_loader);
       stop_startup_data_loader(&startup_data_loader);
       const MultiplexMemoryCardResult deleted =
@@ -5684,7 +5813,8 @@ static void *run_app(void *unused) {
       }
 #if MULTIPLEX_PAIRING_ENABLED
       if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked &&
-          !load_direct_item_details(&auth_credentials)) {
+          !load_direct_item_details(&auth_credentials,
+                                    &direct_details_loader)) {
         SYS_Report("REFERENCE GX: direct details-page load failed\n");
       }
       if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked &&
@@ -6047,6 +6177,7 @@ static void *run_app(void *unused) {
   stop_reference_renderer();
 #if MULTIPLEX_PAIRING_ENABLED
   multiplex_syncplay_session_destroy(syncplay_session);
+  stop_direct_details_loader(&direct_details_loader);
   stop_catalog_loader(&catalog_loader);
   stop_startup_data_loader(&startup_data_loader);
 #endif
