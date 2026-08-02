@@ -94,6 +94,11 @@
 #define PLAYER_CONTROLS_FADE_MS 180u
 #define UI_ENTRY_FRAMES 6u
 #define POSTER_FOCUS_FRAMES 1u
+#define HOME_MOTION_FRAMES 9u
+#define HOME_CONTENT_TOP 52.0f
+#define HOME_ACTIVE_SHELF_BOTTOM 220.0f
+#define HOME_CARD_STRIDE 84.0f
+#define HOME_SHELF_STRIDE 162.0f
 #define MULTIPLEX_SCREEN_HOME 1u
 #define MULTIPLEX_SCREEN_BROWSE 3u
 #define MULTIPLEX_SCREEN_SEARCH_RESULTS 5u
@@ -105,7 +110,7 @@
 #define HOME_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS
 #define BROWSE_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_ITEMS
 #define POSTER_TEXTURE_COUNT (HOME_POSTER_COUNT + BROWSE_POSTER_COUNT)
-#define POSTER_SURFACE_CAPACITY 12u
+#define POSTER_SURFACE_CAPACITY 24u
 #define UI_COMMAND_CAPACITY 1024u
 #define UI_TEXT_COMMAND_CAPACITY 96u
 #define UI_SHAPE_COMMAND_CAPACITY 896u
@@ -114,11 +119,19 @@
 typedef struct {
   MultiplexGxCommand text_commands[UI_TEXT_COMMAND_CAPACITY];
   MultiplexGxCommand shape_commands[UI_SHAPE_COMMAND_CAPACITY];
+  uint32_t text_sequences[UI_TEXT_COMMAND_CAPACITY];
+  uint32_t shape_sequences[UI_SHAPE_COMMAND_CAPACITY];
   uint8_t text[UI_TEXT_CAPACITY];
   uint32_t text_command_count;
   uint32_t shape_command_count;
   uint32_t text_length;
 } NativeUiPacket;
+
+typedef enum {
+  HOME_MOTION_NONE = 0,
+  HOME_MOTION_HORIZONTAL = 1,
+  HOME_MOTION_VERTICAL = 2,
+} HomeMotionKind;
 
 typedef struct {
   uint32_t render_us;
@@ -191,6 +204,18 @@ static bool player_startup_backdrop_visible;
 static MultiplexGuiNavigation gui_navigation;
 static FrameProfile profile;
 static NativeUiPacket presented_ui_packet;
+static NativeUiPacket home_motion_previous_packet;
+static MultiplexPosterSurface
+    home_motion_previous_surfaces[POSTER_SURFACE_CAPACITY];
+static uint32_t home_motion_previous_surface_count;
+static HomeMotionKind home_motion_kind;
+static int8_t home_motion_direction;
+static uint8_t home_motion_frame = HOME_MOTION_FRAMES;
+static bool ui_draw_clip_active;
+static float ui_draw_clip_left;
+static float ui_draw_clip_top;
+static float ui_draw_clip_right;
+static float ui_draw_clip_bottom;
 static uint32_t presentation_frames;
 static uint32_t presentation_started;
 static uint32_t profile_stage_started;
@@ -1049,6 +1074,7 @@ static void capture_native_ui_packet(NativeUiPacket *packet) {
         command->kind != MULTIPLEX_GX_GLYPH &&
         command->kind != MULTIPLEX_GX_SHADOW &&
         packet->shape_command_count < UI_SHAPE_COMMAND_CAPACITY) {
+      packet->shape_sequences[packet->shape_command_count] = index;
       packet->shape_commands[packet->shape_command_count++] = *command;
     }
     if ((command->kind != MULTIPLEX_GX_TEXT &&
@@ -1071,28 +1097,62 @@ static void capture_native_ui_packet(NativeUiPacket *packet) {
       copy.text_ptr = destination;
       packet->text_length += copy.text_len;
     }
+    packet->text_sequences[packet->text_command_count] = index;
     packet->text_commands[packet->text_command_count++] = copy;
   }
 }
 
-static void present_native_ui_packet(const NativeUiPacket *packet) {
-  memset(&presented_ui_packet, 0, sizeof(presented_ui_packet));
-  memcpy(presented_ui_packet.text, packet->text, packet->text_length);
-  memcpy(presented_ui_packet.shape_commands, packet->shape_commands,
+static void copy_native_ui_packet(NativeUiPacket *destination,
+                                  const NativeUiPacket *packet) {
+  memset(destination, 0, sizeof(*destination));
+  memcpy(destination->text, packet->text, packet->text_length);
+  memcpy(destination->shape_commands, packet->shape_commands,
          packet->shape_command_count * sizeof(MultiplexGxCommand));
-  presented_ui_packet.text_length = packet->text_length;
-  presented_ui_packet.text_command_count = packet->text_command_count;
-  presented_ui_packet.shape_command_count = packet->shape_command_count;
+  memcpy(destination->text_sequences, packet->text_sequences,
+         packet->text_command_count * sizeof(uint32_t));
+  memcpy(destination->shape_sequences, packet->shape_sequences,
+         packet->shape_command_count * sizeof(uint32_t));
+  destination->text_length = packet->text_length;
+  destination->text_command_count = packet->text_command_count;
+  destination->shape_command_count = packet->shape_command_count;
   for (uint32_t index = 0; index < packet->text_command_count; ++index) {
-    presented_ui_packet.text_commands[index] = packet->text_commands[index];
+    destination->text_commands[index] = packet->text_commands[index];
     if (packet->text_commands[index].kind != MULTIPLEX_GX_TEXT) {
       continue;
     }
     const size_t offset =
         (size_t)(packet->text_commands[index].text_ptr - packet->text);
-    presented_ui_packet.text_commands[index].text_ptr =
-        presented_ui_packet.text + offset;
+    destination->text_commands[index].text_ptr = destination->text + offset;
   }
+}
+
+static void present_native_ui_packet(const NativeUiPacket *packet) {
+  copy_native_ui_packet(&presented_ui_packet, packet);
+}
+
+static void begin_home_motion(uint32_t before, uint32_t after) {
+  if (before == UINT32_MAX || after == UINT32_MAX || before == after) return;
+  const uint16_t before_row = (uint16_t)(before >> 16u);
+  const uint16_t after_row = (uint16_t)(after >> 16u);
+  const uint16_t before_carousel = (uint16_t)before;
+  const uint16_t after_carousel = (uint16_t)after;
+  if (before_row == after_row && before_carousel == after_carousel) return;
+
+  copy_native_ui_packet(&home_motion_previous_packet, &presented_ui_packet);
+  memcpy(home_motion_previous_surfaces, poster_surfaces,
+         poster_surface_count * sizeof(MultiplexPosterSurface));
+  home_motion_previous_surface_count = poster_surface_count;
+  if (before_row != after_row) {
+    home_motion_kind = HOME_MOTION_VERTICAL;
+    home_motion_direction = after_row > before_row ? 1 : -1;
+  } else {
+    home_motion_kind = HOME_MOTION_HORIZONTAL;
+    home_motion_direction = after_carousel > before_carousel ? 1 : -1;
+  }
+  home_motion_frame = 0;
+  SYS_Report("REFERENCE GX: home motion kind=%u direction=%d from=%08x to=%08x\n",
+             (unsigned)home_motion_kind, (int)home_motion_direction, before,
+             after);
 }
 
 static bool commit_reference_frame(
@@ -3473,10 +3533,27 @@ static void texture_vertex(float x, float y, float u, float v) {
   GX_TexCoord2f32(u, v);
 }
 
-static void load_ui_translation(float y) {
+static void load_ui_translation_xy(float x, float y) {
   Mtx transform;
-  guMtxTrans(transform, 0.0f, y, 0.0f);
+  guMtxTrans(transform, x, y, 0.0f);
   GX_LoadPosMtxImm(transform, GX_PNMTX0);
+}
+
+static void load_ui_translation(float y) {
+  load_ui_translation_xy(0.0f, y);
+}
+
+static void set_ui_draw_clip(float left, float top, float right,
+                             float bottom) {
+  ui_draw_clip_active = true;
+  ui_draw_clip_left = left;
+  ui_draw_clip_top = top;
+  ui_draw_clip_right = right;
+  ui_draw_clip_bottom = bottom;
+}
+
+static void clear_ui_draw_clip(void) {
+  ui_draw_clip_active = false;
 }
 
 static void configure_color_pipeline(void) {
@@ -3536,18 +3613,58 @@ static GXColor command_color(uint32_t rgba) {
 }
 
 static void set_text_scissor(const MultiplexGxCommand *command) {
-  if (command->has_clip == 0) {
+  if (command->has_clip == 0 && !ui_draw_clip_active) {
     GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
     return;
   }
-  float left = command->clip_x;
-  float top = command->clip_y;
-  float right = left + command->clip_width;
-  float bottom = top + command->clip_height;
+  float left = command->has_clip != 0 ? command->clip_x : 0.0f;
+  float top = command->has_clip != 0 ? command->clip_y : 0.0f;
+  float right = command->has_clip != 0 ? left + command->clip_width
+                                       : LOGICAL_WIDTH;
+  float bottom = command->has_clip != 0 ? top + command->clip_height
+                                        : LOGICAL_HEIGHT;
+  if (ui_draw_clip_active) {
+    left = fmaxf(left, ui_draw_clip_left);
+    top = fmaxf(top, ui_draw_clip_top);
+    right = fminf(right, ui_draw_clip_right);
+    bottom = fminf(bottom, ui_draw_clip_bottom);
+  }
   if (left < 0.0f) left = 0.0f;
   if (top < 0.0f) top = 0.0f;
   if (right > LOGICAL_WIDTH) right = LOGICAL_WIDTH;
   if (bottom > LOGICAL_HEIGHT) bottom = LOGICAL_HEIGHT;
+  if (right <= left || bottom <= top) {
+    GX_SetScissor(0, 0, 0, 0);
+    return;
+  }
+  const float scale_x = video_mode->fbWidth / (float)LOGICAL_WIDTH;
+  const float scale_y = video_mode->efbHeight / (float)LOGICAL_HEIGHT;
+  GX_SetScissor((uint32_t)(left * scale_x), (uint32_t)(top * scale_y),
+                (uint32_t)((right - left) * scale_x),
+                (uint32_t)((bottom - top) * scale_y));
+}
+
+static void set_poster_scissor(const MultiplexPosterSurface *surface) {
+  if (surface->has_clip == 0 && !ui_draw_clip_active) {
+    GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
+    return;
+  }
+  float left = surface->has_clip != 0 ? surface->clip_x : 0.0f;
+  float top = surface->has_clip != 0 ? surface->clip_y : 0.0f;
+  float right = surface->has_clip != 0 ? left + surface->clip_width
+                                       : LOGICAL_WIDTH;
+  float bottom = surface->has_clip != 0 ? top + surface->clip_height
+                                        : LOGICAL_HEIGHT;
+  if (ui_draw_clip_active) {
+    left = fmaxf(left, ui_draw_clip_left);
+    top = fmaxf(top, ui_draw_clip_top);
+    right = fminf(right, ui_draw_clip_right);
+    bottom = fminf(bottom, ui_draw_clip_bottom);
+  }
+  left = fmaxf(0.0f, left);
+  top = fmaxf(0.0f, top);
+  right = fminf(LOGICAL_WIDTH, right);
+  bottom = fminf(LOGICAL_HEIGHT, bottom);
   if (right <= left || bottom <= top) {
     GX_SetScissor(0, 0, 0, 0);
     return;
@@ -3714,32 +3831,33 @@ static void draw_native_text_command(const MultiplexGxCommand *command) {
   GX_End();
 }
 
-static void draw_native_text(void) {
-  if (presented_ui_packet.text_command_count == 0) {
-    return;
-  }
-  configure_font_pipeline();
-  for (uint32_t index = 0; index < presented_ui_packet.text_command_count;
-       ++index) {
-    const MultiplexGxCommand *command =
-        &presented_ui_packet.text_commands[index];
-    set_text_scissor(command);
-    if (command->kind == MULTIPLEX_GX_GLYPH) {
-      uint8_t character = '?';
-      for (uint32_t glyph_index = 0; glyph_index < GEIST_CHARACTER_COUNT;
-           ++glyph_index) {
-        if (geist_glyph_ids[glyph_index] == command->glyph_id) {
-          character = (uint8_t)(GEIST_FIRST_CHARACTER + glyph_index);
-          break;
-        }
+static void draw_native_text_command_at(const NativeUiPacket *packet,
+                                        uint32_t index) {
+  const MultiplexGxCommand *command = &packet->text_commands[index];
+  set_text_scissor(command);
+  if (command->kind == MULTIPLEX_GX_GLYPH) {
+    uint8_t character = '?';
+    for (uint32_t glyph_index = 0; glyph_index < GEIST_CHARACTER_COUNT;
+         ++glyph_index) {
+      if (geist_glyph_ids[glyph_index] == command->glyph_id) {
+        character = (uint8_t)(GEIST_FIRST_CHARACTER + glyph_index);
+        break;
       }
-      MultiplexGxCommand glyph = *command;
-      glyph.text_ptr = &character;
-      glyph.text_len = 1;
-      draw_native_text_command(&glyph);
-    } else if (command->kind == MULTIPLEX_GX_TEXT) {
-      draw_native_text_command(command);
     }
+    MultiplexGxCommand glyph = *command;
+    glyph.text_ptr = &character;
+    glyph.text_len = 1;
+    draw_native_text_command(&glyph);
+  } else if (command->kind == MULTIPLEX_GX_TEXT) {
+    draw_native_text_command(command);
+  }
+}
+
+static void draw_native_text_packet(const NativeUiPacket *packet) {
+  if (packet->text_command_count == 0) return;
+  configure_font_pipeline();
+  for (uint32_t index = 0; index < packet->text_command_count; ++index) {
+    draw_native_text_command_at(packet, index);
   }
   GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
 }
@@ -3896,12 +4014,13 @@ static void stroke_rounded_color_rect(float left, float top, float right,
                         -1.0f, 1.0f, color);
 }
 
-static float native_stroke_radius(uint32_t command_index,
+static float native_stroke_radius(const NativeUiPacket *packet,
+                                  uint32_t command_index,
                                   const MultiplexGxCommand *stroke) {
   if (stroke->radius >= 1.0f) return stroke->radius;
   for (uint32_t index = command_index; index > 0; --index) {
     const MultiplexGxCommand *fill =
-        &presented_ui_packet.shape_commands[index - 1u];
+        &packet->shape_commands[index - 1u];
     if (fill->kind != MULTIPLEX_GX_FILL_ROUNDED_RECT) continue;
     const float left_inset = fill->x - stroke->x;
     const float top_inset = fill->y - stroke->y;
@@ -3937,25 +4056,23 @@ static bool is_ambient_background(const MultiplexGxCommand *command) {
          command->width >= LOGICAL_WIDTH && command->height >= LOGICAL_HEIGHT;
 }
 
-static void draw_native_shapes(void) {
-  if (presented_ui_packet.shape_command_count == 0) return;
-  configure_color_pipeline();
-  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
-                  GX_LO_CLEAR);
-  for (uint32_t index = 0; index < presented_ui_packet.shape_command_count;
-       ++index) {
-    const MultiplexGxCommand *command =
-        &presented_ui_packet.shape_commands[index];
-    if (is_ambient_background(command)) {
-      continue;
-    }
-    set_text_scissor(command);
-    const GXColor color = command_color(command->color_rgba);
-    const float left = command->x;
-    const float top = command->y;
-    const float right = left + command->width;
-    const float bottom = top + command->height;
-    switch (command->kind) {
+static void draw_native_shape_command_at(const NativeUiPacket *packet,
+                                         uint32_t index) {
+  const MultiplexGxCommand *command = &packet->shape_commands[index];
+  if (is_ambient_background(command)) return;
+  set_text_scissor(command);
+  GXColor color = command_color(command->color_rgba);
+  if (modal_surface.visible != 0 && command->kind == MULTIPLEX_GX_FILL_RECT &&
+      command->x <= 0.0f && command->y <= 0.0f &&
+      command->width >= LOGICAL_WIDTH && command->height >= LOGICAL_HEIGHT &&
+      color.a > 0u && color.a < 96u) {
+    color.a = 176u;
+  }
+  const float left = command->x;
+  const float top = command->y;
+  const float right = left + command->width;
+  const float bottom = top + command->height;
+  switch (command->kind) {
     case MULTIPLEX_GX_FILL_RECT:
       fill_rect(left, top, right, bottom, color);
       break;
@@ -3965,7 +4082,7 @@ static void draw_native_shapes(void) {
       break;
     case MULTIPLEX_GX_STROKE_RECT:
       stroke_rounded_color_rect(
-          left, top, right, bottom, native_stroke_radius(index, command),
+          left, top, right, bottom, native_stroke_radius(packet, index, command),
           command->stroke_width, color);
       break;
     case MULTIPLEX_GX_LINE: {
@@ -4010,9 +4127,18 @@ static void draw_native_shapes(void) {
       color_vertex(command->width, command->height, color);
       GX_End();
       break;
-    default:
-      break;
-    }
+  default:
+    break;
+  }
+}
+
+static void draw_native_shapes_packet(const NativeUiPacket *packet) {
+  if (packet->shape_command_count == 0) return;
+  configure_color_pipeline();
+  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
+                  GX_LO_CLEAR);
+  for (uint32_t index = 0; index < packet->shape_command_count; ++index) {
+    draw_native_shape_command_at(packet, index);
   }
   GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
 }
@@ -4183,6 +4309,45 @@ static void draw_rounded_poster(const MultiplexPosterSurface *surface) {
                      1.0f);
 }
 
+static MultiplexPosterSurface poster_display_surface(
+    const MultiplexPosterSurface *surface) {
+  MultiplexPosterSurface display = *surface;
+  if (surface->width < 68.0f) display.width = 68.0f;
+  if (surface->height < 102.0f) display.height = 102.0f;
+  return display;
+}
+
+static MultiplexPosterSurface poster_clip_surface(
+    const MultiplexPosterSurface *surface) {
+  MultiplexPosterSurface clip = *surface;
+  if (surface->width < 68.0f || surface->height < 102.0f) {
+    clip.has_clip = 1u;
+    clip.clip_x = surface->x;
+    clip.clip_y = surface->y;
+    clip.clip_width = surface->width;
+    clip.clip_height = surface->height;
+  }
+  return clip;
+}
+
+static void draw_poster_surface_set(const MultiplexPosterSurface *surfaces,
+                                    uint32_t count) {
+  if (poster_texture_count == 0) return;
+  configure_ui_pipeline();
+  for (uint32_t index = 0; index < count; ++index) {
+    const MultiplexPosterSurface *surface = &surfaces[index];
+    if (surface->image_id == 0 || surface->image_id > poster_texture_count) {
+      continue;
+    }
+    const MultiplexPosterSurface clip = poster_clip_surface(surface);
+    const MultiplexPosterSurface display = poster_display_surface(surface);
+    set_poster_scissor(&clip);
+    GX_LoadTexObj(&poster_textures[surface->image_id - 1u], GX_TEXMAP0);
+    draw_rounded_poster(&display);
+  }
+  GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
+}
+
 static void draw_poster_surfaces(void) {
   if (poster_texture_count == 0) {
     return;
@@ -4193,6 +4358,9 @@ static void draw_poster_surfaces(void) {
     if (surface->image_id == 0 || surface->image_id > poster_texture_count) {
       continue;
     }
+    const MultiplexPosterSurface clip = poster_clip_surface(surface);
+    const MultiplexPosterSurface display = poster_display_surface(surface);
+    set_poster_scissor(&clip);
     GX_LoadTexObj(&poster_textures[surface->image_id - 1u], GX_TEXMAP0);
     if (surface->focused != 0) {
       const float progress =
@@ -4201,7 +4369,7 @@ static void draw_poster_surfaces(void) {
               : (float)poster_focus_frame / (float)(POSTER_FOCUS_FRAMES - 1u);
       const float remaining = 1.0f - progress;
       const float eased = 1.0f - remaining * remaining * remaining;
-      MultiplexPosterSurface lifted = *surface;
+      MultiplexPosterSurface lifted = display;
       lifted.x -= eased * 2.0f;
       lifted.y -= eased * 3.0f;
       lifted.width += eased * 4.0f;
@@ -4209,7 +4377,7 @@ static void draw_poster_surfaces(void) {
       lifted.radius += eased;
       draw_rounded_poster(&lifted);
     } else {
-      draw_rounded_poster(surface);
+      draw_rounded_poster(&display);
     }
   }
   bool configured_reveals = false;
@@ -4223,6 +4391,7 @@ static void draw_poster_surfaces(void) {
     if (remaining == 0) {
       continue;
     }
+    set_poster_scissor(surface);
     if (!configured_reveals) {
       configure_color_pipeline();
       GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
@@ -4238,6 +4407,7 @@ static void draw_poster_surfaces(void) {
   }
   for (uint32_t index = 0; index < poster_surface_count; ++index) {
     const MultiplexPosterSurface *surface = &poster_surfaces[index];
+    set_poster_scissor(surface);
     if (surface->focused == 0 && focused_poster_x >= 0.0f) {
       configure_color_pipeline();
       GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
@@ -4272,6 +4442,112 @@ static void draw_poster_surfaces(void) {
   if (poster_focus_frame < POSTER_FOCUS_FRAMES) {
     poster_focus_frame += 1u;
   }
+  GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
+}
+
+static void draw_packet_shapes_region(const NativeUiPacket *packet,
+                                      float top, float bottom, float x,
+                                      float y) {
+  set_ui_draw_clip(0.0f, top, LOGICAL_WIDTH, bottom);
+  load_ui_translation_xy(x, y);
+  draw_native_shapes_packet(packet);
+}
+
+static void draw_packet_posters_region(
+    const MultiplexPosterSurface *surfaces, uint32_t count, float top,
+    float bottom, float x, float y) {
+  set_ui_draw_clip(0.0f, top, LOGICAL_WIDTH, bottom);
+  load_ui_translation_xy(x, y);
+  draw_poster_surface_set(surfaces, count);
+}
+
+static void draw_packet_text_region(const NativeUiPacket *packet, float top,
+                                    float bottom, float x, float y) {
+  set_ui_draw_clip(0.0f, top, LOGICAL_WIDTH, bottom);
+  load_ui_translation_xy(x, y);
+  draw_native_text_packet(packet);
+}
+
+static void draw_home_motion(void) {
+  const float progress = HOME_MOTION_FRAMES <= 1u
+                             ? 1.0f
+                             : (float)home_motion_frame /
+                                   (float)(HOME_MOTION_FRAMES - 1u);
+  const float eased = progress * progress * (3.0f - 2.0f * progress);
+  const float direction = (float)home_motion_direction;
+  float previous_x = 0.0f;
+  float previous_y = 0.0f;
+  float current_x = 0.0f;
+  float current_y = 0.0f;
+  float moving_bottom = LOGICAL_HEIGHT;
+
+  if (home_motion_kind == HOME_MOTION_HORIZONTAL) {
+    previous_x = -direction * HOME_CARD_STRIDE * eased;
+    current_x = direction * HOME_CARD_STRIDE * (1.0f - eased);
+    moving_bottom = HOME_ACTIVE_SHELF_BOTTOM;
+  } else {
+    previous_y = -direction * HOME_SHELF_STRIDE * eased;
+    current_y = direction * HOME_SHELF_STRIDE * (1.0f - eased);
+  }
+
+  draw_packet_shapes_region(&presented_ui_packet, 0.0f, HOME_CONTENT_TOP,
+                            0.0f, 0.0f);
+  if (home_motion_kind == HOME_MOTION_HORIZONTAL) {
+    draw_packet_shapes_region(&presented_ui_packet, moving_bottom,
+                              LOGICAL_HEIGHT, 0.0f, 0.0f);
+  }
+  draw_packet_shapes_region(&home_motion_previous_packet, HOME_CONTENT_TOP,
+                            moving_bottom, previous_x, previous_y);
+  draw_packet_shapes_region(&presented_ui_packet, HOME_CONTENT_TOP,
+                            moving_bottom, current_x, current_y);
+
+  if (home_motion_kind == HOME_MOTION_HORIZONTAL) {
+    draw_packet_posters_region(poster_surfaces, poster_surface_count,
+                               moving_bottom, LOGICAL_HEIGHT, 0.0f, 0.0f);
+  }
+  draw_packet_posters_region(home_motion_previous_surfaces,
+                             home_motion_previous_surface_count,
+                             HOME_CONTENT_TOP, moving_bottom, previous_x,
+                             previous_y);
+  draw_packet_posters_region(poster_surfaces, poster_surface_count,
+                             HOME_CONTENT_TOP, moving_bottom, current_x,
+                             current_y);
+
+  draw_packet_text_region(&presented_ui_packet, 0.0f, HOME_CONTENT_TOP, 0.0f,
+                          0.0f);
+  if (home_motion_kind == HOME_MOTION_HORIZONTAL) {
+    draw_packet_text_region(&presented_ui_packet, moving_bottom,
+                            LOGICAL_HEIGHT, 0.0f, 0.0f);
+  }
+  draw_packet_text_region(&home_motion_previous_packet, HOME_CONTENT_TOP,
+                          moving_bottom, previous_x, previous_y);
+  draw_packet_text_region(&presented_ui_packet, HOME_CONTENT_TOP,
+                          moving_bottom, current_x, current_y);
+
+  clear_ui_draw_clip();
+  load_ui_translation_xy(0.0f, 0.0f);
+  GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
+  if (home_motion_frame + 1u >= HOME_MOTION_FRAMES) {
+    home_motion_frame = HOME_MOTION_FRAMES;
+    home_motion_kind = HOME_MOTION_NONE;
+    SYS_Report("REFERENCE GX: home motion complete\n");
+  } else {
+    home_motion_frame += 1u;
+  }
+}
+
+static uint32_t modal_layer_sequence(const NativeUiPacket *packet) {
+  if (modal_surface.visible == 0) return UINT32_MAX;
+  for (uint32_t index = 0; index < packet->shape_command_count; ++index) {
+    const MultiplexGxCommand *command = &packet->shape_commands[index];
+    const uint8_t alpha = (uint8_t)command->color_rgba;
+    if (command->kind == MULTIPLEX_GX_FILL_RECT && command->x <= 0.0f &&
+        command->y <= 0.0f && command->width >= LOGICAL_WIDTH &&
+        command->height >= LOGICAL_HEIGHT && alpha > 0u && alpha < 96u) {
+      return packet->shape_sequences[index];
+    }
+  }
+  return UINT32_MAX;
 }
 
 static void draw_video_surface(void) {
@@ -4427,6 +4703,74 @@ draw_playback_progress(const MultiplexGatewayPlaybackManifest *manifest) {
   GX_SetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_CLEAR);
 }
 
+typedef enum {
+  UI_PIPELINE_NONE = 0,
+  UI_PIPELINE_SHAPE = 1,
+  UI_PIPELINE_TEXT = 2,
+} UiPipeline;
+
+static void draw_native_packet_ordered(
+    const NativeUiPacket *packet,
+    const MultiplexGatewayPlaybackManifest *playback_manifest) {
+  uint32_t shape_index = 0;
+  uint32_t text_index = 0;
+  const uint32_t modal_sequence = modal_layer_sequence(packet);
+  uint32_t poster_sequence = UINT32_MAX;
+  if (packet->text_command_count != 0) {
+    poster_sequence = packet->text_sequences[0];
+  }
+  if (modal_sequence < poster_sequence) poster_sequence = modal_sequence;
+
+  bool posters_drawn = poster_surface_count == 0;
+  bool progress_drawn = false;
+  UiPipeline pipeline = UI_PIPELINE_NONE;
+  while (shape_index < packet->shape_command_count ||
+         text_index < packet->text_command_count) {
+    const uint32_t shape_sequence =
+        shape_index < packet->shape_command_count
+            ? packet->shape_sequences[shape_index]
+            : UINT32_MAX;
+    const uint32_t text_sequence =
+        text_index < packet->text_command_count
+            ? packet->text_sequences[text_index]
+            : UINT32_MAX;
+    const uint32_t next_sequence =
+        shape_sequence < text_sequence ? shape_sequence : text_sequence;
+
+    if (!posters_drawn && next_sequence >= poster_sequence) {
+      draw_poster_surfaces();
+      posters_drawn = true;
+      pipeline = UI_PIPELINE_NONE;
+    }
+    if (!progress_drawn && modal_sequence != UINT32_MAX &&
+        next_sequence >= modal_sequence) {
+      draw_playback_progress(playback_manifest);
+      progress_drawn = true;
+      pipeline = UI_PIPELINE_NONE;
+    }
+
+    if (shape_sequence < text_sequence) {
+      if (pipeline != UI_PIPELINE_SHAPE) {
+        configure_color_pipeline();
+        GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
+                        GX_LO_CLEAR);
+        pipeline = UI_PIPELINE_SHAPE;
+      }
+      draw_native_shape_command_at(packet, shape_index++);
+    } else {
+      if (pipeline != UI_PIPELINE_TEXT) {
+        configure_font_pipeline();
+        pipeline = UI_PIPELINE_TEXT;
+      }
+      draw_native_text_command_at(packet, text_index++);
+    }
+  }
+
+  if (!posters_drawn) draw_poster_surfaces();
+  if (!progress_drawn) draw_playback_progress(playback_manifest);
+  GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
+}
+
 static void
 present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
   if (native_frame_dirty && reference_renderer.thread == LWP_THREAD_NULL) {
@@ -4460,15 +4804,15 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
       entry_offset = 6.0f * remaining * remaining * remaining;
       ui_entry_frame += 1u;
     }
-    load_ui_translation(entry_offset);
-    draw_native_shapes();
-    draw_reference_frame();
-    if (modal_surface.visible == 0) {
-      draw_poster_surfaces();
+    if (home_motion_kind != HOME_MOTION_NONE &&
+        presented_screen == MULTIPLEX_SCREEN_HOME) {
+      draw_home_motion();
+    } else {
+      load_ui_translation(entry_offset);
+      draw_reference_frame();
+      draw_native_packet_ordered(&presented_ui_packet, playback_manifest);
+      load_ui_translation(0.0f);
     }
-    draw_native_text();
-    draw_playback_progress(playback_manifest);
-    load_ui_translation(0.0f);
   }
   draw_activity();
   GX_CopyDisp(framebuffers[framebuffer_index], GX_TRUE);
@@ -6063,9 +6407,13 @@ static void *run_app(void *unused) {
 #endif
     pause_audio_for_player_input(pressed, &playback_manifest);
     bool app_changed = false;
-    if (stick_navigation != UINT32_MAX &&
-        multiplex_native_app_input(stick_navigation) != 0) {
-      app_changed = true;
+    if (stick_navigation != UINT32_MAX) {
+      const uint32_t home_view_before = multiplex_native_app_home_view_state();
+      if (multiplex_native_app_input(stick_navigation) != 0) {
+        const uint32_t home_view_after = multiplex_native_app_home_view_state();
+        begin_home_motion(home_view_before, home_view_after);
+        app_changed = true;
+      }
     }
     if ((pressed & PAD_BUTTON_LEFT) != 0 &&
         multiplex_native_app_input(12) != 0) {
