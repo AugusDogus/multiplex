@@ -193,6 +193,24 @@ wait_for_count() {
   exit 1
 }
 
+wait_for_player_controls_state() {
+  expected=$1
+  seconds=${2:-10}
+  attempt=0
+  max_attempts=$((seconds * 10))
+  while [ "$attempt" -lt "$max_attempts" ]; do
+    current=$(sed -n \
+      's/.*player controls visible=\([01]\).*/\1/p' "$log" | tail -1)
+    if [ "$current" = "$expected" ]; then
+      return
+    fi
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  echo "Timed out waiting for player controls visible=$expected." >&2
+  exit 1
+}
+
 wait_for_stable_presentation() {
   seconds=${1:-90}
   attempt=0
@@ -534,12 +552,7 @@ playback_scenario() {
   wait_for_count 'playback=playing' "$playing_before" 30
   capture_screenshot playback-controls-initial
 
-  controls_state=$(sed -n \
-    's/.*player controls visible=\([01]\).*/\1/p' "$log" | tail -1)
-  if [ "$controls_state" != 0 ]; then
-    hidden_before=$(line_count 'player controls visible=0')
-    wait_for_count 'player controls visible=0' "$hidden_before" 30
-  fi
+  wait_for_player_controls_state 0 90
   capture_screenshot playback-fullscreen
 
   visible_before=$(line_count 'player controls visible=1')
