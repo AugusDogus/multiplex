@@ -143,6 +143,7 @@ static GXTexObj font_texture;
 static GXTexObj poster_textures[POSTER_TEXTURE_COUNT];
 static uint8_t *poster_texture_pixels;
 static uint16_t poster_texture_count;
+static uint32_t poster_texture_rating_keys[POSTER_TEXTURE_COUNT];
 static MultiplexVideoSurface video_surface;
 static MultiplexPlayerControlsSurface player_controls_surface;
 static MultiplexModalSurface modal_surface;
@@ -260,6 +261,7 @@ typedef struct {
 typedef struct {
   const MultiplexAuthCredentials *credentials;
   MultiplexGatewayItem items[MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS];
+  uint16_t texture_slots[MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS];
   lwp_t thread;
   void *stack;
   uint8_t *decoded_pixels;
@@ -271,6 +273,8 @@ typedef struct {
   volatile uint16_t item_index;
   volatile uint16_t decoded_count;
   uint16_t item_count;
+  uint16_t requested_count;
+  uint16_t cache_hits;
   uint16_t texture_offset;
 } DirectPosterLoader;
 
@@ -1391,8 +1395,10 @@ static bool launch_direct_poster_loader(DirectPosterLoader *loader) {
   }
   loader->pending = false;
   SYS_Report(
-      "REFERENCE GX: direct Plex poster loader started items=%u offset=%u\n",
-      loader->item_count, loader->texture_offset);
+      "REFERENCE GX: direct Plex poster loader started items=%u cached=%u "
+      "requested=%u offset=%u\n",
+      loader->item_count, loader->cache_hits, loader->requested_count,
+      loader->texture_offset);
   return true;
 }
 
@@ -1419,17 +1425,45 @@ static bool queue_direct_poster_loader(
     memset(poster_texture_pixels, 0, total_bytes);
     DCFlushRange(poster_texture_pixels, total_bytes);
   }
+  const uint16_t target_end = texture_offset + item_count;
+  uint16_t download_count = 0;
   for (uint16_t index = 0; index < item_count; ++index) {
+    const uint16_t target_slot = texture_offset + index;
     uint8_t *pixels =
         poster_texture_pixels +
-        (size_t)(texture_offset + index) * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
-    fill_poster_fallback(pixels, items[index].rating_key);
-    GX_InitTexObj(&poster_textures[texture_offset + index], pixels,
+        (size_t)target_slot * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+    uint16_t cached_slot = UINT16_MAX;
+    for (uint16_t slot = 0; slot < poster_texture_count; ++slot) {
+      const bool stable_source = slot < texture_offset || slot >= target_end ||
+                                 slot == target_slot;
+      if (stable_source &&
+          poster_texture_rating_keys[slot] == items[index].rating_key) {
+        cached_slot = slot;
+        break;
+      }
+    }
+    if (cached_slot != UINT16_MAX) {
+      if (cached_slot != target_slot) {
+        memcpy(pixels,
+               poster_texture_pixels +
+                   (size_t)cached_slot * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES,
+               MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
+      }
+      poster_texture_rating_keys[target_slot] = items[index].rating_key;
+      ++loader->cache_hits;
+    } else {
+      fill_poster_fallback(pixels, items[index].rating_key);
+      poster_texture_rating_keys[target_slot] = 0;
+      loader->items[download_count] = items[index];
+      loader->texture_slots[download_count] = target_slot;
+      ++download_count;
+    }
+    GX_InitTexObj(&poster_textures[target_slot], pixels,
                   MULTIPLEX_GATEWAY_ARTWORK_WIDTH,
                   MULTIPLEX_GATEWAY_ARTWORK_HEIGHT, GX_TF_RGB565, GX_CLAMP,
                   GX_CLAMP, GX_FALSE);
-    GX_InitTexObjLOD(&poster_textures[texture_offset + index], GX_LINEAR,
-                     GX_LINEAR, 0, 0, 0, GX_FALSE, GX_FALSE, GX_ANISO_1);
+    GX_InitTexObjLOD(&poster_textures[target_slot], GX_LINEAR, GX_LINEAR, 0, 0,
+                     0, GX_FALSE, GX_FALSE, GX_ANISO_1);
   }
   DCFlushRange(poster_texture_pixels + (size_t)texture_offset *
                                            MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES,
@@ -1439,11 +1473,15 @@ static bool queue_direct_poster_loader(
     poster_texture_count = texture_count;
   }
   loader->credentials = credentials;
-  memcpy(loader->items, items,
-         (size_t)item_count * sizeof(MultiplexGatewayItem));
-  loader->item_count = item_count;
+  loader->item_count = download_count;
+  loader->requested_count = item_count;
   loader->texture_offset = texture_offset;
-  loader->pending = true;
+  loader->pending = download_count != 0;
+  if (download_count == 0) {
+    SYS_Report("REFERENCE GX: direct Plex posters reused=%u/%u\n",
+               loader->cache_hits, loader->requested_count);
+    return true;
+  }
   return !launch_now || launch_direct_poster_loader(loader);
 }
 
@@ -1454,11 +1492,15 @@ static void poll_direct_poster_loader(DirectPosterLoader *loader) {
   if (loader->item_ready) {
     __sync_synchronize();
     if (loader->item_decoded) {
+      const uint16_t texture_slot =
+          loader->texture_slots[loader->item_index];
       uint8_t *pixels = poster_texture_pixels +
-                        (size_t)(loader->texture_offset + loader->item_index) *
+                        (size_t)texture_slot *
                             MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
       memcpy(pixels, loader->decoded_pixels,
              MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
+      poster_texture_rating_keys[texture_slot] =
+          loader->items[loader->item_index].rating_key;
       DCFlushRange(pixels, MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
       GX_InvalidateTexAll();
     }
@@ -1474,8 +1516,11 @@ static void poll_direct_poster_loader(DirectPosterLoader *loader) {
   loader->decoded_pixels = NULL;
   free(loader->stack);
   loader->stack = NULL;
-  SYS_Report("REFERENCE GX: direct Plex posters decoded=%u/%u\n",
-             loader->decoded_count, loader->item_count);
+  SYS_Report(
+      "REFERENCE GX: direct Plex posters decoded=%u downloaded=%u cached=%u "
+      "requested=%u\n",
+      loader->decoded_count, loader->item_count, loader->cache_hits,
+      loader->requested_count);
 }
 
 static void stop_direct_poster_loader(DirectPosterLoader *loader) {
