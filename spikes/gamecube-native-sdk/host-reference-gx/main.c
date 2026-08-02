@@ -1093,7 +1093,7 @@ static bool launch_reference_renderer(void) {
   if (LWP_CreateThread(&reference_renderer.thread, run_reference_renderer,
                        &reference_renderer, reference_renderer.stack,
                        REFERENCE_RENDERER_STACK_SIZE,
-                       LWP_PRIO_NORMAL / 2) != 0) {
+                       LWP_PRIO_NORMAL - 16u) != 0) {
     free(reference_renderer.stack);
     reference_renderer.stack = NULL;
     reference_renderer.thread = LWP_THREAD_NULL;
@@ -4606,7 +4606,7 @@ static void *run_app(void *unused) {
       }
       if (!queue_direct_poster_loader(&direct_home_poster_loader,
                                       &auth_credentials, catalog.items,
-                                      catalog.total_item_count, 0, true)) {
+                                      catalog.total_item_count, 0, false)) {
         SYS_Report("REFERENCE GX: direct Plex artwork unavailable; using "
                    "placeholders\n");
       }
@@ -4623,6 +4623,10 @@ static void *run_app(void *unused) {
       return (void *)(uintptr_t)1;
     }
     network_activity_visible = false;
+    if (has_catalog && direct_home_poster_loader.pending &&
+        !launch_direct_poster_loader(&direct_home_poster_loader)) {
+      SYS_Report("REFERENCE GX: direct Plex artwork launch deferred\n");
+    }
     SYS_Report("REFERENCE GX: interactive home ready us=%u\n",
                elapsed_us(app_started));
   }
