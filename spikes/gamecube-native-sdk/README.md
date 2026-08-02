@@ -15,6 +15,7 @@ bun run spike:gamecube:bootstrap
 bun run spike:gamecube:check
 bun run spike:gamecube:reference:dol
 bun run spike:gamecube:reference:run
+bun run spike:gamecube:launch
 bun run spike:gamecube:reference:log-check
 bun run spike:gamecube:reference:smoke-player
 bun run spike:gamecube:reference:smoke-http-tap
@@ -200,9 +201,13 @@ behavior adapted from WiiMC-GCN's libwiigui. On Search, D-pad left/right moves
 the query cursor, X deletes before it, and R submits. Z opens Search, Y opens
 Libraries, and X advances the home hub outside Search.
 
-For focus-free manual QA, `bun run spike:gamecube:qa -- launch` starts Portless
-when needed, builds the linked Plex DOL, and opens an interactive TAP-backed
-Dolphin session. `navigate right` moves the analog stick once and `press a`
+For manual use, `bun run spike:gamecube:launch` starts Portless when needed,
+builds the linked Plex DOL, and opens an interactive TAP-backed Dolphin
+session. Do not launch the linked DOL with bare `dolphin-emu --exec`: its TAP
+profile requires the rootless network environment created by this launcher.
+
+For focus-free manual QA, `bun run spike:gamecube:qa -- launch` starts the same
+interactive session. `navigate right` moves the analog stick once and `press a`
 sends a button through that same pipe.
 `status`, `check`, and `screenshot [name]` expose the current render telemetry,
 validate the Dolphin log, and capture the emulated framebuffer without

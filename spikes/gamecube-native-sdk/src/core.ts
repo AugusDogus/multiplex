@@ -66,6 +66,7 @@ export interface Model {
   readonly gatewayConnected: boolean;
   readonly gatewayName: Uint8Array;
   readonly pairingEnabled: boolean;
+  readonly pairingConnecting: boolean;
   readonly pairingWaiting: boolean;
   readonly pairingLinked: boolean;
   readonly pairingUnavailable: boolean;
@@ -339,6 +340,7 @@ export function initialModel(): Model {
     gatewayConnected: false,
     gatewayName: asciiBytes("Demo library"),
     pairingEnabled: false,
+    pairingConnecting: false,
     pairingWaiting: false,
     pairingLinked: false,
     pairingUnavailable: false,
@@ -457,6 +459,7 @@ export function loadPairing(
     ...model,
     screen: linked && model.gatewayConnected ? "home" : "pairing",
     pairingEnabled: true,
+    pairingConnecting: status === 4,
     pairingWaiting: status === 1,
     pairingLinked: linked,
     pairingUnavailable: status === 3,

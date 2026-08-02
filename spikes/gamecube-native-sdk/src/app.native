@@ -71,6 +71,10 @@
   <if test="{screen == 'pairing'}">
     <column grow="1" main="center" cross="center" gap="12" label="Pair with Multiplex">
       <if test="{pairingEnabled}">
+        <if test="{pairingConnecting}">
+          <text size="heading">Connecting to Multiplex</text>
+          <text foreground="text_muted">GameCube networking requires a Broadband Adapter and Ethernet connection.</text>
+        </if>
         <if test="{pairingWaiting}">
           <badge variant="secondary">Link this GameCube</badge>
           <text foreground="text_muted">On another device, open</text>
@@ -88,8 +92,8 @@
           <text foreground="text_muted">Loading your Multiplex home...</text>
         </if>
         <if test="{pairingUnavailable}">
-          <text size="heading">Multiplex is unavailable</text>
-          <text foreground="text_muted">Check the gateway connection. This screen will retry automatically.</text>
+          <text size="heading">Network unavailable</text>
+          <text foreground="text_muted">Check the Broadband Adapter and Ethernet connection, then restart Multiplex.</text>
         </if>
       </if>
       <if test="{pairingDemo}">

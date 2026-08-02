@@ -540,7 +540,7 @@ export fn multiplex_native_app_pairing_status(
     link_url: [*]const u8,
     link_url_length: u32,
 ) callconv(.c) u32 {
-    if (!app_initialized or status < 1 or status > 3) return 0;
+    if (!app_initialized or status < 1 or status > 4) return 0;
     if (status == 1 and (code_length != 4 or link_url_length == 0)) return 0;
     commitAppModel(core.loadPairing(
         app_model,

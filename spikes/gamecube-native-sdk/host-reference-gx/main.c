@@ -75,6 +75,7 @@
 #define DIRECT_PLAYBACK_END_MARGIN_MS 64u
 #define PLAYER_CONTROLS_IDLE_MS 4000u
 #define PLAYER_CONTROLS_FADE_MS 180u
+#define MULTIPLEX_PAIRING_CONNECTING 4u
 #define POSTER_JPEG_CAPACITY (256u * 1024u)
 #define PLEX_POSTER_JPEG_CAPACITY (32u * 1024u)
 #define HOME_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS
@@ -3203,6 +3204,21 @@ static void *run_app(void *unused) {
   char hosted_watch_together_room_id[MULTIPLEX_TRPC_ROOM_ID_CAPACITY] = "";
   uint32_t hosted_watch_together_invitee_user_id = 0;
 #endif
+  multiplex_native_app_init();
+#if MULTIPLEX_PAIRING_ENABLED
+  if (multiplex_native_app_pairing_status(
+          MULTIPLEX_PAIRING_CONNECTING, (const uint8_t *)"", 0,
+          (const uint8_t *)"", 0) == 0) {
+    SYS_Report("REFERENCE GX: failed to bind network startup status\n");
+    return (void *)(uintptr_t)1;
+  }
+#endif
+  initialize_textures();
+  if (!refresh_reference_frame(false)) {
+    return (void *)(uintptr_t)1;
+  }
+  present_frame(&playback_manifest);
+
   bool has_catalog =
       MULTIPLEX_GATEWAY_URL[0] != '\0' &&
       multiplex_gateway_load_catalog(MULTIPLEX_GATEWAY_URL, &catalog);
@@ -3211,7 +3227,6 @@ static void *run_app(void *unused) {
     SYS_Report(
         "REFERENCE GX: gateway artwork unavailable; using placeholders\n");
   }
-  multiplex_native_app_init();
   if (has_catalog && !bind_catalog_to_app(&catalog)) {
     return (void *)(uintptr_t)1;
   }
@@ -3266,6 +3281,8 @@ static void *run_app(void *unused) {
     SYS_Report("REFERENCE GX: failed to bind device authorization status\n");
     return (void *)(uintptr_t)1;
   }
+  native_frame_dirty = true;
+  present_frame(&playback_manifest);
   bool pairing_linked = device_auth.status == MULTIPLEX_DEVICE_AUTH_LINKED;
   bool auth_reset_latched = false;
   uint32_t pairing_poll_frames = 0;
@@ -3307,7 +3324,6 @@ static void *run_app(void *unused) {
   } else if (!open_initial_media_session(&client, &demux)) {
     return (void *)(uintptr_t)1;
   }
-  initialize_textures();
   if (!refresh_reference_frame(false)) {
     close_media_session(&client, &demux);
     return (void *)(uintptr_t)1;
