@@ -890,6 +890,16 @@ export function catalogPreviewHasHierarchy(model: Model): boolean {
   return catalogPreviewItem(model).hasHierarchy;
 }
 
+export function catalogPreviewHasProgress(model: Model): boolean {
+  const item = catalogPreviewItem(model);
+  return item.progressPercent > 0 && item.progressPercent < 100;
+}
+
+export function catalogPreviewRemainingMinutes(model: Model): number {
+  const item = catalogPreviewItem(model);
+  return Math.max(1, intDiv(Math.max(0, item.durationMs - item.viewOffsetMs), 60_000));
+}
+
 export function previewCatalogItem(model: Model, index: number): Model {
   const items = catalogItems(model);
   if (index < 0 || index >= items.length) return model;
@@ -909,6 +919,18 @@ export function previewCatalogItem(model: Model, index: number): Model {
 
 export function visibleRowTitle(model: Model): Uint8Array {
   return model.rows[model.rowIndex].title;
+}
+
+export function homeHasNextShelf(model: Model): boolean {
+  return model.rowIndex + 1 < model.rows.length;
+}
+
+export function homeNextShelfTitle(model: Model): Uint8Array {
+  return homeHasNextShelf(model) ? model.rows[model.rowIndex + 1].title : new Uint8Array(0);
+}
+
+export function homeNextShelfItems(model: Model): readonly CatalogItem[] {
+  return homeHasNextShelf(model) ? model.rows[model.rowIndex + 1].items : [];
 }
 
 export function rowCount(model: Model): number {

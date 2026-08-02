@@ -105,7 +105,7 @@
   </if>
 
   <if test="{screen == 'home'}">
-    <column grow="1" gap="8">
+    <column grow="1" gap="6">
       <column height="46" gap="2">
         <text size="heading" wrap="false">{catalogPreviewTitle}</text>
         <row gap="8" cross="center">
@@ -113,39 +113,47 @@
           <if test="{catalogPreviewHasHierarchy}">
             <text size="sm" foreground="text_muted">{catalogPreviewHierarchy}</text>
           </if>
+          <if test="{catalogPreviewHasProgress}">
+            <text size="sm" foreground="text_muted">{catalogPreviewRemainingMinutes} min left</text>
+          </if>
         </row>
       </column>
       <row cross="center">
         <text label="{visibleRowTitle}"><span weight="bold">{visibleRowTitle}</span></text>
-        <spacer grow="1" />
-        <text size="sm" foreground="text_muted">Page {rowNumber} of {rowCount}</text>
       </row>
-      <row gap="8" main="center" cross="start">
-        <column width="34" height="186" main="center">
-          <button width="34" size="sm" icon="chevron-left" variant="ghost" on-press="previous_row" disabled="{rowPreviousDisabled}" label="Previous page"></button>
-        </column>
-        <row grow="1" gap="8" main="center">
+      <row height="130" gap="10" main="center" cross="start">
+        <row gap="10" main="center">
           <for each="visibleItems" as="item" key="ratingKey">
-            <column width="124" gap="4" on-press="open_item:{item.id}" label="{item.title}">
-              <image image="{item.imageId}" width="124" height="186" radius="lg" label="{item.title}" />
+            <column width="84" gap="3" on-press="open_item:{item.id}" label="{item.title}">
+              <image image="{item.imageId}" width="84" height="126" radius="lg" label="{item.title}" />
               <if test="{item.progressPercent > 0 and item.progressPercent < 100}">
-                <progress value="{item.progressPercent / 100}" height="4" />
+                <progress value="{item.progressPercent / 100}" height="3" />
               </if>
               <else>
-                <spacer height="4" />
+                <spacer height="3" />
               </else>
-              <text size="sm" wrap="false">{item.title}</text>
-              <text size="sm" foreground="text_muted" wrap="false">{item.secondary}</text>
-              <if test="{item.hasHierarchy}">
-                <text size="sm" foreground="text_muted" wrap="false">{item.hierarchy}</text>
-              </if>
             </column>
           </for>
         </row>
-        <column width="34" height="186" main="center">
-          <button width="34" size="sm" icon="chevron-right" variant="ghost" on-press="next_row" disabled="{rowNextDisabled}" label="Next page"></button>
-        </column>
       </row>
+      <if test="{homeHasNextShelf}">
+        <row cross="center">
+          <text label="{homeNextShelfTitle}"><span weight="bold">{homeNextShelfTitle}</span></text>
+        </row>
+        <row height="130" gap="10" main="center" cross="start">
+          <for each="homeNextShelfItems" as="item" key="ratingKey">
+            <column width="84" gap="3">
+              <image image="{item.imageId}" width="84" height="126" radius="lg" label="{item.title}" />
+              <if test="{item.progressPercent > 0 and item.progressPercent < 100}">
+                <progress value="{item.progressPercent / 100}" height="3" />
+              </if>
+              <else>
+                <spacer height="3" />
+              </else>
+            </column>
+          </for>
+        </row>
+      </if>
     </column>
   </if>
 
@@ -224,6 +232,9 @@
               <if test="{catalogPreviewHasHierarchy}">
                 <text size="sm" foreground="text_muted">{catalogPreviewHierarchy}</text>
               </if>
+              <if test="{catalogPreviewHasProgress}">
+                <text size="sm" foreground="text_muted">{catalogPreviewRemainingMinutes} min left</text>
+              </if>
             </row>
           </column>
           <row grow="1" gap="8" main="center">
@@ -276,6 +287,9 @@
               <text size="sm" foreground="text_muted" wrap="false">{catalogPreviewSecondary}</text>
               <if test="{catalogPreviewHasHierarchy}">
                 <text size="sm" foreground="text_muted">{catalogPreviewHierarchy}</text>
+              </if>
+              <if test="{catalogPreviewHasProgress}">
+                <text size="sm" foreground="text_muted">{catalogPreviewRemainingMinutes} min left</text>
               </if>
             </row>
           </column>

@@ -107,8 +107,11 @@ var reference_render_memo_initialized = false;
 var video_surface: VideoSurface = .{};
 var player_controls_surface: PlayerControlsSurface = .{};
 var modal_surface: ModalSurface = .{};
-var poster_surfaces: [4]PosterSurface = [_]PosterSurface{.{}} ** 4;
-var poster_card_ids: [4]canvas.ObjectId = [_]canvas.ObjectId{0} ** 4;
+const poster_surface_capacity = 8;
+var poster_surfaces: [poster_surface_capacity]PosterSurface =
+    [_]PosterSurface{.{}} ** poster_surface_capacity;
+var poster_card_ids: [poster_surface_capacity]canvas.ObjectId =
+    [_]canvas.ObjectId{0} ** poster_surface_capacity;
 var poster_surface_count: u32 = 0;
 var reference_text_overlay_enabled = false;
 
@@ -394,8 +397,8 @@ fn initializeApp() void {
     video_surface = .{};
     player_controls_surface = .{};
     modal_surface = .{};
-    poster_surfaces = [_]PosterSurface{.{}} ** 4;
-    poster_card_ids = [_]canvas.ObjectId{0} ** 4;
+    poster_surfaces = [_]PosterSurface{.{}} ** poster_surface_capacity;
+    poster_card_ids = [_]canvas.ObjectId{0} ** poster_surface_capacity;
     poster_surface_count = 0;
 }
 
@@ -1634,7 +1637,23 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 layout.nodes,
                 horizontal,
                 vertical,
-            )) return 0;
+            )) {
+                if (model.screen == .home and action == 9 and !core.rowNextDisabled(model)) {
+                    commitAppModel(core.update(model, .next_row));
+                    focused_handler = invalid_focused_handler;
+                    reference_full_repaint = true;
+                    multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 3);
+                    return 1;
+                }
+                if (model.screen == .home and action == 8 and !core.rowPreviousDisabled(model)) {
+                    commitAppModel(core.update(model, .previous_row));
+                    focused_handler = invalid_focused_handler;
+                    reference_full_repaint = true;
+                    multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 2);
+                    return 1;
+                }
+                return 0;
+            }
             const focused_msg = tree.msgFor(press_ids[focused_handler], .press) orelse return 0;
             switch (focused_msg) {
                 .open_item => |index| {
@@ -2186,8 +2205,8 @@ fn captureModalSurface(nodes: []const canvas.WidgetLayoutNode, model: *const cor
 }
 
 fn capturePosterSurfaces(nodes: []const canvas.WidgetLayoutNode, focused_id: ?canvas.ObjectId) void {
-    poster_surfaces = [_]PosterSurface{.{}} ** 4;
-    poster_card_ids = [_]canvas.ObjectId{0} ** 4;
+    poster_surfaces = [_]PosterSurface{.{}} ** poster_surface_capacity;
+    poster_card_ids = [_]canvas.ObjectId{0} ** poster_surface_capacity;
     poster_surface_count = 0;
     for (nodes) |node| {
         if (node.widget.kind != .image or node.widget.image_id == 0) continue;

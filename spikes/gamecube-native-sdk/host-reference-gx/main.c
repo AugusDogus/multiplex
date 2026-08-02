@@ -105,6 +105,7 @@
 #define HOME_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS
 #define BROWSE_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_ITEMS
 #define POSTER_TEXTURE_COUNT (HOME_POSTER_COUNT + BROWSE_POSTER_COUNT)
+#define POSTER_SURFACE_CAPACITY 8u
 #define UI_COMMAND_CAPACITY 1024u
 #define UI_TEXT_COMMAND_CAPACITY 96u
 #define UI_SHAPE_COMMAND_CAPACITY 896u
@@ -167,7 +168,7 @@ static uint8_t poster_texture_reveal_frames[POSTER_TEXTURE_COUNT];
 static MultiplexVideoSurface video_surface;
 static MultiplexPlayerControlsSurface player_controls_surface;
 static MultiplexModalSurface modal_surface;
-static MultiplexPosterSurface poster_surfaces[4];
+static MultiplexPosterSurface poster_surfaces[POSTER_SURFACE_CAPACITY];
 static uint32_t poster_surface_count;
 static float focused_poster_x = -1.0f;
 static float focused_poster_y = -1.0f;
@@ -922,8 +923,8 @@ static void capture_reference_surfaces(void) {
   memset(&modal_surface, 0, sizeof(modal_surface));
   multiplex_native_modal_surface(&modal_surface);
   memset(poster_surfaces, 0, sizeof(poster_surfaces));
-  poster_surface_count =
-      multiplex_native_poster_surfaces(poster_surfaces, 4);
+  poster_surface_count = multiplex_native_poster_surfaces(
+      poster_surfaces, POSTER_SURFACE_CAPACITY);
   presented_screen = multiplex_native_app_screen();
   float next_focused_x = -1.0f;
   float next_focused_y = -1.0f;
@@ -3927,8 +3928,29 @@ static bool details_backdrop_active(void) {
   return image_id != 0 && image_id <= poster_texture_count;
 }
 
+static int32_t focused_poster_texture_index(void) {
+  if (presented_screen != MULTIPLEX_SCREEN_HOME &&
+      presented_screen != MULTIPLEX_SCREEN_BROWSE &&
+      presented_screen != MULTIPLEX_SCREEN_SEARCH_RESULTS) {
+    return -1;
+  }
+  for (uint32_t index = 0; index < poster_surface_count; ++index) {
+    const uint32_t image_id = poster_surfaces[index].image_id;
+    if (poster_surfaces[index].focused != 0 && image_id != 0 &&
+        image_id <= poster_texture_count) {
+      return (int32_t)(image_id - 1u);
+    }
+  }
+  return -1;
+}
+
+static bool catalog_backdrop_active(void) {
+  return focused_poster_texture_index() >= 0;
+}
+
 static bool is_ambient_background(const MultiplexGxCommand *command) {
-  return (details_backdrop_active() || player_startup_backdrop_visible) &&
+  return (details_backdrop_active() || catalog_backdrop_active() ||
+          player_startup_backdrop_visible) &&
          command->kind == MULTIPLEX_GX_FILL_RECT &&
          command->x <= 0.0f && command->y <= 0.0f &&
          command->width >= LOGICAL_WIDTH && command->height >= LOGICAL_HEIGHT;
@@ -4042,6 +4064,13 @@ static void draw_ambient_poster(uint32_t texture_index, uint8_t scrim_alpha,
 static void draw_details_backdrop(void) {
   if (details_backdrop_active()) {
     draw_ambient_poster(poster_surfaces[0].image_id - 1u, 224u, 44u);
+  }
+}
+
+static void draw_catalog_backdrop(void) {
+  const int32_t texture_index = focused_poster_texture_index();
+  if (texture_index >= 0) {
+    draw_ambient_poster((uint32_t)texture_index, 232u, 0u);
   }
 }
 
@@ -4446,6 +4475,7 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
   draw_player_startup_backdrop(playback_manifest);
   draw_video_surface();
   if (video_surface.visible == 0 || player_controls_overlay_visible) {
+    draw_catalog_backdrop();
     draw_details_backdrop();
     float entry_offset = 0.0f;
     if (ui_entry_frame < UI_ENTRY_FRAMES) {
