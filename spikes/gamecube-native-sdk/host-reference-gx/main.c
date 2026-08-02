@@ -691,12 +691,17 @@ static void clear_reference_texture_tile(unsigned tile_index) {
   DCFlushRange(tile, TILE_BYTES);
 }
 
-static void convert_reference_full_repaint(void) {
-  for (unsigned tile_y = 0; tile_y < TILE_ROWS; ++tile_y) {
+static void convert_reference_tile_region(unsigned first_tile_x,
+                                          unsigned first_tile_y,
+                                          unsigned tile_column_count,
+                                          unsigned tile_row_count) {
+  const unsigned last_tile_x = first_tile_x + tile_column_count;
+  const unsigned last_tile_y = first_tile_y + tile_row_count;
+  for (unsigned tile_y = first_tile_y; tile_y < last_tile_y; ++tile_y) {
     unsigned run_start = 0;
     bool run_active = false;
-    for (unsigned tile_x = 0; tile_x <= TILE_COLUMNS; ++tile_x) {
-      const bool tile_exists = tile_x < TILE_COLUMNS;
+    for (unsigned tile_x = first_tile_x; tile_x <= last_tile_x; ++tile_x) {
+      const bool tile_exists = tile_x < last_tile_x;
       const unsigned tile_index = tile_y * TILE_COLUMNS + tile_x;
       const bool visible =
           tile_exists && reference_tile_has_visible_pixels(tile_x, tile_y);
@@ -720,23 +725,9 @@ static void convert_reference_full_repaint(void) {
   }
 }
 
-static void update_reference_tile_activity(unsigned first_tile_x,
-                                           unsigned first_tile_y,
-                                           unsigned tile_column_count,
-                                           unsigned tile_row_count) {
-  const unsigned last_tile_x = first_tile_x + tile_column_count;
-  const unsigned last_tile_y = first_tile_y + tile_row_count;
-  for (unsigned tile_y = first_tile_y; tile_y < last_tile_y; ++tile_y) {
-    for (unsigned tile_x = first_tile_x; tile_x < last_tile_x; ++tile_x) {
-      reference_tile_active[tile_y * TILE_COLUMNS + tile_x] =
-          reference_tile_has_visible_pixels(tile_x, tile_y);
-    }
-  }
-}
-
 static void convert_reference_damage(const MultiplexReferenceFrameRender *render) {
   if (render->full_repaint != 0) {
-    convert_reference_full_repaint();
+    convert_reference_tile_region(0, 0, TILE_COLUMNS, TILE_ROWS);
     GX_InvalidateTexAll();
     return;
   }
@@ -783,10 +774,7 @@ static void convert_reference_damage(const MultiplexReferenceFrameRender *render
   if (last_tile_y > TILE_ROWS) {
     last_tile_y = TILE_ROWS;
   }
-  convert_reference_to_rgba8_tile_rect(
-      first_tile_x, first_tile_y, last_tile_x - first_tile_x,
-      last_tile_y - first_tile_y, 255);
-  update_reference_tile_activity(
+  convert_reference_tile_region(
       first_tile_x, first_tile_y, last_tile_x - first_tile_x,
       last_tile_y - first_tile_y);
   GX_InvalidateTexAll();
