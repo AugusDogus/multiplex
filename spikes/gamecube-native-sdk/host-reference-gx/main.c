@@ -796,12 +796,7 @@ static bool command_intersects_rect(const MultiplexGxCommand *command,
 }
 
 static bool screen_uses_native_shapes(uint32_t screen) {
-  return screen == MULTIPLEX_SCREEN_HOME ||
-         screen == MULTIPLEX_SCREEN_BROWSE ||
-         screen == MULTIPLEX_SCREEN_SEARCH ||
-         screen == MULTIPLEX_SCREEN_SEARCH_RESULTS ||
-         screen == MULTIPLEX_SCREEN_LIBRARIES ||
-         screen == MULTIPLEX_SCREEN_DETAILS;
+  return screen != MULTIPLEX_SCREEN_PLAYER;
 }
 
 static void capture_native_ui_packet(NativeUiPacket *packet) {
