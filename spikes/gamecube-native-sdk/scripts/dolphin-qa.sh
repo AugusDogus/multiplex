@@ -27,6 +27,7 @@ Commands:
   wait-log PATTERN [SECONDS]   Wait for a new matching Dolphin log line.
   check                        Check memory, rendering, layout, and FPS logs.
   scenario navigation         Relaunch and capture catalog navigation baselines.
+  scenario focus-gallery      Capture every focus target on catalog screens.
   scenario playback           Relaunch and verify details and player behavior.
 
 Buttons: a b x y z start l r up down left right
@@ -137,6 +138,12 @@ newest_screenshot() {
     sed -n '1s/^[^ ]* //p'
 }
 
+png_is_complete() {
+  [ -s "$1" ] &&
+    [ "$(tail -c 12 "$1" | od -An -tx1 | tr -d ' \n')" = \
+      0000000049454e44ae426082 ]
+}
+
 line_count() {
   if [ ! -s "$log" ]; then
     echo 0
@@ -180,6 +187,15 @@ capture_screenshot() {
   done
   if [ -z "$captured" ] || [ "$captured" = "$before" ]; then
     echo "Dolphin did not produce a screenshot within five seconds." >&2
+    exit 1
+  fi
+  attempt=0
+  while [ "$attempt" -lt 50 ] && ! png_is_complete "$captured"; do
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  if ! png_is_complete "$captured"; then
+    echo "Dolphin did not finish writing screenshot: $captured" >&2
     exit 1
   fi
   if [ -n "$name" ]; then
@@ -278,6 +294,56 @@ press_and_wait() {
   wait_for_count 'signature=' "$initial" 20
 }
 
+capture_focus_cycle() {
+  screen=$1
+  find "$capture_dir" -maxdepth 1 -type f \
+    -name "focus-$screen-[0-9][0-9].png" -delete
+  rm -f "$capture_dir/focus-$screen-contact-sheet.png"
+
+  press_and_wait D_RIGHT
+  focus_trace=$(rg 'input action=1 focus=[0-9]+ count=[0-9]+' "$log" | tail -1)
+  focus_count=$(printf '%s\n' "$focus_trace" | sed -n \
+    's/.*focus=[0-9][0-9]* count=\([0-9][0-9]*\).*/\1/p')
+  next_focus=$(printf '%s\n' "$focus_trace" | sed -n \
+    's/.*focus=\([0-9][0-9]*\) count=[0-9][0-9]*.*/\1/p')
+  case "$focus_count" in
+    '' | *[!0-9]*)
+      echo "Could not determine focus state for $screen." >&2
+      exit 1
+      ;;
+  esac
+  case "$next_focus" in
+    '' | *[!0-9]*)
+      echo "Could not determine focus state for $screen." >&2
+      exit 1
+      ;;
+  esac
+  if [ "$focus_count" -eq 0 ]; then
+    echo "$screen does not expose any focus targets." >&2
+    exit 1
+  fi
+
+  initial_focus=$(((next_focus + focus_count - 1) % focus_count))
+  press_and_wait D_LEFT
+  capture_screenshot "focus-$screen-$(printf '%02d' "$initial_focus")" >/dev/null
+
+  remaining=$((focus_count - 1))
+  while [ "$remaining" -gt 0 ]; do
+    press_and_wait D_RIGHT
+    current_focus=$(sed -n \
+      's/.*input action=1 focus=\([0-9][0-9]*\) count=[0-9][0-9]*.*/\1/p' \
+      "$log" | tail -1)
+    capture_screenshot "focus-$screen-$(printf '%02d' "$current_focus")" >/dev/null
+    remaining=$((remaining - 1))
+  done
+
+  magick montage "$capture_dir"/focus-"$screen"-[0-9][0-9].png \
+    -thumbnail 320x240 -tile 4x -geometry +6+22 \
+    -background '#09090b' -fill '#fafafa' -pointsize 14 \
+    -set label '%t' "$capture_dir/focus-$screen-contact-sheet.png"
+  echo "$screen: captured $focus_count focus targets."
+}
+
 navigation_scenario() {
   launch
   if ! rg -q 'direct Plex posters decoded=[0-9]+/[0-9]+' "$log"; then
@@ -294,6 +360,41 @@ navigation_scenario() {
   press_and_wait B
   check
   echo "Navigation captures are ready in $capture_dir."
+}
+
+focus_gallery_scenario() {
+  if ! command -v magick >/dev/null 2>&1; then
+    echo "ImageMagick is required to build focus contact sheets." >&2
+    exit 1
+  fi
+  launch
+  mkdir -p "$capture_dir"
+
+  capture_focus_cycle home
+  press_and_wait Z
+  capture_focus_cycle search
+  press_and_wait B
+  press_and_wait Y
+  capture_focus_cycle libraries
+
+  # One step after a complete cycle returns to the preferred first library.
+  press_and_wait D_RIGHT
+  browse_before=$(line_count 'browse-page ready')
+  posters_before=$(line_count 'direct Plex posters decoded=')
+  press_and_wait A
+  wait_for_count 'browse-page ready' "$browse_before" 120
+  wait_for_count 'direct Plex posters decoded=' "$posters_before" 120
+  capture_focus_cycle browse
+
+  press_and_wait B
+  press_and_wait B
+  details_before=$(line_count 'details-page ready')
+  press_and_wait A
+  wait_for_count 'details-page ready' "$details_before" 60
+  capture_focus_cycle details
+
+  check
+  echo "Focus contact sheets are ready in $capture_dir."
 }
 
 playback_scenario() {
@@ -462,6 +563,7 @@ case "$command" in
     shift
     case "${1:-}" in
       navigation) navigation_scenario ;;
+      focus-gallery) focus_gallery_scenario ;;
       playback) playback_scenario ;;
       *) usage >&2; exit 1 ;;
     esac

@@ -204,6 +204,9 @@ repeatable Home, Search, and Libraries baselines under
 `.dolphin-user/QACaptures`. `scenario playback` relaunches, opens the first
 Continue Watching item, and verifies details, fullscreen video, control fade,
 reveal-only A, second-A pause, resume, clean logs, and stable presentation.
+`scenario focus-gallery` captures every focus target on Home, Search,
+Libraries, the first library page, and item details, then assembles a labeled
+contact sheet for each screen in the same capture directory.
 The screenshot hotkey uses a separate Dolphin pipe, so this workflow does not
 invoke desktop automation or GNOME Remote Desktop. The tracked controller
 profile also accepts the connected Steam Controller alongside the QA pipe.
