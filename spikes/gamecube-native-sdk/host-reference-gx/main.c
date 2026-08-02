@@ -82,6 +82,7 @@
 #define CATALOG_RETRY_INITIAL_DELAY_MS 1000u
 #define CATALOG_RETRY_MAX_DELAY_MS 8000u
 #define STARTUP_DATA_IDLE_DELAY_MS 2000u
+#define DETAILS_PREFETCH_IDLE_DELAY_MS 250u
 #define SEGMENT_PREFETCH_MARGIN_MS 8000u
 #define SEGMENT_HANDOFF_MARGIN_MS 64u
 #define DIRECT_PLAYBACK_END_MARGIN_MS 64u
@@ -336,6 +337,7 @@ typedef struct {
   volatile bool complete;
   bool started;
   bool ready;
+  bool foreground;
 } DirectDetailsLoader;
 
 typedef struct {
@@ -2184,7 +2186,8 @@ static void *run_direct_details_loader(void *context) {
 
 static bool launch_direct_details_loader(
     DirectDetailsLoader *loader,
-    const MultiplexAuthCredentials *credentials, uint32_t rating_key) {
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
+    bool foreground) {
   if (loader == NULL || credentials == NULL || rating_key == 0 ||
       loader->started) {
     return false;
@@ -2193,6 +2196,7 @@ static bool launch_direct_details_loader(
   memset(loader, 0, sizeof(*loader));
   loader->credentials = credentials;
   loader->rating_key = rating_key;
+  loader->foreground = foreground;
   loader->thread = LWP_THREAD_NULL;
   loader->stack = malloc(DIRECT_DETAILS_LOADER_STACK_SIZE);
   if (loader->stack == NULL ||
@@ -2205,9 +2209,9 @@ static bool launch_direct_details_loader(
     return false;
   }
   loader->started = true;
-  network_activity_visible = true;
-  SYS_Report("REFERENCE GX: details-page load started rating-key=%u\n",
-             rating_key);
+  network_activity_visible = foreground;
+  SYS_Report("REFERENCE GX: details-page load started rating-key=%u mode=%s\n",
+             rating_key, foreground ? "foreground" : "prefetch");
   return true;
 }
 
@@ -2243,10 +2247,11 @@ static bool load_direct_item_details(
     return bound;
   }
   if (loader->started) {
+    loader->foreground = true;
     network_activity_visible = true;
     return true;
   }
-  return launch_direct_details_loader(loader, credentials, rating_key);
+  return launch_direct_details_loader(loader, credentials, rating_key, true);
 }
 
 static bool poll_direct_details_loader(
@@ -2256,7 +2261,8 @@ static bool poll_direct_details_loader(
     return true;
   }
   if (!loader->complete) {
-    if (multiplex_native_app_details_request() == 0) {
+    if (loader->foreground && multiplex_native_app_details_request() == 0) {
+      loader->foreground = false;
       network_activity_visible = false;
     }
     return true;
@@ -2267,7 +2273,9 @@ static bool poll_direct_details_loader(
     loader->thread = LWP_THREAD_NULL;
   }
   loader->started = false;
-  network_activity_visible = false;
+  if (loader->foreground) {
+    network_activity_visible = false;
+  }
   const uint32_t completed_rating_key = loader->rating_key;
   const uint32_t requested_rating_key = multiplex_native_app_details_request();
   if (loader->ready) {
@@ -2293,9 +2301,12 @@ static bool poll_direct_details_loader(
     }
     asynchronous_reference_requested = true;
     native_frame_dirty = true;
+  } else if (requested_rating_key == 0 && loader->ready) {
+    SYS_Report("REFERENCE GX: details-page prefetch ready rating-key=%u\n",
+               completed_rating_key);
   } else if (requested_rating_key != 0 &&
              !launch_direct_details_loader(loader, credentials,
-                                           requested_rating_key)) {
+                                           requested_rating_key, true)) {
     return false;
   }
   return true;
@@ -3802,6 +3813,22 @@ static int32_t poster_texture_for_rating_key(uint32_t rating_key) {
   return -1;
 }
 
+static uint32_t focused_poster_rating_key(void) {
+  const uint32_t screen = multiplex_native_app_screen();
+  if (screen != MULTIPLEX_SCREEN_HOME && screen != MULTIPLEX_SCREEN_BROWSE &&
+      screen != MULTIPLEX_SCREEN_SEARCH_RESULTS) {
+    return 0;
+  }
+  for (uint32_t index = 0; index < poster_surface_count; ++index) {
+    const uint32_t image_id = poster_surfaces[index].image_id;
+    if (poster_surfaces[index].focused != 0 && image_id != 0 &&
+        image_id <= poster_texture_count) {
+      return poster_texture_rating_keys[image_id - 1u];
+    }
+  }
+  return 0;
+}
+
 static void draw_player_startup_backdrop(
     const MultiplexGatewayPlaybackManifest *playback_manifest) {
   player_startup_backdrop_visible = false;
@@ -5130,6 +5157,8 @@ static void *run_app(void *unused) {
   uint64_t catalog_retry_at_ms = 0;
   uint32_t catalog_retry_delay_ms = CATALOG_RETRY_INITIAL_DELAY_MS;
   uint64_t startup_data_not_before_ms = 0;
+  uint64_t details_prefetch_at_ms = 0;
+  uint32_t details_prefetch_candidate_key = 0;
   StartupDataLoader startup_data_loader;
   memset(&startup_data_loader, 0, sizeof(startup_data_loader));
   startup_data_loader.thread = LWP_THREAD_NULL;
@@ -5544,7 +5573,8 @@ static void *run_app(void *unused) {
         !direct_poster_loader_running(&direct_home_poster_loader) &&
         !direct_home_poster_loader.pending &&
         !direct_poster_loader_running(&direct_page_poster_loader) &&
-        !direct_page_poster_loader.pending && !direct_hls_prefetch.started) {
+        !direct_page_poster_loader.pending && !direct_hls_prefetch.started &&
+        !direct_details_loader.started) {
       if (!launch_startup_data_loader(&startup_data_loader,
                                       &auth_credentials)) {
         startup_data_not_before_ms =
@@ -5624,6 +5654,8 @@ static void *run_app(void *unused) {
         catalog_retry_at_ms = 0;
         catalog_retry_delay_ms = CATALOG_RETRY_INITIAL_DELAY_MS;
         startup_data_not_before_ms = 0;
+        details_prefetch_at_ms = 0;
+        details_prefetch_candidate_key = 0;
         network_activity_visible = false;
         memset(&auth_credentials, 0, sizeof(auth_credentials));
         memset(&watch_together_rooms, 0, sizeof(watch_together_rooms));
@@ -5916,6 +5948,31 @@ static void *run_app(void *unused) {
       native_frame_dirty = true;
     }
 #if MULTIPLEX_PAIRING_ENABLED
+    const uint32_t selected_item_rating_key = focused_poster_rating_key();
+    if (selected_item_rating_key != details_prefetch_candidate_key) {
+      details_prefetch_candidate_key = selected_item_rating_key;
+      details_prefetch_at_ms =
+          selected_item_rating_key == 0
+              ? 0
+              : input_now_ms + DETAILS_PREFETCH_IDLE_DELAY_MS;
+    }
+    const bool selected_details_cached =
+        direct_details_cache_valid &&
+        direct_details_cache.rating_key == selected_item_rating_key;
+    if (selected_item_rating_key != 0 && !selected_details_cached &&
+        !direct_details_loader.started && details_prefetch_at_ms != 0 &&
+        input_now_ms >= details_prefetch_at_ms &&
+        !direct_poster_loader_running(&direct_home_poster_loader) &&
+        !direct_home_poster_loader.pending &&
+        !direct_poster_loader_running(&direct_page_poster_loader) &&
+        !direct_page_poster_loader.pending && !direct_hls_prefetch.started &&
+        (!startup_data_loader.started || startup_data_loader.complete)) {
+      if (launch_direct_details_loader(
+              &direct_details_loader, &auth_credentials,
+              selected_item_rating_key, false)) {
+        details_prefetch_at_ms = 0;
+      }
+    }
     if (watch_together_lobby && syncplay_session != NULL) {
       if ((pressed & PAD_BUTTON_B) != 0) {
         SYS_Report("REFERENCE GX: Watch Together lobby left room=%u\n",

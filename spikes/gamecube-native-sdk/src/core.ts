@@ -446,6 +446,8 @@ export function loadCatalog(
     rowIndex: 0,
     rowNumber: 1,
     selectedIndex: 0,
+    selectedRatingKey: rows[0].items[0].ratingKey,
+    selectedImageId: rows[0].items[0].imageId,
     selectedTitle: rows[0].items[0].title,
     selectedDurationMs: rows[0].items[0].durationMs,
     selectedViewOffsetMs: rows[0].items[0].viewOffsetMs,
