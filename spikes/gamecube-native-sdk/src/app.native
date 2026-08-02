@@ -507,15 +507,18 @@
         <button width="42" size="sm" icon="app:back" variant="ghost" on-press="back" label="Back"></button>
       </row>
       <if test="{detailsLoading}">
-        <row grow="1" gap="18" padding="8">
-          <column grow="1" main="center" gap="8">
-            <text size="heading">{selectedTitle}</text>
-            <text size="sm" foreground="text_muted">Loading details and playback options...</text>
-          </column>
-          <column width="132" main="center">
-            <image image="{selectedImageId}" width="132" height="198" radius="lg" label="{selectedTitle}" />
-          </column>
-        </row>
+        <column grow="1" gap="10">
+          <row gap="18" padding="8">
+            <column grow="1" gap="7">
+              <text size="heading" wrap="false">{selectedTitle}</text>
+              <text foreground="text_muted" wrap="false">Loading details and playback options...</text>
+            </column>
+            <column width="132" gap="5">
+              <image image="{selectedImageId}" width="132" height="198" radius="lg" label="{selectedTitle}" />
+              <spacer height="4" />
+            </column>
+          </row>
+        </column>
       </if>
       <if test="{detailsLoaded}">
         <column grow="1" gap="10">
