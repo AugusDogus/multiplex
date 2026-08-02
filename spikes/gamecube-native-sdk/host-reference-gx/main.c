@@ -577,39 +577,6 @@ static void set_player_controls_texture_alpha(uint8_t alpha) {
   convert_reference_to_rgba8_tile_rows(TILE_ROWS - 2u, 2, alpha);
 }
 
-static void make_video_placeholder_transparent(
-    const MultiplexVideoSurface *surface) {
-  if (surface == NULL || surface->visible == 0 || surface->x < 0 ||
-      surface->y < 0 || surface->width <= 0 || surface->height <= 0 ||
-      surface->x >= LOGICAL_WIDTH ||
-      surface->y >= LOGICAL_HEIGHT) {
-    return;
-  }
-  const uint8_t *key =
-      reference_frame.pixels +
-      ((unsigned)surface->y * LOGICAL_WIDTH + (unsigned)surface->x) * 4u;
-  const unsigned left = (unsigned)surface->x;
-  const unsigned top = (unsigned)surface->y;
-  const unsigned right =
-      (unsigned)(surface->x + surface->width) < LOGICAL_WIDTH
-          ? (unsigned)(surface->x + surface->width)
-          : LOGICAL_WIDTH;
-  const unsigned bottom =
-      (unsigned)(surface->y + surface->height) < LOGICAL_HEIGHT
-          ? (unsigned)(surface->y + surface->height)
-          : LOGICAL_HEIGHT;
-  for (unsigned y = top; y < bottom; ++y) {
-    for (unsigned x = left; x < right; ++x) {
-      uint8_t *pixel =
-          reference_frame.pixels + (y * LOGICAL_WIDTH + x) * 4u;
-      if (pixel[0] == key[0] && pixel[1] == key[1] &&
-          pixel[2] == key[2]) {
-        pixel[3] = 0;
-      }
-    }
-  }
-}
-
 static bool refresh_reference_frame(bool initialize) {
   const uint32_t render_started = gettick();
   memset(profile_stage_us, 0, sizeof(profile_stage_us));
@@ -634,7 +601,6 @@ static bool refresh_reference_frame(bool initialize) {
   MultiplexVideoSurface rendered_surface;
   memset(&rendered_surface, 0, sizeof(rendered_surface));
   if (multiplex_native_video_surface(&rendered_surface) != 0) {
-    make_video_placeholder_transparent(&rendered_surface);
     SYS_Report(
         "REFERENCE GX: video-surface x=%d y=%d width=%d height=%d playing=%u\n",
         (int)rendered_surface.x, (int)rendered_surface.y,

@@ -1,7 +1,7 @@
 <stack>
   <if test="{screen == 'player'}">
     <stack>
-      <video grow="1" label="{selectedTitle}"/>
+      <media-surface surface="{videoSurface}" grow="1" label="{selectedTitle}" />
       <column padding="16" cross="center">
         <spacer grow="1" />
         <if test="{playbackLoading}">

@@ -129,6 +129,7 @@ export interface Model {
   readonly detailsChildrenLoaded: boolean;
   readonly detailsHistory: readonly CatalogItem[];
   readonly playbackOffsetMs: number;
+  readonly videoSurface: number;
   readonly playbackLoaded: boolean;
   readonly playing: boolean;
   readonly subtitleStreamCount: number;
@@ -388,6 +389,7 @@ export function initialModel(): Model {
     detailsChildrenLoaded: true,
     detailsHistory: [],
     playbackOffsetMs: 0,
+    videoSurface: 0,
     playbackLoaded: true,
     playing: false,
     subtitleStreamCount: 0,
