@@ -96,6 +96,7 @@ export interface Model {
   readonly searchCursor: number;
   readonly searchItems: readonly CatalogItem[];
   readonly searchLoaded: boolean;
+  readonly searchFailed: boolean;
   readonly selectedFromSearch: boolean;
   readonly watchTogetherRooms: readonly WatchTogetherRoom[];
   readonly watchTogetherInvitees: readonly WatchTogetherInvitee[];
@@ -373,6 +374,7 @@ export function initialModel(): Model {
     searchCursor: 0,
     searchItems: [],
     searchLoaded: true,
+    searchFailed: false,
     selectedFromSearch: false,
     watchTogetherRooms: [],
     watchTogetherInvitees: [],
@@ -506,7 +508,19 @@ export function failBrowse(model: Model): Model {
 
 export function loadSearch(model: Model, query: Uint8Array, items: readonly CatalogItem[]): Model {
   if (model.screen !== "search_results" || query.length === 0) return model;
-  return { ...model, searchQuery: query, searchItems: items, searchLoaded: true };
+  return {
+    ...model,
+    searchQuery: query,
+    searchItems: items,
+    searchLoaded: true,
+    searchFailed: false,
+  };
+}
+
+export function failSearch(model: Model): Model {
+  return model.screen === "search_results"
+    ? { ...model, searchLoaded: false, searchFailed: true }
+    : model;
 }
 
 export function loadWatchTogetherRooms(
@@ -1047,7 +1061,7 @@ export function searchHasQuery(model: Model): boolean {
 }
 
 export function searchLoading(model: Model): boolean {
-  return !model.searchLoaded;
+  return !model.searchLoaded && !model.searchFailed;
 }
 
 export function searchHasResults(model: Model): boolean {
@@ -1314,6 +1328,7 @@ export function update(model: Model, msg: Msg): Model {
         searchCursor: 0,
         searchItems: [],
         searchLoaded: true,
+        searchFailed: false,
       };
     case "search_key": {
       if (model.screen !== "search" || msg.index < 0 || msg.index >= keyboardKeys.length) {
@@ -1344,7 +1359,13 @@ export function update(model: Model, msg: Msg): Model {
       return { ...model, searchCursor: model.searchCursor + 1 };
     case "search_submit":
       if (model.screen !== "search" || model.searchQuery.length === 0) return model;
-      return { ...model, screen: "search_results", searchItems: [], searchLoaded: false };
+      return {
+        ...model,
+        screen: "search_results",
+        searchItems: [],
+        searchLoaded: false,
+        searchFailed: false,
+      };
     case "open_watch_together":
       if (!model.pairingLinked || model.screen === "player") return model;
       return { ...model, screen: "watch_together", startMenuOpen: false };

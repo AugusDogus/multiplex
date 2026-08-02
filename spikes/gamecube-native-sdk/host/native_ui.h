@@ -172,6 +172,7 @@ uint32_t multiplex_native_app_search_item(
     uint32_t artwork_slot, uint32_t duration_ms, uint32_t view_offset_ms,
     uint32_t progress_percent);
 uint32_t multiplex_native_app_search_commit(void);
+uint32_t multiplex_native_app_search_fail(void);
 uint32_t multiplex_native_app_details_request(void);
 uint32_t multiplex_native_app_details_children_request(uint32_t *rating_key,
                                                        uint32_t *start);

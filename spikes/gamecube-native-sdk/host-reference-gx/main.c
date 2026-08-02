@@ -53,6 +53,7 @@
 #define HLS_SESSION_PREFETCH_STACK_SIZE (128 * 1024)
 #define DIRECT_DETAILS_LOADER_STACK_SIZE (256 * 1024)
 #define DIRECT_BROWSE_LOADER_STACK_SIZE (256 * 1024)
+#define DIRECT_SEARCH_LOADER_STACK_SIZE (256 * 1024)
 #define STARTUP_DATA_LOADER_STACK_SIZE (256 * 1024)
 #define CATALOG_LOADER_STACK_SIZE (256 * 1024)
 #define REFERENCE_RENDERER_STACK_SIZE (512 * 1024)
@@ -353,6 +354,19 @@ typedef struct {
   bool started;
   bool ready;
 } DirectBrowseLoader;
+
+typedef struct {
+  const MultiplexAuthCredentials *credentials;
+  MultiplexGatewaySearchPage page;
+  lwp_t thread;
+  void *stack;
+  uint32_t started_tick;
+  char query[MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY];
+  uint16_t query_length;
+  volatile bool complete;
+  bool started;
+  bool ready;
+} DirectSearchLoader;
 
 typedef struct {
   const MultiplexAuthCredentials *credentials;
@@ -2029,8 +2043,119 @@ static bool load_search_page(const char *gateway_url) {
   return bind_search_page(&page);
 }
 
-static bool load_direct_search_page(const MultiplexAuthCredentials *credentials,
-                                    DirectPosterLoader *poster_loader) {
+static void *run_direct_search_loader(void *context) {
+  DirectSearchLoader *loader = context;
+  loader->ready = multiplex_plex_load_search(
+      loader->credentials, loader->query, loader->query_length, &loader->page);
+  __sync_synchronize();
+  loader->complete = true;
+  return NULL;
+}
+
+static bool launch_direct_search_loader(
+    DirectSearchLoader *loader,
+    const MultiplexAuthCredentials *credentials, const char *query,
+    uint16_t query_length) {
+  if (loader == NULL || credentials == NULL || query == NULL ||
+      query_length == 0 || query_length >= sizeof(loader->query) ||
+      loader->started) {
+    return false;
+  }
+  free(loader->stack);
+  memset(loader, 0, sizeof(*loader));
+  loader->credentials = credentials;
+  memcpy(loader->query, query, query_length);
+  loader->query[query_length] = '\0';
+  loader->query_length = query_length;
+  loader->thread = LWP_THREAD_NULL;
+  loader->stack = malloc(DIRECT_SEARCH_LOADER_STACK_SIZE);
+  if (loader->stack == NULL ||
+      LWP_CreateThread(&loader->thread, run_direct_search_loader, loader,
+                       loader->stack, DIRECT_SEARCH_LOADER_STACK_SIZE,
+                       LWP_PRIO_NORMAL / 2) != 0) {
+    free(loader->stack);
+    loader->stack = NULL;
+    loader->thread = LWP_THREAD_NULL;
+    return false;
+  }
+  loader->started = true;
+  loader->started_tick = gettick();
+  network_activity_visible = true;
+  SYS_Report("REFERENCE GX: search-page load started query=%.*s\n",
+             query_length, query);
+  return true;
+}
+
+static void stop_direct_search_loader(DirectSearchLoader *loader) {
+  if (loader == NULL) {
+    return;
+  }
+  if (loader->thread != LWP_THREAD_NULL) {
+    LWP_JoinThread(loader->thread, NULL);
+  }
+  free(loader->stack);
+  memset(loader, 0, sizeof(*loader));
+  loader->thread = LWP_THREAD_NULL;
+}
+
+static bool poll_direct_search_loader(
+    DirectSearchLoader *loader,
+    const MultiplexAuthCredentials *credentials,
+    DirectPosterLoader *poster_loader) {
+  if (loader == NULL || !loader->started) {
+    return true;
+  }
+  char requested_query[MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY] = {0};
+  const uint32_t requested_length = multiplex_native_app_search_request(
+      (uint8_t *)requested_query, sizeof(requested_query) - 1u);
+  const bool still_requested =
+      requested_length == loader->query_length &&
+      memcmp(requested_query, loader->query, loader->query_length) == 0;
+  if (!loader->complete) {
+    if (!still_requested) {
+      network_activity_visible = false;
+    }
+    return true;
+  }
+  __sync_synchronize();
+  if (loader->thread != LWP_THREAD_NULL) {
+    LWP_JoinThread(loader->thread, NULL);
+    loader->thread = LWP_THREAD_NULL;
+  }
+  loader->started = false;
+  network_activity_visible = false;
+  if (!still_requested) {
+    return true;
+  }
+  bool bound = false;
+  if (loader->ready) {
+    if (loader->page.item_count > 0 &&
+        !queue_direct_poster_loader(poster_loader, credentials,
+                                    loader->page.items,
+                                    loader->page.item_count,
+                                    HOME_POSTER_COUNT, false)) {
+      SYS_Report(
+          "REFERENCE GX: direct search artwork deferred; using placeholders\n");
+    }
+    bound = bind_search_page(&loader->page);
+    SYS_Report("REFERENCE GX: direct search-page complete query=%.*s us=%u\n",
+               loader->query_length, loader->query,
+               elapsed_us(loader->started_tick));
+  } else {
+    bound = multiplex_native_app_search_fail() != 0;
+    SYS_Report("REFERENCE GX: search-page unavailable query=%.*s\n",
+               loader->query_length, loader->query);
+  }
+  if (bound) {
+    asynchronous_reference_requested = true;
+    native_frame_dirty = true;
+  }
+  return bound;
+}
+
+static bool load_direct_search_page(
+    const MultiplexAuthCredentials *credentials,
+    DirectSearchLoader *loader) {
   char query[MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY] = {0};
   const uint32_t query_length =
       multiplex_native_app_search_request((uint8_t *)query, sizeof(query) - 1u);
@@ -2040,19 +2165,11 @@ static bool load_direct_search_page(const MultiplexAuthCredentials *credentials,
   if (query_length >= sizeof(query)) {
     return false;
   }
-
-  MultiplexGatewaySearchPage page;
-  if (!multiplex_plex_load_search(credentials, query, (uint16_t)query_length,
-                                  &page)) {
-    return false;
+  if (loader->started) {
+    return true;
   }
-  if (page.item_count > 0 &&
-      !queue_direct_poster_loader(poster_loader, credentials, page.items,
-                                  page.item_count, HOME_POSTER_COUNT, false)) {
-    SYS_Report(
-        "REFERENCE GX: direct search artwork deferred; using placeholders\n");
-  }
-  return bind_search_page(&page);
+  return launch_direct_search_loader(loader, credentials, query,
+                                     (uint16_t)query_length);
 }
 
 static bool fail_item_details(uint32_t rating_key) {
@@ -5266,6 +5383,9 @@ static void *run_app(void *unused) {
   DirectBrowseLoader direct_browse_loader;
   memset(&direct_browse_loader, 0, sizeof(direct_browse_loader));
   direct_browse_loader.thread = LWP_THREAD_NULL;
+  DirectSearchLoader direct_search_loader;
+  memset(&direct_search_loader, 0, sizeof(direct_search_loader));
+  direct_search_loader.thread = LWP_THREAD_NULL;
   DirectDetailsLoader direct_details_loader;
   memset(&direct_details_loader, 0, sizeof(direct_details_loader));
   direct_details_loader.thread = LWP_THREAD_NULL;
@@ -5501,6 +5621,11 @@ static void *run_app(void *unused) {
       SYS_Report("REFERENCE GX: background browse binding failed\n");
       break;
     }
+    if (!poll_direct_search_loader(&direct_search_loader, &auth_credentials,
+                                   &direct_page_poster_loader)) {
+      SYS_Report("REFERENCE GX: background search binding failed\n");
+      break;
+    }
     if (!poll_direct_details_loader(&direct_details_loader,
                                     &auth_credentials)) {
       SYS_Report("REFERENCE GX: background details binding failed\n");
@@ -5697,7 +5822,8 @@ static void *run_app(void *unused) {
         !direct_home_poster_loader.pending &&
         !direct_poster_loader_running(&direct_page_poster_loader) &&
         !direct_page_poster_loader.pending && !direct_hls_prefetch.started &&
-        !direct_details_loader.started && !direct_browse_loader.started) {
+        !direct_details_loader.started && !direct_browse_loader.started &&
+        !direct_search_loader.started) {
       if (!launch_startup_data_loader(&startup_data_loader,
                                       &auth_credentials)) {
         startup_data_not_before_ms =
@@ -5757,6 +5883,7 @@ static void *run_app(void *unused) {
       stop_direct_poster_loader(&direct_page_poster_loader);
       discard_direct_hls_prefetch(&direct_hls_prefetch);
       stop_direct_browse_loader(&direct_browse_loader);
+      stop_direct_search_loader(&direct_search_loader);
       stop_direct_details_loader(&direct_details_loader);
       stop_catalog_loader(&catalog_loader);
       stop_startup_data_loader(&startup_data_loader);
@@ -5959,7 +6086,7 @@ static void *run_app(void *unused) {
 #if MULTIPLEX_PAIRING_ENABLED
       if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked &&
           !load_direct_search_page(&auth_credentials,
-                                   &direct_page_poster_loader)) {
+                                   &direct_search_loader)) {
         SYS_Report("REFERENCE GX: direct search-page load failed\n");
       }
 #endif
@@ -6090,7 +6217,7 @@ static void *run_app(void *unused) {
         !direct_home_poster_loader.pending &&
         !direct_poster_loader_running(&direct_page_poster_loader) &&
         !direct_page_poster_loader.pending && !direct_hls_prefetch.started &&
-        !direct_browse_loader.started &&
+        !direct_browse_loader.started && !direct_search_loader.started &&
         (!startup_data_loader.started || startup_data_loader.complete)) {
       if (launch_direct_details_loader(
               &direct_details_loader, &auth_credentials,
@@ -6360,6 +6487,7 @@ static void *run_app(void *unused) {
 #if MULTIPLEX_PAIRING_ENABLED
   multiplex_syncplay_session_destroy(syncplay_session);
   stop_direct_browse_loader(&direct_browse_loader);
+  stop_direct_search_loader(&direct_search_loader);
   stop_direct_details_loader(&direct_details_loader);
   stop_catalog_loader(&catalog_loader);
   stop_startup_data_loader(&startup_data_loader);

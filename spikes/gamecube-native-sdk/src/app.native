@@ -218,6 +218,12 @@
           <text foreground="text_muted">Searching all Plex libraries...</text>
         </column>
       </if>
+      <if test="{searchFailed}">
+        <column grow="1" main="center" cross="center" gap="8">
+          <text size="heading">Search unavailable</text>
+          <text foreground="text_muted">Return to Search and try again.</text>
+        </column>
+      </if>
       <if test="{searchNoResults}">
         <column grow="1" main="center" cross="center" gap="8">
           <text size="heading">No results</text>

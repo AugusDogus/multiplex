@@ -1068,6 +1068,14 @@ export fn multiplex_native_app_search_commit() callconv(.c) u32 {
     return 1;
 }
 
+export fn multiplex_native_app_search_fail() callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    commitAppModel(core.failSearch(app_model));
+    focused_handler = invalid_focused_handler;
+    reference_full_repaint = true;
+    return 1;
+}
+
 export fn multiplex_native_app_details_request() callconv(.c) u32 {
     if (!app_initialized) return 0;
     const rating_key = core.detailsRequestRatingKey(app_model);
