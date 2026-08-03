@@ -77,12 +77,12 @@ static bool open_decoder(VideoDecoder *decoder) {
   decoder->context->flags2 |= CODEC_FLAG2_FAST;
   if (decoder->selected_codec == VIDEO_CODEC_H264) {
     /*
-     * Match MPlayer's practical low-power H.264 fast path: retain every
-     * display frame but skip the deblocking pass on non-reference pictures.
-     * This avoids breaking the audio clock while removing work that cannot
-     * affect later frames.
+     * WiiMC-GCN's GameCube guidance uses skiploopfilter=all for H.264. Keep
+     * every display frame because this player's audio clock assumes a fixed
+     * frame cadence, but omit deblocking on all pictures to recover the CPU
+     * time the 485 MHz Gekko needs for real-time audio and video decoding.
      */
-    decoder->context->skip_loop_filter = AVDISCARD_NONREF;
+    decoder->context->skip_loop_filter = AVDISCARD_ALL;
   }
   if ((decoder->codec->capabilities & CODEC_CAP_TRUNCATED) != 0) {
     decoder->context->flags |= CODEC_FLAG_TRUNCATED;
