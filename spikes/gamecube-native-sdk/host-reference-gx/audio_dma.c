@@ -376,3 +376,21 @@ uint64_t audio_dma_samples_played(const AudioDma *audio) {
 uint32_t audio_dma_underruns(const AudioDma *audio) {
   return audio == NULL ? 0 : audio->underruns;
 }
+
+uint32_t audio_dma_ready_buffers(const AudioDma *audio) {
+  if (audio == NULL) {
+    return 0;
+  }
+
+  const uint32_t level = IRQ_Disable();
+  uint32_t ready = 0;
+  for (unsigned index = 0; index < AUDIO_BUFFER_COUNT; ++index) {
+    if (audio->buffer_states[index] == AUDIO_BUFFER_READY ||
+        audio->buffer_states[index] == AUDIO_BUFFER_ACTIVE ||
+        audio->buffer_states[index] == AUDIO_BUFFER_QUEUED) {
+      ready += 1;
+    }
+  }
+  IRQ_Restore(level);
+  return ready;
+}
