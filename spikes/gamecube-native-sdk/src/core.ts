@@ -75,6 +75,7 @@ export interface Model {
   readonly pairingUnavailable: boolean;
   readonly pairingCode: Uint8Array;
   readonly pairingUrl: Uint8Array;
+  readonly bootDiagnostics: Uint8Array;
   readonly rows: readonly CatalogRow[];
   readonly libraries: readonly LibrarySection[];
   readonly rowIndex: number;
@@ -361,6 +362,7 @@ export function initialModel(): Model {
     pairingUnavailable: false,
     pairingCode: new Uint8Array(0),
     pairingUrl: new Uint8Array(0),
+    bootDiagnostics: new Uint8Array(0),
     rows: demoRows,
     libraries: demoLibraries,
     rowIndex: 0,
@@ -489,6 +491,17 @@ export function loadPairing(
     pairingCode: code,
     pairingUrl: linkUrl,
   };
+}
+
+export function loadBootDiagnostics(
+  model: Model,
+  diagnostics: Uint8Array,
+): Model {
+  return { ...model, bootDiagnostics: diagnostics };
+}
+
+export function bootDiagnosticsVisible(model: Model): boolean {
+  return model.bootDiagnostics.length > 0;
 }
 
 export function loadBrowse(
@@ -1486,6 +1499,7 @@ export function update(model: Model, msg: Msg): Model {
       );
     }
     case "open_libraries":
+      if (!model.pairingLinked) return model;
       return { ...model, screen: "libraries" };
     case "open_library": {
       if (msg.index < 0 || msg.index >= model.libraries.length) return model;
@@ -1523,6 +1537,7 @@ export function update(model: Model, msg: Msg): Model {
       };
     }
     case "open_search":
+      if (!model.pairingLinked) return model;
       return {
         ...model,
         screen: "search",

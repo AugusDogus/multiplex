@@ -111,6 +111,11 @@
           <text size="heading">Network unavailable</text>
           <text foreground="text_muted">Check Ethernet and Plex. Multiplex will keep trying.</text>
         </if>
+        <if test="{bootDiagnosticsVisible and (pairingConnecting or pairingUnavailable)}">
+          <panel width="430" padding="10" background="surface" border-color="border" radius="md" label="Boot diagnostics">
+            <text size="sm" foreground="text_muted" wrap="true">{bootDiagnostics}</text>
+          </panel>
+        </if>
       </if>
       <if test="{pairingDemo}">
         <text size="heading">Connect to your Multiplex gateway</text>

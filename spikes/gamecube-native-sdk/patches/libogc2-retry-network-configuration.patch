@@ -1,0 +1,18 @@
+diff --git a/lwip/network.c b/lwip/network.c
+index 05053bd..8fbce47 100644
+--- a/lwip/network.c
++++ b/lwip/network.c
+@@ -1489 +1489,12 @@ s32 if_configex(struct in_addr *local_ip,struct in_addr *netmask,struct in_addr
+-	if(g_netinitiated) return 0;
++	if(g_netinitiated) {
++		if((g_hNetIF.flags & NETIF_FLAG_LINK_UP) == 0) return -2;
++		if(g_hNetIF.dhcp != NULL && g_hNetIF.ip_addr.addr == 0) return -2;
++
++		if(local_ip != NULL)
++			local_ip->s_addr = g_hNetIF.ip_addr.addr;
++		if(gateway != NULL)
++			gateway->s_addr = g_hNetIF.gw.addr;
++		if(netmask != NULL)
++			netmask->s_addr = g_hNetIF.netmask.addr;
++		return 0;
++	}

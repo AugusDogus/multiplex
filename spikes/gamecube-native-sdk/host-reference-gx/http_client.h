@@ -20,7 +20,24 @@ typedef struct {
 typedef bool (*HttpBodyWrite)(void *context, const uint8_t *bytes,
                               size_t size);
 
+typedef enum {
+  HTTP_DIAGNOSTIC_NOT_STARTED = 0,
+  HTTP_DIAGNOSTIC_DHCP = 1,
+  HTTP_DIAGNOSTIC_READY = 2,
+  HTTP_DIAGNOSTIC_SOCKET = 3,
+  HTTP_DIAGNOSTIC_DNS = 4,
+  HTTP_DIAGNOSTIC_CONNECT = 5,
+  HTTP_DIAGNOSTIC_TLS = 6,
+  HTTP_DIAGNOSTIC_REQUEST = 7,
+  HTTP_DIAGNOSTIC_RESPONSE = 8,
+} HttpClientDiagnosticStage;
+
 bool http_client_initialize_network(void);
+HttpClientDiagnosticStage http_client_diagnostic_stage(void);
+const char *http_client_diagnostic_stage_name(void);
+int32_t http_client_diagnostic_error(void);
+int32_t http_client_network_status(void);
+uint32_t http_client_network_attempts(void);
 HttpClient *http_client_open(const char *url);
 HttpClient *http_client_open_with_headers(const char *url,
                                           const HttpRequestHeader *headers,

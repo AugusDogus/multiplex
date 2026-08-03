@@ -74,10 +74,69 @@ struct HttpClient {
 };
 
 static bool network_initialized;
-static bool network_initialization_attempted;
 static char network_gateway[16];
 static mutex_t http_transaction_mutex;
 static bool http_transaction_mutex_ready;
+static volatile HttpClientDiagnosticStage diagnostic_stage =
+    HTTP_DIAGNOSTIC_NOT_STARTED;
+static volatile int32_t diagnostic_error;
+static volatile int32_t diagnostic_network_status;
+static volatile uint32_t diagnostic_network_attempts;
+
+static void set_diagnostic(HttpClientDiagnosticStage stage, int32_t error) {
+  diagnostic_error = error;
+  __sync_synchronize();
+  diagnostic_stage = stage;
+}
+
+static void set_response_diagnostic(unsigned status) {
+  set_diagnostic(HTTP_DIAGNOSTIC_RESPONSE,
+                 status >= 200u && status < 300u ? 0 : (int32_t)status);
+}
+
+HttpClientDiagnosticStage http_client_diagnostic_stage(void) {
+  __sync_synchronize();
+  return diagnostic_stage;
+}
+
+const char *http_client_diagnostic_stage_name(void) {
+  switch (http_client_diagnostic_stage()) {
+  case HTTP_DIAGNOSTIC_NOT_STARTED:
+    return "not started";
+  case HTTP_DIAGNOSTIC_DHCP:
+    return "DHCP";
+  case HTTP_DIAGNOSTIC_READY:
+    return "network ready";
+  case HTTP_DIAGNOSTIC_SOCKET:
+    return "socket";
+  case HTTP_DIAGNOSTIC_DNS:
+    return "DNS";
+  case HTTP_DIAGNOSTIC_CONNECT:
+    return "TCP connect";
+  case HTTP_DIAGNOSTIC_TLS:
+    return "TLS";
+  case HTTP_DIAGNOSTIC_REQUEST:
+    return "HTTP request";
+  case HTTP_DIAGNOSTIC_RESPONSE:
+    return "HTTP response";
+  }
+  return "unknown";
+}
+
+int32_t http_client_diagnostic_error(void) {
+  __sync_synchronize();
+  return diagnostic_error;
+}
+
+int32_t http_client_network_status(void) {
+  __sync_synchronize();
+  return diagnostic_network_status;
+}
+
+uint32_t http_client_network_attempts(void) {
+  __sync_synchronize();
+  return diagnostic_network_attempts;
+}
 
 static bool parse_port(const char *begin, const char *end, uint16_t *port) {
   if (begin == end) {
@@ -187,15 +246,15 @@ static bool format_additional_headers(HttpClient *client,
 }
 
 static bool initialize_network(void) {
-  if (network_initialization_attempted) {
-    return false;
-  }
-  network_initialization_attempted = true;
+  diagnostic_network_attempts += 1u;
+  set_diagnostic(HTTP_DIAGNOSTIC_DHCP, 0);
   char local_ip[16] = {0};
   char netmask[16] = {0};
   char gateway[16] = {0};
   const int status = if_config(local_ip, netmask, gateway, true);
+  diagnostic_network_status = status;
   if (status < 0 || local_ip[0] == '\0' || strcmp(local_ip, "0.0.0.0") == 0) {
+    set_diagnostic(HTTP_DIAGNOSTIC_DHCP, status < 0 ? status : -3);
     SYS_Report("REFERENCE GX: HTTP network initialization failed status=%d\n",
                status);
     return false;
@@ -210,11 +269,13 @@ static bool initialize_network(void) {
   strcpy(network_gateway, gateway);
   if (!http_transaction_mutex_ready) {
     if (LWP_MutexInit(&http_transaction_mutex, false) != 0) {
+      set_diagnostic(HTTP_DIAGNOSTIC_READY, -4);
       SYS_Report("REFERENCE GX: HTTP transaction mutex unavailable\n");
       return false;
     }
     http_transaction_mutex_ready = true;
   }
+  set_diagnostic(HTTP_DIAGNOSTIC_READY, 0);
   return true;
 }
 
@@ -239,13 +300,16 @@ static void disconnect_client(HttpClient *client) {
 }
 
 static bool connect_client(HttpClient *client) {
+  set_diagnostic(HTTP_DIAGNOSTIC_SOCKET, 0);
   client->socket = net_socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
   if (client->socket < 0) {
+    set_diagnostic(HTTP_DIAGNOSTIC_SOCKET, client->socket);
     return false;
   }
   const int no_delay = 1;
   if (net_setsockopt(client->socket, IPPROTO_TCP, TCP_NODELAY, &no_delay,
                      sizeof(no_delay)) < 0) {
+    set_diagnostic(HTTP_DIAGNOSTIC_SOCKET, -1);
     disconnect_client(client);
     return false;
   }
@@ -266,6 +330,7 @@ static bool connect_client(HttpClient *client) {
         strcmp(client->host + host_size - suffix_size, localhost_suffix) ==
             0) {
       if (inet_aton(emulator_host_ip, &address.sin_addr) == 0) {
+        set_diagnostic(HTTP_DIAGNOSTIC_DNS, -1);
         SYS_Report("REFERENCE GX: HTTP emulator host unresolved host=%s\n",
                    client->host);
         disconnect_client(client);
@@ -275,22 +340,28 @@ static bool connect_client(HttpClient *client) {
                  client->host, emulator_host_ip);
     } else if (!multiplex_resolve_ipv4(client->host, network_gateway,
                                        &address.sin_addr)) {
+      set_diagnostic(HTTP_DIAGNOSTIC_DNS, -1);
       SYS_Report("REFERENCE GX: HTTP DNS failed host=%s dns=%s\n",
                  client->host, network_gateway);
       disconnect_client(client);
       return false;
     }
   }
-  if (net_connect(client->socket, (struct sockaddr *)&address,
-                  sizeof(address)) < 0) {
+  set_diagnostic(HTTP_DIAGNOSTIC_CONNECT, 0);
+  const int connect_status =
+      net_connect(client->socket, (struct sockaddr *)&address, sizeof(address));
+  if (connect_status < 0) {
+    set_diagnostic(HTTP_DIAGNOSTIC_CONNECT, connect_status);
     disconnect_client(client);
     return false;
   }
   SYS_Report("REFERENCE GX: HTTP connected host=%s port=%u\n", client->host,
              client->port);
   if (client->secure) {
+    set_diagnostic(HTTP_DIAGNOSTIC_TLS, 0);
     client->tls = multiplex_tls_client_connect(client->socket, client->host);
     if (client->tls == NULL) {
+      set_diagnostic(HTTP_DIAGNOSTIC_TLS, -1);
       disconnect_client(client);
       return false;
     }
@@ -299,8 +370,12 @@ static bool connect_client(HttpClient *client) {
 }
 
 static bool write_all(HttpClient *client, const uint8_t *bytes, size_t size) {
+  set_diagnostic(HTTP_DIAGNOSTIC_REQUEST, 0);
   if (client->tls != NULL) {
-    return multiplex_tls_client_write_all(client->tls, bytes, size);
+    const bool written =
+        multiplex_tls_client_write_all(client->tls, bytes, size);
+    if (!written) set_diagnostic(HTTP_DIAGNOSTIC_REQUEST, -1);
+    return written;
   }
   size_t written = 0;
   while (written < size) {
@@ -312,11 +387,13 @@ static bool write_all(HttpClient *client, const uint8_t *bytes, size_t size) {
         .tv_usec = 0,
     };
     if (net_select(client->socket + 1, NULL, &writable, NULL, &timeout) <= 0) {
+      set_diagnostic(HTTP_DIAGNOSTIC_REQUEST, -1);
       return false;
     }
     const int result =
         net_write(client->socket, bytes + written, size - written);
     if (result <= 0) {
+      set_diagnostic(HTTP_DIAGNOSTIC_REQUEST, result);
       return false;
     }
     written += (size_t)result;
@@ -390,12 +467,14 @@ static int read_available(HttpClient *client, void *destination, size_t size) {
 static bool read_headers(HttpClient *client, char *headers, size_t capacity,
                          size_t *header_size, size_t *response_size,
                          unsigned timeout_seconds) {
+  set_diagnostic(HTTP_DIAGNOSTIC_RESPONSE, 0);
   size_t used = 0;
   while (used + 1u < capacity) {
     const size_t previous = used;
     const int result = read_available_with_timeout(
         client, headers + used, capacity - used - 1u, timeout_seconds);
     if (result <= 0) {
+      set_diagnostic(HTTP_DIAGNOSTIC_RESPONSE, result);
       return false;
     }
     used += (size_t)result;
@@ -409,6 +488,7 @@ static bool read_headers(HttpClient *client, char *headers, size_t capacity,
       }
     }
   }
+  set_diagnostic(HTTP_DIAGNOSTIC_RESPONSE, -2);
   return false;
 }
 
@@ -674,6 +754,8 @@ static bool fetch_cache_once(HttpClient *client, size_t start) {
       response.range_end != expected_end ||
       prefetched > response.content_length ||
       (client->total_size != 0 && response.range_total != client->total_size)) {
+    set_diagnostic(HTTP_DIAGNOSTIC_RESPONSE,
+                   valid_headers ? (int32_t)response.status : -3);
     SYS_Report("REFERENCE GX: HTTP range response invalid offset=%u\n",
                (unsigned)start);
     return false;
@@ -684,6 +766,7 @@ static bool fetch_cache_once(HttpClient *client, size_t start) {
   }
   if (!read_body(client, client->cache + prefetched,
                  response.content_length - prefetched)) {
+    set_diagnostic(HTTP_DIAGNOSTIC_RESPONSE, -4);
     SYS_Report("REFERENCE GX: HTTP range body failed offset=%u bytes=%u\n",
                (unsigned)start, (unsigned)response.content_length);
     return false;
@@ -746,6 +829,7 @@ static bool start_stream_response(HttpClient *client, size_t start) {
   const size_t prefetched = response_size - header_size;
   if (!valid || prefetched > sizeof(client->stream_prefetch) ||
       prefetched > client->total_size) {
+    set_diagnostic(HTTP_DIAGNOSTIC_RESPONSE, valid ? 0 : -3);
     return false;
   }
   memcpy(client->stream_prefetch, headers + header_size, prefetched);
@@ -1310,9 +1394,11 @@ static bool http_client_stream_get_with_headers_unlocked(
       &chunked);
   response_headers[header_size] = first_body_byte;
   if (!valid_headers) {
+    set_diagnostic(HTTP_DIAGNOSTIC_RESPONSE, -3);
     http_client_destroy(client);
     return false;
   }
+  set_response_diagnostic(response->status);
 
   HttpBodyReader reader = {
       .client = client,
@@ -1347,6 +1433,9 @@ static bool http_client_stream_get_with_headers_unlocked(
       response->status, (unsigned)response->body_size,
       chunked ? "chunked" : has_content_length ? "length" : "close",
       streamed ? 1u : 0u);
+  if (!streamed) {
+    set_diagnostic(HTTP_DIAGNOSTIC_RESPONSE, -4);
+  }
   http_client_destroy(client);
   return streamed;
 }
@@ -1470,10 +1559,12 @@ static bool http_client_request_with_headers_unlocked(
       response_headers, response, &content_length, &chunked);
   response_headers[header_size] = first_body_byte;
   if (!valid_headers) {
+    set_diagnostic(HTTP_DIAGNOSTIC_RESPONSE, -3);
     SYS_Report("REFERENCE GX: HTTP JSON headers invalid\n");
     http_client_destroy(client);
     return false;
   }
+  set_response_diagnostic(response->status);
 
   const size_t prefetched = response_size - header_size;
   if (!chunked) {
@@ -1491,6 +1582,9 @@ static bool http_client_request_with_headers_unlocked(
     SYS_Report(
         "REFERENCE GX: HTTP JSON status=%u framing=length bytes=%u read=%u\n",
         response->status, (unsigned)content_length, read ? 1u : 0u);
+    if (!read) {
+      set_diagnostic(HTTP_DIAGNOSTIC_RESPONSE, -4);
+    }
     http_client_destroy(client);
     return read;
   }
@@ -1518,6 +1612,9 @@ static bool http_client_request_with_headers_unlocked(
              "decoded=%u valid=%u\n",
              response->status, (unsigned)encoded_size,
              (unsigned)response->body_size, decoded ? 1u : 0u);
+  if (!decoded) {
+    set_diagnostic(HTTP_DIAGNOSTIC_RESPONSE, -4);
+  }
   free(encoded);
   http_client_destroy(client);
   SYS_Report("REFERENCE GX: HTTP JSON connection closed\n");

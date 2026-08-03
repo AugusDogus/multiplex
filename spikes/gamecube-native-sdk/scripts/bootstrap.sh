@@ -79,18 +79,19 @@ libogc2_tcp_window_patch="$spike_dir/patches/libogc2-flush-tcp-window-updates.pa
 libogc2_bba_link_patch="$spike_dir/patches/libogc2-start-bba-after-link.patch"
 libogc2_dhcp_worker_patch="$spike_dir/patches/libogc2-start-network-worker-before-dhcp.patch"
 libogc2_dhcp_state_patch="$spike_dir/patches/libogc2-arm-dhcp-state-before-send.patch"
-for patch_file in "$libogc2_patch" "$libogc2_bba_wrap_patch" "$libogc2_bba_recovery_patch" "$libogc2_bba_pbuf_patch" "$libogc2_tcp_sequence_patch" "$libogc2_tcp_window_patch" "$libogc2_bba_link_patch" "$libogc2_dhcp_worker_patch" "$libogc2_dhcp_state_patch"; do
-  if git -C "$libogc2_dir" apply --reverse --check "$patch_file" >/dev/null 2>&1; then
+libogc2_network_retry_patch="$spike_dir/patches/libogc2-retry-network-configuration.patch"
+for patch_file in "$libogc2_patch" "$libogc2_bba_wrap_patch" "$libogc2_bba_recovery_patch" "$libogc2_bba_pbuf_patch" "$libogc2_tcp_sequence_patch" "$libogc2_tcp_window_patch" "$libogc2_bba_link_patch" "$libogc2_dhcp_worker_patch" "$libogc2_dhcp_state_patch" "$libogc2_network_retry_patch"; do
+  if git -C "$libogc2_dir" apply --unidiff-zero --reverse --check "$patch_file" >/dev/null 2>&1; then
     :
-  elif git -C "$libogc2_dir" apply --check "$patch_file"; then
-    git -C "$libogc2_dir" apply "$patch_file"
+  elif git -C "$libogc2_dir" apply --unidiff-zero --check "$patch_file"; then
+    git -C "$libogc2_dir" apply --unidiff-zero "$patch_file"
   else
     echo "libogc2 patch does not apply cleanly: $patch_file" >&2
     exit 1
   fi
 done
 
-libogc2_input="$LIBOGC2_COMMIT $(cksum "$libogc2_patch") $(cksum "$libogc2_bba_wrap_patch") $(cksum "$libogc2_bba_recovery_patch") $(cksum "$libogc2_bba_pbuf_patch") $(cksum "$libogc2_tcp_sequence_patch") $(cksum "$libogc2_tcp_window_patch") $(cksum "$libogc2_bba_link_patch") $(cksum "$libogc2_dhcp_worker_patch") $(cksum "$libogc2_dhcp_state_patch")"
+libogc2_input="$LIBOGC2_COMMIT $(cksum "$libogc2_patch") $(cksum "$libogc2_bba_wrap_patch") $(cksum "$libogc2_bba_recovery_patch") $(cksum "$libogc2_bba_pbuf_patch") $(cksum "$libogc2_tcp_sequence_patch") $(cksum "$libogc2_tcp_window_patch") $(cksum "$libogc2_bba_link_patch") $(cksum "$libogc2_dhcp_worker_patch") $(cksum "$libogc2_dhcp_state_patch") $(cksum "$libogc2_network_retry_patch")"
 libogc2_stamp="$libogc2_stage/.build-input"
 if [ ! -s "$libogc2_stage/opt/devkitpro/libogc2/gamecube/lib/libogc.a" ] ||
   [ ! -s "$libogc2_stage/opt/devkitpro/libogc2/wii/lib/libogc.a" ] ||

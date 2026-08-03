@@ -1341,6 +1341,17 @@ export fn multiplex_native_app_player_settings_open() callconv(.c) u32 {
     return if (app_initialized and app_model.playerSettingsOpen) 1 else 0;
 }
 
+export fn multiplex_native_app_boot_diagnostics(
+    diagnostics: [*]const u8,
+    diagnostics_length: u32,
+) callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    const staged = stageBytes(diagnostics[0..diagnostics_length]);
+    commitAppModel(core.loadBootDiagnostics(app_model, staged));
+    reference_full_repaint = true;
+    return 1;
+}
+
 export fn multiplex_native_app_stats_for_nerds_enabled() callconv(.c) u32 {
     return if (app_initialized and app_model.statsForNerdsEnabled) 1 else 0;
 }
