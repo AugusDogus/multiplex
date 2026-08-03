@@ -787,7 +787,10 @@ export function subtitlesEnabled(model: Model): boolean {
 }
 
 export function selectedSubtitleLabel(model: Model): Uint8Array {
-  if (model.selectedSubtitleStream <= 0 || model.selectedSubtitleStream > model.subtitleStreams.length)
+  if (
+    model.selectedSubtitleStream <= 0 ||
+    model.selectedSubtitleStream > model.subtitleStreams.length
+  )
     return asciiBytes("Off");
   return model.subtitleStreams[model.selectedSubtitleStream - 1].label;
 }
@@ -852,9 +855,7 @@ export function playbackEpisodeNavigationDisabled(model: Model): boolean {
 }
 
 export function clearPlaybackNavigationRequest(model: Model): Model {
-  return model.playbackNavigationRequest === 0
-    ? model
-    : { ...model, playbackNavigationRequest: 0 };
+  return model.playbackNavigationRequest === 0 ? model : { ...model, playbackNavigationRequest: 0 };
 }
 
 export function visibleItems(model: Model): readonly CatalogItem[] {
@@ -947,9 +948,7 @@ export function homeHasFollowingShelf(model: Model): boolean {
 }
 
 export function homeFollowingShelfTitle(model: Model): Uint8Array {
-  return homeHasFollowingShelf(model)
-    ? model.rows[model.rowIndex + 2].title
-    : new Uint8Array(0);
+  return homeHasFollowingShelf(model) ? model.rows[model.rowIndex + 2].title : new Uint8Array(0);
 }
 
 export function homeFollowingShelfItems(model: Model): readonly CatalogItem[] {
