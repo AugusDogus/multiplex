@@ -25,6 +25,7 @@
 #include <malloc.h>
 #include <math.h>
 #include <ogc/cond.h>
+#include <ogc/consol.h>
 #include <ogc/lwp.h>
 #include <ogc/lwp_watchdog.h>
 #include <ogc/mutex.h>
@@ -33,6 +34,7 @@
 #endif
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -120,6 +122,23 @@
 #define UI_TEXT_COMMAND_CAPACITY 96u
 #define UI_SHAPE_COMMAND_CAPACITY 896u
 #define UI_TEXT_CAPACITY 4096u
+
+#ifndef MULTIPLEX_HARDWARE_DIAGNOSTICS
+#define MULTIPLEX_HARDWARE_DIAGNOSTICS 0
+#endif
+
+typedef enum {
+  APP_EXIT_OK = 0,
+  APP_EXIT_VIDEO_INIT = 10,
+  APP_EXIT_JPEG_INIT = 11,
+  APP_EXIT_BUFFER_INIT = 12,
+  APP_EXIT_UI_BIND = 20,
+  APP_EXIT_UI_RENDER = 21,
+  APP_EXIT_BACKGROUND_BIND = 22,
+  APP_EXIT_MEDIA_PRODUCER = 30,
+  APP_EXIT_MEDIA_RECOVERY = 31,
+  APP_EXIT_PLAYBACK_CONTINUATION = 32,
+} AppExitCode;
 
 typedef struct {
   MultiplexGxCommand text_commands[UI_TEXT_COMMAND_CAPACITY];
@@ -241,6 +260,14 @@ static uint32_t video_codec_total_us;
 static uint32_t video_codec_max_us;
 static uint32_t video_upload_total_us;
 static uint32_t video_upload_max_us;
+static uint32_t diagnostic_decoder_fps_tenths;
+static uint32_t diagnostic_codec_average_us;
+static uint32_t diagnostic_codec_max_us;
+static uint32_t diagnostic_upload_average_us;
+static uint32_t diagnostic_presentation_fps_tenths;
+static uint32_t diagnostic_network_kib_per_second;
+static uint32_t diagnostic_network_last_bytes;
+static uint32_t diagnostic_network_started;
 static VideoDecoder *video_decoder;
 static lwp_t video_decoder_thread = LWP_THREAD_NULL;
 static void *video_decoder_stack;
@@ -605,6 +632,12 @@ static void profile_decoded_frame(uint32_t decode_us, uint32_t codec_us,
             ? 0
             : (uint32_t)(((VIDEO_PROFILE_FRAMES - 1u) * 10000000ull) /
                          measured_us);
+    diagnostic_decoder_fps_tenths = fps_tenths;
+    diagnostic_codec_average_us =
+        video_codec_total_us / VIDEO_PROFILE_FRAMES;
+    diagnostic_codec_max_us = video_codec_max_us;
+    diagnostic_upload_average_us =
+        video_upload_total_us / VIDEO_PROFILE_FRAMES;
     SYS_Report("REFERENCE GX: decoder=%u frames/%uus (%u.%u fps) "
                "bytes=%llu work=%u avg/%u max us codec=%u/%u upload=%u/%u\n",
                VIDEO_PROFILE_FRAMES, measured_us, fps_tenths / 10,
@@ -1413,7 +1446,7 @@ static void configure_ui_pipeline(void) {
                   GX_LO_CLEAR);
 }
 
-static void initialize_video_and_gx(void) {
+static bool initialize_video_and_gx(void) {
   VIDEO_Init();
   const uint32_t pad_initialized = PAD_Init();
 #if defined(HW_RVL)
@@ -1424,9 +1457,18 @@ static void initialize_video_and_gx(void) {
   SYS_Report("REFERENCE GX: controller init=%u\n", pad_initialized);
 #endif
   video_mode = select_video_mode();
+  if (video_mode == NULL) {
+    SYS_Report("REFERENCE GX: no compatible video mode\n");
+    return false;
+  }
   const uint32_t framebuffer_bytes = VIDEO_GetFrameBufferSize(video_mode);
   for (unsigned index = 0; index < 2; ++index) {
-    framebuffers[index] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(video_mode));
+    void *framebuffer = SYS_AllocateFramebuffer(video_mode);
+    if (framebuffer == NULL) {
+      SYS_Report("REFERENCE GX: framebuffer %u allocation failed\n", index);
+      return false;
+    }
+    framebuffers[index] = MEM_K0_TO_K1(framebuffer);
     memset(framebuffers[index], 0, framebuffer_bytes);
   }
   framebuffer_index = 1;
@@ -1449,6 +1491,10 @@ static void initialize_video_and_gx(void) {
   }
 
   gx_fifo = memalign(32, FIFO_SIZE);
+  if (gx_fifo == NULL) {
+    SYS_Report("REFERENCE GX: %u-byte GX FIFO allocation failed\n", FIFO_SIZE);
+    return false;
+  }
   memset(gx_fifo, 0, FIFO_SIZE);
   GX_Init(gx_fifo, FIFO_SIZE);
   GX_SetCopyClear((GXColor){10, 10, 12, 255}, 0x00ffffff);
@@ -1485,6 +1531,7 @@ static void initialize_video_and_gx(void) {
   GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
   GX_CopyDisp(framebuffers[0], GX_TRUE);
   GX_DrawDone();
+  return true;
 }
 
 static void initialize_textures(void) {
@@ -2798,6 +2845,9 @@ static void close_media_session(HttpClient **client, MpegPsDemux **demux) {
     plex_hls_demux_destroy(direct_hls_demux);
     direct_hls_demux = NULL;
   }
+  diagnostic_network_kib_per_second = 0;
+  diagnostic_network_last_bytes = 0;
+  diagnostic_network_started = 0;
   http_client_destroy(*client);
   *client = NULL;
 }
@@ -3997,6 +4047,9 @@ static void draw_activity_dots(float center_y, uint32_t frame) {
   GX_SetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_CLEAR);
 }
 
+static void fill_rect(float left, float top, float right, float bottom,
+                      GXColor color);
+
 static void draw_activity(void) {
   if (network_activity_visible) {
     draw_activity_dots(380.0f, network_activity_frame);
@@ -4015,6 +4068,76 @@ static void draw_activity(void) {
     screen_transition_frame += 1;
   }
 }
+
+#if MULTIPLEX_HARDWARE_DIAGNOSTICS
+static void draw_hardware_diagnostics(void) {
+  if (video_surface.visible == 0) {
+    return;
+  }
+
+  const uint32_t now = gettick();
+  uint32_t network_bytes = 0;
+  size_t queued_video = 0;
+  size_t queued_audio = 0;
+  if (direct_hls_demux != NULL) {
+    network_bytes = plex_hls_demux_video_bytes(direct_hls_demux) +
+                    plex_hls_demux_audio_bytes(direct_hls_demux);
+    queued_video = plex_hls_demux_queued_video_bytes(direct_hls_demux);
+    queued_audio = plex_hls_demux_queued_audio_bytes(direct_hls_demux);
+  }
+  if (diagnostic_network_started == 0) {
+    diagnostic_network_started = now;
+    diagnostic_network_last_bytes = network_bytes;
+  } else {
+    const uint32_t measured_us = elapsed_us(diagnostic_network_started);
+    if (measured_us >= 1000000u) {
+      const uint32_t delta = network_bytes - diagnostic_network_last_bytes;
+      diagnostic_network_kib_per_second =
+          (uint32_t)(((uint64_t)delta * 1000000ull) /
+                     ((uint64_t)measured_us * 1024ull));
+      diagnostic_network_started = now;
+      diagnostic_network_last_bytes = network_bytes;
+    }
+  }
+
+  const struct mallinfo heap = mallinfo();
+  char text[256];
+  const int length = snprintf(
+      text, sizeof(text),
+      "UI %u.%u  VIDEO %u.%u  CODEC %u/%u ms  UPLOAD %u ms\n"
+      "NET %u KiB/s  QUEUE V%u A%u KiB  AUDIO %u/18 U%u\n"
+      "HEAP %u KiB free",
+      diagnostic_presentation_fps_tenths / 10u,
+      diagnostic_presentation_fps_tenths % 10u,
+      diagnostic_decoder_fps_tenths / 10u,
+      diagnostic_decoder_fps_tenths % 10u,
+      diagnostic_codec_average_us / 1000u, diagnostic_codec_max_us / 1000u,
+      diagnostic_upload_average_us / 1000u,
+      diagnostic_network_kib_per_second, (uint32_t)(queued_video / 1024u),
+      (uint32_t)(queued_audio / 1024u),
+      audio_dma_ready_buffers(audio_output), audio_dma_underruns(audio_output),
+      (uint32_t)heap.fordblks / 1024u);
+  if (length <= 0) {
+    return;
+  }
+
+  configure_color_pipeline();
+  fill_rect(8.0f, 8.0f, 632.0f, 68.0f, (GXColor){0, 0, 0, 220});
+  configure_font_pipeline();
+  const MultiplexGxCommand command = {
+      .kind = MULTIPLEX_GX_TEXT,
+      .x = 16.0f,
+      .y = 12.0f,
+      .color_rgba = 0xffffffffu,
+      .text_ptr = (const uint8_t *)text,
+      .text_len = (uint32_t)length,
+      .font_size = 13.0f,
+  };
+  draw_native_text_command(&command);
+}
+#else
+static void draw_hardware_diagnostics(void) {}
+#endif
 
 static void fill_rect(float left, float top, float right, float bottom,
                       GXColor color) {
@@ -4942,6 +5065,7 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
     }
   }
   draw_activity();
+  draw_hardware_diagnostics();
   GX_CopyDisp(framebuffers[framebuffer_index], GX_TRUE);
   GX_DrawDone();
   VIDEO_SetNextFramebuffer(framebuffers[framebuffer_index]);
@@ -4957,6 +5081,7 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
     const uint32_t measured_us = elapsed_us(presentation_started);
     const uint32_t fps_tenths =
         measured_us == 0 ? 0 : (uint32_t)((120ull * 10000000ull) / measured_us);
+    diagnostic_presentation_fps_tenths = fps_tenths;
     SYS_Report("REFERENCE GX: presentation=120 frames/%uus (%u.%u fps)\n",
                measured_us, fps_tenths / 10, fps_tenths % 10);
     if (media_demux != NULL) {
@@ -5890,13 +6015,15 @@ static void *run_app(void *unused) {
 #endif
   memset(&reference_renderer, 0, sizeof(reference_renderer));
   reference_renderer.thread = LWP_THREAD_NULL;
-  initialize_video_and_gx();
+  if (!initialize_video_and_gx()) {
+    return (void *)(uintptr_t)APP_EXIT_VIDEO_INIT;
+  }
   if (!poster_jpeg_initialize()) {
-    return (void *)(uintptr_t)1;
+    return (void *)(uintptr_t)APP_EXIT_JPEG_INIT;
   }
   if (!allocate_buffers()) {
     poster_jpeg_shutdown();
-    return (void *)(uintptr_t)1;
+    return (void *)(uintptr_t)APP_EXIT_BUFFER_INIT;
   }
   NetworkWarmup network_warmup;
   bool network_warmup_pending = launch_network_warmup(&network_warmup);
@@ -5978,7 +6105,7 @@ static void *run_app(void *unused) {
     if (network_warmup_pending) {
       finish_network_warmup(&network_warmup);
     }
-    return (void *)(uintptr_t)1;
+    return (void *)(uintptr_t)APP_EXIT_UI_BIND;
   }
 #endif
   initialize_textures();
@@ -5986,7 +6113,7 @@ static void *run_app(void *unused) {
     if (network_warmup_pending) {
       finish_network_warmup(&network_warmup);
     }
-    return (void *)(uintptr_t)1;
+    return (void *)(uintptr_t)APP_EXIT_UI_RENDER;
   }
   present_frame(&playback_manifest);
   asynchronous_reference_enabled = true;
@@ -6007,7 +6134,7 @@ static void *run_app(void *unused) {
         "REFERENCE GX: gateway artwork unavailable; using placeholders\n");
   }
   if (has_catalog && !bind_catalog_to_app(&catalog)) {
-    return (void *)(uintptr_t)1;
+    return (void *)(uintptr_t)APP_EXIT_UI_BIND;
   }
 #if MULTIPLEX_PAIRING_ENABLED
   MultiplexAuthCredentials auth_credentials;
@@ -6033,7 +6160,7 @@ static void *run_app(void *unused) {
             device_auth.status, (const uint8_t *)"", 0,
             (const uint8_t *)"", 0) == 0) {
       SYS_Report("REFERENCE GX: failed to bind restored authorization\n");
-      return (void *)(uintptr_t)1;
+      return (void *)(uintptr_t)APP_EXIT_UI_BIND;
     }
     if (multiplex_catalog_cache_decode(cached_catalog, &catalog) &&
         bind_catalog_to_app(&catalog)) {
@@ -6046,7 +6173,7 @@ static void *run_app(void *unused) {
     native_frame_dirty = true;
     present_frame(&playback_manifest);
     if (!wait_reference_transition(&playback_manifest)) {
-      return (void *)(uintptr_t)1;
+      return (void *)(uintptr_t)APP_EXIT_UI_RENDER;
     }
     pairing_status_presented = true;
     if (network_warmup_pending) {
@@ -6101,7 +6228,7 @@ static void *run_app(void *unused) {
             (const uint8_t *)device_auth.link_url,
             strlen(device_auth.link_url)) == 0) {
       SYS_Report("REFERENCE GX: failed to bind device authorization status\n");
-      return (void *)(uintptr_t)1;
+      return (void *)(uintptr_t)APP_EXIT_UI_BIND;
     }
     native_frame_dirty = true;
     if (!pairing_linked || has_catalog) {
@@ -6120,7 +6247,7 @@ static void *run_app(void *unused) {
               MULTIPLEX_DEVICE_AUTH_UNAVAILABLE, (const uint8_t *)"", 0,
               (const uint8_t *)"", 0) == 0) {
         SYS_Report("REFERENCE GX: failed to bind network unavailable status\n");
-        return (void *)(uintptr_t)1;
+        return (void *)(uintptr_t)APP_EXIT_UI_BIND;
       }
     }
     if (!has_catalog) {
@@ -6151,11 +6278,12 @@ static void *run_app(void *unused) {
                playback_manifest.rating_key);
   } else if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
              !open_initial_media_session(&client, &demux)) {
-    return (void *)(uintptr_t)1;
+    return (void *)(uintptr_t)APP_EXIT_MEDIA_PRODUCER;
   }
 
   uint32_t queued_transition_buttons = 0;
   uint32_t queued_transition_navigation = UINT32_MAX;
+  AppExitCode exit_code = APP_EXIT_OK;
   while (SYS_MainLoop()) {
     poll_direct_poster_loader(&direct_home_poster_loader);
     poll_direct_poster_loader(&direct_page_poster_loader);
@@ -6180,6 +6308,7 @@ static void *run_app(void *unused) {
       }
     }
     if (!poll_reference_renderer()) {
+      exit_code = APP_EXIT_UI_RENDER;
       break;
     }
     if (reference_renderer.thread != LWP_THREAD_NULL) {
@@ -6206,16 +6335,19 @@ static void *run_app(void *unused) {
     if (!poll_direct_browse_loader(&direct_browse_loader, &auth_credentials,
                                    &direct_page_poster_loader)) {
       SYS_Report("REFERENCE GX: background browse binding failed\n");
+      exit_code = APP_EXIT_BACKGROUND_BIND;
       break;
     }
     if (!poll_direct_search_loader(&direct_search_loader, &auth_credentials,
                                    &direct_page_poster_loader)) {
       SYS_Report("REFERENCE GX: background search binding failed\n");
+      exit_code = APP_EXIT_BACKGROUND_BIND;
       break;
     }
     if (!poll_direct_details_loader(&direct_details_loader,
                                     &auth_credentials)) {
       SYS_Report("REFERENCE GX: background details binding failed\n");
+      exit_code = APP_EXIT_BACKGROUND_BIND;
       break;
     }
     const uint64_t catalog_now_ms = ticks_to_millisecs(gettime());
@@ -6229,6 +6361,7 @@ static void *run_app(void *unused) {
               (const uint8_t *)"", 0) == 0 ||
           !bind_catalog_to_app(&catalog)) {
         SYS_Report("REFERENCE GX: recovered Plex catalog binding failed\n");
+        exit_code = APP_EXIT_BACKGROUND_BIND;
         break;
       }
       has_catalog = true;
@@ -6252,6 +6385,7 @@ static void *run_app(void *unused) {
               MULTIPLEX_DEVICE_AUTH_UNAVAILABLE, (const uint8_t *)"", 0,
               (const uint8_t *)"", 0) == 0) {
         SYS_Report("REFERENCE GX: failed to bind network unavailable status\n");
+        exit_code = APP_EXIT_UI_BIND;
         break;
       }
       catalog_retry_at_ms = catalog_now_ms + catalog_retry_delay_ms;
@@ -6281,6 +6415,7 @@ static void *run_app(void *unused) {
               MULTIPLEX_PAIRING_CONNECTING, (const uint8_t *)"", 0,
               (const uint8_t *)"", 0) == 0) {
         SYS_Report("REFERENCE GX: failed to bind Plex retry status\n");
+        exit_code = APP_EXIT_UI_BIND;
         break;
       }
       if (launch_catalog_loader(&catalog_loader, &auth_credentials, &catalog)) {
@@ -6295,6 +6430,7 @@ static void *run_app(void *unused) {
                                   &watch_together_rooms,
                                   &watch_together_invitees)) {
       SYS_Report("REFERENCE GX: background account data binding failed\n");
+      exit_code = APP_EXIT_BACKGROUND_BIND;
       break;
     }
 #endif
@@ -6314,10 +6450,12 @@ static void *run_app(void *unused) {
     }
     if (demux != NULL && mpeg_ps_demux_failed(demux)) {
       SYS_Report("REFERENCE GX: media producer failure\n");
+      exit_code = APP_EXIT_MEDIA_PRODUCER;
       break;
     }
     if (direct_hls_demux != NULL && plex_hls_demux_failed(direct_hls_demux)) {
       SYS_Report("REFERENCE GX: HLS media producer failure\n");
+      exit_code = APP_EXIT_MEDIA_PRODUCER;
       break;
     }
     const uint32_t connected_pads = PAD_ScanPads();
@@ -6382,6 +6520,7 @@ static void *run_app(void *unused) {
                 strlen(device_auth.link_url)) == 0) {
           SYS_Report(
               "REFERENCE GX: failed to update device authorization status\n");
+          exit_code = APP_EXIT_UI_BIND;
           break;
         }
         native_frame_dirty = true;
@@ -6512,6 +6651,7 @@ static void *run_app(void *unused) {
         memset(&auth_credentials, 0, sizeof(auth_credentials));
         memset(&watch_together_rooms, 0, sizeof(watch_together_rooms));
         if (!bind_watch_together_rooms(&watch_together_rooms, false)) {
+          exit_code = APP_EXIT_UI_BIND;
           break;
         }
         memset(&device_auth, 0, sizeof(device_auth));
@@ -6525,6 +6665,7 @@ static void *run_app(void *unused) {
                 strlen(device_auth.link_url)) == 0) {
           SYS_Report(
               "REFERENCE GX: failed to bind reset authorization status\n");
+          exit_code = APP_EXIT_UI_BIND;
           break;
         }
         pairing_poll_frames = 0;
@@ -6593,6 +6734,7 @@ static void *run_app(void *unused) {
     if (app_changed) {
       if (!present_pending_page_transition(&playback_manifest)) {
         SYS_Report("REFERENCE GX: network transition presentation failed\n");
+        exit_code = APP_EXIT_UI_RENDER;
         break;
       }
       const uint32_t mark_watched_rating_key =
@@ -7020,6 +7162,7 @@ static void *run_app(void *unused) {
     if (!recover_stalled_media_startup(&media_startup_watchdog,
                                        &playback_manifest, &client, &demux,
                                        &staged_media)) {
+      exit_code = APP_EXIT_MEDIA_RECOVERY;
       break;
     }
     if (video_surface.visible != 0) {
@@ -7053,6 +7196,7 @@ static void *run_app(void *unused) {
     if (!continue_playback_if_needed(MULTIPLEX_GATEWAY_URL, &playback_manifest,
                                      &client, &demux, &staged_media)) {
       SYS_Report("REFERENCE GX: playback continuation failed\n");
+      exit_code = APP_EXIT_PLAYBACK_CONTINUATION;
       break;
     }
 #if MULTIPLEX_PAIRING_ENABLED
@@ -7063,6 +7207,7 @@ static void *run_app(void *unused) {
               &auth_credentials, &playback_manifest, &client, &demux,
               &timeline_reporter, &autoplay_advanced)) {
         SYS_Report("REFERENCE GX: direct playback completion failed\n");
+        exit_code = APP_EXIT_PLAYBACK_CONTINUATION;
         break;
       }
       if (syncplay_session != NULL && !watch_together_lobby &&
@@ -7075,6 +7220,7 @@ static void *run_app(void *unused) {
               &client, &demux, &timeline_reporter, &autoplay_advanced)) {
         SYS_Report("REFERENCE GX: Watch Together playback completion "
                    "failed\n");
+        exit_code = APP_EXIT_PLAYBACK_CONTINUATION;
         break;
       }
     }
@@ -7114,7 +7260,68 @@ static void *run_app(void *unused) {
   poster_texture_pixels = NULL;
   poster_texture_count = 0;
   poster_jpeg_shutdown();
-  return NULL;
+  return (void *)(uintptr_t)exit_code;
+}
+
+static const char *app_exit_message(AppExitCode code) {
+  switch (code) {
+  case APP_EXIT_VIDEO_INIT:
+    return "Video or GX initialization failed.";
+  case APP_EXIT_JPEG_INIT:
+    return "JPEG decoder initialization failed.";
+  case APP_EXIT_BUFFER_INIT:
+    return "UI framebuffer allocation failed.";
+  case APP_EXIT_UI_BIND:
+    return "Native UI state binding failed.";
+  case APP_EXIT_UI_RENDER:
+    return "Native UI rendering failed.";
+  case APP_EXIT_BACKGROUND_BIND:
+    return "Background Plex data binding failed.";
+  case APP_EXIT_MEDIA_PRODUCER:
+    return "The network media producer stopped.";
+  case APP_EXIT_MEDIA_RECOVERY:
+    return "Playback could not recover from a stall.";
+  case APP_EXIT_PLAYBACK_CONTINUATION:
+    return "Playback could not continue to the next segment.";
+  case APP_EXIT_OK:
+    return "The application exited normally.";
+  }
+  return "An unknown application failure occurred.";
+}
+
+static void show_app_failure(AppExitCode code) {
+  SYS_Report("REFERENCE GX: stopped with diagnostic code MGC-%u\n",
+             (unsigned)code);
+  if (video_mode == NULL || framebuffers[0] == NULL) {
+    return;
+  }
+
+  void *framebuffer = framebuffers[framebuffer_index & 1u];
+  const uint32_t framebuffer_bytes = VIDEO_GetFrameBufferSize(video_mode);
+  memset(framebuffer, 0, framebuffer_bytes);
+  CON_Init(framebuffer, 32, 32, video_mode->fbWidth - 64,
+           video_mode->xfbHeight - 64, video_mode->fbWidth * VI_DISPLAY_PIX_SZ);
+  VIDEO_Configure(video_mode);
+  VIDEO_SetNextFramebuffer(framebuffer);
+  VIDEO_SetBlack(FALSE);
+  VIDEO_Flush();
+  VIDEO_WaitVSync();
+
+  const struct mallinfo heap = mallinfo();
+  printf("\nMultiplex stopped safely\n");
+  printf("========================\n\n");
+  printf("Diagnostic code: MGC-%u\n\n", (unsigned)code);
+  printf("%s\n\n", app_exit_message(code));
+  printf("Heap: %lu KiB free, %lu KiB used\n\n",
+         (unsigned long)heap.fordblks / 1024ul,
+         (unsigned long)heap.uordblks / 1024ul);
+  printf("Photograph this screen so the exact failure can be fixed.\n");
+  printf("Reset the console to return to Swiss.\n");
+
+  while (SYS_MainLoop()) {
+    PAD_ScanPads();
+    VIDEO_WaitVSync();
+  }
 }
 
 int main(int argc, char **argv) {
@@ -7143,5 +7350,9 @@ int main(int argc, char **argv) {
     SYS_Report("REFERENCE GX: failed to join app thread\n");
     return 1;
   }
-  return (int)(uintptr_t)result;
+  const AppExitCode exit_code = (AppExitCode)(uintptr_t)result;
+  if (exit_code != APP_EXIT_OK) {
+    show_app_failure(exit_code);
+  }
+  return (int)exit_code;
 }

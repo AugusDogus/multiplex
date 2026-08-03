@@ -372,6 +372,14 @@ uint32_t plex_hls_demux_audio_bytes(const PlexHlsDemux *demux) {
   return demux == NULL ? 0 : demux->audio_bytes;
 }
 
+size_t plex_hls_demux_queued_video_bytes(PlexHlsDemux *demux) {
+  return demux == NULL ? 0 : media_byte_queue_size(demux->video);
+}
+
+size_t plex_hls_demux_queued_audio_bytes(PlexHlsDemux *demux) {
+  return demux == NULL ? 0 : media_byte_queue_size(demux->audio);
+}
+
 bool plex_hls_demux_failed(const PlexHlsDemux *demux) {
   return demux == NULL || demux->failed;
 }

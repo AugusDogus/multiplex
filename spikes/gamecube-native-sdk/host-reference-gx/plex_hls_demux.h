@@ -37,6 +37,8 @@ int64_t plex_hls_demux_first_audio_pts90k(const PlexHlsDemux *demux);
 uint32_t plex_hls_demux_segment_count(const PlexHlsDemux *demux);
 uint32_t plex_hls_demux_video_bytes(const PlexHlsDemux *demux);
 uint32_t plex_hls_demux_audio_bytes(const PlexHlsDemux *demux);
+size_t plex_hls_demux_queued_video_bytes(PlexHlsDemux *demux);
+size_t plex_hls_demux_queued_audio_bytes(PlexHlsDemux *demux);
 bool plex_hls_demux_failed(const PlexHlsDemux *demux);
 bool plex_hls_demux_complete(const PlexHlsDemux *demux);
 const char *plex_hls_demux_session_id(const PlexHlsDemux *demux);

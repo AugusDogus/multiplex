@@ -25,5 +25,6 @@ void audio_dma_update(AudioDma *audio, bool playing);
  */
 uint64_t audio_dma_samples_played(const AudioDma *audio);
 uint32_t audio_dma_underruns(const AudioDma *audio);
+uint32_t audio_dma_ready_buffers(const AudioDma *audio);
 
 #endif
