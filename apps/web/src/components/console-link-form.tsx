@@ -20,6 +20,34 @@ type LinkState =
   | { status: "error"; message: string }
   | { status: "linked" };
 
+const invalidCodeState: LinkState = {
+  status: "error",
+  message:
+    "That code is invalid or has expired. Check the console and try again.",
+};
+
+async function linkConsole(code: string): Promise<LinkState> {
+  try {
+    const verification = await authClient.device({
+      query: { user_code: code },
+    });
+    if (verification.error || verification.data?.status !== "pending") {
+      return invalidCodeState;
+    }
+
+    const approval = await authClient.device.approve({
+      userCode: code,
+    });
+    if (approval.error || !approval.data?.success) {
+      return invalidCodeState;
+    }
+
+    return { status: "linked" };
+  } catch {
+    return invalidCodeState;
+  }
+}
+
 export function ConsoleLinkForm({
   initialCode = "",
 }: {
@@ -35,28 +63,9 @@ export function ConsoleLinkForm({
     if (code.length !== 4 || isSubmitting) return;
 
     setState({ status: "submitting" });
-    try {
-      const verification = await authClient.device({
-        query: { user_code: code },
-      });
-      if (verification.error || verification.data?.status !== "pending") {
-        throw new Error("Device code could not be claimed");
-      }
-
-      const approval = await authClient.device.approve({
-        userCode: code,
-      });
-      if (approval.error || !approval.data?.success) {
-        throw new Error("Device code could not be approved");
-      }
-
-      setState({ status: "linked" });
-    } catch {
-      setState({
-        status: "error",
-        message:
-          "That code is invalid or has expired. Check the console and try again.",
-      });
+    const nextState = await linkConsole(code);
+    setState(nextState);
+    if (nextState.status === "error") {
       requestAnimationFrame(() => inputRef.current?.select());
     }
   }
