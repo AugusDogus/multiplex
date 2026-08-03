@@ -1630,6 +1630,14 @@ static bool direct_poster_loader_running(const DirectPosterLoader *loader) {
 static void release_direct_poster_workers(DirectPosterLoader *loader) {
   for (uint16_t lane = 0; lane < POSTER_LOADER_LANE_COUNT; ++lane) {
     if (loader->threads[lane] != LWP_THREAD_NULL) {
+      /*
+       * libogc2 wakes a joinable thread to finish destroying its context.
+       * A lower-priority worker does not preempt the app after that wake, so
+       * LWP_JoinThread can return while the worker still uses its stack. Raise
+       * it only for teardown so the context is gone before the stack is freed
+       * or reused by the next poster window.
+       */
+      LWP_SetThreadPriority(loader->threads[lane], LWP_PRIO_NORMAL + 1u);
       LWP_JoinThread(loader->threads[lane], NULL);
       loader->threads[lane] = LWP_THREAD_NULL;
     }

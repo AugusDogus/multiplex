@@ -28,6 +28,7 @@ Commands:
   wait-log PATTERN [SECONDS]   Wait for a new matching Dolphin log line.
   check                        Check memory, rendering, layout, and FPS logs.
   scenario navigation         Relaunch and capture catalog navigation baselines.
+  scenario library-scroll     Stress-scroll a linked Plex library and check memory safety.
   scenario focus-gallery      Capture every focus target on catalog screens.
   scenario playback           Relaunch and verify details and player behavior.
   scenario player-gallery     Capture Start menu, player, and settings focus targets.
@@ -325,6 +326,7 @@ launch() {
   done
   resolve_service_path
   ensure_portless
+  previous_pid=$(dolphin_pid 2>/dev/null || true)
   if systemctl --user --quiet is-active "$qa_service"; then
     systemctl --user stop "$qa_service"
   fi
@@ -343,7 +345,8 @@ launch() {
     /bin/sh "$script_dir/run-dolphin-plex.sh" >/dev/null
   readiness_attempt=0
   while [ "$readiness_attempt" -lt 480 ]; do
-    if dolphin_pid >/dev/null &&
+    current_pid=$(dolphin_pid 2>/dev/null || true)
+    if [ -n "$current_pid" ] && [ "$current_pid" != "$previous_pid" ] &&
       rg -q 'direct Plex posters (decoded=[0-9]+ downloaded=[0-9]+|reused=[0-9]+/[0-9]+)' "$log" 2>/dev/null; then
       echo "Interactive linked Plex QA is ready."
       status
@@ -393,6 +396,26 @@ navigate_and_wait() {
     exit 1
   fi
   wait_for_count 'signature=' "$initial" 20
+}
+
+hold_navigation() {
+  direction=$1
+  seconds=$2
+  case "$direction" in
+    UP) stick_x=0.5; stick_y=1 ;;
+    DOWN) stick_x=0.5; stick_y=0 ;;
+    *) echo "Hold navigation supports only UP or DOWN." >&2; exit 1 ;;
+  esac
+  if ! timeout $((seconds + 3)) sh -c '
+    exec 3>"$1"
+    printf "SET MAIN %s %s\n" "$2" "$3" >&3
+    sleep "$4"
+    printf "SET MAIN 0.5 0.5\n" >&3
+  ' sh "$controller_pipe" "$stick_x" "$stick_y" "$seconds"; then
+    echo "Dolphin did not complete the $direction analog hold." >&2
+    exit 1
+  fi
+  release_axis
 }
 
 capture_focus_cycle() {
@@ -498,6 +521,26 @@ navigation_scenario() {
   press_and_wait B
   check
   echo "Navigation captures are ready in $capture_dir."
+}
+
+library_scroll_scenario() {
+  launch
+  press_and_wait Y
+  browse_before=$(line_count 'browse-page ready')
+  press_and_wait A
+  wait_for_count 'browse-page ready' "$browse_before" 120
+
+  windows_before=$(line_count 'browse-page load started')
+  hold_navigation DOWN 20
+  windows_after=$(line_count 'browse-page load started')
+  traversed=$((windows_after - windows_before))
+  if [ "$traversed" -lt 5 ]; then
+    echo "Library scroll exercised only $traversed windows; expected at least 5." >&2
+    exit 1
+  fi
+
+  check
+  echo "Library scroll stress passed across $traversed windows."
 }
 
 require_magick() {
@@ -820,6 +863,7 @@ case "$command" in
     shift
     case "${1:-}" in
       navigation) navigation_scenario ;;
+      library-scroll) library_scroll_scenario ;;
       focus-gallery) focus_gallery_scenario ;;
       playback) playback_scenario ;;
       player-gallery) player_gallery_scenario ;;
