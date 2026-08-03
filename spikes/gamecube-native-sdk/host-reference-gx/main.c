@@ -24,6 +24,7 @@
 #include <gccore.h>
 #include <malloc.h>
 #include <math.h>
+#include <network.h>
 #include <ogc/cond.h>
 #include <ogc/consol.h>
 #include <ogc/lwp.h>
@@ -87,6 +88,8 @@
 #define WATCH_TOGETHER_RECONNECT_DELAY_MS 1000u
 #define CATALOG_RETRY_INITIAL_DELAY_MS 1000u
 #define CATALOG_RETRY_MAX_DELAY_MS 8000u
+#define PAIRING_RETRY_INITIAL_DELAY_MS 1000u
+#define PAIRING_RETRY_MAX_DELAY_MS 8000u
 #define STARTUP_DATA_IDLE_DELAY_MS 2000u
 #define DETAILS_PREFETCH_IDLE_DELAY_MS 250u
 #define SEGMENT_PREFETCH_MARGIN_MS 8000u
@@ -264,6 +267,7 @@ static uint32_t diagnostic_presentation_fps_tenths;
 static uint32_t diagnostic_network_kib_per_second;
 static uint32_t diagnostic_network_last_bytes;
 static uint32_t diagnostic_network_started;
+static char boot_diagnostic_operation[64] = "Process startup";
 static VideoDecoder *video_decoder;
 static lwp_t video_decoder_thread = LWP_THREAD_NULL;
 static void *video_decoder_stack;
@@ -1317,6 +1321,36 @@ static bool finish_network_warmup(NetworkWarmup *warmup) {
   free(warmup->stack);
   warmup->stack = NULL;
   return warmup->ready;
+}
+
+static int format_boot_diagnostics(char *destination, size_t capacity) {
+  struct in_addr address = {.s_addr = net_gethostip()};
+  char local_ip[16] = "0.0.0.0";
+  if (address.s_addr != 0) {
+    inet_ntoa_r(address, local_ip, sizeof(local_ip));
+  }
+  return snprintf(destination, capacity,
+                  "Stage: %s\nNetwork: %s, code %ld\n"
+                  "DHCP status: %ld, attempt %lu, IP: %s",
+                  boot_diagnostic_operation,
+                  http_client_diagnostic_stage_name(),
+                  (long)http_client_diagnostic_error(),
+                  (long)http_client_network_status(),
+                  (unsigned long)http_client_network_attempts(), local_ip);
+}
+
+static bool bind_boot_diagnostics(const char *operation) {
+  snprintf(boot_diagnostic_operation, sizeof(boot_diagnostic_operation), "%s",
+           operation);
+  char diagnostics[192];
+  const int length = format_boot_diagnostics(diagnostics, sizeof(diagnostics));
+  if (length <= 0 || (size_t)length >= sizeof(diagnostics)) {
+    return false;
+  }
+  const bool bound = multiplex_native_app_boot_diagnostics(
+                         (const uint8_t *)diagnostics, (uint32_t)length) != 0;
+  if (bound) native_frame_dirty = true;
+  return bound;
 }
 
 static void *run_reference_renderer(void *context) {
@@ -5113,7 +5147,9 @@ static bool wait_network_warmup(
   }
   __sync_synchronize();
   network_activity_visible = false;
-  return finish_network_warmup(warmup);
+  const bool ready = finish_network_warmup(warmup);
+  bind_boot_diagnostics(ready ? "Network ready" : "Waiting for DHCP");
+  return ready;
 }
 
 static bool wait_reference_transition(
@@ -6009,18 +6045,28 @@ static void *run_app(void *unused) {
 #endif
   memset(&reference_renderer, 0, sizeof(reference_renderer));
   reference_renderer.thread = LWP_THREAD_NULL;
+  snprintf(boot_diagnostic_operation, sizeof(boot_diagnostic_operation), "%s",
+           "Video and GX initialization");
   if (!initialize_video_and_gx()) {
     return (void *)(uintptr_t)APP_EXIT_VIDEO_INIT;
   }
+  snprintf(boot_diagnostic_operation, sizeof(boot_diagnostic_operation), "%s",
+           "JPEG initialization");
   if (!poster_jpeg_initialize()) {
     return (void *)(uintptr_t)APP_EXIT_JPEG_INIT;
   }
+  snprintf(boot_diagnostic_operation, sizeof(boot_diagnostic_operation), "%s",
+           "UI buffer allocation");
   if (!allocate_buffers()) {
     poster_jpeg_shutdown();
     return (void *)(uintptr_t)APP_EXIT_BUFFER_INIT;
   }
   NetworkWarmup network_warmup;
-  bool network_warmup_pending = launch_network_warmup(&network_warmup);
+  memset(&network_warmup, 0, sizeof(network_warmup));
+  network_warmup.thread = LWP_THREAD_NULL;
+  bool network_warmup_pending =
+      MULTIPLEX_GATEWAY_URL[0] != '\0' &&
+      launch_network_warmup(&network_warmup);
 
   MpegPsDemux *demux = NULL;
   HttpClient *client = NULL;
@@ -6101,6 +6147,13 @@ static void *run_app(void *unused) {
     }
     return (void *)(uintptr_t)APP_EXIT_UI_BIND;
   }
+  if (!bind_boot_diagnostics("Loading saved account")) {
+    SYS_Report("REFERENCE GX: failed to bind boot diagnostics\n");
+    if (network_warmup_pending) {
+      finish_network_warmup(&network_warmup);
+    }
+    return (void *)(uintptr_t)APP_EXIT_UI_BIND;
+  }
 #endif
   initialize_textures();
   if (!refresh_reference_frame(false)) {
@@ -6143,6 +6196,11 @@ static void *run_app(void *unused) {
       multiplex_memory_card_load_auth_with_cache(
           &auth_credentials, &auth_location, cached_catalog,
           sizeof(cached_catalog));
+  if (MULTIPLEX_GATEWAY_URL[0] == '\0') {
+    bind_boot_diagnostics("Starting Broadband Adapter");
+    const bool bba_ready = http_client_initialize_network();
+    bind_boot_diagnostics(bba_ready ? "Network ready" : "Waiting for DHCP");
+  }
   MultiplexDeviceAuth device_auth;
   memset(&device_auth, 0, sizeof(device_auth));
   bool pairing_status_presented = false;
@@ -6210,6 +6268,7 @@ static void *run_app(void *unused) {
     }
     if (!multiplex_device_auth_begin(MULTIPLEX_BASE_URL, &device_auth)) {
       device_auth.status = MULTIPLEX_DEVICE_AUTH_UNAVAILABLE;
+      bind_boot_diagnostics("Multiplex pairing request failed");
       SYS_Report("REFERENCE GX: device authorization unavailable card=%s\n",
                  multiplex_memory_card_result_message(stored_auth));
     }
@@ -6231,6 +6290,13 @@ static void *run_app(void *unused) {
   }
   bool auth_reset_latched = false;
   uint32_t pairing_poll_frames = 0;
+  uint64_t pairing_retry_at_ms = 0;
+  uint32_t pairing_retry_delay_ms = PAIRING_RETRY_INITIAL_DELAY_MS;
+  if (!pairing_linked &&
+      device_auth.status == MULTIPLEX_DEVICE_AUTH_UNAVAILABLE) {
+    pairing_retry_at_ms = ticks_to_millisecs(gettime()) +
+                          pairing_retry_delay_ms;
+  }
   if (pairing_linked && (!has_catalog || cached_catalog_loaded)) {
     if (launch_catalog_loader(&catalog_loader, &auth_credentials, &catalog)) {
       network_activity_visible = !has_catalog;
@@ -6345,6 +6411,44 @@ static void *run_app(void *unused) {
       break;
     }
     const uint64_t catalog_now_ms = ticks_to_millisecs(gettime());
+    if (!pairing_linked &&
+        device_auth.status == MULTIPLEX_DEVICE_AUTH_UNAVAILABLE &&
+        pairing_retry_at_ms != 0 && catalog_now_ms >= pairing_retry_at_ms) {
+      bind_boot_diagnostics("Retrying Multiplex pairing");
+      if (multiplex_native_app_pairing_status(
+              MULTIPLEX_PAIRING_CONNECTING, (const uint8_t *)"", 0,
+              (const uint8_t *)"", 0) == 0) {
+        SYS_Report("REFERENCE GX: failed to bind pairing retry status\n");
+        exit_code = APP_EXIT_UI_BIND;
+        break;
+      }
+      if (multiplex_device_auth_begin(MULTIPLEX_BASE_URL, &device_auth)) {
+        pairing_retry_at_ms = 0;
+        pairing_retry_delay_ms = PAIRING_RETRY_INITIAL_DELAY_MS;
+        pairing_poll_frames = 0;
+        bind_boot_diagnostics("Pairing code ready");
+      } else {
+        device_auth.status = MULTIPLEX_DEVICE_AUTH_UNAVAILABLE;
+        bind_boot_diagnostics("Multiplex pairing request failed");
+        pairing_retry_at_ms = catalog_now_ms + pairing_retry_delay_ms;
+        if (pairing_retry_delay_ms < PAIRING_RETRY_MAX_DELAY_MS) {
+          pairing_retry_delay_ms *= 2u;
+          if (pairing_retry_delay_ms > PAIRING_RETRY_MAX_DELAY_MS) {
+            pairing_retry_delay_ms = PAIRING_RETRY_MAX_DELAY_MS;
+          }
+        }
+      }
+      if (multiplex_native_app_pairing_status(
+              device_auth.status, (const uint8_t *)device_auth.user_code,
+              strlen(device_auth.user_code),
+              (const uint8_t *)device_auth.link_url,
+              strlen(device_auth.link_url)) == 0) {
+        SYS_Report("REFERENCE GX: failed to bind pairing retry result\n");
+        exit_code = APP_EXIT_UI_BIND;
+        break;
+      }
+      native_frame_dirty = true;
+    }
     const CatalogLoaderStatus catalog_loader_status =
         poll_catalog_loader(&catalog_loader);
     poll_catalog_cache_saver(&catalog_cache_saver);
@@ -6375,6 +6479,7 @@ static void *run_app(void *unused) {
                  elapsed_us(app_started));
     } else if (catalog_loader_status == CATALOG_LOADER_FAILED) {
       network_activity_visible = false;
+      bind_boot_diagnostics("Plex catalog request failed");
       if (multiplex_native_app_pairing_status(
               MULTIPLEX_DEVICE_AUTH_UNAVAILABLE, (const uint8_t *)"", 0,
               (const uint8_t *)"", 0) == 0) {
@@ -6405,6 +6510,7 @@ static void *run_app(void *unused) {
     }
     if (pairing_linked && !has_catalog && !catalog_loader.started &&
         catalog_retry_at_ms != 0 && catalog_now_ms >= catalog_retry_at_ms) {
+      bind_boot_diagnostics("Retrying Plex catalog");
       if (multiplex_native_app_pairing_status(
               MULTIPLEX_PAIRING_CONNECTING, (const uint8_t *)"", 0,
               (const uint8_t *)"", 0) == 0) {
@@ -6651,6 +6757,13 @@ static void *run_app(void *unused) {
         memset(&device_auth, 0, sizeof(device_auth));
         if (!multiplex_device_auth_begin(MULTIPLEX_BASE_URL, &device_auth)) {
           device_auth.status = MULTIPLEX_DEVICE_AUTH_UNAVAILABLE;
+          bind_boot_diagnostics("Multiplex pairing request failed");
+          pairing_retry_delay_ms = PAIRING_RETRY_INITIAL_DELAY_MS;
+          pairing_retry_at_ms = ticks_to_millisecs(gettime()) +
+                                pairing_retry_delay_ms;
+        } else {
+          pairing_retry_at_ms = 0;
+          pairing_retry_delay_ms = PAIRING_RETRY_INITIAL_DELAY_MS;
         }
         if (multiplex_native_app_pairing_status(
                 device_auth.status, (const uint8_t *)device_auth.user_code,
@@ -7302,6 +7415,9 @@ static void show_app_failure(AppExitCode code) {
   VIDEO_WaitVSync();
 
   const struct mallinfo heap = mallinfo();
+  char boot_diagnostics[192];
+  const int boot_diagnostics_length =
+      format_boot_diagnostics(boot_diagnostics, sizeof(boot_diagnostics));
   printf("\nMultiplex stopped safely\n");
   printf("========================\n\n");
   printf("Diagnostic code: MGC-%u\n\n", (unsigned)code);
@@ -7309,11 +7425,18 @@ static void show_app_failure(AppExitCode code) {
   printf("Heap: %lu KiB free, %lu KiB used\n\n",
          (unsigned long)heap.fordblks / 1024ul,
          (unsigned long)heap.uordblks / 1024ul);
+  if (boot_diagnostics_length > 0 &&
+      (size_t)boot_diagnostics_length < sizeof(boot_diagnostics)) {
+    printf("%s\n\n", boot_diagnostics);
+  }
   printf("Photograph this screen so the exact failure can be fixed.\n");
   printf("Reset the console to return to Swiss.\n");
 
-  while (SYS_MainLoop()) {
+  while (true) {
     PAD_ScanPads();
+    if ((PAD_ButtonsDown(0) & PAD_TRIGGER_Z) != 0 || SYS_ResetButtonDown()) {
+      SYS_ResetSystem(SYS_RESTART, 0, FALSE);
+    }
     VIDEO_WaitVSync();
   }
 }
