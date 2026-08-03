@@ -14,6 +14,7 @@ From the repository root:
 bun run spike:gamecube:bootstrap
 bun run spike:gamecube:check
 bun run spike:gamecube:reference:dol
+bun run spike:gamecube:hardware-debug:dol
 bun run spike:gamecube:bba-diagnostics:dol
 bun run spike:gamecube:reference:run
 bun run spike:gamecube:launch
@@ -32,6 +33,27 @@ its results on screen while checking the official DOL-015 device ID, Ethernet
 link and DHCP lease, assigned network addresses, Plex at
 `192.168.86.245:32400`, and the production Multiplex DNS and TCP 443 paths.
 Reset the console to return to Swiss after recording the result.
+
+`spike:gamecube:hardware-debug:dol` builds
+`spikes/gamecube-native-sdk/multiplex-gamecube-hardware-debug.dol` with the
+same saved endpoints as the release DOL. During playback it overlays UI and
+decoder frame rates, average/maximum H.264 codec time, GX upload time, HLS
+throughput, compressed queue depths, ready audio buffers, audio underruns, and
+free heap. The release DOL does not draw this overlay. Fatal application paths
+remain on screen in both builds with a stable `MGC-xx` code instead of silently
+returning to Swiss. A native exception still shows libogc2's PC, LR, and DAR;
+resolve photographed addresses against the exact debug ELF with:
+
+```sh
+bun run spike:gamecube:symbolize -- 0x80123456 0x80124567
+```
+
+Live GDB while streaming requires a USB Gecko in memory-card slot B. libogc2's
+BBA GDB transport and the application's lwIP transport both own the same EXI
+Broadband Adapter, so they cannot safely run together. The USB Gecko setup
+follows the [GameCube debugging guide](https://themkat.net/2023/01/13/gamecube_debugging.html):
+link `libdb`, initialize `GDBSTUB_DEVICE_USB`, break, then attach the pinned
+`powerpc-eabi-gdb` to the exact ELF.
 
 `spike:gamecube:reference:run` uses an isolated Dolphin profile and replaces
 its previous recorded process, keeping one emulator instance open. The managed
