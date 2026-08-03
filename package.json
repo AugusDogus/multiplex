@@ -27,6 +27,7 @@
     "spike:gamecube:dol": "sh spikes/gamecube-native-sdk/scripts/build-dol.sh",
     "spike:gamecube:run": "sh spikes/gamecube-native-sdk/scripts/run-dolphin.sh",
     "spike:gamecube:reference:dol": "sh spikes/gamecube-native-sdk/scripts/build-native-reference-dol.sh",
+    "spike:gamecube:bba-diagnostics:dol": "sh spikes/gamecube-native-sdk/scripts/build-bba-diagnostics-dol.sh",
     "spike:gamecube:reference:run": "sh spikes/gamecube-native-sdk/scripts/run-dolphin.sh spikes/gamecube-native-sdk/multiplex-gamecube-native-reference.dol",
     "spike:gamecube:launch": "sh spikes/gamecube-native-sdk/scripts/launch-multiplex.sh",
     "spike:gamecube:qa": "sh spikes/gamecube-native-sdk/scripts/dolphin-qa.sh",

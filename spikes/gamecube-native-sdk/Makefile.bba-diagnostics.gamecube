@@ -1,0 +1,56 @@
+# Standalone real-hardware diagnostic for the official GameCube DOL-015 BBA.
+
+.SUFFIXES:
+
+ifeq ($(strip $(DEVKITPPC)),)
+$(error "DEVKITPPC must point to the devkitPPC toolchain")
+endif
+
+SPIKE_ROOT := $(abspath $(dir $(firstword $(MAKEFILE_LIST))))
+
+include $(DEVKITPRO)/libogc2/gamecube_rules
+
+TARGET := multiplex-gamecube-bba-diagnostics
+BUILD := build-bba-diagnostics
+INCLUDES := host-reference-gx
+
+CFLAGS := -g -O2 -Wall -Wextra $(MACHDEP) $(INCLUDE)
+LDFLAGS := -g $(MACHDEP) -Wl,-Map,$(notdir $@).map
+LIBS := -lbba -logc -lm
+
+ifneq ($(BUILD),$(notdir $(CURDIR)))
+
+export OUTPUT := $(SPIKE_ROOT)/$(TARGET)
+export VPATH := $(SPIKE_ROOT)/host-bba-diagnostics \
+	$(SPIKE_ROOT)/host-reference-gx
+export OFILES := main.o network_resolver.o
+export INCLUDE := $(foreach dir,$(INCLUDES),-I$(SPIKE_ROOT)/$(dir)) \
+	-I$(LIBOGC_INC)
+export LIBPATHS := -L$(LIBOGC_LIB)
+export LD := $(CC)
+
+.PHONY: all clean $(BUILD)
+
+all: $(BUILD)
+
+$(BUILD):
+	@[ -d $@ ] || mkdir -p $@
+	@$(MAKE) --no-print-directory -C $(BUILD) \
+		-f $(SPIKE_ROOT)/Makefile.bba-diagnostics.gamecube
+
+clean:
+	@echo clean ...
+	@rm -rf $(BUILD) $(OUTPUT).elf $(OUTPUT).dol
+
+else
+
+.DEFAULT_GOAL := $(OUTPUT).dol
+
+DEPENDS := $(OFILES:.o=.d)
+
+$(OUTPUT).dol: $(OUTPUT).elf
+$(OUTPUT).elf: $(OFILES) $(LIBOGC_LIB)/libbba.a
+
+-include $(DEPENDS)
+
+endif

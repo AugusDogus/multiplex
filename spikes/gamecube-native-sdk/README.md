@@ -14,6 +14,7 @@ From the repository root:
 bun run spike:gamecube:bootstrap
 bun run spike:gamecube:check
 bun run spike:gamecube:reference:dol
+bun run spike:gamecube:bba-diagnostics:dol
 bun run spike:gamecube:reference:run
 bun run spike:gamecube:launch
 bun run spike:gamecube:reference:log-check
@@ -24,6 +25,13 @@ bun run spike:wii:reference:dol
 bun run spike:wii:reference:smoke-player
 bun run spike:wii:reference:plex
 ```
+
+`spike:gamecube:bba-diagnostics:dol` builds a small real-hardware diagnostic at
+`spikes/gamecube-native-sdk/multiplex-gamecube-bba-diagnostics.dol`. It keeps
+its results on screen while checking the official DOL-015 device ID, Ethernet
+link and DHCP lease, assigned network addresses, Plex at
+`192.168.86.245:32400`, and the production Multiplex DNS and TCP 443 paths.
+Reset the console to return to Swiss after recording the result.
 
 `spike:gamecube:reference:run` uses an isolated Dolphin profile and replaces
 its previous recorded process, keeping one emulator instance open. The managed
