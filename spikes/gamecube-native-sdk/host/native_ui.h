@@ -209,6 +209,7 @@ uint32_t multiplex_native_app_mark_watched_request(void);
 uint32_t multiplex_native_app_mark_watched_commit(uint32_t succeeded);
 uint32_t multiplex_native_app_toast_dismiss(void);
 uint32_t multiplex_native_app_player_settings_open(void);
+uint32_t multiplex_native_app_stats_for_nerds_enabled(void);
 int32_t multiplex_native_app_playback_navigation_request(void);
 uint32_t multiplex_native_app_playback_navigation_clear(void);
 uint32_t multiplex_native_app_playback_navigate(

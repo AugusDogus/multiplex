@@ -14,7 +14,6 @@ From the repository root:
 bun run spike:gamecube:bootstrap
 bun run spike:gamecube:check
 bun run spike:gamecube:reference:dol
-bun run spike:gamecube:hardware-debug:dol
 bun run spike:gamecube:bba-diagnostics:dol
 bun run spike:gamecube:reference:run
 bun run spike:gamecube:launch
@@ -34,15 +33,14 @@ link and DHCP lease, assigned network addresses, Plex at
 `192.168.86.245:32400`, and the production Multiplex DNS and TCP 443 paths.
 Reset the console to return to Swiss after recording the result.
 
-`spike:gamecube:hardware-debug:dol` builds
-`spikes/gamecube-native-sdk/multiplex-gamecube-hardware-debug.dol` with the
-same saved endpoints as the release DOL. During playback it overlays UI and
-decoder frame rates, average/maximum H.264 codec time, GX upload time, HLS
+The playback cog includes a runtime `Stats for nerds` toggle. It overlays UI
+and decoder frame rates, average/maximum H.264 codec time, GX upload time, HLS
 throughput, compressed queue depths, ready audio buffers, audio underruns, and
-free heap. The release DOL does not draw this overlay. Fatal application paths
-remain on screen in both builds with a stable `MGC-xx` code instead of silently
-returning to Swiss. A native exception still shows libogc2's PC, LR, and DAR;
-resolve photographed addresses against the exact debug ELF with:
+free heap. The toggle is off by default, so one hardware DOL serves normal use
+and performance diagnosis. Fatal application paths remain on screen with a
+stable `MGC-xx` code instead of silently returning to Swiss. A native exception
+still shows libogc2's PC, LR, and DAR; resolve photographed addresses against
+the exact release ELF with:
 
 ```sh
 bun run spike:gamecube:symbolize -- 0x80123456 0x80124567

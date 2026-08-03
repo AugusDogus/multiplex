@@ -16,7 +16,6 @@
 build/
 build-raylib-reference/
 build-native-reference/
-build-native-reference-hardware-debug/
 build-native-reference-wii/
 build-bba-diagnostics/
 generated/
