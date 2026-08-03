@@ -17,6 +17,7 @@ build/
 build-raylib-reference/
 build-native-reference/
 build-native-reference-wii/
+build-bba-diagnostics/
 generated/
 *.dol
 *.elf

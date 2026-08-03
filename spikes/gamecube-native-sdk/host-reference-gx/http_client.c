@@ -8,6 +8,8 @@
  */
 
 #include "http_client.h"
+
+#include "network_resolver.h"
 #include "media-source.h"
 #include "tls_client.h"
 
@@ -72,6 +74,7 @@ struct HttpClient {
 };
 
 static bool network_initialized;
+static bool network_initialization_attempted;
 static char network_gateway[16];
 static mutex_t http_transaction_mutex;
 static bool http_transaction_mutex_ready;
@@ -184,11 +187,15 @@ static bool format_additional_headers(HttpClient *client,
 }
 
 static bool initialize_network(void) {
+  if (network_initialization_attempted) {
+    return false;
+  }
+  network_initialization_attempted = true;
   char local_ip[16] = {0};
   char netmask[16] = {0};
   char gateway[16] = {0};
   const int status = if_config(local_ip, netmask, gateway, true);
-  if (status < 0) {
+  if (status < 0 || local_ip[0] == '\0' || strcmp(local_ip, "0.0.0.0") == 0) {
     SYS_Report("REFERENCE GX: HTTP network initialization failed status=%d\n",
                status);
     return false;
@@ -255,17 +262,24 @@ static bool connect_client(HttpClient *client) {
     const char *emulator_host_ip = MULTIPLEX_EMULATOR_HOST_IP[0] != '\0'
                                        ? MULTIPLEX_EMULATOR_HOST_IP
                                        : network_gateway;
-    if (host_size <= suffix_size ||
-        strcmp(client->host + host_size - suffix_size, localhost_suffix) !=
-            0 ||
-        inet_aton(emulator_host_ip, &address.sin_addr) == 0) {
-      SYS_Report("REFERENCE GX: HTTP hostname unresolved host=%s\n",
-                 client->host);
+    if (host_size > suffix_size &&
+        strcmp(client->host + host_size - suffix_size, localhost_suffix) ==
+            0) {
+      if (inet_aton(emulator_host_ip, &address.sin_addr) == 0) {
+        SYS_Report("REFERENCE GX: HTTP emulator host unresolved host=%s\n",
+                   client->host);
+        disconnect_client(client);
+        return false;
+      }
+      SYS_Report("REFERENCE GX: HTTP emulator host=%s gateway=%s\n",
+                 client->host, emulator_host_ip);
+    } else if (!multiplex_resolve_ipv4(client->host, network_gateway,
+                                       &address.sin_addr)) {
+      SYS_Report("REFERENCE GX: HTTP DNS failed host=%s dns=%s\n",
+                 client->host, network_gateway);
       disconnect_client(client);
       return false;
     }
-    SYS_Report("REFERENCE GX: HTTP emulator host=%s gateway=%s\n",
-               client->host, emulator_host_ip);
   }
   if (net_connect(client->socket, (struct sockaddr *)&address,
                   sizeof(address)) < 0) {
