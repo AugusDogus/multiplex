@@ -1,7 +1,9 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
 import { ConsoleLinkForm } from "~/components/console-link-form";
+import { Spinner } from "~/components/ui/spinner";
 import { auth } from "~/lib/auth/server";
 
 function normalizeUserCode(value: string | string[] | undefined): string {
@@ -12,7 +14,7 @@ function normalizeUserCode(value: string | string[] | undefined): string {
     .slice(0, 4);
 }
 
-export default async function LinkConsolePage({
+async function LinkConsoleContent({
   searchParams,
 }: {
   searchParams: Promise<{ user_code?: string | string[] }>;
@@ -27,13 +29,23 @@ export default async function LinkConsolePage({
     redirect(`/login?returnTo=${encodeURIComponent(returnTo)}`);
   }
 
+  return <ConsoleLinkForm initialCode={code} />;
+}
+
+export default function LinkConsolePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ user_code?: string | string[] }>;
+}) {
   return (
     <main className="bg-background relative flex min-h-svh items-center justify-center overflow-hidden px-6 py-12">
       <div
         aria-hidden="true"
         className="bg-primary/4 pointer-events-none absolute top-1/2 left-1/2 size-[36rem] -translate-x-1/2 -translate-y-1/2 rounded-full blur-3xl dark:bg-white/3"
       />
-      <ConsoleLinkForm initialCode={code} />
+      <Suspense fallback={<Spinner className="text-muted-foreground size-5" />}>
+        <LinkConsoleContent searchParams={searchParams} />
+      </Suspense>
     </main>
   );
 }
