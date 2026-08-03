@@ -622,7 +622,7 @@
   </if>
   <if test="{playerSettingsOpen}">
     <column grow="1" main="center" cross="center" background="scrim">
-      <panel width="310" height="230" background="surface" border-color="border" radius="lg" label="Playback settings">
+      <panel width="310" height="294" background="surface" border-color="border" radius="lg" label="Playback settings">
           <column padding="16" gap="8">
             <text size="heading">Playback settings</text>
             <separator />
@@ -637,6 +637,13 @@
             </if>
             <else>
               <text size="sm" foreground="text_muted">No subtitles are available for this item.</text>
+            </else>
+            <text size="sm" foreground="text_muted">Stats for nerds</text>
+            <if test="{statsForNerdsEnabled}">
+              <button focus-ring="text" size="sm" variant="primary" on-press="toggle_stats_for_nerds">On</button>
+            </if>
+            <else>
+              <button focus-ring="text" size="sm" variant="secondary" on-press="toggle_stats_for_nerds">Off</button>
             </else>
             <if test="{watchTogetherActive}">
               <button focus-ring="text" size="sm" variant="secondary" on-press="leave_watch_together">Leave Watch Together</button>

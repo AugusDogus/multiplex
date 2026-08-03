@@ -432,7 +432,7 @@ fn beginStagedBrowseItems(item_count: usize) void {
 fn prefersFocus(model: *const core.Model, msg: core.Msg) bool {
     if (model.playerSettingsOpen) {
         return switch (msg) {
-            .cycle_subtitles, .close_player_settings => true,
+            .cycle_subtitles, .toggle_stats_for_nerds, .close_player_settings => true,
             else => false,
         };
     }
@@ -470,7 +470,7 @@ fn prefersFocus(model: *const core.Model, msg: core.Msg) bool {
 fn receivesFocus(model: *const core.Model, msg: core.Msg) bool {
     if (model.playerSettingsOpen) {
         return switch (msg) {
-            .cycle_subtitles, .close_player_settings => true,
+            .cycle_subtitles, .toggle_stats_for_nerds, .close_player_settings => true,
             else => false,
         };
     }
@@ -1341,6 +1341,10 @@ export fn multiplex_native_app_player_settings_open() callconv(.c) u32 {
     return if (app_initialized and app_model.playerSettingsOpen) 1 else 0;
 }
 
+export fn multiplex_native_app_stats_for_nerds_enabled() callconv(.c) u32 {
+    return if (app_initialized and app_model.statsForNerdsEnabled) 1 else 0;
+}
+
 export fn multiplex_native_app_playback_navigation_request() callconv(.c) i32 {
     if (!app_initialized) return 0;
     return @intCast(core.playbackRequestedNavigation(app_model));
@@ -1788,6 +1792,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .search_key,
                 .details_children_previous,
                 .details_children_next,
+                .toggle_stats_for_nerds,
                 => true,
                 else => false,
             };
@@ -1836,6 +1841,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 .complete_playback => 21,
                 .toggle_playback => 10,
                 .cycle_subtitles => 34,
+                .toggle_stats_for_nerds => 50,
                 .start_menu_mark_watched => 49,
                 .back => 11,
             };

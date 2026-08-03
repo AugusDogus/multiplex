@@ -152,6 +152,7 @@ export interface Model {
   readonly toastMessage: Uint8Array;
   readonly startMenuOpen: boolean;
   readonly playerSettingsOpen: boolean;
+  readonly statsForNerdsEnabled: boolean;
   readonly playbackNavigationRequest: number;
 }
 
@@ -193,6 +194,7 @@ export type Msg =
   | { readonly kind: "seek_forward" }
   | { readonly kind: "open_player_settings" }
   | { readonly kind: "close_player_settings" }
+  | { readonly kind: "toggle_stats_for_nerds" }
   | { readonly kind: "stop_playback" }
   | { readonly kind: "play_previous" }
   | { readonly kind: "play_next" }
@@ -438,6 +440,7 @@ export function initialModel(): Model {
     toastMessage: new Uint8Array(0),
     startMenuOpen: false,
     playerSettingsOpen: false,
+    statsForNerdsEnabled: false,
     playbackNavigationRequest: 0,
   };
 }
@@ -1790,6 +1793,9 @@ export function update(model: Model, msg: Msg): Model {
       return { ...model, playerSettingsOpen: true };
     case "close_player_settings":
       return model.playerSettingsOpen ? { ...model, playerSettingsOpen: false } : model;
+    case "toggle_stats_for_nerds":
+      if (model.screen !== "player" || !model.playerSettingsOpen) return model;
+      return { ...model, statsForNerdsEnabled: !model.statsForNerdsEnabled };
     case "stop_playback":
       return model.screen === "player" ? update(model, { kind: "back" }) : model;
     case "play_previous":

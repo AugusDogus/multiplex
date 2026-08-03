@@ -123,10 +123,6 @@
 #define UI_SHAPE_COMMAND_CAPACITY 896u
 #define UI_TEXT_CAPACITY 4096u
 
-#ifndef MULTIPLEX_HARDWARE_DIAGNOSTICS
-#define MULTIPLEX_HARDWARE_DIAGNOSTICS 0
-#endif
-
 typedef enum {
   APP_EXIT_OK = 0,
   APP_EXIT_VIDEO_INIT = 10,
@@ -4069,9 +4065,10 @@ static void draw_activity(void) {
   }
 }
 
-#if MULTIPLEX_HARDWARE_DIAGNOSTICS
-static void draw_hardware_diagnostics(void) {
-  if (video_surface.visible == 0) {
+static void draw_stats_for_nerds(void) {
+  if (video_surface.visible == 0 ||
+      multiplex_native_app_stats_for_nerds_enabled() == 0) {
+    diagnostic_network_started = 0;
     return;
   }
 
@@ -4135,9 +4132,6 @@ static void draw_hardware_diagnostics(void) {
   };
   draw_native_text_command(&command);
 }
-#else
-static void draw_hardware_diagnostics(void) {}
-#endif
 
 static void fill_rect(float left, float top, float right, float bottom,
                       GXColor color) {
@@ -5065,7 +5059,7 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
     }
   }
   draw_activity();
-  draw_hardware_diagnostics();
+  draw_stats_for_nerds();
   GX_CopyDisp(framebuffers[framebuffer_index], GX_TRUE);
   GX_DrawDone();
   VIDEO_SetNextFramebuffer(framebuffers[framebuffer_index]);
