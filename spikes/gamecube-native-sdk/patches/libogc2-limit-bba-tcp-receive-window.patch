@@ -1,12 +1,14 @@
 diff --git a/lwip/include/lwip/lwipopts.h b/lwip/include/lwip/lwipopts.h
-index eaac65f..c7b79a0 100644
+index ce9b123..2bd0a51 100644
 --- a/lwip/include/lwip/lwipopts.h
 +++ b/lwip/include/lwip/lwipopts.h
-@@ -115,7 +115,7 @@
+@@ -115,7 +115,9 @@ a lot of data that needs to be copied, this should be set high. */
  #define TCP_SND_QUEUELEN        (36*TCP_SND_BUF/TCP_MSS)
 
  /* TCP receive window. */
 -#define TCP_WND                 (2*TCP_MSS)
++/* The DOL-015 receive ring stalls with the upstream two-MSS window. */
++/* Keep this at one MSS unless hardware testing proves a larger window safe. */
 +#define TCP_WND                 TCP_MSS
 
  /* Maximum number of retransmissions of data segments. */

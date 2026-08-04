@@ -14,7 +14,25 @@ bundle_roots=$(grep -c -- '-----BEGIN CERTIFICATE-----' "$bundle")
 test "$bundle_roots" -gt 100
 
 mkdir -p "$temporary_dir/home/.portless"
-cp "$bundle" "$temporary_dir/home/.portless/ca.pem"
+awk '
+  /-----BEGIN CERTIFICATE-----/ { certificate += 1 }
+  certificate == 1 { print }
+  certificate == 1 && /-----END CERTIFICATE-----/ { exit }
+' "$bundle" >"$temporary_dir/home/.portless/ca.pem"
+portless_roots=$(grep -c -- '-----BEGIN CERTIFICATE-----' \
+  "$temporary_dir/home/.portless/ca.pem")
+test "$portless_roots" -eq 1
+printf '%s\n' 'PORTLESS_HOST_CERTIFICATE_SHOULD_NOT_BE_EMBEDDED' \
+  >"$temporary_dir/home/.portless/server.pem"
+printf '%s\n' '-----BEGIN PRIVATE KEY-----' 'not-a-real-key' \
+  '-----END PRIVATE KEY-----' \
+  >"$temporary_dir/home/.portless/server-key.pem"
+
+assert_header_safe() {
+  header=$1
+  ! grep -Eq -- '-----BEGIN ([A-Z0-9]+ )?PRIVATE KEY-----' "$header"
+  ! grep -q -- 'PORTLESS_HOST_CERTIFICATE_SHOULD_NOT_BE_EMBEDDED' "$header"
+}
 
 public_header="$temporary_dir/public.h"
 HOME="$temporary_dir/home" \
@@ -22,12 +40,31 @@ HOME="$temporary_dir/home" \
   sh "$script_dir/generate-tls-ca-header.sh" "$public_header"
 test "$(grep -c -- '-----BEGIN CERTIFICATE-----' "$public_header")" \
   -eq "$bundle_roots"
+assert_header_safe "$public_header"
 
 portless_header="$temporary_dir/portless.h"
 HOME="$temporary_dir/home" \
   MULTIPLEX_BASE_URL=https://multiplex.localhost \
   sh "$script_dir/generate-tls-ca-header.sh" "$portless_header"
 test "$(grep -c -- '-----BEGIN CERTIFICATE-----' "$portless_header")" \
-  -eq "$((bundle_roots * 2))"
+  -eq "$((bundle_roots + portless_roots))"
+assert_header_safe "$portless_header"
+
+override_ca="$temporary_dir/override-ca.pem"
+awk '
+  /-----BEGIN CERTIFICATE-----/ { certificate += 1 }
+  certificate == 2 { print }
+  certificate == 2 && /-----END CERTIFICATE-----/ { exit }
+' "$bundle" >"$override_ca"
+override_roots=$(grep -c -- '-----BEGIN CERTIFICATE-----' "$override_ca")
+test "$override_roots" -eq 1
+override_header="$temporary_dir/override.h"
+HOME="$temporary_dir/home" \
+  MULTIPLEX_BASE_URL=https://multiplex.example.com \
+  GAMECUBE_TLS_CA_FILE="$override_ca" \
+  sh "$script_dir/generate-tls-ca-header.sh" "$override_header"
+test "$(grep -c -- '-----BEGIN CERTIFICATE-----' "$override_header")" \
+  -eq "$((bundle_roots + override_roots))"
+assert_header_safe "$override_header"
 
 echo "GameCube TLS CA bundle tests passed."
