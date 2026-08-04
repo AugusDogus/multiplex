@@ -3,6 +3,8 @@
 .libogc2-stage/
 .libogc2-clean/
 .libogc2-clean-stage/
+.libogc2-hardware/
+.libogc2-hardware-stage/
 .libogc2-matrix/
 .libogc2-matrix-stage/
 .passt/

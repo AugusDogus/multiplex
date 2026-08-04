@@ -1,0 +1,13 @@
+diff --git a/lwip/include/lwip/lwipopts.h b/lwip/include/lwip/lwipopts.h
+index eaac65f..c7b79a0 100644
+--- a/lwip/include/lwip/lwipopts.h
++++ b/lwip/include/lwip/lwipopts.h
+@@ -115,7 +115,7 @@
+ #define TCP_SND_QUEUELEN        (36*TCP_SND_BUF/TCP_MSS)
+
+ /* TCP receive window. */
+-#define TCP_WND                 (2*TCP_MSS)
++#define TCP_WND                 TCP_MSS
+
+ /* Maximum number of retransmissions of data segments. */
+ #define TCP_MAXRTX              12
