@@ -1337,6 +1337,14 @@ export fn multiplex_native_app_toast_dismiss() callconv(.c) u32 {
     return 1;
 }
 
+export fn multiplex_native_app_toast(message: [*]const u8, message_length: u32) callconv(.c) u32 {
+    if (!app_initialized) return 0;
+    const staged = stageBytes(message[0..message_length]);
+    commitAppModel(core.showToast(app_model, staged));
+    reference_full_repaint = true;
+    return 1;
+}
+
 export fn multiplex_native_app_player_settings_open() callconv(.c) u32 {
     return if (app_initialized and app_model.playerSettingsOpen) 1 else 0;
 }

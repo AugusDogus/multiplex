@@ -6091,9 +6091,13 @@ static void *run_app(void *unused) {
   NetworkWarmup network_warmup;
   memset(&network_warmup, 0, sizeof(network_warmup));
   network_warmup.thread = LWP_THREAD_NULL;
+  bool network_ready = false;
   bool network_warmup_pending =
       MULTIPLEX_GATEWAY_URL[0] != '\0' &&
       launch_network_warmup(&network_warmup);
+  uint64_t network_retry_at_ms = 0;
+  uint32_t network_retry_delay_ms = CATALOG_RETRY_INITIAL_DELAY_MS;
+  bool offline_notice_presented = false;
 
   MpegPsDemux *demux = NULL;
   HttpClient *client = NULL;
@@ -6143,7 +6147,7 @@ static void *run_app(void *unused) {
   CatalogCacheSaver catalog_cache_saver;
   memset(&catalog_cache_saver, 0, sizeof(catalog_cache_saver));
   catalog_cache_saver.thread = LWP_THREAD_NULL;
-  bool cached_catalog_loaded = false;
+  bool catalog_refresh_pending = false;
   bool catalog_cache_save_pending = false;
   uint64_t catalog_retry_at_ms = 0;
   uint32_t catalog_retry_delay_ms = CATALOG_RETRY_INITIAL_DELAY_MS;
@@ -6192,9 +6196,9 @@ static void *run_app(void *unused) {
   present_frame(&playback_manifest);
 
   if (network_warmup_pending && MULTIPLEX_GATEWAY_URL[0] != '\0') {
+    network_ready = wait_network_warmup(&network_warmup, &playback_manifest);
     SYS_Report("REFERENCE GX: network warmup ready=%u\n",
-               wait_network_warmup(&network_warmup, &playback_manifest) ? 1u
-                                                                        : 0u);
+               network_ready ? 1u : 0u);
     network_warmup_pending = false;
   }
 
@@ -6222,11 +6226,6 @@ static void *run_app(void *unused) {
       multiplex_memory_card_load_auth_with_cache(
           &auth_credentials, &auth_location, cached_catalog,
           sizeof(cached_catalog));
-  if (MULTIPLEX_GATEWAY_URL[0] == '\0') {
-    bind_boot_diagnostics("Starting Broadband Adapter");
-    const bool bba_ready = http_client_initialize_network();
-    bind_boot_diagnostics(bba_ready ? "Network ready" : "Waiting for DHCP");
-  }
   MultiplexDeviceAuth device_auth;
   memset(&device_auth, 0, sizeof(device_auth));
   bool pairing_status_presented = false;
@@ -6243,7 +6242,7 @@ static void *run_app(void *unused) {
     if (multiplex_catalog_cache_decode(cached_catalog, &catalog) &&
         bind_catalog_to_app(&catalog)) {
       has_catalog = true;
-      cached_catalog_loaded = true;
+      catalog_refresh_pending = true;
       SYS_Report("REFERENCE GX: cached catalog ready rows=%u items=%u us=%u\n",
                  catalog.row_count, catalog.total_item_count,
                  elapsed_us(app_started));
@@ -6254,15 +6253,25 @@ static void *run_app(void *unused) {
       return (void *)(uintptr_t)APP_EXIT_UI_RENDER;
     }
     pairing_status_presented = true;
+    if (MULTIPLEX_GATEWAY_URL[0] == '\0') {
+      bind_boot_diagnostics("Starting Broadband Adapter");
+      network_warmup_pending = launch_network_warmup(&network_warmup);
+      if (!network_warmup_pending) {
+        network_retry_at_ms = ticks_to_millisecs(gettime()) +
+                              network_retry_delay_ms;
+      }
+    }
     if (network_warmup_pending) {
-      SYS_Report("REFERENCE GX: network warmup ready=%u\n",
-                 wait_network_warmup(&network_warmup, &playback_manifest)
-                     ? 1u
-                     : 0u);
-      network_warmup_pending = false;
+      if (MULTIPLEX_GATEWAY_URL[0] != '\0') {
+        network_ready =
+            wait_network_warmup(&network_warmup, &playback_manifest);
+        SYS_Report("REFERENCE GX: network warmup ready=%u\n",
+                   network_ready ? 1u : 0u);
+        network_warmup_pending = false;
+      }
     }
     bool credentials_changed = false;
-    if (auth_credentials.plex_token[0] == '\0') {
+    if (network_ready && auth_credentials.plex_token[0] == '\0') {
       const bool credentials_refreshed =
           multiplex_device_auth_refresh_credentials(auth_credentials.origin,
                                                     &auth_credentials);
@@ -6270,7 +6279,7 @@ static void *run_app(void *unused) {
                  credentials_refreshed ? 1u : 0u);
       credentials_changed = credentials_refreshed;
     }
-    if (auth_credentials.plex_server_url[0] == '\0' &&
+    if (network_ready && auth_credentials.plex_server_url[0] == '\0' &&
         multiplex_plex_bootstrap_credentials(&auth_credentials,
                                              MULTIPLEX_PLEX_BASE_URL)) {
       credentials_changed = true;
@@ -6285,11 +6294,14 @@ static void *run_app(void *unused) {
                  multiplex_memory_card_result_message(refreshed));
     }
   } else {
+    if (MULTIPLEX_GATEWAY_URL[0] == '\0') {
+      bind_boot_diagnostics("Starting Broadband Adapter");
+      network_warmup_pending = launch_network_warmup(&network_warmup);
+    }
     if (network_warmup_pending) {
+      network_ready = wait_network_warmup(&network_warmup, &playback_manifest);
       SYS_Report("REFERENCE GX: network warmup ready=%u\n",
-                 wait_network_warmup(&network_warmup, &playback_manifest)
-                     ? 1u
-                     : 0u);
+                 network_ready ? 1u : 0u);
       network_warmup_pending = false;
     }
     if (!multiplex_device_auth_begin(MULTIPLEX_BASE_URL, &device_auth)) {
@@ -6323,7 +6335,8 @@ static void *run_app(void *unused) {
     pairing_retry_at_ms = ticks_to_millisecs(gettime()) +
                           pairing_retry_delay_ms;
   }
-  if (pairing_linked && (!has_catalog || cached_catalog_loaded)) {
+  if (pairing_linked && network_ready &&
+      (!has_catalog || catalog_refresh_pending)) {
     if (launch_catalog_loader(&catalog_loader, &auth_credentials, &catalog)) {
       network_activity_visible = !has_catalog;
     } else {
@@ -6342,10 +6355,10 @@ static void *run_app(void *unused) {
     }
   }
 #endif
-  if (network_warmup_pending) {
+  if (network_warmup_pending && MULTIPLEX_GATEWAY_URL[0] != '\0') {
+    network_ready = wait_network_warmup(&network_warmup, &playback_manifest);
     SYS_Report("REFERENCE GX: network warmup ready=%u\n",
-               wait_network_warmup(&network_warmup, &playback_manifest) ? 1u
-                                                                        : 0u);
+               network_ready ? 1u : 0u);
     network_warmup_pending = false;
   }
 #if MULTIPLEX_PAIRING_ENABLED
@@ -6438,6 +6451,72 @@ static void *run_app(void *unused) {
       break;
     }
     const uint64_t catalog_now_ms = ticks_to_millisecs(gettime());
+    if (MULTIPLEX_GATEWAY_URL[0] == '\0' && network_warmup_pending &&
+        network_warmup.complete) {
+      __sync_synchronize();
+      network_ready = finish_network_warmup(&network_warmup);
+      network_warmup_pending = false;
+      if (network_ready) {
+        bind_boot_diagnostics("Network ready");
+        static const char connected[] = "Ethernet connected";
+        multiplex_native_app_toast((const uint8_t *)connected,
+                                   sizeof(connected) - 1u);
+        toast_dismiss_at_ms = catalog_now_ms + 2500u;
+        offline_notice_presented = false;
+        network_retry_at_ms = 0;
+        network_retry_delay_ms = CATALOG_RETRY_INITIAL_DELAY_MS;
+        catalog_retry_at_ms = catalog_now_ms;
+        bool credentials_changed = false;
+        if (auth_credentials.plex_token[0] == '\0') {
+          credentials_changed = multiplex_device_auth_refresh_credentials(
+              auth_credentials.origin, &auth_credentials);
+        }
+        if (auth_credentials.plex_server_url[0] == '\0' &&
+            multiplex_plex_bootstrap_credentials(&auth_credentials,
+                                                 MULTIPLEX_PLEX_BASE_URL)) {
+          credentials_changed = true;
+        }
+        if (credentials_changed) {
+          const MultiplexMemoryCardResult refreshed =
+              multiplex_memory_card_save_auth(&auth_credentials,
+                                              &auth_location);
+          SYS_Report("REFERENCE GX: recovered Plex credential persistence=%s\n",
+                     multiplex_memory_card_result_message(refreshed));
+        }
+        SYS_Report("REFERENCE GX: Ethernet recovery ready=1\n");
+      } else {
+        bind_boot_diagnostics("Ethernet disconnected; retrying");
+        if (!offline_notice_presented) {
+          static const char disconnected[] =
+              "Ethernet disconnected. Showing saved library.";
+          multiplex_native_app_toast((const uint8_t *)disconnected,
+                                     sizeof(disconnected) - 1u);
+          toast_dismiss_at_ms = 0;
+          offline_notice_presented = true;
+        }
+        network_retry_at_ms = catalog_now_ms + network_retry_delay_ms;
+        if (network_retry_delay_ms < CATALOG_RETRY_MAX_DELAY_MS) {
+          network_retry_delay_ms *= 2u;
+          if (network_retry_delay_ms > CATALOG_RETRY_MAX_DELAY_MS) {
+            network_retry_delay_ms = CATALOG_RETRY_MAX_DELAY_MS;
+          }
+        }
+        SYS_Report("REFERENCE GX: Ethernet recovery ready=0 retry-ms=%u\n",
+                   (uint32_t)(network_retry_at_ms - catalog_now_ms));
+      }
+      native_frame_dirty = true;
+    }
+    if (MULTIPLEX_GATEWAY_URL[0] == '\0' && !network_ready &&
+        !network_warmup_pending && network_retry_at_ms != 0 &&
+        catalog_now_ms >= network_retry_at_ms) {
+      bind_boot_diagnostics("Retrying Ethernet");
+      if (launch_network_warmup(&network_warmup)) {
+        network_warmup_pending = true;
+        network_retry_at_ms = 0;
+      } else {
+        network_retry_at_ms = catalog_now_ms + network_retry_delay_ms;
+      }
+    }
     if (!pairing_linked &&
         device_auth.status == MULTIPLEX_DEVICE_AUTH_UNAVAILABLE &&
         pairing_retry_at_ms != 0 && catalog_now_ms >= pairing_retry_at_ms) {
@@ -6490,6 +6569,7 @@ static void *run_app(void *unused) {
         break;
       }
       has_catalog = true;
+      catalog_refresh_pending = false;
       catalog_retry_at_ms = 0;
       catalog_retry_delay_ms = CATALOG_RETRY_INITIAL_DELAY_MS;
       startup_data_not_before_ms = catalog_now_ms + STARTUP_DATA_IDLE_DELAY_MS;
@@ -6507,12 +6587,22 @@ static void *run_app(void *unused) {
     } else if (catalog_loader_status == CATALOG_LOADER_FAILED) {
       network_activity_visible = false;
       bind_boot_diagnostics("Plex catalog request failed");
-      if (multiplex_native_app_pairing_status(
-              MULTIPLEX_DEVICE_AUTH_UNAVAILABLE, (const uint8_t *)"", 0,
-              (const uint8_t *)"", 0) == 0) {
-        SYS_Report("REFERENCE GX: failed to bind network unavailable status\n");
-        exit_code = APP_EXIT_UI_BIND;
-        break;
+      catalog_refresh_pending = true;
+      if (!has_catalog) {
+        if (multiplex_native_app_pairing_status(
+                MULTIPLEX_DEVICE_AUTH_UNAVAILABLE, (const uint8_t *)"", 0,
+                (const uint8_t *)"", 0) == 0) {
+          SYS_Report(
+              "REFERENCE GX: failed to bind network unavailable status\n");
+          exit_code = APP_EXIT_UI_BIND;
+          break;
+        }
+      } else {
+        static const char unavailable[] =
+            "Plex unavailable. Showing saved library.";
+        multiplex_native_app_toast((const uint8_t *)unavailable,
+                                   sizeof(unavailable) - 1u);
+        toast_dismiss_at_ms = 0;
       }
       catalog_retry_at_ms = catalog_now_ms + catalog_retry_delay_ms;
       if (catalog_retry_delay_ms < CATALOG_RETRY_MAX_DELAY_MS) {
@@ -6535,7 +6625,8 @@ static void *run_app(void *unused) {
         catalog_cache_save_pending = false;
       }
     }
-    if (pairing_linked && !has_catalog && !catalog_loader.started &&
+    if (pairing_linked && network_ready &&
+        (!has_catalog || catalog_refresh_pending) && !catalog_loader.started &&
         catalog_retry_at_ms != 0 && catalog_now_ms >= catalog_retry_at_ms) {
       bind_boot_diagnostics("Retrying Plex catalog");
       if (multiplex_native_app_pairing_status(
@@ -6562,12 +6653,15 @@ static void *run_app(void *unused) {
     }
 #endif
     const uint32_t active_screen = multiplex_native_app_screen();
-    if (active_screen == MULTIPLEX_SCREEN_HOME &&
+    const bool network_work_allowed =
+        MULTIPLEX_GATEWAY_URL[0] != '\0' || network_ready;
+    if (network_work_allowed && active_screen == MULTIPLEX_SCREEN_HOME &&
         presented_screen == active_screen &&
         direct_home_poster_loader.pending &&
         !direct_poster_loader_running(&direct_home_poster_loader)) {
       launch_direct_poster_loader(&direct_home_poster_loader);
-    } else if ((active_screen == MULTIPLEX_SCREEN_BROWSE ||
+    } else if (network_work_allowed &&
+               (active_screen == MULTIPLEX_SCREEN_BROWSE ||
                 active_screen == MULTIPLEX_SCREEN_SEARCH_RESULTS) &&
                !direct_poster_loader_running(&direct_home_poster_loader) &&
                !direct_home_poster_loader.pending &&
@@ -6680,7 +6774,8 @@ static void *run_app(void *unused) {
       startup_data_not_before_ms =
           input_now_ms + STARTUP_DATA_IDLE_DELAY_MS;
     }
-    if (pairing_linked && has_catalog && !startup_data_loader.started &&
+    if (network_work_allowed && pairing_linked && has_catalog &&
+        !startup_data_loader.started &&
         input_now_ms >= startup_data_not_before_ms &&
         multiplex_native_app_screen() == MULTIPLEX_SCREEN_HOME &&
         !direct_poster_loader_running(&direct_home_poster_loader) &&
