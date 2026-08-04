@@ -29,20 +29,22 @@ if [ "$actual_commit" != "$LIBOGC2_COMMIT" ]; then
   echo "Hardware libogc2 checkout is at $actual_commit; expected $LIBOGC2_COMMIT" >&2
   exit 1
 fi
-if git -C "$source_dir" apply --reverse --check "$patch_file" >/dev/null 2>&1; then
-  :
-elif git -C "$source_dir" apply --check "$patch_file"; then
-  git -C "$source_dir" apply "$patch_file"
-else
-  echo "Hardware libogc2 patch does not apply cleanly: $patch_file" >&2
+if git -C "$source_dir" apply --reverse --check "$patch_file" \
+  >/dev/null 2>&1; then
+  git -C "$source_dir" apply --reverse "$patch_file"
+  if ! git -C "$source_dir" diff --quiet ||
+    [ -n "$(git -C "$source_dir" ls-files --others --exclude-standard)" ]; then
+    git -C "$source_dir" apply "$patch_file"
+    echo "Hardware libogc2 checkout contains unverified local changes." >&2
+    exit 1
+  fi
+elif ! git -C "$source_dir" diff --quiet ||
+  [ -n "$(git -C "$source_dir" ls-files --others --exclude-standard)" ]; then
+  echo "Hardware libogc2 checkout contains unverified local changes." >&2
   exit 1
 fi
-changed_files=$(git -C "$source_dir" diff --name-only)
-if [ "$changed_files" != "lwip/include/lwip/lwipopts.h" ]; then
-  echo "Hardware libogc2 checkout contains unexpected local changes." >&2
-  printf '%s\n' "$changed_files" >&2
-  exit 1
-fi
+git -C "$source_dir" apply --check "$patch_file"
+git -C "$source_dir" apply "$patch_file"
 
 if [ ! -s "$stage_library" ] || [ ! -f "$stamp" ] ||
   [ "$(sed -n '1p' "$stamp")" != "$build_input" ]; then

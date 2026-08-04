@@ -32,22 +32,27 @@ fi
 
 sh "$script_dir/check.sh"
 
-mkdir -p "$spike_dir/build-native-reference"
+build_dir="$spike_dir/build-native-reference"
+stage_stamp="$build_dir/.libogc2-stage"
+mkdir -p "$build_dir"
+if [ ! -f "$stage_stamp" ] ||
+  [ "$(sed -n '1p' "$stage_stamp" 2>/dev/null)" != "$libogc2_stage_name" ]; then
+  rm -f "$build_dir"/*.o "$build_dir"/*.d
+fi
 if [ -z "${MULTIPLEX_BASE_URL:-}" ] &&
-  [ -s "$spike_dir/build-native-reference/media-source.h" ] &&
+  [ -s "$build_dir/media-source.h" ] &&
   grep -q '#define MULTIPLEX_PAIRING_ENABLED 1' \
-    "$spike_dir/build-native-reference/media-source.h"; then
+    "$build_dir/media-source.h"; then
   echo "Keeping the existing hardware endpoints."
 else
   sh "$script_dir/generate-media-source-header.sh" \
-    "$spike_dir/build-native-reference/media-source.h"
+    "$build_dir/media-source.h"
 fi
 sh "$script_dir/generate-tls-ca-header.sh" \
-  "$spike_dir/build-native-reference/tls-ca.h"
+  "$build_dir/tls-ca.h"
 
-# The selected libogc2 stage is a link-time input. Remove only the final link
-# products so switching stages cannot reuse an ELF linked against the other
-# runtime while preserving generated headers and compiled objects.
+# The selected libogc2 stage changes both headers and libraries. Stage changes
+# discard objects above; every build also refreshes the final link products.
 rm -f "$spike_dir/multiplex-gamecube-native-reference.elf" \
   "$spike_dir/multiplex-gamecube-native-reference.dol"
 
@@ -59,6 +64,7 @@ podman run --rm \
   sh -c 'export DEVKITPRO="/workspace/$LIBOGC2_STAGE_NAME/opt/devkitpro"; export DEVKITPPC="/opt/devkitpro/devkitPPC"; export PATH="/opt/devkitpro/devkitPPC/bin:/opt/devkitpro/tools/bin:$PATH"; make -f Makefile.reference.gamecube'
 
 test -s "$spike_dir/multiplex-gamecube-native-reference.dol"
+printf '%s\n' "$libogc2_stage_name" >"$stage_stamp"
 readelf -sW "$spike_dir/multiplex-gamecube-native-reference.elf" |
   grep -q "multiplex_native_app_render_reference"
 

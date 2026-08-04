@@ -15,7 +15,7 @@ BUILD := build-bba-diagnostics
 INCLUDES := host-reference-gx
 
 CFLAGS := -g -O2 -Wall -Wextra $(MACHDEP) $(INCLUDE)
-LDFLAGS := -g $(MACHDEP) -Wl,-Map,$(notdir $@).map
+LDFLAGS = -g $(MACHDEP) -Wl,-Map,$(notdir $@).map
 LIBS := -lbba -logc -lm
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
