@@ -14,7 +14,7 @@ fi
 
 libogc2_stage_name=${LIBOGC2_STAGE_NAME:-.libogc2-stage}
 case "$libogc2_stage_name" in
-  .libogc2-stage | .libogc2-clean-stage) ;;
+  .libogc2-stage | .libogc2-clean-stage | .libogc2-hardware-stage) ;;
   *)
     echo "Unsupported libogc2 stage: $libogc2_stage_name" >&2
     exit 1
