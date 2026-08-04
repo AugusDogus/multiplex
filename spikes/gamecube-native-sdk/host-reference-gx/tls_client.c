@@ -36,10 +36,20 @@ struct MultiplexTlsClient {
   uint64_t entropy_state;
   mbedtls_ssl_context ssl;
   mbedtls_ssl_config config;
-  mbedtls_x509_crt ca;
   mbedtls_entropy_context entropy;
   mbedtls_ctr_drbg_context random;
 };
+
+static volatile int tls_last_error;
+static volatile uint32_t tls_last_verify_flags;
+static bool tls_trust_store_ready;
+static mbedtls_x509_crt tls_trust_store;
+
+int multiplex_tls_client_last_error(void) { return tls_last_error; }
+
+uint32_t multiplex_tls_client_last_verify_flags(void) {
+  return tls_last_verify_flags;
+}
 
 mbedtls_ms_time_t mbedtls_ms_time(void) {
   return (mbedtls_ms_time_t)ticks_to_millisecs(gettime());
@@ -138,28 +148,65 @@ static int tls_receive(void *context, unsigned char *bytes, size_t size) {
 }
 
 static void report_tls_error(const char *operation, int error) {
+  tls_last_error = error;
   char message[128];
   mbedtls_strerror(error, message, sizeof(message));
   SYS_Report("REFERENCE GX: TLS %s failed error=-%04x message=%s\n", operation,
              (unsigned)-error, message);
 }
 
+bool multiplex_tls_client_initialize(void) {
+  if (tls_trust_store_ready) {
+    return true;
+  }
+  if (multiplex_tls_ca_pem_size == 0) {
+    tls_last_error = MBEDTLS_ERR_X509_BAD_INPUT_DATA;
+    return false;
+  }
+
+  mbedtls_x509_crt_init(&tls_trust_store);
+  const int result = mbedtls_x509_crt_parse(
+      &tls_trust_store, (const unsigned char *)multiplex_tls_ca_pem,
+      multiplex_tls_ca_pem_size);
+  if (result < 0) {
+    report_tls_error("CA bundle parse", result);
+    mbedtls_x509_crt_free(&tls_trust_store);
+    return false;
+  }
+  if (result > 0) {
+    SYS_Report("REFERENCE GX: TLS CA bundle skipped=%d certificate(s)\n",
+               result);
+  }
+  tls_trust_store_ready = true;
+  tls_last_error = 0;
+  tls_last_verify_flags = 0;
+  SYS_Report("REFERENCE GX: TLS public trust store ready bytes=%u\n",
+             multiplex_tls_ca_pem_size);
+  return true;
+}
+
 MultiplexTlsClient *multiplex_tls_client_connect(int socket,
                                                  const char *hostname) {
-  if (socket < 0 || hostname == NULL || hostname[0] == '\0' ||
-      multiplex_tls_ca_pem_size == 0) {
+  tls_last_error = 0;
+  tls_last_verify_flags = 0;
+  if (socket < 0 || hostname == NULL || hostname[0] == '\0') {
+    tls_last_error = MBEDTLS_ERR_SSL_BAD_INPUT_DATA;
     SYS_Report("REFERENCE GX: TLS configuration unavailable\n");
+    return NULL;
+  }
+  if (!multiplex_tls_client_initialize()) {
+    SYS_Report("REFERENCE GX: TLS trust store unavailable\n");
     return NULL;
   }
   MultiplexTlsClient *client = calloc(1, sizeof(*client));
   if (client == NULL) {
+    tls_last_error = MBEDTLS_ERR_SSL_ALLOC_FAILED;
     return NULL;
   }
   client->socket = socket;
   client->io_timeout_seconds = TLS_IO_TIMEOUT_SECONDS;
   mbedtls_ssl_init(&client->ssl);
   mbedtls_ssl_config_init(&client->config);
-  mbedtls_x509_crt_init(&client->ca);
   mbedtls_entropy_init(&client->entropy);
   mbedtls_ctr_drbg_init(&client->random);
 
@@ -175,18 +222,13 @@ MultiplexTlsClient *multiplex_tls_client_connect(int socket,
                                    sizeof(personalization) - 1u);
   }
   if (result == 0) {
-    result = mbedtls_x509_crt_parse(&client->ca,
-                                    (const unsigned char *)multiplex_tls_ca_pem,
-                                    multiplex_tls_ca_pem_size);
-  }
-  if (result == 0) {
     result = mbedtls_ssl_config_defaults(&client->config, MBEDTLS_SSL_IS_CLIENT,
                                          MBEDTLS_SSL_TRANSPORT_STREAM,
                                          MBEDTLS_SSL_PRESET_DEFAULT);
   }
   if (result == 0) {
     mbedtls_ssl_conf_authmode(&client->config, MBEDTLS_SSL_VERIFY_REQUIRED);
-    mbedtls_ssl_conf_ca_chain(&client->config, &client->ca, NULL);
+    mbedtls_ssl_conf_ca_chain(&client->config, &tls_trust_store, NULL);
     mbedtls_ssl_conf_rng(&client->config, mbedtls_ctr_drbg_random,
                          &client->random);
     result = mbedtls_ssl_setup(&client->ssl, &client->config);
@@ -198,7 +240,8 @@ MultiplexTlsClient *multiplex_tls_client_connect(int socket,
     mbedtls_ssl_set_bio(&client->ssl, client, tls_send, tls_receive, NULL);
     result = mbedtls_ssl_handshake(&client->ssl);
   }
-  if (result == 0 && mbedtls_ssl_get_verify_result(&client->ssl) != 0) {
+  tls_last_verify_flags = mbedtls_ssl_get_verify_result(&client->ssl);
+  if (result == 0 && tls_last_verify_flags != 0) {
     result = MBEDTLS_ERR_X509_CERT_VERIFY_FAILED;
   }
   if (result != 0) {
@@ -206,6 +249,7 @@ MultiplexTlsClient *multiplex_tls_client_connect(int socket,
     multiplex_tls_client_destroy(client);
     return NULL;
   }
+  tls_last_error = 0;
   SYS_Report("REFERENCE GX: TLS connected host=%s version=%s cipher=%s\n",
              hostname, mbedtls_ssl_get_version(&client->ssl),
              mbedtls_ssl_get_ciphersuite(&client->ssl));
@@ -264,7 +308,6 @@ void multiplex_tls_client_destroy(MultiplexTlsClient *client) {
   }
   mbedtls_ssl_free(&client->ssl);
   mbedtls_ssl_config_free(&client->config);
-  mbedtls_x509_crt_free(&client->ca);
   mbedtls_ctr_drbg_free(&client->random);
   mbedtls_entropy_free(&client->entropy);
   free(client);

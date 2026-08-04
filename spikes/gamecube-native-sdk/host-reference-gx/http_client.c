@@ -138,6 +138,14 @@ uint32_t http_client_network_attempts(void) {
   return diagnostic_network_attempts;
 }
 
+uint32_t http_client_dns_attempts(void) {
+  return multiplex_resolver_attempts();
+}
+
+uint32_t http_client_tls_verify_flags(void) {
+  return multiplex_tls_client_last_verify_flags();
+}
+
 static bool parse_port(const char *begin, const char *end, uint16_t *port) {
   if (begin == end) {
     return false;
@@ -286,6 +294,12 @@ bool http_client_initialize_network(void) {
   if (!initialize_network()) {
     return false;
   }
+  set_diagnostic(HTTP_DIAGNOSTIC_TLS, 0);
+  if (!multiplex_tls_client_initialize()) {
+    set_diagnostic(HTTP_DIAGNOSTIC_TLS,
+                   multiplex_tls_client_last_error());
+    return false;
+  }
   network_initialized = true;
   return true;
 }
@@ -340,7 +354,8 @@ static bool connect_client(HttpClient *client) {
                  client->host, emulator_host_ip);
     } else if (!multiplex_resolve_ipv4(client->host, network_gateway,
                                        &address.sin_addr)) {
-      set_diagnostic(HTTP_DIAGNOSTIC_DNS, -1);
+      set_diagnostic(HTTP_DIAGNOSTIC_DNS,
+                     multiplex_resolver_last_error());
       SYS_Report("REFERENCE GX: HTTP DNS failed host=%s dns=%s\n",
                  client->host, network_gateway);
       disconnect_client(client);
@@ -361,7 +376,8 @@ static bool connect_client(HttpClient *client) {
     set_diagnostic(HTTP_DIAGNOSTIC_TLS, 0);
     client->tls = multiplex_tls_client_connect(client->socket, client->host);
     if (client->tls == NULL) {
-      set_diagnostic(HTTP_DIAGNOSTIC_TLS, -1);
+      set_diagnostic(HTTP_DIAGNOSTIC_TLS,
+                     multiplex_tls_client_last_error());
       disconnect_client(client);
       return false;
     }

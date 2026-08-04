@@ -92,10 +92,12 @@ gates playback on both invited users, and passes synchronized seek,
 bidirectional pause/resume, browser disconnect/rejoin, room disband, and PMS
 cleanup through the same Portless-backed Multiplex API.
 
-When `MULTIPLEX_BASE_URL` is an HTTPS `*.localhost` origin, the reference build
-automatically embeds the public Portless CA from `~/.portless/ca.pem`.
-`GAMECUBE_TLS_CA_FILE` remains the explicit override for another local CA. The
-private key and generated host certificates are never copied into the build.
+The reference build embeds curl's pinned Mozilla public CA bundle and requires
+normal certificate and hostname verification for HTTPS. When
+`MULTIPLEX_BASE_URL` is an HTTPS `*.localhost` origin, the build appends the
+public Portless CA from `~/.portless/ca.pem`. `GAMECUBE_TLS_CA_FILE` remains the
+explicit override for another private development CA. Private keys and
+generated host certificates are never copied into the build.
 
 `spike:gamecube:reference:smoke-http-tap` builds the DOL with a local HTTP
 media URL, creates an unprivileged network namespace, and connects Dolphin's

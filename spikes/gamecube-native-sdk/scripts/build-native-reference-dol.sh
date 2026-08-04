@@ -32,9 +32,9 @@ if [ -z "${MULTIPLEX_BASE_URL:-}" ] &&
 else
   sh "$script_dir/generate-media-source-header.sh" \
     "$spike_dir/build-native-reference/media-source.h"
-  sh "$script_dir/generate-tls-ca-header.sh" \
-    "$spike_dir/build-native-reference/tls-ca.h"
 fi
+sh "$script_dir/generate-tls-ca-header.sh" \
+  "$spike_dir/build-native-reference/tls-ca.h"
 
 podman run --rm \
   --volume "$spike_dir:/workspace:Z" \
