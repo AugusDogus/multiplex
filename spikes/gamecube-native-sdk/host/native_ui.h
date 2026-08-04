@@ -207,6 +207,8 @@ uint32_t multiplex_native_app_subtitles(uint32_t count, uint32_t selected,
 uint32_t multiplex_native_app_subtitle_selection(void);
 uint32_t multiplex_native_app_mark_watched_request(void);
 uint32_t multiplex_native_app_mark_watched_commit(uint32_t succeeded);
+uint32_t multiplex_native_app_toast(const uint8_t *message,
+                                    uint32_t message_length);
 uint32_t multiplex_native_app_toast_dismiss(void);
 uint32_t multiplex_native_app_player_settings_open(void);
 uint32_t multiplex_native_app_boot_diagnostics(const uint8_t *diagnostics,

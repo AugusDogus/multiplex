@@ -842,6 +842,10 @@ export function dismissToast(model: Model): Model {
   return { ...model, toastVisible: false, toastMessage: new Uint8Array(0) };
 }
 
+export function showToast(model: Model, message: Uint8Array): Model {
+  return { ...model, toastVisible: message.length !== 0, toastMessage: message };
+}
+
 export function playbackElapsedMinutes(model: Model): number {
   return intDiv(model.playbackOffsetMs, 60_000);
 }

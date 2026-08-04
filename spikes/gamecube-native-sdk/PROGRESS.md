@@ -140,6 +140,26 @@ throughput and real-time application playback.
 Nintendont inside Dolphin would test a Wii IOS/socket compatibility path, not a
 physical DOL-015. It is not a substitute for this hardware test.
 
+### Cached home and Ethernet recovery
+
+Physical hardware confirmed that the minimal HLS build can load the live Plex
+posters and play Cowboy Bebop smoothly on the second launch. An unplugged
+Ethernet cable exposed a separate startup bug: the saved catalog rendered, but
+catalog and poster workers still started after DHCP failed. That left the home
+screen without posters and could eventually return to Swiss.
+
+The cached home is now an explicit offline state. DHCP runs in the background
+after saved authorization and catalog data render. Catalog, poster, and account
+workers remain gated until the adapter has a lease. A failed attempt keeps the
+saved library responsive, presents an Ethernet notice, and retries with bounded
+backoff. A recovered lease refreshes credentials if needed, refreshes the live
+catalog, then starts poster loading.
+
+An isolated true-TAP boot validated the new order: cached catalog ready in
+419 ms, Ethernet ready in the background, live Plex catalog refreshed, and
+playback remained free of invalid accesses, renderer failures, and decoder
+failures.
+
 ## Next hardware test
 
 1. Cold boot the GameCube and launch the new `Multiplex.dol` from Swiss.
