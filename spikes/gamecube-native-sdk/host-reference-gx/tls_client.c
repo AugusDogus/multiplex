@@ -8,7 +8,12 @@
 #include <network.h>
 #include <ogc/lwp_watchdog.h>
 
+#ifndef MBEDTLS_CONFIG_FILE
+#define MBEDTLS_CONFIG_FILE "mbedtls-gamecube-config.h"
+#endif
+
 #include <mbedtls/ctr_drbg.h>
+#include <mbedtls/asn1.h>
 #include <mbedtls/entropy.h>
 #include <mbedtls/error.h>
 #include <mbedtls/platform_time.h>
@@ -42,8 +47,10 @@ struct MultiplexTlsClient {
 
 static volatile int tls_last_error;
 static volatile uint32_t tls_last_verify_flags;
-static bool tls_trust_store_ready;
-static mbedtls_x509_crt tls_trust_store;
+static bool tls_trust_source_ready;
+
+static const char tls_certificate_begin[] = "-----BEGIN CERTIFICATE-----";
+static const char tls_certificate_end[] = "-----END CERTIFICATE-----";
 
 int multiplex_tls_client_last_error(void) { return tls_last_error; }
 
@@ -155,8 +162,163 @@ static void report_tls_error(const char *operation, int error) {
              (unsigned)-error, message);
 }
 
+/* Keep candidate selection equivalent to Mbed TLS' X.509 name comparison. */
+static int x509_memcasecmp(const void *left, const void *right, size_t size) {
+  const unsigned char *left_bytes = left;
+  const unsigned char *right_bytes = right;
+  for (size_t index = 0; index < size; ++index) {
+    const unsigned char difference = left_bytes[index] ^ right_bytes[index];
+    if (difference == 0) {
+      continue;
+    }
+    if (difference == 32 &&
+        ((left_bytes[index] >= 'a' && left_bytes[index] <= 'z') ||
+         (left_bytes[index] >= 'A' && left_bytes[index] <= 'Z'))) {
+      continue;
+    }
+    return -1;
+  }
+  return 0;
+}
+
+static int x509_string_compare(const mbedtls_x509_buf *left,
+                               const mbedtls_x509_buf *right) {
+  if (left->tag == right->tag && left->len == right->len &&
+      memcmp(left->p, right->p, right->len) == 0) {
+    return 0;
+  }
+  const bool left_is_supported_string =
+      left->tag == MBEDTLS_ASN1_UTF8_STRING ||
+      left->tag == MBEDTLS_ASN1_PRINTABLE_STRING;
+  const bool right_is_supported_string =
+      right->tag == MBEDTLS_ASN1_UTF8_STRING ||
+      right->tag == MBEDTLS_ASN1_PRINTABLE_STRING;
+  if (left_is_supported_string && right_is_supported_string &&
+      left->len == right->len &&
+      x509_memcasecmp(left->p, right->p, right->len) == 0) {
+    return 0;
+  }
+  return -1;
+}
+
+static int x509_name_compare(const mbedtls_x509_name *left,
+                             const mbedtls_x509_name *right) {
+  while (left != NULL || right != NULL) {
+    if (left == NULL || right == NULL) {
+      return -1;
+    }
+    if (left->oid.tag != right->oid.tag || left->oid.len != right->oid.len ||
+        memcmp(left->oid.p, right->oid.p, right->oid.len) != 0 ||
+        x509_string_compare(&left->val, &right->val) != 0 ||
+        left->MBEDTLS_PRIVATE(next_merged) !=
+            right->MBEDTLS_PRIVATE(next_merged)) {
+      return -1;
+    }
+    left = left->next;
+    right = right->next;
+  }
+  return 0;
+}
+
+static void free_ca_candidates(mbedtls_x509_crt *candidates) {
+  if (candidates == NULL) {
+    return;
+  }
+  mbedtls_x509_crt_free(candidates);
+  free(candidates);
+}
+
+static int find_ca_candidates(void *context, const mbedtls_x509_crt *child,
+                              mbedtls_x509_crt **candidate_cas) {
+  (void)context;
+  *candidate_cas = NULL;
+
+  const size_t end_marker_size = sizeof(tls_certificate_end) - 1u;
+  size_t largest_pem_size = 0;
+  unsigned scanned = 0;
+  const char *cursor = multiplex_tls_ca_pem;
+  while ((cursor = strstr(cursor, tls_certificate_begin)) != NULL) {
+    const char *end = strstr(cursor, tls_certificate_end);
+    if (end == NULL) {
+      return MBEDTLS_ERR_X509_INVALID_FORMAT;
+    }
+    const size_t pem_size = (size_t)(end - cursor) + end_marker_size;
+    if (pem_size > largest_pem_size) {
+      largest_pem_size = pem_size;
+    }
+    scanned += 1u;
+    cursor = end + end_marker_size;
+  }
+  if (largest_pem_size == 0) {
+    return MBEDTLS_ERR_X509_BAD_INPUT_DATA;
+  }
+
+  /*
+   * Parsing the complete Mozilla bundle retains roughly 350 KiB on this
+   * target. Scan one root at a time and return only possible signers so HTTPS
+   * remains available while the decoder and media queues own most of MEM1.
+   */
+  unsigned char *pem = malloc(largest_pem_size + 1u);
+  if (pem == NULL) {
+    return MBEDTLS_ERR_X509_ALLOC_FAILED;
+  }
+
+  unsigned matches = 0;
+  mbedtls_x509_crt *tail = NULL;
+  cursor = multiplex_tls_ca_pem;
+  while ((cursor = strstr(cursor, tls_certificate_begin)) != NULL) {
+    const char *end = strstr(cursor, tls_certificate_end);
+    if (end == NULL) {
+      free(pem);
+      free_ca_candidates(*candidate_cas);
+      *candidate_cas = NULL;
+      return MBEDTLS_ERR_X509_INVALID_FORMAT;
+    }
+    const size_t pem_size = (size_t)(end - cursor) + end_marker_size;
+    memcpy(pem, cursor, pem_size);
+    pem[pem_size] = '\0';
+
+    mbedtls_x509_crt *candidate = calloc(1, sizeof(*candidate));
+    if (candidate == NULL) {
+      free(pem);
+      free_ca_candidates(*candidate_cas);
+      *candidate_cas = NULL;
+      return MBEDTLS_ERR_X509_ALLOC_FAILED;
+    }
+    mbedtls_x509_crt_init(candidate);
+    const int parse_result =
+        mbedtls_x509_crt_parse(candidate, pem, pem_size + 1u);
+    if (parse_result != 0) {
+      mbedtls_x509_crt_free(candidate);
+      free(candidate);
+      free(pem);
+      free_ca_candidates(*candidate_cas);
+      *candidate_cas = NULL;
+      return parse_result < 0 ? parse_result : MBEDTLS_ERR_X509_INVALID_FORMAT;
+    }
+
+    if (x509_name_compare(&candidate->subject, &child->issuer) == 0) {
+      if (tail == NULL) {
+        *candidate_cas = candidate;
+      } else {
+        tail->next = candidate;
+      }
+      tail = candidate;
+      matches += 1u;
+    } else {
+      mbedtls_x509_crt_free(candidate);
+      free(candidate);
+    }
+    cursor = end + end_marker_size;
+  }
+  free(pem);
+  SYS_Report("REFERENCE GX: TLS CA lookup scanned=%u matched=%u\n", scanned,
+             matches);
+  return 0;
+}
+
 bool multiplex_tls_client_initialize(void) {
-  if (tls_trust_store_ready) {
+  if (tls_trust_source_ready) {
     return true;
   }
   if (multiplex_tls_ca_pem_size == 0) {
@@ -164,23 +326,10 @@ bool multiplex_tls_client_initialize(void) {
     return false;
   }
 
-  mbedtls_x509_crt_init(&tls_trust_store);
-  const int result = mbedtls_x509_crt_parse(
-      &tls_trust_store, (const unsigned char *)multiplex_tls_ca_pem,
-      multiplex_tls_ca_pem_size);
-  if (result < 0) {
-    report_tls_error("CA bundle parse", result);
-    mbedtls_x509_crt_free(&tls_trust_store);
-    return false;
-  }
-  if (result > 0) {
-    SYS_Report("REFERENCE GX: TLS CA bundle skipped=%d certificate(s)\n",
-               result);
-  }
-  tls_trust_store_ready = true;
+  tls_trust_source_ready = true;
   tls_last_error = 0;
   tls_last_verify_flags = 0;
-  SYS_Report("REFERENCE GX: TLS public trust store ready bytes=%u\n",
+  SYS_Report("REFERENCE GX: TLS public trust source ready bytes=%u\n",
              multiplex_tls_ca_pem_size);
   return true;
 }
@@ -228,7 +377,7 @@ MultiplexTlsClient *multiplex_tls_client_connect(int socket,
   }
   if (result == 0) {
     mbedtls_ssl_conf_authmode(&client->config, MBEDTLS_SSL_VERIFY_REQUIRED);
-    mbedtls_ssl_conf_ca_chain(&client->config, &tls_trust_store, NULL);
+    mbedtls_ssl_conf_ca_cb(&client->config, find_ca_candidates, NULL);
     mbedtls_ssl_conf_rng(&client->config, mbedtls_ctr_drbg_random,
                          &client->random);
     result = mbedtls_ssl_setup(&client->ssl, &client->config);
