@@ -264,10 +264,10 @@ static uint32_t video_codec_total_us;
 static uint32_t video_codec_max_us;
 static uint32_t video_upload_total_us;
 static uint32_t video_upload_max_us;
-static uint32_t diagnostic_decoder_fps_tenths;
-static uint32_t diagnostic_codec_average_us;
-static uint32_t diagnostic_codec_max_us;
-static uint32_t diagnostic_upload_average_us;
+static volatile uint32_t diagnostic_decoder_fps_tenths;
+static volatile uint32_t diagnostic_codec_average_us;
+static volatile uint32_t diagnostic_codec_max_us;
+static volatile uint32_t diagnostic_upload_average_us;
 static uint32_t diagnostic_presentation_fps_tenths;
 static uint32_t diagnostic_network_kib_per_second;
 static uint32_t diagnostic_network_last_bytes;
@@ -1360,13 +1360,17 @@ static bool bind_boot_diagnostics(const char *operation) {
            operation);
   char diagnostics[256];
   const int length = format_boot_diagnostics(diagnostics, sizeof(diagnostics));
-  if (length <= 0 || (size_t)length >= sizeof(diagnostics)) {
+  if (length <= 0) {
     return false;
   }
-  const bool bound = multiplex_native_app_boot_diagnostics(
-                         (const uint8_t *)diagnostics, (uint32_t)length) != 0;
-  if (bound) native_frame_dirty = true;
-  return bound;
+  const size_t available =
+      (size_t)length < sizeof(diagnostics) ? (size_t)length
+                                           : sizeof(diagnostics) - 1u;
+  const bool committed = multiplex_native_app_boot_diagnostics(
+                             (const uint8_t *)diagnostics,
+                             (uint32_t)available) != 0;
+  if (committed) native_frame_dirty = true;
+  return committed;
 }
 
 static void *run_reference_renderer(void *context) {
@@ -3346,9 +3350,14 @@ schedule_timeline_report(TimelineReporter *reporter, const char *gateway_url,
   const bool same_item = reporter->last_rating_key == rating_key;
   const bool same_state =
       reporter->last_state != NULL && strcmp(reporter->last_state, state) == 0;
+  const bool moved_backward =
+      same_item && same_state && position_ms < reporter->last_position_ms;
   const bool periodic_due =
       strcmp(state, "playing") == 0 && same_item && same_state &&
-      position_ms >= reporter->last_position_ms + TIMELINE_REPORT_INTERVAL_MS;
+      (moved_backward ||
+       (position_ms >= reporter->last_position_ms &&
+        position_ms - reporter->last_position_ms >=
+            TIMELINE_REPORT_INTERVAL_MS));
   if (!force && same_item && same_state && !periodic_due) {
     return false;
   }
@@ -3393,10 +3402,14 @@ static bool schedule_hls_timeline_report(
   const bool same_item = reporter->last_rating_key == rating_key;
   const bool same_state =
       reporter->last_state != NULL && strcmp(reporter->last_state, state) == 0;
+  const bool moved_backward =
+      same_item && same_state && position_ms < reporter->last_position_ms;
   const bool periodic_due =
       strcmp(state, "playing") == 0 && same_item && same_state &&
-      position_ms >= reporter->last_position_ms + TIMELINE_REPORT_INTERVAL_MS;
-  if (same_item && same_state && !periodic_due) {
+      position_ms >= reporter->last_position_ms &&
+      position_ms - reporter->last_position_ms >=
+          TIMELINE_REPORT_INTERVAL_MS;
+  if (same_item && same_state && !periodic_due && !moved_backward) {
     return false;
   }
   bool scheduled = false;
@@ -3404,7 +3417,7 @@ static bool schedule_hls_timeline_report(
     scheduled = plex_hls_demux_initial_timeline_reported(demux) ||
                 plex_hls_demux_report_timeline_now(
                     demux, position_ms, duration_ms, state);
-  } else if (!same_state) {
+  } else if (!same_state || moved_backward) {
     scheduled = plex_hls_demux_report_timeline_now(
         demux, position_ms, duration_ms, state);
   } else {
@@ -3412,9 +3425,6 @@ static bool schedule_hls_timeline_report(
         demux, position_ms, duration_ms, state);
   }
   if (!scheduled) {
-    reporter->last_rating_key = rating_key;
-    reporter->last_position_ms = position_ms;
-    reporter->last_state = state;
     SYS_Report("REFERENCE GX: HLS timeline unavailable rating-key=%u "
                "position=%u state=%s\n",
                rating_key, position_ms, state);
@@ -4219,6 +4229,8 @@ static void draw_stats_for_nerds(void) {
   if (length <= 0) {
     return;
   }
+  const size_t available =
+      (size_t)length < sizeof(text) ? (size_t)length : sizeof(text) - 1u;
 
   configure_color_pipeline();
   fill_rect(8.0f, 8.0f, 632.0f, 74.0f, (GXColor){0, 0, 0, 220});
@@ -4229,7 +4241,7 @@ static void draw_stats_for_nerds(void) {
       .y = 17.0f,
       .color_rgba = 0xffffffffu,
       .text_ptr = (const uint8_t *)text,
-      .text_len = (uint32_t)length,
+      .text_len = (uint32_t)available,
       .font_size = 13.0f,
   };
   draw_native_text_command(&command);

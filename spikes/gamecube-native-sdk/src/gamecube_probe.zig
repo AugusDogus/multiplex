@@ -1580,7 +1580,9 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
     if (!app_initialized) return 0;
     const model = app_model;
     if (action == 4) {
-        commitAppModel(core.update(model, .open_libraries));
+        const next = core.update(model, .open_libraries);
+        if (next == model) return 0;
+        commitAppModel(next);
         focused_handler = invalid_focused_handler;
         reference_full_repaint = true;
         multiplex_native_input_trace(action, 0, 0, 4);
@@ -1637,7 +1639,9 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         return 1;
     }
     if (action == 10) {
-        commitAppModel(core.update(model, .open_search));
+        const next = core.update(model, .open_search);
+        if (next == model) return 0;
+        commitAppModel(next);
         focused_handler = invalid_focused_handler;
         reference_full_repaint = true;
         multiplex_native_input_trace(action, 0, 0, 13);
