@@ -289,7 +289,8 @@ profile also accepts the connected Steam Controller alongside the QA pipe.
 - `scripts/bootstrap-dolphin.sh`: reproducible local Dolphin 2606 build using
   the installed 2606 system data and the TAP receive-pressure patch
 - `patches/dolphin-2606-tap-receive-backpressure.patch`: admits one Linux TAP
-  frame at a time until libogc retires its BBA receive descriptor
+  frame at a time until libogc retires its BBA receive descriptor and wraps
+  DMA reads at the configured BBA receive-ring boundary
 - `scripts/run-dolphin-plex.sh`: real Plex item → GameCube transcode gateway →
   muted Dolphin runner
 - `scripts/plex-gateway.py`: bounded binary home/search/library metadata and

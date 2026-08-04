@@ -25,6 +25,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(HW_DOL)
+extern s32 net_flush(s32 socket) __attribute__((weak));
+#endif
+
 #define TLS_IO_TIMEOUT_SECONDS 30u
 /*
  * libogc2's unscaled receive window can shrink Portless/Node's advertised
@@ -111,7 +115,10 @@ static int wait_socket(int socket, bool write, unsigned timeout_seconds) {
 
 static int flush_network_socket(int socket) {
 #if defined(HW_DOL)
-  return net_flush(socket);
+  if (net_flush != NULL) {
+    return net_flush(socket);
+  }
+  return 0;
 #else
   (void)socket;
   return 0;

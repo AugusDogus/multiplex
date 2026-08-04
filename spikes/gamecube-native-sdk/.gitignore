@@ -1,6 +1,10 @@
 .native-sdk/
 .libogc2/
 .libogc2-stage/
+.libogc2-clean/
+.libogc2-clean-stage/
+.libogc2-matrix/
+.libogc2-matrix-stage/
 .passt/
 .plex-cache/
 .http-fixture.log
