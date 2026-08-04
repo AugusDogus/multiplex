@@ -10,6 +10,7 @@
 
 #include "media_byte_queue.h"
 #include "mpeg_ts_parser.h"
+#include "plex_catalog.h"
 #include "plex_hls.h"
 
 #include <gccore.h>
@@ -42,7 +43,18 @@ struct PlexHlsDemux {
   volatile uint32_t segment_count;
   volatile uint32_t video_bytes;
   volatile uint32_t audio_bytes;
+  uint32_t rating_key;
+  volatile uint32_t timeline_position_ms;
+  volatile uint32_t timeline_duration_ms;
+  volatile uint8_t timeline_state;
+  volatile bool timeline_pending;
+  bool initial_timeline_reported;
   bool has_prefetched_playlist;
+};
+
+enum {
+  HLS_TIMELINE_PLAYING = 1,
+  HLS_TIMELINE_PAUSED = 2,
 };
 
 static bool queue_elementary(void *context, MpegTsStream stream,
@@ -110,6 +122,22 @@ static void finish_queues(PlexHlsDemux *demux) {
   media_byte_queue_close(demux->audio);
 }
 
+static void report_pending_timeline(PlexHlsDemux *demux) {
+  if (!demux->timeline_pending) {
+    return;
+  }
+  __sync_synchronize();
+  const uint32_t position_ms = demux->timeline_position_ms;
+  const uint32_t duration_ms = demux->timeline_duration_ms;
+  const uint8_t state = demux->timeline_state;
+  demux->timeline_pending = false;
+  __sync_synchronize();
+  multiplex_plex_report_timeline(
+      demux->credentials, demux->session.session_id, demux->rating_key,
+      position_ms, duration_ms,
+      state == HLS_TIMELINE_PAUSED ? "paused" : "playing");
+}
+
 static void *run_hls_producer(void *context) {
   PlexHlsDemux *demux = context;
   unsigned playlist_failures = 0;
@@ -162,14 +190,15 @@ static void *run_hls_producer(void *context) {
     }
     demux->session.next_sequence = segment->sequence + 1u;
     demux->segment_count += 1u;
+    report_pending_timeline(demux);
   }
   finish_queues(demux);
   return NULL;
 }
 
 static PlexHlsDemux *allocate_hls_demux(
-    const MultiplexAuthCredentials *credentials) {
-  if (credentials == NULL) {
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key) {
+  if (credentials == NULL || rating_key == 0) {
     return NULL;
   }
   PlexHlsDemux *demux = calloc(1, sizeof(*demux));
@@ -177,6 +206,7 @@ static PlexHlsDemux *allocate_hls_demux(
     return NULL;
   }
   demux->credentials = credentials;
+  demux->rating_key = rating_key;
   demux->producer_thread = LWP_THREAD_NULL;
   demux->video = media_byte_queue_create(HLS_VIDEO_QUEUE_SIZE);
   demux->audio = media_byte_queue_create(HLS_AUDIO_QUEUE_SIZE);
@@ -190,35 +220,49 @@ static PlexHlsDemux *allocate_hls_demux(
 
 PlexHlsDemux *plex_hls_demux_create(
     const MultiplexAuthCredentials *credentials, uint32_t rating_key,
-    uint32_t offset_ms, const char *session_id, bool burn_subtitles,
-    uint32_t subtitle_stream_index) {
-  if (rating_key == 0) {
+    uint32_t offset_ms, uint32_t duration_ms, const char *session_id,
+    bool burn_subtitles, uint32_t subtitle_stream_index) {
+  if (rating_key == 0 || duration_ms == 0) {
     return NULL;
   }
-  PlexHlsDemux *demux = allocate_hls_demux(credentials);
-  if (demux == NULL ||
-      !multiplex_plex_hls_start(credentials, rating_key, offset_ms, session_id,
+  MultiplexPlexHlsSession session;
+  if (!multiplex_plex_hls_start(credentials, rating_key, offset_ms, session_id,
                                 burn_subtitles, subtitle_stream_index,
-                                &demux->session)) {
-    plex_hls_demux_destroy(demux);
+                                &session)) {
     return NULL;
   }
+  const bool initial_timeline_reported = multiplex_plex_report_timeline(
+      credentials, session.session_id, rating_key, offset_ms, duration_ms,
+      "playing");
+  PlexHlsDemux *demux = allocate_hls_demux(credentials, rating_key);
+  if (demux == NULL) {
+    multiplex_plex_hls_stop(credentials, &session);
+    return NULL;
+  }
+  demux->session = session;
+  demux->initial_timeline_reported = initial_timeline_reported;
   return demux;
 }
 
 PlexHlsDemux *plex_hls_demux_create_prepared(
     const MultiplexAuthCredentials *credentials,
+    uint32_t rating_key,
+    uint32_t duration_ms,
     const MultiplexPlexHlsSession *session,
     const HlsMediaPlaylist *playlist) {
-  if (session == NULL || playlist == NULL || !session->started ||
-      playlist->segment_count == 0) {
+  if (rating_key == 0 || duration_ms == 0 || session == NULL ||
+      playlist == NULL || !session->started || playlist->segment_count == 0) {
     return NULL;
   }
-  PlexHlsDemux *demux = allocate_hls_demux(credentials);
+  const bool initial_timeline_reported = multiplex_plex_report_timeline(
+      credentials, session->session_id, rating_key, session->start_offset_ms,
+      duration_ms, "playing");
+  PlexHlsDemux *demux = allocate_hls_demux(credentials, rating_key);
   if (demux == NULL) {
     return NULL;
   }
   demux->session = *session;
+  demux->initial_timeline_reported = initial_timeline_reported;
   demux->prefetched_playlist = *playlist;
   demux->has_prefetched_playlist = true;
   return demux;
@@ -390,4 +434,36 @@ bool plex_hls_demux_complete(const PlexHlsDemux *demux) {
 
 const char *plex_hls_demux_session_id(const PlexHlsDemux *demux) {
   return demux == NULL ? NULL : demux->session.session_id;
+}
+
+bool plex_hls_demux_initial_timeline_reported(const PlexHlsDemux *demux) {
+  return demux != NULL && demux->initial_timeline_reported;
+}
+
+bool plex_hls_demux_report_timeline_now(PlexHlsDemux *demux,
+                                        uint32_t position_ms,
+                                        uint32_t duration_ms,
+                                        const char *state) {
+  return demux != NULL &&
+         multiplex_plex_report_timeline(
+             demux->credentials, demux->session.session_id,
+             demux->rating_key, position_ms, duration_ms, state);
+}
+
+bool plex_hls_demux_request_timeline(PlexHlsDemux *demux,
+                                     uint32_t position_ms,
+                                     uint32_t duration_ms,
+                                     const char *state) {
+  if (demux == NULL || duration_ms == 0 || state == NULL ||
+      (strcmp(state, "playing") != 0 && strcmp(state, "paused") != 0)) {
+    return false;
+  }
+  demux->timeline_position_ms = position_ms;
+  demux->timeline_duration_ms = duration_ms;
+  demux->timeline_state = strcmp(state, "paused") == 0
+                              ? HLS_TIMELINE_PAUSED
+                              : HLS_TIMELINE_PLAYING;
+  __sync_synchronize();
+  demux->timeline_pending = true;
+  return true;
 }

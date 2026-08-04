@@ -160,6 +160,27 @@ An isolated true-TAP boot validated the new order: cached catalog ready in
 playback remained free of invalid accesses, renderer failures, and decoder
 failures.
 
+### Direct HLS Plex session reporting
+
+Physical playback exposed that PMS did not list the GameCube as an active
+session. Direct HLS had intentionally skipped the ordinary timeline worker to
+avoid allocating its 128 KiB stack or opening a competing control connection
+while the BBA streamed media.
+
+Direct HLS now reports its initial playing state before allocating the bounded
+audio and video queues. Pause and resume updates run synchronously on the
+existing control path. Periodic playing updates are handed to the existing HLS
+producer and sent between completed segment requests, so they add no thread,
+stack, or simultaneous media transfer.
+
+The direct-Plex Dolphin scenario passed initial play, seek, pause, resume, and
+periodic timeline updates with HTTP 200 responses. Playback held 23.8 to
+24.7 fps, presentation returned to 60.4 fps, and audio reported zero underruns.
+The PMS `/status/sessions` response independently listed `Fresh` as playing on
+`Multiplex GameCube`, with product `Multiplex`, platform `GameCube`, and live
+progress. The Dolphin log remained free of invalid accesses, render failures,
+and decoder failures.
+
 ## Next hardware test
 
 1. Cold boot the GameCube and launch the new `Multiplex.dol` from Swiss.
@@ -183,6 +204,6 @@ of the minimal stack rather than another broad networking change.
 - SD diagnostic: `/run/media/augie/WII/games/Multiplex-BBA-Throughput.dol`
 
 - App SHA-256:
-  `a692a53785e223d15c43ef85630d9b8dcbf73a83e455152efe5d9e19b4b665ab`
+  `394721bfecdf612021d79df657c6e300edb3cb596a9d7b1a37f95f049a51421f`
 - Diagnostic SHA-256:
   `199e23d2f85f6f4732cd391f67e4d840a2ab7485a70bbe007b3fcca697023456`
