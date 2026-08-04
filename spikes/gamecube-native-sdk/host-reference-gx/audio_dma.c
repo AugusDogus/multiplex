@@ -377,6 +377,7 @@ uint32_t audio_dma_underruns(const AudioDma *audio) {
   return audio == NULL ? 0 : audio->underruns;
 }
 
+/* Playable depth includes READY, ACTIVE, and QUEUED, not free capacity. */
 uint32_t audio_dma_ready_buffers(const AudioDma *audio) {
   if (audio == NULL) {
     return 0;

@@ -83,23 +83,6 @@ static void print_result(bool passed, const char *label) {
   printf("%s  %s\n", passed ? "[PASS]" : "[FAIL]", label);
 }
 
-static bool tcp_connect(const struct in_addr *address, uint16_t port) {
-  const int socket = net_socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-  if (socket < 0) {
-    return false;
-  }
-  struct sockaddr_in remote;
-  memset(&remote, 0, sizeof(remote));
-  remote.sin_family = AF_INET;
-  remote.sin_len = sizeof(remote);
-  remote.sin_port = htons(port);
-  remote.sin_addr = *address;
-  const bool connected =
-      net_connect(socket, (struct sockaddr *)&remote, sizeof(remote)) == 0;
-  net_close(socket);
-  return connected;
-}
-
 static int connect_socket(const struct in_addr *address, uint16_t port) {
   const int socket = net_socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
   if (socket < 0) {
@@ -118,13 +101,22 @@ static int connect_socket(const struct in_addr *address, uint16_t port) {
   return socket;
 }
 
+static bool tcp_connect(const struct in_addr *address, uint16_t port) {
+  const int socket = connect_socket(address, port);
+  if (socket < 0) {
+    return false;
+  }
+  net_close(socket);
+  return true;
+}
+
 static bool write_request(int socket, const char *path) {
   char request[512];
   const int request_size = snprintf(
       request, sizeof(request),
-      "GET %s HTTP/1.1\r\nHost: " PLEX_HOST
-      ":32400\r\nConnection: close\r\nUser-Agent: Multiplex-BBA-Diagnostics/1\r\n\r\n",
-      path);
+      "GET %s HTTP/1.1\r\nHost: %s:%u\r\nConnection: close\r\n"
+      "User-Agent: Multiplex-BBA-Diagnostics/1\r\n\r\n",
+      path, PLEX_HOST, (unsigned)PLEX_PORT);
   if (request_size <= 0 || (size_t)request_size >= sizeof(request)) {
     return false;
   }
@@ -450,6 +442,8 @@ static void run_throughput_diagnostics(const struct in_addr *plex_address,
   } else if (control_started &&
              (concurrent.timed_out || concurrent_rate * 2u < single_rate)) {
     printf("[FAIL] A second request collapses BBA throughput.\n");
+  } else if (!control_started) {
+    printf("[PARTIAL] One stream passed; concurrency was not tested.\n");
   } else {
     printf("[PASS] BBA transport sustained media-class throughput.\n");
   }

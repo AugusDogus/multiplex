@@ -81,6 +81,8 @@ static bool open_decoder(VideoDecoder *decoder) {
      * every display frame because this player's audio clock assumes a fixed
      * frame cadence, but omit deblocking on all pictures to recover the CPU
      * time the 485 MHz Gekko needs for real-time audio and video decoding.
+     * AVDISCARD_ALL also skips deblocking reference pictures, so reconstructed
+     * H.264 frames can differ from encoder output until the next IDR.
      */
     decoder->context->skip_loop_filter = AVDISCARD_ALL;
   }

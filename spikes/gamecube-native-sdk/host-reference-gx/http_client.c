@@ -845,7 +845,7 @@ static bool start_stream_response(HttpClient *client, size_t start) {
   const size_t prefetched = response_size - header_size;
   if (!valid || prefetched > sizeof(client->stream_prefetch) ||
       prefetched > client->total_size) {
-    set_diagnostic(HTTP_DIAGNOSTIC_RESPONSE, valid ? 0 : -3);
+    set_diagnostic(HTTP_DIAGNOSTIC_RESPONSE, valid ? -5 : -3);
     return false;
   }
   memcpy(client->stream_prefetch, headers + header_size, prefetched);

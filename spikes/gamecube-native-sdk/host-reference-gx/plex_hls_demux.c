@@ -15,6 +15,7 @@
 
 #include <gccore.h>
 #include <ogc/lwp.h>
+#include <ogc/mutex.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -44,10 +45,12 @@ struct PlexHlsDemux {
   volatile uint32_t video_bytes;
   volatile uint32_t audio_bytes;
   uint32_t rating_key;
-  volatile uint32_t timeline_position_ms;
-  volatile uint32_t timeline_duration_ms;
-  volatile uint8_t timeline_state;
-  volatile bool timeline_pending;
+  uint32_t timeline_position_ms;
+  uint32_t timeline_duration_ms;
+  uint8_t timeline_state;
+  bool timeline_pending;
+  mutex_t timeline_mutex;
+  bool timeline_mutex_ready;
   bool initial_timeline_reported;
   bool has_prefetched_playlist;
 };
@@ -123,15 +126,19 @@ static void finish_queues(PlexHlsDemux *demux) {
 }
 
 static void report_pending_timeline(PlexHlsDemux *demux) {
-  if (!demux->timeline_pending) {
+  if (!demux->timeline_mutex_ready) {
     return;
   }
-  __sync_synchronize();
-  const uint32_t position_ms = demux->timeline_position_ms;
-  const uint32_t duration_ms = demux->timeline_duration_ms;
-  const uint8_t state = demux->timeline_state;
+  LWP_MutexLock(demux->timeline_mutex);
+  const bool pending = demux->timeline_pending;
+  const uint32_t position_ms = pending ? demux->timeline_position_ms : 0;
+  const uint32_t duration_ms = pending ? demux->timeline_duration_ms : 0;
+  const uint8_t state = pending ? demux->timeline_state : 0;
   demux->timeline_pending = false;
-  __sync_synchronize();
+  LWP_MutexUnlock(demux->timeline_mutex);
+  if (!pending) {
+    return;
+  }
   multiplex_plex_report_timeline(
       demux->credentials, demux->session.session_id, demux->rating_key,
       position_ms, duration_ms,
@@ -208,6 +215,12 @@ static PlexHlsDemux *allocate_hls_demux(
   demux->credentials = credentials;
   demux->rating_key = rating_key;
   demux->producer_thread = LWP_THREAD_NULL;
+  demux->timeline_mutex = LWP_MUTEX_NULL;
+  if (LWP_MutexInit(&demux->timeline_mutex, false) != 0) {
+    free(demux);
+    return NULL;
+  }
+  demux->timeline_mutex_ready = true;
   demux->video = media_byte_queue_create(HLS_VIDEO_QUEUE_SIZE);
   demux->audio = media_byte_queue_create(HLS_AUDIO_QUEUE_SIZE);
   if (demux->video == NULL || demux->audio == NULL) {
@@ -360,6 +373,9 @@ void plex_hls_demux_destroy(PlexHlsDemux *demux) {
   plex_hls_demux_stop(demux);
   media_byte_queue_destroy(demux->audio);
   media_byte_queue_destroy(demux->video);
+  if (demux->timeline_mutex_ready) {
+    LWP_MutexDestroy(demux->timeline_mutex);
+  }
   free(demux->producer_stack);
   free(demux);
 }
@@ -455,15 +471,17 @@ bool plex_hls_demux_request_timeline(PlexHlsDemux *demux,
                                      uint32_t duration_ms,
                                      const char *state) {
   if (demux == NULL || duration_ms == 0 || state == NULL ||
+      !demux->timeline_mutex_ready ||
       (strcmp(state, "playing") != 0 && strcmp(state, "paused") != 0)) {
     return false;
   }
+  LWP_MutexLock(demux->timeline_mutex);
   demux->timeline_position_ms = position_ms;
   demux->timeline_duration_ms = duration_ms;
   demux->timeline_state = strcmp(state, "paused") == 0
                               ? HLS_TIMELINE_PAUSED
                               : HLS_TIMELINE_PLAYING;
-  __sync_synchronize();
   demux->timeline_pending = true;
+  LWP_MutexUnlock(demux->timeline_mutex);
   return true;
 }

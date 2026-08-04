@@ -15,6 +15,25 @@ static struct in_addr cached_address;
 static volatile int32_t resolver_last_error;
 static volatile uint32_t resolver_attempt_count;
 
+static bool cache_lookup(const char *host, struct in_addr *address) {
+  const uint32_t level = IRQ_Disable();
+  const bool found =
+      strcmp(host, cached_host) == 0 && cached_address.s_addr != 0;
+  if (found) {
+    *address = cached_address;
+  }
+  IRQ_Restore(level);
+  return found;
+}
+
+static void cache_store(const char *host, size_t host_size,
+                        const struct in_addr *address) {
+  const uint32_t level = IRQ_Disable();
+  cached_address = *address;
+  memcpy(cached_host, host, host_size + 1u);
+  IRQ_Restore(level);
+}
+
 int32_t multiplex_resolver_last_error(void) { return resolver_last_error; }
 
 uint32_t multiplex_resolver_attempts(void) { return resolver_attempt_count; }
@@ -57,9 +76,7 @@ bool multiplex_resolve_ipv4(const char *host, const char *dns_server,
     resolver_last_error = MULTIPLEX_RESOLVER_INVALID_ARGUMENT;
     return false;
   }
-  __sync_synchronize();
-  if (strcmp(host, cached_host) == 0 && cached_address.s_addr != 0) {
-    *address = cached_address;
+  if (cache_lookup(host, address)) {
     return true;
   }
 #if defined(HW_RVL)
@@ -210,9 +227,7 @@ bool multiplex_resolve_ipv4(const char *host, const char *dns_server,
   net_close(socket);
 #endif
   if (resolved) {
-    cached_address = *address;
-    memcpy(cached_host, host, host_size + 1u);
-    __sync_synchronize();
+    cache_store(host, host_size, address);
     char resolved_address[16];
     inet_ntoa_r(*address, resolved_address, sizeof(resolved_address));
     SYS_Report("REFERENCE GX: DNS host=%s address=%s\n", host,
