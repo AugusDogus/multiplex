@@ -2975,6 +2975,7 @@ static bool start_hls_pipeline(PlexHlsDemux *demux, uint32_t rating_key) {
 
 static bool open_direct_hls_session(const MultiplexAuthCredentials *credentials,
                                     uint32_t rating_key, uint32_t offset_ms,
+                                    uint32_t duration_ms,
                                     const char *session_id,
                                     bool burn_subtitles,
                                     uint32_t subtitle_stream_index,
@@ -2990,7 +2991,7 @@ static bool open_direct_hls_session(const MultiplexAuthCredentials *credentials,
       finish_direct_hls_prefetch(&direct_hls_prefetch, true);
   if (prefetch_matches) {
     demux = plex_hls_demux_create_prepared(
-        credentials, &direct_hls_prefetch.session,
+        credentials, rating_key, duration_ms, &direct_hls_prefetch.session,
         &direct_hls_prefetch.playlist);
     if (demux != NULL) {
       SYS_Report("REFERENCE GX: direct playback reused prefetched HLS "
@@ -3003,7 +3004,7 @@ static bool open_direct_hls_session(const MultiplexAuthCredentials *credentials,
   if (demux == NULL) {
     discard_direct_hls_prefetch(&direct_hls_prefetch);
     demux = plex_hls_demux_create(credentials, rating_key, offset_ms,
-                                  session_id, burn_subtitles,
+                                  duration_ms, session_id, burn_subtitles,
                                   subtitle_stream_index);
   }
   if (demux == NULL || !plex_hls_demux_start(demux) ||
@@ -3382,6 +3383,52 @@ schedule_timeline_report(TimelineReporter *reporter, const char *gateway_url,
   return true;
 }
 
+static bool schedule_hls_timeline_report(
+    TimelineReporter *reporter, PlexHlsDemux *demux, uint32_t rating_key,
+    uint32_t position_ms, uint32_t duration_ms, const char *state) {
+  if (reporter == NULL || demux == NULL || rating_key == 0 ||
+      duration_ms == 0 || state == NULL) {
+    return false;
+  }
+  const bool same_item = reporter->last_rating_key == rating_key;
+  const bool same_state =
+      reporter->last_state != NULL && strcmp(reporter->last_state, state) == 0;
+  const bool periodic_due =
+      strcmp(state, "playing") == 0 && same_item && same_state &&
+      position_ms >= reporter->last_position_ms + TIMELINE_REPORT_INTERVAL_MS;
+  if (same_item && same_state && !periodic_due) {
+    return false;
+  }
+  bool scheduled = false;
+  if (!same_item) {
+    scheduled = plex_hls_demux_initial_timeline_reported(demux) ||
+                plex_hls_demux_report_timeline_now(
+                    demux, position_ms, duration_ms, state);
+  } else if (!same_state) {
+    scheduled = plex_hls_demux_report_timeline_now(
+        demux, position_ms, duration_ms, state);
+  } else {
+    scheduled = plex_hls_demux_request_timeline(
+        demux, position_ms, duration_ms, state);
+  }
+  if (!scheduled) {
+    reporter->last_rating_key = rating_key;
+    reporter->last_position_ms = position_ms;
+    reporter->last_state = state;
+    SYS_Report("REFERENCE GX: HLS timeline unavailable rating-key=%u "
+               "position=%u state=%s\n",
+               rating_key, position_ms, state);
+    return false;
+  }
+  reporter->last_rating_key = rating_key;
+  reporter->last_position_ms = position_ms;
+  reporter->last_state = state;
+  SYS_Report("REFERENCE GX: HLS timeline scheduled rating-key=%u position=%u "
+             "state=%s\n",
+             rating_key, position_ms, state);
+  return true;
+}
+
 static void
 flush_timeline_report(TimelineReporter *reporter, const char *gateway_url,
                       const MultiplexAuthCredentials *plex_credentials,
@@ -3544,7 +3591,7 @@ load_direct_playback(const MultiplexAuthCredentials *credentials,
                released / 1024u);
     PlexHlsDemux *hls = NULL;
     if (!open_direct_hls_session(credentials, rating_key, offset_ms,
-                                 resume_session_id, burn_subtitles,
+                                 duration_ms, resume_session_id, burn_subtitles,
                                  subtitle_stream_index, &hls)) {
       if (transition_from_watch_together) {
         SYS_Report("REFERENCE GX: direct playback switch failed requested=%u\n",
@@ -7397,7 +7444,13 @@ static void *run_app(void *unused) {
     }
     if (video_surface.visible != 0) {
       const uint32_t position_ms = playback_position_ms(&playback_manifest);
-      if (direct_hls_demux == NULL) {
+      if (direct_hls_demux != NULL) {
+        timeline_started |= schedule_hls_timeline_report(
+            &timeline_reporter, direct_hls_demux,
+            playback_manifest.rating_key, position_ms,
+            playback_manifest.media_duration_ms,
+            video_surface.playing == 0 ? "paused" : "playing");
+      } else {
         if (video_surface.playing == 0) {
           timeline_started |= schedule_timeline_report(
               &timeline_reporter, MULTIPLEX_GATEWAY_URL,
