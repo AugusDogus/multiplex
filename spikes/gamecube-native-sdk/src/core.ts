@@ -493,10 +493,7 @@ export function loadPairing(
   };
 }
 
-export function loadBootDiagnostics(
-  model: Model,
-  diagnostics: Uint8Array,
-): Model {
+export function loadBootDiagnostics(model: Model, diagnostics: Uint8Array): Model {
   return { ...model, bootDiagnostics: diagnostics };
 }
 
