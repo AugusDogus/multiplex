@@ -172,6 +172,7 @@ typedef struct {
   void *stack;
   MultiplexReferenceFrameRender render;
   MultiplexReferenceFrameStatus status;
+  uint32_t stage;
   NativeUiPacket ui_packet;
   uint32_t render_us;
   uint32_t text_us;
@@ -214,6 +215,10 @@ static uint32_t presented_screen = UINT32_MAX;
 static bool asynchronous_reference_enabled;
 static bool asynchronous_reference_requested;
 static ReferenceFrameRenderer reference_renderer;
+static MultiplexReferenceFrameStatus last_reference_frame_status =
+    MULTIPLEX_REFERENCE_FRAME_OK;
+static uint32_t last_reference_render_stage;
+static bool last_reference_render_async;
 static bool network_activity_visible;
 static bool blocking_activity_visible;
 static uint32_t network_activity_frame;
@@ -1268,9 +1273,12 @@ static bool refresh_reference_frame(bool initialize) {
       multiplex_reference_frame_render_with_options(&reference_frame,
                                                     initialize, &render, 0);
   if (frame_status != MULTIPLEX_REFERENCE_FRAME_OK) {
+    last_reference_frame_status = frame_status;
+    last_reference_render_stage = multiplex_native_reference_render_stage();
+    last_reference_render_async = false;
     SYS_Report("REFERENCE GX: Native frame render failed: %s at stage %08x\n",
                multiplex_reference_frame_status_name(frame_status),
-               multiplex_native_reference_render_stage());
+               last_reference_render_stage);
     return false;
   }
   const uint32_t reference_render_us = elapsed_us(render_started);
@@ -1332,14 +1340,19 @@ static int format_boot_diagnostics(char *destination, size_t capacity) {
   return snprintf(destination, capacity,
                   "Stage: %s\nNetwork: %s, code %ld\n"
                   "DHCP status: %ld, attempt %lu, IP: %s\n"
-                  "DNS attempts: %lu, TLS verify: %08lx",
+                  "DNS attempts: %lu, TLS verify: %08lx\n"
+                  "UI render: %s, stage %08lx, async: %u",
                   boot_diagnostic_operation,
                   http_client_diagnostic_stage_name(),
                   (long)http_client_diagnostic_error(),
                   (long)http_client_network_status(),
                   (unsigned long)http_client_network_attempts(), local_ip,
                   (unsigned long)http_client_dns_attempts(),
-                  (unsigned long)http_client_tls_verify_flags());
+                  (unsigned long)http_client_tls_verify_flags(),
+                  multiplex_reference_frame_status_name(
+                      last_reference_frame_status),
+                  (unsigned long)last_reference_render_stage,
+                  last_reference_render_async ? 1u : 0u);
 }
 
 static bool bind_boot_diagnostics(const char *operation) {
@@ -1361,6 +1374,7 @@ static void *run_reference_renderer(void *context) {
   const uint32_t started = gettick();
   renderer->status = multiplex_reference_frame_render_with_options(
       &reference_frame, false, &renderer->render, 0);
+  renderer->stage = multiplex_native_reference_render_stage();
   renderer->render_us = elapsed_us(started);
   if (renderer->status == MULTIPLEX_REFERENCE_FRAME_OK) {
     const uint32_t text_started = gettick();
@@ -1412,10 +1426,13 @@ static bool poll_reference_renderer(void) {
   free(reference_renderer.stack);
   reference_renderer.stack = NULL;
   if (reference_renderer.status != MULTIPLEX_REFERENCE_FRAME_OK) {
+    last_reference_frame_status = reference_renderer.status;
+    last_reference_render_stage = reference_renderer.stage;
+    last_reference_render_async = true;
     SYS_Report("REFERENCE GX: screen transition render failed: %s at stage "
                "%08x\n",
                multiplex_reference_frame_status_name(reference_renderer.status),
-               multiplex_native_reference_render_stage());
+               reference_renderer.stage);
     native_frame_dirty = false;
     return false;
   }
@@ -6051,6 +6068,10 @@ static void *run_app(void *unused) {
 #endif
   memset(&reference_renderer, 0, sizeof(reference_renderer));
   reference_renderer.thread = LWP_THREAD_NULL;
+  asynchronous_reference_enabled = false;
+  last_reference_frame_status = MULTIPLEX_REFERENCE_FRAME_OK;
+  last_reference_render_stage = 0;
+  last_reference_render_async = false;
   snprintf(boot_diagnostic_operation, sizeof(boot_diagnostic_operation), "%s",
            "Video and GX initialization");
   if (!initialize_video_and_gx()) {
@@ -6169,7 +6190,6 @@ static void *run_app(void *unused) {
     return (void *)(uintptr_t)APP_EXIT_UI_RENDER;
   }
   present_frame(&playback_manifest);
-  asynchronous_reference_enabled = true;
 
   if (network_warmup_pending && MULTIPLEX_GATEWAY_URL[0] != '\0') {
     SYS_Report("REFERENCE GX: network warmup ready=%u\n",
@@ -6350,6 +6370,7 @@ static void *run_app(void *unused) {
   uint32_t queued_transition_buttons = 0;
   uint32_t queued_transition_navigation = UINT32_MAX;
   AppExitCode exit_code = APP_EXIT_OK;
+  asynchronous_reference_enabled = true;
   while (SYS_MainLoop()) {
     poll_direct_poster_loader(&direct_home_poster_loader);
     poll_direct_poster_loader(&direct_page_poster_loader);
@@ -7442,11 +7463,13 @@ static void show_app_failure(AppExitCode code) {
     printf("%s\n\n", boot_diagnostics);
   }
   printf("Photograph this screen so the exact failure can be fixed.\n");
-  printf("Reset the console to return to Swiss.\n");
+  printf("Press A, START, or Z to restart without a power cycle.\n");
 
   while (true) {
     PAD_ScanPads();
-    if ((PAD_ButtonsDown(0) & PAD_TRIGGER_Z) != 0 || SYS_ResetButtonDown()) {
+    if ((PAD_ButtonsDown(0) &
+         (PAD_BUTTON_A | PAD_BUTTON_START | PAD_TRIGGER_Z)) != 0 ||
+        SYS_ResetButtonDown()) {
       SYS_ResetSystem(SYS_RESTART, 0, FALSE);
     }
     VIDEO_WaitVSync();
