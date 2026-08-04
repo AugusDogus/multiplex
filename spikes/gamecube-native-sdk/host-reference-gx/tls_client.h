@@ -7,8 +7,11 @@
 
 typedef struct MultiplexTlsClient MultiplexTlsClient;
 
+bool multiplex_tls_client_initialize(void);
 MultiplexTlsClient *multiplex_tls_client_connect(int socket,
                                                  const char *hostname);
+int multiplex_tls_client_last_error(void);
+uint32_t multiplex_tls_client_last_verify_flags(void);
 bool multiplex_tls_client_write_all(MultiplexTlsClient *client,
                                     const uint8_t *bytes, size_t size);
 int multiplex_tls_client_read(MultiplexTlsClient *client, uint8_t *destination,

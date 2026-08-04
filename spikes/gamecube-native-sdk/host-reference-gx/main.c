@@ -1331,18 +1331,21 @@ static int format_boot_diagnostics(char *destination, size_t capacity) {
   }
   return snprintf(destination, capacity,
                   "Stage: %s\nNetwork: %s, code %ld\n"
-                  "DHCP status: %ld, attempt %lu, IP: %s",
+                  "DHCP status: %ld, attempt %lu, IP: %s\n"
+                  "DNS attempts: %lu, TLS verify: %08lx",
                   boot_diagnostic_operation,
                   http_client_diagnostic_stage_name(),
                   (long)http_client_diagnostic_error(),
                   (long)http_client_network_status(),
-                  (unsigned long)http_client_network_attempts(), local_ip);
+                  (unsigned long)http_client_network_attempts(), local_ip,
+                  (unsigned long)http_client_dns_attempts(),
+                  (unsigned long)http_client_tls_verify_flags());
 }
 
 static bool bind_boot_diagnostics(const char *operation) {
   snprintf(boot_diagnostic_operation, sizeof(boot_diagnostic_operation), "%s",
            operation);
-  char diagnostics[192];
+  char diagnostics[256];
   const int length = format_boot_diagnostics(diagnostics, sizeof(diagnostics));
   if (length <= 0 || (size_t)length >= sizeof(diagnostics)) {
     return false;
@@ -7415,7 +7418,7 @@ static void show_app_failure(AppExitCode code) {
   VIDEO_WaitVSync();
 
   const struct mallinfo heap = mallinfo();
-  char boot_diagnostics[192];
+  char boot_diagnostics[256];
   const int boot_diagnostics_length =
       format_boot_diagnostics(boot_diagnostics, sizeof(boot_diagnostics));
   printf("\nMultiplex stopped safely\n");

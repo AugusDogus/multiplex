@@ -38,6 +38,8 @@ const char *http_client_diagnostic_stage_name(void);
 int32_t http_client_diagnostic_error(void);
 int32_t http_client_network_status(void);
 uint32_t http_client_network_attempts(void);
+uint32_t http_client_dns_attempts(void);
+uint32_t http_client_tls_verify_flags(void);
 HttpClient *http_client_open(const char *url);
 HttpClient *http_client_open_with_headers(const char *url,
                                           const HttpRequestHeader *headers,
