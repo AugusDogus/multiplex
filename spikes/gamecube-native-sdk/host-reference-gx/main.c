@@ -3660,6 +3660,7 @@ static bool navigate_direct_playback_if_requested(
   const uint32_t previous_position_ms =
       playback_position_ms(active_manifest);
   audio_dma_update(audio_output, false);
+  close_media_session(client, demux);
   flush_timeline_report(timeline_reporter, "", credentials,
                         direct_hls_session_id, active_manifest,
                         previous_position_ms, "stopped");
@@ -3695,10 +3696,10 @@ static void stop_direct_playback_if_hidden(
   const uint32_t stopped_rating_key = active_manifest->rating_key;
   const uint32_t stopped_position_ms = playback_position_ms(active_manifest);
   audio_dma_update(audio_output, false);
+  close_media_session(client, demux);
   flush_timeline_report(timeline_reporter, "", credentials,
                         direct_hls_session_id, active_manifest,
                         stopped_position_ms, "stopped");
-  close_media_session(client, demux);
   memset(active_manifest, 0, sizeof(*active_manifest));
   direct_hls_session_id[0] = '\0';
   *timeline_player_visible = false;
@@ -5342,6 +5343,7 @@ static bool advance_direct_playback_if_complete(
   multiplex_native_app_playback_position(
       completed_manifest.media_duration_ms);
   audio_dma_update(audio_output, false);
+  close_media_session(client, demux);
   flush_timeline_report(timeline_reporter, "", credentials,
                         completed_session_id, &completed_manifest,
                         completed_manifest.media_duration_ms, "stopped");
@@ -5962,6 +5964,7 @@ static bool rotate_watch_together_if_complete(
   multiplex_native_app_playback_position(
       completed_manifest.media_duration_ms);
   audio_dma_update(audio_output, false);
+  close_media_session(client, demux);
   flush_timeline_report(timeline_reporter, "", credentials,
                         completed_session_id, &completed_manifest,
                         completed_manifest.media_duration_ms, "stopped");
@@ -6881,19 +6884,20 @@ static void *run_app(void *unused) {
       if (multiplex_native_app_watch_together_leave_request() != 0 ||
           disband_watch_together) {
         const uint32_t left_room = joined_watch_together_room;
+        const uint32_t stopped_position_ms =
+            playback_position_ms(&playback_manifest);
         char left_room_id[MULTIPLEX_TRPC_ROOM_ID_CAPACITY] = "";
         if (left_room < watch_together_rooms.room_count) {
           snprintf(left_room_id, sizeof(left_room_id), "%s",
                    watch_together_rooms.rooms[left_room].id);
         }
+        discard_staged_media_session(&staged_media);
+        close_media_session(&client, &demux);
         flush_timeline_report(
             &timeline_reporter, MULTIPLEX_GATEWAY_URL,
             timeline_plex_credentials, direct_hls_session_id,
-            &playback_manifest, playback_position_ms(&playback_manifest),
-            "stopped");
+            &playback_manifest, stopped_position_ms, "stopped");
         timeline_player_visible = false;
-        discard_staged_media_session(&staged_media);
-        close_media_session(&client, &demux);
         memset(&playback_manifest, 0, sizeof(playback_manifest));
         multiplex_syncplay_session_destroy(syncplay_session);
         syncplay_session = NULL;
@@ -7277,18 +7281,20 @@ static void *run_app(void *unused) {
     }
     if (video_surface.visible != 0) {
       const uint32_t position_ms = playback_position_ms(&playback_manifest);
-      if (video_surface.playing == 0) {
-        timeline_started |= schedule_timeline_report(
-            &timeline_reporter, MULTIPLEX_GATEWAY_URL,
-            timeline_plex_credentials, direct_hls_session_id,
-            playback_manifest.rating_key, position_ms,
-            playback_manifest.media_duration_ms, "paused", false);
-      } else if (video_was_playing) {
-        timeline_started |= schedule_timeline_report(
-            &timeline_reporter, MULTIPLEX_GATEWAY_URL,
-            timeline_plex_credentials, direct_hls_session_id,
-            playback_manifest.rating_key, position_ms,
-            playback_manifest.media_duration_ms, "playing", false);
+      if (direct_hls_demux == NULL) {
+        if (video_surface.playing == 0) {
+          timeline_started |= schedule_timeline_report(
+              &timeline_reporter, MULTIPLEX_GATEWAY_URL,
+              timeline_plex_credentials, direct_hls_session_id,
+              playback_manifest.rating_key, position_ms,
+              playback_manifest.media_duration_ms, "paused", false);
+        } else if (video_was_playing) {
+          timeline_started |= schedule_timeline_report(
+              &timeline_reporter, MULTIPLEX_GATEWAY_URL,
+              timeline_plex_credentials, direct_hls_session_id,
+              playback_manifest.rating_key, position_ms,
+              playback_manifest.media_duration_ms, "playing", false);
+        }
       }
       timeline_player_visible = true;
     } else if (timeline_player_visible) {
@@ -7357,15 +7363,18 @@ static void *run_app(void *unused) {
   stop_direct_poster_loader(&direct_home_poster_loader);
   stop_direct_poster_loader(&direct_page_poster_loader);
   discard_direct_hls_prefetch(&direct_hls_prefetch);
-  if (timeline_started) {
+  const bool report_final_timeline =
+      timeline_started || playback_manifest.rating_key != 0;
+  const uint32_t final_position_ms =
+      playback_position_ms(&playback_manifest);
+  close_media_session(&client, &demux);
+  if (report_final_timeline) {
     flush_timeline_report(&timeline_reporter, MULTIPLEX_GATEWAY_URL,
                           timeline_plex_credentials, direct_hls_session_id,
-                          &playback_manifest,
-                          playback_position_ms(&playback_manifest), "stopped");
+                          &playback_manifest, final_position_ms, "stopped");
   } else {
     finish_timeline_report(&timeline_reporter);
   }
-  close_media_session(&client, &demux);
   multiplex_native_cache_free(poster_texture_pixels);
   poster_texture_pixels = NULL;
   poster_texture_count = 0;
