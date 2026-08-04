@@ -4,7 +4,7 @@ A 3rd-party Plex client web app for synchronized watching with friends.
 
 ## Project structure
 
-- **Monorepo** with Bun workspaces: `apps/web` (Next.js 16 preview app) and `packages/plex-query` (Plex API client library)
+- **Monorepo** with Bun workspaces: `apps/web` (Next.js 16.3 app) and `packages/plex-query` (Plex API client library)
 - Package manager & runtime: **Bun** (lockfile: `bun.lock`)
 - **Ownership**: Effect v4 `PlayerService` and `WatchTogetherSession` own canonical player/session runtime state; tRPC + TanStack Query + SuperJSON own Plex server data and RSC hydration; Zustand is limited to persisted preferences and unrelated local UI state; do not introduce Jotai
 
@@ -49,7 +49,7 @@ Multiplex uses Effect v4 for canonical media-player state and Watch Together ses
 
 ### Running the dev server
 
-- `bun dev` starts the Next.js 16 preview with Turbopack on `http://localhost:3000`.
+- `bun dev` starts the Next.js 16.3 app with Turbopack on `http://localhost:3000`.
 - The app redirects unauthenticated users to `/login`. The login flow uses Plex OAuth (PIN-based), requiring internet access to `plex.tv`.
 
 ### Testing with Plex account
