@@ -314,9 +314,9 @@ profile also accepts the connected Steam Controller alongside the QA pipe.
   processing before sending DHCP discovery so immediate offers are not missed
 - `patches/libogc2-arm-dhcp-state-before-send.patch`: arms DHCP receive states
   before transmitting and retries a lost initial discovery after 500 ms
-- `patches/libogc2-flush-tcp-window-updates.patch`: immediately ACKs consumed
-  TCP data, advertises receive space in complete windows, and limits the
-  Dolphin TAP test path to one in-flight Ethernet frame
+- `patches/libogc2-flush-tcp-window-updates.patch`: retired Dolphin-only TCP
+  receive-window workaround retained so bootstrap can remove it from older
+  cached libogc2 checkouts; shipping builds use upstream receive-window logic
 - `patches/passt-handle-data-on-handshake-ack.patch`: preserve application
   data piggybacked on the final TCP handshake ACK
 - `patches/passt-ack-small-window-guests-immediately.patch`: avoid delayed
