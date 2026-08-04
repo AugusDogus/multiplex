@@ -12,7 +12,16 @@ if ! command -v podman >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ ! -s "$spike_dir/.libogc2-stage/opt/devkitpro/libogc2/gamecube/lib/libogc.a" ]; then
+libogc2_stage_name=${LIBOGC2_STAGE_NAME:-.libogc2-stage}
+case "$libogc2_stage_name" in
+  .libogc2-stage | .libogc2-clean-stage) ;;
+  *)
+    echo "Unsupported libogc2 stage: $libogc2_stage_name" >&2
+    exit 1
+    ;;
+esac
+
+if [ ! -s "$spike_dir/$libogc2_stage_name/opt/devkitpro/libogc2/gamecube/lib/libogc.a" ]; then
   echo "Missing the pinned libogc2 runtime; run bun run spike:gamecube:bootstrap first." >&2
   exit 1
 fi
@@ -20,8 +29,9 @@ fi
 podman run --rm \
   --volume "$spike_dir:/workspace:Z" \
   --workdir /workspace \
+  --env LIBOGC2_STAGE_NAME="$libogc2_stage_name" \
   "$DEVKITPPC_IMAGE" \
-  sh -c 'export DEVKITPRO="/workspace/.libogc2-stage/opt/devkitpro"; export DEVKITPPC="/opt/devkitpro/devkitPPC"; export PATH="/opt/devkitpro/devkitPPC/bin:/opt/devkitpro/tools/bin:$PATH"; make -f Makefile.bba-diagnostics.gamecube'
+  sh -c 'export DEVKITPRO="/workspace/$LIBOGC2_STAGE_NAME/opt/devkitpro"; export DEVKITPPC="/opt/devkitpro/devkitPPC"; export PATH="/opt/devkitpro/devkitPPC/bin:/opt/devkitpro/tools/bin:$PATH"; make -f Makefile.bba-diagnostics.gamecube clean; make -f Makefile.bba-diagnostics.gamecube'
 
 test -s "$spike_dir/multiplex-gamecube-bba-diagnostics.dol"
 dol_size=$(wc -c <"$spike_dir/multiplex-gamecube-bba-diagnostics.dol")

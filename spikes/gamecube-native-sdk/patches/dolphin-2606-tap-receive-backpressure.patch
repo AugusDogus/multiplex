@@ -6,7 +6,7 @@ index a147cc7..5508732 100644
 +#include <chrono>
 @@ -6,0 +8 @@
 +#include <thread>
-@@ -129,0 +132,28 @@ void CEXIETHERNET::TAPNetworkInterface::ReadThreadHandler(TAPNetworkInterface* s
+@@ -129,0 +132,27 @@ void CEXIETHERNET::TAPNetworkInterface::ReadThreadHandler(TAPNetworkInterface* s
 +    if (!self->readEnabled.IsSet())
 +    {
 +      std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -34,23 +34,45 @@ index a147cc7..5508732 100644
 +      continue;
 +    }
 +
-@@ -138,0 +169,2 @@ void CEXIETHERNET::TAPNetworkInterface::ReadThreadHandler(TAPNetworkInterface* s
+@@ -138,0 +168,2 @@ void CEXIETHERNET::TAPNetworkInterface::ReadThreadHandler(TAPNetworkInterface* s
 +    if (!self->readEnabled.IsSet())
 +      continue;
-@@ -145 +177 @@ void CEXIETHERNET::TAPNetworkInterface::ReadThreadHandler(TAPNetworkInterface* s
+@@ -145 +176 @@ void CEXIETHERNET::TAPNetworkInterface::ReadThreadHandler(TAPNetworkInterface* s
 -    else if (self->readEnabled.IsSet())
 +    else
 diff --git a/Source/Core/Core/HW/EXI/EXI_DeviceEthernet.cpp b/Source/Core/Core/HW/EXI/EXI_DeviceEthernet.cpp
-index f1aa756..68fcef6 100644
+index f1aa756..e72f75c 100644
 --- a/Source/Core/Core/HW/EXI/EXI_DeviceEthernet.cpp
 +++ b/Source/Core/Core/HW/EXI/EXI_DeviceEthernet.cpp
-@@ -556 +556,4 @@ bool CEXIETHERNET::RecvHandlePacket()
+@@ -5,0 +6 @@
++#include <algorithm>
+@@ -252,2 +253,17 @@ void CEXIETHERNET::DMARead(u32 addr, u32 size)
+-  memory.CopyToEmu(addr, &mBbaMem[transfer.address], size);
+-  transfer.address += size;
++  const u32 rx_start = page_ptr(BBA_BP) << 8;
++  const u32 rx_end = page_ptr(BBA_RHBP) << 8;
++  u32 copied = 0;
++  while (copied < size)
++  {
++    u32 chunk = size - copied;
++    const bool in_receive_ring = rx_start < rx_end && transfer.address >= rx_start &&
++                                 transfer.address < rx_end;
++    if (in_receive_ring)
++      chunk = std::min(chunk, rx_end - transfer.address);
++
++    memory.CopyToEmu(addr + copied, &mBbaMem[transfer.address], chunk);
++    copied += chunk;
++    transfer.address += chunk;
++    if (in_receive_ring && transfer.address == rx_end)
++      transfer.address = rx_start;
++  }
+@@ -556 +572,4 @@ bool CEXIETHERNET::RecvHandlePacket()
 -  u16 rwp_initial = page_ptr(BBA_RWP);
 +  const u16 bp = page_ptr(BBA_BP);
 +  const u16 rrp = page_ptr(BBA_RRP);
 +  const u16 rwp_initial = page_ptr(BBA_RWP);
 +  const u16 rhbp = page_ptr(BBA_RHBP);
-@@ -558,0 +562,8 @@ bool CEXIETHERNET::RecvHandlePacket()
+@@ -558,0 +578,8 @@ bool CEXIETHERNET::RecvHandlePacket()
 +  if (bp >= BBA_NUM_PAGES || rhbp > BBA_NUM_PAGES || bp >= rhbp || rrp < bp ||
 +      rrp >= rhbp || rwp_initial < bp || rwp_initial >= rhbp)
 +  {
@@ -59,18 +81,18 @@ index f1aa756..68fcef6 100644
 +                  bp, rrp, rwp_initial, rhbp);
 +    goto wait_for_next;
 +  }
-@@ -571 +582 @@ bool CEXIETHERNET::RecvHandlePacket()
+@@ -571 +598 @@ bool CEXIETHERNET::RecvHandlePacket()
 -  write_ptr = &mBbaMem[page_ptr(BBA_RWP) << 8];
 +  write_ptr = &mBbaMem[rwp_initial << 8];
-@@ -574 +585 @@ bool CEXIETHERNET::RecvHandlePacket()
+@@ -574 +601 @@ bool CEXIETHERNET::RecvHandlePacket()
 -  current_rwp = page_ptr(BBA_RWP);
 +  current_rwp = rwp_initial;
-@@ -585 +596 @@ bool CEXIETHERNET::RecvHandlePacket()
+@@ -585 +612 @@ bool CEXIETHERNET::RecvHandlePacket()
 -      current_rwp = current_rwp == page_ptr(BBA_RHBP) ? page_ptr(BBA_BP) : current_rwp + 1;
 +      current_rwp = current_rwp + 1 >= rhbp ? bp : current_rwp + 1;
-@@ -589 +600 @@ bool CEXIETHERNET::RecvHandlePacket()
+@@ -589 +616 @@ bool CEXIETHERNET::RecvHandlePacket()
 -      if (page_ptr(BBA_RRP) == current_rwp)
 +      if (rrp == current_rwp)
-@@ -611 +622 @@ bool CEXIETHERNET::RecvHandlePacket()
+@@ -611 +638 @@ bool CEXIETHERNET::RecvHandlePacket()
 -    current_rwp = current_rwp == page_ptr(BBA_RHBP) ? page_ptr(BBA_BP) : current_rwp + 1;
 +    current_rwp = current_rwp + 1 >= rhbp ? bp : current_rwp + 1;

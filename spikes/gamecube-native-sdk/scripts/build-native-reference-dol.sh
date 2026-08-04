@@ -12,7 +12,16 @@ if ! command -v podman >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ ! -s "$spike_dir/.libogc2-stage/opt/devkitpro/libogc2/gamecube/lib/libogc.a" ]; then
+libogc2_stage_name=${LIBOGC2_STAGE_NAME:-.libogc2-stage}
+case "$libogc2_stage_name" in
+  .libogc2-stage | .libogc2-clean-stage) ;;
+  *)
+    echo "Unsupported libogc2 stage: $libogc2_stage_name" >&2
+    exit 1
+    ;;
+esac
+
+if [ ! -s "$spike_dir/$libogc2_stage_name/opt/devkitpro/libogc2/gamecube/lib/libogc.a" ]; then
   echo "Missing the pinned libogc2 runtime; run bun run spike:gamecube:bootstrap first." >&2
   exit 1
 fi
@@ -36,11 +45,18 @@ fi
 sh "$script_dir/generate-tls-ca-header.sh" \
   "$spike_dir/build-native-reference/tls-ca.h"
 
+# The selected libogc2 stage is a link-time input. Remove only the final link
+# products so switching stages cannot reuse an ELF linked against the other
+# runtime while preserving generated headers and compiled objects.
+rm -f "$spike_dir/multiplex-gamecube-native-reference.elf" \
+  "$spike_dir/multiplex-gamecube-native-reference.dol"
+
 podman run --rm \
   --volume "$spike_dir:/workspace:Z" \
   --workdir /workspace \
+  --env LIBOGC2_STAGE_NAME="$libogc2_stage_name" \
   "$DEVKITPPC_IMAGE" \
-  sh -c 'export DEVKITPRO="/workspace/.libogc2-stage/opt/devkitpro"; export DEVKITPPC="/opt/devkitpro/devkitPPC"; export PATH="/opt/devkitpro/devkitPPC/bin:/opt/devkitpro/tools/bin:$PATH"; make -f Makefile.reference.gamecube'
+  sh -c 'export DEVKITPRO="/workspace/$LIBOGC2_STAGE_NAME/opt/devkitpro"; export DEVKITPPC="/opt/devkitpro/devkitPPC"; export PATH="/opt/devkitpro/devkitPPC/bin:/opt/devkitpro/tools/bin:$PATH"; make -f Makefile.reference.gamecube'
 
 test -s "$spike_dir/multiplex-gamecube-native-reference.dol"
 readelf -sW "$spike_dir/multiplex-gamecube-native-reference.elf" |
