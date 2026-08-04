@@ -1,6 +1,6 @@
 # GameCube hardware progress
 
-Updated: 2026-08-04 01:02 CDT
+Updated: 2026-08-04 12:49 CDT
 
 ## Goal
 
@@ -23,6 +23,36 @@ Local playback is healthy again in Dolphin's true TAP path:
   underruns, and zero Dolphin invalid reads or writes.
 
 The remaining blocker is physical GameCube validation of this exact build.
+
+## Cold-boot UI failure
+
+The first physical launch of the minimal-network build reached the crash
+handler instead of returning directly to Swiss:
+
+- Diagnostic: `MGC-21`, native UI rendering failed
+- Stage: waiting for DHCP
+- DHCP status: `-1`, attempt 1, IP `0.0.0.0`
+- Heap after cleanup: 515 KiB free, 5,601 KiB used
+
+Startup had enabled the 512 KiB asynchronous reference-renderer stack before
+DHCP, saved-account restoration, and cached-catalog binding finished. That made
+cold boot the highest-memory and highest-concurrency render path. Startup now
+keeps rendering synchronous until initialization is complete. Async transitions
+are enabled only immediately before the steady-state event loop.
+
+The failure screen now records the exact reference-frame status, render stage,
+and whether the failed render was asynchronous. A, START, or Z performs a soft
+restart so another attempt does not require a hard power cycle.
+
+Validation after the change:
+
+- An isolated no-network Dolphin boot remained stable for 90 seconds after the
+  TAP creation failure, with no UI-render failure.
+- A fresh true-TAP boot with the real region-specific memory-card image restored
+  auth, decoded the three-row and 19-item catalog cache, refreshed the direct
+  Plex catalog, and settled at 60.4 fps.
+- The run logged no UI-render failure, invalid read, invalid write, or diagnostic
+  exit.
 
 ## Fixes now under test
 
@@ -113,7 +143,8 @@ physical DOL-015. It is not a substitute for this hardware test.
 ## Next hardware test
 
 1. Cold boot the GameCube and launch the new `Multiplex.dol` from Swiss.
-2. Confirm whether the first-launch crash still occurs.
+2. Confirm whether `MGC-21` is gone. If it recurs, photograph the new `UI render`
+   status, stage, and async fields.
 3. Open the same Cowboy Bebop episode and enable Stats for Nerds.
 4. Report UI fps, video fps, network KiB/s, queue levels, audio underruns, heap,
    and any diagnostic code.
@@ -132,6 +163,6 @@ of the minimal stack rather than another broad networking change.
 - SD diagnostic: `/run/media/augie/WII/games/Multiplex-BBA-Throughput.dol`
 
 - App SHA-256:
-  `5fe8b8c2e903ef362c485d0be4cced501e45d478c789b6ade40bbc16853086e7`
+  `a692a53785e223d15c43ef85630d9b8dcbf73a83e455152efe5d9e19b4b665ab`
 - Diagnostic SHA-256:
   `199e23d2f85f6f4732cd391f67e4d840a2ab7485a70bbe007b3fcca697023456`
