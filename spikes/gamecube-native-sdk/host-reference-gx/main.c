@@ -4140,7 +4140,7 @@ static void draw_stats_for_nerds(void) {
       text, sizeof(text),
       "UI %u.%u  VIDEO %u.%u  CODEC %u/%u ms  UPLOAD %u ms\n"
       "NET %u KiB/s  QUEUE V%u A%u KiB  AUDIO %u/18 U%u\n"
-      "HEAP %u KiB free",
+      "HEAP %u KiB free  TOP %u KiB",
       diagnostic_presentation_fps_tenths / 10u,
       diagnostic_presentation_fps_tenths % 10u,
       diagnostic_decoder_fps_tenths / 10u,
@@ -4150,18 +4150,18 @@ static void draw_stats_for_nerds(void) {
       diagnostic_network_kib_per_second, (uint32_t)(queued_video / 1024u),
       (uint32_t)(queued_audio / 1024u),
       audio_dma_ready_buffers(audio_output), audio_dma_underruns(audio_output),
-      (uint32_t)heap.fordblks / 1024u);
+      (uint32_t)heap.fordblks / 1024u, (uint32_t)heap.keepcost / 1024u);
   if (length <= 0) {
     return;
   }
 
   configure_color_pipeline();
-  fill_rect(8.0f, 8.0f, 632.0f, 68.0f, (GXColor){0, 0, 0, 220});
+  fill_rect(8.0f, 8.0f, 632.0f, 74.0f, (GXColor){0, 0, 0, 220});
   configure_font_pipeline();
   const MultiplexGxCommand command = {
       .kind = MULTIPLEX_GX_TEXT,
       .x = 16.0f,
-      .y = 12.0f,
+      .y = 17.0f,
       .color_rgba = 0xffffffffu,
       .text_ptr = (const uint8_t *)text,
       .text_len = (uint32_t)length,
