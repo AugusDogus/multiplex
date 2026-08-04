@@ -1,21 +1,21 @@
 "use client";
 
-import { ErrorBoundary } from "react-error-boundary";
+import { catchError, type ErrorInfo } from "next/error";
 import { PlexErrorFallback } from "~/components/plex-error-fallback";
 
-interface PlexErrorWrapperProps {
-  children: React.ReactNode;
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }
 
-export function PlexErrorWrapper({ children }: PlexErrorWrapperProps) {
+// retry() re-fetches the boundary's Server Component children (e.g. the
+// sidebar's Plex context), unlike a client-only error-boundary reset.
+function PlexErrorBoundaryFallback(
+  _props: Record<never, never>,
+  { error, retry }: ErrorInfo,
+) {
   return (
-    <ErrorBoundary
-      FallbackComponent={PlexErrorFallback}
-      onError={(error, errorInfo) => {
-        console.error("Plex Error Boundary caught an error:", error, errorInfo);
-      }}
-    >
-      {children}
-    </ErrorBoundary>
+    <PlexErrorFallback error={toError(error)} resetErrorBoundary={retry} />
   );
 }
+
+export const PlexErrorWrapper = catchError(PlexErrorBoundaryFallback);
