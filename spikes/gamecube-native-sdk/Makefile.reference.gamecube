@@ -13,8 +13,10 @@ SPIKE_ROOT := $(abspath $(dir $(firstword $(MAKEFILE_LIST))))
 include $(DEVKITPRO)/libogc2/gamecube_rules
 
 REFERENCE_VARIANT ?= dolphin
-VALID_REFERENCE_VARIANTS := dolphin hardware clean
-ifeq ($(filter $(REFERENCE_VARIANT),$(VALID_REFERENCE_VARIANTS)),)
+ifeq ($(REFERENCE_VARIANT),dolphin)
+else ifeq ($(REFERENCE_VARIANT),hardware)
+else ifeq ($(REFERENCE_VARIANT),clean)
+else
 $(error REFERENCE_VARIANT must be dolphin, hardware, or clean)
 endif
 TARGET := multiplex-gamecube-native-reference-$(REFERENCE_VARIANT)
