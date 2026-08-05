@@ -7,6 +7,7 @@
  */
 
 #include "audio_dma.h"
+#include "audio_buffer_queue.h"
 #include "audio_decoder.h"
 
 #include <gccore.h>
@@ -28,19 +29,12 @@
 #define AUDIO_SAMPLES_PER_BUFFER \
   (AUDIO_BURST_SIZE / (AUDIO_CHANNELS * AUDIO_BYTES_PER_SAMPLE))
 
-typedef enum {
-  AUDIO_BUFFER_FREE,
-  AUDIO_BUFFER_DECODING,
-  AUDIO_BUFFER_READY,
-  AUDIO_BUFFER_ACTIVE,
-  AUDIO_BUFFER_QUEUED,
-} AudioBufferState;
-
 struct AudioDma {
   AudioCodec codec;
   AudioDecoder *decoder;
   void *buffers[AUDIO_BUFFER_COUNT];
-  volatile AudioBufferState buffer_states[AUDIO_BUFFER_COUNT];
+  AudioBufferSlot buffer_slots[AUDIO_BUFFER_COUNT];
+  uint64_t next_ready_sequence;
   lwp_t decoder_thread;
   void *decoder_stack;
   bool dma_initialized;
@@ -57,16 +51,6 @@ struct AudioDma {
 
 static AudioDma *active_audio;
 
-static int find_buffer_with_state(const AudioDma *audio,
-                                  AudioBufferState state) {
-  for (unsigned index = 0; index < AUDIO_BUFFER_COUNT; ++index) {
-    if (audio->buffer_states[index] == state) {
-      return (int)index;
-    }
-  }
-  return -1;
-}
-
 static void audio_dma_callback(void) {
   AudioDma *audio = active_audio;
   if (audio == NULL) {
@@ -79,7 +63,7 @@ static void audio_dma_callback(void) {
    * one; only a buffer that was current at the previous callback is complete.
    */
   if (audio->current_buffer >= 0) {
-    audio->buffer_states[audio->current_buffer] = AUDIO_BUFFER_FREE;
+    audio->buffer_slots[audio->current_buffer].state = AUDIO_BUFFER_FREE;
     audio->completed_buffers += 1;
   }
 
@@ -87,7 +71,7 @@ static void audio_dma_callback(void) {
   audio->queued_buffer = -1;
   if (!audio->playing) {
     if (audio->current_buffer >= 0) {
-      audio->buffer_states[audio->current_buffer] = AUDIO_BUFFER_READY;
+      audio->buffer_slots[audio->current_buffer].state = AUDIO_BUFFER_READY;
       audio->current_buffer = -1;
     }
     audio->paused_partial_samples = 0;
@@ -100,15 +84,15 @@ static void audio_dma_callback(void) {
     return;
   }
 
-  audio->buffer_states[audio->current_buffer] = AUDIO_BUFFER_ACTIVE;
+  audio->buffer_slots[audio->current_buffer].state = AUDIO_BUFFER_ACTIVE;
   audio->current_buffer_started = gettick();
   audio->paused_partial_samples = audio->queued_partial_samples;
   audio->queued_partial_samples = 0;
 
-  const int ready_buffer =
-      find_buffer_with_state(audio, AUDIO_BUFFER_READY);
+  const int ready_buffer = audio_buffer_queue_find_oldest_ready(
+      audio->buffer_slots, AUDIO_BUFFER_COUNT);
   if (ready_buffer >= 0) {
-    audio->buffer_states[ready_buffer] = AUDIO_BUFFER_QUEUED;
+    audio->buffer_slots[ready_buffer].state = AUDIO_BUFFER_QUEUED;
     audio->queued_buffer = ready_buffer;
     audio->queued_partial_samples = 0;
     AUDIO_InitDMA((uint32_t)audio->buffers[ready_buffer], AUDIO_BURST_SIZE);
@@ -129,10 +113,10 @@ static void *run_audio_decoder(void *argument) {
 
   while (!audio->stopping) {
     const uint32_t level = IRQ_Disable();
-    const int free_buffer =
-        find_buffer_with_state(audio, AUDIO_BUFFER_FREE);
+    const int free_buffer = audio_buffer_queue_find_state(
+        audio->buffer_slots, AUDIO_BUFFER_COUNT, AUDIO_BUFFER_FREE);
     if (free_buffer >= 0) {
-      audio->buffer_states[free_buffer] = AUDIO_BUFFER_DECODING;
+      audio->buffer_slots[free_buffer].state = AUDIO_BUFFER_DECODING;
     }
     IRQ_Restore(level);
 
@@ -159,7 +143,9 @@ static void *run_audio_decoder(void *argument) {
     DCFlushRange(buffer, AUDIO_BURST_SIZE);
 
     const uint32_t publish_level = IRQ_Disable();
-    audio->buffer_states[free_buffer] = AUDIO_BUFFER_READY;
+    audio->buffer_slots[free_buffer].ready_sequence =
+        audio->next_ready_sequence++;
+    audio->buffer_slots[free_buffer].state = AUDIO_BUFFER_READY;
     IRQ_Restore(publish_level);
   }
   return NULL;
@@ -168,10 +154,10 @@ static void *run_audio_decoder(void *argument) {
 static bool start_dma_if_ready(AudioDma *audio) {
   const uint32_t level = IRQ_Disable();
   if (audio->queued_buffer < 0) {
-    const int ready_buffer =
-        find_buffer_with_state(audio, AUDIO_BUFFER_READY);
+    const int ready_buffer = audio_buffer_queue_find_oldest_ready(
+        audio->buffer_slots, AUDIO_BUFFER_COUNT);
     if (ready_buffer >= 0) {
-      audio->buffer_states[ready_buffer] = AUDIO_BUFFER_QUEUED;
+      audio->buffer_slots[ready_buffer].state = AUDIO_BUFFER_QUEUED;
       audio->queued_buffer = ready_buffer;
       audio->queued_partial_samples = 0;
       AUDIO_InitDMA((uint32_t)audio->buffers[ready_buffer],
@@ -232,7 +218,7 @@ AudioDma *audio_dma_create(AudioCodec codec, void *reader_context,
       audio_dma_destroy(audio);
       return NULL;
     }
-    audio->buffer_states[index] = AUDIO_BUFFER_FREE;
+    audio->buffer_slots[index].state = AUDIO_BUFFER_FREE;
   }
 
   AUDIO_Init(NULL);
@@ -321,11 +307,11 @@ void audio_dma_update(AudioDma *audio, bool playing) {
         AUDIO_StopDMA();
       }
       if (audio->current_buffer >= 0) {
-        audio->buffer_states[audio->current_buffer] = AUDIO_BUFFER_READY;
+        audio->buffer_slots[audio->current_buffer].state = AUDIO_BUFFER_READY;
         audio->current_buffer = -1;
       }
       if (audio->queued_buffer >= 0) {
-        audio->buffer_states[audio->queued_buffer] = AUDIO_BUFFER_READY;
+        audio->buffer_slots[audio->queued_buffer].state = AUDIO_BUFFER_READY;
         audio->queued_buffer = -1;
       }
       audio->paused_partial_samples = 0;
@@ -386,9 +372,9 @@ uint32_t audio_dma_ready_buffers(const AudioDma *audio) {
   const uint32_t level = IRQ_Disable();
   uint32_t ready = 0;
   for (unsigned index = 0; index < AUDIO_BUFFER_COUNT; ++index) {
-    if (audio->buffer_states[index] == AUDIO_BUFFER_READY ||
-        audio->buffer_states[index] == AUDIO_BUFFER_ACTIVE ||
-        audio->buffer_states[index] == AUDIO_BUFFER_QUEUED) {
+    if (audio->buffer_slots[index].state == AUDIO_BUFFER_READY ||
+        audio->buffer_slots[index].state == AUDIO_BUFFER_ACTIVE ||
+        audio->buffer_slots[index].state == AUDIO_BUFFER_QUEUED) {
       ready += 1;
     }
   }
