@@ -7,6 +7,7 @@
  */
 
 #include <math.h>
+#include <stddef.h>
 
 extern int __ieee754_rem_pio2(double angle, double remainder[2]);
 extern double __kernel_sin(double primary, double tail, int has_tail);
