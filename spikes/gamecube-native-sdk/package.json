@@ -1,6 +1,0 @@
-{
-  "name": "@multiplex/gamecube-native-sdk-spike",
-  "private": true,
-  "description": "Editor surface for the GameCube Native SDK TypeScript core",
-  "type": "module"
-}

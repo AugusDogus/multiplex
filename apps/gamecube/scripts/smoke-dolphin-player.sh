@@ -1,0 +1,388 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+dol=${MULTIPLEX_REFERENCE_DOL:-"$app_dir/multiplex-gamecube-native-reference-dolphin.dol"}
+reference_build_script=${MULTIPLEX_REFERENCE_BUILD_SCRIPT:-build-native-reference-dol.sh}
+console_name=${MULTIPLEX_CONSOLE_NAME:-GameCube}
+controller_pipe_name=${MULTIPLEX_CONTROLLER_PIPE:-multiplex1}
+user_dir="$app_dir/.dolphin-user"
+log="$user_dir/Logs/dolphin.log"
+pipe="$user_dir/Pipes/$controller_pipe_name"
+expected_media_source=${GAMECUBE_EXPECT_MEDIA_SOURCE:-embedded}
+keep_open=${GAMECUBE_SMOKE_KEEP_OPEN:-0}
+
+case "$keep_open" in
+  0 | 1) ;;
+  *)
+    echo "GAMECUBE_SMOKE_KEEP_OPEN must be 0 or 1." >&2
+    exit 1
+    ;;
+esac
+
+if [ "$expected_media_source" = embedded ]; then
+  GAMECUBE_MEDIA_URL= GAMECUBE_GATEWAY_URL= \
+    sh "$script_dir/$reference_build_script" >/dev/null
+fi
+
+if [ ! -s "$dol" ]; then
+  echo "Missing $console_name reference DOL at $dol." >&2
+  exit 1
+fi
+
+launcher_pid=
+mute_pid=
+pipe_open=0
+stop_launcher() {
+  signal=$1
+  if command -v setsid >/dev/null 2>&1; then
+    /bin/kill "-$signal" -- "-$launcher_pid" 2>/dev/null || true
+  else
+    kill "-$signal" "$launcher_pid" 2>/dev/null || true
+  fi
+}
+
+cleanup() {
+  if [ "$pipe_open" -eq 1 ]; then
+    exec 3>&-
+    pipe_open=0
+  fi
+  if [ -n "$mute_pid" ] && kill -0 "$mute_pid" 2>/dev/null; then
+    kill -TERM "$mute_pid" 2>/dev/null || true
+    wait "$mute_pid" 2>/dev/null || true
+  fi
+  if [ -n "$launcher_pid" ] && kill -0 "$launcher_pid" 2>/dev/null; then
+    stop_launcher TERM
+    attempt=0
+    while kill -0 "$launcher_pid" 2>/dev/null && [ "$attempt" -lt 30 ]; do
+      sleep 0.1
+      attempt=$((attempt + 1))
+    done
+    if kill -0 "$launcher_pid" 2>/dev/null; then
+      stop_launcher KILL
+    fi
+    wait "$launcher_pid" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+mute_dolphin_host_audio() {
+  attempt=0
+  while [ "$attempt" -lt 200 ]; do
+    sink_inputs=$(
+      pactl -f json list sink-inputs 2>/dev/null |
+        jq -r '.[] | select(.properties["application.process.binary"] == "dolphin-emu") | .index' 2>/dev/null || true
+    )
+    if [ -n "$sink_inputs" ]; then
+      for sink_input in $sink_inputs; do
+        pactl set-sink-input-mute "$sink_input" 1 2>/dev/null || true
+      done
+      return
+    fi
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+}
+
+# Clear the current-run path before the asynchronous launcher starts. Without
+# this handoff, the first wait can briefly match a completed run immediately
+# before run-dolphin.sh archives that same log.
+if [ -f "$log" ]; then
+  mv -f "$log" "$user_dir/Logs/dolphin.previous.log"
+fi
+
+if command -v setsid >/dev/null 2>&1; then
+  setsid sh "$script_dir/run-dolphin.sh" "$dol" >/dev/null 2>&1 &
+else
+  sh "$script_dir/run-dolphin.sh" "$dol" >/dev/null 2>&1 &
+fi
+launcher_pid=$!
+if command -v pactl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+  mute_dolphin_host_audio &
+  mute_pid=$!
+fi
+
+line_count() {
+  if [ ! -f "$log" ]; then
+    echo 0
+    return
+  fi
+  grep -c "$1" "$log" 2>/dev/null || true
+}
+
+wait_for_new() {
+  pattern=$1
+  previous=$2
+  attempts=${3:-120}
+  attempt=0
+  while [ "$attempt" -lt "$attempts" ]; do
+    current=$(line_count "$pattern")
+    if [ "$current" -gt "$previous" ]; then
+      return
+    fi
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  echo "Timed out waiting for Dolphin log pattern: $pattern" >&2
+  tail -80 "$log" >&2 || true
+  exit 1
+}
+
+wait_for_stable_presentation() {
+  previous=$1
+  attempts=${2:-300}
+  attempt=0
+  while [ "$attempt" -lt "$attempts" ]; do
+    current=$(line_count "presentation=120 frames/")
+    if [ "$current" -gt "$previous" ]; then
+      fps_tenths=$(
+        rg 'presentation=120 frames/' "$log" |
+          tail -1 |
+          sed -n 's/.*(\([0-9][0-9]*\)\.\([0-9]\) fps).*/\1\2/p'
+      )
+      if [ -n "$fps_tenths" ] &&
+        [ "$fps_tenths" -ge 595 ] &&
+        [ "$fps_tenths" -le 610 ]; then
+        return
+      fi
+      previous=$current
+    fi
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  echo "Timed out waiting for stable 60 fps Dolphin presentation." >&2
+  tail -80 "$log" >&2 || true
+  exit 1
+}
+
+wait_for_stable_decoder() {
+  previous=$1
+  attempts=${2:-300}
+  attempt=0
+  while [ "$attempt" -lt "$attempts" ]; do
+    current=$(line_count "decoder=60 frames/")
+    if [ "$current" -gt "$previous" ]; then
+      fps_tenths=$(
+        rg 'decoder=60 frames/' "$log" |
+          tail -1 |
+          sed -n 's/.*(\([0-9][0-9]*\)\.\([0-9]\) fps).*/\1\2/p'
+      )
+      if [ -n "$fps_tenths" ] &&
+        [ "$fps_tenths" -ge 295 ] &&
+        [ "$fps_tenths" -le 305 ]; then
+        return
+      fi
+      previous=$current
+    fi
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  echo "Timed out waiting for the DVD-resolution decoder to settle at 29.97 fps." >&2
+  rg 'decoder=60 frames/' "$log" >&2 || true
+  exit 1
+}
+
+press() {
+  button=$1
+  previous=$(line_count "controller buttons")
+  max_attempts=${GAMECUBE_CONTROLLER_ATTEMPTS:-60}
+  attempt=0
+  while [ "$attempt" -lt "$max_attempts" ]; do
+    printf 'RELEASE %s\n' "$button" >&3
+    sleep 0.05
+    printf 'PRESS %s\n' "$button" >&3
+    poll=0
+    while [ "$poll" -lt 5 ]; do
+      if [ "$(line_count "controller buttons")" -gt "$previous" ]; then
+        printf 'RELEASE %s\n' "$button" >&3
+        sleep 0.2
+        return
+      fi
+      if ! kill -0 "$launcher_pid" 2>/dev/null; then
+        printf 'RELEASE %s\n' "$button" >&3
+        echo "Dolphin exited while waiting to sample controller button: $button" >&2
+        exit 1
+      fi
+      sleep 0.1
+      poll=$((poll + 1))
+    done
+    attempt=$((attempt + 1))
+  done
+  printf 'RELEASE %s\n' "$button" >&3
+  echo "Timed out after $max_attempts attempts waiting for Dolphin to sample controller button: $button" >&2
+  tail -80 "$log" >&2 || true
+  exit 1
+}
+
+cycle_focus() {
+  remaining=$1
+  while [ "$remaining" -gt 0 ]; do
+    input_count=$(line_count "input action=1")
+    signature_count=$(line_count "signature=")
+    press D_RIGHT
+    wait_for_new "input action=1" "$input_count" 80
+    wait_for_new "signature=" "$signature_count" 80
+    remaining=$((remaining - 1))
+  done
+}
+
+expected_media_bytes=${GAMECUBE_EXPECT_MEDIA_BYTES:-155648}
+case "$expected_media_source" in
+  embedded)
+    media_attempts=120
+    decoder_attempts=120
+    playback_attempts=80
+    expected_pts_delta=902
+    expected_pts_offset_samples=481
+    ;;
+  http)
+    media_attempts=${GAMECUBE_MEDIA_ATTEMPTS:-1200}
+    decoder_attempts=300
+    playback_attempts=200
+    expected_pts_delta=902
+    expected_pts_offset_samples=481
+    ;;
+  *)
+    echo "Unsupported GAMECUBE_EXPECT_MEDIA_SOURCE: $expected_media_source" >&2
+    exit 1
+    ;;
+esac
+wait_for_new "media-source=$expected_media_source" 0 "$media_attempts"
+if ! rg -q "media-source=$expected_media_source .*bytes=$expected_media_bytes" "$log"; then
+  echo "Unexpected $expected_media_source media payload." >&2
+  rg 'media-source=' "$log" >&2 || true
+  exit 1
+fi
+wait_for_new "signature=" 0 120
+wait_for_new "demux=mpeg-ps" 0 120
+if ! rg -q "demux=mpeg-ps .*pts-delta=$expected_pts_delta" "$log"; then
+  echo "MPEG-PS demux did not preserve the expected initial PTS delta." >&2
+  rg 'demux=mpeg-ps' "$log" >&2 || true
+  exit 1
+fi
+wait_for_new "audio=ffmpeg-mplayer-ce codec=mp2 output=ai-dma" 0 120
+exec 3>"$pipe"
+pipe_open=1
+sleep 0.5
+
+home_count=$(line_count "signature=")
+press A
+wait_for_new "signature=" "$home_count" 120
+
+cycle_focus 3
+cycle_focus 1
+
+details_count=$(line_count "signature=")
+press A
+wait_for_new "signature=" "$details_count" 120
+
+cycle_focus 2
+cycle_focus 1
+
+player_count=$(line_count "signature=")
+playing_count=$(line_count "playback=playing")
+audio_playing_count=$(line_count "audio=playing")
+press A
+wait_for_new "signature=" "$player_count" 120
+wait_for_new "playback=playing" "$playing_count" "$playback_attempts"
+wait_for_new "audio=playing" "$audio_playing_count" "$playback_attempts"
+cycle_focus 3
+if ! rg -q "playback=playing .*pts-offset-samples=$expected_pts_offset_samples" "$log"; then
+  echo "Video scheduler did not apply the MPEG-PS timestamp offset." >&2
+  exit 1
+fi
+
+decoder_count=$(line_count "decoder=60 frames/")
+wait_for_new "decoder=60 frames/" "$decoder_count" "$decoder_attempts"
+
+paused_count=$(line_count "signature=")
+playback_paused_count=$(line_count "playback=paused")
+press A
+wait_for_new "signature=" "$paused_count" 80
+wait_for_new "playback=paused" "$playback_paused_count" 80
+decoder_count=$(line_count "decoder=60 frames/")
+sleep 5
+if [ "$(line_count "decoder=60 frames/")" -ne "$decoder_count" ]; then
+  echo "Video decoder advanced while playback was paused." >&2
+  exit 1
+fi
+
+playing_count=$(line_count "playback=playing")
+audio_playing_count=$(line_count "audio=playing")
+presentation_count=$(line_count "presentation=120 frames/")
+press A
+wait_for_new "playback=playing" "$playing_count" 80
+wait_for_new "audio=playing" "$audio_playing_count" 80
+controls_hidden_count=$(line_count "player controls visible=0")
+wait_for_stable_decoder "$decoder_count" 300
+wait_for_stable_presentation "$presentation_count" 300
+
+wait_for_new "player controls visible=0" "$controls_hidden_count" 80
+controls_visible_count=$(line_count "player controls visible=1")
+press D_RIGHT
+wait_for_new "player controls visible=1" "$controls_visible_count" 80
+
+decoder_fps_tenths=$(
+  rg 'decoder=60 frames/' "$log" |
+    tail -1 |
+    sed -n 's/.*(\([0-9][0-9]*\)\.\([0-9]\) fps).*/\1\2/p'
+)
+if [ -z "$decoder_fps_tenths" ] ||
+  [ "$decoder_fps_tenths" -lt 295 ] ||
+  [ "$decoder_fps_tenths" -gt 305 ]; then
+  echo "DVD-resolution decoder missed its 29.97 fps clock: ${decoder_fps_tenths:-missing} tenths." >&2
+  exit 1
+fi
+
+paused_audio_samples=$(
+  rg 'audio=paused samples=' "$log" |
+    tail -1 |
+    sed -n 's/.*samples=\([0-9][0-9]*\).*/\1/p'
+)
+resumed_audio_samples=$(
+  rg 'audio=playing samples=' "$log" |
+    tail -1 |
+    sed -n 's/.*samples=\([0-9][0-9]*\).*/\1/p'
+)
+if [ -z "$paused_audio_samples" ] ||
+  [ "$paused_audio_samples" != "$resumed_audio_samples" ]; then
+  echo "AI DMA audio advanced while paused: paused=${paused_audio_samples:-missing} resumed=${resumed_audio_samples:-missing}." >&2
+  exit 1
+fi
+if rg -q 'underruns=[1-9][0-9]*' "$log"; then
+  echo "AI DMA audio buffer underrun detected." >&2
+  rg 'audio.*underruns=' "$log" >&2
+  exit 1
+fi
+if [ "$(line_count "playback=playing clock=audio")" -lt 2 ]; then
+  echo "Video playback did not use the AI DMA sample clock across resume." >&2
+  exit 1
+fi
+
+sh "$script_dir/check-dolphin-log.sh"
+if rg -q 'layout-audit findings=([1-9][0-9]*|4294967295)' "$log"; then
+  echo "Native SDK layout audit found overflow, overlap, escape, or hit-target damage." >&2
+  rg 'layout-audit findings=' "$log" >&2
+  exit 1
+fi
+if rg -q 'poster-inset-audit findings=([1-9][0-9]*|4294967295)' "$log"; then
+  echo "Poster cards contain unintended image padding." >&2
+  rg 'poster-inset-audit findings=' "$log" >&2
+  exit 1
+fi
+if ! rg -q 'video-surface x=0 y=0 width=640 height=480' "$log"; then
+  echo "The native video surface did not fill the 640x480 GameCube viewport." >&2
+  rg 'video-surface' "$log" >&2 || true
+  exit 1
+fi
+if ! rg -q 'player controls visible=0 idle-ms=4000' "$log" ||
+  ! rg -q 'player controls visible=1' "$log"; then
+  echo "Player controls did not hide after inactivity and reappear on input." >&2
+  rg 'player controls visible=' "$log" >&2 || true
+  exit 1
+fi
+echo "$console_name Dolphin player smoke passed with $expected_media_source media: navigation, timestamped MPEG-PS playback, 60 fps presentation, pause/resume, and clean memory log."
+if [ "$keep_open" -eq 1 ]; then
+  wait "$launcher_pid"
+fi

@@ -4,7 +4,8 @@
 restricted TypeScript state logic, while shipping only ahead-of-time PowerPC
 code.
 
-**Code:** `spikes/gamecube-native-sdk/`
+**Code:** `apps/gamecube/` (promoted from `spikes/gamecube-native-sdk/` once
+the hypothesis was proven; this document remains the historical spike record)
 
 **Upstream inputs:**
 
@@ -56,12 +57,12 @@ Requirements are Zig 0.16.0, Node/npm for Native SDK's build-time compiler,
 Podman, and Dolphin.
 
 ```sh
-bun run spike:gamecube:bootstrap
-bun run spike:gamecube:check
-bun run spike:gamecube:reference:dol
-bun run spike:gamecube:reference:run
-bun run spike:gamecube:reference:log-check
-bun run spike:gamecube:reference:smoke-player
+bun run gamecube:bootstrap
+bun run gamecube:check
+bun run gamecube:reference:dol
+bun run gamecube:reference:run
+bun run gamecube:reference:log-check
+bun run gamecube:reference:smoke-player
 ```
 
 The build pins Native SDK commit
@@ -71,7 +72,7 @@ digest. It builds MPlayer CE's bundled FFmpeg libraries without patching the
 upstream checkout and emits:
 
 ```text
-spikes/gamecube-native-sdk/multiplex-gamecube-native-reference.dol
+apps/gamecube/multiplex-gamecube-native-reference.dol
 ```
 
 The launcher uses an isolated Dolphin profile and records the exact process
@@ -345,7 +346,7 @@ The same runner has a fully direct mode:
 PLEX_BASE_URL=http://192.168.86.245:32400 \
 MULTIPLEX_BASE_URL=https://multiplex.localhost \
 GAMECUBE_DIRECT_PLEX=1 \
-bun run spike:gamecube:reference:plex
+bun run gamecube:reference:plex
 ```
 
 That mode starts no console gateway and prepares no host-side media file. The
@@ -462,7 +463,7 @@ with ordinary `malloc`.
 The final Dolphin run has one window, a deterministic pairing pixel signature
 for each catalog payload, and no invalid read/write entry in the current-run log. Dolphin's
 `MASTER` channel is enabled so CPU/MMU warnings are written rather than only
-shown in dialogs; `spike:gamecube:reference:log-check` rejects invalid reads,
+shown in dialogs; `gamecube:reference:log-check` rejects invalid reads,
 invalid writes, buffer-guard failures, and renderer failures. The presenter
 uses two XFBs and a `0..639` by `0..479` pixel-center projection; the latter
 also eliminates the previously untouched green row at the top of the EFB.

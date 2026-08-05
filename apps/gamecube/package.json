@@ -1,0 +1,6 @@
+{
+  "name": "@multiplex/gamecube",
+  "private": true,
+  "description": "Editor surface for the Multiplex GameCube TypeScript core",
+  "type": "module"
+}

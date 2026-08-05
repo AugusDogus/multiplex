@@ -10,6 +10,9 @@
         "portless": "^0.15.4",
       },
     },
+    "apps/gamecube": {
+      "name": "@multiplex/gamecube",
+    },
     "apps/web": {
       "name": "@multiplex/web",
       "version": "0.1.0",
@@ -368,6 +371,8 @@
     "@msgpackr-extract/msgpackr-extract-win32-x64": ["@msgpackr-extract/msgpackr-extract-win32-x64@3.0.4", "", { "os": "win32", "cpu": "x64" }, "sha512-CmCXPQrkbwExx3j946/PtHWHbYJiCRBRDl4BlkRQcJB/YOwQxJRTpoo7aTsortjgoJ1x7opzTSxn7C+ASSLVjQ=="],
 
     "@multiplex/auth-plugin-plex": ["@multiplex/auth-plugin-plex@workspace:packages/auth-plugin-plex"],
+
+    "@multiplex/gamecube": ["@multiplex/gamecube@workspace:apps/gamecube"],
 
     "@multiplex/plex-query": ["@multiplex/plex-query@workspace:packages/plex-query"],
 
