@@ -10,13 +10,15 @@ Multiplex was created as a response to Plex's announcement of the deprecation of
 
 - **Synchronized Playback**: Watch content in perfect sync with friends across multiple devices
 - **Real-time Controls**: Play, pause, seek, and navigate together
-- **Cross-platform**: Works on any device with a web browser
+- **Cross-platform**: Works in any web browser, with native console clients in development
 - **Plex Integration**: Seamlessly connects to your existing Plex server
 - **User-friendly Interface**: Clean, modern UI built with shadcn/ui components
 
 ## Tech Stack
 
-This project is built with the following technologies:
+Multiplex is a [Bun](https://bun.sh) monorepo: the web app lives in `apps/web`, shared Plex API and auth libraries in `packages/`, and the native console client in `apps/gamecube`.
+
+### Web (`apps/web`)
 
 - [Next.js](https://nextjs.org) - React framework
 - [BetterAuth](https://www.better-auth.com) - Authentication
@@ -24,6 +26,17 @@ This project is built with the following technologies:
 - [Tailwind CSS](https://tailwindcss.com) - Styling
 - [shadcn/ui](https://ui.shadcn.com) - UI components
 - [tRPC](https://trpc.io) - Type-safe APIs
+- [TanStack Query](https://tanstack.com/query) - Server-state caching
+- [Effect](https://effect.website) - Player and Watch Together session runtime
+
+### Consoles (`apps/gamecube`)
+
+- [Native SDK](https://github.com/vercel-labs/native) - UI authored in restricted TypeScript and `.native` markup, rendered on the console
+- [libogc2](https://github.com/extremscorner/libogc2) - Console runtime and networking
+- [MPlayer CE](https://github.com/SuperrSonic/mplayer-ce-libogc2) - Console-optimized FFmpeg video/audio decoding
+- [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) - HTTPS on console
+
+See [`apps/gamecube/README.md`](apps/gamecube/README.md) for the full console stack and acknowledgements.
 
 _This project was initially scaffolded using [create-t3-app](https://create.t3.gg/)._
 
@@ -42,4 +55,4 @@ Contributions are welcome! Please feel free to submit issues and pull requests t
 
 ## License
 
-This project is open source and available under the [MIT License](LICENSE).
+This project is open source and available under the [MIT License](LICENSE). The native console runtime is the exception: it is [GPL-3.0-or-later](apps/gamecube/LICENSE.md) so it can build directly on the homebrew scene's GPL-licensed media work.
