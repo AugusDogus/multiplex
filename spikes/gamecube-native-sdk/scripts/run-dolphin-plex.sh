@@ -736,6 +736,11 @@ wait_log "signature=" 600
 exec 3>"$pipe"
 pipe_open=1
 signature_count=$(line_count "signature=")
+if [ "$interactive" -eq 1 ]; then
+  echo "$console_name interactive Plex QA is ready."
+  wait "$launcher_pid"
+  exit 0
+fi
 if [ -n "$multiplex_base_url" ]; then
   if grep -q "auth restored" "$log"; then
     wait_log "background account data ready" 1200
@@ -747,12 +752,6 @@ if [ -n "$multiplex_base_url" ]; then
 else
   press A
   wait_for_new "signature=" "$signature_count"
-fi
-
-if [ "$interactive" -eq 1 ]; then
-  echo "$console_name interactive Plex QA is ready."
-  wait "$launcher_pid"
-  exit 0
 fi
 
 if [ "$focus_audit" -eq 1 ]; then

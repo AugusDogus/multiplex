@@ -339,6 +339,9 @@ launch() {
     --setenv="PATH=$service_path" \
     --setenv="PLEX_BASE_URL=${PLEX_BASE_URL:-}" \
     --setenv="MULTIPLEX_BASE_URL=${MULTIPLEX_BASE_URL:-https://multiplex.localhost}" \
+    --setenv="GAMECUBE_PASTA_BIN=${GAMECUBE_PASTA_BIN:-$spike_dir/.passt/pasta}" \
+    --setenv="GAMECUBE_PLEX_WAIT_ARTWORK=${GAMECUBE_PLEX_WAIT_ARTWORK:-1}" \
+    --setenv="GAMECUBE_SKIP_BUILD=${GAMECUBE_SKIP_BUILD:-0}" \
     --setenv=GAMECUBE_DIRECT_PLEX=1 \
     --setenv=GAMECUBE_PLEX_INTERACTIVE=1 \
     --setenv=GAMECUBE_PLEX_KEEP_OPEN=1 \
