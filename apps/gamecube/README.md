@@ -226,6 +226,30 @@ The app retains four separate artifacts:
   framebuffer and texture uploads work, but raylib4Consoles/OpenGX currently
   fails to draw the textured quads correctly on the tested GameCube stack.
 
+## Build profiles
+
+The reference application and the BBA diagnostic each build against one of
+three libogc2 stages, selected by `REFERENCE_VARIANT` /
+`LIBOGC2_STAGE_NAME`. All three share the same pinned libogc2 commit from
+`PINS.env`; they differ only in which local patches are applied:
+
+| Profile    | libogc2 stage             | Local libogc2 changes                                                                                                           | Purpose                                                                                                                            |
+| ---------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `dolphin`  | `.libogc2-stage`          | Full patch stack: TCP write/window flushes, BBA receive-ring DMA wrap and recovery, DHCP ordering and retry, lwIP `snd_nxt` fix | Deterministic development and automation against Dolphin's emulated TAP BBA                                                        |
+| `hardware` | `.libogc2-hardware-stage` | Exactly one change: `TCP_WND` limited to one `TCP_MSS`                                                                          | The physical DOL-015 acceptance build; excludes every Dolphin-motivated receive-driver patch so hardware results stay attributable |
+| `clean`    | `.libogc2-clean-stage`    | None; the checkout is verified pristine                                                                                         | Control build for isolating whether a failure is caused by our local patches at all                                                |
+
+Physical hardware is the acceptance target; Dolphin is only the development
+harness. The separate profiles exist to keep hardware evidence uncontaminated
+by emulator workarounds while those workarounds are still under evaluation.
+They are temporary isolation, not an architectural requirement: as patches are
+either upstreamed or proven unnecessary, the profiles should converge.
+
+Only the `-hardware` artifact should be copied to an SD card and launched on a
+physical console. The `-dolphin` artifact links emulator-oriented network
+patches, and the build system emits distinctly named artifacts precisely so
+one cannot silently overwrite the other.
+
 The controller profile attaches a standard controller to SI port 1 and is
 backed by `.dolphin-user/Pipes/multiplex1`. Dolphin pipe commands such as
 `PRESS A`, `RELEASE A`, and `SET MAIN 1 0.5` drive the automated player smoke
@@ -580,4 +604,5 @@ on a dedicated 512 KiB LWP stack. Dolphin's `MASTER` log channel is enabled,
 and `gamecube:reference:log-check` fails on invalid accesses, guard
 failures, or renderer failures.
 
-See `docs/apps/gamecube.md` for measurements and the next gate.
+See `docs/spikes/gamecube-native-sdk.md` for the original spike record and its
+measurements, and `PROGRESS.md` for current hardware status.
