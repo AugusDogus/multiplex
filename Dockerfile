@@ -3,6 +3,7 @@ FROM oven/bun:1.3.10-alpine AS deps
 WORKDIR /app
 
 COPY package.json bun.lock ./
+COPY apps/gamecube/package.json ./apps/gamecube/
 COPY apps/web/package.json ./apps/web/
 COPY packages/plex-query/package.json ./packages/plex-query/
 COPY packages/auth-plugin-plex/package.json ./packages/auth-plugin-plex/
