@@ -1,0 +1,66 @@
+# Minimal devkitPPC/libogc host for the TypeScript-generated core.
+
+.SUFFIXES:
+
+ifeq ($(strip $(DEVKITPPC)),)
+$(error "DEVKITPPC must point to the devkitPPC toolchain")
+endif
+
+APP_ROOT := $(abspath $(dir $(firstword $(MAKEFILE_LIST))))
+
+include $(DEVKITPPC)/gamecube_rules
+
+TARGET := multiplex-gamecube-legacy
+BUILD := build
+SOURCES := host
+INCLUDES := host generated
+
+CFLAGS := -g -Os -Wall -Wextra $(MACHDEP) $(INCLUDE)
+CXXFLAGS := $(CFLAGS)
+LDFLAGS := -g $(MACHDEP) -Wl,-Map,$(notdir $@).map
+LIBS := $(CORE_LIBRARY) -logc -lm
+LIBDIRS :=
+
+ifneq ($(BUILD),$(notdir $(CURDIR)))
+
+export OUTPUT := $(APP_ROOT)/$(TARGET)
+export VPATH := $(foreach dir,$(SOURCES),$(APP_ROOT)/$(dir))
+export DEPSDIR := $(APP_ROOT)/$(BUILD)
+
+CFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(APP_ROOT)/$(dir)/*.c)))
+OFILES_SOURCES := $(CFILES:.c=.o)
+export CORE_LIBRARY := $(APP_ROOT)/zig-out/lib/libmultiplex-gamecube-core.a
+export OFILES := $(OFILES_SOURCES)
+
+export INCLUDE := $(foreach dir,$(INCLUDES),-I$(APP_ROOT)/$(dir)) \
+	-I$(APP_ROOT)/$(BUILD) \
+	-I$(LIBOGC_INC)
+export LIBPATHS := -L$(LIBOGC_LIB) $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
+export LD := $(CC)
+
+.PHONY: all clean $(BUILD)
+
+all: $(BUILD)
+
+$(BUILD): $(CORE_LIBRARY)
+	@[ -d $@ ] || mkdir -p $@
+	@$(MAKE) --no-print-directory -C $(BUILD) -f $(APP_ROOT)/Makefile.gamecube
+
+$(CORE_LIBRARY):
+	@echo "Missing $@; run bun run gamecube:check first." >&2
+	@false
+
+clean:
+	@echo clean ...
+	@rm -rf $(BUILD) $(OUTPUT).elf $(OUTPUT).dol
+
+else
+
+DEPENDS := $(OFILES_SOURCES:.o=.d)
+
+$(OUTPUT).dol: $(OUTPUT).elf
+$(OUTPUT).elf: $(OFILES) $(CORE_LIBRARY)
+
+-include $(DEPENDS)
+
+endif
