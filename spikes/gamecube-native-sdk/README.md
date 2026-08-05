@@ -14,6 +14,7 @@ From the repository root:
 bun run spike:gamecube:bootstrap
 bun run spike:gamecube:check
 bun run spike:gamecube:reference:dol
+bun run spike:gamecube:reference:hardware-dol
 bun run spike:gamecube:bba-diagnostics:dol
 bun run spike:gamecube:reference:run
 bun run spike:gamecube:launch
@@ -214,9 +215,11 @@ server-specific access token through its process environment, never through
 command-line arguments; the account JWT is used only with Plex's resource
 directory and future account-backed features.
 
-The spike retains three separate artifacts:
+The spike retains four separate artifacts:
 
-- `multiplex-gamecube-native-reference.dol`: exact Native SDK reference pixels
+- `multiplex-gamecube-native-reference-dolphin.dol`: Dolphin integration build
+  presented through direct GX.
+- `multiplex-gamecube-native-reference-hardware.dol`: physical DOL-015 build
   presented through direct GX; this is the recommended visual baseline.
 - `multiplex-gamecube-spike.dol`: the earlier command-to-GX approximation.
 - `multiplex-gamecube-raylib-reference.dol`: the portability experiment. Its

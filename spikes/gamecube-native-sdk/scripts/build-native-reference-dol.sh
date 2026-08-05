@@ -14,12 +14,15 @@ fi
 
 libogc2_stage_name=${LIBOGC2_STAGE_NAME:-.libogc2-stage}
 case "$libogc2_stage_name" in
-  .libogc2-stage | .libogc2-clean-stage | .libogc2-hardware-stage) ;;
+  .libogc2-stage) reference_variant=dolphin ;;
+  .libogc2-clean-stage) reference_variant=clean ;;
+  .libogc2-hardware-stage) reference_variant=hardware ;;
   *)
     echo "Unsupported libogc2 stage: $libogc2_stage_name" >&2
     exit 1
     ;;
 esac
+artifact_stem="multiplex-gamecube-native-reference-$reference_variant"
 
 if [ ! -s "$spike_dir/$libogc2_stage_name/opt/devkitpro/libogc2/gamecube/lib/libogc.a" ]; then
   echo "Missing the pinned libogc2 runtime; run bun run spike:gamecube:bootstrap first." >&2
@@ -53,20 +56,20 @@ sh "$script_dir/generate-tls-ca-header.sh" \
 
 # The selected libogc2 stage changes both headers and libraries. Stage changes
 # discard objects above; every build also refreshes the final link products.
-rm -f "$spike_dir/multiplex-gamecube-native-reference.elf" \
-  "$spike_dir/multiplex-gamecube-native-reference.dol"
+rm -f "$spike_dir/$artifact_stem.elf" "$spike_dir/$artifact_stem.dol"
 
 podman run --rm \
   --volume "$spike_dir:/workspace:Z" \
   --workdir /workspace \
   --env LIBOGC2_STAGE_NAME="$libogc2_stage_name" \
+  --env REFERENCE_VARIANT="$reference_variant" \
   "$DEVKITPPC_IMAGE" \
-  sh -c 'export DEVKITPRO="/workspace/$LIBOGC2_STAGE_NAME/opt/devkitpro"; export DEVKITPPC="/opt/devkitpro/devkitPPC"; export PATH="/opt/devkitpro/devkitPPC/bin:/opt/devkitpro/tools/bin:$PATH"; make -f Makefile.reference.gamecube'
+  sh -c 'export DEVKITPRO="/workspace/$LIBOGC2_STAGE_NAME/opt/devkitpro"; export DEVKITPPC="/opt/devkitpro/devkitPPC"; export PATH="/opt/devkitpro/devkitPPC/bin:/opt/devkitpro/tools/bin:$PATH"; make -f Makefile.reference.gamecube REFERENCE_VARIANT="$REFERENCE_VARIANT"'
 
-test -s "$spike_dir/multiplex-gamecube-native-reference.dol"
+test -s "$spike_dir/$artifact_stem.dol"
 printf '%s\n' "$libogc2_stage_name" >"$stage_stamp"
-readelf -sW "$spike_dir/multiplex-gamecube-native-reference.elf" |
+readelf -sW "$spike_dir/$artifact_stem.elf" |
   grep -q "multiplex_native_app_render_reference"
 
-dol_size=$(wc -c <"$spike_dir/multiplex-gamecube-native-reference.dol")
-echo "Native reference DOL is ready at $spike_dir/multiplex-gamecube-native-reference.dol ($dol_size bytes)"
+dol_size=$(wc -c <"$spike_dir/$artifact_stem.dol")
+echo "Native $reference_variant DOL is ready at $spike_dir/$artifact_stem.dol ($dol_size bytes)"

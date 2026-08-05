@@ -22,7 +22,10 @@ Local playback is healthy again in Dolphin's true TAP path:
 - Combined validation: 35 completed segments, zero retries, zero audio
   underruns, and zero Dolphin invalid reads or writes.
 
-The remaining blocker is physical GameCube validation of this exact build.
+Physical GameCube playback now has clean AAC audio. The repaired path bypasses
+Zig's incompatible weak trigonometric symbols during FFmpeg's AAC MDCT setup
+and preserves decoded DMA buffers in publication order. The cleaned artifact
+has been rebuilt for both Dolphin and hardware after that console validation.
 
 ## Cold-boot UI failure
 
@@ -198,12 +201,13 @@ of the minimal stack rather than another broad networking change.
 
 ## Artifacts
 
-- App source DOL: `multiplex-gamecube-native-reference.dol`
+- App source DOL: `multiplex-gamecube-native-reference-hardware.dol`
 - Diagnostic source DOL: `multiplex-gamecube-bba-diagnostics.dol`
 - SD app: `/run/media/augie/WII/games/Multiplex.dol`
-- SD diagnostic: `/run/media/augie/WII/games/Multiplex-BBA-Throughput.dol`
 
-- App SHA-256:
-  `394721bfecdf612021d79df657c6e300edb3cb596a9d7b1a37f95f049a51421f`
+- Console-tested app SHA-256:
+  `fc3002d8560c208af837c2a24702bbeb72fa9c2da8c8174554e16c1e139e7905`
+- Cleaned hardware artifact SHA-256:
+  `309dee7dbcd4c326e35682bd36ea2d03b62f91dba11eb2f92aeedc8679fa5e33`
 - Diagnostic SHA-256:
   `199e23d2f85f6f4732cd391f67e4d840a2ab7485a70bbe007b3fcca697023456`
