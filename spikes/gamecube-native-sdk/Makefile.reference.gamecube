@@ -12,7 +12,12 @@ SPIKE_ROOT := $(abspath $(dir $(firstword $(MAKEFILE_LIST))))
 
 include $(DEVKITPRO)/libogc2/gamecube_rules
 
-TARGET := multiplex-gamecube-native-reference
+REFERENCE_VARIANT ?= dolphin
+VALID_REFERENCE_VARIANTS := dolphin hardware clean
+ifeq ($(filter $(REFERENCE_VARIANT),$(VALID_REFERENCE_VARIANTS)),)
+$(error REFERENCE_VARIANT must be dolphin, hardware, or clean)
+endif
+TARGET := multiplex-gamecube-native-reference-$(REFERENCE_VARIANT)
 BUILD := build-native-reference
 SOURCES := host-reference-gx host-reference
 MPLAYER_ROOT := $(SPIKE_ROOT)/.mplayer-ce-libogc2/mplayer
@@ -56,7 +61,8 @@ all: $(BUILD)
 
 $(BUILD): $(CORE_LIBRARY)
 	@[ -d $@ ] || mkdir -p $@
-	@$(MAKE) --no-print-directory -C $(BUILD) -f $(SPIKE_ROOT)/Makefile.reference.gamecube
+	@$(MAKE) --no-print-directory -C $(BUILD) \
+		-f $(SPIKE_ROOT)/Makefile.reference.gamecube
 
 $(CORE_LIBRARY):
 	@echo "Missing $@; run bun run spike:gamecube:check first." >&2

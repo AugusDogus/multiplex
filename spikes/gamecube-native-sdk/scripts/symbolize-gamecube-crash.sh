@@ -3,7 +3,7 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 spike_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
-elf_path=${GAMECUBE_ELF:-$spike_dir/multiplex-gamecube-native-reference.elf}
+elf_path=${GAMECUBE_ELF:-$spike_dir/multiplex-gamecube-native-reference-hardware.elf}
 
 if [ "$#" -eq 0 ]; then
   echo "Usage: $0 0x80123456 [0x80123478 ...]" >&2
@@ -12,7 +12,7 @@ if [ "$#" -eq 0 ]; then
 fi
 if [ ! -s "$elf_path" ]; then
   echo "Missing ELF with symbols: $elf_path" >&2
-  echo "Build it with bun run spike:gamecube:reference:dol." >&2
+  echo "Build it with bun run spike:gamecube:reference:hardware-dol." >&2
   exit 1
 fi
 if ! command -v podman >/dev/null 2>&1; then
