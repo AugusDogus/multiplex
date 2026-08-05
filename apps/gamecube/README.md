@@ -604,5 +604,41 @@ on a dedicated 512 KiB LWP stack. Dolphin's `MASTER` log channel is enabled,
 and `gamecube:reference:log-check` fails on invalid accesses, guard
 failures, or renderer failures.
 
+## Acknowledgements
+
+This app is built on, borrows from, and is inspired by a lot of open source
+work:
+
+- [Native SDK](https://github.com/vercel-labs/native) (`vercel-labs/native`):
+  the UI framework. It owns the widget tree, layout, focus, text
+  rasterization, and the reference renderer whose pixels the console
+  presents, and it bundles the [Geist](https://vercel.com/font) typeface used
+  throughout.
+- [libogc2](https://github.com/extremscorner/libogc2): the GameCube/Wii
+  runtime: threads, EXI/BBA drivers, GX and Audio Interface access, and its
+  bundled [lwIP](https://savannah.nongnu.org/projects/lwip/) TCP/IP stack,
+  to which we backport upstream lwIP fixes.
+- [MPlayer CE](https://github.com/SuperrSonic/mplayer-ce-libogc2): the pinned
+  GameCube-optimized FFmpeg tree, and the decoder-to-planar-YUV-to-GX TEV
+  presentation architecture the media pipeline follows.
+- [WiiMC-GCN](https://github.com/SuperrSonic/WiiMC-GCN): the `ao_gekko`
+  Audio Interface DMA driver design and libwiigui's analog navigation
+  behavior (libwiigui copyright Tantric 2009-2012).
+- [Mbed TLS](https://github.com/Mbed-TLS/mbedtls): TLS for direct Plex and
+  Multiplex HTTPS traffic.
+- [curl](https://curl.se/docs/caextract.html): the pinned Mozilla CA
+  certificate bundle.
+- [devkitPro](https://devkitpro.org/): the pinned devkitPPC PowerPC
+  cross-compilation toolchain.
+- [Zig](https://ziglang.org): compiles the Native SDK core for PowerPC.
+- [Dolphin](https://dolphin-emu.org): the development and automation
+  harness, including the low-level BBA emulation the network smokes drive.
+- [passt/pasta](https://passt.top/): the rootless Ethernet uplink that
+  connects Dolphin's TAP networking without host privileges.
+- [OpenGX](https://github.com/devkitPro/opengx) and
+  [raylib](https://github.com/raysan5/raylib) (via
+  [raylib4Consoles](https://github.com/raylib4Consoles)): the experimental
+  portable presenter path kept for future platforms.
+
 See `docs/spikes/gamecube-native-sdk.md` for the original spike record and its
 measurements, and `PROGRESS.md` for current hardware status.
