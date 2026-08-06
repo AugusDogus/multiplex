@@ -7,11 +7,11 @@
 
 #define MULTIPLEX_GATEWAY_MAX_ITEMS 4
 #define MULTIPLEX_GATEWAY_BROWSE_COLUMNS 7
-#define MULTIPLEX_GATEWAY_MAX_BROWSE_ITEMS \
+#define MULTIPLEX_GATEWAY_MAX_BROWSE_ITEMS                                     \
   (MULTIPLEX_GATEWAY_BROWSE_COLUMNS * 3)
 #define MULTIPLEX_GATEWAY_MAX_HOME_ITEMS 8
 #define MULTIPLEX_GATEWAY_MAX_ROWS 3
-#define MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS \
+#define MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS                                      \
   (MULTIPLEX_GATEWAY_MAX_HOME_ITEMS * MULTIPLEX_GATEWAY_MAX_ROWS)
 #define MULTIPLEX_GATEWAY_MAX_LIBRARIES 8
 #define MULTIPLEX_GATEWAY_SERVER_CAPACITY 64
@@ -30,7 +30,7 @@
 #define MULTIPLEX_GATEWAY_PAIRING_URL_CAPACITY 256
 #define MULTIPLEX_GATEWAY_ARTWORK_WIDTH 96
 #define MULTIPLEX_GATEWAY_ARTWORK_HEIGHT 144
-#define MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES \
+#define MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES                                   \
   (MULTIPLEX_GATEWAY_ARTWORK_WIDTH * MULTIPLEX_GATEWAY_ARTWORK_HEIGHT * 2)
 
 typedef struct {
@@ -173,15 +173,16 @@ bool multiplex_gateway_load_pairing(const char *base_url,
                                     MultiplexGatewayPairing *pairing);
 bool multiplex_gateway_load_catalog(const char *base_url,
                                     MultiplexGatewayCatalog *catalog);
-bool multiplex_gateway_load_artwork(const char *base_url,
-                                    uint8_t *destination, size_t capacity,
-                                    size_t *encoded_size);
+bool multiplex_gateway_load_artwork(const char *base_url, uint8_t *destination,
+                                    size_t capacity, size_t *encoded_size);
 bool multiplex_gateway_load_browse(const char *base_url, uint16_t section_id,
                                    uint16_t start,
                                    MultiplexGatewayBrowsePage *page);
-bool multiplex_gateway_load_browse_artwork(
-    const char *base_url, uint16_t section_id, uint16_t start,
-    uint8_t *destination, size_t capacity, size_t *encoded_size);
+bool multiplex_gateway_load_browse_artwork(const char *base_url,
+                                           uint16_t section_id, uint16_t start,
+                                           uint8_t *destination,
+                                           size_t capacity,
+                                           size_t *encoded_size);
 bool multiplex_gateway_load_search(const char *base_url, const char *query,
                                    uint16_t query_length,
                                    MultiplexGatewaySearchPage *page);
@@ -193,8 +194,9 @@ bool multiplex_gateway_load_details(const char *base_url, uint32_t rating_key,
 bool multiplex_gateway_load_playback_manifest(
     const char *base_url, uint32_t rating_key, uint32_t offset_ms,
     MultiplexGatewayPlaybackManifest *manifest);
-bool multiplex_gateway_report_timeline(
-    const char *base_url, uint32_t rating_key, uint32_t position_ms,
-    uint32_t duration_ms, const char *state);
+bool multiplex_gateway_report_timeline(const char *base_url,
+                                       uint32_t rating_key,
+                                       uint32_t position_ms,
+                                       uint32_t duration_ms, const char *state);
 
 #endif

@@ -79,8 +79,7 @@ static bool queue_elementary(void *context, MpegTsStream stream,
   return true;
 }
 
-static bool parse_transport(void *context, const uint8_t *bytes,
-                            size_t size) {
+static bool parse_transport(void *context, const uint8_t *bytes, size_t size) {
   PlexHlsDemux *demux = context;
   if (demux->stopping) {
     return false;
@@ -103,10 +102,9 @@ static bool parse_transport(void *context, const uint8_t *bytes,
   uint16_t pid = MPEG_TS_NO_PID;
   const MpegTsError error =
       mpeg_ts_parser_error(&demux->parser, &packet_index, &pid);
-  SYS_Report(
-      "REFERENCE GX: MPEG-TS rejected packet=%u pid=%u error=%u "
-      "sync=%02x\n",
-      packet_index, pid, error, demux->parser.pending[0]);
+  SYS_Report("REFERENCE GX: MPEG-TS rejected packet=%u pid=%u error=%u "
+             "sync=%02x\n",
+             packet_index, pid, error, demux->parser.pending[0]);
   return false;
 }
 
@@ -139,10 +137,10 @@ static void report_pending_timeline(PlexHlsDemux *demux) {
   if (!pending) {
     return;
   }
-  multiplex_plex_report_timeline(
-      demux->credentials, demux->session.session_id, demux->rating_key,
-      position_ms, duration_ms,
-      state == HLS_TIMELINE_PAUSED ? "paused" : "playing");
+  multiplex_plex_report_timeline(demux->credentials, demux->session.session_id,
+                                 demux->rating_key, position_ms, duration_ms,
+                                 state == HLS_TIMELINE_PAUSED ? "paused"
+                                                              : "playing");
 }
 
 static void *run_hls_producer(void *context) {
@@ -203,8 +201,9 @@ static void *run_hls_producer(void *context) {
   return NULL;
 }
 
-static PlexHlsDemux *allocate_hls_demux(
-    const MultiplexAuthCredentials *credentials, uint32_t rating_key) {
+static PlexHlsDemux *
+allocate_hls_demux(const MultiplexAuthCredentials *credentials,
+                   uint32_t rating_key) {
   if (credentials == NULL || rating_key == 0) {
     return NULL;
   }
@@ -231,10 +230,11 @@ static PlexHlsDemux *allocate_hls_demux(
   return demux;
 }
 
-PlexHlsDemux *plex_hls_demux_create(
-    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
-    uint32_t offset_ms, uint32_t duration_ms, const char *session_id,
-    bool burn_subtitles, uint32_t subtitle_stream_index) {
+PlexHlsDemux *plex_hls_demux_create(const MultiplexAuthCredentials *credentials,
+                                    uint32_t rating_key, uint32_t offset_ms,
+                                    uint32_t duration_ms,
+                                    const char *session_id, bool burn_subtitles,
+                                    uint32_t subtitle_stream_index) {
   if (rating_key == 0 || duration_ms == 0) {
     return NULL;
   }
@@ -257,12 +257,11 @@ PlexHlsDemux *plex_hls_demux_create(
   return demux;
 }
 
-PlexHlsDemux *plex_hls_demux_create_prepared(
-    const MultiplexAuthCredentials *credentials,
-    uint32_t rating_key,
-    uint32_t duration_ms,
-    const MultiplexPlexHlsSession *session,
-    const HlsMediaPlaylist *playlist) {
+PlexHlsDemux *
+plex_hls_demux_create_prepared(const MultiplexAuthCredentials *credentials,
+                               uint32_t rating_key, uint32_t duration_ms,
+                               const MultiplexPlexHlsSession *session,
+                               const HlsMediaPlaylist *playlist) {
   if (rating_key == 0 || duration_ms == 0 || session == NULL ||
       playlist == NULL || !session->started || playlist->segment_count == 0) {
     return NULL;
@@ -328,28 +327,27 @@ bool plex_hls_demux_wait_ready(PlexHlsDemux *demux, size_t video_bytes,
         info->first_video_pts90k != MPEG_TS_NO_PTS &&
         info->first_audio_pts90k != MPEG_TS_NO_PTS &&
         (requested_prebuffer || producer_backpressured)) {
-      SYS_Report(
-          "REFERENCE GX: HLS ready video=%u audio=%u video-pts=%lld "
-          "audio-pts=%lld backpressured=%u\n",
-          (unsigned)queued_video, (unsigned)queued_audio,
-          info->first_video_pts90k, info->first_audio_pts90k,
-          producer_backpressured ? 1u : 0u);
+      SYS_Report("REFERENCE GX: HLS ready video=%u audio=%u video-pts=%lld "
+                 "audio-pts=%lld backpressured=%u\n",
+                 (unsigned)queued_video, (unsigned)queued_audio,
+                 info->first_video_pts90k, info->first_audio_pts90k,
+                 producer_backpressured ? 1u : 0u);
       return true;
     }
     usleep(10000);
     waited_ms += 10u;
   }
   const MpegTsInfo *info = mpeg_ts_parser_info(&demux->parser);
-  SYS_Report(
-      "REFERENCE GX: HLS readiness failed waited=%u video=%u/%u "
-      "audio=%u/%u pids=%u/%u pts=%lld/%lld failed=%u complete=%u "
-      "stopping=%u\n",
-      waited_ms, (unsigned)media_byte_queue_size(demux->video),
-      (unsigned)video_bytes, (unsigned)media_byte_queue_size(demux->audio),
-      (unsigned)audio_bytes, info->video_pid, info->audio_pid,
-      info->first_video_pts90k, info->first_audio_pts90k,
-      demux->failed ? 1u : 0u, demux->complete ? 1u : 0u,
-      demux->stopping ? 1u : 0u);
+  SYS_Report("REFERENCE GX: HLS readiness failed waited=%u video=%u/%u "
+             "audio=%u/%u pids=%u/%u pts=%lld/%lld failed=%u complete=%u "
+             "stopping=%u\n",
+             waited_ms, (unsigned)media_byte_queue_size(demux->video),
+             (unsigned)video_bytes,
+             (unsigned)media_byte_queue_size(demux->audio),
+             (unsigned)audio_bytes, info->video_pid, info->audio_pid,
+             info->first_video_pts90k, info->first_audio_pts90k,
+             demux->failed ? 1u : 0u, demux->complete ? 1u : 0u,
+             demux->stopping ? 1u : 0u);
   return false;
 }
 
@@ -383,17 +381,15 @@ void plex_hls_demux_destroy(PlexHlsDemux *demux) {
 size_t plex_hls_demux_read_video(void *context, uint8_t *destination,
                                  size_t size) {
   PlexHlsDemux *demux = context;
-  return demux == NULL
-             ? 0
-             : media_byte_queue_read(demux->video, destination, size);
+  return demux == NULL ? 0
+                       : media_byte_queue_read(demux->video, destination, size);
 }
 
 size_t plex_hls_demux_read_audio(void *context, uint8_t *destination,
                                  size_t size) {
   PlexHlsDemux *demux = context;
-  return demux == NULL
-             ? 0
-             : media_byte_queue_read(demux->audio, destination, size);
+  return demux == NULL ? 0
+                       : media_byte_queue_read(demux->audio, destination, size);
 }
 
 unsigned plex_hls_demux_width(const PlexHlsDemux *demux) {
@@ -462,14 +458,12 @@ bool plex_hls_demux_report_timeline_now(PlexHlsDemux *demux,
                                         const char *state) {
   return demux != NULL &&
          multiplex_plex_report_timeline(
-             demux->credentials, demux->session.session_id,
-             demux->rating_key, position_ms, duration_ms, state);
+             demux->credentials, demux->session.session_id, demux->rating_key,
+             position_ms, duration_ms, state);
 }
 
-bool plex_hls_demux_request_timeline(PlexHlsDemux *demux,
-                                     uint32_t position_ms,
-                                     uint32_t duration_ms,
-                                     const char *state) {
+bool plex_hls_demux_request_timeline(PlexHlsDemux *demux, uint32_t position_ms,
+                                     uint32_t duration_ms, const char *state) {
   if (demux == NULL || duration_ms == 0 || state == NULL ||
       !demux->timeline_mutex_ready ||
       (strcmp(state, "playing") != 0 && strcmp(state, "paused") != 0)) {
@@ -478,9 +472,8 @@ bool plex_hls_demux_request_timeline(PlexHlsDemux *demux,
   LWP_MutexLock(demux->timeline_mutex);
   demux->timeline_position_ms = position_ms;
   demux->timeline_duration_ms = duration_ms;
-  demux->timeline_state = strcmp(state, "paused") == 0
-                              ? HLS_TIMELINE_PAUSED
-                              : HLS_TIMELINE_PLAYING;
+  demux->timeline_state =
+      strcmp(state, "paused") == 0 ? HLS_TIMELINE_PAUSED : HLS_TIMELINE_PLAYING;
   demux->timeline_pending = true;
   LWP_MutexUnlock(demux->timeline_mutex);
   return true;

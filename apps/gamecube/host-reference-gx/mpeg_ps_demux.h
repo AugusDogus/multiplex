@@ -8,8 +8,8 @@
 #include "media_reader.h"
 
 typedef struct MpegPsDemux MpegPsDemux;
-typedef bool (*MpegPsReadAt)(void *context, size_t offset,
-                             uint8_t *destination, size_t size);
+typedef bool (*MpegPsReadAt)(void *context, size_t offset, uint8_t *destination,
+                             size_t size);
 typedef struct {
   uint8_t video_stream_id;
   uint8_t audio_stream_id;
@@ -21,13 +21,13 @@ typedef struct {
   int64_t first_audio_pts90k;
 } MpegPsInfo;
 
-MpegPsDemux *mpeg_ps_demux_create(const uint8_t *program,
-                                  size_t program_size);
+MpegPsDemux *mpeg_ps_demux_create(const uint8_t *program, size_t program_size);
 MpegPsDemux *mpeg_ps_demux_create_reader(void *context, size_t program_size,
                                          MpegPsReadAt read_at);
-MpegPsDemux *mpeg_ps_demux_create_reader_with_info(
-    void *context, size_t program_size, MpegPsReadAt read_at,
-    const MpegPsInfo *info);
+MpegPsDemux *mpeg_ps_demux_create_reader_with_info(void *context,
+                                                   size_t program_size,
+                                                   MpegPsReadAt read_at,
+                                                   const MpegPsInfo *info);
 void mpeg_ps_demux_destroy(MpegPsDemux *demux);
 
 bool mpeg_ps_demux_start(MpegPsDemux *demux);

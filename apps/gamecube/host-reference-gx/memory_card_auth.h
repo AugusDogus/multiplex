@@ -24,21 +24,22 @@ typedef struct {
   bool needs_presentation;
 } MultiplexMemoryCardLocation;
 
-MultiplexMemoryCardResult multiplex_memory_card_load_auth(
-    MultiplexAuthCredentials *credentials,
-    MultiplexMemoryCardLocation *location);
+MultiplexMemoryCardResult
+multiplex_memory_card_load_auth(MultiplexAuthCredentials *credentials,
+                                MultiplexMemoryCardLocation *location);
 MultiplexMemoryCardResult multiplex_memory_card_load_auth_with_cache(
-    MultiplexAuthCredentials *credentials, MultiplexMemoryCardLocation *location,
-    uint8_t *cache, size_t cache_capacity);
-MultiplexMemoryCardResult multiplex_memory_card_save_auth(
-    const MultiplexAuthCredentials *credentials,
-    MultiplexMemoryCardLocation *location);
-MultiplexMemoryCardResult multiplex_memory_card_delete_auth(
-    MultiplexMemoryCardLocation *location);
-MultiplexMemoryCardResult multiplex_memory_card_save_cache(
-    const MultiplexMemoryCardLocation *location, const uint8_t *source,
-    size_t size);
-const char *multiplex_memory_card_result_message(
-    MultiplexMemoryCardResult result);
+    MultiplexAuthCredentials *credentials,
+    MultiplexMemoryCardLocation *location, uint8_t *cache,
+    size_t cache_capacity);
+MultiplexMemoryCardResult
+multiplex_memory_card_save_auth(const MultiplexAuthCredentials *credentials,
+                                MultiplexMemoryCardLocation *location);
+MultiplexMemoryCardResult
+multiplex_memory_card_delete_auth(MultiplexMemoryCardLocation *location);
+MultiplexMemoryCardResult
+multiplex_memory_card_save_cache(const MultiplexMemoryCardLocation *location,
+                                 const uint8_t *source, size_t size);
+const char *
+multiplex_memory_card_result_message(MultiplexMemoryCardResult result);
 
 #endif

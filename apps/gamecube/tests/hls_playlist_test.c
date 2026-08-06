@@ -22,15 +22,14 @@ static void test_parses_plex_master(void) {
 }
 
 static void test_parses_growing_media_playlist(void) {
-  static const char playlist[] =
-      "#EXTM3U\n"
-      "#EXT-X-VERSION:3\n"
-      "#EXT-X-TARGETDURATION:5\n"
-      "#EXT-X-MEDIA-SEQUENCE:12\n"
-      "#EXTINF:4.004,\n"
-      "00012.ts\n"
-      "#EXTINF:4.171,\n"
-      "00013.ts\n";
+  static const char playlist[] = "#EXTM3U\n"
+                                 "#EXT-X-VERSION:3\n"
+                                 "#EXT-X-TARGETDURATION:5\n"
+                                 "#EXT-X-MEDIA-SEQUENCE:12\n"
+                                 "#EXTINF:4.004,\n"
+                                 "00012.ts\n"
+                                 "#EXTINF:4.171,\n"
+                                 "00013.ts\n";
   HlsMediaPlaylist media;
   assert(hls_playlist_parse_media(playlist, strlen(playlist), &media));
   assert(media.target_duration_seconds == 5);
@@ -50,9 +49,8 @@ static void test_windows_long_vod_playlist_at_resume_offset(void) {
       playlist, sizeof(playlist),
       "#EXTM3U\n#EXT-X-TARGETDURATION:8\n#EXT-X-MEDIA-SEQUENCE:0\n");
   for (unsigned index = 0; index < 100; ++index) {
-    const int written =
-        snprintf(playlist + size, sizeof(playlist) - size,
-                 "#EXTINF:8, nodesc\n%05u.ts\n", index);
+    const int written = snprintf(playlist + size, sizeof(playlist) - size,
+                                 "#EXTINF:8, nodesc\n%05u.ts\n", index);
     assert(written > 0);
     size += (size_t)written;
     assert(size < sizeof(playlist));
@@ -81,28 +79,21 @@ static void test_resolves_plex_urls(void) {
       "start.m3u8?path=%2Flibrary%2Fmetadata%2F416286";
   char url[1024];
   assert(hls_playlist_resolve_url(
-      master,
-      "session/87a399da-ad41-40bc-8008-f6c1415a3e63/base/index.m3u8",
+      master, "session/87a399da-ad41-40bc-8008-f6c1415a3e63/base/index.m3u8",
       url, sizeof(url)));
-  assert(strcmp(
-             url,
-             "http://192.168.86.245:32400/video/:/transcode/universal/"
-             "session/87a399da-ad41-40bc-8008-f6c1415a3e63/base/"
-             "index.m3u8") == 0);
+  assert(strcmp(url, "http://192.168.86.245:32400/video/:/transcode/universal/"
+                     "session/87a399da-ad41-40bc-8008-f6c1415a3e63/base/"
+                     "index.m3u8") == 0);
 
   char segment[1024];
-  assert(hls_playlist_resolve_url(url, "00000.ts", segment,
-                                  sizeof(segment)));
-  assert(strcmp(
-             segment,
-             "http://192.168.86.245:32400/video/:/transcode/universal/"
-             "session/87a399da-ad41-40bc-8008-f6c1415a3e63/base/"
-             "00000.ts") == 0);
-  assert(hls_playlist_resolve_url(url, "/identity", segment,
-                                  sizeof(segment)));
+  assert(hls_playlist_resolve_url(url, "00000.ts", segment, sizeof(segment)));
+  assert(strcmp(segment,
+                "http://192.168.86.245:32400/video/:/transcode/universal/"
+                "session/87a399da-ad41-40bc-8008-f6c1415a3e63/base/"
+                "00000.ts") == 0);
+  assert(hls_playlist_resolve_url(url, "/identity", segment, sizeof(segment)));
   assert(strcmp(segment, "http://192.168.86.245:32400/identity") == 0);
-  assert(!hls_playlist_resolve_url(url, "../secret", segment,
-                                   sizeof(segment)));
+  assert(!hls_playlist_resolve_url(url, "../secret", segment, sizeof(segment)));
 }
 
 int main(void) {

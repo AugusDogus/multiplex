@@ -22,8 +22,8 @@
 #define PLEX_CATALOG_URL_CAPACITY 1280u
 #define PLEX_REQUEST_ATTEMPTS 4u
 #define PLEX_COMPACT_ITEMS_QUERY                                               \
-  "excludeElements=Media,Image,Role,Writer,Director,Producer,Genre,Country,"  \
-  "UltraBlurColors,Rating,Guid&"                                              \
+  "excludeElements=Media,Image,Role,Writer,Director,Producer,Genre,Country,"   \
+  "UltraBlurColors,Rating,Guid&"                                               \
   "excludeFields=summary,UltraBlurColors,guid,art,parentGuid,grandparentGuid," \
   "grandparentArt,audienceRatingImage,librarySectionKey,grandparentTheme,"     \
   "ratingImage,key,parentThumb,grandparentKey,parentKey,tagline,"              \
@@ -38,9 +38,8 @@ typedef struct {
 } JsonSpan;
 
 static const char *skip_space(const char *cursor, const char *end) {
-  while (cursor < end &&
-         (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' ||
-          *cursor == '\n')) {
+  while (cursor < end && (*cursor == ' ' || *cursor == '\t' ||
+                          *cursor == '\r' || *cursor == '\n')) {
     ++cursor;
   }
   return cursor;
@@ -61,8 +60,7 @@ static const char *find_bytes(JsonSpan span, const char *value) {
 
 static bool json_value(JsonSpan span, const char *key, const char **value) {
   char pattern[80];
-  const int pattern_size =
-      snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+  const int pattern_size = snprintf(pattern, sizeof(pattern), "\"%s\"", key);
   if (pattern_size <= 0 || (size_t)pattern_size >= sizeof(pattern)) {
     return false;
   }
@@ -159,13 +157,11 @@ static bool json_boolean(JsonSpan span, const char *key, bool *destination) {
   if (!json_value(span, key, &cursor)) {
     return false;
   }
-  if ((size_t)(span.end - cursor) >= 4u &&
-      memcmp(cursor, "true", 4u) == 0) {
+  if ((size_t)(span.end - cursor) >= 4u && memcmp(cursor, "true", 4u) == 0) {
     *destination = true;
     return true;
   }
-  if ((size_t)(span.end - cursor) >= 5u &&
-      memcmp(cursor, "false", 5u) == 0) {
+  if ((size_t)(span.end - cursor) >= 5u && memcmp(cursor, "false", 5u) == 0) {
     *destination = false;
     return true;
   }
@@ -175,8 +171,8 @@ static bool json_boolean(JsonSpan span, const char *key, bool *destination) {
 static bool json_decimal_tenths(JsonSpan span, const char *key,
                                 uint16_t *destination) {
   const char *cursor = NULL;
-  if (!json_value(span, key, &cursor) || cursor == span.end ||
-      *cursor < '0' || *cursor > '9') {
+  if (!json_value(span, key, &cursor) || cursor == span.end || *cursor < '0' ||
+      *cursor > '9') {
     return false;
   }
   uint32_t whole = 0;
@@ -266,8 +262,7 @@ static void item_subtitle(JsonSpan object, const char *type,
       snprintf(item->subtitle, sizeof(item->subtitle), "%u", (unsigned)year);
     } else {
       snprintf(item->subtitle, sizeof(item->subtitle), "%c%s",
-               type[0] >= 'a' && type[0] <= 'z' ? type[0] - 'a' + 'A'
-                                                : type[0],
+               type[0] >= 'a' && type[0] <= 'z' ? type[0] - 'a' + 'A' : type[0],
                type + (type[0] == '\0' ? 0 : 1));
     }
   }
@@ -289,8 +284,7 @@ static bool parse_item(JsonSpan object, MultiplexGatewayItem *item,
                      sizeof(item->title))) {
       return false;
     }
-  } else if (!json_string(object, "title", item->title,
-                          sizeof(item->title))) {
+  } else if (!json_string(object, "title", item->title, sizeof(item->title))) {
     return false;
   }
   item->title_length = (uint16_t)strlen(item->title);
@@ -377,8 +371,7 @@ static bool parse_hub_items(JsonSpan hub, MultiplexGatewayCatalog *catalog,
     if (!json_object(cursor, hub.end, &object, &next)) {
       return false;
     }
-    MultiplexGatewayItem *item =
-        &catalog->items[catalog->total_item_count];
+    MultiplexGatewayItem *item = &catalog->items[catalog->total_item_count];
     if (parse_item(object, item, catalog->total_item_count)) {
       ++row->item_count;
       ++catalog->total_item_count;
@@ -510,8 +503,8 @@ bool multiplex_plex_catalog_parse_libraries(const char *json, size_t size,
     char type[32];
     MultiplexGatewayLibrary *library =
         &catalog->libraries[catalog->library_count];
-    if (json_unsigned(directory, "key", &section_id) &&
-        section_id > 0 && section_id <= UINT16_MAX &&
+    if (json_unsigned(directory, "key", &section_id) && section_id > 0 &&
+        section_id <= UINT16_MAX &&
         json_string(directory, "title", library->title,
                     sizeof(library->title)) &&
         json_string(directory, "type", type, sizeof(type))) {
@@ -527,9 +520,10 @@ bool multiplex_plex_catalog_parse_libraries(const char *json, size_t size,
   return catalog->library_count != 0;
 }
 
-bool multiplex_plex_catalog_parse_browse(
-    const char *json, size_t size, const MultiplexGatewayLibrary *library,
-    uint16_t start, MultiplexGatewayBrowsePage *page) {
+bool multiplex_plex_catalog_parse_browse(const char *json, size_t size,
+                                         const MultiplexGatewayLibrary *library,
+                                         uint16_t start,
+                                         MultiplexGatewayBrowsePage *page) {
   if (json == NULL || size == 0 || library == NULL ||
       library->section_id == 0 || library->title_length == 0 || page == NULL) {
     return false;
@@ -711,8 +705,7 @@ bool multiplex_plex_catalog_parse_details(const char *json, size_t size,
   uint32_t year = 0;
   if (!json_unsigned(object, "ratingKey", &details->rating_key) ||
       details->rating_key == 0 ||
-      !json_string(object, "title", details->title,
-                   sizeof(details->title)) ||
+      !json_string(object, "title", details->title, sizeof(details->title)) ||
       !json_string(object, "type", details->media_type,
                    sizeof(details->media_type))) {
     return false;
@@ -756,17 +749,16 @@ bool multiplex_plex_catalog_parse_details(const char *json, size_t size,
   details->secondary_length = (uint16_t)strlen(details->secondary);
   details->media_type_length = (uint16_t)strlen(details->media_type);
   details->library_length = (uint16_t)strlen(details->library);
-  details->content_rating_length =
-      (uint16_t)strlen(details->content_rating);
+  details->content_rating_length = (uint16_t)strlen(details->content_rating);
   details->summary_length = (uint16_t)strlen(details->summary);
   details->genres_length = (uint16_t)strlen(details->genres);
   details->directors_length = (uint16_t)strlen(details->directors);
   return details->title_length != 0 && details->media_type_length != 0;
 }
 
-bool multiplex_plex_catalog_parse_children(
-    const char *json, size_t size, uint16_t start,
-    MultiplexGatewayChildrenPage *page) {
+bool multiplex_plex_catalog_parse_children(const char *json, size_t size,
+                                           uint16_t start,
+                                           MultiplexGatewayChildrenPage *page) {
   if (json == NULL || size == 0 || page == NULL) {
     return false;
   }
@@ -810,12 +802,12 @@ bool multiplex_plex_catalog_parse_children(
   return true;
 }
 
-bool multiplex_plex_catalog_parse_search(
-    const char *json, size_t size, const char *query, uint16_t query_length,
-    MultiplexGatewaySearchPage *page) {
+bool multiplex_plex_catalog_parse_search(const char *json, size_t size,
+                                         const char *query,
+                                         uint16_t query_length,
+                                         MultiplexGatewaySearchPage *page) {
   if (json == NULL || size == 0 || query == NULL || query_length == 0 ||
-      query_length >= MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY ||
-      page == NULL) {
+      query_length >= MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY || page == NULL) {
     return false;
   }
   JsonSpan document = {.begin = json, .end = json + size};
@@ -864,14 +856,13 @@ static bool request_plex_json(const MultiplexAuthCredentials *credentials,
                               const char *path, char *destination,
                               size_t capacity, size_t *body_size) {
   const size_t base_size = strlen(credentials->plex_server_url);
-  const int url_size =
-      snprintf(destination, PLEX_CATALOG_URL_CAPACITY, "%s%s%s",
-               credentials->plex_server_url,
-               base_size != 0 &&
-                       credentials->plex_server_url[base_size - 1u] == '/'
-                   ? ""
-                   : "/",
-               path);
+  const int url_size = snprintf(
+      destination, PLEX_CATALOG_URL_CAPACITY, "%s%s%s",
+      credentials->plex_server_url,
+      base_size != 0 && credentials->plex_server_url[base_size - 1u] == '/'
+          ? ""
+          : "/",
+      path);
   if (url_size <= 0 || (size_t)url_size >= PLEX_CATALOG_URL_CAPACITY) {
     return false;
   }
@@ -902,9 +893,8 @@ static bool request_plex_json(const MultiplexAuthCredentials *credentials,
   return false;
 }
 
-bool multiplex_plex_load_catalog(
-    const MultiplexAuthCredentials *credentials,
-    MultiplexGatewayCatalog *catalog) {
+bool multiplex_plex_load_catalog(const MultiplexAuthCredentials *credentials,
+                                 MultiplexGatewayCatalog *catalog) {
   if (credentials == NULL || catalog == NULL ||
       credentials->plex_server_url[0] == '\0' ||
       credentials->plex_server_token[0] == '\0') {
@@ -923,11 +913,9 @@ bool multiplex_plex_load_catalog(
   size_t response_size = 0;
   const bool hubs_loaded =
       response != NULL &&
-      request_plex_json(credentials,
-                        "hubs?onlyTransient=1&count=8&"
-                        PLEX_COMPACT_ITEMS_QUERY,
-                        response, PLEX_HUB_RESPONSE_CAPACITY,
-                        &response_size) &&
+      request_plex_json(
+          credentials, "hubs?onlyTransient=1&count=8&" PLEX_COMPACT_ITEMS_QUERY,
+          response, PLEX_HUB_RESPONSE_CAPACITY, &response_size) &&
       multiplex_plex_catalog_parse_hubs(response, response_size, catalog);
   free(response);
   if (!hubs_loaded) {
@@ -939,8 +927,7 @@ bool multiplex_plex_load_catalog(
   const bool libraries_loaded =
       request_plex_json(credentials, "library/sections", libraries,
                         sizeof(libraries), &response_size) &&
-      multiplex_plex_catalog_parse_libraries(libraries, response_size,
-                                             catalog);
+      multiplex_plex_catalog_parse_libraries(libraries, response_size, catalog);
   if (!libraries_loaded) {
     SYS_Report("REFERENCE GX: direct Plex libraries unavailable\n");
     return false;
@@ -951,21 +938,21 @@ bool multiplex_plex_load_catalog(
   return true;
 }
 
-bool multiplex_plex_load_browse(
-    const MultiplexAuthCredentials *credentials,
-    const MultiplexGatewayLibrary *library, uint16_t start,
-    MultiplexGatewayBrowsePage *page) {
+bool multiplex_plex_load_browse(const MultiplexAuthCredentials *credentials,
+                                const MultiplexGatewayLibrary *library,
+                                uint16_t start,
+                                MultiplexGatewayBrowsePage *page) {
   if (credentials == NULL || library == NULL || library->section_id == 0 ||
       page == NULL) {
     return false;
   }
   char path[640];
-  const int path_size = snprintf(
-      path, sizeof(path),
-      "library/sections/%u/all?sort=addedAt%%3Adesc&"
-      "X-Plex-Container-Start=%u&X-Plex-Container-Size=%u&"
-      PLEX_COMPACT_ITEMS_QUERY,
-      library->section_id, start, MULTIPLEX_GATEWAY_MAX_BROWSE_ITEMS);
+  const int path_size =
+      snprintf(path, sizeof(path),
+               "library/sections/%u/all?sort=addedAt%%3Adesc&"
+               "X-Plex-Container-Start=%u&X-Plex-Container-Size=%"
+               "u&" PLEX_COMPACT_ITEMS_QUERY,
+               library->section_id, start, MULTIPLEX_GATEWAY_MAX_BROWSE_ITEMS);
   if (path_size <= 0 || (size_t)path_size >= sizeof(path)) {
     return false;
   }
@@ -986,9 +973,9 @@ bool multiplex_plex_load_browse(
   return loaded;
 }
 
-bool multiplex_plex_load_details(
-    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
-    MultiplexGatewayDetails *details) {
+bool multiplex_plex_load_details(const MultiplexAuthCredentials *credentials,
+                                 uint32_t rating_key,
+                                 MultiplexGatewayDetails *details) {
   if (credentials == NULL || rating_key == 0 || details == NULL) {
     return false;
   }
@@ -1008,26 +995,25 @@ bool multiplex_plex_load_details(
       details->rating_key == rating_key;
   free(response);
   if (loaded) {
-    SYS_Report("REFERENCE GX: direct Plex details rating-key=%u\n",
-               rating_key);
+    SYS_Report("REFERENCE GX: direct Plex details rating-key=%u\n", rating_key);
   }
   return loaded;
 }
 
-bool multiplex_plex_load_children(
-    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
-    uint16_t start, MultiplexGatewayChildrenPage *page) {
+bool multiplex_plex_load_children(const MultiplexAuthCredentials *credentials,
+                                  uint32_t rating_key, uint16_t start,
+                                  MultiplexGatewayChildrenPage *page) {
   if (credentials == NULL || rating_key == 0 || page == NULL ||
       credentials->plex_server_url[0] == '\0' ||
       credentials->plex_server_token[0] == '\0') {
     return false;
   }
   char path[640];
-  const int path_size = snprintf(
-      path, sizeof(path),
-      "library/metadata/%u/children?X-Plex-Container-Start=%u&"
-      "X-Plex-Container-Size=%u&" PLEX_COMPACT_ITEMS_QUERY,
-      rating_key, start, MULTIPLEX_GATEWAY_MAX_ITEMS);
+  const int path_size =
+      snprintf(path, sizeof(path),
+               "library/metadata/%u/children?X-Plex-Container-Start=%u&"
+               "X-Plex-Container-Size=%u&" PLEX_COMPACT_ITEMS_QUERY,
+               rating_key, start, MULTIPLEX_GATEWAY_MAX_ITEMS);
   if (path_size <= 0 || (size_t)path_size >= sizeof(path)) {
     return false;
   }
@@ -1038,7 +1024,7 @@ bool multiplex_plex_load_children(
       request_plex_json(credentials, path, response,
                         PLEX_DETAILS_RESPONSE_CAPACITY, &response_size) &&
       multiplex_plex_catalog_parse_children(response, response_size, start,
-                                             page);
+                                            page);
   free(response);
   if (loaded) {
     SYS_Report("REFERENCE GX: direct Plex children rating-key=%u start=%u "
@@ -1048,9 +1034,10 @@ bool multiplex_plex_load_children(
   return loaded;
 }
 
-static MultiplexPlexNextEpisodeResult find_next_child(
-    const MultiplexAuthCredentials *credentials, uint32_t parent_rating_key,
-    uint32_t current_rating_key, MultiplexGatewayItem *next) {
+static MultiplexPlexNextEpisodeResult
+find_next_child(const MultiplexAuthCredentials *credentials,
+                uint32_t parent_rating_key, uint32_t current_rating_key,
+                MultiplexGatewayItem *next) {
   uint32_t start = 0;
   bool found_current = false;
   for (;;) {
@@ -1119,9 +1106,10 @@ static MultiplexPlexNextEpisodeResult find_next_season_episode(
   }
 }
 
-MultiplexPlexNextEpisodeResult multiplex_plex_load_next_episode(
-    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
-    MultiplexGatewayItem *episode) {
+MultiplexPlexNextEpisodeResult
+multiplex_plex_load_next_episode(const MultiplexAuthCredentials *credentials,
+                                 uint32_t rating_key,
+                                 MultiplexGatewayItem *episode) {
   if (credentials == NULL || rating_key == 0 || episode == NULL) {
     return MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
   }
@@ -1143,9 +1131,10 @@ MultiplexPlexNextEpisodeResult multiplex_plex_load_next_episode(
                                   current.parent_rating_key, episode);
 }
 
-static MultiplexPlexNextEpisodeResult find_previous_child(
-    const MultiplexAuthCredentials *credentials, uint32_t parent_rating_key,
-    uint32_t current_rating_key, MultiplexGatewayItem *previous) {
+static MultiplexPlexNextEpisodeResult
+find_previous_child(const MultiplexAuthCredentials *credentials,
+                    uint32_t parent_rating_key, uint32_t current_rating_key,
+                    MultiplexGatewayItem *previous) {
   uint32_t start = 0;
   bool have_previous = false;
   for (;;) {
@@ -1205,8 +1194,8 @@ static MultiplexPlexNextEpisodeResult find_last_season_episode(
                   (uint16_t)episode_start, &episodes)) {
             return MULTIPLEX_PLEX_NEXT_EPISODE_ERROR;
           }
-          for (uint16_t episode_index = 0;
-               episode_index < episodes.item_count; ++episode_index) {
+          for (uint16_t episode_index = 0; episode_index < episodes.item_count;
+               ++episode_index) {
             *previous = episodes.items[episode_index];
             found_episode = true;
           }
@@ -1258,13 +1247,12 @@ static bool encode_url_value(const char *value, char *destination,
                              size_t capacity) {
   static const char hex[] = "0123456789ABCDEF";
   size_t output = 0;
-  for (const uint8_t *cursor = (const uint8_t *)value; *cursor != 0;
-       ++cursor) {
-    const bool unreserved =
-        (*cursor >= 'A' && *cursor <= 'Z') ||
-        (*cursor >= 'a' && *cursor <= 'z') ||
-        (*cursor >= '0' && *cursor <= '9') || *cursor == '-' ||
-        *cursor == '_' || *cursor == '.' || *cursor == '~';
+  for (const uint8_t *cursor = (const uint8_t *)value; *cursor != 0; ++cursor) {
+    const bool unreserved = (*cursor >= 'A' && *cursor <= 'Z') ||
+                            (*cursor >= 'a' && *cursor <= 'z') ||
+                            (*cursor >= '0' && *cursor <= '9') ||
+                            *cursor == '-' || *cursor == '_' ||
+                            *cursor == '.' || *cursor == '~';
     const size_t required = unreserved ? 1u : 3u;
     if (output + required >= capacity) {
       return false;
@@ -1281,12 +1269,11 @@ static bool encode_url_value(const char *value, char *destination,
   return true;
 }
 
-bool multiplex_plex_load_search(
-    const MultiplexAuthCredentials *credentials, const char *query,
-    uint16_t query_length, MultiplexGatewaySearchPage *page) {
+bool multiplex_plex_load_search(const MultiplexAuthCredentials *credentials,
+                                const char *query, uint16_t query_length,
+                                MultiplexGatewaySearchPage *page) {
   if (credentials == NULL || query == NULL || query_length == 0 ||
-      query_length >= MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY ||
-      page == NULL) {
+      query_length >= MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY || page == NULL) {
     return false;
   }
   char query_copy[MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY];
@@ -1300,8 +1287,7 @@ bool multiplex_plex_load_search(
   const int path_size = snprintf(
       path, sizeof(path),
       "library/search?query=%s&limit=%u&searchTypes=movies%%2Ctv&"
-      "includeCollections=0&includeExternalMedia=0&"
-      PLEX_COMPACT_ITEMS_QUERY,
+      "includeCollections=0&includeExternalMedia=0&" PLEX_COMPACT_ITEMS_QUERY,
       encoded_query, MULTIPLEX_GATEWAY_MAX_ITEMS);
   if (path_size <= 0 || (size_t)path_size >= sizeof(path)) {
     return false;
@@ -1312,8 +1298,8 @@ bool multiplex_plex_load_search(
       response != NULL &&
       request_plex_json(credentials, path, response,
                         PLEX_SEARCH_RESPONSE_CAPACITY, &response_size) &&
-      multiplex_plex_catalog_parse_search(
-          response, response_size, query_copy, query_length, page);
+      multiplex_plex_catalog_parse_search(response, response_size, query_copy,
+                                          query_length, page);
   free(response);
   if (loaded) {
     SYS_Report("REFERENCE GX: direct Plex search query=%s items=%u\n",
@@ -1322,9 +1308,9 @@ bool multiplex_plex_load_search(
   return loaded;
 }
 
-bool multiplex_plex_load_artwork(
-    const MultiplexAuthCredentials *credentials, const char *artwork_path,
-    uint8_t *destination, size_t capacity, size_t *encoded_size) {
+bool multiplex_plex_load_artwork(const MultiplexAuthCredentials *credentials,
+                                 const char *artwork_path, uint8_t *destination,
+                                 size_t capacity, size_t *encoded_size) {
   if (credentials == NULL || credentials->plex_server_url[0] == '\0' ||
       credentials->plex_server_token[0] == '\0' || artwork_path == NULL ||
       artwork_path[0] != '/' || destination == NULL || capacity == 0 ||
@@ -1337,17 +1323,16 @@ bool multiplex_plex_load_artwork(
   }
   const size_t base_size = strlen(credentials->plex_server_url);
   char url[PLEX_CATALOG_URL_CAPACITY];
-  const int url_size =
-      snprintf(url, sizeof(url),
-               "%s%sphoto/:/transcode?width=%u&height=%u&minSize=1&upscale=1&"
-               "url=%s",
-               credentials->plex_server_url,
-               base_size != 0 &&
-                       credentials->plex_server_url[base_size - 1u] == '/'
-                   ? ""
-                   : "/",
-               MULTIPLEX_GATEWAY_ARTWORK_WIDTH,
-               MULTIPLEX_GATEWAY_ARTWORK_HEIGHT, encoded_path);
+  const int url_size = snprintf(
+      url, sizeof(url),
+      "%s%sphoto/:/transcode?width=%u&height=%u&minSize=1&upscale=1&"
+      "url=%s",
+      credentials->plex_server_url,
+      base_size != 0 && credentials->plex_server_url[base_size - 1u] == '/'
+          ? ""
+          : "/",
+      MULTIPLEX_GATEWAY_ARTWORK_WIDTH, MULTIPLEX_GATEWAY_ARTWORK_HEIGHT,
+      encoded_path);
   if (url_size <= 0 || (size_t)url_size >= sizeof(url)) {
     return false;
   }
@@ -1365,9 +1350,8 @@ bool multiplex_plex_load_artwork(
     return false;
   }
   const size_t size = http_client_size(client);
-  const bool loaded =
-      size != 0 && size <= capacity &&
-      http_client_read_at(client, 0, destination, size);
+  const bool loaded = size != 0 && size <= capacity &&
+                      http_client_read_at(client, 0, destination, size);
   http_client_destroy(client);
   if (loaded) {
     *encoded_size = size;
@@ -1375,10 +1359,10 @@ bool multiplex_plex_load_artwork(
   return loaded;
 }
 
-bool multiplex_plex_report_timeline(
-    const MultiplexAuthCredentials *credentials, const char *session_id,
-    uint32_t rating_key, uint32_t position_ms, uint32_t duration_ms,
-    const char *state) {
+bool multiplex_plex_report_timeline(const MultiplexAuthCredentials *credentials,
+                                    const char *session_id, uint32_t rating_key,
+                                    uint32_t position_ms, uint32_t duration_ms,
+                                    const char *state) {
   if (credentials == NULL || credentials->plex_server_url[0] == '\0' ||
       credentials->plex_server_token[0] == '\0' ||
       credentials->plex_client_id[0] == '\0' || session_id == NULL ||
@@ -1396,8 +1380,7 @@ bool multiplex_plex_report_timeline(
       "playbackTime=%u&time=%u&duration=%u&state=%s&hasMDE=1&"
       "X-Plex-Playback-Session-Id=%s",
       credentials->plex_server_url,
-      base_size != 0 &&
-              credentials->plex_server_url[base_size - 1u] == '/'
+      base_size != 0 && credentials->plex_server_url[base_size - 1u] == '/'
           ? ""
           : "/",
       rating_key, rating_key, position_ms, position_ms, duration_ms, state,
@@ -1419,11 +1402,11 @@ bool multiplex_plex_report_timeline(
   };
   char response_body[512];
   HttpJsonResponse response;
-  const bool reported = http_client_request_with_headers(
-                            "GET", url, headers,
-                            sizeof(headers) / sizeof(headers[0]), NULL,
-                            response_body, sizeof(response_body), &response) &&
-                        response.status == 200;
+  const bool reported =
+      http_client_request_with_headers(
+          "GET", url, headers, sizeof(headers) / sizeof(headers[0]), NULL,
+          response_body, sizeof(response_body), &response) &&
+      response.status == 200;
   SYS_Report(
       "REFERENCE GX: direct Plex timeline rating-key=%u position=%u state=%s "
       "reported=%u\n",
@@ -1431,8 +1414,8 @@ bool multiplex_plex_report_timeline(
   return reported;
 }
 
-bool multiplex_plex_mark_watched(
-    const MultiplexAuthCredentials *credentials, uint32_t rating_key) {
+bool multiplex_plex_mark_watched(const MultiplexAuthCredentials *credentials,
+                                 uint32_t rating_key) {
   if (credentials == NULL || credentials->plex_server_url[0] == '\0' ||
       credentials->plex_server_token[0] == '\0' ||
       credentials->plex_client_id[0] == '\0' || rating_key == 0) {
@@ -1462,11 +1445,11 @@ bool multiplex_plex_mark_watched(
   };
   char response_body[256];
   HttpJsonResponse response;
-  const bool marked = http_client_request_with_headers(
-                          "GET", url, headers,
-                          sizeof(headers) / sizeof(headers[0]), NULL,
-                          response_body, sizeof(response_body), &response) &&
-                      response.status == 200;
+  const bool marked =
+      http_client_request_with_headers(
+          "GET", url, headers, sizeof(headers) / sizeof(headers[0]), NULL,
+          response_body, sizeof(response_body), &response) &&
+      response.status == 200;
   SYS_Report("REFERENCE GX: direct Plex scrobble rating-key=%u marked=%u\n",
              rating_key, marked ? 1u : 0u);
   return marked;

@@ -17,8 +17,7 @@ typedef struct {
   const char *value;
 } HttpRequestHeader;
 
-typedef bool (*HttpBodyWrite)(void *context, const uint8_t *bytes,
-                              size_t size);
+typedef bool (*HttpBodyWrite)(void *context, const uint8_t *bytes, size_t size);
 
 typedef enum {
   HTTP_DIAGNOSTIC_NOT_STARTED = 0,

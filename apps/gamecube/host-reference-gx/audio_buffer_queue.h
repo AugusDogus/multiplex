@@ -18,8 +18,7 @@ typedef struct {
 } AudioBufferSlot;
 
 int audio_buffer_queue_find_state(const AudioBufferSlot *slots,
-                                  size_t slot_count,
-                                  AudioBufferState state);
+                                  size_t slot_count, AudioBufferState state);
 int audio_buffer_queue_find_oldest_ready(const AudioBufferSlot *slots,
                                          size_t slot_count);
 

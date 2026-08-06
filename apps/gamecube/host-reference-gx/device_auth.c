@@ -124,9 +124,9 @@ static bool fetch_plex_token(const char *base_url,
   }
   char response_body[AUTH_RESPONSE_CAPACITY];
   HttpJsonResponse response;
-  return http_client_request_json(
-             "GET", url, credentials->session_token, NULL, response_body,
-             sizeof(response_body), &response) &&
+  return http_client_request_json("GET", url, credentials->session_token, NULL,
+                                  response_body, sizeof(response_body),
+                                  &response) &&
          response.status == 200 &&
          json_string(response_body, "plexAuthToken", credentials->plex_token,
                      sizeof(credentials->plex_token));
@@ -139,8 +139,7 @@ bool multiplex_device_auth_refresh_credentials(
   }
   if (credentials->plex_client_id[0] == '\0') {
     const uint64_t client_hash = identifier_hash(credentials->session_token);
-    snprintf(credentials->plex_client_id,
-             sizeof(credentials->plex_client_id),
+    snprintf(credentials->plex_client_id, sizeof(credentials->plex_client_id),
              "multiplex-gamecube-%08x%08x", (unsigned)(client_hash >> 32u),
              (unsigned)client_hash);
   }
@@ -173,8 +172,7 @@ bool multiplex_device_auth_begin(const char *base_url,
                    sizeof(authorization->device_code)) ||
       !json_string(response_body, "user_code", authorization->user_code,
                    sizeof(authorization->user_code)) ||
-      !json_string(response_body, "verification_uri",
-                   authorization->link_url,
+      !json_string(response_body, "verification_uri", authorization->link_url,
                    sizeof(authorization->link_url)) ||
       !json_unsigned(response_body, "interval", &interval) ||
       strlen(authorization->user_code) != 4 || interval == 0 ||

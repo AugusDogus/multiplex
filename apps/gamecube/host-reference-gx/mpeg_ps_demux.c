@@ -78,8 +78,8 @@ struct MpegPsDemux {
 
 static void *run_producer(void *context);
 
-static bool memory_read_at(void *context, size_t offset,
-                           uint8_t *destination, size_t size) {
+static bool memory_read_at(void *context, size_t offset, uint8_t *destination,
+                           size_t size) {
   const uint8_t *memory = context;
   if (memory == NULL || destination == NULL) {
     return false;
@@ -135,8 +135,7 @@ static bool reader_byte(ProgramReader *reader, size_t offset, uint8_t *value) {
   return reader_read(reader, offset, value, 1);
 }
 
-static bool reader_be16(ProgramReader *reader, size_t offset,
-                        uint16_t *value) {
+static bool reader_be16(ProgramReader *reader, size_t offset, uint16_t *value) {
   uint8_t bytes[2];
   if (!reader_read(reader, offset, bytes, sizeof(bytes))) {
     return false;
@@ -146,16 +145,13 @@ static bool reader_be16(ProgramReader *reader, size_t offset,
 }
 
 static bool read_pts90k(const uint8_t *bytes, int64_t *pts90k) {
-  if ((bytes[0] & 1u) == 0 || (bytes[2] & 1u) == 0 ||
-      (bytes[4] & 1u) == 0) {
+  if ((bytes[0] & 1u) == 0 || (bytes[2] & 1u) == 0 || (bytes[4] & 1u) == 0) {
     return false;
   }
   *pts90k =
       (int64_t)((uint64_t)((bytes[0] >> 1) & 7u) << 30 |
-                (uint64_t)bytes[1] << 22 |
-                (uint64_t)(bytes[2] >> 1) << 15 |
-                (uint64_t)bytes[3] << 7 |
-                (uint64_t)(bytes[4] >> 1));
+                (uint64_t)bytes[1] << 22 | (uint64_t)(bytes[2] >> 1) << 15 |
+                (uint64_t)bytes[3] << 7 | (uint64_t)(bytes[4] >> 1));
   return true;
 }
 
@@ -243,8 +239,8 @@ static bool find_start_code(ProgramReader *reader, size_t *offset) {
     if (!reader_read(reader, *offset, bytes, sizeof(bytes))) {
       return false;
     }
-    const uint32_t prefix = (uint32_t)bytes[0] << 16 |
-                            (uint32_t)bytes[1] << 8 | bytes[2];
+    const uint32_t prefix =
+        (uint32_t)bytes[0] << 16 | (uint32_t)bytes[1] << 8 | bytes[2];
     if (prefix == MPEG_START_CODE_PREFIX) {
       return true;
     }
@@ -271,8 +267,8 @@ static bool next_pes_packet(ProgramReader *reader, size_t *offset,
     if (stream_id == MPEG_PACK_HEADER) {
       uint8_t header[14];
       const size_t available = reader->size - start;
-      const size_t header_size = available < sizeof(header) ? available
-                                                            : sizeof(header);
+      const size_t header_size =
+          available < sizeof(header) ? available : sizeof(header);
       if (header_size < 12 ||
           !reader_read(reader, start, header, header_size)) {
         return false;
@@ -342,10 +338,9 @@ static bool scan_program(ProgramReader *reader, ProgramScan *scan) {
     uint8_t *selected_id =
         is_video ? &scan->video_stream_id : &scan->audio_stream_id;
     size_t *total = is_video ? &scan->video_size : &scan->audio_size;
-    uint32_t *packets =
-        is_video ? &scan->video_packets : &scan->audio_packets;
-    int64_t *first_pts = is_video ? &scan->first_video_pts90k
-                                  : &scan->first_audio_pts90k;
+    uint32_t *packets = is_video ? &scan->video_packets : &scan->audio_packets;
+    int64_t *first_pts =
+        is_video ? &scan->first_video_pts90k : &scan->first_audio_pts90k;
 
     if (*selected_id == MPEG_NO_STREAM) {
       *selected_id = pes.stream_id;
@@ -431,9 +426,10 @@ MpegPsDemux *mpeg_ps_demux_create_reader(void *context, size_t program_size,
   return create_reader(context, program_size, read_at, NULL);
 }
 
-MpegPsDemux *mpeg_ps_demux_create_reader_with_info(
-    void *context, size_t program_size, MpegPsReadAt read_at,
-    const MpegPsInfo *info) {
+MpegPsDemux *mpeg_ps_demux_create_reader_with_info(void *context,
+                                                   size_t program_size,
+                                                   MpegPsReadAt read_at,
+                                                   const MpegPsInfo *info) {
   if (info == NULL) {
     return NULL;
   }
@@ -450,8 +446,7 @@ MpegPsDemux *mpeg_ps_demux_create_reader_with_info(
   return create_reader(context, program_size, read_at, &scan);
 }
 
-MpegPsDemux *mpeg_ps_demux_create(const uint8_t *program,
-                                  size_t program_size) {
+MpegPsDemux *mpeg_ps_demux_create(const uint8_t *program, size_t program_size) {
   if (program == NULL) {
     return NULL;
   }
@@ -588,17 +583,15 @@ static void *run_producer(void *context) {
 size_t mpeg_ps_demux_read_video(void *context, uint8_t *destination,
                                 size_t size) {
   MpegPsDemux *demux = context;
-  return demux == NULL
-             ? 0
-             : media_byte_queue_read(demux->video, destination, size);
+  return demux == NULL ? 0
+                       : media_byte_queue_read(demux->video, destination, size);
 }
 
 size_t mpeg_ps_demux_read_audio(void *context, uint8_t *destination,
                                 size_t size) {
   MpegPsDemux *demux = context;
-  return demux == NULL
-             ? 0
-             : media_byte_queue_read(demux->audio, destination, size);
+  return demux == NULL ? 0
+                       : media_byte_queue_read(demux->audio, destination, size);
 }
 
 size_t mpeg_ps_demux_video_size(const MpegPsDemux *demux) {

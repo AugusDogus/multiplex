@@ -16,8 +16,8 @@
 #define TRPC_URL_CAPACITY 512u
 #define TRPC_BODY_CAPACITY 512u
 
-static bool append_json_string(char *destination, size_t capacity,
-                               size_t *used, const char *value) {
+static bool append_json_string(char *destination, size_t capacity, size_t *used,
+                               const char *value) {
   if (destination == NULL || used == NULL || value == NULL ||
       *used >= capacity) {
     return false;
@@ -75,8 +75,8 @@ static bool safe_identifier(const char *value) {
 }
 
 bool multiplex_trpc_load_watch_together_rooms(const char *base_url,
-                                               const char *bearer_token,
-                                               MultiplexTrpcRoomList *list) {
+                                              const char *bearer_token,
+                                              MultiplexTrpcRoomList *list) {
   if (base_url == NULL || base_url[0] == '\0' || bearer_token == NULL ||
       bearer_token[0] == '\0' || list == NULL) {
     return false;
@@ -101,15 +101,14 @@ bool multiplex_trpc_load_watch_together_rooms(const char *base_url,
                                TRPC_RESPONSE_CAPACITY, &response) &&
       response.status == 200 &&
       multiplex_trpc_parse_watch_together_rooms(response_body,
-                                                 response.body_size, list);
+                                                response.body_size, list);
   free(response_body);
   SYS_Report("REFERENCE GX: tRPC Watch Together rooms=%u loaded=%u\n",
              loaded ? list->room_count : 0, loaded ? 1u : 0u);
   return loaded;
 }
 
-bool multiplex_trpc_load_user_id(const char *base_url,
-                                 const char *bearer_token,
+bool multiplex_trpc_load_user_id(const char *base_url, const char *bearer_token,
                                  uint32_t *user_id) {
   if (base_url == NULL || base_url[0] == '\0' || bearer_token == NULL ||
       bearer_token[0] == '\0' || user_id == NULL) {
@@ -135,8 +134,7 @@ bool multiplex_trpc_load_user_id(const char *base_url,
       http_client_request_json("GET", url, bearer_token, NULL, response_body,
                                TRPC_RESPONSE_CAPACITY, &response) &&
       response.status == 200 &&
-      multiplex_trpc_parse_user_id(response_body, response.body_size,
-                                   &parsed);
+      multiplex_trpc_parse_user_id(response_body, response.body_size, &parsed);
   free(response_body);
   if (loaded) {
     *user_id = parsed;
@@ -171,8 +169,8 @@ bool multiplex_trpc_load_watch_together_invitees(
       http_client_request_json("GET", url, bearer_token, NULL, response_body,
                                TRPC_RESPONSE_CAPACITY, &response) &&
       response.status == 200 &&
-      multiplex_trpc_parse_watch_together_invitees(
-          response_body, response.body_size, list);
+      multiplex_trpc_parse_watch_together_invitees(response_body,
+                                                   response.body_size, list);
   free(response_body);
   SYS_Report("REFERENCE GX: tRPC Watch Together invitees=%u loaded=%u\n",
              loaded ? list->invitee_count : 0, loaded ? 1u : 0u);
@@ -199,11 +197,11 @@ bool multiplex_trpc_create_watch_together_room(
   }
 
   char body[TRPC_BODY_CAPACITY];
-  int prefix_size = snprintf(
-      body, sizeof(body),
-      "{\"json\":{\"serverId\":\"%s\",\"ratingKey\":\"%u\","
-      "\"key\":\"/library/metadata/%u\",\"title\":\"",
-      server_id, rating_key, rating_key);
+  int prefix_size =
+      snprintf(body, sizeof(body),
+               "{\"json\":{\"serverId\":\"%s\",\"ratingKey\":\"%u\","
+               "\"key\":\"/library/metadata/%u\",\"title\":\"",
+               server_id, rating_key, rating_key);
   if (prefix_size <= 0 || (size_t)prefix_size >= sizeof(body)) {
     return false;
   }
@@ -212,8 +210,7 @@ bool multiplex_trpc_create_watch_together_room(
     return false;
   }
   const int suffix_size = snprintf(body + body_size, sizeof(body) - body_size,
-                                   "\",\"users\":[%u]}}",
-                                   invitee_user_id);
+                                   "\",\"users\":[%u]}}", invitee_user_id);
   if (suffix_size <= 0 || (size_t)suffix_size >= sizeof(body) - body_size) {
     return false;
   }
@@ -227,8 +224,8 @@ bool multiplex_trpc_create_watch_together_room(
       http_client_request_json("POST", url, bearer_token, body, response_body,
                                TRPC_RESPONSE_CAPACITY, &response) &&
       response.status == 200 &&
-      multiplex_trpc_parse_watch_together_room(
-          response_body, response.body_size, room);
+      multiplex_trpc_parse_watch_together_room(response_body,
+                                               response.body_size, room);
   free(response_body);
   SYS_Report("REFERENCE GX: tRPC Watch Together create status=%u\n",
              created ? 1u : 0u);
@@ -236,8 +233,8 @@ bool multiplex_trpc_create_watch_together_room(
 }
 
 bool multiplex_trpc_delete_watch_together_room(const char *base_url,
-                                                const char *bearer_token,
-                                                const char *room_id) {
+                                               const char *bearer_token,
+                                               const char *room_id) {
   if (base_url == NULL || base_url[0] == '\0' || bearer_token == NULL ||
       bearer_token[0] == '\0' || !safe_identifier(room_id)) {
     return false;
@@ -260,10 +257,10 @@ bool multiplex_trpc_delete_watch_together_room(const char *base_url,
 
   char response_body[256];
   HttpJsonResponse response;
-  const bool deleted = http_client_request_json(
-                           "POST", url, bearer_token, body, response_body,
-                           sizeof(response_body), &response) &&
-                       response.status == 200;
+  const bool deleted =
+      http_client_request_json("POST", url, bearer_token, body, response_body,
+                               sizeof(response_body), &response) &&
+      response.status == 200;
   SYS_Report("REFERENCE GX: tRPC Watch Together delete status=%u\n",
              deleted ? 1u : 0u);
   return deleted;

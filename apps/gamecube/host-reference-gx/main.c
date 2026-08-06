@@ -593,8 +593,8 @@ void multiplex_native_profile_mark(uint32_t stage) {
 
 static bool allocate_buffers(void) {
   const MultiplexReferenceFrameStatus frame_status =
-      multiplex_reference_frame_initialize(
-          &reference_frame, LOGICAL_WIDTH * LOGICAL_HEIGHT * 4u);
+      multiplex_reference_frame_initialize(&reference_frame,
+                                           LOGICAL_WIDTH * LOGICAL_HEIGHT * 4u);
   if (frame_status != MULTIPLEX_REFERENCE_FRAME_OK) {
     SYS_Report("REFERENCE GX: Native frame initialization failed: %s\n",
                multiplex_reference_frame_status_name(frame_status));
@@ -639,11 +639,9 @@ static void profile_decoded_frame(uint32_t decode_us, uint32_t codec_us,
             : (uint32_t)(((VIDEO_PROFILE_FRAMES - 1u) * 10000000ull) /
                          measured_us);
     diagnostic_decoder_fps_tenths = fps_tenths;
-    diagnostic_codec_average_us =
-        video_codec_total_us / VIDEO_PROFILE_FRAMES;
+    diagnostic_codec_average_us = video_codec_total_us / VIDEO_PROFILE_FRAMES;
     diagnostic_codec_max_us = video_codec_max_us;
-    diagnostic_upload_average_us =
-        video_upload_total_us / VIDEO_PROFILE_FRAMES;
+    diagnostic_upload_average_us = video_upload_total_us / VIDEO_PROFILE_FRAMES;
     SYS_Report("REFERENCE GX: decoder=%u frames/%uus (%u.%u fps) "
                "bytes=%llu work=%u avg/%u max us codec=%u/%u upload=%u/%u\n",
                VIDEO_PROFILE_FRAMES, measured_us, fps_tenths / 10,
@@ -818,9 +816,11 @@ static void stop_video_decoder(void) {
   video_content_height = 0;
 }
 
-static void convert_reference_to_rgba8_tile_rect(
-    unsigned first_tile_x, unsigned first_tile_y, unsigned tile_column_count,
-    unsigned tile_row_count, uint8_t alpha_scale) {
+static void convert_reference_to_rgba8_tile_rect(unsigned first_tile_x,
+                                                 unsigned first_tile_y,
+                                                 unsigned tile_column_count,
+                                                 unsigned tile_row_count,
+                                                 uint8_t alpha_scale) {
   const unsigned last_tile_x = first_tile_x + tile_column_count;
   const unsigned last_tile_y = first_tile_y + tile_row_count;
   for (unsigned tile_y = first_tile_y; tile_y < last_tile_y; ++tile_y) {
@@ -837,9 +837,8 @@ static void convert_reference_to_rgba8_tile_rect(
                   tile_x * TILE_WIDTH + block_x * 4 + inner_x;
               const unsigned source_y =
                   tile_y * TILE_HEIGHT + block_y * 4 + inner_y;
-              const uint8_t *source =
-                  reference_frame.pixels +
-                  (source_y * LOGICAL_WIDTH + source_x) * 4;
+              const uint8_t *source = reference_frame.pixels +
+                                      (source_y * LOGICAL_WIDTH + source_x) * 4;
               const unsigned plane_offset = (inner_y * 4 + inner_x) * 2;
 
               block[plane_offset] =
@@ -873,8 +872,7 @@ static bool reference_tile_has_visible_pixels(unsigned tile_x,
   const unsigned last_y = first_y + TILE_HEIGHT;
   for (unsigned source_y = first_y; source_y < last_y; ++source_y) {
     const uint8_t *source =
-        reference_frame.pixels +
-        (source_y * LOGICAL_WIDTH + first_x) * 4u + 3u;
+        reference_frame.pixels + (source_y * LOGICAL_WIDTH + first_x) * 4u + 3u;
     for (unsigned source_x = first_x; source_x < last_x; ++source_x) {
       if (*source != 0) {
         return true;
@@ -910,8 +908,8 @@ static void convert_reference_tile_region(unsigned first_tile_x,
         run_active = true;
       }
       if (!visible && run_active) {
-        convert_reference_to_rgba8_tile_rect(
-            run_start, tile_y, tile_x - run_start, 1, 255);
+        convert_reference_to_rgba8_tile_rect(run_start, tile_y,
+                                             tile_x - run_start, 1, 255);
         run_active = false;
       }
       if (!tile_exists) {
@@ -925,7 +923,8 @@ static void convert_reference_tile_region(unsigned first_tile_x,
   }
 }
 
-static void convert_reference_damage(const MultiplexReferenceFrameRender *render) {
+static void
+convert_reference_damage(const MultiplexReferenceFrameRender *render) {
   if (render->full_repaint != 0) {
     convert_reference_tile_region(0, 0, TILE_COLUMNS, TILE_ROWS);
     GX_InvalidateTexAll();
@@ -964,19 +963,17 @@ static void convert_reference_damage(const MultiplexReferenceFrameRender *render
   if (bottom > (float)bottom_pixel) {
     ++bottom_pixel;
   }
-  unsigned last_tile_x =
-      (right_pixel + TILE_WIDTH - 1u) / TILE_WIDTH;
-  unsigned last_tile_y =
-      (bottom_pixel + TILE_HEIGHT - 1u) / TILE_HEIGHT;
+  unsigned last_tile_x = (right_pixel + TILE_WIDTH - 1u) / TILE_WIDTH;
+  unsigned last_tile_y = (bottom_pixel + TILE_HEIGHT - 1u) / TILE_HEIGHT;
   if (last_tile_x > TILE_COLUMNS) {
     last_tile_x = TILE_COLUMNS;
   }
   if (last_tile_y > TILE_ROWS) {
     last_tile_y = TILE_ROWS;
   }
-  convert_reference_tile_region(
-      first_tile_x, first_tile_y, last_tile_x - first_tile_x,
-      last_tile_y - first_tile_y);
+  convert_reference_tile_region(first_tile_x, first_tile_y,
+                                last_tile_x - first_tile_x,
+                                last_tile_y - first_tile_y);
   GX_InvalidateTexAll();
 }
 
@@ -1006,7 +1003,8 @@ static void capture_reference_surfaces(void) {
       break;
     }
   }
-  if (next_focused_x != focused_poster_x || next_focused_y != focused_poster_y) {
+  if (next_focused_x != focused_poster_x ||
+      next_focused_y != focused_poster_y) {
     focused_poster_x = next_focused_x;
     focused_poster_y = next_focused_y;
     poster_focus_frame = 0;
@@ -1030,11 +1028,11 @@ static uint32_t copy_atlas_text(uint8_t *destination, uint32_t capacity,
       ++input;
       continue;
     }
-    if (input + 2u < length && byte == 0xe2u &&
-        source[input + 1u] == 0x80u) {
+    if (input + 2u < length && byte == 0xe2u && source[input + 1u] == 0x80u) {
       const uint8_t punctuation = source[input + 2u];
       if (punctuation == 0xa6u) {
-        if (capacity - output < 3u) break;
+        if (capacity - output < 3u)
+          break;
         destination[output++] = '.';
         destination[output++] = '.';
         destination[output++] = '.';
@@ -1054,7 +1052,8 @@ static uint32_t copy_atlas_text(uint8_t *destination, uint32_t capacity,
     }
     destination[output++] = '?';
     ++input;
-    while (input < length && (source[input] & 0xc0u) == 0x80u) ++input;
+    while (input < length && (source[input] & 0xc0u) == 0x80u)
+      ++input;
   }
   return output;
 }
@@ -1084,8 +1083,8 @@ static bool command_intersects_rect(const MultiplexGxCommand *command,
     right = fmaxf(command->x, fmaxf(command->x2, command->width));
     bottom = fmaxf(command->y, fmaxf(command->y2, command->height));
   }
-  return right >= rect_x && left <= rect_x + rect_width &&
-         bottom >= rect_y && top <= rect_y + rect_height;
+  return right >= rect_x && left <= rect_x + rect_width && bottom >= rect_y &&
+         top <= rect_y + rect_height;
 }
 
 static bool screen_uses_native_shapes(uint32_t screen) {
@@ -1134,9 +1133,9 @@ static void capture_native_ui_packet(NativeUiPacket *packet) {
         continue;
       }
       uint8_t *destination = packet->text + packet->text_length;
-      copy.text_len = copy_atlas_text(
-          destination, UI_TEXT_CAPACITY - packet->text_length,
-          copy.text_ptr, copy.text_len);
+      copy.text_len =
+          copy_atlas_text(destination, UI_TEXT_CAPACITY - packet->text_length,
+                          copy.text_ptr, copy.text_len);
       if (copy.text_len == 0) {
         continue;
       }
@@ -1177,12 +1176,14 @@ static void present_native_ui_packet(const NativeUiPacket *packet) {
 }
 
 static void begin_home_motion(uint32_t before, uint32_t after) {
-  if (before == UINT32_MAX || after == UINT32_MAX || before == after) return;
+  if (before == UINT32_MAX || after == UINT32_MAX || before == after)
+    return;
   const uint16_t before_row = (uint16_t)(before >> 16u);
   const uint16_t after_row = (uint16_t)(after >> 16u);
   const uint16_t before_carousel = (uint16_t)before;
   const uint16_t after_carousel = (uint16_t)after;
-  if (before_row == after_row && before_carousel == after_carousel) return;
+  if (before_row == after_row && before_carousel == after_carousel)
+    return;
 
   copy_native_ui_packet(&home_motion_previous_packet, &presented_ui_packet);
   memcpy(home_motion_previous_surfaces, poster_surfaces,
@@ -1196,13 +1197,14 @@ static void begin_home_motion(uint32_t before, uint32_t after) {
     home_motion_direction = after_carousel > before_carousel ? 1 : -1;
   }
   home_motion_frame = 0;
-  SYS_Report("REFERENCE GX: home motion kind=%u direction=%d from=%08x to=%08x\n",
-             (unsigned)home_motion_kind, (int)home_motion_direction, before,
-             after);
+  SYS_Report(
+      "REFERENCE GX: home motion kind=%u direction=%d from=%08x to=%08x\n",
+      (unsigned)home_motion_kind, (int)home_motion_direction, before, after);
 }
 
 static void queue_browse_motion(uint32_t before, uint32_t after) {
-  if (before == UINT32_MAX || before == after) return;
+  if (before == UINT32_MAX || before == after)
+    return;
   browse_motion_pending_direction = after > before ? 1 : -1;
 }
 
@@ -1219,9 +1221,8 @@ static void activate_pending_browse_motion(void) {
              (int)home_motion_direction);
 }
 
-static bool commit_reference_frame(
-    const MultiplexReferenceFrameRender *render, uint32_t render_us,
-    bool audit) {
+static bool commit_reference_frame(const MultiplexReferenceFrameRender *render,
+                                   uint32_t render_us, bool audit) {
   profile.commands = render->commands;
   profile.passes = 1;
   profile.signature = render->signature;
@@ -1232,9 +1233,8 @@ static bool commit_reference_frame(
   if (video_surface.visible != 0) {
     SYS_Report(
         "REFERENCE GX: video-surface x=%d y=%d width=%d height=%d playing=%u\n",
-        (int)video_surface.x, (int)video_surface.y,
-        (int)video_surface.width, (int)video_surface.height,
-        video_surface.playing);
+        (int)video_surface.x, (int)video_surface.y, (int)video_surface.width,
+        (int)video_surface.height, video_surface.playing);
   }
   const uint32_t upload_started = gettick();
   convert_reference_damage(render);
@@ -1256,10 +1256,9 @@ static bool commit_reference_frame(
              "cache=%u/%uKiB\n",
              profile.commands, profile.passes, profile.signature,
              profile.render_us, profile.upload_us, profile.text_us,
-             profile_stage_us[1],
-             profile_stage_us[2], profile_stage_us[3], profile_stage_us[4],
-             profile_stage_us[5], profile_stage_us[6], profile.memo_hits,
-             profile.memo_misses,
+             profile_stage_us[1], profile_stage_us[2], profile_stage_us[3],
+             profile_stage_us[4], profile_stage_us[5], profile_stage_us[6],
+             profile.memo_hits, profile.memo_misses,
              multiplex_native_reference_memo_bytes() / 1024u,
              multiplex_native_reference_memo_peak_bytes() / 1024u);
   return true;
@@ -1287,7 +1286,8 @@ static bool refresh_reference_frame(bool initialize) {
   const uint32_t text_started = gettick();
   capture_native_ui_packet(&ui_packet);
   profile.text_us = elapsed_us(text_started);
-  const bool audit = initialize || presented_screen != multiplex_native_app_screen();
+  const bool audit =
+      initialize || presented_screen != multiplex_native_app_screen();
   if (!commit_reference_frame(&render, reference_render_us, audit)) {
     return false;
   }
@@ -1338,22 +1338,20 @@ static int format_boot_diagnostics(char *destination, size_t capacity) {
   if (address.s_addr != 0) {
     inet_ntoa_r(address, local_ip, sizeof(local_ip));
   }
-  return snprintf(destination, capacity,
-                  "Stage: %s\nNetwork: %s, code %ld\n"
-                  "DHCP status: %ld, attempt %lu, IP: %s\n"
-                  "DNS attempts: %lu, TLS verify: %08lx\n"
-                  "UI render: %s, stage %08lx, async: %u",
-                  boot_diagnostic_operation,
-                  http_client_diagnostic_stage_name(),
-                  (long)http_client_diagnostic_error(),
-                  (long)http_client_network_status(),
-                  (unsigned long)http_client_network_attempts(), local_ip,
-                  (unsigned long)http_client_dns_attempts(),
-                  (unsigned long)http_client_tls_verify_flags(),
-                  multiplex_reference_frame_status_name(
-                      last_reference_frame_status),
-                  (unsigned long)last_reference_render_stage,
-                  last_reference_render_async ? 1u : 0u);
+  return snprintf(
+      destination, capacity,
+      "Stage: %s\nNetwork: %s, code %ld\n"
+      "DHCP status: %ld, attempt %lu, IP: %s\n"
+      "DNS attempts: %lu, TLS verify: %08lx\n"
+      "UI render: %s, stage %08lx, async: %u",
+      boot_diagnostic_operation, http_client_diagnostic_stage_name(),
+      (long)http_client_diagnostic_error(), (long)http_client_network_status(),
+      (unsigned long)http_client_network_attempts(), local_ip,
+      (unsigned long)http_client_dns_attempts(),
+      (unsigned long)http_client_tls_verify_flags(),
+      multiplex_reference_frame_status_name(last_reference_frame_status),
+      (unsigned long)last_reference_render_stage,
+      last_reference_render_async ? 1u : 0u);
 }
 
 static bool bind_boot_diagnostics(const char *operation) {
@@ -1364,13 +1362,14 @@ static bool bind_boot_diagnostics(const char *operation) {
   if (length <= 0) {
     return false;
   }
-  const size_t available =
-      (size_t)length < sizeof(diagnostics) ? (size_t)length
-                                           : sizeof(diagnostics) - 1u;
-  const bool committed = multiplex_native_app_boot_diagnostics(
-                             (const uint8_t *)diagnostics,
-                             (uint32_t)available) != 0;
-  if (committed) native_frame_dirty = true;
+  const size_t available = (size_t)length < sizeof(diagnostics)
+                               ? (size_t)length
+                               : sizeof(diagnostics) - 1u;
+  const bool committed =
+      multiplex_native_app_boot_diagnostics((const uint8_t *)diagnostics,
+                                            (uint32_t)available) != 0;
+  if (committed)
+    native_frame_dirty = true;
   return committed;
 }
 
@@ -1396,8 +1395,7 @@ static bool launch_reference_renderer(void) {
     return true;
   }
   memset(&reference_renderer, 0, sizeof(reference_renderer));
-  reference_renderer.audit =
-      presented_screen != multiplex_native_app_screen();
+  reference_renderer.audit = presented_screen != multiplex_native_app_screen();
   reference_renderer.thread = LWP_THREAD_NULL;
   reference_renderer.stack = malloc(REFERENCE_RENDERER_STACK_SIZE);
   if (reference_renderer.stack == NULL) {
@@ -1451,8 +1449,7 @@ static bool poll_reference_renderer(void) {
   present_native_ui_packet(&reference_renderer.ui_packet);
   activate_pending_browse_motion();
   SYS_Report("REFERENCE GX: screen transition ready from=%u to=%u us=%u\n",
-             previous_screen, presented_screen,
-             reference_renderer.render_us);
+             previous_screen, presented_screen, reference_renderer.render_us);
   return true;
 }
 
@@ -1497,8 +1494,7 @@ static void configure_ui_pipeline(void) {
   GX_SetNumTevStages(1);
   GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
   GX_SetTevOp(GX_TEVSTAGE0, GX_REPLACE);
-  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
-                  GX_LO_CLEAR);
+  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
 }
 
 static bool initialize_video_and_gx(void) {
@@ -1620,10 +1616,9 @@ static bool initialize_poster_textures(const char *gateway_url,
   if (encoded == NULL || poster_texture_pixels == NULL ||
       !multiplex_gateway_load_artwork(gateway_url, encoded,
                                       POSTER_JPEG_CAPACITY, &encoded_size) ||
-      !poster_jpeg_decode_columns(
-          encoded, encoded_size, item_count,
-          MULTIPLEX_GATEWAY_MAX_HOME_ITEMS, poster_texture_pixels,
-          home_bytes)) {
+      !poster_jpeg_decode_columns(encoded, encoded_size, item_count,
+                                  MULTIPLEX_GATEWAY_MAX_HOME_ITEMS,
+                                  poster_texture_pixels, home_bytes)) {
     free(encoded);
     multiplex_native_cache_free(poster_texture_pixels);
     poster_texture_pixels = NULL;
@@ -1659,10 +1654,10 @@ static void fill_poster_fallback(uint8_t *pixels, uint32_t rating_key) {
           pixels + ((size_t)(tile_y / 4u) * tile_columns + tile_x / 4u) * 32u;
       for (unsigned row = 0; row < 4u; ++row) {
         const unsigned y = tile_y + row;
-        const uint8_t luma = (uint8_t)(
-            13u + variation +
-            (MULTIPLEX_GATEWAY_ARTWORK_HEIGHT - y) * 10u /
-                MULTIPLEX_GATEWAY_ARTWORK_HEIGHT);
+        const uint8_t luma =
+            (uint8_t)(13u + variation +
+                      (MULTIPLEX_GATEWAY_ARTWORK_HEIGHT - y) * 10u /
+                          MULTIPLEX_GATEWAY_ARTWORK_HEIGHT);
         const uint16_t color =
             (uint16_t)(((uint16_t)(luma & 0xf8u) << 8u) |
                        ((uint16_t)(luma & 0xfcu) << 3u) | (luma >> 3u));
@@ -1758,10 +1753,9 @@ static bool launch_direct_poster_loader(DirectPosterLoader *loader) {
   }
   loader->stopping = false;
   loader->started_tick = gettick();
-  loader->lane_count =
-      loader->item_count < POSTER_LOADER_LANE_COUNT
-          ? loader->item_count
-          : POSTER_LOADER_LANE_COUNT;
+  loader->lane_count = loader->item_count < POSTER_LOADER_LANE_COUNT
+                           ? loader->item_count
+                           : POSTER_LOADER_LANE_COUNT;
   for (uint16_t lane = 0; lane < loader->lane_count; ++lane) {
     loader->complete[lane] = false;
     loader->item_ready[lane] = false;
@@ -1846,8 +1840,8 @@ static bool queue_direct_poster_loader(
     uint16_t cached_slot = UINT16_MAX;
     uint16_t snapshot_slot = UINT16_MAX;
     for (uint16_t slot = 0; slot < poster_texture_count; ++slot) {
-      const bool stable_source = slot < texture_offset || slot >= target_end ||
-                                 slot == target_slot;
+      const bool stable_source =
+          slot < texture_offset || slot >= target_end || slot == target_slot;
       if (stable_source &&
           poster_texture_rating_keys[slot] == items[index].rating_key) {
         cached_slot = slot;
@@ -1926,9 +1920,9 @@ static void poll_direct_poster_loader(DirectPosterLoader *loader) {
       if (loader->item_decoded[lane]) {
         const uint16_t item_index = loader->item_index[lane];
         const uint16_t texture_slot = loader->texture_slots[item_index];
-        uint8_t *pixels = poster_texture_pixels +
-                          (size_t)texture_slot *
-                              MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+        uint8_t *pixels =
+            poster_texture_pixels +
+            (size_t)texture_slot * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
         memcpy(pixels, loader->decoded_pixels[lane],
                MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
         poster_texture_rating_keys[texture_slot] =
@@ -1946,8 +1940,8 @@ static void poll_direct_poster_loader(DirectPosterLoader *loader) {
       __sync_synchronize();
       loader->item_ready[lane] = false;
     }
-    all_complete = all_complete && loader->complete[lane] &&
-                   !loader->item_ready[lane];
+    all_complete =
+        all_complete && loader->complete[lane] && !loader->item_ready[lane];
   }
   if (texture_changed) {
     GX_InvalidateTexAll();
@@ -2059,9 +2053,9 @@ static bool load_browse_page(const char *gateway_url) {
       !multiplex_gateway_load_browse_artwork(
           gateway_url, page.section_id, page.start, encoded,
           POSTER_JPEG_CAPACITY, &encoded_size) ||
-      !poster_jpeg_decode_columns(
-          encoded, encoded_size, page.item_count,
-          MULTIPLEX_GATEWAY_BROWSE_COLUMNS, browse_pixels, browse_bytes)) {
+      !poster_jpeg_decode_columns(encoded, encoded_size, page.item_count,
+                                  MULTIPLEX_GATEWAY_BROWSE_COLUMNS,
+                                  browse_pixels, browse_bytes)) {
     free(encoded);
     return false;
   }
@@ -2079,7 +2073,8 @@ static bool load_browse_page(const char *gateway_url) {
   DCFlushRange(browse_pixels, browse_bytes);
 
   const bool bound = bind_browse_page(&page);
-  if (bound) queue_browse_motion(previous_start, page.start);
+  if (bound)
+    queue_browse_motion(previous_start, page.start);
   return bound;
 }
 
@@ -2093,8 +2088,7 @@ static void *run_direct_browse_loader(void *context) {
 }
 
 static bool launch_direct_browse_loader(
-    DirectBrowseLoader *loader,
-    const MultiplexAuthCredentials *credentials,
+    DirectBrowseLoader *loader, const MultiplexAuthCredentials *credentials,
     const MultiplexGatewayLibrary *library, uint16_t start) {
   if (loader == NULL || credentials == NULL || library == NULL ||
       library->section_id == 0 || loader->started) {
@@ -2136,18 +2130,17 @@ static void stop_direct_browse_loader(DirectBrowseLoader *loader) {
   loader->thread = LWP_THREAD_NULL;
 }
 
-static bool poll_direct_browse_loader(
-    DirectBrowseLoader *loader,
-    const MultiplexAuthCredentials *credentials,
-    DirectPosterLoader *poster_loader) {
+static bool
+poll_direct_browse_loader(DirectBrowseLoader *loader,
+                          const MultiplexAuthCredentials *credentials,
+                          DirectPosterLoader *poster_loader) {
   if (loader == NULL || !loader->started) {
     return true;
   }
   uint32_t requested_section = 0;
   uint32_t requested_start = 0;
-  const bool still_requested =
-      multiplex_native_app_browse_request(&requested_section,
-                                          &requested_start) != 0;
+  const bool still_requested = multiplex_native_app_browse_request(
+                                   &requested_section, &requested_start) != 0;
   if (!loader->complete) {
     if (!still_requested) {
       network_activity_visible = false;
@@ -2169,14 +2162,14 @@ static bool poll_direct_browse_loader(
   if (loader->ready) {
     const uint32_t previous_start = multiplex_native_app_browse_view_start();
     if (!queue_direct_poster_loader(poster_loader, credentials,
-                                    loader->page.items,
-                                    loader->page.item_count,
+                                    loader->page.items, loader->page.item_count,
                                     HOME_POSTER_COUNT, false)) {
       SYS_Report(
           "REFERENCE GX: direct browse artwork deferred; using placeholders\n");
     }
     bound = bind_browse_page(&loader->page);
-    if (bound) queue_browse_motion(previous_start, loader->page.start);
+    if (bound)
+      queue_browse_motion(previous_start, loader->page.start);
     SYS_Report(
         "REFERENCE GX: direct browse-page complete section=%u start=%u us=%u\n",
         requested_section, requested_start, elapsed_us(loader->started_tick));
@@ -2306,10 +2299,10 @@ static void *run_direct_search_loader(void *context) {
   return NULL;
 }
 
-static bool launch_direct_search_loader(
-    DirectSearchLoader *loader,
-    const MultiplexAuthCredentials *credentials, const char *query,
-    uint16_t query_length) {
+static bool
+launch_direct_search_loader(DirectSearchLoader *loader,
+                            const MultiplexAuthCredentials *credentials,
+                            const char *query, uint16_t query_length) {
   if (loader == NULL || credentials == NULL || query == NULL ||
       query_length == 0 || query_length >= sizeof(loader->query) ||
       loader->started) {
@@ -2352,10 +2345,10 @@ static void stop_direct_search_loader(DirectSearchLoader *loader) {
   loader->thread = LWP_THREAD_NULL;
 }
 
-static bool poll_direct_search_loader(
-    DirectSearchLoader *loader,
-    const MultiplexAuthCredentials *credentials,
-    DirectPosterLoader *poster_loader) {
+static bool
+poll_direct_search_loader(DirectSearchLoader *loader,
+                          const MultiplexAuthCredentials *credentials,
+                          DirectPosterLoader *poster_loader) {
   if (loader == NULL || !loader->started) {
     return true;
   }
@@ -2385,8 +2378,7 @@ static bool poll_direct_search_loader(
   if (loader->ready) {
     if (loader->page.item_count > 0 &&
         !queue_direct_poster_loader(poster_loader, credentials,
-                                    loader->page.items,
-                                    loader->page.item_count,
+                                    loader->page.items, loader->page.item_count,
                                     HOME_POSTER_COUNT, false)) {
       SYS_Report(
           "REFERENCE GX: direct search artwork deferred; using placeholders\n");
@@ -2407,9 +2399,8 @@ static bool poll_direct_search_loader(
   return bound;
 }
 
-static bool load_direct_search_page(
-    const MultiplexAuthCredentials *credentials,
-    DirectSearchLoader *loader) {
+static bool load_direct_search_page(const MultiplexAuthCredentials *credentials,
+                                    DirectSearchLoader *loader) {
   char query[MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY] = {0};
   const uint32_t query_length =
       multiplex_native_app_search_request((uint8_t *)query, sizeof(query) - 1u);
@@ -2452,9 +2443,10 @@ static bool bind_item_subtitles(const MultiplexGatewayDetails *details) {
     size_t label_length = strnlen(
         subtitle->label, MULTIPLEX_GATEWAY_SUBTITLE_LABEL_CAPACITY - 1u);
     if (label_length == 0) {
-      label_length = (size_t)snprintf(labels[direct_subtitle_count],
-                                      MULTIPLEX_GATEWAY_SUBTITLE_LABEL_CAPACITY,
-                                      "Subtitle %u", direct_subtitle_count + 1u);
+      label_length =
+          (size_t)snprintf(labels[direct_subtitle_count],
+                           MULTIPLEX_GATEWAY_SUBTITLE_LABEL_CAPACITY,
+                           "Subtitle %u", direct_subtitle_count + 1u);
     } else {
       memcpy(labels[direct_subtitle_count], subtitle->label, label_length);
     }
@@ -2470,8 +2462,7 @@ static bool bind_item_subtitles(const MultiplexGatewayDetails *details) {
 }
 
 static bool format_episode_metadata(const MultiplexGatewayDetails *details,
-                                    uint16_t *secondary_length,
-                                    char *hierarchy,
+                                    uint16_t *secondary_length, char *hierarchy,
                                     size_t hierarchy_capacity,
                                     uint32_t *hierarchy_length) {
   if (details == NULL || secondary_length == NULL || hierarchy == NULL ||
@@ -2499,8 +2490,7 @@ static bool format_episode_metadata(const MultiplexGatewayDetails *details,
         snprintf(hierarchy, hierarchy_capacity, "Season %u - Episode %u",
                  (unsigned)season, (unsigned)episode);
   }
-  if (formatted_length < 0 ||
-      (size_t)formatted_length >= hierarchy_capacity) {
+  if (formatted_length < 0 || (size_t)formatted_length >= hierarchy_capacity) {
     return false;
   }
   *hierarchy_length = (uint32_t)formatted_length;
@@ -2521,8 +2511,8 @@ static bool bind_item_details(const MultiplexGatewayDetails *details) {
   int facts_length = 0;
   if (details->year != 0 && minutes != 0 && details->rating_tenths != 0) {
     facts_length = snprintf(
-        facts, sizeof(facts), "%u - %u min - %u.%u/10", details->year,
-        minutes, details->rating_tenths / 10u, details->rating_tenths % 10u);
+        facts, sizeof(facts), "%u - %u min - %u.%u/10", details->year, minutes,
+        details->rating_tenths / 10u, details->rating_tenths % 10u);
   } else if (details->year != 0 && minutes != 0) {
     facts_length =
         snprintf(facts, sizeof(facts), "%u - %u min", details->year, minutes);
@@ -2576,10 +2566,11 @@ static void reset_direct_hls_prefetch(DirectHlsSessionPrefetch *prefetch) {
 
 static void *run_direct_hls_prefetch(void *context) {
   DirectHlsSessionPrefetch *prefetch = context;
-  prefetch->ready = multiplex_plex_hls_start(
-      prefetch->credentials, prefetch->rating_key, prefetch->offset_ms, NULL,
-      prefetch->burn_subtitles, prefetch->subtitle_stream_index,
-      &prefetch->session) &&
+  prefetch->ready =
+      multiplex_plex_hls_start(
+          prefetch->credentials, prefetch->rating_key, prefetch->offset_ms,
+          NULL, prefetch->burn_subtitles, prefetch->subtitle_stream_index,
+          &prefetch->session) &&
       multiplex_plex_hls_refresh(prefetch->credentials, &prefetch->session,
                                  &prefetch->playlist);
   __sync_synchronize();
@@ -2620,10 +2611,10 @@ static void discard_direct_hls_prefetch(DirectHlsSessionPrefetch *prefetch) {
   reset_direct_hls_prefetch(prefetch);
 }
 
-static bool start_direct_hls_prefetch(
-    DirectHlsSessionPrefetch *prefetch,
-    const MultiplexAuthCredentials *credentials,
-    const MultiplexGatewayDetails *details) {
+static bool
+start_direct_hls_prefetch(DirectHlsSessionPrefetch *prefetch,
+                          const MultiplexAuthCredentials *credentials,
+                          const MultiplexGatewayDetails *details) {
   if (prefetch == NULL || credentials == NULL || details == NULL ||
       details->rating_key == 0 || details->duration_ms == 0) {
     return false;
@@ -2691,10 +2682,10 @@ static void *run_direct_details_loader(void *context) {
   return NULL;
 }
 
-static bool launch_direct_details_loader(
-    DirectDetailsLoader *loader,
-    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
-    bool foreground) {
+static bool
+launch_direct_details_loader(DirectDetailsLoader *loader,
+                             const MultiplexAuthCredentials *credentials,
+                             uint32_t rating_key, bool foreground) {
   if (loader == NULL || credentials == NULL || rating_key == 0 ||
       loader->started) {
     return false;
@@ -2734,9 +2725,9 @@ static void stop_direct_details_loader(DirectDetailsLoader *loader) {
   loader->thread = LWP_THREAD_NULL;
 }
 
-static bool load_direct_item_details(
-    const MultiplexAuthCredentials *credentials,
-    DirectDetailsLoader *loader) {
+static bool
+load_direct_item_details(const MultiplexAuthCredentials *credentials,
+                         DirectDetailsLoader *loader) {
   const uint32_t rating_key = multiplex_native_app_details_request();
   if (rating_key == 0) {
     return true;
@@ -2744,9 +2735,8 @@ static bool load_direct_item_details(
   if (direct_details_cache_valid &&
       direct_details_cache.rating_key == rating_key) {
     const bool bound = bind_item_details(&direct_details_cache);
-    if (bound && !start_direct_hls_prefetch(
-                     &direct_hls_prefetch, credentials,
-                     &direct_details_cache)) {
+    if (bound && !start_direct_hls_prefetch(&direct_hls_prefetch, credentials,
+                                            &direct_details_cache)) {
       SYS_Report("REFERENCE GX: HLS session prefetch unavailable "
                  "rating-key=%u\n",
                  rating_key);
@@ -2761,9 +2751,9 @@ static bool load_direct_item_details(
   return launch_direct_details_loader(loader, credentials, rating_key, true);
 }
 
-static bool poll_direct_details_loader(
-    DirectDetailsLoader *loader,
-    const MultiplexAuthCredentials *credentials) {
+static bool
+poll_direct_details_loader(DirectDetailsLoader *loader,
+                           const MultiplexAuthCredentials *credentials) {
   if (loader == NULL || !loader->started) {
     return true;
   }
@@ -2790,9 +2780,8 @@ static bool poll_direct_details_loader(
     direct_details_cache_valid = true;
   }
   if (requested_rating_key == completed_rating_key) {
-    const bool bound = loader->ready
-                           ? bind_item_details(&direct_details_cache)
-                           : fail_item_details(completed_rating_key);
+    const bool bound = loader->ready ? bind_item_details(&direct_details_cache)
+                                     : fail_item_details(completed_rating_key);
     if (!bound) {
       return false;
     }
@@ -2981,8 +2970,7 @@ static bool start_hls_pipeline(PlexHlsDemux *demux, uint32_t rating_key) {
 static bool open_direct_hls_session(const MultiplexAuthCredentials *credentials,
                                     uint32_t rating_key, uint32_t offset_ms,
                                     uint32_t duration_ms,
-                                    const char *session_id,
-                                    bool burn_subtitles,
+                                    const char *session_id, bool burn_subtitles,
                                     uint32_t subtitle_stream_index,
                                     PlexHlsDemux **demux_out) {
   PlexHlsDemux *demux = NULL;
@@ -2991,13 +2979,13 @@ static bool open_direct_hls_session(const MultiplexAuthCredentials *credentials,
       direct_hls_prefetch.rating_key == rating_key &&
       direct_hls_prefetch.offset_ms == offset_ms &&
       direct_hls_prefetch.burn_subtitles == burn_subtitles &&
-      (!burn_subtitles || direct_hls_prefetch.subtitle_stream_index ==
-                                subtitle_stream_index) &&
+      (!burn_subtitles ||
+       direct_hls_prefetch.subtitle_stream_index == subtitle_stream_index) &&
       finish_direct_hls_prefetch(&direct_hls_prefetch, true);
   if (prefetch_matches) {
-    demux = plex_hls_demux_create_prepared(
-        credentials, rating_key, duration_ms, &direct_hls_prefetch.session,
-        &direct_hls_prefetch.playlist);
+    demux = plex_hls_demux_create_prepared(credentials, rating_key, duration_ms,
+                                           &direct_hls_prefetch.session,
+                                           &direct_hls_prefetch.playlist);
     if (demux != NULL) {
       SYS_Report("REFERENCE GX: direct playback reused prefetched HLS "
                  "rating-key=%u offset=%u\n",
@@ -3355,10 +3343,9 @@ schedule_timeline_report(TimelineReporter *reporter, const char *gateway_url,
       same_item && same_state && position_ms < reporter->last_position_ms;
   const bool periodic_due =
       strcmp(state, "playing") == 0 && same_item && same_state &&
-      (moved_backward ||
-       (position_ms >= reporter->last_position_ms &&
-        position_ms - reporter->last_position_ms >=
-            TIMELINE_REPORT_INTERVAL_MS));
+      (moved_backward || (position_ms >= reporter->last_position_ms &&
+                          position_ms - reporter->last_position_ms >=
+                              TIMELINE_REPORT_INTERVAL_MS));
   if (!force && same_item && same_state && !periodic_due) {
     return false;
   }
@@ -3393,9 +3380,10 @@ schedule_timeline_report(TimelineReporter *reporter, const char *gateway_url,
   return true;
 }
 
-static bool schedule_hls_timeline_report(
-    TimelineReporter *reporter, PlexHlsDemux *demux, uint32_t rating_key,
-    uint32_t position_ms, uint32_t duration_ms, const char *state) {
+static bool
+schedule_hls_timeline_report(TimelineReporter *reporter, PlexHlsDemux *demux,
+                             uint32_t rating_key, uint32_t position_ms,
+                             uint32_t duration_ms, const char *state) {
   if (reporter == NULL || demux == NULL || rating_key == 0 ||
       duration_ms == 0 || state == NULL) {
     return false;
@@ -3408,22 +3396,21 @@ static bool schedule_hls_timeline_report(
   const bool periodic_due =
       strcmp(state, "playing") == 0 && same_item && same_state &&
       position_ms >= reporter->last_position_ms &&
-      position_ms - reporter->last_position_ms >=
-          TIMELINE_REPORT_INTERVAL_MS;
+      position_ms - reporter->last_position_ms >= TIMELINE_REPORT_INTERVAL_MS;
   if (same_item && same_state && !periodic_due && !moved_backward) {
     return false;
   }
   bool scheduled = false;
   if (!same_item) {
     scheduled = plex_hls_demux_initial_timeline_reported(demux) ||
-                plex_hls_demux_report_timeline_now(
-                    demux, position_ms, duration_ms, state);
+                plex_hls_demux_report_timeline_now(demux, position_ms,
+                                                   duration_ms, state);
   } else if (!same_state || moved_backward) {
-    scheduled = plex_hls_demux_report_timeline_now(
-        demux, position_ms, duration_ms, state);
+    scheduled = plex_hls_demux_report_timeline_now(demux, position_ms,
+                                                   duration_ms, state);
   } else {
-    scheduled = plex_hls_demux_request_timeline(
-        demux, position_ms, duration_ms, state);
+    scheduled =
+        plex_hls_demux_request_timeline(demux, position_ms, duration_ms, state);
   }
   if (!scheduled) {
     SYS_Report("REFERENCE GX: HLS timeline unavailable rating-key=%u "
@@ -3516,10 +3503,9 @@ load_direct_playback(const MultiplexAuthCredentials *credentials,
                      bool transition_from_watch_together,
                      MultiplexGatewayPlaybackManifest *active_manifest,
                      HttpClient **client, MpegPsDemux **demux) {
-  uint32_t duration_ms =
-      active_manifest->rating_key == rating_key
-          ? active_manifest->media_duration_ms
-          : 0;
+  uint32_t duration_ms = active_manifest->rating_key == rating_key
+                             ? active_manifest->media_duration_ms
+                             : 0;
   MultiplexGatewayDetails details;
   memset(&details, 0, sizeof(details));
   if (duration_ms == 0) {
@@ -3574,13 +3560,12 @@ load_direct_playback(const MultiplexAuthCredentials *credentials,
   }
   const uint32_t offset_ms =
       requested_offset < duration_ms ? requested_offset : 0;
-  const bool same_session = direct_hls_demux != NULL &&
-                            active_manifest->rating_key == rating_key &&
-                            active_manifest->segment_start_ms == offset_ms &&
-                            active_manifest->burn_subtitles == burn_subtitles &&
-                            (!burn_subtitles ||
-                             active_manifest->subtitle_stream_index ==
-                                 subtitle_stream_index);
+  const bool same_session =
+      direct_hls_demux != NULL && active_manifest->rating_key == rating_key &&
+      active_manifest->segment_start_ms == offset_ms &&
+      active_manifest->burn_subtitles == burn_subtitles &&
+      (!burn_subtitles ||
+       active_manifest->subtitle_stream_index == subtitle_stream_index);
   if (!same_session) {
     const uint32_t previous_rating_key = active_manifest->rating_key;
     const char *resume_session_id =
@@ -3649,8 +3634,7 @@ load_selected_direct_playback(const MultiplexAuthCredentials *credentials,
     return true;
   }
   uint32_t offset_ms = multiplex_native_app_playback_offset_request();
-  const uint32_t subtitle_selection =
-      multiplex_native_app_subtitle_selection();
+  const uint32_t subtitle_selection = multiplex_native_app_subtitle_selection();
   direct_subtitle_override_pending = true;
   direct_subtitle_override_burn =
       subtitle_selection > 0 && subtitle_selection <= direct_subtitle_count;
@@ -3664,8 +3648,8 @@ load_selected_direct_playback(const MultiplexAuthCredentials *credentials,
     SYS_Report("REFERENCE GX: direct playback start override offset=%u\n",
                offset_ms);
   }
-  return load_direct_playback(credentials, rating_key, offset_ms,
-                              false, active_manifest, client, demux);
+  return load_direct_playback(credentials, rating_key, offset_ms, false,
+                              active_manifest, client, demux);
 }
 
 static uint32_t
@@ -3687,8 +3671,7 @@ static bool navigate_direct_playback_if_requested(
     const MultiplexAuthCredentials *credentials,
     MultiplexGatewayPlaybackManifest *active_manifest, HttpClient **client,
     MpegPsDemux **demux, TimelineReporter *timeline_reporter) {
-  const int32_t direction =
-      multiplex_native_app_playback_navigation_request();
+  const int32_t direction = multiplex_native_app_playback_navigation_request();
   if (direction == 0) {
     return true;
   }
@@ -3699,11 +3682,10 @@ static bool navigate_direct_playback_if_requested(
 
   MultiplexGatewayItem target;
   const MultiplexPlexNextEpisodeResult result =
-      direction < 0
-          ? multiplex_plex_load_previous_episode(
-                credentials, active_manifest->rating_key, &target)
-          : multiplex_plex_load_next_episode(
-                credentials, active_manifest->rating_key, &target);
+      direction < 0 ? multiplex_plex_load_previous_episode(
+                          credentials, active_manifest->rating_key, &target)
+                    : multiplex_plex_load_next_episode(
+                          credentials, active_manifest->rating_key, &target);
   if (result != MULTIPLEX_PLEX_NEXT_EPISODE_FOUND) {
     if (multiplex_native_app_playback_navigation_clear() == 0) {
       return false;
@@ -3732,8 +3714,7 @@ static bool navigate_direct_playback_if_requested(
   }
 
   const uint32_t previous_rating_key = active_manifest->rating_key;
-  const uint32_t previous_position_ms =
-      playback_position_ms(active_manifest);
+  const uint32_t previous_position_ms = playback_position_ms(active_manifest);
   audio_dma_update(audio_output, false);
   close_media_session(client, demux);
   flush_timeline_report(timeline_reporter, "", credentials,
@@ -3798,12 +3779,9 @@ static void load_ui_translation_xy(float x, float y) {
   GX_LoadPosMtxImm(transform, GX_PNMTX0);
 }
 
-static void load_ui_translation(float y) {
-  load_ui_translation_xy(0.0f, y);
-}
+static void load_ui_translation(float y) { load_ui_translation_xy(0.0f, y); }
 
-static void set_ui_draw_clip(float left, float top, float right,
-                             float bottom) {
+static void set_ui_draw_clip(float left, float top, float right, float bottom) {
   ui_draw_clip_active = true;
   ui_draw_clip_left = left;
   ui_draw_clip_top = top;
@@ -3811,9 +3789,7 @@ static void set_ui_draw_clip(float left, float top, float right,
   ui_draw_clip_bottom = bottom;
 }
 
-static void clear_ui_draw_clip(void) {
-  ui_draw_clip_active = false;
-}
+static void clear_ui_draw_clip(void) { ui_draw_clip_active = false; }
 
 static void configure_color_pipeline(void) {
   GX_ClearVtxDesc();
@@ -3839,22 +3815,21 @@ static void configure_font_pipeline(void) {
   GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
   GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
   GX_SetNumChans(1);
-  GX_SetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_REG, GX_SRC_VTX,
-                 GX_LIGHTNULL, GX_DF_NONE, GX_AF_NONE);
+  GX_SetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_REG, GX_SRC_VTX, GX_LIGHTNULL,
+                 GX_DF_NONE, GX_AF_NONE);
   GX_SetNumTexGens(1);
   GX_SetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
   GX_SetNumTevStages(1);
   GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
   GX_SetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO,
                    GX_CC_RASC);
-  GX_SetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1,
-                   GX_TRUE, GX_TEVPREV);
+  GX_SetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE,
+                   GX_TEVPREV);
   GX_SetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_TEXA, GX_CA_RASA,
                    GX_CA_ZERO);
-  GX_SetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1,
-                   GX_TRUE, GX_TEVPREV);
-  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
-                  GX_LO_CLEAR);
+  GX_SetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE,
+                   GX_TEVPREV);
+  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
   GX_LoadTexObj(&font_texture, GX_TEXMAP0);
 }
 
@@ -3876,26 +3851,28 @@ static void set_text_scissor(const MultiplexGxCommand *command) {
     GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
     return;
   }
-  float left = command->has_clip != 0
-                   ? command->clip_x + ui_draw_translation_x
-                   : 0.0f;
-  float top = command->has_clip != 0
-                  ? command->clip_y + ui_draw_translation_y
-                  : 0.0f;
-  float right = command->has_clip != 0 ? left + command->clip_width
-                                       : LOGICAL_WIDTH;
-  float bottom = command->has_clip != 0 ? top + command->clip_height
-                                        : LOGICAL_HEIGHT;
+  float left =
+      command->has_clip != 0 ? command->clip_x + ui_draw_translation_x : 0.0f;
+  float top =
+      command->has_clip != 0 ? command->clip_y + ui_draw_translation_y : 0.0f;
+  float right =
+      command->has_clip != 0 ? left + command->clip_width : LOGICAL_WIDTH;
+  float bottom =
+      command->has_clip != 0 ? top + command->clip_height : LOGICAL_HEIGHT;
   if (ui_draw_clip_active) {
     left = fmaxf(left, ui_draw_clip_left);
     top = fmaxf(top, ui_draw_clip_top);
     right = fminf(right, ui_draw_clip_right);
     bottom = fminf(bottom, ui_draw_clip_bottom);
   }
-  if (left < 0.0f) left = 0.0f;
-  if (top < 0.0f) top = 0.0f;
-  if (right > LOGICAL_WIDTH) right = LOGICAL_WIDTH;
-  if (bottom > LOGICAL_HEIGHT) bottom = LOGICAL_HEIGHT;
+  if (left < 0.0f)
+    left = 0.0f;
+  if (top < 0.0f)
+    top = 0.0f;
+  if (right > LOGICAL_WIDTH)
+    right = LOGICAL_WIDTH;
+  if (bottom > LOGICAL_HEIGHT)
+    bottom = LOGICAL_HEIGHT;
   if (right <= left || bottom <= top) {
     GX_SetScissor(0, 0, 0, 0);
     return;
@@ -3912,16 +3889,14 @@ static void set_poster_scissor(const MultiplexPosterSurface *surface) {
     GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
     return;
   }
-  float left = surface->has_clip != 0
-                   ? surface->clip_x + ui_draw_translation_x
-                   : 0.0f;
-  float top = surface->has_clip != 0
-                  ? surface->clip_y + ui_draw_translation_y
-                  : 0.0f;
-  float right = surface->has_clip != 0 ? left + surface->clip_width
-                                       : LOGICAL_WIDTH;
-  float bottom = surface->has_clip != 0 ? top + surface->clip_height
-                                        : LOGICAL_HEIGHT;
+  float left =
+      surface->has_clip != 0 ? surface->clip_x + ui_draw_translation_x : 0.0f;
+  float top =
+      surface->has_clip != 0 ? surface->clip_y + ui_draw_translation_y : 0.0f;
+  float right =
+      surface->has_clip != 0 ? left + surface->clip_width : LOGICAL_WIDTH;
+  float bottom =
+      surface->has_clip != 0 ? top + surface->clip_height : LOGICAL_HEIGHT;
   if (ui_draw_clip_active) {
     left = fmaxf(left, ui_draw_clip_left);
     top = fmaxf(top, ui_draw_clip_top);
@@ -3981,12 +3956,12 @@ static void draw_native_text_command(const MultiplexGxCommand *command) {
   uint32_t draw_length = command->text_len;
   uint32_t trailing_dots = 0;
   if (command->has_clip != 0) {
-    const float available =
-        command->clip_x + command->clip_width - start_x;
+    const float available = command->clip_x + command->clip_width - start_x;
     float total_width = 0.0f;
     for (uint32_t index = 0; index < command->text_len; ++index) {
       uint8_t character = command->text_ptr[index];
-      if (character == '\n') continue;
+      if (character == '\n')
+        continue;
       if (character < GEIST_FIRST_CHARACTER ||
           character >= GEIST_FIRST_CHARACTER + GEIST_CHARACTER_COUNT) {
         character = '?';
@@ -4007,16 +3982,17 @@ static void draw_native_text_command(const MultiplexGxCommand *command) {
       draw_length = 0;
       while (draw_length < command->text_len) {
         uint8_t character = command->text_ptr[draw_length];
-        if (character == '\n') break;
+        if (character == '\n')
+          break;
         if (character < GEIST_FIRST_CHARACTER ||
             character >= GEIST_FIRST_CHARACTER + GEIST_CHARACTER_COUNT) {
           character = '?';
         }
         const GeistGlyphMetric *metric =
             &geist_metrics[size_index][character - GEIST_FIRST_CHARACTER];
-        const float advance =
-            ((float)metric->advance_64 / 64.0f) * scale;
-        if (prefix_width + advance > content_width) break;
+        const float advance = ((float)metric->advance_64 / 64.0f) * scale;
+        if (prefix_width + advance > content_width)
+          break;
         prefix_width += advance;
         ++draw_length;
       }
@@ -4028,14 +4004,16 @@ static void draw_native_text_command(const MultiplexGxCommand *command) {
   uint32_t glyph_count = 0;
   for (uint32_t index = 0; index < draw_length; ++index) {
     uint8_t character = command->text_ptr[index];
-    if (character == '\n') continue;
+    if (character == '\n')
+      continue;
     if (character < GEIST_FIRST_CHARACTER ||
         character >= GEIST_FIRST_CHARACTER + GEIST_CHARACTER_COUNT) {
       character = '?';
     }
     const GeistGlyphMetric *metric =
         &geist_metrics[size_index][character - GEIST_FIRST_CHARACTER];
-    if (metric->width > 0 && metric->height > 0) ++glyph_count;
+    if (metric->width > 0 && metric->height > 0)
+      ++glyph_count;
   }
   glyph_count += trailing_dots;
   if (glyph_count == 0 || glyph_count > UINT16_MAX / 4u) {
@@ -4063,10 +4041,10 @@ static void draw_native_text_command(const MultiplexGxCommand *command) {
       const float bottom = top + (float)metric->height * scale;
       const float u0 = (float)metric->u / (float)GEIST_ATLAS_WIDTH;
       const float v0 = (float)metric->v / (float)GEIST_ATLAS_HEIGHT;
-      const float u1 = (float)(metric->u + metric->width) /
-                       (float)GEIST_ATLAS_WIDTH;
-      const float v1 = (float)(metric->v + metric->height) /
-                       (float)GEIST_ATLAS_HEIGHT;
+      const float u1 =
+          (float)(metric->u + metric->width) / (float)GEIST_ATLAS_WIDTH;
+      const float v1 =
+          (float)(metric->v + metric->height) / (float)GEIST_ATLAS_HEIGHT;
       font_vertex(left, top, color, u0, v0);
       font_vertex(right, top, color, u1, v0);
       font_vertex(right, bottom, color, u1, v1);
@@ -4084,8 +4062,7 @@ static void draw_native_text_command(const MultiplexGxCommand *command) {
       const float bottom = top + (float)dot->height * scale;
       const float u0 = (float)dot->u / (float)GEIST_ATLAS_WIDTH;
       const float v0 = (float)dot->v / (float)GEIST_ATLAS_HEIGHT;
-      const float u1 =
-          (float)(dot->u + dot->width) / (float)GEIST_ATLAS_WIDTH;
+      const float u1 = (float)(dot->u + dot->width) / (float)GEIST_ATLAS_WIDTH;
       const float v1 =
           (float)(dot->v + dot->height) / (float)GEIST_ATLAS_HEIGHT;
       font_vertex(left, top, color, u0, v0);
@@ -4128,10 +4105,10 @@ static void color_vertex(float x, float y, GXColor color) {
 static void fill_circle(float center_x, float center_y, float radius,
                         GXColor color) {
   static const float unit_circle[9][2] = {
-      {1.0f, 0.0f},        {0.7071068f, 0.7071068f},
-      {0.0f, 1.0f},        {-0.7071068f, 0.7071068f},
-      {-1.0f, 0.0f},       {-0.7071068f, -0.7071068f},
-      {0.0f, -1.0f},       {0.7071068f, -0.7071068f},
+      {1.0f, 0.0f},  {0.7071068f, 0.7071068f},
+      {0.0f, 1.0f},  {-0.7071068f, 0.7071068f},
+      {-1.0f, 0.0f}, {-0.7071068f, -0.7071068f},
+      {0.0f, -1.0f}, {0.7071068f, -0.7071068f},
       {1.0f, 0.0f},
   };
   GX_Begin(GX_TRIANGLEFAN, GX_VTXFMT0, 10);
@@ -4145,8 +4122,7 @@ static void fill_circle(float center_x, float center_y, float radius,
 
 static void draw_activity_dots(float center_y, uint32_t frame) {
   configure_color_pipeline();
-  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
-                  GX_LO_CLEAR);
+  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
   const uint32_t active = (frame / 10u) % 3u;
   for (uint32_t index = 0; index < 3; ++index) {
     const uint8_t alpha = index == active ? 230u : 72u;
@@ -4219,12 +4195,10 @@ static void draw_stats_for_nerds(void) {
       "HEAP %u KiB free  TOP %u KiB",
       diagnostic_presentation_fps_tenths / 10u,
       diagnostic_presentation_fps_tenths % 10u,
-      diagnostic_decoder_fps_tenths / 10u,
-      diagnostic_decoder_fps_tenths % 10u,
+      diagnostic_decoder_fps_tenths / 10u, diagnostic_decoder_fps_tenths % 10u,
       diagnostic_codec_average_us / 1000u, diagnostic_codec_max_us / 1000u,
-      diagnostic_upload_average_us / 1000u,
-      diagnostic_network_kib_per_second, (uint32_t)(queued_video / 1024u),
-      (uint32_t)(queued_audio / 1024u),
+      diagnostic_upload_average_us / 1000u, diagnostic_network_kib_per_second,
+      (uint32_t)(queued_video / 1024u), (uint32_t)(queued_audio / 1024u),
       audio_dma_ready_buffers(audio_output), audio_dma_underruns(audio_output),
       (uint32_t)heap.fordblks / 1024u, (uint32_t)heap.keepcost / 1024u);
   if (length <= 0) {
@@ -4278,22 +4252,20 @@ static void fill_rounded_corner(float center_x, float center_y, float radius,
 }
 
 static void fill_rounded_color_rect(float left, float top, float right,
-                                    float bottom, float radius,
-                                    GXColor color) {
+                                    float bottom, float radius, GXColor color) {
   const float width = right - left;
   const float height = bottom - top;
   const float maximum = (width < height ? width : height) * 0.5f;
-  if (radius > maximum) radius = maximum;
+  if (radius > maximum)
+    radius = maximum;
   if (radius < 1.0f) {
     fill_rect(left, top, right, bottom, color);
     return;
   }
   fill_rect(left + radius, top, right - radius, bottom, color);
   fill_rect(left, top + radius, right, bottom - radius, color);
-  fill_rounded_corner(left + radius, top + radius, radius, -1.0f, -1.0f,
-                      color);
-  fill_rounded_corner(right - radius, top + radius, radius, 1.0f, -1.0f,
-                      color);
+  fill_rounded_corner(left + radius, top + radius, radius, -1.0f, -1.0f, color);
+  fill_rounded_corner(right - radius, top + radius, radius, 1.0f, -1.0f, color);
   fill_rounded_corner(right - radius, bottom - radius, radius, 1.0f, 1.0f,
                       color);
   fill_rounded_corner(left + radius, bottom - radius, radius, -1.0f, 1.0f,
@@ -4321,8 +4293,10 @@ static void stroke_rounded_color_rect(float left, float top, float right,
   const float width = right - left;
   const float height = bottom - top;
   const float maximum = (width < height ? width : height) * 0.5f;
-  if (radius > maximum) radius = maximum;
-  if (stroke < 1.0f) stroke = 1.0f;
+  if (radius > maximum)
+    radius = maximum;
+  if (stroke < 1.0f)
+    stroke = 1.0f;
   if (stroke * 2.0f >= width || stroke * 2.0f >= height || radius < 1.0f) {
     fill_rect(left, top, right, top + stroke, color);
     fill_rect(left, bottom - stroke, right, bottom, color);
@@ -4348,15 +4322,15 @@ static void stroke_rounded_color_rect(float left, float top, float right,
 static float native_stroke_radius(const NativeUiPacket *packet,
                                   uint32_t command_index,
                                   const MultiplexGxCommand *stroke) {
-  if (stroke->radius >= 1.0f) return stroke->radius;
+  if (stroke->radius >= 1.0f)
+    return stroke->radius;
   for (uint32_t index = command_index; index > 0; --index) {
-    const MultiplexGxCommand *fill =
-        &packet->shape_commands[index - 1u];
-    if (fill->kind != MULTIPLEX_GX_FILL_ROUNDED_RECT) continue;
+    const MultiplexGxCommand *fill = &packet->shape_commands[index - 1u];
+    if (fill->kind != MULTIPLEX_GX_FILL_ROUNDED_RECT)
+      continue;
     const float left_inset = fill->x - stroke->x;
     const float top_inset = fill->y - stroke->y;
-    const float right_inset =
-        stroke->x + stroke->width - fill->x - fill->width;
+    const float right_inset = stroke->x + stroke->width - fill->x - fill->width;
     const float bottom_inset =
         stroke->y + stroke->height - fill->y - fill->height;
     if (left_inset < 0.0f || top_inset < 0.0f || right_inset < 0.0f ||
@@ -4364,8 +4338,8 @@ static float native_stroke_radius(const NativeUiPacket *packet,
         right_inset > 4.0f || bottom_inset > 4.0f) {
       continue;
     }
-    const float inset = fmaxf(fmaxf(left_inset, top_inset),
-                              fmaxf(right_inset, bottom_inset));
+    const float inset =
+        fmaxf(fmaxf(left_inset, top_inset), fmaxf(right_inset, bottom_inset));
     return fill->radius + inset;
   }
   return 0.0f;
@@ -4382,15 +4356,16 @@ static bool details_backdrop_active(void) {
 
 static bool is_ambient_background(const MultiplexGxCommand *command) {
   return (details_backdrop_active() || player_startup_backdrop_visible) &&
-         command->kind == MULTIPLEX_GX_FILL_RECT &&
-         command->x <= 0.0f && command->y <= 0.0f &&
-         command->width >= LOGICAL_WIDTH && command->height >= LOGICAL_HEIGHT;
+         command->kind == MULTIPLEX_GX_FILL_RECT && command->x <= 0.0f &&
+         command->y <= 0.0f && command->width >= LOGICAL_WIDTH &&
+         command->height >= LOGICAL_HEIGHT;
 }
 
 static void draw_native_shape_command_at(const NativeUiPacket *packet,
                                          uint32_t index) {
   const MultiplexGxCommand *command = &packet->shape_commands[index];
-  if (is_ambient_background(command)) return;
+  if (is_ambient_background(command))
+    return;
   set_text_scissor(command);
   GXColor color = command_color(command->color_rgba);
   if (modal_surface.visible != 0 && command->kind == MULTIPLEX_GX_FILL_RECT &&
@@ -4404,60 +4379,59 @@ static void draw_native_shape_command_at(const NativeUiPacket *packet,
   const float right = left + command->width;
   const float bottom = top + command->height;
   switch (command->kind) {
-    case MULTIPLEX_GX_FILL_RECT:
-      fill_rect(left, top, right, bottom, color);
-      break;
-    case MULTIPLEX_GX_FILL_ROUNDED_RECT:
-      fill_rounded_color_rect(left, top, right, bottom, command->radius,
-                              color);
-      break;
-    case MULTIPLEX_GX_STROKE_RECT:
-      stroke_rounded_color_rect(
-          left, top, right, bottom, native_stroke_radius(packet, index, command),
-          command->stroke_width, color);
-      break;
-    case MULTIPLEX_GX_LINE: {
-      const float stroke = command->stroke_width < 1.0f
-                               ? 1.0f
-                               : command->stroke_width;
-      if (fabsf(command->x2 - command->x) >=
-          fabsf(command->y2 - command->y)) {
-        fill_rect(fminf(command->x, command->x2),
-                  fminf(command->y, command->y2) - stroke * 0.5f,
-                  fmaxf(command->x, command->x2),
-                  fminf(command->y, command->y2) + stroke * 0.5f, color);
-      } else {
-        fill_rect(fminf(command->x, command->x2) - stroke * 0.5f,
-                  fminf(command->y, command->y2),
-                  fminf(command->x, command->x2) + stroke * 0.5f,
-                  fmaxf(command->y, command->y2), color);
-      }
+  case MULTIPLEX_GX_FILL_RECT:
+    fill_rect(left, top, right, bottom, color);
+    break;
+  case MULTIPLEX_GX_FILL_ROUNDED_RECT:
+    fill_rounded_color_rect(left, top, right, bottom, command->radius, color);
+    break;
+  case MULTIPLEX_GX_STROKE_RECT:
+    stroke_rounded_color_rect(left, top, right, bottom,
+                              native_stroke_radius(packet, index, command),
+                              command->stroke_width, color);
+    break;
+  case MULTIPLEX_GX_LINE: {
+    const float stroke =
+        command->stroke_width < 1.0f ? 1.0f : command->stroke_width;
+    if (fabsf(command->x2 - command->x) >= fabsf(command->y2 - command->y)) {
+      fill_rect(fminf(command->x, command->x2),
+                fminf(command->y, command->y2) - stroke * 0.5f,
+                fmaxf(command->x, command->x2),
+                fminf(command->y, command->y2) + stroke * 0.5f, color);
+    } else {
+      fill_rect(fminf(command->x, command->x2) - stroke * 0.5f,
+                fminf(command->y, command->y2),
+                fminf(command->x, command->x2) + stroke * 0.5f,
+                fmaxf(command->y, command->y2), color);
+    }
+    break;
+  }
+  case MULTIPLEX_GX_PATH_LINE: {
+    const float dx = command->x2 - command->x;
+    const float dy = command->y2 - command->y;
+    const float length = sqrtf(dx * dx + dy * dy);
+    if (length <= 0.001f) {
       break;
     }
-    case MULTIPLEX_GX_PATH_LINE: {
-      const float dx = command->x2 - command->x;
-      const float dy = command->y2 - command->y;
-      const float length = sqrtf(dx * dx + dy * dy);
-      if (length <= 0.001f) {
-        break;
-      }
-      unsigned line_width = (unsigned)(command->stroke_width * 6.0f + 0.5f);
-      if (line_width < 6u) line_width = 6u;
-      if (line_width > 255u) line_width = 255u;
-      GX_SetLineWidth((uint8_t)line_width, GX_TO_ZERO);
-      GX_Begin(GX_LINES, GX_VTXFMT0, 2);
-      color_vertex(command->x, command->y, color);
-      color_vertex(command->x2, command->y2, color);
-      GX_End();
-      break;
-    }
-    case MULTIPLEX_GX_FILL_TRIANGLE:
-      GX_Begin(GX_TRIANGLES, GX_VTXFMT0, 3);
-      color_vertex(command->x, command->y, color);
-      color_vertex(command->x2, command->y2, color);
-      color_vertex(command->width, command->height, color);
-      GX_End();
-      break;
+    unsigned line_width = (unsigned)(command->stroke_width * 6.0f + 0.5f);
+    if (line_width < 6u)
+      line_width = 6u;
+    if (line_width > 255u)
+      line_width = 255u;
+    GX_SetLineWidth((uint8_t)line_width, GX_TO_ZERO);
+    GX_Begin(GX_LINES, GX_VTXFMT0, 2);
+    color_vertex(command->x, command->y, color);
+    color_vertex(command->x2, command->y2, color);
+    GX_End();
+    break;
+  }
+  case MULTIPLEX_GX_FILL_TRIANGLE:
+    GX_Begin(GX_TRIANGLES, GX_VTXFMT0, 3);
+    color_vertex(command->x, command->y, color);
+    color_vertex(command->x2, command->y2, color);
+    color_vertex(command->width, command->height, color);
+    GX_End();
+    break;
   default:
     break;
   }
@@ -4478,8 +4452,7 @@ static void draw_ambient_poster(uint32_t texture_index, uint8_t scrim_alpha,
   GX_End();
 
   configure_color_pipeline();
-  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
-                  GX_LO_CLEAR);
+  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
   fill_rect(0.0f, 0.0f, LOGICAL_WIDTH, LOGICAL_HEIGHT,
             (GXColor){10, 10, 12, scrim_alpha});
   if (left_scrim_alpha != 0) {
@@ -4533,8 +4506,7 @@ static void draw_player_startup_backdrop(
   if (rating_key == 0 && direct_details_cache_valid) {
     rating_key = direct_details_cache.rating_key;
   }
-  const int32_t texture_index =
-      poster_texture_for_rating_key(rating_key);
+  const int32_t texture_index = poster_texture_for_rating_key(rating_key);
   if (texture_index < 0) {
     return;
   }
@@ -4608,8 +4580,7 @@ static void draw_rounded_poster(const MultiplexPosterSurface *surface) {
   }
   if (radius < 1.0f) {
     draw_poster_rect(surface, surface->x, surface->y,
-                     surface->x + surface->width,
-                     surface->y + surface->height);
+                     surface->x + surface->width, surface->y + surface->height);
     return;
   }
 
@@ -4629,16 +4600,18 @@ static void draw_rounded_poster(const MultiplexPosterSurface *surface) {
                      1.0f);
 }
 
-static MultiplexPosterSurface poster_display_surface(
-    const MultiplexPosterSurface *surface) {
+static MultiplexPosterSurface
+poster_display_surface(const MultiplexPosterSurface *surface) {
   MultiplexPosterSurface display = *surface;
-  if (surface->width < 68.0f) display.width = 68.0f;
-  if (surface->height < 102.0f) display.height = 102.0f;
+  if (surface->width < 68.0f)
+    display.width = 68.0f;
+  if (surface->height < 102.0f)
+    display.height = 102.0f;
   return display;
 }
 
-static MultiplexPosterSurface poster_clip_surface(
-    const MultiplexPosterSurface *surface) {
+static MultiplexPosterSurface
+poster_clip_surface(const MultiplexPosterSurface *surface) {
   MultiplexPosterSurface clip = *surface;
   if (surface->width < 68.0f || surface->height < 102.0f) {
     clip.has_clip = 1u;
@@ -4713,37 +4686,37 @@ static void draw_poster_surfaces(void) {
   GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
 }
 
-static void draw_packet_shapes_region(const NativeUiPacket *packet,
-                                      float top, float bottom, float x,
-                                      float y) {
+static void draw_packet_shapes_region(const NativeUiPacket *packet, float top,
+                                      float bottom, float x, float y) {
   set_ui_draw_clip(0.0f, top, LOGICAL_WIDTH, bottom);
   load_ui_translation_xy(x, y);
-  if (packet->shape_command_count == 0) return;
+  if (packet->shape_command_count == 0)
+    return;
   configure_color_pipeline();
-  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
-                  GX_LO_CLEAR);
+  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
   for (uint32_t index = 0; index < packet->shape_command_count; ++index) {
     const MultiplexGxCommand *command = &packet->shape_commands[index];
-    const bool full_screen =
-        command->x <= 0.0f && command->y <= 0.0f &&
-        command->width >= LOGICAL_WIDTH && command->height >= LOGICAL_HEIGHT;
-    const float center_y =
-        command->kind == MULTIPLEX_GX_LINE ||
-                command->kind == MULTIPLEX_GX_PATH_LINE
-            ? (command->y + command->y2) * 0.5f
-            : command->y + command->height * 0.5f;
-    if (full_screen || center_y < top || center_y >= bottom) continue;
+    const bool full_screen = command->x <= 0.0f && command->y <= 0.0f &&
+                             command->width >= LOGICAL_WIDTH &&
+                             command->height >= LOGICAL_HEIGHT;
+    const float center_y = command->kind == MULTIPLEX_GX_LINE ||
+                                   command->kind == MULTIPLEX_GX_PATH_LINE
+                               ? (command->y + command->y2) * 0.5f
+                               : command->y + command->height * 0.5f;
+    if (full_screen || center_y < top || center_y >= bottom)
+      continue;
     draw_native_shape_command_at(packet, index);
   }
   GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
 }
 
-static void draw_packet_posters_region(
-    const MultiplexPosterSurface *surfaces, uint32_t count, float top,
-    float bottom, float x, float y) {
+static void draw_packet_posters_region(const MultiplexPosterSurface *surfaces,
+                                       uint32_t count, float top, float bottom,
+                                       float x, float y) {
   set_ui_draw_clip(HOME_CAROUSEL_LEFT, top, HOME_CAROUSEL_RIGHT, bottom);
   load_ui_translation_xy(x, y);
-  if (poster_texture_count == 0) return;
+  if (poster_texture_count == 0)
+    return;
   configure_ui_pipeline();
   for (uint32_t index = 0; index < count; ++index) {
     const MultiplexPosterSurface *surface = &surfaces[index];
@@ -4765,11 +4738,13 @@ static void draw_packet_text_region(const NativeUiPacket *packet, float top,
                                     float bottom, float x, float y) {
   set_ui_draw_clip(0.0f, top, LOGICAL_WIDTH, bottom);
   load_ui_translation_xy(x, y);
-  if (packet->text_command_count == 0) return;
+  if (packet->text_command_count == 0)
+    return;
   configure_font_pipeline();
   for (uint32_t index = 0; index < packet->text_command_count; ++index) {
     const MultiplexGxCommand *command = &packet->text_commands[index];
-    if (command->y < top || command->y >= bottom) continue;
+    if (command->y < top || command->y >= bottom)
+      continue;
     draw_native_text_command_at(packet, index);
   }
   GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
@@ -4779,8 +4754,7 @@ static void draw_home_background(void) {
   load_ui_translation_xy(0.0f, 0.0f);
   clear_ui_draw_clip();
   configure_color_pipeline();
-  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
-                  GX_LO_CLEAR);
+  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
   for (uint32_t index = 0; index < presented_ui_packet.shape_command_count;
        ++index) {
     const MultiplexGxCommand *command =
@@ -4793,25 +4767,24 @@ static void draw_home_background(void) {
 }
 
 static void draw_home_motion(void) {
-  const float progress = HOME_MOTION_FRAMES <= 1u
-                             ? 1.0f
-                             : (float)home_motion_frame /
-                                   (float)(HOME_MOTION_FRAMES - 1u);
+  const float progress =
+      HOME_MOTION_FRAMES <= 1u
+          ? 1.0f
+          : (float)home_motion_frame / (float)(HOME_MOTION_FRAMES - 1u);
   const float eased = progress * progress * (3.0f - 2.0f * progress);
   const float direction = (float)home_motion_direction;
   if (presented_screen == MULTIPLEX_SCREEN_BROWSE) {
-    const float current_y =
-        direction * BROWSE_ROW_STRIDE * (1.0f - eased);
+    const float current_y = direction * BROWSE_ROW_STRIDE * (1.0f - eased);
     draw_home_background();
-    draw_packet_shapes_region(&presented_ui_packet, 0.0f, BROWSE_GRID_TOP,
-                              0.0f, 0.0f);
+    draw_packet_shapes_region(&presented_ui_packet, 0.0f, BROWSE_GRID_TOP, 0.0f,
+                              0.0f);
     draw_packet_shapes_region(&presented_ui_packet, BROWSE_GRID_TOP,
                               LOGICAL_HEIGHT, 0.0f, current_y);
     draw_packet_posters_region(poster_surfaces, poster_surface_count,
                                BROWSE_GRID_TOP, LOGICAL_HEIGHT, 0.0f,
                                current_y);
-    draw_packet_text_region(&presented_ui_packet, 0.0f, BROWSE_GRID_TOP,
-                            0.0f, 0.0f);
+    draw_packet_text_region(&presented_ui_packet, 0.0f, BROWSE_GRID_TOP, 0.0f,
+                            0.0f);
     draw_packet_text_region(&presented_ui_packet, BROWSE_GRID_TOP,
                             LOGICAL_HEIGHT, 0.0f, current_y);
     clear_ui_draw_clip();
@@ -4842,8 +4815,7 @@ static void draw_home_motion(void) {
   }
 
   draw_home_background();
-  draw_packet_shapes_region(&presented_ui_packet, 0.0f, moving_top,
-                            0.0f, 0.0f);
+  draw_packet_shapes_region(&presented_ui_packet, 0.0f, moving_top, 0.0f, 0.0f);
   if (home_motion_kind == HOME_MOTION_HORIZONTAL) {
     draw_packet_shapes_region(&presented_ui_packet, moving_bottom,
                               LOGICAL_HEIGHT, 0.0f, 0.0f);
@@ -4851,8 +4823,8 @@ static void draw_home_motion(void) {
   draw_packet_shapes_region(&home_motion_previous_packet, moving_top,
                             moving_bottom, previous_x, previous_y);
   if (home_motion_kind == HOME_MOTION_HORIZONTAL) {
-    draw_packet_shapes_region(&presented_ui_packet, moving_top,
-                              moving_bottom, current_x, 0.0f);
+    draw_packet_shapes_region(&presented_ui_packet, moving_top, moving_bottom,
+                              current_x, 0.0f);
   }
 
   if (home_motion_kind == HOME_MOTION_HORIZONTAL) {
@@ -4860,26 +4832,23 @@ static void draw_home_motion(void) {
                                moving_bottom, LOGICAL_HEIGHT, 0.0f, 0.0f);
   }
   draw_packet_posters_region(home_motion_previous_surfaces,
-                             home_motion_previous_surface_count,
-                             moving_top, moving_bottom, previous_x,
-                             previous_y);
+                             home_motion_previous_surface_count, moving_top,
+                             moving_bottom, previous_x, previous_y);
   if (home_motion_kind == HOME_MOTION_HORIZONTAL) {
     draw_packet_posters_region(poster_surfaces, poster_surface_count,
-                               moving_top, moving_bottom, current_x,
-                               0.0f);
+                               moving_top, moving_bottom, current_x, 0.0f);
   }
 
-  draw_packet_text_region(&presented_ui_packet, 0.0f, moving_top, 0.0f,
-                          0.0f);
+  draw_packet_text_region(&presented_ui_packet, 0.0f, moving_top, 0.0f, 0.0f);
   if (home_motion_kind == HOME_MOTION_HORIZONTAL) {
-    draw_packet_text_region(&presented_ui_packet, moving_bottom,
-                            LOGICAL_HEIGHT, 0.0f, 0.0f);
+    draw_packet_text_region(&presented_ui_packet, moving_bottom, LOGICAL_HEIGHT,
+                            0.0f, 0.0f);
   }
   draw_packet_text_region(&home_motion_previous_packet, moving_top,
                           moving_bottom, previous_x, previous_y);
   if (home_motion_kind == HOME_MOTION_HORIZONTAL) {
-    draw_packet_text_region(&presented_ui_packet, moving_top,
-                            moving_bottom, current_x, 0.0f);
+    draw_packet_text_region(&presented_ui_packet, moving_top, moving_bottom,
+                            current_x, 0.0f);
   }
 
   clear_ui_draw_clip();
@@ -4895,7 +4864,8 @@ static void draw_home_motion(void) {
 }
 
 static uint32_t modal_layer_sequence(const NativeUiPacket *packet) {
-  if (modal_surface.visible == 0) return UINT32_MAX;
+  if (modal_surface.visible == 0)
+    return UINT32_MAX;
   for (uint32_t index = 0; index < packet->shape_command_count; ++index) {
     const MultiplexGxCommand *command = &packet->shape_commands[index];
     const uint8_t alpha = (uint8_t)command->color_rgba;
@@ -5045,8 +5015,8 @@ draw_playback_progress(const MultiplexGatewayPlaybackManifest *manifest) {
   }
   const uint32_t position_ms = playback_position_ms(manifest);
   const float left = player_controls_surface.x + 1.0f;
-  const float right = player_controls_surface.x +
-                      player_controls_surface.width - 1.0f;
+  const float right =
+      player_controls_surface.x + player_controls_surface.width - 1.0f;
   const float top = player_controls_surface.y;
   const float bottom = top + 4.0f;
   const float progress =
@@ -5077,21 +5047,20 @@ static void draw_native_packet_ordered(
   if (packet->text_command_count != 0) {
     poster_sequence = packet->text_sequences[0];
   }
-  if (modal_sequence < poster_sequence) poster_sequence = modal_sequence;
+  if (modal_sequence < poster_sequence)
+    poster_sequence = modal_sequence;
 
   bool posters_drawn = poster_surface_count == 0;
   bool progress_drawn = false;
   UiPipeline pipeline = UI_PIPELINE_NONE;
   while (shape_index < packet->shape_command_count ||
          text_index < packet->text_command_count) {
-    const uint32_t shape_sequence =
-        shape_index < packet->shape_command_count
-            ? packet->shape_sequences[shape_index]
-            : UINT32_MAX;
-    const uint32_t text_sequence =
-        text_index < packet->text_command_count
-            ? packet->text_sequences[text_index]
-            : UINT32_MAX;
+    const uint32_t shape_sequence = shape_index < packet->shape_command_count
+                                        ? packet->shape_sequences[shape_index]
+                                        : UINT32_MAX;
+    const uint32_t text_sequence = text_index < packet->text_command_count
+                                       ? packet->text_sequences[text_index]
+                                       : UINT32_MAX;
     const uint32_t next_sequence =
         shape_sequence < text_sequence ? shape_sequence : text_sequence;
 
@@ -5124,8 +5093,10 @@ static void draw_native_packet_ordered(
     }
   }
 
-  if (!posters_drawn) draw_poster_surfaces();
-  if (!progress_drawn) draw_playback_progress(playback_manifest);
+  if (!posters_drawn)
+    draw_poster_surfaces();
+  if (!progress_drawn)
+    draw_playback_progress(playback_manifest);
   GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
 }
 
@@ -5154,10 +5125,10 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
     draw_details_backdrop();
     float entry_offset = 0.0f;
     if (ui_entry_frame < UI_ENTRY_FRAMES) {
-      const float progress = UI_ENTRY_FRAMES <= 1u
-                                 ? 1.0f
-                                 : (float)ui_entry_frame /
-                                       (float)(UI_ENTRY_FRAMES - 1u);
+      const float progress =
+          UI_ENTRY_FRAMES <= 1u
+              ? 1.0f
+              : (float)ui_entry_frame / (float)(UI_ENTRY_FRAMES - 1u);
       const float remaining = 1.0f - progress;
       entry_offset = 6.0f * remaining * remaining * remaining;
       ui_entry_frame += 1u;
@@ -5218,9 +5189,9 @@ present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
   }
 }
 
-static bool wait_network_warmup(
-    NetworkWarmup *warmup,
-    const MultiplexGatewayPlaybackManifest *playback_manifest) {
+static bool
+wait_network_warmup(NetworkWarmup *warmup,
+                    const MultiplexGatewayPlaybackManifest *playback_manifest) {
   network_activity_visible = true;
   network_activity_frame = 0;
   while (!warmup->complete && SYS_MainLoop()) {
@@ -5389,9 +5360,8 @@ static bool continue_playback_if_needed(
 
 static bool direct_playback_reached_end(
     const MultiplexGatewayPlaybackManifest *active_manifest) {
-  if (active_manifest == NULL ||
-      active_manifest->rating_key == 0 || direct_hls_demux == NULL ||
-      audio_output == NULL || !video_was_playing ||
+  if (active_manifest == NULL || active_manifest->rating_key == 0 ||
+      direct_hls_demux == NULL || audio_output == NULL || !video_was_playing ||
       plex_hls_demux_failed(direct_hls_demux) ||
       !plex_hls_demux_complete(direct_hls_demux)) {
     return false;
@@ -5405,20 +5375,17 @@ static bool direct_playback_reached_end(
 static bool advance_direct_playback_if_complete(
     const MultiplexAuthCredentials *credentials,
     MultiplexGatewayPlaybackManifest *active_manifest, HttpClient **client,
-    MpegPsDemux **demux, TimelineReporter *timeline_reporter,
-    bool *advanced) {
+    MpegPsDemux **demux, TimelineReporter *timeline_reporter, bool *advanced) {
   *advanced = false;
   if (credentials == NULL || !direct_playback_reached_end(active_manifest)) {
     return true;
   }
 
-  const MultiplexGatewayPlaybackManifest completed_manifest =
-      *active_manifest;
+  const MultiplexGatewayPlaybackManifest completed_manifest = *active_manifest;
   char completed_session_id[MULTIPLEX_PLEX_HLS_SESSION_ID_CAPACITY];
   snprintf(completed_session_id, sizeof(completed_session_id), "%s",
            direct_hls_session_id);
-  multiplex_native_app_playback_position(
-      completed_manifest.media_duration_ms);
+  multiplex_native_app_playback_position(completed_manifest.media_duration_ms);
   audio_dma_update(audio_output, false);
   close_media_session(client, demux);
   flush_timeline_report(timeline_reporter, "", credentials,
@@ -5427,9 +5394,8 @@ static bool advance_direct_playback_if_complete(
 
   MultiplexGatewayItem next_episode;
   const MultiplexPlexNextEpisodeResult next_result =
-      multiplex_plex_load_next_episode(credentials,
-                                       completed_manifest.rating_key,
-                                       &next_episode);
+      multiplex_plex_load_next_episode(
+          credentials, completed_manifest.rating_key, &next_episode);
   if (next_result != MULTIPLEX_PLEX_NEXT_EPISODE_FOUND) {
     if (multiplex_native_app_playback_complete() == 0) {
       return false;
@@ -5567,14 +5533,14 @@ static bool bind_watch_together_rooms(const MultiplexTrpcRoomList *rooms,
   return true;
 }
 
-static bool bind_watch_together_invitees(
-    const MultiplexTrpcInviteeList *invitees, bool available) {
+static bool
+bind_watch_together_invitees(const MultiplexTrpcInviteeList *invitees,
+                             bool available) {
   if (invitees == NULL) {
     return false;
   }
   if (multiplex_native_app_watch_together_invitees_begin(
-          available ? 1u : 0u, available ? invitees->invitee_count : 0u) ==
-      0) {
+          available ? 1u : 0u, available ? invitees->invitee_count : 0u) == 0) {
     return false;
   }
   if (available) {
@@ -5612,9 +5578,9 @@ static void *run_catalog_loader(void *context) {
   return NULL;
 }
 
-static bool launch_catalog_loader(
-    CatalogLoader *loader, const MultiplexAuthCredentials *credentials,
-    MultiplexGatewayCatalog *catalog) {
+static bool launch_catalog_loader(CatalogLoader *loader,
+                                  const MultiplexAuthCredentials *credentials,
+                                  MultiplexGatewayCatalog *catalog) {
   if (loader == NULL || credentials == NULL || catalog == NULL ||
       loader->started) {
     return false;
@@ -5679,9 +5645,10 @@ static void *run_catalog_cache_saver(void *context) {
   return NULL;
 }
 
-static bool launch_catalog_cache_saver(
-    CatalogCacheSaver *saver, const MultiplexMemoryCardLocation *location,
-    const MultiplexGatewayCatalog *catalog) {
+static bool
+launch_catalog_cache_saver(CatalogCacheSaver *saver,
+                           const MultiplexMemoryCardLocation *location,
+                           const MultiplexGatewayCatalog *catalog) {
   if (saver == NULL || location == NULL || catalog == NULL || saver->started ||
       (location->slot != 0 && location->slot != 1)) {
     return false;
@@ -5748,9 +5715,9 @@ static void *run_startup_data_loader(void *context) {
   return NULL;
 }
 
-static bool launch_startup_data_loader(
-    StartupDataLoader *loader,
-    const MultiplexAuthCredentials *credentials) {
+static bool
+launch_startup_data_loader(StartupDataLoader *loader,
+                           const MultiplexAuthCredentials *credentials) {
   if (loader == NULL || credentials == NULL || loader->started) {
     return false;
   }
@@ -5773,9 +5740,10 @@ static bool launch_startup_data_loader(
   return true;
 }
 
-static bool poll_startup_data_loader(
-    StartupDataLoader *loader, uint32_t *user_id,
-    MultiplexTrpcRoomList *rooms, MultiplexTrpcInviteeList *invitees) {
+static bool poll_startup_data_loader(StartupDataLoader *loader,
+                                     uint32_t *user_id,
+                                     MultiplexTrpcRoomList *rooms,
+                                     MultiplexTrpcInviteeList *invitees) {
   if (loader == NULL || !loader->started || loader->applied ||
       !loader->complete) {
     return true;
@@ -5791,8 +5759,7 @@ static bool poll_startup_data_loader(
   *rooms = loader->rooms;
   *invitees = loader->invitees;
   if (!bind_watch_together_rooms(rooms, loader->rooms_available) ||
-      !bind_watch_together_invitees(invitees,
-                                    loader->invitees_available)) {
+      !bind_watch_together_invitees(invitees, loader->invitees_available)) {
     return false;
   }
   loader->applied = true;
@@ -5904,14 +5871,11 @@ static uint32_t watch_together_rating_key(const MultiplexTrpcRoom *room) {
              : 0;
 }
 
-static void
-join_requested_watch_together_room(const MultiplexAuthCredentials *credentials,
-                                   const MultiplexTrpcRoomList *rooms,
-                                   MultiplexSyncplaySession **session,
-                                   uint32_t *joined_room_index,
-                                   uint32_t plex_user_id, bool *in_lobby,
-                                   uint64_t *all_present_since_ms,
-                                   const char *hosted_room_id) {
+static void join_requested_watch_together_room(
+    const MultiplexAuthCredentials *credentials,
+    const MultiplexTrpcRoomList *rooms, MultiplexSyncplaySession **session,
+    uint32_t *joined_room_index, uint32_t plex_user_id, bool *in_lobby,
+    uint64_t *all_present_since_ms, const char *hosted_room_id) {
   const uint32_t requested = multiplex_native_app_watch_together_join_request();
   if (requested == 0) {
     return;
@@ -5934,9 +5898,8 @@ join_requested_watch_together_room(const MultiplexAuthCredentials *credentials,
     multiplex_native_app_watch_together_join_commit(0);
     return;
   }
-  *session = multiplex_syncplay_session_connect(&rooms->rooms[index],
-                                                credentials->plex_client_id,
-                                                plex_user_id, true);
+  *session = multiplex_syncplay_session_connect(
+      &rooms->rooms[index], credentials->plex_client_id, plex_user_id, true);
   if (*session == NULL) {
     multiplex_native_app_watch_together_join_commit(0);
     SYS_Report("REFERENCE GX: Watch Together join room=%u connected=0\n",
@@ -5994,17 +5957,18 @@ static bool start_joined_watch_together_playback(
     close_media_session(client, demux);
     return false;
   }
-  multiplex_syncplay_session_set_playback(
-      *session, false, manifest->segment_start_ms);
+  multiplex_syncplay_session_set_playback(*session, false,
+                                          manifest->segment_start_ms);
   SYS_Report("REFERENCE GX: Watch Together playback room=%u rating-key=%u "
              "offset=%u\n",
              room_index, rating_key, manifest->segment_start_ms);
   return true;
 }
 
-static uint32_t find_watch_together_rotation_room(
-    const MultiplexTrpcRoomList *rooms, const char *previous_room_id,
-    uint32_t rating_key, uint8_t user_count) {
+static uint32_t
+find_watch_together_rotation_room(const MultiplexTrpcRoomList *rooms,
+                                  const char *previous_room_id,
+                                  uint32_t rating_key, uint8_t user_count) {
   for (uint32_t index = 0; index < rooms->room_count; ++index) {
     const MultiplexTrpcRoom *room = &rooms->rooms[index];
     if (strcmp(room->id, previous_room_id) != 0 &&
@@ -6019,11 +5983,10 @@ static uint32_t find_watch_together_rotation_room(
 static bool rotate_watch_together_if_complete(
     const MultiplexAuthCredentials *credentials, MultiplexTrpcRoomList *rooms,
     MultiplexSyncplaySession **session, uint32_t *joined_room_index,
-    uint32_t plex_user_id, char *hosted_room_id,
-    size_t hosted_room_id_capacity, uint32_t hosted_invitee_user_id,
+    uint32_t plex_user_id, char *hosted_room_id, size_t hosted_room_id_capacity,
+    uint32_t hosted_invitee_user_id,
     MultiplexGatewayPlaybackManifest *active_manifest, HttpClient **client,
-    MpegPsDemux **demux, TimelineReporter *timeline_reporter,
-    bool *advanced) {
+    MpegPsDemux **demux, TimelineReporter *timeline_reporter, bool *advanced) {
   *advanced = false;
   if (!direct_playback_reached_end(active_manifest)) {
     return true;
@@ -6032,14 +5995,12 @@ static bool rotate_watch_together_if_complete(
     return false;
   }
 
-  const MultiplexGatewayPlaybackManifest completed_manifest =
-      *active_manifest;
+  const MultiplexGatewayPlaybackManifest completed_manifest = *active_manifest;
   const MultiplexTrpcRoom previous_room = rooms->rooms[*joined_room_index];
   char completed_session_id[MULTIPLEX_PLEX_HLS_SESSION_ID_CAPACITY];
   snprintf(completed_session_id, sizeof(completed_session_id), "%s",
            direct_hls_session_id);
-  multiplex_native_app_playback_position(
-      completed_manifest.media_duration_ms);
+  multiplex_native_app_playback_position(completed_manifest.media_duration_ms);
   audio_dma_update(audio_output, false);
   close_media_session(client, demux);
   flush_timeline_report(timeline_reporter, "", credentials,
@@ -6048,9 +6009,8 @@ static bool rotate_watch_together_if_complete(
 
   MultiplexGatewayItem next_episode;
   const MultiplexPlexNextEpisodeResult next_result =
-      multiplex_plex_load_next_episode(credentials,
-                                       completed_manifest.rating_key,
-                                       &next_episode);
+      multiplex_plex_load_next_episode(
+          credentials, completed_manifest.rating_key, &next_episode);
   if (next_result != MULTIPLEX_PLEX_NEXT_EPISODE_FOUND) {
     multiplex_native_app_playback_complete();
     native_frame_dirty = true;
@@ -6096,9 +6056,9 @@ static bool rotate_watch_together_if_complete(
 
   multiplex_syncplay_session_destroy(*session);
   *session = NULL;
-  if (!start_joined_watch_together_playback(
-          credentials, rooms, next_room_index, plex_user_id, 0, session,
-          active_manifest, client, demux)) {
+  if (!start_joined_watch_together_playback(credentials, rooms, next_room_index,
+                                            plex_user_id, 0, session,
+                                            active_manifest, client, demux)) {
     multiplex_native_app_playback_complete();
     native_frame_dirty = true;
     return true;
@@ -6153,9 +6113,8 @@ static void *run_app(void *unused) {
   memset(&network_warmup, 0, sizeof(network_warmup));
   network_warmup.thread = LWP_THREAD_NULL;
   bool network_ready = false;
-  bool network_warmup_pending =
-      MULTIPLEX_GATEWAY_URL[0] != '\0' &&
-      launch_network_warmup(&network_warmup);
+  bool network_warmup_pending = MULTIPLEX_GATEWAY_URL[0] != '\0' &&
+                                launch_network_warmup(&network_warmup);
   uint64_t network_retry_at_ms = 0;
   uint32_t network_retry_delay_ms = CATALOG_RETRY_INITIAL_DELAY_MS;
   bool offline_notice_presented = false;
@@ -6230,9 +6189,9 @@ static void *run_app(void *unused) {
   multiplex_native_app_init();
   multiplex_native_reference_text_overlay(1);
 #if MULTIPLEX_PAIRING_ENABLED
-  if (multiplex_native_app_pairing_status(
-          MULTIPLEX_PAIRING_CONNECTING, (const uint8_t *)"", 0,
-          (const uint8_t *)"", 0) == 0) {
+  if (multiplex_native_app_pairing_status(MULTIPLEX_PAIRING_CONNECTING,
+                                          (const uint8_t *)"", 0,
+                                          (const uint8_t *)"", 0) == 0) {
     SYS_Report("REFERENCE GX: failed to bind network startup status\n");
     if (network_warmup_pending) {
       finish_network_warmup(&network_warmup);
@@ -6284,9 +6243,9 @@ static void *run_app(void *unused) {
   };
   uint8_t cached_catalog[MULTIPLEX_CATALOG_CACHE_SIZE] = {0};
   const MultiplexMemoryCardResult stored_auth =
-      multiplex_memory_card_load_auth_with_cache(
-          &auth_credentials, &auth_location, cached_catalog,
-          sizeof(cached_catalog));
+      multiplex_memory_card_load_auth_with_cache(&auth_credentials,
+                                                 &auth_location, cached_catalog,
+                                                 sizeof(cached_catalog));
   MultiplexDeviceAuth device_auth;
   memset(&device_auth, 0, sizeof(device_auth));
   bool pairing_status_presented = false;
@@ -6294,9 +6253,9 @@ static void *run_app(void *unused) {
     device_auth.status = MULTIPLEX_DEVICE_AUTH_LINKED;
     SYS_Report("REFERENCE GX: auth restored slot=%c generation=%u\n",
                auth_location.slot == 0 ? 'A' : 'B', auth_location.generation);
-    if (multiplex_native_app_pairing_status(
-            device_auth.status, (const uint8_t *)"", 0,
-            (const uint8_t *)"", 0) == 0) {
+    if (multiplex_native_app_pairing_status(device_auth.status,
+                                            (const uint8_t *)"", 0,
+                                            (const uint8_t *)"", 0) == 0) {
       SYS_Report("REFERENCE GX: failed to bind restored authorization\n");
       return (void *)(uintptr_t)APP_EXIT_UI_BIND;
     }
@@ -6318,8 +6277,8 @@ static void *run_app(void *unused) {
       bind_boot_diagnostics("Starting Broadband Adapter");
       network_warmup_pending = launch_network_warmup(&network_warmup);
       if (!network_warmup_pending) {
-        network_retry_at_ms = ticks_to_millisecs(gettime()) +
-                              network_retry_delay_ms;
+        network_retry_at_ms =
+            ticks_to_millisecs(gettime()) + network_retry_delay_ms;
       }
     }
     if (network_warmup_pending) {
@@ -6396,19 +6355,19 @@ static void *run_app(void *unused) {
   uint32_t pairing_retry_delay_ms = PAIRING_RETRY_INITIAL_DELAY_MS;
   if (!pairing_linked &&
       device_auth.status == MULTIPLEX_DEVICE_AUTH_UNAVAILABLE) {
-    pairing_retry_at_ms = ticks_to_millisecs(gettime()) +
-                          pairing_retry_delay_ms;
+    pairing_retry_at_ms =
+        ticks_to_millisecs(gettime()) + pairing_retry_delay_ms;
   }
   if (pairing_linked && network_ready &&
       (!has_catalog || catalog_refresh_pending)) {
     if (launch_catalog_loader(&catalog_loader, &auth_credentials, &catalog)) {
       network_activity_visible = !has_catalog;
     } else {
-      catalog_retry_at_ms = ticks_to_millisecs(gettime()) +
-                            CATALOG_RETRY_INITIAL_DELAY_MS;
-      if (multiplex_native_app_pairing_status(
-              MULTIPLEX_DEVICE_AUTH_UNAVAILABLE, (const uint8_t *)"", 0,
-              (const uint8_t *)"", 0) == 0) {
+      catalog_retry_at_ms =
+          ticks_to_millisecs(gettime()) + CATALOG_RETRY_INITIAL_DELAY_MS;
+      if (multiplex_native_app_pairing_status(MULTIPLEX_DEVICE_AUTH_UNAVAILABLE,
+                                              (const uint8_t *)"", 0,
+                                              (const uint8_t *)"", 0) == 0) {
         SYS_Report("REFERENCE GX: failed to bind network unavailable status\n");
         return (void *)(uintptr_t)APP_EXIT_UI_BIND;
       }
@@ -6461,8 +6420,7 @@ static void *run_app(void *unused) {
         discard_direct_hls_prefetch(&direct_hls_prefetch);
 #if MULTIPLEX_PAIRING_ENABLED
         if (stale_for_details &&
-            !start_direct_hls_prefetch(&direct_hls_prefetch,
-                                       &auth_credentials,
+            !start_direct_hls_prefetch(&direct_hls_prefetch, &auth_credentials,
                                        &direct_details_cache)) {
           SYS_Report("REFERENCE GX: deferred HLS session prefetch unavailable "
                      "rating-key=%u\n",
@@ -6480,14 +6438,13 @@ static void *run_app(void *unused) {
       queued_transition_buttons |= PAD_ButtonsDown(0);
 #if defined(HW_RVL)
       WPAD_ScanPads();
-      queued_transition_buttons |=
-          wii_buttons_as_gamecube(WPAD_ButtonsDown(0));
+      queued_transition_buttons |= wii_buttons_as_gamecube(WPAD_ButtonsDown(0));
 #endif
       const uint64_t transition_input_ms = ticks_to_millisecs(gettime());
-      const uint32_t transition_navigation = navigation_action(
-          multiplex_gui_navigation_poll(&gui_navigation, PAD_StickX(0),
-                                          PAD_StickY(0),
-                                          transition_input_ms * 1000u));
+      const uint32_t transition_navigation =
+          navigation_action(multiplex_gui_navigation_poll(
+              &gui_navigation, PAD_StickX(0), PAD_StickY(0),
+              transition_input_ms * 1000u));
       if (queued_transition_navigation == UINT32_MAX &&
           transition_navigation != UINT32_MAX) {
         queued_transition_navigation = transition_navigation;
@@ -6585,9 +6542,9 @@ static void *run_app(void *unused) {
         device_auth.status == MULTIPLEX_DEVICE_AUTH_UNAVAILABLE &&
         pairing_retry_at_ms != 0 && catalog_now_ms >= pairing_retry_at_ms) {
       bind_boot_diagnostics("Retrying Multiplex pairing");
-      if (multiplex_native_app_pairing_status(
-              MULTIPLEX_PAIRING_CONNECTING, (const uint8_t *)"", 0,
-              (const uint8_t *)"", 0) == 0) {
+      if (multiplex_native_app_pairing_status(MULTIPLEX_PAIRING_CONNECTING,
+                                              (const uint8_t *)"", 0,
+                                              (const uint8_t *)"", 0) == 0) {
         SYS_Report("REFERENCE GX: failed to bind pairing retry status\n");
         exit_code = APP_EXIT_UI_BIND;
         break;
@@ -6627,9 +6584,9 @@ static void *run_app(void *unused) {
     poll_catalog_cache_saver(&catalog_cache_saver);
     if (catalog_loader_status == CATALOG_LOADER_READY) {
       network_activity_visible = false;
-      if (multiplex_native_app_pairing_status(
-              MULTIPLEX_DEVICE_AUTH_LINKED, (const uint8_t *)"", 0,
-              (const uint8_t *)"", 0) == 0 ||
+      if (multiplex_native_app_pairing_status(MULTIPLEX_DEVICE_AUTH_LINKED,
+                                              (const uint8_t *)"", 0,
+                                              (const uint8_t *)"", 0) == 0 ||
           !bind_catalog_to_app(&catalog)) {
         SYS_Report("REFERENCE GX: recovered Plex catalog binding failed\n");
         exit_code = APP_EXIT_BACKGROUND_BIND;
@@ -6696,9 +6653,9 @@ static void *run_app(void *unused) {
         (!has_catalog || catalog_refresh_pending) && !catalog_loader.started &&
         catalog_retry_at_ms != 0 && catalog_now_ms >= catalog_retry_at_ms) {
       bind_boot_diagnostics("Retrying Plex catalog");
-      if (multiplex_native_app_pairing_status(
-              MULTIPLEX_PAIRING_CONNECTING, (const uint8_t *)"", 0,
-              (const uint8_t *)"", 0) == 0) {
+      if (multiplex_native_app_pairing_status(MULTIPLEX_PAIRING_CONNECTING,
+                                              (const uint8_t *)"", 0,
+                                              (const uint8_t *)"", 0) == 0) {
         SYS_Report("REFERENCE GX: failed to bind Plex retry status\n");
         exit_code = APP_EXIT_UI_BIND;
         break;
@@ -6830,16 +6787,14 @@ static void *run_app(void *unused) {
     const MultiplexGuiNavigationDirection stick_direction =
         multiplex_gui_navigation_poll(&gui_navigation, PAD_StickX(0),
                                       PAD_StickY(0), input_now_ms * 1000u);
-    const uint32_t stick_navigation =
-        queued_transition_navigation != UINT32_MAX
-            ? queued_transition_navigation
-            : navigation_action(stick_direction);
+    const uint32_t stick_navigation = queued_transition_navigation != UINT32_MAX
+                                          ? queued_transition_navigation
+                                          : navigation_action(stick_direction);
     queued_transition_navigation = UINT32_MAX;
 #if MULTIPLEX_PAIRING_ENABLED
     if (!startup_data_loader.started &&
         (pressed != 0 || stick_navigation != UINT32_MAX)) {
-      startup_data_not_before_ms =
-          input_now_ms + STARTUP_DATA_IDLE_DELAY_MS;
+      startup_data_not_before_ms = input_now_ms + STARTUP_DATA_IDLE_DELAY_MS;
     }
     if (network_work_allowed && pairing_linked && has_catalog &&
         !startup_data_loader.started &&
@@ -6853,19 +6808,19 @@ static void *run_app(void *unused) {
         !direct_search_loader.started && !catalog_loader.started) {
       if (!launch_startup_data_loader(&startup_data_loader,
                                       &auth_credentials)) {
-        startup_data_not_before_ms =
-            input_now_ms + STARTUP_DATA_IDLE_DELAY_MS;
+        startup_data_not_before_ms = input_now_ms + STARTUP_DATA_IDLE_DELAY_MS;
         SYS_Report("REFERENCE GX: background account data unavailable\n");
       }
     }
 #endif
-    const bool controller_input = pressed != 0 || stick_navigation != UINT32_MAX;
+    const bool controller_input =
+        pressed != 0 || stick_navigation != UINT32_MAX;
     if (pressed != 0) {
       SYS_Report("REFERENCE GX: controller buttons %08x\n", pressed);
     }
-    const bool reveal_player_controls_only =
-        video_surface.visible != 0 && !player_controls_overlay_visible &&
-        (pressed & PAD_BUTTON_A) != 0;
+    const bool reveal_player_controls_only = video_surface.visible != 0 &&
+                                             !player_controls_overlay_visible &&
+                                             (pressed & PAD_BUTTON_A) != 0;
     if (video_surface.visible != 0) {
       if (player_controls_last_input_ms == 0) {
         player_controls_last_input_ms = input_now_ms;
@@ -6951,8 +6906,8 @@ static void *run_app(void *unused) {
                                     ? tls_failure
                                     : "Multiplex pairing request failed");
           pairing_retry_delay_ms = PAIRING_RETRY_INITIAL_DELAY_MS;
-          pairing_retry_at_ms = ticks_to_millisecs(gettime()) +
-                                pairing_retry_delay_ms;
+          pairing_retry_at_ms =
+              ticks_to_millisecs(gettime()) + pairing_retry_delay_ms;
         } else {
           pairing_retry_at_ms = 0;
           pairing_retry_delay_ms = PAIRING_RETRY_INITIAL_DELAY_MS;
@@ -7079,10 +7034,10 @@ static void *run_app(void *unused) {
         }
         discard_staged_media_session(&staged_media);
         close_media_session(&client, &demux);
-        flush_timeline_report(
-            &timeline_reporter, MULTIPLEX_GATEWAY_URL,
-            timeline_plex_credentials, direct_hls_session_id,
-            &playback_manifest, stopped_position_ms, "stopped");
+        flush_timeline_report(&timeline_reporter, MULTIPLEX_GATEWAY_URL,
+                              timeline_plex_credentials, direct_hls_session_id,
+                              &playback_manifest, stopped_position_ms,
+                              "stopped");
         timeline_player_visible = false;
         memset(&playback_manifest, 0, sizeof(playback_manifest));
         multiplex_syncplay_session_destroy(syncplay_session);
@@ -7095,15 +7050,13 @@ static void *run_app(void *unused) {
         if (disband_watch_together && left_room_id[0] != '\0' &&
             strcmp(left_room_id, hosted_watch_together_room_id) == 0) {
           deleted = multiplex_trpc_delete_watch_together_room(
-              MULTIPLEX_BASE_URL, auth_credentials.session_token,
-              left_room_id);
+              MULTIPLEX_BASE_URL, auth_credentials.session_token, left_room_id);
           if (deleted) {
             hosted_watch_together_room_id[0] = '\0';
           }
         }
         if (disband_watch_together) {
-          multiplex_native_app_watch_together_disband_commit(deleted ? 1u
-                                                                     : 0u);
+          multiplex_native_app_watch_together_disband_commit(deleted ? 1u : 0u);
         } else {
           multiplex_native_app_watch_together_leave_commit();
         }
@@ -7132,8 +7085,7 @@ static void *run_app(void *unused) {
       }
 #if MULTIPLEX_PAIRING_ENABLED
       if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked &&
-          !load_direct_search_page(&auth_credentials,
-                                   &direct_search_loader)) {
+          !load_direct_search_page(&auth_credentials, &direct_search_loader)) {
         SYS_Report("REFERENCE GX: direct search-page load failed\n");
       }
 #endif
@@ -7176,8 +7128,7 @@ static void *run_app(void *unused) {
         present_frame(&playback_manifest);
         native_frame_dirty = retained_dirty;
       }
-      if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
-          pending_playback_key != 0) {
+      if (MULTIPLEX_GATEWAY_URL[0] != '\0' && pending_playback_key != 0) {
         discard_staged_media_session(&staged_media);
       }
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
@@ -7187,9 +7138,9 @@ static void *run_app(void *unused) {
       }
 #if MULTIPLEX_PAIRING_ENABLED
       if (MULTIPLEX_GATEWAY_URL[0] == '\0' && pairing_linked) {
-        stop_direct_playback_if_hidden(
-            &auth_credentials, &playback_manifest, &client, &demux,
-            &timeline_reporter, &timeline_player_visible);
+        stop_direct_playback_if_hidden(&auth_credentials, &playback_manifest,
+                                       &client, &demux, &timeline_reporter,
+                                       &timeline_player_visible);
         if (syncplay_session == NULL &&
             !navigate_direct_playback_if_requested(
                 &auth_credentials, &playback_manifest, &client, &demux,
@@ -7228,9 +7179,9 @@ static void *run_app(void *unused) {
               auth_credentials.plex_client_id, plex_user_id, false);
         }
         if (syncplay_session != NULL) {
-          multiplex_syncplay_session_set_playback(
-              syncplay_session, video_surface.playing == 0,
-              local_playback_offset);
+          multiplex_syncplay_session_set_playback(syncplay_session,
+                                                  video_surface.playing == 0,
+                                                  local_playback_offset);
           multiplex_syncplay_session_mark_local_seek(syncplay_session);
           SYS_Report("REFERENCE GX: Syncplay local seek position=%u\n",
                      local_playback_offset);
@@ -7266,9 +7217,9 @@ static void *run_app(void *unused) {
         !direct_page_poster_loader.pending && !direct_hls_prefetch.started &&
         !direct_browse_loader.started && !direct_search_loader.started &&
         (!startup_data_loader.started || startup_data_loader.complete)) {
-      if (launch_direct_details_loader(
-              &direct_details_loader, &auth_credentials,
-              selected_item_rating_key, false)) {
+      if (launch_direct_details_loader(&direct_details_loader,
+                                       &auth_credentials,
+                                       selected_item_rating_key, false)) {
         details_prefetch_at_ms = 0;
       }
     }
@@ -7291,8 +7242,7 @@ static void *run_app(void *unused) {
         watch_together_lobby = false;
         multiplex_native_app_watch_together_join_commit(0);
         native_frame_dirty = true;
-      } else if (joined_watch_together_room <
-                 watch_together_rooms.room_count) {
+      } else if (joined_watch_together_room < watch_together_rooms.room_count) {
         const MultiplexTrpcRoom *room =
             &watch_together_rooms.rooms[joined_watch_together_room];
         const unsigned present =
@@ -7336,8 +7286,7 @@ static void *run_app(void *unused) {
           } else {
             SYS_Report("REFERENCE GX: Watch Together auto-start room=%u "
                        "position=%u paused=%u\n",
-                       room_index, room_position_ms,
-                       room_paused ? 1u : 0u);
+                       room_index, room_position_ms, room_paused ? 1u : 0u);
           }
           native_frame_dirty = true;
         }
@@ -7390,12 +7339,11 @@ static void *run_app(void *unused) {
           if (remote_seek) {
             multiplex_syncplay_session_destroy(syncplay_session);
             syncplay_session = NULL;
-            applied =
-                load_direct_playback(
-                    &auth_credentials, playback_manifest.rating_key,
-                    remote_position_ms, true, &playback_manifest, &client,
-                    &demux) &&
-                room_index < watch_together_rooms.room_count;
+            applied = load_direct_playback(
+                          &auth_credentials, playback_manifest.rating_key,
+                          remote_position_ms, true, &playback_manifest, &client,
+                          &demux) &&
+                      room_index < watch_together_rooms.room_count;
             if (applied) {
               syncplay_session = multiplex_syncplay_session_connect(
                   &watch_together_rooms.rooms[room_index],
@@ -7410,10 +7358,8 @@ static void *run_app(void *unused) {
                          remote_position_ms);
             }
           }
-          if (applied &&
-              multiplex_native_app_playback_set_paused(remote_paused ? 1u
-                                                                     : 0u) !=
-                  0) {
+          if (applied && multiplex_native_app_playback_set_paused(
+                             remote_paused ? 1u : 0u) != 0) {
             if (syncplay_session != NULL) {
               multiplex_syncplay_session_adopt_playback(
                   syncplay_session, remote_paused, remote_position_ms);
@@ -7448,9 +7394,10 @@ static void *run_app(void *unused) {
                      "fade-ms=%u\n",
                      PLAYER_CONTROLS_IDLE_MS, PLAYER_CONTROLS_FADE_MS);
         } else {
-          const uint8_t next_alpha = (uint8_t)(
-              255u * (PLAYER_CONTROLS_FADE_MS - (uint32_t)fade_elapsed_ms) /
-              PLAYER_CONTROLS_FADE_MS);
+          const uint8_t next_alpha =
+              (uint8_t)(255u *
+                        (PLAYER_CONTROLS_FADE_MS - (uint32_t)fade_elapsed_ms) /
+                        PLAYER_CONTROLS_FADE_MS);
           if (next_alpha != ui_frame_alpha) {
             ui_frame_alpha = next_alpha;
             set_player_controls_texture_alpha(ui_frame_alpha);
@@ -7469,9 +7416,8 @@ static void *run_app(void *unused) {
       const uint32_t position_ms = playback_position_ms(&playback_manifest);
       if (direct_hls_demux != NULL) {
         timeline_started |= schedule_hls_timeline_report(
-            &timeline_reporter, direct_hls_demux,
-            playback_manifest.rating_key, position_ms,
-            playback_manifest.media_duration_ms,
+            &timeline_reporter, direct_hls_demux, playback_manifest.rating_key,
+            position_ms, playback_manifest.media_duration_ms,
             video_surface.playing == 0 ? "paused" : "playing");
       } else {
         if (video_surface.playing == 0) {
@@ -7557,8 +7503,7 @@ static void *run_app(void *unused) {
   discard_direct_hls_prefetch(&direct_hls_prefetch);
   const bool report_final_timeline =
       timeline_started || playback_manifest.rating_key != 0;
-  const uint32_t final_position_ms =
-      playback_position_ms(&playback_manifest);
+  const uint32_t final_position_ms = playback_position_ms(&playback_manifest);
   close_media_session(&client, &demux);
   if (report_final_timeline) {
     flush_timeline_report(&timeline_reporter, MULTIPLEX_GATEWAY_URL,

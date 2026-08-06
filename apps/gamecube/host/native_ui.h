@@ -127,11 +127,13 @@ uint32_t multiplex_native_app_watch_together_room(uint32_t index,
                                                   uint32_t title_length,
                                                   uint32_t participant_count);
 uint32_t multiplex_native_app_watch_together_commit(void);
-uint32_t multiplex_native_app_watch_together_invitees_begin(
-    uint32_t available, uint32_t invitee_count);
-uint32_t multiplex_native_app_watch_together_invitee(
-    uint32_t index, uint32_t user_id, const uint8_t *name,
-    uint32_t name_length);
+uint32_t
+multiplex_native_app_watch_together_invitees_begin(uint32_t available,
+                                                   uint32_t invitee_count);
+uint32_t multiplex_native_app_watch_together_invitee(uint32_t index,
+                                                     uint32_t user_id,
+                                                     const uint8_t *name,
+                                                     uint32_t name_length);
 uint32_t multiplex_native_app_watch_together_invitees_commit(void);
 uint32_t multiplex_native_app_watch_together_create_request(
     uint32_t *rating_key, uint32_t *invitee_user_id, uint8_t *title,
@@ -139,8 +141,9 @@ uint32_t multiplex_native_app_watch_together_create_request(
 uint32_t multiplex_native_app_watch_together_create_fail(void);
 uint32_t multiplex_native_app_watch_together_join_request(void);
 uint32_t multiplex_native_app_watch_together_join_commit(uint32_t connected);
-uint32_t multiplex_native_app_watch_together_presence(uint32_t connected,
-                                                       uint32_t participant_count);
+uint32_t
+multiplex_native_app_watch_together_presence(uint32_t connected,
+                                             uint32_t participant_count);
 uint32_t multiplex_native_app_watch_together_leave_request(void);
 uint32_t multiplex_native_app_watch_together_leave_commit(void);
 uint32_t multiplex_native_app_watch_together_reconnect_request(void);
@@ -181,8 +184,10 @@ uint32_t multiplex_native_app_search_fail(void);
 uint32_t multiplex_native_app_details_request(void);
 uint32_t multiplex_native_app_details_children_request(uint32_t *rating_key,
                                                        uint32_t *start);
-uint32_t multiplex_native_app_details_children_begin(
-    uint32_t rating_key, uint32_t start, uint32_t total, uint32_t item_count);
+uint32_t multiplex_native_app_details_children_begin(uint32_t rating_key,
+                                                     uint32_t start,
+                                                     uint32_t total,
+                                                     uint32_t item_count);
 uint32_t multiplex_native_app_details_child(
     uint32_t item_index, uint32_t rating_key, const uint8_t *title,
     uint32_t title_length, const uint8_t *subtitle, uint32_t subtitle_length,
@@ -193,12 +198,11 @@ uint32_t multiplex_native_app_details_commit(
     const uint8_t *title, uint32_t title_length, const uint8_t *secondary,
     uint32_t secondary_length, const uint8_t *hierarchy,
     uint32_t hierarchy_length, const uint8_t *media_type,
-    uint32_t media_type_length, const uint8_t *library,
-    uint32_t library_length, const uint8_t *content_rating,
-    uint32_t content_rating_length, const uint8_t *facts,
-    uint32_t facts_length, const uint8_t *summary, uint32_t summary_length,
-    const uint8_t *genres, uint32_t genres_length, const uint8_t *directors,
-    uint32_t directors_length, uint32_t playable);
+    uint32_t media_type_length, const uint8_t *library, uint32_t library_length,
+    const uint8_t *content_rating, uint32_t content_rating_length,
+    const uint8_t *facts, uint32_t facts_length, const uint8_t *summary,
+    uint32_t summary_length, const uint8_t *genres, uint32_t genres_length,
+    const uint8_t *directors, uint32_t directors_length, uint32_t playable);
 uint32_t multiplex_native_app_details_fail(void);
 uint32_t multiplex_native_app_subtitles(uint32_t count, uint32_t selected,
                                         const uint8_t *labels,
@@ -219,14 +223,14 @@ uint32_t multiplex_native_app_playback_navigation_clear(void);
 uint32_t multiplex_native_app_playback_navigate(
     uint32_t rating_key, const uint8_t *title, uint32_t title_length,
     const uint8_t *secondary, uint32_t secondary_length,
-    const uint8_t *hierarchy, uint32_t hierarchy_length,
-    uint32_t duration_ms);
+    const uint8_t *hierarchy, uint32_t hierarchy_length, uint32_t duration_ms);
 uint32_t multiplex_native_app_playback_request(void);
 uint32_t multiplex_native_app_playback_offset_request(void);
 uint32_t multiplex_native_app_playback_commit(void);
-uint32_t multiplex_native_app_playback_advance(
-    uint32_t rating_key, const uint8_t *title, uint32_t title_length,
-    uint32_t duration_ms);
+uint32_t multiplex_native_app_playback_advance(uint32_t rating_key,
+                                               const uint8_t *title,
+                                               uint32_t title_length,
+                                               uint32_t duration_ms);
 uint32_t multiplex_native_app_playback_fail(void);
 uint32_t multiplex_native_app_playback_position(uint32_t position_ms);
 uint32_t multiplex_native_app_playback_continue(uint32_t position_ms);
@@ -243,14 +247,15 @@ uint32_t multiplex_native_player_controls_surface(
     MultiplexPlayerControlsSurface *output);
 uint32_t multiplex_native_modal_surface(MultiplexModalSurface *output);
 uint32_t multiplex_native_poster_surfaces(MultiplexPosterSurface *output,
-                                           uint32_t capacity);
+                                          uint32_t capacity);
 void multiplex_native_reference_text_overlay(uint32_t enabled);
 uint32_t multiplex_native_app_render(MultiplexGxCommand *output,
                                      uint32_t capacity);
 uint32_t multiplex_native_reference_pixel_bytes(void);
 uint32_t multiplex_native_reference_render_stage(void);
-uint32_t multiplex_native_reference_dirty_bounds(
-    float *x, float *y, float *width, float *height, uint32_t *full_repaint);
+uint32_t multiplex_native_reference_dirty_bounds(float *x, float *y,
+                                                 float *width, float *height,
+                                                 uint32_t *full_repaint);
 uint32_t multiplex_native_reference_memo_hits(void);
 uint32_t multiplex_native_reference_memo_misses(void);
 uint32_t multiplex_native_reference_memo_bytes(void);

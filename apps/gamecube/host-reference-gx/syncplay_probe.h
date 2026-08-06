@@ -12,8 +12,8 @@ multiplex_syncplay_session_connect(const MultiplexTrpcRoom *room,
                                    const char *device_identifier,
                                    uint32_t user_id, bool observer);
 bool multiplex_syncplay_session_poll(MultiplexSyncplaySession *session);
-void multiplex_syncplay_session_set_playback(
-    MultiplexSyncplaySession *session, bool paused, uint32_t position_ms);
+void multiplex_syncplay_session_set_playback(MultiplexSyncplaySession *session,
+                                             bool paused, uint32_t position_ms);
 void multiplex_syncplay_session_adopt_playback(
     MultiplexSyncplaySession *session, bool paused, uint32_t position_ms);
 void multiplex_syncplay_session_mark_local_seek(

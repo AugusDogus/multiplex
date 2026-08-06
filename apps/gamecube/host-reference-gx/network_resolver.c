@@ -174,9 +174,8 @@ bool multiplex_resolve_ipv4(const char *host, const char *dns_server,
     }
     struct sockaddr_in sender;
     socklen_t sender_size = sizeof(sender);
-    const int received =
-        net_recvfrom(socket, response, sizeof(response), 0,
-                     (struct sockaddr *)&sender, &sender_size);
+    const int received = net_recvfrom(socket, response, sizeof(response), 0,
+                                      (struct sockaddr *)&sender, &sender_size);
     if (received < 12) {
       resolver_last_error = MULTIPLEX_RESOLVER_RECEIVE_FAILED;
       continue;

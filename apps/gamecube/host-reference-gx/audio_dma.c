@@ -26,7 +26,7 @@
 #define AUDIO_CHANNELS 2
 #define AUDIO_BYTES_PER_SAMPLE 2
 #define AUDIO_SAMPLE_RATE 48000
-#define AUDIO_SAMPLES_PER_BUFFER \
+#define AUDIO_SAMPLES_PER_BUFFER                                               \
   (AUDIO_BURST_SIZE / (AUDIO_CHANNELS * AUDIO_BYTES_PER_SAMPLE))
 
 struct AudioDma {
@@ -160,8 +160,7 @@ static bool start_dma_if_ready(AudioDma *audio) {
       audio->buffer_slots[ready_buffer].state = AUDIO_BUFFER_QUEUED;
       audio->queued_buffer = ready_buffer;
       audio->queued_partial_samples = 0;
-      AUDIO_InitDMA((uint32_t)audio->buffers[ready_buffer],
-                    AUDIO_BURST_SIZE);
+      AUDIO_InitDMA((uint32_t)audio->buffers[ready_buffer], AUDIO_BURST_SIZE);
     }
   }
   const bool available =
@@ -180,8 +179,7 @@ static uint64_t samples_played_locked(const AudioDma *audio) {
         (uint32_t)(gettick() - audio->current_buffer_started));
     const uint32_t elapsed_samples =
         (elapsed_us * (AUDIO_SAMPLE_RATE / 1000u)) / 1000u;
-    if (elapsed_samples <
-        AUDIO_SAMPLES_PER_BUFFER - partial_samples) {
+    if (elapsed_samples < AUDIO_SAMPLES_PER_BUFFER - partial_samples) {
       partial_samples += elapsed_samples;
     } else {
       partial_samples = AUDIO_SAMPLES_PER_BUFFER - 1u;
@@ -238,10 +236,9 @@ AudioDma *audio_dma_create(AudioCodec codec, void *reader_context,
     return NULL;
   }
 
-  SYS_Report(
-      "REFERENCE GX: audio=ffmpeg-mplayer-ce codec=%s output=ai-dma "
-      "rate=48000 channels=2 format=s16 buffers=%u burst=%u bytes\n",
-      audio_codec_name(codec), AUDIO_BUFFER_COUNT, AUDIO_BURST_SIZE);
+  SYS_Report("REFERENCE GX: audio=ffmpeg-mplayer-ce codec=%s output=ai-dma "
+             "rate=48000 channels=2 format=s16 buffers=%u burst=%u bytes\n",
+             audio_codec_name(codec), AUDIO_BUFFER_COUNT, AUDIO_BURST_SIZE);
   return audio;
 }
 
@@ -334,16 +331,14 @@ void audio_dma_update(AudioDma *audio, bool playing) {
     start_dma_if_ready(audio);
   }
 
-  if (audio->completed_buffers != 0 &&
-      audio->completed_buffers % 100u == 0u) {
+  if (audio->completed_buffers != 0 && audio->completed_buffers % 100u == 0u) {
     static uint32_t reported_buffers;
     if (audio->completed_buffers != reported_buffers) {
       reported_buffers = audio->completed_buffers;
-      SYS_Report(
-          "REFERENCE GX: audio-progress buffers=%u samples=%llu "
-          "decoder-frames=%u underruns=%u\n",
-          audio->completed_buffers, audio_dma_samples_played(audio),
-          audio_decoder_frame_count(audio->decoder), audio->underruns);
+      SYS_Report("REFERENCE GX: audio-progress buffers=%u samples=%llu "
+                 "decoder-frames=%u underruns=%u\n",
+                 audio->completed_buffers, audio_dma_samples_played(audio),
+                 audio_decoder_frame_count(audio->decoder), audio->underruns);
     }
   }
 }

@@ -14,8 +14,9 @@ uint32_t multiplex_native_reference_memo_hits(void) { return memo_hits; }
 
 uint32_t multiplex_native_reference_memo_misses(void) { return memo_misses; }
 
-uint32_t multiplex_native_reference_dirty_bounds(
-    float *x, float *y, float *width, float *height, uint32_t *full_repaint) {
+uint32_t multiplex_native_reference_dirty_bounds(float *x, float *y,
+                                                 float *width, float *height,
+                                                 uint32_t *full_repaint) {
   *x = 0;
   *y = 0;
   *width = 2;
@@ -73,9 +74,8 @@ static void renders_validated_frames(void) {
   assert(render.memo_misses == 0);
   assert(frame.pixels[0] == 2);
 
-  assert(multiplex_reference_frame_render_with_options(&frame, false, &render,
-                                                       0) ==
-         MULTIPLEX_REFERENCE_FRAME_OK);
+  assert(multiplex_reference_frame_render_with_options(
+             &frame, false, &render, 0) == MULTIPLEX_REFERENCE_FRAME_OK);
   assert(render.signature == 0);
   multiplex_reference_frame_destroy(&frame);
   assert(frame.pixels == NULL);
