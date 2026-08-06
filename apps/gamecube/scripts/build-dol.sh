@@ -14,9 +14,7 @@ fi
 
 sh "$script_dir/check.sh"
 
-python3 "$script_dir/generate-font-atlas.py" \
-  "$app_dir/.native-sdk/src/primitives/canvas/fonts/Geist-Regular.ttf" \
-  "$app_dir/generated/geist_atlas.h"
+make --no-print-directory -f "$app_dir/Makefile.assets" font-atlas
 
 podman run --rm \
   --volume "$app_dir:/workspace:Z" \

@@ -1,6 +1,6 @@
 .{
     .name = .multiplex_gamecube,
-    .fingerprint = 0xed61444db7c0cba6,
+    .fingerprint = 0x2e1e33b2b7c0cba6,
     .version = "0.1.0",
     .minimum_zig_version = "0.16.0",
     .dependencies = .{

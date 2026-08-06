@@ -34,6 +34,7 @@ if [ ! -s "$app_dir/.mbedtls-stage/lib/libmbedtls.a" ]; then
 fi
 
 sh "$script_dir/check.sh"
+make --no-print-directory -f "$app_dir/Makefile.assets" font-atlas
 
 build_dir="$app_dir/build-native-reference"
 stage_stamp="$build_dir/.libogc2-stage"
