@@ -209,7 +209,11 @@ def poll_pairing(path: pathlib.Path) -> dict[str, object]:
     response = request_json(request)
     token = response.get("authToken") or response.get("auth_token")
     if not isinstance(token, str) or not token:
-        return {"status": "waiting", "code": state["code"], "url": auth_url(str(state["code"]))}
+        return {
+            "status": "waiting",
+            "code": state["code"],
+            "url": auth_url(str(state["code"])),
+        }
     state["authToken"] = token
     state["claimedAt"] = int(time.time())
     save_state(path, state)
@@ -247,7 +251,9 @@ def token_expiry(token: str) -> int:
     try:
         payload = json.loads(decode_base64url(parts[1]))
     except (ValueError, json.JSONDecodeError) as error:
-        raise RuntimeError("Plex authentication token has an invalid payload") from error
+        raise RuntimeError(
+            "Plex authentication token has an invalid payload"
+        ) from error
     if not isinstance(payload, dict):
         raise RuntimeError("Plex authentication token payload is not an object")
     expiry = payload.get("exp")

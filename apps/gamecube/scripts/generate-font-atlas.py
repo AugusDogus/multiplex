@@ -82,7 +82,9 @@ def read_glyph_ids(font_path: Path) -> list[int]:
             range_offset = struct.unpack_from(">H", data, range_offset_location)[0]
             if range_offset == 0:
                 return (codepoint + delta) & 0xFFFF
-            glyph_offset = range_offset_location + range_offset + (codepoint - start) * 2
+            glyph_offset = (
+                range_offset_location + range_offset + (codepoint - start) * 2
+            )
             mapped = struct.unpack_from(">H", data, glyph_offset)[0]
             return ((mapped + delta) & 0xFFFF) if mapped else 0
         return 0
@@ -119,8 +121,7 @@ def render(font_path: Path) -> tuple[bytes, list[list[tuple[int, ...]]]]:
             height = max(0, y1 - y0)
             cell_x = (character_index % COLUMNS) * CELL_SIZE
             cell_y = (
-                size_index * SECTION_HEIGHT
-                + (character_index // COLUMNS) * CELL_SIZE
+                size_index * SECTION_HEIGHT + (character_index // COLUMNS) * CELL_SIZE
             )
 
             if width and height:
@@ -192,21 +193,17 @@ def write_header(
         )
     lines.extend(
         [
-        "};",
-        "",
-        "static const GeistGlyphMetric",
-        "    geist_metrics[GEIST_SIZE_COUNT][GEIST_CHARACTER_COUNT] = {",
+            "};",
+            "",
+            "static const GeistGlyphMetric",
+            "    geist_metrics[GEIST_SIZE_COUNT][GEIST_CHARACTER_COUNT] = {",
         ]
     )
 
     for size_metrics in metrics:
         lines.append("  {")
         for metric in size_metrics:
-            lines.append(
-                "    {"
-                + ", ".join(str(value) for value in metric)
-                + "},"
-            )
+            lines.append("    {" + ", ".join(str(value) for value in metric) + "},")
         lines.append("  },")
     lines.extend(
         [
@@ -232,9 +229,7 @@ def main() -> int:
     atlas_bytes, metrics = render(font_path)
     glyph_ids = read_glyph_ids(font_path)
     write_header(output_path, atlas_bytes, metrics, glyph_ids)
-    print(
-        f"Generated {ATLAS_WIDTH}x{ATLAS_HEIGHT} Geist GX atlas at {output_path}"
-    )
+    print(f"Generated {ATLAS_WIDTH}x{ATLAS_HEIGHT} Geist GX atlas at {output_path}")
     return 0
 
 

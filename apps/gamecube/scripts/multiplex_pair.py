@@ -79,19 +79,12 @@ class MultiplexPairingClient:
                 method="GET",
                 headers={
                     "Accept": "application/json",
-                    "Authorization": (
-                        f"MultiplexDevice {device_id}:{device_secret}"
-                    ),
+                    "Authorization": (f"MultiplexDevice {device_id}:{device_secret}"),
                 },
             )
             response = _request_json(request)
-            if (
-                response.get("apiVersion") != 1
-                or response.get("status") != "ready"
-            ):
-                raise ValueError(
-                    "Multiplex returned an invalid Plex server response"
-                )
+            if response.get("apiVersion") != 1 or response.get("status") != "ready":
+                raise ValueError("Multiplex returned an invalid Plex server response")
             values = response.get("servers")
             if not isinstance(values, list):
                 raise ValueError("Multiplex Plex server response is incomplete")
@@ -177,9 +170,7 @@ class MultiplexPairingClient:
             method="GET",
             headers={
                 "Accept": "application/json",
-                "Authorization": (
-                    f"MultiplexDevice {device_id}:{device_secret}"
-                ),
+                "Authorization": (f"MultiplexDevice {device_id}:{device_secret}"),
             },
         )
         response = _request_json(request)
@@ -191,9 +182,7 @@ class MultiplexPairingClient:
             raise ValueError("Multiplex console bootstrap is incomplete")
         if _required_string(device, "id") != device_id:
             raise ValueError("Multiplex console bootstrap changed device identity")
-        credential_expires_at = _required_string(
-            device, "credentialExpiresAt"
-        )
+        credential_expires_at = _required_string(device, "credentialExpiresAt")
         plex_linked = _required_bool(account, "plexLinked")
         state["credentialExpiresAt"] = credential_expires_at
         state["plexLinked"] = plex_linked

@@ -46,9 +46,7 @@ class MultiplexPairingClientTest(unittest.TestCase):
                             "id": "123e4567-e89b-42d3-a456-426614174000",
                             "name": "Nintendo GameCube",
                             "platform": "gamecube",
-                            "credentialExpiresAt": (
-                                "2026-10-26T14:00:00.000Z"
-                            ),
+                            "credentialExpiresAt": ("2026-10-26T14:00:00.000Z"),
                         },
                         "account": {"plexLinked": True},
                     }
@@ -120,12 +118,8 @@ class MultiplexPairingClientTest(unittest.TestCase):
                     {
                         "version": 1,
                         "baseUrl": "http://multiplex.test:3000",
-                        "deviceId": (
-                            "123e4567-e89b-42d3-a456-426614174000"
-                        ),
-                        "deviceSecret": (
-                            "device-secret-with-at-least-32-characters"
-                        ),
+                        "deviceId": ("123e4567-e89b-42d3-a456-426614174000"),
+                        "deviceSecret": ("device-secret-with-at-least-32-characters"),
                         "status": "linked",
                     }
                 ),
@@ -145,12 +139,8 @@ class MultiplexPairingClientTest(unittest.TestCase):
                             "apiVersion": 1,
                             "status": "ready",
                             "device": {
-                                "id": (
-                                    "123e4567-e89b-42d3-a456-426614174000"
-                                ),
-                                "credentialExpiresAt": (
-                                    "2026-10-26T14:00:00.000Z"
-                                ),
+                                "id": ("123e4567-e89b-42d3-a456-426614174000"),
+                                "credentialExpiresAt": ("2026-10-26T14:00:00.000Z"),
                             },
                             "account": {"plexLinked": True},
                         },
@@ -180,9 +170,7 @@ class MultiplexPairingClientTest(unittest.TestCase):
                 pair.PairingStatus("linked", plex_linked=True),
             )
             self.assertEqual(
-                urllib.parse.urlparse(
-                    urlopen.call_args_list[0].args[0].full_url
-                ).path,
+                urllib.parse.urlparse(urlopen.call_args_list[0].args[0].full_url).path,
                 "/api/console/bootstrap",
             )
             self.assertEqual(
@@ -198,9 +186,7 @@ class MultiplexPairingClientTest(unittest.TestCase):
                 ],
             )
             self.assertEqual(
-                urllib.parse.urlparse(
-                    urlopen.call_args_list[1].args[0].full_url
-                ).path,
+                urllib.parse.urlparse(urlopen.call_args_list[1].args[0].full_url).path,
                 "/api/console/plex/servers",
             )
 

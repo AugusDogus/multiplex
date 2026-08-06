@@ -86,11 +86,15 @@ class CatalogContractTest(unittest.TestCase):
             ">IIIHH", encoded[cursor : cursor + 16]
         )
         cursor += 16
-        self.assertEqual((rating_key, duration, offset, flags), (42, 120_000, 30_000, 0))
+        self.assertEqual(
+            (rating_key, duration, offset, flags), (42, 120_000, 30_000, 0)
+        )
         self.assertEqual(encoded[cursor : cursor + title_length], b"Fresh")
 
     def test_bounds_items_and_utf8_without_splitting_a_codepoint(self) -> None:
-        items = [gateway.CatalogItem(index, 0, 0, "x" * 200 + "é") for index in range(8)]
+        items = [
+            gateway.CatalogItem(index, 0, 0, "x" * 200 + "é") for index in range(8)
+        ]
         encoded = gateway.encode_catalog("é" * 100, items)
         _, _, count, server_length, _ = struct.unpack(">4sHHHH", encoded[:12])
         self.assertEqual(count, gateway.MAX_ITEMS)
@@ -119,7 +123,9 @@ class CatalogContractTest(unittest.TestCase):
         )
         self.assertEqual((magic, version, row_count), (b"MPXG", 2, 1))
         cursor = 12 + server_length
-        row_title_length, item_count = struct.unpack(">HH", encoded[cursor : cursor + 4])
+        row_title_length, item_count = struct.unpack(
+            ">HH", encoded[cursor : cursor + 4]
+        )
         cursor += 4 + row_title_length
         item = struct.unpack(">IIIHBBHH", encoded[cursor : cursor + 20])
         self.assertEqual(item[:6], (99, 200_000, 50_000, 0, 25, 0))
@@ -213,7 +219,9 @@ class CatalogContractTest(unittest.TestCase):
         )
         encoded = gateway.encode_details_page(page)
         header = struct.unpack(">4sHHIIIHHHHHHHHHH", encoded[:40])
-        self.assertEqual(header[:8], (b"MPXD", 1, 1, 416284, 6_851_264, 50_000, 2022, 82))
+        self.assertEqual(
+            header[:8], (b"MPXD", 1, 1, 416284, 6_851_264, 50_000, 2022, 82)
+        )
         self.assertEqual(header[13], gateway.MAX_DETAIL_SUMMARY_BYTES)
 
     def test_encodes_playback_manifest(self) -> None:
