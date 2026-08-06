@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>N64DD Plex Client — Dial-Up Quality Explorer</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%237bd88f'/><text x='8' y='12' font-size='10' text-anchor='middle' fill='%230d0e12' font-family='monospace'>N</text></svg>" />
+<style>
+  :root {
+    --bg: #0d0e12;
+    --panel: #16181f;
+    --line: #2a2d38;
+    --text: #e8e8ec;
+    --dim: #8b8e9c;
+    --accent: #7bd88f;
+    --accent2: #f0c674;
+    --warn: #e06c75;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    display: flex;
+    min-height: 100vh;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .app { width: min(920px, 100%); }
+  header { margin-bottom: 16px; }
+  h1 { font-size: 18px; margin: 0 0 4px; letter-spacing: 0.02em; }
+  h1 .tag { color: var(--accent); }
+  header p { margin: 0; color: var(--dim); font-size: 13px; }
+
+  .screen {
+    background: #000;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    aspect-ratio: 5 / 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  video { width: 100%; height: 100%; object-fit: contain; }
+  .badge {
+    position: absolute;
+    top: 10px; left: 10px;
+    background: rgba(0,0,0,0.65);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 12px;
+    color: var(--accent2);
+  }
+  .encode-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(13,14,18,0.55);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+  }
+  .encode-overlay.active { opacity: 1; }
+  .encode-overlay .msg { font-size: 13px; color: var(--text); }
+  .progress {
+    width: 240px; height: 6px;
+    border-radius: 3px;
+    background: var(--line);
+    overflow: hidden;
+  }
+  .progress > div {
+    height: 100%; width: 0%;
+    background: var(--accent);
+    transition: width 0.1s linear;
+  }
+
+  .controls {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    margin-top: 14px;
+    padding: 18px 20px 8px;
+  }
+  .slider-row { display: grid; grid-template-columns: 190px 1fr 170px; gap: 16px; align-items: center; padding: 10px 0; }
+  .slider-row + .slider-row { border-top: 1px dashed var(--line); }
+  .slider-row label { color: var(--text); font-size: 14px; }
+  .slider-row label small { display: block; color: var(--dim); font-size: 11px; }
+  .value { text-align: right; color: var(--accent); font-size: 14px; white-space: nowrap; }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    width: 100%; height: 26px;
+    background: transparent;
+    cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--line); }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    margin-top: -7px;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--accent);
+    border: 3px solid var(--bg);
+    box-shadow: 0 0 0 1px var(--line);
+    transition: transform 0.12s ease;
+  }
+  input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
+  input[type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line); }
+  input[type="range"]::-moz-range-thumb {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--accent); border: 3px solid var(--bg);
+    box-shadow: 0 0 0 1px var(--line);
+  }
+
+  .ledger {
+    display: flex;
+    margin-top: 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--panel);
+  }
+  .ledger .cell { flex: 1; padding: 10px 14px; text-align: center; }
+  .ledger .cell + .cell { border-left: 1px solid var(--line); }
+  .ledger .num { font-size: 16px; color: var(--text); }
+  .ledger .num.warn { color: var(--warn); }
+  .ledger .lbl { font-size: 11px; color: var(--dim); margin-top: 2px; }
+
+  .bar {
+    display: flex;
+    height: 10px;
+    border-radius: 5px;
+    overflow: hidden;
+    margin-top: 10px;
+    border: 1px solid var(--line);
+  }
+  .bar .seg-video { background: var(--accent); }
+  .bar .seg-audio { background: var(--accent2); }
+  .bar .seg-tax { background: #4a4e5c; }
+  .legend { display: flex; gap: 18px; margin-top: 6px; font-size: 11px; color: var(--dim); }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+
+  footer { margin-top: 14px; color: var(--dim); font-size: 12px; }
+  .error {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    color: var(--warn);
+    font-size: 13px;
+    display: none;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>N64DD Plex Client <span class="tag">// dial-up quality explorer</span></h1>
+    <p>Pick any combination — your browser runs the real x264 encoder to fit it on one 28.8 kbps phone line.
+       More audio steals from video. Fullscreen it, then judge from couch distance; the target display is a CRT.</p>
+  </header>
+
+  <div class="screen">
+    <video id="player" autoplay loop muted playsinline></video>
+    <div class="badge" id="badge">—</div>
+    <div class="encode-overlay" id="overlay">
+      <div class="msg" id="overlayMsg">loading encoder…</div>
+      <div class="progress"><div id="progressBar"></div></div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="slider-row">
+      <label for="fps">Frame rate<small>frames per second</small></label>
+      <input type="range" id="fps" min="4" max="24" step="1" value="12" />
+      <div class="value" id="fpsVal"></div>
+    </div>
+    <div class="slider-row">
+      <label for="res">Resolution<small>encoded picture width</small></label>
+      <input type="range" id="res" min="96" max="320" step="16" value="160" />
+      <div class="value" id="resVal"></div>
+    </div>
+    <div class="slider-row">
+      <label for="aud">Audio quality<small>mono — steals directly from video</small></label>
+      <input type="range" id="aud" min="6" max="20" step="1" value="12" />
+      <div class="value" id="audVal"></div>
+    </div>
+  </div>
+
+  <div class="ledger">
+    <div class="cell"><div class="num" id="vkbps">—</div><div class="lbl">video kbps (target)</div></div>
+    <div class="cell"><div class="num" id="akbps">—</div><div class="lbl">audio kbps</div></div>
+    <div class="cell"><div class="num" id="bpf">—</div><div class="lbl">bits / frame</div></div>
+    <div class="cell"><div class="num" id="bpp">—</div><div class="lbl">bits / pixel</div></div>
+    <div class="cell"><div class="num" id="actual">—</div><div class="lbl">measured kbps</div></div>
+  </div>
+  <div class="bar" id="bar"></div>
+  <div class="legend">
+    <span><i style="background:var(--accent)"></i>video</span>
+    <span><i style="background:var(--accent2)"></i>audio</span>
+    <span><i style="background:#4a4e5c"></i>PPP/TCP overhead</span>
+    <span style="margin-left:auto">line rate: 28.8 kbps</span>
+  </div>
+
+  <div class="error" id="error"></div>
+
+  <footer>
+    Source: “12 Angry Men” (1957), transcoded by a stock Plex server.
+    Each combination is encoded live in your browser by x264 (via ffmpeg.wasm) with strict CBR —
+    the same encoder and rate control the phone-line bridge would run.
+    Click the video to unmute.
+  </footer>
+</div>
+
+<script src="/n64dd/vendor/ffmpeg.js"></script>
+<script type="module">
+  const LINE = 28.8;      // kbps, modem line rate
+  const GOODPUT = 26;     // kbps after PPP/TCP overhead
+  const CLIP_SECONDS = 60;
+  const ASPECT = 320 / 192;
+
+  const player = document.getElementById("player");
+  const badge = document.getElementById("badge");
+  const overlay = document.getElementById("overlay");
+  const overlayMsg = document.getElementById("overlayMsg");
+  const progressBar = document.getElementById("progressBar");
+  const errorBox = document.getElementById("error");
+  const sliders = {
+    fps: document.getElementById("fps"),
+    res: document.getElementById("res"),
+    aud: document.getElementById("aud"),
+  };
+
+  const evenHeight = (w) => Math.round(w / ASPECT / 2) * 2;
+
+  function current() {
+    const fps = Number(sliders.fps.value);
+    const w = Number(sliders.res.value);
+    const a = Number(sliders.aud.value);
+    return { fps, w, h: evenHeight(w), a, v: Math.max(GOODPUT - a, 2) };
+  }
+
+  function updateReadout() {
+    const c = current();
+    document.getElementById("fpsVal").textContent = `${c.fps} fps`;
+    document.getElementById("resVal").textContent = `${c.w}\u00d7${c.h}`;
+    document.getElementById("audVal").textContent = `${c.a} kbps`;
+    document.getElementById("vkbps").textContent = c.v;
+    document.getElementById("akbps").textContent = c.a;
+
+    const bpf = Math.round((c.v * 1000) / c.fps);
+    const bpp = (c.v * 1000) / c.fps / (c.w * c.h);
+    const bpfEl = document.getElementById("bpf");
+    const bppEl = document.getElementById("bpp");
+    bpfEl.textContent = bpf;
+    bppEl.textContent = bpp.toFixed(3);
+    bpfEl.className = "num" + (bpf < 400 ? " warn" : "");
+    bppEl.className = "num" + (bpp < 0.04 ? " warn" : "");
+
+    document.getElementById("bar").innerHTML =
+      `<div class="seg-video" style="flex:${c.v}"></div>` +
+      `<div class="seg-audio" style="flex:${c.a}"></div>` +
+      `<div class="seg-tax" style="flex:${LINE - c.v - c.a}"></div>`;
+
+    badge.textContent = `${c.w}\u00d7${c.h} @ ${c.fps}fps \u00b7 A:${c.a}k V:${c.v}k`;
+    return c;
+  }
+
+  const { FFmpeg } = FFmpegWASM;
+  const ffmpeg = new FFmpeg();
+  let audioCodec = "aac";
+  let currentObjectUrl = null;
+  let lastStreamKbps = null;
+
+  ffmpeg.on("progress", ({ progress }) => {
+    progressBar.style.width = `${Math.min(Math.round(progress * 100), 100)}%`;
+  });
+
+  // ffmpeg's final report, e.g. "video:105KiB audio:88KiB ... muxing overhead: 4%",
+  // gives true elementary-stream sizes without MP4 container tax.
+  ffmpeg.on("log", ({ message }) => {
+    const match = message.match(/video:\s*([\d.]+)\s*[kK]i?B\s+audio:\s*([\d.]+)\s*[kK]i?B/);
+    if (match) {
+      lastStreamKbps = ((Number(match[1]) + Number(match[2])) * 8.192) / CLIP_SECONDS;
+    }
+  });
+
+  async function setup() {
+    overlay.classList.add("active");
+    overlayMsg.textContent = "loading x264 encoder (one-time, ~32 MB)\u2026";
+    // The 32 MB wasm core stays out of the repo; jsdelivr serves it with CORS.
+    await ffmpeg.load({
+      coreURL: "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.js",
+      wasmURL: "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.wasm",
+    });
+    overlayMsg.textContent = "fetching source clip\u2026";
+    const src = await fetch("/n64dd/source.mp4");
+    await ffmpeg.writeFile("src.mp4", new Uint8Array(await src.arrayBuffer()));
+    const opusProbe = await ffmpeg.exec(["-hide_banner", "-h", "encoder=libopus"]);
+    if (opusProbe === 0) audioCodec = "libopus";
+  }
+
+  function encodeArgs(c, codec) {
+    const audio = codec === "libopus"
+      ? ["-c:a", "libopus", "-b:a", `${c.a}k`, "-ac", "1", "-ar", "48000", "-application", "audio", "-strict", "-2"]
+      : ["-c:a", "aac", "-b:a", `${c.a}k`, "-ac", "1", "-ar", "24000"];
+    return [
+      "-i", "src.mp4",
+      "-t", String(CLIP_SECONDS),
+      "-vf", `scale=${c.w}:${c.h}:flags=lanczos,setsar=1,fps=${c.fps}`,
+      "-c:v", "libx264",
+      "-preset", "fast",
+      "-profile:v", "baseline",
+      "-b:v", `${c.v}k`, "-maxrate", `${c.v}k`, "-bufsize", `${c.v * 2}k`,
+      "-g", String(c.fps * 5),
+      ...audio,
+      "-movflags", "+faststart",
+      "-y", "out.mp4",
+    ];
+  }
+
+  let busy = false;
+  let pending = false;
+
+  async function encode() {
+    updateReadout();
+    if (busy) {
+      pending = true;
+      return;
+    }
+    busy = true;
+
+    do {
+      pending = false;
+      const c = updateReadout();
+      overlay.classList.add("active");
+      overlayMsg.textContent = `x264 encoding ${c.w}\u00d7${c.h} @ ${c.fps}fps\u2026`;
+      progressBar.style.width = "0%";
+      errorBox.style.display = "none";
+
+      try {
+        const started = performance.now();
+        lastStreamKbps = null;
+        const ret = await ffmpeg.exec(encodeArgs(c, audioCodec));
+        if (ret !== 0) throw new Error(`ffmpeg exited with code ${ret}`);
+        const data = await ffmpeg.readFile("out.mp4");
+
+        const kbps = lastStreamKbps ?? (data.byteLength * 8) / CLIP_SECONDS / 1000;
+        const actualEl = document.getElementById("actual");
+        actualEl.textContent = kbps.toFixed(1);
+        actualEl.className = "num" + (kbps > LINE ? " warn" : "");
+        overlayMsg.textContent = `done in ${((performance.now() - started) / 1000).toFixed(1)}s`;
+
+        const t = player.currentTime;
+        if (currentObjectUrl) URL.revokeObjectURL(currentObjectUrl);
+        currentObjectUrl = URL.createObjectURL(new Blob([data.buffer], { type: "video/mp4" }));
+        player.src = currentObjectUrl;
+        player.addEventListener("loadedmetadata", () => {
+          player.currentTime = Math.min(t, Math.max(player.duration - 0.5, 0));
+          player.play().catch(() => {});
+        }, { once: true });
+      } catch (err) {
+        errorBox.textContent = `Encoding failed: ${err?.message ?? err}`;
+        errorBox.style.display = "block";
+      }
+    } while (pending);
+
+    busy = false;
+    overlay.classList.remove("active");
+  }
+
+  for (const s of Object.values(sliders)) {
+    s.addEventListener("input", updateReadout); // live readout while dragging
+    s.addEventListener("change", encode);       // encode on release
+  }
+  player.addEventListener("click", () => { player.muted = !player.muted; });
+
+  updateReadout();
+  try {
+    await setup();
+    await encode();
+  } catch (err) {
+    overlay.classList.remove("active");
+    errorBox.textContent = `Failed to start: ${err?.message ?? err}`;
+    errorBox.style.display = "block";
+  }
+</script>
+</body>
+</html>

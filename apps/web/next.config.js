@@ -38,6 +38,10 @@ const config = {
   // Artwork loads directly from PMS (`/photo/:/transcode` with X-Plex-Token).
   // Keep Next's optimizer off so cross-origin plex.direct URLs are not rewritten.
   images: { unoptimized: true },
+  // Static demo page in public/n64dd; the rewrite lets the bare path serve it.
+  async rewrites() {
+    return [{ source: "/n64dd", destination: "/n64dd/index.html" }];
+  },
 };
 
 export default config;

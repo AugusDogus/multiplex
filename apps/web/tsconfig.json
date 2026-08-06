@@ -49,6 +49,7 @@
   "exclude": [
     "node_modules",
     "playwright-report",
-    "test-results"
+    "test-results",
+    "public/n64dd/vendor"
   ]
 }
