@@ -26,14 +26,14 @@ bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
                               const char *session_id, bool burn_subtitles,
                               uint32_t subtitle_stream_index,
                               MultiplexPlexHlsSession *session);
-bool multiplex_plex_hls_refresh(
-    const MultiplexAuthCredentials *credentials,
-    MultiplexPlexHlsSession *session, HlsMediaPlaylist *playlist);
+bool multiplex_plex_hls_refresh(const MultiplexAuthCredentials *credentials,
+                                MultiplexPlexHlsSession *session,
+                                HlsMediaPlaylist *playlist);
 bool multiplex_plex_hls_stream_segment(
     const MultiplexAuthCredentials *credentials,
     const MultiplexPlexHlsSession *session, const HlsSegment *segment,
-    HttpBodyWrite write, void *write_context,
-    const volatile bool *cancelled, size_t *body_size);
+    HttpBodyWrite write, void *write_context, const volatile bool *cancelled,
+    size_t *body_size);
 void multiplex_plex_hls_stop(const MultiplexAuthCredentials *credentials,
                              MultiplexPlexHlsSession *session);
 

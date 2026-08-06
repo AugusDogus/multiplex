@@ -38,8 +38,7 @@ static bool write_bounded_body(void *context, const uint8_t *bytes,
                                size_t size) {
   BoundedBodyWrite *body = context;
   if (body == NULL || body->bytes == NULL || body->capacity == 0 ||
-      body->used >= body->capacity ||
-      size > body->capacity - 1u - body->used) {
+      body->used >= body->capacity || size > body->capacity - 1u - body->used) {
     return false;
   }
   memcpy(body->bytes + body->used, bytes, size);
@@ -67,8 +66,8 @@ static bool write_resumed_segment(void *context, const uint8_t *bytes,
 #define PLEX_HLS_MEDIA_PLAYLIST_CAPACITY (64u * 1024u)
 #define PLEX_HLS_START_ATTEMPTS 4u
 #define PLEX_HLS_START_RETRY_US 1000000u
-#define PLEX_HLS_PROFILE \
-  "add-transcode-target(type=videoProfile&context=streaming&protocol=hls&" \
+#define PLEX_HLS_PROFILE                                                       \
+  "add-transcode-target(type=videoProfile&context=streaming&protocol=hls&"     \
   "container=mpegts&videoCodec=h264&audioCodec=aac&replace=true)"
 
 static uint64_t fnv1a64(const char *value) {
@@ -85,20 +84,16 @@ static bool make_session_id(const MultiplexAuthCredentials *credentials,
   const uint64_t clock = gettime();
   const uint64_t wall_clock = (uint64_t)time(NULL);
   const uint64_t identity = fnv1a64(credentials->plex_client_id);
-  const uint32_t first =
-      (uint32_t)(clock ^ (identity >> 32u) ^ wall_clock);
+  const uint32_t first = (uint32_t)(clock ^ (identity >> 32u) ^ wall_clock);
   const uint16_t second = (uint16_t)((clock >> 32u) ^ (wall_clock >> 32u));
-  const uint16_t third =
-      (uint16_t)(((identity >> 48u) & 0x0fffu) | 0x4000u);
-  const uint16_t fourth =
-      (uint16_t)(((identity >> 16u) & 0x3fffu) | 0x8000u);
+  const uint16_t third = (uint16_t)(((identity >> 48u) & 0x0fffu) | 0x4000u);
+  const uint16_t fourth = (uint16_t)(((identity >> 16u) & 0x3fffu) | 0x8000u);
   const uint64_t fifth =
       (clock ^ identity ^ wall_clock * UINT64_C(0x9e3779b97f4a7c15)) &
       UINT64_C(0xffffffffffff);
-  const int size = snprintf(destination, capacity,
-                            "%08x-%04x-%04x-%04x-%04x%08x", first, second,
-                            third, fourth, (unsigned)(fifth >> 32u),
-                            (unsigned)fifth);
+  const int size = snprintf(
+      destination, capacity, "%08x-%04x-%04x-%04x-%04x%08x", first, second,
+      third, fourth, (unsigned)(fifth >> 32u), (unsigned)fifth);
   return size == 36 && (size_t)size < capacity;
 }
 
@@ -157,11 +152,12 @@ static size_t control_headers(const MultiplexAuthCredentials *credentials,
   return count;
 }
 
-static bool configure_hls_session(
-    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
-    uint32_t offset_ms, const char *requested_session_id,
-    bool burn_subtitles, uint32_t subtitle_stream_index,
-    MultiplexPlexHlsSession *session) {
+static bool configure_hls_session(const MultiplexAuthCredentials *credentials,
+                                  uint32_t rating_key, uint32_t offset_ms,
+                                  const char *requested_session_id,
+                                  bool burn_subtitles,
+                                  uint32_t subtitle_stream_index,
+                                  MultiplexPlexHlsSession *session) {
   memset(session, 0, sizeof(*session));
   if (requested_session_id != NULL && requested_session_id[0] != '\0') {
     const size_t session_id_size = strlen(requested_session_id);
@@ -188,32 +184,30 @@ static bool configure_hls_session(
           ? snprintf(subtitle_query, sizeof(subtitle_query),
                      "&subtitles=burn&subtitleStreamID=%u",
                      subtitle_stream_index)
-          : snprintf(subtitle_query, sizeof(subtitle_query),
-                     "&subtitles=none");
-  if (subtitle_size <= 0 ||
-      (size_t)subtitle_size >= sizeof(subtitle_query)) {
+          : snprintf(subtitle_query, sizeof(subtitle_query), "&subtitles=none");
+  if (subtitle_size <= 0 || (size_t)subtitle_size >= sizeof(subtitle_query)) {
     return false;
   }
   char path[MULTIPLEX_PLEX_HLS_URL_CAPACITY];
-  const int path_size = snprintf(
-      path, sizeof(path),
-      "video/:/transcode/universal/start.m3u8?"
-      "path=%%2Flibrary%%2Fmetadata%%2F%u&mediaIndex=0&partIndex=0&"
-      "protocol=hls&waitForSegments=1&fastSeek=1&directPlay=0&"
-      "directStream=0&"
-      "directStreamAudio=0&videoQuality=100&videoResolution="
-      MULTIPLEX_PLEX_VIDEO_RESOLUTION "&maxVideoBitrate="
-      MULTIPLEX_PLEX_MAX_VIDEO_BITRATE
-      "&location=lan&hasMDE=1&session=%s%s%s",
-      rating_key, session->session_id, offset_query, subtitle_query);
+  const int path_size =
+      snprintf(path, sizeof(path),
+               "video/:/transcode/universal/start.m3u8?"
+               "path=%%2Flibrary%%2Fmetadata%%2F%u&mediaIndex=0&partIndex=0&"
+               "protocol=hls&waitForSegments=1&fastSeek=1&directPlay=0&"
+               "directStream=0&"
+               "directStreamAudio=0&videoQuality=100&"
+               "videoResolution=" MULTIPLEX_PLEX_VIDEO_RESOLUTION
+               "&maxVideoBitrate=" MULTIPLEX_PLEX_MAX_VIDEO_BITRATE
+               "&location=lan&hasMDE=1&session=%s%s%s",
+               rating_key, session->session_id, offset_query, subtitle_query);
   return path_size > 0 && (size_t)path_size < sizeof(path) &&
          server_url(credentials, path, session->master_url,
                     sizeof(session->master_url));
 }
 
-static bool request_transcode_decision(
-    const MultiplexAuthCredentials *credentials,
-    const MultiplexPlexHlsSession *session) {
+static bool
+request_transcode_decision(const MultiplexAuthCredentials *credentials,
+                           const MultiplexPlexHlsSession *session) {
   static const char marker[] = "start.m3u8?";
   const char *start = strstr(session->master_url, marker);
   if (start == NULL) {
@@ -221,10 +215,9 @@ static bool request_transcode_decision(
   }
   char decision_url[MULTIPLEX_PLEX_HLS_URL_CAPACITY];
   const size_t prefix_size = (size_t)(start - session->master_url);
-  const int url_size =
-      snprintf(decision_url, sizeof(decision_url), "%.*sdecision?%s",
-               (int)prefix_size, session->master_url,
-               start + sizeof(marker) - 1u);
+  const int url_size = snprintf(
+      decision_url, sizeof(decision_url), "%.*sdecision?%s", (int)prefix_size,
+      session->master_url, start + sizeof(marker) - 1u);
   if (url_size <= 0 || (size_t)url_size >= sizeof(decision_url)) {
     return false;
   }
@@ -235,11 +228,10 @@ static bool request_transcode_decision(
       control_headers(credentials, session, true, headers);
   HttpJsonResponse response;
   memset(&response, 0, sizeof(response));
-  const bool decided =
-      http_client_request_with_headers(
-          "GET", decision_url, headers, header_count, NULL, decision,
-          sizeof(decision), &response) &&
-      response.status == 200;
+  const bool decided = http_client_request_with_headers(
+                           "GET", decision_url, headers, header_count, NULL,
+                           decision, sizeof(decision), &response) &&
+                       response.status == 200;
   SYS_Report("REFERENCE GX: Plex HLS decision status=%u bytes=%u\n",
              response.status, (unsigned)response.body_size);
   return decided;
@@ -283,8 +275,7 @@ bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
     HttpRequestHeader headers[9];
     const size_t header_count =
         control_headers(credentials, session, true, headers);
-    for (unsigned attempt = 1; attempt <= PLEX_HLS_START_ATTEMPTS;
-         ++attempt) {
+    for (unsigned attempt = 1; attempt <= PLEX_HLS_START_ATTEMPTS; ++attempt) {
       memset(master, 0, sizeof(master));
       memset(&response, 0, sizeof(response));
       requested = http_client_request_with_headers(
@@ -294,9 +285,8 @@ bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
       if (requested) {
         break;
       }
-      SYS_Report(
-          "REFERENCE GX: Plex HLS start retry attempt=%u/%u status=%u\n",
-          attempt, PLEX_HLS_START_ATTEMPTS, response.status);
+      SYS_Report("REFERENCE GX: Plex HLS start retry attempt=%u/%u status=%u\n",
+                 attempt, PLEX_HLS_START_ATTEMPTS, response.status);
       if (attempt < PLEX_HLS_START_ATTEMPTS) {
         usleep(PLEX_HLS_START_RETRY_US);
       }
@@ -311,25 +301,24 @@ bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
       !hls_playlist_resolve_url(session->master_url, session->variant.uri,
                                 session->variant_url,
                                 sizeof(session->variant_url))) {
-    SYS_Report(
-        "REFERENCE GX: Plex HLS start failed rating-key=%u status=%u body=%.*s\n",
-        rating_key, response.status, (int)response.body_size, master);
+    SYS_Report("REFERENCE GX: Plex HLS start failed rating-key=%u status=%u "
+               "body=%.*s\n",
+               rating_key, response.status, (int)response.body_size, master);
     return false;
   }
   session->started = true;
-  SYS_Report(
-      "REFERENCE GX: Plex HLS session=%s variant=%ux%u bandwidth=%u "
-      "frame-rate=%u.%03u\n",
-      session->session_id, session->variant.width, session->variant.height,
-      session->variant.bandwidth,
-      session->variant.frame_rate_millihertz / 1000u,
-      session->variant.frame_rate_millihertz % 1000u);
+  SYS_Report("REFERENCE GX: Plex HLS session=%s variant=%ux%u bandwidth=%u "
+             "frame-rate=%u.%03u\n",
+             session->session_id, session->variant.width,
+             session->variant.height, session->variant.bandwidth,
+             session->variant.frame_rate_millihertz / 1000u,
+             session->variant.frame_rate_millihertz % 1000u);
   return true;
 }
 
-bool multiplex_plex_hls_refresh(
-    const MultiplexAuthCredentials *credentials,
-    MultiplexPlexHlsSession *session, HlsMediaPlaylist *playlist) {
+bool multiplex_plex_hls_refresh(const MultiplexAuthCredentials *credentials,
+                                MultiplexPlexHlsSession *session,
+                                HlsMediaPlaylist *playlist) {
   if (credentials == NULL || session == NULL || playlist == NULL ||
       !session->started) {
     return false;
@@ -355,19 +344,17 @@ bool multiplex_plex_hls_refresh(
       requested && response.status == 200 && response.body_size == body.used &&
       hls_playlist_parse_media_window(
           response_body, body.used, session->next_sequence,
-          session->next_sequence == 0 ? session->start_offset_ms : 0,
-          playlist);
+          session->next_sequence == 0 ? session->start_offset_ms : 0, playlist);
   if (!parsed) {
-    SYS_Report(
-        "REFERENCE GX: Plex HLS playlist failed request=%u status=%u "
-        "bytes=%u\n",
-        requested ? 1u : 0u, response.status, (unsigned)body.used);
+    SYS_Report("REFERENCE GX: Plex HLS playlist failed request=%u status=%u "
+               "bytes=%u\n",
+               requested ? 1u : 0u, response.status, (unsigned)body.used);
   } else {
-    SYS_Report(
-        "REFERENCE GX: Plex HLS playlist segments=%u first=%u next=%u "
-        "offset=%u\n",
-        (unsigned)playlist->segment_count, playlist->segments[0].sequence,
-        session->next_sequence, session->start_offset_ms);
+    SYS_Report("REFERENCE GX: Plex HLS playlist segments=%u first=%u next=%u "
+               "offset=%u\n",
+               (unsigned)playlist->segment_count,
+               playlist->segments[0].sequence, session->next_sequence,
+               session->start_offset_ms);
   }
   free(response_body);
   if (parsed && session->next_sequence < playlist->media_sequence) {
@@ -379,8 +366,8 @@ bool multiplex_plex_hls_refresh(
 bool multiplex_plex_hls_stream_segment(
     const MultiplexAuthCredentials *credentials,
     const MultiplexPlexHlsSession *session, const HlsSegment *segment,
-    HttpBodyWrite write, void *write_context,
-    const volatile bool *cancelled, size_t *body_size) {
+    HttpBodyWrite write, void *write_context, const volatile bool *cancelled,
+    size_t *body_size) {
   if (credentials == NULL || session == NULL || segment == NULL ||
       write == NULL || body_size == NULL || !session->started) {
     return false;
@@ -403,9 +390,8 @@ bool multiplex_plex_hls_stream_segment(
     size_t request_header_count = header_count;
     char range_header[48];
     if (resumed_at != 0) {
-      const int range_size =
-          snprintf(range_header, sizeof(range_header), "bytes=%u-",
-                   (unsigned)resumed_at);
+      const int range_size = snprintf(range_header, sizeof(range_header),
+                                      "bytes=%u-", (unsigned)resumed_at);
       if (range_size <= 0 || (size_t)range_size >= sizeof(range_header)) {
         break;
       }
@@ -441,11 +427,10 @@ bool multiplex_plex_hls_stream_segment(
       break;
     }
     if (attempt != PLEX_HLS_SEGMENT_ATTEMPTS) {
-      SYS_Report(
-          "REFERENCE GX: Plex HLS segment retry sequence=%u offset=%u "
-          "attempt=%u/%u\n",
-          segment->sequence, (unsigned)delivered, attempt + 1u,
-          PLEX_HLS_SEGMENT_ATTEMPTS);
+      SYS_Report("REFERENCE GX: Plex HLS segment retry sequence=%u offset=%u "
+                 "attempt=%u/%u\n",
+                 segment->sequence, (unsigned)delivered, attempt + 1u,
+                 PLEX_HLS_SEGMENT_ATTEMPTS);
       usleep(100000);
     }
   }
@@ -455,10 +440,9 @@ bool multiplex_plex_hls_stream_segment(
         segment->sequence, (unsigned)delivered);
     return false;
   }
-  SYS_Report(
-      "REFERENCE GX: Plex HLS segment failed sequence=%u status=%u "
-      "bytes=%u\n",
-      segment->sequence, response.status, (unsigned)delivered);
+  SYS_Report("REFERENCE GX: Plex HLS segment failed sequence=%u status=%u "
+             "bytes=%u\n",
+             segment->sequence, response.status, (unsigned)delivered);
   return false;
 }
 
@@ -468,9 +452,9 @@ void multiplex_plex_hls_stop(const MultiplexAuthCredentials *credentials,
     return;
   }
   char path[256];
-  const int path_size = snprintf(
-      path, sizeof(path),
-      "video/:/transcode/universal/stop?session=%s", session->session_id);
+  const int path_size = snprintf(path, sizeof(path),
+                                 "video/:/transcode/universal/stop?session=%s",
+                                 session->session_id);
   char url[MULTIPLEX_PLEX_HLS_URL_CAPACITY];
   if (path_size > 0 && (size_t)path_size < sizeof(path) &&
       server_url(credentials, path, url, sizeof(url))) {
@@ -483,9 +467,9 @@ void multiplex_plex_hls_stop(const MultiplexAuthCredentials *credentials,
      * The stop response may have an empty body. The request helper can report
      * false for that framing, but the complete GET has already reached PMS.
      */
-    (void)http_client_request_with_headers(
-        "GET", url, headers, header_count, NULL, response_body,
-        sizeof(response_body), &response);
+    (void)http_client_request_with_headers("GET", url, headers, header_count,
+                                           NULL, response_body,
+                                           sizeof(response_body), &response);
   }
   SYS_Report("REFERENCE GX: Plex HLS stopped session=%s\n",
              session->session_id);

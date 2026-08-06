@@ -148,9 +148,8 @@ bool media_byte_queue_write(MediaByteQueue *queue, const uint8_t *source,
     if (closed) {
       return false;
     }
-    const size_t chunk =
-        media_byte_queue_write_available(queue, source + written,
-                                         size - written);
+    const size_t chunk = media_byte_queue_write_available(
+        queue, source + written, size - written);
     if (chunk == 0) {
       continue;
     }

@@ -103,10 +103,9 @@ MultiplexReferenceFrameStatus multiplex_reference_frame_render_with_options(
     return MULTIPLEX_REFERENCE_FRAME_GUARD_CORRUPTED;
   }
   render->commands = commands;
-  render->signature =
-      (options & MULTIPLEX_REFERENCE_FRAME_HASH_SIGNATURE) != 0
-          ? hash_bytes(frame->pixels, frame->byte_count)
-          : 0;
+  render->signature = (options & MULTIPLEX_REFERENCE_FRAME_HASH_SIGNATURE) != 0
+                          ? hash_bytes(frame->pixels, frame->byte_count)
+                          : 0;
   render->memo_hits = multiplex_native_reference_memo_hits() - memo_hits_before;
   render->memo_misses =
       multiplex_native_reference_memo_misses() - memo_misses_before;

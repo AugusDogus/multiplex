@@ -98,15 +98,13 @@ static bool open_decoder(VideoDecoder *decoder) {
 }
 
 static bool refill_input(VideoDecoder *decoder) {
-  decoder->input_size = decoder->read(
-      decoder->reader_context, decoder->input, VIDEO_INPUT_SIZE);
+  decoder->input_size =
+      decoder->read(decoder->reader_context, decoder->input, VIDEO_INPUT_SIZE);
   decoder->input_offset = 0;
-  if (decoder->input_size == 0 ||
-      decoder->input_size > VIDEO_INPUT_SIZE) {
+  if (decoder->input_size == 0 || decoder->input_size > VIDEO_INPUT_SIZE) {
     return false;
   }
-  memset(decoder->input + decoder->input_size, 0,
-         FF_INPUT_BUFFER_PADDING_SIZE);
+  memset(decoder->input + decoder->input_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
   return true;
 }
 
@@ -221,10 +219,9 @@ bool video_decoder_next_frame(VideoDecoder *decoder, VideoFrame *frame) {
     const int consumed = avcodec_decode_video2(
         decoder->context, decoder->picture, &got_picture, &packet);
     if (consumed < 0) {
-      SYS_Report(
-          "REFERENCE GX: %s decode failed at byte %u after %u frames\n",
-          video_codec_name(decoder->selected_codec),
-          (unsigned)decoder->stream_offset, decoder->decoded_frames);
+      SYS_Report("REFERENCE GX: %s decode failed at byte %u after %u frames\n",
+                 video_codec_name(decoder->selected_codec),
+                 (unsigned)decoder->stream_offset, decoder->decoded_frames);
       return false;
     }
     if (decoder->parser == NULL && consumed != 0) {
@@ -241,11 +238,10 @@ bool video_decoder_next_frame(VideoDecoder *decoder, VideoFrame *frame) {
           decoder->picture->data[0] == NULL ||
           decoder->picture->data[1] == NULL ||
           decoder->picture->data[2] == NULL) {
-        SYS_Report(
-            "REFERENCE GX: unexpected %s frame %dx%d pixel-format=%d\n",
-            video_codec_name(decoder->selected_codec),
-            decoder->context->width, decoder->context->height,
-            decoder->context->pix_fmt);
+        SYS_Report("REFERENCE GX: unexpected %s frame %dx%d pixel-format=%d\n",
+                   video_codec_name(decoder->selected_codec),
+                   decoder->context->width, decoder->context->height,
+                   decoder->context->pix_fmt);
         return false;
       }
       for (unsigned plane = 0; plane < 3; ++plane) {

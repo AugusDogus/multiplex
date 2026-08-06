@@ -87,29 +87,26 @@ static void test_extracts_h264_and_aac(void) {
       0xe1, 0x01, 0xf0, 0x00, 0x1b, 0xe1, 0x01, 0xf0, 0x00,
       0x0f, 0xe1, 0x02, 0xf0, 0x00, 0x00, 0x00, 0x00, 0x00,
   };
-  static const uint8_t video[] = {0x00, 0x00, 0x00, 0x01,
-                                  0x65, 0xaa, 0xbb};
-  static const uint8_t audio[] = {0xff, 0xf1, 0x50, 0x80,
-                                  0x01, 0x7f, 0xfc};
+  static const uint8_t video[] = {0x00, 0x00, 0x00, 0x01, 0x65, 0xaa, 0xbb};
+  static const uint8_t audio[] = {0xff, 0xf1, 0x50, 0x80, 0x01, 0x7f, 0xfc};
   uint8_t transport[MPEG_TS_PACKET_SIZE * 4u];
   uint8_t pes[64];
 
   make_packet(transport, 0, true, pat, sizeof(pat), 0);
-  make_packet(transport + MPEG_TS_PACKET_SIZE, 0x100, true, pmt,
-              sizeof(pmt), 0);
+  make_packet(transport + MPEG_TS_PACKET_SIZE, 0x100, true, pmt, sizeof(pmt),
+              0);
   size_t pes_size = make_pes(pes, 0xe0, 90000, video, sizeof(video));
-  make_packet(transport + MPEG_TS_PACKET_SIZE * 2u, 0x101, true, pes,
-              pes_size, 0);
+  make_packet(transport + MPEG_TS_PACKET_SIZE * 2u, 0x101, true, pes, pes_size,
+              0);
   pes_size = make_pes(pes, 0xc0, 90900, audio, sizeof(audio));
-  make_packet(transport + MPEG_TS_PACKET_SIZE * 3u, 0x102, true, pes,
-              pes_size, 0);
+  make_packet(transport + MPEG_TS_PACKET_SIZE * 3u, 0x102, true, pes, pes_size,
+              0);
 
   Output output = {0};
   MpegTsParser parser;
   mpeg_ts_parser_init(&parser, collect, &output);
   assert(mpeg_ts_parser_push(&parser, transport, 97));
-  assert(mpeg_ts_parser_push(&parser, transport + 97,
-                             sizeof(transport) - 97));
+  assert(mpeg_ts_parser_push(&parser, transport + 97, sizeof(transport) - 97));
   assert(mpeg_ts_parser_finish(&parser));
 
   const MpegTsInfo *info = mpeg_ts_parser_info(&parser);
@@ -156,16 +153,14 @@ static int inspect_transport_file(const char *path) {
   fclose(file);
   uint32_t packet_index = 0;
   uint16_t pid = MPEG_TS_NO_PID;
-  const MpegTsError error =
-      mpeg_ts_parser_error(&parser, &packet_index, &pid);
+  const MpegTsError error = mpeg_ts_parser_error(&parser, &packet_index, &pid);
   const MpegTsInfo *info = mpeg_ts_parser_info(&parser);
-  printf(
-      "parsed=%u complete=%u packet=%u pid=%u error=%u video-pid=%u "
-      "audio-pid=%u video-bytes=%llu audio-bytes=%llu\n",
-      parsed ? 1u : 0u, mpeg_ts_parser_finish(&parser) ? 1u : 0u,
-      packet_index, pid, error, info->video_pid, info->audio_pid,
-      (unsigned long long)info->video_bytes,
-      (unsigned long long)info->audio_bytes);
+  printf("parsed=%u complete=%u packet=%u pid=%u error=%u video-pid=%u "
+         "audio-pid=%u video-bytes=%llu audio-bytes=%llu\n",
+         parsed ? 1u : 0u, mpeg_ts_parser_finish(&parser) ? 1u : 0u,
+         packet_index, pid, error, info->video_pid, info->audio_pid,
+         (unsigned long long)info->video_bytes,
+         (unsigned long long)info->audio_bytes);
   return parsed ? 0 : 1;
 }
 

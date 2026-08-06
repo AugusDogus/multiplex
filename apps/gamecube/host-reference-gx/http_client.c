@@ -9,8 +9,8 @@
 
 #include "http_client.h"
 
-#include "network_resolver.h"
 #include "media-source.h"
+#include "network_resolver.h"
 #include "tls_client.h"
 
 #include <fcntl.h>
@@ -171,8 +171,7 @@ static bool parse_url(const char *url, HttpClient *client) {
   static const char http_prefix[] = "http://";
   static const char https_prefix[] = "https://";
   size_t prefix_size = 0;
-  if (url != NULL &&
-      strncmp(url, http_prefix, sizeof(http_prefix) - 1u) == 0) {
+  if (url != NULL && strncmp(url, http_prefix, sizeof(http_prefix) - 1u) == 0) {
     prefix_size = sizeof(http_prefix) - 1u;
     client->secure = false;
     client->port = 80;
@@ -296,8 +295,7 @@ bool http_client_initialize_network(void) {
   }
   set_diagnostic(HTTP_DIAGNOSTIC_TLS, 0);
   if (!multiplex_tls_client_initialize()) {
-    set_diagnostic(HTTP_DIAGNOSTIC_TLS,
-                   multiplex_tls_client_last_error());
+    set_diagnostic(HTTP_DIAGNOSTIC_TLS, multiplex_tls_client_last_error());
     return false;
   }
   network_initialized = true;
@@ -341,8 +339,7 @@ static bool connect_client(HttpClient *client) {
                                        ? MULTIPLEX_EMULATOR_HOST_IP
                                        : network_gateway;
     if (host_size > suffix_size &&
-        strcmp(client->host + host_size - suffix_size, localhost_suffix) ==
-            0) {
+        strcmp(client->host + host_size - suffix_size, localhost_suffix) == 0) {
       if (inet_aton(emulator_host_ip, &address.sin_addr) == 0) {
         set_diagnostic(HTTP_DIAGNOSTIC_DNS, -1);
         SYS_Report("REFERENCE GX: HTTP emulator host unresolved host=%s\n",
@@ -354,10 +351,9 @@ static bool connect_client(HttpClient *client) {
                  client->host, emulator_host_ip);
     } else if (!multiplex_resolve_ipv4(client->host, network_gateway,
                                        &address.sin_addr)) {
-      set_diagnostic(HTTP_DIAGNOSTIC_DNS,
-                     multiplex_resolver_last_error());
-      SYS_Report("REFERENCE GX: HTTP DNS failed host=%s dns=%s\n",
-                 client->host, network_gateway);
+      set_diagnostic(HTTP_DIAGNOSTIC_DNS, multiplex_resolver_last_error());
+      SYS_Report("REFERENCE GX: HTTP DNS failed host=%s dns=%s\n", client->host,
+                 network_gateway);
       disconnect_client(client);
       return false;
     }
@@ -376,8 +372,7 @@ static bool connect_client(HttpClient *client) {
     set_diagnostic(HTTP_DIAGNOSTIC_TLS, 0);
     client->tls = multiplex_tls_client_connect(client->socket, client->host);
     if (client->tls == NULL) {
-      set_diagnostic(HTTP_DIAGNOSTIC_TLS,
-                     multiplex_tls_client_last_error());
+      set_diagnostic(HTTP_DIAGNOSTIC_TLS, multiplex_tls_client_last_error());
       disconnect_client(client);
       return false;
     }
@@ -390,7 +385,8 @@ static bool write_all(HttpClient *client, const uint8_t *bytes, size_t size) {
   if (client->tls != NULL) {
     const bool written =
         multiplex_tls_client_write_all(client->tls, bytes, size);
-    if (!written) set_diagnostic(HTTP_DIAGNOSTIC_REQUEST, -1);
+    if (!written)
+      set_diagnostic(HTTP_DIAGNOSTIC_REQUEST, -1);
     return written;
   }
   size_t written = 0;
@@ -420,8 +416,7 @@ static bool write_all(HttpClient *client, const uint8_t *bytes, size_t size) {
 static int read_available_with_timeout(HttpClient *client, void *destination,
                                        size_t size, unsigned timeout_seconds) {
   if (client->stopping ||
-      (client->external_cancelled != NULL &&
-       *client->external_cancelled)) {
+      (client->external_cancelled != NULL && *client->external_cancelled)) {
     return -1;
   }
 #if defined(HW_RVL)
@@ -435,8 +430,7 @@ static int read_available_with_timeout(HttpClient *client, void *destination,
   }
   for (unsigned waited = 0; waited < timeout_seconds; ++waited) {
     if (client->stopping ||
-        (client->external_cancelled != NULL &&
-         *client->external_cancelled)) {
+        (client->external_cancelled != NULL && *client->external_cancelled)) {
       return -1;
     }
     fd_set readable;
@@ -876,9 +870,9 @@ static bool stream_read(HttpClient *client, uint8_t *destination, size_t size) {
     const size_t remaining = size - copied;
     const size_t request_size =
         remaining < HTTP_CACHE_SIZE ? remaining : HTTP_CACHE_SIZE;
-    const int result = read_available_with_timeout(
-        client, destination + copied, request_size,
-        HTTP_STREAM_TIMEOUT_SECONDS);
+    const int result =
+        read_available_with_timeout(client, destination + copied, request_size,
+                                    HTTP_STREAM_TIMEOUT_SECONDS);
     if (result <= 0 || (size_t)result > request_size) {
       return false;
     }
@@ -1130,8 +1124,7 @@ static int body_reader_read_some(HttpBodyReader *reader, uint8_t *destination,
     const size_t available =
         reader->prefetched_size - reader->prefetched_offset;
     const size_t copied = available < size ? available : size;
-    memcpy(destination, reader->prefetched + reader->prefetched_offset,
-           copied);
+    memcpy(destination, reader->prefetched + reader->prefetched_offset, copied);
     reader->prefetched_offset += copied;
     return (int)copied;
   }
@@ -1139,8 +1132,8 @@ static int body_reader_read_some(HttpBodyReader *reader, uint8_t *destination,
                                      reader->timeout_seconds);
 }
 
-static bool body_reader_read_exact(HttpBodyReader *reader,
-                                   uint8_t *destination, size_t size) {
+static bool body_reader_read_exact(HttpBodyReader *reader, uint8_t *destination,
+                                   size_t size) {
   size_t read = 0;
   while (read < size) {
     const int received =
@@ -1217,8 +1210,8 @@ static bool parse_stream_request_headers(char *headers,
   return !*chunked || !*has_content_length;
 }
 
-static bool write_body(HttpBodyWrite write, void *context,
-                       const uint8_t *bytes, size_t size) {
+static bool write_body(HttpBodyWrite write, void *context, const uint8_t *bytes,
+                       size_t size) {
   return size == 0 || write == NULL || write(context, bytes, size);
 }
 
@@ -1229,8 +1222,8 @@ static bool stream_content_length(HttpBodyReader *reader, size_t size,
   *body_size = 0;
   while (*body_size < size) {
     const size_t remaining = size - *body_size;
-    const size_t chunk = remaining < sizeof(buffer) ? remaining
-                                                    : sizeof(buffer);
+    const size_t chunk =
+        remaining < sizeof(buffer) ? remaining : sizeof(buffer);
     if (!body_reader_read_exact(reader, buffer, chunk) ||
         !write_body(write, context, buffer, chunk)) {
       return false;
@@ -1244,8 +1237,7 @@ static bool stream_content_length(HttpBodyReader *reader, size_t size,
 static bool parse_chunk_size(const char *line, size_t *size) {
   size_t parsed = 0;
   bool saw_digit = false;
-  for (const char *cursor = line; *cursor != '\0' && *cursor != ';';
-       ++cursor) {
+  for (const char *cursor = line; *cursor != '\0' && *cursor != ';'; ++cursor) {
     unsigned digit = 0;
     if (*cursor >= '0' && *cursor <= '9') {
       digit = (unsigned)(*cursor - '0');
@@ -1313,13 +1305,11 @@ static bool stream_until_close(HttpBodyReader *reader, HttpBodyWrite write,
   uint8_t buffer[HTTP_BODY_STREAM_CHUNK_SIZE];
   *body_size = 0;
   for (;;) {
-    const int received =
-        body_reader_read_some(reader, buffer, sizeof(buffer));
+    const int received = body_reader_read_some(reader, buffer, sizeof(buffer));
     if (received == 0) {
       return true;
     }
-    if (received < 0 ||
-        !write_body(write, context, buffer, (size_t)received) ||
+    if (received < 0 || !write_body(write, context, buffer, (size_t)received) ||
         *body_size > SIZE_MAX - (size_t)received) {
       return false;
     }
@@ -1356,11 +1346,11 @@ static bool http_client_stream_get_with_headers_unlocked(
   }
 
   char request[HTTP_JSON_REQUEST_LIMIT];
-  int request_size = snprintf(
-      request, sizeof(request),
-      "GET %s HTTP/1.1\r\nHost: %s:%u\r\n"
-      "User-Agent: Multiplex-GameCube/0\r\nAccept: */*\r\n",
-      client->path, client->host, client->port);
+  int request_size =
+      snprintf(request, sizeof(request),
+               "GET %s HTTP/1.1\r\nHost: %s:%u\r\n"
+               "User-Agent: Multiplex-GameCube/0\r\nAccept: */*\r\n",
+               client->path, client->host, client->port);
   if (request_size <= 0 || (size_t)request_size >= sizeof(request)) {
     http_client_destroy(client);
     return false;
@@ -1371,9 +1361,9 @@ static bool http_client_stream_get_with_headers_unlocked(
       http_client_destroy(client);
       return false;
     }
-    const int written = snprintf(
-        request + request_used, sizeof(request) - request_used, "%s: %s\r\n",
-        headers[index].name, headers[index].value);
+    const int written =
+        snprintf(request + request_used, sizeof(request) - request_used,
+                 "%s: %s\r\n", headers[index].name, headers[index].value);
     if (written <= 0 || (size_t)written >= sizeof(request) - request_used) {
       http_client_destroy(client);
       return false;
@@ -1405,9 +1395,9 @@ static bool http_client_stream_get_with_headers_unlocked(
   size_t content_length = 0;
   bool has_content_length = false;
   bool chunked = false;
-  const bool valid_headers = parse_stream_request_headers(
-      response_headers, response, &content_length, &has_content_length,
-      &chunked);
+  const bool valid_headers =
+      parse_stream_request_headers(response_headers, response, &content_length,
+                                   &has_content_length, &chunked);
   response_headers[header_size] = first_body_byte;
   if (!valid_headers) {
     set_diagnostic(HTTP_DIAGNOSTIC_RESPONSE, -3);
@@ -1428,18 +1418,15 @@ static bool http_client_stream_get_with_headers_unlocked(
       .context = write_context,
       .skip = response->status == 200 ? full_response_skip : 0,
   };
-  HttpBodyWrite body_write =
-      skipping.skip == 0 ? write : write_skipping_prefix;
-  void *body_write_context =
-      skipping.skip == 0 ? write_context : &skipping;
+  HttpBodyWrite body_write = skipping.skip == 0 ? write : write_skipping_prefix;
+  void *body_write_context = skipping.skip == 0 ? write_context : &skipping;
   bool streamed = false;
   if (chunked) {
     streamed = stream_chunked(&reader, body_write, body_write_context,
                               &response->body_size);
   } else if (has_content_length) {
-    streamed =
-        stream_content_length(&reader, content_length, body_write,
-                              body_write_context, &response->body_size);
+    streamed = stream_content_length(&reader, content_length, body_write,
+                                     body_write_context, &response->body_size);
   } else {
     streamed = stream_until_close(&reader, body_write, body_write_context,
                                   &response->body_size);
@@ -1447,7 +1434,9 @@ static bool http_client_stream_get_with_headers_unlocked(
   SYS_Report(
       "REFERENCE GX: HTTP stream status=%u bytes=%u framing=%s valid=%u\n",
       response->status, (unsigned)response->body_size,
-      chunked ? "chunked" : has_content_length ? "length" : "close",
+      chunked              ? "chunked"
+      : has_content_length ? "length"
+                           : "close",
       streamed ? 1u : 0u);
   if (!streamed) {
     set_diagnostic(HTTP_DIAGNOSTIC_RESPONSE, -4);
@@ -1562,8 +1551,7 @@ static bool http_client_request_with_headers_unlocked(
   size_t header_size = 0;
   size_t response_size = 0;
   if (!read_headers(client, response_headers, sizeof(response_headers),
-                    &header_size, &response_size,
-                    HTTP_IO_TIMEOUT_SECONDS)) {
+                    &header_size, &response_size, HTTP_IO_TIMEOUT_SECONDS)) {
     http_client_destroy(client);
     return false;
   }
@@ -1571,8 +1559,8 @@ static bool http_client_request_with_headers_unlocked(
   response_headers[header_size] = '\0';
   size_t content_length = 0;
   bool chunked = false;
-  const bool valid_headers = parse_json_headers(
-      response_headers, response, &content_length, &chunked);
+  const bool valid_headers =
+      parse_json_headers(response_headers, response, &content_length, &chunked);
   response_headers[header_size] = first_body_byte;
   if (!valid_headers) {
     set_diagnostic(HTTP_DIAGNOSTIC_RESPONSE, -3);
@@ -1615,8 +1603,8 @@ static bool http_client_request_with_headers_unlocked(
   memcpy(encoded, response_headers + header_size, prefetched);
   size_t encoded_size = prefetched;
   while (encoded_size < encoded_capacity) {
-    const int received = read_available(
-        client, encoded + encoded_size, encoded_capacity - encoded_size);
+    const int received = read_available(client, encoded + encoded_size,
+                                        encoded_capacity - encoded_size);
     if (received <= 0) {
       break;
     }

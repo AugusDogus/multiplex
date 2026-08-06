@@ -31,8 +31,8 @@ static uint32_t read_be32(const uint8_t *bytes) {
 }
 
 static int64_t read_be64_signed(const uint8_t *bytes) {
-  const uint64_t value = ((uint64_t)read_be32(bytes) << 32u) |
-                         (uint64_t)read_be32(bytes + 4);
+  const uint64_t value =
+      ((uint64_t)read_be32(bytes) << 32u) | (uint64_t)read_be32(bytes + 4);
   return (int64_t)value;
 }
 
@@ -105,10 +105,8 @@ static bool parse_catalog(const uint8_t *bytes, size_t size,
     }
     memcpy(row->title, bytes + cursor, row->title_length);
     cursor += row->title_length;
-    for (uint16_t item_index = 0; item_index < row->item_count;
-         ++item_index) {
-      MultiplexGatewayItem *item =
-          &catalog->items[catalog->total_item_count];
+    for (uint16_t item_index = 0; item_index < row->item_count; ++item_index) {
+      MultiplexGatewayItem *item = &catalog->items[catalog->total_item_count];
       if (!parse_item(bytes, size, &cursor, item)) {
         return false;
       }
@@ -147,8 +145,7 @@ static bool parse_browse(const uint8_t *bytes, size_t size,
   page->start = read_be16(bytes + 10);
   page->total_size = read_be16(bytes + 12);
   page->title_length = read_be16(bytes + 14);
-  if (page->version != 1 || page->section_id == 0 ||
-      page->item_count == 0 ||
+  if (page->version != 1 || page->section_id == 0 || page->item_count == 0 ||
       page->item_count > MULTIPLEX_GATEWAY_MAX_BROWSE_ITEMS ||
       page->title_length >= MULTIPLEX_GATEWAY_TITLE_CAPACITY ||
       BROWSE_HEADER_BYTES + page->title_length > size) {
@@ -174,8 +171,7 @@ static bool parse_search(const uint8_t *bytes, size_t size,
   page->version = read_be16(bytes + 4);
   page->item_count = read_be16(bytes + 6);
   page->query_length = read_be16(bytes + 8);
-  if (page->version != 1 ||
-      page->item_count > MULTIPLEX_GATEWAY_MAX_ITEMS ||
+  if (page->version != 1 || page->item_count > MULTIPLEX_GATEWAY_MAX_ITEMS ||
       page->query_length == 0 ||
       page->query_length >= MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY ||
       SEARCH_HEADER_BYTES + page->query_length > size) {
@@ -239,12 +235,14 @@ static bool parse_details(const uint8_t *bytes, size_t size,
                             sizeof(details->media_type),
                             details->media_type_length) &&
          copy_detail_string(bytes, size, &cursor, details->library,
-                            sizeof(details->library), details->library_length) &&
+                            sizeof(details->library),
+                            details->library_length) &&
          copy_detail_string(bytes, size, &cursor, details->content_rating,
                             sizeof(details->content_rating),
                             details->content_rating_length) &&
          copy_detail_string(bytes, size, &cursor, details->summary,
-                            sizeof(details->summary), details->summary_length) &&
+                            sizeof(details->summary),
+                            details->summary_length) &&
          copy_detail_string(bytes, size, &cursor, details->genres,
                             sizeof(details->genres), details->genres_length) &&
          copy_detail_string(bytes, size, &cursor, details->directors,
@@ -253,9 +251,9 @@ static bool parse_details(const uint8_t *bytes, size_t size,
          cursor == size;
 }
 
-static bool parse_playback_manifest(
-    const uint8_t *bytes, size_t size, const char *base_url,
-    MultiplexGatewayPlaybackManifest *manifest) {
+static bool
+parse_playback_manifest(const uint8_t *bytes, size_t size, const char *base_url,
+                        MultiplexGatewayPlaybackManifest *manifest) {
   if (size < PLAYBACK_HEADER_BYTES || memcmp(bytes, "MPXP", 4) != 0) {
     return false;
   }
@@ -279,9 +277,8 @@ static bool parse_playback_manifest(
       manifest->media_duration_ms == 0 || manifest->segment_duration_ms == 0 ||
       manifest->segment_start_ms >= manifest->media_duration_ms ||
       manifest->video_bytes == 0 || manifest->audio_bytes == 0 ||
-      manifest->first_video_pts90k < 0 ||
-      manifest->first_audio_pts90k < 0 || path_length == 0 ||
-      PLAYBACK_HEADER_BYTES + path_length != size ||
+      manifest->first_video_pts90k < 0 || manifest->first_audio_pts90k < 0 ||
+      path_length == 0 || PLAYBACK_HEADER_BYTES + path_length != size ||
       bytes[PLAYBACK_HEADER_BYTES] != '/') {
     return false;
   }
@@ -289,10 +286,10 @@ static bool parse_playback_manifest(
   const bool base_has_slash =
       base_length > 0 && base_url[base_length - 1] == '/';
   const uint16_t skipped = base_has_slash ? 1u : 0u;
-  const int written = snprintf(
-      manifest->media_url, sizeof(manifest->media_url), "%s%.*s", base_url,
-      path_length - skipped,
-      (const char *)(bytes + PLAYBACK_HEADER_BYTES + skipped));
+  const int written =
+      snprintf(manifest->media_url, sizeof(manifest->media_url), "%s%.*s",
+               base_url, path_length - skipped,
+               (const char *)(bytes + PLAYBACK_HEADER_BYTES + skipped));
   return written > 0 && (size_t)written < sizeof(manifest->media_url);
 }
 
@@ -306,10 +303,10 @@ static bool encode_query(const char *query, uint16_t query_length,
   size_t cursor = 0;
   for (uint16_t index = 0; index < query_length; ++index) {
     const uint8_t value = (uint8_t)query[index];
-    const bool unreserved =
-        (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z') ||
-        (value >= '0' && value <= '9') || value == '-' || value == '_' ||
-        value == '.' || value == '~';
+    const bool unreserved = (value >= 'A' && value <= 'Z') ||
+                            (value >= 'a' && value <= 'z') ||
+                            (value >= '0' && value <= '9') || value == '-' ||
+                            value == '_' || value == '.' || value == '~';
     const size_t required = unreserved ? 1u : 3u;
     if (cursor + required >= capacity) {
       return false;
@@ -334,9 +331,8 @@ bool multiplex_gateway_load_pairing(const char *base_url,
   const size_t base_length = strlen(base_url);
   const bool has_slash = base_length > 0 && base_url[base_length - 1] == '/';
   char url[GATEWAY_URL_CAPACITY];
-  const int written =
-      snprintf(url, sizeof(url), "%s%sv1/pairing.bin", base_url,
-               has_slash ? "" : "/");
+  const int written = snprintf(url, sizeof(url), "%s%sv1/pairing.bin", base_url,
+                               has_slash ? "" : "/");
   if (written < 0 || (size_t)written >= sizeof(url)) {
     return false;
   }
@@ -362,8 +358,7 @@ bool multiplex_gateway_load_pairing(const char *base_url,
   if (pairing->version != 1 || pairing->status < 1 || pairing->status > 3 ||
       pairing->code_length >= MULTIPLEX_GATEWAY_PAIRING_CODE_CAPACITY ||
       pairing->link_url_length >= MULTIPLEX_GATEWAY_PAIRING_URL_CAPACITY ||
-      PAIRING_HEADER_BYTES + pairing->code_length +
-              pairing->link_url_length !=
+      PAIRING_HEADER_BYTES + pairing->code_length + pairing->link_url_length !=
           size ||
       (pairing->status == 1 &&
        (pairing->code_length != 4 || pairing->link_url_length == 0))) {
@@ -411,25 +406,24 @@ bool multiplex_gateway_load_catalog(const char *base_url,
                (unsigned)size);
     return false;
   }
-  SYS_Report(
-      "REFERENCE GX: gateway-catalog version=%u server=%s rows=%u items=%u libraries=%u first=%s\n",
-      catalog->version, catalog->server_name, catalog->row_count,
-      catalog->total_item_count, catalog->library_count,
-      catalog->total_item_count == 0 ? "" : catalog->items[0].title);
+  SYS_Report("REFERENCE GX: gateway-catalog version=%u server=%s rows=%u "
+             "items=%u libraries=%u first=%s\n",
+             catalog->version, catalog->server_name, catalog->row_count,
+             catalog->total_item_count, catalog->library_count,
+             catalog->total_item_count == 0 ? "" : catalog->items[0].title);
   return true;
 }
 
-bool multiplex_gateway_load_artwork(const char *base_url,
-                                    uint8_t *destination, size_t capacity,
-                                    size_t *encoded_size) {
+bool multiplex_gateway_load_artwork(const char *base_url, uint8_t *destination,
+                                    size_t capacity, size_t *encoded_size) {
   if (base_url == NULL || destination == NULL || encoded_size == NULL) {
     return false;
   }
   const size_t base_length = strlen(base_url);
   const bool has_slash = base_length > 0 && base_url[base_length - 1] == '/';
   char url[GATEWAY_URL_CAPACITY];
-  const int written = snprintf(url, sizeof(url), "%s%sv2/artwork.jpg",
-                               base_url, has_slash ? "" : "/");
+  const int written = snprintf(url, sizeof(url), "%s%sv2/artwork.jpg", base_url,
+                               has_slash ? "" : "/");
   if (written < 0 || (size_t)written >= sizeof(url)) {
     return false;
   }
@@ -439,8 +433,9 @@ bool multiplex_gateway_load_artwork(const char *base_url,
   }
   const size_t size = http_client_size(client);
   if (size == 0 || size > capacity) {
-    SYS_Report("REFERENCE GX: gateway artwork size invalid capacity=%u actual=%u\n",
-               (unsigned)capacity, (unsigned)size);
+    SYS_Report(
+        "REFERENCE GX: gateway artwork size invalid capacity=%u actual=%u\n",
+        (unsigned)capacity, (unsigned)size);
     http_client_destroy(client);
     return false;
   }
@@ -461,9 +456,9 @@ bool multiplex_gateway_load_browse(const char *base_url, uint16_t section_id,
   const size_t base_length = strlen(base_url);
   const bool has_slash = base_length > 0 && base_url[base_length - 1] == '/';
   char url[GATEWAY_URL_CAPACITY];
-  const int written = snprintf(
-      url, sizeof(url), "%s%sv3/browse.bin?section=%u&start=%u", base_url,
-      has_slash ? "" : "/", section_id, start);
+  const int written =
+      snprintf(url, sizeof(url), "%s%sv3/browse.bin?section=%u&start=%u",
+               base_url, has_slash ? "" : "/", section_id, start);
   if (written < 0 || (size_t)written >= sizeof(url)) {
     return false;
   }
@@ -478,16 +473,18 @@ bool multiplex_gateway_load_browse(const char *base_url, uint16_t section_id,
                       parse_browse(bytes, size, page) &&
                       page->section_id == section_id && page->start == start;
   http_client_destroy(client);
-  SYS_Report(
-      "REFERENCE GX: gateway-browse section=%u start=%u items=%u total=%u loaded=%u\n",
-      section_id, start, loaded ? page->item_count : 0,
-      loaded ? page->total_size : 0, loaded);
+  SYS_Report("REFERENCE GX: gateway-browse section=%u start=%u items=%u "
+             "total=%u loaded=%u\n",
+             section_id, start, loaded ? page->item_count : 0,
+             loaded ? page->total_size : 0, loaded);
   return loaded;
 }
 
-bool multiplex_gateway_load_browse_artwork(
-    const char *base_url, uint16_t section_id, uint16_t start,
-    uint8_t *destination, size_t capacity, size_t *encoded_size) {
+bool multiplex_gateway_load_browse_artwork(const char *base_url,
+                                           uint16_t section_id, uint16_t start,
+                                           uint8_t *destination,
+                                           size_t capacity,
+                                           size_t *encoded_size) {
   if (base_url == NULL || section_id == 0 || destination == NULL ||
       encoded_size == NULL) {
     return false;
@@ -495,9 +492,9 @@ bool multiplex_gateway_load_browse_artwork(
   const size_t base_length = strlen(base_url);
   const bool has_slash = base_length > 0 && base_url[base_length - 1] == '/';
   char url[GATEWAY_URL_CAPACITY];
-  const int written = snprintf(
-      url, sizeof(url), "%s%sv3/browse.jpg?section=%u&start=%u", base_url,
-      has_slash ? "" : "/", section_id, start);
+  const int written =
+      snprintf(url, sizeof(url), "%s%sv3/browse.jpg?section=%u&start=%u",
+               base_url, has_slash ? "" : "/", section_id, start);
   if (written < 0 || (size_t)written >= sizeof(url)) {
     return false;
   }
@@ -512,9 +509,9 @@ bool multiplex_gateway_load_browse_artwork(
   }
   const bool loaded = http_client_read_at(client, 0, destination, size);
   *encoded_size = loaded ? size : 0;
-  SYS_Report(
-      "REFERENCE GX: gateway-browse-artwork section=%u start=%u bytes=%u loaded=%u\n",
-      section_id, start, (unsigned)size, loaded);
+  SYS_Report("REFERENCE GX: gateway-browse-artwork section=%u start=%u "
+             "bytes=%u loaded=%u\n",
+             section_id, start, (unsigned)size, loaded);
   http_client_destroy(client);
   return loaded;
 }
@@ -534,8 +531,7 @@ bool multiplex_gateway_load_search(const char *base_url, const char *query,
   const bool has_slash = base_length > 0 && base_url[base_length - 1] == '/';
   char url[GATEWAY_URL_CAPACITY];
   const int written = snprintf(url, sizeof(url), "%s%sv3/search.bin?q=%s",
-                               base_url, has_slash ? "" : "/",
-                               encoded_query);
+                               base_url, has_slash ? "" : "/", encoded_query);
   if (written < 0 || (size_t)written >= sizeof(url)) {
     return false;
   }
@@ -551,9 +547,8 @@ bool multiplex_gateway_load_search(const char *base_url, const char *query,
                       page->query_length == query_length &&
                       memcmp(page->query, query, query_length) == 0;
   http_client_destroy(client);
-  SYS_Report(
-      "REFERENCE GX: gateway-search query=%.*s items=%u loaded=%u\n",
-      query_length, query, loaded ? page->item_count : 0, loaded);
+  SYS_Report("REFERENCE GX: gateway-search query=%.*s items=%u loaded=%u\n",
+             query_length, query, loaded ? page->item_count : 0, loaded);
   return loaded;
 }
 
@@ -572,8 +567,7 @@ bool multiplex_gateway_load_search_artwork(
   const bool has_slash = base_length > 0 && base_url[base_length - 1] == '/';
   char url[GATEWAY_URL_CAPACITY];
   const int written = snprintf(url, sizeof(url), "%s%sv3/search.jpg?q=%s",
-                               base_url, has_slash ? "" : "/",
-                               encoded_query);
+                               base_url, has_slash ? "" : "/", encoded_query);
   if (written < 0 || (size_t)written >= sizeof(url)) {
     return false;
   }
@@ -603,9 +597,9 @@ bool multiplex_gateway_load_details(const char *base_url, uint32_t rating_key,
   const size_t base_length = strlen(base_url);
   const bool has_slash = base_length > 0 && base_url[base_length - 1] == '/';
   char url[GATEWAY_URL_CAPACITY];
-  const int written = snprintf(url, sizeof(url),
-                               "%s%sv3/details.bin?ratingKey=%u", base_url,
-                               has_slash ? "" : "/", rating_key);
+  const int written =
+      snprintf(url, sizeof(url), "%s%sv3/details.bin?ratingKey=%u", base_url,
+               has_slash ? "" : "/", rating_key);
   if (written < 0 || (size_t)written >= sizeof(url)) {
     return false;
   }
@@ -620,10 +614,10 @@ bool multiplex_gateway_load_details(const char *base_url, uint32_t rating_key,
                       parse_details(bytes, size, details) &&
                       details->rating_key == rating_key;
   http_client_destroy(client);
-  SYS_Report(
-      "REFERENCE GX: gateway-details rating-key=%u title=%s playable=%u loaded=%u\n",
-      rating_key, loaded ? details->title : "",
-      loaded ? (details->flags & 1u) != 0 : 0, loaded);
+  SYS_Report("REFERENCE GX: gateway-details rating-key=%u title=%s playable=%u "
+             "loaded=%u\n",
+             rating_key, loaded ? details->title : "",
+             loaded ? (details->flags & 1u) != 0 : 0, loaded);
   return loaded;
 }
 
@@ -636,13 +630,13 @@ bool multiplex_gateway_load_playback_manifest(
   const size_t base_length = strlen(base_url);
   const bool has_slash = base_length > 0 && base_url[base_length - 1] == '/';
   char url[GATEWAY_URL_CAPACITY];
-  const int written = rating_key == 0
-                          ? snprintf(url, sizeof(url), "%s%sv4/playback.bin",
-                                     base_url, has_slash ? "" : "/")
-                          : snprintf(url, sizeof(url),
-                                     "%s%sv4/playback.bin?ratingKey=%u&offsetMs=%u",
-                                     base_url, has_slash ? "" : "/",
-                                     rating_key, offset_ms);
+  const int written =
+      rating_key == 0
+          ? snprintf(url, sizeof(url), "%s%sv4/playback.bin", base_url,
+                     has_slash ? "" : "/")
+          : snprintf(url, sizeof(url),
+                     "%s%sv4/playback.bin?ratingKey=%u&offsetMs=%u", base_url,
+                     has_slash ? "" : "/", rating_key, offset_ms);
   if (written < 0 || (size_t)written >= sizeof(url)) {
     return false;
   }
@@ -652,24 +646,26 @@ bool multiplex_gateway_load_playback_manifest(
   }
   const size_t size = http_client_size(client);
   uint8_t bytes[CATALOG_MAX_BYTES];
-  const bool loaded = size > 0 && size <= sizeof(bytes) &&
-                      http_client_read_at(client, 0, bytes, size) &&
-                      parse_playback_manifest(bytes, size, base_url, manifest) &&
-                      (rating_key == 0 ||
-                       (manifest->rating_key == rating_key &&
-                        manifest->segment_start_ms == offset_ms));
+  const bool loaded =
+      size > 0 && size <= sizeof(bytes) &&
+      http_client_read_at(client, 0, bytes, size) &&
+      parse_playback_manifest(bytes, size, base_url, manifest) &&
+      (rating_key == 0 || (manifest->rating_key == rating_key &&
+                           manifest->segment_start_ms == offset_ms));
   http_client_destroy(client);
-  SYS_Report(
-      "REFERENCE GX: gateway-playback rating-key=%u offset=%u bytes=%u loaded=%u\n",
-      loaded ? manifest->rating_key : 0,
-      loaded ? manifest->segment_start_ms : 0,
-      loaded ? manifest->container_bytes : 0, loaded);
+  SYS_Report("REFERENCE GX: gateway-playback rating-key=%u offset=%u bytes=%u "
+             "loaded=%u\n",
+             loaded ? manifest->rating_key : 0,
+             loaded ? manifest->segment_start_ms : 0,
+             loaded ? manifest->container_bytes : 0, loaded);
   return loaded;
 }
 
-bool multiplex_gateway_report_timeline(
-    const char *base_url, uint32_t rating_key, uint32_t position_ms,
-    uint32_t duration_ms, const char *state) {
+bool multiplex_gateway_report_timeline(const char *base_url,
+                                       uint32_t rating_key,
+                                       uint32_t position_ms,
+                                       uint32_t duration_ms,
+                                       const char *state) {
   if (base_url == NULL || base_url[0] == '\0' || rating_key == 0 ||
       duration_ms == 0 || state == NULL ||
       (strcmp(state, "playing") != 0 && strcmp(state, "paused") != 0 &&

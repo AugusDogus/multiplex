@@ -156,10 +156,9 @@ static bool parse_decimal_milli(TextSpan span, uint32_t *value) {
   return true;
 }
 
-static bool parse_resolution(TextSpan span, unsigned *width,
-                             unsigned *height) {
-  const char *separator = memchr(span.begin, 'x',
-                                (size_t)(span.end - span.begin));
+static bool parse_resolution(TextSpan span, unsigned *width, unsigned *height) {
+  const char *separator =
+      memchr(span.begin, 'x', (size_t)(span.end - span.begin));
   if (separator == NULL) {
     return false;
   }
@@ -167,8 +166,8 @@ static bool parse_resolution(TextSpan span, unsigned *width,
   uint32_t parsed_height = 0;
   if (!parse_unsigned((TextSpan){span.begin, separator}, &parsed_width) ||
       !parse_unsigned((TextSpan){separator + 1, span.end}, &parsed_height) ||
-      parsed_width == 0 || parsed_height == 0 ||
-      parsed_width > UINT_MAX || parsed_height > UINT_MAX) {
+      parsed_width == 0 || parsed_height == 0 || parsed_width > UINT_MAX ||
+      parsed_height > UINT_MAX) {
     return false;
   }
   *width = (unsigned)parsed_width;
@@ -242,8 +241,7 @@ bool hls_playlist_parse_media_window(const char *text, size_t size,
     static const char target_duration_tag[] = "#EXT-X-TARGETDURATION:";
     static const char duration_tag[] = "#EXTINF:";
     if (span_starts_with(line, media_sequence_tag)) {
-      TextSpan value = {line.begin + sizeof(media_sequence_tag) - 1u,
-                        line.end};
+      TextSpan value = {line.begin + sizeof(media_sequence_tag) - 1u, line.end};
       if (!parse_unsigned(value, &playlist->media_sequence)) {
         return false;
       }
@@ -305,8 +303,8 @@ bool hls_playlist_resolve_url(const char *base_url, const char *uri,
   static const char http_scheme[] = "http://";
   static const char https_scheme[] = "https://";
   size_t scheme_size = 0;
-  if (base_url == NULL || uri == NULL || destination == NULL ||
-      capacity == 0 || uri[0] == '\0' || strstr(uri, "..") != NULL ||
+  if (base_url == NULL || uri == NULL || destination == NULL || capacity == 0 ||
+      uri[0] == '\0' || strstr(uri, "..") != NULL ||
       strchr(uri, '\r') != NULL || strchr(uri, '\n') != NULL) {
     return false;
   }

@@ -18,7 +18,7 @@
 #define GUI_NAVIGATION_REPEAT_DECREASE_US 300u
 
 static MultiplexGuiNavigationDirection direction_for_stick(int stick_x,
-                                                            int stick_y) {
+                                                           int stick_y) {
   if (abs(stick_x) >= abs(stick_y)) {
     if (stick_x < -GUI_NAVIGATION_DEAD_ZONE) {
       return MULTIPLEX_GUI_NAVIGATION_LEFT;
@@ -43,9 +43,9 @@ void multiplex_gui_navigation_reset(MultiplexGuiNavigation *navigation) {
   navigation->repeat_delay_us = GUI_NAVIGATION_INITIAL_REPEAT_US;
 }
 
-MultiplexGuiNavigationDirection multiplex_gui_navigation_poll(
-    MultiplexGuiNavigation *navigation, int stick_x, int stick_y,
-    uint64_t now_us) {
+MultiplexGuiNavigationDirection
+multiplex_gui_navigation_poll(MultiplexGuiNavigation *navigation, int stick_x,
+                              int stick_y, uint64_t now_us) {
   const MultiplexGuiNavigationDirection direction =
       direction_for_stick(stick_x, stick_y);
   if (direction == MULTIPLEX_GUI_NAVIGATION_NONE) {

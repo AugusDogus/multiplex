@@ -8,10 +8,10 @@
 #include <ogc/lwp_watchdog.h>
 #include <ogc/system.h>
 
-#include <stdbool.h>
-#include <stdint.h>
 #include <errno.h>
 #include <malloc.h>
+#include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -112,11 +112,11 @@ static bool tcp_connect(const struct in_addr *address, uint16_t port) {
 
 static bool write_request(int socket, const char *path) {
   char request[512];
-  const int request_size = snprintf(
-      request, sizeof(request),
-      "GET %s HTTP/1.1\r\nHost: %s:%u\r\nConnection: close\r\n"
-      "User-Agent: Multiplex-BBA-Diagnostics/1\r\n\r\n",
-      path, PLEX_HOST, (unsigned)PLEX_PORT);
+  const int request_size =
+      snprintf(request, sizeof(request),
+               "GET %s HTTP/1.1\r\nHost: %s:%u\r\nConnection: close\r\n"
+               "User-Agent: Multiplex-BBA-Diagnostics/1\r\n\r\n",
+               path, PLEX_HOST, (unsigned)PLEX_PORT);
   if (request_size <= 0 || (size_t)request_size >= sizeof(request)) {
     return false;
   }
@@ -153,9 +153,8 @@ static ReadAttempt read_like_swiss(int socket, void *destination,
                                    size_t capacity) {
   ReadAttempt attempt = {.selected = -1, .received = -EAGAIN};
   const uint64_t started = gettime();
-  const size_t bounded_capacity = capacity > PRIOR_ART_READ_CAPACITY
-                                      ? PRIOR_ART_READ_CAPACITY
-                                      : capacity;
+  const size_t bounded_capacity =
+      capacity > PRIOR_ART_READ_CAPACITY ? PRIOR_ART_READ_CAPACITY : capacity;
   do {
     attempt.received =
         net_recv(socket, destination, bounded_capacity, MSG_DONTWAIT);
@@ -169,16 +168,14 @@ static ReadAttempt read_like_swiss(int socket, void *destination,
 }
 
 static ReadAttempt read_with_strategy(int socket, void *destination,
-                                      size_t capacity,
-                                      ReadStrategy strategy) {
+                                      size_t capacity, ReadStrategy strategy) {
   return strategy == READ_LIKE_SWISS
              ? read_like_swiss(socket, destination, capacity)
              : read_with_select(socket, destination, capacity);
 }
 
 static bool parse_response_headers(const char *headers, size_t size,
-                                   unsigned *status,
-                                   size_t *body_offset) {
+                                   unsigned *status, size_t *body_offset) {
   if (headers == NULL || status == NULL || body_offset == NULL) {
     return false;
   }
@@ -190,8 +187,7 @@ static bool parse_response_headers(const char *headers, size_t size,
       break;
     }
   }
-  if (separator == NULL ||
-      sscanf(headers, "HTTP/%*u.%*u %u", status) != 1) {
+  if (separator == NULL || sscanf(headers, "HTTP/%*u.%*u %u", status) != 1) {
     return false;
   }
   *body_offset = (size_t)(separator - headers) + 4u;
@@ -223,9 +219,9 @@ static DownloadResult download_path(const struct in_addr *address,
 
   size_t header_bytes = 0;
   while (header_bytes + 1u < HTTP_HEADER_CAPACITY) {
-    const ReadAttempt attempt = read_with_strategy(
-        socket, headers + header_bytes,
-        HTTP_HEADER_CAPACITY - header_bytes - 1u, strategy);
+    const ReadAttempt attempt =
+        read_with_strategy(socket, headers + header_bytes,
+                           HTTP_HEADER_CAPACITY - header_bytes - 1u, strategy);
     const int received = attempt.received;
     result.terminal_select = attempt.selected;
     result.terminal_recv = received;
@@ -245,16 +241,14 @@ static DownloadResult download_path(const struct in_addr *address,
     }
   }
 
-  uint32_t previous_read_ms =
-      (uint32_t)ticks_to_millisecs(gettime() - started);
+  uint32_t previous_read_ms = (uint32_t)ticks_to_millisecs(gettime() - started);
   while (result.headers_received) {
-    if (ticks_to_millisecs(gettime() - started) >=
-        HTTP_DOWNLOAD_DEADLINE_MS) {
+    if (ticks_to_millisecs(gettime() - started) >= HTTP_DOWNLOAD_DEADLINE_MS) {
       result.timed_out = true;
       break;
     }
-    const ReadAttempt attempt = read_with_strategy(
-        socket, read_buffer, HTTP_READ_CAPACITY, strategy);
+    const ReadAttempt attempt =
+        read_with_strategy(socket, read_buffer, HTTP_READ_CAPACITY, strategy);
     const int received = attempt.received;
     result.terminal_select = attempt.selected;
     result.terminal_recv = received;
@@ -266,8 +260,7 @@ static DownloadResult download_path(const struct in_addr *address,
       result.timed_out = true;
       break;
     }
-    const uint32_t read_ms =
-        (uint32_t)ticks_to_millisecs(gettime() - started);
+    const uint32_t read_ms = (uint32_t)ticks_to_millisecs(gettime() - started);
     const uint32_t read_gap_ms = read_ms - previous_read_ms;
     if (read_gap_ms > result.max_read_gap_ms) {
       result.max_read_gap_ms = read_gap_ms;
@@ -278,15 +271,14 @@ static DownloadResult download_path(const struct in_addr *address,
     }
     result.body_bytes += (size_t)received;
   }
-  result.elapsed_ms =
-      (uint32_t)ticks_to_millisecs(gettime() - started);
+  result.elapsed_ms = (uint32_t)ticks_to_millisecs(gettime() - started);
   net_close(socket);
   free(workspace);
   return result;
 }
 
-static bool load_plex_web_asset_path(const struct in_addr *address,
-                                     char *path, size_t capacity) {
+static bool load_plex_web_asset_path(const struct in_addr *address, char *path,
+                                     size_t capacity) {
   const int socket = connect_socket(address, PLEX_PORT);
   if (socket < 0 || !write_request(socket, "/web/index.html")) {
     if (socket >= 0) {
@@ -309,9 +301,10 @@ static bool load_plex_web_asset_path(const struct in_addr *address,
   }
   net_close(socket);
   plex_index_buffer[used] = '\0';
-  SYS_Report("BBA DIAGNOSTIC: discovery bytes=%lu reads=%lu select=%d recv=%d\n",
-             (unsigned long)used, (unsigned long)reads, terminal.selected,
-             terminal.received);
+  SYS_Report(
+      "BBA DIAGNOSTIC: discovery bytes=%lu reads=%lu select=%d recv=%d\n",
+      (unsigned long)used, (unsigned long)reads, terminal.selected,
+      terminal.received);
   const char marker[] = "src=\"/web/js/main-";
   const char *start = strstr(plex_index_buffer, marker);
   if (start == NULL) {
@@ -352,33 +345,29 @@ static void print_download_result(const char *label,
          (unsigned long)result->elapsed_ms,
          result->timed_out ? " [TIMEOUT]" : "");
   printf("       HTTP %u, connected=%u, headers=%u\n", result->status,
-         result->connected ? 1u : 0u,
-         result->headers_received ? 1u : 0u);
+         result->connected ? 1u : 0u, result->headers_received ? 1u : 0u);
   printf("       reads=%lu, max=%lu B, gap=%lu ms, sel=%d recv=%d\n",
-         (unsigned long)result->read_calls,
-         (unsigned long)result->largest_read,
+         (unsigned long)result->read_calls, (unsigned long)result->largest_read,
          (unsigned long)result->max_read_gap_ms, result->terminal_select,
          result->terminal_recv);
-  SYS_Report("BBA DIAGNOSTIC: %s rate=%luKiB/s bytes=%lu elapsed=%lums "
-             "timeout=%u http=%u connected=%u headers=%u reads=%lu max=%lu "
-             "gap=%lums select=%d recv=%d\n",
-             label, (unsigned long)download_kib_per_second(result),
-             (unsigned long)result->body_bytes,
-             (unsigned long)result->elapsed_ms, result->timed_out ? 1u : 0u,
-             result->status, result->connected ? 1u : 0u,
-             result->headers_received ? 1u : 0u,
-             (unsigned long)result->read_calls,
-             (unsigned long)result->largest_read,
-             (unsigned long)result->max_read_gap_ms, result->terminal_select,
-             result->terminal_recv);
+  SYS_Report(
+      "BBA DIAGNOSTIC: %s rate=%luKiB/s bytes=%lu elapsed=%lums "
+      "timeout=%u http=%u connected=%u headers=%u reads=%lu max=%lu "
+      "gap=%lums select=%d recv=%d\n",
+      label, (unsigned long)download_kib_per_second(result),
+      (unsigned long)result->body_bytes, (unsigned long)result->elapsed_ms,
+      result->timed_out ? 1u : 0u, result->status, result->connected ? 1u : 0u,
+      result->headers_received ? 1u : 0u, (unsigned long)result->read_calls,
+      (unsigned long)result->largest_read,
+      (unsigned long)result->max_read_gap_ms, result->terminal_select,
+      result->terminal_recv);
 }
 
 static void run_throughput_diagnostics(const struct in_addr *plex_address,
                                        const char *local_ip) {
   char asset_path[256];
   printf("\nDiscovering a large public asset from Plex...\n");
-  if (!load_plex_web_asset_path(plex_address, asset_path,
-                                sizeof(asset_path))) {
+  if (!load_plex_web_asset_path(plex_address, asset_path, sizeof(asset_path))) {
     snprintf(asset_path, sizeof(asset_path), "%s", PLEX_ASSET_FALLBACK);
     printf("[WARN] Discovery stalled; using the known Plex asset.\n");
     SYS_Report("BBA DIAGNOSTIC: discovery failed; fallback asset=%s\n",

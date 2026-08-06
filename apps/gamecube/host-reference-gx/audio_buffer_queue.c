@@ -1,8 +1,7 @@
 #include "audio_buffer_queue.h"
 
 int audio_buffer_queue_find_state(const AudioBufferSlot *slots,
-                                  size_t slot_count,
-                                  AudioBufferState state) {
+                                  size_t slot_count, AudioBufferState state) {
   for (size_t index = 0; index < slot_count; ++index) {
     if (slots[index].state == state) {
       return (int)index;

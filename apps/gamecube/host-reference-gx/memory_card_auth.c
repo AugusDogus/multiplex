@@ -28,22 +28,22 @@ static bool card_initialized;
 
 static MultiplexMemoryCardResult map_card_error(int result) {
   switch (result) {
-    case CARD_ERROR_READY:
-      return MULTIPLEX_MEMORY_CARD_OK;
-    case CARD_ERROR_NOCARD:
-    case CARD_ERROR_WRONGDEVICE:
-      return MULTIPLEX_MEMORY_CARD_NO_CARD;
-    case CARD_ERROR_NOFILE:
-      return MULTIPLEX_MEMORY_CARD_NOT_FOUND;
-    case CARD_ERROR_NOENT:
-    case CARD_ERROR_INSSPACE:
-    case CARD_ERROR_LIMIT:
-      return MULTIPLEX_MEMORY_CARD_NO_SPACE;
-    case CARD_ERROR_BROKEN:
-    case CARD_ERROR_ENCODING:
-      return MULTIPLEX_MEMORY_CARD_CORRUPT;
-    default:
-      return MULTIPLEX_MEMORY_CARD_IO_ERROR;
+  case CARD_ERROR_READY:
+    return MULTIPLEX_MEMORY_CARD_OK;
+  case CARD_ERROR_NOCARD:
+  case CARD_ERROR_WRONGDEVICE:
+    return MULTIPLEX_MEMORY_CARD_NO_CARD;
+  case CARD_ERROR_NOFILE:
+    return MULTIPLEX_MEMORY_CARD_NOT_FOUND;
+  case CARD_ERROR_NOENT:
+  case CARD_ERROR_INSSPACE:
+  case CARD_ERROR_LIMIT:
+    return MULTIPLEX_MEMORY_CARD_NO_SPACE;
+  case CARD_ERROR_BROKEN:
+  case CARD_ERROR_ENCODING:
+    return MULTIPLEX_MEMORY_CARD_CORRUPT;
+  default:
+    return MULTIPLEX_MEMORY_CARD_IO_ERROR;
   }
 }
 
@@ -64,8 +64,7 @@ static MultiplexMemoryCardResult mount_slot(int slot, int *sector_size) {
   int probed_sector_size = 0;
   int result = CARD_ERROR_BUSY;
   for (unsigned attempt = 0;
-       attempt < MULTIPLEX_CARD_READY_ATTEMPTS &&
-       result == CARD_ERROR_BUSY;
+       attempt < MULTIPLEX_CARD_READY_ATTEMPTS && result == CARD_ERROR_BUSY;
        ++attempt) {
     result = CARD_ProbeEx(slot, &memory_size, &probed_sector_size);
     if (result == CARD_ERROR_BUSY) {
@@ -83,11 +82,10 @@ static MultiplexMemoryCardResult mount_slot(int slot, int *sector_size) {
   }
   result = CARD_Mount(slot, card_workarea, NULL);
   if (result < CARD_ERROR_READY) {
-    SYS_Report(
-        "REFERENCE GX: memory-card mount slot=%c result=%d size=%d "
-        "sector=%d\n",
-        slot == CARD_SLOTA ? 'A' : 'B', result, memory_size,
-        probed_sector_size);
+    SYS_Report("REFERENCE GX: memory-card mount slot=%c result=%d size=%d "
+               "sector=%d\n",
+               slot == CARD_SLOTA ? 'A' : 'B', result, memory_size,
+               probed_sector_size);
     return map_card_error(result);
   }
   *sector_size = probed_sector_size;
@@ -119,10 +117,10 @@ static bool generation_is_newer(uint32_t candidate, uint32_t current) {
   return distance != 0 && distance < UINT32_C(0x80000000);
 }
 
-static MultiplexCardRecordSource select_records(
-    const uint8_t *first, size_t first_size, const uint8_t *second,
-    size_t second_size, MultiplexAuthCredentials *credentials,
-    uint32_t *generation) {
+static MultiplexCardRecordSource
+select_records(const uint8_t *first, size_t first_size, const uint8_t *second,
+               size_t second_size, MultiplexAuthCredentials *credentials,
+               uint32_t *generation) {
   MultiplexCardRecordSource source = MULTIPLEX_CARD_RECORD_NONE;
   if (first_size > MULTIPLEX_CARD_AUTH_OFFSET) {
     const MultiplexAuthRecordSelection selected = multiplex_auth_record_select(
@@ -149,8 +147,8 @@ static MultiplexCardRecordSource select_records(
   return source;
 }
 
-static MultiplexMemoryCardResult read_records(
-    card_file *file, int sector_size, uint8_t *first, uint8_t *second) {
+static MultiplexMemoryCardResult read_records(card_file *file, int sector_size,
+                                              uint8_t *first, uint8_t *second) {
   if (file->len < sector_size * (int)MULTIPLEX_CARD_SECTORS) {
     return MULTIPLEX_MEMORY_CARD_CORRUPT;
   }
@@ -158,16 +156,16 @@ static MultiplexMemoryCardResult read_records(
   if (result < CARD_ERROR_READY) {
     return map_card_error(result);
   }
-  result = CARD_Read(file, second, (uint32_t)sector_size,
-                     (uint32_t)sector_size);
+  result =
+      CARD_Read(file, second, (uint32_t)sector_size, (uint32_t)sector_size);
   return result < CARD_ERROR_READY ? map_card_error(result)
                                    : MULTIPLEX_MEMORY_CARD_OK;
 }
 
-static MultiplexMemoryCardResult load_from_slot(
-    int slot, MultiplexAuthCredentials *credentials,
-    MultiplexMemoryCardLocation *location, uint8_t *cache,
-    size_t cache_capacity) {
+static MultiplexMemoryCardResult
+load_from_slot(int slot, MultiplexAuthCredentials *credentials,
+               MultiplexMemoryCardLocation *location, uint8_t *cache,
+               size_t cache_capacity) {
   int sector_size = 0;
   MultiplexMemoryCardResult result = mount_slot(slot, &sector_size);
   if (result != MULTIPLEX_MEMORY_CARD_OK) {
@@ -200,16 +198,16 @@ static MultiplexMemoryCardResult load_from_slot(
   result = read_records(&file, sector_size, first, second);
   uint32_t generation = 0;
   if (result == MULTIPLEX_MEMORY_CARD_OK) {
-    const MultiplexCardRecordSource selection = select_records(
-        first, (size_t)sector_size, second, (size_t)sector_size, credentials,
-        &generation);
+    const MultiplexCardRecordSource selection =
+        select_records(first, (size_t)sector_size, second, (size_t)sector_size,
+                       credentials, &generation);
     if (selection == MULTIPLEX_CARD_RECORD_NONE) {
       result = MULTIPLEX_MEMORY_CARD_CORRUPT;
     }
-    SYS_Report(
-        "REFERENCE GX: memory-card load slot=%c bytes=%d selection=%d "
-        "generation=%u\n",
-        slot == CARD_SLOTA ? 'A' : 'B', file_size, selection, generation);
+    SYS_Report("REFERENCE GX: memory-card load slot=%c bytes=%d selection=%d "
+               "generation=%u\n",
+               slot == CARD_SLOTA ? 'A' : 'B', file_size, selection,
+               generation);
   } else {
     SYS_Report("REFERENCE GX: memory-card load slot=%c read=%d bytes=%d\n",
                slot == CARD_SLOTA ? 'A' : 'B', result, file_size);
@@ -236,16 +234,17 @@ static MultiplexMemoryCardResult load_from_slot(
   return result;
 }
 
-MultiplexMemoryCardResult multiplex_memory_card_load_auth(
-    MultiplexAuthCredentials *credentials,
-    MultiplexMemoryCardLocation *location) {
-  return multiplex_memory_card_load_auth_with_cache(credentials, location,
-                                                     NULL, 0);
+MultiplexMemoryCardResult
+multiplex_memory_card_load_auth(MultiplexAuthCredentials *credentials,
+                                MultiplexMemoryCardLocation *location) {
+  return multiplex_memory_card_load_auth_with_cache(credentials, location, NULL,
+                                                    0);
 }
 
 MultiplexMemoryCardResult multiplex_memory_card_load_auth_with_cache(
-    MultiplexAuthCredentials *credentials, MultiplexMemoryCardLocation *location,
-    uint8_t *cache, size_t cache_capacity) {
+    MultiplexAuthCredentials *credentials,
+    MultiplexMemoryCardLocation *location, uint8_t *cache,
+    size_t cache_capacity) {
   if (credentials == NULL) {
     return MULTIPLEX_MEMORY_CARD_INVALID_CREDENTIALS;
   }
@@ -256,8 +255,7 @@ MultiplexMemoryCardResult multiplex_memory_card_load_auth_with_cache(
 
   MultiplexMemoryCardResult best_result = MULTIPLEX_MEMORY_CARD_NO_CARD;
   for (int slot = CARD_SLOTA; slot <= CARD_SLOTB; ++slot) {
-    result = load_from_slot(slot, credentials, location, cache,
-                            cache_capacity);
+    result = load_from_slot(slot, credentials, location, cache, cache_capacity);
     if (result == MULTIPLEX_MEMORY_CARD_OK) {
       return result;
     }
@@ -274,9 +272,9 @@ MultiplexMemoryCardResult multiplex_memory_card_load_auth_with_cache(
   return best_result;
 }
 
-static MultiplexMemoryCardResult save_to_slot(
-    int slot, const MultiplexAuthCredentials *credentials,
-    MultiplexMemoryCardLocation *location) {
+static MultiplexMemoryCardResult
+save_to_slot(int slot, const MultiplexAuthCredentials *credentials,
+             MultiplexMemoryCardLocation *location) {
   int sector_size = 0;
   SYS_Report("REFERENCE GX: memory-card save slot=%c begin\n",
              slot == CARD_SLOTA ? 'A' : 'B');
@@ -327,24 +325,24 @@ static MultiplexMemoryCardResult save_to_slot(
 
   MultiplexAuthCredentials existing_credentials;
   uint32_t current_generation = 0;
-  const MultiplexCardRecordSource selected = select_records(
-      first, (size_t)sector_size, second, (size_t)sector_size,
-      &existing_credentials, &current_generation);
-  const unsigned target_index = selected == MULTIPLEX_CARD_RECORD_FIRST ? 1u : 0u;
+  const MultiplexCardRecordSource selected =
+      select_records(first, (size_t)sector_size, second, (size_t)sector_size,
+                     &existing_credentials, &current_generation);
+  const unsigned target_index =
+      selected == MULTIPLEX_CARD_RECORD_FIRST ? 1u : 0u;
   const uint32_t next_generation =
       selected == MULTIPLEX_CARD_RECORD_NONE ? 1u : current_generation + 1u;
-  SYS_Report(
-      "REFERENCE GX: memory-card save slot=%c selected=%u generation=%u "
-      "sector=%d\n",
-      slot == CARD_SLOTA ? 'A' : 'B', selected, next_generation, sector_size);
-  uint8_t *target = target_index == 0 ? first + MULTIPLEX_CARD_AUTH_OFFSET
-                                     : second;
-  const size_t target_capacity = target_index == 0
-                                     ? MULTIPLEX_CARD_CACHE_OFFSET -
-                                           MULTIPLEX_CARD_AUTH_OFFSET
-                                     : (size_t)sector_size;
-  if (!multiplex_memory_card_prepare_presentation(first,
-                                                   (size_t)sector_size) ||
+  SYS_Report("REFERENCE GX: memory-card save slot=%c selected=%u generation=%u "
+             "sector=%d\n",
+             slot == CARD_SLOTA ? 'A' : 'B', selected, next_generation,
+             sector_size);
+  uint8_t *target =
+      target_index == 0 ? first + MULTIPLEX_CARD_AUTH_OFFSET : second;
+  const size_t target_capacity =
+      target_index == 0
+          ? MULTIPLEX_CARD_CACHE_OFFSET - MULTIPLEX_CARD_AUTH_OFFSET
+          : (size_t)sector_size;
+  if (!multiplex_memory_card_prepare_presentation(first, (size_t)sector_size) ||
       !multiplex_auth_record_encode(target, target_capacity, credentials,
                                     next_generation)) {
     result = MULTIPLEX_MEMORY_CARD_INVALID_CREDENTIALS;
@@ -359,22 +357,20 @@ static MultiplexMemoryCardResult save_to_slot(
     if (card_result < CARD_ERROR_READY) {
       result = map_card_error(card_result);
     } else {
-      card_result =
-          CARD_Read(&file, verification, (uint32_t)sector_size,
-                    (uint32_t)(target_index * (unsigned)sector_size));
+      card_result = CARD_Read(&file, verification, (uint32_t)sector_size,
+                              (uint32_t)(target_index * (unsigned)sector_size));
       MultiplexAuthCredentials verified_credentials;
       uint32_t verified_generation = 0;
       const uint8_t *verified_record =
           target_index == 0 ? verification + MULTIPLEX_CARD_AUTH_OFFSET
                             : verification;
-      const size_t verified_capacity = target_index == 0
-                                           ? (size_t)sector_size -
-                                                 MULTIPLEX_CARD_AUTH_OFFSET
-                                           : (size_t)sector_size;
+      const size_t verified_capacity =
+          target_index == 0 ? (size_t)sector_size - MULTIPLEX_CARD_AUTH_OFFSET
+                            : (size_t)sector_size;
       if (card_result < CARD_ERROR_READY ||
-          !multiplex_auth_record_decode(
-              verified_record, verified_capacity, &verified_credentials,
-              &verified_generation) ||
+          !multiplex_auth_record_decode(verified_record, verified_capacity,
+                                        &verified_credentials,
+                                        &verified_generation) ||
           verified_generation != next_generation ||
           !credentials_equal(&verified_credentials, credentials)) {
         result = MULTIPLEX_MEMORY_CARD_IO_ERROR;
@@ -407,9 +403,9 @@ static MultiplexMemoryCardResult save_to_slot(
   return result;
 }
 
-MultiplexMemoryCardResult multiplex_memory_card_save_auth(
-    const MultiplexAuthCredentials *credentials,
-    MultiplexMemoryCardLocation *location) {
+MultiplexMemoryCardResult
+multiplex_memory_card_save_auth(const MultiplexAuthCredentials *credentials,
+                                MultiplexMemoryCardLocation *location) {
   if (credentials == NULL) {
     return MULTIPLEX_MEMORY_CARD_INVALID_CREDENTIALS;
   }
@@ -445,8 +441,8 @@ MultiplexMemoryCardResult multiplex_memory_card_save_auth(
   return fallback;
 }
 
-MultiplexMemoryCardResult multiplex_memory_card_delete_auth(
-    MultiplexMemoryCardLocation *location) {
+MultiplexMemoryCardResult
+multiplex_memory_card_delete_auth(MultiplexMemoryCardLocation *location) {
   if (location == NULL ||
       (location->slot != CARD_SLOTA && location->slot != CARD_SLOTB)) {
     return MULTIPLEX_MEMORY_CARD_NOT_FOUND;
@@ -461,8 +457,7 @@ MultiplexMemoryCardResult multiplex_memory_card_delete_auth(
     return result;
   }
   (void)sector_size;
-  const int card_result =
-      CARD_Delete(location->slot, MULTIPLEX_CARD_FILENAME);
+  const int card_result = CARD_Delete(location->slot, MULTIPLEX_CARD_FILENAME);
   CARD_Unmount(location->slot);
   result = map_card_error(card_result);
   if (result == MULTIPLEX_MEMORY_CARD_OK ||
@@ -479,9 +474,9 @@ MultiplexMemoryCardResult multiplex_memory_card_delete_auth(
   return result;
 }
 
-MultiplexMemoryCardResult multiplex_memory_card_save_cache(
-    const MultiplexMemoryCardLocation *location, const uint8_t *source,
-    size_t size) {
+MultiplexMemoryCardResult
+multiplex_memory_card_save_cache(const MultiplexMemoryCardLocation *location,
+                                 const uint8_t *source, size_t size) {
   if (location == NULL || source == NULL ||
       size != MULTIPLEX_MEMORY_CARD_CACHE_CAPACITY ||
       (location->slot != CARD_SLOTA && location->slot != CARD_SLOTB)) {
@@ -540,23 +535,23 @@ MultiplexMemoryCardResult multiplex_memory_card_save_cache(
                          : MULTIPLEX_MEMORY_CARD_IO_ERROR);
 }
 
-const char *multiplex_memory_card_result_message(
-    MultiplexMemoryCardResult result) {
+const char *
+multiplex_memory_card_result_message(MultiplexMemoryCardResult result) {
   switch (result) {
-    case MULTIPLEX_MEMORY_CARD_OK:
-      return "Sign-in saved to memory card.";
-    case MULTIPLEX_MEMORY_CARD_NOT_FOUND:
-      return "No Multiplex save was found.";
-    case MULTIPLEX_MEMORY_CARD_NO_CARD:
-      return "Insert a memory card to save sign-in.";
-    case MULTIPLEX_MEMORY_CARD_NO_SPACE:
-      return "The memory card needs two free blocks.";
-    case MULTIPLEX_MEMORY_CARD_CORRUPT:
-      return "The Multiplex save could not be read.";
-    case MULTIPLEX_MEMORY_CARD_INVALID_CREDENTIALS:
-      return "The sign-in data is too large to save.";
-    case MULTIPLEX_MEMORY_CARD_IO_ERROR:
-    default:
-      return "The memory card could not be accessed.";
+  case MULTIPLEX_MEMORY_CARD_OK:
+    return "Sign-in saved to memory card.";
+  case MULTIPLEX_MEMORY_CARD_NOT_FOUND:
+    return "No Multiplex save was found.";
+  case MULTIPLEX_MEMORY_CARD_NO_CARD:
+    return "Insert a memory card to save sign-in.";
+  case MULTIPLEX_MEMORY_CARD_NO_SPACE:
+    return "The memory card needs two free blocks.";
+  case MULTIPLEX_MEMORY_CARD_CORRUPT:
+    return "The Multiplex save could not be read.";
+  case MULTIPLEX_MEMORY_CARD_INVALID_CREDENTIALS:
+    return "The sign-in data is too large to save.";
+  case MULTIPLEX_MEMORY_CARD_IO_ERROR:
+  default:
+    return "The memory card could not be accessed.";
   }
 }

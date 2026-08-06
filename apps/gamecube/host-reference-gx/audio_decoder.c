@@ -52,14 +52,13 @@ static enum CodecID ffmpeg_codec_id(AudioCodec codec) {
 }
 
 static bool refill_input(AudioDecoder *decoder) {
-  decoder->input_size = decoder->read(
-      decoder->reader_context, decoder->input, AUDIO_INPUT_SIZE);
+  decoder->input_size =
+      decoder->read(decoder->reader_context, decoder->input, AUDIO_INPUT_SIZE);
   decoder->input_offset = 0;
   if (decoder->input_size == 0 || decoder->input_size > AUDIO_INPUT_SIZE) {
     return false;
   }
-  memset(decoder->input + decoder->input_size, 0,
-         FF_INPUT_BUFFER_PADDING_SIZE);
+  memset(decoder->input + decoder->input_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
   return true;
 }
 
@@ -73,14 +72,13 @@ static bool decode_frame(AudioDecoder *decoder) {
       return false;
     }
     const uint8_t *input = decoder->input + decoder->input_offset;
-    const int input_size =
-        (int)(decoder->input_size - decoder->input_offset);
+    const int input_size = (int)(decoder->input_size - decoder->input_offset);
     uint8_t *frame_data = NULL;
     int frame_size = 0;
-    const int parsed = av_parser_parse2(
-        decoder->parser, decoder->context, &frame_data, &frame_size, input,
-        input_size, AV_NOPTS_VALUE, AV_NOPTS_VALUE,
-        (int64_t)decoder->stream_offset);
+    const int parsed =
+        av_parser_parse2(decoder->parser, decoder->context, &frame_data,
+                         &frame_size, input, input_size, AV_NOPTS_VALUE,
+                         AV_NOPTS_VALUE, (int64_t)decoder->stream_offset);
     if (parsed < 0 || parsed > input_size) {
       SYS_Report("REFERENCE GX: %s parser failed at byte %u\n",
                  audio_codec_name(decoder->selected_codec),
@@ -108,9 +106,9 @@ static bool decode_frame(AudioDecoder *decoder) {
       return false;
     }
     if (consumed != frame_size) {
-      SYS_Report(
-          "REFERENCE GX: %s decoder consumed %d of %d parsed bytes\n",
-          audio_codec_name(decoder->selected_codec), consumed, frame_size);
+      SYS_Report("REFERENCE GX: %s decoder consumed %d of %d parsed bytes\n",
+                 audio_codec_name(decoder->selected_codec), consumed,
+                 frame_size);
       return false;
     }
 
@@ -125,8 +123,8 @@ static bool decode_frame(AudioDecoder *decoder) {
           "REFERENCE GX: unexpected %s frame bytes=%d rate=%d channels=%d "
           "format=%d\n",
           audio_codec_name(decoder->selected_codec), output_size,
-          decoder->context->sample_rate,
-          decoder->context->channels, decoder->context->sample_fmt);
+          decoder->context->sample_rate, decoder->context->channels,
+          decoder->context->sample_fmt);
       return false;
     }
 
@@ -224,8 +222,7 @@ bool audio_decoder_read_pcm(AudioDecoder *decoder, void *destination,
       return false;
     }
 
-    const size_t available =
-        decoder->decoded_size - decoder->decoded_offset;
+    const size_t available = decoder->decoded_size - decoder->decoded_offset;
     const size_t remaining = destination_size - written;
     const size_t copy_size = available < remaining ? available : remaining;
     memcpy(output + written, decoder->decoded + decoder->decoded_offset,

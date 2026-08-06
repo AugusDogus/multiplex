@@ -60,23 +60,22 @@ static void parses_plex_user_id(void) {
       "{\"result\":{\"data\":{\"json\":{\"id\":12345,"
       "\"username\":\"viewer\"}}}}";
   uint32_t user_id = 0;
-  assert(multiplex_trpc_parse_user_id(response, sizeof(response) - 1u,
-                                      &user_id));
+  assert(
+      multiplex_trpc_parse_user_id(response, sizeof(response) - 1u, &user_id));
   assert(user_id == 12345);
 
   static const char missing[] =
       "{\"result\":{\"data\":{\"json\":{\"username\":\"viewer\"}}}}";
-  assert(!multiplex_trpc_parse_user_id(missing, sizeof(missing) - 1u,
-                                       &user_id));
+  assert(
+      !multiplex_trpc_parse_user_id(missing, sizeof(missing) - 1u, &user_id));
 }
 
 static void parses_watch_together_invitees(void) {
-  static const char response[] =
-      "{\"result\":{\"data\":{\"json\":["
-      "{\"id\":12345,\"title\":\"Friendly viewer\","
-      "\"username\":\"viewer\"},"
-      "{\"id\":67890,\"username\":\"second-viewer\"}"
-      "]}}}";
+  static const char response[] = "{\"result\":{\"data\":{\"json\":["
+                                 "{\"id\":12345,\"title\":\"Friendly viewer\","
+                                 "\"username\":\"viewer\"},"
+                                 "{\"id\":67890,\"username\":\"second-viewer\"}"
+                                 "]}}}";
   MultiplexTrpcInviteeList list;
   assert(multiplex_trpc_parse_watch_together_invitees(
       response, sizeof(response) - 1u, &list));
@@ -86,9 +85,8 @@ static void parses_watch_together_invitees(void) {
   assert(list.invitees[1].user_id == 67890);
   assert(strcmp(list.invitees[1].name, "second-viewer") == 0);
 
-  static const char malformed[] =
-      "{\"result\":{\"data\":{\"json\":[{\"id\":0,"
-      "\"username\":\"viewer\"}]}}}";
+  static const char malformed[] = "{\"result\":{\"data\":{\"json\":[{\"id\":0,"
+                                  "\"username\":\"viewer\"}]}}}";
   assert(!multiplex_trpc_parse_watch_together_invitees(
       malformed, sizeof(malformed) - 1u, &list));
 }

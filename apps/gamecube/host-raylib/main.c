@@ -1,6 +1,6 @@
 #include "native_ui.h"
-#include "reference_frame.h"
 #include "raylib.h"
+#include "reference_frame.h"
 
 #include <gccore.h>
 #include <malloc.h>
@@ -113,8 +113,8 @@ static void trace_reference_bounds(void) {
 
 static bool allocate_reference_buffers(void) {
   const MultiplexReferenceFrameStatus frame_status =
-      multiplex_reference_frame_initialize(
-          &reference_frame, LOGICAL_WIDTH * LOGICAL_HEIGHT * 4u);
+      multiplex_reference_frame_initialize(&reference_frame,
+                                           LOGICAL_WIDTH * LOGICAL_HEIGHT * 4u);
   if (frame_status != MULTIPLEX_REFERENCE_FRAME_OK) {
     TraceLog(LOG_ERROR, "Native frame initialization failed: %s",
              multiplex_reference_frame_status_name(frame_status));
@@ -188,8 +188,7 @@ static bool refresh_reference_frame(void) {
     TraceLog(LOG_INFO, "REFERENCE: rendered pass %u", pass + 1);
     if (frame_status != MULTIPLEX_REFERENCE_FRAME_OK) {
       TraceLog(LOG_ERROR, "Native frame render failed during pass %u: %s",
-               pass + 1,
-               multiplex_reference_frame_status_name(frame_status));
+               pass + 1, multiplex_reference_frame_status_name(frame_status));
       return false;
     }
 
@@ -233,15 +232,15 @@ static bool refresh_reference_frame(void) {
        index < sizeof(sample_offsets) / sizeof(sample_offsets[0]); ++index) {
     const uint32_t offset = sample_offsets[index];
     TraceLog(LOG_INFO, "REFERENCE: sample %u = %u,%u,%u,%u", index,
-             reference_frame.pixels[offset],
-             reference_frame.pixels[offset + 1],
+             reference_frame.pixels[offset], reference_frame.pixels[offset + 1],
              reference_frame.pixels[offset + 2],
              reference_frame.pixels[offset + 3]);
   }
   trace_reference_bounds();
 
-  TraceLog(LOG_INFO, "REFERENCE: render %u us (%u passes, %u commands), upload "
-                     "%u us, signature %08x",
+  TraceLog(LOG_INFO,
+           "REFERENCE: render %u us (%u passes, %u commands), upload "
+           "%u us, signature %08x",
            profile.render_us, profile.passes, profile.commands,
            profile.upload_us, profile.signature);
   return true;
@@ -278,13 +277,13 @@ static void draw_profile(void) {
                 (Color){6, 8, 12, 224});
   DrawRectangleLines(12, LOGICAL_HEIGHT - 56, LOGICAL_WIDTH - 24, 44,
                      (Color){64, 72, 88, 255});
-  DrawText(TextFormat("Native SDK reference  render %u.%ums  upload %u.%ums  "
-                      "present %u.%ums",
-                      profile.render_us / 1000, (profile.render_us % 1000) / 100,
-                      profile.upload_us / 1000, (profile.upload_us % 1000) / 100,
-                      profile.present_us / 1000,
-                      (profile.present_us % 1000) / 100),
-           22, LOGICAL_HEIGHT - 48, 12, (Color){236, 239, 244, 255});
+  DrawText(
+      TextFormat("Native SDK reference  render %u.%ums  upload %u.%ums  "
+                 "present %u.%ums",
+                 profile.render_us / 1000, (profile.render_us % 1000) / 100,
+                 profile.upload_us / 1000, (profile.upload_us % 1000) / 100,
+                 profile.present_us / 1000, (profile.present_us % 1000) / 100),
+      22, LOGICAL_HEIGHT - 48, 12, (Color){236, 239, 244, 255});
   DrawText(TextFormat("%u commands / %u convergence passes / %08x    X: hide",
                       profile.commands, profile.passes, profile.signature),
            22, LOGICAL_HEIGHT - 30, 10, (Color){158, 167, 184, 255});

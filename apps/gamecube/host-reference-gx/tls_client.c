@@ -8,16 +8,16 @@
 #include <limits.h>
 #include <network.h>
 #include <ogc/lwp.h>
-#include <ogc/mutex.h>
 #include <ogc/lwp_watchdog.h>
+#include <ogc/mutex.h>
 #include <ogc/timesupp.h>
 
 #ifndef MBEDTLS_CONFIG_FILE
 #define MBEDTLS_CONFIG_FILE "mbedtls-gamecube-config.h"
 #endif
 
-#include <mbedtls/ctr_drbg.h>
 #include <mbedtls/asn1.h>
+#include <mbedtls/ctr_drbg.h>
 #include <mbedtls/entropy.h>
 #include <mbedtls/error.h>
 #include <mbedtls/platform_time.h>
@@ -101,8 +101,8 @@ static int boot_seed_entropy(void *context, unsigned char *output,
     return MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
   }
   entropy->calls += 1u;
-  if (output == NULL || size != TLS_ENTROPY_SEED_SIZE ||
-      !entropy->available || entropy->calls != 1u) {
+  if (output == NULL || size != TLS_ENTROPY_SEED_SIZE || !entropy->available ||
+      entropy->calls != 1u) {
     return MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
   }
   memcpy(output, entropy->seed, size);
@@ -164,8 +164,8 @@ static bool collect_local_entropy(uint8_t seed[TLS_ENTROPY_SEED_SIZE]) {
   material.system_time[3] = __SYS_GetSystemTime();
   material.retrace_counts[0] = VIDEO_GetRetraceCount();
 
-  const int result = mbedtls_sha256(
-      (const unsigned char *)&material, sizeof(material), seed, 0);
+  const int result = mbedtls_sha256((const unsigned char *)&material,
+                                    sizeof(material), seed, 0);
   clear_bytes(&material, sizeof(material));
   if (result != 0) {
     clear_bytes(seed, TLS_ENTROPY_SEED_SIZE);
@@ -211,15 +211,14 @@ static bool initialize_tls_random(void) {
     memcpy(tls_boot_seed_entropy.seed, boot_seed, sizeof(boot_seed));
     tls_boot_seed_entropy.calls = 0u;
     tls_boot_seed_entropy.available = true;
-    result = mbedtls_ctr_drbg_seed(
-        &tls_random, boot_seed_entropy, &tls_boot_seed_entropy,
-        personalization, sizeof(personalization) - 1u);
+    result = mbedtls_ctr_drbg_seed(&tls_random, boot_seed_entropy,
+                                   &tls_boot_seed_entropy, personalization,
+                                   sizeof(personalization) - 1u);
   }
   clear_bytes(boot_seed, sizeof(boot_seed));
   if (result != 0 || tls_boot_seed_entropy.calls != 1u ||
       tls_boot_seed_entropy.available) {
-    clear_bytes(tls_boot_seed_entropy.seed,
-                sizeof(tls_boot_seed_entropy.seed));
+    clear_bytes(tls_boot_seed_entropy.seed, sizeof(tls_boot_seed_entropy.seed));
     tls_boot_seed_entropy.available = false;
     mbedtls_ctr_drbg_free(&tls_random);
     tls_last_error = result != 0 ? result : MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
@@ -284,7 +283,8 @@ static int tls_send(void *context, const unsigned char *bytes, size_t size) {
    * next TLS record.
    */
   const int result = net_write(client->socket, bytes, size);
-  const int flush_result = result > 0 ? flush_network_socket(client->socket) : 0;
+  const int flush_result =
+      result > 0 ? flush_network_socket(client->socket) : 0;
   if (flush_result < 0) {
     return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
   }
@@ -547,10 +547,9 @@ MultiplexTlsClient *multiplex_tls_client_connect(int socket,
   client->io_timeout_seconds = TLS_IO_TIMEOUT_SECONDS;
   mbedtls_ssl_init(&client->ssl);
   mbedtls_ssl_config_init(&client->config);
-  int result = mbedtls_ssl_config_defaults(&client->config,
-                                           MBEDTLS_SSL_IS_CLIENT,
-                                           MBEDTLS_SSL_TRANSPORT_STREAM,
-                                           MBEDTLS_SSL_PRESET_DEFAULT);
+  int result = mbedtls_ssl_config_defaults(
+      &client->config, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
+      MBEDTLS_SSL_PRESET_DEFAULT);
   if (result == 0) {
     mbedtls_ssl_conf_authmode(&client->config, MBEDTLS_SSL_VERIFY_REQUIRED);
     mbedtls_ssl_conf_ca_cb(&client->config, find_ca_candidates, NULL);

@@ -38,7 +38,7 @@ typedef struct {
 } MultiplexTrpcInviteeList;
 
 bool multiplex_trpc_parse_watch_together_rooms(const char *json, size_t size,
-                                                MultiplexTrpcRoomList *list);
+                                               MultiplexTrpcRoomList *list);
 bool multiplex_trpc_parse_watch_together_room(const char *json, size_t size,
                                               MultiplexTrpcRoom *room);
 bool multiplex_trpc_parse_user_id(const char *json, size_t size,
@@ -46,10 +46,9 @@ bool multiplex_trpc_parse_user_id(const char *json, size_t size,
 bool multiplex_trpc_parse_watch_together_invitees(
     const char *json, size_t size, MultiplexTrpcInviteeList *list);
 bool multiplex_trpc_load_watch_together_rooms(const char *base_url,
-                                               const char *bearer_token,
-                                               MultiplexTrpcRoomList *list);
-bool multiplex_trpc_load_user_id(const char *base_url,
-                                 const char *bearer_token,
+                                              const char *bearer_token,
+                                              MultiplexTrpcRoomList *list);
+bool multiplex_trpc_load_user_id(const char *base_url, const char *bearer_token,
                                  uint32_t *user_id);
 bool multiplex_trpc_load_watch_together_invitees(
     const char *base_url, const char *bearer_token,
@@ -59,7 +58,7 @@ bool multiplex_trpc_create_watch_together_room(
     uint32_t rating_key, const char *title, uint32_t invitee_user_id,
     MultiplexTrpcRoom *room);
 bool multiplex_trpc_delete_watch_together_room(const char *base_url,
-                                                const char *bearer_token,
-                                                const char *room_id);
+                                               const char *bearer_token,
+                                               const char *room_id);
 
 #endif

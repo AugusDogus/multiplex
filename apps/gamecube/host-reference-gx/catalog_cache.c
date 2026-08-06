@@ -83,13 +83,13 @@ static bool read_bytes(const uint8_t *source, size_t payload_end,
   return true;
 }
 
-static bool read_u8(const uint8_t *source, size_t payload_end,
-                    size_t *cursor, uint8_t *value) {
+static bool read_u8(const uint8_t *source, size_t payload_end, size_t *cursor,
+                    uint8_t *value) {
   return read_bytes(source, payload_end, cursor, value, sizeof(*value));
 }
 
-static bool read_u16(const uint8_t *source, size_t payload_end,
-                     size_t *cursor, uint16_t *value) {
+static bool read_u16(const uint8_t *source, size_t payload_end, size_t *cursor,
+                     uint16_t *value) {
   uint8_t encoded[2];
   if (!read_bytes(source, payload_end, cursor, encoded, sizeof(encoded))) {
     return false;
@@ -98,8 +98,8 @@ static bool read_u16(const uint8_t *source, size_t payload_end,
   return true;
 }
 
-static bool read_u32(const uint8_t *source, size_t payload_end,
-                     size_t *cursor, uint32_t *value) {
+static bool read_u32(const uint8_t *source, size_t payload_end, size_t *cursor,
+                     uint32_t *value) {
   uint8_t encoded[4];
   if (!read_bytes(source, payload_end, cursor, encoded, sizeof(encoded))) {
     return false;
@@ -122,8 +122,7 @@ bool multiplex_catalog_cache_encode(
   const uint8_t server_length = cached_length(catalog->server_name_length);
   if (!append_u16(destination, &cursor, catalog->version) ||
       !append_u8(destination, &cursor, (uint8_t)catalog->row_count) ||
-      !append_u8(destination, &cursor,
-                 (uint8_t)catalog->total_item_count) ||
+      !append_u8(destination, &cursor, (uint8_t)catalog->total_item_count) ||
       !append_u8(destination, &cursor, (uint8_t)catalog->library_count) ||
       !append_u8(destination, &cursor, server_length) ||
       !append_bytes(destination, &cursor, catalog->server_name,
@@ -154,8 +153,7 @@ bool multiplex_catalog_cache_encode(
         !append_u8(destination, &cursor, title_length) ||
         !append_u8(destination, &cursor, subtitle_length) ||
         !append_bytes(destination, &cursor, item->title, title_length) ||
-        !append_bytes(destination, &cursor, item->subtitle,
-                      subtitle_length)) {
+        !append_bytes(destination, &cursor, item->subtitle, subtitle_length)) {
       return false;
     }
   }

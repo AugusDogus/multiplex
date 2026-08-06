@@ -47,8 +47,7 @@ static void tile_i8_plane(uint8_t *destination, const uint8_t *source,
   for (unsigned tile_y = 0; tile_y < texture_height; tile_y += 4) {
     for (unsigned tile_x = 0; tile_x < texture_width; tile_x += 8) {
       uint8_t *tile =
-          destination +
-          ((tile_y / 4) * (texture_width / 8) + tile_x / 8) * 32;
+          destination + ((tile_y / 4) * (texture_width / 8) + tile_x / 8) * 32;
       for (unsigned row = 0; row < 4; ++row) {
         uint8_t *destination_row = tile + row * 8;
         const unsigned source_y = tile_y + row;
@@ -58,8 +57,8 @@ static void tile_i8_plane(uint8_t *destination, const uint8_t *source,
         }
         const unsigned remaining = source_width - tile_x;
         const unsigned copied = remaining < 8u ? remaining : 8u;
-        memcpy(destination_row,
-               source + source_y * source_stride + tile_x, copied);
+        memcpy(destination_row, source + source_y * source_stride + tile_x,
+               copied);
         if (copied < 8u) {
           memset(destination_row + copied, padding, 8u - copied);
         }
@@ -228,8 +227,7 @@ static void configure_yuv_pipeline(void) {
   GX_SetTevColorOp(GX_TEVSTAGE4, GX_TEV_SUB, GX_TB_ZERO, GX_CS_SCALE_2,
                    GX_DISABLE, GX_TEVPREV);
   GX_SetTevKAlphaSel(GX_TEVSTAGE4, GX_TEV_KASEL_1);
-  GX_SetTevAlphaIn(GX_TEVSTAGE4, GX_CA_ZERO, GX_CA_KONST, GX_CA_A0,
-                   GX_CA_TEXA);
+  GX_SetTevAlphaIn(GX_TEVSTAGE4, GX_CA_ZERO, GX_CA_KONST, GX_CA_A0, GX_CA_TEXA);
   GX_SetTevAlphaOp(GX_TEVSTAGE4, GX_TEV_SUB, GX_TB_ZERO, GX_CS_SCALE_1,
                    GX_DISABLE, GX_TEVPREV);
 
@@ -258,8 +256,7 @@ static void configure_yuv_pipeline(void) {
 
   GX_SetTevKColorSel(GX_TEVSTAGE7, GX_TEV_KCSEL_1);
   GX_SetTevOrder(GX_TEVSTAGE7, GX_TEXCOORDNULL, GX_TEXMAP_NULL, GX_COLORNULL);
-  GX_SetTevColorIn(GX_TEVSTAGE7, GX_CC_ZERO, GX_CC_ONE, GX_CC_A1,
-                   GX_CC_CPREV);
+  GX_SetTevColorIn(GX_TEVSTAGE7, GX_CC_ZERO, GX_CC_ONE, GX_CC_A1, GX_CC_CPREV);
   GX_SetTevColorOp(GX_TEVSTAGE7, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1,
                    GX_DISABLE, GX_TEVPREV);
   GX_SetTevAlphaIn(GX_TEVSTAGE7, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO,

@@ -82,8 +82,8 @@ static void test_parses_libraries(void) {
       "]}}";
   MultiplexGatewayCatalog catalog = {0};
 
-  assert(multiplex_plex_catalog_parse_libraries(
-      libraries, strlen(libraries), &catalog));
+  assert(multiplex_plex_catalog_parse_libraries(libraries, strlen(libraries),
+                                                &catalog));
   assert(catalog.library_count == 3);
   assert(catalog.libraries[0].section_id == 1);
   assert(catalog.libraries[0].media_type == 1);
@@ -109,8 +109,8 @@ static void test_parses_browse_page(void) {
   };
   MultiplexGatewayBrowsePage page = {0};
 
-  assert(multiplex_plex_catalog_parse_browse(
-      browse, strlen(browse), &library, 4, &page));
+  assert(multiplex_plex_catalog_parse_browse(browse, strlen(browse), &library,
+                                             4, &page));
   assert(page.version == 1);
   assert(page.section_id == 3);
   assert(page.start == 4);
@@ -141,8 +141,7 @@ static void test_parses_item_details(void) {
       "}]}}";
   MultiplexGatewayDetails details = {0};
 
-  assert(multiplex_plex_catalog_parse_details(
-      json, strlen(json), &details));
+  assert(multiplex_plex_catalog_parse_details(json, strlen(json), &details));
   assert(details.version == 1);
   assert(details.rating_key == 44);
   assert(strcmp(details.title, "A Film") == 0);
@@ -220,14 +219,15 @@ static void test_parses_search_results(void) {
       "{\"score\":99.0,\"Metadata\":{\"ratingKey\":\"51\",\"type\":\"movie\","
       "\"title\":\"Cube\",\"year\":1997,\"duration\":5400000,"
       "\"thumb\":\"/library/metadata/51/thumb/1\"}},"
-      "{\"score\":80.0,\"Directory\":{\"type\":\"person\",\"tag\":\"Someone\"}},"
+      "{\"score\":80.0,\"Directory\":{\"type\":\"person\",\"tag\":\"Someone\"}}"
+      ","
       "{\"score\":70.0,\"Metadata\":{\"ratingKey\":\"52\",\"type\":\"show\","
       "\"title\":\"Cubed\",\"year\":2026,"
       "\"thumb\":\"/library/metadata/52/thumb/1\"}}]}}";
   MultiplexGatewaySearchPage page = {0};
 
-  assert(multiplex_plex_catalog_parse_search(
-      json, strlen(json), "CUBE", 4, &page));
+  assert(multiplex_plex_catalog_parse_search(json, strlen(json), "CUBE", 4,
+                                             &page));
   assert(page.version == 1);
   assert(strcmp(page.query, "CUBE") == 0);
   assert(page.item_count == 2);
@@ -239,10 +239,10 @@ static void test_parses_search_results(void) {
 
 static void test_marks_item_watched(void) {
   MultiplexAuthCredentials credentials = {0};
-  snprintf(credentials.plex_server_url,
-           sizeof(credentials.plex_server_url), "http://plex.local/");
-  snprintf(credentials.plex_server_token,
-           sizeof(credentials.plex_server_token), "server-token");
+  snprintf(credentials.plex_server_url, sizeof(credentials.plex_server_url),
+           "http://plex.local/");
+  snprintf(credentials.plex_server_token, sizeof(credentials.plex_server_token),
+           "server-token");
   snprintf(credentials.plex_client_id, sizeof(credentials.plex_client_id),
            "gamecube-client");
   request_count = 0;
@@ -251,9 +251,8 @@ static void test_marks_item_watched(void) {
   assert(multiplex_plex_mark_watched(&credentials, 44));
   assert(request_count == 1);
   assert(strcmp(requested_method, "GET") == 0);
-  assert(strcmp(requested_url,
-                "http://plex.local/:/scrobble?key=44&identifier="
-                "com.plexapp.plugins.library") == 0);
+  assert(strcmp(requested_url, "http://plex.local/:/scrobble?key=44&identifier="
+                               "com.plexapp.plugins.library") == 0);
   assert(strcmp(requested_token, "server-token") == 0);
 
   response_status = 500;

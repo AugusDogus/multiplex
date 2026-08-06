@@ -9,9 +9,8 @@ typedef struct {
 } JsonSpan;
 
 static const char *skip_space(const char *cursor, const char *end) {
-  while (cursor < end &&
-         (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' ||
-          *cursor == '\n')) {
+  while (cursor < end && (*cursor == ' ' || *cursor == '\t' ||
+                          *cursor == '\r' || *cursor == '\n')) {
     ++cursor;
   }
   return cursor;
@@ -200,7 +199,7 @@ static bool parse_room(JsonSpan room, MultiplexTrpcRoom *parsed) {
 }
 
 bool multiplex_trpc_parse_watch_together_rooms(const char *json, size_t size,
-                                                MultiplexTrpcRoomList *list) {
+                                               MultiplexTrpcRoomList *list) {
   if (json == NULL || size == 0 || list == NULL) {
     return false;
   }
@@ -296,8 +295,7 @@ bool multiplex_trpc_parse_watch_together_invitees(
       MultiplexTrpcInvitee *parsed = &list->invitees[list->invitee_count];
       if (!json_unsigned(invitee, "id", &parsed->user_id) ||
           parsed->user_id == 0 ||
-          (!json_string(invitee, "title", parsed->name,
-                        sizeof(parsed->name)) &&
+          (!json_string(invitee, "title", parsed->name, sizeof(parsed->name)) &&
            !json_string(invitee, "username", parsed->name,
                         sizeof(parsed->name)))) {
         break;

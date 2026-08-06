@@ -19,8 +19,8 @@ typedef struct {
 
 void multiplex_gui_navigation_reset(MultiplexGuiNavigation *navigation);
 
-MultiplexGuiNavigationDirection multiplex_gui_navigation_poll(
-    MultiplexGuiNavigation *navigation, int stick_x, int stick_y,
-    uint64_t now_us);
+MultiplexGuiNavigationDirection
+multiplex_gui_navigation_poll(MultiplexGuiNavigation *navigation, int stick_x,
+                              int stick_y, uint64_t now_us);
 
 #endif

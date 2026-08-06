@@ -29,16 +29,13 @@ static uint16_t read_be16(const uint8_t *bytes) {
 }
 
 static bool read_pts90k(const uint8_t *bytes, int64_t *pts90k) {
-  if ((bytes[0] & 1u) == 0 || (bytes[2] & 1u) == 0 ||
-      (bytes[4] & 1u) == 0) {
+  if ((bytes[0] & 1u) == 0 || (bytes[2] & 1u) == 0 || (bytes[4] & 1u) == 0) {
     return false;
   }
   *pts90k =
       (int64_t)((uint64_t)((bytes[0] >> 1u) & 7u) << 30u |
-                (uint64_t)bytes[1] << 22u |
-                (uint64_t)(bytes[2] >> 1u) << 15u |
-                (uint64_t)bytes[3] << 7u |
-                (uint64_t)(bytes[4] >> 1u));
+                (uint64_t)bytes[1] << 22u | (uint64_t)(bytes[2] >> 1u) << 15u |
+                (uint64_t)bytes[3] << 7u | (uint64_t)(bytes[4] >> 1u));
   return true;
 }
 
@@ -60,8 +57,7 @@ static bool transport_payload(const uint8_t *packet,
     }
   }
   payload->payload_unit_start = (packet[1] & 0x40u) != 0;
-  payload->pid =
-      (uint16_t)(((uint16_t)(packet[1] & 0x1fu) << 8u) | packet[2]);
+  payload->pid = (uint16_t)(((uint16_t)(packet[1] & 0x1fu) << 8u) | packet[2]);
   payload->bytes = packet + offset;
   payload->size =
       (adaptation_control & 1u) != 0 ? MPEG_TS_PACKET_SIZE - offset : 0;
@@ -94,8 +90,7 @@ static bool psi_section(const TransportPayload *payload, uint8_t table_id,
   return true;
 }
 
-static bool parse_pat(MpegTsParser *parser,
-                      const TransportPayload *payload) {
+static bool parse_pat(MpegTsParser *parser, const TransportPayload *payload) {
   const uint8_t *section = NULL;
   size_t section_size = 0;
   if (!psi_section(payload, MPEG_TS_TABLE_PAT, &section, &section_size) ||
@@ -115,8 +110,7 @@ static bool parse_pat(MpegTsParser *parser,
   return false;
 }
 
-static bool parse_pmt(MpegTsParser *parser,
-                      const TransportPayload *payload) {
+static bool parse_pmt(MpegTsParser *parser, const TransportPayload *payload) {
   const uint8_t *section = NULL;
   size_t section_size = 0;
   if (!psi_section(payload, MPEG_TS_TABLE_PMT, &section, &section_size) ||
@@ -136,8 +130,7 @@ static bool parse_pmt(MpegTsParser *parser,
         (uint16_t)(((uint16_t)(section[offset + 1u] & 0x1fu) << 8u) |
                    section[offset + 2u]);
     const size_t descriptor_size =
-        (size_t)((section[offset + 3u] & 0x0fu) << 8u) |
-        section[offset + 4u];
+        (size_t)((section[offset + 3u] & 0x0fu) << 8u) | section[offset + 4u];
     if (descriptor_size > entries_end - offset - 5u) {
       return false;
     }
@@ -155,8 +148,7 @@ static bool parse_pmt(MpegTsParser *parser,
   return offset == entries_end;
 }
 
-static bool forward_pes(MpegTsParser *parser,
-                        const TransportPayload *payload,
+static bool forward_pes(MpegTsParser *parser, const TransportPayload *payload,
                         MpegTsStream stream) {
   const uint8_t *bytes = payload->bytes;
   size_t size = payload->size;

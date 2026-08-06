@@ -16,22 +16,18 @@ extern double __kernel_cos(double primary, double tail);
 void sincos(double angle, double *sine, double *cosine) {
   double remainder[2];
   const int quadrant = __ieee754_rem_pio2(angle, remainder) & 3;
-  const double reduced_sine =
-      __kernel_sin(remainder[0], remainder[1], 1);
-  const double reduced_cosine =
-      __kernel_cos(remainder[0], remainder[1]);
+  const double reduced_sine = __kernel_sin(remainder[0], remainder[1], 1);
+  const double reduced_cosine = __kernel_cos(remainder[0], remainder[1]);
   if (sine != NULL) {
     static const int signs[4] = {1, 1, -1, -1};
-    const double magnitude = (quadrant & 1) == 0
-                                 ? reduced_sine
-                                 : reduced_cosine;
+    const double magnitude =
+        (quadrant & 1) == 0 ? reduced_sine : reduced_cosine;
     *sine = signs[quadrant] * magnitude;
   }
   if (cosine != NULL) {
     static const int signs[4] = {1, -1, -1, 1};
-    const double magnitude = (quadrant & 1) == 0
-                                 ? reduced_cosine
-                                 : reduced_sine;
+    const double magnitude =
+        (quadrant & 1) == 0 ? reduced_cosine : reduced_sine;
     *cosine = signs[quadrant] * magnitude;
   }
 }
