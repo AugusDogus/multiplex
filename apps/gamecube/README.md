@@ -152,7 +152,7 @@ Use the hardware libogc2 profile and a provisioned card. Capture the serial log
 with a USB Gecko when available, or photograph the on-screen diagnostic:
 
 1. Boot once and require `TLS entropy seed rotated`, `TLS random source ready
-   from rotated seed`, and a successful TLS 1.2 connection in the log.
+from rotated seed`, and a successful TLS 1.2 connection in the log.
 2. Power-cycle, boot again, and require another successful rotation. Export the
    GCI after each boot and confirm that its active generation advances while
    the file remains exactly two 8 KiB blocks.
