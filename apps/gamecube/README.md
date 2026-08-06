@@ -8,6 +8,13 @@ semantics.
 
 ## Run
 
+The host-side font-atlas generator requires Python 3 and the pinned Pillow
+version. Install it in the active Python environment before building:
+
+```sh
+python3 -m pip install -r apps/gamecube/requirements.txt
+```
+
 From the repository root:
 
 ```sh

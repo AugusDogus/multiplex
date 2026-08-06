@@ -1,0 +1,19 @@
+.SUFFIXES:
+
+APP_ROOT := $(abspath $(dir $(firstword $(MAKEFILE_LIST))))
+FONT_ATLAS := $(APP_ROOT)/generated/geist_atlas.h
+FONT_ATLAS_GENERATOR := $(APP_ROOT)/scripts/generate-font-atlas.py
+FONT_ATLAS_WRAPPER := $(APP_ROOT)/scripts/generate-font-atlas.sh
+FONT_SOURCE := $(APP_ROOT)/.native-sdk/src/primitives/canvas/fonts/Geist-Regular.ttf
+PYTHON_REQUIREMENTS := $(APP_ROOT)/requirements.txt
+
+.PHONY: font-atlas verify-font-atlas-dependencies
+
+font-atlas: verify-font-atlas-dependencies $(FONT_ATLAS)
+
+verify-font-atlas-dependencies:
+	@sh $(FONT_ATLAS_WRAPPER) --check
+
+$(FONT_ATLAS): $(FONT_SOURCE) $(FONT_ATLAS_GENERATOR) $(FONT_ATLAS_WRAPPER) \
+	$(PYTHON_REQUIREMENTS)
+	@sh $(FONT_ATLAS_WRAPPER)
