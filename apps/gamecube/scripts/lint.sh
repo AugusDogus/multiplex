@@ -31,7 +31,8 @@ find \
   "$app_dir/src/gamecube_probe.zig"
 
 find "$script_dir" -maxdepth 1 -type f -name '*.sh' \
-  -exec "$shellcheck" --rcfile "$app_dir/.shellcheckrc" {} +
+  -exec "$shellcheck" \
+  -e SC1007,SC1112,SC2016,SC2119,SC2120,SC2317,SC2329 {} +
 
 "$ruff" check "$script_dir"
 "$ruff" format --check "$script_dir"
