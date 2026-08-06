@@ -92,7 +92,7 @@ multiplex-dvd-demo-program.h: multiplex-dvd-demo-program.s
 main.o: media-source.h multiplex-dvd-demo-program.h \
 	$(APP_ROOT)/generated/geist_atlas.h
 http_client.o: media-source.h
-tls_client.o: tls-ca.h
+tls_client.o: tls-ca.h entropy_seed.h memory_card_entropy.h
 
 media-source.h:
 	@echo "Missing $@; run scripts/build-native-reference-dol.sh." >&2

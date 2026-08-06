@@ -100,6 +100,72 @@ public Portless CA from `~/.portless/ca.pem`. `GAMECUBE_TLS_CA_FILE` remains the
 explicit override for another private development CA. Private keys and
 generated host certificates are never copied into the build.
 
+### TLS entropy provisioning
+
+The GameCube has no documented hardware random-number generator. The TLS
+client therefore does not treat its MAC address, RTC, timebase, or memory
+addresses as strong entropy. HTTPS stays disabled until a private 32-byte seed
+is available in the dedicated `Multiplex TLS Entropy` memory-card save.
+
+Create the save on a trusted computer, which uses the host operating system's
+cryptographic random source through Python `secrets`:
+
+```sh
+python3 apps/gamecube/scripts/provision-tls-entropy.py \
+  /private/path/Multiplex-TLS-Entropy.gci
+```
+
+The command refuses to overwrite an existing seed and creates the GCI with
+mode `0600`. Import it into slot A or B with Dolphin's Memory Card Manager. For
+physical hardware, copy it to a real card with GCMM or an equivalent tool, then
+remove the transfer copy from the SD card. Keep backups private. A new seed
+invalidates only future TLS randomness, not the separate Multiplex account
+save.
+
+At the first HTTPS initialization after each boot, the DOL reads the newest of
+two versioned seed records, derives a boot seed and successor with HMAC-SHA-256,
+writes the successor to the other 8 KiB card block, and verifies that write
+before exposing the boot seed to Mbed TLS CTR-DRBG. The MAC address, timebase,
+and process addresses are mixed only as additional data. They are never
+credited as entropy. One rotation is performed per boot, and all TLS clients
+share the resulting locked DRBG, which bounds card wear, transient allocation,
+and memory use. A missing or corrupt save, failed write, or failed readback
+keeps HTTPS unavailable and shows `Import TLS entropy save; HTTPS disabled`.
+The previous valid record remains recoverable if power is lost during a
+rotation.
+
+This design protects against remote prediction of TLS keys. It does not
+protect against physical memory-card extraction, cloning, or rollback. Those
+operations expose or replay the seed and require reprovisioning from a trusted
+host.
+
+#### Physical-hardware validation
+
+Use the hardware libogc2 profile and a provisioned card. Capture the serial log
+with a USB Gecko when available, or photograph the on-screen diagnostic:
+
+1. Boot once and require `TLS entropy seed rotated`, `TLS random source ready
+   from rotated seed`, and a successful TLS 1.2 connection in the log.
+2. Power-cycle, boot again, and require another successful rotation. Export the
+   GCI after each boot and confirm that its active generation advances while
+   the file remains exactly two 8 KiB blocks.
+3. Pair the console, load the HTTPS catalog and artwork, start direct Plex
+   playback, and join a Watch Together room. Confirm HTTPS catalog, artwork,
+   playback-control, and Syncplay traffic succeeds without changing the
+   existing startup or free-memory diagnostics.
+4. Repeat with the entropy save absent, with both 48-byte records corrupted,
+   and with a write-protected card. Each case must show the actionable HTTPS
+   disabled message, must not send a TLS ClientHello, and must preserve the
+   previous valid record and account save.
+
+The deterministic host tests cover missing, corrupt, read, derivation, write,
+and readback-verification failures with:
+
+```sh
+sh apps/gamecube/scripts/test-entropy-seed.sh
+python3 apps/gamecube/scripts/test-provision-tls-entropy.py
+```
+
 `gamecube:reference:smoke-http-tap` builds the DOL with a local HTTP
 media URL, creates an unprivileged network namespace, and connects Dolphin's
 low-level emulated BBA to a rootless `pasta` Ethernet uplink. It does not

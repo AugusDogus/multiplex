@@ -1,11 +1,13 @@
 #include "tls_client.h"
 
+#include "memory_card_entropy.h"
 #include "tls-ca.h"
 
 #include <errno.h>
 #include <fcntl.h>
 #include <gccore.h>
 #include <network.h>
+#include <ogc/mutex.h>
 #include <ogc/lwp_watchdog.h>
 
 #ifndef MBEDTLS_CONFIG_FILE
@@ -42,21 +44,27 @@ extern s32 net_flush(s32 socket) __attribute__((weak));
 struct MultiplexTlsClient {
   int socket;
   unsigned io_timeout_seconds;
-  uint64_t entropy_state;
   mbedtls_ssl_context ssl;
   mbedtls_ssl_config config;
-  mbedtls_entropy_context entropy;
-  mbedtls_ctr_drbg_context random;
 };
 
 static volatile int tls_last_error;
 static volatile uint32_t tls_last_verify_flags;
 static bool tls_trust_source_ready;
+static bool tls_random_ready;
+static bool tls_random_mutex_ready;
+static const char *tls_failure_message;
+static mbedtls_ctr_drbg_context tls_random;
+static mutex_t tls_random_mutex;
 
 static const char tls_certificate_begin[] = "-----BEGIN CERTIFICATE-----";
 static const char tls_certificate_end[] = "-----END CERTIFICATE-----";
 
 int multiplex_tls_client_last_error(void) { return tls_last_error; }
+
+const char *multiplex_tls_client_failure_message(void) {
+  return tls_failure_message;
+}
 
 uint32_t multiplex_tls_client_last_verify_flags(void) {
   return tls_last_verify_flags;
@@ -66,33 +74,95 @@ mbedtls_ms_time_t mbedtls_ms_time(void) {
   return (mbedtls_ms_time_t)ticks_to_millisecs(gettime());
 }
 
-static uint64_t mix64(uint64_t value) {
-  value ^= value >> 30u;
-  value *= UINT64_C(0xbf58476d1ce4e5b9);
-  value ^= value >> 27u;
-  value *= UINT64_C(0x94d049bb133111eb);
-  return value ^ (value >> 31u);
+static void clear_bytes(void *bytes, size_t size) {
+  volatile uint8_t *cursor = bytes;
+  while (size-- > 0) {
+    *cursor++ = 0;
+  }
 }
 
-static int gamecube_entropy(void *context, unsigned char *output, size_t size,
-                            size_t *written) {
-  uint64_t *state = context;
+static int boot_seed_entropy(void *context, unsigned char *output,
+                             size_t size) {
+  const uint8_t *boot_seed = context;
+  if (boot_seed == NULL || output == NULL ||
+      size != MULTIPLEX_ENTROPY_SEED_SIZE) {
+    return MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
+  }
+  memcpy(output, boot_seed, size);
+  return 0;
+}
+
+static int locked_tls_random(void *context, unsigned char *output,
+                             size_t size) {
+  (void)context;
+  if (!tls_random_ready || !tls_random_mutex_ready) {
+    return MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
+  }
+  LWP_MutexLock(tls_random_mutex);
+  const int result = mbedtls_ctr_drbg_random(&tls_random, output, size);
+  LWP_MutexUnlock(tls_random_mutex);
+  return result;
+}
+
+static bool initialize_tls_random(void) {
+  if (tls_random_ready) {
+    return true;
+  }
+
+  uint8_t additional[MULTIPLEX_ENTROPY_SEED_SIZE] = {0};
   uint8_t mac[6] = {0};
   net_get_mac_address(mac);
-  uint64_t value = *state ^ (uint64_t)gettime() ^ (uint64_t)(uintptr_t)output ^
-                   (uint64_t)(uintptr_t)&state;
-  for (unsigned index = 0; index < sizeof(mac); ++index) {
-    value = mix64(value ^ ((uint64_t)mac[index] << (index * 8u)));
+  memcpy(additional, mac, sizeof(mac));
+  const uint64_t now = gettime();
+  memcpy(additional + 8u, &now, sizeof(now));
+  const uintptr_t context_addresses[] = {
+      (uintptr_t)&tls_random,
+      (uintptr_t)&tls_last_error,
+  };
+  memcpy(additional + 16u, context_addresses, sizeof(context_addresses));
+
+  uint8_t boot_seed[MULTIPLEX_ENTROPY_SEED_SIZE];
+  const MultiplexEntropySeedResult seed_result =
+      multiplex_memory_card_rotate_entropy(additional, boot_seed);
+  clear_bytes(additional, sizeof(additional));
+  if (seed_result != MULTIPLEX_ENTROPY_SEED_OK) {
+    clear_bytes(boot_seed, sizeof(boot_seed));
+    tls_last_error = MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
+    tls_failure_message = "Import TLS entropy save; HTTPS disabled";
+    SYS_Report("REFERENCE GX: TLS entropy unavailable: %s\n",
+               multiplex_entropy_seed_result_message(seed_result));
+    return false;
   }
-  for (size_t index = 0; index < size; ++index) {
-    if ((index & 7u) == 0) {
-      value = mix64(value + gettime() + index);
-    }
-    output[index] = (uint8_t)(value >> ((index & 7u) * 8u));
+
+  mbedtls_ctr_drbg_init(&tls_random);
+  mbedtls_ctr_drbg_set_entropy_len(&tls_random,
+                                   MULTIPLEX_ENTROPY_SEED_SIZE);
+  static const unsigned char personalization[] =
+      "Multiplex GameCube TLS global random v1";
+  const int result = mbedtls_ctr_drbg_seed(
+      &tls_random, boot_seed_entropy, boot_seed, personalization,
+      sizeof(personalization) - 1u);
+  clear_bytes(boot_seed, sizeof(boot_seed));
+  if (result != 0) {
+    mbedtls_ctr_drbg_free(&tls_random);
+    tls_last_error = result;
+    tls_failure_message = "TLS secure random initialization failed";
+    SYS_Report("REFERENCE GX: TLS DRBG initialization failed error=-%04x\n",
+               (unsigned)-result);
+    return false;
   }
-  *state = mix64(value + size + gettime());
-  *written = size;
-  return 0;
+  if (LWP_MutexInit(&tls_random_mutex, false) != 0) {
+    mbedtls_ctr_drbg_free(&tls_random);
+    tls_last_error = MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
+    tls_failure_message = "TLS secure random lock unavailable";
+    SYS_Report("REFERENCE GX: TLS DRBG mutex initialization failed\n");
+    return false;
+  }
+  tls_random_mutex_ready = true;
+  tls_random_ready = true;
+  tls_failure_message = NULL;
+  SYS_Report("REFERENCE GX: TLS random source ready from rotated seed\n");
+  return true;
 }
 
 static int wait_socket(int socket, bool write, unsigned timeout_seconds) {
@@ -325,7 +395,7 @@ static int find_ca_candidates(void *context, const mbedtls_x509_crt *child,
 }
 
 bool multiplex_tls_client_initialize(void) {
-  if (tls_trust_source_ready) {
+  if (tls_trust_source_ready && tls_random_ready) {
     return true;
   }
   if (multiplex_tls_ca_pem_size == 0) {
@@ -333,8 +403,12 @@ bool multiplex_tls_client_initialize(void) {
     return false;
   }
 
+  if (!initialize_tls_random()) {
+    return false;
+  }
   tls_trust_source_ready = true;
   tls_last_error = 0;
+  tls_failure_message = NULL;
   tls_last_verify_flags = 0;
   SYS_Report("REFERENCE GX: TLS public trust source ready bytes=%u\n",
              multiplex_tls_ca_pem_size);
@@ -351,7 +425,7 @@ MultiplexTlsClient *multiplex_tls_client_connect(int socket,
     return NULL;
   }
   if (!multiplex_tls_client_initialize()) {
-    SYS_Report("REFERENCE GX: TLS trust store unavailable\n");
+    SYS_Report("REFERENCE GX: TLS trust or secure random source unavailable\n");
     return NULL;
   }
   MultiplexTlsClient *client = calloc(1, sizeof(*client));
@@ -363,30 +437,14 @@ MultiplexTlsClient *multiplex_tls_client_connect(int socket,
   client->io_timeout_seconds = TLS_IO_TIMEOUT_SECONDS;
   mbedtls_ssl_init(&client->ssl);
   mbedtls_ssl_config_init(&client->config);
-  mbedtls_entropy_init(&client->entropy);
-  mbedtls_ctr_drbg_init(&client->random);
-
-  client->entropy_state =
-      mix64((uint64_t)gettime() ^ (uint64_t)(uintptr_t)client);
-  int result = mbedtls_entropy_add_source(&client->entropy, gamecube_entropy,
-                                          &client->entropy_state, 32,
-                                          MBEDTLS_ENTROPY_SOURCE_STRONG);
-  static const unsigned char personalization[] = "Multiplex GameCube TLS";
-  if (result == 0) {
-    result = mbedtls_ctr_drbg_seed(&client->random, mbedtls_entropy_func,
-                                   &client->entropy, personalization,
-                                   sizeof(personalization) - 1u);
-  }
-  if (result == 0) {
-    result = mbedtls_ssl_config_defaults(&client->config, MBEDTLS_SSL_IS_CLIENT,
-                                         MBEDTLS_SSL_TRANSPORT_STREAM,
-                                         MBEDTLS_SSL_PRESET_DEFAULT);
-  }
+  int result = mbedtls_ssl_config_defaults(&client->config,
+                                           MBEDTLS_SSL_IS_CLIENT,
+                                           MBEDTLS_SSL_TRANSPORT_STREAM,
+                                           MBEDTLS_SSL_PRESET_DEFAULT);
   if (result == 0) {
     mbedtls_ssl_conf_authmode(&client->config, MBEDTLS_SSL_VERIFY_REQUIRED);
     mbedtls_ssl_conf_ca_cb(&client->config, find_ca_candidates, NULL);
-    mbedtls_ssl_conf_rng(&client->config, mbedtls_ctr_drbg_random,
-                         &client->random);
+    mbedtls_ssl_conf_rng(&client->config, locked_tls_random, NULL);
     result = mbedtls_ssl_setup(&client->ssl, &client->config);
   }
   if (result == 0) {
@@ -464,7 +522,5 @@ void multiplex_tls_client_destroy(MultiplexTlsClient *client) {
   }
   mbedtls_ssl_free(&client->ssl);
   mbedtls_ssl_config_free(&client->config);
-  mbedtls_ctr_drbg_free(&client->random);
-  mbedtls_entropy_free(&client->entropy);
   free(client);
 }
