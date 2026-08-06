@@ -8,17 +8,26 @@ semantics.
 
 ## Run
 
-The host-side font-atlas generator requires Python 3 and the pinned Pillow
-version. Install it in the active Python environment before building:
+The host-side tooling requires Python 3 and the pinned development packages.
+Install them in the active Python environment before checking or building:
 
 ```sh
-python3 -m pip install -r apps/gamecube/requirements.txt
+python3 -m pip install -r apps/gamecube/requirements-dev.txt
 ```
+
+Native lint also requires `clang-format`, ShellCheck, and the Zig version in
+`apps/gamecube/PINS.env`. Set `CLANG_FORMAT`, `SHELLCHECK`, `RUFF`, or `ZIG` to
+use versioned tool names. The sanitizer suite uses Clang by default. Override
+it with `GAMECUBE_SANITIZER_CC` when another ASan/UBSan-capable compiler is
+needed.
 
 From the repository root:
 
 ```sh
 bun run gamecube:bootstrap
+bun run gamecube:lint
+bun run gamecube:test:portable
+bun run gamecube:test:sanitize
 bun run gamecube:check
 bun run gamecube:reference:dol
 bun run gamecube:reference:hardware-dol
@@ -33,6 +42,13 @@ bun run wii:reference:dol
 bun run wii:reference:smoke-player
 bun run wii:reference:plex
 ```
+
+`gamecube:check` bootstraps the pinned dependencies, then runs native lint,
+portable C and Python tests, Native SDK's TypeScript and null-platform tests,
+the PowerPC core cross-compile, and host C tests under ASan and UBSan. The
+reference DOL build uses the pinned devkitPPC container and promotes warnings
+in first-party translation units to errors. These checks need no Plex
+credentials, Dolphin installation, or console hardware.
 
 `gamecube:bba-diagnostics:dol` builds a small real-hardware diagnostic at
 `apps/gamecube/multiplex-gamecube-bba-diagnostics.dol`. It keeps

@@ -2,5 +2,13 @@
   "name": "@multiplex/gamecube",
   "private": true,
   "description": "Editor surface for the Multiplex GameCube TypeScript core",
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "bootstrap": "sh scripts/bootstrap.sh",
+    "lint:native": "sh scripts/lint.sh",
+    "test:portable": "sh scripts/test-portable.sh",
+    "test:sanitize": "sh scripts/test-sanitize.sh",
+    "check:native": "sh scripts/check.sh",
+    "reference:dol": "sh scripts/build-native-reference-dol.sh"
+  }
 }

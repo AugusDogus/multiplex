@@ -15,7 +15,7 @@ BUILD := build
 SOURCES := host
 INCLUDES := host generated
 
-CFLAGS := -g -Os -Wall -Wextra $(MACHDEP) $(INCLUDE)
+CFLAGS := -g -Os -Wall -Wextra -Werror $(MACHDEP) $(INCLUDE)
 CXXFLAGS := $(CFLAGS)
 LDFLAGS := -g $(MACHDEP) -Wl,-Map,$(notdir $@).map
 LIBS := $(CORE_LIBRARY) -logc -lm

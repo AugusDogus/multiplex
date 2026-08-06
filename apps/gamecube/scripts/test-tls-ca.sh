@@ -30,8 +30,12 @@ printf '%s\n' '-----BEGIN PRIVATE KEY-----' 'not-a-real-key' \
 
 assert_header_safe() {
   header=$1
-  ! grep -Eq -- '-----BEGIN ([A-Z0-9]+ )?PRIVATE KEY-----' "$header"
-  ! grep -q -- 'PORTLESS_HOST_CERTIFICATE_SHOULD_NOT_BE_EMBEDDED' "$header"
+  if grep -Eq -- '-----BEGIN ([A-Z0-9]+ )?PRIVATE KEY-----' "$header"; then
+    return 1
+  fi
+  if grep -q -- 'PORTLESS_HOST_CERTIFICATE_SHOULD_NOT_BE_EMBEDDED' "$header"; then
+    return 1
+  fi
 }
 
 public_header="$temporary_dir/public.h"

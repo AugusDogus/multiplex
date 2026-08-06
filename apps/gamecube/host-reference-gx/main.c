@@ -40,6 +40,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if MULTIPLEX_PAIRING_ENABLED
+#define MULTIPLEX_PAIRING_ONLY
+#else
+#define MULTIPLEX_PAIRING_ONLY __attribute__((unused))
+#endif
+
 #define FIFO_SIZE (256 * 1024)
 #define LOGICAL_WIDTH 640
 #define LOGICAL_HEIGHT 480
@@ -1970,7 +1976,8 @@ static void stop_direct_poster_loader(DirectPosterLoader *loader) {
   release_direct_poster_workers(loader);
 }
 
-static void suspend_direct_poster_loader(DirectPosterLoader *loader) {
+static void MULTIPLEX_PAIRING_ONLY
+suspend_direct_poster_loader(DirectPosterLoader *loader) {
   if (loader == NULL ||
       (!loader->pending && !direct_poster_loader_running(loader))) {
     return;
@@ -2118,7 +2125,8 @@ static bool launch_direct_browse_loader(
   return true;
 }
 
-static void stop_direct_browse_loader(DirectBrowseLoader *loader) {
+static void MULTIPLEX_PAIRING_ONLY
+stop_direct_browse_loader(DirectBrowseLoader *loader) {
   if (loader == NULL) {
     return;
   }
@@ -2130,10 +2138,9 @@ static void stop_direct_browse_loader(DirectBrowseLoader *loader) {
   loader->thread = LWP_THREAD_NULL;
 }
 
-static bool
-poll_direct_browse_loader(DirectBrowseLoader *loader,
-                          const MultiplexAuthCredentials *credentials,
-                          DirectPosterLoader *poster_loader) {
+static bool MULTIPLEX_PAIRING_ONLY poll_direct_browse_loader(
+    DirectBrowseLoader *loader, const MultiplexAuthCredentials *credentials,
+    DirectPosterLoader *poster_loader) {
   if (loader == NULL || !loader->started) {
     return true;
   }
@@ -2185,9 +2192,9 @@ poll_direct_browse_loader(DirectBrowseLoader *loader,
   return bound;
 }
 
-static bool load_direct_browse_page(const MultiplexAuthCredentials *credentials,
-                                    const MultiplexGatewayCatalog *catalog,
-                                    DirectBrowseLoader *loader) {
+static bool MULTIPLEX_PAIRING_ONLY load_direct_browse_page(
+    const MultiplexAuthCredentials *credentials,
+    const MultiplexGatewayCatalog *catalog, DirectBrowseLoader *loader) {
   uint32_t requested_section = 0;
   uint32_t requested_start = 0;
   if (multiplex_native_app_browse_request(&requested_section,
@@ -2333,7 +2340,8 @@ launch_direct_search_loader(DirectSearchLoader *loader,
   return true;
 }
 
-static void stop_direct_search_loader(DirectSearchLoader *loader) {
+static void MULTIPLEX_PAIRING_ONLY
+stop_direct_search_loader(DirectSearchLoader *loader) {
   if (loader == NULL) {
     return;
   }
@@ -2345,10 +2353,9 @@ static void stop_direct_search_loader(DirectSearchLoader *loader) {
   loader->thread = LWP_THREAD_NULL;
 }
 
-static bool
-poll_direct_search_loader(DirectSearchLoader *loader,
-                          const MultiplexAuthCredentials *credentials,
-                          DirectPosterLoader *poster_loader) {
+static bool MULTIPLEX_PAIRING_ONLY poll_direct_search_loader(
+    DirectSearchLoader *loader, const MultiplexAuthCredentials *credentials,
+    DirectPosterLoader *poster_loader) {
   if (loader == NULL || !loader->started) {
     return true;
   }
@@ -2399,8 +2406,8 @@ poll_direct_search_loader(DirectSearchLoader *loader,
   return bound;
 }
 
-static bool load_direct_search_page(const MultiplexAuthCredentials *credentials,
-                                    DirectSearchLoader *loader) {
+static bool MULTIPLEX_PAIRING_ONLY load_direct_search_page(
+    const MultiplexAuthCredentials *credentials, DirectSearchLoader *loader) {
   char query[MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY] = {0};
   const uint32_t query_length =
       multiplex_native_app_search_request((uint8_t *)query, sizeof(query) - 1u);
@@ -2713,7 +2720,8 @@ launch_direct_details_loader(DirectDetailsLoader *loader,
   return true;
 }
 
-static void stop_direct_details_loader(DirectDetailsLoader *loader) {
+static void MULTIPLEX_PAIRING_ONLY
+stop_direct_details_loader(DirectDetailsLoader *loader) {
   if (loader == NULL) {
     return;
   }
@@ -2725,9 +2733,8 @@ static void stop_direct_details_loader(DirectDetailsLoader *loader) {
   loader->thread = LWP_THREAD_NULL;
 }
 
-static bool
-load_direct_item_details(const MultiplexAuthCredentials *credentials,
-                         DirectDetailsLoader *loader) {
+static bool MULTIPLEX_PAIRING_ONLY load_direct_item_details(
+    const MultiplexAuthCredentials *credentials, DirectDetailsLoader *loader) {
   const uint32_t rating_key = multiplex_native_app_details_request();
   if (rating_key == 0) {
     return true;
@@ -2751,9 +2758,8 @@ load_direct_item_details(const MultiplexAuthCredentials *credentials,
   return launch_direct_details_loader(loader, credentials, rating_key, true);
 }
 
-static bool
-poll_direct_details_loader(DirectDetailsLoader *loader,
-                           const MultiplexAuthCredentials *credentials) {
+static bool MULTIPLEX_PAIRING_ONLY poll_direct_details_loader(
+    DirectDetailsLoader *loader, const MultiplexAuthCredentials *credentials) {
   if (loader == NULL || !loader->started) {
     return true;
   }
@@ -3625,7 +3631,7 @@ load_direct_playback(const MultiplexAuthCredentials *credentials,
   return true;
 }
 
-static bool
+static bool MULTIPLEX_PAIRING_ONLY
 load_selected_direct_playback(const MultiplexAuthCredentials *credentials,
                               MultiplexGatewayPlaybackManifest *active_manifest,
                               HttpClient **client, MpegPsDemux **demux) {
@@ -4479,7 +4485,7 @@ static int32_t poster_texture_for_rating_key(uint32_t rating_key) {
   return -1;
 }
 
-static uint32_t focused_poster_rating_key(void) {
+static uint32_t MULTIPLEX_PAIRING_ONLY focused_poster_rating_key(void) {
   const uint32_t screen = multiplex_native_app_screen();
   if (screen != MULTIPLEX_SCREEN_HOME && screen != MULTIPLEX_SCREEN_BROWSE &&
       screen != MULTIPLEX_SCREEN_SEARCH_RESULTS) {
@@ -5358,7 +5364,7 @@ static bool continue_playback_if_needed(
   return true;
 }
 
-static bool direct_playback_reached_end(
+static bool MULTIPLEX_PAIRING_ONLY direct_playback_reached_end(
     const MultiplexGatewayPlaybackManifest *active_manifest) {
   if (active_manifest == NULL || active_manifest->rating_key == 0 ||
       direct_hls_demux == NULL || audio_output == NULL || !video_was_playing ||
@@ -5501,8 +5507,8 @@ static bool bind_catalog_to_app(const MultiplexGatewayCatalog *catalog) {
   return true;
 }
 
-static bool bind_watch_together_rooms(const MultiplexTrpcRoomList *rooms,
-                                      bool available) {
+static bool MULTIPLEX_PAIRING_ONLY
+bind_watch_together_rooms(const MultiplexTrpcRoomList *rooms, bool available) {
   if (rooms == NULL ||
       multiplex_native_app_watch_together_begin(
           available ? 1u : 0u, available ? rooms->room_count : 0u) == 0) {
@@ -5533,9 +5539,8 @@ static bool bind_watch_together_rooms(const MultiplexTrpcRoomList *rooms,
   return true;
 }
 
-static bool
-bind_watch_together_invitees(const MultiplexTrpcInviteeList *invitees,
-                             bool available) {
+static bool MULTIPLEX_PAIRING_ONLY bind_watch_together_invitees(
+    const MultiplexTrpcInviteeList *invitees, bool available) {
   if (invitees == NULL) {
     return false;
   }
@@ -6115,9 +6120,10 @@ static void *run_app(void *unused) {
   bool network_ready = false;
   bool network_warmup_pending = MULTIPLEX_GATEWAY_URL[0] != '\0' &&
                                 launch_network_warmup(&network_warmup);
-  uint64_t network_retry_at_ms = 0;
-  uint32_t network_retry_delay_ms = CATALOG_RETRY_INITIAL_DELAY_MS;
-  bool offline_notice_presented = false;
+  uint64_t network_retry_at_ms MULTIPLEX_PAIRING_ONLY = 0;
+  uint32_t network_retry_delay_ms MULTIPLEX_PAIRING_ONLY =
+      CATALOG_RETRY_INITIAL_DELAY_MS;
+  bool offline_notice_presented MULTIPLEX_PAIRING_ONLY = false;
 
   MpegPsDemux *demux = NULL;
   HttpClient *client = NULL;

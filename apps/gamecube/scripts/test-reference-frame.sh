@@ -6,7 +6,7 @@ app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 test_binary=$(mktemp "${TMPDIR:-/tmp}/multiplex-reference-frame.XXXXXX")
 trap 'rm -f "$test_binary"' EXIT INT TERM
 
-cc -std=c11 -Wall -Wextra -Werror \
+"${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
   -I"$app_dir/host" \
   -I"$app_dir/host-reference" \
   "$app_dir/host-reference/reference_frame.c" \

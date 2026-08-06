@@ -150,8 +150,9 @@ if [ "${#search_query}" -gt 24 ]; then
   echo "GAMECUBE_PLEX_SEARCH_QUERY must contain 1-24 uppercase A-Z characters." >&2
   exit 1
 fi
-for value_name in search_result_index tv_season_index tv_episode_index; do
-  eval "value=\${$value_name}"
+validate_index() {
+  value_name=$1
+  value=$2
   case "$value" in
     0 | 1 | 2 | 3) ;;
     *)
@@ -159,7 +160,10 @@ for value_name in search_result_index tv_season_index tv_episode_index; do
       exit 1
       ;;
   esac
-done
+}
+validate_index search_result_index "$search_result_index"
+validate_index tv_season_index "$tv_season_index"
+validate_index tv_episode_index "$tv_episode_index"
 case "$tv_episode_page" in
   '' | *[!0-9]*)
     echo "GAMECUBE_PLEX_TV_EPISODE_PAGE must be an unsigned integer." >&2
@@ -285,13 +289,12 @@ cleanup() {
     wait "$lobby_pid" 2>/dev/null || true
   fi
   rm -f "$browser_guest_control"
-  for test_room_id in "$created_room_id"; do
-    if [ -n "$test_room_id" ] &&
-      ! bun "$script_dir/syncplay-room-control.ts" delete-room \
-        "$test_room_id" >/dev/null 2>&1; then
-      echo "Could not delete test Watch Together room $test_room_id; it remains available for manual cleanup." >&2
-    fi
-  done
+  test_room_id=$created_room_id
+  if [ -n "$test_room_id" ] &&
+    ! bun "$script_dir/syncplay-room-control.ts" delete-room \
+      "$test_room_id" >/dev/null 2>&1; then
+    echo "Could not delete test Watch Together room $test_room_id; it remains available for manual cleanup." >&2
+  fi
   if [ -n "$launcher_pid" ] && kill -0 "$launcher_pid" 2>/dev/null; then
     /bin/kill -TERM -- "-$launcher_pid" 2>/dev/null || true
     sleep 0.3

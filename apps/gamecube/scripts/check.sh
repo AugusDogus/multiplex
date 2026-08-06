@@ -2,35 +2,9 @@
 set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 
-sh "$script_dir/bootstrap.sh"
-
-python3 "$script_dir/test-plex-gateway.py"
-python3 "$script_dir/test-multiplex-pair.py"
-python3 "$script_dir/test-plex-pair.py"
-sh "$script_dir/test-auth-record.sh"
-sh "$script_dir/test-catalog-cache.sh"
-sh "$script_dir/test-memory-card-presentation.sh"
-sh "$script_dir/test-tls-ca.sh"
-sh "$script_dir/test-plex-server-directory.sh"
-sh "$script_dir/test-plex-catalog.sh"
-sh "$script_dir/test-hls-playlist.sh"
-sh "$script_dir/test-mpeg-ts-parser.sh"
-sh "$script_dir/test-audio-buffer-queue.sh"
-sh "$script_dir/test-trpc-rooms.sh"
-sh "$script_dir/test-reference-frame.sh"
-sh "$script_dir/test-gui-navigation.sh"
-
-cd "$app_dir"
-
-echo "Checking the TypeScript core and Native markup on the null platform..."
-zig build test -Dplatform=null
-
-echo "Compiling the generated core for the GameCube's PowerPC 750..."
-zig build gamecube-core
-
-test -s zig-out/lib/libmultiplex-gamecube-core.a
-file zig-out/lib/libmultiplex-gamecube-core.a
+sh "$script_dir/lint.sh"
+sh "$script_dir/test-portable.sh"
+sh "$script_dir/test-sanitize.sh"
 
 echo "GameCube app checks passed."
