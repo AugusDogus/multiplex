@@ -167,7 +167,14 @@ def encode_catalog(server_name: str, items: list[CatalogItem]) -> bytes:
     server = _bounded_utf8(server_name, MAX_SERVER_NAME_BYTES)
     bounded_items = items[:MAX_ITEMS]
     body = bytearray(
-        struct.pack(">4sHHHH", CATALOG_MAGIC, CATALOG_VERSION, len(bounded_items), len(server), 0)
+        struct.pack(
+            ">4sHHHH",
+            CATALOG_MAGIC,
+            CATALOG_VERSION,
+            len(bounded_items),
+            len(server),
+            0,
+        )
     )
     body.extend(server)
     for item in bounded_items:
@@ -294,7 +301,7 @@ def fetch_home_catalog(base_url: str, token: str | None) -> tuple[str, list[Home
             browse_rows.append(hub)
 
     rows: list[HomeRow] = []
-    for hub in (continue_rows[:1] + browse_rows[: MAX_ROWS - 1]):
+    for hub in continue_rows[:1] + browse_rows[: MAX_ROWS - 1]:
         items: list[HomeItem] = []
         for element in list(hub)[:MAX_HOME_ITEMS]:
             rating_key = element.get("ratingKey", "")
@@ -344,7 +351,9 @@ def fetch_browse_page(
             "X-Plex-Container-Size": MAX_BROWSE_ITEMS,
         }
     )
-    root = _plex_xml(base_url, f"/library/sections/{section.section_id}/all?{query}", token)
+    root = _plex_xml(
+        base_url, f"/library/sections/{section.section_id}/all?{query}", token
+    )
     items: list[HomeItem] = []
     for element in list(root)[:MAX_BROWSE_ITEMS]:
         rating_key = element.get("ratingKey", "")
@@ -364,7 +373,9 @@ def fetch_browse_page(
     return BrowsePage(section, start, total_size, items)
 
 
-def fetch_search_page(base_url: str, token: str | None, search_query: str) -> SearchPage:
+def fetch_search_page(
+    base_url: str, token: str | None, search_query: str
+) -> SearchPage:
     query = urllib.parse.urlencode(
         {
             "query": search_query,
@@ -390,7 +401,9 @@ def fetch_search_page(base_url: str, token: str | None, search_query: str) -> Se
         if element.get("type") == "episode" and element.get("grandparentTitle"):
             season = int(element.get("parentIndex", "0") or 0)
             episode = int(element.get("index", "0") or 0)
-            subtitle = f"{element.get('grandparentTitle')} · S{season:02d} E{episode:02d}"
+            subtitle = (
+                f"{element.get('grandparentTitle')} · S{season:02d} E{episode:02d}"
+            )
         elif element.get("type") == "person":
             subtitle = f"Person · {element.get('count', '0')} appearances"
         else:
@@ -410,7 +423,9 @@ def fetch_search_page(base_url: str, token: str | None, search_query: str) -> Se
     return SearchPage(search_query, items)
 
 
-def fetch_details_page(base_url: str, token: str | None, rating_key: int) -> DetailsPage:
+def fetch_details_page(
+    base_url: str, token: str | None, rating_key: int
+) -> DetailsPage:
     root = _plex_xml(base_url, f"/library/metadata/{rating_key}", token)
     element = next(iter(root), None)
     if element is None or element.get("ratingKey") != str(rating_key):
@@ -452,7 +467,14 @@ def encode_home_catalog(server_name: str, rows: list[HomeRow]) -> bytes:
     server = _bounded_utf8(server_name, MAX_SERVER_NAME_BYTES)
     bounded_rows = rows[:MAX_ROWS]
     body = bytearray(
-        struct.pack(">4sHHHH", CATALOG_MAGIC, HOME_CATALOG_VERSION, len(bounded_rows), len(server), 0)
+        struct.pack(
+            ">4sHHHH",
+            CATALOG_MAGIC,
+            HOME_CATALOG_VERSION,
+            len(bounded_rows),
+            len(server),
+            0,
+        )
     )
     body.extend(server)
     artwork_slot = 0
@@ -464,7 +486,11 @@ def encode_home_catalog(server_name: str, rows: list[HomeRow]) -> bytes:
         for item in items:
             item_title = _bounded_utf8(item.title, MAX_TITLE_BYTES)
             subtitle = _bounded_utf8(item.subtitle, MAX_SUBTITLE_BYTES)
-            progress = 0 if item.duration_ms <= 0 else min(100, item.view_offset_ms * 100 // item.duration_ms)
+            progress = (
+                0
+                if item.duration_ms <= 0
+                else min(100, item.view_offset_ms * 100 // item.duration_ms)
+            )
             body.extend(
                 struct.pack(
                     ">IIIHBBHH",
@@ -527,7 +553,11 @@ def encode_browse_page(page: BrowsePage) -> bytes:
     for artwork_slot, item in enumerate(items):
         item_title = _bounded_utf8(item.title, MAX_TITLE_BYTES)
         subtitle = _bounded_utf8(item.subtitle, MAX_SUBTITLE_BYTES)
-        progress = 0 if item.duration_ms <= 0 else min(100, item.view_offset_ms * 100 // item.duration_ms)
+        progress = (
+            0
+            if item.duration_ms <= 0
+            else min(100, item.view_offset_ms * 100 // item.duration_ms)
+        )
         body.extend(
             struct.pack(
                 ">IIIHBBHH",
@@ -549,13 +579,19 @@ def encode_browse_page(page: BrowsePage) -> bytes:
 def encode_search_page(page: SearchPage) -> bytes:
     query = _bounded_utf8(page.query, 24)
     body = bytearray(
-        struct.pack(">4sHHH", b"MPXS", SEARCH_CATALOG_VERSION, len(page.items), len(query))
+        struct.pack(
+            ">4sHHH", b"MPXS", SEARCH_CATALOG_VERSION, len(page.items), len(query)
+        )
     )
     body.extend(query)
     for artwork_slot, item in enumerate(page.items):
         item_title = _bounded_utf8(item.title, MAX_TITLE_BYTES)
         subtitle = _bounded_utf8(item.subtitle, MAX_SUBTITLE_BYTES)
-        progress = 0 if item.duration_ms <= 0 else min(100, item.view_offset_ms * 100 // item.duration_ms)
+        progress = (
+            0
+            if item.duration_ms <= 0
+            else min(100, item.view_offset_ms * 100 // item.duration_ms)
+        )
         body.extend(
             struct.pack(
                 ">IIIHBBHH",
@@ -609,24 +645,27 @@ def encode_playback_manifest(manifest: PlaybackManifest) -> bytes:
     path = _bounded_utf8(manifest.media_path, 127)
     if not path.startswith(b"/"):
         raise ValueError("playback media path must be absolute")
-    return struct.pack(
-        ">4sHHIIIIIIIIIqqH",
-        b"MPXP",
-        PLAYBACK_MANIFEST_VERSION,
-        1,
-        manifest.rating_key,
-        manifest.media_duration_ms,
-        manifest.segment_start_ms,
-        manifest.segment_duration_ms,
-        manifest.container_bytes,
-        manifest.video_bytes,
-        manifest.audio_bytes,
-        manifest.video_packets,
-        manifest.audio_packets,
-        manifest.video_pts90k,
-        manifest.audio_pts90k,
-        len(path),
-    ) + path
+    return (
+        struct.pack(
+            ">4sHHIIIIIIIIIqqH",
+            b"MPXP",
+            PLAYBACK_MANIFEST_VERSION,
+            1,
+            manifest.rating_key,
+            manifest.media_duration_ms,
+            manifest.segment_start_ms,
+            manifest.segment_duration_ms,
+            manifest.container_bytes,
+            manifest.video_bytes,
+            manifest.audio_bytes,
+            manifest.video_packets,
+            manifest.audio_packets,
+            manifest.video_pts90k,
+            manifest.audio_pts90k,
+            len(path),
+        )
+        + path
+    )
 
 
 def _plex_bytes(base_url: str, path: str, token: str | None) -> bytes:
@@ -654,10 +693,18 @@ def build_artwork_atlas(
             try:
                 if not item.artwork_path:
                     raise ValueError("missing artwork")
-                source = Image.open(io.BytesIO(_plex_bytes(base_url, item.artwork_path, token)))
-                image = ImageOps.fit(source.convert("RGB"), (ARTWORK_WIDTH, ARTWORK_HEIGHT))
+                source = Image.open(
+                    io.BytesIO(_plex_bytes(base_url, item.artwork_path, token))
+                )
+                image = ImageOps.fit(
+                    source.convert("RGB"), (ARTWORK_WIDTH, ARTWORK_HEIGHT)
+                )
             except Exception:
-                color = ((item.rating_key * 29) & 255, (item.rating_key * 53) & 255, (item.rating_key * 97) & 255)
+                color = (
+                    (item.rating_key * 29) & 255,
+                    (item.rating_key * 53) & 255,
+                    (item.rating_key * 97) & 255,
+                )
                 image = Image.new("RGB", (ARTWORK_WIDTH, ARTWORK_HEIGHT), color)
             atlas.paste(
                 image,
@@ -685,7 +732,9 @@ def build_browse_artwork_atlas(
         try:
             if not item.artwork_path:
                 raise ValueError("missing artwork")
-            source = Image.open(io.BytesIO(_plex_bytes(base_url, item.artwork_path, token)))
+            source = Image.open(
+                io.BytesIO(_plex_bytes(base_url, item.artwork_path, token))
+            )
             image = ImageOps.fit(source.convert("RGB"), (ARTWORK_WIDTH, ARTWORK_HEIGHT))
         except Exception:
             color = (
@@ -696,7 +745,10 @@ def build_browse_artwork_atlas(
             image = Image.new("RGB", (ARTWORK_WIDTH, ARTWORK_HEIGHT), color)
         atlas.paste(
             image,
-            ((slot % BROWSE_COLUMNS) * ARTWORK_WIDTH, (slot // BROWSE_COLUMNS) * ARTWORK_HEIGHT),
+            (
+                (slot % BROWSE_COLUMNS) * ARTWORK_WIDTH,
+                (slot // BROWSE_COLUMNS) * ARTWORK_HEIGHT,
+            ),
         )
     encoded = io.BytesIO()
     atlas.save(encoded, format="JPEG", quality=75, optimize=True, progressive=False)
@@ -776,7 +828,9 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
             if cached is not None:
                 return cached
             try:
-                details = fetch_details_page(cls.plex_base_url, cls.plex_token, rating_key)
+                details = fetch_details_page(
+                    cls.plex_base_url, cls.plex_token, rating_key
+                )
             except (RuntimeError, urllib.error.HTTPError):
                 return None
             payload = encode_details_page(details)
@@ -909,7 +963,11 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
             struct.unpack_from(">IIII", manifest, 8)
         )
         next_offset_ms = segment_start_ms + segment_duration_ms
-        if rating_key == 0 or segment_duration_ms == 0 or next_offset_ms >= media_duration_ms:
+        if (
+            rating_key == 0
+            or segment_duration_ms == 0
+            or next_offset_ms >= media_duration_ms
+        ):
             return None
         return rating_key, next_offset_ms
 
@@ -1096,7 +1154,9 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
                     return
                 self._send_bytes(playback[0], "application/octet-stream")
             else:
-                self._send_bytes(self.playback_manifest_bytes, "application/octet-stream")
+                self._send_bytes(
+                    self.playback_manifest_bytes, "application/octet-stream"
+                )
         elif path.startswith("/v4/media/") and path.endswith(".mpg"):
             media_key = path.removeprefix("/v4/media/").removesuffix(".mpg")
             rating_key_value, separator, offset_value = media_key.partition("/")
@@ -1107,9 +1167,7 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
             ):
                 self.send_error(404)
                 return
-            playback = self._playback_payload(
-                int(rating_key_value), int(offset_value)
-            )
+            playback = self._playback_payload(int(rating_key_value), int(offset_value))
             if playback is None:
                 self.send_error(404)
                 return
@@ -1173,7 +1231,9 @@ def main() -> None:
         parser.error("--segment-duration must be greater than zero")
 
     server_name, items = fetch_catalog(arguments.plex_base_url, arguments.token)
-    home_server_name, rows = fetch_home_catalog(arguments.plex_base_url, arguments.token)
+    home_server_name, rows = fetch_home_catalog(
+        arguments.plex_base_url, arguments.token
+    )
     libraries = fetch_library_sections(arguments.plex_base_url, arguments.token)
     GatewayHandler.media_path = arguments.media
     GatewayHandler.catalog_bytes = encode_catalog(server_name, items)
@@ -1213,20 +1273,12 @@ def main() -> None:
         )
         if pairing.status == "linked" and pairing.plex_linked:
             try:
-                console_servers = (
-                    GatewayHandler.pairing_client.load_plex_servers()
-                )
+                console_servers = GatewayHandler.pairing_client.load_plex_servers()
                 available_servers = [
-                    server
-                    for server in console_servers
-                    if server.presence
+                    server for server in console_servers if server.presence
                 ]
                 selected_server = next(
-                    (
-                        server
-                        for server in available_servers
-                        if server.owned
-                    ),
+                    (server for server in available_servers if server.owned),
                     available_servers[0] if available_servers else None,
                 )
                 print(
@@ -1241,7 +1293,9 @@ def main() -> None:
             except (OSError, ValueError, KeyError, json.JSONDecodeError):
                 print("Multiplex Plex server discovery unavailable", flush=True)
     if arguments.media_metadata is not None:
-        media_metadata = json.loads(arguments.media_metadata.read_text(encoding="utf-8"))
+        media_metadata = json.loads(
+            arguments.media_metadata.read_text(encoding="utf-8")
+        )
         GatewayHandler.playback_manifest_bytes = encode_playback_manifest(
             PlaybackManifest(
                 rating_key=int(media_metadata["rating_key"]),
@@ -1289,7 +1343,9 @@ def main() -> None:
         },
         separators=(",", ":"),
     ).encode("utf-8")
-    server = http.server.ThreadingHTTPServer(("0.0.0.0", arguments.port), GatewayHandler)
+    server = http.server.ThreadingHTTPServer(
+        ("0.0.0.0", arguments.port), GatewayHandler
+    )
     print(
         f"Multiplex console gateway v{BOOTSTRAP_CATALOG_VERSION}: "
         f"server={server_name!r} rows={len(rows)} "

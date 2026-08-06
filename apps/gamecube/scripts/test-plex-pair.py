@@ -44,7 +44,9 @@ class PlexPairTest(unittest.TestCase):
 
     def test_auth_url_carries_pin_and_device_product(self) -> None:
         url = pair.auth_url("abc123")
-        fragment = urllib.parse.parse_qs(urllib.parse.urlparse(url).fragment.removeprefix("?"))
+        fragment = urllib.parse.parse_qs(
+            urllib.parse.urlparse(url).fragment.removeprefix("?")
+        )
         self.assertEqual(fragment["clientID"], [pair.CLIENT_IDENTIFIER])
         self.assertEqual(fragment["code"], ["abc123"])
         self.assertEqual(fragment["context[device][product]"], [pair.PRODUCT])
@@ -62,7 +64,9 @@ class PlexPairTest(unittest.TestCase):
             "pmsAuthToken": "stale",
             "pmsClaimedAt": 1_600_000_000,
         }
-        with mock.patch.object(pair, "request_json", return_value={"id": 42, "code": "A1B2"}) as request:
+        with mock.patch.object(
+            pair, "request_json", return_value={"id": 42, "code": "A1B2"}
+        ) as request:
             with mock.patch.object(pair, "load_state", return_value=state):
                 with mock.patch.object(pair, "save_state") as save:
                     with mock.patch.object(pathlib.Path, "exists", return_value=True):
@@ -82,7 +86,9 @@ class PlexPairTest(unittest.TestCase):
     def test_poll_pms_pairing_sends_code_and_stores_claimed_token(self) -> None:
         state = {"pmsPinId": 42, "pmsCode": "A1B2"}
         with mock.patch.object(pair, "load_state", return_value=state):
-            with mock.patch.object(pair, "request_json", return_value={"authToken": "claimed"}) as request:
+            with mock.patch.object(
+                pair, "request_json", return_value={"authToken": "claimed"}
+            ) as request:
                 with mock.patch.object(pair, "save_state") as save:
                     result = pair.poll_pms_pairing(pathlib.Path("auth.json"))
 
@@ -123,13 +129,17 @@ class PlexPairTest(unittest.TestCase):
         token = self._token(expiry=1_700_604_800)
         with mock.patch.object(pair, "load_state", return_value={"authToken": token}):
             with mock.patch.object(pair, "refresh_pairing") as refresh:
-                self.assertEqual(pair.ensure_token(pathlib.Path("auth.json"), 1_700_000_000), token)
+                self.assertEqual(
+                    pair.ensure_token(pathlib.Path("auth.json"), 1_700_000_000), token
+                )
         refresh.assert_not_called()
 
     def test_ensure_refreshes_expiring_token(self) -> None:
         old_token = self._token(expiry=1_700_000_001)
         new_token = self._token(expiry=1_700_604_800)
-        with mock.patch.object(pair, "load_state", return_value={"authToken": old_token}):
+        with mock.patch.object(
+            pair, "load_state", return_value={"authToken": old_token}
+        ):
             with mock.patch.object(
                 pair,
                 "refresh_pairing",

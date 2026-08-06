@@ -71,7 +71,9 @@ def main() -> None:
     parser.add_argument("media", type=pathlib.Path)
     arguments = parser.parse_args()
     MediaFixtureHandler.media_path = arguments.media
-    server = http.server.ThreadingHTTPServer(("0.0.0.0", arguments.port), MediaFixtureHandler)
+    server = http.server.ThreadingHTTPServer(
+        ("0.0.0.0", arguments.port), MediaFixtureHandler
+    )
     server.serve_forever()
 
 

@@ -35,7 +35,9 @@ def select_video(root: ET.Element, rating_key: str | None) -> ET.Element:
         for video in root.iter("Video"):
             if video.get("ratingKey") == rating_key:
                 return video
-        raise RuntimeError(f"Plex metadata {rating_key} did not contain a playable video")
+        raise RuntimeError(
+            f"Plex metadata {rating_key} did not contain a playable video"
+        )
 
     for video in root.iter("Video"):
         if video.find("./Media/Part") is not None:
@@ -65,7 +67,9 @@ def packet_metadata(media_path: pathlib.Path) -> dict[str, int]:
     packets = result_data["packets"]
     output: dict[str, int] = {}
     for codec_type in ("video", "audio"):
-        selected = [packet for packet in packets if packet.get("codec_type") == codec_type]
+        selected = [
+            packet for packet in packets if packet.get("codec_type") == codec_type
+        ]
         pts = next((int(packet["pts"]) for packet in selected if "pts" in packet), None)
         if not selected or pts is None:
             raise RuntimeError(f"Encoded clip has no timestamped {codec_type} packets")
@@ -73,7 +77,9 @@ def packet_metadata(media_path: pathlib.Path) -> dict[str, int]:
         output[f"{codec_type}_packets"] = len(selected)
         output[f"{codec_type}_pts90k"] = pts
     output["container_bytes"] = media_path.stat().st_size
-    output["segment_duration_ms"] = round(float(result_data["format"]["duration"]) * 1000)
+    output["segment_duration_ms"] = round(
+        float(result_data["format"]["duration"]) * 1000
+    )
     return output
 
 
