@@ -39,6 +39,8 @@ jobs:
     name: GameCube native
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      CLANG_FORMAT: clang-format-18
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -101,8 +103,6 @@ jobs:
         run: bun run gamecube:bootstrap
 
       - name: Run native lint
-        env:
-          CLANG_FORMAT: clang-format-18
         run: bun run gamecube:lint
 
       - name: Run portable and PowerPC core tests
