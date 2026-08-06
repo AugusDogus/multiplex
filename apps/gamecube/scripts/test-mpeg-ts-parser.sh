@@ -6,7 +6,7 @@ app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 test_binary=$(mktemp)
 trap 'rm -f "$test_binary"' EXIT INT TERM
 
-cc -std=c11 -Wall -Wextra -Werror \
+"${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
   -I"$app_dir/host-reference-gx" \
   "$app_dir/host-reference-gx/mpeg_ts_parser.c" \
   "$app_dir/tests/mpeg_ts_parser_test.c" \

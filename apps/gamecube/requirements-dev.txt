@@ -1,0 +1,4 @@
+-r requirements.txt
+
+cryptography==49.0.0
+ruff==0.12.11

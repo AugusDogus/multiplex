@@ -6,7 +6,7 @@ app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 build_dir=$(mktemp -d)
 trap 'rm -rf "$build_dir"' EXIT INT TERM
 
-cc -std=c11 -Wall -Wextra -Werror \
+"${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
   -I"$app_dir/host-reference-gx" \
   "$app_dir/host-reference-gx/memory_card_presentation.c" \
   "$app_dir/tests/memory_card_presentation_test.c" \

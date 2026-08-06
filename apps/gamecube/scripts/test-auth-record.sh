@@ -6,7 +6,7 @@ app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 test_binary=$(mktemp "${TMPDIR:-/tmp}/multiplex-auth-record.XXXXXX")
 trap 'rm -f "$test_binary"' EXIT HUP INT TERM
 
-cc -std=c11 -Wall -Wextra -Werror -pedantic \
+"${CC:-cc}" -std=c11 -Wall -Wextra -Werror -pedantic \
   -I"$app_dir/host-reference-gx" \
   "$app_dir/host-reference-gx/auth_record.c" \
   "$app_dir/tests/auth_record_test.c" \

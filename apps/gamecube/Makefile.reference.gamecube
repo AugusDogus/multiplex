@@ -27,7 +27,7 @@ FFMPEG_ROOT := $(MPLAYER_ROOT)/ffmpeg
 MBEDTLS_ROOT := $(APP_ROOT)/.mbedtls-stage
 INCLUDES := host host-reference host-reference-gx generated
 
-CFLAGS := -g -gdwarf-4 -gstrict-dwarf -O2 -Wall -Wextra \
+CFLAGS := -g -gdwarf-4 -gstrict-dwarf -O2 -Wall -Wextra -Werror \
 	$(MACHDEP) $(INCLUDE)
 CXXFLAGS := $(CFLAGS)
 LDFLAGS := -g $(MACHDEP) -Wl,-Map,$(notdir $@).map

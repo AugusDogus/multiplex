@@ -16,7 +16,7 @@ BUILD := build-raylib-reference
 SOURCES := host-raylib host-reference
 INCLUDES := host host-reference .raylib/src .opengx/src .opengx/include
 
-CFLAGS := -g -O2 -Wall -Wextra $(MACHDEP) $(INCLUDE)
+CFLAGS := -g -O2 -Wall -Wextra -Werror $(MACHDEP) $(INCLUDE)
 CXXFLAGS := $(CFLAGS)
 LDFLAGS := -g $(MACHDEP) -Wl,-Map,$(notdir $@).map
 LIBS := $(CORE_LIBRARY) -lraylib -lopengx -logc -lm
