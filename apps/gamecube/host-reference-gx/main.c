@@ -6365,7 +6365,10 @@ static void *run_app(void *unused) {
     }
     if (!multiplex_device_auth_begin(MULTIPLEX_BASE_URL, &device_auth)) {
       device_auth.status = MULTIPLEX_DEVICE_AUTH_UNAVAILABLE;
-      bind_boot_diagnostics("Multiplex pairing request failed");
+      const char *tls_failure = multiplex_tls_client_failure_message();
+      bind_boot_diagnostics(tls_failure != NULL
+                                ? tls_failure
+                                : "Multiplex pairing request failed");
       SYS_Report("REFERENCE GX: device authorization unavailable card=%s\n",
                  multiplex_memory_card_result_message(stored_auth));
     }
@@ -6594,7 +6597,10 @@ static void *run_app(void *unused) {
         bind_boot_diagnostics("Pairing code ready");
       } else {
         device_auth.status = MULTIPLEX_DEVICE_AUTH_UNAVAILABLE;
-        bind_boot_diagnostics("Multiplex pairing request failed");
+        const char *tls_failure = multiplex_tls_client_failure_message();
+        bind_boot_diagnostics(tls_failure != NULL
+                                  ? tls_failure
+                                  : "Multiplex pairing request failed");
         pairing_retry_at_ms = catalog_now_ms + pairing_retry_delay_ms;
         if (pairing_retry_delay_ms < PAIRING_RETRY_MAX_DELAY_MS) {
           pairing_retry_delay_ms *= 2u;
@@ -6938,7 +6944,10 @@ static void *run_app(void *unused) {
         memset(&device_auth, 0, sizeof(device_auth));
         if (!multiplex_device_auth_begin(MULTIPLEX_BASE_URL, &device_auth)) {
           device_auth.status = MULTIPLEX_DEVICE_AUTH_UNAVAILABLE;
-          bind_boot_diagnostics("Multiplex pairing request failed");
+          const char *tls_failure = multiplex_tls_client_failure_message();
+          bind_boot_diagnostics(tls_failure != NULL
+                                    ? tls_failure
+                                    : "Multiplex pairing request failed");
           pairing_retry_delay_ms = PAIRING_RETRY_INITIAL_DELAY_MS;
           pairing_retry_at_ms = ticks_to_millisecs(gettime()) +
                                 pairing_retry_delay_ms;
