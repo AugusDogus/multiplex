@@ -191,6 +191,13 @@ and SNI-only packet summaries under `.dolphin-entropy-qa/`, but deletes every
 temporary profile and never copies the generated GCI or seed bytes into the
 artifacts.
 
+For each boot, the harness sends one `SIGTERM` directly to Dolphin, requires
+the rootless TAP launcher to exit with status 0 without escalation, and checks
+that the process group is empty. Before reading a generation or starting the
+next boot, it also requires the GCI size, modification time, and SHA-256 digest
+to remain stable for one second after exit. The artifacts record only the
+stability result, not the digest or seed data.
+
 Dolphin cannot faithfully model a write-protected physical card with its GCI
 folder backend. Guest writes update the in-memory virtual card before an
 asynchronous host-file flush, so host permissions cannot return a `CARD_Write`
