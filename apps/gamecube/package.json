@@ -8,7 +8,7 @@
     "bootstrap": "sh scripts/bootstrap.sh",
     "meson:setup": "uv run --locked sh scripts/meson.sh setup",
     "analyze:native": "uv run --locked sh scripts/meson.sh analyze",
-    "lint:native": "uv run --locked sh scripts/lint.sh",
+    "lint:native": "sh scripts/run-with-tooling.sh sh scripts/lint.sh",
     "test:portable": "uv run --locked sh scripts/test-portable.sh",
     "test:sanitize": "uv run --locked sh scripts/test-sanitize.sh",
     "check:native": "sh scripts/run-with-tooling.sh sh scripts/check.sh",

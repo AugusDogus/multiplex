@@ -32,6 +32,8 @@ find_child_by_name() {
   parent_pid=$1
   expected_name=$2
   matches=$(pgrep -P "$parent_pid" -x "$expected_name" 2>/dev/null || true)
+  # Intentional field splitting rejects zero or multiple child PIDs.
+  # shellcheck disable=SC2086
   set -- $matches
   [ "$#" -eq 1 ] || return 1
   printf '%s\n' "$1"
@@ -89,10 +91,13 @@ shutdown_launcher() {
   set -e
   remaining_pids=$(pgrep -g "$session_pid" 2>/dev/null || true)
   if [ -n "$remaining_pids" ]; then
+    # Intentional field splitting iterates over pgrep's newline-delimited PIDs.
+    # shellcheck disable=SC2086
     for remaining_pid in $remaining_pids; do
       kill -TERM "$remaining_pid" 2>/dev/null || true
     done
     sleep 0.1
+    # shellcheck disable=SC2086
     for remaining_pid in $remaining_pids; do
       kill -KILL "$remaining_pid" 2>/dev/null || true
     done

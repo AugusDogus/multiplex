@@ -4,8 +4,9 @@ set -eu
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 
-# shellcheck disable=SC1091
-. "$app_dir/PINS.env"
+if [ "${MULTIPLEX_GAMECUBE_UV_ACTIVE:-0}" != 1 ]; then
+  exec sh "$script_dir/run-with-tooling.sh" sh "$0" "$@"
+fi
 
 clang_format=${CLANG_FORMAT:-clang-format}
 zig=${ZIG:-zig}
@@ -19,12 +20,22 @@ for command_path in "$clang_format" "$zig" "$shellcheck" "$ruff"; do
   fi
 done
 
+required_shellcheck_py_version=$(
+  sed -n 's/^[[:space:]]*"shellcheck-py==\([0-9.]*\)",[[:space:]]*$/\1/p' \
+    "$app_dir/pyproject.toml"
+)
+required_shellcheck_version=${required_shellcheck_py_version%.*}
+if [ -z "$required_shellcheck_version" ] ||
+  [ "$required_shellcheck_version" = "$required_shellcheck_py_version" ]; then
+  echo "Missing an exact shellcheck-py version in $app_dir/pyproject.toml." >&2
+  exit 1
+fi
 actual_shellcheck_version=$(
   "$shellcheck" --version | awk '/^version:/ { print $2 }'
 )
-if [ "$actual_shellcheck_version" != "$SHELLCHECK_VERSION" ]; then
-  echo "ShellCheck $SHELLCHECK_VERSION is required; found $actual_shellcheck_version." >&2
-  echo "Install the pinned version from apps/gamecube/PINS.env and rerun this command." >&2
+if [ "$actual_shellcheck_version" != "$required_shellcheck_version" ]; then
+  echo "ShellCheck $required_shellcheck_version is required; found $actual_shellcheck_version." >&2
+  echo "Run 'bun run gamecube:setup' to restore the locked toolchain." >&2
   exit 1
 fi
 
