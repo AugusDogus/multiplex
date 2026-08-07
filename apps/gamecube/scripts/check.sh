@@ -3,6 +3,10 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
+if [ "${MULTIPLEX_GAMECUBE_UV_ACTIVE:-0}" != 1 ]; then
+  exec sh "$script_dir/run-with-tooling.sh" sh "$0" "$@"
+fi
+
 sh "$script_dir/lint.sh"
 sh "$script_dir/meson.sh" analyze
 sh "$script_dir/test-portable.sh"

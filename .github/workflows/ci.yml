@@ -71,7 +71,7 @@ jobs:
           version: "0.12.1"
           python-version: "3.13.14"
           enable-cache: true
-          cache-dependency-glob: apps/gamecube/uv.lock
+          cache-dependency-glob: uv.lock
           working-directory: apps/gamecube
 
       - name: Install native verification tools
@@ -94,7 +94,7 @@ jobs:
             "${{ steps.pins.outputs.shellcheck-version }}"
 
       - name: Sync locked native tooling
-        run: uv sync --project apps/gamecube --frozen --all-groups
+        run: uv sync --project apps/gamecube --locked --all-groups
 
       - name: Restore pinned GameCube dependencies
         id: gamecube-cache

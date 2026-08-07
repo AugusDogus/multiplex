@@ -5,6 +5,10 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 project_file="$app_dir/pyproject.toml"
 
+if [ "${MULTIPLEX_GAMECUBE_UV_ACTIVE:-0}" != 1 ]; then
+  exec sh "$script_dir/run-with-tooling.sh" sh "$0" "$@"
+fi
+
 required_pillow_version=$(
   python3 -c 'import sys, tomllib; dependencies = tomllib.load(open(sys.argv[1], "rb"))["project"]["dependencies"]; print(next(item.removeprefix("pillow==") for item in dependencies if item.lower().startswith("pillow==")))' "$project_file"
 )
