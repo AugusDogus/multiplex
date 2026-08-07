@@ -58,9 +58,11 @@ static volatile uint32_t tls_last_verify_flags;
 static bool tls_trust_source_ready;
 static bool tls_random_ready;
 static bool tls_random_mutex_ready;
+static bool tls_initialization_mutex_ready;
 static const char *tls_failure_message;
 static mbedtls_ctr_drbg_context tls_random;
 static mutex_t tls_random_mutex;
+static mutex_t tls_initialization_mutex;
 typedef struct {
   uint8_t seed[TLS_ENTROPY_SEED_SIZE];
   unsigned calls;
@@ -472,7 +474,21 @@ static int find_ca_candidates(void *context, const mbedtls_x509_crt *child,
   return 0;
 }
 
-bool multiplex_tls_client_initialize(void) {
+bool multiplex_tls_client_prepare(void) {
+  if (tls_initialization_mutex_ready) {
+    return true;
+  }
+  if (LWP_MutexInit(&tls_initialization_mutex, false) != 0) {
+    tls_last_error = MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
+    tls_failure_message = "TLS initialization lock unavailable";
+    SYS_Report("REFERENCE GX: TLS initialization mutex unavailable\n");
+    return false;
+  }
+  tls_initialization_mutex_ready = true;
+  return true;
+}
+
+static bool initialize_tls_client_locked(void) {
   if (tls_trust_source_ready && tls_random_ready) {
     return true;
   }
@@ -491,6 +507,22 @@ bool multiplex_tls_client_initialize(void) {
   SYS_Report("REFERENCE GX: TLS public trust source ready bytes=%u\n",
              multiplex_tls_ca_pem_size);
   return true;
+}
+
+bool multiplex_tls_client_initialize(void) {
+  if (!tls_initialization_mutex_ready) {
+    tls_last_error = MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
+    tls_failure_message = "TLS initialization lock unavailable";
+    return false;
+  }
+  if (LWP_MutexLock(tls_initialization_mutex) != 0) {
+    tls_last_error = MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
+    tls_failure_message = "TLS initialization lock failed";
+    return false;
+  }
+  const bool initialized = initialize_tls_client_locked();
+  LWP_MutexUnlock(tls_initialization_mutex);
+  return initialized;
 }
 
 MultiplexTlsClient *multiplex_tls_client_connect(int socket,

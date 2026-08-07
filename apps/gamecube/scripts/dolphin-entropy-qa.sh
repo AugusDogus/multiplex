@@ -106,6 +106,7 @@ shutdown_launcher() {
   signal_count=$(rg -acF \
     'A signal was received. A second signal will force Dolphin to stop.' \
     "$launcher_log" || true)
+  signal_count=${signal_count:-0}
   if [ "$signal_count" -ne 1 ]; then
     echo "$label logged $signal_count Dolphin shutdown signals; expected exactly one." >&2
     return 1
@@ -308,8 +309,13 @@ boot_until "$boot_2_profile" boot-2 \
   "REFERENCE GX: TLS connected host=$qa_host"
 assert_valid_boot boot-2
 
-boot_1_random=$(awk 'NF >= 4 { print $4; exit }' "$artifact_dir/boot-1-client-hellos.txt")
-boot_2_random=$(awk 'NF >= 4 { print $4; exit }' "$artifact_dir/boot-2-client-hellos.txt")
+extract_client_random() {
+  awk -F '\t' -v host="$qa_host" \
+    '$3 == host && $4 != "" { print $4; exit }' "$1"
+}
+
+boot_1_random=$(extract_client_random "$artifact_dir/boot-1-client-hellos.txt")
+boot_2_random=$(extract_client_random "$artifact_dir/boot-2-client-hellos.txt")
 if [ -z "$boot_1_random" ] || [ -z "$boot_2_random" ]; then
   echo "Could not extract TLS ClientRandom bytes from both clean boots." >&2
   exit 1
