@@ -4,11 +4,14 @@
   "description": "Editor surface for the Multiplex GameCube TypeScript core",
   "type": "module",
   "scripts": {
+    "tooling:sync": "sh scripts/setup-tooling.sh",
     "bootstrap": "sh scripts/bootstrap.sh",
-    "lint:native": "sh scripts/lint.sh",
-    "test:portable": "sh scripts/test-portable.sh",
-    "test:sanitize": "sh scripts/test-sanitize.sh",
-    "check:native": "sh scripts/check.sh",
-    "reference:dol": "sh scripts/build-native-reference-dol.sh"
+    "meson:setup": "uv run --frozen sh scripts/meson.sh setup",
+    "analyze:native": "uv run --frozen sh scripts/meson.sh analyze",
+    "lint:native": "uv run --frozen sh scripts/lint.sh",
+    "test:portable": "uv run --frozen sh scripts/test-portable.sh",
+    "test:sanitize": "uv run --frozen sh scripts/test-sanitize.sh",
+    "check:native": "uv run --frozen sh scripts/check.sh",
+    "reference:dol": "uv run --frozen sh scripts/build-native-reference-dol.sh"
   }
 }

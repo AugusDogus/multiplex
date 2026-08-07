@@ -5,7 +5,8 @@ FONT_ATLAS := $(APP_ROOT)/generated/geist_atlas.h
 FONT_ATLAS_GENERATOR := $(APP_ROOT)/scripts/generate-font-atlas.py
 FONT_ATLAS_WRAPPER := $(APP_ROOT)/scripts/generate-font-atlas.sh
 FONT_SOURCE := $(APP_ROOT)/.native-sdk/src/primitives/canvas/fonts/Geist-Regular.ttf
-PYTHON_REQUIREMENTS := $(APP_ROOT)/requirements.txt
+PYTHON_PROJECT := $(APP_ROOT)/pyproject.toml
+PYTHON_LOCK := $(APP_ROOT)/uv.lock
 
 .PHONY: font-atlas verify-font-atlas-dependencies
 
@@ -15,5 +16,5 @@ verify-font-atlas-dependencies:
 	@sh $(FONT_ATLAS_WRAPPER) --check
 
 $(FONT_ATLAS): $(FONT_SOURCE) $(FONT_ATLAS_GENERATOR) $(FONT_ATLAS_WRAPPER) \
-	$(PYTHON_REQUIREMENTS)
+	$(PYTHON_PROJECT) $(PYTHON_LOCK)
 	@sh $(FONT_ATLAS_WRAPPER)

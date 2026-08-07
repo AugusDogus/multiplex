@@ -8,26 +8,34 @@ semantics.
 
 ## Run
 
-The host-side tooling requires Python 3 and the pinned development packages.
-Install them in the active Python environment before checking or building:
+The host-side tooling is locked by `apps/gamecube/pyproject.toml` and
+`apps/gamecube/uv.lock`. Install uv 0.12.1 using the
+[official instructions](https://docs.astral.sh/uv/getting-started/installation/),
+then sync the environment from the repository root:
 
 ```sh
-python3 -m pip install -r apps/gamecube/requirements-dev.txt
+bun run gamecube:setup
 ```
 
-Native lint also requires `clang-format`, ShellCheck, and the Zig version in
-`apps/gamecube/PINS.env`. Set `CLANG_FORMAT`, `SHELLCHECK`, `RUFF`, or `ZIG` to
-use versioned tool names. The sanitizer suite uses Clang by default. Override
-it with `GAMECUBE_SANITIZER_CC` when another ASan/UBSan-capable compiler is
-needed.
+The project pins Python 3.13.14. The lock preserves exact Pillow,
+cryptography, Ruff, Meson, Ninja,
+clang-format, and clang-tidy versions. Native lint also requires the ShellCheck
+and Zig versions in `apps/gamecube/PINS.env`. Set `CLANG_FORMAT`, `CLANG_TIDY`,
+`SHELLCHECK`, `RUFF`, or `ZIG` to override executable paths. The sanitizer suite
+uses Clang by default. Override it with `GAMECUBE_SANITIZER_CC` when another
+ASan/UBSan-capable compiler is needed.
 
 From the repository root:
 
 ```sh
 bun run gamecube:bootstrap
+bun run gamecube:meson:setup
 bun run gamecube:lint
+uv run --project apps/gamecube --frozen meson introspect \
+  --targets build/native
 bun run gamecube:test:portable
 bun run gamecube:test:sanitize
+bun run gamecube:analyze
 bun run gamecube:check
 bun run gamecube:reference:dol
 bun run gamecube:reference:hardware-dol
@@ -43,12 +51,27 @@ bun run wii:reference:smoke-player
 bun run wii:reference:plex
 ```
 
-`gamecube:check` bootstraps the pinned dependencies, then runs native lint,
-portable C and Python tests, Native SDK's TypeScript and null-platform tests,
-the PowerPC core cross-compile, and host C tests under ASan and UBSan. The
-reference DOL build uses the pinned devkitPPC container and promotes warnings
-in first-party translation units to errors. These checks need no Plex
+`gamecube:check` first performs a frozen uv sync, bootstraps the pinned native
+dependencies, then runs native lint, scoped clang-tidy analysis, portable C and
+Python tests, Native SDK's TypeScript and null-platform tests, the PowerPC core
+cross-compile, and host C tests under ASan and UBSan. These checks need no Plex
 credentials, Dolphin installation, or console hardware.
+
+The repository-root `meson.build` is the canonical extensible native graph.
+It currently delegates to `apps/gamecube/meson.build`, where the portable auth
+record implementation is an explicitly listed static library shared with its
+host test. `bun run gamecube:meson:setup` writes
+`build/native/compile_commands.json`; the committed `.clangd` points editors at
+that database. Meson uses warnings as errors, exposes the named
+`gamecube-portable` test suite, and supports ASan/UBSan through its built-in
+`b_sanitize` option. All project commands configure with
+`--wrap-mode=nodownload`.
+
+The devkitPro Makefiles remain temporary DOL target adapters. They still own
+the console source lists, linker scripts, generated assets, and DOL conversion
+until equivalent Meson output can be compared safely. Cross-file templates and
+the registration path for future clients are documented in
+`apps/gamecube/cross/README.md`.
 
 `gamecube:bba-diagnostics:dol` builds a small real-hardware diagnostic at
 `apps/gamecube/multiplex-gamecube-bba-diagnostics.dol`. It keeps
@@ -709,6 +732,8 @@ work:
 - [devkitPro](https://devkitpro.org/): the pinned devkitPPC PowerPC
   cross-compilation toolchain.
 - [Zig](https://ziglang.org): compiles the Native SDK core for PowerPC.
+- [Meson](https://mesonbuild.com) and [Ninja](https://ninja-build.org): the
+  portable native target graph, host tests, and compilation database.
 - [Dolphin](https://dolphin-emu.org): the development and automation
   harness, including the low-level BBA emulation the network smokes drive.
 - [passt/pasta](https://passt.top/): the rootless Ethernet uplink that

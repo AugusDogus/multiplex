@@ -31,4 +31,7 @@ generated/
 *.elf
 node_modules/
 __pycache__/
+.venv/
+cross/gamecube.ini
+cross/wii.ini
 zig-out/

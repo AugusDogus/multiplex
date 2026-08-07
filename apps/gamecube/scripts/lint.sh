@@ -4,6 +4,9 @@ set -eu
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 
+# shellcheck disable=SC1091
+. "$app_dir/PINS.env"
+
 clang_format=${CLANG_FORMAT:-clang-format}
 zig=${ZIG:-zig}
 shellcheck=${SHELLCHECK:-shellcheck}
@@ -16,6 +19,15 @@ for command_path in "$clang_format" "$zig" "$shellcheck" "$ruff"; do
   fi
 done
 
+actual_shellcheck_version=$(
+  "$shellcheck" --version | awk '/^version:/ { print $2 }'
+)
+if [ "$actual_shellcheck_version" != "$SHELLCHECK_VERSION" ]; then
+  echo "ShellCheck $SHELLCHECK_VERSION is required; found $actual_shellcheck_version." >&2
+  echo "Install the pinned version from apps/gamecube/PINS.env and rerun this command." >&2
+  exit 1
+fi
+
 find \
   "$app_dir/host" \
   "$app_dir/host-bba-diagnostics" \
@@ -24,7 +36,7 @@ find \
   "$app_dir/host-reference-gx" \
   "$app_dir/tests" \
   -type f \( -name '*.c' -o -name '*.h' \) \
-  -exec "$clang_format" --style=LLVM --dry-run --Werror {} +
+  -exec "$clang_format" --style=file --dry-run --Werror {} +
 
 "$zig" fmt --check \
   "$app_dir/build.zig" \

@@ -3,13 +3,13 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
-requirements_file="$app_dir/requirements.txt"
+project_file="$app_dir/pyproject.toml"
 
 required_pillow_version=$(
-  sed -n 's/^Pillow==\([^[:space:]]*\)$/\1/p' "$requirements_file"
+  python3 -c 'import sys, tomllib; dependencies = tomllib.load(open(sys.argv[1], "rb"))["project"]["dependencies"]; print(next(item.removeprefix("pillow==") for item in dependencies if item.lower().startswith("pillow==")))' "$project_file"
 )
 if [ -z "$required_pillow_version" ]; then
-  echo "Missing an exact Pillow version in $requirements_file." >&2
+  echo "Missing an exact Pillow version in $project_file." >&2
   exit 1
 fi
 
@@ -17,12 +17,12 @@ if ! installed_pillow_version=$(
   python3 -c 'from PIL import __version__; print(__version__)' 2>/dev/null
 ); then
   echo "Pillow $required_pillow_version is required to generate the GameCube font atlas, but Pillow is not installed." >&2
-  echo "Install it with: python3 -m pip install -r apps/gamecube/requirements.txt" >&2
+  echo "Install it with: bun run gamecube:setup" >&2
   exit 1
 fi
 if [ "$installed_pillow_version" != "$required_pillow_version" ]; then
   echo "Pillow $required_pillow_version is required to generate the GameCube font atlas; found $installed_pillow_version." >&2
-  echo "Install it with: python3 -m pip install -r apps/gamecube/requirements.txt" >&2
+  echo "Restore it with: bun run gamecube:setup" >&2
   exit 1
 fi
 
