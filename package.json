@@ -36,6 +36,7 @@
     "gamecube:launch": "sh apps/gamecube/scripts/launch-multiplex.sh",
     "gamecube:qa": "sh apps/gamecube/scripts/dolphin-qa.sh",
     "gamecube:reference:log-check": "sh apps/gamecube/scripts/check-dolphin-log.sh",
+    "gamecube:reference:entropy-qa": "sh apps/gamecube/scripts/dolphin-entropy-qa.sh",
     "gamecube:reference:smoke-player": "sh apps/gamecube/scripts/smoke-dolphin-player.sh",
     "gamecube:reference:smoke-http": "sh apps/gamecube/scripts/smoke-dolphin-http-player.sh",
     "gamecube:reference:smoke-http-tap": "GAMECUBE_DOLPHIN_ROOTLESS_TAP=1 sh apps/gamecube/scripts/smoke-dolphin-http-player.sh",

@@ -3,7 +3,7 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
-log="$app_dir/.dolphin-user/Logs/dolphin.log"
+log=${1:-"$app_dir/.dolphin-user/Logs/dolphin.log"}
 
 if [ ! -s "$log" ]; then
   echo "Missing Dolphin log at $log; launch the reference DOL first." >&2

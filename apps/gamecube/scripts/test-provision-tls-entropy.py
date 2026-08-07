@@ -26,6 +26,7 @@ class ProvisionTlsEntropyTest(unittest.TestCase):
         self.assertEqual(len(gci), 64 + 2 * provision.BLOCK_SIZE)
         self.assertEqual(gci[0:6], b"MPLXMX")
         self.assertEqual(gci[8:29], b"Multiplex TLS Entropy")
+        self.assertEqual(gci[29:40], bytes(11))
         self.assertEqual(struct.unpack_from(">H", gci, 56)[0], 2)
         record = gci[64 : 64 + provision.RECORD_SIZE]
         self.assertEqual(record[0:4], b"MPXR")
@@ -59,6 +60,18 @@ class ProvisionTlsEntropyTest(unittest.TestCase):
                     | provision.os.O_EXCL,
                     0o600,
                 )
+
+    def test_inspection_tracks_generations_and_corruption_preserves_seeds(
+        self,
+    ) -> None:
+        gci = provision.gci_file(bytes(range(32)))
+        self.assertEqual(provision.valid_generations(gci), (1,))
+        corrupted = provision.corrupt_records(gci)
+        self.assertEqual(provision.valid_generations(corrupted), ())
+        for index in range(2):
+            seed_start = 64 + index * provision.BLOCK_SIZE + 12
+            seed_end = seed_start + provision.SEED_SIZE
+            self.assertEqual(corrupted[seed_start:seed_end], gci[seed_start:seed_end])
 
 
 if __name__ == "__main__":
