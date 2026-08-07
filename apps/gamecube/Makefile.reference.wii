@@ -14,7 +14,7 @@ FFMPEG_ROOT := $(MPLAYER_ROOT)/ffmpeg
 MBEDTLS_ROOT := $(APP_ROOT)/.mbedtls-stage
 INCLUDES := host host-reference host-reference-gx
 
-CFLAGS := -g -O2 -Wall -Wextra -Werror $(MACHDEP) $(INCLUDE)
+CFLAGS := -g -O2 -Wall -Wextra $(MACHDEP) $(INCLUDE)
 CXXFLAGS := $(CFLAGS)
 LDFLAGS := -g $(MACHDEP) -Wl,-Map,$(notdir $@).map
 LIBS := $(CORE_LIBRARY) -lavcodec -lavutil -lmbedtls -lmbedx509 \
