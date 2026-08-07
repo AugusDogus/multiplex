@@ -18,10 +18,10 @@ bun run gamecube:setup
 ```
 
 The project pins Python 3.13.14. The lock preserves exact Pillow,
-cryptography, Ruff, Meson, Ninja,
-clang-format, and clang-tidy versions. Native lint also requires the ShellCheck
-and Zig versions in `apps/gamecube/PINS.env`. Set `CLANG_FORMAT`, `CLANG_TIDY`,
-`SHELLCHECK`, `RUFF`, or `ZIG` to override executable paths. The sanitizer suite
+cryptography, Ruff, Meson, Ninja, clang-format, clang-tidy, and ShellCheck
+versions. Native lint also requires the Zig version in `apps/gamecube/PINS.env`.
+Set `CLANG_FORMAT`, `CLANG_TIDY`, `SHELLCHECK`, `RUFF`, or `ZIG` to override
+executable paths. The sanitizer suite
 uses the pinned Zig 0.16.0 `zig cc` by default. Override it with
 `GAMECUBE_SANITIZER_CC` when another ASan/UBSan-capable compiler is needed;
 each compiler gets a separate Meson build directory.

@@ -52,8 +52,6 @@ jobs:
           set -eu
           . ./PINS.env
           echo "zig-version=$ZIG_VERSION" >> "$GITHUB_OUTPUT"
-          echo "shellcheck-version=$SHELLCHECK_VERSION" >> "$GITHUB_OUTPUT"
-          echo "shellcheck-sha256=$SHELLCHECK_LINUX_X86_64_SHA256" >> "$GITHUB_OUTPUT"
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -73,25 +71,6 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
           working-directory: apps/gamecube
-
-      - name: Install native verification tools
-        run: |
-          set -eu
-          sudo apt-get update
-          sudo apt-get install --yes xz-utils
-          archive="$RUNNER_TEMP/shellcheck.tar.xz"
-          curl --fail --location --silent --show-error \
-            --output "$archive" \
-            "https://github.com/koalaman/shellcheck/releases/download/v${{ steps.pins.outputs.shellcheck-version }}/shellcheck-v${{ steps.pins.outputs.shellcheck-version }}.linux.x86_64.tar.xz"
-          printf '%s  %s\n' \
-            "${{ steps.pins.outputs.shellcheck-sha256 }}" "$archive" | \
-            sha256sum --check --strict
-          tar -xJf "$archive" -C "$RUNNER_TEMP"
-          sudo install -m 0755 \
-            "$RUNNER_TEMP/shellcheck-v${{ steps.pins.outputs.shellcheck-version }}/shellcheck" \
-            /usr/local/bin/shellcheck
-          test "$(shellcheck --version | awk '/^version:/ { print $2 }')" = \
-            "${{ steps.pins.outputs.shellcheck-version }}"
 
       - name: Sync locked native tooling
         run: uv sync --project apps/gamecube --locked --all-groups
