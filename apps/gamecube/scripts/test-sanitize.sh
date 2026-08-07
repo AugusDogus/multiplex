@@ -12,8 +12,9 @@ export CC="$script_dir/sanitize-cc.sh"
 export ASAN_OPTIONS="detect_leaks=1:halt_on_error=1:strict_string_checks=1"
 export UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1"
 
+sh "$script_dir/meson.sh" sanitize
+
 for test_script in \
-  test-auth-record.sh \
   test-catalog-cache.sh \
   test-memory-card-presentation.sh \
   test-entropy-seed.sh \

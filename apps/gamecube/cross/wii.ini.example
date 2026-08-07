@@ -1,0 +1,16 @@
+[binaries]
+c = '/opt/devkitpro/devkitPPC/bin/powerpc-eabi-gcc'
+ar = '/opt/devkitpro/devkitPPC/bin/powerpc-eabi-ar'
+strip = '/opt/devkitpro/devkitPPC/bin/powerpc-eabi-strip'
+
+[host_machine]
+system = 'none'
+cpu_family = 'ppc'
+cpu = '750'
+endian = 'big'
+
+[properties]
+needs_exe_wrapper = true
+
+[built-in options]
+c_args = ['-DGEKKO', '-DHW_RVL', '-mcpu=750', '-meabi', '-mhard-float']

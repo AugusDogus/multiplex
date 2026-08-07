@@ -1,0 +1,7 @@
+Checks: >
+  -*,
+  clang-analyzer-*,
+  -clang-analyzer-security.insecureAPI.*
+WarningsAsErrors: "*"
+HeaderFilterRegex: "apps/gamecube/(host-reference-gx|tests)/.*"
+FormatStyle: file

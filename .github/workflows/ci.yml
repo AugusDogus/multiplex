@@ -9,12 +9,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.10
 
@@ -39,11 +39,9 @@ jobs:
     name: GameCube native
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    env:
-      CLANG_FORMAT: clang-format-18
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
 
@@ -54,37 +52,53 @@ jobs:
           set -eu
           . ./PINS.env
           echo "zig-version=$ZIG_VERSION" >> "$GITHUB_OUTPUT"
-          echo "ruff-version=$RUFF_VERSION" >> "$GITHUB_OUTPUT"
+          echo "shellcheck-version=$SHELLCHECK_VERSION" >> "$GITHUB_OUTPUT"
+          echo "shellcheck-sha256=$SHELLCHECK_LINUX_X86_64_SHA256" >> "$GITHUB_OUTPUT"
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.10
 
       - name: Set up Zig
-        uses: mlugg/setup-zig@v2
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: ${{ steps.pins.outputs.zig-version }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
-          python-version: "3.13"
-          cache: pip
-          cache-dependency-path: apps/gamecube/requirements*.txt
+          version: "0.12.1"
+          python-version: "3.13.14"
+          enable-cache: true
+          cache-dependency-glob: apps/gamecube/uv.lock
+          working-directory: apps/gamecube
 
       - name: Install native verification tools
         run: |
+          set -eu
           sudo apt-get update
-          sudo apt-get install --yes clang-format-18 shellcheck
-          python3 -m pip install \
-            --requirement apps/gamecube/requirements-dev.txt
-          test "$(ruff --version)" = \
-            "ruff ${{ steps.pins.outputs.ruff-version }}"
+          sudo apt-get install --yes xz-utils
+          archive="$RUNNER_TEMP/shellcheck.tar.xz"
+          curl --fail --location --silent --show-error \
+            --output "$archive" \
+            "https://github.com/koalaman/shellcheck/releases/download/v${{ steps.pins.outputs.shellcheck-version }}/shellcheck-v${{ steps.pins.outputs.shellcheck-version }}.linux.x86_64.tar.xz"
+          printf '%s  %s\n' \
+            "${{ steps.pins.outputs.shellcheck-sha256 }}" "$archive" | \
+            sha256sum --check --strict
+          tar -xJf "$archive" -C "$RUNNER_TEMP"
+          sudo install -m 0755 \
+            "$RUNNER_TEMP/shellcheck-v${{ steps.pins.outputs.shellcheck-version }}/shellcheck" \
+            /usr/local/bin/shellcheck
+          test "$(shellcheck --version | awk '/^version:/ { print $2 }')" = \
+            "${{ steps.pins.outputs.shellcheck-version }}"
+
+      - name: Sync locked native tooling
+        run: uv sync --project apps/gamecube --frozen --all-groups
 
       - name: Restore pinned GameCube dependencies
         id: gamecube-cache
-        uses: actions/cache@v4
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: |
             apps/gamecube/.ci-cache/devkitppc-image.tar
@@ -94,7 +108,7 @@ jobs:
             apps/gamecube/.mplayer-ce-libogc2
             apps/gamecube/.mbedtls
             apps/gamecube/.mbedtls-stage
-          key: gamecube-v1-${{ runner.os }}-${{ hashFiles('apps/gamecube/PINS.env', 'apps/gamecube/patches/**', 'apps/gamecube/requirements*.txt', 'apps/gamecube/app.zon', 'apps/gamecube/build.zig', 'apps/gamecube/build.zig.zon', 'apps/gamecube/host-reference-gx/mbedtls-gamecube-config.h', 'apps/gamecube/Makefile.assets', 'apps/gamecube/Makefile.reference.gamecube', 'apps/gamecube/scripts/bootstrap*.sh', 'apps/gamecube/scripts/build-native-reference-dol.sh', 'bun.lock') }}
+          key: gamecube-v2-${{ runner.os }}-${{ hashFiles('apps/gamecube/PINS.env', 'apps/gamecube/patches/**', 'apps/gamecube/pyproject.toml', 'apps/gamecube/uv.lock', 'apps/gamecube/app.zon', 'apps/gamecube/build.zig', 'apps/gamecube/build.zig.zon', 'apps/gamecube/host-reference-gx/mbedtls-gamecube-config.h', 'apps/gamecube/Makefile.assets', 'apps/gamecube/Makefile.reference.gamecube', 'apps/gamecube/scripts/bootstrap*.sh', 'apps/gamecube/scripts/build-native-reference-dol.sh', 'bun.lock') }}
 
       - name: Prepare pinned devkitPPC toolchain
         run: sh apps/gamecube/scripts/prepare-ci-toolchain.sh
@@ -104,6 +118,9 @@ jobs:
 
       - name: Run native lint
         run: bun run gamecube:lint
+
+      - name: Run scoped native analysis
+        run: bun run gamecube:analyze
 
       - name: Run portable and PowerPC core tests
         run: bun run gamecube:test:portable

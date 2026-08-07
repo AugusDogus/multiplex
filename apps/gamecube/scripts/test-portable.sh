@@ -4,13 +4,14 @@ set -eu
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 
-python3 "$script_dir/test-plex-gateway.py"
-python3 "$script_dir/test-multiplex-pair.py"
-python3 "$script_dir/test-plex-pair.py"
-python3 "$script_dir/test-provision-tls-entropy.py"
+python "$script_dir/test-plex-gateway.py"
+python "$script_dir/test-multiplex-pair.py"
+python "$script_dir/test-plex-pair.py"
+python "$script_dir/test-provision-tls-entropy.py"
+
+sh "$script_dir/meson.sh" test
 
 for test_script in \
-  test-auth-record.sh \
   test-catalog-cache.sh \
   test-memory-card-presentation.sh \
   test-tls-ca.sh \
