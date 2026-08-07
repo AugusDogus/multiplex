@@ -17,6 +17,7 @@
 .opengx-build/
 .raylib/
 .dolphin-user/
+.dolphin-entropy-qa/
 .dolphin-source-2606/
 .zig-cache/
 build/

@@ -133,13 +133,13 @@ At the first HTTPS initialization after each boot, the DOL reads the newest of
 two versioned seed records, derives a boot seed and successor with HMAC-SHA-256,
 writes the successor to the other 8 KiB card block, and verifies that write
 before exposing the boot seed to Mbed TLS CTR-DRBG. The MAC address, timebase,
-and process addresses are mixed only as additional data. They are never
-credited as entropy. One rotation is performed per boot, and all TLS clients
-share the resulting locked DRBG, which bounds card wear, transient allocation,
-and memory use. A missing or corrupt save, failed write, or failed readback
-keeps HTTPS unavailable and shows `Import TLS entropy save; HTTPS disabled`.
-The previous valid record remains recoverable if power is lost during a
-rotation.
+and process addresses are mixed as HMAC additional data and as the explicit
+CTR-DRBG nonce. They are never credited as entropy. One rotation is performed
+per boot, and all TLS clients share the resulting locked DRBG, which bounds
+card wear, transient allocation, and memory use. A missing or corrupt save,
+failed write, or failed readback keeps HTTPS unavailable and shows `Import TLS
+entropy save; HTTPS disabled`. The previous valid record remains recoverable
+if power is lost during a rotation.
 
 This design protects against remote prediction of TLS keys. It does not
 protect against physical memory-card extraction, cloning, or rollback. Those
@@ -172,6 +172,33 @@ and readback-verification failures with:
 sh apps/gamecube/scripts/test-entropy-seed.sh
 python3 apps/gamecube/scripts/test-provision-tls-entropy.py
 ```
+
+The isolated Dolphin integration QA additionally requires `tshark`, the pinned
+patched Dolphin build, and the rootless TAP prerequisites. It builds a DOL for
+an HTTPS origin, provisions private disposable GCI-folder cards, and verifies
+missing-seed fail-closed behavior, two rotations across clean emulator exits,
+both-record corruption, and the presence or absence of TLS ClientHello packets:
+
+```sh
+bun run gamecube:dolphin:bootstrap
+bun run gamecube:reference:entropy-qa
+```
+
+The default HTTPS origin is `https://example.com`. Set
+`GAMECUBE_ENTROPY_QA_URL` to a public Multiplex deployment to exercise the real
+device-authorization endpoint without a Plex token. The command retains logs
+and SNI-only packet summaries under `.dolphin-entropy-qa/`, but deletes every
+temporary profile and never copies the generated GCI or seed bytes into the
+artifacts.
+
+Dolphin cannot faithfully model a write-protected physical card with its GCI
+folder backend. Guest writes update the in-memory virtual card before an
+asynchronous host-file flush, so host permissions cannot return a `CARD_Write`
+failure to the DOL. The unwritable-card case therefore remains part of the
+physical-hardware procedure rather than producing a false emulator result.
+Plex catalog, artwork, playback, and Syncplay acceptance still requires a
+linked Plex account and remains covered by the direct-Plex Dolphin workflow
+below and the physical-hardware procedure above.
 
 `gamecube:reference:smoke-http-tap` builds the DOL with a local HTTP
 media URL, creates an unprivileged network namespace, and connects Dolphin's
@@ -386,6 +413,8 @@ profile also accepts the connected Steam Controller alongside the QA pipe.
   pause/resume, and invalid-access assertions
 - `scripts/run-dolphin-rootless-tap.sh`: isolated TAP-to-`pasta` Ethernet
   harness for exercising Dolphin's low-level BBA emulation without sudo
+- `scripts/dolphin-entropy-qa.sh`: disposable GCI-folder entropy rotation and
+  fail-closed HTTPS validation on the pinned Dolphin/TAP stack
 - `scripts/bootstrap-dolphin.sh`: reproducible local Dolphin 2606 build using
   the installed 2606 system data and the TAP receive-pressure patch
 - `patches/dolphin-2606-tap-receive-backpressure.patch`: admits one Linux TAP

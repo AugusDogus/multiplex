@@ -17,6 +17,7 @@
 #include "poster_jpeg.h"
 #include "reference_frame.h"
 #include "syncplay_probe.h"
+#include "tls_client.h"
 #include "trpc_client.h"
 #include "video_decoder.h"
 #include "yuv420_gx.h"

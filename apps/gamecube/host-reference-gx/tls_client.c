@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <gccore.h>
+#include <limits.h>
 #include <network.h>
 #include <ogc/mutex.h>
 #include <ogc/lwp_watchdog.h>
@@ -56,6 +57,12 @@ static bool tls_random_mutex_ready;
 static const char *tls_failure_message;
 static mbedtls_ctr_drbg_context tls_random;
 static mutex_t tls_random_mutex;
+typedef struct {
+  uint8_t seed[MULTIPLEX_ENTROPY_SEED_SIZE];
+  unsigned calls;
+  bool available;
+} BootSeedEntropy;
+static BootSeedEntropy tls_boot_seed_entropy;
 
 static const char tls_certificate_begin[] = "-----BEGIN CERTIFICATE-----";
 static const char tls_certificate_end[] = "-----END CERTIFICATE-----";
@@ -83,12 +90,18 @@ static void clear_bytes(void *bytes, size_t size) {
 
 static int boot_seed_entropy(void *context, unsigned char *output,
                              size_t size) {
-  const uint8_t *boot_seed = context;
-  if (boot_seed == NULL || output == NULL ||
-      size != MULTIPLEX_ENTROPY_SEED_SIZE) {
+  BootSeedEntropy *entropy = context;
+  if (entropy == NULL) {
     return MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
   }
-  memcpy(output, boot_seed, size);
+  entropy->calls += 1u;
+  if (output == NULL || size != MULTIPLEX_ENTROPY_SEED_SIZE ||
+      !entropy->available || entropy->calls != 1u) {
+    return MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
+  }
+  memcpy(output, entropy->seed, size);
+  clear_bytes(entropy->seed, sizeof(entropy->seed));
+  entropy->available = false;
   return 0;
 }
 
@@ -124,8 +137,8 @@ static bool initialize_tls_random(void) {
   uint8_t boot_seed[MULTIPLEX_ENTROPY_SEED_SIZE];
   const MultiplexEntropySeedResult seed_result =
       multiplex_memory_card_rotate_entropy(additional, boot_seed);
-  clear_bytes(additional, sizeof(additional));
   if (seed_result != MULTIPLEX_ENTROPY_SEED_OK) {
+    clear_bytes(additional, sizeof(additional));
     clear_bytes(boot_seed, sizeof(boot_seed));
     tls_last_error = MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
     tls_failure_message = "Import TLS entropy save; HTTPS disabled";
@@ -139,18 +152,41 @@ static bool initialize_tls_random(void) {
                                    MULTIPLEX_ENTROPY_SEED_SIZE);
   static const unsigned char personalization[] =
       "Multiplex GameCube TLS global random v1";
-  const int result = mbedtls_ctr_drbg_seed(
-      &tls_random, boot_seed_entropy, boot_seed, personalization,
-      sizeof(personalization) - 1u);
+  unsigned char nonce_and_personalization[
+      MULTIPLEX_ENTROPY_SEED_SIZE + sizeof(personalization) - 1u];
+  memcpy(nonce_and_personalization, additional, sizeof(additional));
+  memcpy(nonce_and_personalization + sizeof(additional), personalization,
+         sizeof(personalization) - 1u);
+  /*
+   * The rotated seed is the 256-bit entropy input. The mixed device and boot
+   * data is an explicit nonce, not additional entropy, so Mbed TLS must not
+   * request a second entropy callback from the one-shot boot seed.
+   */
+  int result = mbedtls_ctr_drbg_set_nonce_len(&tls_random, 0u);
+  if (result == 0) {
+    memcpy(tls_boot_seed_entropy.seed, boot_seed, sizeof(boot_seed));
+    tls_boot_seed_entropy.calls = 0u;
+    tls_boot_seed_entropy.available = true;
+    result = mbedtls_ctr_drbg_seed(
+        &tls_random, boot_seed_entropy, &tls_boot_seed_entropy,
+        nonce_and_personalization, sizeof(nonce_and_personalization));
+  }
+  clear_bytes(additional, sizeof(additional));
   clear_bytes(boot_seed, sizeof(boot_seed));
-  if (result != 0) {
+  clear_bytes(nonce_and_personalization, sizeof(nonce_and_personalization));
+  if (result != 0 || tls_boot_seed_entropy.calls != 1u ||
+      tls_boot_seed_entropy.available) {
+    clear_bytes(tls_boot_seed_entropy.seed,
+                sizeof(tls_boot_seed_entropy.seed));
+    tls_boot_seed_entropy.available = false;
     mbedtls_ctr_drbg_free(&tls_random);
-    tls_last_error = result;
+    tls_last_error = result != 0 ? result : MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
     tls_failure_message = "TLS secure random initialization failed";
     SYS_Report("REFERENCE GX: TLS DRBG initialization failed error=-%04x\n",
-               (unsigned)-result);
+               (unsigned)-tls_last_error);
     return false;
   }
+  mbedtls_ctr_drbg_set_reseed_interval(&tls_random, INT_MAX);
   if (LWP_MutexInit(&tls_random_mutex, false) != 0) {
     mbedtls_ctr_drbg_free(&tls_random);
     tls_last_error = MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
@@ -161,7 +197,9 @@ static bool initialize_tls_random(void) {
   tls_random_mutex_ready = true;
   tls_random_ready = true;
   tls_failure_message = NULL;
-  SYS_Report("REFERENCE GX: TLS random source ready from rotated seed\n");
+  SYS_Report("REFERENCE GX: TLS random source ready from rotated seed "
+             "entropy-calls=%u bytes=%u\n",
+             tls_boot_seed_entropy.calls, MULTIPLEX_ENTROPY_SEED_SIZE);
   return true;
 }
 
