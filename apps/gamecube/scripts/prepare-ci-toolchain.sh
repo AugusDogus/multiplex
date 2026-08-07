@@ -18,6 +18,9 @@ mkdir -p "$cache_dir"
 
 if [ -s "$image_archive" ]; then
   podman load --input "$image_archive"
+  # Digest-only references are not retained by Docker archives. Re-pull the
+  # pinned manifest after loading the cached layers to restore that identity.
+  podman pull "$DEVKITPPC_IMAGE"
 else
   podman pull "$DEVKITPPC_IMAGE"
   temporary_archive="$image_archive.tmp"
