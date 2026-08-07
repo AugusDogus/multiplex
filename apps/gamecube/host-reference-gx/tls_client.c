@@ -1,6 +1,5 @@
 #include "tls_client.h"
 
-#include "memory_card_entropy.h"
 #include "tls-ca.h"
 
 #include <errno.h>
@@ -8,8 +7,10 @@
 #include <gccore.h>
 #include <limits.h>
 #include <network.h>
+#include <ogc/lwp.h>
 #include <ogc/mutex.h>
 #include <ogc/lwp_watchdog.h>
+#include <ogc/timesupp.h>
 
 #ifndef MBEDTLS_CONFIG_FILE
 #define MBEDTLS_CONFIG_FILE "mbedtls-gamecube-config.h"
@@ -20,6 +21,7 @@
 #include <mbedtls/entropy.h>
 #include <mbedtls/error.h>
 #include <mbedtls/platform_time.h>
+#include <mbedtls/sha256.h>
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
 
@@ -33,6 +35,8 @@ extern s32 net_flush(s32 socket) __attribute__((weak));
 #endif
 
 #define TLS_IO_TIMEOUT_SECONDS 30u
+#define TLS_ENTROPY_SEED_SIZE 32u
+#define TLS_ENTROPY_TIMEBASE_SAMPLES 16u
 /*
  * libogc2's unscaled receive window can shrink Portless/Node's advertised
  * peer window below a large TLS record. Keep control-plane records below the
@@ -58,7 +62,7 @@ static const char *tls_failure_message;
 static mbedtls_ctr_drbg_context tls_random;
 static mutex_t tls_random_mutex;
 typedef struct {
-  uint8_t seed[MULTIPLEX_ENTROPY_SEED_SIZE];
+  uint8_t seed[TLS_ENTROPY_SEED_SIZE];
   unsigned calls;
   bool available;
 } BootSeedEntropy;
@@ -95,7 +99,7 @@ static int boot_seed_entropy(void *context, unsigned char *output,
     return MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
   }
   entropy->calls += 1u;
-  if (output == NULL || size != MULTIPLEX_ENTROPY_SEED_SIZE ||
+  if (output == NULL || size != TLS_ENTROPY_SEED_SIZE ||
       !entropy->available || entropy->calls != 1u) {
     return MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
   }
@@ -103,6 +107,71 @@ static int boot_seed_entropy(void *context, unsigned char *output,
   clear_bytes(entropy->seed, sizeof(entropy->seed));
   entropy->available = false;
   return 0;
+}
+
+typedef struct {
+  uint8_t mac[6];
+  int8_t core_temperature;
+  uint8_t reserved;
+  uint32_t host_ip;
+  uint32_t console_type;
+  uint32_t hardware_revision;
+  uint32_t counter_bias;
+  uint32_t retrace_counts[TLS_ENTROPY_TIMEBASE_SAMPLES];
+  uint64_t timebase[TLS_ENTROPY_TIMEBASE_SAMPLES];
+  int64_t system_time[4];
+  uintptr_t process_addresses[4];
+  uintptr_t thread;
+  int32_t thread_priority;
+  int32_t thread_stack_size;
+} LocalEntropyMaterial;
+
+static bool collect_local_entropy(uint8_t seed[TLS_ENTROPY_SEED_SIZE]) {
+  LocalEntropyMaterial material = {0};
+  material.timebase[0] = gettime();
+  net_get_mac_address(material.mac);
+  material.timebase[1] = gettime();
+  material.host_ip = net_gethostip();
+  material.timebase[2] = gettime();
+  material.system_time[0] = __SYS_GetSystemTime();
+  material.timebase[3] = gettime();
+  material.console_type = SYS_GetConsoleType();
+  material.counter_bias = SYS_GetCounterBias();
+#if defined(HW_DOL)
+  material.hardware_revision = SYS_GetFlipperRevision();
+  material.core_temperature = SYS_GetCoreTemperature();
+#else
+  material.hardware_revision = SYS_GetHollywoodRevision();
+  material.core_temperature = -1;
+#endif
+  material.system_time[1] = __SYS_GetSystemTime();
+
+  for (size_t index = 4u; index < TLS_ENTROPY_TIMEBASE_SAMPLES; ++index) {
+    material.retrace_counts[index] = VIDEO_GetRetraceCount();
+    material.timebase[index] = gettime();
+  }
+  material.system_time[2] = __SYS_GetSystemTime();
+  material.process_addresses[0] = (uintptr_t)&material;
+  material.process_addresses[1] = (uintptr_t)seed;
+  material.process_addresses[2] = (uintptr_t)&tls_random;
+  material.process_addresses[3] = (uintptr_t)&tls_last_error;
+  const lwp_t thread = LWP_GetSelf();
+  material.thread = (uintptr_t)thread;
+  material.thread_priority = LWP_GetThreadPriority(thread);
+  material.thread_stack_size = LWP_GetThreadStackSize(thread);
+  material.system_time[3] = __SYS_GetSystemTime();
+  material.retrace_counts[0] = VIDEO_GetRetraceCount();
+
+  const int result = mbedtls_sha256(
+      (const unsigned char *)&material, sizeof(material), seed, 0);
+  clear_bytes(&material, sizeof(material));
+  if (result != 0) {
+    clear_bytes(seed, TLS_ENTROPY_SEED_SIZE);
+    return false;
+  }
+  SYS_Report("REFERENCE GX: TLS local entropy collected bytes=%u\n",
+             TLS_ENTROPY_SEED_SIZE);
+  return true;
 }
 
 static int locked_tls_random(void *context, unsigned char *output,
@@ -122,46 +191,19 @@ static bool initialize_tls_random(void) {
     return true;
   }
 
-  uint8_t additional[MULTIPLEX_ENTROPY_SEED_SIZE] = {0};
-  uint8_t mac[6] = {0};
-  net_get_mac_address(mac);
-  memcpy(additional, mac, sizeof(mac));
-  const uint64_t now = gettime();
-  memcpy(additional + 8u, &now, sizeof(now));
-  const uintptr_t context_addresses[] = {
-      (uintptr_t)&tls_random,
-      (uintptr_t)&tls_last_error,
-  };
-  memcpy(additional + 16u, context_addresses, sizeof(context_addresses));
-
-  uint8_t boot_seed[MULTIPLEX_ENTROPY_SEED_SIZE];
-  const MultiplexEntropySeedResult seed_result =
-      multiplex_memory_card_rotate_entropy(additional, boot_seed);
-  if (seed_result != MULTIPLEX_ENTROPY_SEED_OK) {
-    clear_bytes(additional, sizeof(additional));
+  uint8_t boot_seed[TLS_ENTROPY_SEED_SIZE];
+  if (!collect_local_entropy(boot_seed)) {
     clear_bytes(boot_seed, sizeof(boot_seed));
     tls_last_error = MBEDTLS_ERR_ENTROPY_SOURCE_FAILED;
-    tls_failure_message = "Import TLS entropy save; HTTPS disabled";
-    SYS_Report("REFERENCE GX: TLS entropy unavailable: %s\n",
-               multiplex_entropy_seed_result_message(seed_result));
+    tls_failure_message = "TLS local entropy collection failed";
+    SYS_Report("REFERENCE GX: TLS local entropy collection failed\n");
     return false;
   }
 
   mbedtls_ctr_drbg_init(&tls_random);
-  mbedtls_ctr_drbg_set_entropy_len(&tls_random,
-                                   MULTIPLEX_ENTROPY_SEED_SIZE);
+  mbedtls_ctr_drbg_set_entropy_len(&tls_random, TLS_ENTROPY_SEED_SIZE);
   static const unsigned char personalization[] =
-      "Multiplex GameCube TLS global random v1";
-  unsigned char nonce_and_personalization[
-      MULTIPLEX_ENTROPY_SEED_SIZE + sizeof(personalization) - 1u];
-  memcpy(nonce_and_personalization, additional, sizeof(additional));
-  memcpy(nonce_and_personalization + sizeof(additional), personalization,
-         sizeof(personalization) - 1u);
-  /*
-   * The rotated seed is the 256-bit entropy input. The mixed device and boot
-   * data is an explicit nonce, not additional entropy, so Mbed TLS must not
-   * request a second entropy callback from the one-shot boot seed.
-   */
+      "Multiplex native TLS local entropy v1";
   int result = mbedtls_ctr_drbg_set_nonce_len(&tls_random, 0u);
   if (result == 0) {
     memcpy(tls_boot_seed_entropy.seed, boot_seed, sizeof(boot_seed));
@@ -169,11 +211,9 @@ static bool initialize_tls_random(void) {
     tls_boot_seed_entropy.available = true;
     result = mbedtls_ctr_drbg_seed(
         &tls_random, boot_seed_entropy, &tls_boot_seed_entropy,
-        nonce_and_personalization, sizeof(nonce_and_personalization));
+        personalization, sizeof(personalization) - 1u);
   }
-  clear_bytes(additional, sizeof(additional));
   clear_bytes(boot_seed, sizeof(boot_seed));
-  clear_bytes(nonce_and_personalization, sizeof(nonce_and_personalization));
   if (result != 0 || tls_boot_seed_entropy.calls != 1u ||
       tls_boot_seed_entropy.available) {
     clear_bytes(tls_boot_seed_entropy.seed,
@@ -197,9 +237,9 @@ static bool initialize_tls_random(void) {
   tls_random_mutex_ready = true;
   tls_random_ready = true;
   tls_failure_message = NULL;
-  SYS_Report("REFERENCE GX: TLS random source ready from rotated seed "
+  SYS_Report("REFERENCE GX: TLS random source ready from local "
              "entropy-calls=%u bytes=%u\n",
-             tls_boot_seed_entropy.calls, MULTIPLEX_ENTROPY_SEED_SIZE);
+             tls_boot_seed_entropy.calls, TLS_ENTROPY_SEED_SIZE);
   return true;
 }
 
