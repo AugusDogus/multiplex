@@ -73,7 +73,7 @@ multiplex-dvd-demo-program.h: multiplex-dvd-demo-program.s
 
 main.o: media-source.h multiplex-dvd-demo-program.h
 http_client.o: media-source.h
-tls_client.o: tls-ca.h entropy_seed.h memory_card_entropy.h
+tls_client.o: tls-ca.h
 
 media-source.h:
 	@echo "Missing $@; run scripts/build-native-reference-wii-dol.sh." >&2

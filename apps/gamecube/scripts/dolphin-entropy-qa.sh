@@ -3,7 +3,6 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
-provisioner="$script_dir/provision-tls-entropy.py"
 config_profile="$app_dir/dolphin/Dolphin.entropy-qa.ini"
 logger_profile="$app_dir/dolphin/Logger.ini"
 dol=${GAMECUBE_ENTROPY_QA_DOL:-"$app_dir/multiplex-gamecube-native-reference-dolphin.dol"}
@@ -123,30 +122,6 @@ shutdown_launcher() {
   dolphin_pid=
 }
 
-assert_gci_stable() {
-  label=$1
-  gci=$2
-  before_metadata=$(stat -c '%s:%Y' "$gci")
-  before_hash=$(sha256sum "$gci")
-  before_hash=${before_hash%% *}
-  sleep 1
-  after_metadata=$(stat -c '%s:%Y' "$gci")
-  after_hash=$(sha256sum "$gci")
-  after_hash=${after_hash%% *}
-  if [ "$before_metadata" != "$after_metadata" ] || [ "$before_hash" != "$after_hash" ]; then
-    echo "$label GCI changed after Dolphin's clean exit; refusing unstable generation evidence." >&2
-    return 1
-  fi
-  gci_size=${before_metadata%%:*}
-  gci_mtime=${before_metadata#*:}
-  {
-    echo 'gci-stability-window-seconds=1'
-    echo "gci-size=$gci_size"
-    echo "gci-mtime=$gci_mtime"
-    echo 'gci-sha256-stable=yes'
-  } >>"$artifact_dir/$label-shutdown.txt"
-}
-
 cleanup() {
   cleanup_launcher
   if [ -n "$work_root" ]; then
@@ -162,7 +137,7 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-for command in pgrep python3 rg setsid sha256sum stat strings tshark; do
+for command in pgrep rg setsid strings tshark; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "$command is required for Dolphin entropy QA." >&2
     exit 1
@@ -298,102 +273,60 @@ boot_until() {
   fi
   tshark -r "$pcap" -Y 'tls.handshake.type == 1' -T fields \
     -e ip.dst -e tcp.dstport -e tls.handshake.extensions_server_name \
+    -e tls.handshake.random_bytes \
     >"$artifact_dir/$label-client-hellos.txt" 2>/dev/null
-}
-
-assert_no_client_hello() {
-  label=$1
-  if [ -s "$artifact_dir/$label-client-hellos.txt" ]; then
-    echo "$label emitted a TLS ClientHello despite unavailable entropy." >&2
-    sed -n '1,20p' "$artifact_dir/$label-client-hellos.txt" >&2
-    exit 1
-  fi
 }
 
 assert_valid_boot() {
   label=$1
   log="$artifact_dir/$label-dolphin.log"
   for pattern in \
-    'REFERENCE GX: TLS entropy seed rotated slot=A' \
-    'REFERENCE GX: TLS random source ready from rotated seed entropy-calls=1 bytes=32' \
+    'REFERENCE GX: TLS local entropy collected bytes=32' \
+    'REFERENCE GX: TLS random source ready from local entropy-calls=1 bytes=32' \
     "REFERENCE GX: TLS connected host=$qa_host"; do
     if ! rg -Fq "$pattern" "$log"; then
       echo "$label is missing expected log evidence: $pattern" >&2
       exit 1
     fi
   done
-  rotations=$(rg -Fc 'REFERENCE GX: TLS entropy seed rotated slot=A' "$log")
-  if [ "$rotations" -ne 1 ]; then
-    echo "$label rotated the entropy seed $rotations times; expected exactly once." >&2
-    exit 1
-  fi
-  if ! rg -q "(^|[[:space:]])${qa_host}$" \
+  if ! rg -q "(^|[[:space:]])${qa_host}[[:space:]]" \
     "$artifact_dir/$label-client-hellos.txt"; then
     echo "$label did not capture a TLS ClientHello with SNI $qa_host." >&2
     exit 1
   fi
 }
 
-missing_profile="$work_root/missing"
-create_profile "$missing_profile"
-missing_pattern='REFERENCE GX: TLS entropy unavailable: entropy seed is missing; provision Multiplex TLS Entropy.gci'
-boot_until "$missing_profile" missing "$missing_pattern"
-missing_log="$artifact_dir/missing-dolphin.log"
-if rg -Fq 'REFERENCE GX: TLS random source ready' "$missing_log"; then
-  echo "Missing-seed boot initialized TLS randomness instead of failing closed." >&2
-  exit 1
-fi
-assert_no_client_hello missing
-echo "Missing seed: failed closed before TLS ClientHello."
-
-rotation_profile="$work_root/rotation"
-create_profile "$rotation_profile"
-rotation_gci="$rotation_profile/GC/USA/Card A/Multiplex-TLS-Entropy.gci"
-python3 "$provisioner" "$rotation_gci" >/dev/null
-boot_until "$rotation_profile" rotation-boot-1 \
+boot_1_profile="$work_root/boot-1"
+create_profile "$boot_1_profile"
+boot_until "$boot_1_profile" boot-1 \
   "REFERENCE GX: TLS connected host=$qa_host"
-assert_valid_boot rotation-boot-1
-assert_gci_stable rotation-boot-1 "$rotation_gci"
-first_generations=$(python3 "$provisioner" --inspect "$rotation_gci")
-if [ "$first_generations" != 1,2 ]; then
-  echo "First boot left entropy generations $first_generations; expected 1,2." >&2
-  exit 1
-fi
-boot_until "$rotation_profile" rotation-boot-2 \
-  "REFERENCE GX: TLS connected host=$qa_host"
-assert_valid_boot rotation-boot-2
-assert_gci_stable rotation-boot-2 "$rotation_gci"
-second_generations=$(python3 "$provisioner" --inspect "$rotation_gci")
-if [ "$second_generations" != 3,2 ]; then
-  echo "Second boot left entropy generations $second_generations; expected 3,2." >&2
-  exit 1
-fi
-echo "Valid seed: rotated once per boot across generations 1,2 then 3,2."
+assert_valid_boot boot-1
 
-corrupt_profile="$work_root/corrupt"
-create_profile "$corrupt_profile"
-corrupt_gci="$corrupt_profile/GC/USA/Card A/Multiplex-TLS-Entropy.gci"
-python3 "$provisioner" "$corrupt_gci" >/dev/null
-python3 "$provisioner" --corrupt "$corrupt_gci" >/dev/null
-corrupt_pattern='REFERENCE GX: TLS entropy unavailable: both entropy seed copies are corrupt; reprovision the seed'
-boot_until "$corrupt_profile" corrupt "$corrupt_pattern"
-corrupt_log="$artifact_dir/corrupt-dolphin.log"
-if rg -Fq 'REFERENCE GX: TLS random source ready' "$corrupt_log"; then
-  echo "Corrupt-seed boot initialized TLS randomness instead of failing closed." >&2
+boot_2_profile="$work_root/boot-2"
+create_profile "$boot_2_profile"
+boot_until "$boot_2_profile" boot-2 \
+  "REFERENCE GX: TLS connected host=$qa_host"
+assert_valid_boot boot-2
+
+boot_1_random=$(awk 'NF >= 4 { print $4; exit }' "$artifact_dir/boot-1-client-hellos.txt")
+boot_2_random=$(awk 'NF >= 4 { print $4; exit }' "$artifact_dir/boot-2-client-hellos.txt")
+if [ -z "$boot_1_random" ] || [ -z "$boot_2_random" ]; then
+  echo "Could not extract TLS ClientRandom bytes from both clean boots." >&2
   exit 1
 fi
-assert_no_client_hello corrupt
-echo "Corrupt seed: failed closed before TLS ClientHello."
+if [ "$boot_1_random" = "$boot_2_random" ]; then
+  echo "Two clean boots emitted the same TLS ClientRandom bytes." >&2
+  exit 1
+fi
+echo "Local entropy: two card-independent boots connected with distinct ClientRandom bytes."
 
 cat >"$artifact_dir/summary.txt" <<EOF
 HTTPS origin: $qa_url
-Missing seed: fail-closed, no TLS ClientHello
-Boot 1 generations: $first_generations
-Boot 1 shutdown: one Dolphin SIGTERM, TAP launcher status 0, empty process group, stable GCI
-Boot 2 generations: $second_generations
-Boot 2 shutdown: one Dolphin SIGTERM, TAP launcher status 0, empty process group, stable GCI
-Corrupt seed: fail-closed, no TLS ClientHello
-Unwritable card: not modeled because Dolphin reports guest writes before asynchronous host-file flush
+Boot 1: no entropy GCI, TLS connected, ClientRandom bytes captured
+Boot 1 shutdown: one Dolphin SIGTERM, TAP launcher status 0, empty process group
+Boot 2: fresh profile, no entropy GCI, TLS connected, ClientRandom bytes captured
+Boot 2 shutdown: one Dolphin SIGTERM, TAP launcher status 0, empty process group
+Distinct TLS ClientRandom bytes: yes
 EOF
 
 echo "Dolphin entropy QA passed. QA logs are in $artifact_dir"
