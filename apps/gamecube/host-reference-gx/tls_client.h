@@ -7,6 +7,8 @@
 
 typedef struct MultiplexTlsClient MultiplexTlsClient;
 
+/* Prepare the initialization lock before launching TLS-capable workers. */
+bool multiplex_tls_client_prepare(void);
 bool multiplex_tls_client_initialize(void);
 MultiplexTlsClient *multiplex_tls_client_connect(int socket,
                                                  const char *hostname);

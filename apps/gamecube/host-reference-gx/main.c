@@ -6148,6 +6148,7 @@ static void *run_app(void *unused) {
     poster_jpeg_shutdown();
     return (void *)(uintptr_t)APP_EXIT_BUFFER_INIT;
   }
+  multiplex_tls_client_prepare();
   NetworkWarmup network_warmup;
   memset(&network_warmup, 0, sizeof(network_warmup));
   network_warmup.thread = LWP_THREAD_NULL;
