@@ -5,9 +5,9 @@ the portable auth-record library and host test. The existing devkitPro Makefiles
 remain the DOL target adapter until their object lists, linker scripts, generated
 assets, and final DOL conversion have been migrated and compared safely.
 
-Put local Meson cross files in this directory as `gamecube.ini` and `wii.ini`.
-They are intentionally untracked because devkitPro paths vary by workstation.
-Start from the committed examples, then configure without Meson network access:
+Put a local Meson cross file in this directory as `gamecube.ini`. It is
+intentionally untracked because devkitPro paths vary by workstation. Start
+from the committed example, then configure without Meson network access:
 
 ```sh
 uv run --project apps/gamecube --locked meson setup \
