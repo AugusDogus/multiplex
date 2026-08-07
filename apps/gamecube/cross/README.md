@@ -10,7 +10,7 @@ They are intentionally untracked because devkitPro paths vary by workstation.
 Start from the committed examples, then configure without Meson network access:
 
 ```sh
-uv run --project apps/gamecube --frozen meson setup \
+uv run --project apps/gamecube --locked meson setup \
   build/native-gamecube \
   --cross-file apps/gamecube/cross/gamecube.ini \
   --wrap-mode=nodownload

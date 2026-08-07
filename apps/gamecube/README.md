@@ -22,8 +22,9 @@ cryptography, Ruff, Meson, Ninja,
 clang-format, and clang-tidy versions. Native lint also requires the ShellCheck
 and Zig versions in `apps/gamecube/PINS.env`. Set `CLANG_FORMAT`, `CLANG_TIDY`,
 `SHELLCHECK`, `RUFF`, or `ZIG` to override executable paths. The sanitizer suite
-uses Clang by default. Override it with `GAMECUBE_SANITIZER_CC` when another
-ASan/UBSan-capable compiler is needed.
+uses the pinned Zig 0.16.0 `zig cc` by default. Override it with
+`GAMECUBE_SANITIZER_CC` when another ASan/UBSan-capable compiler is needed;
+each compiler gets a separate Meson build directory.
 
 From the repository root:
 
@@ -31,7 +32,7 @@ From the repository root:
 bun run gamecube:bootstrap
 bun run gamecube:meson:setup
 bun run gamecube:lint
-uv run --project apps/gamecube --frozen meson introspect \
+uv run --project apps/gamecube --locked meson introspect \
   --targets build/native
 bun run gamecube:test:portable
 bun run gamecube:test:sanitize
@@ -51,7 +52,7 @@ bun run wii:reference:smoke-player
 bun run wii:reference:plex
 ```
 
-`gamecube:check` first performs a frozen uv sync, bootstraps the pinned native
+`gamecube:check` first performs a locked uv sync, bootstraps the pinned native
 dependencies, then runs native lint, scoped clang-tidy analysis, portable C and
 Python tests, Native SDK's TypeScript and null-platform tests, the PowerPC core
 cross-compile, and host C tests under ASan and UBSan. These checks need no Plex
@@ -63,9 +64,8 @@ record implementation is an explicitly listed static library shared with its
 host test. `bun run gamecube:meson:setup` writes
 `build/native/compile_commands.json`; the committed `.clangd` points editors at
 that database. Meson uses warnings as errors, exposes the named
-`gamecube-portable` test suite, and supports ASan/UBSan through its built-in
-`b_sanitize` option. All project commands configure with
-`--wrap-mode=nodownload`.
+`gamecube-portable` test suite, and has a locked Zig `zig cc` ASan/UBSan
+profile. All project commands configure with `--wrap-mode=nodownload`.
 
 The devkitPro Makefiles remain temporary DOL target adapters. They still own
 the console source lists, linker scripts, generated assets, and DOL conversion

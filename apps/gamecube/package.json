@@ -6,12 +6,12 @@
   "scripts": {
     "tooling:sync": "sh scripts/setup-tooling.sh",
     "bootstrap": "sh scripts/bootstrap.sh",
-    "meson:setup": "uv run --frozen sh scripts/meson.sh setup",
-    "analyze:native": "uv run --frozen sh scripts/meson.sh analyze",
-    "lint:native": "uv run --frozen sh scripts/lint.sh",
-    "test:portable": "uv run --frozen sh scripts/test-portable.sh",
-    "test:sanitize": "uv run --frozen sh scripts/test-sanitize.sh",
-    "check:native": "uv run --frozen sh scripts/check.sh",
-    "reference:dol": "uv run --frozen sh scripts/build-native-reference-dol.sh"
+    "meson:setup": "uv run --locked sh scripts/meson.sh setup",
+    "analyze:native": "uv run --locked sh scripts/meson.sh analyze",
+    "lint:native": "uv run --locked sh scripts/lint.sh",
+    "test:portable": "uv run --locked sh scripts/test-portable.sh",
+    "test:sanitize": "uv run --locked sh scripts/test-sanitize.sh",
+    "check:native": "sh scripts/run-with-tooling.sh sh scripts/check.sh",
+    "reference:dol": "sh scripts/run-with-tooling.sh sh scripts/build-native-reference-dol.sh"
   }
 }

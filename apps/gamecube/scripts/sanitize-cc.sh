@@ -1,9 +1,15 @@
 #!/bin/sh
 set -eu
 
-sanitizer_cc=${GAMECUBE_SANITIZER_CC:-clang}
+if [ -n "${GAMECUBE_SANITIZER_CC:-}" ]; then
+  exec "$GAMECUBE_SANITIZER_CC" \
+    -fsanitize=address,undefined \
+    -fno-omit-frame-pointer \
+    -fno-sanitize-recover=all \
+    "$@"
+fi
 
-exec "$sanitizer_cc" \
+exec zig cc \
   -fsanitize=address,undefined \
   -fno-omit-frame-pointer \
   -fno-sanitize-recover=all \

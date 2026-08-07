@@ -25,4 +25,4 @@ if [ "$actual_uv_version" != "$required_uv_version" ]; then
   exit 1
 fi
 
-exec uv sync --project "$app_dir" --frozen --all-groups
+exec uv sync --project "$app_dir" --locked --all-groups
