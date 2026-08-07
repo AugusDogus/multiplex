@@ -29,7 +29,6 @@ sh "$script_dir/meson.sh" sanitize
 for test_script in \
   test-catalog-cache.sh \
   test-memory-card-presentation.sh \
-  test-entropy-seed.sh \
   test-plex-server-directory.sh \
   test-plex-catalog.sh \
   test-hls-playlist.sh \

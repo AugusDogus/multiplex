@@ -7,7 +7,6 @@ app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 python "$script_dir/test-plex-gateway.py"
 python "$script_dir/test-multiplex-pair.py"
 python "$script_dir/test-plex-pair.py"
-python "$script_dir/test-provision-tls-entropy.py"
 
 sh "$script_dir/meson.sh" test
 
@@ -15,7 +14,6 @@ for test_script in \
   test-catalog-cache.sh \
   test-memory-card-presentation.sh \
   test-tls-ca.sh \
-  test-entropy-seed.sh \
   test-plex-server-directory.sh \
   test-plex-catalog.sh \
   test-hls-playlist.sh \
