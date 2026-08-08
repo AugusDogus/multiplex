@@ -7,6 +7,7 @@
 #include "gui_navigation.h"
 #include "http_client.h"
 #include "media-source.h"
+#include "multiplex-dvd-demo-program.h"
 #include "native_ui.h"
 #include "playback_session.h"
 #include "poster_jpeg.h"
@@ -361,6 +362,7 @@ MultiplexAppOpenResult multiplex_app_open(MultiplexApp *app) {
                         MULTIPLEX_APP_OPEN_UI_BIND_FAILED);
   }
 
+  bool has_playback_manifest = false;
   if (MULTIPLEX_GATEWAY_URL[0] != '\0') {
     while (multiplex_app_jobs_work_running(
         app->jobs, MULTIPLEX_APP_SERVICES_WORK_CATALOG)) {
@@ -383,9 +385,17 @@ MultiplexAppOpenResult multiplex_app_open(MultiplexApp *app) {
     }
 
     MultiplexGatewayPlaybackManifest manifest;
-    if (!multiplex_gateway_load_playback_manifest(MULTIPLEX_GATEWAY_URL, 0, 0,
-                                                  &manifest)) {
-      const MultiplexPlaybackProgramOpenRequest request = {
+    has_playback_manifest = multiplex_gateway_load_playback_manifest(
+        MULTIPLEX_GATEWAY_URL, 0, 0, &manifest);
+  }
+
+  const bool startup_media_deferred = MULTIPLEX_MEDIA_URL[0] == '\0' &&
+                                      MULTIPLEX_GATEWAY_URL[0] == '\0' &&
+                                      MULTIPLEX_PAIRING_ENABLED != 0;
+  if (!has_playback_manifest && !startup_media_deferred) {
+    MultiplexPlaybackProgramOpenRequest request;
+    if (MULTIPLEX_MEDIA_URL[0] != '\0') {
+      request = (MultiplexPlaybackProgramOpenRequest){
           .source_kind = MULTIPLEX_PLAYBACK_PROGRAM_HTTP,
           .source.http =
               {
@@ -402,11 +412,23 @@ MultiplexAppOpenResult multiplex_app_open(MultiplexApp *app) {
                       },
               },
       };
-      if (multiplex_playback_session_open_program(app->playback_session,
-                                                  &request) !=
-          MULTIPLEX_PLAYBACK_OPEN_READY) {
+    } else {
+      if (MULTIPLEX_GATEWAY_URL[0] != '\0') {
+        SYS_Report("REFERENCE GX: gateway playback manifest unavailable\n");
         return MULTIPLEX_APP_OPEN_MEDIA_PRODUCER_FAILED;
       }
+      request = (MultiplexPlaybackProgramOpenRequest){
+          .source_kind = MULTIPLEX_PLAYBACK_PROGRAM_EMBEDDED,
+          .source.embedded =
+              {
+                  .bytes = multiplex_dvd_demo_mpg,
+                  .size = (size_t)multiplex_dvd_demo_mpg_size,
+              },
+      };
+    }
+    if (multiplex_playback_session_open_program(
+            app->playback_session, &request) != MULTIPLEX_PLAYBACK_OPEN_READY) {
+      return MULTIPLEX_APP_OPEN_MEDIA_PRODUCER_FAILED;
     }
   }
 
