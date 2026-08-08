@@ -117,13 +117,21 @@ rendered from the Multiplex logo plus two Memory Card Manager comment lines.
 Existing iconless saves migrate in place after their credentials load, while
 the two independently recoverable auth records remain intact.
 
-The Wii fast-follow compiles the same TypeScript, `.native` markup, PowerPC
-core, validated RGBA frame, direct GX presenter, and embedded media pipeline
-with libogc2's Wii runtime. `wii:reference:smoke-player` boots the Wii DOL
+The Wii target compiles the same TypeScript, `.native` markup, PowerPC
+core, validated RGBA frame, direct GX presenter, and media pipeline
+with libogc2's Wii runtime. One `Makefile.reference` builds both consoles at
+the same `-Werror` discipline; `MULTIPLEX_PLATFORM` confines the differences
+to the libogc2 rules include, target name, build directory, and the `-lbba`
+versus `-lwiiuse -lbte` link. `wii:reference:dol` builds the Wii DOL, and CI
+cross-builds it next to the GameCube DOL so the target cannot rot unnoticed.
+`wii:reference:smoke-player` boots the Wii DOL
 in Dolphin and runs the same navigation, MPEG-2/MP2 playback, 60 fps,
-pause/resume, and invalid-access gates as GameCube. The first tracer bullet uses
+pause/resume, and invalid-access gates as GameCube. The host maps
 Wii Remote input directly, with matching Classic Controller and GameCube pad
-fallbacks. `wii:reference:plex` uses Dolphin's native Wii IOS network
+fallbacks. Both player smokes currently stop at the same navigation gate on
+both consoles: the demo home screen accepts the pairing-screen A press but
+ignores focus movement, so `input action=1` never logs. The regression
+predates the Wii promotion and affects GameCube identically. `wii:reference:plex` uses Dolphin's native Wii IOS network
 stack for direct PMS traffic and the same persisted Multiplex memory-card
 session as GameCube. It reaches Multiplex only through the HTTPS Portless
 origin, `https://multiplex.localhost`; the runner maps that hostname to the
