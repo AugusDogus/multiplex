@@ -62,7 +62,7 @@
     </row>
     <row width="180" cross="center">
       <spacer grow="1" />
-      <if test="{pairingLinked}">
+      <if test="{libraryActionsAvailable}">
         <row gap="8">
           <if test="{screen == 'libraries' or screen == 'browse'}">
             <button focus-ring="text" width="32" size="sm" icon="folder" variant="secondary" selected="true" on-press="open_libraries" label="Libraries"></button>
