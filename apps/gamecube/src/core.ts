@@ -497,6 +497,13 @@ export function loadBootDiagnostics(model: Model, diagnostics: Uint8Array): Mode
   return { ...model, bootDiagnostics: diagnostics };
 }
 
+// Libraries and Search need a connected catalog source. That is a linked
+// Multiplex account when this build pairs, or the console gateway itself in
+// gateway-only builds, which serve browse and search without an account.
+export function libraryActionsAvailable(model: Model): boolean {
+  return model.pairingLinked || (model.gatewayConnected && !model.pairingEnabled);
+}
+
 export function bootDiagnosticsVisible(model: Model): boolean {
   return model.bootDiagnostics.length > 0;
 }
@@ -1616,7 +1623,7 @@ export function update(model: Model, msg: Msg): Model {
       );
     }
     case "open_libraries":
-      if (!model.pairingLinked) return model;
+      if (!libraryActionsAvailable(model)) return model;
       return { ...model, screen: "libraries" };
     case "open_library": {
       if (msg.index < 0 || msg.index >= model.libraries.length) return model;
@@ -1654,7 +1661,7 @@ export function update(model: Model, msg: Msg): Model {
       };
     }
     case "open_search":
-      if (!model.pairingLinked) return model;
+      if (!libraryActionsAvailable(model)) return model;
       return {
         ...model,
         screen: "search",
