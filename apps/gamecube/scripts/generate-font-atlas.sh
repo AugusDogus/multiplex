@@ -3,6 +3,7 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+repo_dir=$(CDPATH= cd -- "$app_dir/../.." && pwd)
 project_file="$app_dir/pyproject.toml"
 
 if [ "${MULTIPLEX_GAMECUBE_UV_ACTIVE:-0}" != 1 ]; then
@@ -24,12 +25,12 @@ if ! installed_pillow_version=$(
   python3 -c 'from PIL import __version__; print(__version__)' 2>/dev/null
 ); then
   echo "Pillow $required_pillow_version is required to generate the GameCube font atlas, but Pillow is not installed." >&2
-  echo "Install it with: bun run gamecube:setup" >&2
+  printf 'Install it with: bun --cwd="%s" run gamecube:setup\n' "$repo_dir" >&2
   exit 1
 fi
 if [ "$installed_pillow_version" != "$required_pillow_version" ]; then
   echo "Pillow $required_pillow_version is required to generate the GameCube font atlas; found $installed_pillow_version." >&2
-  echo "Restore it with: bun run gamecube:setup" >&2
+  printf 'Restore it with: bun --cwd="%s" run gamecube:setup\n' "$repo_dir" >&2
   exit 1
 fi
 
