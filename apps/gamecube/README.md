@@ -125,13 +125,14 @@ to the libogc2 rules include, target name, build directory, and the `-lbba`
 versus `-lwiiuse -lbte` link. `wii:reference:dol` builds the Wii DOL, and CI
 cross-builds it next to the GameCube DOL so the target cannot rot unnoticed.
 `wii:reference:smoke-player` boots the Wii DOL
-in Dolphin and runs the same navigation, MPEG-2/MP2 playback, 60 fps,
-pause/resume, and invalid-access gates as GameCube. The host maps
-Wii Remote input directly, with matching Classic Controller and GameCube pad
-fallbacks. Both player smokes currently stop at the same navigation gate on
-both consoles: the demo home screen accepts the pairing-screen A press but
-ignores focus movement, so `input action=1` never logs. The regression
-predates the Wii promotion and affects GameCube identically. `wii:reference:plex` uses Dolphin's native Wii IOS network
+in Dolphin and passes the same navigation, MPEG-2/MP2 playback, 60 fps,
+pause/resume, and invalid-access gates as GameCube. On Wii the Wii Remote and
+Classic Controller D-pads move focus, mirroring the GameCube analog stick,
+because a bare Wii Remote has no stick; GameCube pads plugged into a Wii keep
+their GameCube semantics, including the D-pad search cursor. The player smoke
+walks focus both directions across the home shelf, details actions, and
+player transport before each activation, and re-reveals the auto-hidden
+player controls before resuming playback. `wii:reference:plex` uses Dolphin's native Wii IOS network
 stack for direct PMS traffic and the same persisted Multiplex memory-card
 session as GameCube. It reaches Multiplex only through the HTTPS Portless
 origin, `https://multiplex.localhost`; the runner maps that hostname to the
