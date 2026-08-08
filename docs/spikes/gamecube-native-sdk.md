@@ -575,7 +575,7 @@ Together clients into a matching next room without closing the player. The
 player can also cycle Plex's indexed subtitle tracks and Off; selected tracks
 render through Plex burn-in and survive seeks.
 
-The initial Wii tracer bullet now builds a 3,081,460-byte DOL from the same
+The initial Wii tracer bullet built a 3,081,460-byte DOL from the same
 TypeScript, markup, PowerPC core, validated frame, GX presenter, and embedded
 media pipeline. The only transport change was excluding libogc2's
 GameCube-only `net_flush` extension when compiling against Wii's native IOS
@@ -584,12 +584,27 @@ passed the shared navigation, timestamped MPEG-2/MP2 playback, audio
 pause/resume, and invalid-access smoke using an emulated Wii Remote pipe. The
 host also maps a Classic Controller naturally and retains GameCube pad support.
 
+The Wii target is now a supported build rather than a tracer bullet. One
+`Makefile.reference` builds both consoles at the same `-Werror` discipline,
+with `MULTIPLEX_PLATFORM` confining the differences to the libogc2 rules
+include, target name, build directory, and the `-lbba` versus
+`-lwiiuse -lbte` link. The promoted 4,048,916-byte Wii DOL carries everything
+the GameCube client gained after the tracer bullet, including direct Plex HLS
+playback, the cached-home offline flow, timeline reporting, subtitle cycling,
+and the generated font atlas. CI cross-builds both DOLs so the Wii target can
+no longer rot silently. Platform differences stay in video mode, input,
+networking, memory budgets, and the media host, as decided above.
+
+In Dolphin the promoted Wii DOL renders the shared UI at 60.4 fps, opens the
+embedded MPEG-2/MP2 pipeline, and answers the Wii Remote pipe exactly like
+the GameCube build answers the pad pipe. The embedded player smokes remain
+red on both consoles for one shared reason: the demo home screen ignores
+focus movement, so the smokes time out waiting for `input action=1`. That
+navigation regression predates the Wii promotion and reproduces identically
+on the GameCube target.
+
 Hardware profiling remains deferred until the Dolphin app is materially
 useful; it is not a gate on these milestones.
 
-Wii and Dreamcast remain fast-follow ports, but further port work is paused
-until the GameCube client reaches the web application's core playback parity.
-
-The Wii fast-follow should share the TypeScript, markup, Native SDK adapter,
-and most GX code. Platform differences should stay in video mode, input,
-networking, memory budgets, and the media host.
+Dreamcast remains a fast-follow port; further new-port work is paused until
+the GameCube client reaches the web application's core playback parity.
