@@ -185,7 +185,8 @@ wait_for_stable_decoder() {
 
 press() {
   button=$1
-  previous=$(line_count "controller buttons")
+  confirmation=${2:-"controller buttons"}
+  previous=$(line_count "$confirmation")
   max_attempts=${GAMECUBE_CONTROLLER_ATTEMPTS:-60}
   attempt=0
   while [ "$attempt" -lt "$max_attempts" ]; do
@@ -194,7 +195,7 @@ press() {
     printf 'PRESS %s\n' "$button" >&3
     poll=0
     while [ "$poll" -lt 5 ]; do
-      if [ "$(line_count "controller buttons")" -gt "$previous" ]; then
+      if [ "$(line_count "$confirmation")" -gt "$previous" ]; then
         printf 'RELEASE %s\n' "$button" >&3
         sleep 0.2
         return
@@ -215,13 +216,68 @@ press() {
   exit 1
 }
 
+# The GameCube host navigates focus with the analog stick only, so pulse the
+# main stick and recenter before the 200 ms navigation repeat delay to
+# guarantee exactly one focus move per pulse.
+nudge_stick() {
+  axis_x=$1
+  action=$2
+  previous=$3
+  attempt=0
+  while [ "$attempt" -lt 40 ]; do
+    printf 'SET MAIN %s 0.5\n' "$axis_x" >&3
+    sleep 0.1
+    printf 'SET MAIN 0.5 0.5\n' >&3
+    poll=0
+    while [ "$poll" -lt 5 ]; do
+      if [ "$(line_count "input action=$action")" -gt "$previous" ]; then
+        sleep 0.1
+        return
+      fi
+      if ! kill -0 "$launcher_pid" 2>/dev/null; then
+        echo "Dolphin exited while waiting to sample analog stick navigation." >&2
+        exit 1
+      fi
+      sleep 0.1
+      poll=$((poll + 1))
+    done
+    attempt=$((attempt + 1))
+  done
+  echo "Timed out waiting for Dolphin to sample analog stick navigation." >&2
+  tail -80 "$log" >&2 || true
+  exit 1
+}
+
+# Move focus one step. On Wii the Wii Remote D-pad is the navigation input;
+# on GameCube only the analog stick moves focus.
 cycle_focus() {
-  remaining=$1
+  direction=$1
+  remaining=$2
+  case "$direction" in
+    right)
+      action=1
+      button=D_RIGHT
+      axis_x=1.0
+      ;;
+    left)
+      action=0
+      button=D_LEFT
+      axis_x=0.0
+      ;;
+    *)
+      echo "Unsupported focus direction: $direction" >&2
+      exit 1
+      ;;
+  esac
   while [ "$remaining" -gt 0 ]; do
-    input_count=$(line_count "input action=1")
+    input_count=$(line_count "input action=$action")
     signature_count=$(line_count "signature=")
-    press D_RIGHT
-    wait_for_new "input action=1" "$input_count" 80
+    if [ "$console_name" = Wii ]; then
+      press "$button" "input action=$action"
+    else
+      nudge_stick "$axis_x" "$action" "$input_count"
+    fi
+    wait_for_new "input action=$action" "$input_count" 80
     wait_for_new "signature=" "$signature_count" 80
     remaining=$((remaining - 1))
   done
@@ -270,15 +326,19 @@ home_count=$(line_count "signature=")
 press A
 wait_for_new "signature=" "$home_count" 120
 
-cycle_focus 3
-cycle_focus 1
+# Walk the four demo home items right to the end, then step back one so A
+# opens a known item after focus moved in both directions.
+cycle_focus right 3
+cycle_focus left 1
 
 details_count=$(line_count "signature=")
 press A
 wait_for_new "signature=" "$details_count" 120
 
-cycle_focus 2
-cycle_focus 1
+# Details focus starts on Play; visit Mark as Watched and More actions, then
+# return to Play so A starts playback.
+cycle_focus right 2
+cycle_focus left 2
 
 player_count=$(line_count "signature=")
 playing_count=$(line_count "playback=playing")
@@ -287,7 +347,10 @@ press A
 wait_for_new "signature=" "$player_count" 120
 wait_for_new "playback=playing" "$playing_count" "$playback_attempts"
 wait_for_new "audio=playing" "$audio_playing_count" "$playback_attempts"
-cycle_focus 3
+# Player focus starts on Play/Pause; walk the transport controls and return
+# so the A presses below keep toggling playback.
+cycle_focus right 2
+cycle_focus left 2
 if ! rg -q "playback=playing .*pts-offset-samples=$expected_pts_offset_samples" "$log"; then
   echo "Video scheduler did not apply the MPEG-PS timestamp offset." >&2
   exit 1
@@ -311,6 +374,11 @@ fi
 playing_count=$(line_count "playback=playing")
 audio_playing_count=$(line_count "audio=playing")
 presentation_count=$(line_count "presentation=120 frames/")
+# The controls hid during the paused decoder check, so the first A press only
+# reveals them; the second A press resumes playback.
+controls_revealed_count=$(line_count "player controls visible=1")
+press A
+wait_for_new "player controls visible=1" "$controls_revealed_count" 80
 press A
 wait_for_new "playback=playing" "$playing_count" 80
 wait_for_new "audio=playing" "$audio_playing_count" 80
@@ -320,7 +388,11 @@ wait_for_stable_presentation "$presentation_count" 300
 
 wait_for_new "player controls visible=0" "$controls_hidden_count" 80
 controls_visible_count=$(line_count "player controls visible=1")
-press D_RIGHT
+if [ "$console_name" = Wii ]; then
+  press D_RIGHT "player controls visible=1"
+else
+  press D_RIGHT
+fi
 wait_for_new "player controls visible=1" "$controls_visible_count" 80
 
 decoder_fps_tenths=$(
