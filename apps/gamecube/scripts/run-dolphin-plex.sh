@@ -239,10 +239,6 @@ case "$dolphin_network" in
     exit 1
     ;;
 esac
-if [ "$dolphin_network" = native ] && [ "$direct_plex" -ne 1 ]; then
-  echo "$console_name native Dolphin networking currently requires GAMECUBE_DIRECT_PLEX=1." >&2
-  exit 1
-fi
 if [ "$dolphin_network" = native ]; then
   MULTIPLEX_EMULATOR_HOST_IP=${MULTIPLEX_EMULATOR_HOST_IP:-127.0.0.1}
   export MULTIPLEX_EMULATOR_HOST_IP
@@ -326,23 +322,35 @@ if [ "$direct_plex" -ne 1 ]; then
   fi
   python3 "$script_dir/plex-gateway.py" "$@" >"$cache_dir/http.log" 2>&1 &
   server_pid=$!
+  # Gateway startup downloads the catalog and poster artwork from the Plex
+  # server before serving, which can take tens of seconds against a remote PMS.
   attempt=0
   while ! curl --noproxy '*' --fail --silent --output /dev/null \
     "http://127.0.0.1:$port/v1/health"; do
+    if ! kill -0 "$server_pid" 2>/dev/null; then
+      echo "The local console media gateway exited during startup; see $cache_dir/http.log." >&2
+      exit 1
+    fi
     attempt=$((attempt + 1))
-    if [ "$attempt" -ge 50 ]; then
-      echo "Timed out starting the local GameCube media gateway." >&2
+    if [ "$attempt" -ge 600 ]; then
+      echo "Timed out starting the local console media gateway." >&2
       exit 1
     fi
     sleep 0.1
   done
 
-  gateway=$(ip -4 route show default | sed -n 's/^default via \([^ ]*\).*/\1/p' | sed -n '1p')
-  if [ -z "$gateway" ]; then
-    echo "Could not determine the rootless TAP host gateway." >&2
-    exit 1
+  if [ "$dolphin_network" = native ]; then
+    # Dolphin's native network stacks share the host network, so the emulated
+    # console reaches the local gateway on the host loopback.
+    gateway_url="http://$MULTIPLEX_EMULATOR_HOST_IP:$port"
+  else
+    gateway=$(ip -4 route show default | sed -n 's/^default via \([^ ]*\).*/\1/p' | sed -n '1p')
+    if [ -z "$gateway" ]; then
+      echo "Could not determine the rootless TAP host gateway." >&2
+      exit 1
+    fi
+    gateway_url="http://$gateway:$port"
   fi
-  gateway_url="http://$gateway:$port"
 fi
 if [ "$skip_build" -eq 1 ]; then
   if [ ! -s "$reference_dol" ]; then
