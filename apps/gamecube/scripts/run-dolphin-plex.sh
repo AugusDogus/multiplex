@@ -547,6 +547,40 @@ wait_for_synced_playback_state() {
   exit 1
 }
 
+# The Wii host navigates with the Wii Remote D-pad, which the Wiimote pipe
+# exposes as buttons rather than analog axes.
+navigate_wii_dpad() {
+  button=$1
+  action=$2
+  previous=$(line_count "input action=$action")
+  max_attempts=${GAMECUBE_CONTROLLER_ATTEMPTS:-60}
+  attempt=0
+  while [ "$attempt" -lt "$max_attempts" ]; do
+    printf 'RELEASE %s\n' "$button" >&3
+    sleep 0.1
+    printf 'PRESS %s\n' "$button" >&3
+    poll=0
+    while [ "$poll" -lt 8 ]; do
+      if [ "$(line_count "input action=$action")" -gt "$previous" ]; then
+        printf 'RELEASE %s\n' "$button" >&3
+        sleep 0.3
+        return
+      fi
+      if ! kill -0 "$launcher_pid" 2>/dev/null; then
+        printf 'RELEASE %s\n' "$button" >&3
+        echo "Dolphin exited while waiting to sample Wii D-pad navigation: $button" >&2
+        exit 1
+      fi
+      sleep 0.1
+      poll=$((poll + 1))
+    done
+    attempt=$((attempt + 1))
+  done
+  printf 'RELEASE %s\n' "$button" >&3
+  echo "Timed out waiting for Dolphin to sample Wii D-pad navigation: $button" >&2
+  exit 1
+}
+
 navigate() {
   direction=$1
   case "$direction" in
@@ -556,6 +590,10 @@ navigate() {
     D_DOWN) axis_x=0.5; axis_y=0.0; action=9 ;;
     *) echo "Unsupported analog navigation direction: $direction" >&2; exit 1 ;;
   esac
+  if [ "$console_name" = Wii ]; then
+    navigate_wii_dpad "$direction" "$action"
+    return
+  fi
   previous=$(line_count "input action=$action")
   max_attempts=${GAMECUBE_CONTROLLER_ATTEMPTS:-60}
   attempt=0
