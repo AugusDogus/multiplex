@@ -109,7 +109,7 @@ multiplex-dvd-demo-program.h: multiplex-dvd-demo-program.s
 
 app.o app_effects.o app_input.o app_jobs.o app_jobs_platform_libogc.o \
 	app_jobs_posters.o app_jobs_prefetch.o app_jobs_work.o main.o: media-source.h
-main.o: multiplex-dvd-demo-program.h
+app.o: multiplex-dvd-demo-program.h
 presentation.o: $(APP_ROOT)/generated/geist_atlas.h
 app_services.o app_services_auth.o app_services_catalog.o \
 	app_services_details.o app_services_discovery.o app_services_playback.o \
