@@ -9,9 +9,12 @@ if [ "${MULTIPLEX_GAMECUBE_UV_ACTIVE:-0}" != 1 ]; then
   exec sh "$script_dir/run-with-tooling.sh" sh "$0" "$@"
 fi
 
-required_pillow_version=$(
+if ! required_pillow_version=$(
   python3 -c 'import sys, tomllib; dependencies = tomllib.load(open(sys.argv[1], "rb"))["project"]["dependencies"]; print(next(item.removeprefix("pillow==") for item in dependencies if item.lower().startswith("pillow==")))' "$project_file"
-)
+); then
+  echo "Missing an exact Pillow version in $project_file." >&2
+  exit 1
+fi
 if [ -z "$required_pillow_version" ]; then
   echo "Missing an exact Pillow version in $project_file." >&2
   exit 1
