@@ -133,8 +133,13 @@ their GameCube semantics, including the D-pad search cursor. The player smoke
 walks focus both directions across the home shelf, details actions, and
 player transport before each activation, and re-reveals the auto-hidden
 player controls before resuming playback. `wii:reference:plex` uses Dolphin's native Wii IOS network
-stack for direct PMS traffic and the same persisted Multiplex memory-card
-session as GameCube. It reaches Multiplex only through the HTTPS Portless
+stack. Because Dolphin's native network stacks share the host network, the
+default gateway mode serves the console gateway on the host loopback instead
+of a TAP gateway address; the full scripted flow ran against a live remote
+PMS and rendered the real three-row home catalog with poster artwork,
+controller-authored search, gateway details, and gateway playback with zero
+audio underruns. The direct-Plex mode carries PMS traffic and the same
+persisted Multiplex memory-card session as GameCube. It reaches Multiplex only through the HTTPS Portless
 origin, `https://multiplex.localhost`; the runner maps that hostname to the
 host loopback address inside Dolphin while retaining its TLS hostname and
 embedded Portless CA. No TAP device, pasta process, alternate Multiplex port,
