@@ -87,7 +87,7 @@ jobs:
             apps/gamecube/.mplayer-ce-libogc2
             apps/gamecube/.mbedtls
             apps/gamecube/.mbedtls-stage
-          key: gamecube-v2-${{ runner.os }}-${{ hashFiles('apps/gamecube/PINS.env', 'apps/gamecube/patches/**', 'apps/gamecube/pyproject.toml', 'apps/gamecube/uv.lock', 'apps/gamecube/app.zon', 'apps/gamecube/build.zig', 'apps/gamecube/build.zig.zon', 'apps/gamecube/host-reference-gx/mbedtls-gamecube-config.h', 'apps/gamecube/Makefile.assets', 'apps/gamecube/Makefile.reference.gamecube', 'apps/gamecube/scripts/bootstrap*.sh', 'apps/gamecube/scripts/build-native-reference-dol.sh', 'bun.lock') }}
+          key: gamecube-v2-${{ runner.os }}-${{ hashFiles('apps/gamecube/PINS.env', 'apps/gamecube/patches/**', 'apps/gamecube/pyproject.toml', 'apps/gamecube/uv.lock', 'apps/gamecube/app.zon', 'apps/gamecube/build.zig', 'apps/gamecube/build.zig.zon', 'apps/gamecube/host-reference-gx/mbedtls-gamecube-config.h', 'apps/gamecube/Makefile.assets', 'apps/gamecube/Makefile.reference', 'apps/gamecube/scripts/bootstrap*.sh', 'apps/gamecube/scripts/build-native-reference*.sh', 'bun.lock') }}
 
       - name: Prepare pinned devkitPPC toolchain
         run: sh apps/gamecube/scripts/prepare-ci-toolchain.sh
@@ -109,3 +109,6 @@ jobs:
 
       - name: Cross-build Dolphin reference DOL
         run: bun run gamecube:reference:dol
+
+      - name: Cross-build Wii reference DOL
+        run: bun run wii:reference:dol
