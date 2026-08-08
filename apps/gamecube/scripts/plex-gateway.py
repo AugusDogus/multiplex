@@ -1343,6 +1343,8 @@ def main() -> None:
         },
         separators=(",", ":"),
     ).encode("utf-8")
+    # The GameCube reaches this development-only gateway over the LAN. Expose
+    # this port only to trusted local clients, such as through a host firewall.
     server = http.server.ThreadingHTTPServer(
         ("0.0.0.0", arguments.port), GatewayHandler
     )
