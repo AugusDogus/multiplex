@@ -26,20 +26,25 @@ static uint32_t navigation_action(MultiplexGuiNavigationDirection direction) {
 }
 
 #if defined(HW_RVL)
-static uint32_t wii_buttons_as_gamecube(uint32_t buttons) {
-  uint32_t mapped = 0;
+// Wii D-pads move focus. GameCube D-pads keep their search-cursor actions.
+static uint32_t wii_dpad_navigation(uint32_t buttons) {
   if ((buttons & (WPAD_BUTTON_LEFT | WPAD_CLASSIC_BUTTON_LEFT)) != 0) {
-    mapped |= PAD_BUTTON_LEFT;
+    return 0;
   }
   if ((buttons & (WPAD_BUTTON_RIGHT | WPAD_CLASSIC_BUTTON_RIGHT)) != 0) {
-    mapped |= PAD_BUTTON_RIGHT;
+    return 1;
   }
   if ((buttons & (WPAD_BUTTON_UP | WPAD_CLASSIC_BUTTON_UP)) != 0) {
-    mapped |= PAD_BUTTON_UP;
+    return 8;
   }
   if ((buttons & (WPAD_BUTTON_DOWN | WPAD_CLASSIC_BUTTON_DOWN)) != 0) {
-    mapped |= PAD_BUTTON_DOWN;
+    return 9;
   }
+  return UINT32_MAX;
+}
+
+static uint32_t wii_buttons_as_gamecube(uint32_t buttons) {
+  uint32_t mapped = 0;
   if ((buttons & (WPAD_BUTTON_A | WPAD_CLASSIC_BUTTON_A)) != 0) {
     mapped |= PAD_BUTTON_A;
   }
@@ -125,11 +130,15 @@ multiplex_app_collect_input(MultiplexApp *app, uint64_t now_ms,
 
   uint32_t pressed = PAD_ButtonsDown(0);
   uint32_t held = 0;
+#if defined(HW_RVL)
+  const uint32_t wii_buttons = WPAD_ButtonsDown(0);
+  const uint32_t wii_navigation = wii_dpad_navigation(wii_buttons);
+#endif
 #if MULTIPLEX_PAIRING_ENABLED
   held = PAD_ButtonsHeld(0);
 #endif
 #if defined(HW_RVL)
-  pressed |= wii_buttons_as_gamecube(WPAD_ButtonsDown(0));
+  pressed |= wii_buttons_as_gamecube(wii_buttons);
 #if MULTIPLEX_PAIRING_ENABLED
   held |= wii_buttons_as_gamecube(WPAD_ButtonsHeld(0));
 #endif
@@ -137,8 +146,13 @@ multiplex_app_collect_input(MultiplexApp *app, uint64_t now_ms,
 
   if (transition == MULTIPLEX_PRESENTATION_FRAME_PENDING) {
     app->input.queued_buttons |= pressed;
-    const uint32_t navigation = navigation_action(multiplex_gui_navigation_poll(
+    uint32_t navigation = navigation_action(multiplex_gui_navigation_poll(
         &app->input.navigation, PAD_StickX(0), PAD_StickY(0), now_ms * 1000u));
+#if defined(HW_RVL)
+    if (navigation == UINT32_MAX) {
+      navigation = wii_navigation;
+    }
+#endif
     if (app->input.queued_navigation == UINT32_MAX &&
         navigation != UINT32_MAX) {
       app->input.queued_navigation = navigation;
@@ -150,15 +164,20 @@ multiplex_app_collect_input(MultiplexApp *app, uint64_t now_ms,
 
   pressed |= app->input.queued_buttons;
   app->input.queued_buttons = 0;
-  const uint32_t stick_navigation =
+  uint32_t focus_navigation =
       app->input.queued_navigation != UINT32_MAX
           ? app->input.queued_navigation
           : navigation_action(multiplex_gui_navigation_poll(
                 &app->input.navigation, PAD_StickX(0), PAD_StickY(0),
                 now_ms * 1000u));
   app->input.queued_navigation = UINT32_MAX;
+#if defined(HW_RVL)
+  if (focus_navigation == UINT32_MAX) {
+    focus_navigation = wii_navigation;
+  }
+#endif
 
-  const bool active_input = pressed != 0 || stick_navigation != UINT32_MAX;
+  const bool active_input = pressed != 0 || focus_navigation != UINT32_MAX;
   const MultiplexPresentationControlsInput controls_input = {
       .now_ms = now_ms,
       .active_input = active_input,
@@ -178,9 +197,9 @@ multiplex_app_collect_input(MultiplexApp *app, uint64_t now_ms,
   const uint32_t input_screen = multiplex_native_app_screen();
   multiplex_app_pause_audio_for_player_input(app, pressed);
   bool app_changed = false;
-  if (stick_navigation != UINT32_MAX) {
+  if (focus_navigation != UINT32_MAX) {
     const uint32_t before = multiplex_native_app_home_view_state();
-    if (multiplex_native_app_input(stick_navigation) != 0) {
+    if (multiplex_native_app_input(focus_navigation) != 0) {
       multiplex_presentation_begin_home_motion(
           app->presentation, before, multiplex_native_app_home_view_state());
       app_changed = true;
