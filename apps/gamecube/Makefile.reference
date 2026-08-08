@@ -1,24 +1,55 @@
+# Console host that presents Native SDK's reference-rendered RGBA framebuffer
+# directly with GX. This intentionally remains separate from the command-based
+# approximation and the experimental raylib/OpenGX presenter.
+# MULTIPLEX_PLATFORM selects the GameCube or Wii target; platform differences
+# stay in the blocks below.
+
+.SUFFIXES:
+
 ifeq ($(strip $(DEVKITPPC)),)
-$(error "Please set DEVKITPPC in your environment. export DEVKITPPC=<path to>devkitPro/devkitPPC")
+$(error "DEVKITPPC must point to the devkitPPC toolchain")
 endif
 
 APP_ROOT := $(abspath $(dir $(firstword $(MAKEFILE_LIST))))
 
+MULTIPLEX_PLATFORM ?= gamecube
+ifeq ($(MULTIPLEX_PLATFORM),gamecube)
+include $(DEVKITPRO)/libogc2/gamecube_rules
+REFERENCE_VARIANT ?= dolphin
+ifeq ($(REFERENCE_VARIANT),dolphin)
+else ifeq ($(REFERENCE_VARIANT),hardware)
+else ifeq ($(REFERENCE_VARIANT),clean)
+else
+$(error REFERENCE_VARIANT must be dolphin, hardware, or clean)
+endif
+TARGET := multiplex-gamecube-native-reference-$(REFERENCE_VARIANT)
+BUILD := build-native-reference
+BUILD_SCRIPT := build-native-reference-dol.sh
+PLATFORM_LIBS := -lbba
+PLATFORM_ELF_DEPS := $(LIBOGC_LIB)/libbba.a
+else ifeq ($(MULTIPLEX_PLATFORM),wii)
 include $(DEVKITPRO)/libogc2/wii_rules
-
 TARGET := multiplex-wii-native-reference
 BUILD := build-native-reference-wii
+BUILD_SCRIPT := build-native-reference-wii-dol.sh
+PLATFORM_LIBS := -lwiiuse -lbte
+PLATFORM_ELF_DEPS :=
+else
+$(error MULTIPLEX_PLATFORM must be gamecube or wii)
+endif
+
 SOURCES := host-reference-gx host-reference
 MPLAYER_ROOT := $(APP_ROOT)/.mplayer-ce-libogc2/mplayer
 FFMPEG_ROOT := $(MPLAYER_ROOT)/ffmpeg
 MBEDTLS_ROOT := $(APP_ROOT)/.mbedtls-stage
 INCLUDES := host host-reference host-reference-gx generated
 
-CFLAGS := -g -O2 -Wall -Wextra $(MACHDEP) $(INCLUDE)
+CFLAGS := -g -gdwarf-4 -gstrict-dwarf -O2 -Wall -Wextra -Werror \
+	$(MACHDEP) $(INCLUDE)
 CXXFLAGS := $(CFLAGS)
 LDFLAGS := -g $(MACHDEP) -Wl,-Map,$(notdir $@).map
 LIBS := $(CORE_LIBRARY) -lavcodec -lavutil -lmbedtls -lmbedx509 \
-	-lmbedcrypto -lwiiuse -lbte -logc -lm
+	-lmbedcrypto $(PLATFORM_LIBS) -logc -lm
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 
@@ -38,8 +69,8 @@ export INCLUDE := $(foreach dir,$(INCLUDES),-I$(APP_ROOT)/$(dir)) \
 	-I$(APP_ROOT)/$(BUILD) \
 	-I$(LIBOGC_INC)
 export LIBPATHS := -L$(LIBOGC_LIB) \
-	-L$(MPLAYER_ROOT)/ffmpeg/libavcodec \
-	-L$(MPLAYER_ROOT)/ffmpeg/libavutil \
+	-L$(FFMPEG_ROOT)/libavcodec \
+	-L$(FFMPEG_ROOT)/libavutil \
 	-L$(MBEDTLS_ROOT)/lib
 export LD := $(CC)
 
@@ -49,7 +80,9 @@ all: $(BUILD)
 
 $(BUILD): $(CORE_LIBRARY)
 	@[ -d $@ ] || mkdir -p $@
-	@$(MAKE) --no-print-directory -C $(BUILD) -f $(APP_ROOT)/Makefile.reference.wii
+	@$(MAKE) --no-print-directory -C $(BUILD) \
+		-f $(APP_ROOT)/Makefile.reference \
+		MULTIPLEX_PLATFORM=$(MULTIPLEX_PLATFORM)
 
 $(CORE_LIBRARY):
 	@echo "Missing $@; run bun run gamecube:check first." >&2
@@ -57,12 +90,15 @@ $(CORE_LIBRARY):
 
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).elf $(TARGET).dol
+	@rm -rf $(BUILD) $(OUTPUT).elf $(OUTPUT).dol
 
 else
 
 .DEFAULT_GOAL := $(OUTPUT).dol
 
+# OFILES is exported by the outer make. OFILES_SOURCES is not, so deriving
+# dependencies from it here silently produced an empty list and allowed stale
+# objects after shared header changes.
 DEPENDS := $(OFILES:.o=.d)
 
 multiplex-dvd-demo-program.s: $(APP_ROOT)/assets/multiplex-dvd-demo.mpg
@@ -85,16 +121,15 @@ http_client.o: media-source.h
 tls_client.o: tls-ca.h
 
 media-source.h:
-	@echo "Missing $@; run scripts/build-native-reference-wii-dol.sh." >&2
+	@echo "Missing $@; run scripts/$(BUILD_SCRIPT)." >&2
 	@false
 
 tls-ca.h:
-	@echo "Missing $@; run scripts/build-native-reference-wii-dol.sh." >&2
+	@echo "Missing $@; run scripts/$(BUILD_SCRIPT)." >&2
 	@false
 
 $(OUTPUT).dol: $(OUTPUT).elf
-
-$(OUTPUT).elf: $(OFILES) $(CORE_LIBRARY) \
+$(OUTPUT).elf: $(OFILES) $(CORE_LIBRARY) $(PLATFORM_ELF_DEPS) \
 	$(MBEDTLS_ROOT)/lib/libmbedtls.a \
 	$(MBEDTLS_ROOT)/lib/libmbedx509.a \
 	$(MBEDTLS_ROOT)/lib/libmbedcrypto.a

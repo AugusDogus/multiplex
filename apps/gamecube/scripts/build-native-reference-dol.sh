@@ -12,19 +12,40 @@ if ! command -v podman >/dev/null 2>&1; then
   exit 1
 fi
 
+platform=${MULTIPLEX_PLATFORM:-gamecube}
 libogc2_stage_name=${LIBOGC2_STAGE_NAME:-.libogc2-stage}
-case "$libogc2_stage_name" in
-  .libogc2-stage) reference_variant=dolphin ;;
-  .libogc2-clean-stage) reference_variant=clean ;;
-  .libogc2-hardware-stage) reference_variant=hardware ;;
+case "$platform" in
+  gamecube)
+    case "$libogc2_stage_name" in
+      .libogc2-stage) reference_variant=dolphin ;;
+      .libogc2-clean-stage) reference_variant=clean ;;
+      .libogc2-hardware-stage) reference_variant=hardware ;;
+      *)
+        echo "Unsupported libogc2 stage: $libogc2_stage_name" >&2
+        exit 1
+        ;;
+    esac
+    artifact_stem="multiplex-gamecube-native-reference-$reference_variant"
+    build_dir="$app_dir/build-native-reference"
+    libogc_runtime="$app_dir/$libogc2_stage_name/opt/devkitpro/libogc2/gamecube/lib/libogc.a"
+    ;;
+  wii)
+    if [ "$libogc2_stage_name" != .libogc2-stage ]; then
+      echo "Only the default libogc2 stage carries the Wii runtime; unset LIBOGC2_STAGE_NAME." >&2
+      exit 1
+    fi
+    reference_variant=
+    artifact_stem="multiplex-wii-native-reference"
+    build_dir="$app_dir/build-native-reference-wii"
+    libogc_runtime="$app_dir/$libogc2_stage_name/opt/devkitpro/libogc2/wii/lib/libogc.a"
+    ;;
   *)
-    echo "Unsupported libogc2 stage: $libogc2_stage_name" >&2
+    echo "Unsupported MULTIPLEX_PLATFORM: $platform" >&2
     exit 1
     ;;
 esac
-artifact_stem="multiplex-gamecube-native-reference-$reference_variant"
 
-if [ ! -s "$app_dir/$libogc2_stage_name/opt/devkitpro/libogc2/gamecube/lib/libogc.a" ]; then
+if [ ! -s "$libogc_runtime" ]; then
   echo "Missing the pinned libogc2 runtime; run bun run gamecube:bootstrap first." >&2
   exit 1
 fi
@@ -36,7 +57,6 @@ fi
 sh "$script_dir/check.sh"
 make --no-print-directory -f "$app_dir/Makefile.assets" font-atlas
 
-build_dir="$app_dir/build-native-reference"
 stage_stamp="$build_dir/.libogc2-stage"
 mkdir -p "$build_dir"
 if [ ! -f "$stage_stamp" ] ||
@@ -63,9 +83,10 @@ podman run --rm \
   --volume "$app_dir:/workspace:Z" \
   --workdir /workspace \
   --env LIBOGC2_STAGE_NAME="$libogc2_stage_name" \
+  --env MULTIPLEX_PLATFORM="$platform" \
   --env REFERENCE_VARIANT="$reference_variant" \
   "$DEVKITPPC_IMAGE" \
-  sh -c 'export DEVKITPRO="/workspace/$LIBOGC2_STAGE_NAME/opt/devkitpro"; export DEVKITPPC="/opt/devkitpro/devkitPPC"; export PATH="/opt/devkitpro/devkitPPC/bin:/opt/devkitpro/tools/bin:$PATH"; make -f Makefile.reference.gamecube REFERENCE_VARIANT="$REFERENCE_VARIANT"'
+  sh -c 'export DEVKITPRO="/workspace/$LIBOGC2_STAGE_NAME/opt/devkitpro"; export DEVKITPPC="/opt/devkitpro/devkitPPC"; export PATH="/opt/devkitpro/devkitPPC/bin:/opt/devkitpro/tools/bin:$PATH"; make -f Makefile.reference MULTIPLEX_PLATFORM="$MULTIPLEX_PLATFORM" ${REFERENCE_VARIANT:+REFERENCE_VARIANT="$REFERENCE_VARIANT"}'
 
 test -s "$app_dir/$artifact_stem.dol"
 printf '%s\n' "$libogc2_stage_name" >"$stage_stamp"
@@ -73,4 +94,4 @@ readelf -sW "$app_dir/$artifact_stem.elf" |
   grep -q "multiplex_native_app_render_reference"
 
 dol_size=$(wc -c <"$app_dir/$artifact_stem.dol")
-echo "Native $reference_variant DOL is ready at $app_dir/$artifact_stem.dol ($dol_size bytes)"
+echo "Native reference DOL is ready at $app_dir/$artifact_stem.dol ($dol_size bytes)"

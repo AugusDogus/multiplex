@@ -49,7 +49,7 @@
     "gamecube:reference:plex": "sh apps/gamecube/scripts/run-with-tooling.sh sh apps/gamecube/scripts/run-dolphin-plex.sh",
     "gamecube:raylib:dol": "sh apps/gamecube/scripts/run-with-tooling.sh sh apps/gamecube/scripts/build-raylib-reference-dol.sh",
     "gamecube:raylib:run": "sh apps/gamecube/scripts/run-dolphin.sh apps/gamecube/multiplex-gamecube-raylib-reference.dol",
-    "wii:reference:dol": "sh apps/gamecube/scripts/build-native-reference-wii-dol.sh",
+    "wii:reference:dol": "sh apps/gamecube/scripts/run-with-tooling.sh sh apps/gamecube/scripts/build-native-reference-wii-dol.sh",
     "wii:reference:smoke-player": "MULTIPLEX_REFERENCE_DOL=apps/gamecube/multiplex-wii-native-reference.dol MULTIPLEX_REFERENCE_BUILD_SCRIPT=build-native-reference-wii-dol.sh MULTIPLEX_CONSOLE_NAME=Wii MULTIPLEX_CONTROLLER_PIPE=multiplex-wii1 sh apps/gamecube/scripts/smoke-dolphin-player.sh",
     "wii:reference:plex": "MULTIPLEX_REFERENCE_DOL=apps/gamecube/multiplex-wii-native-reference.dol MULTIPLEX_REFERENCE_BUILD_SCRIPT=build-native-reference-wii-dol.sh MULTIPLEX_CONSOLE_NAME=Wii MULTIPLEX_CONTROLLER_PIPE=multiplex-wii1 MULTIPLEX_DOLPHIN_NETWORK=native sh apps/gamecube/scripts/run-dolphin-plex.sh"
   },
