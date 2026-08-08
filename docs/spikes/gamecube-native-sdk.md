@@ -588,20 +588,28 @@ The Wii target is now a supported build rather than a tracer bullet. One
 `Makefile.reference` builds both consoles at the same `-Werror` discipline,
 with `MULTIPLEX_PLATFORM` confining the differences to the libogc2 rules
 include, target name, build directory, and the `-lbba` versus
-`-lwiiuse -lbte` link. The promoted 4,048,916-byte Wii DOL carries everything
+`-lwiiuse -lbte` link. The promoted 4,205,492-byte Wii DOL carries everything
 the GameCube client gained after the tracer bullet, including direct Plex HLS
 playback, the cached-home offline flow, timeline reporting, subtitle cycling,
 and the generated font atlas. CI cross-builds both DOLs so the Wii target can
 no longer rot silently. Platform differences stay in video mode, input,
 networking, memory budgets, and the media host, as decided above.
 
-In Dolphin the promoted Wii DOL renders the shared UI at 60.4 fps, opens the
-embedded MPEG-2/MP2 pipeline, and answers the Wii Remote pipe exactly like
-the GameCube build answers the pad pipe. The embedded player smokes remain
-red on both consoles for one shared reason: the demo home screen ignores
-focus movement, so the smokes time out waiting for `input action=1`. That
-navigation regression predates the Wii promotion and reproduces identically
-on the GameCube target.
+Promoting the Wii target surfaced one shared player-smoke rot: when TV
+navigation moved from the D-pad to the analog stick with the libwiigui-style
+repeat timer, the player smoke kept pressing `D_RIGHT`, which had become the
+search-cursor input, so both consoles timed out waiting for `input action=1`.
+The smoke now pulses the GameCube main stick and recenters inside the 200 ms
+repeat delay so each pulse moves focus exactly once. On Wii the fix is a real
+input-model decision, not a test shim: a bare Wii Remote has no analog stick,
+so the Wii Remote and Classic Controller D-pads produce the same navigation
+actions as the GameCube stick, while GameCube pads plugged into a Wii keep
+their GameCube semantics, including the D-pad search cursor. With that, both
+embedded player smokes pass end to end in Dolphin: pairing screen, focus
+walks in both directions across the home shelf, details actions, and player
+transport, timestamped MPEG-2/MP2 playback at 60.4 fps presentation,
+pause/resume with the AI DMA sample clock, auto-hidden controls re-revealed
+before resume, and a clean invalid-access log on both consoles.
 
 Hardware profiling remains deferred until the Dolphin app is materially
 useful; it is not a gate on these milestones.
