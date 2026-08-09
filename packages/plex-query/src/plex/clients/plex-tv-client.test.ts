@@ -166,63 +166,178 @@ describe("PlexTvClient Plex Home", () => {
       restricted: true,
     });
   });
+});
 
-  test("excludes the built-in Home Guest from Watch Together invitees by identity", async () => {
+describe("PlexTvClient Plex Community friends", () => {
+  test("posts GetAllFriends and maps the Community response", async () => {
     spyOn(globalThis, "fetch").mockImplementation(
-      createFetchMock(async (input) => {
+      createFetchMock(async (input, init) => {
         const url = new URL(String(input));
+        expect(url.toString()).toBe("https://community.plex.tv/api");
+        expect(url.searchParams.has("X-Plex-Token")).toBe(false);
+        expect(init?.method).toBe("POST");
+        expect(Object.fromEntries(new Headers(init?.headers).entries())).toEqual({
+          accept: "*/*",
+          "content-type": "application/json",
+          "x-plex-client-identifier": CONFIG.clientIdentifier,
+          "x-plex-platform": CONFIG.platform,
+          "x-plex-product": "Plex Web",
+          "x-plex-token": "host-token",
+          "x-plex-version": CONFIG.version,
+        });
 
-        if (url.pathname === "/api/v2/friends") {
-          return Response.json([
-            {
-              id: 20,
-              uuid: "built-in-guest-uuid",
-              title: "Guest",
-              username: null,
-              friendlyName: null,
-              thumb: null,
-              restricted: true,
-              home: true,
-            },
-            {
-              id: 30,
-              uuid: "real-user-named-guest",
-              title: "Guest",
-              username: "guest-account",
-              friendlyName: "Guest",
-              thumb: null,
-              restricted: false,
-            },
-          ]);
+        const body = String(init?.body);
+        expect(body).toContain('"operationName":"GetAllFriends"');
+        for (const field of [
+          "allFriendsV2",
+          "user",
+          "avatar",
+          "displayName",
+          "id",
+          "username",
+          "idRaw",
+          "createdAt",
+        ]) {
+          expect(body).toMatch(new RegExp(`\\b${field}\\b`));
         }
 
-        if (url.hostname === "clients.plex.tv" && url.pathname === "/api/users") {
-          return new Response('<MediaContainer size="0"></MediaContainer>', {
-            status: 200,
-            headers: { "content-type": "application/xml" },
-          });
-        }
-
-        if (url.pathname === "/api/home/users") {
-          return new Response(
-            `<MediaContainer size="2">
-              <User id="10" uuid="owner-uuid" title="Owner" admin="1" guest="0" protected="0" restricted="0" />
-              <User id="20" uuid="built-in-guest-uuid" title="Guest" admin="0" guest="1" protected="0" restricted="1" />
-            </MediaContainer>`,
-            { status: 200, headers: { "content-type": "application/xml" } },
-          );
-        }
-
-        return new Response(null, { status: 404 });
+        return Response.json({
+          data: {
+            allFriendsV2: [
+              {
+                user: {
+                  avatar: "",
+                  displayName: "Alpha Friend",
+                  id: "alpha-friend-uuid",
+                  username: "alpha-friend",
+                  idRaw: 30,
+                },
+                createdAt: "2022-08-04T18:47:01.186Z",
+              },
+              {
+                user: {
+                  avatar: null,
+                  displayName: "",
+                  id: "bravo-friend-uuid",
+                  username: "Bravo Friend",
+                  idRaw: 40,
+                },
+                createdAt: "2022-08-04T18:47:01.186Z",
+              },
+            ],
+          },
+        });
       }),
     );
 
-    const invitees = await new PlexTvClient("host-token", CONFIG).getWatchTogetherInvitees();
+    const friends = await new PlexTvClient("host-token", CONFIG).getFriends();
 
-    expect(invitees.map((invitee) => invitee.id)).toEqual([30]);
-    expect(invitees[0]?.title).toBe("Guest");
+    expect(friends).toEqual([
+      {
+        id: 30,
+        uuid: "alpha-friend-uuid",
+        title: "Alpha Friend",
+        username: "alpha-friend",
+        friendlyName: "Alpha Friend",
+        thumb: null,
+      },
+      {
+        id: 40,
+        uuid: "bravo-friend-uuid",
+        title: "Bravo Friend",
+        username: "Bravo Friend",
+        friendlyName: "Bravo Friend",
+        thumb: null,
+      },
+    ]);
   });
 
+  test("surfaces GraphQL errors", async () => {
+    spyOn(globalThis, "fetch").mockImplementation(
+      createFetchMock(async () =>
+        Response.json({ errors: [{ message: "Community friends are unavailable" }] }),
+      ),
+    );
+
+    const request = new PlexTvClient("host-token", CONFIG).getFriends();
+
+    await expect(request).rejects.toThrow(
+      "Plex friends request failed: Community friends are unavailable",
+    );
+  });
+});
+
+describe("PlexTvClient Watch Together invitees", () => {
+  test("merges source authority without losing known restrictions", async () => {
+    spyOn(globalThis, "fetch").mockImplementation(
+      createFetchMock(
+        async () =>
+          new Response(
+            `<MediaContainer size="3">
+            <User id="20" uuid="built-in-guest-uuid" title="Guest" username="guest-home" restricted="1" />
+            <User id="30" uuid="shared-duplicate-uuid" title="Shared Duplicate" username="shared-duplicate" restricted="1" />
+            <User id="50" uuid="charlie-shared-uuid" title="Charlie Shared" username="charlie-shared" restricted="0" />
+          </MediaContainer>`,
+            { status: 200, headers: { "content-type": "application/xml" } },
+          ),
+      ),
+    );
+
+    const plex = new PlexTvClient("host-token", CONFIG);
+    spyOn(plex, "getFriends").mockResolvedValue([
+      {
+        id: 30,
+        uuid: "community-duplicate-uuid",
+        title: "Alpha Friend",
+        username: "alpha-friend",
+        friendlyName: "Alpha Friend",
+        thumb: "https://plex.tv/alpha-avatar",
+      },
+      {
+        id: 40,
+        uuid: "bravo-friend-uuid",
+        title: "Bravo Friend",
+        username: "bravo-friend",
+        friendlyName: "Bravo Friend",
+        thumb: null,
+      },
+      {
+        id: 20,
+        uuid: "built-in-guest-uuid",
+        title: "Guest",
+        username: "guest-home",
+        friendlyName: "Guest",
+        thumb: null,
+      },
+    ]);
+    spyOn(plex, "getGuestHomeUser").mockResolvedValue({
+      id: 20,
+      uuid: "built-in-guest-uuid",
+      title: "Guest",
+      username: null,
+      thumb: null,
+      admin: false,
+      guest: true,
+      protected: false,
+      restricted: true,
+    });
+
+    const invitees = await plex.getWatchTogetherInvitees();
+
+    expect(invitees.map((invitee) => invitee.id)).toEqual([30, 40, 50]);
+    expect(invitees[0]).toEqual({
+      id: 30,
+      uuid: "community-duplicate-uuid",
+      title: "Alpha Friend",
+      username: "alpha-friend",
+      friendlyName: "Alpha Friend",
+      thumb: "https://plex.tv/alpha-avatar",
+      restricted: true,
+    });
+  });
+});
+
+describe("PlexTvClient Plex Home mutations", () => {
   test("switches with the Guest UUID on the v2 JSON endpoint", async () => {
     const request = createFetchMock(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
