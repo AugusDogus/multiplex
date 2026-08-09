@@ -144,7 +144,8 @@ normal certificate and hostname verification for HTTPS. When
 `MULTIPLEX_BASE_URL` is an HTTPS `*.localhost` origin, the build appends the
 public Portless CA from `~/.portless/ca.pem`. `GAMECUBE_TLS_CA_FILE` remains the
 explicit override for another private development CA. Private keys and
-generated host certificates are never copied into the build.
+generated host certificates are never copied into the build. Follow the
+[Mbed TLS upgrade guide](TLS-UPGRADE.md) when you change the pinned dependency.
 
 ### TLS entropy
 
