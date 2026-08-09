@@ -27,6 +27,8 @@ all test-hls-playlist.sh
 all test-plex-hls-state.sh
 all test-mpeg-ts-parser.sh
 all test-audio-buffer-queue.sh
+all test-playback-timeline-policy.sh
+all test-playback-program-policy.sh
 all test-trpc-rooms.sh
 all test-reference-frame.sh
 all test-gui-navigation.sh

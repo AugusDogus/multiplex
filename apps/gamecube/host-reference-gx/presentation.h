@@ -1,6 +1,7 @@
 #ifndef MULTIPLEX_PRESENTATION_H
 #define MULTIPLEX_PRESENTATION_H
 
+#include "playback_frame.h"
 #include "reference_frame.h"
 #include <gccore.h>
 
@@ -27,43 +28,8 @@ typedef enum {
   MULTIPLEX_PRESENTATION_PREPARE_DEFERRED = 2,
 } MultiplexPresentationPrepareMode;
 
-typedef enum {
-  MULTIPLEX_PRESENTATION_STREAM_NONE = 0,
-  MULTIPLEX_PRESENTATION_STREAM_PROGRAM = 1,
-  MULTIPLEX_PRESENTATION_STREAM_HLS = 2,
-} MultiplexPresentationStream;
-
 typedef struct {
-  MultiplexPresentationStream stream;
-  uint32_t decoder_fps_tenths;
-  uint32_t codec_average_us;
-  uint32_t codec_max_us;
-  uint32_t upload_average_us;
-  uint32_t network_kib_per_second;
-  uint32_t queued_video_bytes;
-  uint32_t queued_audio_bytes;
-  uint32_t audio_ready_buffers;
-  uint32_t audio_underruns;
-  uint32_t stream_video_bytes;
-  uint32_t stream_audio_bytes;
-  uint32_t producer_units;
-} MultiplexPresentationPlaybackMetrics;
-
-typedef struct {
-  bool frame_ready;
-  bool playback_failed;
-  uint32_t content_width;
-  uint32_t content_height;
-  uint32_t rating_key;
-  uint32_t position_ms;
-  uint32_t duration_ms;
-  uint32_t segment_start_ms;
-  uint32_t segment_duration_ms;
-  MultiplexPresentationPlaybackMetrics metrics;
-} MultiplexPresentationPlaybackSnapshot;
-
-typedef struct {
-  MultiplexPresentationPlaybackSnapshot playback;
+  MultiplexPlaybackSnapshot playback;
   uint32_t startup_rating_key;
 } MultiplexPresentationFrameInput;
 

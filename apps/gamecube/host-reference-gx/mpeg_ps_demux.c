@@ -25,7 +25,6 @@
 #define MPEG_NO_PTS (-1)
 #define PROGRAM_CACHE_SIZE 1024u
 #define VIDEO_QUEUE_SIZE (320 * 1024u)
-#define AUDIO_QUEUE_SIZE (64 * 1024u)
 #define PRODUCER_STACK_SIZE (128 * 1024u)
 
 typedef struct {
@@ -404,7 +403,7 @@ static MpegPsDemux *create_reader(void *context, size_t program_size,
   demux->reader = reader;
   demux->scan = scan;
   demux->video = media_byte_queue_create(VIDEO_QUEUE_SIZE);
-  demux->audio = media_byte_queue_create(AUDIO_QUEUE_SIZE);
+  demux->audio = media_byte_queue_create(MPEG_PS_DEMUX_AUDIO_QUEUE_CAPACITY);
   if (demux->video == NULL || demux->audio == NULL) {
     SYS_Report("REFERENCE GX: MPEG-PS queue allocation failed\n");
     mpeg_ps_demux_destroy(demux);
@@ -495,7 +494,8 @@ bool mpeg_ps_demux_start(MpegPsDemux *demux) {
     return false;
   }
   SYS_Report("REFERENCE GX: demux-queues video=%uKiB audio=%uKiB\n",
-             VIDEO_QUEUE_SIZE / 1024u, AUDIO_QUEUE_SIZE / 1024u);
+             VIDEO_QUEUE_SIZE / 1024u,
+             MPEG_PS_DEMUX_AUDIO_QUEUE_CAPACITY / 1024u);
   return true;
 }
 
