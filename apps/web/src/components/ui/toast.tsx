@@ -298,7 +298,7 @@ export interface ToastProviderProps extends Toast.Provider.Props {
 
 export function ToastProvider({
   children,
-  position = "bottom-right",
+  position = "top-right",
   portalProps,
   ...props
 }: ToastProviderProps): React.ReactElement {
