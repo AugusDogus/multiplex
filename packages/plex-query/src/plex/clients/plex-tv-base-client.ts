@@ -74,7 +74,7 @@ export class PlexTvBaseClient {
     return url;
   }
 
-  private async parseResponse<T>(
+  protected async parseResponse<T>(
     response: Response,
     schema: GetRequestOptions<T>["schema"] | PostRequestOptions<T>["schema"],
     expectEmptyResponse = false,

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   rawUserInfoSchema,
   sessionsSchema,
@@ -12,8 +13,8 @@ import {
   type PlexHomeUser,
   type SwitchedPlexHomeUser,
 } from "../schemas/plex-home-schemas";
-import { plexFriendsSchema, type PlexFriend } from "../schemas/watch-together-schemas";
-import type { PlexConfig } from "../types/client-types";
+import type { PlexFriend } from "../schemas/watch-together-schemas";
+import { PlexAPIError, type PlexConfig } from "../types/client-types";
 import {
   PLEX_CLIENTS_API_BASE_URL,
   PLEX_CLIENTS_USER_API_BASE_URL,
@@ -21,6 +22,50 @@ import {
   PlexTvBaseClient,
 } from "./plex-tv-base-client";
 import { clearPlexServerConnectionCache, PlexServerClient } from "./plex-server-client";
+
+const PLEX_COMMUNITY_API_URL = "https://community.plex.tv/api";
+const GET_ALL_FRIENDS_QUERY = `
+    query GetAllFriends {
+  allFriendsV2 {
+    user {
+      avatar
+      displayName
+      id
+      username
+      idRaw
+    }
+    createdAt
+  }
+}
+    `;
+
+const plexCommunityFriendSchema = z.object({
+  user: z.object({
+    avatar: z.string().nullish(),
+    displayName: z.string().nullish(),
+    id: z.string().min(1),
+    username: z.string().nullish(),
+    idRaw: z.number().int(),
+  }),
+});
+
+const plexCommunityFriendsResponseSchema = z.union([
+  z.object({
+    errors: z.array(z.object({ message: z.string() })).min(1),
+  }),
+  z.object({
+    data: z.object({
+      allFriendsV2: z.array(plexCommunityFriendSchema),
+    }),
+  }),
+]);
+
+type PlexCommunityFriend = z.infer<typeof plexCommunityFriendSchema>;
+type InviteeSources = Readonly<{
+  friends: readonly PlexFriend[];
+  sharedUsers: readonly PlexFriend[];
+  guest: Pick<PlexHomeUser, "id" | "uuid"> | null;
+}>;
 
 /* ────────────────────────────────────────────────────────────
    Plex.tv Client
@@ -272,14 +317,33 @@ export class PlexTvClient extends PlexTvBaseClient {
   }
 
   async getFriends(): Promise<PlexFriend[]> {
-    return this.get(this.token, {
-      endpoint: "friends",
-      schema: plexFriendsSchema,
-      baseUrl: PLEX_TV_API_BASE_URL,
-      xPlexOverrides: {
-        product: "Plex Web",
+    const response = await fetch(PLEX_COMMUNITY_API_URL, {
+      method: "POST",
+      headers: {
+        accept: "*/*",
+        "content-type": "application/json",
+        "X-Plex-Token": this.token,
+        "X-Plex-Product": "Plex Web",
+        "X-Plex-Version": this.config.version,
+        "X-Plex-Client-Identifier": this.config.clientIdentifier,
+        "X-Plex-Platform": this.config.platform,
       },
+      body: JSON.stringify({
+        query: GET_ALL_FRIENDS_QUERY,
+        operationName: "GetAllFriends",
+      }),
     });
+    const result = await this.parseResponse(response, plexCommunityFriendsResponseSchema);
+
+    if ("errors" in result) {
+      throw new PlexAPIError(
+        `Plex friends request failed: ${result.errors.map((error) => error.message).join("; ")}`,
+        response.status,
+        response,
+      );
+    }
+
+    return result.data.allFriendsV2.map(toPlexFriend);
   }
 
   async getWatchTogetherInvitees(): Promise<PlexFriend[]> {
@@ -288,18 +352,7 @@ export class PlexTvClient extends PlexTvBaseClient {
       this.getSharedUsers(),
       this.getGuestHomeUser(),
     ]);
-    const invitees = new Map<number, PlexFriend>();
-
-    for (const user of [...sharedUsers, ...friends]) {
-      if (guest && (user.id === guest.id || user.uuid === guest.uuid)) {
-        continue;
-      }
-      invitees.set(user.id, user);
-    }
-
-    return [...invitees.values()].sort((left, right) => {
-      return getPlexFriendDisplayName(left).localeCompare(getPlexFriendDisplayName(right));
-    });
+    return mergeWatchTogetherInvitees({ friends, sharedUsers, guest });
   }
 
   private async getSharedUsers(): Promise<PlexFriend[]> {
@@ -326,6 +379,52 @@ export class PlexTvClient extends PlexTvBaseClient {
    * @param options - Request options including endpoint, params, schema, and baseUrl
    * @returns Parsed and validated response data
    */
+}
+
+function toPlexFriend({ user }: PlexCommunityFriend): PlexFriend {
+  const displayName = user.displayName || user.username || "Plex user";
+  const username = user.username || user.displayName || "Plex user";
+
+  return {
+    id: user.idRaw,
+    uuid: user.id,
+    title: displayName,
+    username,
+    friendlyName: displayName,
+    thumb: user.avatar || null,
+  };
+}
+
+function mergeWatchTogetherInvitees({ friends, sharedUsers, guest }: InviteeSources): PlexFriend[] {
+  const invitees = new Map<number, PlexFriend>();
+
+  for (const sharedUser of sharedUsers) {
+    if (!isGuestIdentity(sharedUser, guest)) {
+      invitees.set(sharedUser.id, sharedUser);
+    }
+  }
+
+  for (const friend of friends) {
+    if (isGuestIdentity(friend, guest)) {
+      continue;
+    }
+
+    const sharedUser = invitees.get(friend.id);
+    const restricted = friend.restricted ?? sharedUser?.restricted;
+    invitees.set(friend.id, {
+      ...sharedUser,
+      ...friend,
+      ...(restricted === undefined ? {} : { restricted }),
+    });
+  }
+
+  return [...invitees.values()].sort((left, right) => {
+    return getPlexFriendDisplayName(left).localeCompare(getPlexFriendDisplayName(right));
+  });
+}
+
+function isGuestIdentity(friend: PlexFriend, guest: InviteeSources["guest"]): boolean {
+  return guest !== null && (friend.id === guest.id || friend.uuid === guest.uuid);
 }
 
 function getPlexFriendDisplayName(friend: PlexFriend): string {

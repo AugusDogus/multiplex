@@ -41,8 +41,6 @@ export const plexFriendSchema = z
   })
   .passthrough();
 
-export const plexFriendsSchema = z.array(plexFriendSchema);
-
 export type WatchTogetherUser = z.infer<typeof watchTogetherUserSchema>;
 export type WatchTogetherRoom = z.infer<typeof watchTogetherRoomSchema>;
 export type WatchTogetherRoomsResponse = z.infer<typeof watchTogetherRoomsResponseSchema>;
