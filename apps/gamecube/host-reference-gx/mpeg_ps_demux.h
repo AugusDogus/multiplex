@@ -7,6 +7,8 @@
 
 #include "media_reader.h"
 
+#define MPEG_PS_DEMUX_AUDIO_QUEUE_CAPACITY (64u * 1024u)
+
 typedef struct MpegPsDemux MpegPsDemux;
 typedef bool (*MpegPsReadAt)(void *context, size_t offset, uint8_t *destination,
                              size_t size);

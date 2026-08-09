@@ -3,6 +3,7 @@
 
 #include "auth_record.h"
 #include "media_reader.h"
+#include "playback_timeline_policy.h"
 #include "plex_hls.h"
 
 #include <stdbool.h>
@@ -13,14 +14,11 @@ typedef struct PlexHlsDemux PlexHlsDemux;
 
 PlexHlsDemux *plex_hls_demux_create(const MultiplexAuthCredentials *credentials,
                                     uint32_t rating_key, uint32_t offset_ms,
-                                    uint32_t duration_ms,
                                     const char *session_id, bool burn_subtitles,
                                     uint32_t subtitle_stream_index);
-PlexHlsDemux *
-plex_hls_demux_create_prepared(const MultiplexAuthCredentials *credentials,
-                               uint32_t rating_key, uint32_t duration_ms,
-                               const MultiplexPlexHlsSession *session,
-                               const HlsMediaPlaylist *playlist);
+PlexHlsDemux *plex_hls_demux_create_prepared(
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
+    const MultiplexPlexHlsSession *session, const HlsMediaPlaylist *playlist);
 bool plex_hls_demux_start(PlexHlsDemux *demux);
 bool plex_hls_demux_wait_ready(PlexHlsDemux *demux, size_t video_bytes,
                                size_t audio_bytes, uint32_t timeout_ms);
@@ -44,12 +42,12 @@ size_t plex_hls_demux_queued_audio_bytes(PlexHlsDemux *demux);
 bool plex_hls_demux_failed(const PlexHlsDemux *demux);
 bool plex_hls_demux_complete(const PlexHlsDemux *demux);
 const char *plex_hls_demux_session_id(const PlexHlsDemux *demux);
-bool plex_hls_demux_initial_timeline_reported(const PlexHlsDemux *demux);
 bool plex_hls_demux_report_timeline_now(PlexHlsDemux *demux,
                                         uint32_t position_ms,
                                         uint32_t duration_ms,
-                                        const char *state);
+                                        PlaybackTimelineState state);
 bool plex_hls_demux_request_timeline(PlexHlsDemux *demux, uint32_t position_ms,
-                                     uint32_t duration_ms, const char *state);
+                                     uint32_t duration_ms,
+                                     PlaybackTimelineState state);
 
 #endif

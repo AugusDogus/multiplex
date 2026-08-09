@@ -2,7 +2,6 @@
 #include "gateway_client.h"
 #include "geist_atlas.h"
 #include "native_ui.h"
-#include "yuv420_gx.h"
 
 #include <malloc.h>
 #include <math.h>
@@ -1445,7 +1444,7 @@ static void draw_stats_for_nerds(MultiplexPresentation *presentation) {
       multiplex_native_app_stats_for_nerds_enabled() == 0) {
     return;
   }
-  const MultiplexPresentationPlaybackMetrics *metrics =
+  const MultiplexPlaybackMetrics *metrics =
       &presentation->frame_input.playback.metrics;
 
   const struct mallinfo heap = mallinfo();
@@ -1752,7 +1751,7 @@ poster_texture_for_rating_key(MultiplexPresentation *presentation,
 }
 
 static void draw_player_startup_backdrop(MultiplexPresentation *presentation) {
-  const MultiplexPresentationPlaybackSnapshot *playback =
+  const MultiplexPlaybackSnapshot *playback =
       &presentation->frame_input.playback;
   presentation->player_startup_backdrop_visible = false;
   if (presentation->presented_screen != MULTIPLEX_SCREEN_PLAYER ||
@@ -2171,9 +2170,8 @@ static uint32_t modal_layer_sequence(MultiplexPresentation *presentation,
   return UINT32_MAX;
 }
 
-static void draw_video_surface(MultiplexPresentation *presentation) {
-  const MultiplexPresentationPlaybackSnapshot *playback =
-      &presentation->frame_input.playback;
+static void draw_video_surface(MultiplexPresentation *presentation,
+                               const MultiplexPlaybackSnapshot *playback) {
   if (presentation->video_surface.visible == 0 || !playback->frame_ready ||
       playback->playback_failed || presentation->video_surface.width <= 0.0f ||
       presentation->video_surface.height <= 0.0f) {
@@ -2194,11 +2192,11 @@ static void draw_video_surface(MultiplexPresentation *presentation) {
     width = fitted_width;
     height = fitted_height;
   }
-  yuv420_gx_draw(x, y, x + width, y + height);
+  multiplex_video_surface_draw(playback->surface, x, y, x + width, y + height);
 }
 
 static void draw_playback_progress(MultiplexPresentation *presentation) {
-  const MultiplexPresentationPlaybackSnapshot *playback =
+  const MultiplexPlaybackSnapshot *playback =
       &presentation->frame_input.playback;
   if (presentation->video_surface.visible == 0 || playback->rating_key == 0 ||
       playback->duration_ms == 0) {
@@ -2342,10 +2340,11 @@ bool multiplex_presentation_present(
     return false;
   }
   presentation->frame_input = *input;
-  const MultiplexPresentationPlaybackSnapshot *playback = &input->playback;
+  presentation->frame_input.playback.surface = NULL;
+  const MultiplexPlaybackSnapshot *playback = &input->playback;
 
   draw_player_startup_backdrop(presentation);
-  draw_video_surface(presentation);
+  draw_video_surface(presentation, playback);
   if (presentation->video_surface.visible == 0 ||
       presentation->player_controls_overlay_visible) {
     draw_details_backdrop(presentation);
@@ -2393,7 +2392,7 @@ bool multiplex_presentation_present(
     presentation->diagnostic_presentation_fps_tenths = fps_tenths;
     SYS_Report("REFERENCE GX: presentation=120 frames/%uus (%u.%u fps)\n",
                measured_us, fps_tenths / 10, fps_tenths % 10);
-    if (playback->metrics.stream == MULTIPLEX_PRESENTATION_STREAM_PROGRAM) {
+    if (playback->metrics.stream == MULTIPLEX_PLAYBACK_STREAM_PROGRAM) {
       SYS_Report("REFERENCE GX: stream-progress video=%u audio=%u loops=%u\n",
                  playback->metrics.stream_video_bytes,
                  playback->metrics.stream_audio_bytes,
@@ -2405,7 +2404,7 @@ bool multiplex_presentation_present(
             playback->rating_key, playback->position_ms, playback->duration_ms,
             playback->segment_start_ms, playback->segment_duration_ms);
       }
-    } else if (playback->metrics.stream == MULTIPLEX_PRESENTATION_STREAM_HLS) {
+    } else if (playback->metrics.stream == MULTIPLEX_PLAYBACK_STREAM_HLS) {
       SYS_Report("REFERENCE GX: HLS progress segments=%u video=%u audio=%u\n",
                  playback->metrics.producer_units,
                  playback->metrics.stream_video_bytes,
