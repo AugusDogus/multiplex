@@ -24,6 +24,7 @@ host test-tls-ca.sh
 all test-plex-server-directory.sh
 all test-plex-catalog.sh
 all test-hls-playlist.sh
+all test-plex-hls-state.sh
 all test-mpeg-ts-parser.sh
 all test-audio-buffer-queue.sh
 all test-trpc-rooms.sh

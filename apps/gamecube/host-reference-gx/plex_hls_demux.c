@@ -12,6 +12,7 @@
 #include "mpeg_ts_parser.h"
 #include "plex_catalog.h"
 #include "plex_hls.h"
+#include "plex_hls_state.h"
 
 #include <gccore.h>
 #include <ogc/lwp.h>
@@ -34,16 +35,11 @@ struct PlexHlsDemux {
   MediaByteQueue *video;
   MediaByteQueue *audio;
   MpegTsParser parser;
+  MultiplexPlexHlsState state;
   HlsMediaPlaylist prefetched_playlist;
   lwp_t producer_thread;
   void *producer_stack;
-  volatile bool started;
-  volatile bool stopping;
-  volatile bool failed;
-  volatile bool complete;
-  volatile uint32_t segment_count;
-  volatile uint32_t video_bytes;
-  volatile uint32_t audio_bytes;
+  bool started;
   uint32_t rating_key;
   uint32_t timeline_position_ms;
   uint32_t timeline_duration_ms;
@@ -55,6 +51,16 @@ struct PlexHlsDemux {
   bool has_prefetched_playlist;
 };
 
+static void lock_state(void *context) {
+  mutex_t *mutex = context;
+  LWP_MutexLock(*mutex);
+}
+
+static void unlock_state(void *context) {
+  mutex_t *mutex = context;
+  LWP_MutexUnlock(*mutex);
+}
+
 enum {
   HLS_TIMELINE_PLAYING = 1,
   HLS_TIMELINE_PAUSED = 2,
@@ -63,7 +69,7 @@ enum {
 static bool queue_elementary(void *context, MpegTsStream stream,
                              const uint8_t *bytes, size_t size) {
   PlexHlsDemux *demux = context;
-  if (demux == NULL || demux->stopping) {
+  if (demux == NULL || multiplex_plex_hls_state_is_stopping(&demux->state)) {
     return false;
   }
   MediaByteQueue *queue =
@@ -72,22 +78,24 @@ static bool queue_elementary(void *context, MpegTsStream stream,
     return false;
   }
   if (stream == MPEG_TS_STREAM_VIDEO) {
-    demux->video_bytes += (uint32_t)size;
+    multiplex_plex_hls_state_add_bytes(&demux->state, (uint32_t)size, 0);
   } else {
-    demux->audio_bytes += (uint32_t)size;
+    multiplex_plex_hls_state_add_bytes(&demux->state, 0, (uint32_t)size);
   }
   return true;
 }
 
 static bool parse_transport(void *context, const uint8_t *bytes, size_t size) {
   PlexHlsDemux *demux = context;
-  if (demux->stopping) {
+  if (multiplex_plex_hls_state_is_stopping(&demux->state)) {
     return false;
   }
   if (size == 0) {
     return true;
   }
   if (mpeg_ts_parser_push(&demux->parser, bytes, size)) {
+    multiplex_plex_hls_state_publish_parser(
+        &demux->state, mpeg_ts_parser_info(&demux->parser));
     return true;
   }
   /*
@@ -95,7 +103,7 @@ static bool parse_transport(void *context, const uint8_t *bytes, size_t size) {
    * reports that rejected writer call as MPEG_TS_ERROR_OUTPUT, but it is the
    * expected result of a seek or shutdown rather than malformed transport.
    */
-  if (demux->stopping) {
+  if (multiplex_plex_hls_state_is_stopping(&demux->state)) {
     return false;
   }
   uint32_t packet_index = 0;
@@ -157,13 +165,13 @@ static void *run_hls_producer(void *context) {
                playlist.segment_count == 0 ? 0u
                                            : playlist.segments[0].sequence);
   }
-  while (!demux->stopping) {
+  while (!multiplex_plex_hls_state_is_stopping(&demux->state)) {
     if (!has_playlist) {
       if (!multiplex_plex_hls_refresh(demux->credentials, &demux->session,
                                       &playlist)) {
         if (++playlist_failures >= HLS_PLAYLIST_FAILURE_LIMIT) {
           SYS_Report("REFERENCE GX: Plex HLS playlist retry limit reached\n");
-          demux->failed = true;
+          multiplex_plex_hls_state_mark_failed(&demux->state);
           break;
         }
         usleep(HLS_PLAYLIST_RETRY_US);
@@ -175,8 +183,11 @@ static void *run_hls_producer(void *context) {
     const HlsSegment *segment = next_segment(&demux->session, &playlist);
     if (segment == NULL) {
       if (playlist.end_list) {
-        demux->complete = mpeg_ts_parser_finish(&demux->parser);
-        demux->failed = !demux->complete;
+        if (mpeg_ts_parser_finish(&demux->parser)) {
+          multiplex_plex_hls_state_mark_complete(&demux->state);
+        } else {
+          multiplex_plex_hls_state_mark_failed(&demux->state);
+        }
         break;
       }
       has_playlist = false;
@@ -187,14 +198,14 @@ static void *run_hls_producer(void *context) {
     size_t transport_bytes = 0;
     if (!multiplex_plex_hls_stream_segment(
             demux->credentials, &demux->session, segment, parse_transport,
-            demux, &demux->stopping, &transport_bytes)) {
-      if (!demux->stopping) {
-        demux->failed = true;
+            demux, &demux->state.http_client_cancelled, &transport_bytes)) {
+      if (!multiplex_plex_hls_state_is_stopping(&demux->state)) {
+        multiplex_plex_hls_state_mark_failed(&demux->state);
       }
       break;
     }
     demux->session.next_sequence = segment->sequence + 1u;
-    demux->segment_count += 1u;
+    multiplex_plex_hls_state_mark_segment(&demux->state);
     report_pending_timeline(demux);
   }
   finish_queues(demux);
@@ -220,6 +231,11 @@ allocate_hls_demux(const MultiplexAuthCredentials *credentials,
     return NULL;
   }
   demux->timeline_mutex_ready = true;
+  multiplex_plex_hls_state_init(
+      &demux->state,
+      (MultiplexPlexHlsLockOps){.lock = lock_state,
+                                .unlock = unlock_state,
+                                .context = &demux->timeline_mutex});
   demux->video = media_byte_queue_create(HLS_VIDEO_QUEUE_SIZE);
   demux->audio = media_byte_queue_create(HLS_AUDIO_QUEUE_SIZE);
   if (demux->video == NULL || demux->audio == NULL) {
@@ -305,13 +321,20 @@ bool plex_hls_demux_wait_ready(PlexHlsDemux *demux, size_t video_bytes,
     return false;
   }
   uint32_t waited_ms = 0;
-  while (!demux->failed && !demux->complete && !demux->stopping &&
-         waited_ms < timeout_ms) {
-    const MpegTsInfo *info = mpeg_ts_parser_info(&demux->parser);
-    const size_t queued_video = media_byte_queue_size(demux->video);
-    const size_t queued_audio = media_byte_queue_size(demux->audio);
-    const bool requested_prebuffer =
-        queued_video >= video_bytes && queued_audio >= audio_bytes;
+  MultiplexPlexHlsSnapshot snapshot;
+  while (waited_ms < timeout_ms) {
+    multiplex_plex_hls_state_snapshot(&demux->state, &snapshot);
+    if (snapshot.terminal != MULTIPLEX_PLEX_HLS_ACTIVE || snapshot.stopping) {
+      break;
+    }
+    const MultiplexPlexHlsBuffers buffers = {
+        .queued_video = media_byte_queue_size(demux->video),
+        .queued_audio = media_byte_queue_size(demux->audio),
+        .requested_video = video_bytes,
+        .requested_audio = audio_bytes,
+        .video_capacity = HLS_VIDEO_QUEUE_SIZE,
+        .audio_capacity = HLS_AUDIO_QUEUE_SIZE,
+    };
     /*
      * MPEG-TS does not promise a bounded byte ratio between elementary
      * streams. In particular, a seek can land before a long run of audio
@@ -320,42 +343,42 @@ bool plex_hls_demux_wait_ready(PlexHlsDemux *demux, size_t video_bytes,
      * until codec consumers start draining it.
      */
     const bool producer_backpressured =
-        (queued_video == HLS_VIDEO_QUEUE_SIZE && queued_audio != 0) ||
-        (queued_audio == HLS_AUDIO_QUEUE_SIZE && queued_video != 0);
-    if (info->video_pid != MPEG_TS_NO_PID &&
-        info->audio_pid != MPEG_TS_NO_PID &&
-        info->first_video_pts90k != MPEG_TS_NO_PTS &&
-        info->first_audio_pts90k != MPEG_TS_NO_PTS &&
-        (requested_prebuffer || producer_backpressured)) {
+        (buffers.queued_video == buffers.video_capacity &&
+         buffers.queued_audio != 0) ||
+        (buffers.queued_audio == buffers.audio_capacity &&
+         buffers.queued_video != 0);
+    if (multiplex_plex_hls_snapshot_ready(&snapshot, &buffers)) {
       SYS_Report("REFERENCE GX: HLS ready video=%u audio=%u video-pts=%lld "
                  "audio-pts=%lld backpressured=%u\n",
-                 (unsigned)queued_video, (unsigned)queued_audio,
-                 info->first_video_pts90k, info->first_audio_pts90k,
+                 (unsigned)buffers.queued_video, (unsigned)buffers.queued_audio,
+                 snapshot.parser_info.first_video_pts90k,
+                 snapshot.parser_info.first_audio_pts90k,
                  producer_backpressured ? 1u : 0u);
       return true;
     }
     usleep(10000);
     waited_ms += 10u;
   }
-  const MpegTsInfo *info = mpeg_ts_parser_info(&demux->parser);
-  SYS_Report("REFERENCE GX: HLS readiness failed waited=%u video=%u/%u "
-             "audio=%u/%u pids=%u/%u pts=%lld/%lld failed=%u complete=%u "
-             "stopping=%u\n",
-             waited_ms, (unsigned)media_byte_queue_size(demux->video),
-             (unsigned)video_bytes,
-             (unsigned)media_byte_queue_size(demux->audio),
-             (unsigned)audio_bytes, info->video_pid, info->audio_pid,
-             info->first_video_pts90k, info->first_audio_pts90k,
-             demux->failed ? 1u : 0u, demux->complete ? 1u : 0u,
-             demux->stopping ? 1u : 0u);
+  multiplex_plex_hls_state_snapshot(&demux->state, &snapshot);
+  SYS_Report(
+      "REFERENCE GX: HLS readiness failed waited=%u video=%u/%u "
+      "audio=%u/%u pids=%u/%u pts=%lld/%lld failed=%u complete=%u "
+      "stopping=%u\n",
+      waited_ms, (unsigned)media_byte_queue_size(demux->video),
+      (unsigned)video_bytes, (unsigned)media_byte_queue_size(demux->audio),
+      (unsigned)audio_bytes, snapshot.parser_info.video_pid,
+      snapshot.parser_info.audio_pid, snapshot.parser_info.first_video_pts90k,
+      snapshot.parser_info.first_audio_pts90k,
+      snapshot.terminal == MULTIPLEX_PLEX_HLS_FAILED ? 1u : 0u,
+      snapshot.terminal == MULTIPLEX_PLEX_HLS_COMPLETE ? 1u : 0u,
+      snapshot.stopping ? 1u : 0u);
   return false;
 }
 
 void plex_hls_demux_stop(PlexHlsDemux *demux) {
-  if (demux == NULL || demux->stopping) {
+  if (demux == NULL || !multiplex_plex_hls_state_request_stop(&demux->state)) {
     return;
   }
-  demux->stopping = true;
   finish_queues(demux);
   if (demux->producer_thread != LWP_THREAD_NULL) {
     LWP_JoinThread(demux->producer_thread, NULL);
@@ -404,28 +427,32 @@ uint32_t plex_hls_demux_frame_rate_millihertz(const PlexHlsDemux *demux) {
   return demux == NULL ? 0 : demux->session.variant.frame_rate_millihertz;
 }
 
+static MultiplexPlexHlsSnapshot state_snapshot(const PlexHlsDemux *demux) {
+  MultiplexPlexHlsSnapshot snapshot;
+  multiplex_plex_hls_state_snapshot(&demux->state, &snapshot);
+  return snapshot;
+}
+
 int64_t plex_hls_demux_first_video_pts90k(const PlexHlsDemux *demux) {
-  return demux == NULL
-             ? MPEG_TS_NO_PTS
-             : mpeg_ts_parser_info(&demux->parser)->first_video_pts90k;
+  return demux == NULL ? MPEG_TS_NO_PTS
+                       : state_snapshot(demux).parser_info.first_video_pts90k;
 }
 
 int64_t plex_hls_demux_first_audio_pts90k(const PlexHlsDemux *demux) {
-  return demux == NULL
-             ? MPEG_TS_NO_PTS
-             : mpeg_ts_parser_info(&demux->parser)->first_audio_pts90k;
+  return demux == NULL ? MPEG_TS_NO_PTS
+                       : state_snapshot(demux).parser_info.first_audio_pts90k;
 }
 
 uint32_t plex_hls_demux_segment_count(const PlexHlsDemux *demux) {
-  return demux == NULL ? 0 : demux->segment_count;
+  return demux == NULL ? 0 : state_snapshot(demux).segment_count;
 }
 
 uint32_t plex_hls_demux_video_bytes(const PlexHlsDemux *demux) {
-  return demux == NULL ? 0 : demux->video_bytes;
+  return demux == NULL ? 0 : state_snapshot(demux).video_bytes;
 }
 
 uint32_t plex_hls_demux_audio_bytes(const PlexHlsDemux *demux) {
-  return demux == NULL ? 0 : demux->audio_bytes;
+  return demux == NULL ? 0 : state_snapshot(demux).audio_bytes;
 }
 
 size_t plex_hls_demux_queued_video_bytes(PlexHlsDemux *demux) {
@@ -437,11 +464,13 @@ size_t plex_hls_demux_queued_audio_bytes(PlexHlsDemux *demux) {
 }
 
 bool plex_hls_demux_failed(const PlexHlsDemux *demux) {
-  return demux == NULL || demux->failed;
+  return demux == NULL ||
+         state_snapshot(demux).terminal == MULTIPLEX_PLEX_HLS_FAILED;
 }
 
 bool plex_hls_demux_complete(const PlexHlsDemux *demux) {
-  return demux != NULL && demux->complete;
+  return demux != NULL &&
+         state_snapshot(demux).terminal == MULTIPLEX_PLEX_HLS_COMPLETE;
 }
 
 const char *plex_hls_demux_session_id(const PlexHlsDemux *demux) {
