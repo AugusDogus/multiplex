@@ -2,6 +2,7 @@
 
 #include "http_client.h"
 #include "network_resolver.h"
+#include "syncplay_protocol.h"
 #include "tls_client.h"
 
 #include <gccore.h>
@@ -183,46 +184,6 @@ static bool expected_websocket_accept(const char *key, char *accept,
   return true;
 }
 
-static bool header_has_accept(const char *headers, const char *expected) {
-  static const char prefix[] = "Sec-WebSocket-Accept:";
-  const char *line = strstr(headers, prefix);
-  if (line == NULL) {
-    return false;
-  }
-  line += sizeof(prefix) - 1u;
-  while (*line == ' ' || *line == '\t') {
-    ++line;
-  }
-  const size_t expected_size = strlen(expected);
-  return strncmp(line, expected, expected_size) == 0 &&
-         (line[expected_size] == '\r' || line[expected_size] == '\n');
-}
-
-static bool header_has_value(const char *headers, const char *name,
-                             const char *expected) {
-  const size_t name_size = strlen(name);
-  const size_t expected_size = strlen(expected);
-  const char *line = strstr(headers, "\r\n");
-  while (line != NULL && line[2] != '\r' && line[2] != '\0') {
-    line += 2;
-    const char *line_end = strstr(line, "\r\n");
-    if (line_end == NULL) {
-      return false;
-    }
-    if ((size_t)(line_end - line) > name_size &&
-        strncasecmp(line, name, name_size) == 0 && line[name_size] == ':') {
-      const char *value = line + name_size + 1u;
-      while (value < line_end && (*value == ' ' || *value == '\t')) {
-        ++value;
-      }
-      return (size_t)(line_end - value) == expected_size &&
-             strncasecmp(value, expected, expected_size) == 0;
-    }
-    line = line_end;
-  }
-  return false;
-}
-
 static bool upgrade_websocket(SyncplaySocket *socket, const char *host,
                               uint16_t port) {
   char key[32];
@@ -261,10 +222,9 @@ static bool upgrade_websocket(SyncplaySocket *socket, const char *host,
     }
   }
   char *header_end = strstr(response, "\r\n\r\n");
-  const bool upgraded = header_end != NULL &&
-                        strncmp(response, "HTTP/1.1 101 ", 13u) == 0 &&
-                        header_has_value(response, "Upgrade", "websocket") &&
-                        header_has_accept(response, expected_accept);
+  const bool upgraded =
+      header_end != NULL &&
+      multiplex_syncplay_validate_upgrade(response, expected_accept);
   if (!upgraded) {
     return false;
   }
@@ -328,22 +288,23 @@ static bool receive_text_frame(SyncplaySocket *socket, char *text,
     if (!tls_read_exact(socket, header, 2u)) {
       return false;
     }
-    const uint8_t opcode = header[0] & 0x0fu;
-    if ((header[0] & 0x80u) == 0 || (header[1] & 0x80u) != 0) {
+    size_t header_size = 2u;
+    if ((header[1] & 0x7fu) == 126u) {
+      if (!tls_read_exact(socket, header + 2u, 2u)) {
+        return false;
+      }
+      header_size = 4u;
+    }
+    MultiplexSyncplayFrameHeader decoded;
+    if (!multiplex_syncplay_decode_frame_header(header, header_size,
+                                                &decoded)) {
       SYS_Report("REFERENCE GX: Syncplay frame header rejected first=%02x "
                  "second=%02x\n",
                  header[0], header[1]);
       return false;
     }
-    size_t payload_size = header[1] & 0x7fu;
-    if (payload_size == 126u) {
-      if (!tls_read_exact(socket, header + 2u, 2u)) {
-        return false;
-      }
-      payload_size = ((size_t)header[2] << 8u) | header[3];
-    } else if (payload_size == 127u) {
-      return false;
-    }
+    const uint8_t opcode = decoded.opcode;
+    const size_t payload_size = decoded.payload_size;
     if (opcode == 0x8u) {
       SYS_Report("REFERENCE GX: Syncplay close frame payload=%u\n",
                  (unsigned)payload_size);
@@ -670,21 +631,20 @@ static bool poll_frames(MultiplexSyncplaySession *session) {
   size_t consumed = 0;
   while (session->received_size - consumed >= 2u) {
     const uint8_t *frame = session->received + consumed;
-    const uint8_t opcode = frame[0] & 0x0fu;
-    if ((frame[0] & 0x80u) == 0 || (frame[1] & 0x80u) != 0) {
-      return false;
-    }
+    const size_t available = session->received_size - consumed;
     size_t header_size = 2u;
-    size_t payload_size = frame[1] & 0x7fu;
-    if (payload_size == 126u) {
-      if (session->received_size - consumed < 4u) {
+    if ((frame[1] & 0x7fu) == 126u) {
+      if (available < 4u) {
         break;
       }
-      payload_size = ((size_t)frame[2] << 8u) | frame[3];
       header_size = 4u;
-    } else if (payload_size == 127u) {
+    }
+    MultiplexSyncplayFrameHeader decoded;
+    if (!multiplex_syncplay_decode_frame_header(frame, header_size, &decoded)) {
       return false;
     }
+    const uint8_t opcode = decoded.opcode;
+    const size_t payload_size = decoded.payload_size;
     if (header_size + payload_size > session->received_size - consumed) {
       break;
     }
@@ -768,12 +728,9 @@ multiplex_syncplay_session_connect(const MultiplexTrpcRoom *room,
    * our encoded username is its normal first reply and is authoritative proof
    * that the server accepted the room and registered this client.
    */
-  const bool joined = received_protocol_frame &&
-                      strstr(response, "\"Error\"") == NULL &&
-                      (strstr(response, "\"Hello\"") != NULL ||
-                       strstr(response, "\"List\"") != NULL ||
-                       (strstr(response, "\"Set\"") != NULL &&
-                        strstr(response, device_identifier) != NULL));
+  const bool joined =
+      received_protocol_frame &&
+      multiplex_syncplay_validate_hello(response, device_identifier);
   if (!joined) {
     SYS_Report("REFERENCE GX: Syncplay first response=%s\n", response);
   }
