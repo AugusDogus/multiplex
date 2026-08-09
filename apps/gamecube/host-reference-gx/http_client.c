@@ -9,6 +9,8 @@
 
 #include "http_client.h"
 
+#include "http_response.h"
+
 #include "media-source.h"
 #include "network_resolver.h"
 #include "tls_client.h"
@@ -32,7 +34,6 @@
 #define HTTP_ADDITIONAL_HEADERS_LIMIT 1536
 #define HTTP_MAX_MEDIA_SIZE UINT32_MAX
 #define HTTP_CACHE_SIZE (32u * 1024u)
-#define HTTP_BODY_STREAM_CHUNK_SIZE (4u * 1024u)
 #define HTTP_SMALL_MEDIA_CACHE_SIZE (256u * 1024u)
 #define HTTP_IO_TIMEOUT_SECONDS 30
 #define HTTP_STREAM_TIMEOUT_SECONDS 15
@@ -1098,13 +1099,20 @@ typedef struct {
   size_t prefetched_size;
   size_t prefetched_offset;
   unsigned timeout_seconds;
-} HttpBodyReader;
+} HttpResponseBodyReader;
 
 typedef struct {
   HttpBodyWrite write;
   void *context;
   size_t skip;
 } SkippingBodyWrite;
+
+static bool discard_body(void *context, const uint8_t *bytes, size_t size) {
+  (void)context;
+  (void)bytes;
+  (void)size;
+  return true;
+}
 
 static bool write_skipping_prefix(void *context, const uint8_t *bytes,
                                   size_t size) {
@@ -1115,11 +1123,12 @@ static bool write_skipping_prefix(void *context, const uint8_t *bytes,
     bytes += skipped;
     size -= skipped;
   }
-  return size == 0 || skipping->write(skipping->context, bytes, size);
+  return size == 0 || skipping->write == NULL ||
+         skipping->write(skipping->context, bytes, size);
 }
 
-static int body_reader_read_some(HttpBodyReader *reader, uint8_t *destination,
-                                 size_t size) {
+static int body_reader_read_some(HttpResponseBodyReader *reader,
+                                 uint8_t *destination, size_t size) {
   if (reader->prefetched_offset < reader->prefetched_size) {
     const size_t available =
         reader->prefetched_size - reader->prefetched_offset;
@@ -1132,190 +1141,39 @@ static int body_reader_read_some(HttpBodyReader *reader, uint8_t *destination,
                                      reader->timeout_seconds);
 }
 
-static bool body_reader_read_exact(HttpBodyReader *reader, uint8_t *destination,
-                                   size_t size) {
-  size_t read = 0;
-  while (read < size) {
-    const int received =
-        body_reader_read_some(reader, destination + read, size - read);
-    if (received <= 0 || (size_t)received > size - read) {
-      return false;
-    }
-    read += (size_t)received;
+static HttpResponseReadResult body_reader_read(void *context,
+                                               uint8_t *destination,
+                                               size_t capacity, size_t *size) {
+  HttpResponseBodyReader *reader = context;
+  if (reader->client->stopping || (reader->client->external_cancelled != NULL &&
+                                   *reader->client->external_cancelled)) {
+    return HTTP_RESPONSE_READ_CANCELLED;
   }
-  return true;
+  const int received = body_reader_read_some(reader, destination, capacity);
+  if (received > 0) {
+    *size = (size_t)received;
+    return HTTP_RESPONSE_READ_DATA;
+  }
+  if (received == 0) {
+    return HTTP_RESPONSE_READ_END;
+  }
+  if (reader->client->stopping || (reader->client->external_cancelled != NULL &&
+                                   *reader->client->external_cancelled)) {
+    return HTTP_RESPONSE_READ_CANCELLED;
+  }
+  return HTTP_RESPONSE_READ_FAILURE;
 }
 
-static bool body_reader_line(HttpBodyReader *reader, char *line,
-                             size_t capacity) {
-  size_t used = 0;
-  while (used + 1u < capacity) {
-    uint8_t byte = 0;
-    if (!body_reader_read_exact(reader, &byte, 1)) {
-      return false;
-    }
-    if (byte == '\n') {
-      if (used != 0 && line[used - 1u] == '\r') {
-        --used;
-      }
-      line[used] = '\0';
-      return true;
-    }
-    line[used++] = (char)byte;
-  }
-  return false;
+static bool body_reader_cancelled(void *context) {
+  const HttpResponseBodyReader *reader = context;
+  return reader->client->stopping ||
+         (reader->client->external_cancelled != NULL &&
+          *reader->client->external_cancelled);
 }
 
-static bool parse_stream_request_headers(char *headers,
-                                         HttpJsonResponse *response,
-                                         size_t *content_length,
-                                         bool *has_content_length,
-                                         bool *chunked) {
-  memset(response, 0, sizeof(*response));
-  *content_length = 0;
-  *has_content_length = false;
-  *chunked = false;
-  if (sscanf(headers, "HTTP/%*u.%*u %u", &response->status) != 1 ||
-      response->status < 100 || response->status > 599) {
-    return false;
-  }
-
-  char *line = strstr(headers, "\r\n");
-  while (line != NULL && line[2] != '\r' && line[2] != '\0') {
-    line += 2;
-    char *line_end = strstr(line, "\r\n");
-    if (line_end == NULL) {
-      return false;
-    }
-    if (strncasecmp(line, "Content-Length:", 15) == 0) {
-      char *value = line + 15;
-      while (*value == ' ' || *value == '\t') {
-        ++value;
-      }
-      char *end = NULL;
-      const unsigned long parsed = strtoul(value, &end, 10);
-      if (end == value || end > line_end || parsed > SIZE_MAX) {
-        return false;
-      }
-      *content_length = (size_t)parsed;
-      *has_content_length = true;
-    } else if (strncasecmp(line, "Transfer-Encoding:", 18) == 0) {
-      const char *encoding = strstr(line + 18, "chunked");
-      if (encoding != NULL && encoding < line_end) {
-        *chunked = true;
-      }
-    }
-    line = line_end;
-  }
-  return !*chunked || !*has_content_length;
-}
-
-static bool write_body(HttpBodyWrite write, void *context, const uint8_t *bytes,
-                       size_t size) {
-  return size == 0 || write == NULL || write(context, bytes, size);
-}
-
-static bool stream_content_length(HttpBodyReader *reader, size_t size,
-                                  HttpBodyWrite write, void *context,
-                                  size_t *body_size) {
-  uint8_t buffer[HTTP_BODY_STREAM_CHUNK_SIZE];
-  *body_size = 0;
-  while (*body_size < size) {
-    const size_t remaining = size - *body_size;
-    const size_t chunk =
-        remaining < sizeof(buffer) ? remaining : sizeof(buffer);
-    if (!body_reader_read_exact(reader, buffer, chunk) ||
-        !write_body(write, context, buffer, chunk)) {
-      return false;
-    }
-    *body_size += chunk;
-    LWP_YieldThread();
-  }
-  return true;
-}
-
-static bool parse_chunk_size(const char *line, size_t *size) {
-  size_t parsed = 0;
-  bool saw_digit = false;
-  for (const char *cursor = line; *cursor != '\0' && *cursor != ';'; ++cursor) {
-    unsigned digit = 0;
-    if (*cursor >= '0' && *cursor <= '9') {
-      digit = (unsigned)(*cursor - '0');
-    } else if (*cursor >= 'a' && *cursor <= 'f') {
-      digit = (unsigned)(*cursor - 'a') + 10u;
-    } else if (*cursor >= 'A' && *cursor <= 'F') {
-      digit = (unsigned)(*cursor - 'A') + 10u;
-    } else {
-      return false;
-    }
-    saw_digit = true;
-    if (parsed > (SIZE_MAX - digit) / 16u) {
-      return false;
-    }
-    parsed = parsed * 16u + digit;
-  }
-  *size = parsed;
-  return saw_digit;
-}
-
-static bool stream_chunked(HttpBodyReader *reader, HttpBodyWrite write,
-                           void *context, size_t *body_size) {
-  uint8_t buffer[HTTP_BODY_STREAM_CHUNK_SIZE];
-  char line[128];
-  *body_size = 0;
-  for (;;) {
-    size_t chunk_size = 0;
-    if (!body_reader_line(reader, line, sizeof(line)) ||
-        !parse_chunk_size(line, &chunk_size)) {
-      return false;
-    }
-    if (chunk_size == 0) {
-      do {
-        if (!body_reader_line(reader, line, sizeof(line))) {
-          return false;
-        }
-      } while (line[0] != '\0');
-      return true;
-    }
-    if (chunk_size > SIZE_MAX - *body_size) {
-      return false;
-    }
-    size_t remaining = chunk_size;
-    while (remaining != 0) {
-      const size_t part =
-          remaining < sizeof(buffer) ? remaining : sizeof(buffer);
-      if (!body_reader_read_exact(reader, buffer, part) ||
-          !write_body(write, context, buffer, part)) {
-        return false;
-      }
-      remaining -= part;
-      LWP_YieldThread();
-    }
-    uint8_t terminator[2];
-    if (!body_reader_read_exact(reader, terminator, sizeof(terminator)) ||
-        terminator[0] != '\r' || terminator[1] != '\n') {
-      return false;
-    }
-    *body_size += chunk_size;
-  }
-}
-
-static bool stream_until_close(HttpBodyReader *reader, HttpBodyWrite write,
-                               void *context, size_t *body_size) {
-  uint8_t buffer[HTTP_BODY_STREAM_CHUNK_SIZE];
-  *body_size = 0;
-  for (;;) {
-    const int received = body_reader_read_some(reader, buffer, sizeof(buffer));
-    if (received == 0) {
-      return true;
-    }
-    if (received < 0 || !write_body(write, context, buffer, (size_t)received) ||
-        *body_size > SIZE_MAX - (size_t)received) {
-      return false;
-    }
-    *body_size += (size_t)received;
-    LWP_YieldThread();
-  }
+static void body_reader_yield(void *context) {
+  (void)context;
+  LWP_YieldThread();
 }
 
 static bool http_client_stream_get_with_headers_unlocked(
@@ -1390,23 +1248,18 @@ static bool http_client_stream_get_with_headers_unlocked(
     http_client_destroy(client);
     return false;
   }
-  const char first_body_byte = response_headers[header_size];
-  response_headers[header_size] = '\0';
-  size_t content_length = 0;
-  bool has_content_length = false;
-  bool chunked = false;
+  HttpResponseHead head = {0};
   const bool valid_headers =
-      parse_stream_request_headers(response_headers, response, &content_length,
-                                   &has_content_length, &chunked);
-  response_headers[header_size] = first_body_byte;
+      http_response_parse_headers(response_headers, header_size, &head);
   if (!valid_headers) {
     set_diagnostic(HTTP_DIAGNOSTIC_RESPONSE, -3);
     http_client_destroy(client);
     return false;
   }
+  response->status = head.status;
   set_response_diagnostic(response->status);
 
-  HttpBodyReader reader = {
+  HttpResponseBodyReader reader = {
       .client = client,
       .prefetched = (const uint8_t *)response_headers + header_size,
       .prefetched_size = response_size - header_size,
@@ -1418,25 +1271,27 @@ static bool http_client_stream_get_with_headers_unlocked(
       .context = write_context,
       .skip = response->status == 200 ? full_response_skip : 0,
   };
-  HttpBodyWrite body_write = skipping.skip == 0 ? write : write_skipping_prefix;
-  void *body_write_context = skipping.skip == 0 ? write_context : &skipping;
-  bool streamed = false;
-  if (chunked) {
-    streamed = stream_chunked(&reader, body_write, body_write_context,
-                              &response->body_size);
-  } else if (has_content_length) {
-    streamed = stream_content_length(&reader, content_length, body_write,
-                                     body_write_context, &response->body_size);
-  } else {
-    streamed = stream_until_close(&reader, body_write, body_write_context,
-                                  &response->body_size);
-  }
+  HttpResponseBodyIo io = {
+      .read = body_reader_read,
+      .read_context = &reader,
+      .write = skipping.skip == 0 ? (write == NULL ? discard_body : write)
+                                  : write_skipping_prefix,
+      .write_context = skipping.skip == 0 ? write_context : &skipping,
+      .cancelled = body_reader_cancelled,
+      .cancel_context = &reader,
+      .yield = body_reader_yield,
+      .yield_context = NULL,
+  };
+  const HttpResponseBodyResult body_result =
+      http_response_stream_body(&head, &io);
+  response->body_size = body_result.bytes_delivered;
+  const bool streamed = body_result.status == HTTP_RESPONSE_BODY_COMPLETE;
   SYS_Report(
       "REFERENCE GX: HTTP stream status=%u bytes=%u framing=%s valid=%u\n",
       response->status, (unsigned)response->body_size,
-      chunked              ? "chunked"
-      : has_content_length ? "length"
-                           : "close",
+      head.framing == HTTP_RESPONSE_FRAMING_CHUNKED          ? "chunked"
+      : head.framing == HTTP_RESPONSE_FRAMING_CONTENT_LENGTH ? "length"
+                                                             : "close",
       streamed ? 1u : 0u);
   if (!streamed) {
     set_diagnostic(HTTP_DIAGNOSTIC_RESPONSE, -4);
