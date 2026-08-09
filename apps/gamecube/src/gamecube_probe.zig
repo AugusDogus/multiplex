@@ -284,9 +284,275 @@ const gx_shadow: u32 = 6;
 const gx_glyph: u32 = 7;
 const gx_path_line: u32 = 8;
 const gx_fill_triangle: u32 = 9;
+const native_abi_version: u32 = 1;
+const screen_pairing: u32 = 0;
+const screen_home: u32 = 1;
+const screen_libraries: u32 = 2;
+const screen_browse: u32 = 3;
+const screen_search: u32 = 4;
+const screen_search_results: u32 = 5;
+const screen_watch_together_invite: u32 = 6;
+const screen_watch_together: u32 = 7;
+const screen_watch_together_room: u32 = 8;
+const screen_details: u32 = 9;
+const screen_player: u32 = 10;
+
+const NativeMessageKind = enum(u32) {
+    none = 0,
+    connect_demo = 1,
+    previous_row = 2,
+    next_row = 3,
+    open_libraries = 4,
+    open_library = 5,
+    browse_previous_row = 6,
+    browse_next_row = 7,
+    open_item = 8,
+    play = 9,
+    toggle_playback = 10,
+    back = 11,
+    open_search = 13,
+    search_key = 14,
+    search_delete = 15,
+    search_submit = 16,
+    seek_backward = 17,
+    seek_forward = 18,
+    sync_playback = 19,
+    continue_playback = 20,
+    complete_playback = 21,
+    open_watch_together = 22,
+    create_watch_together = 23,
+    watch_together_invitees_previous = 24,
+    watch_together_invitees_next = 25,
+    invite_watch_together = 26,
+    join_watch_together = 27,
+    leave_watch_together = 28,
+    reconnect_watch_together = 29,
+    disband_watch_together = 30,
+    open_details_child = 31,
+    details_children_previous = 32,
+    details_children_next = 33,
+    cycle_subtitles = 34,
+    open_start_menu = 35,
+    close_start_menu = 36,
+    start_menu_play = 37,
+    start_menu_create_watch_together = 38,
+    open_player_settings = 41,
+    close_player_settings = 42,
+    stop_playback = 43,
+    play_previous = 44,
+    play_next = 45,
+    search_cursor_left = 46,
+    search_cursor_right = 47,
+    mark_watched = 48,
+    start_menu_mark_watched = 49,
+    toggle_stats_for_nerds = 50,
+};
+
+const NativeNavigationTraceKind = enum(u32) {
+    home_carousel_next = 51,
+    home_carousel_previous = 52,
+};
+
+fn nativeMessageKind(message: core.Msg) NativeMessageKind {
+    return switch (message) {
+        .connect_demo => .connect_demo,
+        .previous_row => .previous_row,
+        .next_row => .next_row,
+        .open_libraries => .open_libraries,
+        .open_library => .open_library,
+        .browse_previous_row => .browse_previous_row,
+        .browse_next_row => .browse_next_row,
+        .open_search => .open_search,
+        .open_watch_together => .open_watch_together,
+        .open_start_menu => .open_start_menu,
+        .close_start_menu => .close_start_menu,
+        .start_menu_play => .start_menu_play,
+        .start_menu_create_watch_together => .start_menu_create_watch_together,
+        .create_watch_together => .create_watch_together,
+        .watch_together_invitees_previous => .watch_together_invitees_previous,
+        .watch_together_invitees_next => .watch_together_invitees_next,
+        .invite_watch_together => .invite_watch_together,
+        .join_watch_together => .join_watch_together,
+        .leave_watch_together => .leave_watch_together,
+        .reconnect_watch_together => .reconnect_watch_together,
+        .disband_watch_together => .disband_watch_together,
+        .search_key => .search_key,
+        .search_delete => .search_delete,
+        .search_cursor_left => .search_cursor_left,
+        .search_cursor_right => .search_cursor_right,
+        .search_submit => .search_submit,
+        .open_item => .open_item,
+        .open_details_child => .open_details_child,
+        .details_children_previous => .details_children_previous,
+        .details_children_next => .details_children_next,
+        .play => .play,
+        .mark_watched => .mark_watched,
+        .seek_backward => .seek_backward,
+        .seek_forward => .seek_forward,
+        .open_player_settings => .open_player_settings,
+        .close_player_settings => .close_player_settings,
+        .stop_playback => .stop_playback,
+        .play_previous => .play_previous,
+        .play_next => .play_next,
+        .sync_playback => .sync_playback,
+        .continue_playback => .continue_playback,
+        .complete_playback => .complete_playback,
+        .toggle_playback => .toggle_playback,
+        .cycle_subtitles => .cycle_subtitles,
+        .toggle_stats_for_nerds => .toggle_stats_for_nerds,
+        .start_menu_mark_watched => .start_menu_mark_watched,
+        .back => .back,
+    };
+}
+
+fn traceInputMessage(action: u32, focus: u32, count: u32, message: NativeMessageKind) void {
+    multiplex_native_input_trace(action, focus, count, @intFromEnum(message));
+}
+
+fn traceInputNavigation(action: u32, focus: u32, count: u32, navigation: NativeNavigationTraceKind) void {
+    multiplex_native_input_trace(action, focus, count, @intFromEnum(navigation));
+}
+
+fn abiAlignForward(value: usize, alignment: usize) usize {
+    return (value + alignment - 1) / alignment * alignment;
+}
+
+comptime {
+    const native_message_fields = @typeInfo(NativeMessageKind).@"enum".fields;
+    const native_navigation_fields = @typeInfo(NativeNavigationTraceKind).@"enum".fields;
+    const core_message_fields = @typeInfo(core.Msg).@"union".fields;
+    const pointer_size = @sizeOf(?[*]const u8);
+    const gx_command_alignment = @max(@alignOf(?[*]const u8), @alignOf(f32));
+    const text_ptr_offset = abiAlignForward(60, @alignOf(?[*]const u8));
+    const text_len_offset = text_ptr_offset + pointer_size;
+    const glyph_id_offset = text_len_offset + @sizeOf(u32);
+    const font_size_offset = glyph_id_offset + @sizeOf(u32);
+
+    std.debug.assert(@sizeOf(u32) == 4);
+    std.debug.assert(@sizeOf(f32) == 4);
+    std.debug.assert(native_abi_version == 1);
+    std.debug.assert(native_message_fields.len == core_message_fields.len + 1);
+
+    var max_message_id: comptime_int = 0;
+    for (native_message_fields) |field| {
+        max_message_id = @max(max_message_id, field.value);
+    }
+    var used_message_ids = [_]bool{false} ** (max_message_id + 1);
+    for (native_message_fields) |field| {
+        if (used_message_ids[field.value]) {
+            @compileError(std.fmt.comptimePrint(
+                "native message ID {d} is assigned more than once",
+                .{field.value},
+            ));
+        }
+        used_message_ids[field.value] = true;
+    }
+    for (native_navigation_fields) |navigation| {
+        for (native_message_fields) |message| {
+            if (navigation.value == message.value) {
+                @compileError(std.fmt.comptimePrint(
+                    "native navigation trace {s} reuses message ID {d}",
+                    .{ navigation.name, navigation.value },
+                ));
+            }
+        }
+    }
+
+    std.debug.assert(gx_fill_rect == 1);
+    std.debug.assert(gx_fill_rounded_rect == 2);
+    std.debug.assert(gx_stroke_rect == 3);
+    std.debug.assert(gx_line == 4);
+    std.debug.assert(gx_text == 5);
+    std.debug.assert(gx_shadow == 6);
+    std.debug.assert(gx_glyph == 7);
+    std.debug.assert(gx_path_line == 8);
+    std.debug.assert(gx_fill_triangle == 9);
+
+    std.debug.assert(screen_pairing == 0);
+    std.debug.assert(screen_home == 1);
+    std.debug.assert(screen_libraries == 2);
+    std.debug.assert(screen_browse == 3);
+    std.debug.assert(screen_search == 4);
+    std.debug.assert(screen_search_results == 5);
+    std.debug.assert(screen_watch_together_invite == 6);
+    std.debug.assert(screen_watch_together == 7);
+    std.debug.assert(screen_watch_together_room == 8);
+    std.debug.assert(screen_details == 9);
+    std.debug.assert(screen_player == 10);
+
+    std.debug.assert(@alignOf(GxCommand) == gx_command_alignment);
+    std.debug.assert(@sizeOf(GxCommand) == abiAlignForward(font_size_offset + @sizeOf(f32), gx_command_alignment));
+    std.debug.assert(@offsetOf(GxCommand, "kind") == 0);
+    std.debug.assert(@offsetOf(GxCommand, "x") == 4);
+    std.debug.assert(@offsetOf(GxCommand, "y") == 8);
+    std.debug.assert(@offsetOf(GxCommand, "width") == 12);
+    std.debug.assert(@offsetOf(GxCommand, "height") == 16);
+    std.debug.assert(@offsetOf(GxCommand, "x2") == 20);
+    std.debug.assert(@offsetOf(GxCommand, "y2") == 24);
+    std.debug.assert(@offsetOf(GxCommand, "radius") == 28);
+    std.debug.assert(@offsetOf(GxCommand, "stroke_width") == 32);
+    std.debug.assert(@offsetOf(GxCommand, "color_rgba") == 36);
+    std.debug.assert(@offsetOf(GxCommand, "has_clip") == 40);
+    std.debug.assert(@offsetOf(GxCommand, "clip_x") == 44);
+    std.debug.assert(@offsetOf(GxCommand, "clip_y") == 48);
+    std.debug.assert(@offsetOf(GxCommand, "clip_width") == 52);
+    std.debug.assert(@offsetOf(GxCommand, "clip_height") == 56);
+    std.debug.assert(@offsetOf(GxCommand, "text_ptr") == text_ptr_offset);
+    std.debug.assert(@offsetOf(GxCommand, "text_len") == text_len_offset);
+    std.debug.assert(@offsetOf(GxCommand, "glyph_id") == glyph_id_offset);
+    std.debug.assert(@offsetOf(GxCommand, "font_size") == font_size_offset);
+
+    std.debug.assert(@alignOf(VideoSurface) == @alignOf(f32));
+    std.debug.assert(@sizeOf(VideoSurface) == 24);
+    std.debug.assert(@offsetOf(VideoSurface, "visible") == 0);
+    std.debug.assert(@offsetOf(VideoSurface, "playing") == 4);
+    std.debug.assert(@offsetOf(VideoSurface, "x") == 8);
+    std.debug.assert(@offsetOf(VideoSurface, "y") == 12);
+    std.debug.assert(@offsetOf(VideoSurface, "width") == 16);
+    std.debug.assert(@offsetOf(VideoSurface, "height") == 20);
+
+    std.debug.assert(@alignOf(PlayerControlsSurface) == @alignOf(f32));
+    std.debug.assert(@sizeOf(PlayerControlsSurface) == 20);
+    std.debug.assert(@offsetOf(PlayerControlsSurface, "visible") == 0);
+    std.debug.assert(@offsetOf(PlayerControlsSurface, "x") == 4);
+    std.debug.assert(@offsetOf(PlayerControlsSurface, "y") == 8);
+    std.debug.assert(@offsetOf(PlayerControlsSurface, "width") == 12);
+    std.debug.assert(@offsetOf(PlayerControlsSurface, "height") == 16);
+
+    std.debug.assert(@alignOf(ModalSurface) == @alignOf(f32));
+    std.debug.assert(@sizeOf(ModalSurface) == 20);
+    std.debug.assert(@offsetOf(ModalSurface, "visible") == 0);
+    std.debug.assert(@offsetOf(ModalSurface, "x") == 4);
+    std.debug.assert(@offsetOf(ModalSurface, "y") == 8);
+    std.debug.assert(@offsetOf(ModalSurface, "width") == 12);
+    std.debug.assert(@offsetOf(ModalSurface, "height") == 16);
+
+    std.debug.assert(@alignOf(PosterSurface) == @alignOf(f32));
+    std.debug.assert(@sizeOf(PosterSurface) == 64);
+    std.debug.assert(@offsetOf(PosterSurface, "image_id") == 0);
+    std.debug.assert(@offsetOf(PosterSurface, "focused") == 4);
+    std.debug.assert(@offsetOf(PosterSurface, "x") == 8);
+    std.debug.assert(@offsetOf(PosterSurface, "y") == 12);
+    std.debug.assert(@offsetOf(PosterSurface, "width") == 16);
+    std.debug.assert(@offsetOf(PosterSurface, "height") == 20);
+    std.debug.assert(@offsetOf(PosterSurface, "radius") == 24);
+    std.debug.assert(@offsetOf(PosterSurface, "card_x") == 28);
+    std.debug.assert(@offsetOf(PosterSurface, "card_y") == 32);
+    std.debug.assert(@offsetOf(PosterSurface, "card_width") == 36);
+    std.debug.assert(@offsetOf(PosterSurface, "card_height") == 40);
+    std.debug.assert(@offsetOf(PosterSurface, "has_clip") == 44);
+    std.debug.assert(@offsetOf(PosterSurface, "clip_x") == 48);
+    std.debug.assert(@offsetOf(PosterSurface, "clip_y") == 52);
+    std.debug.assert(@offsetOf(PosterSurface, "clip_width") == 56);
+    std.debug.assert(@offsetOf(PosterSurface, "clip_height") == 60);
+}
+
+export fn multiplex_native_abi_version() callconv(.c) u32 {
+    return native_abi_version;
+}
 
 export fn multiplex_core_abi_version() callconv(.c) u32 {
-    return 1;
+    return native_abi_version;
 }
 
 export fn multiplex_core_initial_selection() callconv(.c) i64 {
@@ -962,17 +1228,17 @@ export fn multiplex_native_app_playback_state() callconv(.c) u32 {
 export fn multiplex_native_app_screen() callconv(.c) u32 {
     if (!app_initialized) return 0;
     return switch (app_model.screen) {
-        .pairing => 0,
-        .home => 1,
-        .libraries => 2,
-        .browse => 3,
-        .search => 4,
-        .search_results => 5,
-        .watch_together_invite => 6,
-        .watch_together => 7,
-        .watch_together_room => 8,
-        .details => 9,
-        .player => 10,
+        .pairing => screen_pairing,
+        .home => screen_home,
+        .libraries => screen_libraries,
+        .browse => screen_browse,
+        .search => screen_search,
+        .search_results => screen_search_results,
+        .watch_together_invite => screen_watch_together_invite,
+        .watch_together => screen_watch_together,
+        .watch_together_room => screen_watch_together_room,
+        .details => screen_details,
+        .player => screen_player,
     };
 }
 
@@ -1585,7 +1851,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         commitAppModel(next);
         focused_handler = invalid_focused_handler;
         reference_full_repaint = true;
-        multiplex_native_input_trace(action, 0, 0, 4);
+        traceInputMessage(action, 0, 0, .open_libraries);
         return 1;
     }
     if (action == 5) {
@@ -1594,7 +1860,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         if (model.screen != .search) focused_handler = invalid_focused_handler;
         reference_full_repaint = model.screen != .search;
         reference_dirty_region = if (model.screen == .search) .search_input else .none;
-        multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 15 else 3);
+        traceInputMessage(action, 0, 0, nativeMessageKind(message));
         return 1;
     }
     if (action == 12 or action == 13) {
@@ -1604,7 +1870,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         commitAppModel(next);
         reference_full_repaint = false;
         reference_dirty_region = .search_input;
-        multiplex_native_input_trace(action, 0, 0, if (action == 12) 46 else 47);
+        traceInputMessage(action, 0, 0, nativeMessageKind(message));
         return 1;
     }
     if (action == 6) {
@@ -1621,7 +1887,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
             focused_handler = invalid_focused_handler;
         }
         reference_full_repaint = true;
-        multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 16 else if (model.screen == .player) 18 else if (model.screen == .details) 33 else 7);
+        traceInputMessage(action, 0, 0, nativeMessageKind(message));
         return 1;
     }
     if (action == 7) {
@@ -1635,7 +1901,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         commitAppModel(core.update(model, message));
         if (model.screen != .player and model.screen != .details) focused_handler = invalid_focused_handler;
         reference_full_repaint = true;
-        multiplex_native_input_trace(action, 0, 0, if (model.screen == .search) 15 else if (model.screen == .player) 17 else if (model.screen == .details) 32 else 6);
+        traceInputMessage(action, 0, 0, nativeMessageKind(message));
         return 1;
     }
     if (action == 10) {
@@ -1644,7 +1910,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         commitAppModel(next);
         focused_handler = invalid_focused_handler;
         reference_full_repaint = true;
-        multiplex_native_input_trace(action, 0, 0, 13);
+        traceInputMessage(action, 0, 0, .open_search);
         return 1;
     }
     if (action == 11) {
@@ -1653,7 +1919,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         commitAppModel(opened);
         focused_handler = invalid_focused_handler;
         reference_full_repaint = true;
-        multiplex_native_input_trace(action, 0, 0, 35);
+        traceInputMessage(action, 0, 0, .open_start_menu);
         return 1;
     }
     var fixed = std.heap.FixedBufferAllocator.init(&ui_arena);
@@ -1666,13 +1932,13 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         commitAppModel(core.update(model, .back));
         focused_handler = invalid_focused_handler;
         reference_full_repaint = true;
-        multiplex_native_input_trace(action, 0, @intCast(press_count), 12);
+        traceInputMessage(action, 0, @intCast(press_count), .back);
         return 1;
     }
     if (press_count == 0) return 0;
     resolveFocusedHandler(tree, press_ids[0..press_count], model);
 
-    var message_kind: u32 = 0;
+    var message_kind: NativeMessageKind = .none;
     var traced_focus = focused_handler;
     switch (action) {
         0, 1, 8, 9 => {
@@ -1683,13 +1949,13 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                         if (action == 9 and core.browseSelectionAtBottom(model) and core.browseHasNext(model)) {
                             commitAppModel(core.update(model, .browse_next_row));
                             reference_full_repaint = false;
-                            multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 7);
+                            traceInputMessage(action, @intCast(traced_focus), @intCast(press_count), .browse_next_row);
                             return 1;
                         }
                         if (action == 8 and core.browseSelectionAtTop(model) and core.browseHasPrevious(model)) {
                             commitAppModel(core.update(model, .browse_previous_row));
                             reference_full_repaint = false;
-                            multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 6);
+                            traceInputMessage(action, @intCast(traced_focus), @intCast(press_count), .browse_previous_row);
                             return 1;
                         }
                     },
@@ -1704,7 +1970,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                                 commitAppModel(core.moveHomeCarousel(model, 1));
                                 focused_handler = invalid_focused_handler;
                                 reference_full_repaint = true;
-                                multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 43);
+                                traceInputNavigation(action, @intCast(traced_focus), @intCast(press_count), .home_carousel_next);
                             }
                             return 1;
                         }
@@ -1713,7 +1979,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                                 commitAppModel(core.moveHomeCarousel(model, -1));
                                 focused_handler = invalid_focused_handler;
                                 reference_full_repaint = true;
-                                multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 44);
+                                traceInputNavigation(action, @intCast(traced_focus), @intCast(press_count), .home_carousel_previous);
                             }
                             return 1;
                         }
@@ -1721,14 +1987,14 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                             commitAppModel(core.update(model, .next_row));
                             focused_handler = invalid_focused_handler;
                             reference_full_repaint = true;
-                            multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 3);
+                            traceInputMessage(action, @intCast(traced_focus), @intCast(press_count), .next_row);
                             return 1;
                         }
                         if (action == 8 and !core.rowPreviousDisabled(model)) {
                             commitAppModel(core.update(model, .previous_row));
                             focused_handler = invalid_focused_handler;
                             reference_full_repaint = true;
-                            multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 2);
+                            traceInputMessage(action, @intCast(traced_focus), @intCast(press_count), .previous_row);
                             return 1;
                         }
                     },
@@ -1761,40 +2027,40 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                     commitAppModel(core.moveHomeCarousel(model, 1));
                     focused_handler = invalid_focused_handler;
                     reference_full_repaint = true;
-                    multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 43);
+                    traceInputNavigation(action, @intCast(traced_focus), @intCast(press_count), .home_carousel_next);
                     return 1;
                 }
                 if (model.screen == .home and action == 0 and !core.homeCarouselPreviousDisabled(model)) {
                     commitAppModel(core.moveHomeCarousel(model, -1));
                     focused_handler = invalid_focused_handler;
                     reference_full_repaint = true;
-                    multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 44);
+                    traceInputNavigation(action, @intCast(traced_focus), @intCast(press_count), .home_carousel_previous);
                     return 1;
                 }
                 if (model.screen == .home and action == 9 and !core.rowNextDisabled(model)) {
                     commitAppModel(core.update(model, .next_row));
                     focused_handler = invalid_focused_handler;
                     reference_full_repaint = true;
-                    multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 3);
+                    traceInputMessage(action, @intCast(traced_focus), @intCast(press_count), .next_row);
                     return 1;
                 }
                 if (model.screen == .home and action == 8 and !core.rowPreviousDisabled(model)) {
                     commitAppModel(core.update(model, .previous_row));
                     focused_handler = invalid_focused_handler;
                     reference_full_repaint = true;
-                    multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 2);
+                    traceInputMessage(action, @intCast(traced_focus), @intCast(press_count), .previous_row);
                     return 1;
                 }
                 if (model.screen == .browse and action == 9 and core.browseHasNext(model)) {
                     commitAppModel(core.update(model, .browse_next_row));
                     reference_full_repaint = false;
-                    multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 7);
+                    traceInputMessage(action, @intCast(traced_focus), @intCast(press_count), .browse_next_row);
                     return 1;
                 }
                 if (model.screen == .browse and action == 8 and core.browseHasPrevious(model)) {
                     commitAppModel(core.update(model, .browse_previous_row));
                     reference_full_repaint = false;
-                    multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), 6);
+                    traceInputMessage(action, @intCast(traced_focus), @intCast(press_count), .browse_previous_row);
                     return 1;
                 }
                 return 0;
@@ -1819,55 +2085,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 => true,
                 else => false,
             };
-            message_kind = switch (msg) {
-                .connect_demo => 1,
-                .previous_row => 2,
-                .next_row => 3,
-                .open_libraries => 4,
-                .open_library => 5,
-                .browse_previous_row => 6,
-                .browse_next_row => 7,
-                .open_search => 13,
-                .open_watch_together => 22,
-                .open_start_menu => 35,
-                .close_start_menu => 36,
-                .start_menu_play => 37,
-                .start_menu_create_watch_together => 41,
-                .create_watch_together => 23,
-                .watch_together_invitees_previous => 24,
-                .watch_together_invitees_next => 25,
-                .invite_watch_together => 26,
-                .join_watch_together => 27,
-                .leave_watch_together => 28,
-                .reconnect_watch_together => 29,
-                .disband_watch_together => 30,
-                .search_key => 14,
-                .search_delete => 15,
-                .search_cursor_left => 46,
-                .search_cursor_right => 47,
-                .search_submit => 16,
-                .open_item => 8,
-                .open_details_child => 31,
-                .details_children_previous => 32,
-                .details_children_next => 33,
-                .play => 9,
-                .mark_watched => 48,
-                .seek_backward => 17,
-                .seek_forward => 18,
-                .open_player_settings => 41,
-                .close_player_settings => 42,
-                .stop_playback => 43,
-                .play_previous => 44,
-                .play_next => 45,
-                .sync_playback => 19,
-                .continue_playback => 20,
-                .complete_playback => 21,
-                .toggle_playback => 10,
-                .cycle_subtitles => 34,
-                .toggle_stats_for_nerds => 50,
-                .start_menu_mark_watched => 49,
-                .back => 11,
-            };
+            message_kind = nativeMessageKind(msg);
             commitAppModel(core.update(model, msg));
             if (!keep_focus) focused_handler = invalid_focused_handler;
             const search_input_changed = switch (msg) {
@@ -1879,7 +2097,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         },
         else => return 0,
     }
-    multiplex_native_input_trace(action, @intCast(traced_focus), @intCast(press_count), message_kind);
+    traceInputMessage(action, @intCast(traced_focus), @intCast(press_count), message_kind);
     return 1;
 }
 
