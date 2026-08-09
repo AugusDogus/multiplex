@@ -2,7 +2,6 @@
 #include "catalog_cache.h"
 #include "device_auth.h"
 #include "gateway_client.h"
-#include "geist_atlas.h"
 #include "gui_navigation.h"
 #include "http_client.h"
 #include "media-source.h"
@@ -15,6 +14,7 @@
 #include "plex_hls.h"
 #include "plex_hls_demux.h"
 #include "poster_jpeg.h"
+#include "presentation.h"
 #include "reference_frame.h"
 #include "syncplay_probe.h"
 #include "tls_client.h"
@@ -24,7 +24,6 @@
 
 #include <gccore.h>
 #include <malloc.h>
-#include <math.h>
 #include <network.h>
 #include <ogc/cond.h>
 #include <ogc/consol.h>
@@ -46,15 +45,6 @@
 #define MULTIPLEX_PAIRING_ONLY __attribute__((unused))
 #endif
 
-#define FIFO_SIZE (256 * 1024)
-#define LOGICAL_WIDTH 640
-#define LOGICAL_HEIGHT 480
-#define TILE_WIDTH 160
-#define TILE_HEIGHT 120
-#define TILE_COLUMNS (LOGICAL_WIDTH / TILE_WIDTH)
-#define TILE_ROWS (LOGICAL_HEIGHT / TILE_HEIGHT)
-#define TILE_COUNT (TILE_COLUMNS * TILE_ROWS)
-#define TILE_BYTES (TILE_WIDTH * TILE_HEIGHT * 4)
 #define APP_STACK_SIZE (512 * 1024)
 #define VIDEO_DECODER_STACK_SIZE (256 * 1024)
 #define MEDIA_PREFETCH_STACK_SIZE (256 * 1024)
@@ -68,7 +58,6 @@
 #define STARTUP_DATA_LOADER_STACK_SIZE (256 * 1024)
 #define CATALOG_LOADER_STACK_SIZE (256 * 1024)
 #define CATALOG_CACHE_SAVER_STACK_SIZE (128 * 1024)
-#define REFERENCE_RENDERER_STACK_SIZE (512 * 1024)
 #define NETWORK_WARMUP_STACK_SIZE (64 * 1024)
 #define TIMELINE_REPORT_INTERVAL_MS 10000u
 #define PAIRING_POLL_INTERVAL_FRAMES 60u
@@ -102,36 +91,19 @@
 #define SEGMENT_PREFETCH_MARGIN_MS 8000u
 #define SEGMENT_HANDOFF_MARGIN_MS 64u
 #define DIRECT_PLAYBACK_END_MARGIN_MS 64u
-#define PLAYER_CONTROLS_IDLE_MS 4000u
-#define PLAYER_CONTROLS_FADE_MS 180u
-#define UI_ENTRY_FRAMES 6u
-#define POSTER_FOCUS_FRAMES 1u
-#define HOME_MOTION_FRAMES 9u
-#define HOME_CONTENT_TOP 64.0f
-#define HOME_ACTIVE_CARD_TOP 84.0f
-#define HOME_ACTIVE_SHELF_BOTTOM 232.0f
-#define HOME_CARD_STRIDE 80.0f
-#define HOME_SHELF_STRIDE 168.0f
-#define HOME_CAROUSEL_LEFT 20.0f
-#define HOME_CAROUSEL_RIGHT 620.0f
-#define BROWSE_GRID_TOP 118.0f
-#define BROWSE_ROW_STRIDE 155.0f
 #define MULTIPLEX_SCREEN_HOME 1u
 #define MULTIPLEX_SCREEN_BROWSE 3u
 #define MULTIPLEX_SCREEN_SEARCH_RESULTS 5u
 #define MULTIPLEX_SCREEN_DETAILS 9u
 #define MULTIPLEX_SCREEN_PLAYER 10u
+#define MULTIPLEX_PLAYBACK_STATE_PLAYER 0x1u
+#define MULTIPLEX_PLAYBACK_STATE_PLAYING 0x4u
 #define MULTIPLEX_PAIRING_CONNECTING 4u
 #define POSTER_JPEG_CAPACITY (256u * 1024u)
 #define PLEX_POSTER_JPEG_CAPACITY (32u * 1024u)
 #define HOME_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS
 #define BROWSE_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_BROWSE_ITEMS
 #define POSTER_TEXTURE_COUNT (HOME_POSTER_COUNT + BROWSE_POSTER_COUNT)
-#define POSTER_SURFACE_CAPACITY 24u
-#define UI_COMMAND_CAPACITY 1024u
-#define UI_TEXT_COMMAND_CAPACITY 96u
-#define UI_SHAPE_COMMAND_CAPACITY 896u
-#define UI_TEXT_CAPACITY 4096u
 
 typedef enum {
   APP_EXIT_OK = 0,
@@ -147,117 +119,16 @@ typedef enum {
 } AppExitCode;
 
 typedef struct {
-  MultiplexGxCommand text_commands[UI_TEXT_COMMAND_CAPACITY];
-  MultiplexGxCommand shape_commands[UI_SHAPE_COMMAND_CAPACITY];
-  uint32_t text_sequences[UI_TEXT_COMMAND_CAPACITY];
-  uint32_t shape_sequences[UI_SHAPE_COMMAND_CAPACITY];
-  uint8_t text[UI_TEXT_CAPACITY];
-  uint32_t text_command_count;
-  uint32_t shape_command_count;
-  uint32_t text_length;
-} NativeUiPacket;
-
-typedef enum {
-  HOME_MOTION_NONE = 0,
-  HOME_MOTION_HORIZONTAL = 1,
-  HOME_MOTION_VERTICAL = 2,
-} HomeMotionKind;
-
-typedef struct {
-  uint32_t render_us;
-  uint32_t upload_us;
-  uint32_t commands;
-  uint32_t passes;
-  uint32_t signature;
-  uint32_t memo_hits;
-  uint32_t memo_misses;
-  uint32_t text_us;
-} FrameProfile;
-
-typedef struct {
-  lwp_t thread;
-  void *stack;
-  MultiplexReferenceFrameRender render;
-  MultiplexReferenceFrameStatus status;
-  uint32_t stage;
-  NativeUiPacket ui_packet;
-  uint32_t render_us;
-  uint32_t text_us;
-  bool audit;
-  volatile bool complete;
-} ReferenceFrameRenderer;
-
-typedef struct {
   lwp_t thread;
   void *stack;
   bool ready;
   volatile bool complete;
 } NetworkWarmup;
 
-static GXRModeObj *video_mode;
-static void *framebuffers[2];
-static unsigned framebuffer_index;
-static void *gx_fifo;
-static MultiplexReferenceFrame reference_frame;
-static uint8_t *texture_pixels_allocation;
-static uint8_t *texture_pixels;
-static GXTexObj textures[TILE_COUNT];
-static bool reference_tile_active[TILE_COUNT];
-static GXTexObj font_texture;
-static GXTexObj poster_textures[POSTER_TEXTURE_COUNT];
-static uint8_t *poster_texture_pixels;
-static uint16_t poster_texture_count;
-static uint32_t poster_texture_rating_keys[POSTER_TEXTURE_COUNT];
-static MultiplexVideoSurface video_surface;
-static MultiplexPlayerControlsSurface player_controls_surface;
-static MultiplexModalSurface modal_surface;
-static MultiplexPosterSurface poster_surfaces[POSTER_SURFACE_CAPACITY];
-static uint32_t poster_surface_count;
-static float focused_poster_x = -1.0f;
-static float focused_poster_y = -1.0f;
-static uint8_t poster_focus_frame = POSTER_FOCUS_FRAMES;
+static MultiplexPresentation *presentation;
 static MultiplexGatewayDetails direct_details_cache;
 static bool direct_details_cache_valid;
-static uint32_t presented_screen = UINT32_MAX;
-static bool asynchronous_reference_enabled;
-static bool asynchronous_reference_requested;
-static ReferenceFrameRenderer reference_renderer;
-static MultiplexReferenceFrameStatus last_reference_frame_status =
-    MULTIPLEX_REFERENCE_FRAME_OK;
-static uint32_t last_reference_render_stage;
-static bool last_reference_render_async;
-static bool network_activity_visible;
-static bool blocking_activity_visible;
-static uint32_t network_activity_frame;
-static uint32_t screen_transition_frame;
-static uint8_t ui_entry_frame = UI_ENTRY_FRAMES;
-static bool native_frame_dirty = true;
-static uint8_t ui_frame_alpha = 255;
-static bool player_controls_overlay_visible = true;
-static bool player_startup_backdrop_visible;
 static MultiplexGuiNavigation gui_navigation;
-static FrameProfile profile;
-static NativeUiPacket presented_ui_packet;
-static NativeUiPacket home_motion_previous_packet;
-static MultiplexPosterSurface
-    home_motion_previous_surfaces[POSTER_SURFACE_CAPACITY];
-static uint32_t home_motion_previous_surface_count;
-static HomeMotionKind home_motion_kind;
-static int8_t home_motion_direction;
-static uint8_t home_motion_frame = HOME_MOTION_FRAMES;
-static int8_t browse_motion_pending_direction;
-static bool ui_draw_clip_active;
-static float ui_draw_clip_left;
-static float ui_draw_clip_top;
-static float ui_draw_clip_right;
-static float ui_draw_clip_bottom;
-static float ui_draw_translation_x;
-static float ui_draw_translation_y;
-static uint32_t presentation_frames;
-static uint32_t presentation_started;
-static uint32_t profile_stage_started;
-static uint32_t profile_stage_current;
-static uint32_t profile_stage_us[7];
 static bool controller_status_reported;
 static uint32_t video_frame_count;
 static uint32_t video_frame_started;
@@ -275,7 +146,6 @@ static volatile uint32_t diagnostic_decoder_fps_tenths;
 static volatile uint32_t diagnostic_codec_average_us;
 static volatile uint32_t diagnostic_codec_max_us;
 static volatile uint32_t diagnostic_upload_average_us;
-static uint32_t diagnostic_presentation_fps_tenths;
 static uint32_t diagnostic_network_kib_per_second;
 static uint32_t diagnostic_network_last_bytes;
 static uint32_t diagnostic_network_started;
@@ -588,35 +458,15 @@ void multiplex_native_cache_free(void *memory) {
 }
 
 void multiplex_native_profile_mark(uint32_t stage) {
-  const uint32_t now = gettick();
-  if (profile_stage_current >= 1 && profile_stage_current <= 6) {
-    profile_stage_us[profile_stage_current] +=
-        (uint32_t)ticks_to_microsecs(now - profile_stage_started);
-  }
-  profile_stage_current = stage == 7 ? 0 : stage;
-  profile_stage_started = now;
+  multiplex_presentation_profile_mark(presentation, stage);
 }
 
-static bool allocate_buffers(void) {
-  const MultiplexReferenceFrameStatus frame_status =
-      multiplex_reference_frame_initialize(&reference_frame,
-                                           LOGICAL_WIDTH * LOGICAL_HEIGHT * 4u);
-  if (frame_status != MULTIPLEX_REFERENCE_FRAME_OK) {
-    SYS_Report("REFERENCE GX: Native frame initialization failed: %s\n",
-               multiplex_reference_frame_status_name(frame_status));
-    return false;
-  }
-
-  texture_pixels_allocation = malloc(TILE_COUNT * TILE_BYTES + 31u);
-  if (texture_pixels_allocation == NULL) {
-    SYS_Report("REFERENCE GX: buffer allocation failed\n");
-    return false;
-  }
-
-  texture_pixels = (uint8_t *)(((uintptr_t)texture_pixels_allocation + 31u) &
-                               ~(uintptr_t)31u);
-  memset(texture_pixels, 0, TILE_COUNT * TILE_BYTES);
-  return true;
+static void *run_network_warmup(void *context) {
+  NetworkWarmup *warmup = context;
+  warmup->ready = http_client_initialize_network();
+  __sync_synchronize();
+  warmup->complete = true;
+  return NULL;
 }
 
 static void profile_decoded_frame(uint32_t decode_us, uint32_t codec_us,
@@ -822,494 +672,6 @@ static void stop_video_decoder(void) {
   video_content_height = 0;
 }
 
-static void convert_reference_to_rgba8_tile_rect(unsigned first_tile_x,
-                                                 unsigned first_tile_y,
-                                                 unsigned tile_column_count,
-                                                 unsigned tile_row_count,
-                                                 uint8_t alpha_scale) {
-  const unsigned last_tile_x = first_tile_x + tile_column_count;
-  const unsigned last_tile_y = first_tile_y + tile_row_count;
-  for (unsigned tile_y = first_tile_y; tile_y < last_tile_y; ++tile_y) {
-    for (unsigned tile_x = first_tile_x; tile_x < last_tile_x; ++tile_x) {
-      const unsigned tile_index = tile_y * TILE_COLUMNS + tile_x;
-      uint8_t *tile = texture_pixels + tile_index * TILE_BYTES;
-
-      for (unsigned block_y = 0; block_y < TILE_HEIGHT / 4; ++block_y) {
-        for (unsigned block_x = 0; block_x < TILE_WIDTH / 4; ++block_x) {
-          uint8_t *block = tile + (block_y * (TILE_WIDTH / 4) + block_x) * 64;
-          for (unsigned inner_y = 0; inner_y < 4; ++inner_y) {
-            for (unsigned inner_x = 0; inner_x < 4; ++inner_x) {
-              const unsigned source_x =
-                  tile_x * TILE_WIDTH + block_x * 4 + inner_x;
-              const unsigned source_y =
-                  tile_y * TILE_HEIGHT + block_y * 4 + inner_y;
-              const uint8_t *source = reference_frame.pixels +
-                                      (source_y * LOGICAL_WIDTH + source_x) * 4;
-              const unsigned plane_offset = (inner_y * 4 + inner_x) * 2;
-
-              block[plane_offset] =
-                  (uint8_t)(((uint16_t)source[3] * alpha_scale) / 255u);
-              block[plane_offset + 1] = source[0];
-              block[32 + plane_offset] = source[1];
-              block[32 + plane_offset + 1] = source[2];
-            }
-          }
-        }
-      }
-    }
-    DCFlushRange(texture_pixels +
-                     (tile_y * TILE_COLUMNS + first_tile_x) * TILE_BYTES,
-                 tile_column_count * TILE_BYTES);
-  }
-}
-
-static void convert_reference_to_rgba8_tile_rows(unsigned first_tile_y,
-                                                 unsigned tile_row_count,
-                                                 uint8_t alpha_scale) {
-  convert_reference_to_rgba8_tile_rect(0, first_tile_y, TILE_COLUMNS,
-                                       tile_row_count, alpha_scale);
-}
-
-static bool reference_tile_has_visible_pixels(unsigned tile_x,
-                                              unsigned tile_y) {
-  const unsigned first_x = tile_x * TILE_WIDTH;
-  const unsigned first_y = tile_y * TILE_HEIGHT;
-  const unsigned last_x = first_x + TILE_WIDTH;
-  const unsigned last_y = first_y + TILE_HEIGHT;
-  for (unsigned source_y = first_y; source_y < last_y; ++source_y) {
-    const uint8_t *source =
-        reference_frame.pixels + (source_y * LOGICAL_WIDTH + first_x) * 4u + 3u;
-    for (unsigned source_x = first_x; source_x < last_x; ++source_x) {
-      if (*source != 0) {
-        return true;
-      }
-      source += 4;
-    }
-  }
-  return false;
-}
-
-static void clear_reference_texture_tile(unsigned tile_index) {
-  uint8_t *tile = texture_pixels + tile_index * TILE_BYTES;
-  memset(tile, 0, TILE_BYTES);
-  DCFlushRange(tile, TILE_BYTES);
-}
-
-static void convert_reference_tile_region(unsigned first_tile_x,
-                                          unsigned first_tile_y,
-                                          unsigned tile_column_count,
-                                          unsigned tile_row_count) {
-  const unsigned last_tile_x = first_tile_x + tile_column_count;
-  const unsigned last_tile_y = first_tile_y + tile_row_count;
-  for (unsigned tile_y = first_tile_y; tile_y < last_tile_y; ++tile_y) {
-    unsigned run_start = 0;
-    bool run_active = false;
-    for (unsigned tile_x = first_tile_x; tile_x <= last_tile_x; ++tile_x) {
-      const bool tile_exists = tile_x < last_tile_x;
-      const unsigned tile_index = tile_y * TILE_COLUMNS + tile_x;
-      const bool visible =
-          tile_exists && reference_tile_has_visible_pixels(tile_x, tile_y);
-      if (visible && !run_active) {
-        run_start = tile_x;
-        run_active = true;
-      }
-      if (!visible && run_active) {
-        convert_reference_to_rgba8_tile_rect(run_start, tile_y,
-                                             tile_x - run_start, 1, 255);
-        run_active = false;
-      }
-      if (!tile_exists) {
-        continue;
-      }
-      if (!visible && reference_tile_active[tile_index]) {
-        clear_reference_texture_tile(tile_index);
-      }
-      reference_tile_active[tile_index] = visible;
-    }
-  }
-}
-
-static void
-convert_reference_damage(const MultiplexReferenceFrameRender *render) {
-  if (render->full_repaint != 0) {
-    convert_reference_tile_region(0, 0, TILE_COLUMNS, TILE_ROWS);
-    GX_InvalidateTexAll();
-    return;
-  }
-  if (render->dirty == 0) {
-    return;
-  }
-
-  float left = render->dirty_x;
-  float right = render->dirty_x + render->dirty_width;
-  float top = render->dirty_y;
-  float bottom = render->dirty_y + render->dirty_height;
-  if (left < 0.0f) {
-    left = 0.0f;
-  }
-  if (right > LOGICAL_WIDTH) {
-    right = LOGICAL_WIDTH;
-  }
-  if (top < 0.0f) {
-    top = 0.0f;
-  }
-  if (bottom > LOGICAL_HEIGHT) {
-    bottom = LOGICAL_HEIGHT;
-  }
-  if (right <= left || bottom <= top) {
-    return;
-  }
-  const unsigned first_tile_x = (unsigned)left / TILE_WIDTH;
-  const unsigned first_tile_y = (unsigned)top / TILE_HEIGHT;
-  unsigned right_pixel = (unsigned)right;
-  if (right > (float)right_pixel) {
-    ++right_pixel;
-  }
-  unsigned bottom_pixel = (unsigned)bottom;
-  if (bottom > (float)bottom_pixel) {
-    ++bottom_pixel;
-  }
-  unsigned last_tile_x = (right_pixel + TILE_WIDTH - 1u) / TILE_WIDTH;
-  unsigned last_tile_y = (bottom_pixel + TILE_HEIGHT - 1u) / TILE_HEIGHT;
-  if (last_tile_x > TILE_COLUMNS) {
-    last_tile_x = TILE_COLUMNS;
-  }
-  if (last_tile_y > TILE_ROWS) {
-    last_tile_y = TILE_ROWS;
-  }
-  convert_reference_tile_region(first_tile_x, first_tile_y,
-                                last_tile_x - first_tile_x,
-                                last_tile_y - first_tile_y);
-  GX_InvalidateTexAll();
-}
-
-static void set_player_controls_texture_alpha(uint8_t alpha) {
-  convert_reference_to_rgba8_tile_rows(TILE_ROWS - 2u, 2, alpha);
-  GX_InvalidateTexAll();
-}
-
-static void capture_reference_surfaces(void) {
-  const uint32_t previous_screen = presented_screen;
-  memset(&video_surface, 0, sizeof(video_surface));
-  multiplex_native_video_surface(&video_surface);
-  memset(&player_controls_surface, 0, sizeof(player_controls_surface));
-  multiplex_native_player_controls_surface(&player_controls_surface);
-  memset(&modal_surface, 0, sizeof(modal_surface));
-  multiplex_native_modal_surface(&modal_surface);
-  memset(poster_surfaces, 0, sizeof(poster_surfaces));
-  poster_surface_count = multiplex_native_poster_surfaces(
-      poster_surfaces, POSTER_SURFACE_CAPACITY);
-  presented_screen = multiplex_native_app_screen();
-  float next_focused_x = -1.0f;
-  float next_focused_y = -1.0f;
-  for (uint32_t index = 0; index < poster_surface_count; ++index) {
-    if (poster_surfaces[index].focused != 0) {
-      next_focused_x = poster_surfaces[index].card_x;
-      next_focused_y = poster_surfaces[index].card_y;
-      break;
-    }
-  }
-  if (next_focused_x != focused_poster_x ||
-      next_focused_y != focused_poster_y) {
-    focused_poster_x = next_focused_x;
-    focused_poster_y = next_focused_y;
-    poster_focus_frame = 0;
-  }
-  if (presented_screen != previous_screen &&
-      presented_screen != MULTIPLEX_SCREEN_PLAYER) {
-    ui_entry_frame = 0;
-  } else if (presented_screen == MULTIPLEX_SCREEN_PLAYER) {
-    ui_entry_frame = UI_ENTRY_FRAMES;
-  }
-}
-
-static uint32_t copy_atlas_text(uint8_t *destination, uint32_t capacity,
-                                const uint8_t *source, uint32_t length) {
-  uint32_t input = 0;
-  uint32_t output = 0;
-  while (input < length && output < capacity) {
-    const uint8_t byte = source[input];
-    if (byte < 0x80u) {
-      destination[output++] = byte;
-      ++input;
-      continue;
-    }
-    if (input + 2u < length && byte == 0xe2u && source[input + 1u] == 0x80u) {
-      const uint8_t punctuation = source[input + 2u];
-      if (punctuation == 0xa6u) {
-        if (capacity - output < 3u)
-          break;
-        destination[output++] = '.';
-        destination[output++] = '.';
-        destination[output++] = '.';
-      } else if (punctuation == 0x98u || punctuation == 0x99u) {
-        destination[output++] = '\'';
-      } else if (punctuation == 0x9cu || punctuation == 0x9du) {
-        destination[output++] = '"';
-      } else if (punctuation == 0x93u || punctuation == 0x94u) {
-        destination[output++] = '-';
-      } else if (punctuation == 0xa2u) {
-        destination[output++] = '*';
-      } else {
-        destination[output++] = '?';
-      }
-      input += 3u;
-      continue;
-    }
-    destination[output++] = '?';
-    ++input;
-    while (input < length && (source[input] & 0xc0u) == 0x80u)
-      ++input;
-  }
-  return output;
-}
-
-static bool command_intersects_rect(const MultiplexGxCommand *command,
-                                    float rect_x, float rect_y,
-                                    float rect_width, float rect_height) {
-  float left = command->x;
-  float top = command->y;
-  float right = left + command->width;
-  float bottom = top + command->height;
-  if (command->kind == MULTIPLEX_GX_LINE) {
-    left = fminf(command->x, command->x2);
-    top = fminf(command->y, command->y2);
-    right = fmaxf(command->x, command->x2);
-    bottom = fmaxf(command->y, command->y2);
-  }
-  if (command->kind == MULTIPLEX_GX_PATH_LINE) {
-    left = fminf(command->x, command->x2) - command->stroke_width;
-    top = fminf(command->y, command->y2) - command->stroke_width;
-    right = fmaxf(command->x, command->x2) + command->stroke_width;
-    bottom = fmaxf(command->y, command->y2) + command->stroke_width;
-  }
-  if (command->kind == MULTIPLEX_GX_FILL_TRIANGLE) {
-    left = fminf(command->x, fminf(command->x2, command->width));
-    top = fminf(command->y, fminf(command->y2, command->height));
-    right = fmaxf(command->x, fmaxf(command->x2, command->width));
-    bottom = fmaxf(command->y, fmaxf(command->y2, command->height));
-  }
-  return right >= rect_x && left <= rect_x + rect_width && bottom >= rect_y &&
-         top <= rect_y + rect_height;
-}
-
-static bool screen_uses_native_shapes(uint32_t screen) {
-  return screen != MULTIPLEX_SCREEN_PLAYER;
-}
-
-static void capture_native_ui_packet(NativeUiPacket *packet) {
-  MultiplexGxCommand commands[UI_COMMAND_CAPACITY];
-  memset(packet, 0, sizeof(*packet));
-  const uint32_t command_count =
-      multiplex_native_app_render(commands, UI_COMMAND_CAPACITY);
-  const uint32_t screen = multiplex_native_app_screen();
-  MultiplexPlayerControlsSurface controls;
-  memset(&controls, 0, sizeof(controls));
-  MultiplexModalSurface modal;
-  memset(&modal, 0, sizeof(modal));
-  if (screen == MULTIPLEX_SCREEN_PLAYER) {
-    multiplex_native_player_controls_surface(&controls);
-    multiplex_native_modal_surface(&modal);
-  }
-  for (uint32_t index = 0; index < command_count; ++index) {
-    const MultiplexGxCommand *command = &commands[index];
-    const bool capture_shape =
-        screen_uses_native_shapes(screen) ||
-        (screen == MULTIPLEX_SCREEN_PLAYER && controls.visible != 0 &&
-         command_intersects_rect(command, controls.x, controls.y,
-                                 controls.width, controls.height)) ||
-        (screen == MULTIPLEX_SCREEN_PLAYER && modal.visible != 0 &&
-         command_intersects_rect(command, modal.x, modal.y, modal.width,
-                                 modal.height));
-    if (capture_shape && command->kind != MULTIPLEX_GX_TEXT &&
-        command->kind != MULTIPLEX_GX_GLYPH &&
-        command->kind != MULTIPLEX_GX_SHADOW &&
-        packet->shape_command_count < UI_SHAPE_COMMAND_CAPACITY) {
-      packet->shape_sequences[packet->shape_command_count] = index;
-      packet->shape_commands[packet->shape_command_count++] = *command;
-    }
-    if ((command->kind != MULTIPLEX_GX_TEXT &&
-         command->kind != MULTIPLEX_GX_GLYPH) ||
-        packet->text_command_count >= UI_TEXT_COMMAND_CAPACITY) {
-      continue;
-    }
-    MultiplexGxCommand copy = *command;
-    if (copy.kind == MULTIPLEX_GX_TEXT) {
-      if (copy.text_ptr == NULL || copy.text_len == 0) {
-        continue;
-      }
-      uint8_t *destination = packet->text + packet->text_length;
-      copy.text_len =
-          copy_atlas_text(destination, UI_TEXT_CAPACITY - packet->text_length,
-                          copy.text_ptr, copy.text_len);
-      if (copy.text_len == 0) {
-        continue;
-      }
-      copy.text_ptr = destination;
-      packet->text_length += copy.text_len;
-    }
-    packet->text_sequences[packet->text_command_count] = index;
-    packet->text_commands[packet->text_command_count++] = copy;
-  }
-}
-
-static void copy_native_ui_packet(NativeUiPacket *destination,
-                                  const NativeUiPacket *packet) {
-  memset(destination, 0, sizeof(*destination));
-  memcpy(destination->text, packet->text, packet->text_length);
-  memcpy(destination->shape_commands, packet->shape_commands,
-         packet->shape_command_count * sizeof(MultiplexGxCommand));
-  memcpy(destination->text_sequences, packet->text_sequences,
-         packet->text_command_count * sizeof(uint32_t));
-  memcpy(destination->shape_sequences, packet->shape_sequences,
-         packet->shape_command_count * sizeof(uint32_t));
-  destination->text_length = packet->text_length;
-  destination->text_command_count = packet->text_command_count;
-  destination->shape_command_count = packet->shape_command_count;
-  for (uint32_t index = 0; index < packet->text_command_count; ++index) {
-    destination->text_commands[index] = packet->text_commands[index];
-    if (packet->text_commands[index].kind != MULTIPLEX_GX_TEXT) {
-      continue;
-    }
-    const size_t offset =
-        (size_t)(packet->text_commands[index].text_ptr - packet->text);
-    destination->text_commands[index].text_ptr = destination->text + offset;
-  }
-}
-
-static void present_native_ui_packet(const NativeUiPacket *packet) {
-  copy_native_ui_packet(&presented_ui_packet, packet);
-}
-
-static void begin_home_motion(uint32_t before, uint32_t after) {
-  if (before == UINT32_MAX || after == UINT32_MAX || before == after)
-    return;
-  const uint16_t before_row = (uint16_t)(before >> 16u);
-  const uint16_t after_row = (uint16_t)(after >> 16u);
-  const uint16_t before_carousel = (uint16_t)before;
-  const uint16_t after_carousel = (uint16_t)after;
-  if (before_row == after_row && before_carousel == after_carousel)
-    return;
-
-  copy_native_ui_packet(&home_motion_previous_packet, &presented_ui_packet);
-  memcpy(home_motion_previous_surfaces, poster_surfaces,
-         poster_surface_count * sizeof(MultiplexPosterSurface));
-  home_motion_previous_surface_count = poster_surface_count;
-  if (before_row != after_row) {
-    home_motion_kind = HOME_MOTION_VERTICAL;
-    home_motion_direction = after_row > before_row ? 1 : -1;
-  } else {
-    home_motion_kind = HOME_MOTION_HORIZONTAL;
-    home_motion_direction = after_carousel > before_carousel ? 1 : -1;
-  }
-  home_motion_frame = 0;
-  SYS_Report(
-      "REFERENCE GX: home motion kind=%u direction=%d from=%08x to=%08x\n",
-      (unsigned)home_motion_kind, (int)home_motion_direction, before, after);
-}
-
-static void queue_browse_motion(uint32_t before, uint32_t after) {
-  if (before == UINT32_MAX || before == after)
-    return;
-  browse_motion_pending_direction = after > before ? 1 : -1;
-}
-
-static void activate_pending_browse_motion(void) {
-  if (browse_motion_pending_direction == 0 ||
-      presented_screen != MULTIPLEX_SCREEN_BROWSE) {
-    return;
-  }
-  home_motion_kind = HOME_MOTION_VERTICAL;
-  home_motion_direction = browse_motion_pending_direction;
-  home_motion_frame = 0;
-  browse_motion_pending_direction = 0;
-  SYS_Report("REFERENCE GX: browse motion direction=%d\n",
-             (int)home_motion_direction);
-}
-
-static bool commit_reference_frame(const MultiplexReferenceFrameRender *render,
-                                   uint32_t render_us, bool audit) {
-  profile.commands = render->commands;
-  profile.passes = 1;
-  profile.signature = render->signature;
-  profile.render_us = render_us;
-  profile.memo_hits = render->memo_hits;
-  profile.memo_misses = render->memo_misses;
-  capture_reference_surfaces();
-  if (video_surface.visible != 0) {
-    SYS_Report(
-        "REFERENCE GX: video-surface x=%d y=%d width=%d height=%d playing=%u\n",
-        (int)video_surface.x, (int)video_surface.y, (int)video_surface.width,
-        (int)video_surface.height, video_surface.playing);
-  }
-  const uint32_t upload_started = gettick();
-  convert_reference_damage(render);
-  profile.upload_us = elapsed_us(upload_started);
-  native_frame_dirty = false;
-  if (audit) {
-    uint32_t first_layout_rule = 0;
-    uint32_t first_layout_node = 0;
-    const uint32_t layout_findings = multiplex_native_app_layout_audit(
-        &first_layout_rule, &first_layout_node);
-    SYS_Report("REFERENCE GX: layout-audit findings=%u first-rule=%u "
-               "first-node=%u\n",
-               layout_findings, first_layout_rule, first_layout_node);
-    SYS_Report("REFERENCE GX: poster-inset-audit findings=%u\n",
-               multiplex_native_app_poster_inset_audit());
-  }
-  SYS_Report("REFERENCE GX: commands=%u passes=%u signature=%08x render=%uus "
-             "conversion=%uus text=%uus stages=%u/%u/%u/%u/%u/%uus memo=%u/%u "
-             "cache=%u/%uKiB\n",
-             profile.commands, profile.passes, profile.signature,
-             profile.render_us, profile.upload_us, profile.text_us,
-             profile_stage_us[1], profile_stage_us[2], profile_stage_us[3],
-             profile_stage_us[4], profile_stage_us[5], profile_stage_us[6],
-             profile.memo_hits, profile.memo_misses,
-             multiplex_native_reference_memo_bytes() / 1024u,
-             multiplex_native_reference_memo_peak_bytes() / 1024u);
-  return true;
-}
-
-static bool refresh_reference_frame(bool initialize) {
-  const uint32_t render_started = gettick();
-  memset(profile_stage_us, 0, sizeof(profile_stage_us));
-  profile_stage_current = 0;
-  MultiplexReferenceFrameRender render;
-  const MultiplexReferenceFrameStatus frame_status =
-      multiplex_reference_frame_render_with_options(&reference_frame,
-                                                    initialize, &render, 0);
-  if (frame_status != MULTIPLEX_REFERENCE_FRAME_OK) {
-    last_reference_frame_status = frame_status;
-    last_reference_render_stage = multiplex_native_reference_render_stage();
-    last_reference_render_async = false;
-    SYS_Report("REFERENCE GX: Native frame render failed: %s at stage %08x\n",
-               multiplex_reference_frame_status_name(frame_status),
-               last_reference_render_stage);
-    return false;
-  }
-  const uint32_t reference_render_us = elapsed_us(render_started);
-  NativeUiPacket ui_packet;
-  const uint32_t text_started = gettick();
-  capture_native_ui_packet(&ui_packet);
-  profile.text_us = elapsed_us(text_started);
-  const bool audit =
-      initialize || presented_screen != multiplex_native_app_screen();
-  if (!commit_reference_frame(&render, reference_render_us, audit)) {
-    return false;
-  }
-  present_native_ui_packet(&ui_packet);
-  activate_pending_browse_motion();
-  return true;
-}
-
-static void *run_network_warmup(void *context) {
-  NetworkWarmup *warmup = context;
-  warmup->ready = http_client_initialize_network();
-  __sync_synchronize();
-  warmup->complete = true;
-  return NULL;
-}
-
 static bool launch_network_warmup(NetworkWarmup *warmup) {
   memset(warmup, 0, sizeof(*warmup));
   warmup->thread = LWP_THREAD_NULL;
@@ -1339,6 +701,8 @@ static bool finish_network_warmup(NetworkWarmup *warmup) {
 }
 
 static int format_boot_diagnostics(char *destination, size_t capacity) {
+  const MultiplexPresentationRenderDiagnostic render_diagnostic =
+      multiplex_presentation_render_diagnostic(presentation);
   struct in_addr address = {.s_addr = net_gethostip()};
   char local_ip[16] = "0.0.0.0";
   if (address.s_addr != 0) {
@@ -1355,9 +719,9 @@ static int format_boot_diagnostics(char *destination, size_t capacity) {
       (unsigned long)http_client_network_attempts(), local_ip,
       (unsigned long)http_client_dns_attempts(),
       (unsigned long)http_client_tls_verify_flags(),
-      multiplex_reference_frame_status_name(last_reference_frame_status),
-      (unsigned long)last_reference_render_stage,
-      last_reference_render_async ? 1u : 0u);
+      multiplex_reference_frame_status_name(render_diagnostic.status),
+      (unsigned long)render_diagnostic.stage,
+      render_diagnostic.asynchronous ? 1u : 0u);
 }
 
 static bool bind_boot_diagnostics(const char *operation) {
@@ -1374,236 +738,10 @@ static bool bind_boot_diagnostics(const char *operation) {
   const bool committed =
       multiplex_native_app_boot_diagnostics((const uint8_t *)diagnostics,
                                             (uint32_t)available) != 0;
-  if (committed)
-    native_frame_dirty = true;
+  if (committed) {
+    multiplex_presentation_request_refresh(presentation, false);
+  }
   return committed;
-}
-
-static void *run_reference_renderer(void *context) {
-  ReferenceFrameRenderer *renderer = context;
-  const uint32_t started = gettick();
-  renderer->status = multiplex_reference_frame_render_with_options(
-      &reference_frame, false, &renderer->render, 0);
-  renderer->stage = multiplex_native_reference_render_stage();
-  renderer->render_us = elapsed_us(started);
-  if (renderer->status == MULTIPLEX_REFERENCE_FRAME_OK) {
-    const uint32_t text_started = gettick();
-    capture_native_ui_packet(&renderer->ui_packet);
-    renderer->text_us = elapsed_us(text_started);
-  }
-  __sync_synchronize();
-  renderer->complete = true;
-  return NULL;
-}
-
-static bool launch_reference_renderer(void) {
-  if (reference_renderer.thread != LWP_THREAD_NULL) {
-    return true;
-  }
-  memset(&reference_renderer, 0, sizeof(reference_renderer));
-  reference_renderer.audit = presented_screen != multiplex_native_app_screen();
-  reference_renderer.thread = LWP_THREAD_NULL;
-  reference_renderer.stack = malloc(REFERENCE_RENDERER_STACK_SIZE);
-  if (reference_renderer.stack == NULL) {
-    return false;
-  }
-  memset(profile_stage_us, 0, sizeof(profile_stage_us));
-  profile_stage_current = 0;
-  if (LWP_CreateThread(&reference_renderer.thread, run_reference_renderer,
-                       &reference_renderer, reference_renderer.stack,
-                       REFERENCE_RENDERER_STACK_SIZE,
-                       LWP_PRIO_NORMAL - 16u) != 0) {
-    free(reference_renderer.stack);
-    reference_renderer.stack = NULL;
-    reference_renderer.thread = LWP_THREAD_NULL;
-    return false;
-  }
-  SYS_Report("REFERENCE GX: screen transition render started from=%u to=%u\n",
-             presented_screen, multiplex_native_app_screen());
-  screen_transition_frame = 0;
-  return true;
-}
-
-static bool poll_reference_renderer(void) {
-  if (reference_renderer.thread == LWP_THREAD_NULL ||
-      !reference_renderer.complete) {
-    return true;
-  }
-  __sync_synchronize();
-  LWP_JoinThread(reference_renderer.thread, NULL);
-  reference_renderer.thread = LWP_THREAD_NULL;
-  free(reference_renderer.stack);
-  reference_renderer.stack = NULL;
-  if (reference_renderer.status != MULTIPLEX_REFERENCE_FRAME_OK) {
-    last_reference_frame_status = reference_renderer.status;
-    last_reference_render_stage = reference_renderer.stage;
-    last_reference_render_async = true;
-    SYS_Report("REFERENCE GX: screen transition render failed: %s at stage "
-               "%08x\n",
-               multiplex_reference_frame_status_name(reference_renderer.status),
-               reference_renderer.stage);
-    native_frame_dirty = false;
-    return false;
-  }
-  const uint32_t previous_screen = presented_screen;
-  profile.text_us = reference_renderer.text_us;
-  if (!commit_reference_frame(&reference_renderer.render,
-                              reference_renderer.render_us,
-                              reference_renderer.audit)) {
-    return false;
-  }
-  present_native_ui_packet(&reference_renderer.ui_packet);
-  activate_pending_browse_motion();
-  SYS_Report("REFERENCE GX: screen transition ready from=%u to=%u us=%u\n",
-             previous_screen, presented_screen, reference_renderer.render_us);
-  return true;
-}
-
-static void stop_reference_renderer(void) {
-  if (reference_renderer.thread != LWP_THREAD_NULL) {
-    LWP_JoinThread(reference_renderer.thread, NULL);
-    reference_renderer.thread = LWP_THREAD_NULL;
-  }
-  free(reference_renderer.stack);
-  reference_renderer.stack = NULL;
-}
-
-static GXRModeObj *select_video_mode(void) {
-  GXRModeObj *preferred = VIDEO_GetPreferredMode(NULL);
-  if (!VIDEO_HaveComponentCable()) {
-    return preferred;
-  }
-
-  switch (preferred->viTVMode >> 2) {
-  case VI_PAL:
-    return &TVPal576ProgScale;
-  case VI_EURGB60:
-    return &TVEurgb60Hz480Prog;
-  default:
-    return &TVNtsc480Prog;
-  }
-}
-
-static void configure_ui_pipeline(void) {
-  GX_ClearVtxDesc();
-  GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
-  GX_SetVtxDesc(GX_VA_CLR0, GX_DIRECT);
-  GX_SetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-  GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-  GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
-  GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
-  GX_SetNumChans(1);
-  GX_SetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_REG, GX_SRC_VTX, GX_LIGHTNULL,
-                 GX_DF_NONE, GX_AF_NONE);
-  GX_SetNumTexGens(1);
-  GX_SetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
-  GX_SetNumTevStages(1);
-  GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
-  GX_SetTevOp(GX_TEVSTAGE0, GX_REPLACE);
-  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-}
-
-static bool initialize_video_and_gx(void) {
-  VIDEO_Init();
-  const uint32_t pad_initialized = PAD_Init();
-#if defined(HW_RVL)
-  const int32_t wpad_initialized = WPAD_Init();
-  SYS_Report("REFERENCE GX: controller init=%u wii-remote=%d\n",
-             pad_initialized, wpad_initialized);
-#else
-  SYS_Report("REFERENCE GX: controller init=%u\n", pad_initialized);
-#endif
-  video_mode = select_video_mode();
-  if (video_mode == NULL) {
-    SYS_Report("REFERENCE GX: no compatible video mode\n");
-    return false;
-  }
-  const uint32_t framebuffer_bytes = VIDEO_GetFrameBufferSize(video_mode);
-  for (unsigned index = 0; index < 2; ++index) {
-    void *framebuffer = SYS_AllocateFramebuffer(video_mode);
-    if (framebuffer == NULL) {
-      SYS_Report("REFERENCE GX: framebuffer %u allocation failed\n", index);
-      return false;
-    }
-    framebuffers[index] = MEM_K0_TO_K1(framebuffer);
-    memset(framebuffers[index], 0, framebuffer_bytes);
-  }
-  framebuffer_index = 1;
-
-  SYS_Report("REFERENCE GX: video mode=%08x progressive=%u component=%u "
-             "fb=%ux%u efb=%u xfb=%u vi=%ux%u xfb_mode=%u fields=%u aa=%u\n",
-             video_mode->viTVMode, (video_mode->viTVMode & 3) == VI_PROGRESSIVE,
-             VIDEO_HaveComponentCable(), video_mode->fbWidth,
-             video_mode->xfbHeight, video_mode->efbHeight,
-             video_mode->xfbHeight, video_mode->viWidth, video_mode->viHeight,
-             video_mode->xfbMode, video_mode->field_rendering, video_mode->aa);
-
-  VIDEO_Configure(video_mode);
-  VIDEO_SetNextFramebuffer(framebuffers[0]);
-  VIDEO_SetBlack(FALSE);
-  VIDEO_Flush();
-  VIDEO_WaitVSync();
-  if ((video_mode->viTVMode & VI_NON_INTERLACE) != 0) {
-    VIDEO_WaitVSync();
-  }
-
-  gx_fifo = memalign(32, FIFO_SIZE);
-  if (gx_fifo == NULL) {
-    SYS_Report("REFERENCE GX: %u-byte GX FIFO allocation failed\n", FIFO_SIZE);
-    return false;
-  }
-  memset(gx_fifo, 0, FIFO_SIZE);
-  GX_Init(gx_fifo, FIFO_SIZE);
-  GX_SetCopyClear((GXColor){10, 10, 12, 255}, 0x00ffffff);
-  GX_SetViewport(0, 0, video_mode->fbWidth, video_mode->efbHeight, 0, 1);
-  const float y_scale =
-      GX_GetYScaleFactor(video_mode->efbHeight, video_mode->xfbHeight);
-  const uint16_t xfb_height = GX_SetDispCopyYScale(y_scale);
-  GX_SetDispCopySrc(0, 0, video_mode->fbWidth, video_mode->efbHeight);
-  GX_SetDispCopyDst(video_mode->fbWidth, xfb_height);
-  GX_SetCopyFilter(video_mode->aa, video_mode->sample_pattern, GX_TRUE,
-                   video_mode->vfilter);
-  GX_SetFieldMode(video_mode->field_rendering,
-                  ((video_mode->viHeight == 2 * video_mode->xfbHeight)
-                       ? GX_ENABLE
-                       : GX_DISABLE));
-  GX_SetPixelFmt(video_mode->aa ? GX_PF_RGB565_Z16 : GX_PF_RGB8_Z24,
-                 GX_ZC_LINEAR);
-  GX_SetCullMode(GX_CULL_NONE);
-  GX_SetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
-  GX_SetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_CLEAR);
-  GX_SetAlphaUpdate(GX_TRUE);
-  GX_SetColorUpdate(GX_TRUE);
-
-  configure_ui_pipeline();
-
-  Mtx identity;
-  guMtxIdentity(identity);
-  GX_LoadPosMtxImm(identity, GX_PNMTX0);
-  GX_SetCurrentMtx(GX_PNMTX0);
-  Mtx44 projection;
-  guOrtho(projection, 0.0f, (float)(LOGICAL_HEIGHT - 1), 0.0f,
-          (float)(LOGICAL_WIDTH - 1), 0.0f, 1.0f);
-  GX_LoadProjectionMtx(projection, GX_ORTHOGRAPHIC);
-  GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
-  GX_CopyDisp(framebuffers[0], GX_TRUE);
-  GX_DrawDone();
-  return true;
-}
-
-static void initialize_textures(void) {
-  for (unsigned index = 0; index < TILE_COUNT; ++index) {
-    GX_InitTexObj(&textures[index], texture_pixels + index * TILE_BYTES,
-                  TILE_WIDTH, TILE_HEIGHT, GX_TF_RGBA8, GX_CLAMP, GX_CLAMP,
-                  GX_FALSE);
-    GX_InitTexObjLOD(&textures[index], GX_NEAR, GX_NEAR, 0, 0, 0, GX_FALSE,
-                     GX_FALSE, GX_ANISO_1);
-  }
-  DCFlushRange(geist_atlas, sizeof(geist_atlas));
-  GX_InitTexObj(&font_texture, geist_atlas, GEIST_ATLAS_WIDTH,
-                GEIST_ATLAS_HEIGHT, GX_TF_I8, GX_CLAMP, GX_CLAMP, GX_FALSE);
-  GX_InitTexObjLOD(&font_texture, GX_LINEAR, GX_LINEAR, 0, 0, 0, GX_FALSE,
-                   GX_FALSE, GX_ANISO_1);
 }
 
 static bool initialize_poster_textures(const char *gateway_url,
@@ -1614,36 +752,32 @@ static bool initialize_poster_textures(const char *gateway_url,
   }
   const size_t home_bytes =
       (size_t)item_count * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
-  const size_t total_bytes =
-      (size_t)POSTER_TEXTURE_COUNT * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
   uint8_t *encoded = calloc(1, POSTER_JPEG_CAPACITY + 64u);
-  poster_texture_pixels = multiplex_native_cache_alloc(total_bytes, 32);
+  MultiplexPresentationPosterWrite write = {0};
+  if (!multiplex_presentation_posters_begin(
+          presentation, 0, item_count, MULTIPLEX_PRESENTATION_POSTERS_OVERWRITE,
+          &write)) {
+    free(encoded);
+    return false;
+  }
   size_t encoded_size = 0;
-  if (encoded == NULL || poster_texture_pixels == NULL ||
+  if (encoded == NULL ||
       !multiplex_gateway_load_artwork(gateway_url, encoded,
                                       POSTER_JPEG_CAPACITY, &encoded_size) ||
       !poster_jpeg_decode_columns(encoded, encoded_size, item_count,
                                   MULTIPLEX_GATEWAY_MAX_HOME_ITEMS,
-                                  poster_texture_pixels, home_bytes)) {
+                                  write.pixels, home_bytes)) {
     free(encoded);
-    multiplex_native_cache_free(poster_texture_pixels);
-    poster_texture_pixels = NULL;
+    multiplex_presentation_posters_cancel(presentation, &write);
     return false;
   }
 
-  for (uint16_t item = 0; item < item_count; ++item) {
-    uint8_t *destination = poster_texture_pixels +
-                           (size_t)item * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
-    GX_InitTexObj(&poster_textures[item], destination,
-                  MULTIPLEX_GATEWAY_ARTWORK_WIDTH,
-                  MULTIPLEX_GATEWAY_ARTWORK_HEIGHT, GX_TF_RGB565, GX_CLAMP,
-                  GX_CLAMP, GX_FALSE);
-    GX_InitTexObjLOD(&poster_textures[item], GX_LINEAR, GX_LINEAR, 0, 0, 0,
-                     GX_FALSE, GX_FALSE, GX_ANISO_1);
-  }
   free(encoded);
-  DCFlushRange(poster_texture_pixels, home_bytes);
-  poster_texture_count = POSTER_TEXTURE_COUNT;
+  const uint32_t rating_keys[MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS] = {0};
+  if (!multiplex_presentation_posters_commit(presentation, &write,
+                                             rating_keys)) {
+    return false;
+  }
   SYS_Report("REFERENCE GX: poster-textures count=%u size=%ux%u\n", item_count,
              MULTIPLEX_GATEWAY_ARTWORK_WIDTH, MULTIPLEX_GATEWAY_ARTWORK_HEIGHT);
   return true;
@@ -1805,107 +939,39 @@ static bool queue_direct_poster_loader(
   for (uint16_t lane = 0; lane < POSTER_LOADER_LANE_COUNT; ++lane) {
     loader->threads[lane] = LWP_THREAD_NULL;
   }
-  if (poster_texture_pixels == NULL) {
-    const size_t total_bytes =
-        (size_t)POSTER_TEXTURE_COUNT * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
-    poster_texture_pixels = multiplex_native_cache_alloc(total_bytes, 32);
-    if (poster_texture_pixels == NULL) {
-      return false;
-    }
-    memset(poster_texture_pixels, 0, total_bytes);
-    DCFlushRange(poster_texture_pixels, total_bytes);
+  MultiplexPresentationPosterWrite write;
+  if (!multiplex_presentation_posters_begin(
+          presentation, texture_offset, item_count,
+          MULTIPLEX_PRESENTATION_POSTERS_REUSE, &write)) {
+    return false;
   }
-  const uint16_t target_end = texture_offset + item_count;
-  const size_t window_bytes =
-      (size_t)item_count * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
-  uint8_t *window_snapshot = NULL;
-  uint32_t *window_rating_keys = NULL;
-  if (poster_texture_count > texture_offset) {
-    window_snapshot = malloc(window_bytes);
-    window_rating_keys = malloc((size_t)item_count * sizeof(uint32_t));
-    if (window_snapshot != NULL && window_rating_keys != NULL) {
-      memcpy(window_snapshot,
-             poster_texture_pixels +
-                 (size_t)texture_offset * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES,
-             window_bytes);
-      memcpy(window_rating_keys, poster_texture_rating_keys + texture_offset,
-             (size_t)item_count * sizeof(uint32_t));
-    } else {
-      free(window_snapshot);
-      free(window_rating_keys);
-      window_snapshot = NULL;
-      window_rating_keys = NULL;
-    }
-  }
+  uint32_t rating_keys[MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS] = {0};
   uint16_t download_count = 0;
   for (uint16_t index = 0; index < item_count; ++index) {
     const uint16_t target_slot = texture_offset + index;
     uint8_t *pixels =
-        poster_texture_pixels +
-        (size_t)target_slot * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
-    uint16_t cached_slot = UINT16_MAX;
-    uint16_t snapshot_slot = UINT16_MAX;
-    for (uint16_t slot = 0; slot < poster_texture_count; ++slot) {
-      const bool stable_source =
-          slot < texture_offset || slot >= target_end || slot == target_slot;
-      if (stable_source &&
-          poster_texture_rating_keys[slot] == items[index].rating_key) {
-        cached_slot = slot;
-        break;
-      }
-    }
-    if (cached_slot == UINT16_MAX && window_rating_keys != NULL) {
-      for (uint16_t slot = 0; slot < item_count; ++slot) {
-        if (window_rating_keys[slot] == items[index].rating_key) {
-          snapshot_slot = slot;
-          break;
-        }
-      }
-    }
-    if (cached_slot != UINT16_MAX) {
-      if (cached_slot != target_slot) {
-        memcpy(pixels,
-               poster_texture_pixels +
-                   (size_t)cached_slot * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES,
-               MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
-      }
-      poster_texture_rating_keys[target_slot] = items[index].rating_key;
-      ++loader->cache_hits;
-    } else if (snapshot_slot != UINT16_MAX) {
-      memcpy(pixels,
-             window_snapshot +
-                 (size_t)snapshot_slot * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES,
-             MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
-      poster_texture_rating_keys[target_slot] = items[index].rating_key;
+        write.pixels + (size_t)index * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+    if (multiplex_presentation_posters_reuse(presentation, &write, index,
+                                             items[index].rating_key)) {
+      rating_keys[index] = items[index].rating_key;
       ++loader->cache_hits;
     } else {
       fill_poster_fallback(pixels, items[index].rating_key);
-      poster_texture_rating_keys[target_slot] = 0;
       loader->items[download_count] = items[index];
       loader->texture_slots[download_count] = target_slot;
       ++download_count;
     }
-    GX_InitTexObj(&poster_textures[target_slot], pixels,
-                  MULTIPLEX_GATEWAY_ARTWORK_WIDTH,
-                  MULTIPLEX_GATEWAY_ARTWORK_HEIGHT, GX_TF_RGB565, GX_CLAMP,
-                  GX_CLAMP, GX_FALSE);
-    GX_InitTexObjLOD(&poster_textures[target_slot], GX_LINEAR, GX_LINEAR, 0, 0,
-                     0, GX_FALSE, GX_FALSE, GX_ANISO_1);
   }
-  DCFlushRange(poster_texture_pixels + (size_t)texture_offset *
-                                           MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES,
-               (size_t)item_count * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
-  const uint16_t texture_count = texture_offset + item_count;
-  if (texture_count > poster_texture_count) {
-    poster_texture_count = texture_count;
+  if (!multiplex_presentation_posters_commit(presentation, &write,
+                                             rating_keys)) {
+    multiplex_presentation_posters_cancel(presentation, &write);
+    return false;
   }
   loader->credentials = credentials;
   loader->item_count = download_count;
   loader->requested_count = item_count;
   loader->texture_offset = texture_offset;
   loader->pending = download_count != 0;
-  free(window_snapshot);
-  free(window_rating_keys);
   if (download_count == 0) {
     SYS_Report("REFERENCE GX: direct Plex posters reused=%u/%u\n",
                loader->cache_hits, loader->requested_count);
@@ -1919,22 +985,26 @@ static void poll_direct_poster_loader(DirectPosterLoader *loader) {
     return;
   }
   bool all_complete = true;
-  bool texture_changed = false;
   for (uint16_t lane = 0; lane < loader->lane_count; ++lane) {
     if (loader->item_ready[lane]) {
       __sync_synchronize();
       if (loader->item_decoded[lane]) {
         const uint16_t item_index = loader->item_index[lane];
         const uint16_t texture_slot = loader->texture_slots[item_index];
-        uint8_t *pixels =
-            poster_texture_pixels +
-            (size_t)texture_slot * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
-        memcpy(pixels, loader->decoded_pixels[lane],
-               MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
-        poster_texture_rating_keys[texture_slot] =
-            loader->items[item_index].rating_key;
-        DCFlushRange(pixels, MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
-        texture_changed = true;
+        MultiplexPresentationPosterWrite write;
+        const uint32_t rating_key = loader->items[item_index].rating_key;
+        if (!multiplex_presentation_posters_begin(
+                presentation, texture_slot, 1,
+                MULTIPLEX_PRESENTATION_POSTERS_OVERWRITE, &write)) {
+          loader->item_decoded[lane] = false;
+        } else {
+          memcpy(write.pixels, loader->decoded_pixels[lane],
+                 MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
+          loader->item_decoded[lane] = multiplex_presentation_posters_commit(
+              presentation, &write, &rating_key);
+        }
+      }
+      if (loader->item_decoded[lane]) {
         if (!loader->first_ready_reported) {
           loader->first_ready_reported = true;
           SYS_Report(
@@ -1948,9 +1018,6 @@ static void poll_direct_poster_loader(DirectPosterLoader *loader) {
     }
     all_complete =
         all_complete && loader->complete[lane] && !loader->item_ready[lane];
-  }
-  if (texture_changed) {
-    GX_InvalidateTexAll();
   }
   if (!all_complete) {
     return;
@@ -1987,9 +1054,8 @@ suspend_direct_poster_loader(DirectPosterLoader *loader) {
   uint16_t remaining = 0;
   for (uint16_t index = 0; index < loader->item_count; ++index) {
     const uint16_t texture_slot = loader->texture_slots[index];
-    if (texture_slot < poster_texture_count &&
-        poster_texture_rating_keys[texture_slot] ==
-            loader->items[index].rating_key) {
+    if (multiplex_presentation_poster_matches(
+            presentation, texture_slot, loader->items[index].rating_key)) {
       continue;
     }
     if (remaining != index) {
@@ -2051,37 +1117,43 @@ static bool load_browse_page(const char *gateway_url) {
   }
   uint8_t *encoded = calloc(1, POSTER_JPEG_CAPACITY + 64u);
   size_t encoded_size = 0;
-  uint8_t *browse_pixels =
-      poster_texture_pixels +
-      (size_t)HOME_POSTER_COUNT * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
+  MultiplexPresentationPosterWrite write = {0};
+  const bool write_started =
+      page.item_count != 0 &&
+      multiplex_presentation_posters_begin(
+          presentation, HOME_POSTER_COUNT, page.item_count,
+          MULTIPLEX_PRESENTATION_POSTERS_OVERWRITE, &write);
   const size_t browse_bytes =
       (size_t)page.item_count * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
-  if (encoded == NULL || poster_texture_pixels == NULL ||
-      !multiplex_gateway_load_browse_artwork(
-          gateway_url, page.section_id, page.start, encoded,
-          POSTER_JPEG_CAPACITY, &encoded_size) ||
-      !poster_jpeg_decode_columns(encoded, encoded_size, page.item_count,
-                                  MULTIPLEX_GATEWAY_BROWSE_COLUMNS,
-                                  browse_pixels, browse_bytes)) {
+  if (encoded == NULL ||
+      (page.item_count != 0 &&
+       (!write_started ||
+        !multiplex_gateway_load_browse_artwork(
+            gateway_url, page.section_id, page.start, encoded,
+            POSTER_JPEG_CAPACITY, &encoded_size) ||
+        !poster_jpeg_decode_columns(encoded, encoded_size, page.item_count,
+                                    MULTIPLEX_GATEWAY_BROWSE_COLUMNS,
+                                    write.pixels, browse_bytes)))) {
     free(encoded);
+    if (write_started) {
+      multiplex_presentation_posters_cancel(presentation, &write);
+    }
     return false;
   }
   free(encoded);
-  for (uint16_t item = 0; item < page.item_count; ++item) {
-    uint8_t *pixels =
-        browse_pixels + (size_t)item * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
-    GX_InitTexObj(&poster_textures[HOME_POSTER_COUNT + item], pixels,
-                  MULTIPLEX_GATEWAY_ARTWORK_WIDTH,
-                  MULTIPLEX_GATEWAY_ARTWORK_HEIGHT, GX_TF_RGB565, GX_CLAMP,
-                  GX_CLAMP, GX_FALSE);
-    GX_InitTexObjLOD(&poster_textures[HOME_POSTER_COUNT + item], GX_LINEAR,
-                     GX_LINEAR, 0, 0, 0, GX_FALSE, GX_FALSE, GX_ANISO_1);
+  if (write_started) {
+    const uint32_t rating_keys[MULTIPLEX_GATEWAY_MAX_BROWSE_ITEMS] = {0};
+    if (!multiplex_presentation_posters_commit(presentation, &write,
+                                               rating_keys)) {
+      return false;
+    }
   }
-  DCFlushRange(browse_pixels, browse_bytes);
 
   const bool bound = bind_browse_page(&page);
-  if (bound)
-    queue_browse_motion(previous_start, page.start);
+  if (bound) {
+    multiplex_presentation_queue_browse_motion(presentation, previous_start,
+                                               page.start);
+  }
   return bound;
 }
 
@@ -2119,7 +1191,7 @@ static bool launch_direct_browse_loader(
   }
   loader->started = true;
   loader->started_tick = gettick();
-  network_activity_visible = true;
+  multiplex_presentation_set_network_activity(presentation, true);
   SYS_Report("REFERENCE GX: browse-page load started section=%u start=%u\n",
              library->section_id, start);
   return true;
@@ -2150,7 +1222,7 @@ static bool MULTIPLEX_PAIRING_ONLY poll_direct_browse_loader(
                                    &requested_section, &requested_start) != 0;
   if (!loader->complete) {
     if (!still_requested) {
-      network_activity_visible = false;
+      multiplex_presentation_set_network_activity(presentation, false);
     }
     return true;
   }
@@ -2160,7 +1232,7 @@ static bool MULTIPLEX_PAIRING_ONLY poll_direct_browse_loader(
     loader->thread = LWP_THREAD_NULL;
   }
   loader->started = false;
-  network_activity_visible = false;
+  multiplex_presentation_set_network_activity(presentation, false);
   if (!still_requested || requested_section != loader->library.section_id ||
       requested_start != loader->start) {
     return true;
@@ -2175,8 +1247,10 @@ static bool MULTIPLEX_PAIRING_ONLY poll_direct_browse_loader(
           "REFERENCE GX: direct browse artwork deferred; using placeholders\n");
     }
     bound = bind_browse_page(&loader->page);
-    if (bound)
-      queue_browse_motion(previous_start, loader->page.start);
+    if (bound) {
+      multiplex_presentation_queue_browse_motion(presentation, previous_start,
+                                                 loader->page.start);
+    }
     SYS_Report(
         "REFERENCE GX: direct browse-page complete section=%u start=%u us=%u\n",
         requested_section, requested_start, elapsed_us(loader->started_tick));
@@ -2186,8 +1260,7 @@ static bool MULTIPLEX_PAIRING_ONLY poll_direct_browse_loader(
                requested_section, requested_start);
   }
   if (bound) {
-    asynchronous_reference_requested = true;
-    native_frame_dirty = true;
+    multiplex_presentation_request_refresh(presentation, true);
   }
   return bound;
 }
@@ -2263,35 +1336,33 @@ static bool load_search_page(const char *gateway_url) {
     return false;
   }
 
-  uint8_t *browse_pixels =
-      poster_texture_pixels +
-      (size_t)HOME_POSTER_COUNT * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
   if (page.item_count > 0) {
     uint8_t *encoded = calloc(1, POSTER_JPEG_CAPACITY + 64u);
     size_t encoded_size = 0;
+    MultiplexPresentationPosterWrite write;
+    const bool write_started = multiplex_presentation_posters_begin(
+        presentation, HOME_POSTER_COUNT, page.item_count,
+        MULTIPLEX_PRESENTATION_POSTERS_OVERWRITE, &write);
     const size_t search_bytes =
         (size_t)page.item_count * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
-    if (encoded == NULL || poster_texture_pixels == NULL ||
+    if (encoded == NULL || !write_started ||
         !multiplex_gateway_load_search_artwork(
             gateway_url, query, (uint16_t)query_length, encoded,
             POSTER_JPEG_CAPACITY, &encoded_size) ||
         !poster_jpeg_decode(encoded, encoded_size, page.item_count,
-                            browse_pixels, search_bytes)) {
+                            write.pixels, search_bytes)) {
       free(encoded);
+      if (write_started) {
+        multiplex_presentation_posters_cancel(presentation, &write);
+      }
       return false;
     }
     free(encoded);
-    for (uint16_t item = 0; item < page.item_count; ++item) {
-      uint8_t *pixels =
-          browse_pixels + (size_t)item * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
-      GX_InitTexObj(&poster_textures[HOME_POSTER_COUNT + item], pixels,
-                    MULTIPLEX_GATEWAY_ARTWORK_WIDTH,
-                    MULTIPLEX_GATEWAY_ARTWORK_HEIGHT, GX_TF_RGB565, GX_CLAMP,
-                    GX_CLAMP, GX_FALSE);
-      GX_InitTexObjLOD(&poster_textures[HOME_POSTER_COUNT + item], GX_LINEAR,
-                       GX_LINEAR, 0, 0, 0, GX_FALSE, GX_FALSE, GX_ANISO_1);
+    const uint32_t rating_keys[MULTIPLEX_GATEWAY_MAX_BROWSE_ITEMS] = {0};
+    if (!multiplex_presentation_posters_commit(presentation, &write,
+                                               rating_keys)) {
+      return false;
     }
-    DCFlushRange(browse_pixels, search_bytes);
   }
 
   return bind_search_page(&page);
@@ -2334,7 +1405,7 @@ launch_direct_search_loader(DirectSearchLoader *loader,
   }
   loader->started = true;
   loader->started_tick = gettick();
-  network_activity_visible = true;
+  multiplex_presentation_set_network_activity(presentation, true);
   SYS_Report("REFERENCE GX: search-page load started query=%.*s\n",
              query_length, query);
   return true;
@@ -2367,7 +1438,7 @@ static bool MULTIPLEX_PAIRING_ONLY poll_direct_search_loader(
       memcmp(requested_query, loader->query, loader->query_length) == 0;
   if (!loader->complete) {
     if (!still_requested) {
-      network_activity_visible = false;
+      multiplex_presentation_set_network_activity(presentation, false);
     }
     return true;
   }
@@ -2377,7 +1448,7 @@ static bool MULTIPLEX_PAIRING_ONLY poll_direct_search_loader(
     loader->thread = LWP_THREAD_NULL;
   }
   loader->started = false;
-  network_activity_visible = false;
+  multiplex_presentation_set_network_activity(presentation, false);
   if (!still_requested) {
     return true;
   }
@@ -2400,8 +1471,7 @@ static bool MULTIPLEX_PAIRING_ONLY poll_direct_search_loader(
                loader->query_length, loader->query);
   }
   if (bound) {
-    asynchronous_reference_requested = true;
-    native_frame_dirty = true;
+    multiplex_presentation_request_refresh(presentation, true);
   }
   return bound;
 }
@@ -2714,7 +1784,7 @@ launch_direct_details_loader(DirectDetailsLoader *loader,
     return false;
   }
   loader->started = true;
-  network_activity_visible = foreground;
+  multiplex_presentation_set_network_activity(presentation, foreground);
   SYS_Report("REFERENCE GX: details-page load started rating-key=%u mode=%s\n",
              rating_key, foreground ? "foreground" : "prefetch");
   return true;
@@ -2752,7 +1822,7 @@ static bool MULTIPLEX_PAIRING_ONLY load_direct_item_details(
   }
   if (loader->started) {
     loader->foreground = true;
-    network_activity_visible = true;
+    multiplex_presentation_set_network_activity(presentation, true);
     return true;
   }
   return launch_direct_details_loader(loader, credentials, rating_key, true);
@@ -2766,7 +1836,7 @@ static bool MULTIPLEX_PAIRING_ONLY poll_direct_details_loader(
   if (!loader->complete) {
     if (loader->foreground && multiplex_native_app_details_request() == 0) {
       loader->foreground = false;
-      network_activity_visible = false;
+      multiplex_presentation_set_network_activity(presentation, false);
     }
     return true;
   }
@@ -2777,7 +1847,7 @@ static bool MULTIPLEX_PAIRING_ONLY poll_direct_details_loader(
   }
   loader->started = false;
   if (loader->foreground) {
-    network_activity_visible = false;
+    multiplex_presentation_set_network_activity(presentation, false);
   }
   const uint32_t completed_rating_key = loader->rating_key;
   const uint32_t requested_rating_key = multiplex_native_app_details_request();
@@ -2801,8 +1871,7 @@ static bool MULTIPLEX_PAIRING_ONLY poll_direct_details_loader(
     if (!load_direct_item_children(credentials)) {
       SYS_Report("REFERENCE GX: direct details children load failed\n");
     }
-    asynchronous_reference_requested = true;
-    native_frame_dirty = true;
+    multiplex_presentation_request_refresh(presentation, true);
   } else if (requested_rating_key == 0 && loader->ready) {
     SYS_Report("REFERENCE GX: details-page prefetch ready rating-key=%u\n",
                completed_rating_key);
@@ -3093,7 +2162,7 @@ recover_stalled_media_startup(MediaStartupWatchdog *watchdog,
     return false;
   }
   if (*demux == NULL || manifest->rating_key == 0 ||
-      video_surface.visible == 0) {
+      !multiplex_presentation_status(presentation).video_visible) {
     watchdog->timing = false;
     return true;
   }
@@ -3696,7 +2765,7 @@ static bool navigate_direct_playback_if_requested(
     if (multiplex_native_app_playback_navigation_clear() == 0) {
       return false;
     }
-    native_frame_dirty = true;
+    multiplex_presentation_request_refresh(presentation, false);
     SYS_Report("REFERENCE GX: direct playback navigation direction=%s "
                "result=%s rating-key=%u\n",
                direction < 0 ? "previous" : "next",
@@ -3738,7 +2807,7 @@ static bool navigate_direct_playback_if_requested(
                previous_rating_key, target.rating_key);
     return false;
   }
-  native_frame_dirty = true;
+  multiplex_presentation_request_refresh(presentation, false);
   SYS_Report("REFERENCE GX: direct playback navigation direction=%s "
              "previous=%u active=%u title=%s\n",
              direction < 0 ? "previous" : "next", previous_rating_key,
@@ -3752,7 +2821,8 @@ static void stop_direct_playback_if_hidden(
     MpegPsDemux **demux, TimelineReporter *timeline_reporter,
     bool *timeline_player_visible) {
   if (active_manifest == NULL || active_manifest->rating_key == 0 ||
-      (multiplex_native_app_playback_state() & 1u) != 0) {
+      (multiplex_native_app_playback_state() &
+       MULTIPLEX_PLAYBACK_STATE_PLAYER) != 0) {
     return;
   }
   const uint32_t stopped_rating_key = active_manifest->rating_key;
@@ -3771,1440 +2841,205 @@ static void stop_direct_playback_if_hidden(
 }
 #endif
 
-static void texture_vertex(float x, float y, float u, float v) {
-  GX_Position3f32(x, y, 0.0f);
-  GX_Color4u8(255, 255, 255, 255);
-  GX_TexCoord2f32(u, v);
-}
-
-static void load_ui_translation_xy(float x, float y) {
-  Mtx transform;
-  ui_draw_translation_x = x;
-  ui_draw_translation_y = y;
-  guMtxTrans(transform, x, y, 0.0f);
-  GX_LoadPosMtxImm(transform, GX_PNMTX0);
-}
-
-static void load_ui_translation(float y) { load_ui_translation_xy(0.0f, y); }
-
-static void set_ui_draw_clip(float left, float top, float right, float bottom) {
-  ui_draw_clip_active = true;
-  ui_draw_clip_left = left;
-  ui_draw_clip_top = top;
-  ui_draw_clip_right = right;
-  ui_draw_clip_bottom = bottom;
-}
-
-static void clear_ui_draw_clip(void) { ui_draw_clip_active = false; }
-
-static void configure_color_pipeline(void) {
-  GX_ClearVtxDesc();
-  GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
-  GX_SetVtxDesc(GX_VA_CLR0, GX_DIRECT);
-  GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-  GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
-  GX_SetNumChans(1);
-  GX_SetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_REG, GX_SRC_VTX, GX_LIGHTNULL,
-                 GX_DF_NONE, GX_AF_NONE);
-  GX_SetNumTexGens(0);
-  GX_SetNumTevStages(1);
-  GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORDNULL, GX_TEXMAP_NULL, GX_COLOR0A0);
-  GX_SetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
-}
-
-static void configure_font_pipeline(void) {
-  GX_ClearVtxDesc();
-  GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
-  GX_SetVtxDesc(GX_VA_CLR0, GX_DIRECT);
-  GX_SetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-  GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-  GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
-  GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
-  GX_SetNumChans(1);
-  GX_SetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_REG, GX_SRC_VTX, GX_LIGHTNULL,
-                 GX_DF_NONE, GX_AF_NONE);
-  GX_SetNumTexGens(1);
-  GX_SetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
-  GX_SetNumTevStages(1);
-  GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
-  GX_SetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO,
-                   GX_CC_RASC);
-  GX_SetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE,
-                   GX_TEVPREV);
-  GX_SetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_TEXA, GX_CA_RASA,
-                   GX_CA_ZERO);
-  GX_SetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE,
-                   GX_TEVPREV);
-  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-  GX_LoadTexObj(&font_texture, GX_TEXMAP0);
-}
-
-static GXColor command_color(uint32_t rgba) {
-  GXColor color = {
-      .r = (uint8_t)(rgba >> 24u),
-      .g = (uint8_t)(rgba >> 16u),
-      .b = (uint8_t)(rgba >> 8u),
-      .a = (uint8_t)rgba,
-  };
-  if (presented_screen == MULTIPLEX_SCREEN_PLAYER) {
-    color.a = (uint8_t)(((uint16_t)color.a * ui_frame_alpha + 127u) / 255u);
-  }
-  return color;
-}
-
-static void set_text_scissor(const MultiplexGxCommand *command) {
-  if (command->has_clip == 0 && !ui_draw_clip_active) {
-    GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
-    return;
-  }
-  float left =
-      command->has_clip != 0 ? command->clip_x + ui_draw_translation_x : 0.0f;
-  float top =
-      command->has_clip != 0 ? command->clip_y + ui_draw_translation_y : 0.0f;
-  float right =
-      command->has_clip != 0 ? left + command->clip_width : LOGICAL_WIDTH;
-  float bottom =
-      command->has_clip != 0 ? top + command->clip_height : LOGICAL_HEIGHT;
-  if (ui_draw_clip_active) {
-    left = fmaxf(left, ui_draw_clip_left);
-    top = fmaxf(top, ui_draw_clip_top);
-    right = fminf(right, ui_draw_clip_right);
-    bottom = fminf(bottom, ui_draw_clip_bottom);
-  }
-  if (left < 0.0f)
-    left = 0.0f;
-  if (top < 0.0f)
-    top = 0.0f;
-  if (right > LOGICAL_WIDTH)
-    right = LOGICAL_WIDTH;
-  if (bottom > LOGICAL_HEIGHT)
-    bottom = LOGICAL_HEIGHT;
-  if (right <= left || bottom <= top) {
-    GX_SetScissor(0, 0, 0, 0);
-    return;
-  }
-  const float scale_x = video_mode->fbWidth / (float)LOGICAL_WIDTH;
-  const float scale_y = video_mode->efbHeight / (float)LOGICAL_HEIGHT;
-  GX_SetScissor((uint32_t)(left * scale_x), (uint32_t)(top * scale_y),
-                (uint32_t)((right - left) * scale_x),
-                (uint32_t)((bottom - top) * scale_y));
-}
-
-static void set_poster_scissor(const MultiplexPosterSurface *surface) {
-  if (surface->has_clip == 0 && !ui_draw_clip_active) {
-    GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
-    return;
-  }
-  float left =
-      surface->has_clip != 0 ? surface->clip_x + ui_draw_translation_x : 0.0f;
-  float top =
-      surface->has_clip != 0 ? surface->clip_y + ui_draw_translation_y : 0.0f;
-  float right =
-      surface->has_clip != 0 ? left + surface->clip_width : LOGICAL_WIDTH;
-  float bottom =
-      surface->has_clip != 0 ? top + surface->clip_height : LOGICAL_HEIGHT;
-  if (ui_draw_clip_active) {
-    left = fmaxf(left, ui_draw_clip_left);
-    top = fmaxf(top, ui_draw_clip_top);
-    right = fminf(right, ui_draw_clip_right);
-    bottom = fminf(bottom, ui_draw_clip_bottom);
-  }
-  left = fmaxf(0.0f, left);
-  top = fmaxf(0.0f, top);
-  right = fminf(LOGICAL_WIDTH, right);
-  bottom = fminf(LOGICAL_HEIGHT, bottom);
-  if (right <= left || bottom <= top) {
-    GX_SetScissor(0, 0, 0, 0);
-    return;
-  }
-  const float scale_x = video_mode->fbWidth / (float)LOGICAL_WIDTH;
-  const float scale_y = video_mode->efbHeight / (float)LOGICAL_HEIGHT;
-  GX_SetScissor((uint32_t)(left * scale_x), (uint32_t)(top * scale_y),
-                (uint32_t)((right - left) * scale_x),
-                (uint32_t)((bottom - top) * scale_y));
-}
-
-static unsigned geist_size_index(float size) {
-  unsigned closest = 0;
-  float closest_distance = fabsf(size - (float)geist_sizes[0]);
-  for (unsigned index = 1; index < GEIST_SIZE_COUNT; ++index) {
-    const float distance = fabsf(size - (float)geist_sizes[index]);
-    if (distance < closest_distance) {
-      closest = index;
-      closest_distance = distance;
-    }
-  }
-  return closest;
-}
-
-static void font_vertex(float x, float y, GXColor color, float u, float v) {
-  GX_Position3f32(x, y, 0.0f);
-  GX_Color4u8(color.r, color.g, color.b, color.a);
-  GX_TexCoord2f32(u, v);
-}
-
-static void draw_native_text_command(const MultiplexGxCommand *command) {
-  if (command->text_ptr == NULL || command->text_len == 0) {
-    return;
-  }
-  const GXColor color = command_color(command->color_rgba);
-  if (color.a == 0) {
-    return;
-  }
-  const unsigned size_index = geist_size_index(command->font_size);
-  const float atlas_size = (float)geist_sizes[size_index];
-  const float scale = command->font_size / atlas_size;
-  const float start_x = command->has_clip != 0 && command->clip_x > command->x
-                            ? command->clip_x
-                            : command->x;
-  float cursor_x = start_x;
-  float baseline = command->y;
-  uint32_t draw_length = command->text_len;
-  uint32_t trailing_dots = 0;
-  if (command->has_clip != 0) {
-    const float available = command->clip_x + command->clip_width - start_x;
-    float total_width = 0.0f;
-    for (uint32_t index = 0; index < command->text_len; ++index) {
-      uint8_t character = command->text_ptr[index];
-      if (character == '\n')
-        continue;
-      if (character < GEIST_FIRST_CHARACTER ||
-          character >= GEIST_FIRST_CHARACTER + GEIST_CHARACTER_COUNT) {
-        character = '?';
-      }
-      const GeistGlyphMetric *metric =
-          &geist_metrics[size_index][character - GEIST_FIRST_CHARACTER];
-      total_width += ((float)metric->advance_64 / 64.0f) * scale;
-    }
-    if (total_width > available) {
-      const GeistGlyphMetric *dot =
-          &geist_metrics[size_index]['.' - GEIST_FIRST_CHARACTER];
-      const float dot_width = ((float)dot->advance_64 / 64.0f) * scale;
-      trailing_dots = available >= dot_width * 3.0f
-                          ? 3u
-                          : (available >= dot_width ? 1u : 0u);
-      const float content_width = available - dot_width * trailing_dots;
-      float prefix_width = 0.0f;
-      draw_length = 0;
-      while (draw_length < command->text_len) {
-        uint8_t character = command->text_ptr[draw_length];
-        if (character == '\n')
-          break;
-        if (character < GEIST_FIRST_CHARACTER ||
-            character >= GEIST_FIRST_CHARACTER + GEIST_CHARACTER_COUNT) {
-          character = '?';
-        }
-        const GeistGlyphMetric *metric =
-            &geist_metrics[size_index][character - GEIST_FIRST_CHARACTER];
-        const float advance = ((float)metric->advance_64 / 64.0f) * scale;
-        if (prefix_width + advance > content_width)
-          break;
-        prefix_width += advance;
-        ++draw_length;
-      }
-      while (draw_length > 0 && command->text_ptr[draw_length - 1u] == '.') {
-        --draw_length;
-      }
-    }
-  }
-  uint32_t glyph_count = 0;
-  for (uint32_t index = 0; index < draw_length; ++index) {
-    uint8_t character = command->text_ptr[index];
-    if (character == '\n')
-      continue;
-    if (character < GEIST_FIRST_CHARACTER ||
-        character >= GEIST_FIRST_CHARACTER + GEIST_CHARACTER_COUNT) {
-      character = '?';
-    }
-    const GeistGlyphMetric *metric =
-        &geist_metrics[size_index][character - GEIST_FIRST_CHARACTER];
-    if (metric->width > 0 && metric->height > 0)
-      ++glyph_count;
-  }
-  glyph_count += trailing_dots;
-  if (glyph_count == 0 || glyph_count > UINT16_MAX / 4u) {
-    return;
-  }
-
-  GX_Begin(GX_QUADS, GX_VTXFMT0, (uint16_t)(glyph_count * 4u));
-  for (uint32_t index = 0; index < draw_length; ++index) {
-    uint8_t character = command->text_ptr[index];
-    if (character == '\n') {
-      cursor_x = start_x;
-      baseline += command->font_size * 1.25f;
-      continue;
-    }
-    if (character < GEIST_FIRST_CHARACTER ||
-        character >= GEIST_FIRST_CHARACTER + GEIST_CHARACTER_COUNT) {
-      character = '?';
-    }
-    const GeistGlyphMetric *metric =
-        &geist_metrics[size_index][character - GEIST_FIRST_CHARACTER];
-    if (metric->width > 0 && metric->height > 0) {
-      const float left = cursor_x + (float)metric->bearing_x * scale;
-      const float top = baseline + (float)metric->bearing_y * scale;
-      const float right = left + (float)metric->width * scale;
-      const float bottom = top + (float)metric->height * scale;
-      const float u0 = (float)metric->u / (float)GEIST_ATLAS_WIDTH;
-      const float v0 = (float)metric->v / (float)GEIST_ATLAS_HEIGHT;
-      const float u1 =
-          (float)(metric->u + metric->width) / (float)GEIST_ATLAS_WIDTH;
-      const float v1 =
-          (float)(metric->v + metric->height) / (float)GEIST_ATLAS_HEIGHT;
-      font_vertex(left, top, color, u0, v0);
-      font_vertex(right, top, color, u1, v0);
-      font_vertex(right, bottom, color, u1, v1);
-      font_vertex(left, bottom, color, u0, v1);
-    }
-    cursor_x += ((float)metric->advance_64 / 64.0f) * scale;
-  }
-  const GeistGlyphMetric *dot =
-      &geist_metrics[size_index]['.' - GEIST_FIRST_CHARACTER];
-  for (uint32_t index = 0; index < trailing_dots; ++index) {
-    if (dot->width > 0 && dot->height > 0) {
-      const float left = cursor_x + (float)dot->bearing_x * scale;
-      const float top = baseline + (float)dot->bearing_y * scale;
-      const float right = left + (float)dot->width * scale;
-      const float bottom = top + (float)dot->height * scale;
-      const float u0 = (float)dot->u / (float)GEIST_ATLAS_WIDTH;
-      const float v0 = (float)dot->v / (float)GEIST_ATLAS_HEIGHT;
-      const float u1 = (float)(dot->u + dot->width) / (float)GEIST_ATLAS_WIDTH;
-      const float v1 =
-          (float)(dot->v + dot->height) / (float)GEIST_ATLAS_HEIGHT;
-      font_vertex(left, top, color, u0, v0);
-      font_vertex(right, top, color, u1, v0);
-      font_vertex(right, bottom, color, u1, v1);
-      font_vertex(left, bottom, color, u0, v1);
-    }
-    cursor_x += ((float)dot->advance_64 / 64.0f) * scale;
-  }
-  GX_End();
-}
-
-static void draw_native_text_command_at(const NativeUiPacket *packet,
-                                        uint32_t index) {
-  const MultiplexGxCommand *command = &packet->text_commands[index];
-  set_text_scissor(command);
-  if (command->kind == MULTIPLEX_GX_GLYPH) {
-    uint8_t character = '?';
-    for (uint32_t glyph_index = 0; glyph_index < GEIST_CHARACTER_COUNT;
-         ++glyph_index) {
-      if (geist_glyph_ids[glyph_index] == command->glyph_id) {
-        character = (uint8_t)(GEIST_FIRST_CHARACTER + glyph_index);
-        break;
-      }
-    }
-    MultiplexGxCommand glyph = *command;
-    glyph.text_ptr = &character;
-    glyph.text_len = 1;
-    draw_native_text_command(&glyph);
-  } else if (command->kind == MULTIPLEX_GX_TEXT) {
-    draw_native_text_command(command);
-  }
-}
-
-static void color_vertex(float x, float y, GXColor color) {
-  GX_Position3f32(x, y, 0.0f);
-  GX_Color4u8(color.r, color.g, color.b, color.a);
-}
-
-static void fill_circle(float center_x, float center_y, float radius,
-                        GXColor color) {
-  static const float unit_circle[9][2] = {
-      {1.0f, 0.0f},  {0.7071068f, 0.7071068f},
-      {0.0f, 1.0f},  {-0.7071068f, 0.7071068f},
-      {-1.0f, 0.0f}, {-0.7071068f, -0.7071068f},
-      {0.0f, -1.0f}, {0.7071068f, -0.7071068f},
-      {1.0f, 0.0f},
-  };
-  GX_Begin(GX_TRIANGLEFAN, GX_VTXFMT0, 10);
-  color_vertex(center_x, center_y, color);
-  for (unsigned index = 0; index < 9; ++index) {
-    color_vertex(center_x + unit_circle[index][0] * radius,
-                 center_y + unit_circle[index][1] * radius, color);
-  }
-  GX_End();
-}
-
-static void draw_activity_dots(float center_y, uint32_t frame) {
-  configure_color_pipeline();
-  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-  const uint32_t active = (frame / 10u) % 3u;
-  for (uint32_t index = 0; index < 3; ++index) {
-    const uint8_t alpha = index == active ? 230u : 72u;
-    fill_circle(312.0f + index * 8.0f, center_y, 2.0f,
-                (GXColor){212, 212, 216, alpha});
-  }
-  GX_SetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_CLEAR);
-}
-
-static void fill_rect(float left, float top, float right, float bottom,
-                      GXColor color);
-
-static void draw_activity(void) {
-  if (network_activity_visible) {
-    draw_activity_dots(380.0f, network_activity_frame);
-    network_activity_frame += 1;
-    return;
-  }
-  if (blocking_activity_visible) {
-    draw_activity_dots(462.0f, 0);
-    return;
-  }
-  if (reference_renderer.thread != LWP_THREAD_NULL &&
-      screen_transition_frame >= 8u) {
-    draw_activity_dots(462.0f, screen_transition_frame - 8u);
-  }
-  if (reference_renderer.thread != LWP_THREAD_NULL) {
-    screen_transition_frame += 1;
-  }
-}
-
-static void draw_stats_for_nerds(void) {
-  if (video_surface.visible == 0 ||
-      multiplex_native_app_stats_for_nerds_enabled() == 0) {
-    diagnostic_network_started = 0;
-    return;
-  }
-
-  const uint32_t now = gettick();
-  uint32_t network_bytes = 0;
-  size_t queued_video = 0;
-  size_t queued_audio = 0;
-  if (direct_hls_demux != NULL) {
-    network_bytes = plex_hls_demux_video_bytes(direct_hls_demux) +
-                    plex_hls_demux_audio_bytes(direct_hls_demux);
-    queued_video = plex_hls_demux_queued_video_bytes(direct_hls_demux);
-    queued_audio = plex_hls_demux_queued_audio_bytes(direct_hls_demux);
-  }
-  if (diagnostic_network_started == 0) {
-    diagnostic_network_started = now;
-    diagnostic_network_last_bytes = network_bytes;
-  } else {
-    const uint32_t measured_us = elapsed_us(diagnostic_network_started);
-    if (measured_us >= 1000000u) {
-      const uint32_t delta = network_bytes - diagnostic_network_last_bytes;
-      diagnostic_network_kib_per_second =
-          (uint32_t)(((uint64_t)delta * 1000000ull) /
-                     ((uint64_t)measured_us * 1024ull));
-      diagnostic_network_started = now;
-      diagnostic_network_last_bytes = network_bytes;
-    }
-  }
-
-  const struct mallinfo heap = mallinfo();
-  char text[256];
-  const int length = snprintf(
-      text, sizeof(text),
-      "UI %u.%u  VIDEO %u.%u  CODEC %u/%u ms  UPLOAD %u ms\n"
-      "NET %u KiB/s  QUEUE V%u A%u KiB  AUDIO %u/18 U%u\n"
-      "HEAP %u KiB free  TOP %u KiB",
-      diagnostic_presentation_fps_tenths / 10u,
-      diagnostic_presentation_fps_tenths % 10u,
-      diagnostic_decoder_fps_tenths / 10u, diagnostic_decoder_fps_tenths % 10u,
-      diagnostic_codec_average_us / 1000u, diagnostic_codec_max_us / 1000u,
-      diagnostic_upload_average_us / 1000u, diagnostic_network_kib_per_second,
-      (uint32_t)(queued_video / 1024u), (uint32_t)(queued_audio / 1024u),
-      audio_dma_ready_buffers(audio_output), audio_dma_underruns(audio_output),
-      (uint32_t)heap.fordblks / 1024u, (uint32_t)heap.keepcost / 1024u);
-  if (length <= 0) {
-    return;
-  }
-  const size_t available =
-      (size_t)length < sizeof(text) ? (size_t)length : sizeof(text) - 1u;
-
-  configure_color_pipeline();
-  fill_rect(8.0f, 8.0f, 632.0f, 74.0f, (GXColor){0, 0, 0, 220});
-  configure_font_pipeline();
-  const MultiplexGxCommand command = {
-      .kind = MULTIPLEX_GX_TEXT,
-      .x = 16.0f,
-      .y = 17.0f,
-      .color_rgba = 0xffffffffu,
-      .text_ptr = (const uint8_t *)text,
-      .text_len = (uint32_t)available,
-      .font_size = 13.0f,
-  };
-  draw_native_text_command(&command);
-}
-
-static void fill_rect(float left, float top, float right, float bottom,
-                      GXColor color) {
-  GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
-  color_vertex(left, top, color);
-  color_vertex(right, top, color);
-  color_vertex(right, bottom, color);
-  color_vertex(left, bottom, color);
-  GX_End();
-}
-
-static const float rounded_arc[5][2] = {
-    {1.0f, 0.0f},
-    {0.9238795f, 0.3826834f},
-    {0.7071068f, 0.7071068f},
-    {0.3826834f, 0.9238795f},
-    {0.0f, 1.0f},
-};
-
-static void fill_rounded_corner(float center_x, float center_y, float radius,
-                                float x_sign, float y_sign, GXColor color) {
-  GX_Begin(GX_TRIANGLEFAN, GX_VTXFMT0, 6);
-  color_vertex(center_x, center_y, color);
-  for (unsigned index = 0; index < 5; ++index) {
-    color_vertex(center_x + x_sign * rounded_arc[index][0] * radius,
-                 center_y + y_sign * rounded_arc[index][1] * radius, color);
-  }
-  GX_End();
-}
-
-static void fill_rounded_color_rect(float left, float top, float right,
-                                    float bottom, float radius, GXColor color) {
-  const float width = right - left;
-  const float height = bottom - top;
-  const float maximum = (width < height ? width : height) * 0.5f;
-  if (radius > maximum)
-    radius = maximum;
-  if (radius < 1.0f) {
-    fill_rect(left, top, right, bottom, color);
-    return;
-  }
-  fill_rect(left + radius, top, right - radius, bottom, color);
-  fill_rect(left, top + radius, right, bottom - radius, color);
-  fill_rounded_corner(left + radius, top + radius, radius, -1.0f, -1.0f, color);
-  fill_rounded_corner(right - radius, top + radius, radius, 1.0f, -1.0f, color);
-  fill_rounded_corner(right - radius, bottom - radius, radius, 1.0f, 1.0f,
-                      color);
-  fill_rounded_corner(left + radius, bottom - radius, radius, -1.0f, 1.0f,
-                      color);
-}
-
-static void stroke_rounded_corner(float center_x, float center_y,
-                                  float outer_radius, float inner_radius,
-                                  float x_sign, float y_sign, GXColor color) {
-  GX_Begin(GX_TRIANGLESTRIP, GX_VTXFMT0, 10);
-  for (unsigned index = 0; index < 5; ++index) {
-    color_vertex(center_x + x_sign * rounded_arc[index][0] * outer_radius,
-                 center_y + y_sign * rounded_arc[index][1] * outer_radius,
-                 color);
-    color_vertex(center_x + x_sign * rounded_arc[index][0] * inner_radius,
-                 center_y + y_sign * rounded_arc[index][1] * inner_radius,
-                 color);
-  }
-  GX_End();
-}
-
-static void stroke_rounded_color_rect(float left, float top, float right,
-                                      float bottom, float radius, float stroke,
-                                      GXColor color) {
-  const float width = right - left;
-  const float height = bottom - top;
-  const float maximum = (width < height ? width : height) * 0.5f;
-  if (radius > maximum)
-    radius = maximum;
-  if (stroke < 1.0f)
-    stroke = 1.0f;
-  if (stroke * 2.0f >= width || stroke * 2.0f >= height || radius < 1.0f) {
-    fill_rect(left, top, right, top + stroke, color);
-    fill_rect(left, bottom - stroke, right, bottom, color);
-    fill_rect(left, top + stroke, left + stroke, bottom - stroke, color);
-    fill_rect(right - stroke, top + stroke, right, bottom - stroke, color);
-    return;
-  }
-  const float inner_radius = radius > stroke ? radius - stroke : 0.0f;
-  fill_rect(left + radius, top, right - radius, top + stroke, color);
-  fill_rect(left + radius, bottom - stroke, right - radius, bottom, color);
-  fill_rect(left, top + radius, left + stroke, bottom - radius, color);
-  fill_rect(right - stroke, top + radius, right, bottom - radius, color);
-  stroke_rounded_corner(left + radius, top + radius, radius, inner_radius,
-                        -1.0f, -1.0f, color);
-  stroke_rounded_corner(right - radius, top + radius, radius, inner_radius,
-                        1.0f, -1.0f, color);
-  stroke_rounded_corner(right - radius, bottom - radius, radius, inner_radius,
-                        1.0f, 1.0f, color);
-  stroke_rounded_corner(left + radius, bottom - radius, radius, inner_radius,
-                        -1.0f, 1.0f, color);
-}
-
-static float native_stroke_radius(const NativeUiPacket *packet,
-                                  uint32_t command_index,
-                                  const MultiplexGxCommand *stroke) {
-  if (stroke->radius >= 1.0f)
-    return stroke->radius;
-  for (uint32_t index = command_index; index > 0; --index) {
-    const MultiplexGxCommand *fill = &packet->shape_commands[index - 1u];
-    if (fill->kind != MULTIPLEX_GX_FILL_ROUNDED_RECT)
-      continue;
-    const float left_inset = fill->x - stroke->x;
-    const float top_inset = fill->y - stroke->y;
-    const float right_inset = stroke->x + stroke->width - fill->x - fill->width;
-    const float bottom_inset =
-        stroke->y + stroke->height - fill->y - fill->height;
-    if (left_inset < 0.0f || top_inset < 0.0f || right_inset < 0.0f ||
-        bottom_inset < 0.0f || left_inset > 4.0f || top_inset > 4.0f ||
-        right_inset > 4.0f || bottom_inset > 4.0f) {
-      continue;
-    }
-    const float inset =
-        fmaxf(fmaxf(left_inset, top_inset), fmaxf(right_inset, bottom_inset));
-    return fill->radius + inset;
-  }
-  return 0.0f;
-}
-
-static bool details_backdrop_active(void) {
-  if (presented_screen != MULTIPLEX_SCREEN_DETAILS ||
-      poster_surface_count == 0 || poster_texture_count == 0) {
-    return false;
-  }
-  const uint32_t image_id = poster_surfaces[0].image_id;
-  return image_id != 0 && image_id <= poster_texture_count;
-}
-
-static bool is_ambient_background(const MultiplexGxCommand *command) {
-  return (details_backdrop_active() || player_startup_backdrop_visible) &&
-         command->kind == MULTIPLEX_GX_FILL_RECT && command->x <= 0.0f &&
-         command->y <= 0.0f && command->width >= LOGICAL_WIDTH &&
-         command->height >= LOGICAL_HEIGHT;
-}
-
-static void draw_native_shape_command_at(const NativeUiPacket *packet,
-                                         uint32_t index) {
-  const MultiplexGxCommand *command = &packet->shape_commands[index];
-  if (is_ambient_background(command))
-    return;
-  set_text_scissor(command);
-  GXColor color = command_color(command->color_rgba);
-  if (modal_surface.visible != 0 && command->kind == MULTIPLEX_GX_FILL_RECT &&
-      command->x <= 0.0f && command->y <= 0.0f &&
-      command->width >= LOGICAL_WIDTH && command->height >= LOGICAL_HEIGHT &&
-      color.a > 0u && color.a < 96u) {
-    color.a = 176u;
-  }
-  const float left = command->x;
-  const float top = command->y;
-  const float right = left + command->width;
-  const float bottom = top + command->height;
-  switch (command->kind) {
-  case MULTIPLEX_GX_FILL_RECT:
-    fill_rect(left, top, right, bottom, color);
-    break;
-  case MULTIPLEX_GX_FILL_ROUNDED_RECT:
-    fill_rounded_color_rect(left, top, right, bottom, command->radius, color);
-    break;
-  case MULTIPLEX_GX_STROKE_RECT:
-    stroke_rounded_color_rect(left, top, right, bottom,
-                              native_stroke_radius(packet, index, command),
-                              command->stroke_width, color);
-    break;
-  case MULTIPLEX_GX_LINE: {
-    const float stroke =
-        command->stroke_width < 1.0f ? 1.0f : command->stroke_width;
-    if (fabsf(command->x2 - command->x) >= fabsf(command->y2 - command->y)) {
-      fill_rect(fminf(command->x, command->x2),
-                fminf(command->y, command->y2) - stroke * 0.5f,
-                fmaxf(command->x, command->x2),
-                fminf(command->y, command->y2) + stroke * 0.5f, color);
-    } else {
-      fill_rect(fminf(command->x, command->x2) - stroke * 0.5f,
-                fminf(command->y, command->y2),
-                fminf(command->x, command->x2) + stroke * 0.5f,
-                fmaxf(command->y, command->y2), color);
-    }
-    break;
-  }
-  case MULTIPLEX_GX_PATH_LINE: {
-    const float dx = command->x2 - command->x;
-    const float dy = command->y2 - command->y;
-    const float length = sqrtf(dx * dx + dy * dy);
-    if (length <= 0.001f) {
-      break;
-    }
-    unsigned line_width = (unsigned)(command->stroke_width * 6.0f + 0.5f);
-    if (line_width < 6u)
-      line_width = 6u;
-    if (line_width > 255u)
-      line_width = 255u;
-    GX_SetLineWidth((uint8_t)line_width, GX_TO_ZERO);
-    GX_Begin(GX_LINES, GX_VTXFMT0, 2);
-    color_vertex(command->x, command->y, color);
-    color_vertex(command->x2, command->y2, color);
-    GX_End();
-    break;
-  }
-  case MULTIPLEX_GX_FILL_TRIANGLE:
-    GX_Begin(GX_TRIANGLES, GX_VTXFMT0, 3);
-    color_vertex(command->x, command->y, color);
-    color_vertex(command->x2, command->y2, color);
-    color_vertex(command->width, command->height, color);
-    GX_End();
-    break;
-  default:
-    break;
-  }
-}
-
-static void draw_ambient_poster(uint32_t texture_index, uint8_t scrim_alpha,
-                                uint8_t left_scrim_alpha) {
-  configure_ui_pipeline();
-  GX_LoadTexObj(&poster_textures[texture_index], GX_TEXMAP0);
-
-  /* Cover the screen with the center of the portrait. The heavy scrim turns
-   * the cached poster into ambient color without competing with the content. */
-  GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
-  texture_vertex(0.0f, 0.0f, 0.0f, 0.25f);
-  texture_vertex(LOGICAL_WIDTH, 0.0f, 1.0f, 0.25f);
-  texture_vertex(LOGICAL_WIDTH, LOGICAL_HEIGHT, 1.0f, 0.75f);
-  texture_vertex(0.0f, LOGICAL_HEIGHT, 0.0f, 0.75f);
-  GX_End();
-
-  configure_color_pipeline();
-  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-  fill_rect(0.0f, 0.0f, LOGICAL_WIDTH, LOGICAL_HEIGHT,
-            (GXColor){10, 10, 12, scrim_alpha});
-  if (left_scrim_alpha != 0) {
-    fill_rect(0.0f, 0.0f, 205.0f, LOGICAL_HEIGHT,
-              (GXColor){10, 10, 12, left_scrim_alpha});
-  }
-}
-
-static void draw_details_backdrop(void) {
-  if (details_backdrop_active()) {
-    draw_ambient_poster(poster_surfaces[0].image_id - 1u, 224u, 44u);
-  }
-}
-
-static int32_t poster_texture_for_rating_key(uint32_t rating_key) {
-  if (rating_key == 0) {
-    return -1;
-  }
-  for (uint16_t index = 0; index < poster_texture_count; ++index) {
-    if (poster_texture_rating_keys[index] == rating_key) {
-      return (int32_t)index;
-    }
-  }
-  return -1;
-}
-
-static uint32_t MULTIPLEX_PAIRING_ONLY focused_poster_rating_key(void) {
-  const uint32_t screen = multiplex_native_app_screen();
-  if (screen != MULTIPLEX_SCREEN_HOME && screen != MULTIPLEX_SCREEN_BROWSE &&
-      screen != MULTIPLEX_SCREEN_SEARCH_RESULTS) {
-    return 0;
-  }
-  for (uint32_t index = 0; index < poster_surface_count; ++index) {
-    const uint32_t image_id = poster_surfaces[index].image_id;
-    if (poster_surfaces[index].focused != 0 && image_id != 0 &&
-        image_id <= poster_texture_count) {
-      return poster_texture_rating_keys[image_id - 1u];
-    }
-  }
-  return 0;
-}
-
-static void draw_player_startup_backdrop(
-    const MultiplexGatewayPlaybackManifest *playback_manifest) {
-  player_startup_backdrop_visible = false;
-  if (presented_screen != MULTIPLEX_SCREEN_PLAYER || video_texture_ready) {
-    return;
-  }
-  uint32_t rating_key =
+static MultiplexPresentationPlaybackSnapshot step_presentation_playback(
+    const MultiplexGatewayPlaybackManifest *playback_manifest,
+    bool desired_playing) {
+  MultiplexPresentationPlaybackSnapshot snapshot = {0};
+  const bool frame_visible =
+      multiplex_presentation_status(presentation).video_visible;
+  snapshot.content_width = video_content_width;
+  snapshot.content_height = video_content_height;
+  snapshot.rating_key =
       playback_manifest == NULL ? 0 : playback_manifest->rating_key;
-  if (rating_key == 0 && direct_details_cache_valid) {
-    rating_key = direct_details_cache.rating_key;
-  }
-  const int32_t texture_index = poster_texture_for_rating_key(rating_key);
-  if (texture_index < 0) {
-    return;
-  }
-  player_startup_backdrop_visible = true;
-  draw_ambient_poster((uint32_t)texture_index, 176u, 0u);
-}
-
-static void draw_reference_frame(void) {
-  configure_ui_pipeline();
-  for (unsigned tile_y = 0; tile_y < TILE_ROWS; ++tile_y) {
-    for (unsigned tile_x = 0; tile_x < TILE_COLUMNS; ++tile_x) {
-      const unsigned tile_index = tile_y * TILE_COLUMNS + tile_x;
-      const float left = tile_x * TILE_WIDTH;
-      const float top = tile_y * TILE_HEIGHT;
-      const float right = left + TILE_WIDTH;
-      const float bottom = top + TILE_HEIGHT;
-
-      GX_LoadTexObj(&textures[tile_index], GX_TEXMAP0);
-      GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
-      texture_vertex(left, top, 0.0f, 0.0f);
-      texture_vertex(right, top, 1.0f, 0.0f);
-      texture_vertex(right, bottom, 1.0f, 1.0f);
-      texture_vertex(left, bottom, 0.0f, 1.0f);
-      GX_End();
-    }
-  }
-}
-
-static void poster_texture_vertex(const MultiplexPosterSurface *surface,
-                                  float x, float y) {
-  texture_vertex(x, y, (x - surface->x) / surface->width,
-                 (y - surface->y) / surface->height);
-}
-
-static void draw_poster_rect(const MultiplexPosterSurface *surface, float left,
-                             float top, float right, float bottom) {
-  GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
-  poster_texture_vertex(surface, left, top);
-  poster_texture_vertex(surface, right, top);
-  poster_texture_vertex(surface, right, bottom);
-  poster_texture_vertex(surface, left, bottom);
-  GX_End();
-}
-
-static void draw_poster_corner(const MultiplexPosterSurface *surface,
-                               float center_x, float center_y, float radius,
-                               float x_sign, float y_sign) {
-  static const float arc[5][2] = {
-      {1.0f, 0.0f},
-      {0.9238795f, 0.3826834f},
-      {0.7071068f, 0.7071068f},
-      {0.3826834f, 0.9238795f},
-      {0.0f, 1.0f},
-  };
-  GX_Begin(GX_TRIANGLEFAN, GX_VTXFMT0, 6);
-  poster_texture_vertex(surface, center_x, center_y);
-  for (unsigned index = 0; index < 5; ++index) {
-    poster_texture_vertex(surface, center_x + x_sign * arc[index][0] * radius,
-                          center_y + y_sign * arc[index][1] * radius);
-  }
-  GX_End();
-}
-
-static void draw_rounded_poster(const MultiplexPosterSurface *surface) {
-  const float maximum =
-      (surface->width < surface->height ? surface->width : surface->height) *
-      0.5f;
-  float radius = surface->radius;
-  if (radius > maximum) {
-    radius = maximum;
-  }
-  if (radius < 1.0f) {
-    draw_poster_rect(surface, surface->x, surface->y,
-                     surface->x + surface->width, surface->y + surface->height);
-    return;
+  if (playback_manifest != NULL) {
+    snapshot.position_ms = playback_position_ms(playback_manifest);
+    snapshot.duration_ms = playback_manifest->media_duration_ms;
+    snapshot.segment_start_ms = playback_manifest->segment_start_ms;
+    snapshot.segment_duration_ms = playback_manifest->segment_duration_ms;
   }
 
-  const float left = surface->x;
-  const float top = surface->y;
-  const float right = left + surface->width;
-  const float bottom = top + surface->height;
-  draw_poster_rect(surface, left + radius, top, right - radius, bottom);
-  draw_poster_rect(surface, left, top + radius, right, bottom - radius);
-  draw_poster_corner(surface, left + radius, top + radius, radius, -1.0f,
-                     -1.0f);
-  draw_poster_corner(surface, right - radius, top + radius, radius, 1.0f,
-                     -1.0f);
-  draw_poster_corner(surface, right - radius, bottom - radius, radius, 1.0f,
-                     1.0f);
-  draw_poster_corner(surface, left + radius, bottom - radius, radius, -1.0f,
-                     1.0f);
-}
-
-static MultiplexPosterSurface
-poster_display_surface(const MultiplexPosterSurface *surface) {
-  MultiplexPosterSurface display = *surface;
-  if (surface->width < 68.0f)
-    display.width = 68.0f;
-  if (surface->height < 102.0f)
-    display.height = 102.0f;
-  return display;
-}
-
-static MultiplexPosterSurface
-poster_clip_surface(const MultiplexPosterSurface *surface) {
-  MultiplexPosterSurface clip = *surface;
-  if (surface->width < 68.0f || surface->height < 102.0f) {
-    clip.has_clip = 1u;
-    clip.clip_x = surface->x;
-    clip.clip_y = surface->y;
-    clip.clip_width = surface->width;
-    clip.clip_height = surface->height;
-  }
-  return clip;
-}
-
-static void draw_poster_surfaces(void) {
-  if (poster_texture_count == 0) {
-    return;
-  }
-  configure_ui_pipeline();
-  for (uint32_t index = 0; index < poster_surface_count; ++index) {
-    const MultiplexPosterSurface *surface = &poster_surfaces[index];
-    if (surface->image_id == 0 || surface->image_id > poster_texture_count) {
-      continue;
-    }
-    const MultiplexPosterSurface clip = poster_clip_surface(surface);
-    const MultiplexPosterSurface display = poster_display_surface(surface);
-    set_poster_scissor(&clip);
-    GX_LoadTexObj(&poster_textures[surface->image_id - 1u], GX_TEXMAP0);
-    if (surface->focused != 0) {
-      const float progress =
-          POSTER_FOCUS_FRAMES <= 1u
-              ? 1.0f
-              : (float)poster_focus_frame / (float)(POSTER_FOCUS_FRAMES - 1u);
-      const float remaining = 1.0f - progress;
-      const float eased = 1.0f - remaining * remaining * remaining;
-      MultiplexPosterSurface lifted = display;
-      lifted.x -= eased * 2.0f;
-      lifted.y -= eased * 3.0f;
-      lifted.width += eased * 4.0f;
-      lifted.height += eased * 4.0f;
-      lifted.radius += eased;
-      draw_rounded_poster(&lifted);
-    } else {
-      draw_rounded_poster(&display);
-    }
-  }
-  for (uint32_t index = 0; index < poster_surface_count; ++index) {
-    const MultiplexPosterSurface *surface = &poster_surfaces[index];
-    set_poster_scissor(surface);
-    if (surface->focused == 0 || surface->card_width <= 0 ||
-        surface->card_height <= 0) {
-      continue;
-    }
-    configure_color_pipeline();
-    GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
-                    GX_LO_CLEAR);
-    const float progress =
-        POSTER_FOCUS_FRAMES <= 1u
-            ? 1.0f
-            : (float)poster_focus_frame / (float)(POSTER_FOCUS_FRAMES - 1u);
-    const float remaining = 1.0f - progress;
-    const float eased = 1.0f - remaining * remaining * remaining;
-    const float poster_left = surface->x - eased * 2.0f;
-    const float poster_top = surface->y - eased * 3.0f;
-    const float poster_right = surface->x + surface->width + eased * 2.0f;
-    const float poster_bottom = surface->y + surface->height + eased;
-    stroke_rounded_color_rect(poster_left, poster_top, poster_right,
-                              poster_bottom, surface->radius + eased, 1.5f,
-                              (GXColor){255, 255, 255, 176});
-    break;
-  }
-  if (poster_focus_frame < POSTER_FOCUS_FRAMES) {
-    poster_focus_frame += 1u;
-  }
-  GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
-}
-
-static void draw_packet_shapes_region(const NativeUiPacket *packet, float top,
-                                      float bottom, float x, float y) {
-  set_ui_draw_clip(0.0f, top, LOGICAL_WIDTH, bottom);
-  load_ui_translation_xy(x, y);
-  if (packet->shape_command_count == 0)
-    return;
-  configure_color_pipeline();
-  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-  for (uint32_t index = 0; index < packet->shape_command_count; ++index) {
-    const MultiplexGxCommand *command = &packet->shape_commands[index];
-    const bool full_screen = command->x <= 0.0f && command->y <= 0.0f &&
-                             command->width >= LOGICAL_WIDTH &&
-                             command->height >= LOGICAL_HEIGHT;
-    const float center_y = command->kind == MULTIPLEX_GX_LINE ||
-                                   command->kind == MULTIPLEX_GX_PATH_LINE
-                               ? (command->y + command->y2) * 0.5f
-                               : command->y + command->height * 0.5f;
-    if (full_screen || center_y < top || center_y >= bottom)
-      continue;
-    draw_native_shape_command_at(packet, index);
-  }
-  GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
-}
-
-static void draw_packet_posters_region(const MultiplexPosterSurface *surfaces,
-                                       uint32_t count, float top, float bottom,
-                                       float x, float y) {
-  set_ui_draw_clip(HOME_CAROUSEL_LEFT, top, HOME_CAROUSEL_RIGHT, bottom);
-  load_ui_translation_xy(x, y);
-  if (poster_texture_count == 0)
-    return;
-  configure_ui_pipeline();
-  for (uint32_t index = 0; index < count; ++index) {
-    const MultiplexPosterSurface *surface = &surfaces[index];
-    const float center_y = surface->y + surface->height * 0.5f;
-    if (center_y < top || center_y >= bottom || surface->image_id == 0 ||
-        surface->image_id > poster_texture_count) {
-      continue;
-    }
-    const MultiplexPosterSurface clip = poster_clip_surface(surface);
-    const MultiplexPosterSurface display = poster_display_surface(surface);
-    set_poster_scissor(&clip);
-    GX_LoadTexObj(&poster_textures[surface->image_id - 1u], GX_TEXMAP0);
-    draw_rounded_poster(&display);
-  }
-  GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
-}
-
-static void draw_packet_text_region(const NativeUiPacket *packet, float top,
-                                    float bottom, float x, float y) {
-  set_ui_draw_clip(0.0f, top, LOGICAL_WIDTH, bottom);
-  load_ui_translation_xy(x, y);
-  if (packet->text_command_count == 0)
-    return;
-  configure_font_pipeline();
-  for (uint32_t index = 0; index < packet->text_command_count; ++index) {
-    const MultiplexGxCommand *command = &packet->text_commands[index];
-    if (command->y < top || command->y >= bottom)
-      continue;
-    draw_native_text_command_at(packet, index);
-  }
-  GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
-}
-
-static void draw_home_background(void) {
-  load_ui_translation_xy(0.0f, 0.0f);
-  clear_ui_draw_clip();
-  configure_color_pipeline();
-  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-  for (uint32_t index = 0; index < presented_ui_packet.shape_command_count;
-       ++index) {
-    const MultiplexGxCommand *command =
-        &presented_ui_packet.shape_commands[index];
-    if (command->x <= 0.0f && command->y <= 0.0f &&
-        command->width >= LOGICAL_WIDTH && command->height >= LOGICAL_HEIGHT) {
-      draw_native_shape_command_at(&presented_ui_packet, index);
-    }
-  }
-}
-
-static void draw_home_motion(void) {
-  const float progress =
-      HOME_MOTION_FRAMES <= 1u
-          ? 1.0f
-          : (float)home_motion_frame / (float)(HOME_MOTION_FRAMES - 1u);
-  const float eased = progress * progress * (3.0f - 2.0f * progress);
-  const float direction = (float)home_motion_direction;
-  if (presented_screen == MULTIPLEX_SCREEN_BROWSE) {
-    const float current_y = direction * BROWSE_ROW_STRIDE * (1.0f - eased);
-    draw_home_background();
-    draw_packet_shapes_region(&presented_ui_packet, 0.0f, BROWSE_GRID_TOP, 0.0f,
-                              0.0f);
-    draw_packet_shapes_region(&presented_ui_packet, BROWSE_GRID_TOP,
-                              LOGICAL_HEIGHT, 0.0f, current_y);
-    draw_packet_posters_region(poster_surfaces, poster_surface_count,
-                               BROWSE_GRID_TOP, LOGICAL_HEIGHT, 0.0f,
-                               current_y);
-    draw_packet_text_region(&presented_ui_packet, 0.0f, BROWSE_GRID_TOP, 0.0f,
-                            0.0f);
-    draw_packet_text_region(&presented_ui_packet, BROWSE_GRID_TOP,
-                            LOGICAL_HEIGHT, 0.0f, current_y);
-    clear_ui_draw_clip();
-    load_ui_translation_xy(0.0f, 0.0f);
-    GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
-    if (home_motion_frame + 1u >= HOME_MOTION_FRAMES) {
-      home_motion_frame = HOME_MOTION_FRAMES;
-      home_motion_kind = HOME_MOTION_NONE;
-      SYS_Report("REFERENCE GX: browse motion complete\n");
-    } else {
-      home_motion_frame += 1u;
-    }
-    return;
-  }
-  float previous_x = 0.0f;
-  float previous_y = 0.0f;
-  float current_x = 0.0f;
-  float moving_top = HOME_CONTENT_TOP;
-  float moving_bottom = LOGICAL_HEIGHT;
-
-  if (home_motion_kind == HOME_MOTION_HORIZONTAL) {
-    previous_x = -direction * HOME_CARD_STRIDE * eased;
-    current_x = direction * HOME_CARD_STRIDE * (1.0f - eased);
-    moving_top = HOME_ACTIVE_CARD_TOP;
-    moving_bottom = HOME_ACTIVE_SHELF_BOTTOM;
-  } else {
-    previous_y = -direction * HOME_SHELF_STRIDE * eased;
-  }
-
-  draw_home_background();
-  draw_packet_shapes_region(&presented_ui_packet, 0.0f, moving_top, 0.0f, 0.0f);
-  if (home_motion_kind == HOME_MOTION_HORIZONTAL) {
-    draw_packet_shapes_region(&presented_ui_packet, moving_bottom,
-                              LOGICAL_HEIGHT, 0.0f, 0.0f);
-  }
-  draw_packet_shapes_region(&home_motion_previous_packet, moving_top,
-                            moving_bottom, previous_x, previous_y);
-  if (home_motion_kind == HOME_MOTION_HORIZONTAL) {
-    draw_packet_shapes_region(&presented_ui_packet, moving_top, moving_bottom,
-                              current_x, 0.0f);
-  }
-
-  if (home_motion_kind == HOME_MOTION_HORIZONTAL) {
-    draw_packet_posters_region(poster_surfaces, poster_surface_count,
-                               moving_bottom, LOGICAL_HEIGHT, 0.0f, 0.0f);
-  }
-  draw_packet_posters_region(home_motion_previous_surfaces,
-                             home_motion_previous_surface_count, moving_top,
-                             moving_bottom, previous_x, previous_y);
-  if (home_motion_kind == HOME_MOTION_HORIZONTAL) {
-    draw_packet_posters_region(poster_surfaces, poster_surface_count,
-                               moving_top, moving_bottom, current_x, 0.0f);
-  }
-
-  draw_packet_text_region(&presented_ui_packet, 0.0f, moving_top, 0.0f, 0.0f);
-  if (home_motion_kind == HOME_MOTION_HORIZONTAL) {
-    draw_packet_text_region(&presented_ui_packet, moving_bottom, LOGICAL_HEIGHT,
-                            0.0f, 0.0f);
-  }
-  draw_packet_text_region(&home_motion_previous_packet, moving_top,
-                          moving_bottom, previous_x, previous_y);
-  if (home_motion_kind == HOME_MOTION_HORIZONTAL) {
-    draw_packet_text_region(&presented_ui_packet, moving_top, moving_bottom,
-                            current_x, 0.0f);
-  }
-
-  clear_ui_draw_clip();
-  load_ui_translation_xy(0.0f, 0.0f);
-  GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
-  if (home_motion_frame + 1u >= HOME_MOTION_FRAMES) {
-    home_motion_frame = HOME_MOTION_FRAMES;
-    home_motion_kind = HOME_MOTION_NONE;
-    SYS_Report("REFERENCE GX: home motion complete\n");
-  } else {
-    home_motion_frame += 1u;
-  }
-}
-
-static uint32_t modal_layer_sequence(const NativeUiPacket *packet) {
-  if (modal_surface.visible == 0)
-    return UINT32_MAX;
-  for (uint32_t index = 0; index < packet->shape_command_count; ++index) {
-    const MultiplexGxCommand *command = &packet->shape_commands[index];
-    const uint8_t alpha = (uint8_t)command->color_rgba;
-    if (command->kind == MULTIPLEX_GX_FILL_RECT && command->x <= 0.0f &&
-        command->y <= 0.0f && command->width >= LOGICAL_WIDTH &&
-        command->height >= LOGICAL_HEIGHT && alpha > 0u && alpha < 96u) {
-      return packet->shape_sequences[index];
-    }
-  }
-  return UINT32_MAX;
-}
-
-static void draw_video_surface(void) {
-  if (video_surface.visible == 0 || video_surface.width <= 0 ||
-      video_surface.height <= 0) {
+  if (!frame_visible) {
     audio_dma_update(audio_output, false);
     video_audio_clock_started = false;
     video_was_playing = false;
-    return;
-  }
-
-  const size_t video_size = mpeg_ps_demux_video_size(media_demux);
-  const size_t audio_size = mpeg_ps_demux_audio_size(media_demux);
-  const size_t video_prebuffer =
-      video_size < VIDEO_PREBUFFER_BYTES ? video_size : VIDEO_PREBUFFER_BYTES;
-  const size_t audio_prebuffer =
-      audio_size < AUDIO_PREBUFFER_BYTES ? audio_size : AUDIO_PREBUFFER_BYTES;
-  const bool source_ready =
-      media_demux == NULL ||
-      (mpeg_ps_demux_video_bytes_pumped(media_demux) >= video_prebuffer &&
-       mpeg_ps_demux_audio_bytes_pumped(media_demux) >= audio_prebuffer);
-  const bool playing = video_surface.playing != 0 && source_ready;
-  audio_dma_update(audio_output, playing);
-  const bool playback_changed = playing != video_was_playing;
-  if (playback_changed) {
-    video_frame_count = 0;
-    video_decode_total_us = 0;
-    video_decode_max_us = 0;
-    video_codec_total_us = 0;
-    video_codec_max_us = 0;
-    video_upload_total_us = 0;
-    video_upload_max_us = 0;
-    video_was_playing = playing;
-  }
-
-  bool texture_changed = false;
-  uint32_t completed_decode_us = 0;
-  uint32_t completed_codec_us = 0;
-  uint32_t completed_upload_us = 0;
-  LWP_MutexLock(video_decoder_mutex);
-  if (video_decode_ready) {
-    completed_decode_us = video_decode_ready_us;
-    completed_codec_us = video_codec_ready_us;
-    completed_upload_us = video_upload_ready_us;
-    video_decode_ready = false;
-    video_texture_ready = true;
-    texture_changed = true;
-  }
-  bool decoder_failed = video_decode_failed;
-  LWP_MutexUnlock(video_decoder_mutex);
-
-  /*
-   * Swap before requesting another decode. That makes the former front buffer
-   * the worker's back buffer and lets a late clock request catch up in this
-   * same presentation frame without racing the GX texture swap.
-   */
-  if (texture_changed) {
-    yuv420_gx_swap();
-    profile_decoded_frame(completed_decode_us, completed_codec_us,
-                          completed_upload_us);
-  }
-  const uint64_t audio_samples = audio_dma_samples_played(audio_output);
-  if (playing && !video_audio_clock_started) {
-    video_audio_start_samples = audio_samples;
-    video_audio_start_completions = video_decode_completion_count;
-    video_audio_clock_started = true;
-  }
-  LWP_MutexLock(video_decoder_mutex);
-  uint32_t desired_completions = video_decode_completion_count;
-  int64_t media_elapsed_samples = -video_pts_offset_samples;
-  if (video_audio_clock_started) {
-    media_elapsed_samples +=
-        (int64_t)(audio_samples - video_audio_start_samples);
-  }
-  if (playing && media_elapsed_samples >= 0) {
-    desired_completions =
-        video_audio_start_completions + 1u +
-        (uint32_t)(((uint64_t)media_elapsed_samples * video_rate_millihertz) /
-                   (AUDIO_SAMPLE_RATE * 1000u));
-  }
-  const bool cadence_due =
-      (!video_texture_ready && (!playing || media_elapsed_samples >= 0)) ||
-      (playing && video_decode_completion_count < desired_completions);
-  if (cadence_due && !video_decode_running && !video_decode_ready &&
-      !video_decode_failed) {
-    video_decode_running = true;
-    video_decode_requested = true;
-    video_decode_request_count += 1;
-    LWP_CondSignal(video_decoder_condition);
-  }
-  decoder_failed = video_decode_failed;
-  if (playback_changed) {
-    SYS_Report("REFERENCE GX: playback=%s clock=audio samples=%llu "
-               "pts-offset-samples=%lld target=%u decoder requests=%u "
-               "completed=%u running=%u ready=%u\n",
-               playing ? "playing" : "paused", audio_samples,
-               video_pts_offset_samples, desired_completions,
-               video_decode_request_count, video_decode_completion_count,
-               video_decode_running, video_decode_ready);
-  }
-  LWP_MutexUnlock(video_decoder_mutex);
-
-  if (!video_texture_ready || decoder_failed) {
-    return;
-  }
-
-  float left = video_surface.x;
-  float top = video_surface.y;
-  float width = video_surface.width;
-  float height = video_surface.height;
-  if (video_content_width > 0 && video_content_height > 0) {
-    const float width_scale = width / (float)video_content_width;
-    const float height_scale = height / (float)video_content_height;
-    const float scale = width_scale < height_scale ? width_scale : height_scale;
-    const float fitted_width = (float)video_content_width * scale;
-    const float fitted_height = (float)video_content_height * scale;
-    left += (width - fitted_width) * 0.5f;
-    top += (height - fitted_height) * 0.5f;
-    width = fitted_width;
-    height = fitted_height;
-  }
-  const float right = left + width;
-  const float bottom = top + height;
-  yuv420_gx_draw(left, top, right, bottom);
-}
-
-static void
-draw_playback_progress(const MultiplexGatewayPlaybackManifest *manifest) {
-  if (video_surface.visible == 0 || manifest == NULL ||
-      manifest->rating_key == 0 || manifest->media_duration_ms == 0) {
-    return;
-  }
-  if (player_controls_surface.visible == 0 ||
-      player_controls_surface.width <= 0 ||
-      player_controls_surface.height <= 0) {
-    return;
-  }
-  const uint32_t position_ms = playback_position_ms(manifest);
-  const float left = player_controls_surface.x + 1.0f;
-  const float right =
-      player_controls_surface.x + player_controls_surface.width - 1.0f;
-  const float top = player_controls_surface.y;
-  const float bottom = top + 4.0f;
-  const float progress =
-      (float)position_ms / (float)manifest->media_duration_ms;
-  const float filled = left + (right - left) * progress;
-  configure_color_pipeline();
-  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-  fill_rect(left, top, right, bottom, (GXColor){24, 24, 27, 210});
-  if (filled > left) {
-    fill_rect(left, top, filled, bottom, (GXColor){250, 250, 250, 255});
-  }
-  GX_SetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_CLEAR);
-}
-
-typedef enum {
-  UI_PIPELINE_NONE = 0,
-  UI_PIPELINE_SHAPE = 1,
-  UI_PIPELINE_TEXT = 2,
-} UiPipeline;
-
-static void draw_native_packet_ordered(
-    const NativeUiPacket *packet,
-    const MultiplexGatewayPlaybackManifest *playback_manifest) {
-  uint32_t shape_index = 0;
-  uint32_t text_index = 0;
-  const uint32_t modal_sequence = modal_layer_sequence(packet);
-  uint32_t poster_sequence = UINT32_MAX;
-  if (packet->text_command_count != 0) {
-    poster_sequence = packet->text_sequences[0];
-  }
-  if (modal_sequence < poster_sequence)
-    poster_sequence = modal_sequence;
-
-  bool posters_drawn = poster_surface_count == 0;
-  bool progress_drawn = false;
-  UiPipeline pipeline = UI_PIPELINE_NONE;
-  while (shape_index < packet->shape_command_count ||
-         text_index < packet->text_command_count) {
-    const uint32_t shape_sequence = shape_index < packet->shape_command_count
-                                        ? packet->shape_sequences[shape_index]
-                                        : UINT32_MAX;
-    const uint32_t text_sequence = text_index < packet->text_command_count
-                                       ? packet->text_sequences[text_index]
-                                       : UINT32_MAX;
-    const uint32_t next_sequence =
-        shape_sequence < text_sequence ? shape_sequence : text_sequence;
-
-    if (!posters_drawn && next_sequence >= poster_sequence) {
-      draw_poster_surfaces();
-      posters_drawn = true;
-      pipeline = UI_PIPELINE_NONE;
-    }
-    if (!progress_drawn && modal_sequence != UINT32_MAX &&
-        next_sequence >= modal_sequence) {
-      draw_playback_progress(playback_manifest);
-      progress_drawn = true;
-      pipeline = UI_PIPELINE_NONE;
+  } else {
+    const size_t video_size = mpeg_ps_demux_video_size(media_demux);
+    const size_t audio_size = mpeg_ps_demux_audio_size(media_demux);
+    const size_t video_prebuffer =
+        video_size < VIDEO_PREBUFFER_BYTES ? video_size : VIDEO_PREBUFFER_BYTES;
+    const size_t audio_prebuffer =
+        audio_size < AUDIO_PREBUFFER_BYTES ? audio_size : AUDIO_PREBUFFER_BYTES;
+    const bool source_ready =
+        media_demux == NULL ||
+        (mpeg_ps_demux_video_bytes_pumped(media_demux) >= video_prebuffer &&
+         mpeg_ps_demux_audio_bytes_pumped(media_demux) >= audio_prebuffer);
+    const bool playing = desired_playing && source_ready;
+    audio_dma_update(audio_output, playing);
+    const bool playback_changed = playing != video_was_playing;
+    if (playback_changed) {
+      video_frame_count = 0;
+      video_decode_total_us = 0;
+      video_decode_max_us = 0;
+      video_codec_total_us = 0;
+      video_codec_max_us = 0;
+      video_upload_total_us = 0;
+      video_upload_max_us = 0;
+      video_was_playing = playing;
     }
 
-    if (shape_sequence < text_sequence) {
-      if (pipeline != UI_PIPELINE_SHAPE) {
-        configure_color_pipeline();
-        GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA,
-                        GX_LO_CLEAR);
-        pipeline = UI_PIPELINE_SHAPE;
-      }
-      draw_native_shape_command_at(packet, shape_index++);
+    bool texture_changed = false;
+    uint32_t completed_decode_us = 0;
+    uint32_t completed_codec_us = 0;
+    uint32_t completed_upload_us = 0;
+    LWP_MutexLock(video_decoder_mutex);
+    if (video_decode_ready) {
+      completed_decode_us = video_decode_ready_us;
+      completed_codec_us = video_codec_ready_us;
+      completed_upload_us = video_upload_ready_us;
+      video_decode_ready = false;
+      video_texture_ready = true;
+      texture_changed = true;
+    }
+    bool decoder_failed = video_decode_failed;
+    LWP_MutexUnlock(video_decoder_mutex);
+
+    if (texture_changed) {
+      yuv420_gx_swap();
+      profile_decoded_frame(completed_decode_us, completed_codec_us,
+                            completed_upload_us);
+    }
+    const uint64_t audio_samples = audio_dma_samples_played(audio_output);
+    if (playing && !video_audio_clock_started) {
+      video_audio_start_samples = audio_samples;
+      video_audio_start_completions = video_decode_completion_count;
+      video_audio_clock_started = true;
+    }
+    LWP_MutexLock(video_decoder_mutex);
+    uint32_t desired_completions = video_decode_completion_count;
+    int64_t media_elapsed_samples = -video_pts_offset_samples;
+    if (video_audio_clock_started) {
+      media_elapsed_samples +=
+          (int64_t)(audio_samples - video_audio_start_samples);
+    }
+    if (playing && media_elapsed_samples >= 0) {
+      desired_completions =
+          video_audio_start_completions + 1u +
+          (uint32_t)(((uint64_t)media_elapsed_samples * video_rate_millihertz) /
+                     (AUDIO_SAMPLE_RATE * 1000u));
+    }
+    const bool cadence_due =
+        (!video_texture_ready && (!playing || media_elapsed_samples >= 0)) ||
+        (playing && video_decode_completion_count < desired_completions);
+    if (cadence_due && !video_decode_running && !video_decode_ready &&
+        !video_decode_failed) {
+      video_decode_running = true;
+      video_decode_requested = true;
+      video_decode_request_count += 1;
+      LWP_CondSignal(video_decoder_condition);
+    }
+    decoder_failed = video_decode_failed;
+    if (playback_changed) {
+      SYS_Report("REFERENCE GX: playback=%s clock=audio samples=%llu "
+                 "pts-offset-samples=%lld target=%u decoder requests=%u "
+                 "completed=%u running=%u ready=%u\n",
+                 playing ? "playing" : "paused", audio_samples,
+                 video_pts_offset_samples, desired_completions,
+                 video_decode_request_count, video_decode_completion_count,
+                 video_decode_running, video_decode_ready);
+    }
+    LWP_MutexUnlock(video_decoder_mutex);
+
+    snapshot.frame_ready = video_texture_ready;
+    snapshot.playback_failed = decoder_failed;
+  }
+
+  uint32_t network_bytes = 0;
+  if (direct_hls_demux != NULL) {
+    snapshot.metrics.stream = MULTIPLEX_PRESENTATION_STREAM_HLS;
+    snapshot.metrics.stream_video_bytes =
+        plex_hls_demux_video_bytes(direct_hls_demux);
+    snapshot.metrics.stream_audio_bytes =
+        plex_hls_demux_audio_bytes(direct_hls_demux);
+    snapshot.metrics.producer_units =
+        plex_hls_demux_segment_count(direct_hls_demux);
+    snapshot.metrics.queued_video_bytes =
+        (uint32_t)plex_hls_demux_queued_video_bytes(direct_hls_demux);
+    snapshot.metrics.queued_audio_bytes =
+        (uint32_t)plex_hls_demux_queued_audio_bytes(direct_hls_demux);
+    network_bytes = snapshot.metrics.stream_video_bytes +
+                    snapshot.metrics.stream_audio_bytes;
+  } else if (media_demux != NULL) {
+    snapshot.metrics.stream = MULTIPLEX_PRESENTATION_STREAM_PROGRAM;
+    snapshot.metrics.stream_video_bytes =
+        mpeg_ps_demux_video_bytes_pumped(media_demux);
+    snapshot.metrics.stream_audio_bytes =
+        mpeg_ps_demux_audio_bytes_pumped(media_demux);
+    snapshot.metrics.producer_units = mpeg_ps_demux_loop_count(media_demux);
+  }
+  if (!frame_visible || multiplex_native_app_stats_for_nerds_enabled() == 0) {
+    diagnostic_network_started = 0;
+  } else {
+    const uint32_t now = gettick();
+    if (diagnostic_network_started == 0) {
+      diagnostic_network_started = now;
+      diagnostic_network_last_bytes = network_bytes;
     } else {
-      if (pipeline != UI_PIPELINE_TEXT) {
-        configure_font_pipeline();
-        pipeline = UI_PIPELINE_TEXT;
+      const uint32_t measured_us = elapsed_us(diagnostic_network_started);
+      if (measured_us >= 1000000u) {
+        const uint32_t delta = network_bytes - diagnostic_network_last_bytes;
+        diagnostic_network_kib_per_second =
+            (uint32_t)(((uint64_t)delta * 1000000ull) /
+                       ((uint64_t)measured_us * 1024ull));
+        diagnostic_network_started = now;
+        diagnostic_network_last_bytes = network_bytes;
       }
-      draw_native_text_command_at(packet, text_index++);
     }
   }
-
-  if (!posters_drawn)
-    draw_poster_surfaces();
-  if (!progress_drawn)
-    draw_playback_progress(playback_manifest);
-  GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
+  snapshot.metrics.decoder_fps_tenths = diagnostic_decoder_fps_tenths;
+  snapshot.metrics.codec_average_us = diagnostic_codec_average_us;
+  snapshot.metrics.codec_max_us = diagnostic_codec_max_us;
+  snapshot.metrics.upload_average_us = diagnostic_upload_average_us;
+  snapshot.metrics.network_kib_per_second = diagnostic_network_kib_per_second;
+  if (audio_output != NULL) {
+    snapshot.metrics.audio_ready_buffers =
+        audio_dma_ready_buffers(audio_output);
+    snapshot.metrics.audio_underruns = audio_dma_underruns(audio_output);
+  }
+  return snapshot;
 }
 
-static void
-present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest) {
-  if (native_frame_dirty && reference_renderer.thread == LWP_THREAD_NULL) {
-    const uint32_t target_screen = multiplex_native_app_screen();
-    const bool asynchronous_transition =
-        asynchronous_reference_enabled &&
-        (target_screen != presented_screen ||
-         asynchronous_reference_requested) &&
-        target_screen != MULTIPLEX_SCREEN_PLAYER;
-    if (asynchronous_transition) {
-      asynchronous_reference_requested = false;
-      if (!launch_reference_renderer()) {
-        refresh_reference_frame(false);
-      }
-    } else if (!refresh_reference_frame(false)) {
-      native_frame_dirty = false;
-    }
+static MultiplexPresentationFrameResult
+present_frame(const MultiplexGatewayPlaybackManifest *playback_manifest,
+              MultiplexPresentationPrepareMode mode) {
+  const MultiplexPresentationFrameResult frame =
+      multiplex_presentation_prepare_frame(presentation, mode);
+  const uint32_t playback_state = multiplex_native_app_playback_state();
+  const uint32_t active_playback_state =
+      MULTIPLEX_PLAYBACK_STATE_PLAYER | MULTIPLEX_PLAYBACK_STATE_PLAYING;
+  const bool desired_playing =
+      frame == MULTIPLEX_PRESENTATION_FRAME_READY &&
+      (playback_state & active_playback_state) == active_playback_state;
+  const MultiplexPresentationFrameInput input = {
+      .playback =
+          step_presentation_playback(playback_manifest, desired_playing),
+      .startup_rating_key =
+          direct_details_cache_valid ? direct_details_cache.rating_key : 0,
+  };
+  if (!multiplex_presentation_present(presentation, &input)) {
+    return MULTIPLEX_PRESENTATION_FRAME_FAILED;
   }
-
-  draw_player_startup_backdrop(playback_manifest);
-  draw_video_surface();
-  if (video_surface.visible == 0 || player_controls_overlay_visible) {
-    draw_details_backdrop();
-    float entry_offset = 0.0f;
-    if (ui_entry_frame < UI_ENTRY_FRAMES) {
-      const float progress =
-          UI_ENTRY_FRAMES <= 1u
-              ? 1.0f
-              : (float)ui_entry_frame / (float)(UI_ENTRY_FRAMES - 1u);
-      const float remaining = 1.0f - progress;
-      entry_offset = 6.0f * remaining * remaining * remaining;
-      ui_entry_frame += 1u;
-    }
-    if (home_motion_kind != HOME_MOTION_NONE &&
-        (presented_screen == MULTIPLEX_SCREEN_HOME ||
-         presented_screen == MULTIPLEX_SCREEN_BROWSE)) {
-      draw_home_motion();
-    } else {
-      load_ui_translation(entry_offset);
-      draw_reference_frame();
-      draw_native_packet_ordered(&presented_ui_packet, playback_manifest);
-      load_ui_translation(0.0f);
-    }
-  }
-  draw_activity();
-  draw_stats_for_nerds();
-  GX_CopyDisp(framebuffers[framebuffer_index], GX_TRUE);
-  GX_DrawDone();
-  VIDEO_SetNextFramebuffer(framebuffers[framebuffer_index]);
-  VIDEO_Flush();
-  VIDEO_WaitVSync();
-  framebuffer_index ^= 1;
-
-  if (presentation_frames == 0) {
-    presentation_started = gettick();
-  }
-  presentation_frames += 1;
-  if (presentation_frames == 120) {
-    const uint32_t measured_us = elapsed_us(presentation_started);
-    const uint32_t fps_tenths =
-        measured_us == 0 ? 0 : (uint32_t)((120ull * 10000000ull) / measured_us);
-    diagnostic_presentation_fps_tenths = fps_tenths;
-    SYS_Report("REFERENCE GX: presentation=120 frames/%uus (%u.%u fps)\n",
-               measured_us, fps_tenths / 10, fps_tenths % 10);
-    if (media_demux != NULL) {
-      SYS_Report("REFERENCE GX: stream-progress video=%u audio=%u loops=%u\n",
-                 mpeg_ps_demux_video_bytes_pumped(media_demux),
-                 mpeg_ps_demux_audio_bytes_pumped(media_demux),
-                 mpeg_ps_demux_loop_count(media_demux));
-      if (playback_manifest != NULL && playback_manifest->rating_key != 0) {
-        SYS_Report(
-            "REFERENCE GX: timeline rating-key=%u position=%u duration=%u "
-            "segment-start=%u segment-duration=%u\n",
-            playback_manifest->rating_key,
-            playback_position_ms(playback_manifest),
-            playback_manifest->media_duration_ms,
-            playback_manifest->segment_start_ms,
-            playback_manifest->segment_duration_ms);
-      }
-    } else if (direct_hls_demux != NULL) {
-      SYS_Report("REFERENCE GX: HLS progress segments=%u video=%u audio=%u\n",
-                 plex_hls_demux_segment_count(direct_hls_demux),
-                 plex_hls_demux_video_bytes(direct_hls_demux),
-                 plex_hls_demux_audio_bytes(direct_hls_demux));
-    }
-    presentation_frames = 0;
-  }
+  return frame;
 }
 
 static bool
 wait_network_warmup(NetworkWarmup *warmup,
                     const MultiplexGatewayPlaybackManifest *playback_manifest) {
-  network_activity_visible = true;
-  network_activity_frame = 0;
+  multiplex_presentation_set_network_activity(presentation, true);
   while (!warmup->complete && SYS_MainLoop()) {
-    present_frame(playback_manifest);
+    present_frame(playback_manifest, MULTIPLEX_PRESENTATION_PREPARE_NORMAL);
   }
   __sync_synchronize();
-  network_activity_visible = false;
+  multiplex_presentation_set_network_activity(presentation, false);
   const bool ready = finish_network_warmup(warmup);
   bind_boot_diagnostics(ready ? "Network ready" : "Waiting for DHCP");
   return ready;
@@ -5212,13 +3047,19 @@ wait_network_warmup(NetworkWarmup *warmup,
 
 static bool wait_reference_transition(
     const MultiplexGatewayPlaybackManifest *playback_manifest) {
-  while (reference_renderer.thread != LWP_THREAD_NULL && SYS_MainLoop()) {
-    if (!poll_reference_renderer()) {
+  while (SYS_MainLoop()) {
+    const MultiplexPresentationFrameResult frame =
+        multiplex_presentation_prepare_frame(
+            presentation, MULTIPLEX_PRESENTATION_PREPARE_DEFERRED);
+    if (frame == MULTIPLEX_PRESENTATION_FRAME_FAILED) {
       return false;
     }
-    present_frame(playback_manifest);
+    if (frame == MULTIPLEX_PRESENTATION_FRAME_READY) {
+      return true;
+    }
+    present_frame(playback_manifest, MULTIPLEX_PRESENTATION_PREPARE_DEFERRED);
   }
-  return reference_renderer.thread == LWP_THREAD_NULL;
+  return false;
 }
 
 static bool has_pending_page_request(void) {
@@ -5241,18 +3082,19 @@ static bool present_pending_page_transition(
   }
 
   const uint32_t started = gettick();
-  network_activity_visible = true;
+  multiplex_presentation_set_network_activity(presentation, true);
   if (!wait_reference_transition(playback_manifest)) {
-    network_activity_visible = false;
+    multiplex_presentation_set_network_activity(presentation, false);
     return false;
   }
-  native_frame_dirty = true;
-  if (!refresh_reference_frame(false)) {
-    network_activity_visible = false;
+  multiplex_presentation_request_refresh(presentation, false);
+  if (present_frame(playback_manifest,
+                    MULTIPLEX_PRESENTATION_PREPARE_SYNCHRONOUS) ==
+      MULTIPLEX_PRESENTATION_FRAME_FAILED) {
+    multiplex_presentation_set_network_activity(presentation, false);
     return false;
   }
-  present_frame(playback_manifest);
-  network_activity_visible = false;
+  multiplex_presentation_set_network_activity(presentation, false);
   SYS_Report("REFERENCE GX: network transition presented us=%u screen=%u\n",
              elapsed_us(started), multiplex_native_app_screen());
   return true;
@@ -5263,7 +3105,7 @@ static void pause_audio_for_player_input(
     const MultiplexGatewayPlaybackManifest *playback_manifest) {
   if ((pressed &
        (PAD_BUTTON_A | PAD_BUTTON_B | PAD_TRIGGER_L | PAD_TRIGGER_R)) != 0) {
-    if (video_surface.visible != 0) {
+    if (multiplex_presentation_status(presentation).video_visible) {
       /*
        * The exact player repaint takes longer than one VBlank. Stop the media
        * clock before dispatching pause/resume/exit; resume stays paused until
@@ -5336,7 +3178,7 @@ static bool continue_playback_if_needed(
     if (multiplex_native_app_playback_complete() == 0) {
       return false;
     }
-    native_frame_dirty = true;
+    multiplex_presentation_request_refresh(presentation, false);
     SYS_Report("REFERENCE GX: playback-complete rating-key=%u duration=%u\n",
                active_manifest->rating_key, active_manifest->media_duration_ms);
     return true;
@@ -5351,7 +3193,7 @@ static bool continue_playback_if_needed(
   if (staged != NULL && staged->rating_key == active_manifest->rating_key &&
       staged->offset_ms == next_offset_ms &&
       activate_staged_media_session(staged, active_manifest, client, demux)) {
-    native_frame_dirty = true;
+    multiplex_presentation_request_refresh(presentation, false);
     return true;
   }
   if (staged != NULL) {
@@ -5360,7 +3202,7 @@ static bool continue_playback_if_needed(
   if (!load_selected_playback(gateway_url, active_manifest, client, demux)) {
     return false;
   }
-  native_frame_dirty = true;
+  multiplex_presentation_request_refresh(presentation, false);
   return true;
 }
 
@@ -5406,7 +3248,7 @@ static bool advance_direct_playback_if_complete(
     if (multiplex_native_app_playback_complete() == 0) {
       return false;
     }
-    native_frame_dirty = true;
+    multiplex_presentation_request_refresh(presentation, false);
     SYS_Report("REFERENCE GX: direct playback complete rating-key=%u "
                "next=%s\n",
                completed_manifest.rating_key,
@@ -5425,7 +3267,7 @@ static bool advance_direct_playback_if_complete(
                completed_manifest.rating_key, next_episode.rating_key);
     return false;
   }
-  native_frame_dirty = true;
+  multiplex_presentation_request_refresh(presentation, false);
   *advanced = true;
   SYS_Report("REFERENCE GX: direct autoplay-next previous=%u active=%u "
              "title=%s\n",
@@ -6018,7 +3860,7 @@ static bool rotate_watch_together_if_complete(
           credentials, completed_manifest.rating_key, &next_episode);
   if (next_result != MULTIPLEX_PLEX_NEXT_EPISODE_FOUND) {
     multiplex_native_app_playback_complete();
-    native_frame_dirty = true;
+    multiplex_presentation_request_refresh(presentation, false);
     SYS_Report("REFERENCE GX: Watch Together playback complete rating-key=%u "
                "next=%s\n",
                completed_manifest.rating_key,
@@ -6052,7 +3894,7 @@ static bool rotate_watch_together_if_complete(
   }
   if (next_room_index == UINT32_MAX) {
     multiplex_native_app_playback_complete();
-    native_frame_dirty = true;
+    multiplex_presentation_request_refresh(presentation, false);
     SYS_Report("REFERENCE GX: Watch Together autoplay room unavailable "
                "rating-key=%u\n",
                next_episode.rating_key);
@@ -6065,7 +3907,7 @@ static bool rotate_watch_together_if_complete(
                                             plex_user_id, 0, session,
                                             active_manifest, client, demux)) {
     multiplex_native_app_playback_complete();
-    native_frame_dirty = true;
+    multiplex_presentation_request_refresh(presentation, false);
     return true;
   }
   *joined_room_index = next_room_index;
@@ -6075,7 +3917,7 @@ static bool rotate_watch_together_if_complete(
   }
   const bool deleted = multiplex_trpc_delete_watch_together_room(
       MULTIPLEX_BASE_URL, credentials->session_token, previous_room.id);
-  native_frame_dirty = true;
+  multiplex_presentation_request_refresh(presentation, false);
   *advanced = true;
   SYS_Report("REFERENCE GX: Watch Together autoplay-next previous=%u "
              "active=%u room=%s created=%u old-deleted=%u\n",
@@ -6091,27 +3933,20 @@ static void *run_app(void *unused) {
 #if MULTIPLEX_PAIRING_ENABLED
   const uint32_t app_started = gettick();
 #endif
-  memset(&reference_renderer, 0, sizeof(reference_renderer));
-  reference_renderer.thread = LWP_THREAD_NULL;
-  asynchronous_reference_enabled = false;
-  last_reference_frame_status = MULTIPLEX_REFERENCE_FRAME_OK;
-  last_reference_render_stage = 0;
-  last_reference_render_async = false;
   snprintf(boot_diagnostic_operation, sizeof(boot_diagnostic_operation), "%s",
-           "Video and GX initialization");
-  if (!initialize_video_and_gx()) {
+           "Presentation initialization");
+  const MultiplexPresentationOpenResult presentation_open =
+      multiplex_presentation_open(presentation);
+  if (presentation_open == MULTIPLEX_PRESENTATION_OPEN_VIDEO_FAILED) {
     return (void *)(uintptr_t)APP_EXIT_VIDEO_INIT;
+  }
+  if (presentation_open != MULTIPLEX_PRESENTATION_OPEN_READY) {
+    return (void *)(uintptr_t)APP_EXIT_BUFFER_INIT;
   }
   snprintf(boot_diagnostic_operation, sizeof(boot_diagnostic_operation), "%s",
            "JPEG initialization");
   if (!poster_jpeg_initialize()) {
     return (void *)(uintptr_t)APP_EXIT_JPEG_INIT;
-  }
-  snprintf(boot_diagnostic_operation, sizeof(boot_diagnostic_operation), "%s",
-           "UI buffer allocation");
-  if (!allocate_buffers()) {
-    poster_jpeg_shutdown();
-    return (void *)(uintptr_t)APP_EXIT_BUFFER_INIT;
   }
   multiplex_tls_client_prepare();
   NetworkWarmup network_warmup;
@@ -6148,8 +3983,6 @@ static void *run_app(void *unused) {
   reset_direct_hls_prefetch(&direct_hls_prefetch);
   bool timeline_player_visible = false;
   bool timeline_started = false;
-  uint64_t player_controls_last_input_ms = 0;
-  uint64_t player_controls_fade_started_ms = 0;
   uint64_t toast_dismiss_at_ms = 0;
   MultiplexGatewayCatalog catalog;
   memset(&catalog, 0, sizeof(catalog));
@@ -6212,14 +4045,14 @@ static void *run_app(void *unused) {
     return (void *)(uintptr_t)APP_EXIT_UI_BIND;
   }
 #endif
-  initialize_textures();
-  if (!refresh_reference_frame(false)) {
+  if (present_frame(&playback_manifest,
+                    MULTIPLEX_PRESENTATION_PREPARE_SYNCHRONOUS) ==
+      MULTIPLEX_PRESENTATION_FRAME_FAILED) {
     if (network_warmup_pending) {
       finish_network_warmup(&network_warmup);
     }
     return (void *)(uintptr_t)APP_EXIT_UI_RENDER;
   }
-  present_frame(&playback_manifest);
 
   if (network_warmup_pending && MULTIPLEX_GATEWAY_URL[0] != '\0') {
     network_ready = wait_network_warmup(&network_warmup, &playback_manifest);
@@ -6273,8 +4106,8 @@ static void *run_app(void *unused) {
                  catalog.row_count, catalog.total_item_count,
                  elapsed_us(app_started));
     }
-    native_frame_dirty = true;
-    present_frame(&playback_manifest);
+    multiplex_presentation_request_refresh(presentation, false);
+    present_frame(&playback_manifest, MULTIPLEX_PRESENTATION_PREPARE_NORMAL);
     if (!wait_reference_transition(&playback_manifest)) {
       return (void *)(uintptr_t)APP_EXIT_UI_RENDER;
     }
@@ -6350,9 +4183,9 @@ static void *run_app(void *unused) {
       SYS_Report("REFERENCE GX: failed to bind device authorization status\n");
       return (void *)(uintptr_t)APP_EXIT_UI_BIND;
     }
-    native_frame_dirty = true;
+    multiplex_presentation_request_refresh(presentation, false);
     if (!pairing_linked || has_catalog) {
-      present_frame(&playback_manifest);
+      present_frame(&playback_manifest, MULTIPLEX_PRESENTATION_PREPARE_NORMAL);
     }
   }
   bool auth_reset_latched = false;
@@ -6367,7 +4200,7 @@ static void *run_app(void *unused) {
   if (pairing_linked && network_ready &&
       (!has_catalog || catalog_refresh_pending)) {
     if (launch_catalog_loader(&catalog_loader, &auth_credentials, &catalog)) {
-      network_activity_visible = !has_catalog;
+      multiplex_presentation_set_network_activity(presentation, !has_catalog);
     } else {
       catalog_retry_at_ms =
           ticks_to_millisecs(gettime()) + CATALOG_RETRY_INITIAL_DELAY_MS;
@@ -6379,8 +4212,8 @@ static void *run_app(void *unused) {
       }
     }
     if (!has_catalog) {
-      native_frame_dirty = true;
-      present_frame(&playback_manifest);
+      multiplex_presentation_request_refresh(presentation, false);
+      present_frame(&playback_manifest, MULTIPLEX_PRESENTATION_PREPARE_NORMAL);
     }
   }
 #endif
@@ -6412,7 +4245,7 @@ static void *run_app(void *unused) {
   uint32_t queued_transition_buttons = 0;
   uint32_t queued_transition_navigation = UINT32_MAX;
   AppExitCode exit_code = APP_EXIT_OK;
-  asynchronous_reference_enabled = true;
+  multiplex_presentation_set_async_enabled(presentation, true);
   while (SYS_MainLoop()) {
     poll_direct_poster_loader(&direct_home_poster_loader);
     poll_direct_poster_loader(&direct_page_poster_loader);
@@ -6435,11 +4268,14 @@ static void *run_app(void *unused) {
 #endif
       }
     }
-    if (!poll_reference_renderer()) {
+    const MultiplexPresentationFrameResult transition =
+        multiplex_presentation_prepare_frame(
+            presentation, MULTIPLEX_PRESENTATION_PREPARE_NORMAL);
+    if (transition == MULTIPLEX_PRESENTATION_FRAME_FAILED) {
       exit_code = APP_EXIT_UI_RENDER;
       break;
     }
-    if (reference_renderer.thread != LWP_THREAD_NULL) {
+    if (transition == MULTIPLEX_PRESENTATION_FRAME_PENDING) {
       PAD_ScanPads();
       queued_transition_buttons |= PAD_ButtonsDown(0);
 #if defined(HW_RVL)
@@ -6455,7 +4291,8 @@ static void *run_app(void *unused) {
           transition_navigation != UINT32_MAX) {
         queued_transition_navigation = transition_navigation;
       }
-      present_frame(&playback_manifest);
+      present_frame(&playback_manifest,
+                    MULTIPLEX_PRESENTATION_PREPARE_DEFERRED);
       continue;
     }
 #if MULTIPLEX_PAIRING_ENABLED
@@ -6531,7 +4368,7 @@ static void *run_app(void *unused) {
         SYS_Report("REFERENCE GX: Ethernet recovery ready=0 retry-ms=%u\n",
                    (uint32_t)(network_retry_at_ms - catalog_now_ms));
       }
-      native_frame_dirty = true;
+      multiplex_presentation_request_refresh(presentation, false);
     }
     if (MULTIPLEX_GATEWAY_URL[0] == '\0' && !network_ready &&
         !network_warmup_pending && network_retry_at_ms != 0 &&
@@ -6583,13 +4420,13 @@ static void *run_app(void *unused) {
         exit_code = APP_EXIT_UI_BIND;
         break;
       }
-      native_frame_dirty = true;
+      multiplex_presentation_request_refresh(presentation, false);
     }
     const CatalogLoaderStatus catalog_loader_status =
         poll_catalog_loader(&catalog_loader);
     poll_catalog_cache_saver(&catalog_cache_saver);
     if (catalog_loader_status == CATALOG_LOADER_READY) {
-      network_activity_visible = false;
+      multiplex_presentation_set_network_activity(presentation, false);
       if (multiplex_native_app_pairing_status(MULTIPLEX_DEVICE_AUTH_LINKED,
                                               (const uint8_t *)"", 0,
                                               (const uint8_t *)"", 0) == 0 ||
@@ -6610,12 +4447,12 @@ static void *run_app(void *unused) {
                    "placeholders\n");
       }
       catalog_cache_save_pending = true;
-      native_frame_dirty = true;
+      multiplex_presentation_request_refresh(presentation, false);
       SYS_Report("REFERENCE GX: Plex catalog ready after background load\n");
       SYS_Report("REFERENCE GX: interactive home ready us=%u\n",
                  elapsed_us(app_started));
     } else if (catalog_loader_status == CATALOG_LOADER_FAILED) {
-      network_activity_visible = false;
+      multiplex_presentation_set_network_activity(presentation, false);
       bind_boot_diagnostics("Plex catalog request failed");
       catalog_refresh_pending = true;
       if (!has_catalog) {
@@ -6641,7 +4478,7 @@ static void *run_app(void *unused) {
           catalog_retry_delay_ms = CATALOG_RETRY_MAX_DELAY_MS;
         }
       }
-      native_frame_dirty = true;
+      multiplex_presentation_request_refresh(presentation, false);
       SYS_Report("REFERENCE GX: Plex catalog retry scheduled delay-ms=%u\n",
                  (uint32_t)(catalog_retry_at_ms - catalog_now_ms));
     }
@@ -6667,12 +4504,12 @@ static void *run_app(void *unused) {
         break;
       }
       if (launch_catalog_loader(&catalog_loader, &auth_credentials, &catalog)) {
-        network_activity_visible = true;
+        multiplex_presentation_set_network_activity(presentation, true);
         catalog_retry_at_ms = 0;
       } else {
         catalog_retry_at_ms = catalog_now_ms + catalog_retry_delay_ms;
       }
-      native_frame_dirty = true;
+      multiplex_presentation_request_refresh(presentation, false);
     }
     if (!poll_startup_data_loader(&startup_data_loader, &plex_user_id,
                                   &watch_together_rooms,
@@ -6683,10 +4520,12 @@ static void *run_app(void *unused) {
     }
 #endif
     const uint32_t active_screen = multiplex_native_app_screen();
+    const MultiplexPresentationStatus active_presentation =
+        multiplex_presentation_status(presentation);
     const bool network_work_allowed =
         MULTIPLEX_GATEWAY_URL[0] != '\0' || network_ready;
     if (network_work_allowed && active_screen == MULTIPLEX_SCREEN_HOME &&
-        presented_screen == active_screen &&
+        active_presentation.screen == active_screen &&
         direct_home_poster_loader.pending &&
         !direct_poster_loader_running(&direct_home_poster_loader)) {
       launch_direct_poster_loader(&direct_home_poster_loader);
@@ -6756,7 +4595,7 @@ static void *run_app(void *unused) {
           if (!has_catalog && !catalog_loader.started) {
             if (launch_catalog_loader(&catalog_loader, &auth_credentials,
                                       &catalog)) {
-              network_activity_visible = true;
+              multiplex_presentation_set_network_activity(presentation, true);
               catalog_retry_at_ms = 0;
             } else {
               catalog_retry_at_ms = ticks_to_millisecs(gettime()) +
@@ -6774,7 +4613,7 @@ static void *run_app(void *unused) {
           exit_code = APP_EXIT_UI_BIND;
           break;
         }
-        native_frame_dirty = true;
+        multiplex_presentation_request_refresh(presentation, false);
       }
     }
 #endif
@@ -6787,8 +4626,7 @@ static void *run_app(void *unused) {
     if (toast_dismiss_at_ms != 0 && input_now_ms >= toast_dismiss_at_ms &&
         multiplex_native_app_toast_dismiss() != 0) {
       toast_dismiss_at_ms = 0;
-      asynchronous_reference_requested = true;
-      native_frame_dirty = true;
+      multiplex_presentation_request_refresh(presentation, true);
     }
     const MultiplexGuiNavigationDirection stick_direction =
         multiplex_gui_navigation_poll(&gui_navigation, PAD_StickX(0),
@@ -6824,35 +4662,19 @@ static void *run_app(void *unused) {
     if (pressed != 0) {
       SYS_Report("REFERENCE GX: controller buttons %08x\n", pressed);
     }
-    const bool reveal_player_controls_only = video_surface.visible != 0 &&
-                                             !player_controls_overlay_visible &&
-                                             (pressed & PAD_BUTTON_A) != 0;
-    if (video_surface.visible != 0) {
-      if (player_controls_last_input_ms == 0) {
-        player_controls_last_input_ms = input_now_ms;
-      }
-      if (controller_input) {
-        player_controls_last_input_ms = input_now_ms;
-        player_controls_fade_started_ms = 0;
-        if (ui_frame_alpha != 255) {
-          ui_frame_alpha = 255;
-          set_player_controls_texture_alpha(ui_frame_alpha);
-        }
-        if (!player_controls_overlay_visible) {
-          player_controls_overlay_visible = true;
-          SYS_Report("REFERENCE GX: player controls visible=1\n");
-        }
-      }
-    } else {
-      player_controls_last_input_ms = 0;
-      player_controls_fade_started_ms = 0;
-      if (ui_frame_alpha != 255) {
-        ui_frame_alpha = 255;
-        set_player_controls_texture_alpha(ui_frame_alpha);
-      }
-      player_controls_overlay_visible = true;
+    const MultiplexPresentationControlsInput controls_input = {
+        .now_ms = input_now_ms,
+        .active_input = controller_input,
+        .a_pressed = (pressed & PAD_BUTTON_A) != 0,
+        .settings_open = multiplex_native_app_player_settings_open() != 0,
+    };
+    const MultiplexPresentationControlsResult controls =
+        multiplex_presentation_controls_update(presentation, &controls_input);
+    if (controls.visibility_changed) {
+      SYS_Report("REFERENCE GX: player controls visible=%u\n",
+                 controls.visible ? 1u : 0u);
     }
-    if (reveal_player_controls_only) {
+    if (controls.consumed_a) {
       pressed &= ~PAD_BUTTON_A;
       SYS_Report("REFERENCE GX: player controls reveal consumed A\n");
     }
@@ -6897,7 +4719,7 @@ static void *run_app(void *unused) {
         startup_data_not_before_ms = 0;
         details_prefetch_at_ms = 0;
         details_prefetch_candidate_key = 0;
-        network_activity_visible = false;
+        multiplex_presentation_set_network_activity(presentation, false);
         memset(&auth_credentials, 0, sizeof(auth_credentials));
         memset(&watch_together_rooms, 0, sizeof(watch_together_rooms));
         if (!bind_watch_together_rooms(&watch_together_rooms, false)) {
@@ -6929,7 +4751,7 @@ static void *run_app(void *unused) {
           break;
         }
         pairing_poll_frames = 0;
-        native_frame_dirty = true;
+        multiplex_presentation_request_refresh(presentation, false);
         pressed = 0;
       }
     } else if (!auth_reset_held) {
@@ -6954,7 +4776,8 @@ static void *run_app(void *unused) {
       const uint32_t home_view_before = multiplex_native_app_home_view_state();
       if (multiplex_native_app_input(stick_navigation) != 0) {
         const uint32_t home_view_after = multiplex_native_app_home_view_state();
-        begin_home_motion(home_view_before, home_view_after);
+        multiplex_presentation_begin_home_motion(presentation, home_view_before,
+                                                 home_view_after);
         app_changed = true;
       }
     }
@@ -7009,7 +4832,7 @@ static void *run_app(void *unused) {
 #endif
         if (multiplex_native_app_mark_watched_commit(marked ? 1u : 0u) != 0) {
           toast_dismiss_at_ms = input_now_ms + 2500u;
-          asynchronous_reference_requested = true;
+          multiplex_presentation_request_refresh(presentation, true);
         }
       }
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' &&
@@ -7128,11 +4951,9 @@ static void *run_app(void *unused) {
       const uint32_t pending_playback_key =
           multiplex_native_app_playback_request();
       if (pending_playback_key != 0) {
-        const bool retained_dirty = native_frame_dirty;
-        native_frame_dirty = false;
-        blocking_activity_visible = true;
-        present_frame(&playback_manifest);
-        native_frame_dirty = retained_dirty;
+        multiplex_presentation_set_blocking_activity(presentation, true);
+        present_frame(&playback_manifest,
+                      MULTIPLEX_PRESENTATION_PREPARE_DEFERRED);
       }
       if (MULTIPLEX_GATEWAY_URL[0] != '\0' && pending_playback_key != 0) {
         discard_staged_media_session(&staged_media);
@@ -7185,9 +5006,10 @@ static void *run_app(void *unused) {
               auth_credentials.plex_client_id, plex_user_id, false);
         }
         if (syncplay_session != NULL) {
-          multiplex_syncplay_session_set_playback(syncplay_session,
-                                                  video_surface.playing == 0,
-                                                  local_playback_offset);
+          multiplex_syncplay_session_set_playback(
+              syncplay_session,
+              !multiplex_presentation_status(presentation).video_playing,
+              local_playback_offset);
           multiplex_syncplay_session_mark_local_seek(syncplay_session);
           SYS_Report("REFERENCE GX: Syncplay local seek position=%u\n",
                      local_playback_offset);
@@ -7199,11 +5021,12 @@ static void *run_app(void *unused) {
         joined_watch_together_room = UINT32_MAX;
       }
 #endif
-      blocking_activity_visible = false;
-      native_frame_dirty = true;
+      multiplex_presentation_set_blocking_activity(presentation, false);
+      multiplex_presentation_request_refresh(presentation, false);
     }
 #if MULTIPLEX_PAIRING_ENABLED
-    const uint32_t selected_item_rating_key = focused_poster_rating_key();
+    const uint32_t selected_item_rating_key =
+        multiplex_presentation_status(presentation).focused_rating_key;
     if (selected_item_rating_key != details_prefetch_candidate_key) {
       details_prefetch_candidate_key = selected_item_rating_key;
       details_prefetch_at_ms =
@@ -7247,7 +5070,7 @@ static void *run_app(void *unused) {
         watch_together_all_present_since_ms = 0;
         watch_together_lobby = false;
         multiplex_native_app_watch_together_join_commit(0);
-        native_frame_dirty = true;
+        multiplex_presentation_request_refresh(presentation, false);
       } else if (joined_watch_together_room < watch_together_rooms.room_count) {
         const MultiplexTrpcRoom *room =
             &watch_together_rooms.rooms[joined_watch_together_room];
@@ -7294,7 +5117,7 @@ static void *run_app(void *unused) {
                        "position=%u paused=%u\n",
                        room_index, room_position_ms, room_paused ? 1u : 0u);
           }
-          native_frame_dirty = true;
+          multiplex_presentation_request_refresh(presentation, false);
         }
       }
     }
@@ -7313,7 +5136,8 @@ static void *run_app(void *unused) {
       } else {
         watch_together_reconnect_at_ms = 0;
         multiplex_syncplay_session_adopt_playback(
-            syncplay_session, video_surface.playing == 0,
+            syncplay_session,
+            !multiplex_presentation_status(presentation).video_playing,
             playback_position_ms(&playback_manifest));
         multiplex_native_app_watch_together_presence(1, 1);
         SYS_Report("REFERENCE GX: Syncplay reconnected room=%u\n",
@@ -7322,7 +5146,8 @@ static void *run_app(void *unused) {
     }
     if (!watch_together_lobby && syncplay_session != NULL) {
       multiplex_syncplay_session_set_playback(
-          syncplay_session, video_surface.playing == 0,
+          syncplay_session,
+          !multiplex_presentation_status(presentation).video_playing,
           playback_position_ms(&playback_manifest));
       if (!multiplex_syncplay_session_poll(syncplay_session)) {
         SYS_Report("REFERENCE GX: Syncplay session disconnected\n");
@@ -7370,7 +5195,7 @@ static void *run_app(void *unused) {
               multiplex_syncplay_session_adopt_playback(
                   syncplay_session, remote_paused, remote_position_ms);
             }
-            native_frame_dirty = true;
+            multiplex_presentation_request_refresh(presentation, false);
             SYS_Report("REFERENCE GX: Syncplay remote playback paused=%u "
                        "position=%u seek=%u\n",
                        remote_paused ? 1u : 0u, remote_position_ms,
@@ -7380,53 +5205,24 @@ static void *run_app(void *unused) {
       }
     }
 #endif
-    const uint64_t present_now_ms = ticks_to_millisecs(gettime());
-    if (video_surface.visible != 0 && player_controls_overlay_visible &&
-        player_controls_last_input_ms != 0 &&
-        multiplex_native_app_player_settings_open() == 0) {
-      if (player_controls_fade_started_ms == 0 &&
-          present_now_ms - player_controls_last_input_ms >=
-              PLAYER_CONTROLS_IDLE_MS) {
-        player_controls_fade_started_ms = present_now_ms;
-      }
-      if (player_controls_fade_started_ms != 0) {
-        const uint64_t fade_elapsed_ms =
-            present_now_ms - player_controls_fade_started_ms;
-        if (fade_elapsed_ms >= PLAYER_CONTROLS_FADE_MS) {
-          player_controls_overlay_visible = false;
-          player_controls_last_input_ms = 0;
-          player_controls_fade_started_ms = 0;
-          SYS_Report("REFERENCE GX: player controls visible=0 idle-ms=%u "
-                     "fade-ms=%u\n",
-                     PLAYER_CONTROLS_IDLE_MS, PLAYER_CONTROLS_FADE_MS);
-        } else {
-          const uint8_t next_alpha =
-              (uint8_t)(255u *
-                        (PLAYER_CONTROLS_FADE_MS - (uint32_t)fade_elapsed_ms) /
-                        PLAYER_CONTROLS_FADE_MS);
-          if (next_alpha != ui_frame_alpha) {
-            ui_frame_alpha = next_alpha;
-            set_player_controls_texture_alpha(ui_frame_alpha);
-          }
-        }
-      }
-    }
-    present_frame(&playback_manifest);
+    present_frame(&playback_manifest, MULTIPLEX_PRESENTATION_PREPARE_NORMAL);
     if (!recover_stalled_media_startup(&media_startup_watchdog,
                                        &playback_manifest, &client, &demux,
                                        &staged_media)) {
       exit_code = APP_EXIT_MEDIA_RECOVERY;
       break;
     }
-    if (video_surface.visible != 0) {
+    const MultiplexPresentationStatus post_present =
+        multiplex_presentation_status(presentation);
+    if (post_present.video_visible) {
       const uint32_t position_ms = playback_position_ms(&playback_manifest);
       if (direct_hls_demux != NULL) {
         timeline_started |= schedule_hls_timeline_report(
             &timeline_reporter, direct_hls_demux, playback_manifest.rating_key,
             position_ms, playback_manifest.media_duration_ms,
-            video_surface.playing == 0 ? "paused" : "playing");
+            post_present.video_playing ? "playing" : "paused");
       } else {
-        if (video_surface.playing == 0) {
+        if (!post_present.video_playing) {
           timeline_started |= schedule_timeline_report(
               &timeline_reporter, MULTIPLEX_GATEWAY_URL,
               timeline_plex_credentials, direct_hls_session_id,
@@ -7485,16 +5281,16 @@ static void *run_app(void *unused) {
       }
     }
     if (autoplay_advanced) {
-      ui_frame_alpha = 255;
-      player_controls_overlay_visible = true;
-      player_controls_last_input_ms = ticks_to_millisecs(gettime());
-      player_controls_fade_started_ms = 0;
+      const MultiplexPresentationControlsInput autoplay_controls = {
+          .now_ms = ticks_to_millisecs(gettime()),
+          .active_input = true,
+      };
+      multiplex_presentation_controls_update(presentation, &autoplay_controls);
     }
 #endif
   }
 
   discard_staged_media_session(&staged_media);
-  stop_reference_renderer();
 #if MULTIPLEX_PAIRING_ENABLED
   multiplex_syncplay_session_destroy(syncplay_session);
   stop_direct_browse_loader(&direct_browse_loader);
@@ -7518,9 +5314,6 @@ static void *run_app(void *unused) {
   } else {
     finish_timeline_report(&timeline_reporter);
   }
-  multiplex_native_cache_free(poster_texture_pixels);
-  poster_texture_pixels = NULL;
-  poster_texture_count = 0;
   poster_jpeg_shutdown();
   return (void *)(uintptr_t)exit_code;
 }
@@ -7551,19 +5344,20 @@ static const char *app_exit_message(AppExitCode code) {
   return "An unknown application failure occurred.";
 }
 
-static void show_app_failure(AppExitCode code) {
+static void show_app_failure(AppExitCode code,
+                             MultiplexPresentationBorrowedFatalVideo video) {
   SYS_Report("REFERENCE GX: stopped with diagnostic code MGC-%u\n",
              (unsigned)code);
-  if (video_mode == NULL || framebuffers[0] == NULL) {
+  if (video.mode == NULL || video.framebuffer == NULL) {
     return;
   }
 
-  void *framebuffer = framebuffers[framebuffer_index & 1u];
-  const uint32_t framebuffer_bytes = VIDEO_GetFrameBufferSize(video_mode);
+  void *framebuffer = video.framebuffer;
+  const uint32_t framebuffer_bytes = VIDEO_GetFrameBufferSize(video.mode);
   memset(framebuffer, 0, framebuffer_bytes);
-  CON_Init(framebuffer, 32, 32, video_mode->fbWidth - 64,
-           video_mode->xfbHeight - 64, video_mode->fbWidth * VI_DISPLAY_PIX_SZ);
-  VIDEO_Configure(video_mode);
+  CON_Init(framebuffer, 32, 32, video.mode->fbWidth - 64,
+           video.mode->xfbHeight - 64, video.mode->fbWidth * VI_DISPLAY_PIX_SZ);
+  VIDEO_Configure(video.mode);
   VIDEO_SetNextFramebuffer(framebuffer);
   VIDEO_SetBlack(FALSE);
   VIDEO_Flush();
@@ -7609,10 +5403,18 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  presentation = multiplex_presentation_create();
+  if (presentation == NULL) {
+    SYS_Report("REFERENCE GX: failed to allocate presentation context\n");
+    free(app_stack);
+    return APP_EXIT_BUFFER_INIT;
+  }
+
   lwp_t app_thread = LWP_THREAD_NULL;
   if (LWP_CreateThread(&app_thread, run_app, NULL, app_stack, APP_STACK_SIZE,
                        LWP_PRIO_NORMAL) != 0) {
     SYS_Report("REFERENCE GX: failed to create app thread\n");
+    multiplex_presentation_destroy(&presentation);
     free(app_stack);
     return 1;
   }
@@ -7622,11 +5424,15 @@ int main(int argc, char **argv) {
   free(app_stack);
   if (join_status != 0) {
     SYS_Report("REFERENCE GX: failed to join app thread\n");
+    multiplex_presentation_destroy(&presentation);
     return 1;
   }
   const AppExitCode exit_code = (AppExitCode)(uintptr_t)result;
   if (exit_code != APP_EXIT_OK) {
-    show_app_failure(exit_code);
+    const MultiplexPresentationBorrowedFatalVideo fatal_video =
+        multiplex_presentation_finalize_for_fatal(presentation);
+    show_app_failure(exit_code, fatal_video);
   }
+  multiplex_presentation_destroy(&presentation);
   return (int)exit_code;
 }
