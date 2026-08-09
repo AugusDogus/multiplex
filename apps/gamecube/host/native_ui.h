@@ -1,7 +1,10 @@
 #ifndef MULTIPLEX_NATIVE_UI_H
 #define MULTIPLEX_NATIVE_UI_H
 
+#include <stddef.h>
 #include <stdint.h>
+
+#define MULTIPLEX_NATIVE_ABI_VERSION UINT32_C(1)
 
 enum {
   MULTIPLEX_GX_FILL_RECT = 1,
@@ -95,6 +98,151 @@ typedef struct {
   float clip_height;
 } MultiplexPosterSurface;
 
+#define MULTIPLEX_NATIVE_ABI_ALIGN_UP(value, alignment)                        \
+  (((value) + (alignment) - 1u) / (alignment) * (alignment))
+#define MULTIPLEX_NATIVE_ABI_MAX2(first, second)                               \
+  ((first) > (second) ? (first) : (second))
+#define MULTIPLEX_NATIVE_ABI_GX_COMMAND_ALIGNMENT                              \
+  MULTIPLEX_NATIVE_ABI_MAX2(_Alignof(const uint8_t *), _Alignof(float))
+
+_Static_assert(sizeof(uint32_t) == 4, "native ABI requires 32-bit uint32_t");
+_Static_assert(sizeof(float) == 4, "native ABI requires 32-bit float");
+_Static_assert(MULTIPLEX_NATIVE_ABI_VERSION == UINT32_C(1),
+               "native ABI version changed");
+
+_Static_assert(MULTIPLEX_GX_FILL_RECT == 1,
+               "GX fill rectangle command changed");
+_Static_assert(MULTIPLEX_GX_FILL_ROUNDED_RECT == 2,
+               "GX rounded rectangle command changed");
+_Static_assert(MULTIPLEX_GX_STROKE_RECT == 3,
+               "GX stroke rectangle command changed");
+_Static_assert(MULTIPLEX_GX_LINE == 4, "GX line command changed");
+_Static_assert(MULTIPLEX_GX_TEXT == 5, "GX text command changed");
+_Static_assert(MULTIPLEX_GX_SHADOW == 6, "GX shadow command changed");
+_Static_assert(MULTIPLEX_GX_GLYPH == 7, "GX glyph command changed");
+_Static_assert(MULTIPLEX_GX_PATH_LINE == 8, "GX path line command changed");
+_Static_assert(MULTIPLEX_GX_FILL_TRIANGLE == 9,
+               "GX fill triangle command changed");
+
+_Static_assert(MULTIPLEX_SCREEN_PAIRING == 0, "pairing screen ID changed");
+_Static_assert(MULTIPLEX_SCREEN_HOME == 1, "home screen ID changed");
+_Static_assert(MULTIPLEX_SCREEN_LIBRARIES == 2, "libraries screen ID changed");
+_Static_assert(MULTIPLEX_SCREEN_BROWSE == 3, "browse screen ID changed");
+_Static_assert(MULTIPLEX_SCREEN_SEARCH == 4, "search screen ID changed");
+_Static_assert(MULTIPLEX_SCREEN_SEARCH_RESULTS == 5,
+               "search results screen ID changed");
+_Static_assert(MULTIPLEX_SCREEN_WATCH_TOGETHER_INVITE == 6,
+               "Watch Together invite screen ID changed");
+_Static_assert(MULTIPLEX_SCREEN_WATCH_TOGETHER == 7,
+               "Watch Together screen ID changed");
+_Static_assert(MULTIPLEX_SCREEN_WATCH_TOGETHER_ROOM == 8,
+               "Watch Together room screen ID changed");
+_Static_assert(MULTIPLEX_SCREEN_DETAILS == 9, "details screen ID changed");
+_Static_assert(MULTIPLEX_SCREEN_PLAYER == 10, "player screen ID changed");
+
+#define MULTIPLEX_NATIVE_ASSERT_OFFSET(type, field, expected)                  \
+  _Static_assert(offsetof(type, field) == (expected),                          \
+                 #type "." #field " offset changed")
+
+_Static_assert(_Alignof(MultiplexGxCommand) ==
+                   MULTIPLEX_NATIVE_ABI_GX_COMMAND_ALIGNMENT,
+               "MultiplexGxCommand alignment changed");
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, kind, 0u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, x, 4u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, y, 8u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, width, 12u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, height, 16u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, x2, 20u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, y2, 24u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, radius, 28u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, stroke_width, 32u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, color_rgba, 36u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, has_clip, 40u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, clip_x, 44u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, clip_y, 48u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, clip_width, 52u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, clip_height, 56u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(
+    MultiplexGxCommand, text_ptr,
+    MULTIPLEX_NATIVE_ABI_ALIGN_UP(60u, _Alignof(const uint8_t *)));
+MULTIPLEX_NATIVE_ASSERT_OFFSET(
+    MultiplexGxCommand, text_len,
+    MULTIPLEX_NATIVE_ABI_ALIGN_UP(60u, _Alignof(const uint8_t *)) +
+        sizeof(const uint8_t *));
+MULTIPLEX_NATIVE_ASSERT_OFFSET(
+    MultiplexGxCommand, glyph_id,
+    MULTIPLEX_NATIVE_ABI_ALIGN_UP(60u, _Alignof(const uint8_t *)) +
+        sizeof(const uint8_t *) + sizeof(uint32_t));
+MULTIPLEX_NATIVE_ASSERT_OFFSET(
+    MultiplexGxCommand, font_size,
+    MULTIPLEX_NATIVE_ABI_ALIGN_UP(60u, _Alignof(const uint8_t *)) +
+        sizeof(const uint8_t *) + 2u * sizeof(uint32_t));
+_Static_assert(
+    sizeof(MultiplexGxCommand) ==
+        MULTIPLEX_NATIVE_ABI_ALIGN_UP(
+            MULTIPLEX_NATIVE_ABI_ALIGN_UP(60u, _Alignof(const uint8_t *)) +
+                sizeof(const uint8_t *) + 3u * sizeof(uint32_t),
+            MULTIPLEX_NATIVE_ABI_GX_COMMAND_ALIGNMENT),
+    "MultiplexGxCommand size changed");
+
+_Static_assert(_Alignof(MultiplexVideoSurface) == _Alignof(float),
+               "MultiplexVideoSurface alignment changed");
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexVideoSurface, visible, 0u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexVideoSurface, playing, 4u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexVideoSurface, x, 8u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexVideoSurface, y, 12u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexVideoSurface, width, 16u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexVideoSurface, height, 20u);
+_Static_assert(sizeof(MultiplexVideoSurface) == 24u,
+               "MultiplexVideoSurface size changed");
+
+_Static_assert(_Alignof(MultiplexPlayerControlsSurface) == _Alignof(float),
+               "MultiplexPlayerControlsSurface alignment changed");
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPlayerControlsSurface, visible, 0u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPlayerControlsSurface, x, 4u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPlayerControlsSurface, y, 8u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPlayerControlsSurface, width, 12u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPlayerControlsSurface, height, 16u);
+_Static_assert(sizeof(MultiplexPlayerControlsSurface) == 20u,
+               "MultiplexPlayerControlsSurface size changed");
+
+_Static_assert(_Alignof(MultiplexModalSurface) == _Alignof(float),
+               "MultiplexModalSurface alignment changed");
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexModalSurface, visible, 0u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexModalSurface, x, 4u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexModalSurface, y, 8u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexModalSurface, width, 12u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexModalSurface, height, 16u);
+_Static_assert(sizeof(MultiplexModalSurface) == 20u,
+               "MultiplexModalSurface size changed");
+
+_Static_assert(_Alignof(MultiplexPosterSurface) == _Alignof(float),
+               "MultiplexPosterSurface alignment changed");
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPosterSurface, image_id, 0u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPosterSurface, focused, 4u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPosterSurface, x, 8u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPosterSurface, y, 12u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPosterSurface, width, 16u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPosterSurface, height, 20u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPosterSurface, radius, 24u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPosterSurface, card_x, 28u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPosterSurface, card_y, 32u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPosterSurface, card_width, 36u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPosterSurface, card_height, 40u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPosterSurface, has_clip, 44u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPosterSurface, clip_x, 48u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPosterSurface, clip_y, 52u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPosterSurface, clip_width, 56u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexPosterSurface, clip_height, 60u);
+_Static_assert(sizeof(MultiplexPosterSurface) == 64u,
+               "MultiplexPosterSurface size changed");
+
+#undef MULTIPLEX_NATIVE_ASSERT_OFFSET
+#undef MULTIPLEX_NATIVE_ABI_GX_COMMAND_ALIGNMENT
+#undef MULTIPLEX_NATIVE_ABI_MAX2
+#undef MULTIPLEX_NATIVE_ABI_ALIGN_UP
+
+uint32_t multiplex_native_abi_version(void);
 void multiplex_native_app_init(void);
 uint32_t multiplex_native_app_pairing_status(uint32_t status,
                                              const uint8_t *code,
