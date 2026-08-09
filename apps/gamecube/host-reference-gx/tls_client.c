@@ -17,6 +17,7 @@
 #define MBEDTLS_CONFIG_FILE "mbedtls-gamecube-config.h"
 #endif
 
+#include "tls_client_verification.h"
 #include "x509_name_compare.h"
 
 #include <mbedtls/ctr_drbg.h>
@@ -496,25 +497,15 @@ MultiplexTlsClient *multiplex_tls_client_connect_cancellable(
   }
   mbedtls_ssl_init(&client->ssl);
   mbedtls_ssl_config_init(&client->config);
-  int result = mbedtls_ssl_config_defaults(
-      &client->config, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
-      MBEDTLS_SSL_PRESET_DEFAULT);
+  int result = multiplex_tls_client_configure(&client->ssl, &client->config,
+                                              hostname, find_ca_candidates,
+                                              client, locked_tls_random, NULL);
   if (result == 0) {
-    mbedtls_ssl_conf_authmode(&client->config, MBEDTLS_SSL_VERIFY_REQUIRED);
-    mbedtls_ssl_conf_ca_cb(&client->config, find_ca_candidates, client);
-    mbedtls_ssl_conf_rng(&client->config, locked_tls_random, NULL);
-    result = mbedtls_ssl_setup(&client->ssl, &client->config);
-  }
-  if (result == 0) {
-    result = mbedtls_ssl_set_hostname(&client->ssl, hostname);
-  }
-  if (result == 0) {
+    uint32_t verify_flags = 0;
     mbedtls_ssl_set_bio(&client->ssl, client, tls_send, tls_receive, NULL);
-    result = mbedtls_ssl_handshake(&client->ssl);
-  }
-  tls_last_verify_flags = mbedtls_ssl_get_verify_result(&client->ssl);
-  if (result == 0 && tls_last_verify_flags != 0) {
-    result = MBEDTLS_ERR_X509_CERT_VERIFY_FAILED;
+    result =
+        multiplex_tls_client_handshake_and_verify(&client->ssl, &verify_flags);
+    tls_last_verify_flags = verify_flags;
   }
   if (result != 0) {
     report_tls_error("handshake", result);

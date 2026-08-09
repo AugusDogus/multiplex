@@ -25,6 +25,7 @@ all test-memory-card-presentation.sh
 all test-memory-card-records.sh
 host test-tls-ca.sh
 all test-x509-name-compare.sh
+host test-mbedtls-verification.sh
 all test-plex-server-directory.sh
 all test-plex-catalog.sh
 all test-hls-playlist.sh
