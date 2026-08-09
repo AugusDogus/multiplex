@@ -90,17 +90,19 @@ if [ -f "$pid_file" ]; then
         else
           previous_target=$previous_pid
         fi
-        kill -TERM -- "$previous_target"
+        # dash's kill builtin rejects negative process-group targets even
+        # after --, and under set -eu that aborts the takeover launch.
+        /bin/kill -TERM -- "$previous_target"
         attempt=0
-        while kill -0 -- "$previous_target" 2>/dev/null &&
+        while /bin/kill -0 -- "$previous_target" 2>/dev/null &&
           [ "$attempt" -lt 30 ]; do
           sleep 0.1
           attempt=$((attempt + 1))
         done
-        if kill -0 -- "$previous_target" 2>/dev/null; then
-          kill -KILL -- "$previous_target"
+        if /bin/kill -0 -- "$previous_target" 2>/dev/null; then
+          /bin/kill -KILL -- "$previous_target"
           attempt=0
-          while kill -0 -- "$previous_target" 2>/dev/null &&
+          while /bin/kill -0 -- "$previous_target" 2>/dev/null &&
             [ "$attempt" -lt 30 ]; do
             sleep 0.1
             attempt=$((attempt + 1))
@@ -151,6 +153,7 @@ exec "$dolphin_emu" --batch \
   --config=Main.General.GDBPort="$gdb_port" \
   --config=Main.General.GDBSocket="$gdb_socket" \
   --config=SYSCONF.IPL.PGS=True \
+  --config=SYSCONF.IPL.AR=0 \
   --config=GFX.Hacks.SafeTextureCacheColorSamples=0 \
   --config=GFX.Hacks.EFBToTextureEnable=False \
   --config=GFX.Hacks.XFBToTextureEnable=False \
