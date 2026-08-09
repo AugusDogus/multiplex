@@ -17,7 +17,8 @@
 #define MBEDTLS_CONFIG_FILE "mbedtls-gamecube-config.h"
 #endif
 
-#include <mbedtls/asn1.h>
+#include "x509_name_compare.h"
+
 #include <mbedtls/ctr_drbg.h>
 #include <mbedtls/entropy.h>
 #include <mbedtls/error.h>
@@ -311,64 +312,6 @@ static void report_tls_error(const char *operation, int error) {
              (unsigned)-error, message);
 }
 
-/* Keep candidate selection equivalent to Mbed TLS' X.509 name comparison. */
-static int x509_memcasecmp(const void *left, const void *right, size_t size) {
-  const unsigned char *left_bytes = left;
-  const unsigned char *right_bytes = right;
-  for (size_t index = 0; index < size; ++index) {
-    const unsigned char difference = left_bytes[index] ^ right_bytes[index];
-    if (difference == 0) {
-      continue;
-    }
-    if (difference == 32 &&
-        ((left_bytes[index] >= 'a' && left_bytes[index] <= 'z') ||
-         (left_bytes[index] >= 'A' && left_bytes[index] <= 'Z'))) {
-      continue;
-    }
-    return -1;
-  }
-  return 0;
-}
-
-static int x509_string_compare(const mbedtls_x509_buf *left,
-                               const mbedtls_x509_buf *right) {
-  if (left->tag == right->tag && left->len == right->len &&
-      memcmp(left->p, right->p, right->len) == 0) {
-    return 0;
-  }
-  const bool left_is_supported_string =
-      left->tag == MBEDTLS_ASN1_UTF8_STRING ||
-      left->tag == MBEDTLS_ASN1_PRINTABLE_STRING;
-  const bool right_is_supported_string =
-      right->tag == MBEDTLS_ASN1_UTF8_STRING ||
-      right->tag == MBEDTLS_ASN1_PRINTABLE_STRING;
-  if (left_is_supported_string && right_is_supported_string &&
-      left->len == right->len &&
-      x509_memcasecmp(left->p, right->p, right->len) == 0) {
-    return 0;
-  }
-  return -1;
-}
-
-static int x509_name_compare(const mbedtls_x509_name *left,
-                             const mbedtls_x509_name *right) {
-  while (left != NULL || right != NULL) {
-    if (left == NULL || right == NULL) {
-      return -1;
-    }
-    if (left->oid.tag != right->oid.tag || left->oid.len != right->oid.len ||
-        memcmp(left->oid.p, right->oid.p, right->oid.len) != 0 ||
-        x509_string_compare(&left->val, &right->val) != 0 ||
-        left->MBEDTLS_PRIVATE(next_merged) !=
-            right->MBEDTLS_PRIVATE(next_merged)) {
-      return -1;
-    }
-    left = left->next;
-    right = right->next;
-  }
-  return 0;
-}
-
 static void free_ca_candidates(mbedtls_x509_crt *candidates) {
   if (candidates == NULL) {
     return;
@@ -455,7 +398,7 @@ static int find_ca_candidates(void *context, const mbedtls_x509_crt *child,
       return parse_result < 0 ? parse_result : MBEDTLS_ERR_X509_INVALID_FORMAT;
     }
 
-    if (x509_name_compare(&candidate->subject, &child->issuer) == 0) {
+    if (multiplex_x509_name_equal(&candidate->subject, &child->issuer)) {
       if (tail == NULL) {
         *candidate_cas = candidate;
       } else {
