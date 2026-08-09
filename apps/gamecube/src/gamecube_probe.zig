@@ -1196,22 +1196,13 @@ export fn multiplex_native_app_watch_together_playback(
 ) callconv(.c) u32 {
     if (!app_initialized or room_index >= app_model.watchTogetherRooms.len or rating_key == 0 or duration_ms == 0) return 0;
     const stored_title = copyDetailsString(&details_title_buffer, title, title_length) orelse return 0;
-    const next = core.rt.frameCreate(core.Model, app_model.*);
-    next.screen = .player;
-    next.selectedWatchTogetherRoomIndex = @intCast(room_index);
-    next.selectedRatingKey = @intCast(rating_key);
-    next.selectedTitle = stored_title;
-    next.selectedDurationMs = @intCast(duration_ms);
-    next.selectedViewOffsetMs = @intCast(offset_ms);
-    next.selectedFromBrowse = false;
-    next.selectedFromSearch = false;
-    next.playbackOffsetMs = @intCast(offset_ms);
-    next.playbackLoaded = true;
-    next.playing = true;
-    next.watchTogetherActive = true;
-    next.watchTogetherLeaveRequested = false;
-    next.watchTogetherReconnectRequested = false;
-    next.watchTogetherDisbandRequested = false;
+    const next = core.transitionPlayback(app_model, .{ .start_watch_together = .{
+        .roomIndex = @intCast(room_index),
+        .ratingKey = @intCast(rating_key),
+        .title = stored_title,
+        .durationMs = @intCast(duration_ms),
+        .offsetMs = @intCast(offset_ms),
+    } });
     commitAppModel(next);
     focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
@@ -1258,8 +1249,7 @@ export fn multiplex_native_app_playback_set_paused(paused: u32) callconv(.c) u32
     if (!app_initialized or app_model.screen != .player or !app_model.playbackLoaded) return 0;
     const playing = paused == 0;
     if (app_model.playing == playing) return 1;
-    const next = core.rt.frameCreate(core.Model, app_model.*);
-    next.playing = playing;
+    const next = core.transitionPlayback(app_model, .{ .set_paused = paused != 0 });
     commitAppModel(next);
     reference_full_repaint = true;
     return 1;
@@ -1656,24 +1646,13 @@ export fn multiplex_native_app_playback_navigate(
     const stored_title = copyDetailsString(&details_title_buffer, title, title_length) orelse return 0;
     const stored_secondary = copyDetailsString(&details_secondary_buffer, secondary, secondary_length) orelse return 0;
     const stored_hierarchy = copyDetailsString(&details_hierarchy_buffer, hierarchy, hierarchy_length) orelse return 0;
-    const next = core.rt.frameCreate(core.Model, app_model.*);
-    next.selectedRatingKey = @intCast(rating_key);
-    next.selectedTitle = stored_title;
-    next.selectedDurationMs = @intCast(duration_ms);
-    next.selectedViewOffsetMs = 0;
-    next.playbackOffsetMs = 0;
-    next.playbackLoaded = false;
-    next.playing = false;
-    next.playbackNavigationRequest = 0;
-    next.detailsLoaded = false;
-    next.detailsSecondary = stored_secondary;
-    next.detailsHierarchy = stored_hierarchy;
-    next.detailsChildren = &.{};
-    next.detailsChildrenStart = 0;
-    next.detailsChildrenPageNumber = 1;
-    next.detailsChildrenPageCount = 1;
-    next.detailsChildrenTotal = 0;
-    next.detailsChildrenLoaded = false;
+    const next = core.transitionPlayback(app_model, .{ .navigate = .{
+        .ratingKey = @intCast(rating_key),
+        .title = stored_title,
+        .secondary = stored_secondary,
+        .hierarchy = stored_hierarchy,
+        .durationMs = @intCast(duration_ms),
+    } });
     commitAppModel(next);
     focused_handler = invalid_focused_handler;
     reference_full_repaint = true;
@@ -1710,23 +1689,11 @@ export fn multiplex_native_app_playback_advance(
 ) callconv(.c) u32 {
     if (!app_initialized or app_model.screen != .player or !app_model.playbackLoaded or rating_key == 0 or duration_ms <= 1) return 0;
     const stored_title = copyDetailsString(&details_title_buffer, title, title_length) orelse return 0;
-    const completed = core.update(app_model, .complete_playback);
-    const next = core.rt.frameCreate(core.Model, completed.*);
-    next.selectedRatingKey = @intCast(rating_key);
-    next.selectedTitle = stored_title;
-    next.selectedDurationMs = @intCast(duration_ms);
-    next.selectedViewOffsetMs = 0;
-    next.playbackOffsetMs = 0;
-    next.playbackLoaded = false;
-    next.playing = false;
-    next.playbackNavigationRequest = 0;
-    next.detailsLoaded = false;
-    next.detailsChildren = &.{};
-    next.detailsChildrenStart = 0;
-    next.detailsChildrenPageNumber = 1;
-    next.detailsChildrenPageCount = 1;
-    next.detailsChildrenTotal = 0;
-    next.detailsChildrenLoaded = false;
+    const next = core.transitionPlayback(app_model, .{ .advance = .{
+        .ratingKey = @intCast(rating_key),
+        .title = stored_title,
+        .durationMs = @intCast(duration_ms),
+    } });
     commitAppModel(next);
     focused_handler = invalid_focused_handler;
     reference_full_repaint = true;

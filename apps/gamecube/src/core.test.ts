@@ -1,12 +1,41 @@
 import { expect, test } from "bun:test";
 
 import {
+  clearPlaybackNavigationRequest,
+  completeMarkWatched,
+  completeWatchTogetherDisband,
+  completeWatchTogetherJoin,
+  completeWatchTogetherLeave,
+  completeWatchTogetherReconnect,
+  dismissToast,
+  failBrowse,
+  failDetails,
+  failPlayback,
+  failSearch,
+  failWatchTogetherCreate,
   initialModel,
+  loadBootDiagnostics,
+  loadBrowse,
+  loadCatalog,
+  loadDetails,
+  loadDetailsChildren,
+  loadPairing,
+  loadPlayback,
+  loadSearch,
+  loadSubtitleStreams,
+  loadWatchTogetherInvitees,
+  loadWatchTogetherRooms,
   type CatalogItem,
   type CatalogRow,
   type Model,
   type Msg,
+  moveHomeCarousel,
+  previewCatalogItem,
+  setWatchTogetherHost,
+  showToast,
+  transitionPlayback,
   update,
+  updateWatchTogetherPresence,
 } from "./core.ts";
 
 const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
@@ -762,3 +791,588 @@ for (const backCase of backCases) {
     });
   });
 }
+
+const expectTransition = (actual: Model, before: Model, expected: Partial<Model>): void => {
+  expect(actual).toEqual({ ...before, ...expected });
+};
+
+test("loadPairing owns every gateway status", () => {
+  const statuses = [
+    { status: 0, connecting: false, waiting: false, linked: false, unavailable: false },
+    { status: 1, connecting: false, waiting: true, linked: false, unavailable: false },
+    { status: 2, connecting: false, waiting: false, linked: true, unavailable: false },
+    { status: 3, connecting: false, waiting: false, linked: false, unavailable: true },
+    { status: 4, connecting: true, waiting: false, linked: false, unavailable: false },
+  ] satisfies ReadonlyArray<{
+    readonly status: number;
+    readonly connecting: boolean;
+    readonly waiting: boolean;
+    readonly linked: boolean;
+    readonly unavailable: boolean;
+  }>;
+
+  for (const status of statuses) {
+    const before = model();
+    const next = loadPairing(before, status.status, bytes("1234"), bytes("https://plex"));
+    expectTransition(next, before, {
+      pairingEnabled: true,
+      pairingConnecting: status.connecting,
+      pairingWaiting: status.waiting,
+      pairingLinked: status.linked,
+      pairingUnavailable: status.unavailable,
+      pairingCode: bytes("1234"),
+      pairingUrl: bytes("https://plex"),
+    });
+  }
+
+  expect(loadPairing(model({ gatewayConnected: true }), 2, bytes(""), bytes("")).screen).toBe(
+    "home",
+  );
+});
+
+test("loadCatalog accepts a source and rejects empty responses", () => {
+  const rows = [row(item(7), item(8))];
+  const libraries = [
+    { id: 2, sectionId: 20, title: bytes("Shows"), mediaType: 2, typeLabel: bytes("TV") },
+  ];
+  const before = model({ pairingLinked: true });
+  const next = loadCatalog(before, bytes("Plex"), rows, libraries);
+
+  expectTransition(next, before, {
+    screen: "home",
+    gatewayConnected: true,
+    gatewayName: bytes("Plex"),
+    rows: rows,
+    libraries: libraries,
+    rowIndex: 0,
+    rowNumber: 1,
+    selectedIndex: 0,
+    selectedRatingKey: 107,
+    selectedImageId: 207,
+    selectedTitle: bytes("Item 7"),
+    selectedDurationMs: 120_000,
+    selectedViewOffsetMs: 7_000,
+  });
+  const emptyRows = loadCatalog(next, bytes("Other"), [], libraries);
+  expect(emptyRows).toBe(next);
+  expect(loadCatalog(next, bytes("Other"), [row()], libraries)).toBe(next);
+});
+
+test("browse transitions distinguish fresh, stale, empty, and cached failure", () => {
+  const browseItems = [item(9), item(10)];
+  const fresh = model({ screen: "browse", selectedLibraryId: 10, browseLoaded: false });
+  const loaded = loadBrowse(fresh, 10, bytes("Films"), 7, 20, browseItems);
+  expectTransition(loaded, fresh, {
+    browseItems: browseItems,
+    browseStart: 7,
+    browsePendingStart: 7,
+    browseTotal: 20,
+    browseLoaded: true,
+    browseFailed: false,
+    selectedIndex: 0,
+    selectedRatingKey: 109,
+    selectedImageId: 209,
+    selectedTitle: bytes("Item 9"),
+    selectedLibraryTitle: bytes("Films"),
+    selectedDurationMs: 120_000,
+    selectedViewOffsetMs: 9_000,
+    selectedFromBrowse: true,
+    selectedFromSearch: false,
+  });
+  expect(loadBrowse(fresh, 11, bytes("Shows"), 0, 1, browseItems)).toBe(fresh);
+  expect(loadBrowse(fresh, 10, bytes("Films"), 0, 1, [])).toBe(fresh);
+
+  const noCacheBefore = model({ screen: "browse", browseItems: [] });
+  const noCache = failBrowse(noCacheBefore);
+  expectTransition(noCache, noCacheBefore, { browseLoaded: false, browseFailed: true });
+  const cachedBefore = model({
+    screen: "browse",
+    browseItems: browseItems,
+    browseStart: 7,
+    browsePendingStart: 14,
+  });
+  const cached = failBrowse(cachedBefore);
+  expectTransition(cached, cachedBefore, { browsePendingStart: 7, browseFailed: false });
+  const browseOnHome = model({ screen: "home" });
+  expect(failBrowse(browseOnHome)).toBe(browseOnHome);
+});
+
+test("search transitions preserve query ownership and stale guards", () => {
+  const results = [item(11)];
+  const pending = model({
+    screen: "search_results",
+    searchLoaded: false,
+    searchQuery: bytes("old"),
+  });
+  const loaded = loadSearch(pending, bytes("new"), results);
+  expectTransition(loaded, pending, {
+    searchQuery: bytes("new"),
+    searchItems: results,
+    searchLoaded: true,
+    searchFailed: false,
+    selectedIndex: 0,
+    selectedRatingKey: 111,
+    selectedImageId: 211,
+    selectedTitle: bytes("Item 11"),
+    selectedDurationMs: 120_000,
+    selectedViewOffsetMs: 11_000,
+    selectedFromBrowse: false,
+    selectedFromSearch: true,
+  });
+  const empty = loadSearch(pending, bytes("new"), []);
+  expectTransition(empty, pending, {
+    searchQuery: bytes("new"),
+    searchItems: [],
+    searchLoaded: true,
+  });
+  expect(loadSearch(pending, bytes(""), results)).toBe(pending);
+  const searchScreen = model({ screen: "search" });
+  expect(loadSearch(searchScreen, bytes("new"), results)).toBe(searchScreen);
+  const failedBefore = model({ screen: "search_results", searchItems: results });
+  const failed = failSearch(failedBefore);
+  expectTransition(failed, failedBefore, {
+    searchLoaded: false,
+    searchFailed: true,
+    searchItems: results,
+  });
+  const searchOnHome = model({ screen: "home" });
+  expect(failSearch(searchOnHome)).toBe(searchOnHome);
+});
+
+test("details transitions accept matching metadata and reject stale replies", () => {
+  const details = model({ screen: "details", selectedRatingKey: 42, detailsLoaded: false });
+  const metadata = loadDetails(
+    details,
+    bytes("Episode"),
+    bytes("Season 1"),
+    bytes("Show"),
+    bytes("Episode"),
+    bytes("TV"),
+    bytes("PG"),
+    bytes("Facts"),
+    bytes("Summary"),
+    bytes("Drama"),
+    bytes("Director"),
+    true,
+  );
+  expectTransition(metadata, details, {
+    selectedTitle: bytes("Episode"),
+    detailsLoaded: true,
+    detailsPlayable: true,
+    detailsHierarchy: bytes("Show"),
+    detailsSecondary: bytes("Season 1"),
+    detailsType: bytes("Episode"),
+    detailsLibrary: bytes("TV"),
+    detailsContentRating: bytes("PG"),
+    detailsFacts: bytes("Facts"),
+    detailsSummary: bytes("Summary"),
+    detailsGenres: bytes("Drama"),
+    detailsDirectors: bytes("Director"),
+  });
+  const detailsOnHome = model({ screen: "home" });
+  expect(
+    loadDetails(
+      detailsOnHome,
+      bytes("x"),
+      bytes(""),
+      bytes(""),
+      bytes(""),
+      bytes(""),
+      bytes(""),
+      bytes(""),
+      bytes(""),
+      bytes(""),
+      bytes(""),
+      true,
+    ),
+  ).toBe(detailsOnHome);
+
+  const children = [item(12)];
+  const withChildren = loadDetailsChildren(metadata, 42, 4, 9, 2, 3, children);
+  expectTransition(withChildren, metadata, {
+    detailsChildren: children,
+    detailsChildrenStart: 4,
+    detailsChildrenPageNumber: 2,
+    detailsChildrenPageCount: 3,
+    detailsChildrenTotal: 9,
+    detailsChildrenLoaded: true,
+  });
+  expect(loadDetailsChildren(metadata, 41, 0, 1, 1, 1, children)).toBe(metadata);
+  const failed = failDetails(metadata);
+  expectTransition(failed, metadata, {
+    detailsLoaded: true,
+    detailsPlayable: false,
+    detailsSecondary: new Uint8Array(0),
+    detailsType: bytes("Plex result"),
+    detailsLibrary: metadata.gatewayName,
+    detailsSummary: bytes(
+      "Full metadata is not available for this result yet. Return and choose a playable library item.",
+    ),
+    detailsContentRating: new Uint8Array(0),
+    detailsFacts: new Uint8Array(0),
+    detailsGenres: new Uint8Array(0),
+    detailsDirectors: new Uint8Array(0),
+  });
+  const detailsFailureOnHome = model({ screen: "home" });
+  expect(failDetails(detailsFailureOnHome)).toBe(detailsFailureOnHome);
+});
+
+test("playback, subtitles, watched state, and navigation transitions are direct", () => {
+  const pending = model({ screen: "player", playbackLoaded: false, playing: false });
+  expectTransition(loadPlayback(pending), pending, { playbackLoaded: true, playing: true });
+  const failedBefore = model({ screen: "player", playbackLoaded: false, playing: false });
+  const failed = failPlayback(failedBefore);
+  expectTransition(failed, failedBefore, {
+    screen: "details",
+    playbackLoaded: false,
+    playing: false,
+  });
+  const playbackOnHome = model({ screen: "home" });
+  expect(failPlayback(playbackOnHome)).toBe(playbackOnHome);
+
+  const subtitleBefore = model();
+  const streams = [
+    { id: 1, label: bytes("English") },
+    { id: 2, label: bytes("日本語") },
+  ];
+  const subtitles = loadSubtitleStreams(subtitleBefore, streams, 99);
+  expectTransition(subtitles, subtitleBefore, {
+    subtitleStreamCount: 2,
+    subtitleStreams: streams,
+    selectedSubtitleStream: 2,
+  });
+
+  const markPending = model({
+    selectedViewOffsetMs: 30_000,
+    selectedDurationMs: 120_000,
+    markWatchedRequested: true,
+  });
+  const marked = completeMarkWatched(markPending, true);
+  expectTransition(marked, markPending, {
+    selectedViewOffsetMs: 0,
+    rows: [
+      row({ ...item(1), viewOffsetMs: 0, progressPercent: 0 }, item(2)),
+      row(item(3), item(4)),
+    ],
+    markWatchedRequested: false,
+    toastVisible: true,
+    toastMessage: bytes("Marked as watched"),
+  });
+  const markFailed = completeMarkWatched(markPending, false);
+  expectTransition(markFailed, markPending, {
+    markWatchedRequested: false,
+    toastVisible: true,
+    toastMessage: bytes("Could not mark as watched. Check Plex."),
+  });
+  const markAlreadyComplete = model();
+  expect(completeMarkWatched(markAlreadyComplete, true)).toBe(markAlreadyComplete);
+  const withNavigation = model({ screen: "player", playbackNavigationRequest: 1 });
+  expectTransition(clearPlaybackNavigationRequest(withNavigation), withNavigation, {
+    playbackNavigationRequest: 0,
+  });
+  const navigationAlreadyClear = model();
+  expect(clearPlaybackNavigationRequest(navigationAlreadyClear)).toBe(navigationAlreadyClear);
+  const toastBefore = model();
+  const toasted = showToast(toastBefore, bytes("Saved"));
+  expectTransition(toasted, toastBefore, { toastVisible: true, toastMessage: bytes("Saved") });
+  expectTransition(dismissToast(toasted), toasted, {
+    toastVisible: false,
+    toastMessage: new Uint8Array(0),
+  });
+});
+
+test("Watch Together transitions cover lifecycle outcomes and idempotence", () => {
+  const rooms = [{ id: 1, title: bytes("Room"), participantCount: 2 }];
+  const inviteeList = [{ id: 1, userId: 8, title: bytes("Friend") }];
+  const roomsBefore = model();
+  const roomsLoaded = loadWatchTogetherRooms(roomsBefore, true, rooms);
+  expectTransition(roomsLoaded, roomsBefore, {
+    watchTogetherRooms: rooms,
+    watchTogetherLoaded: true,
+    watchTogetherAvailable: true,
+    watchTogetherCreating: false,
+    watchTogetherCreateFailed: false,
+  });
+  const unavailableBefore = model();
+  expectTransition(loadWatchTogetherRooms(unavailableBefore, false, []), unavailableBefore, {
+    watchTogetherLoaded: true,
+    watchTogetherAvailable: false,
+    watchTogetherRooms: [],
+  });
+  const inviteesBefore = model();
+  expectTransition(loadWatchTogetherInvitees(inviteesBefore, true, inviteeList), inviteesBefore, {
+    watchTogetherInvitees: inviteeList,
+    watchTogetherInviteesLoaded: true,
+    watchTogetherInviteesAvailable: true,
+    watchTogetherInviteePage: 0,
+  });
+  const createFailureBefore = model({ watchTogetherCreating: true });
+  expectTransition(failWatchTogetherCreate(createFailureBefore), createFailureBefore, {
+    watchTogetherLoaded: true,
+    watchTogetherAvailable: true,
+    watchTogetherCreating: false,
+    watchTogetherCreateFailed: true,
+  });
+
+  const joining = model({ watchTogetherJoining: true, watchTogetherPresentCount: 0 });
+  expectTransition(completeWatchTogetherJoin(joining, true), joining, {
+    watchTogetherJoining: false,
+    watchTogetherConnected: true,
+    watchTogetherJoinFailed: false,
+    watchTogetherPresentCount: 1,
+  });
+  expectTransition(completeWatchTogetherJoin(joining, false), joining, {
+    watchTogetherJoining: false,
+    watchTogetherConnected: false,
+    watchTogetherJoinFailed: true,
+    watchTogetherPresentCount: 0,
+  });
+  const present = model({ watchTogetherConnected: true, watchTogetherPresentCount: 2 });
+  expect(updateWatchTogetherPresence(present, true, 2)).toBe(present);
+  expectTransition(updateWatchTogetherPresence(present, false, 0), present, {
+    watchTogetherConnected: false,
+    watchTogetherPresentCount: 0,
+    watchTogetherJoinFailed: false,
+  });
+
+  const leaving = model({ watchTogetherLeaveRequested: true, watchTogetherHost: true });
+  expectTransition(completeWatchTogetherLeave(leaving), leaving, {
+    watchTogetherHost: false,
+    watchTogetherLeaveRequested: false,
+  });
+  const leaveAlreadyComplete = model();
+  expect(completeWatchTogetherLeave(leaveAlreadyComplete)).toBe(leaveAlreadyComplete);
+  const reconnecting = model({ watchTogetherReconnectRequested: true });
+  expectTransition(completeWatchTogetherReconnect(reconnecting), reconnecting, {
+    watchTogetherReconnectRequested: false,
+  });
+  const reconnectAlreadyComplete = model();
+  expect(completeWatchTogetherReconnect(reconnectAlreadyComplete)).toBe(reconnectAlreadyComplete);
+  const host = model({ watchTogetherHost: true });
+  expect(setWatchTogetherHost(host, true)).toBe(host);
+  expectTransition(setWatchTogetherHost(host, false), host, { watchTogetherHost: false });
+  const disbanding = model({ watchTogetherDisbandRequested: true, watchTogetherHost: true });
+  expectTransition(completeWatchTogetherDisband(disbanding, true), disbanding, {
+    watchTogetherHost: false,
+    watchTogetherDisbandRequested: false,
+    watchTogetherDisbandFailed: false,
+  });
+  expectTransition(completeWatchTogetherDisband(disbanding, false), disbanding, {
+    watchTogetherHost: true,
+    watchTogetherDisbandRequested: false,
+    watchTogetherDisbandFailed: true,
+  });
+  const disbandAlreadyComplete = model();
+  expect(completeWatchTogetherDisband(disbandAlreadyComplete, true)).toBe(disbandAlreadyComplete);
+});
+
+test("catalog preview and carousel transitions guard bounds", () => {
+  const items = Array.from({ length: 10 }, (_, index) => item(index));
+  const start = model({ rows: [row(...items)], selectedIndex: 0, homeCarouselStart: 0 });
+  const previewed = previewCatalogItem(start, 4);
+  expectTransition(previewed, start, {
+    selectedIndex: 4,
+    selectedRatingKey: 104,
+    selectedImageId: 204,
+    selectedTitle: bytes("Item 4"),
+    selectedDurationMs: 120_000,
+    selectedViewOffsetMs: 4_000,
+  });
+  expect(previewCatalogItem(start, -1)).toBe(start);
+  expect(previewCatalogItem(start, 10)).toBe(start);
+  const next = moveHomeCarousel(start, 1);
+  expectTransition(next, start, {
+    homeCarouselStart: 1,
+    selectedIndex: 7,
+    selectedRatingKey: 107,
+    selectedImageId: 207,
+    selectedTitle: bytes("Item 7"),
+    selectedDurationMs: 120_000,
+    selectedViewOffsetMs: 7_000,
+  });
+  const previous = moveHomeCarousel(next, -1);
+  expectTransition(previous, next, {
+    homeCarouselStart: 0,
+    selectedIndex: 0,
+    selectedRatingKey: 100,
+    selectedImageId: 200,
+    selectedTitle: bytes("Item 0"),
+    selectedDurationMs: 120_000,
+    selectedViewOffsetMs: 0,
+  });
+  const nearEnd = model({ rows: [row(...items)], homeCarouselStart: 2, selectedIndex: 2 });
+  const end = moveHomeCarousel(nearEnd, 1);
+  expectTransition(end, nearEnd, {
+    homeCarouselStart: 3,
+    selectedIndex: 9,
+    selectedRatingKey: 109,
+    selectedImageId: 209,
+    selectedTitle: bytes("Item 9"),
+    selectedDurationMs: 120_000,
+    selectedViewOffsetMs: 9_000,
+  });
+  expect(moveHomeCarousel(start, -1)).toBe(start);
+  expect(moveHomeCarousel(end, 1)).toBe(end);
+});
+
+test("playback transitions own pause, navigation, and advance", () => {
+  const player = model({
+    screen: "player",
+    playbackLoaded: true,
+    playing: true,
+    playbackOffsetMs: 30_000,
+    selectedDurationMs: 120_000,
+    selectedWatchTogetherRoomIndex: 0,
+    watchTogetherRooms: [{ id: 1, title: bytes("Room"), participantCount: 2 }],
+  });
+  expectTransition(transitionPlayback(player, { kind: "set_paused", paused: true }), player, {
+    playing: false,
+  });
+  expect(transitionPlayback(player, { kind: "set_paused", paused: false })).toBe(player);
+  const playbackPauseOnDetails = model({ screen: "details" });
+  expect(transitionPlayback(playbackPauseOnDetails, { kind: "set_paused", paused: true })).toBe(
+    playbackPauseOnDetails,
+  );
+
+  const navigated = transitionPlayback(player, {
+    kind: "navigate",
+    ratingKey: 55,
+    title: bytes("Next"),
+    secondary: bytes("Season 2"),
+    hierarchy: bytes("Show"),
+    durationMs: 90_000,
+  });
+  expectTransition(navigated, player, {
+    selectedRatingKey: 55,
+    selectedTitle: bytes("Next"),
+    selectedDurationMs: 90_000,
+    selectedViewOffsetMs: 0,
+    playbackOffsetMs: 0,
+    playbackLoaded: false,
+    playing: false,
+    playbackNavigationRequest: 0,
+    detailsLoaded: false,
+    detailsSecondary: bytes("Season 2"),
+    detailsHierarchy: bytes("Show"),
+    detailsChildren: [],
+    detailsChildrenStart: 0,
+    detailsChildrenPageNumber: 1,
+    detailsChildrenPageCount: 1,
+    detailsChildrenTotal: 0,
+    detailsChildrenLoaded: false,
+  });
+  expect(
+    transitionPlayback(player, {
+      kind: "navigate",
+      ratingKey: 0,
+      title: bytes("Next"),
+      secondary: bytes(""),
+      hierarchy: bytes(""),
+      durationMs: 90_000,
+    }),
+  ).toBe(player);
+  expect(
+    transitionPlayback(player, {
+      kind: "navigate",
+      ratingKey: 55,
+      title: bytes(""),
+      secondary: bytes(""),
+      hierarchy: bytes(""),
+      durationMs: 90_000,
+    }),
+  ).toBe(player);
+
+  const advanced = transitionPlayback(player, {
+    kind: "advance",
+    ratingKey: 56,
+    title: bytes("Following"),
+    durationMs: 100_000,
+  });
+  expectTransition(advanced, player, {
+    selectedRatingKey: 56,
+    selectedTitle: bytes("Following"),
+    selectedDurationMs: 100_000,
+    selectedViewOffsetMs: 0,
+    playbackOffsetMs: 0,
+    playbackLoaded: false,
+    playing: false,
+    detailsLoaded: false,
+    detailsChildren: [],
+    detailsChildrenStart: 0,
+    detailsChildrenPageNumber: 1,
+    detailsChildrenPageCount: 1,
+    detailsChildrenTotal: 0,
+    detailsChildrenLoaded: false,
+  });
+  expect(
+    transitionPlayback(player, {
+      kind: "advance",
+      ratingKey: 56,
+      title: bytes("Following"),
+      durationMs: 1,
+    }),
+  ).toBe(player);
+});
+
+test("Watch Together playback transition owns its valid room identity", () => {
+  const startBefore = model({
+    watchTogetherRooms: [{ id: 1, title: bytes("Room"), participantCount: 2 }],
+    selectedFromBrowse: true,
+    selectedFromSearch: true,
+    watchTogetherLeaveRequested: true,
+    watchTogetherReconnectRequested: true,
+    watchTogetherDisbandRequested: true,
+  });
+  const started = transitionPlayback(startBefore, {
+    kind: "start_watch_together",
+    roomIndex: 0,
+    ratingKey: 57,
+    title: bytes("Shared"),
+    durationMs: 80_000,
+    offsetMs: 5_000,
+  });
+  expectTransition(started, startBefore, {
+    screen: "player",
+    selectedWatchTogetherRoomIndex: 0,
+    selectedRatingKey: 57,
+    selectedTitle: bytes("Shared"),
+    selectedDurationMs: 80_000,
+    selectedViewOffsetMs: 5_000,
+    selectedFromBrowse: false,
+    selectedFromSearch: false,
+    playbackOffsetMs: 5_000,
+    playbackLoaded: true,
+    playing: true,
+    watchTogetherActive: true,
+    watchTogetherLeaveRequested: false,
+    watchTogetherReconnectRequested: false,
+    watchTogetherDisbandRequested: false,
+  });
+  const invalidStart = model({ watchTogetherRooms: [] });
+  expect(
+    transitionPlayback(invalidStart, {
+      kind: "start_watch_together",
+      roomIndex: 0,
+      ratingKey: 57,
+      title: bytes("Shared"),
+      durationMs: 80_000,
+      offsetMs: 0,
+    }),
+  ).toBe(invalidStart);
+});
+
+test("boot diagnostics transition and clear toast without changing unrelated state", () => {
+  const starting = model({ gatewayName: bytes("Gateway") });
+  const diagnostics = loadBootDiagnostics(starting, bytes("boot warning"));
+  expectTransition(diagnostics, starting, {
+    gatewayName: bytes("Gateway"),
+    bootDiagnostics: bytes("boot warning"),
+  });
+  const toast = showToast(diagnostics, bytes("Ready"));
+  const cleared = dismissToast(toast);
+  expectTransition(cleared, toast, {
+    bootDiagnostics: bytes("boot warning"),
+    toastVisible: false,
+    toastMessage: new Uint8Array(0),
+  });
+});

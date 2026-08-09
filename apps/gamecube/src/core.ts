@@ -773,6 +773,122 @@ export function failPlayback(model: Model): Model {
   };
 }
 
+export type PlaybackTransition =
+  | {
+      readonly kind: "start_watch_together";
+      readonly roomIndex: number;
+      readonly ratingKey: number;
+      readonly title: Uint8Array;
+      readonly durationMs: number;
+      readonly offsetMs: number;
+    }
+  | { readonly kind: "set_paused"; readonly paused: boolean }
+  | {
+      readonly kind: "navigate";
+      readonly ratingKey: number;
+      readonly title: Uint8Array;
+      readonly secondary: Uint8Array;
+      readonly hierarchy: Uint8Array;
+      readonly durationMs: number;
+    }
+  | {
+      readonly kind: "advance";
+      readonly ratingKey: number;
+      readonly title: Uint8Array;
+      readonly durationMs: number;
+    };
+
+export function transitionPlayback(model: Model, transition: PlaybackTransition): Model {
+  switch (transition.kind) {
+    case "start_watch_together":
+      if (
+        transition.roomIndex < 0 ||
+        transition.roomIndex >= model.watchTogetherRooms.length ||
+        transition.ratingKey === 0 ||
+        transition.durationMs === 0
+      )
+        return model;
+      return {
+        ...model,
+        screen: "player",
+        selectedWatchTogetherRoomIndex: transition.roomIndex,
+        selectedRatingKey: transition.ratingKey,
+        selectedTitle: transition.title,
+        selectedDurationMs: transition.durationMs,
+        selectedViewOffsetMs: transition.offsetMs,
+        selectedFromBrowse: false,
+        selectedFromSearch: false,
+        playbackOffsetMs: transition.offsetMs,
+        playbackLoaded: true,
+        playing: true,
+        watchTogetherActive: true,
+        watchTogetherLeaveRequested: false,
+        watchTogetherReconnectRequested: false,
+        watchTogetherDisbandRequested: false,
+      };
+    case "set_paused": {
+      if (model.screen !== "player" || !model.playbackLoaded) return model;
+      const playing = !transition.paused;
+      return model.playing === playing ? model : { ...model, playing: playing };
+    }
+    case "navigate":
+      if (
+        model.screen !== "player" ||
+        !model.playbackLoaded ||
+        transition.ratingKey === 0 ||
+        transition.title.length === 0 ||
+        transition.durationMs <= 1
+      )
+        return model;
+      return {
+        ...model,
+        selectedRatingKey: transition.ratingKey,
+        selectedTitle: transition.title,
+        selectedDurationMs: transition.durationMs,
+        selectedViewOffsetMs: 0,
+        playbackOffsetMs: 0,
+        playbackLoaded: false,
+        playing: false,
+        playbackNavigationRequest: 0,
+        detailsLoaded: false,
+        detailsSecondary: transition.secondary,
+        detailsHierarchy: transition.hierarchy,
+        detailsChildren: [],
+        detailsChildrenStart: 0,
+        detailsChildrenPageNumber: 1,
+        detailsChildrenPageCount: 1,
+        detailsChildrenTotal: 0,
+        detailsChildrenLoaded: false,
+      };
+    case "advance":
+      if (
+        model.screen !== "player" ||
+        !model.playbackLoaded ||
+        transition.ratingKey === 0 ||
+        transition.durationMs <= 1
+      )
+        return model;
+      return {
+        ...model,
+        selectedRatingKey: transition.ratingKey,
+        selectedTitle: transition.title,
+        selectedDurationMs: transition.durationMs,
+        selectedViewOffsetMs: 0,
+        playbackOffsetMs: 0,
+        playbackLoaded: false,
+        playing: false,
+        playbackNavigationRequest: 0,
+        detailsLoaded: false,
+        detailsChildren: [],
+        detailsChildrenStart: 0,
+        detailsChildrenPageNumber: 1,
+        detailsChildrenPageCount: 1,
+        detailsChildrenTotal: 0,
+        detailsChildrenLoaded: false,
+      };
+  }
+}
+
 export function playbackToggleIcon(model: Model): Uint8Array {
   return model.playing ? asciiBytes("pause") : asciiBytes("play");
 }
