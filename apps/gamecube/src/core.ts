@@ -501,7 +501,7 @@ export function loadBootDiagnostics(model: Model, diagnostics: Uint8Array): Mode
 // Multiplex account when this build pairs, or the console gateway itself in
 // gateway-only builds, which serve browse and search without an account.
 export function libraryActionsAvailable(model: Model): boolean {
-  return model.pairingLinked || (model.gatewayConnected && !model.pairingEnabled);
+  return model.gatewayConnected && (model.pairingLinked || !model.pairingEnabled);
 }
 
 export function bootDiagnosticsVisible(model: Model): boolean {
