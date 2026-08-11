@@ -21,8 +21,8 @@ typedef struct {
   uint32_t offset_ms;
   uint32_t subtitle_stream_index;
   uint32_t started_tick;
+  MultiplexPlaybackHlsPrefetchStatus status;
   bool burn_subtitles;
-  bool started;
   volatile bool complete;
   volatile bool ready;
 } PlaybackHlsPrefetch;
@@ -128,6 +128,7 @@ bool playback_program_candidate_open_gateway(
 static void reset_hls(PlaybackHlsPrefetch *hls) {
   memset(hls, 0, sizeof(*hls));
   hls->thread = LWP_THREAD_NULL;
+  hls->status = MULTIPLEX_PLAYBACK_HLS_PREFETCH_IDLE;
 }
 
 static void *run_hls(void *context) {
@@ -144,7 +145,7 @@ static void *run_hls(void *context) {
 }
 
 static bool finish_hls(PlaybackHlsPrefetch *hls, bool wait) {
-  if (hls == NULL || !hls->started) {
+  if (hls == NULL || hls->status == MULTIPLEX_PLAYBACK_HLS_PREFETCH_IDLE) {
     return false;
   }
   if (hls->thread != LWP_THREAD_NULL) {
@@ -165,7 +166,8 @@ static bool finish_hls(PlaybackHlsPrefetch *hls, bool wait) {
 }
 
 void playback_prefetch_discard_hls(PlaybackPrefetch *prefetch) {
-  if (prefetch == NULL || !prefetch->hls.started) {
+  if (prefetch == NULL ||
+      prefetch->hls.status == MULTIPLEX_PLAYBACK_HLS_PREFETCH_IDLE) {
     return;
   }
   PlaybackHlsPrefetch *hls = &prefetch->hls;
@@ -179,39 +181,35 @@ void playback_prefetch_discard_hls(PlaybackPrefetch *prefetch) {
 bool playback_prefetch_retain_hls(
     PlaybackPrefetch *prefetch,
     const MultiplexPlaybackPrefetchRequest *request) {
-  if (prefetch == NULL || request == NULL) {
+  if (prefetch == NULL || request == NULL || request->rating_key == 0) {
     return false;
   }
   PlaybackHlsPrefetch *hls = &prefetch->hls;
-  finish_hls(hls, false);
-  if (request->disposition == MULTIPLEX_PLAYBACK_PREFETCH_RELEASE_WHEN_READY) {
-    if (hls->started && hls->complete) {
-      playback_prefetch_discard_hls(prefetch);
-    }
-    return true;
-  }
-  if (request->disposition != MULTIPLEX_PLAYBACK_PREFETCH_RETAIN ||
-      request->rating_key == 0) {
+  const MultiplexPlaybackHlsPrefetchStatus status =
+      playback_prefetch_hls_status(prefetch);
+  if (status == MULTIPLEX_PLAYBACK_HLS_PREFETCH_RELEASING) {
     return false;
   }
-  if (hls->started && hls->rating_key == request->rating_key &&
+  const bool matches =
+      status != MULTIPLEX_PLAYBACK_HLS_PREFETCH_IDLE &&
+      hls->rating_key == request->rating_key &&
       hls->offset_ms == request->offset_ms &&
       hls->burn_subtitles == request->burn_subtitles &&
       (!request->burn_subtitles ||
-       hls->subtitle_stream_index == request->subtitle_stream_index)) {
+       hls->subtitle_stream_index == request->subtitle_stream_index);
+  if (matches && status != MULTIPLEX_PLAYBACK_HLS_PREFETCH_FAILED) {
     SYS_Report("REFERENCE GX: HLS session prefetch retained rating-key=%u "
                "offset=%u\n",
                request->rating_key, request->offset_ms);
     return true;
   }
-  if (hls->started && !hls->complete) {
-    SYS_Report("REFERENCE GX: HLS session prefetch deferred rating-key=%u "
+  if (status == MULTIPLEX_PLAYBACK_HLS_PREFETCH_RETAINING) {
+    SYS_Report("REFERENCE GX: HLS session prefetch rejected rating-key=%u "
                "behind=%u\n",
                request->rating_key, hls->rating_key);
-    return true;
+    return false;
   }
   playback_prefetch_discard_hls(prefetch);
-  reset_hls(hls);
   hls->credentials = request->credentials;
   hls->rating_key = request->rating_key;
   hls->offset_ms = request->offset_ms;
@@ -227,7 +225,7 @@ bool playback_prefetch_retain_hls(
     reset_hls(hls);
     return false;
   }
-  hls->started = true;
+  hls->status = MULTIPLEX_PLAYBACK_HLS_PREFETCH_RETAINING;
   SYS_Report("REFERENCE GX: HLS session prefetch started rating-key=%u "
              "offset=%u\n",
              hls->rating_key, hls->offset_ms);
@@ -235,7 +233,55 @@ bool playback_prefetch_retain_hls(
 }
 
 bool playback_prefetch_hls_active(const PlaybackPrefetch *prefetch) {
-  return prefetch != NULL && prefetch->hls.started;
+  return prefetch != NULL &&
+         prefetch->hls.status != MULTIPLEX_PLAYBACK_HLS_PREFETCH_IDLE;
+}
+
+bool playback_prefetch_release_hls(PlaybackPrefetch *prefetch) {
+  if (prefetch == NULL) {
+    return false;
+  }
+  PlaybackHlsPrefetch *hls = &prefetch->hls;
+  const MultiplexPlaybackHlsPrefetchStatus status =
+      playback_prefetch_hls_status(prefetch);
+  if (status == MULTIPLEX_PLAYBACK_HLS_PREFETCH_IDLE ||
+      status == MULTIPLEX_PLAYBACK_HLS_PREFETCH_RELEASING) {
+    return true;
+  }
+  if (status == MULTIPLEX_PLAYBACK_HLS_PREFETCH_RETAINING) {
+    hls->status = MULTIPLEX_PLAYBACK_HLS_PREFETCH_RELEASING;
+    return true;
+  }
+  playback_prefetch_discard_hls(prefetch);
+  return true;
+}
+
+MultiplexPlaybackHlsPrefetchStatus
+playback_prefetch_hls_status(PlaybackPrefetch *prefetch) {
+  if (prefetch == NULL) {
+    return MULTIPLEX_PLAYBACK_HLS_PREFETCH_FAILED;
+  }
+  PlaybackHlsPrefetch *hls = &prefetch->hls;
+  if ((hls->status != MULTIPLEX_PLAYBACK_HLS_PREFETCH_RETAINING &&
+       hls->status != MULTIPLEX_PLAYBACK_HLS_PREFETCH_RELEASING) ||
+      !hls->complete) {
+    return hls->status;
+  }
+  __sync_synchronize();
+  const bool ready = finish_hls(hls, false);
+  if (hls->status == MULTIPLEX_PLAYBACK_HLS_PREFETCH_RELEASING) {
+    if (hls->session.started) {
+      multiplex_plex_hls_stop(&hls->credentials, &hls->session);
+    }
+    reset_hls(hls);
+    return MULTIPLEX_PLAYBACK_HLS_PREFETCH_IDLE;
+  }
+  if (!ready) {
+    playback_prefetch_discard_hls(prefetch);
+    return MULTIPLEX_PLAYBACK_HLS_PREFETCH_FAILED;
+  }
+  hls->status = MULTIPLEX_PLAYBACK_HLS_PREFETCH_READY;
+  return hls->status;
 }
 
 PlexHlsDemux *
@@ -250,7 +296,10 @@ playback_prefetch_open_hls(PlaybackPrefetch *prefetch,
   const bool use_resume =
       resume_session_id != NULL && resume_session_id[0] != '\0';
   const bool prefetch_matches =
-      !use_resume && hls->started && hls->rating_key == request->rating_key &&
+      !use_resume &&
+      (hls->status == MULTIPLEX_PLAYBACK_HLS_PREFETCH_RETAINING ||
+       hls->status == MULTIPLEX_PLAYBACK_HLS_PREFETCH_READY) &&
+      hls->rating_key == request->rating_key &&
       hls->offset_ms == request->offset_ms &&
       hls->burn_subtitles == request->burn_subtitles &&
       (!request->burn_subtitles ||

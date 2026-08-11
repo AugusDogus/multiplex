@@ -461,14 +461,26 @@ multiplex_playback_session_step(MultiplexPlaybackSession *session,
   return snapshot;
 }
 
-bool multiplex_playback_session_retain_prefetch(
+bool multiplex_playback_session_retain_hls_prefetch(
     MultiplexPlaybackSession *session,
     const MultiplexPlaybackPrefetchRequest *request) {
   return session != NULL &&
          playback_prefetch_retain_hls(session->prefetch, request);
 }
 
-void multiplex_playback_session_cancel_prefetch(
+bool multiplex_playback_session_release_hls_prefetch(
+    MultiplexPlaybackSession *session) {
+  return session != NULL && playback_prefetch_release_hls(session->prefetch);
+}
+
+MultiplexPlaybackHlsPrefetchStatus
+multiplex_playback_session_hls_prefetch_status(
+    MultiplexPlaybackSession *session) {
+  return session == NULL ? MULTIPLEX_PLAYBACK_HLS_PREFETCH_FAILED
+                         : playback_prefetch_hls_status(session->prefetch);
+}
+
+void multiplex_playback_session_discard_hls_prefetch(
     MultiplexPlaybackSession *session) {
   if (session != NULL) {
     playback_prefetch_discard_hls(session->prefetch);

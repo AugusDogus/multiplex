@@ -29,6 +29,9 @@ bool playback_prefetch_hls_active(const PlaybackPrefetch *prefetch);
 bool playback_prefetch_retain_hls(
     PlaybackPrefetch *prefetch,
     const MultiplexPlaybackPrefetchRequest *request);
+bool playback_prefetch_release_hls(PlaybackPrefetch *prefetch);
+MultiplexPlaybackHlsPrefetchStatus
+playback_prefetch_hls_status(PlaybackPrefetch *prefetch);
 void playback_prefetch_discard_hls(PlaybackPrefetch *prefetch);
 PlexHlsDemux *
 playback_prefetch_open_hls(PlaybackPrefetch *prefetch,
