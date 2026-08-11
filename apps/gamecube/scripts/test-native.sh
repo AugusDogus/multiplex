@@ -18,6 +18,9 @@ run_test_script_matrix() {
   done <<'EOF'
 all test-catalog-cache.sh
 all test-http-response.sh
+all test-http-client-cancellation.sh
+all test-tls-read-poll.sh
+all test-libogc2-nonblocking-connect.sh
 all test-memory-card-presentation.sh
 all test-memory-card-records.sh
 host test-tls-ca.sh
@@ -25,10 +28,12 @@ all test-plex-server-directory.sh
 all test-plex-catalog.sh
 all test-hls-playlist.sh
 all test-plex-hls-state.sh
+all test-plex-hls-stop.sh
 all test-mpeg-ts-parser.sh
 all test-audio-buffer-queue.sh
 all test-playback-timeline-policy.sh
 all test-playback-program-policy.sh
+all test-playback-prefetch-cancellation.sh
 all test-trpc-rooms.sh
 all test-reference-frame.sh
 all test-gui-navigation.sh

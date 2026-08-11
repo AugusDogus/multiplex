@@ -55,6 +55,7 @@ struct AppJobsTestFixture {
   unsigned dispatch_work_count;
   unsigned fail_work_dispatch_at;
   unsigned work_runs[MULTIPLEX_APP_SERVICES_WORK_COUNT];
+  unsigned work_cancellations[MULTIPLEX_APP_SERVICES_WORK_COUNT];
   MultiplexAppServicesWorkKind work_run_order[16];
   unsigned work_run_count;
   bool cache_snapshot_seen;
@@ -67,6 +68,14 @@ struct AppJobsTestFixture {
   unsigned poster_copy_count;
   unsigned poster_scrub_count;
   unsigned poster_consumed_count;
+  unsigned poster_cancellation_count;
+  unsigned startup_user_count;
+  unsigned startup_rooms_count;
+  unsigned startup_invitees_count;
+  unsigned playback_cancel_count;
+  MultiplexAppJobs *expected_cancelled_jobs;
+  bool assert_runtime_cancellation_on_next_join;
+  bool cancel_startup_after_user;
   MultiplexPlaybackHlsPrefetchStatus prefetch_status;
   bool prefetch_retain_succeeds;
   bool prefetch_release_succeeds;

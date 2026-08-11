@@ -43,9 +43,17 @@ void playback_program_candidate_destroy(PlaybackProgramCandidate *candidate);
 bool playback_program_candidate_open_manifest(
     const MultiplexGatewayPlaybackManifest *manifest,
     PlaybackProgramCandidate *candidate);
+bool playback_program_candidate_open_manifest_cancellable(
+    const MultiplexGatewayPlaybackManifest *manifest,
+    PlaybackProgramCandidate *candidate,
+    const MultiplexHttpCancellation *cancellation);
 bool playback_program_candidate_open_gateway(
     const char *gateway_url, uint32_t rating_key, uint32_t offset_ms,
     PlaybackProgramCandidate *candidate);
+bool playback_program_candidate_open_gateway_cancellable(
+    const char *gateway_url, uint32_t rating_key, uint32_t offset_ms,
+    PlaybackProgramCandidate *candidate,
+    const MultiplexHttpCancellation *cancellation);
 
 bool playback_prefetch_stage_program(
     PlaybackPrefetch *prefetch, const PlaybackProgramStageRequest *request);
@@ -53,5 +61,6 @@ bool playback_prefetch_take_program(PlaybackPrefetch *prefetch,
                                     uint32_t rating_key, uint32_t offset_ms,
                                     PlaybackProgramCandidate *candidate);
 void playback_prefetch_discard_program(PlaybackPrefetch *prefetch);
+void playback_prefetch_cancel_background(PlaybackPrefetch *prefetch);
 
 #endif

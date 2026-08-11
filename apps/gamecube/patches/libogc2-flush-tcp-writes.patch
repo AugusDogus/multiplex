@@ -11,10 +11,137 @@ index 8f6a829..12abfea 100644
  s32 net_sendto(s32 s,const void *data,size_t len,u32 flags,struct sockaddr *to,socklen_t tolen);
  s32 net_recv(s32 s,void *mem,size_t len,u32 flags);
 diff --git a/lwip/network.c b/lwip/network.c
-index d7fb983..f04d359 100644
+index d7fb983..3c2322c 100644
 --- a/lwip/network.c
 +++ b/lwip/network.c
-@@ -1216,8 +1216,12 @@ static void do_write(struct apimsg_msg *msg)
+@@ -127,7 +127,7 @@ static err_t netconn_listen(struct netconn *);
+ static struct netbuf* netconn_recv(struct netconn *);
+ static err_t netconn_send(struct netconn *,struct netbuf *);
+ static err_t netconn_write(struct netconn *,const void *,u32,u8);
+-static err_t netconn_connect(struct netconn *,struct ip_addr *,u16);
++static err_t netconn_connect(struct netconn *,struct ip_addr *,u16,u8);
+ static err_t netconn_disconnect(struct netconn *);
+ 
+ static void do_newconn(struct apimsg_msg *);
+@@ -156,10 +156,10 @@ static apimsg_decode decode[APIMSG_MAX] = {
+ 	do_close
+ };
+ 
+-static void apimsg_post(struct api_msg *);
++static err_t apimsg_post(struct api_msg *);
+ 
+ static err_t net_input(struct pbuf *,struct netif *);
+-static void net_apimsg(struct api_msg *);
++static err_t net_apimsg(struct api_msg *);
+ static err_t net_callback(void (*)(void *),void *);
+ static void* net_thread(void *);
+ 
+@@ -656,7 +656,7 @@ ret:
+ 	return conn->err;
+ }
+ 
+-static err_t netconn_connect(struct netconn *conn,struct ip_addr *addr,u16 port)
++static err_t netconn_connect(struct netconn *conn,struct ip_addr *addr,u16 port,u8 nonblocking)
+ {
+ 	u32 dummy;
+ 	struct api_msg *msg;
+@@ -672,7 +672,12 @@ static err_t netconn_connect(struct netconn *conn,struct ip_addr *addr,u16 port)
+ 	msg->msg.conn = conn;
+ 	msg->msg.msg.bc.ipaddr = addr;
+ 	msg->msg.msg.bc.port = port;
+-	apimsg_post(msg);
++	if(nonblocking) conn->state = NETCONN_CONNECT;
++	if(apimsg_post(msg)!=ERR_OK) {
++		if(nonblocking) conn->state = NETCONN_NONE;
++		return ERR_MEM;
++	}
++	if(nonblocking) return ERR_OK;
+ 	MQ_Receive(conn->mbox,(mqmsg_t)&dummy,MQ_MSG_BLOCK);
+ 	memp_free(MEMP_API_MSG,msg);
+ 	return conn->err;
+@@ -778,16 +783,19 @@ static err_t recv_tcp(void *arg,struct tcp_pcb *pcb,struct pbuf *p,err_t err)
+ static void err_tcp(void *arg,err_t err)
+ {
+ 	struct netconn *conn = (struct netconn*)arg;
++	u8 connecting;
+ 	
+ 	LWIP_DEBUGF(API_MSG_DEBUG, ("api_msg: err_tcp: %d\n",err));
+ 	if(conn) {
++		connecting = conn->state==NETCONN_CONNECT;
+ 		conn->err = err;
++		if(connecting) conn->state = NETCONN_NONE;
+ 		conn->pcb.tcp = NULL;
+ 		if(conn->recvmbox!=SYS_MBOX_NULL) {
+ 			if(conn->callback) (*conn->callback)(conn,NETCONN_EVTRCVPLUS,0);
+ 			MQ_Send(conn->recvmbox,(mqmsg_t)NULL,MQ_MSG_BLOCK);
+ 		}
+-		if(conn->mbox!=SYS_MBOX_NULL) {
++		if(conn->mbox!=SYS_MBOX_NULL && !connecting) {
+ 			MQ_Send(conn->mbox,(mqmsg_t)NULL,MQ_MSG_BLOCK);
+ 		}
+ 		if(conn->acceptmbox!=SYS_MBOX_NULL) {
+@@ -797,6 +805,9 @@ static void err_tcp(void *arg,err_t err)
+ 		if(conn->sem!=SYS_SEM_NULL) {
+ 			LWP_SemPost(conn->sem);
+ 		}
++		if(connecting && conn->callback) {
++			(*conn->callback)(conn,NETCONN_EVTSENDPLUS,0);
++		}
+ 	}
+ }
+ 
+@@ -1025,16 +1036,27 @@ static void do_bind(struct apimsg_msg *msg)
+ 	MQ_Send(msg->conn->mbox,(mqmsg_t)NULL,MQ_MSG_BLOCK);
+ }
+ 
++static void complete_connect(struct netconn *conn,err_t err)
++{
++	u8 nonblocking = conn->state==NETCONN_CONNECT;
++
++	conn->err = err;
++	if(nonblocking) {
++		conn->state = NETCONN_NONE;
++		if(conn->callback) (*conn->callback)(conn,NETCONN_EVTSENDPLUS,0);
++	} else {
++		MQ_Send(conn->mbox,(mqmsg_t)NULL,MQ_MSG_BLOCK);
++	}
++}
++
+ static err_t do_connected(void *arg,struct tcp_pcb *pcb,err_t err)
+ {
+ 	struct netconn *conn = (struct netconn*)arg;
+ 
+ 	if(!conn) return ERR_VAL;
+ 
+-	conn->err = err;
+ 	if(conn->type==NETCONN_TCP && err==ERR_OK) setuptcp(conn);
+-	
+-	MQ_Send(conn->mbox,(mqmsg_t)NULL,MQ_MSG_BLOCK);
++	complete_connect(conn,err);
+ 	return ERR_OK;
+ }
+ 
+@@ -1078,8 +1100,7 @@ static void do_connect(struct apimsg_msg *msg)
+ 			case NETCONN_TCP:
+ 				msg->conn->pcb.tcp = tcp_new();
+ 				if(!msg->conn->pcb.tcp) {
+-					msg->conn->err = ERR_MEM;
+-					MQ_Send(msg->conn->mbox,(mqmsg_t)NULL,MQ_MSG_BLOCK);
++					complete_connect(msg->conn,ERR_MEM);
+ 					return;
+ 				}
+ 				break;
+@@ -1100,7 +1121,8 @@ static void do_connect(struct apimsg_msg *msg)
+ 			break;
+ 		case NETCONN_TCP:
+ 			setuptcp(msg->conn);
+-			tcp_connect(msg->conn->pcb.tcp,msg->msg.bc.ipaddr,msg->msg.bc.port,do_connected);
++			msg->conn->err = tcp_connect(msg->conn->pcb.tcp,msg->msg.bc.ipaddr,msg->msg.bc.port,do_connected);
++			if(msg->conn->err!=ERR_OK) complete_connect(msg->conn,msg->conn->err);
+ 			break;
+ 		default:
+ 			break;
+@@ -1216,8 +1238,12 @@ static void do_write(struct apimsg_msg *msg)
  				break;
  			case NETCONN_TCP:
  				err = tcp_write(msg->conn->pcb.tcp,msg->msg.w.dataptr,msg->msg.w.len,msg->msg.w.copy);
@@ -29,7 +156,66 @@ index d7fb983..f04d359 100644
  					LWIP_DEBUGF(API_MSG_DEBUG, ("api_msg: TCP write: tcp_output.\n"));
  					tcp_output(msg->conn->pcb.tcp);
  				}
-@@ -1954,6 +1958,20 @@ s32 net_write(s32 s,const void *data,size_t size)
+@@ -1263,12 +1289,15 @@ static void do_close(struct apimsg_msg *msg)
+ 
+ static void apimsg_input(struct api_msg *msg)
+ {
++	u8 release = msg->type==APIMSG_CONNECT &&
++		msg->msg.conn->state==NETCONN_CONNECT;
+ 	decode[msg->type](&(msg->msg));
++	if(release) memp_free(MEMP_API_MSG,msg);
+ }
+ 
+-static void apimsg_post(struct api_msg *msg)
++static err_t apimsg_post(struct api_msg *msg)
+ {
+-	net_apimsg(msg);
++	return net_apimsg(msg);
+ }
+ 
+ /* tcpip thread part */
+@@ -1291,7 +1320,7 @@ static err_t net_input(struct pbuf *p,struct netif *inp)
+ 	return ERR_OK;
+ }
+ 
+-static void net_apimsg(struct api_msg *apimsg)
++static err_t net_apimsg(struct api_msg *apimsg)
+ {
+ 	struct net_msg *msg = memp_malloc(MEMP_TCPIP_MSG);
+ 
+@@ -1299,12 +1328,13 @@ static void net_apimsg(struct api_msg *apimsg)
+ 	if(msg==NULL) {
+ 		LWIP_ERROR(("net_apimsg: msg out of memory.\n"));
+ 		memp_free(MEMP_API_MSG,apimsg);
+-		return;
++		return ERR_MEM;
+ 	}
+ 
+ 	msg->type = NETMSG_API;
+ 	msg->msg.apimsg = apimsg;
+ 	MQ_Send(netthread_mbox,(mqmsg_t)msg,MQ_MSG_BLOCK);
++	return ERR_OK;
+ }
+ 
+ static err_t net_callback(void (*f)(void *),void *ctx)
+@@ -1895,14 +1925,14 @@ s32 net_sendto(s32 s,const void *data,size_t len,u32 flags,struct sockaddr *to,s
+ 	ip_addr_debug_print(SOCKETS_DEBUG, &remote_addr);
+ 	LWIP_DEBUGF(SOCKETS_DEBUG, (" port=%u\n", ntohs(remote_port)));
+ 
+-	netconn_connect(sock->conn, &remote_addr, ntohs(remote_port));
++	netconn_connect(sock->conn, &remote_addr, ntohs(remote_port), FALSE);
+ 
+ 	ret = net_send(s, data, len, flags);
+ 
+ 	/* reset the remote address and port number
+ 	of the connection */
+ 	if (connected)
+-		netconn_connect(sock->conn, &addr, port);
++		netconn_connect(sock->conn, &addr, port, FALSE);
+ 	else
+ 		netconn_disconnect(sock->conn);
+ 	return ret;
+@@ -1954,6 +1984,20 @@ s32 net_write(s32 s,const void *data,size_t size)
  	return net_send(s,data,size,0);
  }
  
@@ -50,3 +236,25 @@ index d7fb983..f04d359 100644
  s32 net_connect(s32 s,struct sockaddr *name,socklen_t namelen)
  {
  	struct netsocket *sock;
+@@ -1976,7 +2020,20 @@ s32 net_connect(s32 s,struct sockaddr *name,socklen_t namelen)
+ 		ip_addr_debug_print(SOCKETS_DEBUG, &remote_addr);
+ 		LWIP_DEBUGF(SOCKETS_DEBUG, (" port=%u)\n", ntohs(remote_port)));
+ 
+-		err = netconn_connect(sock->conn,&remote_addr,ntohs(remote_port));
++		if(sock->conn->type==NETCONN_TCP && (sock->flags&O_NONBLOCK)) {
++			if(sock->conn->state==NETCONN_CONNECT) return -EALREADY;
++			if(sock->conn->pcb.tcp && sock->conn->pcb.tcp->state==ESTABLISHED)
++				return -EISCONN;
++			if(sock->conn->err!=ERR_OK) return -err_to_errno(sock->conn->err);
++			sock->sendevt = 0;
++			err = netconn_connect(sock->conn,&remote_addr,ntohs(remote_port),TRUE);
++			if(err!=ERR_OK) {
++				sock->sendevt = 1;
++				return -err_to_errno(err);
++			}
++			return -EINPROGRESS;
++		}
++		err = netconn_connect(sock->conn,&remote_addr,ntohs(remote_port),FALSE);
+ 	}
+ 	if(err!=ERR_OK) {
+ 	    LWIP_DEBUGF(SOCKETS_DEBUG, ("net_connect(%d) failed, err=%d\n", s, err));

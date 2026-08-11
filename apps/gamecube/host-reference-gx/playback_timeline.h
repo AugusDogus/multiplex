@@ -36,6 +36,7 @@ typedef struct PlaybackTimeline PlaybackTimeline;
 
 PlaybackTimeline *playback_timeline_create(void);
 void playback_timeline_destroy(PlaybackTimeline **timeline);
+void playback_timeline_cancel(PlaybackTimeline *timeline);
 void playback_timeline_route_clear(PlaybackTimelineRoute *route);
 bool playback_timeline_route_set_gateway(PlaybackTimelineRoute *route,
                                          const char *gateway_url);

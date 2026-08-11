@@ -1,0 +1,6 @@
+#ifndef MULTIPLEX_PLEX_HLS_CONTROL_TEST_WATCHDOG_H
+#define MULTIPLEX_PLEX_HLS_CONTROL_TEST_WATCHDOG_H
+
+#include <gccore.h>
+
+#endif

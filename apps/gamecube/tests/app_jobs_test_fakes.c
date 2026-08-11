@@ -63,6 +63,25 @@ bool multiplex_plex_load_catalog(const MultiplexAuthCredentials *credentials,
   return true;
 }
 
+static bool
+record_cancelled_work(MultiplexAppServicesWorkKind kind,
+                      const MultiplexHttpCancellation *cancellation) {
+  if (!multiplex_http_cancellation_requested(cancellation)) {
+    return false;
+  }
+  app_jobs_test_current()->work_cancellations[kind] += 1u;
+  return true;
+}
+
+bool multiplex_plex_load_catalog_cancellable(
+    const MultiplexAuthCredentials *credentials,
+    MultiplexGatewayCatalog *catalog,
+    const MultiplexHttpCancellation *cancellation) {
+  return !record_cancelled_work(MULTIPLEX_APP_SERVICES_WORK_CATALOG,
+                                cancellation) &&
+         multiplex_plex_load_catalog(credentials, catalog);
+}
+
 bool multiplex_plex_load_browse(const MultiplexAuthCredentials *credentials,
                                 const MultiplexGatewayLibrary *library,
                                 uint16_t start,
@@ -72,6 +91,16 @@ bool multiplex_plex_load_browse(const MultiplexAuthCredentials *credentials,
   (void)start;
   app_jobs_test_record_work(MULTIPLEX_APP_SERVICES_WORK_BROWSE, page);
   return true;
+}
+
+bool multiplex_plex_load_browse_cancellable(
+    const MultiplexAuthCredentials *credentials,
+    const MultiplexGatewayLibrary *library, uint16_t start,
+    MultiplexGatewayBrowsePage *page,
+    const MultiplexHttpCancellation *cancellation) {
+  return !record_cancelled_work(MULTIPLEX_APP_SERVICES_WORK_BROWSE,
+                                cancellation) &&
+         multiplex_plex_load_browse(credentials, library, start, page);
 }
 
 bool multiplex_plex_load_search(const MultiplexAuthCredentials *credentials,
@@ -84,6 +113,15 @@ bool multiplex_plex_load_search(const MultiplexAuthCredentials *credentials,
   return true;
 }
 
+bool multiplex_plex_load_search_cancellable(
+    const MultiplexAuthCredentials *credentials, const char *query,
+    uint16_t query_length, MultiplexGatewaySearchPage *page,
+    const MultiplexHttpCancellation *cancellation) {
+  return !record_cancelled_work(MULTIPLEX_APP_SERVICES_WORK_SEARCH,
+                                cancellation) &&
+         multiplex_plex_load_search(credentials, query, query_length, page);
+}
+
 bool multiplex_plex_load_details(const MultiplexAuthCredentials *credentials,
                                  uint32_t rating_key,
                                  MultiplexGatewayDetails *details) {
@@ -91,6 +129,15 @@ bool multiplex_plex_load_details(const MultiplexAuthCredentials *credentials,
   (void)rating_key;
   app_jobs_test_record_work(MULTIPLEX_APP_SERVICES_WORK_DETAILS, details);
   return true;
+}
+
+bool multiplex_plex_load_details_cancellable(
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
+    MultiplexGatewayDetails *details,
+    const MultiplexHttpCancellation *cancellation) {
+  return !record_cancelled_work(MULTIPLEX_APP_SERVICES_WORK_DETAILS,
+                                cancellation) &&
+         multiplex_plex_load_details(credentials, rating_key, details);
 }
 
 bool multiplex_plex_load_artwork(const MultiplexAuthCredentials *credentials,
@@ -104,6 +151,18 @@ bool multiplex_plex_load_artwork(const MultiplexAuthCredentials *credentials,
   destination[0] = 0xff;
   *encoded_size = 1;
   return true;
+}
+
+bool multiplex_plex_load_artwork_cancellable(
+    const MultiplexAuthCredentials *credentials, const char *artwork_path,
+    uint8_t *destination, size_t capacity, size_t *encoded_size,
+    const MultiplexHttpCancellation *cancellation) {
+  if (multiplex_http_cancellation_requested(cancellation)) {
+    app_jobs_test_current()->poster_cancellation_count += 1u;
+    return false;
+  }
+  return multiplex_plex_load_artwork(credentials, artwork_path, destination,
+                                     capacity, encoded_size);
 }
 
 MultiplexMemoryCardResult
@@ -127,6 +186,23 @@ bool multiplex_trpc_load_user_id(const char *base_url, const char *bearer_token,
   return true;
 }
 
+bool multiplex_trpc_load_user_id_cancellable(
+    const char *base_url, const char *bearer_token, uint32_t *user_id,
+    const MultiplexHttpCancellation *cancellation) {
+  AppJobsTestFixture *fixture = app_jobs_test_current();
+  fixture->startup_user_count += 1u;
+  if (record_cancelled_work(MULTIPLEX_APP_SERVICES_WORK_STARTUP_DATA,
+                            cancellation)) {
+    return false;
+  }
+  const bool loaded =
+      multiplex_trpc_load_user_id(base_url, bearer_token, user_id);
+  if (fixture->cancel_startup_after_user) {
+    multiplex_app_jobs_cancellation_request(cancellation->context);
+  }
+  return loaded;
+}
+
 bool multiplex_trpc_load_watch_together_rooms(const char *base_url,
                                               const char *bearer_token,
                                               MultiplexTrpcRoomList *list) {
@@ -134,6 +210,15 @@ bool multiplex_trpc_load_watch_together_rooms(const char *base_url,
   (void)bearer_token;
   memset(list, 0, sizeof(*list));
   return true;
+}
+
+bool multiplex_trpc_load_watch_together_rooms_cancellable(
+    const char *base_url, const char *bearer_token, MultiplexTrpcRoomList *list,
+    const MultiplexHttpCancellation *cancellation) {
+  app_jobs_test_current()->startup_rooms_count += 1u;
+  return !record_cancelled_work(MULTIPLEX_APP_SERVICES_WORK_STARTUP_DATA,
+                                cancellation) &&
+         multiplex_trpc_load_watch_together_rooms(base_url, bearer_token, list);
 }
 
 bool multiplex_trpc_load_watch_together_invitees(
@@ -145,11 +230,30 @@ bool multiplex_trpc_load_watch_together_invitees(
   return true;
 }
 
+bool multiplex_trpc_load_watch_together_invitees_cancellable(
+    const char *base_url, const char *bearer_token,
+    MultiplexTrpcInviteeList *list,
+    const MultiplexHttpCancellation *cancellation) {
+  app_jobs_test_current()->startup_invitees_count += 1u;
+  return !record_cancelled_work(MULTIPLEX_APP_SERVICES_WORK_STARTUP_DATA,
+                                cancellation) &&
+         multiplex_trpc_load_watch_together_invitees(base_url, bearer_token,
+                                                     list);
+}
+
 bool multiplex_gateway_load_catalog(const char *base_url,
                                     MultiplexGatewayCatalog *catalog) {
   (void)base_url;
   app_jobs_test_record_work(MULTIPLEX_APP_SERVICES_WORK_CATALOG, catalog);
   return true;
+}
+
+bool multiplex_gateway_load_catalog_cancellable(
+    const char *base_url, MultiplexGatewayCatalog *catalog,
+    const MultiplexHttpCancellation *cancellation) {
+  return !record_cancelled_work(MULTIPLEX_APP_SERVICES_WORK_CATALOG,
+                                cancellation) &&
+         multiplex_gateway_load_catalog(base_url, catalog);
 }
 
 bool multiplex_gateway_load_browse(const char *base_url, uint16_t section_id,
@@ -162,6 +266,15 @@ bool multiplex_gateway_load_browse(const char *base_url, uint16_t section_id,
   return true;
 }
 
+bool multiplex_gateway_load_browse_cancellable(
+    const char *base_url, uint16_t section_id, uint16_t start,
+    MultiplexGatewayBrowsePage *page,
+    const MultiplexHttpCancellation *cancellation) {
+  return !record_cancelled_work(MULTIPLEX_APP_SERVICES_WORK_BROWSE,
+                                cancellation) &&
+         multiplex_gateway_load_browse(base_url, section_id, start, page);
+}
+
 bool multiplex_gateway_load_search(const char *base_url, const char *query,
                                    uint16_t query_length,
                                    MultiplexGatewaySearchPage *page) {
@@ -172,12 +285,29 @@ bool multiplex_gateway_load_search(const char *base_url, const char *query,
   return true;
 }
 
+bool multiplex_gateway_load_search_cancellable(
+    const char *base_url, const char *query, uint16_t query_length,
+    MultiplexGatewaySearchPage *page,
+    const MultiplexHttpCancellation *cancellation) {
+  return !record_cancelled_work(MULTIPLEX_APP_SERVICES_WORK_SEARCH,
+                                cancellation) &&
+         multiplex_gateway_load_search(base_url, query, query_length, page);
+}
+
 bool multiplex_gateway_load_details(const char *base_url, uint32_t rating_key,
                                     MultiplexGatewayDetails *details) {
   (void)base_url;
   (void)rating_key;
   app_jobs_test_record_work(MULTIPLEX_APP_SERVICES_WORK_DETAILS, details);
   return true;
+}
+
+bool multiplex_gateway_load_details_cancellable(
+    const char *base_url, uint32_t rating_key, MultiplexGatewayDetails *details,
+    const MultiplexHttpCancellation *cancellation) {
+  return !record_cancelled_work(MULTIPLEX_APP_SERVICES_WORK_DETAILS,
+                                cancellation) &&
+         multiplex_gateway_load_details(base_url, rating_key, details);
 }
 
 bool multiplex_gateway_load_artwork(const char *base_url, uint8_t *destination,
@@ -321,4 +451,12 @@ void multiplex_playback_session_discard_hls_prefetch(
   fixture->prefetch_discard_count += 1;
   assert(fixture->event_count < APP_JOBS_TEST_MAX_EVENTS);
   fixture->events[fixture->event_count++] = 'D';
+}
+
+void multiplex_playback_session_cancel_background(
+    MultiplexPlaybackSession *session) {
+  AppJobsTestFixture *fixture = session->fixture;
+  fixture->playback_cancel_count += 1u;
+  assert(fixture->event_count < APP_JOBS_TEST_MAX_EVENTS);
+  fixture->events[fixture->event_count++] = 'B';
 }

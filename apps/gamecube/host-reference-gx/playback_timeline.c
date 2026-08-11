@@ -19,6 +19,7 @@ typedef struct {
   void *stack;
   volatile bool complete;
   volatile bool succeeded;
+  volatile bool cancelled;
 } PlaybackTimelineRequest;
 
 struct PlaybackTimeline {
@@ -38,20 +39,30 @@ static const char *timeline_state_name(PlaybackTimelineState state) {
   return "stopped";
 }
 
-static bool dispatch_request(const PlaybackTimelineRequest *request) {
+static bool timeline_cancelled(void *context) {
+  const PlaybackTimelineRequest *request = context;
+  __sync_synchronize();
+  return request != NULL && request->cancelled;
+}
+
+static bool dispatch_request(PlaybackTimelineRequest *request) {
   const char *state = timeline_state_name(request->state);
+  const MultiplexHttpCancellation cancellation = {
+      .is_cancelled = timeline_cancelled,
+      .context = request,
+  };
   switch (request->route.kind) {
   case PLAYBACK_TIMELINE_ROUTE_NONE:
     return false;
   case PLAYBACK_TIMELINE_ROUTE_GATEWAY:
-    return multiplex_gateway_report_timeline(
+    return multiplex_gateway_report_timeline_cancellable(
         request->route.value.gateway_url, request->rating_key,
-        request->position_ms, request->duration_ms, state);
+        request->position_ms, request->duration_ms, state, &cancellation);
   case PLAYBACK_TIMELINE_ROUTE_PLEX:
-    return multiplex_plex_report_timeline(
+    return multiplex_plex_report_timeline_cancellable(
         &request->route.value.plex.credentials,
         request->route.value.plex.session_id, request->rating_key,
-        request->position_ms, request->duration_ms, state);
+        request->position_ms, request->duration_ms, state, &cancellation);
   }
   return false;
 }
@@ -119,6 +130,7 @@ static bool schedule_request(PlaybackTimeline *timeline,
   request->rating_key = item->rating_key;
   request->position_ms = position_ms;
   request->duration_ms = item->duration_ms;
+  request->cancelled = false;
   request->stack = malloc(TIMELINE_REPORT_STACK_SIZE);
   if (request->stack == NULL ||
       LWP_CreateThread(&request->thread, run_request, request, request->stack,
@@ -167,9 +179,18 @@ void playback_timeline_destroy(PlaybackTimeline **timeline) {
   if (timeline == NULL || *timeline == NULL) {
     return;
   }
+  playback_timeline_cancel(*timeline);
   finish_request(&(*timeline)->request);
   free(*timeline);
   *timeline = NULL;
+}
+
+void playback_timeline_cancel(PlaybackTimeline *timeline) {
+  if (timeline == NULL) {
+    return;
+  }
+  timeline->request.cancelled = true;
+  __sync_synchronize();
 }
 
 void playback_timeline_route_clear(PlaybackTimelineRoute *route) {

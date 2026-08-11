@@ -12,6 +12,10 @@
 #define HLS_SESSION_PREFETCH_STACK_SIZE (128u * 1024u)
 
 typedef struct {
+  volatile bool requested;
+} PlaybackCancellation;
+
+typedef struct {
   MultiplexAuthCredentials credentials;
   MultiplexPlexHlsSession session;
   HlsMediaPlaylist playlist;
@@ -25,6 +29,7 @@ typedef struct {
   bool burn_subtitles;
   volatile bool complete;
   volatile bool ready;
+  PlaybackCancellation cancellation;
 } PlaybackHlsPrefetch;
 
 typedef struct {
@@ -34,6 +39,7 @@ typedef struct {
   void *stack;
   volatile bool ready;
   volatile bool failed;
+  PlaybackCancellation cancellation;
 } PlaybackProgramStage;
 
 struct PlaybackPrefetch {
@@ -69,14 +75,30 @@ void playback_program_candidate_destroy(PlaybackProgramCandidate *candidate) {
   playback_program_candidate_clear(candidate);
 }
 
-bool playback_program_candidate_open_manifest(
+static bool playback_prefetch_cancelled(void *context) {
+  const PlaybackCancellation *cancellation = context;
+  __sync_synchronize();
+  return cancellation != NULL && cancellation->requested;
+}
+
+static MultiplexHttpCancellation
+playback_cancellation(PlaybackCancellation *cancellation) {
+  return (MultiplexHttpCancellation){
+      .is_cancelled = playback_prefetch_cancelled,
+      .context = cancellation,
+  };
+}
+
+bool playback_program_candidate_open_manifest_cancellable(
     const MultiplexGatewayPlaybackManifest *manifest,
-    PlaybackProgramCandidate *candidate) {
+    PlaybackProgramCandidate *candidate,
+    const MultiplexHttpCancellation *cancellation) {
   if (manifest == NULL || candidate == NULL || manifest->media_url[0] == '\0') {
     return false;
   }
   playback_program_candidate_destroy(candidate);
-  HttpClient *client = http_client_open(manifest->media_url);
+  HttpClient *client =
+      http_client_open_cancellable(manifest->media_url, cancellation);
   if (client == NULL) {
     SYS_Report("REFERENCE GX: HTTP media initialization failed rating-key=%u\n",
                manifest->rating_key);
@@ -110,19 +132,35 @@ bool playback_program_candidate_open_manifest(
   return true;
 }
 
-bool playback_program_candidate_open_gateway(
-    const char *gateway_url, uint32_t rating_key, uint32_t offset_ms,
+bool playback_program_candidate_open_manifest(
+    const MultiplexGatewayPlaybackManifest *manifest,
     PlaybackProgramCandidate *candidate) {
+  return playback_program_candidate_open_manifest_cancellable(manifest,
+                                                              candidate, NULL);
+}
+
+bool playback_program_candidate_open_gateway_cancellable(
+    const char *gateway_url, uint32_t rating_key, uint32_t offset_ms,
+    PlaybackProgramCandidate *candidate,
+    const MultiplexHttpCancellation *cancellation) {
   if (gateway_url == NULL || gateway_url[0] == '\0' || rating_key == 0 ||
       candidate == NULL) {
     return false;
   }
   MultiplexGatewayPlaybackManifest manifest;
-  if (!multiplex_gateway_load_playback_manifest(gateway_url, rating_key,
-                                                offset_ms, &manifest)) {
+  if (!multiplex_gateway_load_playback_manifest_cancellable(
+          gateway_url, rating_key, offset_ms, &manifest, cancellation)) {
     return false;
   }
-  return playback_program_candidate_open_manifest(&manifest, candidate);
+  return playback_program_candidate_open_manifest_cancellable(
+      &manifest, candidate, cancellation);
+}
+
+bool playback_program_candidate_open_gateway(
+    const char *gateway_url, uint32_t rating_key, uint32_t offset_ms,
+    PlaybackProgramCandidate *candidate) {
+  return playback_program_candidate_open_gateway_cancellable(
+      gateway_url, rating_key, offset_ms, candidate, NULL);
 }
 
 static void reset_hls(PlaybackHlsPrefetch *hls) {
@@ -133,12 +171,15 @@ static void reset_hls(PlaybackHlsPrefetch *hls) {
 
 static void *run_hls(void *context) {
   PlaybackHlsPrefetch *hls = context;
+  const MultiplexHttpCancellation cancellation =
+      playback_cancellation(&hls->cancellation);
   hls->ready =
-      multiplex_plex_hls_start(&hls->credentials, hls->rating_key,
-                               hls->offset_ms, NULL, hls->burn_subtitles,
-                               hls->subtitle_stream_index, &hls->session) &&
-      multiplex_plex_hls_refresh(&hls->credentials, &hls->session,
-                                 &hls->playlist);
+      multiplex_plex_hls_start_cancellable(
+          &hls->credentials, hls->rating_key, hls->offset_ms, NULL,
+          hls->burn_subtitles, hls->subtitle_stream_index, &hls->session,
+          &cancellation) &&
+      multiplex_plex_hls_refresh_cancellable(&hls->credentials, &hls->session,
+                                             &hls->playlist, &cancellation);
   __sync_synchronize();
   hls->complete = true;
   return NULL;
@@ -171,8 +212,10 @@ void playback_prefetch_discard_hls(PlaybackPrefetch *prefetch) {
     return;
   }
   PlaybackHlsPrefetch *hls = &prefetch->hls;
+  hls->cancellation.requested = true;
+  __sync_synchronize();
   finish_hls(hls, true);
-  if (hls->session.started) {
+  if (hls->session.server_cleanup_required) {
     multiplex_plex_hls_stop(&hls->credentials, &hls->session);
   }
   reset_hls(hls);
@@ -211,6 +254,7 @@ bool playback_prefetch_retain_hls(
   }
   playback_prefetch_discard_hls(prefetch);
   hls->credentials = request->credentials;
+  hls->cancellation.requested = false;
   hls->rating_key = request->rating_key;
   hls->offset_ms = request->offset_ms;
   hls->burn_subtitles = request->burn_subtitles;
@@ -270,7 +314,7 @@ playback_prefetch_hls_status(PlaybackPrefetch *prefetch) {
   __sync_synchronize();
   const bool ready = finish_hls(hls, false);
   if (hls->status == MULTIPLEX_PLAYBACK_HLS_PREFETCH_RELEASING) {
-    if (hls->session.started) {
+    if (hls->session.server_cleanup_required) {
       multiplex_plex_hls_stop(&hls->credentials, &hls->session);
     }
     reset_hls(hls);
@@ -331,10 +375,12 @@ static void reset_program(PlaybackProgramStage *program) {
 
 static void *run_program(void *context) {
   PlaybackProgramStage *program = context;
+  const MultiplexHttpCancellation cancellation =
+      playback_cancellation(&program->cancellation);
   program->ready =
-      playback_program_candidate_open_gateway(
+      playback_program_candidate_open_gateway_cancellable(
           program->request.gateway_url, program->request.rating_key,
-          program->request.offset_ms, &program->candidate) &&
+          program->request.offset_ms, &program->candidate, &cancellation) &&
       mpeg_ps_demux_start(program->candidate.demux);
   program->failed = !program->ready;
   if (program->ready) {
@@ -359,6 +405,8 @@ void playback_prefetch_discard_program(PlaybackPrefetch *prefetch) {
     return;
   }
   PlaybackProgramStage *program = &prefetch->program;
+  program->cancellation.requested = true;
+  __sync_synchronize();
   join_program(program);
   playback_program_candidate_destroy(&program->candidate);
   reset_program(program);
@@ -375,6 +423,7 @@ bool playback_prefetch_stage_program(
     return false;
   }
   program->request = *request;
+  program->cancellation.requested = false;
   program->stack = malloc(MEDIA_PREFETCH_STACK_SIZE);
   if (program->stack == NULL ||
       LWP_CreateThread(&program->thread, run_program, program, program->stack,
@@ -421,8 +470,18 @@ void playback_prefetch_destroy(PlaybackPrefetch **prefetch) {
   if (prefetch == NULL || *prefetch == NULL) {
     return;
   }
+  playback_prefetch_cancel_background(*prefetch);
   playback_prefetch_discard_program(*prefetch);
   playback_prefetch_discard_hls(*prefetch);
   free(*prefetch);
   *prefetch = NULL;
+}
+
+void playback_prefetch_cancel_background(PlaybackPrefetch *prefetch) {
+  if (prefetch == NULL) {
+    return;
+  }
+  prefetch->hls.cancellation.requested = true;
+  prefetch->program.cancellation.requested = true;
+  __sync_synchronize();
 }

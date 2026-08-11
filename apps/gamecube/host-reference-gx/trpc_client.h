@@ -1,6 +1,8 @@
 #ifndef MULTIPLEX_TRPC_CLIENT_H
 #define MULTIPLEX_TRPC_CLIENT_H
 
+#include "http_cancellation.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -48,11 +50,21 @@ bool multiplex_trpc_parse_watch_together_invitees(
 bool multiplex_trpc_load_watch_together_rooms(const char *base_url,
                                               const char *bearer_token,
                                               MultiplexTrpcRoomList *list);
+bool multiplex_trpc_load_watch_together_rooms_cancellable(
+    const char *base_url, const char *bearer_token, MultiplexTrpcRoomList *list,
+    const MultiplexHttpCancellation *cancellation);
 bool multiplex_trpc_load_user_id(const char *base_url, const char *bearer_token,
                                  uint32_t *user_id);
+bool multiplex_trpc_load_user_id_cancellable(
+    const char *base_url, const char *bearer_token, uint32_t *user_id,
+    const MultiplexHttpCancellation *cancellation);
 bool multiplex_trpc_load_watch_together_invitees(
     const char *base_url, const char *bearer_token,
     MultiplexTrpcInviteeList *list);
+bool multiplex_trpc_load_watch_together_invitees_cancellable(
+    const char *base_url, const char *bearer_token,
+    MultiplexTrpcInviteeList *list,
+    const MultiplexHttpCancellation *cancellation);
 bool multiplex_trpc_create_watch_together_room(
     const char *base_url, const char *bearer_token, const char *server_id,
     uint32_t rating_key, const char *title, uint32_t invitee_user_id,

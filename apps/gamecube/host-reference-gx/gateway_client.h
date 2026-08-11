@@ -1,6 +1,8 @@
 #ifndef MULTIPLEX_GATEWAY_CLIENT_H
 #define MULTIPLEX_GATEWAY_CLIENT_H
 
+#include "http_cancellation.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -171,32 +173,68 @@ typedef struct {
 
 bool multiplex_gateway_load_pairing(const char *base_url,
                                     MultiplexGatewayPairing *pairing);
+bool multiplex_gateway_load_pairing_cancellable(
+    const char *base_url, MultiplexGatewayPairing *pairing,
+    const MultiplexHttpCancellation *cancellation);
 bool multiplex_gateway_load_catalog(const char *base_url,
                                     MultiplexGatewayCatalog *catalog);
+bool multiplex_gateway_load_catalog_cancellable(
+    const char *base_url, MultiplexGatewayCatalog *catalog,
+    const MultiplexHttpCancellation *cancellation);
 bool multiplex_gateway_load_artwork(const char *base_url, uint8_t *destination,
                                     size_t capacity, size_t *encoded_size);
+bool multiplex_gateway_load_artwork_cancellable(
+    const char *base_url, uint8_t *destination, size_t capacity,
+    size_t *encoded_size, const MultiplexHttpCancellation *cancellation);
 bool multiplex_gateway_load_browse(const char *base_url, uint16_t section_id,
                                    uint16_t start,
                                    MultiplexGatewayBrowsePage *page);
+bool multiplex_gateway_load_browse_cancellable(
+    const char *base_url, uint16_t section_id, uint16_t start,
+    MultiplexGatewayBrowsePage *page,
+    const MultiplexHttpCancellation *cancellation);
 bool multiplex_gateway_load_browse_artwork(const char *base_url,
                                            uint16_t section_id, uint16_t start,
                                            uint8_t *destination,
                                            size_t capacity,
                                            size_t *encoded_size);
+bool multiplex_gateway_load_browse_artwork_cancellable(
+    const char *base_url, uint16_t section_id, uint16_t start,
+    uint8_t *destination, size_t capacity, size_t *encoded_size,
+    const MultiplexHttpCancellation *cancellation);
 bool multiplex_gateway_load_search(const char *base_url, const char *query,
                                    uint16_t query_length,
                                    MultiplexGatewaySearchPage *page);
+bool multiplex_gateway_load_search_cancellable(
+    const char *base_url, const char *query, uint16_t query_length,
+    MultiplexGatewaySearchPage *page,
+    const MultiplexHttpCancellation *cancellation);
 bool multiplex_gateway_load_search_artwork(
     const char *base_url, const char *query, uint16_t query_length,
     uint8_t *destination, size_t capacity, size_t *encoded_size);
+bool multiplex_gateway_load_search_artwork_cancellable(
+    const char *base_url, const char *query, uint16_t query_length,
+    uint8_t *destination, size_t capacity, size_t *encoded_size,
+    const MultiplexHttpCancellation *cancellation);
 bool multiplex_gateway_load_details(const char *base_url, uint32_t rating_key,
                                     MultiplexGatewayDetails *details);
+bool multiplex_gateway_load_details_cancellable(
+    const char *base_url, uint32_t rating_key, MultiplexGatewayDetails *details,
+    const MultiplexHttpCancellation *cancellation);
 bool multiplex_gateway_load_playback_manifest(
     const char *base_url, uint32_t rating_key, uint32_t offset_ms,
     MultiplexGatewayPlaybackManifest *manifest);
+bool multiplex_gateway_load_playback_manifest_cancellable(
+    const char *base_url, uint32_t rating_key, uint32_t offset_ms,
+    MultiplexGatewayPlaybackManifest *manifest,
+    const MultiplexHttpCancellation *cancellation);
 bool multiplex_gateway_report_timeline(const char *base_url,
                                        uint32_t rating_key,
                                        uint32_t position_ms,
                                        uint32_t duration_ms, const char *state);
+bool multiplex_gateway_report_timeline_cancellable(
+    const char *base_url, uint32_t rating_key, uint32_t position_ms,
+    uint32_t duration_ms, const char *state,
+    const MultiplexHttpCancellation *cancellation);
 
 #endif

@@ -94,7 +94,6 @@ static void test_stop_publishes_snapshot_and_transport_boundary(void) {
   Fixture fixture = {.mutex = PTHREAD_MUTEX_INITIALIZER};
   MultiplexPlexHlsState state = state_for(&fixture);
   assert(!multiplex_plex_hls_state_is_stopping(&state));
-  assert(!state.http_client_cancelled);
 
   assert(multiplex_plex_hls_state_request_stop(&state));
   assert(!multiplex_plex_hls_state_request_stop(&state));
@@ -103,7 +102,6 @@ static void test_stop_publishes_snapshot_and_transport_boundary(void) {
   multiplex_plex_hls_state_snapshot(&state, &snapshot);
   assert(snapshot.stopping);
   assert(multiplex_plex_hls_state_is_stopping(&state));
-  assert(state.http_client_cancelled);
 }
 
 static void test_readiness_requires_metadata_and_prebuffer(void) {

@@ -4,6 +4,7 @@
 #include "media-source.h"
 
 #include "app_jobs.h"
+#include "http_cancellation.h"
 #include "playback_session.h"
 #include "presentation_posters.h"
 
@@ -48,6 +49,10 @@ typedef struct {
 typedef struct AppJobsWorkSpec AppJobsWorkSpec;
 
 typedef struct {
+  volatile bool requested;
+} AppJobsCancellation;
+
+typedef struct {
   struct MultiplexAppJobs *owner;
   const AppJobsWorkSpec *spec;
   MultiplexAppServicesWorkRequest request;
@@ -55,6 +60,7 @@ typedef struct {
   AppJobsThread thread;
   void *stack;
   void *output;
+  AppJobsCancellation cancellation;
   volatile bool complete;
   bool started;
   bool succeeded;
@@ -96,6 +102,7 @@ struct AppJobsPosters {
   volatile bool item_decoded[APP_JOBS_POSTER_LOADER_LANE_COUNT];
   volatile bool complete[APP_JOBS_POSTER_LOADER_LANE_COUNT];
   volatile bool stopping;
+  AppJobsCancellation cancellation;
   bool pending;
   bool credentials_held;
   volatile uint16_t item_index[APP_JOBS_POSTER_LOADER_LANE_COUNT];
@@ -127,10 +134,16 @@ struct MultiplexAppJobs {
 bool multiplex_app_jobs_report(MultiplexAppJobs *jobs,
                                const MultiplexAppServicesInput *input);
 void multiplex_app_jobs_work_release_all(MultiplexAppJobs *jobs);
+void multiplex_app_jobs_work_cancel_all(MultiplexAppJobs *jobs);
 void multiplex_app_jobs_work_release(MultiplexAppJobs *jobs,
                                      MultiplexAppServicesWorkKind kind);
 void multiplex_app_jobs_prefetch_discard(MultiplexAppJobs *jobs);
 void multiplex_app_jobs_posters_stop(MultiplexAppJobs *jobs);
+void multiplex_app_jobs_posters_cancel(MultiplexAppJobs *jobs);
+void multiplex_app_jobs_cancellation_request(AppJobsCancellation *state);
+bool multiplex_app_jobs_cancellation_requested(void *context);
+MultiplexHttpCancellation
+multiplex_app_jobs_http_cancellation(AppJobsCancellation *state);
 
 MultiplexAppJobs *multiplex_app_jobs_create_with_platform(
     MultiplexAppServices *services, MultiplexPresentation *presentation,

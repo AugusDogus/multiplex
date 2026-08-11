@@ -8,6 +8,8 @@
 
 #define DNS_QUERY_ATTEMPTS 3u
 #define DNS_QUERY_TIMEOUT_SECONDS 1
+#define DNS_CANCEL_POLL_US 100000u
+#define DNS_POLLS_PER_SECOND (1000000u / DNS_CANCEL_POLL_US)
 #define DNS_CACHE_HOST_CAPACITY 128u
 
 static char cached_host[DNS_CACHE_HOST_CAPACITY];
@@ -38,6 +40,7 @@ int32_t multiplex_resolver_last_error(void) { return resolver_last_error; }
 
 uint32_t multiplex_resolver_attempts(void) { return resolver_attempt_count; }
 
+#if !defined(HW_RVL)
 static uint16_t read_u16(const uint8_t *bytes) {
   return (uint16_t)(((uint16_t)bytes[0] << 8u) | bytes[1]);
 }
@@ -59,12 +62,15 @@ static size_t skip_dns_name(const uint8_t *response, size_t size,
   }
   return 0;
 }
+#endif
 
-bool multiplex_resolve_ipv4(const char *host, const char *dns_server,
-                            struct in_addr *address) {
+bool multiplex_resolve_ipv4_cancellable(
+    const char *host, const char *dns_server, struct in_addr *address,
+    const MultiplexHttpCancellation *cancellation) {
   resolver_attempt_count = 0;
   resolver_last_error = 0;
-  if (host == NULL || host[0] == '\0' || address == NULL) {
+  if (host == NULL || host[0] == '\0' || address == NULL ||
+      multiplex_http_cancellation_requested(cancellation)) {
     resolver_last_error = MULTIPLEX_RESOLVER_INVALID_ARGUMENT;
     return false;
   }
@@ -80,8 +86,13 @@ bool multiplex_resolve_ipv4(const char *host, const char *dns_server,
     return true;
   }
 #if defined(HW_RVL)
+  (void)dns_server;
   resolver_attempt_count = 1;
   const struct hostent *resolved_host = net_gethostbyname(host);
+  if (multiplex_http_cancellation_requested(cancellation)) {
+    resolver_last_error = MULTIPLEX_RESOLVER_TIMEOUT;
+    return false;
+  }
   if (resolved_host == NULL || resolved_host->h_addrtype != AF_INET ||
       resolved_host->h_length != sizeof(address->s_addr) ||
       resolved_host->h_addr_list == NULL ||
@@ -147,6 +158,10 @@ bool multiplex_resolve_ipv4(const char *host, const char *dns_server,
   bool resolved = false;
   for (uint32_t attempt = 1; attempt <= DNS_QUERY_ATTEMPTS && !resolved;
        ++attempt) {
+    if (multiplex_http_cancellation_requested(cancellation)) {
+      resolver_last_error = MULTIPLEX_RESOLVER_TIMEOUT;
+      break;
+    }
     resolver_attempt_count = attempt;
     const uint16_t transaction =
         (uint16_t)((uint32_t)gettime() ^ (uint32_t)(uintptr_t)query ^
@@ -158,15 +173,26 @@ bool multiplex_resolve_ipv4(const char *host, const char *dns_server,
       resolver_last_error = MULTIPLEX_RESOLVER_SEND_FAILED;
       continue;
     }
-    fd_set readable;
-    FD_ZERO(&readable);
-    FD_SET(socket, &readable);
-    struct timeval timeout = {
-        .tv_sec = DNS_QUERY_TIMEOUT_SECONDS,
-        .tv_usec = 0,
-    };
-    const int selected =
-        net_select(socket + 1, &readable, NULL, NULL, &timeout);
+    int selected = 0;
+    for (unsigned poll = 0;
+         poll < DNS_QUERY_TIMEOUT_SECONDS * DNS_POLLS_PER_SECOND; ++poll) {
+      if (multiplex_http_cancellation_requested(cancellation)) {
+        selected = -1;
+        resolver_last_error = MULTIPLEX_RESOLVER_TIMEOUT;
+        break;
+      }
+      fd_set readable;
+      FD_ZERO(&readable);
+      FD_SET(socket, &readable);
+      struct timeval timeout = {
+          .tv_sec = 0,
+          .tv_usec = DNS_CANCEL_POLL_US,
+      };
+      selected = net_select(socket + 1, &readable, NULL, NULL, &timeout);
+      if (selected != 0) {
+        break;
+      }
+    }
     if (selected <= 0) {
       resolver_last_error = selected == 0 ? MULTIPLEX_RESOLVER_TIMEOUT
                                           : MULTIPLEX_RESOLVER_RECEIVE_FAILED;
@@ -233,4 +259,9 @@ bool multiplex_resolve_ipv4(const char *host, const char *dns_server,
                resolved_address);
   }
   return resolved;
+}
+
+bool multiplex_resolve_ipv4(const char *host, const char *dns_server,
+                            struct in_addr *address) {
+  return multiplex_resolve_ipv4_cancellable(host, dns_server, address, NULL);
 }

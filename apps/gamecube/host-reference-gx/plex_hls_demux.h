@@ -20,6 +20,7 @@ PlexHlsDemux *plex_hls_demux_create_prepared(
     const MultiplexAuthCredentials *credentials, uint32_t rating_key,
     const MultiplexPlexHlsSession *session, const HlsMediaPlaylist *playlist);
 bool plex_hls_demux_start(PlexHlsDemux *demux);
+void plex_hls_demux_request_stop(PlexHlsDemux *demux);
 bool plex_hls_demux_wait_ready(PlexHlsDemux *demux, size_t video_bytes,
                                size_t audio_bytes, uint32_t timeout_ms);
 void plex_hls_demux_stop(PlexHlsDemux *demux);

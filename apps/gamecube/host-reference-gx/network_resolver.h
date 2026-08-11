@@ -1,6 +1,8 @@
 #ifndef MULTIPLEX_NETWORK_RESOLVER_H
 #define MULTIPLEX_NETWORK_RESOLVER_H
 
+#include "http_cancellation.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -20,6 +22,9 @@ typedef enum {
 
 bool multiplex_resolve_ipv4(const char *host, const char *dns_server,
                             struct in_addr *address);
+bool multiplex_resolve_ipv4_cancellable(
+    const char *host, const char *dns_server, struct in_addr *address,
+    const MultiplexHttpCancellation *cancellation);
 int32_t multiplex_resolver_last_error(void);
 uint32_t multiplex_resolver_attempts(void);
 

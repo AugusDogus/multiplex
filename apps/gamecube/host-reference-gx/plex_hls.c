@@ -66,9 +66,24 @@ static bool write_resumed_segment(void *context, const uint8_t *bytes,
 #define PLEX_HLS_MEDIA_PLAYLIST_CAPACITY (64u * 1024u)
 #define PLEX_HLS_START_ATTEMPTS 4u
 #define PLEX_HLS_START_RETRY_US 1000000u
+#define PLEX_HLS_CANCEL_POLL_US 100000u
 #define PLEX_HLS_PROFILE                                                       \
   "add-transcode-target(type=videoProfile&context=streaming&protocol=hls&"     \
   "container=mpegts&videoCodec=h264&audioCodec=aac&replace=true)"
+
+static bool wait_for_retry(unsigned delay_us,
+                           const MultiplexHttpCancellation *cancellation) {
+  while (delay_us > 0) {
+    if (multiplex_http_cancellation_requested(cancellation)) {
+      return false;
+    }
+    const unsigned interval =
+        delay_us < PLEX_HLS_CANCEL_POLL_US ? delay_us : PLEX_HLS_CANCEL_POLL_US;
+    usleep(interval);
+    delay_us -= interval;
+  }
+  return !multiplex_http_cancellation_requested(cancellation);
+}
 
 static uint64_t fnv1a64(const char *value) {
   uint64_t hash = UINT64_C(14695981039346656037);
@@ -207,7 +222,8 @@ static bool configure_hls_session(const MultiplexAuthCredentials *credentials,
 
 static bool
 request_transcode_decision(const MultiplexAuthCredentials *credentials,
-                           const MultiplexPlexHlsSession *session) {
+                           const MultiplexPlexHlsSession *session,
+                           const MultiplexHttpCancellation *cancellation) {
   static const char marker[] = "start.m3u8?";
   const char *start = strstr(session->master_url, marker);
   if (start == NULL) {
@@ -228,20 +244,21 @@ request_transcode_decision(const MultiplexAuthCredentials *credentials,
       control_headers(credentials, session, true, headers);
   HttpJsonResponse response;
   memset(&response, 0, sizeof(response));
-  const bool decided = http_client_request_with_headers(
-                           "GET", decision_url, headers, header_count, NULL,
-                           decision, sizeof(decision), &response) &&
-                       response.status == 200;
+  const bool decided =
+      http_client_request_with_headers_cancellable(
+          "GET", decision_url, headers, header_count, NULL, decision,
+          sizeof(decision), cancellation, &response) &&
+      response.status == 200;
   SYS_Report("REFERENCE GX: Plex HLS decision status=%u bytes=%u\n",
              response.status, (unsigned)response.body_size);
   return decided;
 }
 
-bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
-                              uint32_t rating_key, uint32_t offset_ms,
-                              const char *session_id, bool burn_subtitles,
-                              uint32_t subtitle_stream_index,
-                              MultiplexPlexHlsSession *session) {
+bool multiplex_plex_hls_start_cancellable(
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
+    uint32_t offset_ms, const char *session_id, bool burn_subtitles,
+    uint32_t subtitle_stream_index, MultiplexPlexHlsSession *session,
+    const MultiplexHttpCancellation *cancellation) {
   if (credentials == NULL || session == NULL || rating_key == 0 ||
       credentials->plex_server_url[0] == '\0' ||
       credentials->plex_server_token[0] == '\0') {
@@ -260,35 +277,52 @@ bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
   bool requested = false;
   const unsigned start_modes = offset_ms == 0 ? 1u : 2u;
   for (unsigned mode = 0; mode < start_modes && !requested; ++mode) {
+    if (multiplex_http_cancellation_requested(cancellation)) {
+      return false;
+    }
     if (mode != 0) {
       SYS_Report(
           "REFERENCE GX: Plex HLS resume rejected; retrying from beginning\n");
+      const bool server_cleanup_required = session->server_cleanup_required;
       if (!configure_hls_session(credentials, rating_key, 0,
                                  established_session_id, burn_subtitles,
                                  subtitle_stream_index, session)) {
+        session->server_cleanup_required = server_cleanup_required;
         return false;
       }
+      session->server_cleanup_required = server_cleanup_required;
     }
-    if (!request_transcode_decision(credentials, session)) {
+    if (!request_transcode_decision(credentials, session, cancellation)) {
       return false;
     }
     HttpRequestHeader headers[9];
     const size_t header_count =
         control_headers(credentials, session, true, headers);
     for (unsigned attempt = 1; attempt <= PLEX_HLS_START_ATTEMPTS; ++attempt) {
+      if (multiplex_http_cancellation_requested(cancellation)) {
+        return false;
+      }
       memset(master, 0, sizeof(master));
       memset(&response, 0, sizeof(response));
-      requested = http_client_request_with_headers(
+      /*
+       * From this point Plex can observe the session-bearing start even when
+       * cancellation or response framing makes the request report failure.
+       */
+      session->server_cleanup_required = true;
+      requested = http_client_request_with_headers_cancellable(
                       "GET", session->master_url, headers, header_count, NULL,
-                      master, sizeof(master), &response) &&
+                      master, sizeof(master), cancellation, &response) &&
                   response.status == 200;
       if (requested) {
         break;
       }
       SYS_Report("REFERENCE GX: Plex HLS start retry attempt=%u/%u status=%u\n",
                  attempt, PLEX_HLS_START_ATTEMPTS, response.status);
-      if (attempt < PLEX_HLS_START_ATTEMPTS) {
-        usleep(PLEX_HLS_START_RETRY_US);
+      if (!multiplex_http_cancellation_requested(cancellation) &&
+          attempt < PLEX_HLS_START_ATTEMPTS) {
+        if (!wait_for_retry(PLEX_HLS_START_RETRY_US, cancellation)) {
+          return false;
+        }
       }
     }
     if (requested) {
@@ -316,9 +350,20 @@ bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
   return true;
 }
 
-bool multiplex_plex_hls_refresh(const MultiplexAuthCredentials *credentials,
-                                MultiplexPlexHlsSession *session,
-                                HlsMediaPlaylist *playlist) {
+bool multiplex_plex_hls_start(const MultiplexAuthCredentials *credentials,
+                              uint32_t rating_key, uint32_t offset_ms,
+                              const char *session_id, bool burn_subtitles,
+                              uint32_t subtitle_stream_index,
+                              MultiplexPlexHlsSession *session) {
+  return multiplex_plex_hls_start_cancellable(
+      credentials, rating_key, offset_ms, session_id, burn_subtitles,
+      subtitle_stream_index, session, NULL);
+}
+
+bool multiplex_plex_hls_refresh_cancellable(
+    const MultiplexAuthCredentials *credentials,
+    MultiplexPlexHlsSession *session, HlsMediaPlaylist *playlist,
+    const MultiplexHttpCancellation *cancellation) {
   if (credentials == NULL || session == NULL || playlist == NULL ||
       !session->started) {
     return false;
@@ -337,9 +382,9 @@ bool multiplex_plex_hls_refresh(const MultiplexAuthCredentials *credentials,
       .capacity = PLEX_HLS_MEDIA_PLAYLIST_CAPACITY + 1u,
   };
   response_body[0] = '\0';
-  const bool requested = http_client_stream_get_with_headers(
+  const bool requested = http_client_stream_get_with_headers_cancellable(
       session->variant_url, headers, header_count, write_bounded_body, &body, 0,
-      NULL, &response);
+      cancellation, &response);
   const bool parsed =
       requested && response.status == 200 && response.body_size == body.used &&
       hls_playlist_parse_media_window(
@@ -363,11 +408,18 @@ bool multiplex_plex_hls_refresh(const MultiplexAuthCredentials *credentials,
   return parsed;
 }
 
-bool multiplex_plex_hls_stream_segment(
+bool multiplex_plex_hls_refresh(const MultiplexAuthCredentials *credentials,
+                                MultiplexPlexHlsSession *session,
+                                HlsMediaPlaylist *playlist) {
+  return multiplex_plex_hls_refresh_cancellable(credentials, session, playlist,
+                                                NULL);
+}
+
+bool multiplex_plex_hls_stream_segment_cancellable(
     const MultiplexAuthCredentials *credentials,
     const MultiplexPlexHlsSession *session, const HlsSegment *segment,
-    HttpBodyWrite write, void *write_context, const volatile bool *cancelled,
-    size_t *body_size) {
+    HttpBodyWrite write, void *write_context,
+    const MultiplexHttpCancellation *cancellation, size_t *body_size) {
   if (credentials == NULL || session == NULL || segment == NULL ||
       write == NULL || body_size == NULL || !session->started) {
     return false;
@@ -383,7 +435,8 @@ bool multiplex_plex_hls_stream_segment(
   size_t delivered = 0;
   HttpJsonResponse response = {0};
   for (unsigned attempt = 1; attempt <= PLEX_HLS_SEGMENT_ATTEMPTS; ++attempt) {
-    if (!write(write_context, NULL, 0)) {
+    if (multiplex_http_cancellation_requested(cancellation) ||
+        !write(write_context, NULL, 0)) {
       break;
     }
     const size_t resumed_at = delivered;
@@ -403,9 +456,10 @@ bool multiplex_plex_hls_stream_segment(
         .context = write_context,
     };
     response = (HttpJsonResponse){0};
-    const bool streamed = http_client_stream_get_with_headers_concurrent(
-        url, headers, request_header_count, write_resumed_segment, &resume,
-        resumed_at, cancelled, &response);
+    const bool streamed =
+        http_client_stream_get_with_headers_concurrent_cancellable(
+            url, headers, request_header_count, write_resumed_segment, &resume,
+            resumed_at, cancellation, &response);
     delivered += resume.forwarded;
     const bool complete_full_response =
         response.status == 200 && delivered == response.body_size;
@@ -426,15 +480,18 @@ bool multiplex_plex_hls_stream_segment(
          response.status != 206)) {
       break;
     }
-    if (attempt != PLEX_HLS_SEGMENT_ATTEMPTS) {
+    if (!multiplex_http_cancellation_requested(cancellation) &&
+        attempt != PLEX_HLS_SEGMENT_ATTEMPTS) {
       SYS_Report("REFERENCE GX: Plex HLS segment retry sequence=%u offset=%u "
                  "attempt=%u/%u\n",
                  segment->sequence, (unsigned)delivered, attempt + 1u,
                  PLEX_HLS_SEGMENT_ATTEMPTS);
-      usleep(100000);
+      if (!wait_for_retry(100000u, cancellation)) {
+        break;
+      }
     }
   }
-  if (cancelled != NULL && *cancelled) {
+  if (multiplex_http_cancellation_requested(cancellation)) {
     SYS_Report(
         "REFERENCE GX: Plex HLS segment cancelled sequence=%u bytes=%u\n",
         segment->sequence, (unsigned)delivered);
@@ -446,32 +503,55 @@ bool multiplex_plex_hls_stream_segment(
   return false;
 }
 
-void multiplex_plex_hls_stop(const MultiplexAuthCredentials *credentials,
-                             MultiplexPlexHlsSession *session) {
-  if (credentials == NULL || session == NULL || !session->started) {
+bool multiplex_plex_hls_stream_segment(
+    const MultiplexAuthCredentials *credentials,
+    const MultiplexPlexHlsSession *session, const HlsSegment *segment,
+    HttpBodyWrite write, void *write_context, size_t *body_size) {
+  return multiplex_plex_hls_stream_segment_cancellable(
+      credentials, session, segment, write, write_context, NULL, body_size);
+}
+
+void multiplex_plex_hls_stop_cancellable(
+    const MultiplexAuthCredentials *credentials,
+    MultiplexPlexHlsSession *session,
+    const MultiplexHttpCancellation *cancellation) {
+  if (credentials == NULL || session == NULL ||
+      !session->server_cleanup_required) {
     return;
   }
+  char stopped_session_id[MULTIPLEX_PLEX_HLS_SESSION_ID_CAPACITY];
+  memcpy(stopped_session_id, session->session_id, sizeof(stopped_session_id));
+  stopped_session_id[sizeof(stopped_session_id) - 1u] = '\0';
   char path[256];
   const int path_size = snprintf(path, sizeof(path),
                                  "video/:/transcode/universal/stop?session=%s",
-                                 session->session_id);
+                                 stopped_session_id);
   char url[MULTIPLEX_PLEX_HLS_URL_CAPACITY];
+  bool accepted = false;
   if (path_size > 0 && (size_t)path_size < sizeof(path) &&
       server_url(credentials, path, url, sizeof(url))) {
     char response_body[128];
     HttpRequestHeader headers[8];
     const size_t header_count =
         control_headers(credentials, session, false, headers);
-    HttpJsonResponse response;
+    HttpJsonResponse response = {0};
     /*
      * The stop response may have an empty body. The request helper can report
      * false for that framing, but the complete GET has already reached PMS.
      */
-    (void)http_client_request_with_headers("GET", url, headers, header_count,
-                                           NULL, response_body,
-                                           sizeof(response_body), &response);
+    (void)http_client_request_with_headers_cancellable(
+        "GET", url, headers, header_count, NULL, response_body,
+        sizeof(response_body), cancellation, &response);
+    accepted = response.status >= 200u && response.status < 300u;
   }
-  SYS_Report("REFERENCE GX: Plex HLS stopped session=%s\n",
-             session->session_id);
+  if (accepted) {
+    SYS_Report("REFERENCE GX: Plex HLS stopped session=%s\n",
+               stopped_session_id);
+  }
   memset(session, 0, sizeof(*session));
+}
+
+void multiplex_plex_hls_stop(const MultiplexAuthCredentials *credentials,
+                             MultiplexPlexHlsSession *session) {
+  multiplex_plex_hls_stop_cancellable(credentials, session, NULL);
 }
