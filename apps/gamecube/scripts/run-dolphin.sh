@@ -17,6 +17,33 @@ gdb_port=${DOLPHIN_GDB_PORT:--1}
 gdb_socket=${DOLPHIN_GDB_SOCKET:-}
 normal_scheduler_guard=${MULTIPLEX_DOLPHIN_NORMAL_SCHEDULER:-0}
 
+dolphin_target_exists() {
+  dolphin_existing_target=$1
+  case "$dolphin_existing_target" in
+    -*)
+      dolphin_existing_group=${dolphin_existing_target#-}
+      ps -eo pgid= | awk -v pgid="$dolphin_existing_group" '
+        $1 == pgid { found = 1 }
+        END { exit found ? 0 : 1 }
+      '
+      ;;
+    *) ps -p "$dolphin_existing_target" -o pid= >/dev/null 2>&1 ;;
+  esac
+}
+
+signal_dolphin_target() {
+  dolphin_signal=$1
+  dolphin_signal_target=$2
+  if /bin/kill "$dolphin_signal" -- "$dolphin_signal_target" 2>/dev/null; then
+    return 0
+  fi
+  if ! dolphin_target_exists "$dolphin_signal_target"; then
+    return 0
+  fi
+  echo "Failed to send $dolphin_signal to previous Dolphin target $dolphin_signal_target." >&2
+  return 1
+}
+
 # T3 Code intentionally runs agent commands with SCHED_IDLE. Dolphin inherits
 # that policy and can take a minute of wall time to emulate two seconds even
 # while its guest reports 60 fps. A transient user service is spawned by the
@@ -92,7 +119,7 @@ if [ -f "$pid_file" ]; then
         fi
         # dash's kill builtin rejects negative process-group targets even
         # after --, and under set -eu that aborts the takeover launch.
-        /bin/kill -TERM -- "$previous_target"
+        signal_dolphin_target -TERM "$previous_target"
         attempt=0
         while /bin/kill -0 -- "$previous_target" 2>/dev/null &&
           [ "$attempt" -lt 30 ]; do
@@ -100,7 +127,7 @@ if [ -f "$pid_file" ]; then
           attempt=$((attempt + 1))
         done
         if /bin/kill -0 -- "$previous_target" 2>/dev/null; then
-          /bin/kill -KILL -- "$previous_target"
+          signal_dolphin_target -KILL "$previous_target"
           attempt=0
           while /bin/kill -0 -- "$previous_target" 2>/dev/null &&
             [ "$attempt" -lt 30 ]; do
