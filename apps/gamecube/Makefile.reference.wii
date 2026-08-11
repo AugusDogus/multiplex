@@ -72,6 +72,12 @@ multiplex-dvd-demo-program.s: $(APP_ROOT)/assets/multiplex-dvd-demo.mpg
 multiplex-dvd-demo-program.h: multiplex-dvd-demo-program.s
 
 main.o: media-source.h multiplex-dvd-demo-program.h
+app_services.o app_services_auth.o app_services_catalog.o \
+	app_services_details.o app_services_discovery.o app_services_playback.o \
+	app_services_playback_resolution.o app_services_scheduler.o \
+	app_services_watch_directory.o \
+	app_services_watch_disabled.o app_services_watch_syncplay.o \
+	app_services_watch_together.o: media-source.h
 http_client.o: media-source.h
 tls_client.o: tls-ca.h
 

@@ -69,19 +69,21 @@ typedef struct {
   uint32_t subtitle_stream_index;
 } MultiplexPlaybackHlsOpenRequest;
 
-typedef enum {
-  MULTIPLEX_PLAYBACK_PREFETCH_RELEASE_WHEN_READY = 0,
-  MULTIPLEX_PLAYBACK_PREFETCH_RETAIN = 1,
-} MultiplexPlaybackPrefetchDisposition;
-
 typedef struct {
   MultiplexAuthCredentials credentials;
   uint32_t rating_key;
   uint32_t offset_ms;
   bool burn_subtitles;
   uint32_t subtitle_stream_index;
-  MultiplexPlaybackPrefetchDisposition disposition;
 } MultiplexPlaybackPrefetchRequest;
+
+typedef enum {
+  MULTIPLEX_PLAYBACK_HLS_PREFETCH_IDLE = 0,
+  MULTIPLEX_PLAYBACK_HLS_PREFETCH_RETAINING = 1,
+  MULTIPLEX_PLAYBACK_HLS_PREFETCH_READY = 2,
+  MULTIPLEX_PLAYBACK_HLS_PREFETCH_FAILED = 3,
+  MULTIPLEX_PLAYBACK_HLS_PREFETCH_RELEASING = 4,
+} MultiplexPlaybackHlsPrefetchStatus;
 
 typedef enum {
   MULTIPLEX_PLAYBACK_EVENT_NONE = 0,
@@ -115,10 +117,15 @@ MultiplexPlaybackOpenResult multiplex_playback_session_open_hls(
 MultiplexPlaybackOpenResult
 multiplex_playback_session_continue_program(MultiplexPlaybackSession *session);
 
-bool multiplex_playback_session_retain_prefetch(
+bool multiplex_playback_session_retain_hls_prefetch(
     MultiplexPlaybackSession *session,
     const MultiplexPlaybackPrefetchRequest *request);
-void multiplex_playback_session_cancel_prefetch(
+bool multiplex_playback_session_release_hls_prefetch(
+    MultiplexPlaybackSession *session);
+MultiplexPlaybackHlsPrefetchStatus
+multiplex_playback_session_hls_prefetch_status(
+    MultiplexPlaybackSession *session);
+void multiplex_playback_session_discard_hls_prefetch(
     MultiplexPlaybackSession *session);
 
 MultiplexPlaybackSnapshot

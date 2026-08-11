@@ -33,6 +33,11 @@ all test-trpc-rooms.sh
 all test-reference-frame.sh
 all test-gui-navigation.sh
 all test-app-job-slot.sh
+all test-app-services-policy.sh
+all test-app-services-catalog-focus.sh
+all test-app-services-dispatch.sh
+all test-app-services-stale-requests.sh
+all test-app-services-watch-ownership.sh
 all test-syncplay-protocol.sh
 EOF
 }
