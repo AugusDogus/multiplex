@@ -89,8 +89,8 @@ multiplex-dvd-demo-program.s: $(APP_ROOT)/assets/multiplex-dvd-demo.mpg
 
 multiplex-dvd-demo-program.h: multiplex-dvd-demo-program.s
 
-app_jobs.o app_jobs_platform_libogc.o app_jobs_posters.o app_jobs_prefetch.o \
-	app_jobs_work.o main.o: media-source.h
+app.o app_effects.o app_input.o app_jobs.o app_jobs_platform_libogc.o \
+	app_jobs_posters.o app_jobs_prefetch.o app_jobs_work.o main.o: media-source.h
 main.o: multiplex-dvd-demo-program.h
 presentation.o: $(APP_ROOT)/generated/geist_atlas.h
 app_services.o app_services_auth.o app_services_catalog.o \
