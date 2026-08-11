@@ -324,15 +324,15 @@ if [ "$direct_plex" -ne 1 ]; then
   server_pid=$!
   # Gateway startup downloads the catalog and poster artwork from the Plex
   # server before serving, which can take tens of seconds against a remote PMS.
-  attempt=0
-  while ! curl --noproxy '*' --fail --silent --output /dev/null \
+  gateway_start_deadline=$(($(date +%s) + 60))
+  while ! curl --noproxy '*' --connect-timeout 0.3 --max-time 0.7 \
+    --fail --silent --output /dev/null \
     "http://127.0.0.1:$port/v1/health"; do
     if ! kill -0 "$server_pid" 2>/dev/null; then
       echo "The local console media gateway exited during startup; see $cache_dir/http.log." >&2
       exit 1
     fi
-    attempt=$((attempt + 1))
-    if [ "$attempt" -ge 600 ]; then
+    if [ "$(date +%s)" -ge "$gateway_start_deadline" ]; then
       echo "Timed out starting the local console media gateway." >&2
       exit 1
     fi
