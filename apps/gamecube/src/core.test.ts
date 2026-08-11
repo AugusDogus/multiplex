@@ -124,7 +124,7 @@ const reducerCases = {
     },
   },
   open_libraries: {
-    start: { pairingLinked: true },
+    start: { gatewayConnected: true, pairingEnabled: true, pairingLinked: true },
     message: { kind: "open_libraries" },
     expected: { screen: "libraries" },
   },
@@ -162,6 +162,8 @@ const reducerCases = {
   },
   open_search: {
     start: {
+      gatewayConnected: true,
+      pairingEnabled: true,
       pairingLinked: true,
       searchQuery: bytes("old"),
       searchCursor: 2,
@@ -552,6 +554,16 @@ type GuardedCase = {
 
 const guardedCases = [
   {
+    name: "keeps libraries closed until a paired catalog connects",
+    start: { pairingEnabled: true, pairingLinked: true, gatewayConnected: false },
+    message: { kind: "open_libraries" },
+  },
+  {
+    name: "keeps search closed until a paired catalog connects",
+    start: { pairingEnabled: true, pairingLinked: true, gatewayConnected: false },
+    message: { kind: "open_search" },
+  },
+  {
     name: "rejects an invalid library index",
     start: { screen: "libraries" },
     message: { kind: "open_library", index: 1 },
@@ -590,6 +602,17 @@ for (const guardedCase of guardedCases) {
     expect(update(startingModel, guardedCase.message)).toEqual(startingModel);
   });
 }
+
+test("gateway-only catalogs expose Libraries and Search", () => {
+  const startingModel = model({
+    gatewayConnected: true,
+    pairingEnabled: false,
+    pairingLinked: false,
+  });
+
+  expect(update(startingModel, { kind: "open_libraries" }).screen).toBe("libraries");
+  expect(update(startingModel, { kind: "open_search" }).screen).toBe("search");
+});
 
 type BackCase = {
   readonly name: string;
