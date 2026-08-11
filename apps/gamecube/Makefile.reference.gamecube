@@ -89,8 +89,10 @@ multiplex-dvd-demo-program.s: $(APP_ROOT)/assets/multiplex-dvd-demo.mpg
 
 multiplex-dvd-demo-program.h: multiplex-dvd-demo-program.s
 
-main.o: media-source.h multiplex-dvd-demo-program.h \
-	$(APP_ROOT)/generated/geist_atlas.h
+app_jobs.o app_jobs_platform_libogc.o app_jobs_posters.o app_jobs_prefetch.o \
+	app_jobs_work.o main.o: media-source.h
+main.o: multiplex-dvd-demo-program.h
+presentation.o: $(APP_ROOT)/generated/geist_atlas.h
 app_services.o app_services_auth.o app_services_catalog.o \
 	app_services_details.o app_services_discovery.o app_services_playback.o \
 	app_services_playback_resolution.o app_services_scheduler.o \
