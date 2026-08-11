@@ -1,18 +1,15 @@
+#include "app_jobs.h"
 #include "app_services.h"
-#include "catalog_cache.h"
 #include "gateway_client.h"
 #include "gui_navigation.h"
 #include "http_client.h"
 #include "media-source.h"
-#include "memory_card_auth.h"
 #include "native_ui.h"
 #include "playback_session.h"
-#include "plex_catalog.h"
 #include "poster_jpeg.h"
 #include "presentation.h"
 #include "reference_frame.h"
 #include "tls_client.h"
-#include "trpc_client.h"
 
 #include <gccore.h>
 #include <malloc.h>
@@ -30,25 +27,12 @@
 #include <string.h>
 
 #define APP_STACK_SIZE (512 * 1024)
-#define POSTER_LOADER_STACK_SIZE (256 * 1024)
-#define POSTER_LOADER_LANE_COUNT 4u
-#define DIRECT_DETAILS_LOADER_STACK_SIZE (256 * 1024)
-#define DIRECT_BROWSE_LOADER_STACK_SIZE (256 * 1024)
-#define DIRECT_SEARCH_LOADER_STACK_SIZE (256 * 1024)
-#define STARTUP_DATA_LOADER_STACK_SIZE (256 * 1024)
-#define CATALOG_LOADER_STACK_SIZE (256 * 1024)
-#define CATALOG_CACHE_SAVER_STACK_SIZE (128 * 1024)
 #define NETWORK_WARMUP_STACK_SIZE (64 * 1024)
 #define NETWORK_RETRY_INITIAL_DELAY_MS 1000u
 #define NETWORK_RETRY_MAX_DELAY_MS 8000u
 #define MULTIPLEX_PLAYBACK_STATE_PLAYER 0x1u
 #define MULTIPLEX_PLAYBACK_STATE_PLAYING 0x4u
 #define MULTIPLEX_PAIRING_CONNECTING 4u
-#define POSTER_JPEG_CAPACITY (256u * 1024u)
-#define PLEX_POSTER_JPEG_CAPACITY (32u * 1024u)
-#define HOME_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS
-#define BROWSE_POSTER_COUNT MULTIPLEX_GATEWAY_MAX_BROWSE_ITEMS
-#define POSTER_TEXTURE_COUNT (HOME_POSTER_COUNT + BROWSE_POSTER_COUNT)
 
 typedef enum {
   APP_EXIT_OK = 0,
@@ -77,57 +61,6 @@ static MultiplexPlaybackSnapshot playback_snapshot;
 static MultiplexGuiNavigation gui_navigation;
 static bool controller_status_reported;
 static char boot_diagnostic_operation[64] = "Process startup";
-
-#if MULTIPLEX_PAIRING_ENABLED
-typedef struct DirectPosterLoader DirectPosterLoader;
-
-typedef struct {
-  DirectPosterLoader *loader;
-  uint16_t lane;
-} DirectPosterWorker;
-
-struct DirectPosterLoader {
-  uint32_t token;
-  MultiplexAuthCredentials credentials;
-  MultiplexGatewayItem items[MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS];
-  uint16_t texture_slots[MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS];
-  lwp_t threads[POSTER_LOADER_LANE_COUNT];
-  void *stacks[POSTER_LOADER_LANE_COUNT];
-  uint8_t *decoded_pixels[POSTER_LOADER_LANE_COUNT];
-  DirectPosterWorker workers[POSTER_LOADER_LANE_COUNT];
-  volatile bool item_ready[POSTER_LOADER_LANE_COUNT];
-  volatile bool item_decoded[POSTER_LOADER_LANE_COUNT];
-  volatile bool complete[POSTER_LOADER_LANE_COUNT];
-  volatile bool stopping;
-  bool pending;
-  volatile uint16_t item_index[POSTER_LOADER_LANE_COUNT];
-  volatile uint16_t decoded_count[POSTER_LOADER_LANE_COUNT];
-  uint16_t lane_count;
-  uint16_t item_count;
-  uint16_t requested_count;
-  uint16_t cache_hits;
-  uint16_t texture_offset;
-  uint32_t started_tick;
-  bool first_ready_reported;
-  volatile bool failed;
-};
-#endif
-
-static void join_worker_thread(lwp_t *thread) {
-  if (thread == NULL || *thread == LWP_THREAD_NULL) {
-    return;
-  }
-  /* Let libogc2 finish destroying the context before its stack is freed. */
-  LWP_SetThreadPriority(*thread, LWP_PRIO_NORMAL + 1u);
-  LWP_JoinThread(*thread, NULL);
-  *thread = LWP_THREAD_NULL;
-}
-
-#if MULTIPLEX_PAIRING_ENABLED
-static uint32_t elapsed_us(uint32_t started) {
-  return (uint32_t)ticks_to_microsecs((uint32_t)(gettick() - started));
-}
-#endif
 
 static uint32_t navigation_action(MultiplexGuiNavigationDirection direction) {
   switch (direction) {
@@ -306,361 +239,6 @@ static bool bind_boot_diagnostics(const char *operation) {
   return committed;
 }
 
-#if !MULTIPLEX_PAIRING_ENABLED
-static bool initialize_poster_textures(const char *gateway_url,
-                                       uint16_t item_count) {
-  if (gateway_url == NULL || item_count == 0 ||
-      item_count > MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS) {
-    return false;
-  }
-  const size_t home_bytes =
-      (size_t)item_count * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
-  uint8_t *encoded = calloc(1, POSTER_JPEG_CAPACITY + 64u);
-  MultiplexPresentationPosterWrite write = {0};
-  if (!multiplex_presentation_posters_begin(
-          presentation, 0, item_count, MULTIPLEX_PRESENTATION_POSTERS_OVERWRITE,
-          &write)) {
-    free(encoded);
-    return false;
-  }
-  size_t encoded_size = 0;
-  if (encoded == NULL ||
-      !multiplex_gateway_load_artwork(gateway_url, encoded,
-                                      POSTER_JPEG_CAPACITY, &encoded_size) ||
-      !poster_jpeg_decode_columns(encoded, encoded_size, item_count,
-                                  MULTIPLEX_GATEWAY_MAX_HOME_ITEMS,
-                                  write.pixels, home_bytes)) {
-    free(encoded);
-    multiplex_presentation_posters_cancel(presentation, &write);
-    return false;
-  }
-
-  free(encoded);
-  const uint32_t rating_keys[MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS] = {0};
-  if (!multiplex_presentation_posters_commit(presentation, &write,
-                                             rating_keys)) {
-    return false;
-  }
-  SYS_Report("REFERENCE GX: poster-textures count=%u size=%ux%u\n", item_count,
-             MULTIPLEX_GATEWAY_ARTWORK_WIDTH, MULTIPLEX_GATEWAY_ARTWORK_HEIGHT);
-  return true;
-}
-
-static bool
-initialize_gateway_page_posters(const MultiplexAppServicesPosterPlan *plan) {
-  if (plan == NULL || plan->item_count == 0 ||
-      plan->item_count > MULTIPLEX_GATEWAY_MAX_BROWSE_ITEMS) {
-    return false;
-  }
-  uint8_t *encoded = calloc(1, POSTER_JPEG_CAPACITY + 64u);
-  MultiplexPresentationPosterWrite write = {0};
-  const bool write_started = multiplex_presentation_posters_begin(
-      presentation, plan->texture_offset, plan->item_count,
-      MULTIPLEX_PRESENTATION_POSTERS_OVERWRITE, &write);
-  size_t encoded_size = 0;
-  bool loaded = false;
-  if (encoded != NULL && write_started &&
-      plan->source == MULTIPLEX_APP_SERVICES_POSTER_SOURCE_BROWSE) {
-    loaded =
-        multiplex_gateway_load_browse_artwork(
-            MULTIPLEX_GATEWAY_URL, plan->payload.browse.section_id,
-            plan->payload.browse.start, encoded, POSTER_JPEG_CAPACITY,
-            &encoded_size) &&
-        poster_jpeg_decode_columns(
-            encoded, encoded_size, plan->item_count,
-            MULTIPLEX_GATEWAY_BROWSE_COLUMNS, write.pixels,
-            (size_t)plan->item_count * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
-  } else if (encoded != NULL && write_started &&
-             plan->source == MULTIPLEX_APP_SERVICES_POSTER_SOURCE_SEARCH) {
-    loaded = multiplex_gateway_load_search_artwork(
-                 MULTIPLEX_GATEWAY_URL, plan->payload.search.query,
-                 plan->payload.search.query_length, encoded,
-                 POSTER_JPEG_CAPACITY, &encoded_size) &&
-             poster_jpeg_decode(encoded, encoded_size, plan->item_count,
-                                write.pixels,
-                                (size_t)plan->item_count *
-                                    MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
-  }
-  free(encoded);
-  if (!loaded) {
-    if (write_started) {
-      multiplex_presentation_posters_cancel(presentation, &write);
-    }
-    return false;
-  }
-  const uint32_t rating_keys[MULTIPLEX_GATEWAY_MAX_BROWSE_ITEMS] = {0};
-  return multiplex_presentation_posters_commit(presentation, &write,
-                                               rating_keys);
-}
-#endif
-
-#if MULTIPLEX_PAIRING_ENABLED
-static void fill_poster_fallback(uint8_t *pixels, uint32_t rating_key) {
-  const unsigned variation = rating_key & 3u;
-  const unsigned tile_columns = MULTIPLEX_GATEWAY_ARTWORK_WIDTH / 4u;
-  for (unsigned tile_y = 0; tile_y < MULTIPLEX_GATEWAY_ARTWORK_HEIGHT;
-       tile_y += 4u) {
-    for (unsigned tile_x = 0; tile_x < MULTIPLEX_GATEWAY_ARTWORK_WIDTH;
-         tile_x += 4u) {
-      uint8_t *tile =
-          pixels + ((size_t)(tile_y / 4u) * tile_columns + tile_x / 4u) * 32u;
-      for (unsigned row = 0; row < 4u; ++row) {
-        const unsigned y = tile_y + row;
-        const uint8_t luma =
-            (uint8_t)(13u + variation +
-                      (MULTIPLEX_GATEWAY_ARTWORK_HEIGHT - y) * 10u /
-                          MULTIPLEX_GATEWAY_ARTWORK_HEIGHT);
-        const uint16_t color =
-            (uint16_t)(((uint16_t)(luma & 0xf8u) << 8u) |
-                       ((uint16_t)(luma & 0xfcu) << 3u) | (luma >> 3u));
-        for (unsigned column = 0; column < 4u; ++column) {
-          const size_t offset = (row * 4u + column) * 2u;
-          tile[offset] = (uint8_t)(color >> 8u);
-          tile[offset + 1u] = (uint8_t)color;
-        }
-      }
-    }
-  }
-}
-
-static void *run_direct_poster_loader(void *context) {
-  DirectPosterWorker *worker = context;
-  DirectPosterLoader *loader = worker->loader;
-  const uint16_t lane = worker->lane;
-  uint8_t *encoded = calloc(1, PLEX_POSTER_JPEG_CAPACITY + 64u);
-  if (encoded == NULL) {
-    loader->failed = true;
-    loader->complete[lane] = true;
-    return NULL;
-  }
-  for (uint16_t index = lane; index < loader->item_count;
-       index += loader->lane_count) {
-    while (loader->item_ready[lane] && !loader->stopping) {
-      LWP_YieldThread();
-    }
-    if (loader->stopping) {
-      break;
-    }
-    const MultiplexGatewayItem *item = &loader->items[index];
-    size_t encoded_size = 0;
-    const bool decoded =
-        item->artwork_path[0] != '\0' &&
-        multiplex_plex_load_artwork(&loader->credentials, item->artwork_path,
-                                    encoded, PLEX_POSTER_JPEG_CAPACITY,
-                                    &encoded_size) &&
-        poster_jpeg_decode_single(encoded, encoded_size,
-                                  loader->decoded_pixels[lane],
-                                  MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
-    if (decoded) {
-      ++loader->decoded_count[lane];
-    }
-    loader->item_index[lane] = index;
-    loader->item_decoded[lane] = decoded;
-    __sync_synchronize();
-    loader->item_ready[lane] = true;
-  }
-  free(encoded);
-  __sync_synchronize();
-  loader->complete[lane] = true;
-  return NULL;
-}
-
-static bool direct_poster_loader_running(const DirectPosterLoader *loader) {
-  if (loader == NULL) {
-    return false;
-  }
-  for (uint16_t lane = 0; lane < POSTER_LOADER_LANE_COUNT; ++lane) {
-    if (loader->threads[lane] != LWP_THREAD_NULL) {
-      return true;
-    }
-  }
-  return false;
-}
-
-static void clear_poster_credentials(MultiplexAuthCredentials *credentials) {
-  volatile unsigned char *bytes = (volatile unsigned char *)credentials;
-  for (size_t index = 0; index < sizeof(*credentials); ++index) {
-    bytes[index] = 0;
-  }
-}
-
-static void release_direct_poster_workers(DirectPosterLoader *loader) {
-  for (uint16_t lane = 0; lane < POSTER_LOADER_LANE_COUNT; ++lane) {
-    join_worker_thread(&loader->threads[lane]);
-    free(loader->decoded_pixels[lane]);
-    loader->decoded_pixels[lane] = NULL;
-    free(loader->stacks[lane]);
-    loader->stacks[lane] = NULL;
-  }
-  loader->lane_count = 0;
-  clear_poster_credentials(&loader->credentials);
-}
-
-static bool launch_direct_poster_loader(DirectPosterLoader *loader) {
-  if (loader == NULL || !loader->pending ||
-      direct_poster_loader_running(loader)) {
-    return false;
-  }
-  loader->stopping = false;
-  loader->started_tick = gettick();
-  loader->lane_count = loader->item_count < POSTER_LOADER_LANE_COUNT
-                           ? loader->item_count
-                           : POSTER_LOADER_LANE_COUNT;
-  for (uint16_t lane = 0; lane < loader->lane_count; ++lane) {
-    loader->complete[lane] = false;
-    loader->item_ready[lane] = false;
-    loader->decoded_count[lane] = 0;
-    loader->decoded_pixels[lane] =
-        memalign(32, MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
-    loader->stacks[lane] = malloc(POSTER_LOADER_STACK_SIZE);
-    loader->workers[lane].loader = loader;
-    loader->workers[lane].lane = lane;
-    if (loader->decoded_pixels[lane] == NULL || loader->stacks[lane] == NULL ||
-        LWP_CreateThread(&loader->threads[lane], run_direct_poster_loader,
-                         &loader->workers[lane], loader->stacks[lane],
-                         POSTER_LOADER_STACK_SIZE, LWP_PRIO_NORMAL / 2) != 0) {
-      loader->stopping = true;
-      release_direct_poster_workers(loader);
-      loader->pending = false;
-      return false;
-    }
-  }
-  loader->pending = false;
-  SYS_Report(
-      "REFERENCE GX: direct Plex poster loader started items=%u cached=%u "
-      "requested=%u offset=%u lanes=%u\n",
-      loader->item_count, loader->cache_hits, loader->requested_count,
-      loader->texture_offset, loader->lane_count);
-  return true;
-}
-
-static bool queue_direct_poster_loader(
-    DirectPosterLoader *loader, const MultiplexAuthCredentials *credentials,
-    const MultiplexGatewayItem *items, uint16_t item_count,
-    uint16_t texture_offset, bool launch_now) {
-  if (loader == NULL || credentials == NULL || items == NULL ||
-      direct_poster_loader_running(loader) || item_count == 0 ||
-      item_count > MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS ||
-      texture_offset > POSTER_TEXTURE_COUNT ||
-      item_count > POSTER_TEXTURE_COUNT - texture_offset) {
-    return false;
-  }
-  memset(loader, 0, sizeof(*loader));
-  for (uint16_t lane = 0; lane < POSTER_LOADER_LANE_COUNT; ++lane) {
-    loader->threads[lane] = LWP_THREAD_NULL;
-  }
-  MultiplexPresentationPosterWrite write;
-  if (!multiplex_presentation_posters_begin(
-          presentation, texture_offset, item_count,
-          MULTIPLEX_PRESENTATION_POSTERS_REUSE, &write)) {
-    return false;
-  }
-  uint32_t rating_keys[MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS] = {0};
-  uint16_t download_count = 0;
-  for (uint16_t index = 0; index < item_count; ++index) {
-    const uint16_t target_slot = texture_offset + index;
-    uint8_t *pixels =
-        write.pixels + (size_t)index * MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES;
-    if (multiplex_presentation_posters_reuse(presentation, &write, index,
-                                             items[index].rating_key)) {
-      rating_keys[index] = items[index].rating_key;
-      ++loader->cache_hits;
-    } else {
-      fill_poster_fallback(pixels, items[index].rating_key);
-      loader->items[download_count] = items[index];
-      loader->texture_slots[download_count] = target_slot;
-      ++download_count;
-    }
-  }
-  if (!multiplex_presentation_posters_commit(presentation, &write,
-                                             rating_keys)) {
-    multiplex_presentation_posters_cancel(presentation, &write);
-    return false;
-  }
-  loader->credentials = *credentials;
-  loader->item_count = download_count;
-  loader->requested_count = item_count;
-  loader->texture_offset = texture_offset;
-  loader->pending = download_count != 0;
-  if (download_count == 0) {
-    SYS_Report("REFERENCE GX: direct Plex posters reused=%u/%u\n",
-               loader->cache_hits, loader->requested_count);
-    return true;
-  }
-  return !launch_now || launch_direct_poster_loader(loader);
-}
-
-static bool
-poll_direct_poster_loader(DirectPosterLoader *loader,
-                          MultiplexAppServicesPosterResultKind *result_kind) {
-  if (loader == NULL || !direct_poster_loader_running(loader)) {
-    return false;
-  }
-  bool all_complete = true;
-  for (uint16_t lane = 0; lane < loader->lane_count; ++lane) {
-    if (loader->item_ready[lane]) {
-      __sync_synchronize();
-      if (loader->item_decoded[lane]) {
-        const uint16_t item_index = loader->item_index[lane];
-        const uint16_t texture_slot = loader->texture_slots[item_index];
-        MultiplexPresentationPosterWrite write;
-        const uint32_t rating_key = loader->items[item_index].rating_key;
-        if (!multiplex_presentation_posters_begin(
-                presentation, texture_slot, 1,
-                MULTIPLEX_PRESENTATION_POSTERS_OVERWRITE, &write)) {
-          loader->item_decoded[lane] = false;
-          loader->failed = true;
-        } else {
-          memcpy(write.pixels, loader->decoded_pixels[lane],
-                 MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
-          loader->item_decoded[lane] = multiplex_presentation_posters_commit(
-              presentation, &write, &rating_key);
-          loader->failed = loader->failed || !loader->item_decoded[lane];
-        }
-      }
-      if (loader->item_decoded[lane]) {
-        if (!loader->first_ready_reported) {
-          loader->first_ready_reported = true;
-          SYS_Report(
-              "REFERENCE GX: direct Plex poster first-ready requested=%u "
-              "us=%u\n",
-              loader->requested_count, elapsed_us(loader->started_tick));
-        }
-      }
-      __sync_synchronize();
-      loader->item_ready[lane] = false;
-    }
-    all_complete =
-        all_complete && loader->complete[lane] && !loader->item_ready[lane];
-  }
-  if (!all_complete) {
-    return false;
-  }
-  uint16_t decoded_count = 0;
-  for (uint16_t lane = 0; lane < loader->lane_count; ++lane) {
-    decoded_count += loader->decoded_count[lane];
-  }
-  release_direct_poster_workers(loader);
-  SYS_Report(
-      "REFERENCE GX: direct Plex posters decoded=%u downloaded=%u cached=%u "
-      "requested=%u us=%u\n",
-      decoded_count, loader->item_count, loader->cache_hits,
-      loader->requested_count, elapsed_us(loader->started_tick));
-  *result_kind = loader->failed ? MULTIPLEX_APP_SERVICES_POSTER_FAILED
-                                : MULTIPLEX_APP_SERVICES_POSTER_COMPLETED;
-  return true;
-}
-
-static void stop_direct_poster_loader(DirectPosterLoader *loader) {
-  if (loader == NULL) {
-    return;
-  }
-  loader->stopping = true;
-  loader->pending = false;
-  release_direct_poster_workers(loader);
-}
-#endif
-
 static MultiplexPlaybackSnapshot
 step_presentation_playback(bool desired_playing) {
   const MultiplexPresentationStatus status =
@@ -709,52 +287,8 @@ static bool wait_network_warmup(NetworkWarmup *warmup) {
   return ready;
 }
 
-#if MULTIPLEX_PAIRING_ENABLED
 typedef struct {
-  MultiplexTrpcRoomList rooms;
-  MultiplexTrpcInviteeList invitees;
-  uint32_t user_id;
-  bool user_available;
-  bool rooms_available;
-  bool invitees_available;
-} StartupDataResult;
-#endif
-
-typedef struct {
-  MultiplexAppServicesWorkRequest request;
-  MultiplexMemoryCardLocation cache_location;
-  lwp_t thread;
-  void *stack;
-  void *output;
-  volatile bool complete;
-  bool started;
-  bool succeeded;
-} AppWorkWorker;
-
-typedef enum {
-  APP_PREFETCH_ADAPTER_IDLE = 0,
-  APP_PREFETCH_ADAPTER_RETAINING = 1,
-  APP_PREFETCH_ADAPTER_RELEASING = 2,
-} AppPrefetchAdapterKind;
-
-typedef struct {
-  AppPrefetchAdapterKind kind;
-  union {
-    struct {
-      uint32_t token;
-    } retaining;
-    struct {
-      uint32_t token;
-    } releasing;
-  } payload;
-} AppPrefetchAdapter;
-
-typedef struct {
-  AppWorkWorker workers[MULTIPLEX_APP_SERVICES_WORK_COUNT];
-#if MULTIPLEX_PAIRING_ENABLED
-  DirectPosterLoader posters;
-#endif
-  AppPrefetchAdapter prefetch;
+  MultiplexAppJobs *jobs;
   uint64_t toast_dismiss_at_ms;
   bool playback_start_offset_pending;
 } AppRuntime;
@@ -774,186 +308,6 @@ static MultiplexAppServicesPlaybackView playback_view(void) {
   };
 }
 
-static size_t work_output_size(MultiplexAppServicesWorkKind kind) {
-  switch (kind) {
-  case MULTIPLEX_APP_SERVICES_WORK_CATALOG:
-    return sizeof(MultiplexGatewayCatalog);
-  case MULTIPLEX_APP_SERVICES_WORK_CATALOG_CACHE_SAVE:
-#if MULTIPLEX_PAIRING_ENABLED
-    return MULTIPLEX_CATALOG_CACHE_SIZE;
-#else
-    return 0;
-#endif
-  case MULTIPLEX_APP_SERVICES_WORK_STARTUP_DATA:
-#if MULTIPLEX_PAIRING_ENABLED
-    return sizeof(StartupDataResult);
-#else
-    return 0;
-#endif
-  case MULTIPLEX_APP_SERVICES_WORK_BROWSE:
-    return sizeof(MultiplexGatewayBrowsePage);
-  case MULTIPLEX_APP_SERVICES_WORK_SEARCH:
-    return sizeof(MultiplexGatewaySearchPage);
-  case MULTIPLEX_APP_SERVICES_WORK_DETAILS:
-    return sizeof(MultiplexGatewayDetails);
-  case MULTIPLEX_APP_SERVICES_WORK_COUNT:
-    return 0;
-  }
-  return 0;
-}
-
-static size_t work_stack_size(MultiplexAppServicesWorkKind kind) {
-  switch (kind) {
-  case MULTIPLEX_APP_SERVICES_WORK_CATALOG:
-    return CATALOG_LOADER_STACK_SIZE;
-  case MULTIPLEX_APP_SERVICES_WORK_CATALOG_CACHE_SAVE:
-    return CATALOG_CACHE_SAVER_STACK_SIZE;
-  case MULTIPLEX_APP_SERVICES_WORK_STARTUP_DATA:
-    return STARTUP_DATA_LOADER_STACK_SIZE;
-  case MULTIPLEX_APP_SERVICES_WORK_BROWSE:
-    return DIRECT_BROWSE_LOADER_STACK_SIZE;
-  case MULTIPLEX_APP_SERVICES_WORK_SEARCH:
-    return DIRECT_SEARCH_LOADER_STACK_SIZE;
-  case MULTIPLEX_APP_SERVICES_WORK_DETAILS:
-    return DIRECT_DETAILS_LOADER_STACK_SIZE;
-  case MULTIPLEX_APP_SERVICES_WORK_COUNT:
-    return 0;
-  }
-  return 0;
-}
-
-static void *run_app_work(void *context) {
-  AppWorkWorker *worker = context;
-  const MultiplexAppServicesWorkRequest *request = &worker->request;
-  switch (request->kind) {
-  case MULTIPLEX_APP_SERVICES_WORK_CATALOG: {
-    MultiplexGatewayCatalog *catalog = worker->output;
-#if MULTIPLEX_PAIRING_ENABLED
-    worker->succeeded = multiplex_plex_load_catalog(
-        &request->payload.catalog.credentials, catalog);
-#else
-    worker->succeeded =
-        multiplex_gateway_load_catalog(MULTIPLEX_GATEWAY_URL, catalog);
-#endif
-    break;
-  }
-  case MULTIPLEX_APP_SERVICES_WORK_CATALOG_CACHE_SAVE:
-#if MULTIPLEX_PAIRING_ENABLED
-    worker->succeeded =
-        multiplex_memory_card_save_cache(
-            &worker->cache_location, worker->output,
-            MULTIPLEX_CATALOG_CACHE_SIZE) == MULTIPLEX_MEMORY_CARD_OK;
-#else
-    worker->succeeded = false;
-#endif
-    break;
-  case MULTIPLEX_APP_SERVICES_WORK_STARTUP_DATA: {
-#if MULTIPLEX_PAIRING_ENABLED
-    StartupDataResult *result = worker->output;
-    const MultiplexAuthCredentials *credentials =
-        &request->payload.startup_data.credentials;
-    result->user_available = multiplex_trpc_load_user_id(
-        credentials->origin, credentials->session_token, &result->user_id);
-    result->rooms_available = multiplex_trpc_load_watch_together_rooms(
-        MULTIPLEX_BASE_URL, credentials->session_token, &result->rooms);
-    result->invitees_available = multiplex_trpc_load_watch_together_invitees(
-        MULTIPLEX_BASE_URL, credentials->session_token, &result->invitees);
-    worker->succeeded = true;
-#else
-    worker->succeeded = false;
-#endif
-    break;
-  }
-  case MULTIPLEX_APP_SERVICES_WORK_BROWSE: {
-    MultiplexGatewayBrowsePage *page = worker->output;
-#if MULTIPLEX_PAIRING_ENABLED
-    worker->succeeded = multiplex_plex_load_browse(
-        &request->payload.browse.credentials, &request->payload.browse.library,
-        request->payload.browse.start, page);
-#else
-    worker->succeeded = multiplex_gateway_load_browse(
-        MULTIPLEX_GATEWAY_URL, request->payload.browse.library.section_id,
-        request->payload.browse.start, page);
-#endif
-    break;
-  }
-  case MULTIPLEX_APP_SERVICES_WORK_SEARCH: {
-    MultiplexGatewaySearchPage *page = worker->output;
-#if MULTIPLEX_PAIRING_ENABLED
-    worker->succeeded = multiplex_plex_load_search(
-        &request->payload.search.credentials, request->payload.search.query,
-        request->payload.search.query_length, page);
-#else
-    worker->succeeded = multiplex_gateway_load_search(
-        MULTIPLEX_GATEWAY_URL, request->payload.search.query,
-        request->payload.search.query_length, page);
-#endif
-    break;
-  }
-  case MULTIPLEX_APP_SERVICES_WORK_DETAILS: {
-    MultiplexGatewayDetails *details = worker->output;
-#if MULTIPLEX_PAIRING_ENABLED
-    worker->succeeded = multiplex_plex_load_details(
-        &request->payload.details.credentials,
-        request->payload.details.rating_key, details);
-#else
-    worker->succeeded = multiplex_gateway_load_details(
-        MULTIPLEX_GATEWAY_URL, request->payload.details.rating_key, details);
-#endif
-    break;
-  }
-  case MULTIPLEX_APP_SERVICES_WORK_COUNT:
-    worker->succeeded = false;
-    break;
-  }
-  __sync_synchronize();
-  worker->complete = true;
-  return NULL;
-}
-
-static void release_app_work(AppWorkWorker *worker) {
-  join_worker_thread(&worker->thread);
-  free(worker->stack);
-  free(worker->output);
-  memset(worker, 0, sizeof(*worker));
-  worker->thread = LWP_THREAD_NULL;
-}
-
-static bool launch_app_work(AppRuntime *runtime,
-                            const MultiplexAppServicesWorkRequest *request) {
-  if ((unsigned)request->kind >= MULTIPLEX_APP_SERVICES_WORK_COUNT) {
-    return false;
-  }
-  AppWorkWorker *worker = &runtime->workers[request->kind];
-  if (worker->started) {
-    return false;
-  }
-  const size_t output_size = work_output_size(request->kind);
-  const size_t stack_size = work_stack_size(request->kind);
-  worker->request = *request;
-  worker->thread = LWP_THREAD_NULL;
-  worker->output = calloc(1, output_size);
-  worker->stack = malloc(stack_size);
-  if (worker->output == NULL || worker->stack == NULL) {
-    release_app_work(worker);
-    return false;
-  }
-  if (request->kind == MULTIPLEX_APP_SERVICES_WORK_CATALOG_CACHE_SAVE &&
-      !multiplex_app_services_copy_cache_save_plan(
-          app_services, request, &worker->cache_location, worker->output,
-          output_size)) {
-    release_app_work(worker);
-    return false;
-  }
-  if (LWP_CreateThread(&worker->thread, run_app_work, worker, worker->stack,
-                       stack_size, LWP_PRIO_NORMAL / 2) != 0) {
-    release_app_work(worker);
-    return false;
-  }
-  worker->started = true;
-  return true;
-}
-
 static bool dispatch_services(const MultiplexAppServicesInput *input) {
   const MultiplexAppServicesDispatchResult result =
       multiplex_app_services_dispatch(app_services, input);
@@ -963,90 +317,6 @@ static bool dispatch_services(const MultiplexAppServicesInput *input) {
   SYS_Report("REFERENCE GX: app services dispatch failed result=%u input=%u\n",
              (unsigned)result, (unsigned)input->kind);
   return false;
-}
-
-static bool poll_app_work(AppRuntime *runtime, uint64_t now_ms) {
-  for (unsigned index = 0; index < MULTIPLEX_APP_SERVICES_WORK_COUNT; ++index) {
-    AppWorkWorker *worker = &runtime->workers[index];
-    if (!worker->started || !worker->complete) {
-      continue;
-    }
-    __sync_synchronize();
-    join_worker_thread(&worker->thread);
-    MultiplexAppServicesInput input = {
-        .kind = MULTIPLEX_APP_SERVICES_INPUT_WORK_RESULT_VIEW,
-        .payload.work_result =
-            {
-                .token = worker->request.token,
-                .kind = worker->request.kind,
-                .succeeded = worker->succeeded,
-                .now_ms = now_ms,
-            },
-    };
-    switch (worker->request.kind) {
-    case MULTIPLEX_APP_SERVICES_WORK_CATALOG:
-      input.payload.work_result.payload.catalog.catalog = worker->output;
-      break;
-    case MULTIPLEX_APP_SERVICES_WORK_BROWSE:
-      input.payload.work_result.payload.browse.page = worker->output;
-      break;
-    case MULTIPLEX_APP_SERVICES_WORK_SEARCH:
-      input.payload.work_result.payload.search.page = worker->output;
-      break;
-    case MULTIPLEX_APP_SERVICES_WORK_DETAILS:
-      input.payload.work_result.payload.details.details = worker->output;
-      break;
-    case MULTIPLEX_APP_SERVICES_WORK_STARTUP_DATA: {
-#if MULTIPLEX_PAIRING_ENABLED
-      const StartupDataResult *result = worker->output;
-      input.payload.work_result.payload.startup_data =
-          (MultiplexAppServicesStartupDataResultView){
-              .user =
-                  {
-                      .kind = result->user_available
-                                  ? MULTIPLEX_APP_SERVICES_STARTUP_USER_PRESENT
-                                  : MULTIPLEX_APP_SERVICES_STARTUP_USER_NONE,
-                      .value.id = result->user_id,
-                  },
-              .rooms = result->rooms_available ? &result->rooms : NULL,
-              .invitees = result->invitees_available ? &result->invitees : NULL,
-          };
-#endif
-      break;
-    }
-    case MULTIPLEX_APP_SERVICES_WORK_CATALOG_CACHE_SAVE:
-      break;
-    case MULTIPLEX_APP_SERVICES_WORK_COUNT:
-      release_app_work(worker);
-      return false;
-    }
-    const bool dispatched = dispatch_services(&input);
-    release_app_work(worker);
-    if (!dispatched) {
-      return false;
-    }
-  }
-  return true;
-}
-
-static void stop_poster_lanes(AppRuntime *runtime) {
-#if MULTIPLEX_PAIRING_ENABLED
-  stop_direct_poster_loader(&runtime->posters);
-  runtime->posters.token = 0;
-#else
-  (void)runtime;
-#endif
-}
-
-static void join_app_workers(AppRuntime *runtime) {
-  for (unsigned index = 0; index < MULTIPLEX_APP_SERVICES_WORK_COUNT; ++index) {
-    release_app_work(&runtime->workers[index]);
-  }
-}
-
-static void quiesce_catalog_cache_save(AppRuntime *runtime) {
-  release_app_work(
-      &runtime->workers[MULTIPLEX_APP_SERVICES_WORK_CATALOG_CACHE_SAVE]);
 }
 
 static bool apply_presentation_effect(
@@ -1110,100 +380,6 @@ static bool present_blocking_playback_frame(bool *render_failed) {
 }
 
 static bool
-dispatch_prefetch_result(uint32_t token,
-                         MultiplexAppServicesPrefetchResultKind kind) {
-  const MultiplexAppServicesInput input = {
-      .kind = MULTIPLEX_APP_SERVICES_INPUT_PREFETCH_RESULT,
-      .payload.prefetch_result = {.token = token, .kind = kind},
-  };
-  return dispatch_services(&input);
-}
-
-static bool
-apply_prefetch_retain(AppRuntime *runtime,
-                      const MultiplexAppServicesPlaybackEffect *effect) {
-#if MULTIPLEX_PAIRING_ENABLED
-  const MultiplexPlaybackPrefetchRequest request = {
-      .credentials = effect->payload.hls_prefetch.credentials,
-      .rating_key = effect->payload.hls_prefetch.rating_key,
-      .offset_ms = effect->payload.hls_prefetch.offset_ms,
-      .burn_subtitles = effect->payload.hls_prefetch.burn_subtitles,
-      .subtitle_stream_index =
-          effect->payload.hls_prefetch.subtitle_stream_index,
-  };
-  if (multiplex_playback_session_retain_hls_prefetch(playback_session,
-                                                     &request)) {
-    runtime->prefetch = (AppPrefetchAdapter){
-        .kind = APP_PREFETCH_ADAPTER_RETAINING,
-        .payload.retaining = {.token = effect->token},
-    };
-    return true;
-  }
-#else
-  (void)runtime;
-#endif
-  return dispatch_prefetch_result(effect->token,
-                                  MULTIPLEX_APP_SERVICES_PREFETCH_FAILED);
-}
-
-static bool
-apply_prefetch_release(AppRuntime *runtime,
-                       const MultiplexAppServicesPlaybackEffect *effect) {
-#if MULTIPLEX_PAIRING_ENABLED
-  if (multiplex_playback_session_release_hls_prefetch(playback_session)) {
-    runtime->prefetch = (AppPrefetchAdapter){
-        .kind = APP_PREFETCH_ADAPTER_RELEASING,
-        .payload.releasing = {.token = effect->token},
-    };
-    return true;
-  }
-#else
-  (void)runtime;
-#endif
-  return dispatch_prefetch_result(effect->token,
-                                  MULTIPLEX_APP_SERVICES_PREFETCH_FAILED);
-}
-
-static bool poll_prefetch_adapter(AppRuntime *runtime) {
-  if (runtime->prefetch.kind == APP_PREFETCH_ADAPTER_IDLE) {
-    return true;
-  }
-  const MultiplexPlaybackHlsPrefetchStatus native_status =
-      multiplex_playback_session_hls_prefetch_status(playback_session);
-  if (runtime->prefetch.kind == APP_PREFETCH_ADAPTER_RETAINING &&
-      native_status == MULTIPLEX_PLAYBACK_HLS_PREFETCH_RETAINING) {
-    return true;
-  }
-  if (runtime->prefetch.kind == APP_PREFETCH_ADAPTER_RELEASING &&
-      native_status == MULTIPLEX_PLAYBACK_HLS_PREFETCH_RELEASING) {
-    return true;
-  }
-
-  const uint32_t token =
-      runtime->prefetch.kind == APP_PREFETCH_ADAPTER_RETAINING
-          ? runtime->prefetch.payload.retaining.token
-          : runtime->prefetch.payload.releasing.token;
-  MultiplexAppServicesPrefetchResultKind result =
-      MULTIPLEX_APP_SERVICES_PREFETCH_FAILED;
-  if (runtime->prefetch.kind == APP_PREFETCH_ADAPTER_RETAINING &&
-      native_status == MULTIPLEX_PLAYBACK_HLS_PREFETCH_READY) {
-    result = MULTIPLEX_APP_SERVICES_PREFETCH_READY;
-  } else if (runtime->prefetch.kind == APP_PREFETCH_ADAPTER_RELEASING &&
-             native_status == MULTIPLEX_PLAYBACK_HLS_PREFETCH_IDLE) {
-    result = MULTIPLEX_APP_SERVICES_PREFETCH_RELEASED;
-  }
-  runtime->prefetch = (AppPrefetchAdapter){
-      .kind = APP_PREFETCH_ADAPTER_IDLE,
-  };
-  return dispatch_prefetch_result(token, result);
-}
-
-static void discard_prefetch_adapter(AppRuntime *runtime) {
-  multiplex_playback_session_discard_hls_prefetch(playback_session);
-  memset(&runtime->prefetch, 0, sizeof(runtime->prefetch));
-}
-
-static bool
 apply_playback_effect(AppRuntime *runtime,
                       const MultiplexAppServicesPlaybackEffect *effect,
                       bool *render_failed) {
@@ -1256,9 +432,8 @@ apply_playback_effect(AppRuntime *runtime,
     break;
   }
   case MULTIPLEX_APP_SERVICES_PLAYBACK_PREFETCH_RETAIN_HLS:
-    return apply_prefetch_retain(runtime, effect);
   case MULTIPLEX_APP_SERVICES_PLAYBACK_PREFETCH_RELEASE_HLS:
-    return apply_prefetch_release(runtime, effect);
+    return false;
   case MULTIPLEX_APP_SERVICES_PLAYBACK_STOP:
     multiplex_playback_session_stop(playback_session);
     result.kind = MULTIPLEX_APP_SERVICES_PLAYBACK_RESULT_STOPPED;
@@ -1272,138 +447,54 @@ apply_playback_effect(AppRuntime *runtime,
   return dispatch_services(&input);
 }
 
-static bool dispatch_poster_result(uint32_t token,
-                                   MultiplexAppServicesPosterResultKind kind) {
-  const MultiplexAppServicesInput input = {
-      .kind = MULTIPLEX_APP_SERVICES_INPUT_POSTER_RESULT,
-      .payload.poster_result = {.token = token, .kind = kind},
-  };
-  return dispatch_services(&input);
-}
-
-static bool apply_poster_start(AppRuntime *runtime,
-                               const MultiplexAppServicesPosterPlan *plan) {
-#if MULTIPLEX_PAIRING_ENABLED
-  MultiplexGatewayItem items[MULTIPLEX_GATEWAY_MAX_TOTAL_ITEMS];
-  MultiplexAuthCredentials credentials;
-  DirectPosterLoader *loader = &runtime->posters;
-  if (plan->token == 0 || loader->token != 0 || loader->pending ||
-      direct_poster_loader_running(loader) ||
-      !multiplex_app_services_copy_poster_plan(app_services, plan, items,
-                                               sizeof(items) / sizeof(items[0]),
-                                               &credentials) ||
-      !queue_direct_poster_loader(loader, &credentials, items, plan->item_count,
-                                  plan->texture_offset, true)) {
-    return dispatch_poster_result(plan->token,
-                                  MULTIPLEX_APP_SERVICES_POSTER_FAILED);
-  }
-  loader->token = plan->token;
-  if (!dispatch_poster_result(plan->token,
-                              MULTIPLEX_APP_SERVICES_POSTER_STARTED)) {
-    return false;
-  }
-  if (loader->pending || direct_poster_loader_running(loader)) {
-    return true;
-  }
-  loader->token = 0;
-  return dispatch_poster_result(plan->token,
-                                MULTIPLEX_APP_SERVICES_POSTER_COMPLETED);
-#else
-  (void)runtime;
-  if (!dispatch_poster_result(plan->token,
-                              MULTIPLEX_APP_SERVICES_POSTER_STARTED)) {
-    return false;
-  }
-  const bool completed =
-      plan->source == MULTIPLEX_APP_SERVICES_POSTER_SOURCE_CATALOG
-          ? initialize_poster_textures(MULTIPLEX_GATEWAY_URL, plan->item_count)
-          : initialize_gateway_page_posters(plan);
-  return dispatch_poster_result(
-      plan->token, completed ? MULTIPLEX_APP_SERVICES_POSTER_COMPLETED
-                             : MULTIPLEX_APP_SERVICES_POSTER_FAILED);
-#endif
-}
-
-static bool apply_poster_quiesce(AppRuntime *runtime, uint32_t token) {
-#if MULTIPLEX_PAIRING_ENABLED
-  stop_direct_poster_loader(&runtime->posters);
-  runtime->posters.token = 0;
-#else
-  (void)runtime;
-#endif
-  return dispatch_poster_result(token, MULTIPLEX_APP_SERVICES_POSTER_QUIESCED);
-}
-
-static bool poll_poster_loader(AppRuntime *runtime) {
-#if MULTIPLEX_PAIRING_ENABLED
-  MultiplexAppServicesPosterResultKind result_kind;
-  if (!poll_direct_poster_loader(&runtime->posters, &result_kind)) {
-    return true;
-  }
-  const uint32_t token = runtime->posters.token;
-  runtime->posters.token = 0;
-  return dispatch_poster_result(token, result_kind);
-#else
-  (void)runtime;
-  return true;
-#endif
-}
-
 static bool drain_app_effects(AppRuntime *runtime, AppExitCode *exit_code) {
   MultiplexAppServicesEffect effect;
   bool ready = true;
   while (multiplex_app_services_poll_effect(app_services, &effect)) {
     switch (effect.kind) {
     case MULTIPLEX_APP_SERVICES_EFFECT_WORK_REQUEST:
-      if (!launch_app_work(runtime, &effect.payload.work)) {
+      if (!multiplex_app_jobs_start_work(runtime->jobs, &effect.payload.work)) {
         *exit_code = APP_EXIT_BACKGROUND_BIND;
         ready = false;
       }
       break;
     case MULTIPLEX_APP_SERVICES_EFFECT_POSTER_START:
-      if (!apply_poster_start(runtime, &effect.payload.poster_start)) {
-        ready = false;
-      }
+      ready = multiplex_app_jobs_start_posters(runtime->jobs,
+                                               &effect.payload.poster_start) &&
+              ready;
       break;
     case MULTIPLEX_APP_SERVICES_EFFECT_POSTER_QUIESCE:
-      if (!apply_poster_quiesce(runtime, effect.payload.poster_quiesce.token)) {
-        ready = false;
-      }
+      ready = multiplex_app_jobs_quiesce_posters(
+                  runtime->jobs, effect.payload.poster_quiesce.token) &&
+              ready;
       break;
-    case MULTIPLEX_APP_SERVICES_EFFECT_STORAGE_QUIESCE: {
-      quiesce_catalog_cache_save(runtime);
-      const MultiplexAppServicesInput input = {
-          .kind = MULTIPLEX_APP_SERVICES_INPUT_RESET_STORAGE_QUIESCED,
-          .payload.reset_storage_quiesced =
-              {
-                  .token = effect.payload.storage_quiesce.token,
-              },
-      };
-      if (!dispatch_services(&input)) {
-        ready = false;
-      }
+    case MULTIPLEX_APP_SERVICES_EFFECT_STORAGE_QUIESCE:
+      ready = multiplex_app_jobs_quiesce_storage(
+                  runtime->jobs, effect.payload.storage_quiesce.token) &&
+              ready;
       break;
-    }
-    case MULTIPLEX_APP_SERVICES_EFFECT_RUNTIME_QUIESCE: {
-      stop_poster_lanes(runtime);
-      discard_prefetch_adapter(runtime);
-      join_app_workers(runtime);
-      const MultiplexAppServicesInput input = {
-          .kind = MULTIPLEX_APP_SERVICES_INPUT_RESET_RUNTIME_QUIESCED,
-          .payload.reset_runtime_quiesced =
-              {
-                  .token = effect.payload.runtime_quiesce.token,
-              },
-      };
-      if (!dispatch_services(&input)) {
-        ready = false;
-      }
+    case MULTIPLEX_APP_SERVICES_EFFECT_RUNTIME_QUIESCE:
+      ready = multiplex_app_jobs_quiesce_runtime(
+                  runtime->jobs, effect.payload.runtime_quiesce.token) &&
+              ready;
       break;
-    }
     case MULTIPLEX_APP_SERVICES_EFFECT_PLAYBACK: {
       bool render_failed = false;
-      if (!apply_playback_effect(runtime, &effect.payload.playback,
-                                 &render_failed)) {
+      bool applied = false;
+      if (effect.payload.playback.kind ==
+          MULTIPLEX_APP_SERVICES_PLAYBACK_PREFETCH_RETAIN_HLS) {
+        applied = multiplex_app_jobs_retain_prefetch(
+            runtime->jobs, effect.payload.playback.token,
+            &effect.payload.playback.payload.hls_prefetch);
+      } else if (effect.payload.playback.kind ==
+                 MULTIPLEX_APP_SERVICES_PLAYBACK_PREFETCH_RELEASE_HLS) {
+        applied = multiplex_app_jobs_release_prefetch(
+            runtime->jobs, effect.payload.playback.token);
+      } else {
+        applied = apply_playback_effect(runtime, &effect.payload.playback,
+                                        &render_failed);
+      }
+      if (!applied) {
         *exit_code = APP_EXIT_PLAYBACK_CONTINUATION;
         ready = false;
       }
@@ -1724,21 +815,10 @@ static void initialize_runtime(AppRuntime *runtime) {
   memset(runtime, 0, sizeof(*runtime));
   runtime->playback_start_offset_pending =
       MULTIPLEX_PLAYBACK_START_OFFSET_MS != 0;
-  for (unsigned index = 0; index < MULTIPLEX_APP_SERVICES_WORK_COUNT; ++index) {
-    runtime->workers[index].thread = LWP_THREAD_NULL;
-  }
-#if MULTIPLEX_PAIRING_ENABLED
-  for (uint16_t lane = 0; lane < POSTER_LOADER_LANE_COUNT; ++lane) {
-    runtime->posters.threads[lane] = LWP_THREAD_NULL;
-  }
-#endif
 }
 
 static void cleanup_runtime(AppRuntime *runtime) {
-  for (unsigned index = 0; index < MULTIPLEX_APP_SERVICES_WORK_COUNT; ++index) {
-    release_app_work(&runtime->workers[index]);
-  }
-  stop_poster_lanes(runtime);
+  multiplex_app_jobs_destroy(&runtime->jobs);
 }
 
 static void *run_app(void *unused) {
@@ -1752,6 +832,12 @@ static void *run_app(void *unused) {
   uint64_t network_retry_at_ms = 0;
   uint32_t network_retry_delay_ms = NETWORK_RETRY_INITIAL_DELAY_MS;
   bool jpeg_ready = false;
+  runtime.jobs =
+      multiplex_app_jobs_create(app_services, presentation, playback_session);
+  if (runtime.jobs == NULL) {
+    exit_code = APP_EXIT_BACKGROUND_BIND;
+    goto cleanup;
+  }
 
   snprintf(boot_diagnostic_operation, sizeof(boot_diagnostic_operation), "%s",
            "Presentation initialization");
@@ -1818,9 +904,8 @@ static void *run_app(void *unused) {
   }
 
   if (MULTIPLEX_GATEWAY_URL[0] != '\0') {
-    AppWorkWorker *catalog_worker =
-        &runtime.workers[MULTIPLEX_APP_SERVICES_WORK_CATALOG];
-    while (catalog_worker->started && !catalog_worker->complete) {
+    while (multiplex_app_jobs_work_running(
+        runtime.jobs, MULTIPLEX_APP_SERVICES_WORK_CATALOG)) {
       if (!SYS_MainLoop()) {
         goto cleanup;
       }
@@ -1831,7 +916,8 @@ static void *run_app(void *unused) {
       }
     }
     const uint64_t catalog_now_ms = ticks_to_millisecs(gettime());
-    const bool catalog_dispatched = poll_app_work(&runtime, catalog_now_ms);
+    const bool catalog_dispatched =
+        multiplex_app_jobs_poll_work(runtime.jobs, catalog_now_ms);
     const bool catalog_effects_ready = drain_app_effects(&runtime, &exit_code);
     if (!catalog_dispatched || !catalog_effects_ready) {
       if (exit_code == APP_EXIT_OK) {
@@ -1875,11 +961,12 @@ static void *run_app(void *unused) {
 #endif
   multiplex_presentation_set_async_enabled(presentation, true);
   while (SYS_MainLoop()) {
-    if (!poll_prefetch_adapter(&runtime)) {
+    if (!multiplex_app_jobs_poll_prefetch(runtime.jobs)) {
       exit_code = APP_EXIT_PLAYBACK_CONTINUATION;
       break;
     }
-    const bool poster_dispatched = poll_poster_loader(&runtime);
+    const bool poster_dispatched =
+        multiplex_app_jobs_poll_posters(runtime.jobs);
     const bool poster_effects_ready = drain_app_effects(&runtime, &exit_code);
     if (!poster_dispatched || !poster_effects_ready) {
       if (exit_code == APP_EXIT_OK) {
@@ -1919,7 +1006,8 @@ static void *run_app(void *unused) {
       network_retry_at_ms =
           warmup_pending ? 0 : now_ms + network_retry_delay_ms;
     }
-    const bool work_dispatched = poll_app_work(&runtime, now_ms);
+    const bool work_dispatched =
+        multiplex_app_jobs_poll_work(runtime.jobs, now_ms);
     const bool work_effects_ready = drain_app_effects(&runtime, &exit_code);
     if (!work_dispatched || !work_effects_ready) {
       if (exit_code == APP_EXIT_OK) {
@@ -2101,7 +1189,6 @@ cleanup:
   if (warmup_pending) {
     finish_network_warmup(&warmup);
   }
-  discard_prefetch_adapter(&runtime);
   cleanup_runtime(&runtime);
   multiplex_playback_session_stop(playback_session);
   if (jpeg_ready) {
