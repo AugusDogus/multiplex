@@ -42,7 +42,6 @@ typedef struct {
 typedef struct {
   MultiplexPlexHlsLockOps lock_ops;
   MultiplexPlexHlsSnapshot snapshot;
-  volatile bool http_client_cancelled;
 } MultiplexPlexHlsState;
 
 void multiplex_plex_hls_state_init(MultiplexPlexHlsState *state,

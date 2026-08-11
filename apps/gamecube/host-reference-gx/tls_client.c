@@ -1,6 +1,7 @@
 #include "tls_client.h"
 
 #include "tls-ca.h"
+#include "tls_read_poll.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -49,6 +50,7 @@ extern s32 net_flush(s32 socket) __attribute__((weak));
 struct MultiplexTlsClient {
   int socket;
   unsigned io_timeout_seconds;
+  MultiplexHttpCancellation cancellation;
   mbedtls_ssl_context ssl;
   mbedtls_ssl_config config;
 };
@@ -244,22 +246,9 @@ static bool initialize_tls_random(void) {
   return true;
 }
 
-static int wait_socket(int socket, bool write, unsigned timeout_seconds) {
-  fd_set readable;
-  fd_set writable;
-  FD_ZERO(&readable);
-  FD_ZERO(&writable);
-  if (write) {
-    FD_SET(socket, &writable);
-  } else {
-    FD_SET(socket, &readable);
-  }
-  struct timeval timeout = {
-      .tv_sec = timeout_seconds,
-      .tv_usec = 0,
-  };
-  return net_select(socket + 1, write ? NULL : &readable,
-                    write ? &writable : NULL, NULL, &timeout);
+static bool tls_cancelled(const MultiplexTlsClient *client) {
+  return client != NULL &&
+         multiplex_http_cancellation_requested(&client->cancellation);
 }
 
 static int flush_network_socket(int socket) {
@@ -276,6 +265,9 @@ static int flush_network_socket(int socket) {
 
 static int tls_send(void *context, const unsigned char *bytes, size_t size) {
   MultiplexTlsClient *client = context;
+  if (tls_cancelled(client)) {
+    return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
+  }
   /*
    * libogc2's writable select event can remain cleared after a small record
    * even though the TCP send buffer has ample space. net_write synchronously
@@ -293,8 +285,8 @@ static int tls_send(void *context, const unsigned char *bytes, size_t size) {
 
 static int tls_receive(void *context, unsigned char *bytes, size_t size) {
   MultiplexTlsClient *client = context;
-  const int ready =
-      wait_socket(client->socket, false, client->io_timeout_seconds);
+  const int ready = multiplex_tls_wait_readable(
+      client->socket, client->io_timeout_seconds, &client->cancellation);
   if (ready <= 0) {
     return MBEDTLS_ERR_SSL_WANT_READ;
   }
@@ -387,7 +379,7 @@ static void free_ca_candidates(mbedtls_x509_crt *candidates) {
 
 static int find_ca_candidates(void *context, const mbedtls_x509_crt *child,
                               mbedtls_x509_crt **candidate_cas) {
-  (void)context;
+  MultiplexTlsClient *client = context;
   *candidate_cas = NULL;
 
   const size_t end_marker_size = sizeof(tls_certificate_end) - 1u;
@@ -395,6 +387,9 @@ static int find_ca_candidates(void *context, const mbedtls_x509_crt *child,
   unsigned scanned = 0;
   const char *cursor = multiplex_tls_ca_pem;
   while ((cursor = strstr(cursor, tls_certificate_begin)) != NULL) {
+    if (tls_cancelled(client)) {
+      return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
+    }
     const char *end = strstr(cursor, tls_certificate_end);
     if (end == NULL) {
       return MBEDTLS_ERR_X509_INVALID_FORMAT;
@@ -424,6 +419,12 @@ static int find_ca_candidates(void *context, const mbedtls_x509_crt *child,
   mbedtls_x509_crt *tail = NULL;
   cursor = multiplex_tls_ca_pem;
   while ((cursor = strstr(cursor, tls_certificate_begin)) != NULL) {
+    if (tls_cancelled(client)) {
+      free(pem);
+      free_ca_candidates(*candidate_cas);
+      *candidate_cas = NULL;
+      return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
+    }
     const char *end = strstr(cursor, tls_certificate_end);
     if (end == NULL) {
       free(pem);
@@ -525,11 +526,13 @@ bool multiplex_tls_client_initialize(void) {
   return initialized;
 }
 
-MultiplexTlsClient *multiplex_tls_client_connect(int socket,
-                                                 const char *hostname) {
+MultiplexTlsClient *multiplex_tls_client_connect_cancellable(
+    int socket, const char *hostname,
+    const MultiplexHttpCancellation *cancellation) {
   tls_last_error = 0;
   tls_last_verify_flags = 0;
-  if (socket < 0 || hostname == NULL || hostname[0] == '\0') {
+  if (socket < 0 || hostname == NULL || hostname[0] == '\0' ||
+      multiplex_http_cancellation_requested(cancellation)) {
     tls_last_error = MBEDTLS_ERR_SSL_BAD_INPUT_DATA;
     SYS_Report("REFERENCE GX: TLS configuration unavailable\n");
     return NULL;
@@ -545,6 +548,9 @@ MultiplexTlsClient *multiplex_tls_client_connect(int socket,
   }
   client->socket = socket;
   client->io_timeout_seconds = TLS_IO_TIMEOUT_SECONDS;
+  if (cancellation != NULL) {
+    client->cancellation = *cancellation;
+  }
   mbedtls_ssl_init(&client->ssl);
   mbedtls_ssl_config_init(&client->config);
   int result = mbedtls_ssl_config_defaults(
@@ -552,7 +558,7 @@ MultiplexTlsClient *multiplex_tls_client_connect(int socket,
       MBEDTLS_SSL_PRESET_DEFAULT);
   if (result == 0) {
     mbedtls_ssl_conf_authmode(&client->config, MBEDTLS_SSL_VERIFY_REQUIRED);
-    mbedtls_ssl_conf_ca_cb(&client->config, find_ca_candidates, NULL);
+    mbedtls_ssl_conf_ca_cb(&client->config, find_ca_candidates, client);
     mbedtls_ssl_conf_rng(&client->config, locked_tls_random, NULL);
     result = mbedtls_ssl_setup(&client->ssl, &client->config);
   }
@@ -579,13 +585,25 @@ MultiplexTlsClient *multiplex_tls_client_connect(int socket,
   return client;
 }
 
-bool multiplex_tls_client_write_all(MultiplexTlsClient *client,
-                                    const uint8_t *bytes, size_t size) {
+MultiplexTlsClient *multiplex_tls_client_connect(int socket,
+                                                 const char *hostname) {
+  return multiplex_tls_client_connect_cancellable(socket, hostname, NULL);
+}
+
+bool multiplex_tls_client_write_all_cancellable(
+    MultiplexTlsClient *client, const uint8_t *bytes, size_t size,
+    const MultiplexHttpCancellation *cancellation) {
   if (client == NULL || (size != 0 && bytes == NULL)) {
     return false;
   }
+  if (cancellation != NULL) {
+    client->cancellation = *cancellation;
+  }
   size_t written = 0;
   while (written < size) {
+    if (tls_cancelled(client)) {
+      return false;
+    }
     const size_t remaining = size - written;
     const size_t chunk_size = remaining < TLS_GAMECUBE_WRITE_CHUNK
                                   ? remaining
@@ -605,10 +623,22 @@ bool multiplex_tls_client_write_all(MultiplexTlsClient *client,
   return true;
 }
 
-int multiplex_tls_client_read(MultiplexTlsClient *client, uint8_t *destination,
-                              size_t size, unsigned timeout_seconds) {
+bool multiplex_tls_client_write_all(MultiplexTlsClient *client,
+                                    const uint8_t *bytes, size_t size) {
+  return multiplex_tls_client_write_all_cancellable(client, bytes, size, NULL);
+}
+
+int multiplex_tls_client_read_cancellable(
+    MultiplexTlsClient *client, uint8_t *destination, size_t size,
+    unsigned timeout_seconds, const MultiplexHttpCancellation *cancellation) {
   if (client == NULL || destination == NULL || size == 0) {
     return -1;
+  }
+  if (cancellation != NULL) {
+    client->cancellation = *cancellation;
+  }
+  if (tls_cancelled(client)) {
+    return -ECANCELED;
   }
   client->io_timeout_seconds = timeout_seconds;
   const int result = mbedtls_ssl_read(&client->ssl, destination, size);
@@ -623,6 +653,12 @@ int multiplex_tls_client_read(MultiplexTlsClient *client, uint8_t *destination,
     report_tls_error("read", result);
   }
   return result;
+}
+
+int multiplex_tls_client_read(MultiplexTlsClient *client, uint8_t *destination,
+                              size_t size, unsigned timeout_seconds) {
+  return multiplex_tls_client_read_cancellable(client, destination, size,
+                                               timeout_seconds, NULL);
 }
 
 void multiplex_tls_client_destroy(MultiplexTlsClient *client) {

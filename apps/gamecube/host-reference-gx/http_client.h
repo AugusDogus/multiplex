@@ -1,6 +1,8 @@
 #ifndef MULTIPLEX_HTTP_CLIENT_H
 #define MULTIPLEX_HTTP_CLIENT_H
 
+#include "http_cancellation.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -40,9 +42,15 @@ uint32_t http_client_network_attempts(void);
 uint32_t http_client_dns_attempts(void);
 uint32_t http_client_tls_verify_flags(void);
 HttpClient *http_client_open(const char *url);
+HttpClient *
+http_client_open_cancellable(const char *url,
+                             const MultiplexHttpCancellation *cancellation);
 HttpClient *http_client_open_with_headers(const char *url,
                                           const HttpRequestHeader *headers,
                                           size_t header_count);
+HttpClient *http_client_open_with_headers_cancellable(
+    const char *url, const HttpRequestHeader *headers, size_t header_count,
+    const MultiplexHttpCancellation *cancellation);
 void http_client_request_stop(HttpClient *client);
 void http_client_begin_stream(HttpClient *client);
 void http_client_release_connection(HttpClient *client);
@@ -59,18 +67,34 @@ bool http_client_request_json(const char *method, const char *url,
                               const char *bearer_token, const char *body,
                               char *destination, size_t capacity,
                               HttpJsonResponse *response);
+bool http_client_request_json_cancellable(
+    const char *method, const char *url, const char *bearer_token,
+    const char *body, char *destination, size_t capacity,
+    const MultiplexHttpCancellation *cancellation, HttpJsonResponse *response);
 bool http_client_request_with_headers(const char *method, const char *url,
                                       const HttpRequestHeader *headers,
                                       size_t header_count, const char *body,
                                       char *destination, size_t capacity,
                                       HttpJsonResponse *response);
+bool http_client_request_with_headers_cancellable(
+    const char *method, const char *url, const HttpRequestHeader *headers,
+    size_t header_count, const char *body, char *destination, size_t capacity,
+    const MultiplexHttpCancellation *cancellation, HttpJsonResponse *response);
 bool http_client_stream_get_with_headers(
     const char *url, const HttpRequestHeader *headers, size_t header_count,
     HttpBodyWrite write, void *write_context, size_t full_response_skip,
-    const volatile bool *cancelled, HttpJsonResponse *response);
+    HttpJsonResponse *response);
+bool http_client_stream_get_with_headers_cancellable(
+    const char *url, const HttpRequestHeader *headers, size_t header_count,
+    HttpBodyWrite write, void *write_context, size_t full_response_skip,
+    const MultiplexHttpCancellation *cancellation, HttpJsonResponse *response);
 bool http_client_stream_get_with_headers_concurrent(
     const char *url, const HttpRequestHeader *headers, size_t header_count,
     HttpBodyWrite write, void *write_context, size_t full_response_skip,
-    const volatile bool *cancelled, HttpJsonResponse *response);
+    HttpJsonResponse *response);
+bool http_client_stream_get_with_headers_concurrent_cancellable(
+    const char *url, const HttpRequestHeader *headers, size_t header_count,
+    HttpBodyWrite write, void *write_context, size_t full_response_skip,
+    const MultiplexHttpCancellation *cancellation, HttpJsonResponse *response);
 
 #endif

@@ -42,6 +42,7 @@ static void test_poster_lifecycle_and_partial_launch_unwind(void) {
   start = poster_plan(52, 2);
   assert(multiplex_app_jobs_start_posters(jobs, &start));
   assert(multiplex_app_jobs_quiesce_posters(jobs, 77));
+  assert(jobs->posters.cancellation.requested);
   assert(fixture.inputs[fixture.input_count - 1u].payload.poster_result.kind ==
          MULTIPLEX_APP_SERVICES_POSTER_QUIESCED);
   assert(fixture.inputs[fixture.input_count - 1u].payload.poster_result.token ==

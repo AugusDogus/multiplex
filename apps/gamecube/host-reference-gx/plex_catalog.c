@@ -852,9 +852,11 @@ bool multiplex_plex_catalog_parse_search(const char *json, size_t size,
   return true;
 }
 
-static bool request_plex_json(const MultiplexAuthCredentials *credentials,
+static bool
+request_plex_json_cancellable(const MultiplexAuthCredentials *credentials,
                               const char *path, char *destination,
-                              size_t capacity, size_t *body_size) {
+                              size_t capacity, size_t *body_size,
+                              const MultiplexHttpCancellation *cancellation) {
   const size_t base_size = strlen(credentials->plex_server_url);
   const int url_size = snprintf(
       destination, PLEX_CATALOG_URL_CAPACITY, "%s%s%s",
@@ -877,15 +879,19 @@ static bool request_plex_json(const MultiplexAuthCredentials *credentials,
        .value = credentials->plex_client_id},
   };
   for (unsigned attempt = 1; attempt <= PLEX_REQUEST_ATTEMPTS; ++attempt) {
+    if (multiplex_http_cancellation_requested(cancellation)) {
+      return false;
+    }
     HttpJsonResponse response;
-    if (http_client_request_with_headers(
+    if (http_client_request_with_headers_cancellable(
             "GET", url, headers, sizeof(headers) / sizeof(headers[0]), NULL,
-            destination, capacity, &response) &&
+            destination, capacity, cancellation, &response) &&
         response.status == 200) {
       *body_size = response.body_size;
       return true;
     }
-    if (attempt != PLEX_REQUEST_ATTEMPTS) {
+    if (!multiplex_http_cancellation_requested(cancellation) &&
+        attempt != PLEX_REQUEST_ATTEMPTS) {
       SYS_Report("REFERENCE GX: direct Plex request retry attempt=%u/%u\n",
                  attempt + 1u, PLEX_REQUEST_ATTEMPTS);
     }
@@ -893,8 +899,17 @@ static bool request_plex_json(const MultiplexAuthCredentials *credentials,
   return false;
 }
 
-bool multiplex_plex_load_catalog(const MultiplexAuthCredentials *credentials,
-                                 MultiplexGatewayCatalog *catalog) {
+static bool request_plex_json(const MultiplexAuthCredentials *credentials,
+                              const char *path, char *destination,
+                              size_t capacity, size_t *body_size) {
+  return request_plex_json_cancellable(credentials, path, destination, capacity,
+                                       body_size, NULL);
+}
+
+bool multiplex_plex_load_catalog_cancellable(
+    const MultiplexAuthCredentials *credentials,
+    MultiplexGatewayCatalog *catalog,
+    const MultiplexHttpCancellation *cancellation) {
   if (credentials == NULL || catalog == NULL ||
       credentials->plex_server_url[0] == '\0' ||
       credentials->plex_server_token[0] == '\0') {
@@ -913,9 +928,9 @@ bool multiplex_plex_load_catalog(const MultiplexAuthCredentials *credentials,
   size_t response_size = 0;
   const bool hubs_loaded =
       response != NULL &&
-      request_plex_json(
+      request_plex_json_cancellable(
           credentials, "hubs?onlyTransient=1&count=8&" PLEX_COMPACT_ITEMS_QUERY,
-          response, PLEX_HUB_RESPONSE_CAPACITY, &response_size) &&
+          response, PLEX_HUB_RESPONSE_CAPACITY, &response_size, cancellation) &&
       multiplex_plex_catalog_parse_hubs(response, response_size, catalog);
   free(response);
   if (!hubs_loaded) {
@@ -925,8 +940,9 @@ bool multiplex_plex_load_catalog(const MultiplexAuthCredentials *credentials,
 
   char libraries[PLEX_LIBRARY_RESPONSE_CAPACITY];
   const bool libraries_loaded =
-      request_plex_json(credentials, "library/sections", libraries,
-                        sizeof(libraries), &response_size) &&
+      request_plex_json_cancellable(credentials, "library/sections", libraries,
+                                    sizeof(libraries), &response_size,
+                                    cancellation) &&
       multiplex_plex_catalog_parse_libraries(libraries, response_size, catalog);
   if (!libraries_loaded) {
     SYS_Report("REFERENCE GX: direct Plex libraries unavailable\n");
@@ -938,10 +954,16 @@ bool multiplex_plex_load_catalog(const MultiplexAuthCredentials *credentials,
   return true;
 }
 
-bool multiplex_plex_load_browse(const MultiplexAuthCredentials *credentials,
-                                const MultiplexGatewayLibrary *library,
-                                uint16_t start,
-                                MultiplexGatewayBrowsePage *page) {
+bool multiplex_plex_load_catalog(const MultiplexAuthCredentials *credentials,
+                                 MultiplexGatewayCatalog *catalog) {
+  return multiplex_plex_load_catalog_cancellable(credentials, catalog, NULL);
+}
+
+bool multiplex_plex_load_browse_cancellable(
+    const MultiplexAuthCredentials *credentials,
+    const MultiplexGatewayLibrary *library, uint16_t start,
+    MultiplexGatewayBrowsePage *page,
+    const MultiplexHttpCancellation *cancellation) {
   if (credentials == NULL || library == NULL || library->section_id == 0 ||
       page == NULL) {
     return false;
@@ -960,8 +982,9 @@ bool multiplex_plex_load_browse(const MultiplexAuthCredentials *credentials,
   size_t response_size = 0;
   const bool loaded =
       response != NULL &&
-      request_plex_json(credentials, path, response,
-                        PLEX_BROWSE_RESPONSE_CAPACITY, &response_size) &&
+      request_plex_json_cancellable(credentials, path, response,
+                                    PLEX_BROWSE_RESPONSE_CAPACITY,
+                                    &response_size, cancellation) &&
       multiplex_plex_catalog_parse_browse(response, response_size, library,
                                           start, page);
   free(response);
@@ -973,9 +996,18 @@ bool multiplex_plex_load_browse(const MultiplexAuthCredentials *credentials,
   return loaded;
 }
 
-bool multiplex_plex_load_details(const MultiplexAuthCredentials *credentials,
-                                 uint32_t rating_key,
-                                 MultiplexGatewayDetails *details) {
+bool multiplex_plex_load_browse(const MultiplexAuthCredentials *credentials,
+                                const MultiplexGatewayLibrary *library,
+                                uint16_t start,
+                                MultiplexGatewayBrowsePage *page) {
+  return multiplex_plex_load_browse_cancellable(credentials, library, start,
+                                                page, NULL);
+}
+
+bool multiplex_plex_load_details_cancellable(
+    const MultiplexAuthCredentials *credentials, uint32_t rating_key,
+    MultiplexGatewayDetails *details,
+    const MultiplexHttpCancellation *cancellation) {
   if (credentials == NULL || rating_key == 0 || details == NULL) {
     return false;
   }
@@ -989,8 +1021,9 @@ bool multiplex_plex_load_details(const MultiplexAuthCredentials *credentials,
   size_t response_size = 0;
   const bool loaded =
       response != NULL &&
-      request_plex_json(credentials, path, response,
-                        PLEX_DETAILS_RESPONSE_CAPACITY, &response_size) &&
+      request_plex_json_cancellable(credentials, path, response,
+                                    PLEX_DETAILS_RESPONSE_CAPACITY,
+                                    &response_size, cancellation) &&
       multiplex_plex_catalog_parse_details(response, response_size, details) &&
       details->rating_key == rating_key;
   free(response);
@@ -998,6 +1031,13 @@ bool multiplex_plex_load_details(const MultiplexAuthCredentials *credentials,
     SYS_Report("REFERENCE GX: direct Plex details rating-key=%u\n", rating_key);
   }
   return loaded;
+}
+
+bool multiplex_plex_load_details(const MultiplexAuthCredentials *credentials,
+                                 uint32_t rating_key,
+                                 MultiplexGatewayDetails *details) {
+  return multiplex_plex_load_details_cancellable(credentials, rating_key,
+                                                 details, NULL);
 }
 
 bool multiplex_plex_load_children(const MultiplexAuthCredentials *credentials,
@@ -1269,9 +1309,10 @@ static bool encode_url_value(const char *value, char *destination,
   return true;
 }
 
-bool multiplex_plex_load_search(const MultiplexAuthCredentials *credentials,
-                                const char *query, uint16_t query_length,
-                                MultiplexGatewaySearchPage *page) {
+bool multiplex_plex_load_search_cancellable(
+    const MultiplexAuthCredentials *credentials, const char *query,
+    uint16_t query_length, MultiplexGatewaySearchPage *page,
+    const MultiplexHttpCancellation *cancellation) {
   if (credentials == NULL || query == NULL || query_length == 0 ||
       query_length >= MULTIPLEX_GATEWAY_SEARCH_QUERY_CAPACITY || page == NULL) {
     return false;
@@ -1296,8 +1337,9 @@ bool multiplex_plex_load_search(const MultiplexAuthCredentials *credentials,
   size_t response_size = 0;
   const bool loaded =
       response != NULL &&
-      request_plex_json(credentials, path, response,
-                        PLEX_SEARCH_RESPONSE_CAPACITY, &response_size) &&
+      request_plex_json_cancellable(credentials, path, response,
+                                    PLEX_SEARCH_RESPONSE_CAPACITY,
+                                    &response_size, cancellation) &&
       multiplex_plex_catalog_parse_search(response, response_size, query_copy,
                                           query_length, page);
   free(response);
@@ -1308,9 +1350,17 @@ bool multiplex_plex_load_search(const MultiplexAuthCredentials *credentials,
   return loaded;
 }
 
-bool multiplex_plex_load_artwork(const MultiplexAuthCredentials *credentials,
-                                 const char *artwork_path, uint8_t *destination,
-                                 size_t capacity, size_t *encoded_size) {
+bool multiplex_plex_load_search(const MultiplexAuthCredentials *credentials,
+                                const char *query, uint16_t query_length,
+                                MultiplexGatewaySearchPage *page) {
+  return multiplex_plex_load_search_cancellable(credentials, query,
+                                                query_length, page, NULL);
+}
+
+bool multiplex_plex_load_artwork_cancellable(
+    const MultiplexAuthCredentials *credentials, const char *artwork_path,
+    uint8_t *destination, size_t capacity, size_t *encoded_size,
+    const MultiplexHttpCancellation *cancellation) {
   if (credentials == NULL || credentials->plex_server_url[0] == '\0' ||
       credentials->plex_server_token[0] == '\0' || artwork_path == NULL ||
       artwork_path[0] != '/' || destination == NULL || capacity == 0 ||
@@ -1344,8 +1394,8 @@ bool multiplex_plex_load_artwork(const MultiplexAuthCredentials *credentials,
       {.name = "X-Plex-Client-Identifier",
        .value = credentials->plex_client_id},
   };
-  HttpClient *client = http_client_open_with_headers(
-      url, headers, sizeof(headers) / sizeof(headers[0]));
+  HttpClient *client = http_client_open_with_headers_cancellable(
+      url, headers, sizeof(headers) / sizeof(headers[0]), cancellation);
   if (client == NULL) {
     return false;
   }
@@ -1359,10 +1409,17 @@ bool multiplex_plex_load_artwork(const MultiplexAuthCredentials *credentials,
   return loaded;
 }
 
-bool multiplex_plex_report_timeline(const MultiplexAuthCredentials *credentials,
-                                    const char *session_id, uint32_t rating_key,
-                                    uint32_t position_ms, uint32_t duration_ms,
-                                    const char *state) {
+bool multiplex_plex_load_artwork(const MultiplexAuthCredentials *credentials,
+                                 const char *artwork_path, uint8_t *destination,
+                                 size_t capacity, size_t *encoded_size) {
+  return multiplex_plex_load_artwork_cancellable(
+      credentials, artwork_path, destination, capacity, encoded_size, NULL);
+}
+
+bool multiplex_plex_report_timeline_cancellable(
+    const MultiplexAuthCredentials *credentials, const char *session_id,
+    uint32_t rating_key, uint32_t position_ms, uint32_t duration_ms,
+    const char *state, const MultiplexHttpCancellation *cancellation) {
   if (credentials == NULL || credentials->plex_server_url[0] == '\0' ||
       credentials->plex_server_token[0] == '\0' ||
       credentials->plex_client_id[0] == '\0' || session_id == NULL ||
@@ -1403,15 +1460,24 @@ bool multiplex_plex_report_timeline(const MultiplexAuthCredentials *credentials,
   char response_body[512];
   HttpJsonResponse response;
   const bool reported =
-      http_client_request_with_headers(
+      http_client_request_with_headers_cancellable(
           "GET", url, headers, sizeof(headers) / sizeof(headers[0]), NULL,
-          response_body, sizeof(response_body), &response) &&
+          response_body, sizeof(response_body), cancellation, &response) &&
       response.status == 200;
   SYS_Report(
       "REFERENCE GX: direct Plex timeline rating-key=%u position=%u state=%s "
       "reported=%u\n",
       rating_key, position_ms, state, reported ? 1u : 0u);
   return reported;
+}
+
+bool multiplex_plex_report_timeline(const MultiplexAuthCredentials *credentials,
+                                    const char *session_id, uint32_t rating_key,
+                                    uint32_t position_ms, uint32_t duration_ms,
+                                    const char *state) {
+  return multiplex_plex_report_timeline_cancellable(credentials, session_id,
+                                                    rating_key, position_ms,
+                                                    duration_ms, state, NULL);
 }
 
 bool multiplex_plex_mark_watched(const MultiplexAuthCredentials *credentials,

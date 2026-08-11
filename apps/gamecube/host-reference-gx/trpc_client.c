@@ -74,9 +74,9 @@ static bool safe_identifier(const char *value) {
   return true;
 }
 
-bool multiplex_trpc_load_watch_together_rooms(const char *base_url,
-                                              const char *bearer_token,
-                                              MultiplexTrpcRoomList *list) {
+bool multiplex_trpc_load_watch_together_rooms_cancellable(
+    const char *base_url, const char *bearer_token, MultiplexTrpcRoomList *list,
+    const MultiplexHttpCancellation *cancellation) {
   if (base_url == NULL || base_url[0] == '\0' || bearer_token == NULL ||
       bearer_token[0] == '\0' || list == NULL) {
     return false;
@@ -96,20 +96,28 @@ bool multiplex_trpc_load_watch_together_rooms(const char *base_url,
     return false;
   }
   HttpJsonResponse response;
-  const bool loaded =
-      http_client_request_json("GET", url, bearer_token, NULL, response_body,
-                               TRPC_RESPONSE_CAPACITY, &response) &&
-      response.status == 200 &&
-      multiplex_trpc_parse_watch_together_rooms(response_body,
-                                                response.body_size, list);
+  const bool loaded = http_client_request_json_cancellable(
+                          "GET", url, bearer_token, NULL, response_body,
+                          TRPC_RESPONSE_CAPACITY, cancellation, &response) &&
+                      response.status == 200 &&
+                      multiplex_trpc_parse_watch_together_rooms(
+                          response_body, response.body_size, list);
   free(response_body);
   SYS_Report("REFERENCE GX: tRPC Watch Together rooms=%u loaded=%u\n",
              loaded ? list->room_count : 0, loaded ? 1u : 0u);
   return loaded;
 }
 
-bool multiplex_trpc_load_user_id(const char *base_url, const char *bearer_token,
-                                 uint32_t *user_id) {
+bool multiplex_trpc_load_watch_together_rooms(const char *base_url,
+                                              const char *bearer_token,
+                                              MultiplexTrpcRoomList *list) {
+  return multiplex_trpc_load_watch_together_rooms_cancellable(
+      base_url, bearer_token, list, NULL);
+}
+
+bool multiplex_trpc_load_user_id_cancellable(
+    const char *base_url, const char *bearer_token, uint32_t *user_id,
+    const MultiplexHttpCancellation *cancellation) {
   if (base_url == NULL || base_url[0] == '\0' || bearer_token == NULL ||
       bearer_token[0] == '\0' || user_id == NULL) {
     return false;
@@ -131,8 +139,9 @@ bool multiplex_trpc_load_user_id(const char *base_url, const char *bearer_token,
   HttpJsonResponse response;
   uint32_t parsed = 0;
   const bool loaded =
-      http_client_request_json("GET", url, bearer_token, NULL, response_body,
-                               TRPC_RESPONSE_CAPACITY, &response) &&
+      http_client_request_json_cancellable(
+          "GET", url, bearer_token, NULL, response_body, TRPC_RESPONSE_CAPACITY,
+          cancellation, &response) &&
       response.status == 200 &&
       multiplex_trpc_parse_user_id(response_body, response.body_size, &parsed);
   free(response_body);
@@ -143,9 +152,16 @@ bool multiplex_trpc_load_user_id(const char *base_url, const char *bearer_token,
   return loaded;
 }
 
-bool multiplex_trpc_load_watch_together_invitees(
+bool multiplex_trpc_load_user_id(const char *base_url, const char *bearer_token,
+                                 uint32_t *user_id) {
+  return multiplex_trpc_load_user_id_cancellable(base_url, bearer_token,
+                                                 user_id, NULL);
+}
+
+bool multiplex_trpc_load_watch_together_invitees_cancellable(
     const char *base_url, const char *bearer_token,
-    MultiplexTrpcInviteeList *list) {
+    MultiplexTrpcInviteeList *list,
+    const MultiplexHttpCancellation *cancellation) {
   if (base_url == NULL || base_url[0] == '\0' || bearer_token == NULL ||
       bearer_token[0] == '\0' || list == NULL) {
     return false;
@@ -165,16 +181,23 @@ bool multiplex_trpc_load_watch_together_invitees(
     return false;
   }
   HttpJsonResponse response;
-  const bool loaded =
-      http_client_request_json("GET", url, bearer_token, NULL, response_body,
-                               TRPC_RESPONSE_CAPACITY, &response) &&
-      response.status == 200 &&
-      multiplex_trpc_parse_watch_together_invitees(response_body,
-                                                   response.body_size, list);
+  const bool loaded = http_client_request_json_cancellable(
+                          "GET", url, bearer_token, NULL, response_body,
+                          TRPC_RESPONSE_CAPACITY, cancellation, &response) &&
+                      response.status == 200 &&
+                      multiplex_trpc_parse_watch_together_invitees(
+                          response_body, response.body_size, list);
   free(response_body);
   SYS_Report("REFERENCE GX: tRPC Watch Together invitees=%u loaded=%u\n",
              loaded ? list->invitee_count : 0, loaded ? 1u : 0u);
   return loaded;
+}
+
+bool multiplex_trpc_load_watch_together_invitees(
+    const char *base_url, const char *bearer_token,
+    MultiplexTrpcInviteeList *list) {
+  return multiplex_trpc_load_watch_together_invitees_cancellable(
+      base_url, bearer_token, list, NULL);
 }
 
 bool multiplex_trpc_create_watch_together_room(

@@ -81,15 +81,18 @@ libogc2_dhcp_worker_patch="$app_dir/patches/libogc2-start-network-worker-before-
 libogc2_dhcp_state_patch="$app_dir/patches/libogc2-arm-dhcp-state-before-send.patch"
 libogc2_network_retry_patch="$app_dir/patches/libogc2-retry-network-configuration.patch"
 for patch_file in "$libogc2_patch" "$libogc2_bba_wrap_patch" "$libogc2_bba_recovery_patch" "$libogc2_bba_pbuf_patch" "$libogc2_tcp_sequence_patch" "$libogc2_tcp_window_patch" "$libogc2_bba_link_patch" "$libogc2_dhcp_worker_patch" "$libogc2_dhcp_state_patch" "$libogc2_network_retry_patch"; do
-  if git -C "$libogc2_dir" apply --unidiff-zero --reverse --check "$patch_file" >/dev/null 2>&1; then
+  if git -C "$libogc2_dir" apply --reverse --check "$patch_file" >/dev/null 2>&1; then
     :
-  elif git -C "$libogc2_dir" apply --unidiff-zero --check "$patch_file"; then
-    git -C "$libogc2_dir" apply --unidiff-zero "$patch_file"
+  elif git -C "$libogc2_dir" apply --check "$patch_file"; then
+    git -C "$libogc2_dir" apply "$patch_file"
   else
     echo "libogc2 patch does not apply cleanly: $patch_file" >&2
     exit 1
   fi
 done
+
+python "$script_dir/check-libogc2-nonblocking-connect.py" \
+  "$libogc2_dir/lwip/network.c"
 
 libogc2_input="$LIBOGC2_COMMIT $(cksum "$libogc2_patch") $(cksum "$libogc2_bba_wrap_patch") $(cksum "$libogc2_bba_recovery_patch") $(cksum "$libogc2_bba_pbuf_patch") $(cksum "$libogc2_tcp_sequence_patch") $(cksum "$libogc2_tcp_window_patch") $(cksum "$libogc2_bba_link_patch") $(cksum "$libogc2_dhcp_worker_patch") $(cksum "$libogc2_dhcp_state_patch") $(cksum "$libogc2_network_retry_patch")"
 libogc2_stamp="$libogc2_stage/.build-input"

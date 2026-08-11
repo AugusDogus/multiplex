@@ -49,11 +49,14 @@ static bool prepare_cache_save(MultiplexAppJobs *jobs, AppJobsWork *work) {
 }
 
 static bool execute_catalog(AppJobsWork *work) {
+  const MultiplexHttpCancellation cancellation =
+      multiplex_app_jobs_http_cancellation(&work->cancellation);
 #if MULTIPLEX_PAIRING_ENABLED
-  return multiplex_plex_load_catalog(&work->request.payload.catalog.credentials,
-                                     work->output);
+  return multiplex_plex_load_catalog_cancellable(
+      &work->request.payload.catalog.credentials, work->output, &cancellation);
 #else
-  return multiplex_gateway_load_catalog(MULTIPLEX_GATEWAY_URL, work->output);
+  return multiplex_gateway_load_catalog_cancellable(
+      MULTIPLEX_GATEWAY_URL, work->output, &cancellation);
 #endif
 }
 
@@ -73,13 +76,26 @@ static bool execute_startup_data(AppJobsWork *work) {
   AppJobsStartupDataResult *result = work->output;
   const MultiplexAuthCredentials *credentials =
       &work->request.payload.startup_data.credentials;
-  result->user_available = multiplex_trpc_load_user_id(
-      credentials->origin, credentials->session_token, &result->user_id);
-  result->rooms_available = multiplex_trpc_load_watch_together_rooms(
-      MULTIPLEX_BASE_URL, credentials->session_token, &result->rooms);
-  result->invitees_available = multiplex_trpc_load_watch_together_invitees(
-      MULTIPLEX_BASE_URL, credentials->session_token, &result->invitees);
-  return true;
+  const MultiplexHttpCancellation cancellation =
+      multiplex_app_jobs_http_cancellation(&work->cancellation);
+  result->user_available = multiplex_trpc_load_user_id_cancellable(
+      credentials->origin, credentials->session_token, &result->user_id,
+      &cancellation);
+  if (multiplex_http_cancellation_requested(&cancellation)) {
+    return false;
+  }
+  result->rooms_available =
+      multiplex_trpc_load_watch_together_rooms_cancellable(
+          MULTIPLEX_BASE_URL, credentials->session_token, &result->rooms,
+          &cancellation);
+  if (multiplex_http_cancellation_requested(&cancellation)) {
+    return false;
+  }
+  result->invitees_available =
+      multiplex_trpc_load_watch_together_invitees_cancellable(
+          MULTIPLEX_BASE_URL, credentials->session_token, &result->invitees,
+          &cancellation);
+  return !multiplex_http_cancellation_requested(&cancellation);
 #else
   (void)work;
   return false;
@@ -87,40 +103,46 @@ static bool execute_startup_data(AppJobsWork *work) {
 }
 
 static bool execute_browse(AppJobsWork *work) {
+  const MultiplexHttpCancellation cancellation =
+      multiplex_app_jobs_http_cancellation(&work->cancellation);
 #if MULTIPLEX_PAIRING_ENABLED
-  return multiplex_plex_load_browse(&work->request.payload.browse.credentials,
-                                    &work->request.payload.browse.library,
-                                    work->request.payload.browse.start,
-                                    work->output);
+  return multiplex_plex_load_browse_cancellable(
+      &work->request.payload.browse.credentials,
+      &work->request.payload.browse.library, work->request.payload.browse.start,
+      work->output, &cancellation);
 #else
-  return multiplex_gateway_load_browse(
+  return multiplex_gateway_load_browse_cancellable(
       MULTIPLEX_GATEWAY_URL, work->request.payload.browse.library.section_id,
-      work->request.payload.browse.start, work->output);
+      work->request.payload.browse.start, work->output, &cancellation);
 #endif
 }
 
 static bool execute_search(AppJobsWork *work) {
+  const MultiplexHttpCancellation cancellation =
+      multiplex_app_jobs_http_cancellation(&work->cancellation);
 #if MULTIPLEX_PAIRING_ENABLED
-  return multiplex_plex_load_search(&work->request.payload.search.credentials,
-                                    work->request.payload.search.query,
-                                    work->request.payload.search.query_length,
-                                    work->output);
+  return multiplex_plex_load_search_cancellable(
+      &work->request.payload.search.credentials,
+      work->request.payload.search.query,
+      work->request.payload.search.query_length, work->output, &cancellation);
 #else
-  return multiplex_gateway_load_search(
+  return multiplex_gateway_load_search_cancellable(
       MULTIPLEX_GATEWAY_URL, work->request.payload.search.query,
-      work->request.payload.search.query_length, work->output);
+      work->request.payload.search.query_length, work->output, &cancellation);
 #endif
 }
 
 static bool execute_details(AppJobsWork *work) {
+  const MultiplexHttpCancellation cancellation =
+      multiplex_app_jobs_http_cancellation(&work->cancellation);
 #if MULTIPLEX_PAIRING_ENABLED
-  return multiplex_plex_load_details(&work->request.payload.details.credentials,
-                                     work->request.payload.details.rating_key,
-                                     work->output);
+  return multiplex_plex_load_details_cancellable(
+      &work->request.payload.details.credentials,
+      work->request.payload.details.rating_key, work->output, &cancellation);
 #else
-  return multiplex_gateway_load_details(
+  return multiplex_gateway_load_details_cancellable(
       MULTIPLEX_GATEWAY_URL, work->request.payload.details.rating_key,
-      work->output);
+      work->output, &cancellation);
 #endif
 }
 
@@ -279,6 +301,10 @@ bool multiplex_app_jobs_poll_work(MultiplexAppJobs *jobs, uint64_t now_ms) {
       continue;
     }
     jobs->platform.threads.barrier(jobs->platform.threads.context);
+    if (work->cancellation.requested) {
+      release_work(jobs, work);
+      continue;
+    }
     jobs->platform.threads.join(jobs->platform.threads.context, &work->thread);
     MultiplexAppServicesInput input = {
         .kind = MULTIPLEX_APP_SERVICES_INPUT_WORK_RESULT_VIEW,
@@ -309,6 +335,16 @@ bool multiplex_app_jobs_work_running(const MultiplexAppJobs *jobs,
 void multiplex_app_jobs_work_release_all(MultiplexAppJobs *jobs) {
   for (unsigned index = 0; index < MULTIPLEX_APP_SERVICES_WORK_COUNT; ++index) {
     release_work(jobs, &jobs->work[index]);
+  }
+}
+
+void multiplex_app_jobs_work_cancel_all(MultiplexAppJobs *jobs) {
+  for (unsigned index = 0; index < MULTIPLEX_APP_SERVICES_WORK_COUNT; ++index) {
+    AppJobsWork *work = &jobs->work[index];
+    if (work->started &&
+        work->spec->kind != MULTIPLEX_APP_SERVICES_WORK_CATALOG_CACHE_SAVE) {
+      multiplex_app_jobs_cancellation_request(&work->cancellation);
+    }
   }
 }
 

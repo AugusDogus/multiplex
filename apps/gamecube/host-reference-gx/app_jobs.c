@@ -7,6 +7,28 @@ bool multiplex_app_jobs_report(MultiplexAppJobs *jobs,
   return jobs->reporter.report(jobs->reporter.context, input);
 }
 
+void multiplex_app_jobs_cancellation_request(AppJobsCancellation *state) {
+  if (state == NULL) {
+    return;
+  }
+  state->requested = true;
+  __sync_synchronize();
+}
+
+bool multiplex_app_jobs_cancellation_requested(void *context) {
+  const AppJobsCancellation *state = context;
+  __sync_synchronize();
+  return state != NULL && state->requested;
+}
+
+MultiplexHttpCancellation
+multiplex_app_jobs_http_cancellation(AppJobsCancellation *state) {
+  return (MultiplexHttpCancellation){
+      .is_cancelled = multiplex_app_jobs_cancellation_requested,
+      .context = state,
+  };
+}
+
 static bool report_to_app_services(void *context,
                                    const MultiplexAppServicesInput *input) {
   MultiplexAppServices *services = context;
@@ -67,6 +89,9 @@ void multiplex_app_jobs_destroy(MultiplexAppJobs **jobs) {
     return;
   }
   MultiplexAppJobs *owned = *jobs;
+  multiplex_app_jobs_work_cancel_all(owned);
+  multiplex_app_jobs_posters_cancel(owned);
+  multiplex_playback_session_cancel_background(owned->playback_session);
   multiplex_app_jobs_prefetch_discard(owned);
   multiplex_app_jobs_work_release_all(owned);
   multiplex_app_jobs_posters_stop(owned);
@@ -93,6 +118,9 @@ bool multiplex_app_jobs_quiesce_runtime(MultiplexAppJobs *jobs,
   if (jobs == NULL) {
     return false;
   }
+  multiplex_app_jobs_work_cancel_all(jobs);
+  multiplex_app_jobs_posters_cancel(jobs);
+  multiplex_playback_session_cancel_background(jobs->playback_session);
   multiplex_app_jobs_posters_stop(jobs);
   multiplex_app_jobs_prefetch_discard(jobs);
   multiplex_app_jobs_work_release_all(jobs);

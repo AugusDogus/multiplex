@@ -27,7 +27,6 @@ bool multiplex_plex_hls_state_request_stop(MultiplexPlexHlsState *state) {
   state_lock(state);
   const bool requested = !state->snapshot.stopping;
   state->snapshot.stopping = true;
-  state->http_client_cancelled = true;
   state_unlock(state);
   return requested;
 }

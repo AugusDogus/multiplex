@@ -105,8 +105,23 @@ static void join(void *context, AppJobsThread *thread) {
   if (*thread == 0) {
     return;
   }
+  if (fixture->assert_runtime_cancellation_on_next_join) {
+    MultiplexAppJobs *jobs = fixture->expected_cancelled_jobs;
+    assert(jobs != NULL);
+    for (unsigned kind = 0; kind < MULTIPLEX_APP_SERVICES_WORK_COUNT; ++kind) {
+      if (kind != MULTIPLEX_APP_SERVICES_WORK_CATALOG_CACHE_SAVE) {
+        assert(jobs->work[kind].cancellation.requested);
+      }
+    }
+#if MULTIPLEX_PAIRING_ENABLED
+    assert(jobs->posters.cancellation.requested);
+#endif
+    assert(fixture->playback_cancel_count == 1u);
+    fixture->assert_runtime_cancellation_on_next_join = false;
+  }
   record_event(fixture, 'J');
   run_thread(fixture, *thread);
+  assert(!fixture->threads[*thread].joined);
   fixture->threads[*thread].joined = true;
   *thread = 0;
 }

@@ -104,6 +104,8 @@ typedef struct {
 
 MultiplexPlaybackSession *multiplex_playback_session_create(void);
 void multiplex_playback_session_destroy(MultiplexPlaybackSession **session);
+void multiplex_playback_session_cancel_background(
+    MultiplexPlaybackSession *session);
 
 MultiplexPlaybackOpenResult multiplex_playback_session_open_program(
     MultiplexPlaybackSession *session,

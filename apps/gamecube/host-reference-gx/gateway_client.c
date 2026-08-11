@@ -323,8 +323,9 @@ static bool encode_query(const char *query, uint16_t query_length,
   return true;
 }
 
-bool multiplex_gateway_load_pairing(const char *base_url,
-                                    MultiplexGatewayPairing *pairing) {
+bool multiplex_gateway_load_pairing_cancellable(
+    const char *base_url, MultiplexGatewayPairing *pairing,
+    const MultiplexHttpCancellation *cancellation) {
   if (base_url == NULL || base_url[0] == '\0' || pairing == NULL) {
     return false;
   }
@@ -337,7 +338,7 @@ bool multiplex_gateway_load_pairing(const char *base_url,
     return false;
   }
 
-  HttpClient *client = http_client_open(url);
+  HttpClient *client = http_client_open_cancellable(url, cancellation);
   if (client == NULL) {
     return false;
   }
@@ -374,8 +375,9 @@ bool multiplex_gateway_load_pairing(const char *base_url,
   return true;
 }
 
-bool multiplex_gateway_load_catalog(const char *base_url,
-                                    MultiplexGatewayCatalog *catalog) {
+bool multiplex_gateway_load_catalog_cancellable(
+    const char *base_url, MultiplexGatewayCatalog *catalog,
+    const MultiplexHttpCancellation *cancellation) {
   if (base_url == NULL || base_url[0] == '\0' || catalog == NULL) {
     return false;
   }
@@ -390,7 +392,7 @@ bool multiplex_gateway_load_catalog(const char *base_url,
     return false;
   }
 
-  HttpClient *client = http_client_open(url);
+  HttpClient *client = http_client_open_cancellable(url, cancellation);
   if (client == NULL) {
     SYS_Report("REFERENCE GX: gateway catalog HTTP open failed\n");
     return false;
@@ -414,8 +416,9 @@ bool multiplex_gateway_load_catalog(const char *base_url,
   return true;
 }
 
-bool multiplex_gateway_load_artwork(const char *base_url, uint8_t *destination,
-                                    size_t capacity, size_t *encoded_size) {
+bool multiplex_gateway_load_artwork_cancellable(
+    const char *base_url, uint8_t *destination, size_t capacity,
+    size_t *encoded_size, const MultiplexHttpCancellation *cancellation) {
   if (base_url == NULL || destination == NULL || encoded_size == NULL) {
     return false;
   }
@@ -427,7 +430,7 @@ bool multiplex_gateway_load_artwork(const char *base_url, uint8_t *destination,
   if (written < 0 || (size_t)written >= sizeof(url)) {
     return false;
   }
-  HttpClient *client = http_client_open(url);
+  HttpClient *client = http_client_open_cancellable(url, cancellation);
   if (client == NULL) {
     return false;
   }
@@ -447,9 +450,10 @@ bool multiplex_gateway_load_artwork(const char *base_url, uint8_t *destination,
   return loaded;
 }
 
-bool multiplex_gateway_load_browse(const char *base_url, uint16_t section_id,
-                                   uint16_t start,
-                                   MultiplexGatewayBrowsePage *page) {
+bool multiplex_gateway_load_browse_cancellable(
+    const char *base_url, uint16_t section_id, uint16_t start,
+    MultiplexGatewayBrowsePage *page,
+    const MultiplexHttpCancellation *cancellation) {
   if (base_url == NULL || section_id == 0 || page == NULL) {
     return false;
   }
@@ -462,7 +466,7 @@ bool multiplex_gateway_load_browse(const char *base_url, uint16_t section_id,
   if (written < 0 || (size_t)written >= sizeof(url)) {
     return false;
   }
-  HttpClient *client = http_client_open(url);
+  HttpClient *client = http_client_open_cancellable(url, cancellation);
   if (client == NULL) {
     return false;
   }
@@ -480,11 +484,10 @@ bool multiplex_gateway_load_browse(const char *base_url, uint16_t section_id,
   return loaded;
 }
 
-bool multiplex_gateway_load_browse_artwork(const char *base_url,
-                                           uint16_t section_id, uint16_t start,
-                                           uint8_t *destination,
-                                           size_t capacity,
-                                           size_t *encoded_size) {
+bool multiplex_gateway_load_browse_artwork_cancellable(
+    const char *base_url, uint16_t section_id, uint16_t start,
+    uint8_t *destination, size_t capacity, size_t *encoded_size,
+    const MultiplexHttpCancellation *cancellation) {
   if (base_url == NULL || section_id == 0 || destination == NULL ||
       encoded_size == NULL) {
     return false;
@@ -498,7 +501,7 @@ bool multiplex_gateway_load_browse_artwork(const char *base_url,
   if (written < 0 || (size_t)written >= sizeof(url)) {
     return false;
   }
-  HttpClient *client = http_client_open(url);
+  HttpClient *client = http_client_open_cancellable(url, cancellation);
   if (client == NULL) {
     return false;
   }
@@ -516,9 +519,10 @@ bool multiplex_gateway_load_browse_artwork(const char *base_url,
   return loaded;
 }
 
-bool multiplex_gateway_load_search(const char *base_url, const char *query,
-                                   uint16_t query_length,
-                                   MultiplexGatewaySearchPage *page) {
+bool multiplex_gateway_load_search_cancellable(
+    const char *base_url, const char *query, uint16_t query_length,
+    MultiplexGatewaySearchPage *page,
+    const MultiplexHttpCancellation *cancellation) {
   if (base_url == NULL || page == NULL) {
     return false;
   }
@@ -535,7 +539,7 @@ bool multiplex_gateway_load_search(const char *base_url, const char *query,
   if (written < 0 || (size_t)written >= sizeof(url)) {
     return false;
   }
-  HttpClient *client = http_client_open(url);
+  HttpClient *client = http_client_open_cancellable(url, cancellation);
   if (client == NULL) {
     return false;
   }
@@ -552,9 +556,10 @@ bool multiplex_gateway_load_search(const char *base_url, const char *query,
   return loaded;
 }
 
-bool multiplex_gateway_load_search_artwork(
+bool multiplex_gateway_load_search_artwork_cancellable(
     const char *base_url, const char *query, uint16_t query_length,
-    uint8_t *destination, size_t capacity, size_t *encoded_size) {
+    uint8_t *destination, size_t capacity, size_t *encoded_size,
+    const MultiplexHttpCancellation *cancellation) {
   if (base_url == NULL || destination == NULL || encoded_size == NULL) {
     return false;
   }
@@ -571,7 +576,7 @@ bool multiplex_gateway_load_search_artwork(
   if (written < 0 || (size_t)written >= sizeof(url)) {
     return false;
   }
-  HttpClient *client = http_client_open(url);
+  HttpClient *client = http_client_open_cancellable(url, cancellation);
   if (client == NULL) {
     return false;
   }
@@ -589,8 +594,9 @@ bool multiplex_gateway_load_search_artwork(
   return loaded;
 }
 
-bool multiplex_gateway_load_details(const char *base_url, uint32_t rating_key,
-                                    MultiplexGatewayDetails *details) {
+bool multiplex_gateway_load_details_cancellable(
+    const char *base_url, uint32_t rating_key, MultiplexGatewayDetails *details,
+    const MultiplexHttpCancellation *cancellation) {
   if (base_url == NULL || rating_key == 0 || details == NULL) {
     return false;
   }
@@ -603,7 +609,7 @@ bool multiplex_gateway_load_details(const char *base_url, uint32_t rating_key,
   if (written < 0 || (size_t)written >= sizeof(url)) {
     return false;
   }
-  HttpClient *client = http_client_open(url);
+  HttpClient *client = http_client_open_cancellable(url, cancellation);
   if (client == NULL) {
     return false;
   }
@@ -621,9 +627,10 @@ bool multiplex_gateway_load_details(const char *base_url, uint32_t rating_key,
   return loaded;
 }
 
-bool multiplex_gateway_load_playback_manifest(
+bool multiplex_gateway_load_playback_manifest_cancellable(
     const char *base_url, uint32_t rating_key, uint32_t offset_ms,
-    MultiplexGatewayPlaybackManifest *manifest) {
+    MultiplexGatewayPlaybackManifest *manifest,
+    const MultiplexHttpCancellation *cancellation) {
   if (base_url == NULL || base_url[0] == '\0' || manifest == NULL) {
     return false;
   }
@@ -640,7 +647,7 @@ bool multiplex_gateway_load_playback_manifest(
   if (written < 0 || (size_t)written >= sizeof(url)) {
     return false;
   }
-  HttpClient *client = http_client_open(url);
+  HttpClient *client = http_client_open_cancellable(url, cancellation);
   if (client == NULL) {
     return false;
   }
@@ -661,11 +668,10 @@ bool multiplex_gateway_load_playback_manifest(
   return loaded;
 }
 
-bool multiplex_gateway_report_timeline(const char *base_url,
-                                       uint32_t rating_key,
-                                       uint32_t position_ms,
-                                       uint32_t duration_ms,
-                                       const char *state) {
+bool multiplex_gateway_report_timeline_cancellable(
+    const char *base_url, uint32_t rating_key, uint32_t position_ms,
+    uint32_t duration_ms, const char *state,
+    const MultiplexHttpCancellation *cancellation) {
   if (base_url == NULL || base_url[0] == '\0' || rating_key == 0 ||
       duration_ms == 0 || state == NULL ||
       (strcmp(state, "playing") != 0 && strcmp(state, "paused") != 0 &&
@@ -683,7 +689,7 @@ bool multiplex_gateway_report_timeline(const char *base_url,
   if (written < 0 || (size_t)written >= sizeof(url)) {
     return false;
   }
-  HttpClient *client = http_client_open(url);
+  HttpClient *client = http_client_open_cancellable(url, cancellation);
   if (client == NULL) {
     return false;
   }
@@ -697,4 +703,72 @@ bool multiplex_gateway_report_timeline(const char *base_url,
       "reported=%u\n",
       rating_key, position_ms, state, reported);
   return reported;
+}
+
+bool multiplex_gateway_load_pairing(const char *base_url,
+                                    MultiplexGatewayPairing *pairing) {
+  return multiplex_gateway_load_pairing_cancellable(base_url, pairing, NULL);
+}
+
+bool multiplex_gateway_load_catalog(const char *base_url,
+                                    MultiplexGatewayCatalog *catalog) {
+  return multiplex_gateway_load_catalog_cancellable(base_url, catalog, NULL);
+}
+
+bool multiplex_gateway_load_artwork(const char *base_url, uint8_t *destination,
+                                    size_t capacity, size_t *encoded_size) {
+  return multiplex_gateway_load_artwork_cancellable(
+      base_url, destination, capacity, encoded_size, NULL);
+}
+
+bool multiplex_gateway_load_browse(const char *base_url, uint16_t section_id,
+                                   uint16_t start,
+                                   MultiplexGatewayBrowsePage *page) {
+  return multiplex_gateway_load_browse_cancellable(base_url, section_id, start,
+                                                   page, NULL);
+}
+
+bool multiplex_gateway_load_browse_artwork(const char *base_url,
+                                           uint16_t section_id, uint16_t start,
+                                           uint8_t *destination,
+                                           size_t capacity,
+                                           size_t *encoded_size) {
+  return multiplex_gateway_load_browse_artwork_cancellable(
+      base_url, section_id, start, destination, capacity, encoded_size, NULL);
+}
+
+bool multiplex_gateway_load_search(const char *base_url, const char *query,
+                                   uint16_t query_length,
+                                   MultiplexGatewaySearchPage *page) {
+  return multiplex_gateway_load_search_cancellable(base_url, query,
+                                                   query_length, page, NULL);
+}
+
+bool multiplex_gateway_load_search_artwork(
+    const char *base_url, const char *query, uint16_t query_length,
+    uint8_t *destination, size_t capacity, size_t *encoded_size) {
+  return multiplex_gateway_load_search_artwork_cancellable(
+      base_url, query, query_length, destination, capacity, encoded_size, NULL);
+}
+
+bool multiplex_gateway_load_details(const char *base_url, uint32_t rating_key,
+                                    MultiplexGatewayDetails *details) {
+  return multiplex_gateway_load_details_cancellable(base_url, rating_key,
+                                                    details, NULL);
+}
+
+bool multiplex_gateway_load_playback_manifest(
+    const char *base_url, uint32_t rating_key, uint32_t offset_ms,
+    MultiplexGatewayPlaybackManifest *manifest) {
+  return multiplex_gateway_load_playback_manifest_cancellable(
+      base_url, rating_key, offset_ms, manifest, NULL);
+}
+
+bool multiplex_gateway_report_timeline(const char *base_url,
+                                       uint32_t rating_key,
+                                       uint32_t position_ms,
+                                       uint32_t duration_ms,
+                                       const char *state) {
+  return multiplex_gateway_report_timeline_cancellable(
+      base_url, rating_key, position_ms, duration_ms, state, NULL);
 }

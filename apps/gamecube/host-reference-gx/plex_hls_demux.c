@@ -146,6 +146,10 @@ static bool timeline_state_valid(PlaybackTimelineState state) {
   return false;
 }
 
+static bool hls_http_cancelled(void *context) {
+  return multiplex_plex_hls_state_is_stopping(context);
+}
+
 static void report_pending_timeline(PlexHlsDemux *demux) {
   if (!demux->timeline_mutex_ready) {
     return;
@@ -162,14 +166,22 @@ static void report_pending_timeline(PlexHlsDemux *demux) {
   }
   const char *state_name = timeline_state_name(state);
   if (state_name != NULL) {
-    multiplex_plex_report_timeline(&demux->credentials,
-                                   demux->session.session_id, demux->rating_key,
-                                   position_ms, duration_ms, state_name);
+    const MultiplexHttpCancellation cancellation = {
+        .is_cancelled = hls_http_cancelled,
+        .context = &demux->state,
+    };
+    multiplex_plex_report_timeline_cancellable(
+        &demux->credentials, demux->session.session_id, demux->rating_key,
+        position_ms, duration_ms, state_name, &cancellation);
   }
 }
 
 static void *run_hls_producer(void *context) {
   PlexHlsDemux *demux = context;
+  const MultiplexHttpCancellation cancellation = {
+      .is_cancelled = hls_http_cancelled,
+      .context = &demux->state,
+  };
   unsigned playlist_failures = 0;
   HlsMediaPlaylist playlist;
   bool has_playlist = demux->has_prefetched_playlist;
@@ -184,8 +196,8 @@ static void *run_hls_producer(void *context) {
   }
   while (!multiplex_plex_hls_state_is_stopping(&demux->state)) {
     if (!has_playlist) {
-      if (!multiplex_plex_hls_refresh(&demux->credentials, &demux->session,
-                                      &playlist)) {
+      if (!multiplex_plex_hls_refresh_cancellable(
+              &demux->credentials, &demux->session, &playlist, &cancellation)) {
         if (++playlist_failures >= HLS_PLAYLIST_FAILURE_LIMIT) {
           SYS_Report("REFERENCE GX: Plex HLS playlist retry limit reached\n");
           multiplex_plex_hls_state_mark_failed(&demux->state);
@@ -213,9 +225,9 @@ static void *run_hls_producer(void *context) {
     }
 
     size_t transport_bytes = 0;
-    if (!multiplex_plex_hls_stream_segment(
+    if (!multiplex_plex_hls_stream_segment_cancellable(
             &demux->credentials, &demux->session, segment, parse_transport,
-            demux, &demux->state.http_client_cancelled, &transport_bytes)) {
+            demux, &cancellation, &transport_bytes)) {
       if (!multiplex_plex_hls_state_is_stopping(&demux->state)) {
         multiplex_plex_hls_state_mark_failed(&demux->state);
       }
@@ -270,10 +282,11 @@ PlexHlsDemux *plex_hls_demux_create(const MultiplexAuthCredentials *credentials,
   if (rating_key == 0) {
     return NULL;
   }
-  MultiplexPlexHlsSession session;
+  MultiplexPlexHlsSession session = {0};
   if (!multiplex_plex_hls_start(credentials, rating_key, offset_ms, session_id,
                                 burn_subtitles, subtitle_stream_index,
                                 &session)) {
+    multiplex_plex_hls_stop(credentials, &session);
     return NULL;
   }
   PlexHlsDemux *demux = allocate_hls_demux(credentials, rating_key);
@@ -381,11 +394,20 @@ bool plex_hls_demux_wait_ready(PlexHlsDemux *demux, size_t video_bytes,
   return false;
 }
 
-void plex_hls_demux_stop(PlexHlsDemux *demux) {
-  if (demux == NULL || !multiplex_plex_hls_state_request_stop(&demux->state)) {
+void plex_hls_demux_request_stop(PlexHlsDemux *demux) {
+  if (demux == NULL) {
     return;
   }
-  finish_queues(demux);
+  if (multiplex_plex_hls_state_request_stop(&demux->state)) {
+    finish_queues(demux);
+  }
+}
+
+void plex_hls_demux_stop(PlexHlsDemux *demux) {
+  if (demux == NULL) {
+    return;
+  }
+  plex_hls_demux_request_stop(demux);
   if (demux->producer_thread != LWP_THREAD_NULL) {
     LWP_JoinThread(demux->producer_thread, NULL);
     demux->producer_thread = LWP_THREAD_NULL;

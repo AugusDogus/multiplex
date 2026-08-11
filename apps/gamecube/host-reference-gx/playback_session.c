@@ -300,10 +300,28 @@ static void stop_active_source(MultiplexPlaybackSession *session) {
   }
 }
 
+void multiplex_playback_session_cancel_background(
+    MultiplexPlaybackSession *session) {
+  if (session == NULL) {
+    return;
+  }
+  playback_prefetch_cancel_background(session->prefetch);
+  playback_timeline_cancel(session->timeline);
+  if (session->source.kind == PLAYBACK_SOURCE_PROGRAM &&
+      session->source.value.program.client != NULL) {
+    http_client_request_stop(session->source.value.program.client);
+  }
+  if (session->source.kind == PLAYBACK_SOURCE_HLS &&
+      session->source.value.hls.demux != NULL) {
+    plex_hls_demux_request_stop(session->source.value.hls.demux);
+  }
+}
+
 void multiplex_playback_session_stop(MultiplexPlaybackSession *session) {
   if (session == NULL) {
     return;
   }
+  multiplex_playback_session_cancel_background(session);
   playback_prefetch_discard_program(session->prefetch);
   const MultiplexGatewayPlaybackManifest manifest = session->manifest;
   const PlaybackTimelineRoute timeline_route = session->timeline_route;

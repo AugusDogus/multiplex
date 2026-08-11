@@ -61,6 +61,8 @@ static void *run_poster_lane(void *context) {
   AppJobsPosters *posters = worker->posters;
   MultiplexAppJobs *jobs = posters->owner;
   const uint16_t lane = worker->lane;
+  const MultiplexHttpCancellation cancellation =
+      multiplex_app_jobs_http_cancellation(&posters->cancellation);
   posters->encoded[lane] = jobs->platform.memory.allocate(
       jobs->platform.memory.context, PLEX_POSTER_JPEG_CAPACITY + 64u, 1, true);
   if (posters->encoded[lane] == NULL) {
@@ -70,18 +72,22 @@ static void *run_poster_lane(void *context) {
   }
   for (uint16_t index = lane; index < posters->item_count;
        index += posters->lane_count) {
-    while (posters->item_ready[lane] && !posters->stopping) {
+    while (posters->item_ready[lane] && !posters->stopping &&
+           !multiplex_http_cancellation_requested(&cancellation)) {
       jobs->platform.threads.yield(jobs->platform.threads.context);
     }
-    if (posters->stopping) {
+    if (posters->stopping ||
+        multiplex_http_cancellation_requested(&cancellation)) {
       break;
     }
     size_t encoded_size = 0;
     const bool decoded =
         posters->items[index].artwork_path[0] != '\0' &&
-        multiplex_plex_load_artwork(
+        multiplex_plex_load_artwork_cancellable(
             &posters->credentials, posters->items[index].artwork_path,
-            posters->encoded[lane], PLEX_POSTER_JPEG_CAPACITY, &encoded_size) &&
+            posters->encoded[lane], PLEX_POSTER_JPEG_CAPACITY, &encoded_size,
+            &cancellation) &&
+        !multiplex_http_cancellation_requested(&cancellation) &&
         poster_jpeg_decode_single(posters->encoded[lane], encoded_size,
                                   posters->decoded_pixels[lane],
                                   MULTIPLEX_GATEWAY_ARTWORK_ITEM_BYTES);
@@ -107,6 +113,7 @@ static bool launch_posters(AppJobsPosters *posters) {
     return false;
   }
   posters->stopping = false;
+  posters->cancellation.requested = false;
   posters->started_tick =
       jobs->platform.clock.tick(jobs->platform.clock.context);
   posters->lane_count = posters->item_count < APP_JOBS_POSTER_LOADER_LANE_COUNT
@@ -127,6 +134,7 @@ static bool launch_posters(AppJobsPosters *posters) {
             run_poster_lane, &posters->workers[lane], posters->stacks[lane],
             POSTER_LOADER_STACK_SIZE)) {
       posters->stopping = true;
+      multiplex_app_jobs_cancellation_request(&posters->cancellation);
       release_poster_lanes(posters);
       posters->pending = false;
       return false;
@@ -228,13 +236,19 @@ static bool queue_posters(AppJobsPosters *posters,
 }
 
 void multiplex_app_jobs_posters_stop(MultiplexAppJobs *jobs) {
-  jobs->posters.stopping = true;
-  jobs->posters.pending = false;
+  multiplex_app_jobs_posters_cancel(jobs);
   release_poster_lanes(&jobs->posters);
   jobs->posters.token = 0;
 }
+
+void multiplex_app_jobs_posters_cancel(MultiplexAppJobs *jobs) {
+  jobs->posters.stopping = true;
+  jobs->posters.pending = false;
+  multiplex_app_jobs_cancellation_request(&jobs->posters.cancellation);
+}
 #else
 void multiplex_app_jobs_posters_stop(MultiplexAppJobs *jobs) { (void)jobs; }
+void multiplex_app_jobs_posters_cancel(MultiplexAppJobs *jobs) { (void)jobs; }
 
 static bool gateway_posters_load(MultiplexAppJobs *jobs,
                                  const MultiplexAppServicesPosterPlan *plan) {

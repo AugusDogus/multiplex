@@ -15,6 +15,7 @@
 #include "network_resolver.h"
 #include "tls_client.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <gccore.h>
 #include <network.h>
@@ -41,6 +42,8 @@
 #define HTTP_JSON_REQUEST_LIMIT 4096
 #define HTTP_JSON_FRAMING_ALLOWANCE 2048
 #define HTTP_WII_RECV_CHUNK_SIZE (16u * 1024u)
+#define HTTP_CANCEL_POLL_MICROSECONDS 100000u
+#define HTTP_CANCEL_POLLS_PER_SECOND (1000000u / HTTP_CANCEL_POLL_MICROSECONDS)
 
 typedef struct {
   unsigned status;
@@ -71,7 +74,7 @@ struct HttpClient {
   size_t stream_prefetch_size;
   uint8_t *small_media;
   volatile bool stopping;
-  const volatile bool *external_cancelled;
+  MultiplexHttpCancellation cancellation;
 };
 
 static bool network_initialized;
@@ -83,6 +86,29 @@ static volatile HttpClientDiagnosticStage diagnostic_stage =
 static volatile int32_t diagnostic_error;
 static volatile int32_t diagnostic_network_status;
 static volatile uint32_t diagnostic_network_attempts;
+
+static bool client_cancelled(const HttpClient *client) {
+  return client != NULL &&
+         (client->stopping ||
+          multiplex_http_cancellation_requested(&client->cancellation));
+}
+
+static bool client_cancellation_requested(void *context) {
+  return client_cancelled(context);
+}
+
+static MultiplexHttpCancellation
+client_transport_cancellation(HttpClient *client) {
+  return (MultiplexHttpCancellation){
+      .is_cancelled = client_cancellation_requested,
+      .context = client,
+  };
+}
+
+static bool
+cancellation_requested(const MultiplexHttpCancellation *cancellation) {
+  return multiplex_http_cancellation_requested(cancellation);
+}
 
 static void set_diagnostic(HttpClientDiagnosticStage stage, int32_t error) {
   diagnostic_error = error;
@@ -312,7 +338,32 @@ static void disconnect_client(HttpClient *client) {
   }
 }
 
+static int wait_writable(HttpClient *client, unsigned timeout_seconds) {
+  const unsigned poll_limit = timeout_seconds * HTTP_CANCEL_POLLS_PER_SECOND;
+  for (unsigned poll = 0; poll < poll_limit; ++poll) {
+    if (client_cancelled(client)) {
+      return -ECANCELED;
+    }
+    fd_set writable;
+    FD_ZERO(&writable);
+    FD_SET(client->socket, &writable);
+    struct timeval timeout = {
+        .tv_sec = 0,
+        .tv_usec = HTTP_CANCEL_POLL_MICROSECONDS,
+    };
+    const int selected =
+        net_select(client->socket + 1, NULL, &writable, NULL, &timeout);
+    if (selected != 0) {
+      return selected;
+    }
+  }
+  return 0;
+}
+
 static bool connect_client(HttpClient *client) {
+  if (client_cancelled(client)) {
+    return false;
+  }
   set_diagnostic(HTTP_DIAGNOSTIC_SOCKET, 0);
   client->socket = net_socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
   if (client->socket < 0) {
@@ -332,6 +383,10 @@ static bool connect_client(HttpClient *client) {
   address.sin_family = AF_INET;
   address.sin_len = sizeof(address);
   address.sin_port = htons(client->port);
+  if (client_cancelled(client)) {
+    disconnect_client(client);
+    return false;
+  }
   if (inet_aton(client->host, &address.sin_addr) == 0) {
     const size_t host_size = strlen(client->host);
     static const char localhost_suffix[] = ".localhost";
@@ -350,8 +405,9 @@ static bool connect_client(HttpClient *client) {
       }
       SYS_Report("REFERENCE GX: HTTP emulator host=%s gateway=%s\n",
                  client->host, emulator_host_ip);
-    } else if (!multiplex_resolve_ipv4(client->host, network_gateway,
-                                       &address.sin_addr)) {
+    } else if (!multiplex_resolve_ipv4_cancellable(
+                   client->host, network_gateway, &address.sin_addr,
+                   &client->cancellation)) {
       set_diagnostic(HTTP_DIAGNOSTIC_DNS, multiplex_resolver_last_error());
       SYS_Report("REFERENCE GX: HTTP DNS failed host=%s dns=%s\n", client->host,
                  network_gateway);
@@ -359,10 +415,33 @@ static bool connect_client(HttpClient *client) {
       return false;
     }
   }
+  if (client_cancelled(client)) {
+    disconnect_client(client);
+    return false;
+  }
   set_diagnostic(HTTP_DIAGNOSTIC_CONNECT, 0);
-  const int connect_status =
+  if (net_fcntl(client->socket, F_SETFL, O_NONBLOCK) < 0) {
+    set_diagnostic(HTTP_DIAGNOSTIC_CONNECT, -1);
+    disconnect_client(client);
+    return false;
+  }
+  int connect_status =
       net_connect(client->socket, (struct sockaddr *)&address, sizeof(address));
-  if (connect_status < 0) {
+  if (connect_status == -EINPROGRESS || connect_status == -EALREADY ||
+      connect_status == -EAGAIN) {
+    const int writable = wait_writable(client, HTTP_IO_TIMEOUT_SECONDS);
+    if (writable > 0) {
+      connect_status = net_connect(client->socket, (struct sockaddr *)&address,
+                                   sizeof(address));
+      if (connect_status == -EISCONN) {
+        connect_status = 0;
+      }
+    } else {
+      connect_status = writable < 0 ? writable : -1;
+    }
+  }
+  const int blocking_status = net_fcntl(client->socket, F_SETFL, 0);
+  if (connect_status < 0 || blocking_status < 0 || client_cancelled(client)) {
     set_diagnostic(HTTP_DIAGNOSTIC_CONNECT, connect_status);
     disconnect_client(client);
     return false;
@@ -371,7 +450,10 @@ static bool connect_client(HttpClient *client) {
              client->port);
   if (client->secure) {
     set_diagnostic(HTTP_DIAGNOSTIC_TLS, 0);
-    client->tls = multiplex_tls_client_connect(client->socket, client->host);
+    const MultiplexHttpCancellation cancellation =
+        client_transport_cancellation(client);
+    client->tls = multiplex_tls_client_connect_cancellable(
+        client->socket, client->host, &cancellation);
     if (client->tls == NULL) {
       set_diagnostic(HTTP_DIAGNOSTIC_TLS, multiplex_tls_client_last_error());
       disconnect_client(client);
@@ -383,24 +465,23 @@ static bool connect_client(HttpClient *client) {
 
 static bool write_all(HttpClient *client, const uint8_t *bytes, size_t size) {
   set_diagnostic(HTTP_DIAGNOSTIC_REQUEST, 0);
+  if (client_cancelled(client)) {
+    return false;
+  }
   if (client->tls != NULL) {
-    const bool written =
-        multiplex_tls_client_write_all(client->tls, bytes, size);
+    const MultiplexHttpCancellation cancellation =
+        client_transport_cancellation(client);
+    const bool written = multiplex_tls_client_write_all_cancellable(
+        client->tls, bytes, size, &cancellation);
     if (!written)
       set_diagnostic(HTTP_DIAGNOSTIC_REQUEST, -1);
     return written;
   }
   size_t written = 0;
   while (written < size) {
-    fd_set writable;
-    FD_ZERO(&writable);
-    FD_SET(client->socket, &writable);
-    struct timeval timeout = {
-        .tv_sec = HTTP_IO_TIMEOUT_SECONDS,
-        .tv_usec = 0,
-    };
-    if (net_select(client->socket + 1, NULL, &writable, NULL, &timeout) <= 0) {
-      set_diagnostic(HTTP_DIAGNOSTIC_REQUEST, -1);
+    const int ready = wait_writable(client, HTTP_IO_TIMEOUT_SECONDS);
+    if (ready <= 0) {
+      set_diagnostic(HTTP_DIAGNOSTIC_REQUEST, ready);
       return false;
     }
     const int result =
@@ -416,8 +497,7 @@ static bool write_all(HttpClient *client, const uint8_t *bytes, size_t size) {
 
 static int read_available_with_timeout(HttpClient *client, void *destination,
                                        size_t size, unsigned timeout_seconds) {
-  if (client->stopping ||
-      (client->external_cancelled != NULL && *client->external_cancelled)) {
+  if (client_cancelled(client)) {
     return -1;
   }
 #if defined(HW_RVL)
@@ -426,20 +506,22 @@ static int read_available_with_timeout(HttpClient *client, void *destination,
   }
 #endif
   if (client->tls != NULL) {
-    return multiplex_tls_client_read(client->tls, destination, size,
-                                     timeout_seconds);
+    const MultiplexHttpCancellation cancellation =
+        client_transport_cancellation(client);
+    return multiplex_tls_client_read_cancellable(
+        client->tls, destination, size, timeout_seconds, &cancellation);
   }
-  for (unsigned waited = 0; waited < timeout_seconds; ++waited) {
-    if (client->stopping ||
-        (client->external_cancelled != NULL && *client->external_cancelled)) {
+  const unsigned poll_limit = timeout_seconds * HTTP_CANCEL_POLLS_PER_SECOND;
+  for (unsigned poll = 0; poll < poll_limit; ++poll) {
+    if (client_cancelled(client)) {
       return -1;
     }
     fd_set readable;
     FD_ZERO(&readable);
     FD_SET(client->socket, &readable);
     struct timeval timeout = {
-        .tv_sec = 1,
-        .tv_usec = 0,
+        .tv_sec = 0,
+        .tv_usec = HTTP_CANCEL_POLL_MICROSECONDS,
     };
     const int selected =
         net_select(client->socket + 1, &readable, NULL, NULL, &timeout);
@@ -792,11 +874,14 @@ static bool fetch_cache_once(HttpClient *client, size_t start) {
 
 static bool fetch_cache(HttpClient *client, size_t start) {
   for (unsigned attempt = 1; attempt <= HTTP_RANGE_ATTEMPTS; ++attempt) {
+    if (client_cancelled(client)) {
+      return false;
+    }
     if (fetch_cache_once(client, start)) {
       return true;
     }
     disconnect_client(client);
-    if (attempt != HTTP_RANGE_ATTEMPTS) {
+    if (!client_cancelled(client) && attempt != HTTP_RANGE_ATTEMPTS) {
       SYS_Report("REFERENCE GX: HTTP range retry offset=%u attempt=%u/%u\n",
                  (unsigned)start, attempt + 1u, HTTP_RANGE_ATTEMPTS);
       usleep(100000);
@@ -806,7 +891,7 @@ static bool fetch_cache(HttpClient *client, size_t start) {
 }
 
 static bool start_stream_response(HttpClient *client, size_t start) {
-  if (client->stopping) {
+  if (client_cancelled(client)) {
     return false;
   }
   disconnect_client(client);
@@ -865,7 +950,7 @@ static bool stream_read(HttpClient *client, uint8_t *destination, size_t size) {
     copied += chunk;
   }
   while (copied < size) {
-    if (client->stopping) {
+    if (client_cancelled(client)) {
       return false;
     }
     const size_t remaining = size - copied;
@@ -889,7 +974,7 @@ static bool stream_read(HttpClient *client, uint8_t *destination, size_t size) {
 static bool stream_read_at(HttpClient *client, size_t offset,
                            uint8_t *destination, size_t size) {
   for (unsigned attempt = 1; attempt <= HTTP_RANGE_ATTEMPTS; ++attempt) {
-    if (client->stopping) {
+    if (client_cancelled(client)) {
       return false;
     }
     if (client->socket < 0 || offset < client->stream_position) {
@@ -914,7 +999,7 @@ static bool stream_read_at(HttpClient *client, size_t offset,
       return true;
     }
     disconnect_client(client);
-    if (!client->stopping && attempt != HTTP_RANGE_ATTEMPTS) {
+    if (!client_cancelled(client) && attempt != HTTP_RANGE_ATTEMPTS) {
       SYS_Report("REFERENCE GX: HTTP stream retry offset=%u attempt=%u/%u\n",
                  (unsigned)offset, attempt + 1u, HTTP_RANGE_ATTEMPTS);
       usleep(100000);
@@ -923,21 +1008,28 @@ static bool stream_read_at(HttpClient *client, size_t offset,
   return false;
 }
 
-HttpClient *http_client_open_with_headers(const char *url,
-                                          const HttpRequestHeader *headers,
-                                          size_t header_count) {
+HttpClient *http_client_open_with_headers_cancellable(
+    const char *url, const HttpRequestHeader *headers, size_t header_count,
+    const MultiplexHttpCancellation *cancellation) {
+  if (cancellation_requested(cancellation)) {
+    return NULL;
+  }
   HttpClient *client = calloc(1, sizeof(*client));
   if (client == NULL) {
     return NULL;
   }
   client->socket = -1;
+  if (cancellation != NULL) {
+    client->cancellation = *cancellation;
+  }
   if (!parse_url(url, client) ||
       !format_additional_headers(client, headers, header_count)) {
     SYS_Report("REFERENCE GX: HTTP URL parse failed\n");
     http_client_destroy(client);
     return NULL;
   }
-  if (!http_client_initialize_network()) {
+  if (client_cancelled(client) || !http_client_initialize_network() ||
+      client_cancelled(client)) {
     http_client_destroy(client);
     return NULL;
   }
@@ -950,8 +1042,21 @@ HttpClient *http_client_open_with_headers(const char *url,
   return client;
 }
 
+HttpClient *http_client_open_with_headers(const char *url,
+                                          const HttpRequestHeader *headers,
+                                          size_t header_count) {
+  return http_client_open_with_headers_cancellable(url, headers, header_count,
+                                                   NULL);
+}
+
+HttpClient *
+http_client_open_cancellable(const char *url,
+                             const MultiplexHttpCancellation *cancellation) {
+  return http_client_open_with_headers_cancellable(url, NULL, 0, cancellation);
+}
+
 HttpClient *http_client_open(const char *url) {
-  return http_client_open_with_headers(url, NULL, 0);
+  return http_client_open_cancellable(url, NULL);
 }
 
 void http_client_release_connection(HttpClient *client) {
@@ -967,7 +1072,7 @@ void http_client_request_stop(HttpClient *client) {
     return;
   }
   client->stopping = true;
-  disconnect_client(client);
+  __sync_synchronize();
 }
 
 void http_client_begin_stream(HttpClient *client) {
@@ -1067,15 +1172,23 @@ bool http_client_request_json(const char *method, const char *url,
                               const char *bearer_token, const char *body,
                               char *destination, size_t capacity,
                               HttpJsonResponse *response) {
+  return http_client_request_json_cancellable(
+      method, url, bearer_token, body, destination, capacity, NULL, response);
+}
+
+bool http_client_request_json_cancellable(
+    const char *method, const char *url, const char *bearer_token,
+    const char *body, char *destination, size_t capacity,
+    const MultiplexHttpCancellation *cancellation, HttpJsonResponse *response) {
   const HttpRequestHeader header = {
       .name = "Authorization",
       .value = bearer_token,
   };
-  return http_client_request_with_headers(
+  return http_client_request_with_headers_cancellable(
       method, url,
       bearer_token == NULL || bearer_token[0] == '\0' ? NULL : &header,
       bearer_token == NULL || bearer_token[0] == '\0' ? 0u : 1u, body,
-      destination, capacity, response);
+      destination, capacity, cancellation, response);
 }
 
 static bool header_is_safe(const HttpRequestHeader *header) {
@@ -1145,8 +1258,7 @@ static HttpResponseReadResult body_reader_read(void *context,
                                                uint8_t *destination,
                                                size_t capacity, size_t *size) {
   HttpResponseBodyReader *reader = context;
-  if (reader->client->stopping || (reader->client->external_cancelled != NULL &&
-                                   *reader->client->external_cancelled)) {
+  if (client_cancelled(reader->client)) {
     return HTTP_RESPONSE_READ_CANCELLED;
   }
   const int received = body_reader_read_some(reader, destination, capacity);
@@ -1157,8 +1269,7 @@ static HttpResponseReadResult body_reader_read(void *context,
   if (received == 0) {
     return HTTP_RESPONSE_READ_END;
   }
-  if (reader->client->stopping || (reader->client->external_cancelled != NULL &&
-                                   *reader->client->external_cancelled)) {
+  if (client_cancelled(reader->client)) {
     return HTTP_RESPONSE_READ_CANCELLED;
   }
   return HTTP_RESPONSE_READ_FAILURE;
@@ -1166,9 +1277,7 @@ static HttpResponseReadResult body_reader_read(void *context,
 
 static bool body_reader_cancelled(void *context) {
   const HttpResponseBodyReader *reader = context;
-  return reader->client->stopping ||
-         (reader->client->external_cancelled != NULL &&
-          *reader->client->external_cancelled);
+  return client_cancelled(reader->client);
 }
 
 static void body_reader_yield(void *context) {
@@ -1179,9 +1288,10 @@ static void body_reader_yield(void *context) {
 static bool http_client_stream_get_with_headers_unlocked(
     const char *url, const HttpRequestHeader *headers, size_t header_count,
     HttpBodyWrite write, void *write_context, size_t full_response_skip,
-    const volatile bool *cancelled, HttpJsonResponse *response) {
+    const MultiplexHttpCancellation *cancellation, HttpJsonResponse *response) {
   if (url == NULL || response == NULL ||
-      (header_count != 0 && headers == NULL)) {
+      (header_count != 0 && headers == NULL) ||
+      cancellation_requested(cancellation)) {
     return false;
   }
   HttpClient *client = calloc(1, sizeof(*client));
@@ -1189,12 +1299,15 @@ static bool http_client_stream_get_with_headers_unlocked(
     return false;
   }
   client->socket = -1;
-  client->external_cancelled = cancelled;
+  if (cancellation != NULL) {
+    client->cancellation = *cancellation;
+  }
   if (!parse_url(url, client)) {
     free(client);
     return false;
   }
-  if (!http_client_initialize_network()) {
+  if (client_cancelled(client) || !http_client_initialize_network() ||
+      client_cancelled(client)) {
     free(client);
     return false;
   }
@@ -1300,27 +1413,57 @@ static bool http_client_stream_get_with_headers_unlocked(
   return streamed;
 }
 
-bool http_client_stream_get_with_headers(
+static bool lock_http_transaction(const MultiplexHttpCancellation *cancellation,
+                                  bool *locked) {
+  *locked = false;
+  if (!http_transaction_mutex_ready) {
+    return !cancellation_requested(cancellation);
+  }
+  while (LWP_MutexTryLock(http_transaction_mutex) != 0) {
+    if (cancellation_requested(cancellation)) {
+      return false;
+    }
+    LWP_YieldThread();
+  }
+  *locked = true;
+  if (cancellation_requested(cancellation)) {
+    LWP_MutexUnlock(http_transaction_mutex);
+    *locked = false;
+    return false;
+  }
+  return true;
+}
+
+bool http_client_stream_get_with_headers_cancellable(
     const char *url, const HttpRequestHeader *headers, size_t header_count,
     HttpBodyWrite write, void *write_context, size_t full_response_skip,
-    const volatile bool *cancelled, HttpJsonResponse *response) {
-  if (!http_transaction_mutex_ready) {
-    return http_client_stream_get_with_headers_unlocked(
-        url, headers, header_count, write, write_context, full_response_skip,
-        cancelled, response);
+    const MultiplexHttpCancellation *cancellation, HttpJsonResponse *response) {
+  bool locked = false;
+  if (!lock_http_transaction(cancellation, &locked)) {
+    return false;
   }
-  LWP_MutexLock(http_transaction_mutex);
   const bool streamed = http_client_stream_get_with_headers_unlocked(
       url, headers, header_count, write, write_context, full_response_skip,
-      cancelled, response);
-  LWP_MutexUnlock(http_transaction_mutex);
+      cancellation, response);
+  if (locked) {
+    LWP_MutexUnlock(http_transaction_mutex);
+  }
   return streamed;
 }
 
-bool http_client_stream_get_with_headers_concurrent(
+bool http_client_stream_get_with_headers(
     const char *url, const HttpRequestHeader *headers, size_t header_count,
     HttpBodyWrite write, void *write_context, size_t full_response_skip,
-    const volatile bool *cancelled, HttpJsonResponse *response) {
+    HttpJsonResponse *response) {
+  return http_client_stream_get_with_headers_cancellable(
+      url, headers, header_count, write, write_context, full_response_skip,
+      NULL, response);
+}
+
+bool http_client_stream_get_with_headers_concurrent_cancellable(
+    const char *url, const HttpRequestHeader *headers, size_t header_count,
+    HttpBodyWrite write, void *write_context, size_t full_response_skip,
+    const MultiplexHttpCancellation *cancellation, HttpJsonResponse *response) {
   /*
    * Long media bodies may block on bounded codec queues. They must not hold
    * the short-control transaction mutex or pause/timeline requests deadlock
@@ -1328,15 +1471,25 @@ bool http_client_stream_get_with_headers_concurrent(
    */
   return http_client_stream_get_with_headers_unlocked(
       url, headers, header_count, write, write_context, full_response_skip,
-      cancelled, response);
+      cancellation, response);
+}
+
+bool http_client_stream_get_with_headers_concurrent(
+    const char *url, const HttpRequestHeader *headers, size_t header_count,
+    HttpBodyWrite write, void *write_context, size_t full_response_skip,
+    HttpJsonResponse *response) {
+  return http_client_stream_get_with_headers_concurrent_cancellable(
+      url, headers, header_count, write, write_context, full_response_skip,
+      NULL, response);
 }
 
 static bool http_client_request_with_headers_unlocked(
     const char *method, const char *url, const HttpRequestHeader *headers,
     size_t header_count, const char *body, char *destination, size_t capacity,
-    HttpJsonResponse *response) {
+    const MultiplexHttpCancellation *cancellation, HttpJsonResponse *response) {
   if (method == NULL || url == NULL || destination == NULL || capacity < 2 ||
-      response == NULL || (header_count != 0 && headers == NULL)) {
+      response == NULL || (header_count != 0 && headers == NULL) ||
+      cancellation_requested(cancellation)) {
     return false;
   }
 
@@ -1345,11 +1498,15 @@ static bool http_client_request_with_headers_unlocked(
     return false;
   }
   client->socket = -1;
+  if (cancellation != NULL) {
+    client->cancellation = *cancellation;
+  }
   if (!parse_url(url, client)) {
     free(client);
     return false;
   }
-  if (!http_client_initialize_network()) {
+  if (client_cancelled(client) || !http_client_initialize_network() ||
+      client_cancelled(client)) {
     free(client);
     return false;
   }
@@ -1480,20 +1637,29 @@ static bool http_client_request_with_headers_unlocked(
   return decoded;
 }
 
+bool http_client_request_with_headers_cancellable(
+    const char *method, const char *url, const HttpRequestHeader *headers,
+    size_t header_count, const char *body, char *destination, size_t capacity,
+    const MultiplexHttpCancellation *cancellation, HttpJsonResponse *response) {
+  bool locked = false;
+  if (!lock_http_transaction(cancellation, &locked)) {
+    return false;
+  }
+  const bool requested = http_client_request_with_headers_unlocked(
+      method, url, headers, header_count, body, destination, capacity,
+      cancellation, response);
+  if (locked) {
+    LWP_MutexUnlock(http_transaction_mutex);
+  }
+  return requested;
+}
+
 bool http_client_request_with_headers(const char *method, const char *url,
                                       const HttpRequestHeader *headers,
                                       size_t header_count, const char *body,
                                       char *destination, size_t capacity,
                                       HttpJsonResponse *response) {
-  if (!http_transaction_mutex_ready) {
-    return http_client_request_with_headers_unlocked(
-        method, url, headers, header_count, body, destination, capacity,
-        response);
-  }
-  LWP_MutexLock(http_transaction_mutex);
-  const bool requested = http_client_request_with_headers_unlocked(
-      method, url, headers, header_count, body, destination, capacity,
+  return http_client_request_with_headers_cancellable(
+      method, url, headers, header_count, body, destination, capacity, NULL,
       response);
-  LWP_MutexUnlock(http_transaction_mutex);
-  return requested;
 }

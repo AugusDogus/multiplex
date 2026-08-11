@@ -1,0 +1,6 @@
+#ifndef MULTIPLEX_PLAYBACK_TEST_WATCHDOG_H
+#define MULTIPLEX_PLAYBACK_TEST_WATCHDOG_H
+
+#include <gccore.h>
+
+#endif
