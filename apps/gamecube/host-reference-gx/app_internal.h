@@ -75,6 +75,7 @@ struct MultiplexApp {
   MultiplexAppLifecycle lifecycle;
   uint64_t toast_dismiss_at_ms;
   bool playback_start_offset_pending;
+  bool startup_media_pending;
   bool jpeg_ready;
   char boot_diagnostic_operation[64];
   char failure_diagnostics[256];
