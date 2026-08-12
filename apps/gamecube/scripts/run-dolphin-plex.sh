@@ -43,6 +43,7 @@ reference_build_script=${MULTIPLEX_REFERENCE_BUILD_SCRIPT:-build-native-referenc
 skip_build=${GAMECUBE_SKIP_BUILD:-0}
 controller_pipe_name=${MULTIPLEX_CONTROLLER_PIPE:-multiplex1}
 dolphin_network=${MULTIPLEX_DOLPHIN_NETWORK:-rootless-tap}
+pasta_outbound_interface=${GAMECUBE_PASTA_OUTBOUND_INTERFACE:-}
 server_pid=
 launcher_pid=
 mute_pid=
@@ -344,9 +345,25 @@ if [ "$direct_plex" -ne 1 ]; then
     # console reaches the local gateway on the host loopback.
     gateway_url="http://$MULTIPLEX_EMULATOR_HOST_IP:$port"
   else
-    gateway=$(ip -4 route show default | sed -n 's/^default via \([^ ]*\).*/\1/p' | sed -n '1p')
+    if [ -z "$pasta_outbound_interface" ]; then
+      pasta_outbound_interface=$(
+        ip -4 route show default |
+          sed -n 's/^default .* dev \([^ ]*\).*/\1/p' |
+          sed -n '1p'
+      )
+    fi
+    if [ -z "$pasta_outbound_interface" ] ||
+      ! ip link show "$pasta_outbound_interface" >/dev/null 2>&1; then
+      echo "Could not determine the rootless TAP outbound interface." >&2
+      exit 1
+    fi
+    gateway=$(
+      ip -4 route show default dev "$pasta_outbound_interface" |
+        sed -n 's/^default via \([^ ]*\).*/\1/p' |
+        sed -n '1p'
+    )
     if [ -z "$gateway" ]; then
-      echo "Could not determine the rootless TAP host gateway." >&2
+      echo "Could not determine the rootless TAP host gateway on $pasta_outbound_interface." >&2
       exit 1
     fi
     gateway_url="http://$gateway:$port"
@@ -387,6 +404,7 @@ setsid env \
   DOLPHIN_CONFIG_PROFILE="$dolphin_config_profile" \
   DOLPHIN_EMU="$dolphin_emu" \
   GAMECUBE_PASTA_BIN="${GAMECUBE_PASTA_BIN:-$app_dir/.passt/pasta}" \
+  GAMECUBE_PASTA_OUTBOUND_INTERFACE="$pasta_outbound_interface" \
   sh "$script_dir/run-dolphin.sh" \
     "$reference_dol" >"$launcher_log" 2>&1 &
 launcher_pid=$!
