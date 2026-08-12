@@ -44,5 +44,5 @@ case "${1:-}" in
 esac
 
 python3 "$script_dir/generate-font-atlas.py" \
-  "$app_dir/.native-sdk/src/primitives/canvas/fonts/Geist-Regular.ttf" \
+  "$repo_dir/packages/console-ui/.native-sdk/src/primitives/canvas/fonts/Geist-Regular.ttf" \
   "$app_dir/generated/geist_atlas.h"

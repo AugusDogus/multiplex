@@ -3,6 +3,8 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+repo_dir=$(CDPATH= cd -- "$app_dir/../.." && pwd)
+ui_dir="$repo_dir/packages/console-ui"
 
 if [ "${MULTIPLEX_GAMECUBE_UV_ACTIVE:-0}" != 1 ]; then
   exec sh "$script_dir/run-with-tooling.sh" sh "$0" "$@"
@@ -43,15 +45,17 @@ find \
   "$app_dir/host" \
   "$app_dir/host-bba-diagnostics" \
   "$app_dir/host-raylib" \
-  "$app_dir/host-reference" \
   "$app_dir/host-reference-gx" \
+  "$ui_dir/include" \
+  "$ui_dir/reference-frame" \
+  "$ui_dir/tests" \
   "$app_dir/tests" \
   -type f \( -name '*.c' -o -name '*.h' \) \
   -exec "$clang_format" --style=file --dry-run --Werror {} +
 
 "$zig" fmt --check \
-  "$app_dir/build.zig" \
-  "$app_dir/src/gamecube_probe.zig"
+  "$ui_dir/build.zig" \
+  "$ui_dir/src/console_ui.zig"
 
 find "$script_dir" -maxdepth 1 -type f -name '*.sh' \
   -exec "$shellcheck" \

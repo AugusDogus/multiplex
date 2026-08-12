@@ -3,6 +3,8 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+repo_dir=$(CDPATH= cd -- "$app_dir/../.." && pwd)
+ui_dir="$repo_dir/packages/console-ui"
 mode=${1:-}
 
 if [ "$#" -ne 1 ]; then
@@ -37,7 +39,6 @@ all test-playback-timeline-policy.sh
 all test-playback-program-policy.sh
 all test-playback-prefetch-cancellation.sh
 all test-trpc-rooms.sh
-all test-reference-frame.sh
 all test-gui-navigation.sh
 all test-app-job-slot.sh
 all test-app-jobs.sh
@@ -58,19 +59,20 @@ run_host_tests() {
   sh "$script_dir/meson.sh" test
   run_test_script_matrix
 
-  cd "$app_dir"
-
   echo "Checking TypeScript reducer characterization..."
-  bun test src/core.test.ts
+  bun test "$ui_dir/src/core.test.ts"
 
   echo "Checking the TypeScript core and Native markup on the null platform..."
+  cd "$ui_dir"
   zig build test -Dplatform=null
 
-  echo "Compiling the generated core for the GameCube's PowerPC 750..."
-  zig build gamecube-core
+  echo "Compiling the console UI for the PowerPC 750..."
+  zig build powerpc-core
 
-  test -s zig-out/lib/libmultiplex-gamecube-core.a
-  file zig-out/lib/libmultiplex-gamecube-core.a
+  test -s zig-out/lib/libmultiplex-console-ui-powerpc.a
+  file zig-out/lib/libmultiplex-console-ui-powerpc.a
+
+  sh "$ui_dir/scripts/test-reference-frame.sh"
 
   echo "GameCube portable tests passed."
 }

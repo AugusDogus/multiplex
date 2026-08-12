@@ -81,13 +81,13 @@ jobs:
         with:
           path: |
             apps/gamecube/.ci-cache/devkitppc-image.tar
-            apps/gamecube/.native-sdk
+            packages/console-ui/.native-sdk
             apps/gamecube/.libogc2
             apps/gamecube/.libogc2-stage
             apps/gamecube/.mplayer-ce-libogc2
             apps/gamecube/.mbedtls
             apps/gamecube/.mbedtls-stage
-          key: gamecube-v2-${{ runner.os }}-${{ hashFiles('apps/gamecube/PINS.env', 'apps/gamecube/patches/**', 'apps/gamecube/pyproject.toml', 'apps/gamecube/uv.lock', 'apps/gamecube/app.zon', 'apps/gamecube/build.zig', 'apps/gamecube/build.zig.zon', 'apps/gamecube/host-reference-gx/mbedtls-gamecube-config.h', 'apps/gamecube/Makefile.assets', 'apps/gamecube/Makefile.reference', 'apps/gamecube/scripts/bootstrap*.sh', 'apps/gamecube/scripts/build-native-reference*.sh', 'bun.lock') }}
+          key: gamecube-v3-${{ runner.os }}-${{ hashFiles('apps/gamecube/PINS.env', 'apps/gamecube/patches/**', 'apps/gamecube/pyproject.toml', 'apps/gamecube/uv.lock', 'packages/console-ui/app.zon', 'packages/console-ui/build.zig', 'packages/console-ui/build.zig.zon', 'packages/console-ui/patches/**', 'apps/gamecube/host-reference-gx/mbedtls-gamecube-config.h', 'apps/gamecube/Makefile.assets', 'apps/gamecube/Makefile.reference', 'apps/gamecube/scripts/bootstrap*.sh', 'apps/gamecube/scripts/build-native-reference*.sh', 'bun.lock') }}
 
       - name: Prepare pinned devkitPPC toolchain
         run: sh apps/gamecube/scripts/prepare-ci-toolchain.sh

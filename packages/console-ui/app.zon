@@ -1,8 +1,8 @@
 .{
-    .id = "tv.multiplex.gamecube",
-    .name = "multiplex-gamecube",
-    .display_name = "Multiplex GameCube",
-    .description = "Multiplex client for the Nintendo GameCube.",
+    .id = "tv.multiplex.console-ui",
+    .name = "multiplex-console-ui",
+    .display_name = "Multiplex Console UI",
+    .description = "Shared Multiplex interface for native console clients.",
     .version = "0.1.0",
     .platforms = .{"macos"},
     .permissions = .{"view"},
@@ -13,7 +13,7 @@
         .windows = .{
             .{
                 .label = "main",
-                .title = "Multiplex GameCube",
+                .title = "Multiplex Console UI",
                 .width = 640,
                 .height = 480,
                 .resizable = false,

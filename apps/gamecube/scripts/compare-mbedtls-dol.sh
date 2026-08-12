@@ -6,6 +6,7 @@ export LC_ALL
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+repo_dir=$(CDPATH= cd -- "$app_dir/../.." && pwd)
 
 # shellcheck disable=SC1091
 . "$app_dir/PINS.env"
@@ -19,7 +20,7 @@ baseline_stage=$1
 candidate_stage=$2
 libogc_stage=${GAMECUBE_LIBOGC2_STAGE_DIR:-$app_dir/.libogc2-stage}
 mplayer_root=${GAMECUBE_MPLAYER_ROOT:-$app_dir/.mplayer-ce-libogc2/mplayer}
-core_library=${GAMECUBE_CORE_LIBRARY:-$app_dir/zig-out/lib/libmultiplex-gamecube-core.a}
+core_library=${GAMECUBE_CORE_LIBRARY:-$repo_dir/packages/console-ui/zig-out/lib/libmultiplex-console-ui-powerpc.a}
 source_dir=${GAMECUBE_MBEDTLS_SOURCE_DIR:-$app_dir/.mbedtls}
 config_file="$app_dir/host-reference-gx/mbedtls-gamecube-config.h"
 

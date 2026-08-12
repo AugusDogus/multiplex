@@ -1,0 +1,6 @@
+{
+  "name": "@multiplex/console-ui",
+  "private": true,
+  "description": "Shared Native SDK interface for Multiplex console clients",
+  "type": "module"
+}

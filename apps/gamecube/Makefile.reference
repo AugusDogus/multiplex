@@ -11,6 +11,7 @@ $(error "DEVKITPPC must point to the devkitPPC toolchain")
 endif
 
 APP_ROOT := $(abspath $(dir $(firstword $(MAKEFILE_LIST))))
+UI_ROOT := $(abspath $(APP_ROOT)/../../packages/console-ui)
 
 MULTIPLEX_PLATFORM ?= gamecube
 ifeq ($(MULTIPLEX_PLATFORM),gamecube)
@@ -38,11 +39,11 @@ else
 $(error MULTIPLEX_PLATFORM must be gamecube or wii)
 endif
 
-SOURCES := host-reference-gx host-reference
+SOURCES := host-reference-gx
 MPLAYER_ROOT := $(APP_ROOT)/.mplayer-ce-libogc2/mplayer
 FFMPEG_ROOT := $(MPLAYER_ROOT)/ffmpeg
 MBEDTLS_ROOT := $(APP_ROOT)/.mbedtls-stage
-INCLUDES := host host-reference host-reference-gx generated
+INCLUDES := host host-reference-gx generated
 
 CFLAGS := -g -gdwarf-4 -gstrict-dwarf -O2 -Wall -Wextra -Werror \
 	$(MACHDEP) $(INCLUDE)
@@ -54,16 +55,20 @@ LIBS := $(CORE_LIBRARY) -lavcodec -lavutil -lmbedtls -lmbedx509 \
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 
 export OUTPUT := $(APP_ROOT)/$(TARGET)
-export VPATH := $(foreach dir,$(SOURCES),$(APP_ROOT)/$(dir))
+export VPATH := $(foreach dir,$(SOURCES),$(APP_ROOT)/$(dir)) \
+	$(UI_ROOT)/reference-frame
 export DEPSDIR := $(APP_ROOT)/$(BUILD)
 
-CFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(APP_ROOT)/$(dir)/*.c)))
+CFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(APP_ROOT)/$(dir)/*.c))) \
+	$(notdir $(wildcard $(UI_ROOT)/reference-frame/*.c))
 OFILES_SOURCES := $(CFILES:.c=.o)
 OFILES_ASSETS := multiplex-dvd-demo-program.o
-export CORE_LIBRARY := $(APP_ROOT)/zig-out/lib/libmultiplex-gamecube-core.a
+export CORE_LIBRARY := $(UI_ROOT)/zig-out/lib/libmultiplex-console-ui-powerpc.a
 export OFILES := $(OFILES_SOURCES) $(OFILES_ASSETS)
 
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(APP_ROOT)/$(dir)) \
+	-I$(UI_ROOT)/include \
+	-I$(UI_ROOT)/reference-frame \
 	-I$(FFMPEG_ROOT) \
 	-I$(MBEDTLS_ROOT)/include \
 	-I$(APP_ROOT)/$(BUILD) \

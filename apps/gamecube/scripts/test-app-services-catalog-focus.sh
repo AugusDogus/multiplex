@@ -8,6 +8,7 @@ fi
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+repo_dir=$(CDPATH= cd -- "$app_dir/../.." && pwd)
 test_dir=$(mktemp -d "${TMPDIR:-/tmp}/multiplex-catalog-focus.XXXXXX")
 trap 'rm -rf "$test_dir"' EXIT HUP INT TERM
 
@@ -27,6 +28,7 @@ test_binary="$test_dir/catalog-focus.test"
   -I"$test_dir" \
   -I"$app_dir/host-reference-gx" \
   -I"$app_dir/host" \
+  -I"$repo_dir/packages/console-ui/include" \
   "$app_dir/host-reference-gx/app_services_catalog.c" \
   "$app_dir/tests/app_services_catalog_focus_test.c" \
   -o "$test_binary"

@@ -92,7 +92,7 @@
           <text foreground="text_muted">A Broadband Adapter and Ethernet connection are required.</text>
         </if>
         <if test="{pairingWaiting}">
-          <badge variant="secondary">Link this GameCube</badge>
+          <badge variant="secondary">Link this console</badge>
           <text foreground="text_muted">On another device, open</text>
           <text size="heading">{pairingUrl}</text>
           <text foreground="text_muted">and enter this code</text>

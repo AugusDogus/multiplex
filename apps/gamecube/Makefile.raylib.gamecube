@@ -8,13 +8,14 @@ $(error "DEVKITPPC must point to the devkitPPC toolchain")
 endif
 
 APP_ROOT := $(abspath $(dir $(firstword $(MAKEFILE_LIST))))
+UI_ROOT := $(abspath $(APP_ROOT)/../../packages/console-ui)
 
 include $(DEVKITPRO)/libogc2/gamecube_rules
 
 TARGET := multiplex-gamecube-raylib-reference
 BUILD := build-raylib-reference
-SOURCES := host-raylib host-reference
-INCLUDES := host host-reference .raylib/src .opengx/src .opengx/include
+SOURCES := host-raylib
+INCLUDES := host .raylib/src .opengx/src .opengx/include
 
 CFLAGS := -g -O2 -Wall -Wextra -Werror $(MACHDEP) $(INCLUDE)
 CXXFLAGS := $(CFLAGS)
@@ -24,17 +25,21 @@ LIBS := $(CORE_LIBRARY) -lraylib -lopengx -logc -lm
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 
 export OUTPUT := $(APP_ROOT)/$(TARGET)
-export VPATH := $(foreach dir,$(SOURCES),$(APP_ROOT)/$(dir))
+export VPATH := $(foreach dir,$(SOURCES),$(APP_ROOT)/$(dir)) \
+	$(UI_ROOT)/reference-frame
 export DEPSDIR := $(APP_ROOT)/$(BUILD)
 
-CFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(APP_ROOT)/$(dir)/*.c)))
+CFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(APP_ROOT)/$(dir)/*.c))) \
+	$(notdir $(wildcard $(UI_ROOT)/reference-frame/*.c))
 OFILES_SOURCES := $(CFILES:.c=.o)
-export CORE_LIBRARY := $(APP_ROOT)/zig-out/lib/libmultiplex-gamecube-core.a
+export CORE_LIBRARY := $(UI_ROOT)/zig-out/lib/libmultiplex-console-ui-powerpc.a
 export RAYLIB_LIBRARY := $(APP_ROOT)/.raylib/src/libraylib.a
 export OPENGX_LIBRARY := $(APP_ROOT)/.opengx-build/libopengx.a
 export OFILES := $(OFILES_SOURCES)
 
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(APP_ROOT)/$(dir)) \
+	-I$(UI_ROOT)/include \
+	-I$(UI_ROOT)/reference-frame \
 	-I$(APP_ROOT)/$(BUILD) \
 	-I$(LIBOGC_INC) \
 	-I$(APP_ROOT)/.opengx/src \

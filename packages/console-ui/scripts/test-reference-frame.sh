@@ -7,9 +7,9 @@ test_binary=$(mktemp "${TMPDIR:-/tmp}/multiplex-reference-frame.XXXXXX")
 trap 'rm -f "$test_binary"' EXIT INT TERM
 
 "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
-  -I"$app_dir/host" \
-  -I"$app_dir/host-reference" \
-  "$app_dir/host-reference/reference_frame.c" \
+  -I"$app_dir/include" \
+  -I"$app_dir/reference-frame" \
+  "$app_dir/reference-frame/reference_frame.c" \
   "$app_dir/tests/reference_frame_test.c" \
   -o "$test_binary"
 "$test_binary"

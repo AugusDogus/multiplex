@@ -8,6 +8,7 @@ fi
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+repo_dir=$(CDPATH= cd -- "$app_dir/../.." && pwd)
 test_dir=$(mktemp -d "${TMPDIR:-/tmp}/multiplex-app-services-dispatch.XXXXXX")
 trap 'rm -rf "$test_dir"' EXIT HUP INT TERM
 printf '%s\n' \
@@ -23,7 +24,7 @@ run_test() {
     "$@" \
     -I"$test_dir" \
     -I"$app_dir/host" \
-    -I"$app_dir/host-reference" \
+    -I"$repo_dir/packages/console-ui/include" \
     -I"$app_dir/host-reference-gx" \
     -I"$app_dir/build-native-reference" \
     "$app_dir/host-reference-gx/app_services.c" \
