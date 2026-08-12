@@ -200,6 +200,29 @@ static bool wait_network_warmup(MultiplexApp *app) {
   return ready;
 }
 
+static MultiplexPlaybackOpenResult
+open_configured_http_media(MultiplexApp *app) {
+  const MultiplexPlaybackProgramOpenRequest request = {
+      .source_kind = MULTIPLEX_PLAYBACK_PROGRAM_HTTP,
+      .source.http =
+          {
+              .url = MULTIPLEX_MEDIA_URL,
+              .stream_info =
+                  {
+                      .has_stream_info = MULTIPLEX_MEDIA_HAS_INFO != 0,
+                      .video_bytes = MULTIPLEX_MEDIA_VIDEO_BYTES,
+                      .audio_bytes = MULTIPLEX_MEDIA_AUDIO_BYTES,
+                      .video_packets = MULTIPLEX_MEDIA_VIDEO_PACKETS,
+                      .audio_packets = MULTIPLEX_MEDIA_AUDIO_PACKETS,
+                      .first_video_pts90k = MULTIPLEX_MEDIA_VIDEO_PTS90K,
+                      .first_audio_pts90k = MULTIPLEX_MEDIA_AUDIO_PTS90K,
+                  },
+          },
+  };
+  return multiplex_playback_session_open_program(app->playback_session,
+                                                 &request);
+}
+
 static MultiplexAppOpenResult open_failure(MultiplexAppFailure failure,
                                            MultiplexAppOpenResult fallback) {
   switch (failure) {
@@ -332,7 +355,9 @@ MultiplexAppOpenResult multiplex_app_open(MultiplexApp *app) {
   }
 
   app->network.warmup_pending = launch_network_warmup(&app->network.warmup);
-  if (MULTIPLEX_GATEWAY_URL[0] != '\0' && app->network.warmup_pending) {
+  const bool startup_requires_network =
+      MULTIPLEX_GATEWAY_URL[0] != '\0' || MULTIPLEX_MEDIA_URL[0] != '\0';
+  if (startup_requires_network && app->network.warmup_pending) {
     app->network.ready = wait_network_warmup(app);
     app->network.warmup_pending = false;
     if (!app->network.ready) {
@@ -393,31 +418,19 @@ MultiplexAppOpenResult multiplex_app_open(MultiplexApp *app) {
                                       MULTIPLEX_GATEWAY_URL[0] == '\0' &&
                                       MULTIPLEX_PAIRING_ENABLED != 0;
   if (!has_playback_manifest && !startup_media_deferred) {
-    MultiplexPlaybackProgramOpenRequest request;
     if (MULTIPLEX_MEDIA_URL[0] != '\0') {
-      request = (MultiplexPlaybackProgramOpenRequest){
-          .source_kind = MULTIPLEX_PLAYBACK_PROGRAM_HTTP,
-          .source.http =
-              {
-                  .url = MULTIPLEX_MEDIA_URL,
-                  .stream_info =
-                      {
-                          .has_stream_info = MULTIPLEX_MEDIA_HAS_INFO != 0,
-                          .video_bytes = MULTIPLEX_MEDIA_VIDEO_BYTES,
-                          .audio_bytes = MULTIPLEX_MEDIA_AUDIO_BYTES,
-                          .video_packets = MULTIPLEX_MEDIA_VIDEO_PACKETS,
-                          .audio_packets = MULTIPLEX_MEDIA_AUDIO_PACKETS,
-                          .first_video_pts90k = MULTIPLEX_MEDIA_VIDEO_PTS90K,
-                          .first_audio_pts90k = MULTIPLEX_MEDIA_AUDIO_PTS90K,
-                      },
-              },
-      };
+      if (!app->network.ready) {
+        app->startup_media_pending = true;
+      } else if (open_configured_http_media(app) !=
+                 MULTIPLEX_PLAYBACK_OPEN_READY) {
+        return MULTIPLEX_APP_OPEN_MEDIA_PRODUCER_FAILED;
+      }
     } else {
       if (MULTIPLEX_GATEWAY_URL[0] != '\0') {
         SYS_Report("REFERENCE GX: gateway playback manifest unavailable\n");
         return MULTIPLEX_APP_OPEN_MEDIA_PRODUCER_FAILED;
       }
-      request = (MultiplexPlaybackProgramOpenRequest){
+      const MultiplexPlaybackProgramOpenRequest request = {
           .source_kind = MULTIPLEX_PLAYBACK_PROGRAM_EMBEDDED,
           .source.embedded =
               {
@@ -425,10 +438,11 @@ MultiplexAppOpenResult multiplex_app_open(MultiplexApp *app) {
                   .size = (size_t)multiplex_dvd_demo_mpg_size,
               },
       };
-    }
-    if (multiplex_playback_session_open_program(
-            app->playback_session, &request) != MULTIPLEX_PLAYBACK_OPEN_READY) {
-      return MULTIPLEX_APP_OPEN_MEDIA_PRODUCER_FAILED;
+      if (multiplex_playback_session_open_program(app->playback_session,
+                                                  &request) !=
+          MULTIPLEX_PLAYBACK_OPEN_READY) {
+        return MULTIPLEX_APP_OPEN_MEDIA_PRODUCER_FAILED;
+      }
     }
   }
 
@@ -490,6 +504,12 @@ MultiplexAppStepResult multiplex_app_step(MultiplexApp *app) {
 
   const uint64_t now_ms = ticks_to_millisecs(gettime());
   poll_network(app, now_ms);
+  if (app->startup_media_pending && app->network.ready) {
+    if (open_configured_http_media(app) != MULTIPLEX_PLAYBACK_OPEN_READY) {
+      return MULTIPLEX_APP_STEP_MEDIA_PRODUCER_FAILED;
+    }
+    app->startup_media_pending = false;
+  }
 
   const bool work_dispatched = multiplex_app_jobs_poll_work(app->jobs, now_ms);
   const MultiplexAppEffectDrainResult work_effects =
