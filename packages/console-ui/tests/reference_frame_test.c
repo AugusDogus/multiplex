@@ -105,6 +105,6 @@ int main(void) {
   rejects_unexpected_frame_size();
   renders_validated_frames();
   detects_guard_corruption_and_accepts_native_only_renders();
-  puts("GameCube portable reference frame tests passed.");
+  puts("Console UI portable reference frame tests passed.");
   return 0;
 }

@@ -1,7 +1,7 @@
 # Multiplex for GameCube
 
-This is a real GameCube DOL whose UI is authored in restricted TypeScript and
-Native SDK `.native` markup. Native SDK builds the widget tree, resolves
+This is a real GameCube DOL whose shared UI is authored in restricted
+TypeScript and Native SDK `.native` markup under `packages/console-ui`. Native SDK builds the widget tree, resolves
 handlers, performs layout, and rasterizes its reference output on PowerPC. A
 small libogc2/GX host presents that completed RGBA frame without recreating UI
 semantics.
@@ -399,15 +399,15 @@ profile also accepts the connected Steam Controller alongside the QA pipe.
 
 ## Source map
 
-- `src/core.ts`: application model and update function
-- `src/app.native`: declarative pairing, home, search, library browser,
+- `packages/console-ui/src/core.ts`: shared application model and update function
+- `packages/console-ui/src/app.native`: declarative pairing, home, search, library browser,
   details, and player views
-- `src/gamecube_probe.zig`: compiled view, layout, focus/handler resolution,
+- `packages/console-ui/src/console_ui.zig`: compiled view, layout, focus/handler resolution,
   GPU-packet translation, and C ABI
 - `host-reference-gx/main.c`: reference framebuffer and direct-GX presenter
 - `host-reference-gx/gui_navigation.c`: attributed libwiigui-style analog
   dead-zone and repeat adapter
-- `host-reference/reference_frame.c`: platform-neutral guarded RGBA frame
+- `packages/console-ui/reference-frame/reference_frame.c`: platform-neutral guarded RGBA frame
   allocation, Native SDK rendering, and deterministic frame signatures
 - `host-reference-gx/trpc_client.c`: bounded Better Auth bearer transport for
   the same tRPC procedures used by the web client

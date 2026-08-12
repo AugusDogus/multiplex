@@ -3,11 +3,13 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+repo_dir=$(CDPATH= cd -- "$app_dir/../.." && pwd)
+ui_dir="$repo_dir/packages/console-ui"
 
 # shellcheck disable=SC1091
 . "$app_dir/PINS.env"
 
-sdk_dir="$app_dir/.native-sdk"
+sdk_dir="$ui_dir/.native-sdk"
 sdk_url="https://github.com/vercel-labs/native.git"
 
 if [ ! -d "$sdk_dir/.git" ]; then
@@ -40,9 +42,9 @@ apply_sdk_patch() {
   exit 1
 }
 
-apply_sdk_patch "$app_dir/patches/native-sdk-single-threaded-canvas.patch"
-apply_sdk_patch "$app_dir/patches/native-sdk-reference-render-fast-paths.patch"
-apply_sdk_patch "$app_dir/patches/native-sdk-panel-focus-indicator.patch"
+apply_sdk_patch "$ui_dir/patches/native-sdk-single-threaded-canvas.patch"
+apply_sdk_patch "$ui_dir/patches/native-sdk-reference-render-fast-paths.patch"
+apply_sdk_patch "$ui_dir/patches/native-sdk-panel-focus-indicator.patch"
 
 actual_zig=$(zig version)
 if [ "$actual_zig" != "$ZIG_VERSION" ]; then

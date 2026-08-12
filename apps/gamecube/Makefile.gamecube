@@ -7,6 +7,7 @@ $(error "DEVKITPPC must point to the devkitPPC toolchain")
 endif
 
 APP_ROOT := $(abspath $(dir $(firstword $(MAKEFILE_LIST))))
+UI_ROOT := $(abspath $(APP_ROOT)/../../packages/console-ui)
 
 include $(DEVKITPPC)/gamecube_rules
 
@@ -29,10 +30,11 @@ export DEPSDIR := $(APP_ROOT)/$(BUILD)
 
 CFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(APP_ROOT)/$(dir)/*.c)))
 OFILES_SOURCES := $(CFILES:.c=.o)
-export CORE_LIBRARY := $(APP_ROOT)/zig-out/lib/libmultiplex-gamecube-core.a
+export CORE_LIBRARY := $(UI_ROOT)/zig-out/lib/libmultiplex-console-ui-powerpc.a
 export OFILES := $(OFILES_SOURCES)
 
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(APP_ROOT)/$(dir)) \
+	-I$(UI_ROOT)/include \
 	-I$(APP_ROOT)/$(BUILD) \
 	-I$(LIBOGC_INC)
 export LIBPATHS := -L$(LIBOGC_LIB) $(foreach dir,$(LIBDIRS),-L$(dir)/lib)

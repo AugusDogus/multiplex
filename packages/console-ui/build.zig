@@ -3,24 +3,24 @@ const native_sdk = @import("native_sdk");
 
 const frame_capacity = 128 * 1024;
 const heap_capacity = 256 * 1024;
-const gamecube_optimize = std.builtin.OptimizeMode.ReleaseFast;
+const console_optimize = std.builtin.OptimizeMode.ReleaseFast;
 
 pub fn build(b: *std.Build) void {
     const dependency = b.dependency("native_sdk", .{});
 
     // Keep the upstream null-platform build as the first compatibility gate.
     // It compiles the TypeScript core, generated wiring, and declarative view.
-    native_sdk.addApp(b, dependency, .{ .name = "multiplex-gamecube" });
+    native_sdk.addApp(b, dependency, .{ .name = "multiplex-console-ui" });
 
-    addGameCubeCoreProbe(b, dependency);
+    addPowerPcCore(b, dependency);
 }
 
 /// Compile the generated TypeScript application core as a freestanding
 /// PowerPC 750 EABI object. This deliberately excludes Native SDK's desktop
 /// runtime and renderer: it answers the first question independently—
 /// whether our authored state machine and its fixed-capacity runtime can
-/// become code for the GameCube CPU.
-fn addGameCubeCoreProbe(b: *std.Build, dependency: *std.Build.Dependency) void {
+/// become code for the PowerPC 750 used by the current libogc hosts.
+fn addPowerPcCore(b: *std.Build, dependency: *std.Build.Dependency) void {
     const target = b.resolveTargetQuery(.{
         .cpu_arch = .powerpc,
         .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.@"750" },
@@ -51,24 +51,24 @@ fn addGameCubeCoreProbe(b: *std.Build, dependency: *std.Build.Dependency) void {
     _ = staged.addCopyFile(b.path("src/icons/home.svg"), "icons/home.svg");
     _ = staged.addCopyFile(b.path("src/icons/multiplex.svg"), "icons/multiplex.svg");
     _ = staged.addCopyFile(b.path("src/icons/stop.svg"), "icons/stop.svg");
-    const probe_root = staged.addCopyFile(b.path("src/gamecube_probe.zig"), "gamecube_probe.zig");
+    const probe_root = staged.addCopyFile(b.path("src/console_ui.zig"), "console_ui.zig");
 
     const geometry_module = b.createModule(.{
         .root_source_file = dependency.path("src/primitives/geometry/root.zig"),
         .target = target,
-        .optimize = gamecube_optimize,
+        .optimize = console_optimize,
         .single_threaded = true,
     });
     const json_module = b.createModule(.{
         .root_source_file = dependency.path("src/primitives/json/root.zig"),
         .target = target,
-        .optimize = gamecube_optimize,
+        .optimize = console_optimize,
         .single_threaded = true,
     });
     const canvas_module = b.createModule(.{
         .root_source_file = dependency.path("src/primitives/canvas/root.zig"),
         .target = target,
-        .optimize = gamecube_optimize,
+        .optimize = console_optimize,
         .single_threaded = true,
     });
     canvas_module.addImport("geometry", geometry_module);
@@ -77,13 +77,13 @@ fn addGameCubeCoreProbe(b: *std.Build, dependency: *std.Build.Dependency) void {
     const probe_module = b.createModule(.{
         .root_source_file = probe_root,
         .target = target,
-        .optimize = gamecube_optimize,
+        .optimize = console_optimize,
         .single_threaded = true,
     });
     probe_module.addImport("canvas", canvas_module);
     probe_module.addImport("geometry", geometry_module);
     const probe = b.addLibrary(.{
-        .name = "multiplex-gamecube-core",
+        .name = "multiplex-console-ui-powerpc",
         .linkage = .static,
         .root_module = probe_module,
         .use_llvm = true,
@@ -92,12 +92,12 @@ fn addGameCubeCoreProbe(b: *std.Build, dependency: *std.Build.Dependency) void {
     const install = b.addInstallFileWithDir(
         probe.getEmittedBin(),
         .lib,
-        "libmultiplex-gamecube-core.a",
+        "libmultiplex-console-ui-powerpc.a",
     );
 
     const step = b.step(
-        "gamecube-core",
-        "Compile the TypeScript core and compiled .native view as a PowerPC 750 EABI object",
+        "powerpc-core",
+        "Compile the console UI as a PowerPC 750 EABI object",
     );
     step.dependOn(&install.step);
 }

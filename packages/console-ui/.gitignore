@@ -1,0 +1,4 @@
+.native-sdk/
+.zig-cache/
+zig-out/
+node_modules/
