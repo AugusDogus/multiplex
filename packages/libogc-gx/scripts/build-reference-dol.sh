@@ -90,7 +90,7 @@ podman run --rm \
   --env MULTIPLEX_PLATFORM="$platform" \
   --env REFERENCE_VARIANT="$reference_variant" \
   "$DEVKITPPC_IMAGE" \
-  sh -c 'export DEVKITPRO="/workspace/apps/gamecube/$LIBOGC2_STAGE_NAME/opt/devkitpro"; export DEVKITPPC="/opt/devkitpro/devkitPPC"; export PATH="/opt/devkitpro/devkitPPC/bin:/opt/devkitpro/tools/bin:$PATH"; make -f packages/libogc-gx/Makefile.reference MULTIPLEX_PLATFORM="$MULTIPLEX_PLATFORM" ${REFERENCE_VARIANT:+REFERENCE_VARIANT="$REFERENCE_VARIANT"}'
+  sh -c 'export DEVKITPRO="/workspace/apps/gamecube/$LIBOGC2_STAGE_NAME/opt/devkitpro"; export DEVKITPPC="/opt/devkitpro/devkitPPC"; export PATH="/opt/devkitpro/devkitPPC/bin:/opt/devkitpro/tools/bin:$PATH"; make -f /workspace/packages/libogc-gx/Makefile.reference MULTIPLEX_PLATFORM="$MULTIPLEX_PLATFORM" ${REFERENCE_VARIANT:+REFERENCE_VARIANT="$REFERENCE_VARIANT"}'
 
 test -s "$artifact_root/$artifact_stem.dol"
 printf '%s\n' "$libogc2_stage_name" >"$stage_stamp"

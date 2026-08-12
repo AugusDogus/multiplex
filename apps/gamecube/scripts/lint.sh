@@ -58,7 +58,8 @@ find \
   "$ui_dir/build.zig" \
   "$ui_dir/src/console_ui.zig"
 
-find "$script_dir" -maxdepth 1 -type f -name '*.sh' \
+find "$script_dir" "$runtime_dir/scripts" "$repo_dir/apps/wii/scripts" \
+  -maxdepth 1 -type f -name '*.sh' \
   -exec "$shellcheck" \
   -e SC1007,SC1112,SC2016,SC2119,SC2120,SC2317,SC2329 {} +
 
