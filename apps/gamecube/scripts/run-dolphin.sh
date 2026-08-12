@@ -76,6 +76,7 @@ if [ "$normal_scheduler_guard" -ne 1 ] &&
     --setenv="DOLPHIN_GDB_SOCKET=$gdb_socket" \
     --setenv="DOLPHIN_EMU_REAL=${DOLPHIN_EMU_REAL:-}" \
     --setenv="GAMECUBE_PASTA_BIN=${GAMECUBE_PASTA_BIN:-}" \
+    --setenv="GAMECUBE_PASTA_OUTBOUND_INTERFACE=${GAMECUBE_PASTA_OUTBOUND_INTERFACE:-}" \
     --setenv="GAMECUBE_PASTA_DEBUG=${GAMECUBE_PASTA_DEBUG:-0}" \
     --setenv="GAMECUBE_PASTA_CAPTURE=${GAMECUBE_PASTA_CAPTURE:-0}" \
     /bin/sh "$script_dir/run-dolphin.sh" "$dol"
