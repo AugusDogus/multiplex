@@ -7,15 +7,15 @@
 #define MULTIPLEX_NATIVE_ABI_VERSION UINT32_C(1)
 
 enum {
-  MULTIPLEX_GX_FILL_RECT = 1,
-  MULTIPLEX_GX_FILL_ROUNDED_RECT = 2,
-  MULTIPLEX_GX_STROKE_RECT = 3,
-  MULTIPLEX_GX_LINE = 4,
-  MULTIPLEX_GX_TEXT = 5,
-  MULTIPLEX_GX_SHADOW = 6,
-  MULTIPLEX_GX_GLYPH = 7,
-  MULTIPLEX_GX_PATH_LINE = 8,
-  MULTIPLEX_GX_FILL_TRIANGLE = 9,
+  MULTIPLEX_NATIVE_DRAW_FILL_RECT = 1,
+  MULTIPLEX_NATIVE_DRAW_FILL_ROUNDED_RECT = 2,
+  MULTIPLEX_NATIVE_DRAW_STROKE_RECT = 3,
+  MULTIPLEX_NATIVE_DRAW_LINE = 4,
+  MULTIPLEX_NATIVE_DRAW_TEXT = 5,
+  MULTIPLEX_NATIVE_DRAW_SHADOW = 6,
+  MULTIPLEX_NATIVE_DRAW_GLYPH = 7,
+  MULTIPLEX_NATIVE_DRAW_PATH_LINE = 8,
+  MULTIPLEX_NATIVE_DRAW_FILL_TRIANGLE = 9,
 };
 
 enum {
@@ -52,7 +52,7 @@ typedef struct {
   uint32_t text_len;
   uint32_t glyph_id;
   float font_size;
-} MultiplexGxCommand;
+} MultiplexNativeDrawCommand;
 
 typedef struct {
   uint32_t visible;
@@ -102,7 +102,7 @@ typedef struct {
   (((value) + (alignment) - 1u) / (alignment) * (alignment))
 #define MULTIPLEX_NATIVE_ABI_MAX2(first, second)                               \
   ((first) > (second) ? (first) : (second))
-#define MULTIPLEX_NATIVE_ABI_GX_COMMAND_ALIGNMENT                              \
+#define MULTIPLEX_NATIVE_ABI_DRAW_COMMAND_ALIGNMENT                            \
   MULTIPLEX_NATIVE_ABI_MAX2(_Alignof(const uint8_t *), _Alignof(float))
 
 _Static_assert(sizeof(uint32_t) == 4, "native ABI requires 32-bit uint32_t");
@@ -110,19 +110,22 @@ _Static_assert(sizeof(float) == 4, "native ABI requires 32-bit float");
 _Static_assert(MULTIPLEX_NATIVE_ABI_VERSION == UINT32_C(1),
                "native ABI version changed");
 
-_Static_assert(MULTIPLEX_GX_FILL_RECT == 1,
-               "GX fill rectangle command changed");
-_Static_assert(MULTIPLEX_GX_FILL_ROUNDED_RECT == 2,
-               "GX rounded rectangle command changed");
-_Static_assert(MULTIPLEX_GX_STROKE_RECT == 3,
-               "GX stroke rectangle command changed");
-_Static_assert(MULTIPLEX_GX_LINE == 4, "GX line command changed");
-_Static_assert(MULTIPLEX_GX_TEXT == 5, "GX text command changed");
-_Static_assert(MULTIPLEX_GX_SHADOW == 6, "GX shadow command changed");
-_Static_assert(MULTIPLEX_GX_GLYPH == 7, "GX glyph command changed");
-_Static_assert(MULTIPLEX_GX_PATH_LINE == 8, "GX path line command changed");
-_Static_assert(MULTIPLEX_GX_FILL_TRIANGLE == 9,
-               "GX fill triangle command changed");
+_Static_assert(MULTIPLEX_NATIVE_DRAW_FILL_RECT == 1,
+               "native fill rectangle command changed");
+_Static_assert(MULTIPLEX_NATIVE_DRAW_FILL_ROUNDED_RECT == 2,
+               "native rounded rectangle command changed");
+_Static_assert(MULTIPLEX_NATIVE_DRAW_STROKE_RECT == 3,
+               "native stroke rectangle command changed");
+_Static_assert(MULTIPLEX_NATIVE_DRAW_LINE == 4, "native line command changed");
+_Static_assert(MULTIPLEX_NATIVE_DRAW_TEXT == 5, "native text command changed");
+_Static_assert(MULTIPLEX_NATIVE_DRAW_SHADOW == 6,
+               "native shadow command changed");
+_Static_assert(MULTIPLEX_NATIVE_DRAW_GLYPH == 7,
+               "native glyph command changed");
+_Static_assert(MULTIPLEX_NATIVE_DRAW_PATH_LINE == 8,
+               "native path line command changed");
+_Static_assert(MULTIPLEX_NATIVE_DRAW_FILL_TRIANGLE == 9,
+               "native fill triangle command changed");
 
 _Static_assert(MULTIPLEX_SCREEN_PAIRING == 0, "pairing screen ID changed");
 _Static_assert(MULTIPLEX_SCREEN_HOME == 1, "home screen ID changed");
@@ -144,46 +147,46 @@ _Static_assert(MULTIPLEX_SCREEN_PLAYER == 10, "player screen ID changed");
   _Static_assert(offsetof(type, field) == (expected),                          \
                  #type "." #field " offset changed")
 
-_Static_assert(_Alignof(MultiplexGxCommand) ==
-                   MULTIPLEX_NATIVE_ABI_GX_COMMAND_ALIGNMENT,
-               "MultiplexGxCommand alignment changed");
-MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, kind, 0u);
-MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, x, 4u);
-MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, y, 8u);
-MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, width, 12u);
-MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, height, 16u);
-MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, x2, 20u);
-MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, y2, 24u);
-MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, radius, 28u);
-MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, stroke_width, 32u);
-MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, color_rgba, 36u);
-MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, has_clip, 40u);
-MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, clip_x, 44u);
-MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, clip_y, 48u);
-MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, clip_width, 52u);
-MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexGxCommand, clip_height, 56u);
+_Static_assert(_Alignof(MultiplexNativeDrawCommand) ==
+                   MULTIPLEX_NATIVE_ABI_DRAW_COMMAND_ALIGNMENT,
+               "MultiplexNativeDrawCommand alignment changed");
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexNativeDrawCommand, kind, 0u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexNativeDrawCommand, x, 4u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexNativeDrawCommand, y, 8u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexNativeDrawCommand, width, 12u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexNativeDrawCommand, height, 16u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexNativeDrawCommand, x2, 20u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexNativeDrawCommand, y2, 24u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexNativeDrawCommand, radius, 28u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexNativeDrawCommand, stroke_width, 32u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexNativeDrawCommand, color_rgba, 36u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexNativeDrawCommand, has_clip, 40u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexNativeDrawCommand, clip_x, 44u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexNativeDrawCommand, clip_y, 48u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexNativeDrawCommand, clip_width, 52u);
+MULTIPLEX_NATIVE_ASSERT_OFFSET(MultiplexNativeDrawCommand, clip_height, 56u);
 MULTIPLEX_NATIVE_ASSERT_OFFSET(
-    MultiplexGxCommand, text_ptr,
+    MultiplexNativeDrawCommand, text_ptr,
     MULTIPLEX_NATIVE_ABI_ALIGN_UP(60u, _Alignof(const uint8_t *)));
 MULTIPLEX_NATIVE_ASSERT_OFFSET(
-    MultiplexGxCommand, text_len,
+    MultiplexNativeDrawCommand, text_len,
     MULTIPLEX_NATIVE_ABI_ALIGN_UP(60u, _Alignof(const uint8_t *)) +
         sizeof(const uint8_t *));
 MULTIPLEX_NATIVE_ASSERT_OFFSET(
-    MultiplexGxCommand, glyph_id,
+    MultiplexNativeDrawCommand, glyph_id,
     MULTIPLEX_NATIVE_ABI_ALIGN_UP(60u, _Alignof(const uint8_t *)) +
         sizeof(const uint8_t *) + sizeof(uint32_t));
 MULTIPLEX_NATIVE_ASSERT_OFFSET(
-    MultiplexGxCommand, font_size,
+    MultiplexNativeDrawCommand, font_size,
     MULTIPLEX_NATIVE_ABI_ALIGN_UP(60u, _Alignof(const uint8_t *)) +
         sizeof(const uint8_t *) + 2u * sizeof(uint32_t));
 _Static_assert(
-    sizeof(MultiplexGxCommand) ==
+    sizeof(MultiplexNativeDrawCommand) ==
         MULTIPLEX_NATIVE_ABI_ALIGN_UP(
             MULTIPLEX_NATIVE_ABI_ALIGN_UP(60u, _Alignof(const uint8_t *)) +
                 sizeof(const uint8_t *) + 3u * sizeof(uint32_t),
-            MULTIPLEX_NATIVE_ABI_GX_COMMAND_ALIGNMENT),
-    "MultiplexGxCommand size changed");
+            MULTIPLEX_NATIVE_ABI_DRAW_COMMAND_ALIGNMENT),
+    "MultiplexNativeDrawCommand size changed");
 
 _Static_assert(_Alignof(MultiplexVideoSurface) == _Alignof(float),
                "MultiplexVideoSurface alignment changed");
@@ -238,7 +241,7 @@ _Static_assert(sizeof(MultiplexPosterSurface) == 64u,
                "MultiplexPosterSurface size changed");
 
 #undef MULTIPLEX_NATIVE_ASSERT_OFFSET
-#undef MULTIPLEX_NATIVE_ABI_GX_COMMAND_ALIGNMENT
+#undef MULTIPLEX_NATIVE_ABI_DRAW_COMMAND_ALIGNMENT
 #undef MULTIPLEX_NATIVE_ABI_MAX2
 #undef MULTIPLEX_NATIVE_ABI_ALIGN_UP
 
@@ -397,7 +400,7 @@ uint32_t multiplex_native_modal_surface(MultiplexModalSurface *output);
 uint32_t multiplex_native_poster_surfaces(MultiplexPosterSurface *output,
                                           uint32_t capacity);
 void multiplex_native_reference_text_overlay(uint32_t enabled);
-uint32_t multiplex_native_app_render(MultiplexGxCommand *output,
+uint32_t multiplex_native_app_render(MultiplexNativeDrawCommand *output,
                                      uint32_t capacity);
 uint32_t multiplex_native_reference_pixel_bytes(void);
 uint32_t multiplex_native_reference_render_stage(void);

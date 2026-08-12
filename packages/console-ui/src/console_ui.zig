@@ -42,10 +42,10 @@ var display_commands: [1024]canvas.CanvasCommand = undefined;
 var display_builder: canvas.Builder = undefined;
 var render_commands: [1024]canvas.RenderCommand = undefined;
 var gpu_commands: [1024]canvas.CanvasGpuCommand = undefined;
-const gx_command_cache_capacity: usize = 1024;
-var gx_command_cache: [gx_command_cache_capacity]GxCommand = undefined;
-var gx_command_cache_count: u32 = 0;
-var gx_command_cache_valid = false;
+const native_draw_command_cache_capacity: usize = 1024;
+var native_draw_command_cache: [native_draw_command_cache_capacity]NativeDrawCommand = undefined;
+var native_draw_command_cache_count: u32 = 0;
+var native_draw_command_cache_valid = false;
 var app_model: *const core.Model = undefined;
 var app_initialized = false;
 var staged_gateway_name: []const u8 = &.{};
@@ -209,7 +209,7 @@ fn referenceRenderMemo() *canvas.ReferenceRenderMemo {
     return &reference_render_memo;
 }
 
-pub const GxCommand = extern struct {
+pub const NativeDrawCommand = extern struct {
     kind: u32 = 0,
     x: f32 = 0,
     y: f32 = 0,
@@ -275,15 +275,15 @@ pub const PosterSurface = extern struct {
     clip_height: f32 = 0,
 };
 
-const gx_fill_rect: u32 = 1;
-const gx_fill_rounded_rect: u32 = 2;
-const gx_stroke_rect: u32 = 3;
-const gx_line: u32 = 4;
-const gx_text: u32 = 5;
-const gx_shadow: u32 = 6;
-const gx_glyph: u32 = 7;
-const gx_path_line: u32 = 8;
-const gx_fill_triangle: u32 = 9;
+const native_draw_fill_rect: u32 = 1;
+const native_draw_fill_rounded_rect: u32 = 2;
+const native_draw_stroke_rect: u32 = 3;
+const native_draw_line: u32 = 4;
+const native_draw_text: u32 = 5;
+const native_draw_shadow: u32 = 6;
+const native_draw_glyph: u32 = 7;
+const native_draw_path_line: u32 = 8;
+const native_draw_fill_triangle: u32 = 9;
 const native_abi_version: u32 = 1;
 const screen_pairing: u32 = 0;
 const screen_home: u32 = 1;
@@ -422,7 +422,7 @@ comptime {
     const native_navigation_fields = @typeInfo(NativeNavigationTraceKind).@"enum".fields;
     const core_message_fields = @typeInfo(core.Msg).@"union".fields;
     const pointer_size = @sizeOf(?[*]const u8);
-    const gx_command_alignment = @max(@alignOf(?[*]const u8), @alignOf(f32));
+    const native_draw_command_alignment = @max(@alignOf(?[*]const u8), @alignOf(f32));
     const text_ptr_offset = abiAlignForward(60, @alignOf(?[*]const u8));
     const text_len_offset = text_ptr_offset + pointer_size;
     const glyph_id_offset = text_len_offset + @sizeOf(u32);
@@ -458,15 +458,15 @@ comptime {
         }
     }
 
-    std.debug.assert(gx_fill_rect == 1);
-    std.debug.assert(gx_fill_rounded_rect == 2);
-    std.debug.assert(gx_stroke_rect == 3);
-    std.debug.assert(gx_line == 4);
-    std.debug.assert(gx_text == 5);
-    std.debug.assert(gx_shadow == 6);
-    std.debug.assert(gx_glyph == 7);
-    std.debug.assert(gx_path_line == 8);
-    std.debug.assert(gx_fill_triangle == 9);
+    std.debug.assert(native_draw_fill_rect == 1);
+    std.debug.assert(native_draw_fill_rounded_rect == 2);
+    std.debug.assert(native_draw_stroke_rect == 3);
+    std.debug.assert(native_draw_line == 4);
+    std.debug.assert(native_draw_text == 5);
+    std.debug.assert(native_draw_shadow == 6);
+    std.debug.assert(native_draw_glyph == 7);
+    std.debug.assert(native_draw_path_line == 8);
+    std.debug.assert(native_draw_fill_triangle == 9);
 
     std.debug.assert(screen_pairing == 0);
     std.debug.assert(screen_home == 1);
@@ -480,27 +480,27 @@ comptime {
     std.debug.assert(screen_details == 9);
     std.debug.assert(screen_player == 10);
 
-    std.debug.assert(@alignOf(GxCommand) == gx_command_alignment);
-    std.debug.assert(@sizeOf(GxCommand) == abiAlignForward(font_size_offset + @sizeOf(f32), gx_command_alignment));
-    std.debug.assert(@offsetOf(GxCommand, "kind") == 0);
-    std.debug.assert(@offsetOf(GxCommand, "x") == 4);
-    std.debug.assert(@offsetOf(GxCommand, "y") == 8);
-    std.debug.assert(@offsetOf(GxCommand, "width") == 12);
-    std.debug.assert(@offsetOf(GxCommand, "height") == 16);
-    std.debug.assert(@offsetOf(GxCommand, "x2") == 20);
-    std.debug.assert(@offsetOf(GxCommand, "y2") == 24);
-    std.debug.assert(@offsetOf(GxCommand, "radius") == 28);
-    std.debug.assert(@offsetOf(GxCommand, "stroke_width") == 32);
-    std.debug.assert(@offsetOf(GxCommand, "color_rgba") == 36);
-    std.debug.assert(@offsetOf(GxCommand, "has_clip") == 40);
-    std.debug.assert(@offsetOf(GxCommand, "clip_x") == 44);
-    std.debug.assert(@offsetOf(GxCommand, "clip_y") == 48);
-    std.debug.assert(@offsetOf(GxCommand, "clip_width") == 52);
-    std.debug.assert(@offsetOf(GxCommand, "clip_height") == 56);
-    std.debug.assert(@offsetOf(GxCommand, "text_ptr") == text_ptr_offset);
-    std.debug.assert(@offsetOf(GxCommand, "text_len") == text_len_offset);
-    std.debug.assert(@offsetOf(GxCommand, "glyph_id") == glyph_id_offset);
-    std.debug.assert(@offsetOf(GxCommand, "font_size") == font_size_offset);
+    std.debug.assert(@alignOf(NativeDrawCommand) == native_draw_command_alignment);
+    std.debug.assert(@sizeOf(NativeDrawCommand) == abiAlignForward(font_size_offset + @sizeOf(f32), native_draw_command_alignment));
+    std.debug.assert(@offsetOf(NativeDrawCommand, "kind") == 0);
+    std.debug.assert(@offsetOf(NativeDrawCommand, "x") == 4);
+    std.debug.assert(@offsetOf(NativeDrawCommand, "y") == 8);
+    std.debug.assert(@offsetOf(NativeDrawCommand, "width") == 12);
+    std.debug.assert(@offsetOf(NativeDrawCommand, "height") == 16);
+    std.debug.assert(@offsetOf(NativeDrawCommand, "x2") == 20);
+    std.debug.assert(@offsetOf(NativeDrawCommand, "y2") == 24);
+    std.debug.assert(@offsetOf(NativeDrawCommand, "radius") == 28);
+    std.debug.assert(@offsetOf(NativeDrawCommand, "stroke_width") == 32);
+    std.debug.assert(@offsetOf(NativeDrawCommand, "color_rgba") == 36);
+    std.debug.assert(@offsetOf(NativeDrawCommand, "has_clip") == 40);
+    std.debug.assert(@offsetOf(NativeDrawCommand, "clip_x") == 44);
+    std.debug.assert(@offsetOf(NativeDrawCommand, "clip_y") == 48);
+    std.debug.assert(@offsetOf(NativeDrawCommand, "clip_width") == 52);
+    std.debug.assert(@offsetOf(NativeDrawCommand, "clip_height") == 56);
+    std.debug.assert(@offsetOf(NativeDrawCommand, "text_ptr") == text_ptr_offset);
+    std.debug.assert(@offsetOf(NativeDrawCommand, "text_len") == text_len_offset);
+    std.debug.assert(@offsetOf(NativeDrawCommand, "glyph_id") == glyph_id_offset);
+    std.debug.assert(@offsetOf(NativeDrawCommand, "font_size") == font_size_offset);
 
     std.debug.assert(@alignOf(VideoSurface) == @alignOf(f32));
     std.debug.assert(@sizeOf(VideoSurface) == 24);
@@ -2097,12 +2097,12 @@ export fn multiplex_native_reference_text_overlay(enabled: u32) callconv(.c) voi
 
 /// Build the current live app frame and lower Native SDK's GPU packet into
 /// the deliberately small command ABI consumed by the libogc GX presenter.
-export fn multiplex_native_app_render(output: [*]GxCommand, capacity: u32) callconv(.c) u32 {
+export fn multiplex_native_app_render(output: [*]NativeDrawCommand, capacity: u32) callconv(.c) u32 {
     if (!app_initialized) return 0;
-    if (gx_command_cache_valid) {
-        const count_u32 = @min(gx_command_cache_count, capacity);
+    if (native_draw_command_cache_valid) {
+        const count_u32 = @min(native_draw_command_cache_count, capacity);
         const count: usize = @intCast(count_u32);
-        @memcpy(output[0..count], gx_command_cache[0..count]);
+        @memcpy(output[0..count], native_draw_command_cache[0..count]);
         return count_u32;
     }
     const model = app_model;
@@ -2135,12 +2135,12 @@ export fn multiplex_native_app_render(output: [*]GxCommand, capacity: u32) callc
         .focus_visible_id = focused_id,
     }) catch return 0;
     const render_plan = display_builder.displayList().renderPlan(&render_commands) catch return 0;
-    return lowerGxCommands(render_plan.commands, output, capacity);
+    return lowerNativeDrawCommands(render_plan.commands, output, capacity);
 }
 
-fn lowerGxCommands(
+fn lowerNativeDrawCommands(
     commands: []const canvas.RenderCommand,
-    output: [*]GxCommand,
+    output: [*]NativeDrawCommand,
     capacity: u32,
 ) u32 {
     var packet_planner = canvas.CanvasGpuPacketPlanner.init(&gpu_commands);
@@ -2176,8 +2176,8 @@ fn lowerGxCommands(
                 if (text.text.len == 0 and text.glyphs.len > 0) {
                     for (text.glyphs) |glyph| {
                         if (output_len >= capacity) break;
-                        var translated = GxCommand{
-                            .kind = gx_glyph,
+                        var translated = NativeDrawCommand{
+                            .kind = native_draw_glyph,
                             .x = text.origin.x + glyph.x,
                             .y = text.origin.y + glyph.y,
                             .glyph_id = glyph.id,
@@ -2192,7 +2192,7 @@ fn lowerGxCommands(
                 }
             }
         }
-        if (gxCommand(command)) |translated| {
+        if (nativeDrawCommand(command)) |translated| {
             output[output_len] = translated;
             output_len += 1;
         }
@@ -2298,12 +2298,12 @@ fn renderReference(
         reference_render_stage = 0x106;
         return 0;
     };
-    gx_command_cache_count = lowerGxCommands(
+    native_draw_command_cache_count = lowerNativeDrawCommands(
         render_plan.commands,
-        &gx_command_cache,
-        @intCast(gx_command_cache_capacity),
+        &native_draw_command_cache,
+        @intCast(native_draw_command_cache_capacity),
     );
-    gx_command_cache_valid = true;
+    native_draw_command_cache_valid = true;
     var reference_command_count: usize = 0;
     for (render_plan.commands) |command| {
         if (isPosterCardChrome(command, model)) continue;
@@ -2646,18 +2646,18 @@ export fn multiplex_native_app_init_and_render_reference(
     );
 }
 
-fn gxCommand(command: canvas.CanvasGpuCommand) ?GxCommand {
-    var result = GxCommand{};
+fn nativeDrawCommand(command: canvas.CanvasGpuCommand) ?NativeDrawCommand {
+    var result = NativeDrawCommand{};
     copyClip(&result, command.clip);
 
     switch (command.kind) {
         .fill_rect_solid, .fill_rect_gradient => {
-            result.kind = gx_fill_rect;
+            result.kind = native_draw_fill_rect;
             setRect(&result, command.bounds);
             result.color_rgba = paintRgba(command.paint, command.opacity);
         },
         .fill_rounded_rect_solid, .fill_rounded_rect_gradient => {
-            result.kind = gx_fill_rounded_rect;
+            result.kind = native_draw_fill_rounded_rect;
             setRect(&result, command.bounds);
             if (command.shape == .rounded_rect) {
                 const radius = command.shape.rounded_rect.radius;
@@ -2666,7 +2666,7 @@ fn gxCommand(command: canvas.CanvasGpuCommand) ?GxCommand {
             result.color_rgba = paintRgba(command.paint, command.opacity);
         },
         .stroke_rect_solid, .stroke_rect_gradient => {
-            result.kind = gx_stroke_rect;
+            result.kind = native_draw_stroke_rect;
             setRect(&result, command.bounds);
             if (command.shape == .rounded_rect) {
                 const radius = command.shape.rounded_rect.radius;
@@ -2676,7 +2676,7 @@ fn gxCommand(command: canvas.CanvasGpuCommand) ?GxCommand {
             result.color_rgba = paintRgba(command.paint, command.opacity);
         },
         .draw_line_solid, .draw_line_gradient => {
-            result.kind = gx_line;
+            result.kind = native_draw_line;
             if (command.shape != .line) return null;
             const line = command.shape.line;
             result.x = line.from.x;
@@ -2688,7 +2688,7 @@ fn gxCommand(command: canvas.CanvasGpuCommand) ?GxCommand {
         },
         .draw_text => {
             const text = command.text orelse return null;
-            result.kind = gx_text;
+            result.kind = native_draw_text;
             result.x = text.origin.x;
             result.y = text.origin.y;
             result.x2 = command.bounds.x + command.bounds.width;
@@ -2702,7 +2702,7 @@ fn gxCommand(command: canvas.CanvasGpuCommand) ?GxCommand {
         .shadow => {
             if (command.effect != .shadow) return null;
             const shadow = command.effect.shadow;
-            result.kind = gx_shadow;
+            result.kind = native_draw_shadow;
             result.x = shadow.rect.x + shadow.offset.dx - shadow.spread;
             result.y = shadow.rect.y + shadow.offset.dy - shadow.spread;
             result.width = shadow.rect.width + shadow.spread * 2;
@@ -2717,7 +2717,7 @@ fn gxCommand(command: canvas.CanvasGpuCommand) ?GxCommand {
 
 fn emitGxStrokePath(
     command: canvas.CanvasGpuCommand,
-    output: [*]GxCommand,
+    output: [*]NativeDrawCommand,
     capacity: usize,
 ) usize {
     if (command.shape != .path or capacity == 0) return 0;
@@ -2842,7 +2842,7 @@ fn emitGxStrokePath(
 
 fn emitGxFillPath(
     command: canvas.CanvasGpuCommand,
-    output: [*]GxCommand,
+    output: [*]NativeDrawCommand,
     capacity: usize,
 ) usize {
     if (command.shape != .path or capacity == 0) return 0;
@@ -2953,7 +2953,7 @@ fn emitGxFillPath(
 }
 
 fn emitGxFillTriangle(
-    output: [*]GxCommand,
+    output: [*]NativeDrawCommand,
     capacity: usize,
     first: geometry.PointF,
     previous: geometry.PointF,
@@ -2963,8 +2963,8 @@ fn emitGxFillTriangle(
     clip_value: ?geometry.RectF,
 ) usize {
     if (capacity == 0 or edge_count == 0) return 0;
-    var translated = GxCommand{
-        .kind = gx_fill_triangle,
+    var translated = NativeDrawCommand{
+        .kind = native_draw_fill_triangle,
         .x = first.x,
         .y = first.y,
         .x2 = previous.x,
@@ -2979,7 +2979,7 @@ fn emitGxFillTriangle(
 }
 
 fn emitGxPathLine(
-    output: [*]GxCommand,
+    output: [*]NativeDrawCommand,
     capacity: usize,
     start: geometry.PointF,
     endpoint: geometry.PointF,
@@ -2990,8 +2990,8 @@ fn emitGxPathLine(
 ) usize {
     if (capacity == 0 or
         (@abs(endpoint.x - start.x) < 0.001 and @abs(endpoint.y - start.y) < 0.001)) return 0;
-    var translated = GxCommand{
-        .kind = gx_path_line,
+    var translated = NativeDrawCommand{
+        .kind = native_draw_path_line,
         .x = start.x,
         .y = start.y,
         .x2 = endpoint.x,
@@ -3005,7 +3005,7 @@ fn emitGxPathLine(
     return 1;
 }
 
-fn copyClip(output: *GxCommand, clip_value: ?geometry.RectF) void {
+fn copyClip(output: *NativeDrawCommand, clip_value: ?geometry.RectF) void {
     output.has_clip = if (clip_value != null) 1 else 0;
     if (clip_value) |clip| {
         output.clip_x = clip.x;
@@ -3015,7 +3015,7 @@ fn copyClip(output: *GxCommand, clip_value: ?geometry.RectF) void {
     }
 }
 
-fn setCommandBoundsClip(output: *GxCommand, bounds_value: geometry.RectF) void {
+fn setCommandBoundsClip(output: *NativeDrawCommand, bounds_value: geometry.RectF) void {
     const bounds = bounds_value.normalized();
     const clip = if (output.has_clip != 0)
         geometry.RectF.intersection(bounds, geometry.RectF.init(
@@ -3033,7 +3033,7 @@ fn setCommandBoundsClip(output: *GxCommand, bounds_value: geometry.RectF) void {
     output.clip_height = clip.height;
 }
 
-fn setRect(output: *GxCommand, rect: geometry.RectF) void {
+fn setRect(output: *NativeDrawCommand, rect: geometry.RectF) void {
     output.x = rect.x;
     output.y = rect.y;
     output.width = rect.width;

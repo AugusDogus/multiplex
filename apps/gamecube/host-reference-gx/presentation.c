@@ -45,8 +45,8 @@
 #define PLAYER_CONTROLS_FADE_MS 180u
 
 typedef struct {
-  MultiplexGxCommand text_commands[UI_TEXT_COMMAND_CAPACITY];
-  MultiplexGxCommand shape_commands[UI_SHAPE_COMMAND_CAPACITY];
+  MultiplexNativeDrawCommand text_commands[UI_TEXT_COMMAND_CAPACITY];
+  MultiplexNativeDrawCommand shape_commands[UI_SHAPE_COMMAND_CAPACITY];
   uint32_t text_sequences[UI_TEXT_COMMAND_CAPACITY];
   uint32_t shape_sequences[UI_SHAPE_COMMAND_CAPACITY];
   uint8_t text[UI_TEXT_CAPACITY];
@@ -311,24 +311,25 @@ static bool initialize_video(MultiplexPresentation *presentation) {
   return true;
 }
 
-static bool command_intersects_rect(const MultiplexGxCommand *command, float x,
-                                    float y, float width, float height) {
+static bool command_intersects_rect(const MultiplexNativeDrawCommand *command,
+                                    float x, float y, float width,
+                                    float height) {
   float left = command->x, top = command->y;
   float right = left + command->width, bottom = top + command->height;
-  if (command->kind == MULTIPLEX_GX_LINE ||
-      command->kind == MULTIPLEX_GX_PATH_LINE) {
+  if (command->kind == MULTIPLEX_NATIVE_DRAW_LINE ||
+      command->kind == MULTIPLEX_NATIVE_DRAW_PATH_LINE) {
     left = fminf(command->x, command->x2);
     top = fminf(command->y, command->y2);
     right = fmaxf(command->x, command->x2);
     bottom = fmaxf(command->y, command->y2);
-    if (command->kind == MULTIPLEX_GX_PATH_LINE) {
+    if (command->kind == MULTIPLEX_NATIVE_DRAW_PATH_LINE) {
       left -= command->stroke_width;
       top -= command->stroke_width;
       right += command->stroke_width;
       bottom += command->stroke_width;
     }
   }
-  if (command->kind == MULTIPLEX_GX_FILL_TRIANGLE) {
+  if (command->kind == MULTIPLEX_NATIVE_DRAW_FILL_TRIANGLE) {
     left = fminf(command->x, fminf(command->x2, command->width));
     top = fminf(command->y, fminf(command->y2, command->height));
     right = fmaxf(command->x, fmaxf(command->x2, command->width));
@@ -377,7 +378,7 @@ static uint32_t copy_atlas_text(uint8_t *destination, uint32_t capacity,
 }
 
 static void capture_ui_packet(NativeUiPacket *packet) {
-  MultiplexGxCommand commands[UI_COMMAND_CAPACITY];
+  MultiplexNativeDrawCommand commands[UI_COMMAND_CAPACITY];
   memset(packet, 0, sizeof(*packet));
   const uint32_t count =
       multiplex_native_app_render(commands, UI_COMMAND_CAPACITY);
@@ -389,7 +390,7 @@ static void capture_ui_packet(NativeUiPacket *packet) {
     multiplex_native_modal_surface(&modal);
   }
   for (uint32_t index = 0; index < count; ++index) {
-    const MultiplexGxCommand *command = &commands[index];
+    const MultiplexNativeDrawCommand *command = &commands[index];
     const bool shape =
         screen != MULTIPLEX_SCREEN_PLAYER ||
         (controls.visible != 0 &&
@@ -398,19 +399,19 @@ static void capture_ui_packet(NativeUiPacket *packet) {
         (modal.visible != 0 &&
          command_intersects_rect(command, modal.x, modal.y, modal.width,
                                  modal.height));
-    if (shape && command->kind != MULTIPLEX_GX_TEXT &&
-        command->kind != MULTIPLEX_GX_GLYPH &&
-        command->kind != MULTIPLEX_GX_SHADOW &&
+    if (shape && command->kind != MULTIPLEX_NATIVE_DRAW_TEXT &&
+        command->kind != MULTIPLEX_NATIVE_DRAW_GLYPH &&
+        command->kind != MULTIPLEX_NATIVE_DRAW_SHADOW &&
         packet->shape_command_count < UI_SHAPE_COMMAND_CAPACITY) {
       packet->shape_sequences[packet->shape_command_count] = index;
       packet->shape_commands[packet->shape_command_count++] = *command;
     }
-    if ((command->kind != MULTIPLEX_GX_TEXT &&
-         command->kind != MULTIPLEX_GX_GLYPH) ||
+    if ((command->kind != MULTIPLEX_NATIVE_DRAW_TEXT &&
+         command->kind != MULTIPLEX_NATIVE_DRAW_GLYPH) ||
         packet->text_command_count >= UI_TEXT_COMMAND_CAPACITY)
       continue;
-    MultiplexGxCommand copy = *command;
-    if (copy.kind == MULTIPLEX_GX_TEXT) {
+    MultiplexNativeDrawCommand copy = *command;
+    if (copy.kind == MULTIPLEX_NATIVE_DRAW_TEXT) {
       if (copy.text_ptr == NULL || copy.text_len == 0)
         continue;
       uint8_t *destination = packet->text + packet->text_length;
@@ -432,7 +433,7 @@ static void copy_ui_packet(NativeUiPacket *destination,
   memset(destination, 0, sizeof(*destination));
   memcpy(destination->text, packet->text, packet->text_length);
   memcpy(destination->shape_commands, packet->shape_commands,
-         packet->shape_command_count * sizeof(MultiplexGxCommand));
+         packet->shape_command_count * sizeof(MultiplexNativeDrawCommand));
   memcpy(destination->text_sequences, packet->text_sequences,
          packet->text_command_count * sizeof(uint32_t));
   memcpy(destination->shape_sequences, packet->shape_sequences,
@@ -442,7 +443,7 @@ static void copy_ui_packet(NativeUiPacket *destination,
   destination->shape_command_count = packet->shape_command_count;
   for (uint32_t index = 0; index < packet->text_command_count; ++index) {
     destination->text_commands[index] = packet->text_commands[index];
-    if (packet->text_commands[index].kind == MULTIPLEX_GX_TEXT) {
+    if (packet->text_commands[index].kind == MULTIPLEX_NATIVE_DRAW_TEXT) {
       const size_t offset =
           (size_t)(packet->text_commands[index].text_ptr - packet->text);
       destination->text_commands[index].text_ptr = destination->text + offset;
@@ -1118,7 +1119,7 @@ static GXColor command_color(MultiplexPresentation *presentation,
 }
 
 static void set_text_scissor(MultiplexPresentation *presentation,
-                             const MultiplexGxCommand *command) {
+                             const MultiplexNativeDrawCommand *command) {
   if (command->has_clip == 0 && !presentation->ui_draw_clip_active) {
     GX_SetScissor(0, 0, presentation->video_mode->fbWidth,
                   presentation->video_mode->efbHeight);
@@ -1220,8 +1221,9 @@ static void font_vertex(float x, float y, GXColor color, float u, float v) {
   GX_TexCoord2f32(u, v);
 }
 
-static void draw_native_text_command(MultiplexPresentation *presentation,
-                                     const MultiplexGxCommand *command) {
+static void
+draw_native_text_command(MultiplexPresentation *presentation,
+                         const MultiplexNativeDrawCommand *command) {
   if (command->text_ptr == NULL || command->text_len == 0) {
     return;
   }
@@ -1362,9 +1364,9 @@ static void draw_native_text_command(MultiplexPresentation *presentation,
 static void draw_native_text_command_at(MultiplexPresentation *presentation,
                                         const NativeUiPacket *packet,
                                         uint32_t index) {
-  const MultiplexGxCommand *command = &packet->text_commands[index];
+  const MultiplexNativeDrawCommand *command = &packet->text_commands[index];
   set_text_scissor(presentation, command);
-  if (command->kind == MULTIPLEX_GX_GLYPH) {
+  if (command->kind == MULTIPLEX_NATIVE_DRAW_GLYPH) {
     uint8_t character = '?';
     for (uint32_t glyph_index = 0; glyph_index < GEIST_CHARACTER_COUNT;
          ++glyph_index) {
@@ -1373,11 +1375,11 @@ static void draw_native_text_command_at(MultiplexPresentation *presentation,
         break;
       }
     }
-    MultiplexGxCommand glyph = *command;
+    MultiplexNativeDrawCommand glyph = *command;
     glyph.text_ptr = &character;
     glyph.text_len = 1;
     draw_native_text_command(presentation, &glyph);
-  } else if (command->kind == MULTIPLEX_GX_TEXT) {
+  } else if (command->kind == MULTIPLEX_NATIVE_DRAW_TEXT) {
     draw_native_text_command(presentation, command);
   }
 }
@@ -1471,8 +1473,8 @@ static void draw_stats_for_nerds(MultiplexPresentation *presentation) {
   configure_color_pipeline();
   fill_rect(8.0f, 8.0f, 632.0f, 74.0f, (GXColor){0, 0, 0, 220});
   configure_font_pipeline(presentation);
-  const MultiplexGxCommand command = {
-      .kind = MULTIPLEX_GX_TEXT,
+  const MultiplexNativeDrawCommand command = {
+      .kind = MULTIPLEX_NATIVE_DRAW_TEXT,
       .x = 16.0f,
       .y = 17.0f,
       .color_rgba = 0xffffffffu,
@@ -1582,12 +1584,13 @@ static void stroke_rounded_color_rect(float left, float top, float right,
 
 static float native_stroke_radius(const NativeUiPacket *packet,
                                   uint32_t command_index,
-                                  const MultiplexGxCommand *stroke) {
+                                  const MultiplexNativeDrawCommand *stroke) {
   if (stroke->radius >= 1.0f)
     return stroke->radius;
   for (uint32_t index = command_index; index > 0; --index) {
-    const MultiplexGxCommand *fill = &packet->shape_commands[index - 1u];
-    if (fill->kind != MULTIPLEX_GX_FILL_ROUNDED_RECT)
+    const MultiplexNativeDrawCommand *fill =
+        &packet->shape_commands[index - 1u];
+    if (fill->kind != MULTIPLEX_NATIVE_DRAW_FILL_ROUNDED_RECT)
       continue;
     const float left_inset = fill->x - stroke->x;
     const float top_inset = fill->y - stroke->y;
@@ -1617,24 +1620,24 @@ static bool details_backdrop_active(MultiplexPresentation *presentation) {
 }
 
 static bool is_ambient_background(MultiplexPresentation *presentation,
-                                  const MultiplexGxCommand *command) {
+                                  const MultiplexNativeDrawCommand *command) {
   return (details_backdrop_active(presentation) ||
           presentation->player_startup_backdrop_visible) &&
-         command->kind == MULTIPLEX_GX_FILL_RECT && command->x <= 0.0f &&
-         command->y <= 0.0f && command->width >= LOGICAL_WIDTH &&
-         command->height >= LOGICAL_HEIGHT;
+         command->kind == MULTIPLEX_NATIVE_DRAW_FILL_RECT &&
+         command->x <= 0.0f && command->y <= 0.0f &&
+         command->width >= LOGICAL_WIDTH && command->height >= LOGICAL_HEIGHT;
 }
 
 static void draw_native_shape_command_at(MultiplexPresentation *presentation,
                                          const NativeUiPacket *packet,
                                          uint32_t index) {
-  const MultiplexGxCommand *command = &packet->shape_commands[index];
+  const MultiplexNativeDrawCommand *command = &packet->shape_commands[index];
   if (is_ambient_background(presentation, command))
     return;
   set_text_scissor(presentation, command);
   GXColor color = command_color(presentation, command->color_rgba);
   if (presentation->modal_surface.visible != 0 &&
-      command->kind == MULTIPLEX_GX_FILL_RECT && command->x <= 0.0f &&
+      command->kind == MULTIPLEX_NATIVE_DRAW_FILL_RECT && command->x <= 0.0f &&
       command->y <= 0.0f && command->width >= LOGICAL_WIDTH &&
       command->height >= LOGICAL_HEIGHT && color.a > 0u && color.a < 96u) {
     color.a = 176u;
@@ -1644,18 +1647,18 @@ static void draw_native_shape_command_at(MultiplexPresentation *presentation,
   const float right = left + command->width;
   const float bottom = top + command->height;
   switch (command->kind) {
-  case MULTIPLEX_GX_FILL_RECT:
+  case MULTIPLEX_NATIVE_DRAW_FILL_RECT:
     fill_rect(left, top, right, bottom, color);
     break;
-  case MULTIPLEX_GX_FILL_ROUNDED_RECT:
+  case MULTIPLEX_NATIVE_DRAW_FILL_ROUNDED_RECT:
     fill_rounded_color_rect(left, top, right, bottom, command->radius, color);
     break;
-  case MULTIPLEX_GX_STROKE_RECT:
+  case MULTIPLEX_NATIVE_DRAW_STROKE_RECT:
     stroke_rounded_color_rect(left, top, right, bottom,
                               native_stroke_radius(packet, index, command),
                               command->stroke_width, color);
     break;
-  case MULTIPLEX_GX_LINE: {
+  case MULTIPLEX_NATIVE_DRAW_LINE: {
     const float stroke =
         command->stroke_width < 1.0f ? 1.0f : command->stroke_width;
     if (fabsf(command->x2 - command->x) >= fabsf(command->y2 - command->y)) {
@@ -1671,7 +1674,7 @@ static void draw_native_shape_command_at(MultiplexPresentation *presentation,
     }
     break;
   }
-  case MULTIPLEX_GX_PATH_LINE: {
+  case MULTIPLEX_NATIVE_DRAW_PATH_LINE: {
     const float dx = command->x2 - command->x;
     const float dy = command->y2 - command->y;
     const float length = sqrtf(dx * dx + dy * dy);
@@ -1690,7 +1693,7 @@ static void draw_native_shape_command_at(MultiplexPresentation *presentation,
     GX_End();
     break;
   }
-  case MULTIPLEX_GX_FILL_TRIANGLE:
+  case MULTIPLEX_NATIVE_DRAW_FILL_TRIANGLE:
     GX_Begin(GX_TRIANGLES, GX_VTXFMT0, 3);
     color_vertex(command->x, command->y, color);
     color_vertex(command->x2, command->y2, color);
@@ -1961,14 +1964,15 @@ static void draw_packet_shapes_region(MultiplexPresentation *presentation,
   configure_color_pipeline();
   GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
   for (uint32_t index = 0; index < packet->shape_command_count; ++index) {
-    const MultiplexGxCommand *command = &packet->shape_commands[index];
+    const MultiplexNativeDrawCommand *command = &packet->shape_commands[index];
     const bool full_screen = command->x <= 0.0f && command->y <= 0.0f &&
                              command->width >= LOGICAL_WIDTH &&
                              command->height >= LOGICAL_HEIGHT;
-    const float center_y = command->kind == MULTIPLEX_GX_LINE ||
-                                   command->kind == MULTIPLEX_GX_PATH_LINE
-                               ? (command->y + command->y2) * 0.5f
-                               : command->y + command->height * 0.5f;
+    const float center_y =
+        command->kind == MULTIPLEX_NATIVE_DRAW_LINE ||
+                command->kind == MULTIPLEX_NATIVE_DRAW_PATH_LINE
+            ? (command->y + command->y2) * 0.5f
+            : command->y + command->height * 0.5f;
     if (full_screen || center_y < top || center_y >= bottom)
       continue;
     draw_native_shape_command_at(presentation, packet, index);
@@ -2014,7 +2018,7 @@ static void draw_packet_text_region(MultiplexPresentation *presentation,
     return;
   configure_font_pipeline(presentation);
   for (uint32_t index = 0; index < packet->text_command_count; ++index) {
-    const MultiplexGxCommand *command = &packet->text_commands[index];
+    const MultiplexNativeDrawCommand *command = &packet->text_commands[index];
     if (command->y < top || command->y >= bottom)
       continue;
     draw_native_text_command_at(presentation, packet, index);
@@ -2030,7 +2034,7 @@ static void draw_home_background(MultiplexPresentation *presentation) {
   GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
   for (uint32_t index = 0;
        index < presentation->presented_ui_packet.shape_command_count; ++index) {
-    const MultiplexGxCommand *command =
+    const MultiplexNativeDrawCommand *command =
         &presentation->presented_ui_packet.shape_commands[index];
     if (command->x <= 0.0f && command->y <= 0.0f &&
         command->width >= LOGICAL_WIDTH && command->height >= LOGICAL_HEIGHT) {
@@ -2159,11 +2163,12 @@ static uint32_t modal_layer_sequence(MultiplexPresentation *presentation,
   if (presentation->modal_surface.visible == 0)
     return UINT32_MAX;
   for (uint32_t index = 0; index < packet->shape_command_count; ++index) {
-    const MultiplexGxCommand *command = &packet->shape_commands[index];
+    const MultiplexNativeDrawCommand *command = &packet->shape_commands[index];
     const uint8_t alpha = (uint8_t)command->color_rgba;
-    if (command->kind == MULTIPLEX_GX_FILL_RECT && command->x <= 0.0f &&
-        command->y <= 0.0f && command->width >= LOGICAL_WIDTH &&
-        command->height >= LOGICAL_HEIGHT && alpha > 0u && alpha < 96u) {
+    if (command->kind == MULTIPLEX_NATIVE_DRAW_FILL_RECT &&
+        command->x <= 0.0f && command->y <= 0.0f &&
+        command->width >= LOGICAL_WIDTH && command->height >= LOGICAL_HEIGHT &&
+        alpha > 0u && alpha < 96u) {
       return packet->shape_sequences[index];
     }
   }
