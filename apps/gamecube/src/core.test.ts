@@ -40,7 +40,7 @@ import {
 
 const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
 
-const item = (id = 0): CatalogItem => ({
+const item = (id: number = 0): CatalogItem => ({
   id,
   ratingKey: id + 100,
   title: bytes(`Item ${id}`),
@@ -129,7 +129,7 @@ const reducerCases = {
     expected: { screen: "libraries" },
   },
   open_library: {
-    start: {},
+    start: { gatewayConnected: true, pairingEnabled: false, pairingLinked: false },
     message: { kind: "open_library", index: 0 },
     expected: {
       screen: "browse",
@@ -562,6 +562,16 @@ const guardedCases = [
     name: "keeps search closed until a paired catalog connects",
     start: { pairingEnabled: true, pairingLinked: true, gatewayConnected: false },
     message: { kind: "open_search" },
+  },
+  {
+    name: "keeps direct library access closed until a paired catalog connects",
+    start: {
+      screen: "libraries",
+      pairingEnabled: true,
+      pairingLinked: true,
+      gatewayConnected: false,
+    },
+    message: { kind: "open_library", index: 0 },
   },
   {
     name: "rejects an invalid library index",

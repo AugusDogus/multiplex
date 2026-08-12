@@ -1626,6 +1626,7 @@ export function update(model: Model, msg: Msg): Model {
       if (!libraryActionsAvailable(model)) return model;
       return { ...model, screen: "libraries" };
     case "open_library": {
+      if (!libraryActionsAvailable(model)) return model;
       if (msg.index < 0 || msg.index >= model.libraries.length) return model;
       const library = model.libraries[msg.index];
       return {
