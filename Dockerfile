@@ -5,8 +5,11 @@ WORKDIR /app
 COPY package.json bun.lock ./
 COPY apps/gamecube/package.json ./apps/gamecube/
 COPY apps/web/package.json ./apps/web/
+COPY apps/wii/package.json ./apps/wii/
 COPY packages/plex-query/package.json ./packages/plex-query/
 COPY packages/auth-plugin-plex/package.json ./packages/auth-plugin-plex/
+COPY packages/console-ui/package.json ./packages/console-ui/
+COPY packages/libogc-gx/package.json ./packages/libogc-gx/
 
 RUN bun install --frozen-lockfile
 
