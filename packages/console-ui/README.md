@@ -6,5 +6,6 @@ by native console clients.
 
 It intentionally has no dependency on GX, libogc, devkitPPC, controller APIs,
 networking, storage, or media playback. GameCube and Wii consume it through
-the PowerPC archive and C header. A future non-GX console can compile the same
-authored UI for its own target and provide its own host and presenter.
+the freestanding archive and C header. A future non-GX console can compile the
+same authored UI for its own target with `-Dconsole-target` and
+`-Dconsole-cpu`, then provide its own host and presenter.
