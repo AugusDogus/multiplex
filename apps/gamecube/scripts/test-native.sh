@@ -66,11 +66,11 @@ run_host_tests() {
   cd "$ui_dir"
   zig build test -Dplatform=null
 
-  echo "Compiling the console UI for the PowerPC 750..."
-  zig build powerpc-core
+  echo "Compiling the console UI for the default PowerPC 750 target..."
+  zig build console-core
 
-  test -s zig-out/lib/libmultiplex-console-ui-powerpc.a
-  file zig-out/lib/libmultiplex-console-ui-powerpc.a
+  test -s zig-out/lib/libmultiplex-console-ui.a
+  file zig-out/lib/libmultiplex-console-ui.a
 
   sh "$ui_dir/scripts/test-reference-frame.sh"
 

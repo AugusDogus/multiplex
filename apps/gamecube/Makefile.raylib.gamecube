@@ -32,7 +32,7 @@ export DEPSDIR := $(APP_ROOT)/$(BUILD)
 CFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(APP_ROOT)/$(dir)/*.c))) \
 	$(notdir $(wildcard $(UI_ROOT)/reference-frame/*.c))
 OFILES_SOURCES := $(CFILES:.c=.o)
-export CORE_LIBRARY := $(UI_ROOT)/zig-out/lib/libmultiplex-console-ui-powerpc.a
+export CORE_LIBRARY := $(UI_ROOT)/zig-out/lib/libmultiplex-console-ui.a
 export RAYLIB_LIBRARY := $(APP_ROOT)/.raylib/src/libraylib.a
 export OPENGX_LIBRARY := $(APP_ROOT)/.opengx-build/libopengx.a
 export OFILES := $(OFILES_SOURCES)

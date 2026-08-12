@@ -3,7 +3,6 @@ const native_sdk = @import("native_sdk");
 
 const frame_capacity = 128 * 1024;
 const heap_capacity = 256 * 1024;
-const console_optimize = std.builtin.OptimizeMode.ReleaseFast;
 
 pub fn build(b: *std.Build) void {
     const dependency = b.dependency("native_sdk", .{});
@@ -12,22 +11,38 @@ pub fn build(b: *std.Build) void {
     // It compiles the TypeScript core, generated wiring, and declarative view.
     native_sdk.addApp(b, dependency, .{ .name = "multiplex-console-ui" });
 
-    addPowerPcCore(b, dependency);
+    const target_triple = b.option(
+        []const u8,
+        "console-target",
+        "Target triple for the freestanding console UI archive",
+    ) orelse "powerpc-freestanding-eabi";
+    const target_cpu = b.option(
+        []const u8,
+        "console-cpu",
+        "CPU model and features for the freestanding console UI archive",
+    ) orelse "750";
+    const target_query = std.Target.Query.parse(.{
+        .arch_os_abi = target_triple,
+        .cpu_features = target_cpu,
+    }) catch @panic("invalid console target or CPU");
+    const target = b.resolveTargetQuery(target_query);
+    const optimize = b.option(
+        std.builtin.OptimizeMode,
+        "console-optimize",
+        "Optimization mode for the freestanding console UI archive",
+    ) orelse .ReleaseFast;
+    addConsoleCore(b, dependency, target, optimize);
 }
 
-/// Compile the generated TypeScript application core as a freestanding
-/// PowerPC 750 EABI object. This deliberately excludes Native SDK's desktop
-/// runtime and renderer: it answers the first question independently—
-/// whether our authored state machine and its fixed-capacity runtime can
-/// become code for the PowerPC 750 used by the current libogc hosts.
-fn addPowerPcCore(b: *std.Build, dependency: *std.Build.Dependency) void {
-    const target = b.resolveTargetQuery(.{
-        .cpu_arch = .powerpc,
-        .cpu_model = .{ .explicit = &std.Target.powerpc.cpu.@"750" },
-        .os_tag = .freestanding,
-        .abi = .eabi,
-    });
-
+/// Compile the generated TypeScript application core for a caller-selected
+/// freestanding console target. The default remains PowerPC 750 EABI for the
+/// current libogc hosts.
+fn addConsoleCore(
+    b: *std.Build,
+    dependency: *std.Build.Dependency,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) void {
     const transpile = b.addSystemCommand(&.{"node"});
     transpile.addFileArg(dependency.path("build/ts_run.mjs"));
     transpile.addFileArg(dependency.path("packages/core/src/cli.ts"));
@@ -56,19 +71,19 @@ fn addPowerPcCore(b: *std.Build, dependency: *std.Build.Dependency) void {
     const geometry_module = b.createModule(.{
         .root_source_file = dependency.path("src/primitives/geometry/root.zig"),
         .target = target,
-        .optimize = console_optimize,
+        .optimize = optimize,
         .single_threaded = true,
     });
     const json_module = b.createModule(.{
         .root_source_file = dependency.path("src/primitives/json/root.zig"),
         .target = target,
-        .optimize = console_optimize,
+        .optimize = optimize,
         .single_threaded = true,
     });
     const canvas_module = b.createModule(.{
         .root_source_file = dependency.path("src/primitives/canvas/root.zig"),
         .target = target,
-        .optimize = console_optimize,
+        .optimize = optimize,
         .single_threaded = true,
     });
     canvas_module.addImport("geometry", geometry_module);
@@ -77,13 +92,13 @@ fn addPowerPcCore(b: *std.Build, dependency: *std.Build.Dependency) void {
     const probe_module = b.createModule(.{
         .root_source_file = probe_root,
         .target = target,
-        .optimize = console_optimize,
+        .optimize = optimize,
         .single_threaded = true,
     });
     probe_module.addImport("canvas", canvas_module);
     probe_module.addImport("geometry", geometry_module);
     const probe = b.addLibrary(.{
-        .name = "multiplex-console-ui-powerpc",
+        .name = "multiplex-console-ui",
         .linkage = .static,
         .root_module = probe_module,
         .use_llvm = true,
@@ -92,12 +107,12 @@ fn addPowerPcCore(b: *std.Build, dependency: *std.Build.Dependency) void {
     const install = b.addInstallFileWithDir(
         probe.getEmittedBin(),
         .lib,
-        "libmultiplex-console-ui-powerpc.a",
+        "libmultiplex-console-ui.a",
     );
 
     const step = b.step(
-        "powerpc-core",
-        "Compile the console UI as a PowerPC 750 EABI object",
+        "console-core",
+        "Compile the console UI for the selected freestanding target",
     );
     step.dependOn(&install.step);
 }
