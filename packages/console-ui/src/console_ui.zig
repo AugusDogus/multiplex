@@ -2096,7 +2096,7 @@ export fn multiplex_native_reference_text_overlay(enabled: u32) callconv(.c) voi
 }
 
 /// Build the current live app frame and lower Native SDK's GPU packet into
-/// the deliberately small command ABI consumed by the libogc GX presenter.
+/// the deliberately small, renderer-neutral draw-command ABI.
 export fn multiplex_native_app_render(output: [*]NativeDrawCommand, capacity: u32) callconv(.c) u32 {
     if (!app_initialized) return 0;
     if (native_draw_command_cache_valid) {
@@ -2156,7 +2156,7 @@ fn lowerNativeDrawCommands(
     for (packet.commands) |command| {
         if (output_len >= capacity) break;
         if (command.kind == .fill_path) {
-            output_len += emitGxFillPath(
+            output_len += emitFillPath(
                 command,
                 output + output_len,
                 @as(usize, capacity) - output_len,
@@ -2164,7 +2164,7 @@ fn lowerNativeDrawCommands(
             continue;
         }
         if (command.kind == .stroke_path) {
-            output_len += emitGxStrokePath(
+            output_len += emitStrokePath(
                 command,
                 output + output_len,
                 @as(usize, capacity) - output_len,
@@ -2202,7 +2202,7 @@ fn lowerNativeDrawCommands(
 
 /// Render the live app with Native SDK's deterministic CPU reference
 /// renderer. The console host owns both buffers so this ABI stays useful for
-/// raylib, direct GX, and later console presenters.
+/// complete-frame and hybrid console presenters.
 export fn multiplex_native_reference_pixel_bytes() callconv(.c) u32 {
     return reference_pixel_bytes;
 }
@@ -2715,7 +2715,7 @@ fn nativeDrawCommand(command: canvas.CanvasGpuCommand) ?NativeDrawCommand {
     return result;
 }
 
-fn emitGxStrokePath(
+fn emitStrokePath(
     command: canvas.CanvasGpuCommand,
     output: [*]NativeDrawCommand,
     capacity: usize,
@@ -2743,7 +2743,7 @@ fn emitGxStrokePath(
             .line_to => {
                 if (!has_current) continue;
                 const endpoint = transform.transformPoint(element.points[0]);
-                output_len += emitGxPathLine(
+                output_len += emitPathLine(
                     output + output_len,
                     capacity - output_len,
                     current,
@@ -2770,7 +2770,7 @@ fn emitGxStrokePath(
                         inverse * inverse * start.x + 2 * inverse * t * control.x + t * t * endpoint.x,
                         inverse * inverse * start.y + 2 * inverse * t * control.y + t * t * endpoint.y,
                     );
-                    output_len += emitGxPathLine(
+                    output_len += emitPathLine(
                         output + output_len,
                         capacity - output_len,
                         current,
@@ -2806,7 +2806,7 @@ fn emitGxStrokePath(
                             3 * inverse * t * t * control_b.y +
                             t * t * t * endpoint.y,
                     );
-                    output_len += emitGxPathLine(
+                    output_len += emitPathLine(
                         output + output_len,
                         capacity - output_len,
                         current,
@@ -2822,7 +2822,7 @@ fn emitGxStrokePath(
             },
             .close => {
                 if (!has_current) continue;
-                output_len += emitGxPathLine(
+                output_len += emitPathLine(
                     output + output_len,
                     capacity - output_len,
                     current,
@@ -2840,7 +2840,7 @@ fn emitGxStrokePath(
     return output_len;
 }
 
-fn emitGxFillPath(
+fn emitFillPath(
     command: canvas.CanvasGpuCommand,
     output: [*]NativeDrawCommand,
     capacity: usize,
@@ -2865,7 +2865,7 @@ fn emitGxFillPath(
             .line_to => {
                 if (!has_current) continue;
                 const endpoint = transform.transformPoint(element.points[0]);
-                output_len += emitGxFillTriangle(
+                output_len += emitFillTriangle(
                     output + output_len,
                     capacity - output_len,
                     first,
@@ -2893,7 +2893,7 @@ fn emitGxFillPath(
                         inverse * inverse * start.x + 2 * inverse * t * control.x + t * t * endpoint.x,
                         inverse * inverse * start.y + 2 * inverse * t * control.y + t * t * endpoint.y,
                     );
-                    output_len += emitGxFillTriangle(
+                    output_len += emitFillTriangle(
                         output + output_len,
                         capacity - output_len,
                         first,
@@ -2930,7 +2930,7 @@ fn emitGxFillPath(
                             3 * inverse * t * t * control_b.y +
                             t * t * t * endpoint.y,
                     );
-                    output_len += emitGxFillTriangle(
+                    output_len += emitFillTriangle(
                         output + output_len,
                         capacity - output_len,
                         first,
@@ -2952,7 +2952,7 @@ fn emitGxFillPath(
     return output_len;
 }
 
-fn emitGxFillTriangle(
+fn emitFillTriangle(
     output: [*]NativeDrawCommand,
     capacity: usize,
     first: geometry.PointF,
@@ -2978,7 +2978,7 @@ fn emitGxFillTriangle(
     return 1;
 }
 
-fn emitGxPathLine(
+fn emitPathLine(
     output: [*]NativeDrawCommand,
     capacity: usize,
     start: geometry.PointF,
