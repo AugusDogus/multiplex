@@ -265,7 +265,7 @@ application_manifest="$comparison_dir/application-inputs.sha256"
 (
   cd "$app_dir"
   {
-    printf '%s\n' Makefile.reference.gamecube
+    printf '%s\n' Makefile.reference
     find host host-reference host-reference-gx -type f \
       \( -name '*.c' -o -name '*.h' \)
   } | sort -u | while IFS= read -r relative_path; do
@@ -376,7 +376,8 @@ build_dol() {
       export DEVKITPRO=/deps/libogc/opt/devkitpro
       export DEVKITPPC=/opt/devkitpro/devkitPPC
       export PATH=/opt/devkitpro/devkitPPC/bin:/opt/devkitpro/tools/bin:$PATH
-      make --no-print-directory -f Makefile.reference.gamecube \
+      make --no-print-directory -f Makefile.reference \
+        MULTIPLEX_PLATFORM=gamecube \
         REFERENCE_VARIANT=dolphin \
         BUILD="$1" \
         TARGET="$2" \
