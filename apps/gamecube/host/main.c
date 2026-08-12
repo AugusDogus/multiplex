@@ -16,7 +16,7 @@
 static GXRModeObj *video_mode;
 static void *framebuffer;
 static void *gx_fifo;
-static MultiplexGxCommand commands[COMMAND_CAPACITY];
+static MultiplexNativeDrawCommand commands[COMMAND_CAPACITY];
 static uint32_t command_count;
 static bool native_frame_dirty = true;
 static GXTexObj font_texture;
@@ -35,7 +35,7 @@ static uint32_t command_signature(uint32_t count) {
   uint32_t hash = 2166136261u;
   hash = hash_bytes(hash, &count, sizeof(count));
   for (uint32_t index = 0; index < count; ++index) {
-    MultiplexGxCommand value = commands[index];
+    MultiplexNativeDrawCommand value = commands[index];
     value.text_ptr = NULL;
     hash = hash_bytes(hash, &value, sizeof(value));
     if (commands[index].text_ptr != NULL && commands[index].text_len > 0) {
@@ -126,7 +126,7 @@ static void set_full_scissor(void) {
   GX_SetScissor(0, 0, video_mode->fbWidth, video_mode->efbHeight);
 }
 
-static void set_command_scissor(const MultiplexGxCommand *command) {
+static void set_command_scissor(const MultiplexNativeDrawCommand *command) {
   if (!command->has_clip) {
     set_full_scissor();
     return;
@@ -179,7 +179,8 @@ static void draw_rounded_rect(float x, float y, float width, float height,
             color);
 }
 
-static void draw_stroke_rect(const MultiplexGxCommand *command, GXColor color) {
+static void draw_stroke_rect(const MultiplexNativeDrawCommand *command,
+                             GXColor color) {
   if (command->height <= 24.0f) {
     return;
   }
@@ -192,7 +193,8 @@ static void draw_stroke_rect(const MultiplexGxCommand *command, GXColor color) {
             command->height, color);
 }
 
-static void draw_line(const MultiplexGxCommand *command, GXColor color) {
+static void draw_line(const MultiplexNativeDrawCommand *command,
+                      GXColor color) {
   const float dx = command->x2 - command->x;
   const float dy = command->y2 - command->y;
   const float stroke = fmaxf(1.0f, command->stroke_width);
@@ -219,7 +221,8 @@ static unsigned geist_size_index(float size) {
   return closest;
 }
 
-static void draw_text(const MultiplexGxCommand *command, GXColor color) {
+static void draw_text(const MultiplexNativeDrawCommand *command,
+                      GXColor color) {
   if (command->text_ptr == NULL || command->text_len == 0 || color.a == 0) {
     return;
   }
@@ -286,37 +289,37 @@ static void draw_text(const MultiplexGxCommand *command, GXColor color) {
   GX_End();
 }
 
-static void draw_command(const MultiplexGxCommand *command) {
+static void draw_command(const MultiplexNativeDrawCommand *command) {
   set_command_scissor(command);
   const GXColor color = gx_color(command->color_rgba);
-  if (command->kind != MULTIPLEX_GX_TEXT &&
-      command->kind != MULTIPLEX_GX_GLYPH) {
+  if (command->kind != MULTIPLEX_NATIVE_DRAW_TEXT &&
+      command->kind != MULTIPLEX_NATIVE_DRAW_GLYPH) {
     set_solid_pipeline();
   }
   switch (command->kind) {
-  case MULTIPLEX_GX_FILL_RECT:
+  case MULTIPLEX_NATIVE_DRAW_FILL_RECT:
     draw_rect(command->x, command->y, command->width, command->height, color);
     break;
-  case MULTIPLEX_GX_FILL_ROUNDED_RECT:
-  case MULTIPLEX_GX_SHADOW:
+  case MULTIPLEX_NATIVE_DRAW_FILL_ROUNDED_RECT:
+  case MULTIPLEX_NATIVE_DRAW_SHADOW:
     draw_rounded_rect(command->x, command->y, command->width, command->height,
                       command->radius, color);
     break;
-  case MULTIPLEX_GX_STROKE_RECT:
+  case MULTIPLEX_NATIVE_DRAW_STROKE_RECT:
     draw_stroke_rect(command, color);
     break;
-  case MULTIPLEX_GX_LINE:
+  case MULTIPLEX_NATIVE_DRAW_LINE:
     draw_line(command, color);
     break;
-  case MULTIPLEX_GX_TEXT:
+  case MULTIPLEX_NATIVE_DRAW_TEXT:
     draw_text(command, color);
     break;
-  case MULTIPLEX_GX_GLYPH: {
+  case MULTIPLEX_NATIVE_DRAW_GLYPH: {
     if (command->glyph_id > 255) {
       break;
     }
     const uint8_t character = (uint8_t)command->glyph_id;
-    MultiplexGxCommand glyph = *command;
+    MultiplexNativeDrawCommand glyph = *command;
     glyph.text_ptr = &character;
     glyph.text_len = 1;
     draw_text(&glyph, color);
