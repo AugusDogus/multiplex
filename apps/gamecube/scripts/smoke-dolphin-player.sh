@@ -389,7 +389,7 @@ wait_for_stable_presentation "$presentation_count" 300
 wait_for_new "player controls visible=0" "$controls_hidden_count" 80
 controls_visible_count=$(line_count "player controls visible=1")
 if [ "$console_name" = Wii ]; then
-  press D_RIGHT "player controls visible=1"
+  press D_RIGHT "input action=1"
 else
   press D_RIGHT
 fi
