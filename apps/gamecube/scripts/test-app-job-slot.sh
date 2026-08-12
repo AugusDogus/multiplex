@@ -3,6 +3,7 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+runtime_dir=$(CDPATH= cd -- "$app_dir/../../packages/libogc-gx" && pwd)
 test_binary=$(mktemp "${TMPDIR:-/tmp}/multiplex-app-job-slot.XXXXXX")
 trap 'rm -f "$test_binary"' EXIT HUP INT TERM
 
@@ -26,8 +27,8 @@ fi
 # shellcheck disable=SC2086
 "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -pedantic \
   ${sanitizer_flags} \
-  -I"$app_dir/host-reference-gx" \
-  "$app_dir/host-reference-gx/app_job_slot.c" \
+  -I"$runtime_dir/src" \
+  "$runtime_dir/src/app_job_slot.c" \
   "$app_dir/tests/app_job_slot_test.c" \
   -o "$test_binary"
 if $sanitize; then

@@ -3,12 +3,13 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+runtime_dir=$(CDPATH= cd -- "$app_dir/../../packages/libogc-gx" && pwd)
 # shellcheck disable=SC1091
 . "$app_dir/PINS.env"
 
 stage_dir=${GAMECUBE_MBEDTLS_STAGE_DIR:-$app_dir/.mbedtls-stage}
 source_dir=${GAMECUBE_MBEDTLS_SOURCE_DIR:-$app_dir/.mbedtls}
-config_file="$app_dir/host-reference-gx/mbedtls-gamecube-config.h"
+config_file="$runtime_dir/src/mbedtls-gamecube-config.h"
 stage_recovery() {
   if [ -n "${GAMECUBE_MBEDTLS_STAGE_DIR:-}" ]; then
     printf '%s\n' "Unset GAMECUBE_MBEDTLS_STAGE_DIR and run bun run gamecube:bootstrap, or point it at a stage matching the pinned commit and current config."

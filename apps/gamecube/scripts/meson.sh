@@ -3,6 +3,7 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+runtime_dir=$(CDPATH= cd -- "$app_dir/../../packages/libogc-gx" && pwd)
 repo_dir=$(CDPATH= cd -- "$app_dir/../.." && pwd)
 
 # shellcheck disable=SC1091
@@ -94,7 +95,7 @@ case "$command_name" in
     "$clang_tidy" \
       --config-file="$repo_dir/.clang-tidy" \
       -p "$build_dir" \
-      "$app_dir/host-reference-gx/auth_record.c" \
+      "$runtime_dir/src/auth_record.c" \
       "$app_dir/tests/auth_record_test.c"
     ;;
 esac

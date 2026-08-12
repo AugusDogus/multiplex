@@ -3,8 +3,9 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+runtime_dir=$(CDPATH= cd -- "$app_dir/../../packages/libogc-gx" && pwd)
 mbedtls_dir=${GAMECUBE_MBEDTLS_SOURCE_DIR:-$app_dir/.mbedtls}
-mbedtls_config="$app_dir/host-reference-gx/mbedtls-gamecube-config.h"
+mbedtls_config="$runtime_dir/src/mbedtls-gamecube-config.h"
 stage_dir=${GAMECUBE_MBEDTLS_STAGE_DIR:-$app_dir/.mbedtls-stage}
 cmake=${CMAKE:-cmake}
 cc=${CC:-cc}
@@ -133,9 +134,9 @@ CC="$server_cc" "$cmake" -S "$mbedtls_dir" -B "$server_build" \
 "$cc" -std=c11 -Wall -Wextra -Werror \
   -DMBEDTLS_CONFIG_FILE=\"mbedtls-gamecube-config.h\" \
   -DMBEDTLS_PLATFORM_TIME_ALT \
-  -I"$app_dir/host-reference-gx" \
+  -I"$runtime_dir/src" \
   -I"$stage_dir/include" \
-  "$app_dir/host-reference-gx/tls_client_verification.c" \
+  "$runtime_dir/src/tls_client_verification.c" \
   "$app_dir/tests/mbedtls_verification_test.c" \
   -L"$client_build/library" \
   -lmbedtls -lmbedx509 -lmbedcrypto \

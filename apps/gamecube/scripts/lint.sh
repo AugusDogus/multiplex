@@ -3,6 +3,7 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+runtime_dir=$(CDPATH= cd -- "$app_dir/../../packages/libogc-gx" && pwd)
 repo_dir=$(CDPATH= cd -- "$app_dir/../.." && pwd)
 ui_dir="$repo_dir/packages/console-ui"
 
@@ -45,7 +46,7 @@ find \
   "$app_dir/host" \
   "$app_dir/host-bba-diagnostics" \
   "$app_dir/host-raylib" \
-  "$app_dir/host-reference-gx" \
+  "$runtime_dir/src" \
   "$ui_dir/include" \
   "$ui_dir/reference-frame" \
   "$ui_dir/tests" \

@@ -1,0 +1,5 @@
+{
+  "name": "@multiplex/libogc-gx",
+  "private": true,
+  "description": "Shared libogc and GX runtime for Multiplex console clients"
+}

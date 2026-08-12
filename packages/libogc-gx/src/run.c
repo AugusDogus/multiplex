@@ -1,3 +1,4 @@
+#include "run.h"
 #include "app.h"
 
 #include <gccore.h>
@@ -155,7 +156,7 @@ static void show_app_failure(AppExitCode code,
   }
 }
 
-int main(int argc, char **argv) {
+int multiplex_libogc_gx_run(int argc, char **argv) {
   (void)argc;
   (void)argv;
 

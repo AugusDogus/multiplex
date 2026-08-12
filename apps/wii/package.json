@@ -1,0 +1,8 @@
+{
+  "name": "@multiplex/wii",
+  "private": true,
+  "description": "Wii composition root for the Multiplex libogc/GX client",
+  "scripts": {
+    "reference:dol": "sh scripts/build-reference-dol.sh"
+  }
+}

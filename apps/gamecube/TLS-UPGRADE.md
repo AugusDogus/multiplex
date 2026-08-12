@@ -30,7 +30,7 @@ bookkeeping macros. `MBEDTLS_PLATFORM_ENTROPY_ENABLED` remains zero.
 CTR-DRBG as the random source.
 
 The public `mbedtls_x509_dn_get_next()` signature and relative-name boundary
-semantics did not change. `host-reference-gx/x509_name_compare.c` still reads
+semantics did not change. `packages/libogc-gx/src/x509_name_compare.c` still reads
 only public `oid`, `val`, and `next` fields. Do not access `MBEDTLS_PRIVATE`,
 `next_merged`, or another private Mbed TLS representation. The CA callback must
 continue to parse one PEM certificate at a time instead of retaining the full
@@ -96,7 +96,7 @@ and recorded these SHA-256 values:
 
 The run had no supplemental CA input. The application manifest covers the
 GameCube makefile and every C and header input under `host`, `host-reference`,
-and `host-reference-gx`. The external header manifests hash each file together
+and `packages/libogc-gx/src`. The external header manifests hash each file together
 with its sorted path relative to the mounted tree, so either a content change
 or a rename changes the manifest hash. The libogc manifest also includes
 `gamecube_rules`.
@@ -204,7 +204,7 @@ preprocess_mbedtls_macros() {
       export PATH=/opt/devkitpro/devkitPPC/bin:$PATH
       powerpc-eabi-gcc -dM -E \
         -I/stage/include \
-        -I/workspace/host-reference-gx \
+        -I/runtime/src \
         -DMBEDTLS_CONFIG_FILE=\"mbedtls-gamecube-config.h\" \
         -include mbedtls/build_info.h - </dev/null |
         grep "^#define MBEDTLS_" |

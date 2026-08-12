@@ -3,6 +3,7 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+runtime_dir=$(CDPATH= cd -- "$app_dir/../../packages/libogc-gx" && pwd)
 test_dir=$(mktemp -d "${TMPDIR:-/tmp}/multiplex-prefetch-cancel.XXXXXX")
 trap 'rm -rf "$test_dir"' EXIT HUP INT TERM
 
@@ -19,8 +20,8 @@ fi
 
 set -- -std=c11 -Wall -Wextra -Werror -pedantic \
   -I"$app_dir/tests/playback-cancellation-stubs" \
-  -I"$app_dir/host-reference-gx" \
-  "$app_dir/host-reference-gx/playback_prefetch.c" \
+  -I"$runtime_dir/src" \
+  "$runtime_dir/src/playback_prefetch.c" \
   "$app_dir/tests/playback_prefetch_cancellation_test.c"
 if $sanitize; then
   set -- -fsanitize=address,undefined -fno-omit-frame-pointer \

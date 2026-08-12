@@ -3,6 +3,7 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+runtime_dir=$(CDPATH= cd -- "$app_dir/../../packages/libogc-gx" && pwd)
 repo_dir=$(CDPATH= cd -- "$app_dir/../.." && pwd)
 ui_dir="$repo_dir/packages/console-ui"
 
@@ -148,7 +149,7 @@ fi
 mbedtls_dir="$app_dir/.mbedtls"
 mbedtls_url="https://github.com/Mbed-TLS/mbedtls.git"
 mbedtls_stage="$app_dir/.mbedtls-stage"
-mbedtls_config="$app_dir/host-reference-gx/mbedtls-gamecube-config.h"
+mbedtls_config="$runtime_dir/src/mbedtls-gamecube-config.h"
 if [ ! -d "$mbedtls_dir/.git" ]; then
   if [ -e "$mbedtls_dir" ]; then
     echo "$mbedtls_dir exists but is not an Mbed TLS git checkout" >&2
@@ -182,9 +183,10 @@ if [ ! -s "$mbedtls_stage/lib/libmbedtls.a" ] ||
   fi
   podman run --rm \
     --volume "$app_dir:/workspace:Z" \
+    --volume "$runtime_dir:/runtime:ro,Z" \
     --workdir /workspace/.mbedtls \
     "$DEVKITPPC_IMAGE" \
-    sh -c 'export DEVKITPPC="/opt/devkitpro/devkitPPC"; export PATH="$DEVKITPPC/bin:$PATH"; make clean >/dev/null; touch library/error.c library/version_features.c library/ssl_debug_helpers_generated.c library/psa_crypto_driver_wrappers.h library/psa_crypto_driver_wrappers_no_static.c; make -j2 lib GEN_FILES= CC=powerpc-eabi-gcc AR=powerpc-eabi-ar RL=powerpc-eabi-ranlib CFLAGS="-O2 -g -DGEKKO -mrvl -mcpu=750 -meabi -mhard-float -I/workspace/host-reference-gx -DMBEDTLS_CONFIG_FILE=\\\"mbedtls-gamecube-config.h\\\""'
+    sh -c 'export DEVKITPPC="/opt/devkitpro/devkitPPC"; export PATH="$DEVKITPPC/bin:$PATH"; make clean >/dev/null; touch library/error.c library/version_features.c library/ssl_debug_helpers_generated.c library/psa_crypto_driver_wrappers.h library/psa_crypto_driver_wrappers_no_static.c; make -j2 lib GEN_FILES= CC=powerpc-eabi-gcc AR=powerpc-eabi-ar RL=powerpc-eabi-ranlib CFLAGS="-O2 -g -DGEKKO -mrvl -mcpu=750 -meabi -mhard-float -I/runtime/src -DMBEDTLS_CONFIG_FILE=\\\"mbedtls-gamecube-config.h\\\""'
   mkdir -p "$mbedtls_stage/include" "$mbedtls_stage/lib"
   cp -R "$mbedtls_dir/include/mbedtls" "$mbedtls_stage/include/"
   cp -R "$mbedtls_dir/include/psa" "$mbedtls_stage/include/"
