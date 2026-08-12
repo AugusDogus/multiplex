@@ -3,6 +3,7 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+runtime_dir=$(CDPATH= cd -- "$app_dir/../../packages/libogc-gx" && pwd)
 test_dir=$(mktemp -d "${TMPDIR:-/tmp}/multiplex-plex-hls-stop.XXXXXX")
 trap 'rm -rf "$test_dir"' EXIT HUP INT TERM
 
@@ -20,8 +21,8 @@ fi
 set -- -std=c11 -Wall -Wextra -Werror -pedantic -D_DEFAULT_SOURCE \
   -ffunction-sections \
   -I"$app_dir/tests/plex-hls-control-stubs" \
-  -I"$app_dir/host-reference-gx" \
-  "$app_dir/host-reference-gx/plex_hls.c" \
+  -I"$runtime_dir/src" \
+  "$runtime_dir/src/plex_hls.c" \
   "$app_dir/tests/plex_hls_stop_test.c" \
   -Wl,--gc-sections
 if $sanitize; then

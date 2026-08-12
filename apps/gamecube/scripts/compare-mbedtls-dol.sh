@@ -6,6 +6,7 @@ export LC_ALL
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+runtime_dir=$(CDPATH= cd -- "$app_dir/../../packages/libogc-gx" && pwd)
 repo_dir=$(CDPATH= cd -- "$app_dir/../.." && pwd)
 
 # shellcheck disable=SC1091
@@ -20,9 +21,9 @@ baseline_stage=$1
 candidate_stage=$2
 libogc_stage=${GAMECUBE_LIBOGC2_STAGE_DIR:-$app_dir/.libogc2-stage}
 mplayer_root=${GAMECUBE_MPLAYER_ROOT:-$app_dir/.mplayer-ce-libogc2/mplayer}
-core_library=${GAMECUBE_CORE_LIBRARY:-$repo_dir/packages/console-ui/zig-out/lib/libmultiplex-console-ui-powerpc.a}
+core_library=${GAMECUBE_CORE_LIBRARY:-$repo_dir/packages/console-ui/zig-out/lib/libmultiplex-console-ui.a}
 source_dir=${GAMECUBE_MBEDTLS_SOURCE_DIR:-$app_dir/.mbedtls}
-config_file="$app_dir/host-reference-gx/mbedtls-gamecube-config.h"
+config_file="$runtime_dir/src/mbedtls-gamecube-config.h"
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -264,10 +265,12 @@ endpoint_inputs="$comparison_dir/endpoint-inputs"
 
 application_manifest="$comparison_dir/application-inputs.sha256"
 (
-  cd "$app_dir"
+  cd "$repo_dir"
   {
-    printf '%s\n' Makefile.reference
-    find host host-reference host-reference-gx -type f \
+    printf '%s\n' packages/libogc-gx/Makefile.reference
+    find apps/gamecube/host apps/gamecube/host-reference \
+      packages/console-ui/include packages/console-ui/reference-frame \
+      packages/libogc-gx/src -type f \
       \( -name '*.c' -o -name '*.h' \)
   } | sort -u | while IFS= read -r relative_path; do
     sha256sum "$relative_path"
@@ -366,7 +369,7 @@ build_dol() {
   cp "$comparison_dir/common/tls-ca.h" "$build_dir/tls-ca.h"
 
   if ! podman run --rm \
-    --volume "$app_dir:/workspace:Z" \
+    --volume "$repo_dir:/workspace:Z" \
     --volume "$libogc_stage:/deps/libogc:ro" \
     --volume "$mplayer_root:/deps/mplayer:ro" \
     --volume "$core_dir:/deps/core:ro" \
@@ -377,7 +380,7 @@ build_dol() {
       export DEVKITPRO=/deps/libogc/opt/devkitpro
       export DEVKITPPC=/opt/devkitpro/devkitPPC
       export PATH=/opt/devkitpro/devkitPPC/bin:/opt/devkitpro/tools/bin:$PATH
-      make --no-print-directory -f Makefile.reference \
+      make --no-print-directory -f packages/libogc-gx/Makefile.reference \
         MULTIPLEX_PLATFORM=gamecube \
         REFERENCE_VARIANT=dolphin \
         BUILD="$1" \

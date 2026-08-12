@@ -7,12 +7,13 @@ $(error "DEVKITPPC must point to the devkitPPC toolchain")
 endif
 
 APP_ROOT := $(abspath $(dir $(firstword $(MAKEFILE_LIST))))
+RUNTIME_ROOT := $(abspath $(APP_ROOT)/../../packages/libogc-gx)
 
 include $(DEVKITPRO)/libogc2/gamecube_rules
 
 TARGET := multiplex-gamecube-bba-diagnostics
 BUILD := build-bba-diagnostics
-INCLUDES := host-reference-gx
+INCLUDES :=
 
 CFLAGS := -g -O2 -Wall -Wextra -Werror $(MACHDEP) $(INCLUDE)
 LDFLAGS = -g $(MACHDEP) -Wl,-Map,$(notdir $@).map
@@ -22,9 +23,10 @@ ifneq ($(BUILD),$(notdir $(CURDIR)))
 
 export OUTPUT := $(APP_ROOT)/$(TARGET)
 export VPATH := $(APP_ROOT)/host-bba-diagnostics \
-	$(APP_ROOT)/host-reference-gx
+	$(RUNTIME_ROOT)/src
 export OFILES := main.o network_resolver.o
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(APP_ROOT)/$(dir)) \
+	-I$(RUNTIME_ROOT)/src \
 	-I$(LIBOGC_INC)
 export LIBPATHS := -L$(LIBOGC_LIB)
 export LD := $(CC)

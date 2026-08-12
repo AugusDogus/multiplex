@@ -3,14 +3,15 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+runtime_dir=$(CDPATH= cd -- "$app_dir/../../packages/libogc-gx" && pwd)
 build_dir=$(mktemp -d)
 trap 'rm -rf "$build_dir"' EXIT INT TERM
 
 compile_test() {
   "${CC:-cc}" -std=c11 -Wall -Wextra -Werror "$@" \
-    -I"$app_dir/host-reference-gx" \
-    "$app_dir/host-reference-gx/auth_record.c" \
-    "$app_dir/host-reference-gx/memory_card_records.c" \
+    -I"$runtime_dir/src" \
+    "$runtime_dir/src/auth_record.c" \
+    "$runtime_dir/src/memory_card_records.c" \
     "$app_dir/tests/memory_card_records_test.c" \
     -o "$build_dir/memory-card-records-test"
 }

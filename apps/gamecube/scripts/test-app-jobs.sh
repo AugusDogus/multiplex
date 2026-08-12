@@ -3,6 +3,7 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+runtime_dir=$(CDPATH= cd -- "$app_dir/../../packages/libogc-gx" && pwd)
 test_dir=$(mktemp -d "${TMPDIR:-/tmp}/multiplex-app-jobs.XXXXXX")
 trap 'rm -rf "$test_dir"' EXIT HUP INT TERM
 
@@ -35,12 +36,12 @@ compile_binary() {
   fi
   "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -pedantic \
     -DMULTIPLEX_PAIRING_ENABLED="$pairing" \
-    -I"$test_dir/include" -I"$app_dir/host-reference-gx" \
+    -I"$test_dir/include" -I"$runtime_dir/src" \
     -I"$app_dir/host-reference" \
-    "$app_dir/host-reference-gx/app_jobs.c" \
-    "$app_dir/host-reference-gx/app_jobs_work.c" \
-    "$app_dir/host-reference-gx/app_jobs_posters.c" \
-    "$app_dir/host-reference-gx/app_jobs_prefetch.c" \
+    "$runtime_dir/src/app_jobs.c" \
+    "$runtime_dir/src/app_jobs_work.c" \
+    "$runtime_dir/src/app_jobs_posters.c" \
+    "$runtime_dir/src/app_jobs_prefetch.c" \
     "$app_dir/tests/app_jobs_test_support.c" \
     "$app_dir/tests/app_jobs_test_fakes.c" \
     "$@" -o "$output"

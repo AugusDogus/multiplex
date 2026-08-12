@@ -8,6 +8,7 @@ fi
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
+runtime_dir=$(CDPATH= cd -- "$app_dir/../../packages/libogc-gx" && pwd)
 repo_dir=$(CDPATH= cd -- "$app_dir/../.." && pwd)
 test_dir=$(mktemp -d "${TMPDIR:-/tmp}/multiplex-app-services-content.XXXXXX")
 trap 'rm -rf "$test_dir"' EXIT HUP INT TERM
@@ -32,14 +33,14 @@ run_test() {
     -D_POSIX_C_SOURCE=200809L \
     -ffunction-sections -fdata-sections -Wl,--gc-sections \
     -I"$test_dir" \
-    -I"$app_dir/host-reference-gx" \
+    -I"$runtime_dir/src" \
     -I"$app_dir/host" \
     -I"$repo_dir/packages/console-ui/include" \
-    "$app_dir/host-reference-gx/app_services_request_slots.c" \
-    "$app_dir/host-reference-gx/app_services_discovery.c" \
-    "$app_dir/host-reference-gx/app_services_details.c" \
-    "$app_dir/host-reference-gx/app_services_playback.c" \
-    "$app_dir/host-reference-gx/app_services_playback_resolution.c" \
+    "$runtime_dir/src/app_services_request_slots.c" \
+    "$runtime_dir/src/app_services_discovery.c" \
+    "$runtime_dir/src/app_services_details.c" \
+    "$runtime_dir/src/app_services_playback.c" \
+    "$runtime_dir/src/app_services_playback_resolution.c" \
     "$app_dir/tests/app_services_content_test_support.c" \
     "$app_dir/tests/app_services_content_queue_test_support.c" \
     "$app_dir/tests/$test_source" \

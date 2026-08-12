@@ -59,7 +59,7 @@ cross-compile, and host C tests under ASan and UBSan. These checks need no Plex
 credentials, Dolphin installation, or console hardware.
 
 The repository-root `meson.build` is the canonical extensible native graph.
-It currently delegates to `apps/gamecube/meson.build`, where the portable auth
+It currently delegates to `packages/libogc-gx/meson.build`, where the portable auth
 record implementation is an explicitly listed static library shared with its
 host test. `bun run gamecube:meson:setup` writes
 `build/native/compile_commands.json`; the committed `.clangd` points editors at
@@ -404,24 +404,21 @@ profile also accepts the connected Steam Controller alongside the QA pipe.
   details, and player views
 - `packages/console-ui/src/console_ui.zig`: compiled view, layout, focus/handler resolution,
   GPU-packet translation, and C ABI
-- `host-reference-gx/main.c`: reference framebuffer and direct-GX presenter
-- `host-reference-gx/gui_navigation.c`: attributed libwiigui-style analog
+- `packages/libogc-gx/src/run.c`: shared libogc lifecycle and direct-GX presenter
+- `packages/libogc-gx/src/gui_navigation.c`: attributed libwiigui-style analog
   dead-zone and repeat adapter
 - `packages/console-ui/reference-frame/reference_frame.c`: platform-neutral guarded RGBA frame
   allocation, Native SDK rendering, and deterministic frame signatures
-- `host-reference-gx/trpc_client.c`: bounded Better Auth bearer transport for
+- `packages/libogc-gx/src/trpc_client.c`: bounded Better Auth bearer transport for
   the same tRPC procedures used by the web client
-- `host-reference-gx/trpc_rooms.c`: fixed-capacity Watch Together room parser
-- `host-reference-gx/mpeg2_decoder.c`: narrow wrapper around MPlayer CE's
-  bundled FFmpeg MPEG-2 decoder
-- `host-reference-gx/mp2_decoder.c`: fixed-point MPlayer CE FFmpeg MP2 decoder
-- `host-reference-gx/mpeg_ps_demux.c`: MPEG-2 Program Stream PES extraction
+- `packages/libogc-gx/src/trpc_rooms.c`: fixed-capacity Watch Together room parser
+- `packages/libogc-gx/src/mpeg_ps_demux.c`: MPEG-2 Program Stream PES extraction
   and initial 90 kHz PTS preservation
-- `host-reference-gx/audio_dma.c`: buffered Audio Interface DMA output adapted
+- `packages/libogc-gx/src/audio_dma.c`: buffered Audio Interface DMA output adapted
   from WiiMC-GCN's `ao_gekko` driver
-- `host-reference-gx/http_client.c`: bounded libogc2/BBA range and sequential
+- `packages/libogc-gx/src/http_client.c`: bounded libogc2/BBA range and sequential
   HTTP reader
-- `host-reference-gx/yuv420_gx.c`: tiled planar-YUV upload and GX TEV
+- `packages/libogc-gx/src/yuv420_gx.c`: tiled planar-YUV upload and GX TEV
   conversion/scaling
 - `scripts/smoke-dolphin-player.sh`: player navigation, animation,
   pause/resume, and invalid-access assertions

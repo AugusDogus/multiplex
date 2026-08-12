@@ -17,6 +17,6 @@ uv run --project apps/gamecube --locked meson setup \
 ```
 
 Future native clients should add a root-level `subdir()` and link the reusable
-`multiplex_auth_record_dependency` declared by `apps/gamecube/meson.build`.
+`multiplex_auth_record_dependency` declared by `packages/libogc-gx/meson.build`.
 Keep explicit source lists in each client subdirectory. Do not add Meson wrap
 downloads or configure-time dependency fetches.

@@ -10,6 +10,5 @@ project(
   ],
 )
 
-# Client-specific targets live in their app directory. Portable libraries expose
-# declare_dependency() values there so future native clients can reuse them.
-subdir('apps/gamecube')
+# Shared native runtime targets live with the package that owns their sources.
+subdir('packages/libogc-gx')
