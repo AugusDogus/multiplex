@@ -5,6 +5,8 @@ export * from "./utils";
 
 // Export legacy imports for backward compatibility
 export { clearPlexServerConnectionCache, PlexServerClient } from "./clients/plex-server-client";
+export { PlaybackIntent } from "./clients/playback-intent";
+export type { PlaybackIntent as PlaybackIntentShape } from "./clients/playback-intent";
 export { decodeSyncplayUser, encodeSyncplayUser, SyncplayClient } from "./clients/syncplay-client";
 export type {
   SyncplayClientOptions,

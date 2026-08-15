@@ -313,6 +313,15 @@ export class PlexServerClient {
     }
   }
 
+  /**
+   * Returns the same proven PMS origin used by this client for requests. This
+   * is useful when a server-side probe must hand a browser the reachable URI,
+   * rather than independently guessing from the advertised connection list.
+   */
+  async getConnectionUri(): Promise<string> {
+    return (await this.findWorkingConnection()).uri.replace(/\/$/, "");
+  }
+
   private async findWorkingConnection(): Promise<PlexDevice["connections"][0]> {
     if (this.workingConnection) {
       return this.workingConnection;

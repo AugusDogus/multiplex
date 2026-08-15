@@ -70,6 +70,12 @@ function createFetchMock(
   });
 }
 
+test("exposes the proven connection URI without credentials", async () => {
+  const { client } = makeClient(() => Response.json({}));
+
+  expect(await client.getConnectionUri()).toBe("https://plex.example.test");
+});
+
 describe("PlexServerClient playlist contracts", () => {
   test("uses the local library provider's playlist access", async () => {
     const { client, fetchSpy } = makeClient(() =>

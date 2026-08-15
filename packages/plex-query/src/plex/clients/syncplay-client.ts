@@ -92,11 +92,14 @@ export interface SyncplayClientOptions {
   onClose?: () => void;
   onError?: (error: Event | Error) => void;
   webSocketFactory?: SyncplayWebSocketFactory;
+  /** Wall-clock time in milliseconds since the Unix epoch. */
   now?: () => number;
 }
 
 const SOCKET_CONNECTING = 0;
 const SOCKET_OPEN = 1;
+const PING_MOVING_AVERAGE_WEIGHT = 0.85;
+const MAX_PING_ROUND_TRIP_SECONDS = 60;
 
 type SyncplayIncomingFrame =
   | { Hello: { username: string; room: { name: string } } }
@@ -163,6 +166,9 @@ export class SyncplayClient {
   private readonly observer: boolean;
   private requestedReady: boolean | null | undefined;
   private lastPing: SyncplayPingState | null = null;
+  private roundTripSeconds = 0;
+  private averageRoundTripSeconds = 0;
+  private forwardDelaySeconds = 0;
   private pendingState: SyncplayStateInput | null = null;
   private readonly knownParticipants = new Map<string, SyncplayUser>();
   private connectionId = 0;
@@ -207,6 +213,10 @@ export class SyncplayClient {
 
     this.ignoringClient = 0;
     this.ignoringServer = 0;
+    this.roundTripSeconds = 0;
+    this.averageRoundTripSeconds = 0;
+    this.forwardDelaySeconds = 0;
+    this.lastPing = null;
     this.pendingPlayPause = false;
     this.pendingSeek = false;
     this.lastFramePaused = null;
@@ -303,7 +313,7 @@ export class SyncplayClient {
       State: {
         ping: {
           clientLatencyCalculation: this.now() / 1000,
-          clientRtt: this.lastPing?.clientRtt ?? 0,
+          clientRtt: this.roundTripSeconds,
           serverRtt: this.lastPing?.serverRtt ?? 0,
           latencyCalculation: this.lastPing?.latencyCalculation ?? 0,
         },
@@ -465,9 +475,13 @@ export class SyncplayClient {
 
   private handleState(payload: SyncplayStatePayload, connectionId: number): void {
     this.lastPing = payload.ping ?? null;
+    this.updatePing(payload.ping);
+    const roomPositionSeconds = payload.playstate.paused
+      ? payload.playstate.position
+      : payload.playstate.position + this.forwardDelaySeconds;
     this.onRoomState({
       paused: payload.playstate.paused,
-      positionSeconds: payload.playstate.position,
+      positionSeconds: roomPositionSeconds,
     });
 
     // Mirror the server's "ignoring on the fly" counter for this message, then
@@ -523,7 +537,7 @@ export class SyncplayClient {
         this.onRemoteAction({
           type: "seek",
           user: setByUser,
-          positionSeconds: payload.playstate.position,
+          positionSeconds: roomPositionSeconds,
         });
       }
       if (this.lastFramePaused !== null && framePaused !== this.lastFramePaused) {
@@ -531,13 +545,13 @@ export class SyncplayClient {
           this.onRemoteAction({
             type: "pause",
             user: setByUser,
-            positionSeconds: payload.playstate.position,
+            positionSeconds: roomPositionSeconds,
           });
         } else if (reachedPlayingBefore) {
           this.onRemoteAction({
             type: "resume",
             user: setByUser,
-            positionSeconds: payload.playstate.position,
+            positionSeconds: roomPositionSeconds,
           });
         }
       }
@@ -549,7 +563,7 @@ export class SyncplayClient {
         this.applyRemoteState({
           user: setByUser,
           isPaused: payload.playstate.paused,
-          positionSeconds: payload.playstate.position,
+          positionSeconds: roomPositionSeconds,
           shouldSeek: Boolean(payload.playstate.doSeek),
         });
       } catch (error) {
@@ -601,6 +615,35 @@ export class SyncplayClient {
     };
   }
 
+  private updatePing(ping: SyncplayPingState | undefined): void {
+    const timestamp = ping?.clientLatencyCalculation;
+    const senderRoundTrip = ping?.serverRtt;
+    if (
+      timestamp === undefined ||
+      senderRoundTrip === undefined ||
+      timestamp <= 0 ||
+      senderRoundTrip < 0
+    ) {
+      return;
+    }
+
+    const roundTrip = this.now() / 1000 - timestamp;
+    if (!Number.isFinite(roundTrip) || roundTrip < 0 || roundTrip > MAX_PING_ROUND_TRIP_SECONDS) {
+      return;
+    }
+
+    this.roundTripSeconds = roundTrip;
+    this.averageRoundTripSeconds =
+      this.averageRoundTripSeconds === 0
+        ? roundTrip
+        : this.averageRoundTripSeconds * PING_MOVING_AVERAGE_WEIGHT +
+          roundTrip * (1 - PING_MOVING_AVERAGE_WEIGHT);
+    this.forwardDelaySeconds =
+      senderRoundTrip < roundTrip
+        ? this.averageRoundTripSeconds / 2 + (roundTrip - senderRoundTrip)
+        : this.averageRoundTripSeconds / 2;
+  }
+
   private flushPendingState(): void {
     const pendingState = this.pendingState;
     if (!pendingState) {
@@ -634,7 +677,7 @@ function createDefaultWebSocket(url: string): SyncplayWebSocketLike {
 }
 
 function getDefaultNow(): number {
-  return globalThis.performance?.now() ?? Date.now();
+  return Date.now();
 }
 
 function isValidListPayload(
