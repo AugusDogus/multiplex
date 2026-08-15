@@ -278,7 +278,13 @@ episode's duration, `GAMECUBE_PLEX_EXPECT_AUTOPLAY_NEXT=1`, and
 Watch Together uses the same resolver, discovers or creates the next room,
 moves both clients to the next episode, and deletes the completed room. Add the
 normal Watch Together test variables to run that transition through Dolphin
-and the real browser guest.
+and the real browser guest. Set `GAMECUBE_PLEX_STRESS_SEEKS=1` with that
+accelerated autoplay test to jump rapidly through 10%, 80%, 30%, 90%, 20%,
+70%, 40%, and 60%, require both clients to converge, then seek into the final
+second and require both clients to advance to one successor room. This stress
+path opens a Home card directly instead of depending on Plex search ranking.
+`GAMECUBE_PLEX_HOME_ROW_INDEX` and `GAMECUBE_PLEX_HOME_ITEM_INDEX` select the
+card, while `GAMECUBE_PLEX_RATING_KEY` asserts its exact identity.
 
 Direct playback also parses Plex's bounded subtitle stream metadata. When a
 track with a transcode index is selected on the server, the GameCube HLS

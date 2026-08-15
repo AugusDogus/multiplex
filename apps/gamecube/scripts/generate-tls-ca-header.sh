@@ -7,14 +7,24 @@ app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 public_ca_file="$app_dir/certs/mozilla-ca-bundle.pem"
 ca_file=${GAMECUBE_TLS_CA_FILE:-}
 if [ -z "$ca_file" ] && [ -n "${HOME:-}" ]; then
+  use_portless_ca=0
   case ${MULTIPLEX_BASE_URL:-} in
     https://*.localhost | https://*.localhost/*)
-      portless_ca_file="$HOME/.portless/ca.pem"
-      if [ -s "$portless_ca_file" ]; then
-        ca_file=$portless_ca_file
+      use_portless_ca=1
+      ;;
+    '')
+      media_source_header=$(dirname -- "$destination")/media-source.h
+      if [ -s "$media_source_header" ] &&
+        grep -Eq '#define MULTIPLEX_BASE_URL "https://[^"/]*\.localhost([/:][^"]*)?"' \
+          "$media_source_header"; then
+        use_portless_ca=1
       fi
       ;;
   esac
+  portless_ca_file="$HOME/.portless/ca.pem"
+  if [ "$use_portless_ca" -eq 1 ] && [ -s "$portless_ca_file" ]; then
+    ca_file=$portless_ca_file
+  fi
 fi
 
 {
