@@ -13,6 +13,7 @@ import {
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const roomId = process.argv[2];
 const controlPath = process.argv[3];
+const joinMode = process.argv[4] ?? "invitation";
 const baseURL = process.env.MULTIPLEX_BROWSER_BASE_URL ?? "https://multiplex.localhost";
 const storageState =
   process.env.MULTIPLEX_BROWSER_GUEST_STATE ??
@@ -94,8 +95,15 @@ const describeSyncplayState = (
   ].join(" ");
 };
 
-if (!roomId || !/^[A-Za-z0-9]+$/.test(roomId) || !controlPath) {
-  throw new Error("Usage: bun watch-together-browser-guest.ts <room-id> <control-file>");
+if (
+  !roomId ||
+  !/^[A-Za-z0-9]+$/.test(roomId) ||
+  !controlPath ||
+  (joinMode !== "invitation" && joinMode !== "direct")
+) {
+  throw new Error(
+    "Usage: bun watch-together-browser-guest.ts <room-id> <control-file> [invitation|direct]",
+  );
 }
 
 let stopping = false;
@@ -168,18 +176,20 @@ try {
         .catch(() => undefined);
     }
   });
-  await page.goto("/");
+  await page.goto(joinMode === "direct" ? `/watch-together/${roomId}` : "/");
   if (new URL(page.url()).pathname.startsWith("/login")) {
     throw new Error(`The browser guest session at ${storageState} is no longer authenticated.`);
   }
 
-  let roomCard = page.locator(`a[href*="/watch-together/${roomId}"]`).first();
-  if (!(await roomCard.isVisible().catch(() => false))) {
-    await page.reload();
-    roomCard = page.locator(`a[href*="/watch-together/${roomId}"]`).first();
+  if (joinMode === "invitation") {
+    let roomCard = page.locator(`a[href*="/watch-together/${roomId}"]`).first();
+    if (!(await roomCard.isVisible().catch(() => false))) {
+      await page.reload();
+      roomCard = page.locator(`a[href*="/watch-together/${roomId}"]`).first();
+    }
+    await roomCard.waitFor({ state: "visible", timeout: 30_000 });
+    await roomCard.click();
   }
-  await roomCard.waitFor({ state: "visible", timeout: 30_000 });
-  await roomCard.click();
   await page.waitForURL(new RegExp(`/watch-together/${roomId}(?:[/?#]|$)`), {
     timeout: 30_000,
   });
@@ -191,6 +201,7 @@ try {
   let lastRatingKey: string | undefined;
   let lastOffsetMs: number | undefined;
   let lastAdvancingOffsetMs: number | undefined;
+  let lastReportedPositionMs: number | undefined;
   let lastTime = 0;
   let ready = false;
   let lastCommand = "";
@@ -230,6 +241,15 @@ try {
       if (Number.isFinite(offsetMs) && offsetMs !== lastOffsetMs) {
         console.log(`Browser guest offset-ms=${offsetMs} room=${roomId}`);
         lastOffsetMs = offsetMs;
+      }
+      const positionMs = Math.round(state.currentTime * 1000 + offsetMs);
+      if (
+        Number.isFinite(positionMs) &&
+        (lastReportedPositionMs === undefined ||
+          Math.abs(positionMs - lastReportedPositionMs) >= 500)
+      ) {
+        console.log(`Browser guest position-ms=${positionMs} room=${roomId}`);
+        lastReportedPositionMs = positionMs;
       }
       if (!state.paused && state.currentTime > lastTime + 0.1) {
         if (!ready) {
@@ -274,11 +294,9 @@ try {
       if (command && command !== lastCommand) {
         let commandTargetMs: number | undefined;
         if (command === "pause") {
-          await video.evaluate((element: HTMLVideoElement) => element.pause());
+          await page.keyboard.press("Space");
         } else if (command === "resume") {
-          await video.evaluate((element: HTMLVideoElement) =>
-            element.play().catch(() => undefined),
-          );
+          await page.keyboard.press("Space");
         } else if (command === "seek-10-percent") {
           await page.evaluate(() => {
             document.dispatchEvent(
