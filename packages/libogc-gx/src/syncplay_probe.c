@@ -60,6 +60,7 @@ struct MultiplexSyncplaySession {
   bool remote_playback_pending;
   bool room_position_known;
   bool room_paused;
+  bool web_participant_present;
   bool observer;
   bool connected;
 };
@@ -543,14 +544,16 @@ static bool echo_state(MultiplexSyncplaySession *session, const char *json) {
   const bool apply_remote = !session->observer && !set_by_self &&
                             !startup_pause && !local_change &&
                             session->ignoring_client == 0;
+  const bool should_seek = multiplex_syncplay_should_seek(
+      session->local_position_ms, remote_position_ms, do_seek);
   session->room_position_ms = remote_position_ms;
   session->room_position_known = true;
   session->room_paused = paused;
   if (!session->observer && apply_remote &&
-      (session->local_paused != paused || do_seek)) {
+      (session->local_paused != paused || should_seek)) {
     session->remote_paused = paused;
     session->remote_position_ms = remote_position_ms;
-    session->remote_seek = do_seek;
+    session->remote_seek = should_seek;
     session->remote_playback_pending = true;
   }
   const bool reply_local = !session->observer && session->has_local_playback &&
@@ -603,6 +606,7 @@ static bool handle_text_frame(MultiplexSyncplaySession *session,
   }
   if (strstr(text, "\"List\"") != NULL) {
     const unsigned participants = count_participants(text);
+    session->web_participant_present = strstr(text, "Multiplex Web") != NULL;
     if (participants != 0 && participants != session->participant_count) {
       session->participant_count = participants;
       SYS_Report("REFERENCE GX: Syncplay participants=%u\n", participants);
@@ -904,6 +908,11 @@ bool multiplex_syncplay_session_take_remote_playback(
 unsigned multiplex_syncplay_session_participant_count(
     const MultiplexSyncplaySession *session) {
   return session == NULL ? 0u : session->participant_count;
+}
+
+bool multiplex_syncplay_session_has_web_participant(
+    const MultiplexSyncplaySession *session) {
+  return session != NULL && session->web_participant_present;
 }
 
 bool multiplex_syncplay_session_room_position(

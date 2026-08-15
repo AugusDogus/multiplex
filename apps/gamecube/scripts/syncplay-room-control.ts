@@ -344,59 +344,26 @@ async function stopPmsSessions(auth: StoredConsoleAuth): Promise<void> {
     throw new Error("The GameCube auth record has no saved PMS credentials.");
   }
   const headers = { "X-Plex-Token": auth.plexServerToken };
-  const sessionsUrl = new URL("/status/sessions", auth.plexServerUrl);
+  const sessionsUrl = new URL("/transcode/sessions", auth.plexServerUrl);
   const response = await fetch(sessionsUrl, { headers });
   if (!response.ok) {
-    throw new Error(`PMS session request failed with HTTP ${response.status}.`);
+    throw new Error(`PMS transcode session request failed with HTTP ${response.status}.`);
   }
   const xml = await response.text();
-  const videoBlocks = xml.match(/<Video\b[\s\S]*?<\/Video>/g) ?? [];
+  const sessionTags = xml.match(/<TranscodeSession\b[^>]*\/>/g) ?? [];
   let stopped = 0;
-  for (const video of videoBlocks) {
-    const player = video.match(/<Player\b[^>]*\/>/)?.[0];
-    if (
-      !player ||
-      xmlAttribute(player, "machineIdentifier") !== auth.plexClientId ||
-      xmlAttribute(player, "product") !== "Multiplex" ||
-      xmlAttribute(player, "device") !== "GameCube"
-    ) {
-      continue;
-    }
-    const playbackSessionId = xmlAttribute(player, "playbackSessionId");
-    if (playbackSessionId) {
-      const stopUrl = new URL("/:/transcode/universal/stop", auth.plexServerUrl);
-      stopUrl.searchParams.set("session", playbackSessionId);
-      const stopResponse = await fetch(stopUrl, { headers });
-      if (!stopResponse.ok && stopResponse.status !== 404) {
-        throw new Error(
-          `PMS transcode stop for ${playbackSessionId} failed with HTTP ${stopResponse.status}.`,
-        );
-      }
-    }
-    const videoTag = video.match(/<Video\b[^>]*>/)?.[0];
-    const ratingKey = videoTag ? xmlAttribute(videoTag, "ratingKey") : undefined;
-    if (ratingKey) {
-      const timelineUrl = new URL("/:/timeline", auth.plexServerUrl);
-      timelineUrl.searchParams.set("ratingKey", ratingKey);
-      timelineUrl.searchParams.set("key", `/library/metadata/${ratingKey}`);
-      timelineUrl.searchParams.set("state", "stopped");
-      timelineUrl.searchParams.set("time", xmlAttribute(videoTag, "viewOffset") ?? "0");
-      timelineUrl.searchParams.set("duration", xmlAttribute(videoTag, "duration") ?? "0");
-      const timelineResponse = await fetch(timelineUrl, {
-        headers: {
-          ...headers,
-          "X-Plex-Client-Identifier": auth.plexClientId,
-        },
-      });
-      if (!timelineResponse.ok) {
-        throw new Error(
-          `PMS stopped timeline for ${ratingKey} failed with HTTP ${timelineResponse.status}.`,
-        );
-      }
+  for (const sessionTag of sessionTags) {
+    const sessionId = xmlAttribute(sessionTag, "key");
+    if (!sessionId) continue;
+    const stopUrl = new URL("/video/:/transcode/universal/stop", auth.plexServerUrl);
+    stopUrl.searchParams.set("session", sessionId);
+    const stopResponse = await fetch(stopUrl, { headers });
+    if (!stopResponse.ok && stopResponse.status !== 404) {
+      throw new Error(`PMS transcode stop failed with HTTP ${stopResponse.status}.`);
     }
     stopped += 1;
   }
-  console.log(`Stopped ${stopped} Multiplex GameCube PMS session(s).`);
+  console.log(`Stopped ${stopped} GameCube Plex transcode session(s).`);
 }
 
 function xmlAttribute(tag: string, name: string): string | undefined {

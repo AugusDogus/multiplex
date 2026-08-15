@@ -90,12 +90,22 @@ static void test_ping_compensation(void) {
   assert(fabs(timing.forward_delay_seconds - 0.5) < 0.000001);
 }
 
+static void test_seek_alignment(void) {
+  assert(multiplex_syncplay_should_seek(10000u, 10000u, true));
+  assert(!multiplex_syncplay_should_seek(10000u, 7000u, false));
+  assert(multiplex_syncplay_should_seek(11000u, 7000u, false));
+  assert(!multiplex_syncplay_should_seek(10000u, 11749u, false));
+  assert(multiplex_syncplay_should_seek(10000u, 11750u, false));
+  assert(multiplex_syncplay_should_seek(133000u, 797000u, false));
+}
+
 int main(void) {
   test_upgrade();
   test_frames();
   test_hello();
   test_epoch_clock();
   test_ping_compensation();
+  test_seek_alignment();
   puts("GameCube Syncplay protocol tests passed.");
   return 0;
 }

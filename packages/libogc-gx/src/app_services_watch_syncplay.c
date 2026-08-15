@@ -215,6 +215,20 @@ static bool tick_reconnect(MultiplexAppServices *services, uint64_t now_ms,
   return multiplex_native_app_watch_together_presence(1, 1) != 0;
 }
 
+static bool tick_starting_playback(MultiplexAppServices *services) {
+  MultiplexSyncplaySession **syncplay =
+      &services->watch.state.available.phase.state.starting_playback.syncplay;
+  if (*syncplay == NULL) {
+    return true;
+  }
+  if (multiplex_syncplay_session_poll(*syncplay)) {
+    return true;
+  }
+  multiplex_syncplay_session_destroy(*syncplay);
+  *syncplay = NULL;
+  return true;
+}
+
 bool multiplex_app_services_watch_tick(
     MultiplexAppServices *services, uint64_t now_ms,
     const MultiplexAppServicesPlaybackView *playback) {
@@ -231,10 +245,11 @@ bool multiplex_app_services_watch_tick(
     return tick_active(services, now_ms, playback);
   case MULTIPLEX_APP_SERVICES_WATCH_PHASE_RECONNECT_WAIT:
     return tick_reconnect(services, now_ms, playback);
+  case MULTIPLEX_APP_SERVICES_WATCH_PHASE_STARTING_PLAYBACK:
+    return tick_starting_playback(services);
   case MULTIPLEX_APP_SERVICES_WATCH_PHASE_ROOM_LIST:
   case MULTIPLEX_APP_SERVICES_WATCH_PHASE_QUEUED_COMMAND:
   case MULTIPLEX_APP_SERVICES_WATCH_PHASE_QUEUED_PLAYBACK:
-  case MULTIPLEX_APP_SERVICES_WATCH_PHASE_STARTING_PLAYBACK:
   case MULTIPLEX_APP_SERVICES_WATCH_PHASE_WAIT_STOP:
     return true;
   }

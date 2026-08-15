@@ -64,9 +64,11 @@ MultiplexSyncplaySession *multiplex_app_services_watch_take_current_syncplay(
   case MULTIPLEX_APP_SERVICES_WATCH_PHASE_WAIT_STOP:
     owner = &phase->state.wait_stop.syncplay;
     break;
+  case MULTIPLEX_APP_SERVICES_WATCH_PHASE_STARTING_PLAYBACK:
+    owner = &phase->state.starting_playback.syncplay;
+    break;
   case MULTIPLEX_APP_SERVICES_WATCH_PHASE_ROOM_LIST:
   case MULTIPLEX_APP_SERVICES_WATCH_PHASE_RECONNECT_WAIT:
-  case MULTIPLEX_APP_SERVICES_WATCH_PHASE_STARTING_PLAYBACK:
     break;
   }
   if (owner == NULL) {
@@ -532,16 +534,22 @@ multiplex_app_services_watch_schedule_queued(MultiplexAppServices *services) {
                token, (unsigned)queued.context.purpose, queued.position_ms);
   MultiplexSyncplaySession *syncplay =
       multiplex_app_services_watch_take_current_syncplay(&services->watch);
+  const bool retain_syncplay =
+      queued.context.purpose == MULTIPLEX_APP_SERVICES_WATCH_START_LOCAL_SEEK ||
+      queued.context.purpose == MULTIPLEX_APP_SERVICES_WATCH_START_REMOTE_SEEK;
   services->watch.state.available.phase = (MultiplexAppServicesWatchPhase){
       .kind = MULTIPLEX_APP_SERVICES_WATCH_PHASE_STARTING_PLAYBACK,
       .state.starting_playback =
           {
               .joined_room_index = queued.joined_room_index,
               .playback_token = token,
+              .syncplay = retain_syncplay ? syncplay : NULL,
               .context = queued.context,
           },
   };
-  multiplex_syncplay_session_destroy(syncplay);
+  if (!retain_syncplay) {
+    multiplex_syncplay_session_destroy(syncplay);
+  }
   return MULTIPLEX_APP_SERVICES_SCHEDULE_STARTED;
 }
 
@@ -597,11 +605,18 @@ settle_started_playback(MultiplexAppServices *services,
   }
   const MultiplexTrpcRoom *room =
       &directory.rooms.rooms[starting.joined_room_index];
-  WATCH_REPORT(
-      "REFERENCE GX: Syncplay playback reconnect token=%u purpose=%u\n",
-      result->token, (unsigned)starting.context.purpose);
-  MultiplexSyncplaySession *syncplay = multiplex_syncplay_session_connect(
-      room, credentials->plex_client_id, directory.plex_user_id, false);
+  MultiplexSyncplaySession *syncplay = starting.syncplay;
+  if (syncplay == NULL) {
+    WATCH_REPORT(
+        "REFERENCE GX: Syncplay playback reconnect token=%u purpose=%u\n",
+        result->token, (unsigned)starting.context.purpose);
+    syncplay = multiplex_syncplay_session_connect(
+        room, credentials->plex_client_id, directory.plex_user_id, false);
+  } else {
+    WATCH_REPORT(
+        "REFERENCE GX: Syncplay playback retained token=%u purpose=%u\n",
+        result->token, (unsigned)starting.context.purpose);
+  }
   if (syncplay == NULL) {
     const MultiplexAppServicesPlaybackEffect stop = {
         .token = multiplex_app_services_next_token(services),
@@ -767,10 +782,13 @@ static bool continue_rotation(MultiplexAppServices *services,
                               MultiplexSyncplaySession *syncplay) {
   MultiplexAppServicesWatchDirectory directory =
       services->watch.state.available.directory;
+  const bool wait_for_web_creator =
+      multiplex_syncplay_session_has_web_participant(syncplay);
   multiplex_syncplay_session_destroy(syncplay);
   MultiplexAppServicesWatchRotation rotation;
   if (!multiplex_app_services_watch_directory_plan_rotation(
-          services, &directory, completed, joined_room_index, &rotation)) {
+          services, &directory, completed, joined_room_index,
+          wait_for_web_creator, &rotation)) {
     multiplex_app_services_watch_enter_room_list(services, directory);
     return false;
   }

@@ -5,6 +5,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { indexHarnessRecording } from "../../watch-together-harness/e2e/index-recording-frames";
+import {
+  chromeLaunchFields,
+  resolveChromeLaunchTarget,
+} from "../../watch-together-harness/src/chrome-launch";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const roomId = process.argv[2];
@@ -16,11 +20,18 @@ const storageState =
 const recordingDirectory =
   process.env.MULTIPLEX_BROWSER_GUEST_RECORD_DIR ??
   path.resolve(scriptDirectory, "../../../.watch-together-harness/gamecube-browser");
-const executablePath =
-  process.env.PLAYWRIGHT_EXECUTABLE_PATH ?? process.env.WATCH_TOGETHER_HARNESS_CHROME_PATH;
-const requestedChannel = process.env.PLAYWRIGHT_CHANNEL;
-const channel =
-  executablePath || requestedChannel === "chromium" ? undefined : (requestedChannel ?? "chrome");
+const chromeLaunch = chromeLaunchFields(resolveChromeLaunchTarget(process.env));
+const seekShortcutCodes = new Map<string, string>([
+  ["seek-percent-1", "Digit1"],
+  ["seek-percent-2", "Digit2"],
+  ["seek-percent-3", "Digit3"],
+  ["seek-percent-4", "Digit4"],
+  ["seek-percent-5", "Digit5"],
+  ["seek-percent-6", "Digit6"],
+  ["seek-percent-7", "Digit7"],
+  ["seek-percent-8", "Digit8"],
+  ["seek-percent-9", "Digit9"],
+]);
 
 const describeMediaURL = (value: string): string => {
   try {
@@ -51,6 +62,38 @@ const describeMediaURL = (value: string): string => {
   }
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const describeSyncplayState = (
+  direction: "sent" | "received",
+  payload: string,
+): string | undefined => {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(payload);
+  } catch {
+    return undefined;
+  }
+  if (!isRecord(decoded) || !isRecord(decoded.State)) return undefined;
+  const playstate = isRecord(decoded.State.playstate) ? decoded.State.playstate : undefined;
+  const ignoring = isRecord(decoded.State.ignoringOnTheFly)
+    ? decoded.State.ignoringOnTheFly
+    : undefined;
+  if (!playstate) return undefined;
+  const position =
+    typeof playstate.position === "number" ? Math.round(playstate.position * 1000) : "unknown";
+  return [
+    `Browser guest Syncplay ${direction}`,
+    `position-ms=${position}`,
+    `paused=${String(playstate.paused)}`,
+    `seek=${String(playstate.doSeek ?? false)}`,
+    `authored=${String(playstate.setBy !== null && playstate.setBy !== undefined)}`,
+    `client=${String(ignoring?.client ?? 0)}`,
+    `server=${String(ignoring?.server ?? 0)}`,
+  ].join(" ");
+};
+
 if (!roomId || !/^[A-Za-z0-9]+$/.test(roomId) || !controlPath) {
   throw new Error("Usage: bun watch-together-browser-guest.ts <room-id> <control-file>");
 }
@@ -64,8 +107,8 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 
 const browser = await chromium.launch({
   headless: true,
-  channel,
-  executablePath,
+  channel: chromeLaunch.channel,
+  executablePath: chromeLaunch.executablePath,
   args: ["--no-sandbox", "--mute-audio", "--autoplay-policy=no-user-gesture-required"],
 });
 let activePage: import("@playwright/test").Page | undefined;
@@ -83,6 +126,19 @@ try {
   const page = await context.newPage();
   activePage = page;
   activeRecording = page.video() ?? undefined;
+  page.on("websocket", (socket) => {
+    if (!socket.url().includes("syncplay")) return;
+    socket.on("framesent", (event) => {
+      if (typeof event.payload !== "string") return;
+      const description = describeSyncplayState("sent", event.payload);
+      if (description) console.log(description);
+    });
+    socket.on("framereceived", (event) => {
+      if (typeof event.payload !== "string") return;
+      const description = describeSyncplayState("received", event.payload);
+      if (description) console.log(description);
+    });
+  });
   page.on("requestfailed", (request) => {
     if (!request.resourceType().includes("media")) return;
     console.log(
@@ -139,16 +195,21 @@ try {
   let ready = false;
   let lastCommand = "";
   let readyDeadline = Date.now() + 120_000;
+  let knownDurationSeconds = 0;
 
   while (!stopping) {
     const state = await video
       .evaluate((element: HTMLVideoElement) => ({
         currentTime: element.currentTime,
         currentSrc: element.currentSrc,
+        duration: element.duration,
         paused: element.paused,
       }))
       .catch(() => undefined);
     if (state) {
+      if (Number.isFinite(state.duration) && state.duration > 0) {
+        knownDurationSeconds = state.duration;
+      }
       const ratingKey = /\/library\/metadata\/(\d+)/.exec(
         decodeURIComponent(state.currentSrc),
       )?.[1];
@@ -211,6 +272,7 @@ try {
     if (await controlFile.exists()) {
       const command = (await controlFile.text()).trim();
       if (command && command !== lastCommand) {
+        let commandTargetMs: number | undefined;
         if (command === "pause") {
           await video.evaluate((element: HTMLVideoElement) => element.pause());
         } else if (command === "resume") {
@@ -226,6 +288,31 @@ try {
               }),
             );
           });
+        } else if (seekShortcutCodes.has(command)) {
+          const shortcutCode = seekShortcutCodes.get(command);
+          if (!shortcutCode) {
+            throw new Error(`Missing keyboard shortcut for browser guest command: ${command}`);
+          }
+          const seekPercentage = Number.parseInt(shortcutCode.slice(-1), 10);
+          const durationSeconds = await video.evaluate(
+            (element: HTMLVideoElement) => element.duration,
+          );
+          const effectiveDurationSeconds =
+            Number.isFinite(durationSeconds) && durationSeconds > 0
+              ? durationSeconds
+              : knownDurationSeconds;
+          if (effectiveDurationSeconds <= 0) {
+            throw new Error(`Cannot seek browser guest with invalid duration: ${durationSeconds}`);
+          }
+          commandTargetMs = Math.round(effectiveDurationSeconds * seekPercentage * 100);
+          await page.evaluate((code) => {
+            document.dispatchEvent(
+              new KeyboardEvent("keydown", {
+                bubbles: true,
+                code,
+              }),
+            );
+          }, shortcutCode);
         } else if (command === "seek-to-end") {
           await page.evaluate(() => {
             document.dispatchEvent(
@@ -243,12 +330,16 @@ try {
           throw new Error(`Unknown browser guest command: ${command}`);
         }
         lastCommand = command;
-        console.log(`Browser guest command=${command} room=${roomId}`);
+        console.log(
+          `Browser guest command=${command}${commandTargetMs === undefined ? "" : ` target-ms=${commandTargetMs}`} room=${roomId}`,
+        );
       }
     }
     await Bun.sleep(250);
   }
 
+  await page.keyboard.press("Escape").catch(() => undefined);
+  await page.waitForTimeout(1_500).catch(() => undefined);
   await context.close().catch(() => undefined);
   activeContext = undefined;
 } finally {

@@ -24,6 +24,8 @@ static unsigned destroyed_count;
 static unsigned finished_watch_count;
 static RotationPlan rotation_plan;
 static uint32_t rotation_rating_key;
+static bool open_hls_succeeds;
+static unsigned syncplay_connect_count;
 
 static MultiplexSyncplaySession *fake_syncplay(uintptr_t value) {
   return (MultiplexSyncplaySession *)value;
@@ -107,8 +109,11 @@ bool multiplex_app_services_content_open_hls(
   (void)subtitle_selection;
   (void)current;
   (void)from_watch;
-  (void)token;
-  return false;
+  if (!open_hls_succeeds) {
+    return false;
+  }
+  *token = multiplex_app_services_next_token(services);
+  return true;
 }
 
 void multiplex_app_services_scheduler_finish_foreground(
@@ -138,6 +143,7 @@ multiplex_syncplay_session_connect(const MultiplexTrpcRoom *room,
   (void)device_identifier;
   (void)user_id;
   (void)observer;
+  syncplay_connect_count += 1u;
   return NULL;
 }
 
@@ -159,6 +165,12 @@ void multiplex_syncplay_session_adopt_playback(
 void multiplex_syncplay_session_mark_local_seek(
     MultiplexSyncplaySession *session) {
   (void)session;
+}
+
+bool multiplex_syncplay_session_has_web_participant(
+    const MultiplexSyncplaySession *session) {
+  (void)session;
+  return false;
 }
 
 bool multiplex_app_services_watch_directory_bind_rooms(
@@ -214,10 +226,12 @@ bool multiplex_app_services_watch_directory_plan_rotation(
     MultiplexAppServices *services,
     MultiplexAppServicesWatchDirectory *directory,
     const MultiplexAppServicesPlaybackView *completed,
-    uint32_t joined_room_index, MultiplexAppServicesWatchRotation *rotation) {
+    uint32_t joined_room_index, bool wait_for_web_creator,
+    MultiplexAppServicesWatchRotation *rotation) {
   (void)directory;
   (void)completed;
   (void)joined_room_index;
+  (void)wait_for_web_creator;
   if (multiplex_app_services_auth_credentials(services) == NULL ||
       rotation_plan == ROTATION_PLAN_FAILED) {
     return false;
@@ -302,6 +316,8 @@ static void reset_observations(void) {
   finished_watch_count = 0;
   rotation_plan = ROTATION_PLAN_FAILED;
   rotation_rating_key = 0;
+  open_hls_succeeds = false;
+  syncplay_connect_count = 0;
 }
 
 static MultiplexAppServices
@@ -489,6 +505,64 @@ static void reset_after_stop_destroys_without_another_stop(void) {
   assert(destroyed_count == 1u);
 }
 
+static void remote_seek_retains_syncplay_until_replacement_is_ready(void) {
+  reset_observations();
+  open_hls_succeeds = true;
+  rotation_rating_key = 386827u;
+  MultiplexSyncplaySession *syncplay = fake_syncplay(13u);
+  MultiplexAppServices services = active_services(syncplay);
+  const MultiplexAppServicesPlaybackView current = {
+      .rating_key = 386827u,
+      .duration_ms = 1433600u,
+      .position_ms = 143000u,
+      .segment_start_ms = 143000u,
+      .playing = true,
+  };
+  const MultiplexAppServicesWatchPlaybackContext context = {
+      .purpose = MULTIPLEX_APP_SERVICES_WATCH_START_REMOTE_SEEK,
+      .value.remote_seek = {.paused = false},
+  };
+
+  assert(multiplex_app_services_watch_begin_playback(
+      &services, services.watch.state.available.directory, 0u, 860160u,
+      &current, context));
+  assert(multiplex_app_services_watch_schedule_queued(&services) ==
+         MULTIPLEX_APP_SERVICES_SCHEDULE_STARTED);
+  assert(services.watch.state.available.phase.kind ==
+         MULTIPLEX_APP_SERVICES_WATCH_PHASE_STARTING_PLAYBACK);
+  assert(
+      services.watch.state.available.phase.state.starting_playback.syncplay ==
+      syncplay);
+  assert(destroyed_count == 0u);
+  assert(syncplay_connect_count == 0u);
+
+  const MultiplexAppServicesPlaybackResult opened = {
+      .token = services.watch.state.available.phase.state.starting_playback
+                   .playback_token,
+      .kind = MULTIPLEX_APP_SERVICES_PLAYBACK_RESULT_OPENED,
+      .playback =
+          {
+              .rating_key = 386827u,
+              .duration_ms = 1433600u,
+              .position_ms = 860160u,
+              .segment_start_ms = 860160u,
+              .playing = true,
+          },
+  };
+  assert(
+      multiplex_app_services_watch_apply_playback_result(&services, &opened));
+  assert(services.watch.state.available.phase.kind ==
+         MULTIPLEX_APP_SERVICES_WATCH_PHASE_ACTIVE);
+  assert(services.watch.state.available.phase.state.active.syncplay ==
+         syncplay);
+  assert(syncplay_connect_count == 0u);
+  assert(destroyed_count == 0u);
+
+  multiplex_app_services_watch_destroy(&services);
+  assert(destroyed_count == 1u);
+  assert(destroyed[0] == syncplay);
+}
+
 static void exit_missing_credentials_destroys_once(void) {
   reset_observations();
   credentials_available = false;
@@ -525,6 +599,7 @@ int main(void) {
   room_list_lobby_leave_is_noop();
   other_lobby_leave_phases_are_noops();
   reset_after_stop_destroys_without_another_stop();
+  remote_seek_retains_syncplay_until_replacement_is_ready();
   exit_success_destroys_once();
   exit_missing_credentials_destroys_once();
   rotation_terminal_destroys_once(ROTATION_PLAN_FAILED, true, 0u, 3u);

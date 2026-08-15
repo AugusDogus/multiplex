@@ -7,6 +7,8 @@
 
 #define SYNCPLAY_PING_MOVING_AVERAGE_WEIGHT 0.85
 #define SYNCPLAY_MAX_PING_ROUND_TRIP_SECONDS 60.0
+#define SYNCPLAY_SEEK_AHEAD_THRESHOLD_MS 4000u
+#define SYNCPLAY_SEEK_BEHIND_THRESHOLD_MS 1750u
 
 static bool header_value(const char *headers, const char *name,
                          const char *expected) {
@@ -198,4 +200,18 @@ uint32_t multiplex_syncplay_compensate_position(uint32_t position_ms,
     return UINT32_MAX;
   }
   return position_ms + (uint32_t)(delay_ms + 0.5);
+}
+
+bool multiplex_syncplay_should_seek(uint32_t local_position_ms,
+                                    uint32_t remote_position_ms,
+                                    bool explicit_seek) {
+  if (explicit_seek) {
+    return true;
+  }
+  if (local_position_ms >= remote_position_ms) {
+    return local_position_ms - remote_position_ms >=
+           SYNCPLAY_SEEK_AHEAD_THRESHOLD_MS;
+  }
+  return remote_position_ms - local_position_ms >=
+         SYNCPLAY_SEEK_BEHIND_THRESHOLD_MS;
 }

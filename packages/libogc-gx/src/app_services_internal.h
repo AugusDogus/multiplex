@@ -532,6 +532,7 @@ typedef struct {
 typedef struct {
   uint32_t joined_room_index;
   uint32_t playback_token;
+  MultiplexSyncplaySession *syncplay;
   MultiplexAppServicesWatchPlaybackContext context;
 } MultiplexAppServicesWatchStartingPlayback;
 
@@ -804,6 +805,7 @@ bool multiplex_app_services_watch_directory_plan_rotation(
     MultiplexAppServices *services,
     MultiplexAppServicesWatchDirectory *directory,
     const MultiplexAppServicesPlaybackView *completed,
-    uint32_t joined_room_index, MultiplexAppServicesWatchRotation *rotation);
+    uint32_t joined_room_index, bool wait_for_web_creator,
+    MultiplexAppServicesWatchRotation *rotation);
 
 #endif

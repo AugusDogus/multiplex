@@ -26,6 +26,8 @@ auto_link=${GAMECUBE_AUTO_LINK:-1}
 rating_key=${GAMECUBE_PLEX_RATING_KEY:-}
 search_query=${GAMECUBE_PLEX_SEARCH_QUERY:-FRESH}
 search_result_index=${GAMECUBE_PLEX_SEARCH_RESULT_INDEX:-0}
+home_row_index=${GAMECUBE_PLEX_HOME_ROW_INDEX:-}
+home_item_index=${GAMECUBE_PLEX_HOME_ITEM_INDEX:-0}
 tv_hierarchy=${GAMECUBE_PLEX_TV_HIERARCHY:-0}
 tv_season_index=${GAMECUBE_PLEX_TV_SEASON_INDEX:-0}
 tv_episode_page=${GAMECUBE_PLEX_TV_EPISODE_PAGE:-0}
@@ -35,6 +37,7 @@ browse_audit=${GAMECUBE_PLEX_BROWSE_AUDIT:-0}
 start_offset_ms=${GAMECUBE_PLEX_START_OFFSET_MS:-0}
 expect_autoplay_next=${GAMECUBE_PLEX_EXPECT_AUTOPLAY_NEXT:-0}
 expected_autoplay_rating_key=${GAMECUBE_PLEX_AUTOPLAY_RATING_KEY:-}
+stress_seeks=${GAMECUBE_PLEX_STRESS_SEEKS:-0}
 test_subtitle_cycle=${GAMECUBE_PLEX_TEST_SUBTITLE_CYCLE:-0}
 plex_base_url=${PLEX_BASE_URL:-}
 multiplex_base_url=${MULTIPLEX_BASE_URL:-}
@@ -193,6 +196,10 @@ validate_index() {
   esac
 }
 validate_index search_result_index "$search_result_index"
+if [ -n "$home_row_index" ]; then
+  validate_index home_row_index "$home_row_index"
+fi
+validate_index home_item_index "$home_item_index"
 validate_index tv_season_index "$tv_season_index"
 validate_index tv_episode_index "$tv_episode_index"
 case "$tv_episode_page" in
@@ -235,6 +242,22 @@ case "$expect_autoplay_next" in
     exit 1
     ;;
 esac
+case "$stress_seeks" in
+  0 | 1) ;;
+  *)
+    echo "GAMECUBE_PLEX_STRESS_SEEKS must be 0 or 1." >&2
+    exit 1
+    ;;
+esac
+if [ "$stress_seeks" -eq 1 ] && {
+  [ "$expect_autoplay_next" -ne 1 ] || [ "$watch_together_browser_guest" -ne 1 ];
+}; then
+  echo "Rapid-seek testing requires Watch Together autoplay with the browser guest." >&2
+  exit 1
+fi
+if [ "$stress_seeks" -eq 1 ] && [ -z "$home_row_index" ]; then
+  home_row_index=0
+fi
 if [ "$expect_autoplay_next" -eq 1 ]; then
   case "$expected_autoplay_rating_key" in
     '' | *[!0-9]*)
@@ -345,6 +368,11 @@ cleanup() {
     ! bun "$script_dir/syncplay-room-control.ts" stop-pms-session \
       >/dev/null 2>&1; then
     echo "Could not stop the Dolphin client's PMS session; it may remain active until Plex expires it." >&2
+  fi
+  if [ "$watch_together_browser_guest" -eq 1 ] && \
+    ! bun "$app_dir/../watch-together-harness/scripts/cleanup-transcodes.ts" \
+      accountB >/dev/null 2>&1; then
+    echo "Could not stop the browser guest's PMS sessions; run the harness cleanup command before retrying." >&2
   fi
   if [ -n "$server_pid" ]; then
     kill -TERM "$server_pid" 2>/dev/null || true
@@ -660,6 +688,34 @@ wait_for_browser_guest_seek() {
   done
   echo "Browser guest did not follow the GameCube seek to $minimum..$maximum ms; its latest offset was ${browser_seek_offset:-unknown}." >&2
   tail -60 "$browser_guest_log" >&2 || true
+  exit 1
+}
+
+wait_for_gamecube_seek() {
+  rating_key=$1
+  minimum=$2
+  maximum=$3
+  attempts=${4:-1200}
+  attempt=0
+  while [ "$attempt" -lt "$attempts" ]; do
+    fail_if_dolphin_exception
+    gamecube_seek_offset=$(sed -n \
+      "s/.*$playback_ready_pattern rating-key=$rating_key offset=\\([0-9][0-9]*\\).*/\\1/p" \
+      "$log" 2>/dev/null | tail -1)
+    if [ -n "$gamecube_seek_offset" ] && \
+      [ "$gamecube_seek_offset" -ge "$minimum" ] && \
+      [ "$gamecube_seek_offset" -le "$maximum" ]; then
+      return
+    fi
+    if ! kill -0 "$launcher_pid" 2>/dev/null; then
+      echo "Dolphin exited before following the browser seek." >&2
+      exit 1
+    fi
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  echo "GameCube did not follow the browser seek to $minimum..$maximum ms; its latest offset was ${gamecube_seek_offset:-unknown}." >&2
+  tail -60 "$log" >&2 || true
   exit 1
 }
 
@@ -1067,34 +1123,50 @@ if [ "$browse_audit" -eq 1 ] && [ "$focus_audit" -eq 0 ]; then
   wait_for_new "signature=" "$signature_count"
 fi
 
-# Search is fully controller-authored. Z opens it, A enters each focused
-# letter, and R submits the query.
-signature_count=$(line_count "signature=")
-press Z
-wait_for_new "signature=" "$signature_count"
-if [ "$focus_audit" -eq 1 ]; then
-  audit_focus_cycle
-fi
-type_search_query "$search_query"
-search_count=$(line_count "$search_ready_pattern")
-signature_count=$(line_count "signature=")
-press R
-wait_for_new "$search_ready_pattern" "$search_count" 1200
-wait_for_new "signature=" "$signature_count"
-if [ "$focus_audit" -eq 1 ]; then
-  audit_focus_cycle
-fi
-
-# Open the selected real search result and exercise playback from that origin. The
-# browse paging route has its own committed coverage; keeping it out of this
-# player smoke avoids unrelated poster transfers before every seek test.
-result_focus=0
-while [ "$result_focus" -lt "$search_result_index" ]; do
+if [ -n "$home_row_index" ]; then
+  # Watch Together stress starts from a real Home card. Search ordering is
+  # unrelated to synchronized playback and can change as Plex re-ranks hits.
+  selected_home_row=0
+  while [ "$selected_home_row" -lt "$home_row_index" ]; do
+    signature_count=$(line_count "signature=")
+    press D_DOWN
+    wait_for_new "signature=" "$signature_count"
+    selected_home_row=$((selected_home_row + 1))
+  done
+  selected_home_item=0
+  while [ "$selected_home_item" -lt "$home_item_index" ]; do
+    signature_count=$(line_count "signature=")
+    press D_RIGHT
+    wait_for_new "signature=" "$signature_count"
+    selected_home_item=$((selected_home_item + 1))
+  done
+else
+  # Search is fully controller-authored. Z opens it, A enters each focused
+  # letter, and R submits the query.
   signature_count=$(line_count "signature=")
-  press D_RIGHT
+  press Z
   wait_for_new "signature=" "$signature_count"
-  result_focus=$((result_focus + 1))
-done
+  if [ "$focus_audit" -eq 1 ]; then
+    audit_focus_cycle
+  fi
+  type_search_query "$search_query"
+  search_count=$(line_count "$search_ready_pattern")
+  signature_count=$(line_count "signature=")
+  press R
+  wait_for_new "$search_ready_pattern" "$search_count" 1200
+  wait_for_new "signature=" "$signature_count"
+  if [ "$focus_audit" -eq 1 ]; then
+    audit_focus_cycle
+  fi
+
+  result_focus=0
+  while [ "$result_focus" -lt "$search_result_index" ]; do
+    signature_count=$(line_count "signature=")
+    press D_RIGHT
+    wait_for_new "signature=" "$signature_count"
+    result_focus=$((result_focus + 1))
+  done
+fi
 signature_count=$(line_count "signature=")
 details_count=$(line_count "$details_ready_pattern")
 if [ "$tv_hierarchy" -eq 1 ]; then
@@ -1189,6 +1261,10 @@ if [ "$watch_together" -eq 1 ]; then
     "$log" | tail -1)
   if [ -z "$selected_details_rating_key" ]; then
     echo "The selected Plex rating key was not found in the Dolphin log." >&2
+    exit 1
+  fi
+  if [ -n "$rating_key" ] && [ "$selected_details_rating_key" != "$rating_key" ]; then
+    echo "The selected Home item was rating key $selected_details_rating_key; expected $rating_key." >&2
     exit 1
   fi
   existing_room_ids=$(bun "$script_dir/syncplay-room-control.ts" list-rooms |
@@ -1330,6 +1406,38 @@ if [ "$expect_autoplay_next" -eq 1 ]; then
   previous_room_id=$created_room_id
   rotation_participants_count=$(line_count "Syncplay participants=2")
   if [ "$watch_together_browser_guest" -eq 1 ]; then
+    if [ "$stress_seeks" -eq 1 ]; then
+      remote_seek_count=$(line_count "Syncplay remote playback .*seek=1")
+      for percentage in 1 8 3 9 2 7 4 6; do
+        command="seek-percent-$percentage"
+        command_count=$(browser_guest_line_count "Browser guest command=$command")
+        browser_offset_count=$(browser_guest_line_count "Browser guest offset-ms=")
+        printf '%s\n' "$command" >"$browser_guest_control"
+        wait_for_browser_guest "Browser guest command=$command" "$command_count" 300
+        if [ "$percentage" -eq 6 ]; then
+          wait_for_browser_guest "Browser guest offset-ms=" "$browser_offset_count" 1200
+        fi
+      done
+      wait_for_new "Syncplay remote playback .*seek=1" "$remote_seek_count" 1200
+      stress_browser_offset=$(sed -n \
+        's/.*Browser guest command=seek-percent-6 target-ms=\([0-9][0-9]*\).*/\1/p' \
+        "$browser_guest_log" | tail -1)
+      case "$stress_browser_offset" in
+        '' | *[!0-9]*)
+          echo "The browser rapid-seek target was not found in its log." >&2
+          exit 1
+          ;;
+      esac
+      stress_minimum_offset=$((stress_browser_offset - 5000))
+      stress_maximum_offset=$((stress_browser_offset + 5000))
+      echo "Waiting for both clients at rapid-seek target ${stress_browser_offset}ms."
+      wait_for_gamecube_seek "$selected_rating_key" \
+        "$stress_minimum_offset" "$stress_maximum_offset" 3600
+      wait_for_browser_guest_seek \
+        "$stress_minimum_offset" "$stress_maximum_offset" 1200
+      wait_for_synced_playback_state playing 1200
+      echo "Rapid browser seek sequence converged on both clients at ${stress_browser_offset}ms."
+    fi
     browser_offset_count=$(browser_guest_line_count "Browser guest offset-ms=")
     printf 'seek-to-end\n' >"$browser_guest_control"
     wait_for_browser_guest "Browser guest command=seek-to-end" 0 300
