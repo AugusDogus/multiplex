@@ -58,6 +58,8 @@ interface EpisodeRun {
   readonly episodes: readonly [EpisodeFixture, EpisodeFixture, EpisodeFixture];
 }
 
+const NETWORK_RECOVERY_SLO_MS = 5_000;
+
 function toEpisodeFixture(
   item: z.infer<typeof playQueueItemSchema>,
 ): EpisodeFixture {
@@ -149,7 +151,9 @@ async function expectPlaybackConverged(
   viewers: readonly [Page, Page],
   label: string,
   targetSeconds?: number,
+  timeoutMs = 30_000,
 ): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
   await expect
     .poll(
       async () => {
@@ -176,13 +180,18 @@ async function expectPlaybackConverged(
               Math.abs(second.timelinePositionSeconds - targetSeconds) < 10),
         };
       },
-      { message: `${label}: viewers should converge`, timeout: 30_000 },
+      { message: `${label}: viewers should converge`, timeout: timeoutMs },
     )
     .toEqual({ bothPlaying: true, synchronized: true, atTarget: true });
 
+  const remainingMs = Math.max(1, deadline - Date.now());
   await Promise.all([
-    expectPlayingAndAdvancing(viewers[0], `${label} first viewer`),
-    expectPlayingAndAdvancing(viewers[1], `${label} second viewer`),
+    expectPlayingAndAdvancing(viewers[0], `${label} first viewer`, remainingMs),
+    expectPlayingAndAdvancing(
+      viewers[1],
+      `${label} second viewer`,
+      remainingMs,
+    ),
   ]);
 }
 
@@ -190,6 +199,7 @@ async function expectPaused(
   viewers: readonly [Page, Page],
   paused: boolean,
   label: string,
+  timeoutMs = 15_000,
 ): Promise<void> {
   await expect
     .poll(
@@ -201,7 +211,7 @@ async function expectPaused(
               .catch(() => null),
           ),
         ),
-      { message: label, timeout: 15_000 },
+      { message: label, timeout: timeoutMs },
     )
     .toEqual([paused, paused]);
 }
@@ -282,9 +292,20 @@ async function runOfflineRecovery(
     "connected viewer should keep playing",
   ).toBeGreaterThan(2);
   await disconnectedContext.setOffline(false);
+  const recoveryDeadline = Date.now() + NETWORK_RECOVERY_SLO_MS;
+  await pressPlayerKey(controller, "KeyK");
+  await expectPaused(
+    [controller, disconnected],
+    true,
+    `${label} should receive a pause after reconnecting`,
+    Math.max(1, recoveryDeadline - Date.now()),
+  );
+  await pressPlayerKey(controller, "KeyK");
   await expectPlaybackConverged(
     [controller, disconnected],
     `${label} after network recovery`,
+    undefined,
+    Math.max(1, recoveryDeadline - Date.now()),
   );
 }
 
