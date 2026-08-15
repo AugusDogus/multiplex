@@ -485,6 +485,71 @@ describe("SyncplayClient", () => {
     });
   });
 
+  test("claims the newest rapid seek after the previous seek is acknowledged", () => {
+    const sockets: FakeWebSocket[] = [];
+    let positionSeconds = 100;
+    const client = createClient({
+      sockets,
+      getPlaybackState: () => ({
+        isPaused: false,
+        positionSeconds,
+        shouldSeek: false,
+      }),
+    });
+    client.connect();
+    sockets[0]?.open();
+
+    client.markLocalSeek();
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 10,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+    expect(lastPlaystate(sockets[0])?.playstate).toMatchObject({
+      doSeek: true,
+      position: 100,
+    });
+    expect(lastPlaystate(sockets[0])?.ignoringOnTheFly?.client).toBe(1);
+
+    positionSeconds = 200;
+    client.markLocalSeek();
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 100,
+          setBy: encodeSyncplayUser(LOCAL_USER),
+        },
+        ignoringOnTheFly: { client: 0, server: 0 },
+      },
+    });
+    expect(lastPlaystate(sockets[0])?.playstate).toMatchObject({
+      doSeek: false,
+      position: 200,
+    });
+    expect(lastPlaystate(sockets[0])?.ignoringOnTheFly?.client).toBe(1);
+
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 100,
+          setBy: encodeSyncplayUser(LOCAL_USER),
+        },
+        ignoringOnTheFly: { client: 1, server: 0 },
+      },
+    });
+    expect(lastPlaystate(sockets[0])?.playstate).toMatchObject({
+      doSeek: true,
+      position: 200,
+    });
+    expect(lastPlaystate(sockets[0])?.ignoringOnTheFly?.client).toBe(1);
+  });
+
   test("defers (echoes) while the server is relaying another client's change", () => {
     const sockets: FakeWebSocket[] = [];
     const applied: SyncplayPlaybackState[] = [];
@@ -618,7 +683,7 @@ describe("SyncplayClient", () => {
     });
   });
 
-  test("still replies (heartbeat) when applyRemoteState throws", () => {
+  test("keeps the room authoritative when applyRemoteState throws", () => {
     const sockets: FakeWebSocket[] = [];
     const client = new SyncplayClient({
       room: ROOM,
@@ -653,12 +718,11 @@ describe("SyncplayClient", () => {
       },
     });
 
-    // The throw must not abort the reply, or the socket would stop participating.
-    // And since the apply failed, the reply must report our real local state
-    // (paused@5) rather than echoing the remote state we never adopted (play@99).
+    // An unready player must not reset the room to its stale local sample. Echo
+    // the authoritative state so the next heartbeat can retry the apply.
     expect(lastPlaystate(sockets[0])?.playstate).toMatchObject({
-      paused: true,
-      position: 5,
+      paused: false,
+      position: 99,
     });
   });
 

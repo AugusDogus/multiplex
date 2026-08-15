@@ -498,9 +498,14 @@ export class SyncplayClient {
     if (shouldEcho || ackedClient === this.ignoringClient) {
       this.ignoringClient = 0;
     }
-    // A fresh local change (claimed below) raises the counter so the server
-    // arbitrates it and peers defer to it.
-    if (!shouldEcho && (this.pendingPlayPause || this.pendingSeek)) {
+    // A fresh local change raises the counter so the server arbitrates it and
+    // peers defer to it. If another local action arrives while a claim is
+    // already in flight, retain it until that claim is acknowledged. Reusing
+    // the same counter would let the server discard a rapid final seek as a
+    // duplicate, then restore the older room position.
+    const hasPendingLocalChange = this.pendingPlayPause || this.pendingSeek;
+    const startedLocalClaim = !shouldEcho && hasPendingLocalChange && this.ignoringClient === 0;
+    if (startedLocalClaim) {
       this.ignoringClient += 1;
     }
 
@@ -557,7 +562,7 @@ export class SyncplayClient {
       }
     }
     this.lastFramePaused = framePaused;
-    let didApplyRemote = appliedRemote;
+    const didApplyRemote = appliedRemote;
     if (didApplyRemote) {
       try {
         this.applyRemoteState({
@@ -567,11 +572,11 @@ export class SyncplayClient {
           shouldSeek: Boolean(payload.playstate.doSeek),
         });
       } catch (error) {
-        // The apply failed, so the local player didn't actually adopt the remote
-        // state — report our real state below instead of echoing one we never
-        // applied. Never let the error abort the reply; the socket must keep
-        // replying to stay in the session.
-        didApplyRemote = false;
+        // Applying playback state is best-effort while a media element is
+        // loading. Keep the room authoritative when it fails: echoing the
+        // remote state prevents this temporarily unready player from resetting
+        // every participant to its stale local sample. The next State heartbeat
+        // retries the apply.
         this.onError(
           error instanceof Error ? error : new Error("Syncplay applyRemoteState handler threw"),
         );
@@ -593,25 +598,24 @@ export class SyncplayClient {
         shouldSeek: false,
       };
     } else {
-      reply = this.buildLocalReply();
+      reply = this.buildLocalReply(startedLocalClaim && this.pendingSeek);
     }
-    // Only drop the pending flags once we had the chance to claim them (a
-    // non-echo reply). While echoing (the server is relaying another client's
-    // change) we couldn't claim, so carry them forward to the next non-echo
-    // reply instead of silently losing the local change.
-    if (!shouldEcho) {
+    // Only drop pending actions when this frame started a new claim. Echo
+    // frames and heartbeats for an older in-flight claim cannot author the new
+    // action, so keep the latest local state queued for the acknowledgment.
+    if (startedLocalClaim) {
       this.pendingPlayPause = false;
       this.pendingSeek = false;
     }
     this.sendState(reply);
   }
 
-  private buildLocalReply(): SyncplayStateInput {
+  private buildLocalReply(shouldSeek = this.pendingSeek): SyncplayStateInput {
     const local = this.getPlaybackState();
     return {
       isPaused: local?.isPaused ?? true,
       positionSeconds: local?.positionSeconds ?? 0,
-      shouldSeek: this.pendingSeek,
+      shouldSeek,
     };
   }
 
