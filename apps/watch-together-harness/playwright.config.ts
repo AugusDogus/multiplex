@@ -1,11 +1,13 @@
 import { defineConfig } from "@playwright/test";
+
+import { chromeLaunchFields, resolveChromeLaunchTarget } from "./src/chrome-launch";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { harnessArtifactRoot } from "./e2e/artifact-paths";
 
 const packageDirectory = path.dirname(fileURLToPath(import.meta.url));
-const chromeExecutable = process.env.WATCH_TOGETHER_HARNESS_CHROME_PATH || undefined;
+const chromeLaunch = chromeLaunchFields(resolveChromeLaunchTarget(process.env));
 
 export default defineConfig({
   testDir: "./e2e",
@@ -19,7 +21,7 @@ export default defineConfig({
   globalTeardown: "./e2e/global-teardown.ts",
   use: {
     baseURL: "http://127.0.0.1:4318",
-    channel: chromeExecutable ? undefined : process.env.PLAYWRIGHT_CHANNEL || undefined,
+    channel: chromeLaunch.channel,
     headless: process.env.WATCH_TOGETHER_HARNESS_HEADED !== "1",
     viewport: { width: 1440, height: 1000 },
     video: "on",
@@ -27,7 +29,7 @@ export default defineConfig({
     trace: "off",
     launchOptions: {
       args: ["--autoplay-policy=no-user-gesture-required"],
-      executablePath: chromeExecutable,
+      executablePath: chromeLaunch.executablePath,
     },
   },
   webServer: {

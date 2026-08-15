@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
@@ -20,13 +21,14 @@ const probeSchema = z
 function runProcess(command: readonly string[]): void {
   const executable = command[0];
   if (!executable) throw new Error("Cannot run an empty command.");
-  const process = Bun.spawnSync([...command], {
-    stdout: "ignore",
-    stderr: "pipe",
+  const result = spawnSync(executable, command.slice(1), {
+    encoding: "utf8",
+    stdio: ["ignore", "ignore", "pipe"],
   });
-  if (process.exitCode !== 0) {
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
     throw new Error(
-      `${executable} exited with status ${process.exitCode}: ${process.stderr.toString().trim()}`,
+      `${executable} exited with status ${result.status ?? "unknown"}: ${result.stderr.trim()}`,
     );
   }
 }

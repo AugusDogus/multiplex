@@ -150,6 +150,28 @@ test("two real Plex viewers stay synchronized through the full lifecycle", async
       )
       .toBe(true);
 
+    await page.getByRole("button", { name: "Rapid seek host" }).click();
+    await expect(page.getByRole("button", { name: "Rapid seek host" })).toBeEnabled({
+      timeout: 30_000,
+    });
+    await expect
+      .poll(
+        async () =>
+          synchronized(
+            await readPlayers(page),
+            (player) =>
+              !player.paused &&
+              player.errorCode === null &&
+              player.positionSeconds > player.durationSeconds * 0.55 &&
+              player.positionSeconds < player.durationSeconds * 0.7,
+          ),
+        {
+          timeout: 90_000,
+          message: "rapid seek burst settles both viewers at 60%",
+        },
+      )
+      .toBe(true);
+
     await page.getByRole("button", { name: "Disconnect guest" }).click();
     await expect(page.getByRole("button", { name: "Reconnect guest" })).toBeVisible();
     await page.getByRole("button", { name: "Pause host" }).click();
@@ -170,47 +192,76 @@ test("two real Plex viewers stay synchronized through the full lifecycle", async
       })
       .toBe(true);
 
-    await page.getByRole("button", { name: "Seek host near end" }).click();
-    await expect
-      .poll(
-        async () =>
-          synchronized(
-            await readPlayers(page),
-            (player) =>
-              player.errorCode === null && player.positionSeconds > player.durationSeconds * 0.8,
-          ),
-        { timeout: 90_000, message: "near-end seek reaches both viewers" },
-      )
-      .toBe(true);
-
-    for (let index = 0; index < 20; index += 1) {
-      const players = await readPlayers(page);
-      expect(
-        players.every(
-          (player) =>
-            player.errorCode === null && player.positionSeconds > player.durationSeconds * 0.5,
-        ),
-        `near-end playback must not reset at sample ${index}`,
-      ).toBe(true);
-      await page.waitForTimeout(100);
-    }
-
     const priorTitle = (await readPlayers(page))[0]?.title ?? "";
-    await page.locator("#next-episode").click();
+    await page.evaluate((oldTitle) => {
+      const sample = (): void => {
+        const cards = [...document.querySelectorAll(".player-card")];
+        const readings = cards.map((card) => {
+          const video = card.querySelector("video");
+          if (!(video instanceof HTMLVideoElement)) return null;
+          const title = card.querySelector(".viewer-title")?.textContent ?? "";
+          let offsetSeconds = 0;
+          try {
+            offsetSeconds = Number(new URL(video.currentSrc).searchParams.get("offset") ?? 0);
+          } catch {
+            offsetSeconds = 0;
+          }
+          return {
+            title,
+            positionSeconds: offsetSeconds + video.currentTime,
+            durationSeconds: Number.isFinite(video.duration) ? video.duration : 0,
+          };
+        });
+        if (readings.some((reading) => reading?.title !== oldTitle)) {
+          document.body.dataset.nearEndProbe = "advanced";
+          return;
+        }
+        if (
+          readings.some(
+            (reading) =>
+              reading &&
+              reading.durationSeconds > 0 &&
+              reading.positionSeconds < reading.durationSeconds * 0.5,
+          )
+        ) {
+          document.body.dataset.nearEndProbe = "reset";
+          return;
+        }
+        requestAnimationFrame(sample);
+      };
+      document.body.dataset.nearEndProbe = "watching";
+      requestAnimationFrame(sample);
+    }, priorTitle);
+    await page.getByRole("button", { name: "Seek host to final second" }).click();
     await expect
       .poll(
         async () => {
+          const probe = await page.locator("body").getAttribute("data-near-end-probe");
+          if (probe === "reset") {
+            throw new Error("a viewer reset into the first half of the same episode near EOF");
+          }
           const players = await readPlayers(page);
-          return synchronized(
-            players,
-            (player) =>
-              player.title !== priorTitle && player.errorCode === null && player.readyState >= 3,
+          return (
+            probe === "advanced" &&
+            synchronized(
+              players,
+              (player) =>
+                player.title !== priorTitle &&
+                !player.paused &&
+                player.errorCode === null &&
+                player.readyState >= 3,
+            )
           );
         },
-        { timeout: 120_000, message: "both viewers enter the next episode" },
+        {
+          timeout: 120_000,
+          intervals: [25, 25, 50, 100, 250],
+          message: "the final-second seek automatically advances both viewers exactly once",
+        },
       )
       .toBe(true);
   } finally {
+    await page.request.post("/api/cleanup").catch(() => undefined);
     await attachProtocolTimeline(page, testInfo);
   }
 });

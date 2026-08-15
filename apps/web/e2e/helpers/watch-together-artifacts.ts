@@ -6,6 +6,8 @@ import {
 } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 
+import { indexHarnessRecording } from "../../../watch-together-harness/e2e/index-recording-frames";
+
 const MAX_DIAGNOSTIC_EVENTS = 5_000;
 const MAX_FRAME_LENGTH = 20_000;
 const REDACTED = "[REDACTED]";
@@ -237,10 +239,24 @@ export async function createInstrumentedContext(
 
     for (const [index, video] of videos.entries()) {
       try {
+        const videoPath = await video.path();
+        const frameCount = await indexHarnessRecording(videoPath);
+        record({
+          kind: "artifact-index",
+          artifact: `video-${index + 1}`,
+          frameCount,
+        });
         await options.testInfo.attach(`${options.label}-video-${index + 1}`, {
-          path: await video.path(),
+          path: videoPath,
           contentType: "video/webm",
         });
+        await options.testInfo.attach(
+          `${options.label}-video-${index + 1}-frames`,
+          {
+            path: `${videoPath}.frames.json`,
+            contentType: "application/json",
+          },
+        );
       } catch (error) {
         record({
           kind: "artifact-error",

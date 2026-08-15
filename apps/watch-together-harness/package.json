@@ -6,8 +6,10 @@
   "scripts": {
     "authenticate": "bun scripts/authenticate.ts",
     "claim:gamecube": "bun scripts/claim-gamecube.ts",
+    "cleanup:transcodes": "bun scripts/cleanup-transcodes.ts",
     "index-recording": "bun scripts/index-recording.ts",
     "provision:gamecube": "bun scripts/provision-gamecube.ts",
+    "resolve:gamecube-fixture": "bun scripts/resolve-gamecube-fixture.ts",
     "dev": "bun --watch src/server.ts",
     "start": "bun src/server.ts",
     "test": "bun test",
