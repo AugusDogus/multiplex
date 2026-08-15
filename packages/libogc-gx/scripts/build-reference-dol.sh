@@ -71,7 +71,7 @@ if [ -z "${MULTIPLEX_BASE_URL:-}" ] &&
   [ -s "$build_dir/media-source.h" ] &&
   grep -q '#define MULTIPLEX_PAIRING_ENABLED 1' \
     "$build_dir/media-source.h"; then
-  echo "Keeping the existing hardware endpoints."
+  echo "Keeping the existing configured endpoints."
 else
   sh "$toolchain_dir/scripts/generate-media-source-header.sh" \
     "$build_dir/media-source.h"

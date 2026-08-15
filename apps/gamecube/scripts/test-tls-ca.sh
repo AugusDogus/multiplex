@@ -54,6 +54,16 @@ test "$(grep -c -- '-----BEGIN CERTIFICATE-----' "$portless_header")" \
   -eq "$((bundle_roots + portless_roots))"
 assert_header_safe "$portless_header"
 
+preserved_dir="$temporary_dir/preserved"
+mkdir -p "$preserved_dir"
+printf '%s\n' '#define MULTIPLEX_BASE_URL "https://multiplex.localhost"' \
+  >"$preserved_dir/media-source.h"
+HOME="$temporary_dir/home" \
+  sh "$script_dir/generate-tls-ca-header.sh" "$preserved_dir/tls-ca.h"
+test "$(grep -c -- '-----BEGIN CERTIFICATE-----' "$preserved_dir/tls-ca.h")" \
+  -eq "$((bundle_roots + portless_roots))"
+assert_header_safe "$preserved_dir/tls-ca.h"
+
 override_ca="$temporary_dir/override-ca.pem"
 awk '
   /-----BEGIN CERTIFICATE-----/ { certificate += 1 }
