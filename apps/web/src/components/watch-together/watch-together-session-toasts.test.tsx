@@ -16,7 +16,7 @@ const REMOTE_USER: SyncplayUser = {
 };
 
 const ROOM_USERS: WatchTogetherUser[] = [
-  { id: 1, title: "Augie", username: "augusdogus", thumb: null },
+  { id: 1, title: "Host", username: "host", thumb: null },
   { id: 2, title: "multiplextest", username: "multiplextest", thumb: null },
 ];
 

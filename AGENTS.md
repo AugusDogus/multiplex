@@ -60,7 +60,7 @@ Multiplex uses Effect v4 for canonical media-player state and Watch Together ses
 
 - Located in `apps/web/e2e`. Run with `bun run --filter @multiplex/web test:e2e` (or `test:e2e:setup` to just authenticate). They drive two real Plex accounts through the plex.tv login and verify the lobby auto-starts and both viewers play the same item in sync.
 - Requires a running dev server (the config reuses an existing one on port 3000), internet access to `plex.tv`, and these account env vars:
-  - Host (account A): `AUGUSDOGUS_ACCOUNT_USERNAME` / `AUGUSDOGUS_ACCOUNT_PASSWORD`
-  - Guest (account B): `MULTIPLEX_ACCOUNT_EMAIL` / `MULTIPLEX_ACCOUNT_PASSWORD`
+  - Host (account A): `MULTIPLEX_ACCOUNT_EMAIL` / `MULTIPLEX_ACCOUNT_PASSWORD`
+  - Guest (account B): `MUTLIPLEX_ACCOUNT_EMAIL_2` / `MULTIPLEX_ACCOUNT_PASSWORD_2`
 - Uses the system Google Chrome (`channel: "chrome"`) because Plex streams are H.264/AAC, which Playwright's bundled Chromium cannot decode.
 - Covers simultaneous auto-start, pause/resume sync, and seek sync. Because these hit a live Plex server (real transcoding for two viewers), the config allows one retry for transient startup flakiness.

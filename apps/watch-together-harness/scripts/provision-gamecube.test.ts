@@ -64,7 +64,7 @@ describe("assertMatchingAccountIdentities", () => {
     expect(() =>
       assertMatchingAccountIdentities(
         { id: 42, username: "multiplextest" },
-        { id: 7, username: "AugusDogus" },
+        { id: 7, username: "other-account" },
       ),
     ).toThrow(/Account A identity mismatch/);
   });
