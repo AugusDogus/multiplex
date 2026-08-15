@@ -74,3 +74,17 @@ bool multiplex_app_services_load_should_start(
          state->kind == MULTIPLEX_APP_SERVICES_LOAD_FAILED ||
          state->kind == MULTIPLEX_APP_SERVICES_LOAD_REFRESH_PENDING;
 }
+
+bool multiplex_app_services_watch_should_follow_room(uint32_t duration_ms,
+                                                     uint32_t local_position_ms,
+                                                     uint32_t room_position_ms,
+                                                     bool room_position_known) {
+  const uint32_t end_tolerance_ms = 500u;
+  if (!room_position_known || duration_ms == 0 ||
+      room_position_ms <= local_position_ms) {
+    return false;
+  }
+  const uint32_t end_threshold =
+      duration_ms > end_tolerance_ms ? duration_ms - end_tolerance_ms : 0;
+  return room_position_ms >= end_threshold;
+}

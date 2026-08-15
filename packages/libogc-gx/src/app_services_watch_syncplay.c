@@ -4,6 +4,13 @@
 
 #include <limits.h>
 
+#if defined(HW_DOL) || defined(HW_RVL)
+#include <gccore.h>
+#define WATCH_SYNC_REPORT(...) SYS_Report(__VA_ARGS__)
+#else
+#define WATCH_SYNC_REPORT(...) ((void)0)
+#endif
+
 #if MULTIPLEX_PAIRING_ENABLED
 
 #define WATCH_TOGETHER_AUTO_START_DELAY_MS 1200u
@@ -122,6 +129,25 @@ static bool tick_active(MultiplexAppServices *services, uint64_t now_ms,
   if (multiplex_native_app_watch_together_presence(1, present) == 0) {
     return false;
   }
+  uint32_t room_position_ms = 0;
+  bool room_paused = true;
+  const bool room_position_known = multiplex_syncplay_session_room_position(
+      active->syncplay, &room_position_ms, &room_paused);
+  if (multiplex_app_services_watch_should_follow_room(
+          playback->duration_ms, playback->position_ms, room_position_ms,
+          room_position_known)) {
+    WATCH_SYNC_REPORT("REFERENCE GX: Syncplay following room completion "
+                      "local=%u room=%u duration=%u paused=%u\n",
+                      playback->position_ms, room_position_ms,
+                      playback->duration_ms, room_paused ? 1u : 0u);
+    const MultiplexAppServicesPlaybackEvent completed = {
+        .kind = MULTIPLEX_APP_SERVICES_PLAYBACK_EVENT_HLS_COMPLETE,
+        .now_ms = now_ms,
+        .playback = *playback,
+    };
+    return multiplex_app_services_watch_apply_playback_event(services,
+                                                             &completed);
+  }
   bool remote_paused = false;
   bool remote_seek = false;
   uint32_t remote_position_ms = 0;
@@ -130,6 +156,10 @@ static bool tick_active(MultiplexAppServices *services, uint64_t now_ms,
           &remote_seek)) {
     return true;
   }
+  WATCH_SYNC_REPORT("REFERENCE GX: Syncplay remote playback paused=%u "
+                    "position=%u seek=%u\n",
+                    remote_paused ? 1u : 0u, remote_position_ms,
+                    remote_seek ? 1u : 0u);
   if (remote_seek) {
     const uint32_t room_index = active->joined_room_index;
     const MultiplexAppServicesWatchPlaybackContext context = {

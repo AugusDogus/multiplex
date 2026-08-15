@@ -1,0 +1,37 @@
+diff --git a/libogc/exception.c b/libogc/exception.c
+index 00ff317..141ad14 100644
+--- a/libogc/exception.c
++++ b/libogc/exception.c
+@@ -73,6 +73,7 @@ extern void dec_exceptionhandler(frame_context*);
+ extern void default_exceptionhandler(frame_context*);
+ extern void __dsp_shutdown(void);
+ extern void __reload(void);
++extern s32 WriteUARTN(void *buffer, u32 length);
+ #if defined(HW_DOL)
+ extern void __SYS_DoHotReset(u32 reset_code) __attribute__((noreturn));
+ #endif
+@@ -258,9 +259,24 @@ static void waitForReload(void)
+ //just implement core for unrecoverable exceptions.
+ void c_default_exceptionhandler(frame_context *pCtx)
+ {
++	char report[192];
+ 	void *framebuffer;
+ 	u16 xstart,ystart;
+ 	u16 xres,yres,stride;
++	int report_length;
++	u32 report_bytes;
++
++	report_length = snprintf(report, sizeof(report),
++		"REFERENCE GX: fatal exception=%u srr0=%08X lr=%08X srr1=%08X "
++		"sp=%08X r3=%08X ctr=%08X\n",
++		pCtx->nExcept, pCtx->srr0, pCtx->lr, pCtx->srr1, pCtx->gpr[1],
++		pCtx->gpr[3], pCtx->ctr);
++	if(report_length > 0) {
++		report_bytes = (u32)report_length;
++		if(report_bytes >= sizeof(report))
++			report_bytes = sizeof(report) - 1;
++		WriteUARTN(report, report_bytes);
++	}
+ 
+ 	__dsp_shutdown();
+ 	GX_AbortFrame();

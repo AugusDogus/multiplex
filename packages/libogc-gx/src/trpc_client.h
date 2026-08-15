@@ -12,7 +12,8 @@
 #define MULTIPLEX_TRPC_ROOM_TITLE_CAPACITY 96u
 #define MULTIPLEX_TRPC_SOURCE_URI_CAPACITY 256u
 #define MULTIPLEX_TRPC_SYNCPLAY_HOST_CAPACITY 256u
-#define MULTIPLEX_TRPC_MAX_INVITEES 8u
+#define MULTIPLEX_TRPC_MAX_INVITEES 16u
+#define MULTIPLEX_TRPC_MAX_ROOM_USERS 16u
 #define MULTIPLEX_TRPC_INVITEE_NAME_CAPACITY 64u
 
 typedef struct {
@@ -22,6 +23,7 @@ typedef struct {
   char syncplay_host[MULTIPLEX_TRPC_SYNCPLAY_HOST_CAPACITY];
   uint16_t syncplay_port;
   uint8_t user_count;
+  uint32_t user_ids[MULTIPLEX_TRPC_MAX_ROOM_USERS];
 } MultiplexTrpcRoom;
 
 typedef struct {
@@ -65,6 +67,8 @@ bool multiplex_trpc_load_watch_together_invitees_cancellable(
     const char *base_url, const char *bearer_token,
     MultiplexTrpcInviteeList *list,
     const MultiplexHttpCancellation *cancellation);
+bool multiplex_trpc_rooms_have_same_users(const MultiplexTrpcRoom *first,
+                                          const MultiplexTrpcRoom *second);
 bool multiplex_trpc_create_watch_together_room(
     const char *base_url, const char *bearer_token, const char *server_id,
     uint32_t rating_key, const char *title, uint32_t invitee_user_id,

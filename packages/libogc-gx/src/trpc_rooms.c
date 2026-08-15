@@ -155,13 +155,11 @@ static bool json_array(JsonSpan span, const char *key, JsonSpan *array) {
          json_container(value, span.end, '[', ']', array, &next);
 }
 
-static bool count_array_objects(JsonSpan array, uint8_t *count) {
+static bool parse_room_users(JsonSpan array, MultiplexTrpcRoom *room) {
   const char *cursor = array.begin + 1;
-  unsigned objects = 0;
   while (cursor < array.end) {
     cursor = skip_space(cursor, array.end);
     if (cursor == array.end || *cursor == ']') {
-      *count = objects > UINT8_MAX ? UINT8_MAX : (uint8_t)objects;
       return true;
     }
     JsonSpan object;
@@ -169,7 +167,23 @@ static bool count_array_objects(JsonSpan array, uint8_t *count) {
     if (!json_container(cursor, array.end, '{', '}', &object, &next)) {
       return false;
     }
-    ++objects;
+    uint32_t user_id = 0;
+    if (!json_unsigned(object, "id", &user_id) || user_id == 0) {
+      return false;
+    }
+    bool duplicate = false;
+    for (uint8_t index = 0; index < room->user_count; ++index) {
+      if (room->user_ids[index] == user_id) {
+        duplicate = true;
+        break;
+      }
+    }
+    if (!duplicate) {
+      if (room->user_count >= MULTIPLEX_TRPC_MAX_ROOM_USERS) {
+        return false;
+      }
+      room->user_ids[room->user_count++] = user_id;
+    }
     cursor = skip_space(next, array.end);
     if (cursor < array.end && *cursor == ',') {
       ++cursor;
@@ -189,12 +203,35 @@ static bool parse_room(JsonSpan room, MultiplexTrpcRoom *parsed) {
       !json_string(room, "syncplayHost", parsed->syncplay_host,
                    sizeof(parsed->syncplay_host)) ||
       !json_unsigned(room, "syncplayPort", &port) || port > UINT16_MAX ||
-      !json_array(room, "users", &users) ||
-      !count_array_objects(users, &parsed->user_count)) {
+      !json_array(room, "users", &users) || !parse_room_users(users, parsed)) {
     memset(parsed, 0, sizeof(*parsed));
     return false;
   }
   parsed->syncplay_port = (uint16_t)port;
+  return true;
+}
+
+bool multiplex_trpc_rooms_have_same_users(const MultiplexTrpcRoom *first,
+                                          const MultiplexTrpcRoom *second) {
+  if (first == NULL || second == NULL ||
+      first->user_count != second->user_count ||
+      first->user_count > MULTIPLEX_TRPC_MAX_ROOM_USERS) {
+    return false;
+  }
+  for (uint8_t first_index = 0; first_index < first->user_count;
+       ++first_index) {
+    bool found = false;
+    for (uint8_t second_index = 0; second_index < second->user_count;
+         ++second_index) {
+      if (first->user_ids[first_index] == second->user_ids[second_index]) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      return false;
+    }
+  }
   return true;
 }
 

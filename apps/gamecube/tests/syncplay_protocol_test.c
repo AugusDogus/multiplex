@@ -1,6 +1,7 @@
 #include "syncplay_protocol.h"
 
 #include <assert.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -64,10 +65,37 @@ static void test_hello(void) {
       "{\"Set\":{\"deviceIdentifier\":\"device-10\"}}", "device-1"));
 }
 
+static void test_epoch_clock(void) {
+  double now = 0;
+  assert(multiplex_syncplay_epoch_seconds(UINT64_C(1723456789250), 4000u, 4250u,
+                                          &now));
+  assert(fabs(now - 1723456789.5) < 0.000001);
+  assert(!multiplex_syncplay_epoch_seconds(0, 4000u, 4250u, &now));
+  assert(!multiplex_syncplay_epoch_seconds(UINT64_C(1723456789250), 4251u,
+                                           4250u, &now));
+}
+
+static void test_ping_compensation(void) {
+  MultiplexSyncplayPingTiming timing = {0};
+  assert(multiplex_syncplay_update_ping(&timing, 1000.25, 999.85, 0.1));
+  assert(fabs(timing.round_trip_seconds - 0.4) < 0.000001);
+  assert(fabs(timing.average_round_trip_seconds - 0.4) < 0.000001);
+  assert(fabs(timing.forward_delay_seconds - 0.5) < 0.000001);
+  assert(multiplex_syncplay_compensate_position(
+             10000u, false, timing.forward_delay_seconds) == 10500u);
+  assert(multiplex_syncplay_compensate_position(
+             10000u, true, timing.forward_delay_seconds) == 10000u);
+  assert(!multiplex_syncplay_update_ping(&timing, 10.0, 11.0, 0.1));
+  assert(!multiplex_syncplay_update_ping(&timing, 1723456789.5, 1234.5, 0.1));
+  assert(fabs(timing.forward_delay_seconds - 0.5) < 0.000001);
+}
+
 int main(void) {
   test_upgrade();
   test_frames();
   test_hello();
+  test_epoch_clock();
+  test_ping_compensation();
   puts("GameCube Syncplay protocol tests passed.");
   return 0;
 }

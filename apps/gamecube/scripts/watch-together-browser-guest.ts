@@ -4,6 +4,8 @@ import { chromium } from "@playwright/test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { indexHarnessRecording } from "../../watch-together-harness/e2e/index-recording-frames";
+
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const roomId = process.argv[2];
 const controlPath = process.argv[3];
@@ -11,6 +13,43 @@ const baseURL = process.env.MULTIPLEX_BROWSER_BASE_URL ?? "https://multiplex.loc
 const storageState =
   process.env.MULTIPLEX_BROWSER_GUEST_STATE ??
   path.resolve(scriptDirectory, "../../../apps/web/e2e/.auth/account-b.json");
+const recordingDirectory =
+  process.env.MULTIPLEX_BROWSER_GUEST_RECORD_DIR ??
+  path.resolve(scriptDirectory, "../../../.watch-together-harness/gamecube-browser");
+const executablePath =
+  process.env.PLAYWRIGHT_EXECUTABLE_PATH ?? process.env.WATCH_TOGETHER_HARNESS_CHROME_PATH;
+const requestedChannel = process.env.PLAYWRIGHT_CHANNEL;
+const channel =
+  executablePath || requestedChannel === "chromium" ? undefined : (requestedChannel ?? "chrome");
+
+const describeMediaURL = (value: string): string => {
+  try {
+    const url = new URL(value);
+    const safeNames = [
+      "path",
+      "mediaIndex",
+      "partIndex",
+      "protocol",
+      "directPlay",
+      "directStream",
+      "directStreamAudio",
+      "subtitles",
+      "subtitleStreamID",
+      "offset",
+    ];
+    const safeParams = new URLSearchParams();
+    for (const name of safeNames) {
+      const parameter = url.searchParams.get(name);
+      if (parameter !== null) safeParams.set(name, parameter);
+    }
+    const session = url.searchParams.get("session");
+    if (session) safeParams.set("sessionSuffix", session.slice(-16));
+    const query = safeParams.toString();
+    return `${url.origin}${url.pathname}${query ? `?${query}` : ""}`;
+  } catch {
+    return "<invalid media URL>";
+  }
+};
 
 if (!roomId || !/^[A-Za-z0-9]+$/.test(roomId) || !controlPath) {
   throw new Error("Usage: bun watch-together-browser-guest.ts <room-id> <control-file>");
@@ -25,18 +64,54 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 
 const browser = await chromium.launch({
   headless: true,
+  channel,
+  executablePath,
   args: ["--no-sandbox", "--mute-audio", "--autoplay-policy=no-user-gesture-required"],
 });
 let activePage: import("@playwright/test").Page | undefined;
+let activeContext: import("@playwright/test").BrowserContext | undefined;
+let activeRecording: import("@playwright/test").Video | undefined;
 
 try {
   const context = await browser.newContext({
     baseURL,
     ignoreHTTPSErrors: true,
     storageState,
+    recordVideo: { dir: recordingDirectory },
   });
+  activeContext = context;
   const page = await context.newPage();
   activePage = page;
+  activeRecording = page.video() ?? undefined;
+  page.on("requestfailed", (request) => {
+    if (!request.resourceType().includes("media")) return;
+    console.log(
+      `Browser guest media request failed url=${describeMediaURL(request.url())} reason=${request.failure()?.errorText ?? "unknown"}`,
+    );
+  });
+  page.on("response", (response) => {
+    const request = response.request();
+    if (request.resourceType() !== "media" && !response.url().includes("/video/:/transcode/"))
+      return;
+    console.log(
+      `Browser guest media response status=${response.status()} type=${response.headers()["content-type"] ?? "unknown"} url=${describeMediaURL(response.url())}`,
+    );
+    if (response.status() >= 400) {
+      void response
+        .text()
+        .then((body) => {
+          const safeBody = body
+            .replace(/(X-Plex-Token(?:=|%3D))[^&\s<"]+/gi, "$1REDACTED")
+            .replaceAll(/\s+/g, " ")
+            .trim()
+            .slice(0, 500);
+          if (safeBody) {
+            console.log(`Browser guest media error body=${safeBody}`);
+          }
+        })
+        .catch(() => undefined);
+    }
+  });
   await page.goto("/");
   if (new URL(page.url()).pathname.startsWith("/login")) {
     throw new Error(`The browser guest session at ${storageState} is no longer authenticated.`);
@@ -63,7 +138,6 @@ try {
   let lastTime = 0;
   let ready = false;
   let lastCommand = "";
-  let lastPlayNudgeAt = 0;
   let readyDeadline = Date.now() + 120_000;
 
   while (!stopping) {
@@ -96,10 +170,6 @@ try {
         console.log(`Browser guest offset-ms=${offsetMs} room=${roomId}`);
         lastOffsetMs = offsetMs;
       }
-      if (!ready && state.paused && Date.now() - lastPlayNudgeAt >= 2_500) {
-        await video.evaluate((element: HTMLVideoElement) => element.play().catch(() => undefined));
-        lastPlayNudgeAt = Date.now();
-      }
       if (!state.paused && state.currentTime > lastTime + 0.1) {
         if (!ready) {
           ready = true;
@@ -119,14 +189,21 @@ try {
       const diagnostics = await video
         .evaluate((element: HTMLVideoElement) => ({
           currentTime: element.currentTime,
+          currentSrc: element.currentSrc,
           errorCode: element.error?.code ?? null,
           networkState: element.networkState,
           paused: element.paused,
           readyState: element.readyState,
         }))
         .catch(() => undefined);
+      const safeDiagnostics = diagnostics
+        ? {
+            ...diagnostics,
+            currentSrc: describeMediaURL(diagnostics.currentSrc),
+          }
+        : undefined;
       throw new Error(
-        `Browser guest video did not advance in room ${roomId}: ${JSON.stringify(diagnostics)}`,
+        `Browser guest video did not advance in room ${roomId}: ${JSON.stringify(safeDiagnostics)}`,
       );
     }
 
@@ -149,6 +226,15 @@ try {
               }),
             );
           });
+        } else if (command === "seek-to-end") {
+          await page.evaluate(() => {
+            document.dispatchEvent(
+              new KeyboardEvent("keydown", {
+                bubbles: true,
+                code: "End",
+              }),
+            );
+          });
         } else if (command === "disconnect") {
           await page.keyboard.press("Escape");
           await page.waitForTimeout(1_500);
@@ -164,8 +250,17 @@ try {
   }
 
   await context.close().catch(() => undefined);
+  activeContext = undefined;
 } finally {
   await activePage?.keyboard.press("Escape").catch(() => undefined);
   await activePage?.waitForTimeout(1_500).catch(() => undefined);
+  await activeContext?.close().catch(() => undefined);
+  const recordingPath = await activeRecording?.path().catch(() => undefined);
   await browser.close();
+  if (recordingPath) {
+    const frameCount = await indexHarnessRecording(recordingPath);
+    console.log(
+      `Indexed ${frameCount} frames from ${path.relative(recordingDirectory, recordingPath)}.`,
+    );
+  }
 }

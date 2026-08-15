@@ -1,8 +1,12 @@
 #include "syncplay_protocol.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+
+#define SYNCPLAY_PING_MOVING_AVERAGE_WEIGHT 0.85
+#define SYNCPLAY_MAX_PING_ROUND_TRIP_SECONDS 60.0
 
 static bool header_value(const char *headers, const char *name,
                          const char *expected) {
@@ -131,4 +135,67 @@ bool multiplex_syncplay_validate_hello(const char *response,
           strstr(response, "\"List\"") != NULL ||
           (strstr(response, "\"Set\"") != NULL &&
            has_device_identifier(response, device_identifier)));
+}
+
+bool multiplex_syncplay_epoch_seconds(uint64_t epoch_milliseconds,
+                                      uint64_t epoch_monotonic_ms,
+                                      uint64_t now_monotonic_ms,
+                                      double *output) {
+  if (epoch_milliseconds == 0 || now_monotonic_ms < epoch_monotonic_ms ||
+      output == NULL) {
+    return false;
+  }
+  *output = (double)epoch_milliseconds / 1000.0 +
+            (double)(now_monotonic_ms - epoch_monotonic_ms) / 1000.0;
+  return true;
+}
+
+bool multiplex_syncplay_update_ping(MultiplexSyncplayPingTiming *timing,
+                                    double now_seconds,
+                                    double client_timestamp_seconds,
+                                    double sender_round_trip_seconds) {
+  if (timing == NULL || !isfinite(now_seconds) ||
+      !isfinite(client_timestamp_seconds) ||
+      !isfinite(sender_round_trip_seconds) || client_timestamp_seconds <= 0 ||
+      sender_round_trip_seconds < 0 || now_seconds < client_timestamp_seconds) {
+    return false;
+  }
+  const double round_trip_seconds = now_seconds - client_timestamp_seconds;
+  /*
+   * State frames can carry another participant's ping timestamp. Treating a
+   * page-relative or stale value as our own produces a multi-year RTT and can
+   * saturate playback position to UINT32_MAX. Syncplay disconnects a client
+   * long before a real round trip can reach this bound.
+   */
+  if (round_trip_seconds > SYNCPLAY_MAX_PING_ROUND_TRIP_SECONDS) {
+    return false;
+  }
+  timing->round_trip_seconds = round_trip_seconds;
+  timing->average_round_trip_seconds =
+      timing->average_round_trip_seconds == 0
+          ? round_trip_seconds
+          : timing->average_round_trip_seconds *
+                    SYNCPLAY_PING_MOVING_AVERAGE_WEIGHT +
+                round_trip_seconds *
+                    (1.0 - SYNCPLAY_PING_MOVING_AVERAGE_WEIGHT);
+  timing->forward_delay_seconds =
+      timing->average_round_trip_seconds / 2.0 +
+      (sender_round_trip_seconds < round_trip_seconds
+           ? round_trip_seconds - sender_round_trip_seconds
+           : 0);
+  return true;
+}
+
+uint32_t multiplex_syncplay_compensate_position(uint32_t position_ms,
+                                                bool paused,
+                                                double forward_delay_seconds) {
+  if (paused || !isfinite(forward_delay_seconds) ||
+      forward_delay_seconds <= 0) {
+    return position_ms;
+  }
+  const double delay_ms = forward_delay_seconds * 1000.0;
+  if (delay_ms >= (double)(UINT32_MAX - position_ms)) {
+    return UINT32_MAX;
+  }
+  return position_ms + (uint32_t)(delay_ms + 0.5);
 }

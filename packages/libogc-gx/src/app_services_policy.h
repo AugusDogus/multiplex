@@ -46,4 +46,8 @@ bool multiplex_app_services_accept_result(MultiplexAppServicesLoadState *state,
                                           uint32_t token);
 bool multiplex_app_services_load_should_start(
     const MultiplexAppServicesLoadState *state, bool network_allowed);
+bool multiplex_app_services_watch_should_follow_room(uint32_t duration_ms,
+                                                     uint32_t local_position_ms,
+                                                     uint32_t room_position_ms,
+                                                     bool room_position_known);
 #endif

@@ -370,7 +370,7 @@ backed by `.dolphin-user/Pipes/multiplex1`. Dolphin pipe commands such as
 test. The main analog stick moves focus spatially using dead-zone and repeat
 behavior adapted from WiiMC-GCN's libwiigui. On Search, D-pad left/right moves
 the query cursor, X deletes before it, and R submits. Z opens Search, Y opens
-Libraries, and X advances the home hub outside Search.
+Libraries, and X opens Watch Together outside Search.
 
 For manual use, `bun run gamecube:launch` starts Portless when needed,
 builds the linked Plex DOL, and opens an interactive TAP-backed Dolphin
