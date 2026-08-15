@@ -1,5 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
+import {
+  chromeLaunchFields,
+  resolveChromeLaunchTarget,
+} from "../watch-together-harness/src/chrome-launch";
+
 /**
  * End-to-end tests.
  *
@@ -17,11 +22,9 @@ const BASE_URL =
 const WEB_SERVER_URL = process.env.PLAYWRIGHT_WEB_SERVER_URL ?? BASE_URL;
 const WEB_SERVER_COMMAND =
   process.env.PLAYWRIGHT_WEB_SERVER_COMMAND ?? "portless multiplex bun run dev";
-const EXECUTABLE_PATH = process.env.PLAYWRIGHT_EXECUTABLE_PATH;
-const CHANNEL =
-  EXECUTABLE_PATH || process.env.PLAYWRIGHT_CHANNEL === "chromium"
-    ? undefined
-    : (process.env.PLAYWRIGHT_CHANNEL ?? "chrome");
+const CHROME_LAUNCH = chromeLaunchFields(
+  resolveChromeLaunchTarget(process.env),
+);
 
 export default defineConfig({
   testDir: "./e2e",
@@ -40,9 +43,9 @@ export default defineConfig({
     video: "retain-on-failure",
     actionTimeout: 30_000,
     navigationTimeout: 60_000,
-    channel: CHANNEL,
+    channel: CHROME_LAUNCH.channel,
     launchOptions: {
-      executablePath: EXECUTABLE_PATH,
+      executablePath: CHROME_LAUNCH.executablePath,
       args: [
         "--no-sandbox",
         "--mute-audio",
@@ -74,7 +77,11 @@ export default defineConfig({
       // attaches enough per-viewer evidence to distinguish product failures.
       retries: 0,
       // The two-viewer harness owns tracing for its manually created contexts.
-      use: { ...devices["Desktop Chrome"], channel: CHANNEL, trace: "off" },
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: CHROME_LAUNCH.channel,
+        trace: "off",
+      },
     },
   ],
   webServer: {

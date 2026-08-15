@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
 import { z } from "zod";
 
+import { chromeLaunchFields, resolveChromeLaunchTarget } from "../src/chrome-launch";
+
 const WORKSPACE_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 const DEFAULT_STORAGE_STATE = path.join(
   WORKSPACE_ROOT,
@@ -15,15 +17,6 @@ const DEFAULT_STORAGE_STATE = path.join(
   "e2e",
   ".auth",
   "account-a.json",
-);
-const DEFAULT_CHROME_PATH = path.join(
-  WORKSPACE_ROOT,
-  ".watch-together-harness",
-  "chrome",
-  "opt",
-  "google",
-  "chrome",
-  "google-chrome",
 );
 
 const environmentSchema = z
@@ -48,14 +41,12 @@ export async function claimGameCube(code: string, environment: NodeJS.ProcessEnv
     parsedEnvironment.GAMECUBE_LINK_ACCOUNT_STATE,
     DEFAULT_STORAGE_STATE,
   );
-  const chromePath = resolvePath(
-    parsedEnvironment.WATCH_TOGETHER_HARNESS_CHROME_PATH,
-    DEFAULT_CHROME_PATH,
-  );
-  await Promise.all([access(storageState), access(chromePath)]);
+  const chromeLaunch = chromeLaunchFields(resolveChromeLaunchTarget(parsedEnvironment));
+  await access(storageState);
 
   const browser = await chromium.launch({
-    executablePath: chromePath,
+    channel: chromeLaunch.channel,
+    executablePath: chromeLaunch.executablePath,
     headless: true,
   });
   try {

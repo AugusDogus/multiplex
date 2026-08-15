@@ -26,6 +26,7 @@ const playBothButton = requireElement("play-both", HTMLButtonElement);
 const pauseHostButton = requireElement("pause-host", HTMLButtonElement);
 const playHostButton = requireElement("play-host", HTMLButtonElement);
 const seekHalfButton = requireElement("seek-half", HTMLButtonElement);
+const rapidSeekHostButton = requireElement("rapid-seek-host", HTMLButtonElement);
 const seekNearEndButton = requireElement("seek-near-end", HTMLButtonElement);
 const disconnectGuestButton = requireElement("disconnect-guest", HTMLButtonElement);
 const nextEpisodeButton = requireElement("next-episode", HTMLButtonElement);
@@ -34,6 +35,7 @@ const eventLines: string[] = [];
 let activePlayers: [HarnessPlayer, HarnessPlayer] | null = null;
 let nextEpisode: HarnessMedia | null = null;
 let guestConnected = true;
+let episodeTransitionPending = false;
 
 function requireElement<T extends Element>(id: string, constructor: { new (): T }): T {
   const element = document.getElementById(id);
@@ -374,6 +376,10 @@ class HarnessPlayer {
     this.video.addEventListener("waiting", () => {
       this.stateLabel.textContent = "buffering";
     });
+    this.video.addEventListener("ended", () => {
+      logEvent(`${this.label}: media ended`);
+      if (this.label === "Account A") void advanceToNextEpisode("host media ended");
+    });
     this.video.addEventListener("error", () => {
       const code = this.video.error?.code ?? 0;
       this.mediaError = `media error ${code}`;
@@ -510,9 +516,23 @@ seekHalfButton.addEventListener("click", () => {
   if (host) host.seek(host.durationSeconds * 0.5);
 });
 
+rapidSeekHostButton.addEventListener("click", () => {
+  void (async () => {
+    const host = activePlayers?.[0];
+    if (!host) return;
+    rapidSeekHostButton.disabled = true;
+    for (const fraction of [0.1, 0.8, 0.3, 0.9, 0.2, 0.7, 0.4, 0.6]) {
+      host.seek(host.durationSeconds * fraction);
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 125));
+    }
+    rapidSeekHostButton.disabled = false;
+    logEvent("Account A: rapid seek sequence completed at 60%");
+  })();
+});
+
 seekNearEndButton.addEventListener("click", () => {
   const host = activePlayers?.[0];
-  if (host) host.seek(host.durationSeconds - 2);
+  if (host) host.seek(host.durationSeconds - 0.75);
 });
 
 disconnectGuestButton.addEventListener("click", () => {
@@ -529,8 +549,10 @@ disconnectGuestButton.addEventListener("click", () => {
   }
 });
 
-nextEpisodeButton.addEventListener("click", () => {
-  void (async () => {
+async function advanceToNextEpisode(reason: string): Promise<void> {
+  if (episodeTransitionPending || !nextEpisode) return;
+  episodeTransitionPending = true;
+  try {
     nextEpisodeButton.disabled = true;
     const response = await fetch("/api/next-room", { method: "POST" });
     const next = harnessNextRoomSchema.parse(await readJson(response));
@@ -542,10 +564,17 @@ nextEpisodeButton.addEventListener("click", () => {
     nextEpisode = next.nextEpisode;
     nextEpisodeButton.textContent = nextEpisode ? `Next: ${nextEpisode.title}` : "No next episode";
     nextEpisodeButton.disabled = nextEpisode === null;
-  })().catch((error: unknown) => {
+    logEvent(`Both viewers advanced because ${reason}`);
+  } catch (error: unknown) {
     nextEpisodeButton.disabled = false;
     logEvent(`Next episode failed: ${error instanceof Error ? error.message : String(error)}`);
-  });
+  } finally {
+    episodeTransitionPending = false;
+  }
+}
+
+nextEpisodeButton.addEventListener("click", () => {
+  void advanceToNextEpisode("next episode control was activated");
 });
 
 window.addEventListener("beforeunload", () => {

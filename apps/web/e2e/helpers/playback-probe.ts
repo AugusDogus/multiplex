@@ -16,6 +16,8 @@ export interface PlaybackProbeSample {
   readonly error: { readonly code: number; readonly message: string } | null;
 }
 
+const ERRORED_SOURCE_RECOVERY_TIMEOUT_MS = 15_000;
+
 export async function readPlaybackProbe(
   page: Page,
 ): Promise<PlaybackProbeSample> {
@@ -60,15 +62,24 @@ export async function waitForPlaybackAdvance(
   const deadline = Date.now() + timeoutMs;
   const samples: PlaybackProbeSample[] = [await readPlaybackProbe(page)];
   const initialPosition = samples[0]?.timelinePositionSeconds ?? 0;
+  let observedSource = samples[0]?.currentSrc ?? "";
+  let sourceObservedAt = samples[0]?.at ?? Date.now();
 
   while (Date.now() < deadline) {
     await page.waitForTimeout(1_000);
     const sample = await readPlaybackProbe(page);
     samples.push(sample);
 
-    if (sample.error) {
+    if (sample.currentSrc !== observedSource) {
+      observedSource = sample.currentSrc;
+      sourceObservedAt = sample.at;
+    }
+    if (
+      sample.error &&
+      sample.at - sourceObservedAt >= ERRORED_SOURCE_RECOVERY_TIMEOUT_MS
+    ) {
       throw new Error(
-        `${options.label}: video failed while waiting for playback. samples=${JSON.stringify(samples.slice(-20))}`,
+        `${options.label}: errored video source did not recover or change within ${ERRORED_SOURCE_RECOVERY_TIMEOUT_MS}ms. samples=${JSON.stringify(samples.slice(-20))}`,
       );
     }
     if (

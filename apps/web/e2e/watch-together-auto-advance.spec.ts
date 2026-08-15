@@ -120,6 +120,52 @@ async function playbackPosition(page: Page): Promise<number> {
     .catch(() => 0);
 }
 
+async function startNearEndProbe(
+  page: Page,
+  episode: { readonly ratingKey: string; readonly title: string },
+  durationSeconds: number,
+): Promise<void> {
+  await page.evaluate(
+    ({ durationSeconds, ratingKey, title }) => {
+      let observedNearEnd = false;
+      const sample = (): void => {
+        const video = document.querySelector("video");
+        if (!(video instanceof HTMLVideoElement)) {
+          requestAnimationFrame(sample);
+          return;
+        }
+        const decodedSource = decodeURIComponent(video.currentSrc);
+        const sourceRatingKey = /\/library\/metadata\/(\d+)/.exec(
+          decodedSource,
+        )?.[1];
+        const playerTitle = [...document.querySelectorAll("h2")]
+          .map((heading) => heading.textContent ?? "")
+          .find((text) => text.startsWith("Media Player - "))
+          ?.slice("Media Player - ".length);
+        const sameEpisode = sourceRatingKey
+          ? sourceRatingKey === ratingKey
+          : playerTitle === title;
+        if (!sameEpisode) {
+          document.body.dataset.nearEndProbe = "advanced";
+          return;
+        }
+        const offsetMatch = /[?&]offset=(\d+(?:\.\d+)?)/.exec(video.currentSrc);
+        const offsetSeconds = offsetMatch ? Number(offsetMatch[1]) : 0;
+        const positionSeconds = offsetSeconds + video.currentTime;
+        if (positionSeconds >= durationSeconds * 0.8) observedNearEnd = true;
+        if (observedNearEnd && positionSeconds < durationSeconds * 0.5) {
+          document.body.dataset.nearEndProbe = "reset";
+          return;
+        }
+        requestAnimationFrame(sample);
+      };
+      document.body.dataset.nearEndProbe = "watching";
+      requestAnimationFrame(sample);
+    },
+    { durationSeconds, ...episode },
+  );
+}
+
 /**
  * Identifies the episode the player is currently on. Transcoded streams carry
  * the rating key in the URL (`path=/library/metadata/{id}`); direct-play URLs
@@ -186,28 +232,47 @@ test("a session auto-advances both viewers to the next episode without leaving t
     }
     const durationSeconds = selectedEpisode.durationMs / 1000;
 
-    // Seek close to the end through the app's real seek path (keyboard
-    // shortcuts -> transcode reload). Prefer percent seeks + waiting over
-    // skip-forward: after a large offset, ArrowRight often reloads without the
-    // timeline offset and snaps remaining back to the full duration.
-    console.error("E2E step: host seeks to 90%");
-    await pressPlayerKey(host, "Digit9");
-    await expectPlayingAndAdvancing(host, "host after 90% seek");
-
+    console.error("E2E step: host rapidly seeks 10/80/30/90/20/70/40/60%");
+    for (const digit of [1, 8, 3, 9, 2, 7, 4, 6]) {
+      await pressPlayerKey(host, `Digit${digit}`);
+      await host.waitForTimeout(125);
+    }
+    const rapidTargetSeconds = durationSeconds * 0.6;
     await expect
-      .poll(async () => durationSeconds - (await playbackPosition(host)), {
-        message: "host should reach the auto-advance lead window",
-        timeout: 360_000,
-      })
-      .toBeLessThanOrEqual(40);
+      .poll(
+        async () => {
+          const [hostPosition, guestPosition] = await Promise.all([
+            playbackPosition(host),
+            playbackPosition(guest),
+          ]);
+          return {
+            hostAtTarget: Math.abs(hostPosition - rapidTargetSeconds) < 10,
+            guestAtTarget: Math.abs(guestPosition - rapidTargetSeconds) < 10,
+            synchronized: Math.abs(hostPosition - guestPosition) < 5,
+          };
+        },
+        {
+          message:
+            "both full web clients should settle at the final rapid-seek target",
+          timeout: 120_000,
+        },
+      )
+      .toEqual({
+        hostAtTarget: true,
+        guestAtTarget: true,
+        synchronized: true,
+      });
+    await Promise.all([
+      expectPlayingAndAdvancing(host, "host after rapid seeks"),
+      expectPlayingAndAdvancing(guest, "guest after rapid seeks"),
+    ]);
 
-    // The guest follows the seek (their own remaining time drops too).
-    await expect
-      .poll(async () => durationSeconds - (await playbackPosition(guest)), {
-        message: "guest should follow the host near the end",
-        timeout: 60_000,
-      })
-      .toBeLessThan(60);
+    await Promise.all([
+      startNearEndProbe(host, selectedEpisode, durationSeconds),
+      startNearEndProbe(guest, selectedEpisode, durationSeconds),
+    ]);
+    console.error("E2E step: host seeks into the final half-second");
+    await pressPlayerKey(host, "End");
 
     // Both players must swap to the next episode's stream, and the player
     // modal must never close (no lobby flash): the <video> stays mounted.
@@ -225,6 +290,15 @@ test("a session auto-advances both viewers to the next episode without leaving t
       /(left the session|joined the session|paused playback)/i;
     const unexpectedToasts: string[] = [];
     for (;;) {
+      const [hostProbe, guestProbe] = await Promise.all([
+        host.locator("body").getAttribute("data-near-end-probe"),
+        guest.locator("body").getAttribute("data-near-end-probe"),
+      ]);
+      if (hostProbe === "reset" || guestProbe === "reset") {
+        throw new Error(
+          `near-EOF playback reset into the first half of the same episode (host=${hostProbe}, guest=${guestProbe})`,
+        );
+      }
       for (const page of [host, guest]) {
         const texts = await page
           .locator('[data-slot="toast-root"]')
