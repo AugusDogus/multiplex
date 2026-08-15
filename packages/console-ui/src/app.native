@@ -429,7 +429,7 @@
             <panel width="138" grow="1" padding="16" background="surface" border-color="border" radius="lg" on-press="join_watch_together:{room.id}" label="{room.title}">
               <column grow="1" main="center" cross="center" gap="8">
                 <badge variant="secondary">{room.participantCount} viewers</badge>
-                <text size="heading" wrap="true">{room.title}</text>
+                <text size="sm" wrap="false" text-alignment="center">{room.title}</text>
               </column>
             </panel>
           </for>

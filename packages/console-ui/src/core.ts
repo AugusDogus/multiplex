@@ -690,6 +690,7 @@ function leaveWatchTogether(model: Model): Model {
     screen: "watch_together",
     playbackLoaded: false,
     playing: false,
+    playerSettingsOpen: false,
     watchTogetherJoining: false,
     watchTogetherConnected: false,
     watchTogetherJoinFailed: false,
