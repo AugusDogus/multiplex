@@ -1,8 +1,16 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { setupSyncedRoom } from "./helpers/watch-together";
 import { readPlaybackProbe } from "./helpers/playback-probe";
 
 const DEVICE_ID_KEY = "multiplex-watch-together-device-id";
+
+async function pressPlayerKey(page: Page, code: string): Promise<void> {
+  await page.evaluate((keyCode) => {
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { code: keyCode, bubbles: true }),
+    );
+  }, code);
+}
 
 test("two viewers synchronize playback and disable local speed controls", async ({
   browser,
@@ -33,7 +41,7 @@ test("two viewers synchronize playback and disable local speed controls", async 
 
     // Pause on the host must propagate to the guest (Syncplay arbitration).
     console.error("E2E step: host pauses");
-    await host.locator("video").evaluate((v: HTMLVideoElement) => v.pause());
+    await pressPlayerKey(host, "KeyK");
     await expect
       .poll(
         () =>
@@ -48,9 +56,7 @@ test("two viewers synchronize playback and disable local speed controls", async 
 
     // ...and resuming on the host resumes the guest.
     console.error("E2E step: host resumes");
-    await host
-      .locator("video")
-      .evaluate((v: HTMLVideoElement) => v.play().catch(() => undefined));
+    await pressPlayerKey(host, "KeyK");
     await expect
       .poll(
         () =>

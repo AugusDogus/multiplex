@@ -381,7 +381,7 @@ test("a session auto-advances both viewers to the next episode without leaving t
     // Regression: after episode rotation the session must still own Syncplay.
     // A mismatch-triggered leave during swap used to kill pause propagation.
     console.error("E2E step: host pauses after auto-advance");
-    await host.locator("video").evaluate((v: HTMLVideoElement) => v.pause());
+    await pressPlayerKey(host, "KeyK");
     await expect
       .poll(
         () =>
@@ -398,9 +398,7 @@ test("a session auto-advances both viewers to the next episode without leaving t
     console.error("E2E step: guest paused with host after auto-advance");
 
     console.error("E2E step: host resumes after auto-advance");
-    await host
-      .locator("video")
-      .evaluate((v: HTMLVideoElement) => v.play().catch(() => undefined));
+    await pressPlayerKey(host, "KeyK");
     await expect
       .poll(
         () =>

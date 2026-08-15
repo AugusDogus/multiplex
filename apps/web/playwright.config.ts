@@ -21,7 +21,8 @@ const BASE_URL =
   process.env.PLAYWRIGHT_BASE_URL ?? "https://multiplex.localhost";
 const WEB_SERVER_URL = process.env.PLAYWRIGHT_WEB_SERVER_URL ?? BASE_URL;
 const WEB_SERVER_COMMAND =
-  process.env.PLAYWRIGHT_WEB_SERVER_COMMAND ?? "portless multiplex bun run dev";
+  process.env.PLAYWRIGHT_WEB_SERVER_COMMAND ??
+  `BETTER_AUTH_URL=${JSON.stringify(BASE_URL)} portless multiplex bun run dev`;
 const CHROME_LAUNCH = chromeLaunchFields(
   resolveChromeLaunchTarget(process.env),
 );

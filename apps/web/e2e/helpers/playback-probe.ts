@@ -16,14 +16,13 @@ export interface PlaybackProbeSample {
   readonly error: { readonly code: number; readonly message: string } | null;
 }
 
-const ERRORED_SOURCE_RECOVERY_TIMEOUT_MS = 15_000;
+const ERRORED_SOURCE_RECOVERY_TIMEOUT_MS = 8_000;
 
 export async function readPlaybackProbe(
   page: Page,
 ): Promise<PlaybackProbeSample> {
-  const sample = await page
-    .locator("video")
-    .evaluate((video: HTMLVideoElement) => {
+  const sample = await page.locator("video").evaluate(
+    (video: HTMLVideoElement) => {
       const offsetMatch = /[?&]offset=(\d+(?:\.\d+)?)/.exec(video.currentSrc);
       const streamOffsetSeconds = offsetMatch ? Number(offsetMatch[1]) : 0;
       return {
@@ -41,7 +40,10 @@ export async function readPlaybackProbe(
           ? { code: video.error.code, message: video.error.message }
           : null,
       };
-    });
+    },
+    undefined,
+    { timeout: 2_000 },
+  );
   return { ...sample, currentSrc: sanitizeArtifactUrl(sample.currentSrc) };
 }
 
@@ -57,7 +59,7 @@ export async function waitForPlaybackAdvance(
     readonly minimumAdvanceSeconds?: number;
   },
 ): Promise<ReadonlyArray<PlaybackProbeSample>> {
-  const timeoutMs = options.timeoutMs ?? 120_000;
+  const timeoutMs = options.timeoutMs ?? 30_000;
   const minimumAdvanceSeconds = options.minimumAdvanceSeconds ?? 0.5;
   const deadline = Date.now() + timeoutMs;
   const samples: PlaybackProbeSample[] = [await readPlaybackProbe(page)];
