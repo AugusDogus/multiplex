@@ -215,3 +215,18 @@ bool multiplex_syncplay_should_seek(uint32_t local_position_ms,
   return remote_position_ms - local_position_ms >=
          SYNCPLAY_SEEK_BEHIND_THRESHOLD_MS;
 }
+
+bool multiplex_syncplay_can_initiate_startup(const uint32_t *user_ids,
+                                             size_t user_count,
+                                             uint32_t local_user_id) {
+  if (user_ids == NULL || user_count == 0 || local_user_id == 0) {
+    return false;
+  }
+  uint32_t leader = UINT32_MAX;
+  for (size_t index = 0; index < user_count; ++index) {
+    if (user_ids[index] != 0 && user_ids[index] < leader) {
+      leader = user_ids[index];
+    }
+  }
+  return local_user_id == leader;
+}

@@ -537,6 +537,9 @@ multiplex_app_services_watch_schedule_queued(MultiplexAppServices *services) {
   const bool retain_syncplay =
       queued.context.purpose == MULTIPLEX_APP_SERVICES_WATCH_START_LOCAL_SEEK ||
       queued.context.purpose == MULTIPLEX_APP_SERVICES_WATCH_START_REMOTE_SEEK;
+  if (queued.context.purpose == MULTIPLEX_APP_SERVICES_WATCH_START_LOCAL_SEEK) {
+    multiplex_syncplay_session_mark_local_seek(syncplay);
+  }
   services->watch.state.available.phase = (MultiplexAppServicesWatchPhase){
       .kind = MULTIPLEX_APP_SERVICES_WATCH_PHASE_STARTING_PLAYBACK,
       .state.starting_playback =
@@ -651,18 +654,14 @@ settle_started_playback(MultiplexAppServices *services,
     multiplex_syncplay_session_set_playback(syncplay, paused,
                                             result->playback.segment_start_ms);
   }
-  if (starting.context.purpose ==
-      MULTIPLEX_APP_SERVICES_WATCH_START_LOCAL_SEEK) {
-    multiplex_syncplay_session_mark_local_seek(syncplay);
-  } else if ((starting.context.purpose ==
-                  MULTIPLEX_APP_SERVICES_WATCH_START_LOBBY ||
-              starting.context.purpose ==
-                  MULTIPLEX_APP_SERVICES_WATCH_START_ROTATION) &&
-             multiplex_native_app_watch_together_playback(
-                 starting.joined_room_index, result->playback.rating_key,
-                 (const uint8_t *)room->title, strlen(room->title),
-                 result->playback.duration_ms,
-                 result->playback.segment_start_ms) == 0) {
+  if ((starting.context.purpose == MULTIPLEX_APP_SERVICES_WATCH_START_LOBBY ||
+       starting.context.purpose ==
+           MULTIPLEX_APP_SERVICES_WATCH_START_ROTATION) &&
+      multiplex_native_app_watch_together_playback(
+          starting.joined_room_index, result->playback.rating_key,
+          (const uint8_t *)room->title, strlen(room->title),
+          result->playback.duration_ms,
+          result->playback.segment_start_ms) == 0) {
     multiplex_syncplay_session_destroy(syncplay);
     multiplex_app_services_watch_enter_room_list(services, directory);
     return false;

@@ -39,5 +39,8 @@ uint32_t multiplex_syncplay_compensate_position(uint32_t position_ms,
 bool multiplex_syncplay_should_seek(uint32_t local_position_ms,
                                     uint32_t remote_position_ms,
                                     bool explicit_seek);
+bool multiplex_syncplay_can_initiate_startup(const uint32_t *user_ids,
+                                             size_t user_count,
+                                             uint32_t local_user_id);
 
 #endif
