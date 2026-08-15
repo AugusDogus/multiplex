@@ -72,6 +72,8 @@ export interface SyncplaySessionControllerOptions {
   remoteEventSuppressionMs?: number;
   remoteStartupGraceMs?: number;
   reconnectDelayMs?: number;
+  /** Whether this participant may move a newly opened paused room to playing. */
+  canInitiateStartupPlayback?: boolean;
 }
 
 interface SuppressedPlayPause {
@@ -116,11 +118,9 @@ export class SyncplaySessionController {
   private pendingRemoteSeek: SyncplayPlaybackState | null = null;
   private pendingRemoteSeekTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingRemoteSeekDeadline = 0;
-  // The last paused state we reported while the player was stable (not
-  // loading). While a stream (re)loads — e.g. a transcoded seek reloads at a
-  // new offset — the element is transiently "not playing", but the official
-  // Plex client keeps reporting the intended playstate; mirroring that keeps a
-  // buffering client from dragging the whole room into a phantom pause.
+  // The last acknowledged playback intent. Media elements can change state
+  // mechanically during unload, source replacement, buffering, and transport
+  // errors. Only explicit local events or applied remote actions replace it.
   private lastStableIsPaused: boolean | null = null;
   private readonly now: () => number;
   private readonly setTimer: NonNullable<SyncplaySessionControllerOptions["setTimeout"]>;
@@ -164,6 +164,21 @@ export class SyncplaySessionController {
     if (this.options.player.getState().isLoading) {
       return;
     }
+    // Ignore the event our own remote-apply just produced (same target state);
+    // otherwise claim the user's change (reported on the next State ping).
+    const suppressed = this.suppressedPlayPause;
+    if (suppressed && this.now() <= suppressed.expiresAt && suppressed.isPaused === isPaused) {
+      this.suppressedPlayPause = null;
+      return;
+    }
+
+    // Media elements may emit duplicate play/pause events without a user
+    // transition, especially after a source replacement. Re-claiming the same
+    // stable state can race and undo another participant's newer command.
+    if (this.lastStableIsPaused === isPaused) {
+      return;
+    }
+
     // A successful initial play is the event the startup grace exists to
     // protect. Keep ignoring the stale paused lobby baseline until the room
     // acknowledges playing (or the grace expires). A local pause is deliberate
@@ -178,13 +193,6 @@ export class SyncplaySessionController {
       this.startupGraceConsumed = true;
     }
     this.lastStableIsPaused = isPaused;
-    // Ignore the event our own remote-apply just produced (same target state);
-    // otherwise claim the user's change (reported on the next State ping).
-    const suppressed = this.suppressedPlayPause;
-    if (suppressed && this.now() <= suppressed.expiresAt && suppressed.isPaused === isPaused) {
-      this.suppressedPlayPause = null;
-      return;
-    }
     this.client?.markLocalPlayPause();
   }
 
@@ -335,6 +343,21 @@ export class SyncplaySessionController {
     // pause.
     const withinStartupGrace =
       this.allowStartupGrace && this.now() - this.connectedAt < this.remoteStartupGraceMs;
+    if (
+      state.isPaused &&
+      playerState.isPlaying &&
+      withinStartupGrace &&
+      this.lastStableIsPaused === null
+    ) {
+      // The media element can begin playing before the driver socket is ready,
+      // so its one `play` event may precede this controller. Claim that already
+      // playing intent when the first room frame is still the lobby's paused
+      // baseline instead of depending on React/media event timing.
+      this.lastStableIsPaused = false;
+      if (this.options.canInitiateStartupPlayback !== false) {
+        this.client?.markLocalPlayPause();
+      }
+    }
     if (state.isPaused && playerState.isPlaying && !withinStartupGrace) {
       this.suppressedPlayPause = {
         isPaused: true,
@@ -406,20 +429,11 @@ export class SyncplaySessionController {
 
   private getCurrentState(): SyncplayStateInput {
     const playerState = this.options.player.getState();
-    if (playerState.error) {
+    if (this.lastStableIsPaused !== null) {
       return {
-        isPaused: true,
-        positionSeconds: playerState.currentTime,
-        shouldSeek: false,
-      };
-    }
-
-    // While the stream is (re)loading the element is transiently "not
-    // playing", but that's buffering, not a pause. Report the last stable
-    // playstate (the intent) like the official client, so a buffering viewer
-    // doesn't drag the whole room into a phantom pause.
-    if (playerState.isLoading && this.lastStableIsPaused !== null) {
-      return {
+        // Once a playstate has been acknowledged, only a genuine local event
+        // or applied remote action may replace it. DOM state can change without
+        // user intent during unload, source replacement, and transport errors.
         isPaused: this.lastStableIsPaused,
         positionSeconds: playerState.currentTime,
         shouldSeek: false,
@@ -427,7 +441,7 @@ export class SyncplaySessionController {
     }
 
     const isPaused = !playerState.isPlaying;
-    if (!playerState.isLoading) {
+    if (!playerState.isLoading && !playerState.error) {
       this.lastStableIsPaused = isPaused;
     }
     return {

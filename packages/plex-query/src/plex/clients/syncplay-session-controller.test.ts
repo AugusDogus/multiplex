@@ -91,6 +91,7 @@ function createController(options: {
   clearTimeout?: (timeout: ReturnType<typeof setTimeout>) => void;
   onFatalError?: (error: Error) => void;
   remoteStartupGraceMs?: number;
+  canInitiateStartupPlayback?: boolean;
 }) {
   const controller = new SyncplaySessionController({
     room: ROOM,
@@ -100,6 +101,7 @@ function createController(options: {
     // Tests exercise steady-state arbitration; disable the startup grace unless
     // a test opts in.
     remoteStartupGraceMs: options.remoteStartupGraceMs ?? 0,
+    canInitiateStartupPlayback: options.canInitiateStartupPlayback,
     player: {
       getState: () => options.state,
       play: () => {
@@ -205,6 +207,20 @@ describe("SyncplaySessionController", () => {
 
     expect(calls.pause).toBe(0);
     expect(state.isPlaying).toBe(true);
+
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: true,
+          position: 0,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+    expect(lastState(sockets[0])).toMatchObject({
+      playstate: { paused: false, position: 0 },
+      ignoringOnTheFly: { client: 1, server: 0 },
+    });
   });
 
   test("does not claim a mechanical pause before initial playback begins", () => {
@@ -291,6 +307,38 @@ describe("SyncplaySessionController", () => {
     expect(state.isPlaying).toBe(false);
   });
 
+  test("does not let a non-leader claim startup playback", () => {
+    const sockets: FakeWebSocket[] = [];
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const state = makeState({ isPlaying: true, currentTime: 1 });
+    const controller = createController({
+      sockets,
+      state,
+      calls,
+      now: () => 1000,
+      remoteStartupGraceMs: 5000,
+      canInitiateStartupPlayback: false,
+    });
+    controller.connect();
+    sockets[0]?.open();
+
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: true,
+          position: 0,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+
+    expect(calls.pause).toBe(0);
+    expect(lastState(sockets[0])).toMatchObject({
+      playstate: { paused: true, setBy: null },
+      ignoringOnTheFly: { client: 0, server: 0 },
+    });
+  });
+
   test("applies a remote seek to the local player", () => {
     const sockets: FakeWebSocket[] = [];
     const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
@@ -349,6 +397,58 @@ describe("SyncplaySessionController", () => {
         setBy: encodeSyncplayUser(LOCAL_USER),
       },
       ignoringOnTheFly: { client: 1, server: 0 },
+    });
+  });
+
+  test("does not let a duplicate local play claim override a newer remote pause", () => {
+    const sockets: FakeWebSocket[] = [];
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const state = makeState({ isPlaying: true, currentTime: 30 });
+    const controller = createController({ sockets, state, calls });
+    controller.connect();
+    sockets[0]?.open();
+
+    // Establish and acknowledge playing as the stable room state.
+    controller.handleLocalPlaybackChange(false);
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 30,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 30,
+          setBy: encodeSyncplayUser(LOCAL_USER),
+        },
+        ignoringOnTheFly: { client: 1, server: 0 },
+      },
+    });
+
+    // A duplicate media `play` event from transport churn must not become a
+    // fresh local claim that can conflict with the next participant command.
+    controller.handleLocalPlaybackChange(false);
+    sockets[0]?.sent.splice(0);
+
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: true,
+          position: 31,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+
+    expect(calls.pause).toBe(1);
+    expect(lastState(sockets[0])).toMatchObject({
+      playstate: { paused: true, position: 31, setBy: null },
+      ignoringOnTheFly: { client: 0, server: 0 },
     });
   });
 
@@ -645,6 +745,78 @@ describe("SyncplaySessionController", () => {
     });
     expect(lastState(sockets[0])).toMatchObject({
       playstate: { doSeek: true, paused: false, position: 5000 },
+    });
+  });
+
+  test("does not pause the room when the local media transport fails", () => {
+    const sockets: FakeWebSocket[] = [];
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const state = makeState({ isPlaying: true, currentTime: 30 });
+    const controller = createController({ sockets, state, calls });
+    controller.connect();
+    sockets[0]?.open();
+
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 30,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+
+    state.isPlaying = false;
+    state.error = "Plex transcode failed";
+    sockets[0]?.sent.splice(0);
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 31,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+
+    expect(lastState(sockets[0])).toMatchObject({
+      playstate: { paused: false },
+      ignoringOnTheFly: { client: 0, server: 0 },
+    });
+  });
+
+  test("does not publish an unclaimed unload pause", () => {
+    const sockets: FakeWebSocket[] = [];
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const state = makeState({ isPlaying: true, currentTime: 30 });
+    const controller = createController({ sockets, state, calls });
+    controller.connect();
+    sockets[0]?.open();
+
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 30,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+    state.isPlaying = false;
+    sockets[0]?.sent.splice(0);
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 31,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+
+    expect(lastState(sockets[0])).toMatchObject({
+      playstate: { paused: false },
+      ignoringOnTheFly: { client: 0, server: 0 },
     });
   });
 });

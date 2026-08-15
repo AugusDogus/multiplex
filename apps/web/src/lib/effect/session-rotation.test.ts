@@ -20,47 +20,64 @@ beforeEach(() => {
 });
 
 test("a host-controlled host owns room rotation for Guest Link sessions", async () => {
-  await withRotationSession(({ session, player, createRoom }) =>
-    Effect.gen(function* () {
-      yield* session.enterLobby({
-        room: room("guest-r1", "100"),
-        localUser,
-        startPolicy: {
-          _tag: "HostControlled",
-          localRole: "Host",
-          hostUserId: 1,
-          guestUserId: 2,
-        },
-      });
-      yield* session.startPlayback({
-        room: room("guest-r1", "100"),
-        localUser,
-        item: item("100"),
-      });
-      player.setPlayback({
-        currentTimeSeconds: 1160,
-        durationSeconds: 1200,
-      });
-      yield* session.setRotationContext({
-        nextEpisode,
-        autoPlayEnabled: true,
-      });
-      yield* Effect.yieldNow;
-      yield* TestClock.adjust("0 millis");
-      yield* Effect.yieldNow;
+  await withRotationSession(
+    ({ session, player, createRoom, deleteRoom, observers }) =>
+      Effect.gen(function* () {
+        yield* session.enterLobby({
+          room: room("guest-r1", "100"),
+          localUser,
+          startPolicy: {
+            _tag: "HostControlled",
+            localRole: "Host",
+            hostUserId: 1,
+            guestUserId: 2,
+          },
+        });
+        yield* session.startPlayback({
+          room: room("guest-r1", "100"),
+          localUser,
+          item: item("100"),
+        });
+        player.setPlayback({
+          currentTimeSeconds: 1160,
+          durationSeconds: 1200,
+        });
+        yield* session.setRotationContext({
+          nextEpisode,
+          autoPlayEnabled: true,
+        });
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust("0 millis");
+        yield* Effect.yieldNow;
 
-      const snap = session.snapshot();
-      expect(snap._tag === "Playing" && snap.rotation._tag).toBe("RoomKnown");
-      expect(
-        snap._tag === "Playing" &&
-          snap.rotation._tag === "RoomKnown" &&
-          snap.rotation.nextRoom.id,
-      ).toBe("r-created");
+        const snap = session.snapshot();
+        expect(snap._tag === "Playing" && snap.rotation._tag).toBe("RoomKnown");
+        expect(
+          snap._tag === "Playing" &&
+            snap.rotation._tag === "RoomKnown" &&
+            snap.rotation.nextRoom.id,
+        ).toBe("r-created");
 
-      yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS + 100} millis`);
-      yield* Effect.yieldNow;
-      expect(createRoom).toHaveBeenCalledTimes(1);
-    }),
+        yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS + 100} millis`);
+        yield* Effect.yieldNow;
+        expect(createRoom).toHaveBeenCalledTimes(1);
+
+        player.setPlayback({ currentTimeSeconds: 1200, durationSeconds: 1200 });
+        yield* waitUntil(
+          session,
+          (state) =>
+            state._tag === "Playing" && state.rotation._tag === "Gathering",
+        );
+        observers[0]?.options.onParticipant({
+          user: multiplexUser(2),
+          isPresent: true,
+        });
+        yield* waitUntil(
+          session,
+          (state) => state._tag === "Playing" && state.room.id === "r-created",
+        );
+        expect(deleteRoom).not.toHaveBeenCalled();
+      }),
   );
 });
 

@@ -220,6 +220,19 @@ const toPlayingItem = (item: MediaPlayerItem): PlayingItem => ({
   parentIndex: item.parentIndex,
 });
 
+const canInitiateStartupPlayback = (
+  room: WatchTogetherRoom,
+  user: SyncplayUser,
+  policy: LobbyStartPolicy,
+): boolean => {
+  if (policy._tag === "HostControlled") {
+    return policy.localRole === "Host";
+  }
+
+  const participantIds = room.users.map((participant) => participant.id);
+  return user.id === Math.min(user.id, ...participantIds);
+};
+
 type PrefetchedMetadata = Partial<MediaPlayerItem> & {
   readonly ratingKey: string;
 };
@@ -418,6 +431,7 @@ export const makeWatchTogetherSession = (
       room: WatchTogetherRoom,
       user: SyncplayUser,
       generation: number,
+      startPolicy: LobbyStartPolicy,
       initialCohortDeviceIds?: ReadonlySet<string>,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
@@ -432,6 +446,11 @@ export const makeWatchTogetherSession = (
           {
             room,
             localUser: user,
+            canInitiateStartupPlayback: canInitiateStartupPlayback(
+              room,
+              user,
+              startPolicy,
+            ),
             isCurrent: () => lifecycleGeneration === generation,
             notifications,
             onParticipant: (participant) => {
@@ -816,7 +835,12 @@ export const makeWatchTogetherSession = (
               lifecycleGeneration += 1;
               const generation = lifecycleGeneration;
               yield* interruptConnection();
-              yield* startConnection(input.room, input.localUser, generation);
+              yield* startConnection(
+                input.room,
+                input.localUser,
+                generation,
+                next.startPolicy,
+              );
             }
           }
           return;
@@ -1295,7 +1319,8 @@ export const makeWatchTogetherSession = (
                   swapped._tag === "Playing" &&
                   swapped.room.id === nextRoom.id &&
                   swapped.item.serverId === nextItem.serverId &&
-                  swapped.item.ratingKey === nextItem.ratingKey
+                  swapped.item.ratingKey === nextItem.ratingKey &&
+                  current.startPolicy._tag !== "HostControlled"
                 ) {
                   yield* api.deleteRoom(previousRoomId).pipe(Effect.ignore);
                 }
@@ -1623,6 +1648,7 @@ export const makeWatchTogetherSession = (
           input.room,
           input.localUser,
           generation,
+          next.startPolicy,
           initialCohort,
         );
         yield* maybeStartRotation();
@@ -1679,7 +1705,15 @@ export const makeWatchTogetherSession = (
         });
         // Prior-room toasts are disposed with the interrupted connection;
         // cohort seeding covers peers reconnecting on the next room.
-        yield* startConnection(input.room, user, generation, initialCohort);
+        const swapped = yield* SubscriptionRef.get(state);
+        if (swapped._tag !== "Playing") return;
+        yield* startConnection(
+          input.room,
+          user,
+          generation,
+          swapped.startPolicy,
+          initialCohort,
+        );
         yield* maybeStartRotation();
       }).pipe(serializeLifecycle);
 

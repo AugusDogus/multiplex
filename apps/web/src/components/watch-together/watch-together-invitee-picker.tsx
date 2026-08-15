@@ -104,7 +104,18 @@ export function WatchTogetherInviteePicker({
             <Loader2 className="size-4 animate-spin" /> Loading friends...
           </InviteStatus>
         ) : inviteesQuery.isError ? (
-          <InviteStatus>Could not load invitees.</InviteStatus>
+          <InviteStatus>
+            <span>Could not load invitees.</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={disabled}
+              onClick={inviteesQuery.retry}
+            >
+              Retry
+            </Button>
+          </InviteStatus>
         ) : invitees.length === 0 ? (
           <InviteStatus>{emptyHint}</InviteStatus>
         ) : (

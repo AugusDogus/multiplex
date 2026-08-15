@@ -70,6 +70,7 @@ export type ConnectionParams = {
   readonly onController: (controller: SessionControllerLike) => void;
   /** Toast / readiness notifier owned by the session lifecycle. */
   readonly notifications: WatchTogetherSessionToasts;
+  readonly canInitiateStartupPlayback: boolean;
 };
 
 /**
@@ -101,6 +102,7 @@ export const runConnection = (
           if (!params.isCurrent()) return;
           params.onFatalError();
         },
+        canInitiateStartupPlayback: params.canInitiateStartupPlayback,
       });
 
       if (params.isCurrent()) {

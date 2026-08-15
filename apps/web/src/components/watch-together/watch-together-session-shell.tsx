@@ -101,7 +101,8 @@ function useWatchTogetherSessionLifecycle(
     {
       enabled: typeof guestCapability === "string",
       staleTime: 30_000,
-      retry: false,
+      retry: 1,
+      retryDelay: 250,
     },
   );
   const continuingRoomRef = useRef<string | null>(null);

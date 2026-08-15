@@ -365,6 +365,7 @@ describe("SyncplayClient", () => {
     client.connect();
     sockets[0]?.open();
     sockets[0]?.sent.splice(0);
+    client.markLocalPlayPause();
 
     sockets[0]?.message({
       State: {
@@ -378,6 +379,48 @@ describe("SyncplayClient", () => {
 
     expect(applied).toEqual([]); // never re-apply our own change
     // still replies (heartbeat) with our own state
+    expect(lastPlaystate(sockets[0])?.playstate).toEqual({
+      doSeek: false,
+      paused: false,
+      position: 30,
+      setBy: encodeSyncplayUser(LOCAL_USER),
+    });
+  });
+
+  test("adopts sticky state from this device after a fresh connection", () => {
+    const sockets: FakeWebSocket[] = [];
+    const applied: SyncplayPlaybackState[] = [];
+    const client = createClient({
+      sockets,
+      applied,
+      getPlaybackState: () => ({
+        isPaused: true,
+        positionSeconds: 0,
+        shouldSeek: false,
+      }),
+    });
+    client.connect();
+    sockets[0]?.open();
+    sockets[0]?.sent.splice(0);
+
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 30,
+          setBy: encodeSyncplayUser(LOCAL_USER),
+        },
+      },
+    });
+
+    expect(applied).toEqual([
+      {
+        user: LOCAL_USER,
+        isPaused: false,
+        positionSeconds: 30,
+        shouldSeek: false,
+      },
+    ]);
     expect(lastPlaystate(sockets[0])?.playstate).toEqual({
       doSeek: false,
       paused: false,
