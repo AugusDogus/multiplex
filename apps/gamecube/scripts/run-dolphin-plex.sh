@@ -17,7 +17,7 @@ wait_artwork=${GAMECUBE_PLEX_WAIT_ARTWORK:-1}
 sustain_seconds=${GAMECUBE_PLEX_SUSTAIN_SECONDS:-45}
 keep_open=${GAMECUBE_PLEX_KEEP_OPEN:-1}
 interactive=${GAMECUBE_PLEX_INTERACTIVE:-0}
-plex_video_resolution=${GAMECUBE_PLEX_VIDEO_RESOLUTION:-480x270}
+plex_video_resolution=${GAMECUBE_PLEX_VIDEO_RESOLUTION:-320x180}
 plex_max_video_bitrate=${GAMECUBE_PLEX_MAX_VIDEO_BITRATE:-700}
 watch_together=${GAMECUBE_PLEX_WATCH_TOGETHER:-0}
 watch_together_invitee_id=${GAMECUBE_WATCH_TOGETHER_INVITEE_ID:-}
@@ -65,7 +65,7 @@ launcher_log="$cache_dir/dolphin-launcher.log"
 pipe_open=0
 mute_marker="$cache_dir/audio-muted"
 
-for command in curl ip jq python3 setsid; do
+for command in curl ip jq python3 setsid taskset; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "$command is required for Plex playback in Dolphin." >&2
     exit 1
@@ -85,6 +85,25 @@ if [ "$capture_video" -eq 1 ]; then
       exit 1
     fi
   done
+fi
+
+qa_cpu_count=$(getconf _NPROCESSORS_ONLN)
+case "$qa_cpu_count" in
+  '' | *[!0-9]*) qa_cpu_count=1 ;;
+esac
+if [ "$qa_cpu_count" -ge 8 ] && [ $((qa_cpu_count % 2)) -eq 0 ]; then
+  qa_cpu_half=$((qa_cpu_count / 2))
+  qa_primary_end=$((qa_cpu_half - 1))
+  qa_primary_start=$((qa_primary_end - 1))
+  qa_secondary_end=$((qa_cpu_count - 1))
+  qa_secondary_start=$((qa_secondary_end - 1))
+  qa_dolphin_cpus="$qa_primary_start-$qa_primary_end,$qa_secondary_start-$qa_secondary_end"
+  qa_support_primary_end=$((qa_primary_start - 1))
+  qa_support_secondary_end=$((qa_secondary_start - 1))
+  qa_support_cpus="0-$qa_support_primary_end,$qa_cpu_half-$qa_support_secondary_end"
+else
+  qa_dolphin_cpus="0-$((qa_cpu_count - 1))"
+  qa_support_cpus="$qa_dolphin_cpus"
 fi
 if [ "$direct_plex" -ne 1 ]; then
   for command in ffmpeg ffprobe; do
@@ -471,7 +490,8 @@ else
   dolphin_config_profile="$app_dir/dolphin/Dolphin.ini"
   dolphin_emu=${DOLPHIN_EMU:-dolphin-emu}
 fi
-setsid env \
+echo "QA CPU isolation: Dolphin=$qa_dolphin_cpus support=$qa_support_cpus."
+setsid taskset -c "$qa_dolphin_cpus" env \
   DOLPHIN_CONFIG_PROFILE="$dolphin_config_profile" \
   DOLPHIN_EMU="$dolphin_emu" \
   GAMECUBE_PASTA_BIN="${GAMECUBE_PASTA_BIN:-$app_dir/.passt/pasta}" \
@@ -505,7 +525,7 @@ if [ "$capture_video" -eq 1 ]; then
     echo "Timed out finding the visible Dolphin window for recording." >&2
     exit 1
   fi
-  setsid chrt -o 0 ffmpeg -nostdin -y \
+  setsid taskset -c "$qa_support_cpus" chrt -o 0 ffmpeg -nostdin -y \
     -f x11grab -framerate 60 -window_id "$capture_window_id" \
     -draw_mouse 0 -i "${DISPLAY:-:0}" \
     -vf 'pad=ceil(iw/2)*2:ceil(ih/2)*2' \
@@ -655,11 +675,13 @@ wait_for_browser_guest() {
 }
 
 start_browser_guest() {
+  join_mode=${1:-invitation}
   rm -f "$browser_guest_control"
   : >"$browser_guest_log"
   MULTIPLEX_BROWSER_BASE_URL="$multiplex_base_url" \
+    taskset -c "$qa_support_cpus" \
     bun "$script_dir/watch-together-browser-guest.ts" \
-      "$created_room_id" "$browser_guest_control" \
+      "$created_room_id" "$browser_guest_control" "$join_mode" \
       >"$browser_guest_log" 2>&1 &
   lobby_pid=$!
 }
@@ -671,7 +693,7 @@ wait_for_browser_guest_seek() {
   attempt=0
   while [ "$attempt" -lt "$attempts" ]; do
     browser_seek_offset=$(sed -n \
-      's/.*Browser guest advancing offset-ms=\([0-9][0-9]*\).*/\1/p' \
+      's/.*Browser guest position-ms=\([0-9][0-9]*\).*/\1/p' \
       "$browser_guest_log" 2>/dev/null | tail -1)
     if [ -n "$browser_seek_offset" ] && \
       [ "$browser_seek_offset" -ge "$minimum" ] && \
@@ -686,7 +708,7 @@ wait_for_browser_guest_seek() {
     sleep 0.1
     attempt=$((attempt + 1))
   done
-  echo "Browser guest did not follow the GameCube seek to $minimum..$maximum ms; its latest offset was ${browser_seek_offset:-unknown}." >&2
+  echo "Browser guest did not follow the GameCube seek to $minimum..$maximum ms; its latest position was ${browser_seek_offset:-unknown}." >&2
   tail -60 "$browser_guest_log" >&2 || true
   exit 1
 }
@@ -750,6 +772,16 @@ wait_for_synced_playback_state() {
   done
   echo "Watch Together clients did not remain $expected; GameCube=$gamecube_state browser=$browser_state." >&2
   exit 1
+}
+
+remaining_tenths_until() {
+  deadline_ms=$1
+  now_ms=$(date +%s%3N)
+  if [ "$now_ms" -ge "$deadline_ms" ]; then
+    echo 0
+  else
+    echo $(((deadline_ms - now_ms + 99) / 100))
+  fi
 }
 
 # The Wii host navigates with the Wii Remote D-pad, which the Wiimote pipe
@@ -1411,11 +1443,11 @@ if [ "$expect_autoplay_next" -eq 1 ]; then
       for percentage in 1 8 3 9 2 7 4 6; do
         command="seek-percent-$percentage"
         command_count=$(browser_guest_line_count "Browser guest command=$command")
-        browser_offset_count=$(browser_guest_line_count "Browser guest offset-ms=")
+        browser_offset_count=$(browser_guest_line_count "Browser guest position-ms=")
         printf '%s\n' "$command" >"$browser_guest_control"
         wait_for_browser_guest "Browser guest command=$command" "$command_count" 300
         if [ "$percentage" -eq 6 ]; then
-          wait_for_browser_guest "Browser guest offset-ms=" "$browser_offset_count" 1200
+          wait_for_browser_guest "Browser guest position-ms=" "$browser_offset_count" 1200
         fi
       done
       wait_for_new "Syncplay remote playback .*seek=1" "$remote_seek_count" 1200
@@ -1438,10 +1470,10 @@ if [ "$expect_autoplay_next" -eq 1 ]; then
       wait_for_synced_playback_state playing 1200
       echo "Rapid browser seek sequence converged on both clients at ${stress_browser_offset}ms."
     fi
-    browser_offset_count=$(browser_guest_line_count "Browser guest offset-ms=")
+    browser_offset_count=$(browser_guest_line_count "Browser guest position-ms=")
     printf 'seek-to-end\n' >"$browser_guest_control"
     wait_for_browser_guest "Browser guest command=seek-to-end" 0 300
-    wait_for_browser_guest "Browser guest offset-ms=" "$browser_offset_count" 1200
+    wait_for_browser_guest "Browser guest position-ms=" "$browser_offset_count" 1200
   fi
   wait_log "direct playback ready rating-key=$expected_autoplay_rating_key offset=0" 3600
   wait_for_new "playback=playing" "$((playing_count + 1))" 1200
@@ -1553,14 +1585,6 @@ if [ "$expect_continuation" -eq 1 ]; then
   echo "Automatically continued selected Plex item $selected_rating_key from ${seek_offset}ms to ${continuation_offset}ms."
 fi
 
-# The web Syncplay controller deliberately ignores remote pauses for five
-# seconds after connecting so the room's paused lobby baseline cannot defeat
-# autoplay. Let that grace period expire before testing a deliberate GameCube
-# pause, otherwise a fast run can race the intended startup behavior.
-if [ "$watch_together_browser_guest" -eq 1 ]; then
-  sleep 6
-fi
-
 # Prove deliberate player state edges reach Plex as well as periodic progress.
 paused_timeline_count=$(line_count "$timeline_pattern .*state=paused reported=1")
 press A
@@ -1630,15 +1654,25 @@ if [ "$watch_together" -eq 1 ]; then
     lobby_pid=
     wait_for_new "Syncplay participants=1" "$participant_left_count" 600
 
+    # This is a full cold Chrome process launch, including storage-state
+    # restoration, app boot, Syncplay join, media load, and stability proof.
+    browser_rejoin_started_ms=$(date +%s%3N)
+    browser_rejoin_deadline_ms=$((browser_rejoin_started_ms + 10000))
     participant_rejoined_count=$(line_count "Syncplay participants=2")
-    start_browser_guest
-    wait_for_browser_guest "Browser guest joined room=$created_room_id" 0 600
-    wait_for_new "Syncplay participants=2" "$participant_rejoined_count" 600
+    start_browser_guest direct
+    wait_for_browser_guest "Browser guest joined room=$created_room_id" 0 \
+      "$(remaining_tenths_until "$browser_rejoin_deadline_ms")"
+    wait_for_new "Syncplay participants=2" "$participant_rejoined_count" \
+      "$(remaining_tenths_until "$browser_rejoin_deadline_ms")"
     browser_reconnect_minimum_offset=$((browser_seek_offset - 5000))
     browser_reconnect_maximum_offset=$((browser_seek_offset + 30000))
     wait_for_browser_guest_seek \
-      "$browser_reconnect_minimum_offset" "$browser_reconnect_maximum_offset" 1200
-    wait_for_synced_playback_state playing 1200
+      "$browser_reconnect_minimum_offset" "$browser_reconnect_maximum_offset" \
+      "$(remaining_tenths_until "$browser_rejoin_deadline_ms")"
+    wait_for_synced_playback_state playing \
+      "$(remaining_tenths_until "$browser_rejoin_deadline_ms")"
+    browser_rejoin_elapsed_ms=$(($(date +%s%3N) - browser_rejoin_started_ms))
+    echo "Browser participant fully rejoined in ${browser_rejoin_elapsed_ms}ms."
     rejoined_participants=$(sed -n \
       's/.*REFERENCE GX: Syncplay participants=\([0-9][0-9]*\).*/\1/p' \
       "$log" | tail -1)
@@ -1660,10 +1694,17 @@ if [ "$watch_together_browser_guest" -eq 1 ]; then
   focus_message 41 D_RIGHT 8
   press A
   focus_message 29 D_DOWN 8
+  console_reconnect_started_ms=$(date +%s%3N)
+  console_reconnect_deadline_ms=$((console_reconnect_started_ms + 5000))
   press A
-  wait_for_new "Syncplay TLS connected host=" "$reconnected_count" 600
-  wait_for_new "Syncplay participants=2" "$reconnect_participants_count" 600
-  wait_for_synced_playback_state playing 1200
+  wait_for_new "Syncplay TLS connected host=" "$reconnected_count" \
+    "$(remaining_tenths_until "$console_reconnect_deadline_ms")"
+  wait_for_new "Syncplay participants=2" "$reconnect_participants_count" \
+    "$(remaining_tenths_until "$console_reconnect_deadline_ms")"
+  wait_for_synced_playback_state playing \
+    "$(remaining_tenths_until "$console_reconnect_deadline_ms")"
+  console_reconnect_elapsed_ms=$(($(date +%s%3N) - console_reconnect_started_ms))
+  echo "GameCube Syncplay reconnect completed in ${console_reconnect_elapsed_ms}ms."
 
   stopped_timeline_count=$(line_count "$timeline_pattern .*state=stopped reported=1")
   focus_message 30 D_DOWN 8
