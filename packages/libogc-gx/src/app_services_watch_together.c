@@ -3,8 +3,16 @@
 #include "media-source.h"
 #include "native_ui.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
+
+#if defined(HW_DOL) || defined(HW_RVL)
+#include <gccore.h>
+#define WATCH_REPORT(...) SYS_Report(__VA_ARGS__)
+#else
+#define WATCH_REPORT(...) ((void)sizeof(printf(__VA_ARGS__)))
+#endif
 
 #if MULTIPLEX_PAIRING_ENABLED
 
@@ -72,6 +80,17 @@ MultiplexSyncplaySession *multiplex_app_services_watch_take_current_syncplay(
 void multiplex_app_services_watch_enter_room_list(
     MultiplexAppServices *services,
     MultiplexAppServicesWatchDirectory directory) {
+  const unsigned phase =
+      services->watch.kind == MULTIPLEX_APP_SERVICES_WATCH_AVAILABLE
+          ? (unsigned)services->watch.state.available.phase.kind
+          : UINT_MAX;
+  const unsigned stop_kind =
+      phase == MULTIPLEX_APP_SERVICES_WATCH_PHASE_WAIT_STOP
+          ? (unsigned)services->watch.state.available.phase.state.wait_stop.kind
+          : UINT_MAX;
+  WATCH_REPORT("REFERENCE GX: Syncplay entering room list watch-kind=%u "
+               "phase=%u stop-kind=%u\n",
+               (unsigned)services->watch.kind, phase, stop_kind);
   multiplex_syncplay_session_destroy(
       multiplex_app_services_watch_take_current_syncplay(&services->watch));
   services->watch.kind = MULTIPLEX_APP_SERVICES_WATCH_AVAILABLE;
@@ -508,6 +527,9 @@ multiplex_app_services_watch_schedule_queued(MultiplexAppServices *services) {
     multiplex_app_services_queue_blocking_activity(services, false);
     return MULTIPLEX_APP_SERVICES_SCHEDULE_FAILED;
   }
+  WATCH_REPORT("REFERENCE GX: Syncplay playback scheduled token=%u purpose=%u "
+               "offset=%u\n",
+               token, (unsigned)queued.context.purpose, queued.position_ms);
   MultiplexSyncplaySession *syncplay =
       multiplex_app_services_watch_take_current_syncplay(&services->watch);
   services->watch.state.available.phase = (MultiplexAppServicesWatchPhase){
@@ -526,11 +548,30 @@ multiplex_app_services_watch_schedule_queued(MultiplexAppServices *services) {
 static bool
 settle_started_playback(MultiplexAppServices *services,
                         const MultiplexAppServicesPlaybackResult *result) {
+  WATCH_REPORT("REFERENCE GX: Syncplay playback result token=%u kind=%u "
+               "watch-kind=%u phase=%u expected=%u\n",
+               result->token, (unsigned)result->kind,
+               (unsigned)services->watch.kind,
+               services->watch.kind == MULTIPLEX_APP_SERVICES_WATCH_AVAILABLE
+                   ? (unsigned)services->watch.state.available.phase.kind
+                   : UINT_MAX,
+               services->watch.kind == MULTIPLEX_APP_SERVICES_WATCH_AVAILABLE &&
+                       services->watch.state.available.phase.kind ==
+                           MULTIPLEX_APP_SERVICES_WATCH_PHASE_STARTING_PLAYBACK
+                   ? services->watch.state.available.phase.state
+                         .starting_playback.playback_token
+                   : 0u);
   if (services->watch.kind != MULTIPLEX_APP_SERVICES_WATCH_AVAILABLE ||
       services->watch.state.available.phase.kind !=
           MULTIPLEX_APP_SERVICES_WATCH_PHASE_STARTING_PLAYBACK ||
       services->watch.state.available.phase.state.starting_playback
               .playback_token != result->token) {
+    WATCH_REPORT("REFERENCE GX: Syncplay playback result ignored token=%u "
+                 "watch-kind=%u phase=%u\n",
+                 result->token, (unsigned)services->watch.kind,
+                 services->watch.kind == MULTIPLEX_APP_SERVICES_WATCH_AVAILABLE
+                     ? (unsigned)services->watch.state.available.phase.kind
+                     : UINT_MAX);
     return true;
   }
   const MultiplexAppServicesWatchStartingPlayback starting =
@@ -556,6 +597,9 @@ settle_started_playback(MultiplexAppServices *services,
   }
   const MultiplexTrpcRoom *room =
       &directory.rooms.rooms[starting.joined_room_index];
+  WATCH_REPORT(
+      "REFERENCE GX: Syncplay playback reconnect token=%u purpose=%u\n",
+      result->token, (unsigned)starting.context.purpose);
   MultiplexSyncplaySession *syncplay = multiplex_syncplay_session_connect(
       room, credentials->plex_client_id, directory.plex_user_id, false);
   if (syncplay == NULL) {
@@ -569,6 +613,15 @@ settle_started_playback(MultiplexAppServices *services,
            multiplex_app_services_queue_refresh(services, false);
   }
   bool paused = !result->playback.playing;
+  if (starting.context.purpose ==
+      MULTIPLEX_APP_SERVICES_WATCH_START_LOCAL_SEEK) {
+    if (multiplex_native_app_playback_commit() == 0) {
+      multiplex_syncplay_session_destroy(syncplay);
+      multiplex_app_services_watch_enter_room_list(services, directory);
+      return false;
+    }
+    paused = false;
+  }
   if (starting.context.purpose ==
       MULTIPLEX_APP_SERVICES_WATCH_START_REMOTE_SEEK) {
     paused = starting.context.value.remote_seek.paused;
@@ -622,6 +675,8 @@ settle_started_playback(MultiplexAppServices *services,
                   },
           },
   };
+  WATCH_REPORT("REFERENCE GX: Syncplay playback active token=%u purpose=%u\n",
+               result->token, (unsigned)starting.context.purpose);
   return multiplex_native_app_watch_together_presence(1, 1) != 0 &&
          multiplex_app_services_queue_refresh(services, false);
 }

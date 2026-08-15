@@ -32,6 +32,17 @@ const inviteesEnvelopeSchema = z.object({
     }),
   }),
 });
+const currentUserEnvelopeSchema = z.object({
+  result: z.object({
+    data: z.object({
+      json: z.object({
+        id: z.number(),
+        username: z.string(),
+        title: z.string(),
+      }),
+    }),
+  }),
+});
 
 interface StoredConsoleAuth {
   generation: number;
@@ -43,7 +54,7 @@ interface StoredConsoleAuth {
 }
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
-const defaultMemoryCard = path.resolve(scriptDirectory, "../.dolphin-user/GC/MemoryCardA.EUR.raw");
+const defaultMemoryCard = path.resolve(scriptDirectory, "../.dolphin-user/GC/MemoryCardA.USA.raw");
 
 const command = process.argv[2];
 const argument = process.argv[3];
@@ -52,6 +63,7 @@ if (
     "seek",
     "pause",
     "resume",
+    "current-user",
     "list-invitees",
     "list-rooms",
     "create-room",
@@ -61,7 +73,7 @@ if (
   ].includes(command ?? "")
 ) {
   throw new Error(
-    "Usage: bun syncplay-room-control.ts seek <milliseconds> | pause | resume | list-invitees | list-rooms | create-room <invitee-id> | delete-room <room-id> | join-lobby <user-id> | stop-pms-session",
+    "Usage: bun syncplay-room-control.ts seek <milliseconds> | pause | resume | current-user | list-invitees | list-rooms | create-room <invitee-id> | delete-room <room-id> | join-lobby <user-id> | stop-pms-session",
   );
 }
 
@@ -112,6 +124,20 @@ if (command === "list-invitees") {
   for (const invitee of invitees) {
     console.log(`${invitee.id}\t${invitee.username}`);
   }
+  process.exit(0);
+}
+
+if (command === "current-user") {
+  const currentUserUrl = new URL(
+    "/api/trpc/plex.getUserInfo?input=%7B%22json%22%3Anull%7D",
+    auth.origin,
+  );
+  const response = await fetchWithSession(currentUserUrl, auth.sessionToken);
+  if (!response.ok) {
+    throw new Error(`Current user request failed with HTTP ${response.status}.`);
+  }
+  const user = currentUserEnvelopeSchema.parse(await response.json()).result.data.json;
+  console.log(`${user.id}\t${user.username}\t${user.title}`);
   process.exit(0);
 }
 

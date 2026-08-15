@@ -134,16 +134,18 @@ bool multiplex_app_services_catalog_has_queued(
       MULTIPLEX_APP_SERVICES_COMPILED_BACKEND ==
           MULTIPLEX_APP_SERVICES_BACKEND_GATEWAY ||
       multiplex_app_services_auth_credentials(services) != NULL;
+  const bool remote_work_ready =
+      credentials_ready && services->auth.network_allowed;
   return (services->content.catalog.load.kind ==
               MULTIPLEX_APP_SERVICES_LOAD_REFRESH_PENDING &&
-          credentials_ready) ||
+          remote_work_ready) ||
          services->content.catalog.cache_save.kind ==
              MULTIPLEX_APP_SERVICES_LOAD_REFRESH_PENDING ||
          (MULTIPLEX_APP_SERVICES_COMPILED_BACKEND ==
               MULTIPLEX_APP_SERVICES_BACKEND_PLEX &&
           services->content.startup_data.kind ==
               MULTIPLEX_APP_SERVICES_LOAD_REFRESH_PENDING &&
-          credentials_ready);
+          remote_work_ready);
 }
 
 MultiplexAppServicesDomainScheduleResult

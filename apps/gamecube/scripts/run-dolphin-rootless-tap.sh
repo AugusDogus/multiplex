@@ -5,7 +5,6 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 
 pasta_bin=${GAMECUBE_PASTA_BIN:-pasta}
-pasta_outbound_interface=${GAMECUBE_PASTA_OUTBOUND_INTERFACE:-}
 if ! command -v "$pasta_bin" >/dev/null 2>&1 && [ ! -x "$pasta_bin" ]; then
   echo "pasta is required for the rootless Dolphin TAP network." >&2
   exit 1
@@ -64,16 +63,8 @@ trap stop_namespace HUP INT TERM
 
 # pasta_logging is an intentional list of fixed command-line arguments.
 # shellcheck disable=SC2086
-set -- "$pasta_bin" $pasta_logging --foreground --config-net --ipv4-only \
-  --mtu 1500
-if [ -n "$pasta_outbound_interface" ]; then
-  if ! ip link show "$pasta_outbound_interface" >/dev/null 2>&1; then
-    echo "Rootless TAP outbound interface does not exist: $pasta_outbound_interface" >&2
-    exit 1
-  fi
-  set -- "$@" --outbound-if4 "$pasta_outbound_interface"
-fi
-"$@" \
+"$pasta_bin" $pasta_logging --foreground --config-net --ipv4-only \
+  --mtu 1500 \
   --ns-mac-addr "$proxy_mac" \
   --ns-ifname multiplex0 -- \
   sh -eu -c '

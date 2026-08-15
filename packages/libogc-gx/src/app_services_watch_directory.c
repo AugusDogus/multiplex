@@ -163,12 +163,12 @@ bool multiplex_app_services_watch_directory_delete_hosted(
 }
 
 static uint32_t find_rotation_room(const MultiplexTrpcRoomList *rooms,
-                                   const char *previous_room_id,
-                                   uint32_t rating_key, uint8_t user_count) {
+                                   const MultiplexTrpcRoom *previous,
+                                   uint32_t rating_key) {
   for (uint32_t index = 0; index < rooms->room_count; ++index) {
     const MultiplexTrpcRoom *room = &rooms->rooms[index];
-    if (strcmp(room->id, previous_room_id) != 0 &&
-        room->user_count == user_count &&
+    if (strcmp(room->id, previous->id) != 0 &&
+        multiplex_trpc_rooms_have_same_users(room, previous) &&
         multiplex_app_services_watch_directory_rating_key(room) == rating_key) {
       return index;
     }
@@ -204,8 +204,8 @@ bool multiplex_app_services_watch_directory_plan_rotation(
   if (!multiplex_app_services_watch_directory_refresh(services, directory)) {
     return false;
   }
-  uint32_t next_index = find_rotation_room(
-      &directory->rooms, previous.id, next.rating_key, previous.user_count);
+  uint32_t next_index =
+      find_rotation_room(&directory->rooms, &previous, next.rating_key);
   bool created = false;
   if (next_index == UINT32_MAX &&
       directory->hosted.kind == MULTIPLEX_APP_SERVICES_HOSTED_ROOM_PRESENT &&
@@ -216,8 +216,8 @@ bool multiplex_app_services_watch_directory_plan_rotation(
         credentials->plex_server_id, next.rating_key, next.title,
         directory->hosted.invitee_user_id, &room);
     if (created && retain_room(directory, &room)) {
-      next_index = find_rotation_room(&directory->rooms, previous.id,
-                                      next.rating_key, previous.user_count);
+      next_index =
+          find_rotation_room(&directory->rooms, &previous, next.rating_key);
       directory->hosted.kind = MULTIPLEX_APP_SERVICES_HOSTED_ROOM_PRESENT;
       snprintf(directory->hosted.id, sizeof(directory->hosted.id), "%s",
                room.id);

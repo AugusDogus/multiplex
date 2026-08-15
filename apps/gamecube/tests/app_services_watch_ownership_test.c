@@ -273,6 +273,8 @@ uint32_t multiplex_native_app_playback_set_paused(uint32_t paused) {
   return 1u;
 }
 
+uint32_t multiplex_native_app_playback_commit(void) { return 1u; }
+
 uint32_t multiplex_native_app_playback_position(uint32_t position_ms) {
   (void)position_ms;
   return 1u;

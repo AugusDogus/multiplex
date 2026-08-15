@@ -94,6 +94,8 @@ bool multiplex_app_services_auth_begin_pairing(
   }
   services->auth.kind = MULTIPLEX_APP_SERVICES_AUTH_PAIRING;
   services->auth.state.pairing = pairing;
+  SYS_Report("REFERENCE GX: device authorization waiting code=%s\n",
+             pairing.device_auth.user_code);
   return bind_pairing(&services->auth.state.pairing.device_auth) &&
          multiplex_app_services_queue_refresh(services, false);
 }

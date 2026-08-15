@@ -576,13 +576,29 @@ export function loadWatchTogetherRooms(
   available: boolean,
   rooms: readonly WatchTogetherRoom[],
 ): Model {
-  return {
+  const loaded: Model = {
     ...model,
     watchTogetherRooms: rooms,
     watchTogetherLoaded: true,
     watchTogetherAvailable: available,
     watchTogetherCreating: false,
     watchTogetherCreateFailed: false,
+  };
+  if (!model.watchTogetherCreating || !available || rooms.length === 0) return loaded;
+  return {
+    ...loaded,
+    screen: "watch_together_room",
+    selectedWatchTogetherRoomIndex: 0,
+    watchTogetherJoining: true,
+    watchTogetherConnected: false,
+    watchTogetherJoinFailed: false,
+    watchTogetherActive: false,
+    watchTogetherPresentCount: 0,
+    watchTogetherHost: false,
+    watchTogetherLeaveRequested: false,
+    watchTogetherReconnectRequested: false,
+    watchTogetherDisbandRequested: false,
+    watchTogetherDisbandFailed: false,
   };
 }
 

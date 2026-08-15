@@ -1126,6 +1126,16 @@ test("Watch Together transitions cover lifecycle outcomes and idempotence", () =
     watchTogetherCreating: false,
     watchTogetherCreateFailed: false,
   });
+  const creating = model({ screen: "watch_together", watchTogetherCreating: true });
+  expectTransition(loadWatchTogetherRooms(creating, true, rooms), creating, {
+    screen: "watch_together_room",
+    watchTogetherRooms: rooms,
+    watchTogetherLoaded: true,
+    watchTogetherAvailable: true,
+    watchTogetherCreating: false,
+    selectedWatchTogetherRoomIndex: 0,
+    watchTogetherJoining: true,
+  });
   const unavailableBefore = model();
   expectTransition(loadWatchTogetherRooms(unavailableBefore, false, []), unavailableBefore, {
     watchTogetherLoaded: true,

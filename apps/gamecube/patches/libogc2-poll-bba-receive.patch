@@ -1,0 +1,64 @@
+diff --git a/lwip/arch/gc/netif/gcif.c b/lwip/arch/gc/netif/gcif.c
+index 51e61b6..0a720bd 100644
+--- a/lwip/arch/gc/netif/gcif.c
++++ b/lwip/arch/gc/netif/gcif.c
+@@ -887,6 +887,23 @@ static s32 bba_event_handler(s32 nChn,s32 nDev)
+ 	return 1;
+ }
+ 
++void bba_poll_receive(void)
++{
++	u8 status;
++
++	if(!gc_netif) return;
++	if(EXI_Lock(EXI_CHANNEL_0,EXI_DEVICE_2,NULL)==0) return;
++
++	status = bba_cmd_in8(0x03);
++	if((status&0x80) || (bba_in8(BBA_IR)&bba_in8(BBA_IMR))) {
++		bba_cmd_out8(0x02,BBA_CMD_IRMASKALL);
++		bba_interrupt(gc_netif);
++		if(status&0x80) bba_cmd_out8(0x03,0x80);
++		bba_cmd_out8(0x02,BBA_CMD_IRMASKNONE);
++	}
++	EXI_Unlock(EXI_CHANNEL_0);
++}
++
+ err_t bba_init(struct netif *dev)
+ {
+ 	err_t ret;
+diff --git a/lwip/network.c b/lwip/network.c
+index 3c2322c..af03e44 100644
+--- a/lwip/network.c
++++ b/lwip/network.c
+@@ -1838,6 +1838,8 @@ s32 net_listen(s32 s,u32 backlog)
+ 	return 0;
+ }
+ 
++extern void bba_poll_receive(void) __attribute__((weak));
++
+ s32 net_recvfrom(s32 s,void *mem,size_t len,u32 flags,struct sockaddr *from,socklen_t *fromlen)
+ {
+ 	struct netsocket *sock;
+@@ -1850,6 +1852,10 @@ s32 net_recvfrom(s32 s,void *mem,size_t len,u32 flags,struct sockaddr *from,sock
+ 	sock = get_socket(s);
+ 	if(!sock) return -EBADF;
++	if(!sock->lastdata && bba_poll_receive) {
++		bba_poll_receive();
++		LWP_YieldThread();
++	}
+ 
+ 	if(sock->lastdata)
+ 		buf = sock->lastdata;
+ 	else {
+@@ -2082,6 +2088,11 @@ s32 net_select(s32 maxfdp1,fd_set *readset,fd_set *writeset,fd_set *exceptset,st
+ 	struct netselect_cb sel_cb;
+ 	struct netselect_cb *psel_cb;
+ 	
++	if(bba_poll_receive) {
++		bba_poll_receive();
++		LWP_YieldThread();
++	}
++
+ 	sel_cb.next = NULL;
+ 	sel_cb.readset = readset;
+ 	sel_cb.writeset = writeset;

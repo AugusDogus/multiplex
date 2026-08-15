@@ -16,6 +16,18 @@ audio_emulation=${DOLPHIN_AUDIO_EMULATION:-LLE}
 gdb_port=${DOLPHIN_GDB_PORT:--1}
 gdb_socket=${DOLPHIN_GDB_SOCKET:-}
 normal_scheduler_guard=${MULTIPLEX_DOLPHIN_NORMAL_SCHEDULER:-0}
+capture_video=${GAMECUBE_DOLPHIN_CAPTURE_VIDEO:-0}
+capture_path=${GAMECUBE_DOLPHIN_CAPTURE_PATH:-"$app_dir/.plex-cache/dolphin-capture.avi"}
+qt_platform=${QT_QPA_PLATFORM:-xcb}
+
+case "$capture_video" in
+  0) capture_frames=False ;;
+  1) capture_frames=True ;;
+  *)
+    echo "GAMECUBE_DOLPHIN_CAPTURE_VIDEO must be 0 or 1." >&2
+    exit 1
+    ;;
+esac
 
 dolphin_target_exists() {
   dolphin_existing_target=$1
@@ -79,6 +91,11 @@ if [ "$normal_scheduler_guard" -ne 1 ] &&
     --setenv="GAMECUBE_PASTA_OUTBOUND_INTERFACE=${GAMECUBE_PASTA_OUTBOUND_INTERFACE:-}" \
     --setenv="GAMECUBE_PASTA_DEBUG=${GAMECUBE_PASTA_DEBUG:-0}" \
     --setenv="GAMECUBE_PASTA_CAPTURE=${GAMECUBE_PASTA_CAPTURE:-0}" \
+    --setenv="GAMECUBE_DOLPHIN_CAPTURE_VIDEO=$capture_video" \
+    --setenv="GAMECUBE_DOLPHIN_CAPTURE_PATH=$capture_path" \
+    --setenv="QT_QPA_PLATFORM=$qt_platform" \
+    --setenv="DISPLAY=${DISPLAY:-}" \
+    --setenv="XAUTHORITY=${XAUTHORITY:-}" \
     /bin/sh "$script_dir/run-dolphin.sh" "$dol"
   while :; do
     service_state=$(systemctl --user show "$unit" --property=ActiveState \
@@ -173,17 +190,24 @@ if [ ! -p "$user_dir/Pipes/multiplex-hotkeys" ]; then
   mkfifo "$user_dir/Pipes/multiplex-hotkeys"
 fi
 echo "$$" >"$pid_file"
+export QT_QPA_PLATFORM="$qt_platform"
 
 exec "$dolphin_emu" --batch \
   --user="$user_dir" \
   --audio_emulation="$audio_emulation" \
   --config=Interface.ConfirmStop=False \
-  --config=Main.General.GDBPort="$gdb_port" \
-  --config=Main.General.GDBSocket="$gdb_socket" \
+  --config=Dolphin.General.GDBPort="$gdb_port" \
+  --config=Dolphin.General.GDBSocket="$gdb_socket" \
+  --config=Dolphin.Core.MMU=True \
   --config=SYSCONF.IPL.PGS=True \
   --config=SYSCONF.IPL.AR=0 \
-  --config=GFX.Hacks.SafeTextureCacheColorSamples=0 \
-  --config=GFX.Hacks.EFBToTextureEnable=False \
-  --config=GFX.Hacks.XFBToTextureEnable=False \
-  --config=GFX.Hacks.BBoxEnable=True \
+  --config=Graphics.Hacks.SafeTextureCacheColorSamples=0 \
+  --config=Graphics.Hacks.EFBToTextureEnable=False \
+  --config=Graphics.Hacks.XFBToTextureEnable=False \
+  --config=Graphics.Hacks.BBoxEnable=True \
+  --config=Dolphin.Movie.DumpFrames="$capture_frames" \
+  --config=Dolphin.Movie.DumpFramesSilent=True \
+  --config=Graphics.Settings.DumpFramesAsImages=False \
+  --config=Graphics.Settings.DumpPath="$capture_path" \
+  --config=Graphics.Settings.BitrateKbps=4000 \
   --exec="$dol"

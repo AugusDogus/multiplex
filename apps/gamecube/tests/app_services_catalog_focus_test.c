@@ -12,6 +12,14 @@ static MultiplexAppServicesFocusView home_focus(uint64_t now_ms,
   };
 }
 
+const MultiplexAuthCredentials *
+multiplex_app_services_auth_credentials(const MultiplexAppServices *services) {
+  return services != NULL &&
+                 services->auth.kind == MULTIPLEX_APP_SERVICES_AUTH_LINKED
+             ? &services->auth.state.linked.credentials
+             : NULL;
+}
+
 int main(void) {
   MultiplexAppServices services = {0};
   services.content.catalog.available = true;
@@ -48,6 +56,23 @@ int main(void) {
   focus = home_focus(8000u, true);
   assert(multiplex_app_services_catalog_focus(&services, &focus));
   assert(services.content.startup_data_not_before_ms == 9001u);
+
+  services.auth.kind = MULTIPLEX_APP_SERVICES_AUTH_LINKED;
+  services.auth.network_allowed = false;
+  services.content.catalog.load.kind =
+      MULTIPLEX_APP_SERVICES_LOAD_REFRESH_PENDING;
+  services.content.catalog.cache_save.kind = MULTIPLEX_APP_SERVICES_LOAD_IDLE;
+  services.content.startup_data.kind =
+      MULTIPLEX_APP_SERVICES_LOAD_REFRESH_PENDING;
+  assert(!multiplex_app_services_catalog_has_queued(&services));
+
+  services.content.catalog.cache_save.kind =
+      MULTIPLEX_APP_SERVICES_LOAD_REFRESH_PENDING;
+  assert(multiplex_app_services_catalog_has_queued(&services));
+
+  services.content.catalog.cache_save.kind = MULTIPLEX_APP_SERVICES_LOAD_IDLE;
+  services.auth.network_allowed = true;
+  assert(multiplex_app_services_catalog_has_queued(&services));
 
   puts("GameCube AppServices catalog focus tests passed.");
   return 0;

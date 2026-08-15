@@ -22,6 +22,7 @@ plex_max_video_bitrate=${GAMECUBE_PLEX_MAX_VIDEO_BITRATE:-700}
 watch_together=${GAMECUBE_PLEX_WATCH_TOGETHER:-0}
 watch_together_invitee_id=${GAMECUBE_WATCH_TOGETHER_INVITEE_ID:-}
 watch_together_browser_guest=${GAMECUBE_WATCH_TOGETHER_BROWSER_GUEST:-0}
+auto_link=${GAMECUBE_AUTO_LINK:-1}
 rating_key=${GAMECUBE_PLEX_RATING_KEY:-}
 search_query=${GAMECUBE_PLEX_SEARCH_QUERY:-FRESH}
 search_result_index=${GAMECUBE_PLEX_SEARCH_RESULT_INDEX:-0}
@@ -41,11 +42,15 @@ console_name=${MULTIPLEX_CONSOLE_NAME:-GameCube}
 reference_dol=${MULTIPLEX_REFERENCE_DOL:-"$app_dir/multiplex-gamecube-native-reference-dolphin.dol"}
 reference_build_script=${MULTIPLEX_REFERENCE_BUILD_SCRIPT:-build-native-reference-dol.sh}
 skip_build=${GAMECUBE_SKIP_BUILD:-0}
+capture_video=${GAMECUBE_DOLPHIN_CAPTURE_VIDEO:-1}
+window_capture_path=${GAMECUBE_DOLPHIN_WINDOW_CAPTURE_PATH:-"$cache_dir/dolphin-window-capture.mkv"}
+window_capture_frame_path=${GAMECUBE_DOLPHIN_WINDOW_CAPTURE_FRAME_PATH:-"$cache_dir/dolphin-window-last-frame.png"}
 controller_pipe_name=${MULTIPLEX_CONTROLLER_PIPE:-multiplex1}
 dolphin_network=${MULTIPLEX_DOLPHIN_NETWORK:-rootless-tap}
 pasta_outbound_interface=${GAMECUBE_PASTA_OUTBOUND_INTERFACE:-}
 server_pid=
 launcher_pid=
+capture_pid=
 mute_pid=
 lobby_pid=
 created_room_id=
@@ -63,6 +68,21 @@ for command in curl ip jq python3 setsid; do
     exit 1
   fi
 done
+case "$capture_video" in
+  0 | 1) ;;
+  *)
+    echo "GAMECUBE_DOLPHIN_CAPTURE_VIDEO must be 0 or 1." >&2
+    exit 1
+    ;;
+esac
+if [ "$capture_video" -eq 1 ]; then
+  for command in chrt ffmpeg xdotool; do
+    if ! command -v "$command" >/dev/null 2>&1; then
+      echo "$command is required to record the visible Dolphin window." >&2
+      exit 1
+    fi
+  done
+fi
 if [ "$direct_plex" -ne 1 ]; then
   for command in ffmpeg ffprobe; do
     if ! command -v "$command" >/dev/null 2>&1; then
@@ -72,6 +92,9 @@ if [ "$direct_plex" -ne 1 ]; then
   done
 fi
 
+if [ -z "$plex_base_url" ] && [ -f "$auth_state" ]; then
+  plex_base_url=$(jq -r '.plexServerUrl // empty' "$auth_state")
+fi
 if [ -z "$plex_base_url" ]; then
   for address in $(ip neigh show | awk '$1 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {print $1}'); do
     if curl --noproxy '*' --connect-timeout 0.3 --max-time 0.7 --fail --silent \
@@ -117,6 +140,13 @@ case "$watch_together_browser_guest" in
   0 | 1) ;;
   *)
     echo "GAMECUBE_WATCH_TOGETHER_BROWSER_GUEST must be 0 or 1." >&2
+    exit 1
+    ;;
+esac
+case "$auto_link" in
+  0 | 1) ;;
+  *)
+    echo "GAMECUBE_AUTO_LINK must be 0 or 1." >&2
     exit 1
     ;;
 esac
@@ -285,6 +315,19 @@ cleanup() {
     kill -TERM "$lobby_pid" 2>/dev/null || true
     wait "$lobby_pid" 2>/dev/null || true
   fi
+  if [ -n "$capture_pid" ] && kill -0 "$capture_pid" 2>/dev/null; then
+    /bin/kill -INT -- "-$capture_pid" 2>/dev/null || true
+    wait "$capture_pid" 2>/dev/null || true
+  fi
+  if [ -s "$window_capture_path" ]; then
+    if ! bun "$app_dir/../watch-together-harness/scripts/index-recording.ts" \
+      "$window_capture_path"; then
+      echo "Could not index every frame in the Dolphin recording at $window_capture_path." >&2
+    fi
+    ffmpeg -nostdin -loglevel error -y -sseof -0.05 \
+      -i "$window_capture_path" -frames:v 1 \
+      "$window_capture_frame_path" || true
+  fi
   rm -f "$browser_guest_control"
   test_room_id=$created_room_id
   if [ -n "$test_room_id" ] &&
@@ -405,9 +448,45 @@ setsid env \
   DOLPHIN_EMU="$dolphin_emu" \
   GAMECUBE_PASTA_BIN="${GAMECUBE_PASTA_BIN:-$app_dir/.passt/pasta}" \
   GAMECUBE_PASTA_OUTBOUND_INTERFACE="$pasta_outbound_interface" \
+  GAMECUBE_DOLPHIN_CAPTURE_VIDEO="$capture_video" \
   sh "$script_dir/run-dolphin.sh" \
     "$reference_dol" >"$launcher_log" 2>&1 &
 launcher_pid=$!
+
+if [ "$capture_video" -eq 1 ]; then
+  mkdir -p "$(dirname -- "$window_capture_path")"
+  mkdir -p "$(dirname -- "$window_capture_frame_path")"
+  rm -f "$window_capture_path" "$window_capture_frame_path" \
+    "$cache_dir/dolphin-window-capture.log"
+  capture_window_id=
+  capture_window_attempt=0
+  while [ "$capture_window_attempt" -lt 300 ]; do
+    capture_window_id=$(xdotool search --onlyvisible --name '^Dolphin ' \
+      2>/dev/null | tail -1 || true)
+    if [ -n "$capture_window_id" ]; then
+      break
+    fi
+    if ! kill -0 "$launcher_pid" 2>/dev/null; then
+      echo "Dolphin exited before its window could be recorded." >&2
+      exit 1
+    fi
+    sleep 0.1
+    capture_window_attempt=$((capture_window_attempt + 1))
+  done
+  if [ -z "$capture_window_id" ]; then
+    echo "Timed out finding the visible Dolphin window for recording." >&2
+    exit 1
+  fi
+  setsid chrt -o 0 ffmpeg -nostdin -y \
+    -f x11grab -framerate 60 -window_id "$capture_window_id" \
+    -draw_mouse 0 -i "${DISPLAY:-:0}" \
+    -vf 'pad=ceil(iw/2)*2:ceil(ih/2)*2' \
+    -c:v libx264 -preset ultrafast -crf 18 -pix_fmt yuv420p \
+    "$window_capture_path" \
+    >"$cache_dir/dolphin-window-capture.log" 2>&1 &
+  capture_pid=$!
+  echo "Recording the visible Dolphin window to $window_capture_path."
+fi
 
 rm -f "$mute_marker"
 if command -v pactl >/dev/null 2>&1; then
@@ -435,6 +514,7 @@ wait_log() {
   attempts=${2:-300}
   attempt=0
   while [ "$attempt" -lt "$attempts" ]; do
+    fail_if_dolphin_exception
     if [ -f "$log" ] && grep -q "$pattern" "$log"; then
       return
     fi
@@ -460,6 +540,7 @@ wait_for_new() {
   attempts=${3:-1200}
   attempt=0
   while [ "$attempt" -lt "$attempts" ]; do
+    fail_if_dolphin_exception
     current=$(line_count "$pattern")
     if [ "$current" -gt "$previous" ]; then
       return
@@ -474,6 +555,48 @@ wait_for_new() {
   echo "Timed out waiting for another Dolphin log pattern: $pattern" >&2
   tail -60 "$log" >&2 || true
   exit 1
+}
+
+ensure_console_linked() {
+  [ -n "$multiplex_base_url" ] || return
+  attempt=0
+  while [ "$attempt" -lt 600 ]; do
+    fail_if_dolphin_exception
+    if grep -q "memory-card load slot=[AB] bytes=\|auth persistence=" \
+      "$log" 2>/dev/null; then
+      return
+    fi
+    pairing_code=$(sed -n \
+      's/.*device authorization waiting code=\([A-Z2-9][A-Z2-9][A-Z2-9][A-Z2-9]\).*/\1/p' \
+      "$log" 2>/dev/null | tail -1)
+    if [ -n "$pairing_code" ]; then
+      if [ "$auto_link" -eq 1 ]; then
+        MULTIPLEX_BASE_URL="$multiplex_base_url" \
+          bun "$app_dir/../watch-together-harness/scripts/claim-gamecube.ts" \
+          "$pairing_code"
+      else
+        echo "$console_name is waiting at $multiplex_base_url/link for code $pairing_code."
+      fi
+      wait_log "auth persistence=" 1200
+      return
+    fi
+    if ! kill -0 "$launcher_pid" 2>/dev/null; then
+      echo "Dolphin exited before restoring or linking its Multiplex account." >&2
+      exit 1
+    fi
+    sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  echo "Timed out waiting for Dolphin to restore or start linking its Multiplex account." >&2
+  exit 1
+}
+
+fail_if_dolphin_exception() {
+  if [ -f "$log" ] && grep -q "REFERENCE GX: fatal exception=" "$log"; then
+    echo "Dolphin reached a guest exception; see $window_capture_path and $log." >&2
+    tail -60 "$log" >&2 || true
+    exit 1
+  fi
 }
 
 browser_guest_line_count() {
@@ -547,7 +670,7 @@ wait_for_synced_playback_state() {
   attempt=0
   while [ "$attempt" -lt "$attempts" ]; do
     gamecube_state=$(sed -n \
-      's/.*REFERENCE GX: playback=\(playing\|paused\).*/\1/p' \
+      "s/.*REFERENCE GX: $timeline_pattern .*state=\(playing\|paused\) reported=1.*/\1/p" \
       "$log" 2>/dev/null | tail -1)
     browser_state=$(sed -n \
       's/.*Browser guest playback=\(playing\|paused\).*/\1/p' \
@@ -657,8 +780,20 @@ press() {
       navigate "$button"
       return
       ;;
+    A) action=2 ;;
+    B) action=3 ;;
+    Y) action=4 ;;
+    X) action=5 ;;
+    R) action=6 ;;
+    L) action=7 ;;
+    Z) action=10 ;;
+    START) action=11 ;;
+    *)
+      echo "Unsupported controller button: $button" >&2
+      exit 1
+      ;;
   esac
-  previous=$(grep -c "controller buttons" "$log" 2>/dev/null || true)
+  previous=$(line_count "input action=$action")
   max_attempts=${GAMECUBE_CONTROLLER_ATTEMPTS:-60}
   attempt=0
   while [ "$attempt" -lt "$max_attempts" ]; do
@@ -667,7 +802,7 @@ press() {
     printf 'PRESS %s\n' "$button" >&3
     poll=0
     while [ "$poll" -lt 5 ]; do
-      current=$(grep -c "controller buttons" "$log" 2>/dev/null || true)
+      current=$(line_count "input action=$action")
       if [ "$current" -gt "$previous" ]; then
         printf 'RELEASE %s\n' "$button" >&3
         sleep 0.5
@@ -687,6 +822,54 @@ press() {
   echo "Timed out after $max_attempts attempts waiting for Dolphin to sample controller button: $button" >&2
   tail -60 "$log" >&2 || true
   exit 1
+}
+
+latest_input_message() {
+  sed -n 's/.*REFERENCE GX: input action=[0-9][0-9]* focus=[0-9][0-9]* count=[0-9][0-9]* message=\([0-9][0-9]*\).*/\1/p' \
+    "$log" | tail -1
+}
+
+latest_input_detail() {
+  sed -n 's/.*REFERENCE GX: input action=[0-9][0-9]* focus=[0-9][0-9]* count=[0-9][0-9]* message=[0-9][0-9]* detail=\([0-9][0-9]*\).*/\1/p' \
+    "$log" | tail -1
+}
+
+focus_message() {
+  target=$1
+  direction=$2
+  maximum=${3:-8}
+  moved=0
+  while [ "$moved" -lt "$maximum" ]; do
+    press "$direction"
+    if [ "$(latest_input_message)" -eq "$target" ]; then
+      return
+    fi
+    moved=$((moved + 1))
+  done
+  echo "Could not focus native UI message $target using $direction." >&2
+  exit 1
+}
+
+focus_next_invitee_page() {
+  signature_count=$(line_count "signature=")
+  press D_DOWN
+  wait_for_new "signature=" "$signature_count"
+  case "$(latest_input_message)" in
+    24)
+      signature_count=$(line_count "signature=")
+      press D_RIGHT
+      wait_for_new "signature=" "$signature_count"
+      ;;
+    26)
+      signature_count=$(line_count "signature=")
+      press D_DOWN
+      wait_for_new "signature=" "$signature_count"
+      ;;
+  esac
+  if [ "$(latest_input_message)" -ne 25 ]; then
+    echo "Could not focus the next Watch Together invitee page." >&2
+    exit 1
+  fi
 }
 
 audit_focus_cycle() {
@@ -781,6 +964,11 @@ ensure_playback_playing() {
     if [ "$playback_state" = "playing" ]; then
       return
     fi
+    if [ -z "$playback_state" ]; then
+      sleep 0.2
+      attempt=$((attempt + 1))
+      continue
+    fi
     press A
     sleep 1
     attempt=$((attempt + 1))
@@ -789,8 +977,9 @@ ensure_playback_playing() {
   exit 1
 }
 
-if [ "$direct_plex" -eq 1 ]; then
-  wait_log "auth restored" 600
+ensure_console_linked
+
+if [ "$direct_plex" -eq 1 ] || [ -n "$multiplex_base_url" ]; then
   wait_log "direct Plex catalog rows=" 1200
   if [ "$wait_artwork" -eq 1 ]; then
     wait_log "direct Plex posters decoded=" 1200
@@ -809,16 +998,24 @@ if [ "$interactive" -eq 1 ]; then
   exit 0
 fi
 if [ -n "$multiplex_base_url" ]; then
-  if grep -q "auth restored" "$log"; then
-    wait_log "background account data ready" 1200
-  elif ! grep -q "gateway-pairing status=2" "$log"; then
-    wait_log "gateway-pairing status=1" 600
-    wait_for_new "gateway-pairing status=2" 0 3600
-    wait_for_new "signature=" "$signature_count"
-  fi
+  wait_log "tRPC Plex user loaded=1" 1200
+  wait_log "tRPC Watch Together rooms=.* loaded=1" 1200
+  wait_log "tRPC Watch Together invitees=.* loaded=1" 1200
 else
   press A
   wait_for_new "signature=" "$signature_count"
+fi
+
+if [ "$direct_plex" -eq 1 ]; then
+  browse_ready_pattern="direct Plex browse section="
+  search_ready_pattern="direct Plex search query=$search_query"
+  details_ready_pattern="direct Plex details rating-key="
+  details_children_pattern="direct Plex children rating-key="
+else
+  browse_ready_pattern="gateway-browse section="
+  search_ready_pattern="gateway-search query=$search_query"
+  details_ready_pattern="gateway-details rating-key="
+  details_children_pattern="gateway-children rating-key="
 fi
 
 if [ "$focus_audit" -eq 1 ]; then
@@ -834,10 +1031,10 @@ if [ "$focus_audit" -eq 1 ]; then
   signature_count=$(line_count "signature=")
   press D_RIGHT
   wait_for_new "signature=" "$signature_count"
-  browse_count=$(line_count "browse-page ready")
+  browse_count=$(line_count "$browse_ready_pattern")
   signature_count=$(line_count "signature=")
   press A
-  wait_for_new "browse-page ready" "$browse_count" 1200
+  wait_for_new "$browse_ready_pattern" "$browse_count" 1200
   wait_for_new "signature=" "$signature_count"
   audit_focus_cycle
 
@@ -857,10 +1054,10 @@ if [ "$browse_audit" -eq 1 ] && [ "$focus_audit" -eq 0 ]; then
   signature_count=$(line_count "signature=")
   press D_RIGHT
   wait_for_new "signature=" "$signature_count"
-  browse_count=$(line_count "browse-page ready")
+  browse_count=$(line_count "$browse_ready_pattern")
   signature_count=$(line_count "signature=")
   press A
-  wait_for_new "browse-page ready" "$browse_count" 1200
+  wait_for_new "$browse_ready_pattern" "$browse_count" 1200
   wait_for_new "signature=" "$signature_count"
   signature_count=$(line_count "signature=")
   press B
@@ -879,10 +1076,10 @@ if [ "$focus_audit" -eq 1 ]; then
   audit_focus_cycle
 fi
 type_search_query "$search_query"
-search_count=$(line_count "search-page ready query=$search_query")
+search_count=$(line_count "$search_ready_pattern")
 signature_count=$(line_count "signature=")
 press R
-wait_for_new "search-page ready query=$search_query" "$search_count" 1200
+wait_for_new "$search_ready_pattern" "$search_count" 1200
 wait_for_new "signature=" "$signature_count"
 if [ "$focus_audit" -eq 1 ]; then
   audit_focus_cycle
@@ -899,15 +1096,15 @@ while [ "$result_focus" -lt "$search_result_index" ]; do
   result_focus=$((result_focus + 1))
 done
 signature_count=$(line_count "signature=")
-details_count=$(line_count "details-page ready")
+details_count=$(line_count "$details_ready_pattern")
 if [ "$tv_hierarchy" -eq 1 ]; then
-  children_count=$(line_count "details children ready")
+  children_count=$(line_count "$details_children_pattern")
 fi
 press A
-wait_for_new "details-page ready" "$details_count" 1200
+wait_for_new "$details_ready_pattern" "$details_count" 1200
 wait_for_new "signature=" "$signature_count"
 if [ "$tv_hierarchy" -eq 1 ]; then
-  wait_for_new "details children ready" "$children_count" 1200
+  wait_for_new "$details_children_pattern" "$children_count" 1200
   if [ "$focus_audit" -eq 1 ]; then
     audit_focus_cycle
   fi
@@ -918,22 +1115,22 @@ if [ "$tv_hierarchy" -eq 1 ]; then
     wait_for_new "signature=" "$signature_count"
     season_focus=$((season_focus + 1))
   done
-  details_count=$(line_count "details-page ready")
-  children_count=$(line_count "details children ready")
+  details_count=$(line_count "$details_ready_pattern")
+  children_count=$(line_count "$details_children_pattern")
   signature_count=$(line_count "signature=")
   press A
-  wait_for_new "details-page ready" "$details_count" 1200
-  wait_for_new "details children ready" "$children_count" 1200
+  wait_for_new "$details_ready_pattern" "$details_count" 1200
+  wait_for_new "$details_children_pattern" "$children_count" 1200
   wait_for_new "signature=" "$signature_count"
   if [ "$focus_audit" -eq 1 ]; then
     audit_focus_cycle
   fi
   current_episode_page=0
   while [ "$current_episode_page" -lt "$tv_episode_page" ]; do
-    children_count=$(line_count "details children ready")
+    children_count=$(line_count "$details_children_pattern")
     signature_count=$(line_count "signature=")
     press R
-    wait_for_new "details children ready" "$children_count" 1200
+    wait_for_new "$details_children_pattern" "$children_count" 1200
     wait_for_new "signature=" "$signature_count"
     current_episode_page=$((current_episode_page + 1))
   done
@@ -944,10 +1141,10 @@ if [ "$tv_hierarchy" -eq 1 ]; then
     wait_for_new "signature=" "$signature_count"
     episode_focus=$((episode_focus + 1))
   done
-  details_count=$(line_count "details-page ready")
+  details_count=$(line_count "$details_ready_pattern")
   signature_count=$(line_count "signature=")
   press A
-  wait_for_new "details-page ready" "$details_count" 1200
+  wait_for_new "$details_ready_pattern" "$details_count" 1200
   wait_for_new "signature=" "$signature_count"
 fi
 if [ "$focus_audit" -eq 1 ]; then
@@ -955,17 +1152,28 @@ if [ "$focus_audit" -eq 1 ]; then
 fi
 if [ "$watch_together" -eq 1 ]; then
   # Watch Together creation lives in the Start menu, matching Plex's More
-  # actions flow. START opens it with its primary action focused.
+  # actions flow. START opens it with Play focused; Host Watch Together is the
+  # third action.
   signature_count=$(line_count "signature=")
   press START
   wait_for_new "signature=" "$signature_count"
+  signature_count=$(line_count "signature=")
+  press D_DOWN
+  wait_for_new "signature=" "$signature_count"
+  signature_count=$(line_count "signature=")
+  press D_DOWN
+  wait_for_new "signature=" "$signature_count"
 fi
 playing_count=$(line_count "playback=playing")
-paused_count=$(line_count "playback=paused")
 if [ "$direct_plex" -eq 1 ]; then
   playback_ready_pattern="direct playback ready"
-  playback_activation_pattern="direct playback activated"
-  playback_switch_pattern="direct playback activated"
+  if [ "$watch_together" -eq 1 ]; then
+    playback_activation_pattern="$playback_ready_pattern"
+    playback_switch_pattern="$playback_ready_pattern"
+  else
+    playback_activation_pattern="direct playback activated"
+    playback_switch_pattern="direct playback activated"
+  fi
   timeline_pattern="direct Plex timeline"
 else
   playback_ready_pattern="playback-session ready"
@@ -976,62 +1184,94 @@ fi
 playback_session_count=$(line_count "$playback_ready_pattern")
 playback_activation_count=$(line_count "$playback_activation_pattern")
 if [ "$watch_together" -eq 1 ]; then
-  created_count=$(line_count "Watch Together room created")
-  invitee_index=$(
-    bun "$script_dir/syncplay-room-control.ts" list-invitees |
-      awk -v id="$watch_together_invitee_id" '$1 == id { print NR - 1; exit }'
-  )
-  case "$invitee_index" in
-    '' | *[!0-9]*)
-      echo "Plex user $watch_together_invitee_id is not available in the GameCube invite list." >&2
-      exit 1
-      ;;
-  esac
-  invitee_page=$((invitee_index / 4))
-  invitee_index_on_page=$((invitee_index % 4))
-  # Open the invite picker. Back is the first focusable control, followed by
-  # the Plex invitees in API order.
-  signature_count=$(line_count "signature=")
-  press A
-  wait_for_new "signature=" "$signature_count"
-  current_invitee_page=0
-  while [ "$current_invitee_page" -lt "$invitee_page" ]; do
-    # Page one has Back, four invitees, then Next.
-    page_focus=0
-    while [ "$page_focus" -lt 5 ]; do
-      signature_count=$(line_count "signature=")
-      press D_RIGHT
-      wait_for_new "signature=" "$signature_count"
-      page_focus=$((page_focus + 1))
-    done
+  selected_details_rating_key=$(sed -n \
+    's/.*direct Plex details rating-key=\([0-9][0-9]*\).*/\1/p' \
+    "$log" | tail -1)
+  if [ -z "$selected_details_rating_key" ]; then
+    echo "The selected Plex rating key was not found in the Dolphin log." >&2
+    exit 1
+  fi
+  existing_room_ids=$(bun "$script_dir/syncplay-room-control.ts" list-rooms |
+      cut -f1)
+    created_count=$(line_count "tRPC Watch Together create status=1")
+    join_count=$(line_count "Syncplay Hello acknowledged=1")
+    invitee_index=$(
+      bun "$script_dir/syncplay-room-control.ts" list-invitees |
+        awk -v id="$watch_together_invitee_id" '$1 == id { print NR - 1; exit }'
+    )
+    case "$invitee_index" in
+      '' | *[!0-9]*)
+        echo "Plex user $watch_together_invitee_id is not available in the GameCube invite list." >&2
+        exit 1
+        ;;
+    esac
+    invitee_page=$((invitee_index / 4))
+    # Open the invite picker. Back is the first focusable control, followed by
+    # the Plex invitees in API order.
     signature_count=$(line_count "signature=")
     press A
     wait_for_new "signature=" "$signature_count"
-    current_invitee_page=$((current_invitee_page + 1))
-  done
-  invitee_focus=0
-  while [ "$invitee_focus" -le "$invitee_index_on_page" ]; do
+    current_invitee_page=0
+    while [ "$current_invitee_page" -lt "$invitee_page" ]; do
+      focus_next_invitee_page
+      signature_count=$(line_count "signature=")
+      press A
+      wait_for_new "signature=" "$signature_count"
+      current_invitee_page=$((current_invitee_page + 1))
+    done
+    # The invite view initially focuses its persistent header action. Move
+    # down once into the invitee row, then adjust horizontally. Do not assume
+    # a pagination button exists below a short list.
     signature_count=$(line_count "signature=")
-    press D_RIGHT
+    press D_DOWN
     wait_for_new "signature=" "$signature_count"
-    invitee_focus=$((invitee_focus + 1))
-  done
-  press A
-  wait_for_new "Watch Together room created" "$created_count" 1200
-  created_room_id=$(sed -n \
-    's/.*Watch Together room created id=\([A-Za-z0-9][A-Za-z0-9]*\).*/\1/p' \
-    "$log" | tail -1)
-  if [ -z "$created_room_id" ]; then
-    echo "The GameCube-created Watch Together room id was not found in the Dolphin log." >&2
-    exit 1
-  fi
-  signature_count=$(line_count "signature=")
-  press D_RIGHT
-  wait_for_new "signature=" "$signature_count"
-  join_count=$(line_count "Watch Together lobby room=0 connected=1 invited=2")
-  press A
-  wait_for_new "Watch Together lobby room=0 connected=1 invited=2" \
-    "$join_count" 3600
+    if [ "$(latest_input_message)" -ne 26 ]; then
+      echo "Could not focus a Watch Together invitee." >&2
+      exit 1
+    fi
+    focused_invitee_index=$(($(latest_input_detail) - 1))
+    while [ "$focused_invitee_index" -lt "$invitee_index" ]; do
+      signature_count=$(line_count "signature=")
+      press D_RIGHT
+      wait_for_new "signature=" "$signature_count"
+      focused_invitee_index=$((focused_invitee_index + 1))
+    done
+    while [ "$focused_invitee_index" -gt "$invitee_index" ]; do
+      signature_count=$(line_count "signature=")
+      press D_LEFT
+      wait_for_new "signature=" "$signature_count"
+      focused_invitee_index=$((focused_invitee_index - 1))
+    done
+    if [ "$invitee_index" -ne "$(($(latest_input_detail) - 1))" ]; then
+      echo "Could not focus the selected Watch Together invitee." >&2
+      exit 1
+    fi
+    press A
+    wait_for_new "tRPC Watch Together create status=1" "$created_count" 1200
+    room_lookup_attempt=0
+    while [ "$room_lookup_attempt" -lt 60 ]; do
+      created_room_candidates=$(bun "$script_dir/syncplay-room-control.ts" list-rooms |
+        awk -F '\t' -v key="$selected_details_rating_key" \
+          '$3 ~ ("/metadata/" key "$") { print $1 }')
+      created_room_id=
+      for room_candidate in $created_room_candidates; do
+        if ! printf '%s\n' "$existing_room_ids" |
+          grep -Fxq "$room_candidate"; then
+          created_room_id=$room_candidate
+          break
+        fi
+      done
+      if [ -n "$created_room_id" ]; then
+        break
+      fi
+      sleep 1
+      room_lookup_attempt=$((room_lookup_attempt + 1))
+    done
+    if [ -z "$created_room_id" ]; then
+      echo "The GameCube-created Watch Together room was not returned by Multiplex." >&2
+      exit 1
+    fi
+  wait_for_new "Syncplay Hello acknowledged=1" "$join_count" 3600
   if [ "$watch_together_browser_guest" -eq 1 ]; then
     start_browser_guest
   else
@@ -1087,27 +1327,50 @@ if [ "$expect_autoplay_next" -eq 1 ]; then
   selected_rating_key=$(sed -n \
     "s/.*$playback_ready_pattern rating-key=\([0-9][0-9]*\).*/\1/p" \
     "$log" | head -1)
-  if [ "$watch_together" -eq 1 ]; then
-    autoplay_pattern="Watch Together autoplay-next"
-  else
-    autoplay_pattern="direct autoplay-next"
-  fi
-  wait_log "$autoplay_pattern previous=$selected_rating_key active=$expected_autoplay_rating_key" 3600
-  if [ "$watch_together" -eq 1 ]; then
-    rotated_room_id=$(sed -n \
-      "s/.*$autoplay_pattern previous=[0-9][0-9]* active=[0-9][0-9]* room=\([A-Za-z0-9][A-Za-z0-9]*\).*/\1/p" \
-      "$log" | tail -1)
-    if [ -z "$rotated_room_id" ]; then
-      echo "The rotated Watch Together room id was not found in the Dolphin log." >&2
-      exit 1
-    fi
-    created_room_id=$rotated_room_id
+  previous_room_id=$created_room_id
+  rotation_participants_count=$(line_count "Syncplay participants=2")
+  if [ "$watch_together_browser_guest" -eq 1 ]; then
+    browser_offset_count=$(browser_guest_line_count "Browser guest offset-ms=")
+    printf 'seek-to-end\n' >"$browser_guest_control"
+    wait_for_browser_guest "Browser guest command=seek-to-end" 0 300
+    wait_for_browser_guest "Browser guest offset-ms=" "$browser_offset_count" 1200
   fi
   wait_log "direct playback ready rating-key=$expected_autoplay_rating_key offset=0" 3600
   wait_for_new "playback=playing" "$((playing_count + 1))" 1200
   if [ "$watch_together" -eq 1 ]; then
     wait_for_browser_guest "Browser guest rating-key=$expected_autoplay_rating_key" 0 1200
     wait_for_browser_guest "Browser guest advancing .*rating-key=$expected_autoplay_rating_key" 0 1200
+    wait_for_new "Syncplay participants=2" "$rotation_participants_count" 1200
+
+    rotation_room_attempt=0
+    rotated_room_id=
+    while [ "$rotation_room_attempt" -lt 60 ]; do
+      rotation_rooms=$(bun "$script_dir/syncplay-room-control.ts" list-rooms)
+      matching_rotation_rooms=$(printf '%s\n' "$rotation_rooms" | awk \
+        -v suffix="/library/metadata/$expected_autoplay_rating_key" \
+        '$3 ~ suffix "$" { print $1 }')
+      matching_rotation_count=$(printf '%s\n' "$matching_rotation_rooms" | \
+        awk 'NF { count += 1 } END { print count + 0 }')
+      if [ "$matching_rotation_count" -gt 1 ]; then
+        echo "Watch Together created $matching_rotation_count successor rooms for episode $expected_autoplay_rating_key instead of converging on one." >&2
+        printf '%s\n' "$matching_rotation_rooms" >&2
+        exit 1
+      fi
+      previous_room_present=$(printf '%s\n' "$rotation_rooms" | awk \
+        -v id="$previous_room_id" '$1 == id { found = 1 } END { print found + 0 }')
+      if [ "$matching_rotation_count" -eq 1 ] && \
+        [ "$previous_room_present" -eq 0 ]; then
+        rotated_room_id=$matching_rotation_rooms
+        break
+      fi
+      rotation_room_attempt=$((rotation_room_attempt + 1))
+      sleep 0.5
+    done
+    if [ -z "$rotated_room_id" ]; then
+      echo "Watch Together did not settle on one successor room for episode $expected_autoplay_rating_key." >&2
+      exit 1
+    fi
+    created_room_id=$rotated_room_id
   fi
   wait_log "direct Plex timeline rating-key=$selected_rating_key .*state=stopped reported=1" 600
   sleep "$sustain_seconds"
@@ -1191,14 +1454,8 @@ if [ "$watch_together_browser_guest" -eq 1 ]; then
 fi
 
 # Prove deliberate player state edges reach Plex as well as periodic progress.
-paused_count=$(line_count "playback=paused")
 paused_timeline_count=$(line_count "$timeline_pattern .*state=paused reported=1")
 press A
-if [ "$(line_count "playback=paused")" -le "$paused_count" ]; then
-  # An idle player consumes the first A to reveal its hidden controls.
-  press A
-fi
-wait_for_new "playback=paused" "$paused_count" 120
 wait_for_new "$timeline_pattern .*state=paused reported=1" "$paused_timeline_count" 600
 if [ "$watch_together_browser_guest" -eq 1 ]; then
   wait_for_synced_playback_state paused 1200
@@ -1290,32 +1547,33 @@ if grep -Eq 'underruns=[1-9][0-9]*' "$log"; then
 fi
 wait_log "$timeline_pattern rating-key=$selected_rating_key .*state=playing reported=1" 600
 if [ "$watch_together_browser_guest" -eq 1 ]; then
-  reconnect_requested_count=$(line_count "Syncplay reconnect requested room=")
-  reconnected_count=$(line_count "Syncplay reconnected room=")
+  reconnected_count=$(line_count "Syncplay TLS connected host=")
   reconnect_participants_count=$(line_count "Syncplay participants=2")
-  press D_RIGHT
-  press D_RIGHT
+  focus_message 41 D_RIGHT 8
   press A
-  wait_for_new "Syncplay reconnect requested room=" \
-    "$reconnect_requested_count" 600
-  wait_for_new "Syncplay reconnected room=" "$reconnected_count" 600
+  focus_message 29 D_DOWN 8
+  press A
+  wait_for_new "Syncplay TLS connected host=" "$reconnected_count" 600
   wait_for_new "Syncplay participants=2" "$reconnect_participants_count" 600
   wait_for_synced_playback_state playing 1200
 
-  disbanded_room_count=$(line_count "Watch Together disbanded room=")
   stopped_timeline_count=$(line_count "$timeline_pattern .*state=stopped reported=1")
-  press D_RIGHT
-  press D_RIGHT
-  press D_RIGHT
+  focus_message 30 D_DOWN 8
   press A
-  wait_for_new "Watch Together disbanded room=$created_room_id deleted=1" \
-    "$disbanded_room_count" 600
   wait_for_new "$timeline_pattern .*state=stopped reported=1" \
     "$stopped_timeline_count" 600
-  rooms_after_disband=$(bun "$script_dir/syncplay-room-control.ts" list-rooms)
-  if printf '%s\n' "$rooms_after_disband" | awk -v id="$created_room_id" \
-    '$1 == id { found = 1 } END { exit found ? 0 : 1 }'; then
-    echo "GameCube reported disbanding room $created_room_id, but Multiplex still lists it." >&2
+  room_delete_attempt=0
+  while [ "$room_delete_attempt" -lt 60 ]; do
+    rooms_after_disband=$(bun "$script_dir/syncplay-room-control.ts" list-rooms)
+    if ! printf '%s\n' "$rooms_after_disband" | awk -v id="$created_room_id" \
+      '$1 == id { found = 1 } END { exit found ? 0 : 1 }'; then
+      break
+    fi
+    room_delete_attempt=$((room_delete_attempt + 1))
+    sleep 0.5
+  done
+  if [ "$room_delete_attempt" -eq 60 ]; then
+    echo "GameCube stopped playback, but Multiplex did not delete room $created_room_id." >&2
     exit 1
   fi
   disbanded_room_id=$created_room_id

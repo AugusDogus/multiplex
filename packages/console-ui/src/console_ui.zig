@@ -73,9 +73,9 @@ var staged_watch_together_room_ptrs: [4]*const core.WatchTogetherRoom = undefine
 var staged_watch_together_titles: [4][96]u8 = undefined;
 var staged_watch_together_room_count: usize = 0;
 var staged_watch_together_available = false;
-var staged_watch_together_invitees: [8]core.WatchTogetherInvitee = undefined;
-var staged_watch_together_invitee_ptrs: [8]*const core.WatchTogetherInvitee = undefined;
-var staged_watch_together_invitee_names: [8][64]u8 = undefined;
+var staged_watch_together_invitees: [16]core.WatchTogetherInvitee = undefined;
+var staged_watch_together_invitee_ptrs: [16]*const core.WatchTogetherInvitee = undefined;
+var staged_watch_together_invitee_names: [16][64]u8 = undefined;
 var staged_watch_together_invitee_count: usize = 0;
 var staged_watch_together_invitees_available = false;
 var staged_subtitle_streams: [4]core.SubtitleStream = undefined;
@@ -120,7 +120,7 @@ var poster_surface_count: u32 = 0;
 var reference_text_overlay_enabled = false;
 
 extern fn multiplex_native_profile_mark(stage: u32) callconv(.c) void;
-extern fn multiplex_native_input_trace(action: u32, focus: u32, count: u32, message: u32) callconv(.c) void;
+extern fn multiplex_native_input_trace(action: u32, focus: u32, count: u32, message: u32, detail: u32) callconv(.c) void;
 extern fn multiplex_native_cache_alloc(len: u32, alignment: u32) callconv(.c) ?[*]u8;
 extern fn multiplex_native_cache_free(memory: [*]u8) callconv(.c) void;
 
@@ -406,11 +406,15 @@ fn nativeMessageKind(message: core.Msg) NativeMessageKind {
 }
 
 fn traceInputMessage(action: u32, focus: u32, count: u32, message: NativeMessageKind) void {
-    multiplex_native_input_trace(action, focus, count, @intFromEnum(message));
+    multiplex_native_input_trace(action, focus, count, @intFromEnum(message), 0);
 }
 
 fn traceInputNavigation(action: u32, focus: u32, count: u32, navigation: NativeNavigationTraceKind) void {
-    multiplex_native_input_trace(action, focus, count, @intFromEnum(navigation));
+    multiplex_native_input_trace(action, focus, count, @intFromEnum(navigation), 0);
+}
+
+fn traceInputTarget(action: u32, focus: u32, count: u32, message: NativeMessageKind, detail: u32) void {
+    multiplex_native_input_trace(action, focus, count, @intFromEnum(message), detail);
 }
 
 fn abiAlignForward(value: usize, alignment: usize) usize {
@@ -736,7 +740,13 @@ fn prefersFocus(model: *const core.Model, msg: core.Msg) bool {
 fn receivesFocus(model: *const core.Model, msg: core.Msg) bool {
     if (model.playerSettingsOpen) {
         return switch (msg) {
-            .cycle_subtitles, .toggle_stats_for_nerds, .close_player_settings => true,
+            .cycle_subtitles,
+            .toggle_stats_for_nerds,
+            .leave_watch_together,
+            .reconnect_watch_together,
+            .disband_watch_together,
+            .close_player_settings,
+            => true,
             else => false,
         };
     }
@@ -1822,7 +1832,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         return 1;
     }
     if (action == 5) {
-        const message: core.Msg = if (model.screen == .search) .search_delete else .next_row;
+        const message: core.Msg = if (model.screen == .search) .search_delete else .open_watch_together;
         commitAppModel(core.update(model, message));
         if (model.screen != .search) focused_handler = invalid_focused_handler;
         reference_full_repaint = model.screen != .search;
@@ -1906,6 +1916,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
     resolveFocusedHandler(tree, press_ids[0..press_count], model);
 
     var message_kind: NativeMessageKind = .none;
+    var message_detail: u32 = 0;
     var traced_focus = focused_handler;
     switch (action) {
         0, 1, 8, 9 => {
@@ -2033,6 +2044,12 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 return 0;
             }
             const focused_msg = tree.msgFor(press_ids[focused_handler], .press) orelse return 0;
+            traced_focus = focused_handler;
+            message_kind = nativeMessageKind(focused_msg);
+            message_detail = switch (focused_msg) {
+                .invite_watch_together => |index| @intCast(index + 1),
+                else => 0,
+            };
             switch (focused_msg) {
                 .open_item => |index| {
                     commitAppModel(core.previewCatalogItem(model, index));
@@ -2053,6 +2070,10 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
                 else => false,
             };
             message_kind = nativeMessageKind(msg);
+            message_detail = switch (msg) {
+                .invite_watch_together => |index| @intCast(index + 1),
+                else => 0,
+            };
             commitAppModel(core.update(model, msg));
             if (!keep_focus) focused_handler = invalid_focused_handler;
             const search_input_changed = switch (msg) {
@@ -2064,7 +2085,7 @@ export fn multiplex_native_app_input(action: u32) callconv(.c) u32 {
         },
         else => return 0,
     }
-    traceInputMessage(action, @intCast(traced_focus), @intCast(press_count), message_kind);
+    traceInputTarget(action, @intCast(traced_focus), @intCast(press_count), message_kind, message_detail);
     return 1;
 }
 

@@ -74,9 +74,11 @@ static uint32_t wii_buttons_as_gamecube(uint32_t buttons) {
 #endif
 
 void multiplex_native_input_trace(uint32_t action, uint32_t focus,
-                                  uint32_t count, uint32_t message) {
-  SYS_Report("REFERENCE GX: input action=%u focus=%u count=%u message=%u\n",
-             action, focus, count, message);
+                                  uint32_t count, uint32_t message,
+                                  uint32_t detail) {
+  SYS_Report("REFERENCE GX: input action=%u focus=%u count=%u message=%u "
+             "detail=%u\n",
+             action, focus, count, message, detail);
 }
 
 static MultiplexAppFailure dispatch_auth_reset(MultiplexApp *app,

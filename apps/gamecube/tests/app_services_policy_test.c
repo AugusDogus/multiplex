@@ -72,12 +72,25 @@ static void drives_watch_presence(void) {
   assert(gathered_at == 0);
 }
 
+static void follows_room_completion_while_local_playback_is_stalled(void) {
+  assert(multiplex_app_services_watch_should_follow_room(120000u, 90000u,
+                                                         119500u, true));
+  assert(!multiplex_app_services_watch_should_follow_room(120000u, 90000u,
+                                                          119499u, true));
+  assert(!multiplex_app_services_watch_should_follow_room(120000u, 90000u,
+                                                          120000u, false));
+  assert(!multiplex_app_services_watch_should_follow_room(120000u, 119500u,
+                                                          119500u, true));
+  assert(!multiplex_app_services_watch_should_follow_room(0, 0, 0, true));
+}
+
 int main(void) {
   rejects_stale_results();
   advances_and_resets_auth_retry();
   starts_cached_refresh_after_network_recovery();
   schedules_watch_reconnect();
   drives_watch_presence();
+  follows_room_completion_while_local_playback_is_stalled();
   puts("GameCube AppServices policy tests passed.");
   return 0;
 }

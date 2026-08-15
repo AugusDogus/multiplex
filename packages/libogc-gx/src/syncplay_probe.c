@@ -19,11 +19,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/time.h>
 
 #define SYNCPLAY_HTTP_CAPACITY 2048u
 #define SYNCPLAY_FRAME_CAPACITY 2048u
 #define SYNCPLAY_RECEIVE_CAPACITY 4096u
 #define SYNCPLAY_IO_TIMEOUT_SECONDS 8u
+#define SYNCPLAY_STARTUP_PAUSE_GRACE_MS 5000u
 
 typedef struct {
   int socket;
@@ -43,6 +45,10 @@ struct MultiplexSyncplaySession {
   uint32_t local_position_ms;
   uint32_t remote_position_ms;
   uint32_t room_position_ms;
+  uint64_t clock_epoch_milliseconds;
+  uint64_t clock_monotonic_ms;
+  uint64_t accept_remote_pause_after_ms;
+  MultiplexSyncplayPingTiming ping_timing;
   char encoded_user[256];
   char device_identifier[96];
   bool has_local_playback;
@@ -57,6 +63,13 @@ struct MultiplexSyncplaySession {
   bool observer;
   bool connected;
 };
+
+static bool session_now_seconds(const MultiplexSyncplaySession *session,
+                                double *output) {
+  return multiplex_syncplay_epoch_seconds(
+      session->clock_epoch_milliseconds, session->clock_monotonic_ms,
+      ticks_to_millisecs(gettime()), output);
+}
 
 static void close_socket(SyncplaySocket *socket) {
   if (socket == NULL) {
@@ -458,7 +471,7 @@ static unsigned count_participants(const char *json) {
 
 static bool echo_state(MultiplexSyncplaySession *session, const char *json) {
   double position = 0;
-  double client_rtt = 0;
+  double client_timestamp = 0;
   double server_rtt = 0;
   double latency = 0;
   double acknowledged_client = 0;
@@ -470,7 +483,7 @@ static bool echo_state(MultiplexSyncplaySession *session, const char *json) {
     return false;
   }
   read_json_bool(json, "\"doSeek\":", &do_seek);
-  read_json_number(json, "\"clientRtt\":", &client_rtt);
+  read_json_number(json, "\"clientLatencyCalculation\":", &client_timestamp);
   read_json_number(json, "\"serverRtt\":", &server_rtt);
   read_json_number(json, "\"latencyCalculation\":", &latency);
   read_json_number(json, "\"client\":", &acknowledged_client);
@@ -482,10 +495,19 @@ static bool echo_state(MultiplexSyncplaySession *session, const char *json) {
   const bool set_by_self =
       set_by_field != NULL &&
       strstr(set_by_field, session->device_identifier) != NULL;
-  const uint32_t remote_position_ms = position <= 0 ? 0
-                                      : position >= (double)UINT32_MAX / 1000.0
-                                          ? UINT32_MAX
-                                          : (uint32_t)(position * 1000.0);
+  double now_seconds = 0;
+  if (!session_now_seconds(session, &now_seconds)) {
+    return false;
+  }
+  multiplex_syncplay_update_ping(&session->ping_timing, now_seconds,
+                                 client_timestamp, server_rtt);
+  const uint32_t raw_remote_position_ms =
+      position <= 0                             ? 0
+      : position >= (double)UINT32_MAX / 1000.0 ? UINT32_MAX
+                                                : (uint32_t)(position * 1000.0);
+  const uint32_t remote_position_ms = multiplex_syncplay_compensate_position(
+      raw_remote_position_ms, paused,
+      session->ping_timing.forward_delay_seconds);
   const bool should_echo = session->observer || ignoring_server > 0;
   const bool acknowledged_local =
       session->ignoring_client > 0 &&
@@ -514,8 +536,13 @@ static bool echo_state(MultiplexSyncplaySession *session, const char *json) {
   if (starting_claim && session->ignoring_client < UINT32_MAX) {
     session->ignoring_client += 1u;
   }
+  const uint64_t now_monotonic_ms = ticks_to_millisecs(gettime());
+  const bool startup_pause =
+      paused && !session->local_paused &&
+      now_monotonic_ms < session->accept_remote_pause_after_ms;
   const bool apply_remote = !session->observer && !set_by_self &&
-                            !local_change && session->ignoring_client == 0;
+                            !startup_pause && !local_change &&
+                            session->ignoring_client == 0;
   session->room_position_ms = remote_position_ms;
   session->room_position_known = true;
   session->room_paused = paused;
@@ -537,7 +564,6 @@ static bool echo_state(MultiplexSyncplaySession *session, const char *json) {
   } else {
     strcpy(set_by, "null");
   }
-  const double now_seconds = (double)ticks_to_millisecs(gettime()) / 1000.0;
   const int response_size = snprintf(
       response, sizeof(response),
       "{\"State\":{\"ping\":{\"clientLatencyCalculation\":%.3f,"
@@ -545,7 +571,7 @@ static bool echo_state(MultiplexSyncplaySession *session, const char *json) {
       "\"latencyCalculation\":%.6f},\"playstate\":{\"doSeek\":%s,"
       "\"paused\":%s,\"position\":%.6f,\"setBy\":%s},"
       "\"ignoringOnTheFly\":{\"client\":%u,\"server\":%.0f}}}",
-      now_seconds, client_rtt, server_rtt, latency,
+      now_seconds, session->ping_timing.round_trip_seconds, server_rtt, latency,
       claimed_seek ? "true" : "false", reply_paused ? "true" : "false",
       reply_position, set_by, session->ignoring_client, ignoring_server);
   const bool sent = response_size > 0 &&
@@ -606,6 +632,7 @@ static bool poll_frames(MultiplexSyncplaySession *session) {
     const size_t available =
         socket->prefetched_size - socket->prefetched_offset;
     if (available > sizeof(session->received) - session->received_size) {
+      SYS_Report("REFERENCE GX: Syncplay receive overflow source=prefetch\n");
       return false;
     }
     memcpy(session->received + session->received_size,
@@ -619,11 +646,14 @@ static bool poll_frames(MultiplexSyncplaySession *session) {
         socket->tls, session->received + session->received_size,
         sizeof(session->received) - session->received_size, 0);
     if (received == 0) {
+      SYS_Report("REFERENCE GX: Syncplay transport closed by peer\n");
       return false;
     }
     if (received > 0) {
       session->received_size += (size_t)received;
     } else if (received != -EAGAIN) {
+      SYS_Report("REFERENCE GX: Syncplay transport read failed error=%d\n",
+                 received);
       return false;
     }
   }
@@ -641,6 +671,8 @@ static bool poll_frames(MultiplexSyncplaySession *session) {
     }
     MultiplexSyncplayFrameHeader decoded;
     if (!multiplex_syncplay_decode_frame_header(frame, header_size, &decoded)) {
+      SYS_Report("REFERENCE GX: Syncplay invalid frame header bytes=%u\n",
+                 (unsigned)header_size);
       return false;
     }
     const uint8_t opcode = decoded.opcode;
@@ -650,6 +682,8 @@ static bool poll_frames(MultiplexSyncplaySession *session) {
     }
     const uint8_t *payload = frame + header_size;
     if (opcode == 0x8u) {
+      SYS_Report("REFERENCE GX: Syncplay close frame received bytes=%u\n",
+                 (unsigned)payload_size);
       return false;
     }
     if (opcode == 0x9u && !send_frame(socket, 0xau, payload, payload_size)) {
@@ -657,6 +691,8 @@ static bool poll_frames(MultiplexSyncplaySession *session) {
     }
     if (opcode == 0x1u) {
       if (payload_size == 0 || payload_size >= SYNCPLAY_FRAME_CAPACITY) {
+        SYS_Report("REFERENCE GX: Syncplay invalid text frame bytes=%u\n",
+                   (unsigned)payload_size);
         return false;
       }
       char text[SYNCPLAY_FRAME_CAPACITY];
@@ -666,6 +702,8 @@ static bool poll_frames(MultiplexSyncplaySession *session) {
         return false;
       }
     } else if (opcode != 0x9u && opcode != 0xau) {
+      SYS_Report("REFERENCE GX: Syncplay unsupported frame opcode=%u\n",
+                 (unsigned)opcode);
       return false;
     }
     consumed += header_size + payload_size;
@@ -675,7 +713,11 @@ static bool poll_frames(MultiplexSyncplaySession *session) {
             session->received_size - consumed);
     session->received_size -= consumed;
   }
-  return session->received_size < sizeof(session->received);
+  if (session->received_size >= sizeof(session->received)) {
+    SYS_Report("REFERENCE GX: Syncplay receive buffer exhausted\n");
+    return false;
+  }
+  return true;
 }
 
 MultiplexSyncplaySession *
@@ -747,6 +789,16 @@ multiplex_syncplay_session_connect(const MultiplexTrpcRoom *room,
     return NULL;
   }
   session->transport = socket;
+  struct timeval wall_clock;
+  if (gettimeofday(&wall_clock, NULL) != 0 || wall_clock.tv_sec <= 0 ||
+      wall_clock.tv_usec < 0 || wall_clock.tv_usec >= 1000000) {
+    multiplex_syncplay_session_destroy(session);
+    return NULL;
+  }
+  session->clock_epoch_milliseconds =
+      (uint64_t)wall_clock.tv_sec * UINT64_C(1000) +
+      (uint64_t)wall_clock.tv_usec / UINT64_C(1000);
+  session->clock_monotonic_ms = ticks_to_millisecs(gettime());
   session->connected = true;
   session->participant_count = 1u;
   session->observer = observer;
@@ -804,6 +856,15 @@ void multiplex_syncplay_session_set_playback(MultiplexSyncplaySession *session,
   session->has_local_playback = true;
   session->local_paused = paused;
   session->local_position_ms = position_ms;
+  if (!paused && session->accept_remote_pause_after_ms == 0) {
+    /*
+     * The HLS open result is initially paused. The UI starts it immediately
+     * afterward, so arm startup protection on the first observed play edge,
+     * not merely on the first playback snapshot.
+     */
+    session->accept_remote_pause_after_ms =
+        ticks_to_millisecs(gettime()) + SYNCPLAY_STARTUP_PAUSE_GRACE_MS;
+  }
 }
 
 void multiplex_syncplay_session_adopt_playback(
