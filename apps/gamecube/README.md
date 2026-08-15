@@ -264,7 +264,8 @@ reporting. `GAMECUBE_PLEX_WAIT_ARTWORK=0` may skip the automation wait for all
 twelve home posters while iterating on playback. The requested PMS profile is
 also repeatable through `GAMECUBE_PLEX_VIDEO_RESOLUTION` and
 `GAMECUBE_PLEX_MAX_VIDEO_BITRATE`; the conservative defaults are
-`480x270`/`700`, which PMS currently resolves to a 480x270, 576 kbps stream.
+`320x180`/`700`. For 4:3 material, PMS currently resolves that request to a
+240x180, 409 kbps stream.
 `GAMECUBE_PLEX_SUSTAIN_SECONDS` controls the post-resume failure window and
 defaults to 45 seconds.
 
@@ -572,13 +573,13 @@ sample reached 24.2 decoded fps, but sustained scene complexity later pulled
 the decoder down to 17 fps and produced audio underruns, so 360p is not a safe
 default.
 
-The selected 480x270/700 default resolves to 576 kbps. A sustained direct-PMS
-run crossed eight 8-second segments and about 2,100 audio DMA buffers while
-holding the 24 fps source predominantly at 23.7–24.5 decoded fps. It retained
-60.4 presentation fps, direct play/pause/resume and periodic timeline
-acknowledgements, zero audio underruns, and a clean invalid-access log. The
-45-second smoke window is intentionally long enough to reject the delayed
-failure observed at 360p.
+The former 480x270/700 default sustained 24 fps material, but a 29.97 fps TV
+episode fell to 23.8–28.9 decoded fps and exhausted the audio queue during a
+Watch Together recovery run. The 320x180/700 default made PMS select a
+240x180, 409 kbps H.264/AAC variant for that episode. The same seek,
+pause/resume, cold browser restart, console reconnect, and disband sequence
+held 29.7–30.4 decoded fps with zero audio underruns and a clean invalid-access
+log.
 Show and season details now load Plex's existing
 `/library/metadata/{ratingKey}/children` hierarchy in bounded four-item pages.
 The Native SDK details view can traverse show → season → episode, page with

@@ -13,8 +13,8 @@ development harness. Physical hardware remains the acceptance target.
 Local playback is healthy again in Dolphin's true TAP path:
 
 - Direct Plex catalog and all 19 poster requests complete.
-- Plex selects H.264 at 362x270 and 29.970 fps with AAC stereo at 48 kHz.
-- The decoder sustains 29.4 to 30.7 fps while the UI sustains 60.4 fps.
+- Plex selects H.264 at 240x180 and 29.970 fps with AAC stereo at 48 kHz.
+- The decoder sustains 29.7 to 30.4 fps while the UI sustains 60.4 fps.
 - A continuous run downloaded 26 consecutive eight-second HLS segments on the
   first attempt.
 - A cold seek started a new transcode at sequence 130, became playable in about
