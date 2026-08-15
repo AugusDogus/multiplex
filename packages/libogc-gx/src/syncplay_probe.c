@@ -61,6 +61,8 @@ struct MultiplexSyncplaySession {
   bool room_position_known;
   bool room_paused;
   bool web_participant_present;
+  bool can_initiate_startup_playback;
+  bool startup_pause_grace_consumed;
   bool observer;
   bool connected;
 };
@@ -540,7 +542,12 @@ static bool echo_state(MultiplexSyncplaySession *session, const char *json) {
   const uint64_t now_monotonic_ms = ticks_to_millisecs(gettime());
   const bool startup_pause =
       paused && !session->local_paused &&
+      !session->startup_pause_grace_consumed &&
       now_monotonic_ms < session->accept_remote_pause_after_ms;
+  if (!paused) {
+    session->startup_pause_grace_consumed = true;
+    session->accept_remote_pause_after_ms = 0;
+  }
   const bool apply_remote = !session->observer && !set_by_self &&
                             !startup_pause && !local_change &&
                             session->ignoring_client == 0;
@@ -806,6 +813,9 @@ multiplex_syncplay_session_connect(const MultiplexTrpcRoom *room,
   session->connected = true;
   session->participant_count = 1u;
   session->observer = observer;
+  session->can_initiate_startup_playback =
+      multiplex_syncplay_can_initiate_startup(room->user_ids, room->user_count,
+                                              user_id);
   strcpy(session->device_identifier, device_identifier);
   const int identity_size =
       snprintf(session->encoded_user, sizeof(session->encoded_user),
@@ -837,11 +847,14 @@ void multiplex_syncplay_session_set_playback(MultiplexSyncplaySession *session,
   if (session == NULL) {
     return;
   }
+  const bool play_edge =
+      !paused && (!session->has_local_playback || session->local_paused);
   bool claim_local = false;
   if (session->has_local_playback && session->local_paused != paused) {
     session->pending_local_play_pause = true;
     claim_local = true;
-  } else if (!session->has_local_playback && !paused) {
+  } else if (!session->has_local_playback && !paused &&
+             session->can_initiate_startup_playback) {
     /*
      * Joining a room auto-starts the player while the room is still on its
      * paused lobby baseline. Claim that initial play just like the web client.
@@ -860,7 +873,10 @@ void multiplex_syncplay_session_set_playback(MultiplexSyncplaySession *session,
   session->has_local_playback = true;
   session->local_paused = paused;
   session->local_position_ms = position_ms;
-  if (!paused && session->accept_remote_pause_after_ms == 0) {
+  if (paused && session->accept_remote_pause_after_ms != 0) {
+    session->startup_pause_grace_consumed = true;
+    session->accept_remote_pause_after_ms = 0;
+  } else if (play_edge && !session->startup_pause_grace_consumed) {
     /*
      * The HLS open result is initially paused. The UI starts it immediately
      * afterward, so arm startup protection on the first observed play edge,
@@ -882,6 +898,8 @@ void multiplex_syncplay_session_adopt_playback(
   session->pending_local_play_pause = false;
   session->pending_local_seek = false;
   session->ignoring_client = 0;
+  session->startup_pause_grace_consumed = true;
+  session->accept_remote_pause_after_ms = 0;
 }
 
 void multiplex_syncplay_session_mark_local_seek(

@@ -26,6 +26,7 @@ static RotationPlan rotation_plan;
 static uint32_t rotation_rating_key;
 static bool open_hls_succeeds;
 static unsigned syncplay_connect_count;
+static unsigned local_seek_mark_count;
 
 static MultiplexSyncplaySession *fake_syncplay(uintptr_t value) {
   return (MultiplexSyncplaySession *)value;
@@ -164,7 +165,8 @@ void multiplex_syncplay_session_adopt_playback(
 
 void multiplex_syncplay_session_mark_local_seek(
     MultiplexSyncplaySession *session) {
-  (void)session;
+  assert(session != NULL);
+  local_seek_mark_count += 1u;
 }
 
 bool multiplex_syncplay_session_has_web_participant(
@@ -318,6 +320,7 @@ static void reset_observations(void) {
   rotation_rating_key = 0;
   open_hls_succeeds = false;
   syncplay_connect_count = 0;
+  local_seek_mark_count = 0;
 }
 
 static MultiplexAppServices
@@ -563,6 +566,40 @@ static void remote_seek_retains_syncplay_until_replacement_is_ready(void) {
   assert(destroyed[0] == syncplay);
 }
 
+static void local_seek_claims_before_replacement_is_ready(void) {
+  reset_observations();
+  rotation_rating_key = 386827u;
+  MultiplexSyncplaySession *syncplay = fake_syncplay(14u);
+  MultiplexAppServices services = active_services(syncplay);
+  services.content.playback.kind = MULTIPLEX_APP_SERVICES_PLAYBACK_KNOWN;
+  services.content.playback.value.view = (MultiplexAppServicesPlaybackView){
+      .rating_key = 386827u,
+      .duration_ms = 1433600u,
+      .position_ms = 143000u,
+      .segment_start_ms = 143000u,
+      .playing = true,
+  };
+  const MultiplexAppServicesPlaybackPayload request = {
+      .rating_key = 386827u,
+      .offset_ms = 860160u,
+  };
+
+  assert(multiplex_app_services_watch_request_playback(&services, &request));
+  assert(local_seek_mark_count == 0u);
+  assert(services.watch.state.available.phase.kind ==
+         MULTIPLEX_APP_SERVICES_WATCH_PHASE_QUEUED_PLAYBACK);
+  open_hls_succeeds = true;
+  assert(multiplex_app_services_watch_schedule_queued(&services) ==
+         MULTIPLEX_APP_SERVICES_SCHEDULE_STARTED);
+  assert(local_seek_mark_count == 1u);
+  assert(services.watch.state.available.phase.kind ==
+         MULTIPLEX_APP_SERVICES_WATCH_PHASE_STARTING_PLAYBACK);
+
+  multiplex_app_services_watch_destroy(&services);
+  assert(destroyed_count == 1u);
+  assert(destroyed[0] == syncplay);
+}
+
 static void exit_missing_credentials_destroys_once(void) {
   reset_observations();
   credentials_available = false;
@@ -600,6 +637,7 @@ int main(void) {
   other_lobby_leave_phases_are_noops();
   reset_after_stop_destroys_without_another_stop();
   remote_seek_retains_syncplay_until_replacement_is_ready();
+  local_seek_claims_before_replacement_is_ready();
   exit_success_destroys_once();
   exit_missing_credentials_destroys_once();
   rotation_terminal_destroys_once(ROTATION_PLAN_FAILED, true, 0u, 3u);

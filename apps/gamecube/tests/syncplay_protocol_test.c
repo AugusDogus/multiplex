@@ -99,6 +99,13 @@ static void test_seek_alignment(void) {
   assert(multiplex_syncplay_should_seek(133000u, 797000u, false));
 }
 
+static void test_startup_authority(void) {
+  const uint32_t users[] = {835383679u, 559216671u};
+  assert(multiplex_syncplay_can_initiate_startup(users, 2u, 559216671u));
+  assert(!multiplex_syncplay_can_initiate_startup(users, 2u, 835383679u));
+  assert(!multiplex_syncplay_can_initiate_startup(NULL, 0u, 559216671u));
+}
+
 int main(void) {
   test_upgrade();
   test_frames();
@@ -106,6 +113,7 @@ int main(void) {
   test_epoch_clock();
   test_ping_compensation();
   test_seek_alignment();
+  test_startup_authority();
   puts("GameCube Syncplay protocol tests passed.");
   return 0;
 }
