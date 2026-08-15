@@ -302,6 +302,7 @@ const reducerCases = {
     start: {
       screen: "player",
       watchTogetherActive: true,
+      playerSettingsOpen: true,
       selectedDurationMs: 120_000,
       playbackOffsetMs: 4_000,
     },
@@ -310,6 +311,7 @@ const reducerCases = {
       screen: "watch_together",
       playbackLoaded: false,
       playing: false,
+      playerSettingsOpen: false,
       selectedViewOffsetMs: 4_000,
       rows: [
         row({ ...item(1), viewOffsetMs: 4_000, progressPercent: 3 }, item(2)),
@@ -329,6 +331,7 @@ const reducerCases = {
       screen: "player",
       watchTogetherActive: true,
       watchTogetherHost: true,
+      playerSettingsOpen: true,
       selectedDurationMs: 120_000,
       playbackOffsetMs: 4_000,
     },
@@ -336,6 +339,7 @@ const reducerCases = {
     expected: {
       screen: "watch_together",
       playbackLoaded: false,
+      playerSettingsOpen: false,
       selectedViewOffsetMs: 4_000,
       rows: [
         row({ ...item(1), viewOffsetMs: 4_000, progressPercent: 3 }, item(2)),
