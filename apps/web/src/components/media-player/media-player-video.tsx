@@ -28,6 +28,7 @@ import { useSeekOverlay } from "./hooks/use-seek-overlay";
 import { buildPlexPlaybackPlan } from "./utils/plex-playback-plan";
 import { shouldClaimDirectSyncplaySeek } from "./utils/syncplay-seek-origin";
 import { getVideoElementError } from "./utils/media-player-utils";
+import { getFullTimelineDuration } from "./utils/playback-time-utils";
 import { generatePlexStreamUrl } from "./utils/plex-stream-urls";
 import { useSuppressNativeLongPress } from "./hooks/use-suppress-native-long-press";
 import { useVideoPressGesture } from "./hooks/use-video-press-gesture";
@@ -49,6 +50,7 @@ const DOUBLE_CLICK_SEEK_OVERLAY_MS = 2200;
 const DOUBLE_CLICK_SEEK_SECONDS = 10;
 // Matches Tailwind's `animate-ping` duration (1s).
 const DOUBLE_CLICK_SEEK_PULSE_MS = 1000;
+const MAX_TRANSCODE_START_ATTEMPTS = 3;
 
 type DoubleClickSeekDirection = "backward" | "forward";
 
@@ -155,6 +157,7 @@ function useMediaPlayerVideoController(
   const {
     streamOffset,
     streamSessionId,
+    transcodeAttempt,
     sourceGeneration,
     isLoading,
     showControls,
@@ -162,6 +165,7 @@ function useMediaPlayerVideoController(
     (state) => ({
       streamOffset: state.streamOffset,
       streamSessionId: state.streamSessionId,
+      transcodeAttempt: state.transcodeAttempt,
       sourceGeneration: state.sourceGeneration,
       isLoading: state.isLoading,
       showControls: state.showControls,
@@ -280,6 +284,7 @@ function useMediaPlayerVideoController(
         playbackPlan,
         streamOffset,
         streamSessionId,
+        transcodeAttempt,
       );
       return { videoSrc: streamUrl, hasError: false };
     } catch (error) {
@@ -303,8 +308,16 @@ function useMediaPlayerVideoController(
       );
 
       updatePlaybackState({
-        duration: ref.current.duration,
-        canPlay: true,
+        duration: getFullTimelineDuration({
+          mediaElementDuration: ref.current.duration,
+          itemDurationMs: item.duration,
+          streamOffset: usesOffsetTimeline ? streamOffset : 0,
+        }),
+        // Metadata is enough to finish ordinary source loading, but not enough
+        // to declare Syncplay readiness. `loadeddata` promotes `canPlay` once
+        // the browser has actual media data; resume seeks stay loading until
+        // their target is applied.
+        canPlay: false,
         isLoading: needsResumeSeek,
       });
 
@@ -411,7 +424,13 @@ function useMediaPlayerVideoController(
   // Handle duration change event
   const handleDurationChange = () => {
     if (ref && "current" in ref && ref.current) {
-      updatePlaybackState({ duration: ref.current.duration });
+      updatePlaybackState({
+        duration: getFullTimelineDuration({
+          mediaElementDuration: ref.current.duration,
+          itemDurationMs: item.duration,
+          streamOffset: usesOffsetTimeline ? streamOffset : 0,
+        }),
+      });
     }
   };
 
@@ -547,15 +566,25 @@ function useMediaPlayerVideoController(
    */
   const handleVideoError = () => {
     if (ref && "current" in ref && ref.current?.error) {
-      if (usesOffsetTimeline) {
+      if (
+        playbackPlan.videoUsesTranscode &&
+        transcodeAttempt + 1 < MAX_TRANSCODE_START_ATTEMPTS &&
+        isCurrentSource()
+      ) {
         console.warn(
-          "Transcoded stream failed at offset; retrying from beginning",
+          `Plex transcode start failed; retrying with a fresh session (${transcodeAttempt + 2}/${MAX_TRANSCODE_START_ATTEMPTS})`,
         );
+        playerCommands.retryTranscodeSource(playbackIdentity);
+        return;
+      }
+
+      if (usesOffsetTimeline) {
+        const errorMessage =
+          "Plex could not start playback at this position. Try seeking slightly earlier.";
+        console.warn(errorMessage);
         updatePlaybackState({
-          streamOffset: 0,
-          currentTime: 0,
-          error: null,
-          isLoading: true,
+          error: errorMessage,
+          isLoading: false,
           isBuffering: false,
         });
         return;

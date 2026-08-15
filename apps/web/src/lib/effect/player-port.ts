@@ -62,7 +62,13 @@ const toSnapshot = (state: PlayerState): PlayerSnapshot => ({
   isPlaying: state.isPlaying,
   currentTimeSeconds: state.currentTime,
   durationSeconds: state.duration,
-  canPlay: state.canPlay,
+  // Syncplay readiness is stronger than metadata availability. Do not launch
+  // the room while the media element is still loading, buffering, or failed.
+  canPlay:
+    state.canPlay &&
+    !state.isLoading &&
+    !state.isBuffering &&
+    state.error === null,
   isLoading: state.isLoading,
   error: state.error,
 });

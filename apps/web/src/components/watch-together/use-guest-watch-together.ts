@@ -1,6 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  isAtEnd,
+  isInLeadWindow,
+  type SessionState,
+} from "@multiplex/plex-query";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type RefObject,
+} from "react";
 import { shallow } from "zustand/shallow";
 
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
@@ -26,6 +38,107 @@ type JoinState =
     }
   | { readonly status: "unavailable"; readonly message: string };
 
+type GuestLobbyEntry = Parameters<typeof sessionCommands.enterLobby>[0];
+
+export type GuestLobbyEntryCommands = Pick<
+  typeof sessionCommands,
+  "enterLobby" | "snapshot"
+>;
+
+/**
+ * Enter a guest lobby at most once while the lifecycle command is pending.
+ * The snapshot check keeps ordinary session updates from re-entering, while
+ * an unexpected transition back to Idle can request a fresh observer.
+ */
+export function requestGuestLobbyEntry(
+  commands: GuestLobbyEntryCommands,
+  pendingRoomIdRef: RefObject<string | null>,
+  entry: GuestLobbyEntry,
+): void {
+  const current = commands.snapshot();
+  if (
+    ((current._tag === "Lobby" || current._tag === "Playing") &&
+      current.room.id === entry.room.id) ||
+    pendingRoomIdRef.current === entry.room.id
+  ) {
+    return;
+  }
+
+  const roomId = entry.room.id;
+  pendingRoomIdRef.current = roomId;
+  const clearPending = () => {
+    if (pendingRoomIdRef.current === roomId) {
+      pendingRoomIdRef.current = null;
+    }
+  };
+  void commands.enterLobby(entry).completion.then(clearPending, clearPending);
+}
+
+export function getGuestRotationTimeline(input: {
+  readonly localCurrentTimeSeconds: number;
+  readonly localDurationSeconds: number;
+  readonly itemDurationMilliseconds?: number;
+  readonly sessionState: SessionState;
+}): {
+  readonly currentTimeSeconds: number;
+  readonly durationSeconds: number;
+  readonly timeRemainingSeconds: number;
+  readonly inLeadWindow: boolean;
+  readonly atEnd: boolean;
+} {
+  const localCurrentTimeSeconds =
+    Number.isFinite(input.localCurrentTimeSeconds) &&
+    input.localCurrentTimeSeconds > 0
+      ? input.localCurrentTimeSeconds
+      : 0;
+  let currentTimeSeconds = localCurrentTimeSeconds;
+
+  if (
+    input.sessionState._tag === "Playing" &&
+    input.sessionState.startPolicy._tag === "HostControlled"
+  ) {
+    const hostUserId = input.sessionState.startPolicy.hostUserId;
+    for (const participant of Object.values(input.sessionState.participants)) {
+      if (
+        participant.isPresent === true &&
+        participant.user.id === hostUserId &&
+        typeof participant.positionSeconds === "number" &&
+        Number.isFinite(participant.positionSeconds)
+      ) {
+        currentTimeSeconds = Math.max(
+          currentTimeSeconds,
+          participant.positionSeconds,
+        );
+      }
+    }
+  }
+
+  const metadataDurationSeconds =
+    typeof input.itemDurationMilliseconds === "number" &&
+    Number.isFinite(input.itemDurationMilliseconds) &&
+    input.itemDurationMilliseconds > 0
+      ? input.itemDurationMilliseconds / 1_000
+      : 0;
+  const durationSeconds =
+    Number.isFinite(input.localDurationSeconds) &&
+    input.localDurationSeconds > 0
+      ? input.localDurationSeconds
+      : metadataDurationSeconds;
+  const timeRemainingSeconds = durationSeconds - currentTimeSeconds;
+
+  return {
+    currentTimeSeconds,
+    durationSeconds,
+    timeRemainingSeconds,
+    inLeadWindow: isInLeadWindow({
+      durationSeconds,
+      currentTimeSeconds,
+      timeRemainingSeconds,
+    }),
+    atEnd: isAtEnd({ durationSeconds, timeRemainingSeconds }),
+  };
+}
+
 function guestDeviceName(deviceName: string): string {
   return deviceName.replace(/^Multiplex Guest ·\s*/, "") || "Guest";
 }
@@ -48,42 +161,72 @@ export function useGuestWatchTogether(capability: string) {
   } | null>(null);
   const swappingRef = useRef(false);
   const joiningRef = useRef(false);
+  const pendingLobbyRoomIdRef = useRef<string | null>(null);
   const joined = joinState.status === "joined" ? joinState.value : null;
   const deviceIdentifier =
     joinState.status === "joined" ? joinState.deviceIdentifier : null;
-  const playbackItem = joined
-    ? createMediaPlayerItem(joined.item, {
-        serverId: joined.serverId,
-        serverUrl: joined.serverUrl,
-        authToken: joined.authToken,
-        access: "guest-transient",
-      })
-    : null;
-
-  useEffect(() => {
+  const playbackItem = useMemo(
+    () =>
+      joined
+        ? createMediaPlayerItem(joined.item, {
+            serverId: joined.serverId,
+            serverUrl: joined.serverUrl,
+            authToken: joined.authToken,
+            access: "guest-transient",
+          })
+        : null,
+    [joined],
+  );
+  const lobbyEntry = useMemo<GuestLobbyEntry | null>(() => {
     if (!joined || !playbackItem || !deviceIdentifier) {
-      return;
+      return null;
     }
-    const localUser = createGuestSyncplayUser({
-      guestUserId: joined.guest.id,
-      nickname,
-      deviceIdentifier,
-    });
-    sessionCommands.enterLobby({
+    return {
       room: joined.room,
-      localUser,
+      localUser: createGuestSyncplayUser({
+        guestUserId: joined.guest.id,
+        nickname,
+        deviceIdentifier,
+      }),
       startPolicy: {
         _tag: "HostControlled",
         localRole: "Guest",
         hostUserId: joined.host.id,
         guestUserId: joined.guest.id,
       },
-    });
+    };
+  }, [deviceIdentifier, joined, nickname, playbackItem]);
+  const rotationTimeline = getGuestRotationTimeline({
+    localCurrentTimeSeconds: currentTime,
+    localDurationSeconds: duration,
+    ...(joined?.item.duration !== undefined && {
+      itemDurationMilliseconds: joined.item.duration,
+    }),
+    sessionState,
+  });
+  const playingJoinedRoom =
+    joined !== null &&
+    sessionState._tag === "Playing" &&
+    sessionState.room.id === joined.room.id;
+  const shouldPollContinuation =
+    joined?.nextEpisode !== null &&
+    joined?.nextEpisode !== undefined &&
+    playingJoinedRoom &&
+    pendingContinuation === null &&
+    (rotationTimeline.inLeadWindow || rotationTimeline.atEnd);
+
+  useEffect(() => {
+    if (!lobbyEntry || !playbackItem) {
+      return;
+    }
+    requestGuestLobbyEntry(sessionCommands, pendingLobbyRoomIdRef, lobbyEntry);
     sessionCommands.setLobbyContext({
       canStart: true,
       playbackInput: { item: playbackItem },
       leaving: false,
     });
+
+    const roomId = lobbyEntry.room.id;
 
     return () => {
       sessionCommands.setLobbyContext({
@@ -91,15 +234,21 @@ export function useGuestWatchTogether(capability: string) {
         playbackInput: null,
         leaving: false,
       });
-      sessionCommands.exitLobby({ expectedRoomId: joined.room.id });
+      sessionCommands.exitLobby({ expectedRoomId: roomId });
     };
-  }, [deviceIdentifier, joined, nickname, playbackItem]);
+  }, [lobbyEntry, playbackItem]);
+
+  useEffect(() => {
+    if (!lobbyEntry || sessionState._tag !== "Idle") {
+      return;
+    }
+    requestGuestLobbyEntry(sessionCommands, pendingLobbyRoomIdRef, lobbyEntry);
+  }, [lobbyEntry, sessionState._tag]);
 
   useEffect(() => {
     if (
       !joined?.nextEpisode ||
-      sessionState._tag !== "Playing" ||
-      sessionState.room.id !== joined.room.id ||
+      !shouldPollContinuation ||
       pendingContinuation
     ) {
       return;
@@ -146,17 +295,15 @@ export function useGuestWatchTogether(capability: string) {
       controller.abort();
       clearInterval(intervalId);
     };
-  }, [activeCapability, joined, pendingContinuation, sessionState]);
+  }, [activeCapability, joined, pendingContinuation, shouldPollContinuation]);
 
   useEffect(() => {
     if (
       !joined ||
       !pendingContinuation ||
       swappingRef.current ||
-      sessionState._tag !== "Playing" ||
-      sessionState.room.id !== joined.room.id ||
-      duration <= 0 ||
-      duration - currentTime > 0.75
+      !playingJoinedRoom ||
+      !rotationTimeline.atEnd
     ) {
       return;
     }
@@ -205,7 +352,7 @@ export function useGuestWatchTogether(capability: string) {
       .finally(() => {
         swappingRef.current = false;
       });
-  }, [currentTime, duration, joined, pendingContinuation, sessionState]);
+  }, [joined, pendingContinuation, playingJoinedRoom, rotationTimeline.atEnd]);
 
   async function join(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

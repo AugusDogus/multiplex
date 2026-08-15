@@ -171,6 +171,30 @@ test("keeps a valid playback identifier while isolating subtitle transcodes", ()
   ).toBe(true);
 });
 
+test("uses a fresh transcode key when retrying the same source", () => {
+  const retried = new URL(
+    generatePlexStreamUrl(
+      TRANSCODE_ITEM,
+      TRANSCODE_ITEM.serverUrl,
+      TRANSCODE_ITEM.authToken,
+      TRANSCODE_WITHOUT_SUBTITLES,
+      0,
+      PLAYBACK_SESSION_ID,
+      1,
+    ),
+  );
+
+  expect(retried.searchParams.get("session")).toBe(
+    buildPlexTranscodeSessionKey(PLAYBACK_SESSION_ID, 0, null, 1),
+  );
+  expect(retried.searchParams.get("session")).not.toBe(
+    buildPlexTranscodeSessionKey(PLAYBACK_SESSION_ID, 0, null),
+  );
+  expect(retried.searchParams.get("X-Plex-Session-Identifier")).toBe(
+    PLAYBACK_SESSION_ID,
+  );
+});
+
 test("stops the current transcode with a page-close-safe request", async () => {
   const fetch = installFetchMock(async () => new Response());
 

@@ -115,6 +115,7 @@ function buildDirectStreamUrl(
   offsetSeconds: number,
   selectedSubtitleStreamId: number | null,
   sessionId: string,
+  transcodeAttempt: number,
 ): string {
   const baseUrl = getBaseServerUrl(serverUrl);
   const streamUrl = new URL(`${baseUrl}/video/:/transcode/universal/start.mp4`);
@@ -128,6 +129,7 @@ function buildDirectStreamUrl(
     sessionId,
     offsetSeconds,
     selectedSubtitleStreamId,
+    transcodeAttempt,
   );
 
   applyClientHeaders(streamUrl, authToken);
@@ -158,9 +160,11 @@ export function buildPlexTranscodeSessionKey(
   sessionId: string,
   offsetSeconds: number,
   selectedSubtitleStreamId: number | null,
+  transcodeAttempt = 0,
 ): string {
   const subtitleSessionKey = selectedSubtitleStreamId ?? "n";
-  return `${sessionId}-${Math.floor(offsetSeconds)}-s${subtitleSessionKey}`;
+  const retrySessionKey = transcodeAttempt > 0 ? `-r${transcodeAttempt}` : "";
+  return `${sessionId}${retrySessionKey}-${Math.floor(offsetSeconds)}-s${subtitleSessionKey}`;
 }
 
 export function buildPlexSubtitleSelectionUrl(
@@ -240,6 +244,7 @@ export function generatePlexStreamUrl(
   playbackPlan: PlexPlaybackPlan,
   offsetSeconds = 0,
   sessionId: string,
+  transcodeAttempt = 0,
 ): string {
   if (!item.Media?.[0]?.Part?.[0]?.key) {
     throw new Error("No media part key found for item");
@@ -255,6 +260,7 @@ export function generatePlexStreamUrl(
         offsetSeconds,
         playbackPlan.burnedSubtitleId,
         sessionId,
+        transcodeAttempt,
       );
 }
 

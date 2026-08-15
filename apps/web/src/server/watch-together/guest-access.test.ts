@@ -94,8 +94,10 @@ test("reports when only the Home admin can enable a missing Guest", async () => 
 describe("resolveGuestAccess", () => {
   test("proves Guest access to the selected server and item", async () => {
     const getItemMetadata = mock(async () => ITEM);
+    const getConnectionUri = mock(async () => "https://proven.plex.direct");
     const serverClient = fromPartial<PlexServerClient>({
       getItemMetadata,
+      getConnectionUri,
     });
     const guestPlex = fromPartial<PlexTvClient>({
       getServers: mock(async () => [SERVER]),
@@ -125,6 +127,11 @@ describe("resolveGuestAccess", () => {
       guest: { id: 2, title: "Guest" },
     });
     expect(getItemMetadata).toHaveBeenCalledWith("42");
+    expect(getConnectionUri).toHaveBeenCalledTimes(1);
+    if (!result.ok) {
+      throw new Error("expected Guest access to resolve");
+    }
+    expect(result.value.guestServerUrl).toBe("https://proven.plex.direct");
   });
 
   test("does not treat host access as Guest server access", async () => {

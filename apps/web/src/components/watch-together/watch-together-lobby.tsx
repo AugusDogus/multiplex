@@ -213,13 +213,19 @@ export function WatchTogetherLobby({ roomId }: WatchTogetherLobbyProps) {
                   {media.isPending ||
                   (someoneElseWatching && !roomPositionKnown) ? (
                     <Loader2
-                      className="animate-spin"
+                      className="animate-spin motion-reduce:animate-none"
                       data-icon="inline-start"
+                      data-loading-indicator
                     />
                   ) : (
                     <Play data-icon="inline-start" />
                   )}
-                  {someoneElseWatching ? "Join" : "Start"}
+                  {media.isPending ||
+                  (someoneElseWatching && !roomPositionKnown)
+                    ? "Preparing..."
+                    : someoneElseWatching
+                      ? "Join"
+                      : "Start"}
                 </Button>
               )}
             </div>

@@ -52,9 +52,9 @@ export interface WatchTogetherSessionToastsOptions {
    */
   initialCohortDeviceIds?: ReadonlySet<string>;
   /**
-   * When true, suppress join/leave toasts only. Used while rotation is armed
-   * so peers disconnecting from the current Syncplay room before the swap do
-   * not look like they left the party. Pause/resume/seek still toast.
+   * When true, suppress session toasts while rotation hands playback to the
+   * successor room. Media teardown can emit mechanical presence and playback
+   * edges that are not user actions.
    */
   isPresenceHandoff?: () => boolean;
   /** Test seams; production uses the Coss toast manager and the real clock. */
@@ -133,9 +133,9 @@ export function createWatchTogetherSessionToasts(
   const emit = (
     user: SyncplayUser | null,
     text: string,
-    kind: "presence" | "playstate",
+    _kind: "presence" | "playstate",
   ): void => {
-    if (kind === "presence" && isPresenceHandoff()) {
+    if (isPresenceHandoff()) {
       return;
     }
     const roomUser = user ? roomUserById.get(user.id) : undefined;

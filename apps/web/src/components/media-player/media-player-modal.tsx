@@ -516,6 +516,7 @@ export function MediaPlayerModal() {
     duration,
     streamOffset,
     streamSessionId,
+    transcodeAttempt,
   } = usePlayerStateSelector(
     (state) => ({
       isOpen: state.isOpen,
@@ -530,6 +531,7 @@ export function MediaPlayerModal() {
       duration: state.duration,
       streamOffset: state.streamOffset,
       streamSessionId: state.streamSessionId,
+      transcodeAttempt: state.transcodeAttempt,
     }),
     shallow,
   );
@@ -570,6 +572,7 @@ export function MediaPlayerModal() {
           streamSessionId,
           streamOffset,
           playbackPlan.burnedSubtitleId,
+          transcodeAttempt,
         )
       : null;
 

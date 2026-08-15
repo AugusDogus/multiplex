@@ -51,16 +51,21 @@ export function GuestJoinForm({
           </div>
         </label>
         <Button
+          type="submit"
           className="w-full active:scale-[0.98]"
           disabled={!nickname.trim() || joining}
           aria-busy={joining || undefined}
         >
           {joining ? (
-            <Loader2 className="animate-spin" data-icon="inline-start" />
+            <Loader2
+              className="animate-spin motion-reduce:animate-none"
+              data-icon="inline-start"
+              data-loading-indicator
+            />
           ) : (
             <Play data-icon="inline-start" />
           )}
-          Join session
+          {joining ? "Joining..." : "Join session"}
         </Button>
       </form>
       <p className="text-muted-foreground max-w-sm text-center text-xs leading-5">
