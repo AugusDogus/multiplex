@@ -78,10 +78,9 @@ export interface MediaPlayerState {
    */
   streamOffset: number;
   /**
-   * Unique Plex transcode/playback session id for the current playback, fresh
-   * per `openPlayer` and stable across seeks. Plex rejects (HTTP 400) a transcode
-   * request whose `session` collides with an existing one, so this must NOT be
-   * derived from the item/offset (which would repeat across plays and viewers).
+   * Logical Plex playback session identifier, stable across seeks and a hard
+   * reload handoff. PlayerService separately owns each document's transcode
+   * cleanup prefix.
    */
   streamSessionId: string;
 

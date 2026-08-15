@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   getTranscodeRetryDelayMs,
   isCurrentMediaSource,
+  shouldRemainLoadingAfterMetadata,
   shouldReportVideoPause,
 } from "./media-player-utils";
 
@@ -11,9 +12,11 @@ describe("shouldReportVideoPause", () => {
     expect(
       shouldReportVideoPause({
         hasMediaError: false,
+        isDocumentUnloading: false,
         isSourceLoading: false,
         isCurrentMediaSource: true,
         readyState: 2,
+        wasPauseRequested: true,
       }),
     ).toBe(true);
   });
@@ -22,33 +25,67 @@ describe("shouldReportVideoPause", () => {
     expect(
       shouldReportVideoPause({
         hasMediaError: false,
+        isDocumentUnloading: false,
         isSourceLoading: false,
         isCurrentMediaSource: true,
         readyState: 0,
+        wasPauseRequested: true,
       }),
     ).toBe(false);
     expect(
       shouldReportVideoPause({
         hasMediaError: true,
+        isDocumentUnloading: false,
         isSourceLoading: false,
         isCurrentMediaSource: true,
         readyState: 2,
+        wasPauseRequested: true,
       }),
     ).toBe(false);
     expect(
       shouldReportVideoPause({
         hasMediaError: false,
+        isDocumentUnloading: false,
         isSourceLoading: true,
         isCurrentMediaSource: true,
         readyState: 2,
+        wasPauseRequested: true,
       }),
     ).toBe(false);
     expect(
       shouldReportVideoPause({
         hasMediaError: false,
+        isDocumentUnloading: false,
         isSourceLoading: false,
         isCurrentMediaSource: false,
         readyState: 2,
+        wasPauseRequested: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("suppresses a media pause emitted while the document unloads", () => {
+    expect(
+      shouldReportVideoPause({
+        hasMediaError: false,
+        isDocumentUnloading: true,
+        isSourceLoading: false,
+        isCurrentMediaSource: true,
+        readyState: 2,
+        wasPauseRequested: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("suppresses a transport pause without an explicit pause request", () => {
+    expect(
+      shouldReportVideoPause({
+        hasMediaError: false,
+        isDocumentUnloading: false,
+        isSourceLoading: false,
+        isCurrentMediaSource: true,
+        readyState: 4,
+        wasPauseRequested: false,
       }),
     ).toBe(false);
   });
@@ -59,6 +96,26 @@ describe("getTranscodeRetryDelayMs", () => {
     expect([0, 1, 2, 3, 4].map(getTranscodeRetryDelayMs)).toEqual([
       500, 1_000, 2_000, 4_000, 4_000,
     ]);
+  });
+});
+
+describe("shouldRemainLoadingAfterMetadata", () => {
+  test("keeps transcodes loading until media data is available", () => {
+    expect(
+      shouldRemainLoadingAfterMetadata({
+        needsResumeSeek: false,
+        videoUsesTranscode: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("finishes metadata-only loading for direct play", () => {
+    expect(
+      shouldRemainLoadingAfterMetadata({
+        needsResumeSeek: false,
+        videoUsesTranscode: false,
+      }),
+    ).toBe(false);
   });
 });
 

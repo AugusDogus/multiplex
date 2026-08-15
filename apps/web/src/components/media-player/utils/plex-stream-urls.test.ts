@@ -38,6 +38,7 @@ const TRANSCODE_WITHOUT_SUBTITLES: PlexPlaybackPlan = {
 };
 
 const PLAYBACK_SESSION_ID = "0123456789abcdef01234567";
+const TRANSCODE_SESSION_ID = "fedcba9876543210fedcba98";
 const originalFetch = globalThis.fetch;
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 
@@ -193,6 +194,28 @@ test("uses a fresh transcode key when retrying the same source", () => {
   );
   expect(retried.searchParams.get("X-Plex-Session-Identifier")).toBe(
     PLAYBACK_SESSION_ID,
+  );
+});
+
+test("separates persistent playback identity from reload cleanup ownership", () => {
+  const reloaded = new URL(
+    generatePlexStreamUrl(
+      TRANSCODE_ITEM,
+      TRANSCODE_ITEM.serverUrl,
+      TRANSCODE_ITEM.authToken,
+      TRANSCODE_WITHOUT_SUBTITLES,
+      15,
+      PLAYBACK_SESSION_ID,
+      0,
+      TRANSCODE_SESSION_ID,
+    ),
+  );
+
+  expect(reloaded.searchParams.get("X-Plex-Session-Identifier")).toBe(
+    PLAYBACK_SESSION_ID,
+  );
+  expect(reloaded.searchParams.get("session")).toBe(
+    buildPlexTranscodeSessionKey(TRANSCODE_SESSION_ID, 15, null),
   );
 });
 

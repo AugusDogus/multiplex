@@ -3,6 +3,7 @@
 import { FastForward } from "lucide-react";
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
@@ -31,6 +32,7 @@ import {
   getTranscodeRetryDelayMs,
   getVideoElementError,
   isCurrentMediaSource,
+  shouldRemainLoadingAfterMetadata,
   shouldReportVideoPause,
 } from "./utils/media-player-utils";
 import { getFullTimelineDuration } from "./utils/playback-time-utils";
@@ -126,6 +128,8 @@ interface MediaPlayerVideoProps {
    * Callback fired when video is paused
    */
   onVideoPause?: () => void;
+  /** Consumes an explicit pause requested through the player actions. */
+  consumePauseRequest?: () => boolean;
   /**
    * Callback fired when video time updates
    */
@@ -153,6 +157,7 @@ function useMediaPlayerVideoController(
     onVideoEnded,
     onVideoPlay,
     onVideoPause,
+    consumePauseRequest,
     onVideoTimeUpdate,
     onVideoSeeking,
     onVideoSeeked,
@@ -162,6 +167,7 @@ function useMediaPlayerVideoController(
   const {
     streamOffset,
     streamSessionId,
+    transcodeSessionId,
     transcodeAttempt,
     sourceGeneration,
     isLoading,
@@ -170,6 +176,7 @@ function useMediaPlayerVideoController(
     (state) => ({
       streamOffset: state.streamOffset,
       streamSessionId: state.streamSessionId,
+      transcodeSessionId: state.transcodeSessionId,
       transcodeAttempt: state.transcodeAttempt,
       sourceGeneration: state.sourceGeneration,
       isLoading: state.isLoading,
@@ -202,6 +209,7 @@ function useMediaPlayerVideoController(
   const usesOffsetTimeline = streamOffset > 0;
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
   const surfaceElementRef = useRef<HTMLDivElement | null>(null);
+  const isDocumentUnloadingRef = useRef(false);
   const { plexSubtitleTrackSrc, handlePlexTrackLoad, captionTrack } =
     usePlexSubtitleTrack(
       videoElementRef,
@@ -241,6 +249,24 @@ function useMediaPlayerVideoController(
     null,
   );
   const longPressRef = useSuppressNativeLongPress(useMobileSurfaceGestures);
+
+  useEffect(() => {
+    const markDocumentUnloading = () => {
+      isDocumentUnloadingRef.current = true;
+    };
+    const markDocumentActive = () => {
+      isDocumentUnloadingRef.current = false;
+    };
+
+    window.addEventListener("beforeunload", markDocumentUnloading);
+    window.addEventListener("pagehide", markDocumentUnloading);
+    window.addEventListener("pageshow", markDocumentActive);
+    return () => {
+      window.removeEventListener("beforeunload", markDocumentUnloading);
+      window.removeEventListener("pagehide", markDocumentUnloading);
+      window.removeEventListener("pageshow", markDocumentActive);
+    };
+  }, []);
 
   // Combined ref: forwards the surface element to both the long-press
   // suppression hook and our local ref (used for the non-passive wheel
@@ -293,6 +319,7 @@ function useMediaPlayerVideoController(
         streamOffset,
         streamSessionId,
         transcodeAttempt,
+        transcodeSessionId,
       );
       return { videoSrc: streamUrl, hasError: false };
     } catch (error) {
@@ -326,7 +353,10 @@ function useMediaPlayerVideoController(
         // the browser has actual media data; resume seeks stay loading until
         // their target is applied.
         canPlay: false,
-        isLoading: needsResumeSeek,
+        isLoading: shouldRemainLoadingAfterMetadata({
+          needsResumeSeek,
+          videoUsesTranscode: playbackPlan.videoUsesTranscode,
+        }),
       });
 
       if (needsResumeSeek) {
@@ -351,12 +381,15 @@ function useMediaPlayerVideoController(
   const handlePause = () => {
     const video = videoElementRef.current;
     if (!updatePlaybackState({ isPlaying: false }) || !video) return;
+    const wasPauseRequested = consumePauseRequest?.() ?? true;
     if (
       shouldReportVideoPause({
         hasMediaError: video.error !== null,
+        isDocumentUnloading: isDocumentUnloadingRef.current,
         isSourceLoading: isLoading,
         isCurrentMediaSource: isCurrentMediaSource(video.currentSrc, videoSrc),
         readyState: video.readyState,
+        wasPauseRequested,
       })
     ) {
       onVideoPause?.();
@@ -524,21 +557,25 @@ function useMediaPlayerVideoController(
     onClick: useMobileSurfaceGestures ? undefined : onVideoClick,
   });
 
-  const videoRefCallback = (node: HTMLVideoElement | null) => {
-    videoElementRef.current = node;
-    if (typeof ref === "function") {
-      ref(node);
-    } else if (ref) {
-      ref.current = node;
-    }
-    // Start from the imperative play() path instead of the autoPlay attribute
-    // so audible playback stays under player/Syncplay control.
-    if (node) {
-      void node.play().catch(() => {
-        // Autoplay can still be blocked by the browser; controls retry.
-      });
-    }
-  };
+  const videoRefCallback = useCallback(
+    (node: HTMLVideoElement | null) => {
+      if (videoElementRef.current === node) return;
+      videoElementRef.current = node;
+      if (typeof ref === "function") {
+        ref(node);
+      } else if (ref) {
+        ref.current = node;
+      }
+      // Start from the imperative play() path instead of the autoPlay attribute
+      // so audible playback stays under player/Syncplay control.
+      if (node) {
+        void node.play().catch(() => {
+          // Autoplay can still be blocked by the browser; controls retry.
+        });
+      }
+    },
+    [ref],
+  );
 
   // A Watch Together session forces normal speed (an unsynced local rate would
   // desync viewers); otherwise honor the user's chosen rate.
@@ -586,6 +623,9 @@ function useMediaPlayerVideoController(
   const handleVideoError = () => {
     if (ref && "current" in ref && ref.current?.error) {
       if (!isCurrentMediaSource(ref.current.currentSrc, videoSrc)) return;
+      // Detaching the old source can deliver a late error event. It belongs
+      // to the source being replaced and must not restart that transcode.
+      if (playerCommands.snapshot().isPreparingReplacement) return;
       if (
         playbackPlan.videoUsesTranscode &&
         transcodeAttempt + 1 < MAX_TRANSCODE_START_ATTEMPTS &&
@@ -593,6 +633,12 @@ function useMediaPlayerVideoController(
       ) {
         if (transcodeRetryTimeoutRef.current !== null) return;
         const delayMs = getTranscodeRetryDelayMs(transcodeAttempt);
+        updatePlaybackState({
+          isLoading: true,
+          isBuffering: false,
+          canPlay: false,
+          error: null,
+        });
         console.warn(
           `Plex transcode start failed; retrying with a fresh session in ${delayMs}ms (${transcodeAttempt + 2}/${MAX_TRANSCODE_START_ATTEMPTS})`,
         );

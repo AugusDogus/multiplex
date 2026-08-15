@@ -47,6 +47,10 @@ import {
   stopTranscodeSession,
 } from "./utils/plex-stream-urls";
 import { buildPlexPlaybackPlan } from "./utils/plex-playback-plan";
+import {
+  browserReloadStorage,
+  storeReloadPlaybackSession,
+} from "./utils/reload-playback-session";
 import { mediaPlayerControlsTransition } from "./utils/media-player-controls-transition";
 import { useIsMobile } from "~/hooks/use-mobile";
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
@@ -303,7 +307,9 @@ interface PlaybackSessionControllerOptions {
   isOpen: boolean;
   streamOffset: number;
   streamSessionId: string;
+  transcodeSessionId: string;
   transcodeSessionKey: string | null;
+  preparePlayerForReplacement: () => void;
 }
 
 function usePlaybackSessionController({
@@ -312,7 +318,9 @@ function usePlaybackSessionController({
   isOpen,
   streamOffset,
   streamSessionId,
+  transcodeSessionId,
   transcodeSessionKey,
+  preparePlayerForReplacement,
 }: PlaybackSessionControllerOptions) {
   const sessionState = useSessionState();
   const playerItemServerId = currentItem?.serverId ?? null;
@@ -321,6 +329,13 @@ function usePlaybackSessionController({
   const streamAuthToken = currentItem?.authToken;
   const isGuestTransient = currentItem?.access === "guest-transient";
   const timeline = useTimelineUpdates({ enabled: !isGuestTransient });
+  const actionsRef = useRef(actions);
+  const preparePlayerForReplacementRef = useRef(preparePlayerForReplacement);
+
+  useEffect(() => {
+    actionsRef.current = actions;
+    preparePlayerForReplacementRef.current = preparePlayerForReplacement;
+  }, [actions, preparePlayerForReplacement]);
 
   useEffect(() => {
     if (
@@ -342,33 +357,34 @@ function usePlaybackSessionController({
     return sessionCommands.registerPlayerActions({
       play: () =>
         isSessionControllingPlayback(registeredPlayback)
-          ? actions.play()
+          ? actionsRef.current.play()
           : false,
       pause: () => {
         if (isSessionControllingPlayback(registeredPlayback)) {
-          actions.pause();
+          actionsRef.current.pause();
         }
       },
       seek: (seconds) =>
         isSessionControllingPlayback(registeredPlayback)
-          ? actions.seek(seconds)
+          ? actionsRef.current.seek(seconds)
           : "none",
-      prepareForReplacement: () =>
-        stopPlaybackTranscodeSessions(
+      prepareForReplacement: async () => {
+        preparePlayerForReplacementRef.current();
+        await stopPlaybackTranscodeSessions(
           streamServerUrl,
           streamAuthToken,
-          streamSessionId,
-        ),
+          transcodeSessionId,
+        );
+      },
     });
   }, [
-    actions,
     isOpen,
     playerItemServerId,
     playerItemRatingKey,
     streamSessionId,
+    transcodeSessionId,
     streamServerUrl,
     streamAuthToken,
-    currentItem,
   ]);
 
   const isWatchTogetherSession =
@@ -399,15 +415,15 @@ function usePlaybackSessionController({
   });
 
   const previousStreamRef = useRef({
-    sessionId: streamSessionId,
+    sessionId: transcodeSessionId,
     offset: streamOffset,
     transcodeSessionKey,
   });
   useEffect(() => {
     const previousStream = previousStreamRef.current;
-    if (streamSessionId !== previousStream.sessionId) {
+    if (transcodeSessionId !== previousStream.sessionId) {
       previousStreamRef.current = {
-        sessionId: streamSessionId,
+        sessionId: transcodeSessionId,
         offset: streamOffset,
         transcodeSessionKey,
       };
@@ -415,14 +431,11 @@ function usePlaybackSessionController({
     }
 
     previousStreamRef.current = {
-      sessionId: streamSessionId,
+      sessionId: transcodeSessionId,
       offset: streamOffset,
       transcodeSessionKey,
     };
 
-    if (streamOffset !== previousStream.offset) {
-      onSyncplayLocalSeeked(streamOffset);
-    }
     if (
       previousStream.transcodeSessionKey &&
       previousStream.transcodeSessionKey !== transcodeSessionKey &&
@@ -439,7 +452,7 @@ function usePlaybackSessionController({
       void stopPlaybackTranscodeSessions(
         streamServerUrl,
         streamAuthToken,
-        streamSessionId,
+        transcodeSessionId,
         {
           keepSessionKey: () =>
             previousStreamRef.current.transcodeSessionKey ?? null,
@@ -449,13 +462,14 @@ function usePlaybackSessionController({
   }, [
     streamOffset,
     streamSessionId,
+    transcodeSessionId,
     transcodeSessionKey,
     streamServerUrl,
     streamAuthToken,
   ]);
 
   useEffect(() => {
-    if (!streamSessionId || !streamServerUrl || !streamAuthToken) {
+    if (!transcodeSessionId || !streamServerUrl || !streamAuthToken) {
       return;
     }
     return () => {
@@ -472,10 +486,10 @@ function usePlaybackSessionController({
       void stopPlaybackTranscodeSessions(
         streamServerUrl,
         streamAuthToken,
-        streamSessionId,
+        transcodeSessionId,
       );
     };
-  }, [streamSessionId, streamServerUrl, streamAuthToken]);
+  }, [transcodeSessionId, streamServerUrl, streamAuthToken]);
 
   return {
     autoPlayProps: {
@@ -524,6 +538,7 @@ export function MediaPlayerModal() {
     duration,
     streamOffset,
     streamSessionId,
+    transcodeSessionId,
     transcodeAttempt,
   } = usePlayerStateSelector(
     (state) => ({
@@ -539,6 +554,7 @@ export function MediaPlayerModal() {
       duration: state.duration,
       streamOffset: state.streamOffset,
       streamSessionId: state.streamSessionId,
+      transcodeSessionId: state.transcodeSessionId,
       transcodeAttempt: state.transcodeAttempt,
     }),
     shallow,
@@ -546,43 +562,66 @@ export function MediaPlayerModal() {
   const volume = usePlayerPrefsStore((state) => state.volume);
 
   const closePlayer = playerCommands.closePlayer;
-  const { actions, videoRef } = useMediaPlayer();
-  const isMobile = useIsMobile();
   const {
-    actionsWithSeekFeedback,
-    chromeClassName,
-    clearAllTimeouts,
-    handleCenterTogglePlay,
-    handleMobileSkipBackward,
-    handleMobileSkipForward,
-    handleMouseEnter,
-    handleMouseLeave,
-    handleMouseMove,
-    handleSettingsOpenChange,
-    handleSurfaceTap,
-    resetMobileControlsTimer,
-    seekFeedbackRef,
-  } = usePlayerChromeController({
     actions,
-    currentTime,
-    duration,
-    isMobile,
-    isOpen,
-    showControls,
-  });
+    videoRef,
+    consumePauseRequest,
+    prepareForReplacement: preparePlayerForReplacement,
+  } = useMediaPlayer();
+  const isMobile = useIsMobile();
   usePlayQueue(currentItem, {
     enabled: currentItem?.access !== "guest-transient",
   });
   const playbackPlan = currentItem ? buildPlexPlaybackPlan(currentItem) : null;
   const transcodeSessionKey =
-    playbackPlan?.videoUsesTranscode && streamSessionId
+    playbackPlan?.videoUsesTranscode && transcodeSessionId
       ? buildPlexTranscodeSessionKey(
-          streamSessionId,
+          transcodeSessionId,
           streamOffset,
           playbackPlan.burnedSubtitleId,
           transcodeAttempt,
         )
       : null;
+
+  useEffect(() => {
+    if (
+      !isOpen ||
+      !playbackPlan?.videoUsesTranscode ||
+      !currentItem ||
+      !streamSessionId
+    ) {
+      return;
+    }
+
+    const persistForReload = () => {
+      const storage = browserReloadStorage();
+      if (!storage) return;
+      storeReloadPlaybackSession(storage, {
+        serverId: currentItem.serverId,
+        ratingKey: currentItem.ratingKey,
+        streamSessionId,
+        transcodeSessionId,
+        streamOffset,
+        transcodeAttempt,
+        savedAt: Date.now(),
+      });
+    };
+
+    window.addEventListener("beforeunload", persistForReload);
+    window.addEventListener("pagehide", persistForReload);
+    return () => {
+      window.removeEventListener("beforeunload", persistForReload);
+      window.removeEventListener("pagehide", persistForReload);
+    };
+  }, [
+    currentItem,
+    isOpen,
+    playbackPlan?.videoUsesTranscode,
+    streamOffset,
+    streamSessionId,
+    transcodeSessionId,
+    transcodeAttempt,
+  ]);
 
   const {
     autoPlayProps,
@@ -602,7 +641,53 @@ export function MediaPlayerModal() {
     isOpen,
     streamOffset,
     streamSessionId,
+    transcodeSessionId,
     transcodeSessionKey,
+    preparePlayerForReplacement,
+  });
+
+  const claimReloadSeek = (result: ReturnType<typeof actions.seek>) => {
+    if (result === "reload" && isSyncplayActiveForCurrentItem) {
+      onSyncplayLocalSeeked(playerCommands.snapshot().currentTime);
+    }
+    return result;
+  };
+  // Claim UI-originated transcode seeks before their coalesced source
+  // replacement runs. PlayerPort keeps the raw actions so applying a remote
+  // seek never claims that seek back as a local command.
+  const localActions = {
+    ...actions,
+    seek: (seconds: number) => claimReloadSeek(actions.seek(seconds)),
+    skipForward: (seconds?: number) =>
+      claimReloadSeek(actions.skipForward(seconds)),
+    skipBackward: (seconds?: number) =>
+      claimReloadSeek(actions.skipBackward(seconds)),
+    jumpToStart: () => claimReloadSeek(actions.jumpToStart()),
+    jumpToEnd: () => claimReloadSeek(actions.jumpToEnd()),
+    seekToMarkerEnd: (marker: Parameters<typeof actions.seekToMarkerEnd>[0]) =>
+      claimReloadSeek(actions.seekToMarkerEnd(marker)),
+  };
+  const {
+    actionsWithSeekFeedback,
+    chromeClassName,
+    clearAllTimeouts,
+    handleCenterTogglePlay,
+    handleMobileSkipBackward,
+    handleMobileSkipForward,
+    handleMouseEnter,
+    handleMouseLeave,
+    handleMouseMove,
+    handleSettingsOpenChange,
+    handleSurfaceTap,
+    resetMobileControlsTimer,
+    seekFeedbackRef,
+  } = usePlayerChromeController({
+    actions: localActions,
+    currentTime,
+    duration,
+    isMobile,
+    isOpen,
+    showControls,
   });
 
   const handleClose = () => {
@@ -709,7 +794,7 @@ export function MediaPlayerModal() {
       }}
       markers={markers}
       currentTime={currentTime}
-      actions={actions}
+      actions={localActions}
       autoPlayProps={autoPlayProps}
       videoProps={{
         ref: videoRef,
@@ -725,6 +810,7 @@ export function MediaPlayerModal() {
         onVideoEnded: onEnded,
         onVideoPlay: handleVideoPlay,
         onVideoPause: handleVideoPause,
+        consumePauseRequest,
         onVideoTimeUpdate: onTimeUpdate,
         onVideoSeeking: onSyncplayLocalSeeked,
         onVideoSeeked,

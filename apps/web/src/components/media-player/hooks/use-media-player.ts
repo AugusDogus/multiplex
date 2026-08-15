@@ -1,15 +1,49 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { PlaybackIntent, type Marker } from "@multiplex/plex-query";
 import { playerCommands } from "~/lib/effect/player-atoms";
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import type {
   MediaPlayerActions,
+  MediaPlayerItem,
   MediaPlayerSeekResult,
 } from "~/types/media-player";
 import { clamp, supportsFullscreen } from "../utils/media-player-utils";
 import { clampPlayableSeekTarget } from "../utils/playback-time-utils";
+import {
+  buildPlexPlaybackPlan,
+  playbackUsesTranscode,
+} from "../utils/plex-playback-plan";
+import {
+  buildPlexTranscodeSessionKey,
+  markTranscodeSessionStopped,
+  stopTranscodeSessionBeforeReplacement,
+} from "../utils/plex-stream-urls";
+
+const TRANSCODE_SEEK_COALESCE_MS = 200;
+
+export function getMediaSeekResult(
+  item: MediaPlayerItem | null,
+): Exclude<MediaPlayerSeekResult, "none"> {
+  return item !== null && playbackUsesTranscode(item) ? "reload" : "direct";
+}
+
+export function detachMediaForReplacement(
+  video: Pick<HTMLVideoElement, "load" | "pause" | "removeAttribute">,
+): void {
+  video.pause();
+  video.removeAttribute("src");
+  video.load();
+}
+
+export function getMediaToggleAction(
+  video: Pick<HTMLVideoElement, "paused"> | null,
+  stateIsPlaying: boolean,
+): "play" | "pause" {
+  if (video) return video.paused ? "play" : "pause";
+  return stateIsPlaying ? "pause" : "play";
+}
 
 function toggleFullscreen() {
   if (!supportsFullscreen()) {
@@ -36,23 +70,44 @@ function toggleFullscreen() {
    ──────────────────────────────────────────────────────────── */
 
 export function useMediaPlayer(): {
-  actions: MediaPlayerActions & {
-    skipForward: (seconds?: number) => void;
-    skipBackward: (seconds?: number) => void;
-    jumpToStart: () => void;
-    jumpToEnd: () => void;
-    seekToMarkerEnd: (marker: Marker) => void;
+  actions: Omit<
+    MediaPlayerActions,
+    "skipForward" | "skipBackward" | "jumpToStart" | "jumpToEnd"
+  > & {
+    skipForward: (seconds?: number) => MediaPlayerSeekResult;
+    skipBackward: (seconds?: number) => MediaPlayerSeekResult;
+    jumpToStart: () => MediaPlayerSeekResult;
+    jumpToEnd: () => MediaPlayerSeekResult;
+    seekToMarkerEnd: (marker: Marker) => MediaPlayerSeekResult;
   };
   videoRef: React.RefObject<HTMLVideoElement | null>;
+  consumePauseRequest: () => boolean;
+  prepareForReplacement: () => void;
 } {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playbackIntentRef = useRef(PlaybackIntent.make());
+  const pauseRequestedRef = useRef(false);
+  const transcodeSeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const transcodeSeekRevisionRef = useRef(0);
+
+  const cancelPendingTranscodeSeek = () => {
+    transcodeSeekRevisionRef.current += 1;
+    if (transcodeSeekTimeoutRef.current !== null) {
+      clearTimeout(transcodeSeekTimeoutRef.current);
+      transcodeSeekTimeoutRef.current = null;
+    }
+  };
+
+  useEffect(() => cancelPendingTranscodeSeek, []);
 
   /**
    * Start video playback
    */
   const play = async () => {
     console.log("🎬 Player: play() called");
+    pauseRequestedRef.current = false;
     const intentRevision = playbackIntentRef.current.beginPlay();
     const video = videoRef.current;
     const playbackIdentity = playerCommands.playbackIdentity();
@@ -103,6 +158,7 @@ export function useMediaPlayer(): {
     const video = videoRef.current;
     const playbackIdentity = playerCommands.playbackIdentity();
     if (video && playbackIdentity) {
+      pauseRequestedRef.current = !video.paused;
       video.pause();
       playerCommands.updatePlaybackStateFor(playbackIdentity, {
         isPlaying: false,
@@ -110,11 +166,39 @@ export function useMediaPlayer(): {
     }
   };
 
+  const consumePauseRequest = () => {
+    const requested = pauseRequestedRef.current;
+    pauseRequestedRef.current = false;
+    return requested;
+  };
+
+  const prepareForReplacement = () => {
+    cancelPendingTranscodeSeek();
+    playbackIntentRef.current.pause();
+    pauseRequestedRef.current = false;
+    const video = videoRef.current;
+    const playbackIdentity = playerCommands.playbackIdentity();
+    if (!video || !playbackIdentity) return;
+
+    playerCommands.updatePlaybackStateFor(playbackIdentity, {
+      isLoading: true,
+      isPreparingReplacement: true,
+      canPlay: false,
+      isPlaying: false,
+    });
+    detachMediaForReplacement(video);
+  };
+
   /**
    * Toggle play/pause state
    */
   const togglePlay = () => {
-    if (playerCommands.snapshot().isPlaying) {
+    if (
+      getMediaToggleAction(
+        videoRef.current,
+        playerCommands.snapshot().isPlaying,
+      ) === "pause"
+    ) {
       pause();
     } else {
       void play();
@@ -129,29 +213,67 @@ export function useMediaPlayer(): {
     const video = videoRef.current;
     const playbackIdentity = playerCommands.playbackIdentity();
     if (video && playbackIdentity) {
-      const duration = playerCommands.snapshot().duration;
+      const playerState = playerCommands.snapshot();
+      const duration = playerState.duration;
       const clampedTime = clamp(time, 0, duration);
       // Plex's transcoded MP4 stream advertises an empty seekable range, so
       // assigning `video.currentTime` is silently rejected. For those we
       // seek by reloading the stream with a new `offset` instead.
-      const isTranscoded = video.currentSrc.includes(
-        "/video/:/transcode/universal/",
-      );
-      if (isTranscoded) {
+      // Use the canonical playback plan. Chrome can clear `currentSrc` while
+      // replacing a transcode source, which must not turn the seek into a
+      // rejected native media-element seek.
+      const seekResult = getMediaSeekResult(playerState.currentItem);
+      if (seekResult === "reload") {
         const playableTime = clampPlayableSeekTarget(clampedTime, duration);
+        cancelPendingTranscodeSeek();
+        const seekRevision = transcodeSeekRevisionRef.current;
         playerCommands.updatePlaybackStateFor(playbackIdentity, {
-          streamOffset: playableTime,
           currentTime: playableTime,
           isLoading: true,
+          isPreparingReplacement: true,
           canPlay: false,
         });
-        return "reload";
+        if (!playerState.isPreparingReplacement) {
+          detachMediaForReplacement(video);
+        }
+        transcodeSeekTimeoutRef.current = setTimeout(() => {
+          transcodeSeekTimeoutRef.current = null;
+          void (async () => {
+            const pending = playerCommands.snapshot();
+            const pendingItem = pending.currentItem;
+            if (
+              pendingItem?.serverUrl &&
+              pendingItem.authToken &&
+              pending.transcodeSessionId
+            ) {
+              const plan = buildPlexPlaybackPlan(pendingItem);
+              const sessionKey = buildPlexTranscodeSessionKey(
+                pending.transcodeSessionId,
+                pending.streamOffset,
+                plan.burnedSubtitleId,
+                pending.transcodeAttempt,
+              );
+              const stopped = await stopTranscodeSessionBeforeReplacement(
+                pendingItem.serverUrl,
+                pendingItem.authToken,
+                sessionKey,
+              );
+              if (stopped) markTranscodeSessionStopped(sessionKey);
+            }
+            if (transcodeSeekRevisionRef.current !== seekRevision) return;
+            playerCommands.replaceTranscodeSource(
+              playbackIdentity,
+              playableTime,
+            );
+          })();
+        }, TRANSCODE_SEEK_COALESCE_MS);
+        return seekResult;
       }
       video.currentTime = clampedTime;
       playerCommands.updatePlaybackStateFor(playbackIdentity, {
         currentTime: clampedTime,
       });
-      return "direct";
+      return seekResult;
     }
 
     return "none";
@@ -187,7 +309,7 @@ export function useMediaPlayer(): {
   const skipForward = (seconds = 10) => {
     const { currentTime, duration } = playerCommands.snapshot();
     const newTime = Math.min(currentTime + seconds, duration);
-    seek(newTime);
+    return seek(newTime);
   };
 
   /**
@@ -199,21 +321,21 @@ export function useMediaPlayer(): {
       playerCommands.snapshot().currentTime - seconds,
       0,
     );
-    seek(newTime);
+    return seek(newTime);
   };
 
   /**
    * Jump to the beginning of the video
    */
   const jumpToStart = () => {
-    seek(0);
+    return seek(0);
   };
 
   /**
    * Jump to the end of the video
    */
   const jumpToEnd = () => {
-    seek(playerCommands.snapshot().duration);
+    return seek(playerCommands.snapshot().duration);
   };
 
   /**
@@ -222,7 +344,7 @@ export function useMediaPlayer(): {
    */
   const seekToMarkerEnd = (marker: Marker) => {
     const seekTime = marker.endTimeOffset / 1000; // Convert ms to seconds
-    seek(seekTime);
+    return seek(seekTime);
   };
 
   const actions = {
@@ -244,5 +366,7 @@ export function useMediaPlayer(): {
   return {
     actions,
     videoRef,
+    consumePauseRequest,
+    prepareForReplacement,
   };
 }

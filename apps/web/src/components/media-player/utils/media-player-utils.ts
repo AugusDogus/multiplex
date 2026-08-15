@@ -52,12 +52,16 @@ export function getVideoElementError(error: MediaError | null): string {
  */
 export function shouldReportVideoPause(input: {
   readonly hasMediaError: boolean;
+  readonly isDocumentUnloading: boolean;
   readonly isSourceLoading: boolean;
   readonly isCurrentMediaSource: boolean;
   readonly readyState: number;
+  readonly wasPauseRequested: boolean;
 }): boolean {
   return (
+    input.wasPauseRequested &&
     !input.hasMediaError &&
+    !input.isDocumentUnloading &&
     !input.isSourceLoading &&
     input.isCurrentMediaSource &&
     input.readyState > 0
@@ -75,6 +79,13 @@ export function isCurrentMediaSource(
 /** Give PMS time to release a failed transcode before starting its replacement. */
 export function getTranscodeRetryDelayMs(failedAttempt: number): number {
   return Math.min(4_000, 500 * 2 ** Math.max(0, failedAttempt));
+}
+
+export function shouldRemainLoadingAfterMetadata(input: {
+  readonly needsResumeSeek: boolean;
+  readonly videoUsesTranscode: boolean;
+}): boolean {
+  return input.needsResumeSeek || input.videoUsesTranscode;
 }
 
 /**
