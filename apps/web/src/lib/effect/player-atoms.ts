@@ -128,6 +128,11 @@ export const playerCommands = {
   ): boolean => runPlayer((p) => p.updatePlaybackStateFor(expected, updates)),
   retryTranscodeSource: (expected: PlayerPlaybackIdentity): boolean =>
     runPlayer((p) => p.retryTranscodeSource(expected)),
+  replaceTranscodeSource: (
+    expected: PlayerPlaybackIdentity,
+    streamOffset: number,
+  ): boolean =>
+    runPlayer((p) => p.replaceTranscodeSource(expected, streamOffset)),
   applyPlaybackMetadata: (
     expected: PlayerPlaybackIdentity,
     metadata: ItemMetadata,

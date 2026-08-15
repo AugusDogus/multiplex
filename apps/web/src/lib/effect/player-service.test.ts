@@ -201,6 +201,51 @@ describe("openPlayer resume math", () => {
     expect(player.snapshot().transcodeAttempt).toBe(0);
   });
 
+  test("does not retry a source that is being replaced", () => {
+    player.openPlayer(sampleItem, { resume: false });
+    const opened = player.snapshot();
+    const identity = {
+      streamSessionId: opened.streamSessionId,
+      serverId: sampleItem.serverId,
+      ratingKey: sampleItem.ratingKey,
+    };
+
+    player.updatePlaybackStateFor(identity, {
+      isPreparingReplacement: true,
+    });
+
+    expect(player.retryTranscodeSource(identity)).toBe(false);
+    expect(player.snapshot().transcodeAttempt).toBe(0);
+
+    player.openPlayer({ ...sampleItem, ratingKey: "101" }, { resume: false });
+    expect(player.snapshot().isPreparingReplacement).toBe(false);
+  });
+
+  test("replaces a transcode source once even when its offset is unchanged", () => {
+    player.openPlayer(sampleItem, { resume: false });
+    const opened = player.snapshot();
+    const identity = {
+      streamSessionId: opened.streamSessionId,
+      serverId: sampleItem.serverId,
+      ratingKey: sampleItem.ratingKey,
+    };
+
+    player.updatePlaybackStateFor(identity, {
+      isPreparingReplacement: true,
+    });
+    expect(player.replaceTranscodeSource(identity, 0)).toBe(true);
+    expect(player.snapshot()).toMatchObject({
+      streamOffset: 0,
+      currentTime: 0,
+      sourceGeneration: opened.sourceGeneration + 1,
+      transcodeAttempt: 0,
+      isPreparingReplacement: false,
+      isLoading: true,
+      canPlay: false,
+      error: null,
+    });
+  });
+
   test("clears item-scoped state atomically", () => {
     player.openPlayer(sampleItem, { resume: false });
     player.updatePlaybackState({

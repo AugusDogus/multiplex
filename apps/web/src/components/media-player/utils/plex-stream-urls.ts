@@ -116,6 +116,7 @@ function buildDirectStreamUrl(
   selectedSubtitleStreamId: number | null,
   sessionId: string,
   transcodeAttempt: number,
+  transcodeSessionId = sessionId,
 ): string {
   const baseUrl = getBaseServerUrl(serverUrl);
   const streamUrl = new URL(`${baseUrl}/video/:/transcode/universal/start.mp4`);
@@ -126,7 +127,7 @@ function buildDirectStreamUrl(
   // still-running session with incompatible parameters. Old sessions are
   // short-lived and the server times them out.
   const session = buildPlexTranscodeSessionKey(
-    sessionId,
+    transcodeSessionId,
     offsetSeconds,
     selectedSubtitleStreamId,
     transcodeAttempt,
@@ -245,6 +246,7 @@ export function generatePlexStreamUrl(
   offsetSeconds = 0,
   sessionId: string,
   transcodeAttempt = 0,
+  transcodeSessionId = sessionId,
 ): string {
   if (!item.Media?.[0]?.Part?.[0]?.key) {
     throw new Error("No media part key found for item");
@@ -261,6 +263,7 @@ export function generatePlexStreamUrl(
         playbackPlan.burnedSubtitleId,
         sessionId,
         transcodeAttempt,
+        transcodeSessionId,
       );
 }
 

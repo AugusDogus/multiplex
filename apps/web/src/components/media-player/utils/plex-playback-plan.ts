@@ -1,5 +1,13 @@
 import type { MediaPlayerItem } from "~/types/media-player";
 
+type PlaybackMediaSummary = {
+  readonly Media?: ReadonlyArray<{
+    readonly audioCodec?: string;
+    readonly videoCodec?: string;
+    readonly container?: string;
+  }>;
+};
+
 /**
  * Audio codecs Chromium-based browsers can decode in a video container.
  * EAC3, AC3, DTS, TrueHD, and FLAC variants commonly used in MKV releases
@@ -156,7 +164,7 @@ export function playbackUsesTranscode(item: MediaPlayerItem): boolean {
  * remux/transcode it. When only the audio codec is unsupported, Plex keeps the
  * video track intact and transcodes audio to AAC.
  */
-export function decideStreamMode(item: MediaPlayerItem): StreamDecision {
+export function decideStreamMode(item: PlaybackMediaSummary): StreamDecision {
   const media = item.Media?.[0];
   const audioCodec = media?.audioCodec?.toLowerCase();
   const videoCodec = media?.videoCodec?.toLowerCase();

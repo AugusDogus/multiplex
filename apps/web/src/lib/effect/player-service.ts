@@ -12,6 +12,15 @@ import {
   buildPlexPlaybackPlan,
   playbackUsesTranscode,
 } from "~/components/media-player/utils/plex-playback-plan";
+import {
+  buildPlexTranscodeSessionKey,
+  stopPlaybackTranscodeSessions,
+  stopTranscodeSession,
+} from "~/components/media-player/utils/plex-stream-urls";
+import {
+  browserReloadStorage,
+  consumeReloadPlaybackSession,
+} from "~/components/media-player/utils/reload-playback-session";
 import type { MediaPlayerItem, NextEpisodeInfo } from "~/types/media-player";
 
 /**
@@ -32,11 +41,14 @@ export type PlayerState = {
   readonly bufferedTime: number;
   readonly streamOffset: number;
   readonly streamSessionId: string;
+  readonly transcodeSessionId: string;
   readonly transcodeAttempt: number;
   readonly sourceGeneration: number;
   readonly isFullscreen: boolean;
   readonly showControls: boolean;
   readonly isLoading: boolean;
+  /** The current media source is being detached before another item loads. */
+  readonly isPreparingReplacement: boolean;
   readonly error: string | null;
   readonly canPlay: boolean;
   readonly isBuffering: boolean;
@@ -100,11 +112,13 @@ export const initialPlayerState: PlayerState = {
   bufferedTime: 0,
   streamOffset: 0,
   streamSessionId: "",
+  transcodeSessionId: "",
   transcodeAttempt: 0,
   sourceGeneration: 0,
   isFullscreen: false,
   showControls: true,
   isLoading: false,
+  isPreparingReplacement: false,
   error: null,
   canPlay: false,
   isBuffering: false,
@@ -132,6 +146,10 @@ export type PlayerServiceShape = {
     updates: PlayerPlaybackUpdate,
   ) => boolean;
   readonly retryTranscodeSource: (expected: PlayerPlaybackIdentity) => boolean;
+  readonly replaceTranscodeSource: (
+    expected: PlayerPlaybackIdentity,
+    streamOffset: number,
+  ) => boolean;
   readonly applyPlaybackMetadata: (
     expected: PlayerPlaybackIdentity,
     metadata: ItemMetadata,
@@ -204,6 +222,38 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
     const state = yield* SubscriptionRef.make<PlayerState>(initialPlayerState);
 
     const openPlayer: PlayerServiceShape["openPlayer"] = (item, options) => {
+      const storage = browserReloadStorage();
+      const reloadSession = storage
+        ? consumeReloadPlaybackSession(storage, item)
+        : null;
+      if (
+        reloadSession &&
+        item.serverUrl &&
+        item.authToken &&
+        playbackUsesTranscode(item)
+      ) {
+        const priorPlaybackPlan = buildPlexPlaybackPlan(item);
+        const priorSessionKey = buildPlexTranscodeSessionKey(
+          reloadSession.transcodeSessionId,
+          reloadSession.streamOffset,
+          priorPlaybackPlan.burnedSubtitleId,
+          reloadSession.transcodeAttempt,
+        );
+        // The unloading document's keepalive stop is best-effort. Repeat the
+        // cleanup from the surviving page before Plex exhausts its limited
+        // transcode slots. The new playback uses a different prefix, so this
+        // sweep cannot stop its replacement stream.
+        void stopTranscodeSession(
+          item.serverUrl,
+          item.authToken,
+          priorSessionKey,
+        );
+        void stopPlaybackTranscodeSessions(
+          item.serverUrl,
+          item.authToken,
+          reloadSession.transcodeSessionId,
+        );
+      }
       // Watch Together starts everyone from the beginning (resume === false)
       // so all participants stay in sync; otherwise resume from the Plex
       // item's viewOffset supplied at this command boundary.
@@ -214,7 +264,7 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
       // the joiner starts at the room's current position instead of 0 and
       // doesn't drag everyone else back to the start). Otherwise resume
       // from the server-provided viewOffset, or start at 0.
-      const initialCurrentTime =
+      const requestedCurrentTime =
         options?.startPositionSeconds !== undefined
           ? item.duration
             ? Math.min(
@@ -225,12 +275,16 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
           : !resume
             ? 0
             : Math.floor(item.viewOffset ?? 0) / 1000;
+      const initialCurrentTime = reloadSession
+        ? reloadSession.streamOffset
+        : requestedCurrentTime;
 
       // Plex's transcoded MP4 stream can't be seeked after load, so for
       // resumed transcoded items we bake the resume position into the
       // initial stream URL via `offset`.
-      const initialStreamOffset =
-        initialCurrentTime > 0 && playbackUsesTranscode(item)
+      const initialStreamOffset = reloadSession
+        ? reloadSession.streamOffset
+        : initialCurrentTime > 0 && playbackUsesTranscode(item)
           ? initialCurrentTime
           : 0;
 
@@ -243,13 +297,20 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
         markers: [],
         currentTime: initialCurrentTime,
         streamOffset: initialStreamOffset,
-        // Plex Web uses compact alphanumeric identifiers for client playback
-        // sessions. Keep this stable across source replacements; the transcode
-        // session key separately identifies each seek/subtitle variant.
-        streamSessionId: crypto.randomUUID().replaceAll("-", "").slice(0, 24),
+        // Plex's logical playback identifier survives a hard reload, while
+        // each document owns a unique transcode cleanup prefix. The unloading
+        // page may safely sweep its prefix without killing this replacement.
+        streamSessionId:
+          reloadSession?.streamSessionId ??
+          crypto.randomUUID().replaceAll("-", "").slice(0, 24),
+        transcodeSessionId: crypto
+          .randomUUID()
+          .replaceAll("-", "")
+          .slice(0, 24),
         transcodeAttempt: 0,
         sourceGeneration: current.sourceGeneration + 1,
         isLoading: true,
+        isPreparingReplacement: false,
         error: null,
         isPlaying: false,
         duration: 0,
@@ -348,7 +409,10 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
       retryTranscodeSource: (expected) => {
         let applied = false;
         setState(state, (current) => {
-          if (!isPlayerPlaybackIdentityCurrent(current, expected)) {
+          if (
+            current.isPreparingReplacement ||
+            !isPlayerPlaybackIdentityCurrent(current, expected)
+          ) {
             return current;
           }
           applied = true;
@@ -357,6 +421,29 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
             transcodeAttempt: current.transcodeAttempt + 1,
             sourceGeneration: current.sourceGeneration + 1,
             isLoading: true,
+            isBuffering: false,
+            canPlay: false,
+            error: null,
+          };
+        });
+        return applied;
+      },
+
+      replaceTranscodeSource: (expected, streamOffset) => {
+        let applied = false;
+        setState(state, (current) => {
+          if (!isPlayerPlaybackIdentityCurrent(current, expected)) {
+            return current;
+          }
+          applied = true;
+          return {
+            ...current,
+            streamOffset,
+            currentTime: streamOffset,
+            transcodeAttempt: 0,
+            sourceGeneration: current.sourceGeneration + 1,
+            isLoading: true,
+            isPreparingReplacement: false,
             isBuffering: false,
             canPlay: false,
             error: null,
