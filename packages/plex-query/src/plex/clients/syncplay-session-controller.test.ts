@@ -15,8 +15,16 @@ const ROOM = {
   sourceUri: "server://server123/com.plexapp.plugins.library/library/metadata/456",
 } satisfies Pick<WatchTogetherRoom, "id" | "syncplayHost" | "syncplayPort" | "sourceUri">;
 
-const LOCAL_USER = { id: 1, deviceIdentifier: "local-device", deviceName: "Local Device" };
-const REMOTE_USER = { id: 2, deviceIdentifier: "remote-device", deviceName: "Remote Device" };
+const LOCAL_USER = {
+  id: 1,
+  deviceIdentifier: "local-device",
+  deviceName: "Local Device",
+};
+const REMOTE_USER = {
+  id: 2,
+  deviceIdentifier: "remote-device",
+  deviceName: "Remote Device",
+};
 
 class FakeWebSocket implements SyncplayWebSocketLike {
   readyState = 0;
@@ -139,8 +147,11 @@ function makeState(overrides: Partial<SyncplayPlayerState> = {}): SyncplayPlayer
 }
 
 function lastState(socket: FakeWebSocket | undefined) {
-  return (socket?.sent.at(-1) as { State?: { playstate?: unknown; ignoringOnTheFly?: unknown } })
-    ?.State;
+  return (
+    socket?.sent.at(-1) as {
+      State?: { playstate?: unknown; ignoringOnTheFly?: unknown };
+    }
+  )?.State;
 }
 
 describe("SyncplaySessionController", () => {
@@ -154,7 +165,11 @@ describe("SyncplaySessionController", () => {
 
     sockets[0]?.message({
       State: {
-        playstate: { paused: true, position: 30, setBy: encodeSyncplayUser(REMOTE_USER) },
+        playstate: {
+          paused: true,
+          position: 30,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
       },
     });
 
@@ -180,7 +195,11 @@ describe("SyncplaySessionController", () => {
 
     sockets[0]?.message({
       State: {
-        playstate: { paused: true, position: 0, setBy: encodeSyncplayUser(REMOTE_USER) },
+        playstate: {
+          paused: true,
+          position: 0,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
       },
     });
 
@@ -188,10 +207,98 @@ describe("SyncplaySessionController", () => {
     expect(state.isPlaying).toBe(true);
   });
 
+  test("does not claim a mechanical pause before initial playback begins", () => {
+    const sockets: FakeWebSocket[] = [];
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const state = makeState({ isPlaying: false, currentTime: 0 });
+    const controller = createController({
+      sockets,
+      state,
+      calls,
+      now: () => 1000,
+      remoteStartupGraceMs: 5000,
+    });
+    controller.connect();
+    sockets[0]?.open();
+
+    controller.handleLocalPlaybackChange(true);
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: true,
+          position: 0,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+
+    expect(lastState(sockets[0])?.ignoringOnTheFly).toEqual({
+      client: 0,
+      server: 0,
+    });
+  });
+
+  test("keeps startup grace through local play until the room acknowledges it", () => {
+    const sockets: FakeWebSocket[] = [];
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const state = makeState({ isPlaying: true, currentTime: 1 });
+    const controller = createController({
+      sockets,
+      state,
+      calls,
+      now: () => 1000,
+      remoteStartupGraceMs: 5000,
+    });
+    controller.connect();
+    sockets[0]?.open();
+
+    controller.handleLocalPlaybackChange(false);
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: true,
+          position: 0,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+
+    expect(calls.pause).toBe(0);
+    expect(state.isPlaying).toBe(true);
+
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 1,
+          setBy: encodeSyncplayUser(LOCAL_USER),
+        },
+        ignoringOnTheFly: { client: 1, server: 0 },
+      },
+    });
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: true,
+          position: 1,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+        ignoringOnTheFly: { client: 1, server: 0 },
+      },
+    });
+
+    expect(calls.pause).toBe(1);
+    expect(state.isPlaying).toBe(false);
+  });
+
   test("applies a remote seek to the local player", () => {
     const sockets: FakeWebSocket[] = [];
     const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
-    const state = makeState({ isPlaying: false, currentTime: 0, duration: 120 });
+    const state = makeState({
+      isPlaying: false,
+      currentTime: 0,
+      duration: 120,
+    });
     const controller = createController({ sockets, state, calls });
     controller.connect();
     sockets[0]?.open();
@@ -225,14 +332,22 @@ describe("SyncplaySessionController", () => {
     // Peer still playing; server relays it.
     sockets[0]?.message({
       State: {
-        playstate: { paused: false, position: 35, setBy: encodeSyncplayUser(REMOTE_USER) },
+        playstate: {
+          paused: false,
+          position: 35,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
       },
     });
 
     // We don't get dragged back to playing, and we claim our pause.
     expect(calls.play).toBe(0);
     expect(lastState(sockets[0])).toMatchObject({
-      playstate: { paused: true, position: 30, setBy: encodeSyncplayUser(LOCAL_USER) },
+      playstate: {
+        paused: true,
+        position: 30,
+        setBy: encodeSyncplayUser(LOCAL_USER),
+      },
       ignoringOnTheFly: { client: 1, server: 0 },
     });
   });
@@ -248,7 +363,11 @@ describe("SyncplaySessionController", () => {
     // Remote pause -> controller pauses the player (and arms suppression).
     sockets[0]?.message({
       State: {
-        playstate: { paused: true, position: 30, setBy: encodeSyncplayUser(REMOTE_USER) },
+        playstate: {
+          paused: true,
+          position: 30,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
       },
     });
     expect(calls.pause).toBe(1);
@@ -261,7 +380,11 @@ describe("SyncplaySessionController", () => {
     // No new claimed State (no setBy=self / client counter) was produced.
     sockets[0]?.message({
       State: {
-        playstate: { paused: true, position: 30, setBy: encodeSyncplayUser(REMOTE_USER) },
+        playstate: {
+          paused: true,
+          position: 30,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
       },
     });
     expect(lastState(sockets[0])).toMatchObject({
@@ -296,7 +419,11 @@ describe("SyncplaySessionController", () => {
     controller.handleLocalSeeked(200);
     sockets[0]?.message({
       State: {
-        playstate: { paused: false, position: 50, setBy: encodeSyncplayUser(REMOTE_USER) },
+        playstate: {
+          paused: false,
+          position: 50,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
       },
     });
 
@@ -312,6 +439,37 @@ describe("SyncplaySessionController", () => {
     controller.connect();
     sockets[0]?.closeFromServer();
     expect(sockets).toHaveLength(2);
+  });
+
+  test("aligns and applies pause immediately on reconnect", () => {
+    const sockets: FakeWebSocket[] = [];
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const state = makeState({ isPlaying: true, currentTime: 35 });
+    const controller = createController({
+      sockets,
+      state,
+      calls,
+      remoteStartupGraceMs: 5000,
+    });
+
+    controller.connect();
+    sockets[0]?.open();
+    controller.disconnect();
+    controller.connect();
+    sockets[1]?.open();
+    sockets[1]?.message({
+      State: {
+        playstate: {
+          paused: true,
+          position: 30,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+
+    expect(calls.seeks).toEqual([30]);
+    expect(calls.pause).toBe(1);
+    expect(state.isPlaying).toBe(false);
   });
 
   test("does not reconnect after a fatal protocol error", () => {
@@ -357,12 +515,20 @@ describe("SyncplaySessionController", () => {
     // Baseline frame (no edge yet), then a remote pause edge and a seek frame.
     sockets[0]?.message({
       State: {
-        playstate: { paused: false, position: 30, setBy: encodeSyncplayUser(REMOTE_USER) },
+        playstate: {
+          paused: false,
+          position: 30,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
       },
     });
     sockets[0]?.message({
       State: {
-        playstate: { paused: true, position: 31, setBy: encodeSyncplayUser(REMOTE_USER) },
+        playstate: {
+          paused: true,
+          position: 31,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
       },
     });
     sockets[0]?.message({
@@ -388,14 +554,22 @@ describe("SyncplaySessionController", () => {
     const actions: SyncplayRemoteAction[] = [];
     // Player is far behind the room, so the threshold seek kicks in without an
     // explicit doSeek from a user.
-    const state = makeState({ isPlaying: true, currentTime: 10, duration: 120 });
+    const state = makeState({
+      isPlaying: true,
+      currentTime: 10,
+      duration: 120,
+    });
     const controller = createController({ sockets, state, calls, actions });
     controller.connect();
     sockets[0]?.open();
 
     sockets[0]?.message({
       State: {
-        playstate: { paused: false, position: 60, setBy: encodeSyncplayUser(REMOTE_USER) },
+        playstate: {
+          paused: false,
+          position: 60,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
       },
     });
 
@@ -408,7 +582,11 @@ describe("SyncplaySessionController", () => {
     const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
     // A transcoded seek reloads the stream: the element fires a pause on
     // unload while isLoading is true. That must not be claimed as a user pause.
-    const state = makeState({ isPlaying: false, isLoading: true, currentTime: 50 });
+    const state = makeState({
+      isPlaying: false,
+      isLoading: true,
+      currentTime: 50,
+    });
     const controller = createController({ sockets, state, calls });
     controller.connect();
     sockets[0]?.open();
@@ -417,7 +595,11 @@ describe("SyncplaySessionController", () => {
     sockets[0]?.sent.splice(0);
     sockets[0]?.message({
       State: {
-        playstate: { paused: false, position: 50, setBy: encodeSyncplayUser(REMOTE_USER) },
+        playstate: {
+          paused: false,
+          position: 50,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
       },
     });
 
@@ -430,7 +612,11 @@ describe("SyncplaySessionController", () => {
   test("reports the last stable playstate while the stream reloads (no phantom pause)", () => {
     const sockets: FakeWebSocket[] = [];
     const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
-    const state = makeState({ isPlaying: true, currentTime: 30, duration: 7200 });
+    const state = makeState({
+      isPlaying: true,
+      currentTime: 30,
+      duration: 7200,
+    });
     const controller = createController({ sockets, state, calls });
     controller.connect();
     sockets[0]?.open();
@@ -450,7 +636,11 @@ describe("SyncplaySessionController", () => {
     // behavior: doSeek with paused=false).
     sockets[0]?.message({
       State: {
-        playstate: { paused: false, position: 30, setBy: encodeSyncplayUser(REMOTE_USER) },
+        playstate: {
+          paused: false,
+          position: 30,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
       },
     });
     expect(lastState(sockets[0])).toMatchObject({

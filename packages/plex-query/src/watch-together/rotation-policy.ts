@@ -4,12 +4,23 @@ import { parseLibraryItemUri } from "../plex/utils/metadata-utils";
 import type { ParticipantMap, RotationPhase } from "./session-state";
 
 /**
- * The Syncplay device name every Multiplex client announces. Auto-advance
- * coordination (leader election, "everyone joined" checks) only counts these
- * participants: official Plex clients in the same room can't run our
- * room-rotation protocol, so they follow via the regular invite instead.
+ * Device names for Multiplex clients that implement our successor-room
+ * protocol. Official Plex clients in the same room cannot participate in
+ * leader election or room gathering, so they follow via the regular invite.
  */
 export const MULTIPLEX_SYNCPLAY_DEVICE_NAME = "Multiplex Web";
+export const MULTIPLEX_GAMECUBE_SYNCPLAY_DEVICE_NAME = "Multiplex GameCube";
+
+function isRotationParticipant(user: SyncplayUser): boolean {
+  return (
+    user.deviceName === MULTIPLEX_SYNCPLAY_DEVICE_NAME ||
+    user.deviceName === MULTIPLEX_GAMECUBE_SYNCPLAY_DEVICE_NAME
+  );
+}
+
+function isWebRoomCreator(user: SyncplayUser): boolean {
+  return user.deviceName === MULTIPLEX_SYNCPLAY_DEVICE_NAME;
+}
 
 /**
  * Rooms whose newest timestamp is older than this are ignored during
@@ -35,10 +46,11 @@ export const MIN_PLAYBACK_SECONDS = 5;
 export const END_THRESHOLD_SECONDS = 0.5;
 
 /**
- * Rank 0 waits this long before creating, so the first discovery poll can
- * surface a room another client already created (e.g. we armed late).
+ * Rank 0 creates immediately. This is important when another Multiplex client
+ * reaches EOF from an abrupt seek: the successor must exist before that client
+ * performs its final room-list refresh.
  */
-export const CREATE_BASE_DELAY_MS = 1_500;
+export const CREATE_BASE_DELAY_MS = 0;
 
 /**
  * Per-rank delay before a failover candidate creates the room itself. Must
@@ -80,7 +92,7 @@ export function getMultiplexParticipants(
   const users = new Map<string, SyncplayUser>();
 
   for (const participant of Object.values(participants)) {
-    if (participant.user.deviceName !== MULTIPLEX_SYNCPLAY_DEVICE_NAME) {
+    if (!isRotationParticipant(participant.user)) {
       continue;
     }
     if (participant.isPresent !== true) {
@@ -103,13 +115,35 @@ export function getMultiplexParticipants(
 }
 
 /**
- * The local client's rank in the deterministic auto-advance ordering. Rank 0
- * is the leader (creates the next room immediately); higher ranks act as
- * staggered failovers.
+ * The local web client's rank in the deterministic auto-advance ordering.
+ * GameCube participates in successor gathering but uses its native fallback
+ * creator only after checking the room list at EOF, so including it in this
+ * rank would delay the first web creator and allow both platforms to race.
+ * Rank 0 creates immediately; higher web ranks act as staggered failovers.
  */
 export function getAutoAdvanceRank(participants: ParticipantMap, localUser: SyncplayUser): number {
-  return getMultiplexParticipants(participants, localUser).findIndex(
-    (user) => user.deviceIdentifier === localUser.deviceIdentifier,
+  return getMultiplexParticipants(participants, localUser)
+    .filter(isWebRoomCreator)
+    .findIndex((user) => user.deviceIdentifier === localUser.deviceIdentifier);
+}
+
+/**
+ * Rotation follows the furthest live room position, not only the local video.
+ * A buffering viewer still needs to enter the successor room when the rest of
+ * the party reaches the end.
+ */
+export function getPartyProgressSeconds(
+  participants: ParticipantMap,
+  localPositionSeconds: number,
+): number {
+  return Object.values(participants).reduce(
+    (furthest, participant) => {
+      const position = participant.positionSeconds;
+      return participant.isPresent === true && position !== undefined && Number.isFinite(position)
+        ? Math.max(furthest, position)
+        : furthest;
+    },
+    Math.max(0, localPositionSeconds),
   );
 }
 

@@ -11,6 +11,7 @@ import {
   EVERYONE_JOINED_GRACE_MS,
   findNextEpisodeRoom,
   getAutoAdvanceRank,
+  getPartyProgressSeconds,
   getMultiplexParticipants,
   haveMultiplexParticipantsJoined,
   isAtEnd,
@@ -114,9 +115,55 @@ describe("getMultiplexParticipants / getAutoAdvanceRank", () => {
     expect(getAutoAdvanceRank(participants, local)).toBe(0);
   });
 
+  it("includes the GameCube client in the successor-room cohort", () => {
+    const local = multiplexUser(2, "web-device");
+    const gameCube = multiplexUser(1, "gamecube-device");
+    gameCube.deviceName = "Multiplex GameCube";
+    const participants = {
+      [gameCube.deviceIdentifier]: present(gameCube),
+    };
+
+    expect(getMultiplexParticipants(participants, local)).toEqual([gameCube, local]);
+    expect(getAutoAdvanceRank(participants, local)).toBe(0);
+  });
+
   it("counts the local user as present even without a participant frame", () => {
     const local = multiplexUser(1);
     expect(getMultiplexParticipants({}, local)).toEqual([local]);
+  });
+});
+
+describe("getPartyProgressSeconds", () => {
+  it("uses a present peer's progress when local playback is stalled", () => {
+    const peer = multiplexUser(2);
+    expect(
+      getPartyProgressSeconds(
+        {
+          [peer.deviceIdentifier]: {
+            user: peer,
+            isPresent: true,
+            positionSeconds: 95,
+          },
+        },
+        40,
+      ),
+    ).toBe(95);
+  });
+
+  it("ignores stale positions from absent peers", () => {
+    const peer = multiplexUser(2);
+    expect(
+      getPartyProgressSeconds(
+        {
+          [peer.deviceIdentifier]: {
+            user: peer,
+            isPresent: false,
+            positionSeconds: 95,
+          },
+        },
+        40,
+      ),
+    ).toBe(40);
   });
 });
 
@@ -317,7 +364,7 @@ describe("lead window / end helpers and create delay", () => {
     expect(createRoomDelayMs(0)).toBe(CREATE_BASE_DELAY_MS);
     expect(createRoomDelayMs(1)).toBe(CREATE_BASE_DELAY_MS + CREATE_STAGGER_MS);
     expect(createRoomDelayMs(2)).toBe(CREATE_BASE_DELAY_MS + 2 * CREATE_STAGGER_MS);
-    expect(CREATE_BASE_DELAY_MS).toBe(1_500);
+    expect(CREATE_BASE_DELAY_MS).toBe(0);
     expect(CREATE_STAGGER_MS).toBe(8_000);
   });
 });

@@ -20,6 +20,7 @@ const SUPPRESSED_SEEK_MATCH_SECONDS = 2;
 // Retry a remote seek that arrived before media metadata (duration) loaded.
 const PENDING_SEEK_RETRY_MS = 250;
 const PENDING_SEEK_MAX_MS = 15000;
+const RECONNECT_ALIGNMENT_THRESHOLD_SECONDS = 0.25;
 // On auto-start every participant opens the player while the room's playstate is
 // still "paused" (the lobby never played), so the first State pings would pause
 // the freshly-autoplaying player and the whole room deadlocks at 0:00. For a
@@ -106,6 +107,10 @@ export class SyncplaySessionController {
   // When the socket actually opened (0 = not yet). The startup grace is measured
   // from here, not from connect-initiation, so a slow connect can't expire it.
   private connectedAt = 0;
+  private hasOpenedConnection = false;
+  private allowStartupGrace = true;
+  private startupGraceConsumed = false;
+  private forceInitialAlignment = false;
   // A remote seek that arrived before media duration was known, retried until it
   // can be applied.
   private pendingRemoteSeek: SyncplayPlaybackState | null = null;
@@ -159,6 +164,19 @@ export class SyncplaySessionController {
     if (this.options.player.getState().isLoading) {
       return;
     }
+    // A successful initial play is the event the startup grace exists to
+    // protect. Keep ignoring the stale paused lobby baseline until the room
+    // acknowledges playing (or the grace expires). A local pause is deliberate
+    // and must end the grace immediately.
+    const withinStartupGrace =
+      this.allowStartupGrace && this.now() - this.connectedAt < this.remoteStartupGraceMs;
+    if (isPaused && withinStartupGrace && this.lastStableIsPaused === null) {
+      return;
+    }
+    if (isPaused || !withinStartupGrace) {
+      this.allowStartupGrace = false;
+      this.startupGraceConsumed = true;
+    }
     this.lastStableIsPaused = isPaused;
     // Ignore the event our own remote-apply just produced (same target state);
     // otherwise claim the user's change (reported on the next State ping).
@@ -197,15 +215,23 @@ export class SyncplaySessionController {
       onRemoteAction: this.options.onRemoteAction,
       getPlaybackState: () => this.getCurrentState(),
       applyRemoteState: (state) => this.applyRemoteState(state),
+      onRoomState: (state) => {
+        if (!state.paused) {
+          this.allowStartupGrace = false;
+          this.startupGraceConsumed = true;
+        }
+      },
       // Start the startup grace from the actual socket open, not connect-
       // initiation, so a slow connect can't expire the grace before any State.
       onOpen: () => {
         if (this.client === client) {
           this.connectedAt = this.now();
+          this.allowStartupGrace = !this.hasOpenedConnection && !this.startupGraceConsumed;
+          this.forceInitialAlignment = this.hasOpenedConnection;
+          this.hasOpenedConnection = true;
         }
       },
       webSocketFactory: this.options.webSocketFactory,
-      now: this.now,
       onClose: () => {
         if (this.disposed || this.client !== client) {
           return;
@@ -272,7 +298,11 @@ export class SyncplaySessionController {
 
     const targetPosition = clampRemotePosition(state.positionSeconds, playerState.duration);
     const diffSeconds = playerState.currentTime - targetPosition;
+    const forceReconnectAlignment =
+      this.forceInitialAlignment && Math.abs(diffSeconds) > RECONNECT_ALIGNMENT_THRESHOLD_SECONDS;
+    this.forceInitialAlignment = false;
     const shouldSeek =
+      forceReconnectAlignment ||
       state.shouldSeek ||
       diffSeconds >=
         (this.options.seekAheadThresholdSeconds ?? DEFAULT_SEEK_AHEAD_THRESHOLD_SECONDS) ||
@@ -303,7 +333,8 @@ export class SyncplaySessionController {
     // the play-claim (markLocalPlayPause), not via this reply, so we keep
     // echoing the server state to avoid a still-in-grace peer overriding a real
     // pause.
-    const withinStartupGrace = this.now() - this.connectedAt < this.remoteStartupGraceMs;
+    const withinStartupGrace =
+      this.allowStartupGrace && this.now() - this.connectedAt < this.remoteStartupGraceMs;
     if (state.isPaused && playerState.isPlaying && !withinStartupGrace) {
       this.suppressedPlayPause = {
         isPaused: true,
