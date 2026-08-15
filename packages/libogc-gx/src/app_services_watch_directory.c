@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #if MULTIPLEX_PAIRING_ENABLED
 
@@ -180,7 +181,8 @@ bool multiplex_app_services_watch_directory_plan_rotation(
     MultiplexAppServices *services,
     MultiplexAppServicesWatchDirectory *directory,
     const MultiplexAppServicesPlaybackView *completed,
-    uint32_t joined_room_index, MultiplexAppServicesWatchRotation *rotation) {
+    uint32_t joined_room_index, bool wait_for_web_creator,
+    MultiplexAppServicesWatchRotation *rotation) {
   if (joined_room_index >= directory->rooms.room_count || rotation == NULL) {
     return false;
   }
@@ -206,6 +208,16 @@ bool multiplex_app_services_watch_directory_plan_rotation(
   }
   uint32_t next_index =
       find_rotation_room(&directory->rooms, &previous, next.rating_key);
+  for (unsigned attempt = 0;
+       next_index == UINT32_MAX && wait_for_web_creator && attempt < 16u;
+       ++attempt) {
+    usleep(250000u);
+    if (!multiplex_app_services_watch_directory_refresh(services, directory)) {
+      return false;
+    }
+    next_index =
+        find_rotation_room(&directory->rooms, &previous, next.rating_key);
+  }
   bool created = false;
   if (next_index == UINT32_MAX &&
       directory->hosted.kind == MULTIPLEX_APP_SERVICES_HOSTED_ROOM_PRESENT &&

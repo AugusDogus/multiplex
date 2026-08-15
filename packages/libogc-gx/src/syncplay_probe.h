@@ -23,6 +23,9 @@ bool multiplex_syncplay_session_take_remote_playback(
     bool *seek);
 unsigned multiplex_syncplay_session_participant_count(
     const MultiplexSyncplaySession *session);
+
+bool multiplex_syncplay_session_has_web_participant(
+    const MultiplexSyncplaySession *session);
 bool multiplex_syncplay_session_room_position(
     const MultiplexSyncplaySession *session, uint32_t *position_ms,
     bool *paused);

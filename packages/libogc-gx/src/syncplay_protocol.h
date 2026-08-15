@@ -36,5 +36,8 @@ bool multiplex_syncplay_update_ping(MultiplexSyncplayPingTiming *timing,
 uint32_t multiplex_syncplay_compensate_position(uint32_t position_ms,
                                                 bool paused,
                                                 double forward_delay_seconds);
+bool multiplex_syncplay_should_seek(uint32_t local_position_ms,
+                                    uint32_t remote_position_ms,
+                                    bool explicit_seek);
 
 #endif
