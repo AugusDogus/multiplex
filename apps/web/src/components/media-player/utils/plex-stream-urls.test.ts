@@ -9,6 +9,7 @@ import {
   generatePlexStreamUrl,
   markTranscodeSessionStopped,
   preparePlexTranscodeDecision,
+  stopPlaybackTranscodeSessions,
   stopTranscodeSession,
   stopTranscodeSessionBeforeReplacement,
 } from "./plex-stream-urls";
@@ -211,6 +212,83 @@ test("stops the current transcode with a page-close-safe request", async () => {
   const url = new URL(getRequestUrl(input));
   expect(url.pathname).toBe("/video/:/transcode/universal/stop");
   expect(url.searchParams.get("session")).toBe("multiplex-session-42");
+});
+
+test("sweeps again for a transcode that starts after initial cleanup", async () => {
+  const events: string[] = [];
+  let listRequests = 0;
+  installFetchMock(async (input) => {
+    const url = new URL(getRequestUrl(input));
+    if (url.pathname === "/transcode/sessions") {
+      listRequests += 1;
+      events.push(`list-${listRequests}`);
+      const body =
+        listRequests === 1
+          ? '<MediaContainer size="0" />'
+          : `<MediaContainer size="1"><TranscodeSession key="${PLAYBACK_SESSION_ID}-late" /></MediaContainer>`;
+      return new Response(body);
+    }
+    events.push(`stop-${url.searchParams.get("session") ?? "missing"}`);
+    return new Response();
+  });
+
+  await stopPlaybackTranscodeSessions(
+    "https://plex.example",
+    "secret-token",
+    PLAYBACK_SESSION_ID,
+    {
+      retryDelaysMs: [0, 1],
+      wait: async (milliseconds) => {
+        events.push(`wait-${milliseconds}`);
+      },
+    },
+  );
+
+  expect(events).toEqual([
+    "list-1",
+    "wait-1",
+    "list-2",
+    `stop-${PLAYBACK_SESSION_ID}-late`,
+  ]);
+});
+
+test("repeated replacement sweeps preserve the newest transcode session", async () => {
+  const stopped: string[] = [];
+  let activeSession = `${PLAYBACK_SESSION_ID}-first`;
+  installFetchMock(async (input) => {
+    const url = new URL(getRequestUrl(input));
+    if (url.pathname === "/transcode/sessions") {
+      const newest = `${PLAYBACK_SESSION_ID}-newest`;
+      const newestTag =
+        activeSession === newest ? `<TranscodeSession key="${newest}" />` : "";
+      return new Response(
+        `<MediaContainer><TranscodeSession key="${PLAYBACK_SESSION_ID}-old" /><TranscodeSession key="${PLAYBACK_SESSION_ID}-first" />${newestTag}</MediaContainer>`,
+      );
+    }
+    stopped.push(url.searchParams.get("session") ?? "missing");
+    return new Response();
+  });
+
+  const cleanup = stopPlaybackTranscodeSessions(
+    "https://plex.example",
+    "secret-token",
+    PLAYBACK_SESSION_ID,
+    {
+      retryDelaysMs: [0, 1],
+      wait: async () => {
+        activeSession = `${PLAYBACK_SESSION_ID}-newest`;
+      },
+      keepSessionKey: () => activeSession,
+    },
+  );
+  await cleanup;
+
+  expect(stopped).toEqual([
+    `${PLAYBACK_SESSION_ID}-old`,
+    `${PLAYBACK_SESSION_ID}-old`,
+    `${PLAYBACK_SESSION_ID}-first`,
+  ]);
+  expect(stopped).not.toContain(`${PLAYBACK_SESSION_ID}-newest`);
 });
 
 test("reports a failed stop without suppressing modal cleanup", async () => {

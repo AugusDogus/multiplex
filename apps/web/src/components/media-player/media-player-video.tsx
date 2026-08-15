@@ -27,7 +27,12 @@ import { useResumePlayback } from "./hooks/use-resume-playback";
 import { useSeekOverlay } from "./hooks/use-seek-overlay";
 import { buildPlexPlaybackPlan } from "./utils/plex-playback-plan";
 import { shouldClaimDirectSyncplaySeek } from "./utils/syncplay-seek-origin";
-import { getVideoElementError } from "./utils/media-player-utils";
+import {
+  getTranscodeRetryDelayMs,
+  getVideoElementError,
+  isCurrentMediaSource,
+  shouldReportVideoPause,
+} from "./utils/media-player-utils";
 import { getFullTimelineDuration } from "./utils/playback-time-utils";
 import { generatePlexStreamUrl } from "./utils/plex-stream-urls";
 import { useSuppressNativeLongPress } from "./hooks/use-suppress-native-long-press";
@@ -50,7 +55,7 @@ const DOUBLE_CLICK_SEEK_OVERLAY_MS = 2200;
 const DOUBLE_CLICK_SEEK_SECONDS = 10;
 // Matches Tailwind's `animate-ping` duration (1s).
 const DOUBLE_CLICK_SEEK_PULSE_MS = 1000;
-const MAX_TRANSCODE_START_ATTEMPTS = 3;
+const MAX_TRANSCODE_START_ATTEMPTS = 5;
 
 type DoubleClickSeekDirection = "backward" | "forward";
 
@@ -232,6 +237,9 @@ function useMediaPlayerVideoController(
   const seekPulseTimeoutsRef = useRef(
     new Map<number, ReturnType<typeof setTimeout>>(),
   );
+  const transcodeRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const longPressRef = useSuppressNativeLongPress(useMobileSurfaceGestures);
 
   // Combined ref: forwards the surface element to both the long-press
@@ -341,7 +349,18 @@ function useMediaPlayerVideoController(
 
   // Handle video pause event
   const handlePause = () => {
-    if (updatePlaybackState({ isPlaying: false })) onVideoPause?.();
+    const video = videoElementRef.current;
+    if (!updatePlaybackState({ isPlaying: false }) || !video) return;
+    if (
+      shouldReportVideoPause({
+        hasMediaError: video.error !== null,
+        isSourceLoading: isLoading,
+        isCurrentMediaSource: isCurrentMediaSource(video.currentSrc, videoSrc),
+        readyState: video.readyState,
+      })
+    ) {
+      onVideoPause?.();
+    }
   };
 
   // Handle video ended event
@@ -566,15 +585,28 @@ function useMediaPlayerVideoController(
    */
   const handleVideoError = () => {
     if (ref && "current" in ref && ref.current?.error) {
+      if (!isCurrentMediaSource(ref.current.currentSrc, videoSrc)) return;
       if (
         playbackPlan.videoUsesTranscode &&
         transcodeAttempt + 1 < MAX_TRANSCODE_START_ATTEMPTS &&
         isCurrentSource()
       ) {
+        if (transcodeRetryTimeoutRef.current !== null) return;
+        const delayMs = getTranscodeRetryDelayMs(transcodeAttempt);
         console.warn(
-          `Plex transcode start failed; retrying with a fresh session (${transcodeAttempt + 2}/${MAX_TRANSCODE_START_ATTEMPTS})`,
+          `Plex transcode start failed; retrying with a fresh session in ${delayMs}ms (${transcodeAttempt + 2}/${MAX_TRANSCODE_START_ATTEMPTS})`,
         );
-        playerCommands.retryTranscodeSource(playbackIdentity);
+        transcodeRetryTimeoutRef.current = setTimeout(() => {
+          transcodeRetryTimeoutRef.current = null;
+          const video = videoElementRef.current;
+          if (
+            video &&
+            isCurrentSource() &&
+            isCurrentMediaSource(video.currentSrc, videoSrc)
+          ) {
+            playerCommands.retryTranscodeSource(playbackIdentity);
+          }
+        }, delayMs);
         return;
       }
 
@@ -598,6 +630,15 @@ function useMediaPlayerVideoController(
       });
     }
   };
+
+  useEffect(() => {
+    return () => {
+      if (transcodeRetryTimeoutRef.current !== null) {
+        clearTimeout(transcodeRetryTimeoutRef.current);
+        transcodeRetryTimeoutRef.current = null;
+      }
+    };
+  }, [videoSrc]);
 
   return {
     activeCaptions,

@@ -47,6 +47,37 @@ export function getVideoElementError(error: MediaError | null): string {
 }
 
 /**
+ * Source replacement and media failure can emit `pause` without user intent.
+ * Those transport interruptions must not pause an entire Syncplay room.
+ */
+export function shouldReportVideoPause(input: {
+  readonly hasMediaError: boolean;
+  readonly isSourceLoading: boolean;
+  readonly isCurrentMediaSource: boolean;
+  readonly readyState: number;
+}): boolean {
+  return (
+    !input.hasMediaError &&
+    !input.isSourceLoading &&
+    input.isCurrentMediaSource &&
+    input.readyState > 0
+  );
+}
+
+/** Delayed events from a replaced `src` must not mutate the current player. */
+export function isCurrentMediaSource(
+  currentSrc: string,
+  expectedSrc: string,
+): boolean {
+  return currentSrc.length > 0 && currentSrc === expectedSrc;
+}
+
+/** Give PMS time to release a failed transcode before starting its replacement. */
+export function getTranscodeRetryDelayMs(failedAttempt: number): number {
+  return Math.min(4_000, 500 * 2 ** Math.max(0, failedAttempt));
+}
+
+/**
  * Check if the device supports fullscreen API
  * @returns True if fullscreen is supported
  */
