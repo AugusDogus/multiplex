@@ -1,21 +1,42 @@
 import { expect, test } from "@playwright/test";
 
 import { ACCOUNT_A, storageStatePath } from "./helpers/accounts";
-import { disbandRoom, openTestVideoDetails } from "./helpers/watch-together";
+import {
+  disbandRoom,
+  expectPlayingAndAdvancing,
+  openTestVideoDetails,
+} from "./helpers/watch-together";
+import { readPlaybackProbe } from "./helpers/playback-probe";
+import { createInstrumentedContext } from "./helpers/watch-together-artifacts";
 
 test("an unauthenticated guest does not request protected player metadata", async ({
   browser,
   baseURL,
 }, testInfo) => {
-  const hostContext = await browser.newContext({
+  test.setTimeout(600_000);
+  const hostArtifacts = await createInstrumentedContext({
+    browser,
+    label: "host",
     baseURL,
     storageState: storageStatePath(ACCOUNT_A),
     permissions: ["clipboard-read", "clipboard-write"],
+    testInfo,
   });
-  const guestContext = await browser.newContext({ baseURL });
+  const guestArtifacts = await createInstrumentedContext({
+    browser,
+    label: "guest",
+    baseURL,
+    testInfo,
+  }).catch(async (error: unknown) => {
+    await hostArtifacts.closeAndAttach();
+    throw error;
+  });
+  const hostContext = hostArtifacts.context;
+  const guestContext = guestArtifacts.context;
   const host = await hostContext.newPage();
   const guest = await guestContext.newPage();
   let roomId: string | undefined;
+  let successorRoomId: string | undefined;
   let testError: unknown;
 
   const hostSyncplayFrames: string[] = [];
@@ -81,8 +102,10 @@ test("an unauthenticated guest does not request protected player metadata", asyn
       await host.evaluate(() => navigator.clipboard.readText()),
     );
     const capability = guestUrl.pathname.split("/").at(-1);
-    expect(capability).toBeTruthy();
-    expect(capability!.length).toBeLessThan(125);
+    if (!capability) {
+      throw new Error("Guest link did not contain a capability path segment");
+    }
+    expect(capability.length).toBeLessThan(125);
     expect(guestUrl.href.length).toBeLessThan(200);
 
     await host.evaluate(() => {
@@ -122,7 +145,100 @@ test("an unauthenticated guest does not request protected player metadata", asyn
     await expect(start).toBeEnabled({ timeout: 30_000 });
     await start.click();
     await expect(guest.locator("video")).toBeVisible({ timeout: 60_000 });
-    await guest.waitForTimeout(2_000);
+    await Promise.all([
+      expectPlayingAndAdvancing(host, "guest-link host"),
+      expectPlayingAndAdvancing(guest, "guest-link guest"),
+    ]);
+
+    await host.locator("video").evaluate((video: HTMLVideoElement) => {
+      video.pause();
+    });
+    await expect
+      .poll(
+        () =>
+          guest
+            .locator("video")
+            .evaluate((video: HTMLVideoElement) => video.paused),
+        { message: "Guest Link guest should follow host pause" },
+      )
+      .toBe(true);
+
+    await host.locator("video").evaluate((video: HTMLVideoElement) =>
+      video.play().then(
+        () => true,
+        () => false,
+      ),
+    );
+    await expect
+      .poll(
+        () =>
+          guest
+            .locator("video")
+            .evaluate((video: HTMLVideoElement) => video.paused),
+        { message: "Guest Link guest should follow host resume" },
+      )
+      .toBe(false);
+
+    const hostDuration = (await readPlaybackProbe(host)).durationSeconds;
+    const seekTarget = hostDuration * 0.5;
+    await host.evaluate(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { code: "Digit5", bubbles: true }),
+      );
+    });
+    await expect
+      .poll(
+        async () =>
+          Math.abs(
+            (await readPlaybackProbe(guest)).timelinePositionSeconds -
+              seekTarget,
+          ),
+        {
+          message: "Guest Link guest should follow host seek",
+          timeout: 60_000,
+        },
+      )
+      .toBeLessThan(10);
+
+    const initialHostPath = new URL(host.url()).pathname;
+    const initialGuestPath = new URL(guest.url()).pathname;
+    const initialHostSource = (await readPlaybackProbe(host)).currentSrc;
+    const initialGuestSource = (await readPlaybackProbe(guest)).currentSrc;
+
+    // Guest links use a distinct continuation API and capability handoff.
+    // Exercise that real path instead of treating authenticated rotation as
+    // sufficient coverage for unauthenticated viewers.
+    await host.evaluate(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { code: "Digit9", bubbles: true }),
+      );
+    });
+    await expect
+      .poll(() => new URL(host.url()).pathname, {
+        message: "Guest Link host should route to the successor room",
+        timeout: 360_000,
+      })
+      .not.toBe(initialHostPath);
+    await expect
+      .poll(() => new URL(guest.url()).pathname, {
+        message: "Guest Link guest should receive a successor capability",
+        timeout: 60_000,
+      })
+      .not.toBe(initialGuestPath);
+
+    successorRoomId = new URL(host.url()).pathname.split("/").at(-1);
+    expect(successorRoomId).toBeTruthy();
+    await Promise.all([
+      expectPlayingAndAdvancing(host, "guest-link host after auto-advance"),
+      expectPlayingAndAdvancing(guest, "guest-link guest after auto-advance"),
+    ]);
+    await expect
+      .poll(async () => (await readPlaybackProbe(host)).currentSrc)
+      .not.toBe(initialHostSource);
+    await expect
+      .poll(async () => (await readPlaybackProbe(guest)).currentSrc)
+      .not.toBe(initialGuestSource);
+
     const hostToasts = await host.evaluate(
       () =>
         (
@@ -192,6 +308,12 @@ test("an unauthenticated guest does not request protected player metadata", asyn
     // contexts disappear. Otherwise repeated runs can exhaust server slots.
     await host.waitForTimeout(1_500).catch(() => undefined);
     if (roomId) await disbandRoom(hostContext, roomId);
-    await Promise.all([hostContext.close(), guestContext.close()]);
+    if (successorRoomId && successorRoomId !== roomId) {
+      await disbandRoom(hostContext, successorRoomId);
+    }
+    await Promise.all([
+      hostArtifacts.closeAndAttach(),
+      guestArtifacts.closeAndAttach(),
+    ]);
   }
 });

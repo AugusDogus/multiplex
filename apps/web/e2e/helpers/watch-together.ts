@@ -3,8 +3,11 @@ import {
   type Browser,
   type BrowserContext,
   type Page,
+  type TestInfo,
 } from "@playwright/test";
 import { ACCOUNT_A, ACCOUNT_B, storageStatePath } from "./accounts";
+import { waitForPlaybackAdvance } from "./playback-probe";
+import { createInstrumentedContext } from "./watch-together-artifacts";
 
 const HOST_STATE = storageStatePath(ACCOUNT_A);
 const GUEST_STATE = storageStatePath(ACCOUNT_B);
@@ -59,8 +62,10 @@ export async function createRoomInvitingGuest(page: Page): Promise<string> {
 
   await page.waitForURL(/\/watch-together\//, { timeout: 30_000 });
   const roomId = page.url().split("/watch-together/")[1]?.split(/[/?#]/)[0];
-  expect(roomId, "room id should be in the lobby URL").toBeTruthy();
-  return roomId!;
+  if (!roomId) {
+    throw new Error("room id should be in the lobby URL");
+  }
+  return roomId;
 }
 
 /** As the guest, joins the room by clicking its card on the home page. */
@@ -97,9 +102,8 @@ export async function disbandRoom(
 }
 
 /**
- * Waits for the player to open and confirms the video is actually advancing.
- * Nudges play() if it's stuck, tolerating slow transcode startup for two
- * simultaneous sessions on a live server.
+ * Waits for the player to open and confirms the video advances without test
+ * intervention. A stuck autoplay or stalled guest is a functional failure.
  */
 export async function expectPlayingAndAdvancing(
   page: Page,
@@ -110,37 +114,7 @@ export async function expectPlayingAndAdvancing(
     timeout: 60_000,
   });
 
-  const currentTime = () =>
-    video.evaluate((el: HTMLVideoElement) => el.currentTime).catch(() => 0);
-
-  const deadline = Date.now() + 120_000;
-  let last = await currentTime();
-  while (Date.now() < deadline) {
-    await page.waitForTimeout(2_500);
-    const next = await currentTime();
-    if (next > last + 0.5) {
-      return; // playback is genuinely advancing
-    }
-    // Stuck (paused by stale room state, or autoplay didn't take): nudge it.
-    await video
-      .evaluate((el: HTMLVideoElement) => {
-        if (el.paused) el.play().catch(() => undefined);
-      })
-      .catch(() => undefined);
-    last = next;
-  }
-
-  const diag = await video
-    .evaluate((el: HTMLVideoElement) => ({
-      currentTime: el.currentTime,
-      paused: el.paused,
-      readyState: el.readyState,
-      networkState: el.networkState,
-    }))
-    .catch(() => null);
-  throw new Error(
-    `${label}: video never advanced. diag=${JSON.stringify(diag)}`,
-  );
+  await waitForPlaybackAdvance(page, { label });
 }
 
 export interface SyncedRoom {
@@ -167,21 +141,30 @@ export interface SetupSyncedRoomOptions {
 export async function setupSyncedRoom(
   browser: Browser,
   baseURL: string | undefined,
+  testInfo: TestInfo,
   options: SetupSyncedRoomOptions = {},
 ): Promise<SyncedRoom> {
-  const recordVideo = options.recordVideoDir
-    ? { dir: options.recordVideoDir, size: { width: 1280, height: 720 } }
-    : undefined;
-  const hostContext = await browser.newContext({
+  const hostArtifacts = await createInstrumentedContext({
+    browser,
+    label: "host",
     storageState: HOST_STATE,
     baseURL,
-    recordVideo,
+    recordVideoDir: options.recordVideoDir,
+    testInfo,
   });
-  const guestContext = await browser.newContext({
+  const guestArtifacts = await createInstrumentedContext({
+    browser,
+    label: "guest",
     storageState: GUEST_STATE,
     baseURL,
-    recordVideo,
+    recordVideoDir: options.recordVideoDir,
+    testInfo,
+  }).catch(async (error: unknown) => {
+    await hostArtifacts.closeAndAttach();
+    throw error;
   });
+  const hostContext = hostArtifacts.context;
+  const guestContext = guestArtifacts.context;
   let roomId: string | undefined;
   let cleanedUp = false;
   let host: Page | undefined;
@@ -201,7 +184,10 @@ export async function setupSyncedRoom(
     if (roomId) {
       await disbandRoom(hostContext, roomId);
     }
-    await Promise.all([hostContext.close(), guestContext.close()]);
+    await Promise.all([
+      hostArtifacts.closeAndAttach(),
+      guestArtifacts.closeAndAttach(),
+    ]);
   };
 
   try {

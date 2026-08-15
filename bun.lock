@@ -13,6 +13,19 @@
     "apps/gamecube": {
       "name": "@multiplex/gamecube",
     },
+    "apps/watch-together-harness": {
+      "name": "@multiplex/watch-together-harness",
+      "version": "0.1.0",
+      "dependencies": {
+        "@multiplex/plex-query": "workspace:*",
+        "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@playwright/test": "^1.61.1",
+        "@types/bun": "^1.2.16",
+        "typescript": "catalog:",
+      },
+    },
     "apps/web": {
       "name": "@multiplex/web",
       "version": "0.1.0",
@@ -388,6 +401,8 @@
     "@multiplex/libogc-gx": ["@multiplex/libogc-gx@workspace:packages/libogc-gx"],
 
     "@multiplex/plex-query": ["@multiplex/plex-query@workspace:packages/plex-query"],
+
+    "@multiplex/watch-together-harness": ["@multiplex/watch-together-harness@workspace:apps/watch-together-harness"],
 
     "@multiplex/web": ["@multiplex/web@workspace:apps/web"],
 

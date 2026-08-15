@@ -1,0 +1,174 @@
+:root {
+  color-scheme: dark;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  background: #090b10;
+  color: #e6e9ef;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+header,
+main {
+  width: min(1500px, calc(100% - 32px));
+  margin-inline: auto;
+}
+
+header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px 0 20px;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(24px, 4vw, 42px);
+  letter-spacing: -0.04em;
+}
+
+.eyebrow,
+.viewer-label {
+  margin-bottom: 6px;
+  color: #89a7ff;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+}
+
+.status,
+.viewer-state {
+  border: 1px solid #31394a;
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: #aab3c5;
+  white-space: nowrap;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+button {
+  border: 1px solid #3c465c;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #171c27;
+  color: inherit;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: #7897ed;
+  background: #20283a;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.players,
+.timeline-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.player-card,
+.timeline-panel > div {
+  min-width: 0;
+  border: 1px solid #232a39;
+  border-radius: 12px;
+  background: #10141d;
+  overflow: hidden;
+}
+
+.player-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+}
+
+.viewer-title {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 18px;
+}
+
+video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 0;
+  padding: 12px 16px;
+  gap: 8px;
+}
+
+dt {
+  color: #727d91;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+dd {
+  margin: 4px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-panel {
+  margin: 16px 0 32px;
+}
+
+.timeline-panel h2 {
+  padding: 12px 16px;
+  border-bottom: 1px solid #232a39;
+  font-size: 14px;
+}
+
+pre {
+  height: 280px;
+  margin: 0;
+  padding: 12px 16px;
+  overflow: auto;
+  color: #aab3c5;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 800px) {
+  header {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .players,
+  .timeline-panel {
+    grid-template-columns: 1fr;
+  }
+}

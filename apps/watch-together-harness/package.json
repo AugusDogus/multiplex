@@ -1,0 +1,27 @@
+{
+  "name": "@multiplex/watch-together-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "authenticate": "bun scripts/authenticate.ts",
+    "claim:gamecube": "bun scripts/claim-gamecube.ts",
+    "index-recording": "bun scripts/index-recording.ts",
+    "provision:gamecube": "bun scripts/provision-gamecube.ts",
+    "dev": "bun --watch src/server.ts",
+    "start": "bun src/server.ts",
+    "test": "bun test",
+    "test:live": "playwright test",
+    "test:live:transcode": "WATCH_TOGETHER_HARNESS_STREAM_MODE=transcode playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@multiplex/plex-query": "workspace:*",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@types/bun": "^1.2.16",
+    "typescript": "catalog:"
+  }
+}

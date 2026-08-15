@@ -22,16 +22,16 @@ const AUTH_DIR = path.join(
  */
 export const ACCOUNT_A: AccountConfig = {
   key: "account-a",
-  label: "Augie (host)",
-  loginVar: "AUGUSDOGUS_ACCOUNT_USERNAME",
-  passwordVar: "AUGUSDOGUS_ACCOUNT_PASSWORD",
+  label: "multiplextest (host)",
+  loginVar: "MULTIPLEX_ACCOUNT_EMAIL",
+  passwordVar: "MULTIPLEX_ACCOUNT_PASSWORD",
 };
 
 export const ACCOUNT_B: AccountConfig = {
   key: "account-b",
-  label: "multiplextest (guest)",
-  loginVar: "MULTIPLEX_ACCOUNT_EMAIL",
-  passwordVar: "MULTIPLEX_ACCOUNT_PASSWORD",
+  label: "multiplextest2 (guest)",
+  loginVar: "MUTLIPLEX_ACCOUNT_EMAIL_2",
+  passwordVar: "MULTIPLEX_ACCOUNT_PASSWORD_2",
 };
 
 export const ACCOUNTS = [ACCOUNT_A, ACCOUNT_B];
