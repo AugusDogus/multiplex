@@ -429,13 +429,21 @@ function usePlaybackSessionController({
       streamServerUrl &&
       streamAuthToken
     ) {
-      if (consumeStoppedTranscodeSession(previousStream.transcodeSessionKey)) {
-        return;
+      if (!consumeStoppedTranscodeSession(previousStream.transcodeSessionKey)) {
+        void stopTranscodeSession(
+          streamServerUrl,
+          streamAuthToken,
+          previousStream.transcodeSessionKey,
+        );
       }
-      void stopTranscodeSession(
+      void stopPlaybackTranscodeSessions(
         streamServerUrl,
         streamAuthToken,
-        previousStream.transcodeSessionKey,
+        streamSessionId,
+        {
+          keepSessionKey: () =>
+            previousStreamRef.current.transcodeSessionKey ?? null,
+        },
       );
     }
   }, [

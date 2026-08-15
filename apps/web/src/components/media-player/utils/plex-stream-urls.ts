@@ -348,37 +348,57 @@ export function consumeStoppedTranscodeSession(sessionKey: string): boolean {
   return wasStopped;
 }
 
+export interface TranscodeCleanupOptions {
+  readonly retryDelaysMs?: readonly number[];
+  readonly wait?: (milliseconds: number) => Promise<void>;
+  /** Returns the newest replacement session, which must remain alive. */
+  readonly keepSessionKey?: () => string | null;
+}
+
 export async function stopPlaybackTranscodeSessions(
   serverUrl: string,
   authToken: string,
   sessionPrefix: string,
+  options: TranscodeCleanupOptions = {},
 ): Promise<void> {
   if (!sessionPrefix) return;
-  try {
-    const baseUrl = getBaseServerUrl(serverUrl);
-    const listUrl = new URL(`${baseUrl}/transcode/sessions`);
-    applyClientHeaders(listUrl, authToken);
-    const response = await fetch(listUrl.toString());
-    if (!response.ok) return;
+  const baseUrl = getBaseServerUrl(serverUrl);
+  const retryDelaysMs = options.retryDelaysMs ?? [0, 250, 1_000];
+  const wait =
+    options.wait ??
+    ((milliseconds: number) =>
+      new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
 
-    const xml = await response.text();
-    // Match `key` anywhere within a <TranscodeSession> tag (XML attribute order
-    // and whitespace aren't significant).
-    const keys = Array.from(
-      xml.matchAll(/<TranscodeSession\b[^>]*\bkey="([^"]+)"/g),
-    )
-      .map((match) => match[1])
-      .filter((key): key is string => Boolean(key?.startsWith(sessionPrefix)));
+  for (const delayMs of retryDelaysMs) {
+    if (delayMs > 0) await wait(delayMs);
+    try {
+      const listUrl = new URL(`${baseUrl}/transcode/sessions`);
+      applyClientHeaders(listUrl, authToken);
+      const response = await fetch(listUrl.toString());
+      if (!response.ok) continue;
 
-    await Promise.all(
-      keys.map((key) => {
-        const stopUrl = new URL(`${baseUrl}/video/:/transcode/universal/stop`);
-        applyClientHeaders(stopUrl, authToken);
-        stopUrl.searchParams.set("session", key);
-        return fetch(stopUrl.toString()).catch(() => undefined);
-      }),
-    );
-  } catch {
-    // Best-effort cleanup; the server times sessions out regardless.
+      const xml = await response.text();
+      // Match `key` anywhere within a <TranscodeSession> tag (XML attribute
+      // order and whitespace aren't significant).
+      const keys = Array.from(
+        xml.matchAll(/<TranscodeSession\b[^>]*\bkey="([^"]+)"/g),
+      )
+        .map((match) => match[1])
+        .filter((key): key is string => Boolean(key?.startsWith(sessionPrefix)))
+        .filter((key) => key !== options.keepSessionKey?.());
+
+      await Promise.all(
+        keys.map((key) => {
+          const stopUrl = new URL(
+            `${baseUrl}/video/:/transcode/universal/stop`,
+          );
+          applyClientHeaders(stopUrl, authToken);
+          stopUrl.searchParams.set("session", key);
+          return fetch(stopUrl.toString()).catch(() => undefined);
+        }),
+      );
+    } catch {
+      // Best-effort cleanup; a later sweep can still catch the session.
+    }
   }
 }
