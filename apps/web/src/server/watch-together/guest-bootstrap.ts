@@ -81,7 +81,7 @@ export type GuestContinuationDependencies = Omit<
 > & {
   readonly createWatchTogetherClient: (
     token: string,
-  ) => Pick<WatchTogetherClient, "getRoom" | "listRooms">;
+  ) => Pick<WatchTogetherClient, "deleteRoom" | "getRoom" | "listRooms">;
 };
 
 export function createGuestBootstrapService(
@@ -139,13 +139,13 @@ export function createGuestBootstrapService(
     let transientToken: string;
     try {
       transientToken =
-        await access.value.guestServerClient.issueTransientToken();
+        await access.value.playbackServerClient.issueTransientToken();
     } catch {
       return { ok: false, reason: "guest-unavailable" };
     }
 
     const nextEpisode = await loadGuestNextEpisode(
-      access.value.guestServerClient,
+      access.value.playbackServerClient,
       room.sourceUri,
       source.ratingKey,
     );
@@ -189,7 +189,7 @@ export function createGuestBootstrapService(
           title: guestRoomUser.title ?? guestRoomUser.username ?? "Plex Guest",
         },
         serverId: source.serverId,
-        serverUrl: access.value.guestServerUrl,
+        serverUrl: access.value.playbackServerUrl,
         authToken: transientToken,
         item: access.value.item,
         nextEpisode,
@@ -277,12 +277,12 @@ export function createGuestContinuationService(
     let transientToken: string;
     try {
       transientToken =
-        await nextAccess.value.guestServerClient.issueTransientToken();
+        await nextAccess.value.playbackServerClient.issueTransientToken();
     } catch {
       return { ok: false, reason: "guest-unavailable" };
     }
     const nextEpisode = await loadGuestNextEpisode(
-      nextAccess.value.guestServerClient,
+      nextAccess.value.playbackServerClient,
       nextRoom.sourceUri,
       nextRatingKey,
     );
@@ -306,6 +306,8 @@ export function createGuestContinuationService(
       lifetimeSeconds: remainingLifetime,
     });
 
+    await watchTogether.deleteRoom(currentRoom.id).catch(() => undefined);
+
     return {
       ok: true,
       capability: successorCapability,
@@ -323,7 +325,7 @@ export function createGuestContinuationService(
           title: guestRoomUser.title ?? guestRoomUser.username ?? "Plex Guest",
         },
         serverId: currentSource.serverId,
-        serverUrl: nextAccess.value.guestServerUrl,
+        serverUrl: nextAccess.value.playbackServerUrl,
         authToken: transientToken,
         item: nextAccess.value.item,
         nextEpisode,

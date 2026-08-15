@@ -7,7 +7,11 @@ import type {
   PlexTvClient,
 } from "@multiplex/plex-query";
 
-import { resolveGuestAccess, toGuestShareEligibility } from "./guest-access";
+import {
+  resolveGuestAccess,
+  resolveGuestParty,
+  toGuestShareEligibility,
+} from "./guest-access";
 
 const HOME_USERS = [
   {
@@ -131,10 +135,15 @@ describe("resolveGuestAccess", () => {
     if (!result.ok) {
       throw new Error("expected Guest access to resolve");
     }
-    expect(result.value.guestServerUrl).toBe("https://proven.plex.direct");
+    expect(result.value.playbackServerUrl).toBe("https://proven.plex.direct");
   });
 
-  test("does not treat host access as Guest server access", async () => {
+  test("delegates host playback when Plex Guest cannot inherit a shared server", async () => {
+    const getItemMetadata = mock(async () => ITEM);
+    const serverClient = fromPartial<PlexServerClient>({
+      getItemMetadata,
+      getConnectionUri: mock(async () => "https://shared.plex.direct"),
+    });
     const guestPlex = fromPartial<PlexTvClient>({
       getServers: mock(async () => []),
     });
@@ -149,6 +158,38 @@ describe("resolveGuestAccess", () => {
         guest: true,
         restricted: true,
       })),
+      getServers: mock(async () => [SERVER]),
+      createServerClient: mock(() => serverClient),
+    });
+
+    const result = await resolveGuestAccess(
+      host,
+      { serverId: "server-1", ratingKey: "42" },
+      { createPlexClient: () => guestPlex },
+    );
+
+    expect(toGuestShareEligibility(result)).toEqual({
+      status: "ready",
+      guest: { id: 2, title: "Guest" },
+    });
+    expect(getItemMetadata).toHaveBeenCalledWith("42");
+  });
+
+  test("rejects a server unavailable to both Guest and host", async () => {
+    const noServers = mock(async () => []);
+    const guestPlex = fromPartial<PlexTvClient>({ getServers: noServers });
+    const host = fromPartial<PlexTvClient>({
+      getHomeUsers: mock(async () => HOME_USERS),
+      getUserInfo: mock(async () => ({ id: 1 })),
+      switchHomeUser: mock(async () => ({
+        id: 2,
+        uuid: "guest-uuid",
+        title: "Guest",
+        authToken: "switched-guest-token",
+        guest: true,
+        restricted: true,
+      })),
+      getServers: noServers,
     });
 
     const result = await resolveGuestAccess(
@@ -160,6 +201,41 @@ describe("resolveGuestAccess", () => {
     expect(toGuestShareEligibility(result)).toEqual({
       status: "unavailable",
       reason: "server-unavailable",
+      canEnableGuest: false,
+    });
+  });
+});
+
+describe("resolveGuestParty", () => {
+  test("verifies host and Guest membership without resolving playback", async () => {
+    const switchHomeUser = mock(() =>
+      Promise.reject(new Error("must not resolve playback")),
+    );
+    const host = fromPartial<PlexTvClient>({
+      getHomeUsers: mock(async () => HOME_USERS),
+      getUserInfo: mock(async () => ({ id: 1 })),
+      switchHomeUser,
+    });
+
+    const result = await resolveGuestParty(host);
+
+    expect(result).toMatchObject({
+      ok: true,
+      hostPlexUserId: 1,
+      guest: { id: 2 },
+    });
+    expect(switchHomeUser).not.toHaveBeenCalled();
+  });
+
+  test("preserves a retryable Plex availability failure", async () => {
+    const host = fromPartial<PlexTvClient>({
+      getHomeUsers: mock(() => Promise.reject(new Error("offline"))),
+      getUserInfo: mock(async () => ({ id: 1 })),
+    });
+
+    expect(await resolveGuestParty(host)).toEqual({
+      ok: false,
+      reason: "plex-unavailable",
       canEnableGuest: false,
     });
   });

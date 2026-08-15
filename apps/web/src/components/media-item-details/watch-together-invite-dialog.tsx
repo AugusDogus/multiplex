@@ -60,7 +60,7 @@ export function WatchTogetherInviteDialog({
     },
     {
       enabled: open && Boolean(playTarget),
-      retry: false,
+      retry: 3,
       staleTime: 30_000,
     },
   );

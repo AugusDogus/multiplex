@@ -103,7 +103,8 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     {
       enabled: typeof guestCapability === "string",
       staleTime: 30_000,
-      retry: false,
+      retry: 1,
+      retryDelay: 250,
     },
   );
 
@@ -158,9 +159,17 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
   const canStartMedia = Boolean(
     room && playTarget && serverId && serverUrl && authToken && localUser,
   );
+  const guestHostContextReady =
+    guestCapability !== undefined &&
+    (guestCapability === null ||
+      (hostContextQuery.data?.valid === true &&
+        hostContextQuery.data.roomId === roomId));
   // Start is gated while any playback session is active (player owns the
-  // session; lobby under the modal must not open a second one).
-  const canStart = canStartMedia && sessionState._tag !== "Playing";
+  // session; lobby under the modal must not open a second one). A Guest Link
+  // host also cannot start until its signed room context is validated, or a
+  // reload could briefly launch with the ordinary room policy.
+  const canStart =
+    canStartMedia && guestHostContextReady && sessionState._tag !== "Playing";
   const solo = room ? isSoloRoom(room) : false;
 
   const playbackItem = (() => {

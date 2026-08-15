@@ -2,7 +2,6 @@ import { describe, expect, mock, test } from "bun:test";
 import { fromPartial } from "@total-typescript/shoehorn";
 import type {
   ItemMetadata,
-  PlexDevice,
   PlexServerClient,
   PlexTvClient,
   WatchTogetherRoom,
@@ -35,11 +34,6 @@ const ITEM = fromPartial<ItemMetadata>({
   title: "Movie",
   type: "movie",
   Media: [{ Part: [{ key: "/library/parts/42/file.mp4" }] }],
-});
-
-const SERVER = fromPartial<PlexDevice>({
-  clientIdentifier: "server-1",
-  accessToken: "durable-guest-token",
 });
 
 async function makeCapability(options?: { expired?: boolean }) {
@@ -103,11 +97,8 @@ function makeService(options?: {
           protected: false,
           restricted: true,
         },
-        guestPlex: fromPartial<PlexTvClient>({}),
-        guestServer: SERVER,
-        guestServerClient: serverClient,
-        guestServerUrl: "https://example.plex.direct",
-        guestDurableToken: "durable-guest-token",
+        playbackServerClient: serverClient,
+        playbackServerUrl: "https://example.plex.direct",
         item: { ...ITEM, streamPartKey: "/library/parts/42/file.mp4" },
       },
     }),
@@ -188,11 +179,8 @@ describe("guest bootstrap", () => {
             protected: false,
             restricted: true,
           },
-          guestPlex: fromPartial<PlexTvClient>({}),
-          guestServer: SERVER,
-          guestServerClient: serverClient,
-          guestServerUrl: "https://example.plex.direct",
-          guestDurableToken: "durable-guest-token",
+          playbackServerClient: serverClient,
+          playbackServerUrl: "https://example.plex.direct",
           item: {
             ...ITEM,
             ratingKey: input.ratingKey,
@@ -203,11 +191,13 @@ describe("guest bootstrap", () => {
       }),
     );
     const codec = createGuestCapabilityCodec("test-secret");
+    const deleteRoom = mock(async () => undefined);
     const service = createGuestContinuationService({
       capabilityCodec: codec,
       loadHostToken: mock(async () => "host-account-token"),
       createPlexClient: mock(() => fromPartial<PlexTvClient>({})),
       createWatchTogetherClient: mock(() => ({
+        deleteRoom,
         getRoom: mock(async () => ROOM),
         listRooms: mock(async () => [ROOM, nextRoom]),
       })),
@@ -233,6 +223,7 @@ describe("guest bootstrap", () => {
       payload: { roomId: nextRoom.id },
     });
     expect(issueTransientToken).toHaveBeenCalledTimes(1);
+    expect(deleteRoom).toHaveBeenCalledWith(ROOM.id);
   });
 
   test("does not mint after the host deleted the Plex room", async () => {

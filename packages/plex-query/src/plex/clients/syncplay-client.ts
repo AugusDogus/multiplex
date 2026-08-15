@@ -182,6 +182,10 @@ export class SyncplayClient {
   // claims the change (and bumps `ignoringClient`).
   private pendingPlayPause = false;
   private pendingSeek = false;
+  // `setBy` survives reconnects and may name this persisted device even when
+  // the current connection did not author the room state. Only claims made by
+  // this connection are safe to treat as self-authored.
+  private hasAuthoredState = false;
   // Room paused value from the previous State frame, for remote pause/resume
   // edge detection (null = no frame yet this connection, so the first frame is
   // a baseline, not an action).
@@ -219,6 +223,7 @@ export class SyncplayClient {
     this.lastPing = null;
     this.pendingPlayPause = false;
     this.pendingSeek = false;
+    this.hasAuthoredState = false;
     this.lastFramePaused = null;
     this.hasReachedPlaying = false;
     this.connectionId += 1;
@@ -507,6 +512,7 @@ export class SyncplayClient {
     const startedLocalClaim = !shouldEcho && hasPendingLocalChange && this.ignoringClient === 0;
     if (startedLocalClaim) {
       this.ignoringClient += 1;
+      this.hasAuthoredState = true;
     }
 
     // Apply the remote playstate to our player unless we made it ourselves or a
@@ -515,7 +521,8 @@ export class SyncplayClient {
     // whether a peer's change reaches our player. (Observers pass no
     // `applyRemoteState`, so this is a no-op there.)
     const setByUser = payload.playstate.setBy ? decodeSyncplayUser(payload.playstate.setBy) : null;
-    const isSelf = setByUser?.deviceIdentifier === this.user.deviceIdentifier;
+    const isSameDevice = setByUser?.deviceIdentifier === this.user.deviceIdentifier;
+    const isSelfAuthored = isSameDevice && this.hasAuthoredState;
 
     // Deliberate remote actions live on the frames themselves: a `doSeek`
     // frame is a seek, and a change in the room's `paused` value is a
@@ -536,16 +543,16 @@ export class SyncplayClient {
     if (!framePaused) {
       this.hasReachedPlaying = true;
     }
-    const appliedRemote = !isSelf && this.ignoringClient === 0;
+    const appliedRemote = !this.observer && !isSelfAuthored && this.ignoringClient === 0;
     if (appliedRemote) {
-      if (payload.playstate.doSeek) {
+      if (!isSameDevice && payload.playstate.doSeek) {
         this.onRemoteAction({
           type: "seek",
           user: setByUser,
           positionSeconds: roomPositionSeconds,
         });
       }
-      if (this.lastFramePaused !== null && framePaused !== this.lastFramePaused) {
+      if (!isSameDevice && this.lastFramePaused !== null && framePaused !== this.lastFramePaused) {
         if (framePaused) {
           this.onRemoteAction({
             type: "pause",

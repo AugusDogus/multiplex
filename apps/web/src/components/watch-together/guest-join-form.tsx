@@ -1,6 +1,6 @@
 "use client";
 
-import type { FormEvent } from "react";
+import { useSyncExternalStore, type FormEvent } from "react";
 import { Loader2, Play, UserRound, Users } from "lucide-react";
 
 import { Button } from "~/components/ui/button";
@@ -14,12 +14,22 @@ interface GuestJoinFormProps {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
 
+const subscribeToHydration = () => () => undefined;
+const getHydratedSnapshot = () => true;
+const getServerHydratedSnapshot = () => false;
+
 export function GuestJoinForm({
   nickname,
   joining,
   onNicknameChange,
   onSubmit,
 }: GuestJoinFormProps) {
+  const hydrated = useSyncExternalStore(
+    subscribeToHydration,
+    getHydratedSnapshot,
+    getServerHydratedSnapshot,
+  );
+
   return (
     <GuestPageFrame>
       <div className="bg-primary/10 text-primary flex size-12 items-center justify-center rounded-2xl">
@@ -42,6 +52,7 @@ export function GuestJoinForm({
             <Input
               autoFocus
               autoComplete="nickname"
+              disabled={!hydrated}
               maxLength={40}
               value={nickname}
               onChange={(event) => onNicknameChange(event.target.value)}
@@ -53,7 +64,7 @@ export function GuestJoinForm({
         <Button
           type="submit"
           className="w-full active:scale-[0.98]"
-          disabled={!nickname.trim() || joining}
+          disabled={!hydrated || !nickname.trim() || joining}
           aria-busy={joining || undefined}
         >
           {joining ? (
@@ -69,8 +80,8 @@ export function GuestJoinForm({
         </Button>
       </form>
       <p className="text-muted-foreground max-w-sm text-center text-xs leading-5">
-        This link grants temporary access to the host&apos;s Plex Guest profile.
-        Only open links from someone you trust.
+        This link grants temporary playback access to this Plex server. Only
+        open links from someone you trust.
       </p>
     </GuestPageFrame>
   );

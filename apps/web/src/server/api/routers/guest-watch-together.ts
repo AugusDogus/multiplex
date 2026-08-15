@@ -11,6 +11,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import {
   enableGuestForCurrentHome,
   resolveGuestAccess,
+  resolveGuestParty,
   toGuestShareEligibility,
   type GuestAccessFailureReason,
 } from "~/server/watch-together/guest-access";
@@ -58,29 +59,33 @@ export const guestWatchTogetherRouter = createTRPCRouter({
         if (!source) {
           return { valid: false as const };
         }
-        const access = await resolveGuestAccess(ctx.plex, {
-          serverId: source.serverId,
-          ratingKey: source.ratingKey,
-        });
-        if (!access.ok) {
+        const party = await resolveGuestParty(ctx.plex);
+        if (!party.ok) {
+          if (party.reason === "plex-unavailable") {
+            throw new TRPCError({
+              code: "SERVICE_UNAVAILABLE",
+              message: "Plex Home membership could not be verified.",
+            });
+          }
           return { valid: false as const };
         }
         const roomUserIds = new Set(room.users.map((user) => user.id));
         if (
           room.id !== payload.roomId ||
-          !roomUserIds.has(access.value.hostPlexUserId) ||
-          !roomUserIds.has(access.value.guest.id)
+          !roomUserIds.has(party.hostPlexUserId) ||
+          !roomUserIds.has(party.guest.id)
         ) {
           return { valid: false as const };
         }
         return {
           valid: true as const,
           roomId: room.id,
-          hostUserId: access.value.hostPlexUserId,
-          guestUserId: access.value.guest.id,
+          hostUserId: party.hostPlexUserId,
+          guestUserId: party.guest.id,
           joinPath: `/watch-together/guest/${encodeURIComponent(input.capability)}`,
         };
-      } catch {
+      } catch (cause) {
+        if (cause instanceof TRPCError) throw cause;
         return { valid: false as const };
       }
     }),
@@ -112,17 +117,20 @@ export const guestWatchTogetherRouter = createTRPCRouter({
         if (!source || room.id !== input.roomId) {
           return { valid: false as const };
         }
-        const access = await resolveGuestAccess(ctx.plex, {
-          serverId: source.serverId,
-          ratingKey: source.ratingKey,
-        });
-        if (!access.ok) {
+        const party = await resolveGuestParty(ctx.plex);
+        if (!party.ok) {
+          if (party.reason === "plex-unavailable") {
+            throw new TRPCError({
+              code: "SERVICE_UNAVAILABLE",
+              message: "Plex Home membership could not be verified.",
+            });
+          }
           return { valid: false as const };
         }
         const roomUserIds = new Set(room.users.map((user) => user.id));
         if (
-          !roomUserIds.has(access.value.hostPlexUserId) ||
-          !roomUserIds.has(access.value.guest.id)
+          !roomUserIds.has(party.hostPlexUserId) ||
+          !roomUserIds.has(party.guest.id)
         ) {
           return { valid: false as const };
         }
@@ -141,7 +149,8 @@ export const guestWatchTogetherRouter = createTRPCRouter({
           capability,
           roomId: room.id,
         };
-      } catch {
+      } catch (cause) {
+        if (cause instanceof TRPCError) throw cause;
         return { valid: false as const };
       }
     }),

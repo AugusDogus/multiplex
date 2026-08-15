@@ -35,11 +35,8 @@ export type GuestShareEligibility =
 export type ResolvedGuestAccess = {
   readonly hostPlexUserId: number;
   readonly guest: PlexHomeUser;
-  readonly guestPlex: PlexTvClient;
-  readonly guestServer: PlexDevice;
-  readonly guestServerClient: PlexServerClient;
-  readonly guestServerUrl: string;
-  readonly guestDurableToken: string;
+  readonly playbackServerClient: PlexServerClient;
+  readonly playbackServerUrl: string;
   readonly item: PlayableMetadata;
 };
 
@@ -48,6 +45,22 @@ export type GuestAccessResolution =
   | {
       readonly ok: false;
       readonly reason: GuestAccessFailureReason;
+      readonly canEnableGuest: boolean;
+    };
+
+export type GuestPartyResolution =
+  | {
+      readonly ok: true;
+      readonly hostPlexUserId: number;
+      readonly guest: PlexHomeUser;
+    }
+  | {
+      readonly ok: false;
+      readonly reason:
+        | "guest-disabled"
+        | "guest-protected"
+        | "not-home-member"
+        | "plex-unavailable";
       readonly canEnableGuest: boolean;
     };
 
@@ -71,38 +84,10 @@ export const resolveGuestAccess: ResolveGuestAccess = async (
   input,
   options = {},
 ) => {
-  let homeUsers: PlexHomeUser[];
-  let currentPlexUserId: number;
-  try {
-    const [users, userInfo] = await Promise.all([
-      hostPlex.getHomeUsers(),
-      hostPlex.getUserInfo(),
-    ]);
-    homeUsers = users;
-    currentPlexUserId = userInfo.id;
-  } catch {
-    return unavailable("plex-unavailable");
-  }
+  const party = await resolveGuestParty(hostPlex);
+  if (!party.ok) return party;
 
-  const currentHomeUser = homeUsers.find(
-    (user) => user.id === currentPlexUserId,
-  );
-  if (!currentHomeUser) {
-    return unavailable("not-home-member");
-  }
-
-  const guest = homeUsers.find((user) => user.guest);
-  if (!guest) {
-    return {
-      ok: false,
-      reason: "guest-disabled",
-      canEnableGuest: currentHomeUser.admin,
-    };
-  }
-  if (guest.protected) {
-    return unavailable("guest-protected");
-  }
-
+  const { guest, hostPlexUserId: currentPlexUserId } = party;
   let switchedToken: string;
   try {
     const switched = await hostPlex.switchHomeUser(guest.uuid);
@@ -119,36 +104,12 @@ export const resolveGuestAccess: ResolveGuestAccess = async (
     ((token: string) => new PlexTvClient(token, NEXTJS_PLEX_CONFIG));
   const guestPlex = createPlexClient(switchedToken);
 
-  let guestServers: PlexDevice[];
-  try {
-    guestServers = await guestPlex.getServers();
-  } catch {
-    return unavailable("plex-unavailable");
-  }
-  const guestServer = guestServers.find(
-    (server) => server.clientIdentifier === input.serverId,
-  );
-  const guestDurableToken = guestServer?.accessToken;
-  if (!guestServer || !guestDurableToken) {
-    return unavailable("server-unavailable");
-  }
-
-  const guestServerClient = guestPlex.createServerClient(guestServer);
-  let rawItem: Awaited<ReturnType<PlexServerClient["getItemMetadata"]>>;
-  try {
-    rawItem = await guestServerClient.getItemMetadata(input.ratingKey);
-  } catch {
-    return unavailable("item-unavailable");
-  }
-  let guestServerUrl: string;
-  try {
-    guestServerUrl = await guestServerClient.getConnectionUri();
-  } catch {
-    return unavailable("server-unavailable");
-  }
-  const item = rawItem ? toPlayableMetadata(rawItem) : null;
-  if (!item) {
-    return unavailable("item-unavailable");
+  const guestPlayback = await resolvePlaybackAccess(guestPlex, input);
+  const playback = guestPlayback.ok
+    ? guestPlayback
+    : await resolvePlaybackAccess(hostPlex, input);
+  if (!playback.ok) {
+    return unavailable(playback.reason);
   }
 
   return {
@@ -156,15 +117,125 @@ export const resolveGuestAccess: ResolveGuestAccess = async (
     value: {
       hostPlexUserId: currentPlexUserId,
       guest,
-      guestPlex,
-      guestServer,
-      guestServerClient,
-      guestServerUrl,
-      guestDurableToken,
-      item,
+      playbackServerClient: playback.serverClient,
+      playbackServerUrl: playback.serverUrl,
+      item: playback.item,
     },
   };
 };
+
+/** Resolve only the Plex Home party, without touching a media server. */
+export async function resolveGuestParty(
+  hostPlex: Pick<PlexTvClient, "getHomeUsers" | "getUserInfo">,
+): Promise<GuestPartyResolution> {
+  let homeUsers: PlexHomeUser[];
+  let currentPlexUserId: number;
+  try {
+    const [users, userInfo] = await Promise.all([
+      hostPlex.getHomeUsers(),
+      hostPlex.getUserInfo(),
+    ]);
+    homeUsers = users;
+    currentPlexUserId = userInfo.id;
+  } catch {
+    return {
+      ok: false,
+      reason: "plex-unavailable",
+      canEnableGuest: false,
+    };
+  }
+
+  const currentHomeUser = homeUsers.find(
+    (user) => user.id === currentPlexUserId,
+  );
+  if (!currentHomeUser) {
+    return {
+      ok: false,
+      reason: "not-home-member",
+      canEnableGuest: false,
+    };
+  }
+
+  const guest = homeUsers.find((user) => user.guest);
+  if (!guest) {
+    return {
+      ok: false,
+      reason: "guest-disabled",
+      canEnableGuest: currentHomeUser.admin,
+    };
+  }
+  if (guest.protected) {
+    return {
+      ok: false,
+      reason: "guest-protected",
+      canEnableGuest: false,
+    };
+  }
+
+  return {
+    ok: true,
+    hostPlexUserId: currentPlexUserId,
+    guest,
+  };
+}
+
+type PlaybackAccessResolution =
+  | {
+      readonly ok: true;
+      readonly serverClient: PlexServerClient;
+      readonly serverUrl: string;
+      readonly item: PlayableMetadata;
+    }
+  | {
+      readonly ok: false;
+      readonly reason:
+        | "server-unavailable"
+        | "item-unavailable"
+        | "plex-unavailable";
+    };
+
+async function resolvePlaybackAccess(
+  plex: PlexTvClient,
+  input: { readonly serverId: string; readonly ratingKey: string },
+): Promise<PlaybackAccessResolution> {
+  let servers: PlexDevice[];
+  try {
+    servers = await plex.getServers();
+  } catch {
+    return { ok: false, reason: "plex-unavailable" };
+  }
+  const server = servers.find(
+    (server) => server.clientIdentifier === input.serverId,
+  );
+  if (!server?.accessToken) {
+    return { ok: false, reason: "server-unavailable" };
+  }
+
+  const serverClient = plex.createServerClient(server);
+  let rawItem: Awaited<ReturnType<PlexServerClient["getItemMetadata"]>>;
+  try {
+    rawItem = await serverClient.getItemMetadata(input.ratingKey);
+  } catch {
+    return { ok: false, reason: "item-unavailable" };
+  }
+  let serverUrl: string;
+  try {
+    serverUrl = await serverClient.getConnectionUri();
+  } catch {
+    return { ok: false, reason: "server-unavailable" };
+  }
+  const item = rawItem ? toPlayableMetadata(rawItem) : null;
+  if (!item) {
+    return { ok: false, reason: "item-unavailable" };
+  }
+
+  return {
+    ok: true,
+    serverClient,
+    serverUrl,
+    item,
+  };
+}
 
 export function toGuestShareEligibility(
   resolution: GuestAccessResolution,

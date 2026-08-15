@@ -1,7 +1,13 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from "react";
 
 import type { HubWithServer, PlexUserInfo } from "@multiplex/plex-query";
 import type { RouterOutputs } from "~/trpc/api";
@@ -75,13 +81,36 @@ import { toWatchTogetherRoom } from "./watch-together-view";
 
 type ItemDetails = NonNullable<RouterOutputs["plex"]["getItemDetails"]>;
 
-const WARM_MAX_ATTEMPTS = 3;
+const WARM_MAX_ATTEMPTS = 2;
+const WARM_ATTEMPT_TIMEOUT_MS = 5_000;
+
+function runWarmAttempt(warm: () => Promise<unknown>): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      reject(
+        new Error(
+          `Sync data request did not finish within ${WARM_ATTEMPT_TIMEOUT_MS}ms. Check the connection and retry.`,
+        ),
+      );
+    }, WARM_ATTEMPT_TIMEOUT_MS);
+    void warm().then(
+      (value) => {
+        window.clearTimeout(timeout);
+        resolve(value);
+      },
+      (cause: unknown) => {
+        window.clearTimeout(timeout);
+        reject(new Error("Sync data request failed.", { cause }));
+      },
+    );
+  });
+}
 
 function useWarmOnce(
   key: string | null,
   warm: () => Promise<unknown>,
   enabled: boolean,
-): { isWarming: boolean; error: Error | null } {
+): { isWarming: boolean; error: Error | null; retry: () => void } {
   const [isWarming, setIsWarming] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
@@ -91,6 +120,11 @@ function useWarmOnce(
   const settledKeyRef = useRef<string | null>(null);
   const activeKeyRef = useRef<string | null>(null);
   const attemptCountRef = useRef(0);
+  const retry = useCallback(() => {
+    attemptCountRef.current = 0;
+    settledKeyRef.current = null;
+    setRetryNonce((value) => value + 1);
+  }, []);
 
   useEffect(() => {
     if (!enabled || !key) return;
@@ -108,7 +142,7 @@ function useWarmOnce(
     let retryTimer: number | undefined;
     setIsWarming(true);
     setError(null);
-    void warmEvent()
+    void runWarmAttempt(warmEvent)
       .catch((cause: unknown) => {
         if (cancelled) return;
         setError(
@@ -129,11 +163,14 @@ function useWarmOnce(
       });
     return () => {
       cancelled = true;
+      // React Strict Mode replays effects. Do not let the canceled first setup
+      // leave its key marked as settled and suppress the real warm attempt.
+      if (settledKeyRef.current === key) settledKeyRef.current = null;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
   }, [enabled, key, retryNonce]);
 
-  return { isWarming, error };
+  return { isWarming, error, retry };
 }
 
 export function useSyncedContinueWatching(): {
@@ -440,6 +477,7 @@ export function useSyncedWatchTogetherInvitees(options?: {
   isLoading: boolean;
   isPending: boolean;
   isError: boolean;
+  retry: () => void;
 } {
   const enabled = options?.enabled ?? true;
   const collections = useSyncEngineCollections();
@@ -450,7 +488,7 @@ export function useSyncedWatchTogetherInvitees(options?: {
     );
 
   const rows = collections ? data : [];
-  const { isWarming, error } = useWarmOnce(
+  const { isWarming, error, retry } = useWarmOnce(
     enabled && collections ? "invitees" : null,
     async () => {
       if (!collections) return;
@@ -469,6 +507,7 @@ export function useSyncedWatchTogetherInvitees(options?: {
     isLoading: pending,
     isPending: pending,
     isError: Boolean(error),
+    retry,
   };
 }
 
