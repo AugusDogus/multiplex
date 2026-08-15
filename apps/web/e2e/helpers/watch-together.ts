@@ -108,13 +108,14 @@ export async function disbandRoom(
 export async function expectPlayingAndAdvancing(
   page: Page,
   label: string,
+  timeoutMs = 30_000,
 ): Promise<void> {
   const video = page.locator("video");
   await expect(video, `${label}: player should open`).toBeVisible({
-    timeout: 60_000,
+    timeout: timeoutMs,
   });
 
-  await waitForPlaybackAdvance(page, { label });
+  await waitForPlaybackAdvance(page, { label, timeoutMs });
 }
 
 export interface SyncedRoom {
