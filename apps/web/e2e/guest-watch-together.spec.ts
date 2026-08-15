@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { ACCOUNT_A, storageStatePath } from "./helpers/accounts";
 import {
@@ -8,6 +8,14 @@ import {
 } from "./helpers/watch-together";
 import { readPlaybackProbe } from "./helpers/playback-probe";
 import { createInstrumentedContext } from "./helpers/watch-together-artifacts";
+
+async function pressPlayerKey(page: Page, code: string): Promise<void> {
+  await page.evaluate((keyCode) => {
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { code: keyCode, bubbles: true }),
+    );
+  }, code);
+}
 
 test("an unauthenticated guest does not request protected player metadata", async ({
   browser,
@@ -150,9 +158,7 @@ test("an unauthenticated guest does not request protected player metadata", asyn
       expectPlayingAndAdvancing(guest, "guest-link guest"),
     ]);
 
-    await host.locator("video").evaluate((video: HTMLVideoElement) => {
-      video.pause();
-    });
+    await pressPlayerKey(host, "KeyK");
     await expect
       .poll(
         () =>
@@ -163,12 +169,7 @@ test("an unauthenticated guest does not request protected player metadata", asyn
       )
       .toBe(true);
 
-    await host.locator("video").evaluate((video: HTMLVideoElement) =>
-      video.play().then(
-        () => true,
-        () => false,
-      ),
-    );
+    await pressPlayerKey(host, "KeyK");
     await expect
       .poll(
         () =>

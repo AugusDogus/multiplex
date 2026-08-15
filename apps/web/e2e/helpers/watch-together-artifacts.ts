@@ -10,6 +10,7 @@ import { indexHarnessRecording } from "../../../watch-together-harness/e2e/index
 
 const MAX_DIAGNOSTIC_EVENTS = 5_000;
 const MAX_FRAME_LENGTH = 20_000;
+const MAX_RESPONSE_BODY_LENGTH = 4_000;
 const REDACTED = "[REDACTED]";
 const SENSITIVE_KEY =
   /(?:authorization|auth[_-]?token|access[_-]?token|x-plex-token|password|cookie|secret|capability|pin)/i;
@@ -217,6 +218,29 @@ export async function createInstrumentedContext(
       status: response.status(),
       url: sanitizeArtifactUrl(response.url()),
     });
+    if (!response.url().includes("/video/:/transcode/universal/start")) return;
+
+    void response.text().then(
+      (body) => {
+        const sanitized = sanitizeArtifactText(body);
+        record({
+          kind: "response-error-body",
+          status: response.status(),
+          url: sanitizeArtifactUrl(response.url()),
+          body:
+            sanitized.length > MAX_RESPONSE_BODY_LENGTH
+              ? `${sanitized.slice(0, MAX_RESPONSE_BODY_LENGTH)}...[TRUNCATED]`
+              : sanitized,
+        });
+      },
+      (error: unknown) => {
+        record({
+          kind: "artifact-error",
+          artifact: "response-error-body",
+          error: sanitizeArtifactText(String(error)),
+        });
+      },
+    );
   });
 
   const closeAndAttach = async (): Promise<void> => {
