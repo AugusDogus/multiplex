@@ -50,7 +50,12 @@ test("a host-controlled host owns room rotation for Guest Link sessions", async 
       yield* Effect.yieldNow;
 
       const snap = session.snapshot();
-      expect(snap._tag === "Playing" && snap.rotation._tag).toBe("Armed");
+      expect(snap._tag === "Playing" && snap.rotation._tag).toBe("RoomKnown");
+      expect(
+        snap._tag === "Playing" &&
+          snap.rotation._tag === "RoomKnown" &&
+          snap.rotation.nextRoom.id,
+      ).toBe("r-created");
 
       yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS + 100} millis`);
       yield* Effect.yieldNow;
@@ -76,7 +81,7 @@ test("arm → create (rank 0) → discovery adopts → gathering → everyone-jo
 
         let snap = session.snapshot();
         expect(snap._tag).toBe("Playing");
-        expect(snap._tag === "Playing" && snap.rotation._tag).toBe("Armed");
+        expect(snap._tag === "Playing" && snap.rotation._tag).toBe("RoomKnown");
 
         yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS} millis`);
         yield* Effect.yieldNow;
@@ -175,6 +180,42 @@ test("successful create adopts and gathers without room-list visibility", async 
         expect(snap._tag === "Playing" && snap.rotation._tag).toBe("Gathering");
         expect(observers.at(-1)?.roomId).toBe("r-created");
       }),
+  );
+});
+
+test("a stalled viewer arms rotation from a present peer's room progress", async () => {
+  await withRotationSession(({ session, player, controllers }) =>
+    Effect.gen(function* () {
+      yield* session.startPlayback({
+        room: room("r1", "100"),
+        localUser,
+        item: item("100"),
+      });
+      player.setPlayback({
+        currentTimeSeconds: 400,
+        durationSeconds: 1200,
+      });
+      yield* session.setRotationContext({
+        nextEpisode,
+        autoPlayEnabled: true,
+      });
+
+      controllers[0]?.options.onParticipant?.({
+        user: multiplexUser(2),
+        isPresent: true,
+        positionSeconds: 1160,
+      });
+      yield* TestClock.adjust("1 second");
+      yield* Effect.yieldNow;
+
+      const snap = session.snapshot();
+      expect(snap._tag === "Playing" && snap.rotation._tag).toBe("RoomKnown");
+      expect(
+        snap._tag === "Playing" &&
+          snap.rotation._tag === "RoomKnown" &&
+          snap.rotation.nextRoom.id,
+      ).toBe("r-created");
+    }),
   );
 });
 

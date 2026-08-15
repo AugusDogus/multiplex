@@ -214,7 +214,7 @@ describe("createWatchTogetherSessionToasts", () => {
     expect(shown).toEqual([]);
   });
 
-  test("presence handoff mutes join/leave but not pause/resume/seek", () => {
+  test("room handoff mutes mechanical presence and playback events", () => {
     let handoff = true;
     const { notifier, shown, advance } = createHarness({
       isPresenceHandoff: () => handoff,
@@ -232,7 +232,7 @@ describe("createWatchTogetherSessionToasts", () => {
       user: REMOTE_USER,
       positionSeconds: 10,
     });
-    expect(shown).toEqual(["multiplextest paused playback"]);
+    expect(shown).toEqual([]);
 
     handoff = false;
     notifier.handleParticipant({
@@ -240,9 +240,14 @@ describe("createWatchTogetherSessionToasts", () => {
       isPresent: true,
       isReady: true,
     });
+    notifier.handleRemoteAction({
+      type: "pause",
+      user: REMOTE_USER,
+      positionSeconds: 10,
+    });
     expect(shown).toEqual([
-      "multiplextest paused playback",
       "multiplextest joined the session",
+      "multiplextest paused playback",
     ]);
   });
 

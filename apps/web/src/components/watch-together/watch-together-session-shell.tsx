@@ -3,6 +3,8 @@
 import {
   useEffect,
   useEffectEvent,
+  useRef,
+  useState,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
@@ -39,12 +41,20 @@ export function WatchTogetherSessionShell({
   const searchParams = useSearchParams();
   const roomId = typeof params.roomId === "string" ? params.roomId : null;
   const queryCapability = searchParams.get("guest");
+  const [continuedCapability, setContinuedCapability] = useState<{
+    roomId: string;
+    capability: string;
+  } | null>(null);
   const storedCapability = useSyncExternalStore<string | null | undefined>(
     subscribeGuestCapability,
     () => (roomId ? readGuestHostCapability(roomId) : null),
     () => undefined,
   );
-  const guestCapability = queryCapability ?? storedCapability;
+  const guestCapability =
+    queryCapability ??
+    (continuedCapability?.roomId === roomId
+      ? continuedCapability.capability
+      : storedCapability);
 
   useEffect(() => {
     if (!roomId || !queryCapability) return;
@@ -58,7 +68,11 @@ export function WatchTogetherSessionShell({
     }
   }, [queryCapability, roomId]);
 
-  useWatchTogetherSessionLifecycle(roomId, guestCapability);
+  useWatchTogetherSessionLifecycle(
+    roomId,
+    guestCapability,
+    setContinuedCapability,
+  );
   return children;
 }
 
@@ -69,6 +83,10 @@ function subscribeGuestCapability(): () => void {
 function useWatchTogetherSessionLifecycle(
   roomId: string | null,
   guestCapability: string | null | undefined,
+  setContinuedCapability: (value: {
+    roomId: string;
+    capability: string;
+  }) => void,
 ) {
   const router = useRouter();
   const sessionState = useSessionState();
@@ -86,6 +104,17 @@ function useWatchTogetherSessionLifecycle(
       retry: false,
     },
   );
+  const continuingRoomRef = useRef<string | null>(null);
+  const continueHostMutation = api.guestWatchTogether.continueHost.useMutation({
+    onSuccess: (result) => {
+      if (!result.valid) return;
+      storeGuestHostCapability(result.roomId, result.capability);
+      setContinuedCapability({
+        roomId: result.roomId,
+        capability: result.capability,
+      });
+    },
+  });
 
   const localUser: SyncplayUser | null = (() => {
     const localUserId = userInfoQuery.data?.id;
@@ -137,6 +166,33 @@ function useWatchTogetherSessionLifecycle(
     sessionState._tag,
     guestCapability,
     hostContextQuery.data,
+  ]);
+
+  // Preserve HostControlled semantics across a room rotation. The old signed
+  // capability authorizes the authenticated host to mint a successor only for
+  // a live room containing the same Plex Home Guest party.
+  useEffect(() => {
+    if (
+      typeof guestCapability !== "string" ||
+      sessionState._tag !== "Playing" ||
+      sessionState.startPolicy._tag !== "HostControlled" ||
+      sessionState.startPolicy.localRole !== "Host" ||
+      !hostContextQuery.data?.valid ||
+      hostContextQuery.data.roomId === sessionState.room.id ||
+      continuingRoomRef.current === sessionState.room.id
+    ) {
+      return;
+    }
+    continuingRoomRef.current = sessionState.room.id;
+    continueHostMutation.mutate({
+      capability: guestCapability,
+      roomId: sessionState.room.id,
+    });
+  }, [
+    continueHostMutation,
+    guestCapability,
+    hostContextQuery.data,
+    sessionState,
   ]);
 
   // Layout stays mounted across roomId soft-navs; only the dependency change

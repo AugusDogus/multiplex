@@ -156,6 +156,7 @@ test("a create response for stale invitees retries against the live party", asyn
         let snap = session.snapshot();
         expect(snap._tag === "Playing" && snap.rotation._tag).toBe("Armed");
 
+        yield* TestClock.adjust("1 second");
         yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS} millis`);
         yield* Effect.yieldNow;
 

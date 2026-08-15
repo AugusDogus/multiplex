@@ -178,6 +178,29 @@ describe("openPlayer resume math", () => {
     expect(player.snapshot().streamSessionId).not.toBe(first);
   });
 
+  test("retries a failed transcode with a fresh source generation", () => {
+    player.openPlayer(sampleItem, { resume: false });
+    const opened = player.snapshot();
+    const identity = {
+      streamSessionId: opened.streamSessionId,
+      serverId: sampleItem.serverId,
+      ratingKey: sampleItem.ratingKey,
+    };
+
+    expect(player.retryTranscodeSource(identity)).toBe(true);
+    expect(player.snapshot()).toMatchObject({
+      transcodeAttempt: 1,
+      sourceGeneration: opened.sourceGeneration + 1,
+      isLoading: true,
+      isBuffering: false,
+      canPlay: false,
+      error: null,
+    });
+
+    player.updatePlaybackState({ streamOffset: 30 });
+    expect(player.snapshot().transcodeAttempt).toBe(0);
+  });
+
   test("clears item-scoped state atomically", () => {
     player.openPlayer(sampleItem, { resume: false });
     player.updatePlaybackState({

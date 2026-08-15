@@ -32,6 +32,7 @@ export type PlayerState = {
   readonly bufferedTime: number;
   readonly streamOffset: number;
   readonly streamSessionId: string;
+  readonly transcodeAttempt: number;
   readonly sourceGeneration: number;
   readonly isFullscreen: boolean;
   readonly showControls: boolean;
@@ -82,7 +83,7 @@ export function isPlayerPlaybackIdentityCurrent(
  * Item-scoped async callers must use `updatePlaybackStateFor` instead.
  */
 export type PlayerPlaybackUpdate = Partial<
-  Omit<PlayerState, "autoPlay" | "sourceGeneration"> & {
+  Omit<PlayerState, "autoPlay" | "sourceGeneration" | "transcodeAttempt"> & {
     autoPlay: PlayerState["autoPlay"];
   }
 >;
@@ -99,6 +100,7 @@ export const initialPlayerState: PlayerState = {
   bufferedTime: 0,
   streamOffset: 0,
   streamSessionId: "",
+  transcodeAttempt: 0,
   sourceGeneration: 0,
   isFullscreen: false,
   showControls: true,
@@ -129,6 +131,7 @@ export type PlayerServiceShape = {
     expected: PlayerPlaybackIdentity,
     updates: PlayerPlaybackUpdate,
   ) => boolean;
+  readonly retryTranscodeSource: (expected: PlayerPlaybackIdentity) => boolean;
   readonly applyPlaybackMetadata: (
     expected: PlayerPlaybackIdentity,
     metadata: ItemMetadata,
@@ -155,13 +158,14 @@ const setState = (
           ? updates(current)
           : { ...current, ...updates };
 
-      if (
-        next.streamOffset !== current.streamOffset &&
-        next.sourceGeneration === current.sourceGeneration
-      ) {
+      if (next.streamOffset !== current.streamOffset) {
         return {
           ...next,
-          sourceGeneration: current.sourceGeneration + 1,
+          transcodeAttempt: 0,
+          sourceGeneration:
+            next.sourceGeneration === current.sourceGeneration
+              ? current.sourceGeneration + 1
+              : next.sourceGeneration,
         };
       }
 
@@ -243,6 +247,7 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
         // sessions. Keep this stable across source replacements; the transcode
         // session key separately identifies each seek/subtitle variant.
         streamSessionId: crypto.randomUUID().replaceAll("-", "").slice(0, 24),
+        transcodeAttempt: 0,
         sourceGeneration: current.sourceGeneration + 1,
         isLoading: true,
         error: null,
@@ -336,6 +341,26 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
           }
           applied = true;
           return { ...current, ...updates };
+        });
+        return applied;
+      },
+
+      retryTranscodeSource: (expected) => {
+        let applied = false;
+        setState(state, (current) => {
+          if (!isPlayerPlaybackIdentityCurrent(current, expected)) {
+            return current;
+          }
+          applied = true;
+          return {
+            ...current,
+            transcodeAttempt: current.transcodeAttempt + 1,
+            sourceGeneration: current.sourceGeneration + 1,
+            isLoading: true,
+            isBuffering: false,
+            canPlay: false,
+            error: null,
+          };
         });
         return applied;
       },

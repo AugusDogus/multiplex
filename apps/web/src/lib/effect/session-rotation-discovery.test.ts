@@ -236,7 +236,7 @@ test("changing nextEpisode resets target-specific work and prefetch", async () =
         ).toBe(false);
         expect(
           createRoom.mock.calls.some((call) => call[0].ratingKey === "200"),
-        ).toBe(false);
+        ).toBe(true);
         expect(
           createRoom.mock.calls.some((call) => call[0].ratingKey === "300"),
         ).toBe(true);
@@ -304,13 +304,15 @@ test("two empty discovery responses invalidate an adopted room and recreate", as
         yield* Effect.yieldNow;
         yield* waitUntil(
           session,
-          (s) => s._tag === "Playing" && s.rotation._tag === "Armed",
+          () => createRoom.mock.calls.length > createsBefore,
           15,
         );
-        yield* TestClock.adjust(`${CREATE_BASE_DELAY_MS} millis`);
-        yield* Effect.yieldNow;
 
         expect(createRoom.mock.calls.length).toBeGreaterThan(createsBefore);
+        const recreated = session.snapshot();
+        expect(recreated._tag === "Playing" && recreated.rotation._tag).toBe(
+          "RoomKnown",
+        );
       }),
   );
 });

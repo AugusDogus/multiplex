@@ -706,6 +706,41 @@ test("enterLobby is idempotent by room id (refetch does not reconnect)", async (
   );
 });
 
+test("enterLobby reconnects when a same-room refetch repairs the Syncplay endpoint", async () => {
+  await withSession(
+    ({ session, observers }) =>
+      Effect.gen(function* () {
+        const cached = {
+          ...room("r1", "100"),
+          syncplayHost: "",
+          syncplayPort: 0,
+        };
+        yield* session.enterLobby({ room: cached, localUser });
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        expect(observers).toHaveLength(1);
+
+        yield* session.enterLobby({
+          room: room("r1", "100"),
+          localUser,
+        });
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+
+        expect(observers).toHaveLength(2);
+        expect(observers[0]?.disconnectCount.n).toBeGreaterThanOrEqual(1);
+        const snap = session.snapshot();
+        expect(snap._tag).toBe("Lobby");
+        if (snap._tag === "Lobby") {
+          expect(snap.room.syncplayHost).toBe("syncplay.example.com");
+          expect(snap.participants).toEqual({});
+          expect(snap.roomPositionSeconds).toBeNull();
+        }
+      }),
+    { withTestClock: true },
+  );
+});
+
 test("exitLobby returns to Idle and disconnects the observer", async () => {
   await withSession(
     ({ session, observers }) =>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import type { Marker } from "@multiplex/plex-query";
+import { PlaybackIntent, type Marker } from "@multiplex/plex-query";
 import { playerCommands } from "~/lib/effect/player-atoms";
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import type {
@@ -9,6 +9,7 @@ import type {
   MediaPlayerSeekResult,
 } from "~/types/media-player";
 import { clamp, supportsFullscreen } from "../utils/media-player-utils";
+import { clampPlayableSeekTarget } from "../utils/playback-time-utils";
 
 function toggleFullscreen() {
   if (!supportsFullscreen()) {
@@ -45,18 +46,24 @@ export function useMediaPlayer(): {
   videoRef: React.RefObject<HTMLVideoElement | null>;
 } {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const playbackIntentRef = useRef(PlaybackIntent.make());
 
   /**
    * Start video playback
    */
   const play = async () => {
     console.log("🎬 Player: play() called");
+    const intentRevision = playbackIntentRef.current.beginPlay();
     const video = videoRef.current;
     const playbackIdentity = playerCommands.playbackIdentity();
     const sourceGeneration = playerCommands.snapshot().sourceGeneration;
     if (video && playbackIdentity) {
       try {
         await video.play();
+        if (!playbackIntentRef.current.isCurrent(intentRevision)) {
+          if (!playbackIntentRef.current.shouldPlay()) video.pause();
+          return false;
+        }
         if (
           videoRef.current !== video ||
           playerCommands.snapshot().sourceGeneration !== sourceGeneration
@@ -92,6 +99,7 @@ export function useMediaPlayer(): {
    */
   const pause = () => {
     console.log("🎬 Player: pause() called");
+    playbackIntentRef.current.pause();
     const video = videoRef.current;
     const playbackIdentity = playerCommands.playbackIdentity();
     if (video && playbackIdentity) {
@@ -121,7 +129,8 @@ export function useMediaPlayer(): {
     const video = videoRef.current;
     const playbackIdentity = playerCommands.playbackIdentity();
     if (video && playbackIdentity) {
-      const clampedTime = clamp(time, 0, playerCommands.snapshot().duration);
+      const duration = playerCommands.snapshot().duration;
+      const clampedTime = clamp(time, 0, duration);
       // Plex's transcoded MP4 stream advertises an empty seekable range, so
       // assigning `video.currentTime` is silently rejected. For those we
       // seek by reloading the stream with a new `offset` instead.
@@ -129,9 +138,10 @@ export function useMediaPlayer(): {
         "/video/:/transcode/universal/",
       );
       if (isTranscoded) {
+        const playableTime = clampPlayableSeekTarget(clampedTime, duration);
         playerCommands.updatePlaybackStateFor(playbackIdentity, {
-          streamOffset: clampedTime,
-          currentTime: clampedTime,
+          streamOffset: playableTime,
+          currentTime: playableTime,
           isLoading: true,
           canPlay: false,
         });

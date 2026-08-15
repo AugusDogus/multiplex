@@ -556,7 +556,12 @@ export async function warmWatchTogetherRoom(
   roomId: string,
 ): Promise<SanitizedWatchTogetherRoomRow | null> {
   const room = await trpc.plex.getWatchTogetherRoom.query({ roomId });
-  if (!room) return null;
+  if (!room) {
+    // A successful authoritative miss must evict the persisted row. Keeping it
+    // makes deleted rooms look joinable indefinitely after revalidation.
+    deleteRow(collections.watchTogetherRooms, roomId);
+    return null;
+  }
   const row = sanitizeWatchTogetherRoom(
     room as unknown as Record<string, unknown>,
   );

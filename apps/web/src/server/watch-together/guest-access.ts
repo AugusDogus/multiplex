@@ -1,5 +1,4 @@
 import {
-  getServerUrl,
   PlexTvClient,
   toPlayableMetadata,
   type PlayableMetadata,
@@ -129,9 +128,8 @@ export const resolveGuestAccess: ResolveGuestAccess = async (
   const guestServer = guestServers.find(
     (server) => server.clientIdentifier === input.serverId,
   );
-  const guestServerUrl = guestServer ? getServerUrl(guestServer) : undefined;
   const guestDurableToken = guestServer?.accessToken;
-  if (!guestServer || !guestServerUrl || !guestDurableToken) {
+  if (!guestServer || !guestDurableToken) {
     return unavailable("server-unavailable");
   }
 
@@ -141,6 +139,12 @@ export const resolveGuestAccess: ResolveGuestAccess = async (
     rawItem = await guestServerClient.getItemMetadata(input.ratingKey);
   } catch {
     return unavailable("item-unavailable");
+  }
+  let guestServerUrl: string;
+  try {
+    guestServerUrl = await guestServerClient.getConnectionUri();
+  } catch {
+    return unavailable("server-unavailable");
   }
   const item = rawItem ? toPlayableMetadata(rawItem) : null;
   if (!item) {

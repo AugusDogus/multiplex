@@ -85,6 +85,67 @@ export const guestWatchTogetherRouter = createTRPCRouter({
       }
     }),
 
+  continueHost: protectedProcedure
+    .input(
+      z.object({
+        capability: z.string().min(1).max(4_096),
+        roomId: z.string().regex(/^[A-Za-z0-9]+$/),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const codec = await getCapabilityCodec();
+      const verification = await codec.verify(input.capability);
+      if (
+        !verification.ok ||
+        verification.payload.hostUserId !== ctx.authSession.user.id
+      ) {
+        return { valid: false as const };
+      }
+
+      const watchTogether = new WatchTogetherClient(
+        ctx.plex.getToken(),
+        NEXTJS_PLEX_CONFIG,
+      );
+      try {
+        const room = await watchTogether.getRoom(input.roomId);
+        const source = parseLibraryItemUri(room.sourceUri);
+        if (!source || room.id !== input.roomId) {
+          return { valid: false as const };
+        }
+        const access = await resolveGuestAccess(ctx.plex, {
+          serverId: source.serverId,
+          ratingKey: source.ratingKey,
+        });
+        if (!access.ok) {
+          return { valid: false as const };
+        }
+        const roomUserIds = new Set(room.users.map((user) => user.id));
+        if (
+          !roomUserIds.has(access.value.hostPlexUserId) ||
+          !roomUserIds.has(access.value.guest.id)
+        ) {
+          return { valid: false as const };
+        }
+
+        const remainingLifetime = Math.max(
+          1,
+          verification.payload.expiresAt - Math.floor(Date.now() / 1000),
+        );
+        const capability = await codec.sign({
+          hostUserId: verification.payload.hostUserId,
+          roomId: room.id,
+          lifetimeSeconds: remainingLifetime,
+        });
+        return {
+          valid: true as const,
+          capability,
+          roomId: room.id,
+        };
+      } catch {
+        return { valid: false as const };
+      }
+    }),
+
   eligibility: protectedProcedure
     .input(
       z.object({

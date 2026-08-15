@@ -15,6 +15,7 @@ import {
   decideRotation,
   findNextEpisodeRoom,
   getAutoAdvanceRank,
+  getPartyProgressSeconds,
   haveMultiplexParticipantsJoined,
   isSomeoneElseWatching,
   lobby,
@@ -93,6 +94,16 @@ export type SwapToInput = {
     readonly ratingKey: string;
   };
 };
+
+const ROTATION_CREATE_RETRY_MS = 1_000;
+
+const roomConnectionChanged = (
+  current: WatchTogetherRoom,
+  next: WatchTogetherRoom,
+): boolean =>
+  current.syncplayHost !== next.syncplayHost ||
+  current.syncplayPort !== next.syncplayPort ||
+  current.sourceUri !== next.sourceUri;
 
 export type LeaveOptions = {
   readonly suppressAutoStart: boolean;
@@ -788,24 +799,45 @@ export const makeWatchTogetherSession = (
       Effect.gen(function* () {
         const current = yield* SubscriptionRef.get(state);
         if (current._tag === "Playing") {
-          // Driver owns the socket; keep Playing. Still refresh room if same id.
+          // Driver owns the socket; keep Playing. A cached room can initially
+          // carry an empty/stale endpoint, so reconnect when authoritative
+          // room data changes the connection identity.
           if (current.room.id === input.room.id) {
-            yield* SubscriptionRef.set(state, {
+            const reconnect = roomConnectionChanged(current.room, input.room);
+            const next = {
               ...current,
               room: input.room,
-            });
+              participants: reconnect ? {} : current.participants,
+              startPolicy: input.startPolicy ?? current.startPolicy,
+            };
+            yield* SubscriptionRef.set(state, next);
+            localUser = input.localUser;
+            if (reconnect) {
+              lifecycleGeneration += 1;
+              const generation = lifecycleGeneration;
+              yield* interruptConnection();
+              yield* startConnection(input.room, input.localUser, generation);
+            }
           }
           return;
         }
         if (current._tag === "Lobby" && current.room.id === input.room.id) {
-          // Idempotent by room id: refresh room object, keep participants /
-          // position / observer fiber.
+          const reconnect = roomConnectionChanged(current.room, input.room);
+          // Idempotent for metadata-only refreshes. A connection change starts
+          // a fresh observer and discards presence learned from the old socket.
           yield* SubscriptionRef.set(state, {
             ...current,
             room: input.room,
+            participants: reconnect ? {} : current.participants,
+            roomPositionSeconds: reconnect ? null : current.roomPositionSeconds,
             startPolicy: input.startPolicy ?? current.startPolicy,
           });
           localUser = input.localUser;
+          if (reconnect) {
+            lifecycleGeneration += 1;
+            const generation = lifecycleGeneration;
+            yield* startLobbyFiber(input.room, input.localUser, generation);
+          }
           return;
         }
 
@@ -1043,6 +1075,7 @@ export const makeWatchTogetherSession = (
                   .pipe(Effect.exit);
                 createFiber = null;
                 if (Exit.isFailure(result)) {
+                  yield* Effect.sleep(`${ROTATION_CREATE_RETRY_MS} millis`);
                   yield* Ref.set(hasAttemptedCreate, false);
                   yield* evaluateOnce();
                   return;
@@ -1069,6 +1102,7 @@ export const makeWatchTogetherSession = (
                   currentRoom: session.room,
                 });
                 if (!createdRoom) {
+                  yield* Effect.sleep(`${ROTATION_CREATE_RETRY_MS} millis`);
                   yield* Ref.set(hasAttemptedCreate, false);
                   yield* evaluateOnce();
                   return;
@@ -1427,8 +1461,14 @@ export const makeWatchTogetherSession = (
             }
 
             const snap = player.snapshot();
-            const durationSeconds = snap.durationSeconds;
-            const currentTimeSeconds = snap.currentTimeSeconds;
+            const durationSeconds = Math.max(
+              snap.durationSeconds,
+              session.item.durationSeconds ?? 0,
+            );
+            const currentTimeSeconds = getPartyProgressSeconds(
+              session.participants,
+              snap.currentTimeSeconds,
+            );
             const timeRemainingSeconds =
               durationSeconds > 0
                 ? durationSeconds - currentTimeSeconds

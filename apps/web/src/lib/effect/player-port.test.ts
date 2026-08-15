@@ -84,6 +84,18 @@ test("snapshot reflects playback fields", () => {
   });
 });
 
+test("snapshot does not report Syncplay readiness while buffering", () => {
+  const { port, player } = makeIsolatedPort();
+  port.load(sampleItem, { resume: false });
+  player.updatePlaybackState({
+    canPlay: true,
+    isLoading: false,
+    isBuffering: true,
+  });
+
+  expect(port.snapshot().canPlay).toBe(false);
+});
+
 test("currentItem mirrors the player service item", () => {
   const { port } = makeIsolatedPort();
   expect(port.currentItem()).toBeNull();

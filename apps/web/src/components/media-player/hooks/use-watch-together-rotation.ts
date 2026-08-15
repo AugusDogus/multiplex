@@ -5,7 +5,6 @@ import { rotationCountdown } from "@multiplex/plex-query";
 
 import { sessionCommands, useSessionState } from "~/lib/effect/session-atoms";
 import { usePlayerStateSelector } from "~/lib/effect/player-atoms";
-import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import { shallow } from "zustand/shallow";
 import type { NextEpisodeInfo } from "~/types/media-player";
 
@@ -36,20 +35,18 @@ export function useWatchTogetherRotation({
     }),
     shallow,
   );
-  const autoPlayEnabled = usePlayerPrefsStore((state) => state.autoPlayEnabled);
-
   const playing =
     enabled && sessionState._tag === "Playing" ? sessionState : null;
 
-  // The player-settings "Auto Play" toggle deliberately gates Watch Together
-  // auto-advance too: the group countdown has no cancel button, so the toggle
-  // is a viewer's only way to opt out of being carried into the next episode.
+  // Episode handoff is a room-level decision. A persisted preference on one
+  // browser must not leave that viewer behind while the room rotates. The
+  // preference continues to control solo autoplay only.
   useEffect(() => {
     sessionCommands.setRotationContext({
       nextEpisode: enabled ? nextEpisode : null,
-      autoPlayEnabled: enabled && autoPlayEnabled,
+      autoPlayEnabled: enabled,
     });
-  }, [enabled, nextEpisode, autoPlayEnabled]);
+  }, [enabled, nextEpisode]);
 
   const timeRemaining =
     duration > 0 ? duration - currentTime : Number.POSITIVE_INFINITY;
