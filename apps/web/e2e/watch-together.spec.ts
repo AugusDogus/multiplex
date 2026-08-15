@@ -1,15 +1,20 @@
 import { test, expect } from "@playwright/test";
 import { setupSyncedRoom } from "./helpers/watch-together";
+import { readPlaybackProbe } from "./helpers/playback-probe";
 
 const DEVICE_ID_KEY = "multiplex-watch-together-device-id";
 
 test("two viewers synchronize playback and disable local speed controls", async ({
   browser,
   baseURL,
-}) => {
+}, testInfo) => {
   // Real Plex login + transcoded playback for two viewers is slow.
   test.setTimeout(360_000);
-  const { host, guest, cleanup } = await setupSyncedRoom(browser, baseURL);
+  const { host, guest, cleanup } = await setupSyncedRoom(
+    browser,
+    baseURL,
+    testInfo,
+  );
 
   try {
     // Each browser must use a distinct X-Plex-Client-Identifier (the streaming
@@ -60,9 +65,11 @@ test("two viewers synchronize playback and disable local speed controls", async 
 
     const hostVideo = host.locator("video");
     const box = await hostVideo.boundingBox();
-    expect(box, "host video should have a layout box").toBeTruthy();
-    const centerX = box!.x + box!.width / 2;
-    const centerY = box!.y + box!.height / 2;
+    if (!box) {
+      throw new Error("host video should have a layout box");
+    }
+    const centerX = box.x + box.width / 2;
+    const centerY = box.y + box.height / 2;
 
     // An unsynced local playback rate would desync the room, so both the hold
     // gesture and settings control must be unavailable during the session.
@@ -77,7 +84,7 @@ test("two viewers synchronize playback and disable local speed controls", async 
     expect(rateWhileHolding, "hold must not fast-forward in a session").toBe(1);
 
     console.error("E2E step: open settings; Playback Speed must be absent");
-    await host.mouse.move(centerX, box!.y + box!.height - 24);
+    await host.mouse.move(centerX, box.y + box.height - 24);
     const settingsButton = host.getByRole("button", {
       name: "Playback settings",
     });
@@ -91,19 +98,24 @@ test("two viewers synchronize playback and disable local speed controls", async 
   }
 });
 
-test("a host seek propagates to the guest", async ({ browser, baseURL }) => {
+test("a host seek propagates to the guest", async ({
+  browser,
+  baseURL,
+}, testInfo) => {
   // Real Plex login + transcoded playback for two viewers is slow.
   test.setTimeout(360_000);
-  const { host, guest, cleanup } = await setupSyncedRoom(browser, baseURL);
+  const { host, guest, cleanup } = await setupSyncedRoom(
+    browser,
+    baseURL,
+    testInfo,
+  );
 
   try {
     // Seek via the app's keyboard shortcut (digit = jump to %), which goes
     // through the real transcoded-reload seek path (raw currentTime assignment
     // is rejected by Plex's transcoded stream).
     console.error("E2E step: host seeks to ~80%");
-    const duration = await host
-      .locator("video")
-      .evaluate((v: HTMLVideoElement) => v.duration || 0);
+    const duration = (await readPlaybackProbe(host)).durationSeconds;
     const seekTarget = duration * 0.8;
     // Dispatch the keydown on document directly (the player's shortcut handler
     // is a document listener; Playwright's keyboard can miss it through the
@@ -113,22 +125,18 @@ test("a host seek propagates to the guest", async ({ browser, baseURL }) => {
         new KeyboardEvent("keydown", { code: "Digit8", bubbles: true }),
       );
     });
-    // We seek transcoded streams by reloading at a new `offset`, so the guest
-    // following the seek shows up as its stream reloading at ~the same offset
-    // (the raw <video>.currentTime restarts near 0 for the new offset stream).
+    // The probe normalizes direct-play currentTime and transcode offset streams
+    // onto the same full media timeline.
     await expect
       .poll(
-        () =>
-          guest
-            .locator("video")
-            .evaluate((v: HTMLVideoElement) => {
-              const match = /[?&]offset=(\d+)/.exec(v.currentSrc);
-              return match ? Number(match[1]) : 0;
-            })
-            .catch(() => 0),
+        async () =>
+          Math.abs(
+            (await readPlaybackProbe(guest)).timelinePositionSeconds -
+              seekTarget,
+          ),
         { message: "guest should follow the host's seek", timeout: 60_000 },
       )
-      .toBeGreaterThan(seekTarget - 60);
+      .toBeLessThan(10);
     console.error("E2E step: guest followed seek");
   } finally {
     await cleanup();

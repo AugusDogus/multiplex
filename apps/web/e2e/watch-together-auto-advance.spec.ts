@@ -155,7 +155,7 @@ async function playingEpisode(
 test("a session auto-advances both viewers to the next episode without leaving the player", async ({
   browser,
   baseURL,
-}) => {
+}, testInfo) => {
   // Two live transcodes, a near-end seek, a real episode ending, and a second
   // pair of transcodes for the next episode: give it plenty of room.
   test.setTimeout(600_000);
@@ -165,6 +165,7 @@ test("a session auto-advances both viewers to the next episode without leaving t
   const { host, guest, hostContext, roomId, cleanup } = await setupSyncedRoom(
     browser,
     baseURL,
+    testInfo,
     {
       // Optional demo captures of the whole flow (E2E_RECORD_DIR=<dir>).
       recordVideoDir: process.env.E2E_RECORD_DIR,
@@ -179,8 +180,11 @@ test("a session auto-advances both viewers to the next episode without leaving t
   );
 
   try {
-    expect(episode, "an episode with a next episode").toBeTruthy();
-    const durationSeconds = episode!.durationMs / 1000;
+    const selectedEpisode = episode;
+    if (!selectedEpisode) {
+      throw new Error("expected an episode with a next episode");
+    }
+    const durationSeconds = selectedEpisode.durationMs / 1000;
 
     // Seek close to the end through the app's real seek path (keyboard
     // shortcuts -> transcode reload). Prefer percent seeks + waiting over
@@ -191,23 +195,10 @@ test("a session auto-advances both viewers to the next episode without leaving t
     await expectPlayingAndAdvancing(host, "host after 90% seek");
 
     await expect
-      .poll(
-        async () => {
-          const remaining = durationSeconds - (await playbackPosition(host));
-          console.error(`E2E step: host remaining ~${Math.round(remaining)}s`);
-          // If the 90% seek fell off, re-assert it before waiting further.
-          if (remaining > durationSeconds * 0.2) {
-            await pressPlayerKey(host, "Digit9");
-            await host.waitForTimeout(4_000);
-            return durationSeconds - (await playbackPosition(host));
-          }
-          return remaining;
-        },
-        {
-          message: "host should reach the auto-advance lead window",
-          timeout: 360_000,
-        },
-      )
+      .poll(async () => durationSeconds - (await playbackPosition(host)), {
+        message: "host should reach the auto-advance lead window",
+        timeout: 360_000,
+      })
       .toBeLessThanOrEqual(40);
 
     // The guest follows the seek (their own remaining time drops too).
@@ -227,9 +218,9 @@ test("a session auto-advances both viewers to the next episode without leaving t
       ratingKey: string | null;
       title: string | null;
     }) =>
-      episodeInfo.ratingKey === episode!.next.ratingKey ||
+      episodeInfo.ratingKey === selectedEpisode.next.ratingKey ||
       (episodeInfo.ratingKey === null &&
-        episodeInfo.title === episode!.next.title);
+        episodeInfo.title === selectedEpisode.next.title);
     const socialToastRe =
       /(left the session|joined the session|paused playback)/i;
     const unexpectedToasts: string[] = [];
@@ -264,7 +255,7 @@ test("a session auto-advances both viewers to the next episode without leaving t
       }
       if (Date.now() > swapDeadline) {
         throw new Error(
-          `auto-advance never happened (host=${JSON.stringify(hostEpisode)}, guest=${JSON.stringify(guestEpisode)}, expected=${episode!.next.ratingKey} "${episode!.next.title}")`,
+          `auto-advance never happened (host=${JSON.stringify(hostEpisode)}, guest=${JSON.stringify(guestEpisode)}, expected=${selectedEpisode.next.ratingKey} "${selectedEpisode.next.title}")`,
         );
       }
       await host.waitForTimeout(2_500);
@@ -364,18 +355,25 @@ test("a session auto-advances both viewers to the next episode without leaving t
     );
     await pressPlayerKey(host, "Digit5");
     await expect
-      .poll(async () => playbackPosition(guest), {
-        message: "guest should follow the host's seek after auto-advance",
-        timeout: 60_000,
-      })
-      .toBeGreaterThan(seekTarget - 60);
+      .poll(
+        async () => Math.abs((await playbackPosition(guest)) - seekTarget),
+        {
+          message: "guest should follow the host's seek after auto-advance",
+          timeout: 60_000,
+        },
+      )
+      .toBeLessThan(10);
     console.error("E2E step: guest followed seek after auto-advance");
 
     // Closing the player must land on the live next-room lobby, not a deleted
     // previous room ("unavailable") — requires App Router URL follow on swap.
     console.error("E2E step: host closes player onto live lobby");
     const liveLobbyPath = new URL(host.url()).pathname;
-    await host.locator('button[aria-label="Close"]').click();
+    await host
+      .locator('[data-slot="dialog-popup"]')
+      .filter({ has: host.locator("video") })
+      .getByRole("button", { name: "Close" })
+      .click();
     await expect(host.locator("video")).toHaveCount(0, { timeout: 15_000 });
     await expect(
       host.getByText("This Watch Together room is unavailable."),

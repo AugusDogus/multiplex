@@ -5,8 +5,8 @@ import { defineConfig, devices } from "@playwright/test";
  *
  * `auth-gate` — document-session gate / no-ui-flash (no Plex credentials).
  * `watch-together` — two real Plex accounts against a live server. Needs:
- *   - AUGUSDOGUS_ACCOUNT_USERNAME / AUGUSDOGUS_ACCOUNT_PASSWORD  (account A)
- *   - MULTIPLEX_ACCOUNT_EMAIL / MULTIPLEX_ACCOUNT_PASSWORD       (account B)
+ *   - MULTIPLEX_ACCOUNT_EMAIL / MULTIPLEX_ACCOUNT_PASSWORD         (account A)
+ *   - MUTLIPLEX_ACCOUNT_EMAIL_2 / MULTIPLEX_ACCOUNT_PASSWORD_2     (account B)
  *
  * Watch Together uses system Google Chrome (`channel: "chrome"`) because Plex
  * streams are H.264/AAC, which Playwright's bundled Chromium cannot decode.
@@ -17,8 +17,9 @@ const BASE_URL =
 const WEB_SERVER_URL = process.env.PLAYWRIGHT_WEB_SERVER_URL ?? BASE_URL;
 const WEB_SERVER_COMMAND =
   process.env.PLAYWRIGHT_WEB_SERVER_COMMAND ?? "portless multiplex bun run dev";
+const EXECUTABLE_PATH = process.env.PLAYWRIGHT_EXECUTABLE_PATH;
 const CHANNEL =
-  process.env.PLAYWRIGHT_CHANNEL === "chromium"
+  EXECUTABLE_PATH || process.env.PLAYWRIGHT_CHANNEL === "chromium"
     ? undefined
     : (process.env.PLAYWRIGHT_CHANNEL ?? "chrome");
 
@@ -41,6 +42,7 @@ export default defineConfig({
     navigationTimeout: 60_000,
     channel: CHANNEL,
     launchOptions: {
+      executablePath: EXECUTABLE_PATH,
       args: [
         "--no-sandbox",
         "--mute-audio",
@@ -68,7 +70,11 @@ export default defineConfig({
       name: "watch-together",
       testMatch: /(?:^|\/)(?:watch-together|guest-watch-together).*\.spec\.ts/,
       dependencies: ["setup"],
-      use: { ...devices["Desktop Chrome"], channel: CHANNEL },
+      // A functional first-attempt failure must stay visible. The harness now
+      // attaches enough per-viewer evidence to distinguish product failures.
+      retries: 0,
+      // The two-viewer harness owns tracing for its manually created contexts.
+      use: { ...devices["Desktop Chrome"], channel: CHANNEL, trace: "off" },
     },
   ],
   webServer: {

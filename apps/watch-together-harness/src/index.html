@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Multiplex Watch Together Harness</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header>
+      <div>
+        <p class="eyebrow">REAL PLEX / NO APP SESSION</p>
+        <h1>Watch Together protocol harness</h1>
+      </div>
+      <div id="room-status" class="status">Preparing room...</div>
+    </header>
+
+    <main>
+      <section class="toolbar" aria-label="Harness controls">
+        <button id="play-both" type="button">Play both</button>
+        <button id="pause-host" type="button">Pause host</button>
+        <button id="play-host" type="button">Play host</button>
+        <button id="seek-half" type="button">Seek host to 50%</button>
+        <button id="seek-near-end" type="button">Seek host near end</button>
+        <button id="disconnect-guest" type="button">Disconnect guest</button>
+        <button id="next-episode" type="button" disabled>Next episode</button>
+      </section>
+
+      <section id="players" class="players" aria-label="Plex viewers"></section>
+
+      <section class="timeline-panel">
+        <div>
+          <h2>Assertions</h2>
+          <pre id="assertions" aria-live="polite"></pre>
+        </div>
+        <div>
+          <h2>Protocol timeline</h2>
+          <pre id="timeline" aria-live="polite"></pre>
+        </div>
+      </section>
+    </main>
+
+    <template id="player-template">
+      <article class="player-card">
+        <div class="player-heading">
+          <div>
+            <p class="viewer-label"></p>
+            <h2 class="viewer-title"></h2>
+          </div>
+          <span class="viewer-state">idle</span>
+        </div>
+        <video controls playsinline preload="metadata" crossorigin="anonymous"></video>
+        <dl>
+          <div>
+            <dt>Timeline</dt>
+            <dd class="timeline-value">0.00s</dd>
+          </div>
+          <div>
+            <dt>Ready</dt>
+            <dd class="ready-value">no</dd>
+          </div>
+          <div>
+            <dt>Stream</dt>
+            <dd class="stream-value">none</dd>
+          </div>
+        </dl>
+      </article>
+    </template>
+
+    <script type="module" src="/client.js"></script>
+  </body>
+</html>
