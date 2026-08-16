@@ -54,7 +54,7 @@ function calculateProgramPosition(
   program: TvGuideProgram,
   startTime: Date,
   endTime: Date,
-): { left: string; width: string } {
+) {
   const timelineDuration = endTime.getTime() - startTime.getTime();
 
   // Get timing from Media array
