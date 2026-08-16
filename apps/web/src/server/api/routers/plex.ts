@@ -584,7 +584,7 @@ export const plexRouter = createTRPCRouter({
         await serverClient.markItemUnwatched(input.ratingKey);
       }
 
-      void ctx.plex.syncViewState().catch((error: unknown) => {
+      void ctx.plex.syncViewState().catch((error) => {
         console.error("Failed to sync Plex view state", error);
       });
     }),
