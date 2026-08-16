@@ -15,6 +15,12 @@ interface UseWatchTogetherRotationOptions {
   nextEpisode: NextEpisodeInfo | null;
 }
 
+interface WatchTogetherRotationState {
+  isCountingDown: boolean;
+  countdownSeconds: number;
+  nextEpisode: NextEpisodeInfo | null;
+}
+
 /**
  * React glue for Watch Together auto-advance: pushes play-queue next-episode
  * discovery + the Auto Play toggle into {@link WatchTogetherSession} and
@@ -26,7 +32,7 @@ interface UseWatchTogetherRotationOptions {
 export function useWatchTogetherRotation({
   enabled,
   nextEpisode,
-}: UseWatchTogetherRotationOptions) {
+}: UseWatchTogetherRotationOptions): WatchTogetherRotationState {
   const sessionState = useSessionState();
   const { currentTime, duration } = usePlayerStateSelector(
     (state) => ({
@@ -55,7 +61,7 @@ export function useWatchTogetherRotation({
     return {
       isCountingDown: false,
       countdownSeconds: 0,
-      nextEpisode: null as NextEpisodeInfo | null,
+      nextEpisode: null,
     };
   }
 

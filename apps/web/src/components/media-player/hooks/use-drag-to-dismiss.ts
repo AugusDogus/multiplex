@@ -67,6 +67,17 @@ export interface DragToDismissHandle {
   isDragging: boolean;
 }
 
+interface DragState {
+  pointerId: number | null;
+  startX: number;
+  startY: number;
+  startT: number;
+  lastDown: number;
+  lastT: number;
+  claimed: boolean;
+  dismissing: boolean;
+}
+
 /** Component-frame delta from raw physical pointer deltas. */
 function toContentDelta(
   dxPhysical: number,
@@ -131,8 +142,8 @@ export function useDragToDismiss({
   const elementRef = useRef<HTMLDivElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  const stateRef = useRef({
-    pointerId: null as number | null,
+  const stateRef = useRef<DragState>({
+    pointerId: null,
     startX: 0,
     startY: 0,
     startT: 0,

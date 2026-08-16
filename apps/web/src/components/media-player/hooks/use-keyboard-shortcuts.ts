@@ -47,7 +47,7 @@ export function useKeyboardShortcuts({
     if (
       e.target instanceof HTMLInputElement ||
       e.target instanceof HTMLTextAreaElement ||
-      (e.target as HTMLElement)?.contentEditable === "true"
+      (e.target instanceof HTMLElement && e.target.contentEditable === "true")
     ) {
       return;
     }
