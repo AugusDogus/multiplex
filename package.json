@@ -6,10 +6,10 @@
     "packages/*"
   ],
   "scripts": {
-    "lint": "bun --filter @multiplex/web lint && oxlint --ignore-pattern 'apps/web/**' .",
-    "lint:fix": "bun --filter @multiplex/web lint:fix && oxlint --fix --ignore-pattern 'apps/web/**' .",
-    "format": "bun --filter @multiplex/web format:write && oxfmt --write . '!apps/web/**' '!.agents/**'",
-    "format:check": "bun --filter @multiplex/web format:check && oxfmt --check . '!apps/web/**' '!.agents/**'",
+    "lint": "bun --filter @multiplex/web lint && oxlint .",
+    "lint:fix": "bun --filter @multiplex/web lint:fix && oxlint --fix .",
+    "format": "bun --filter @multiplex/web format:write && oxfmt --write . '!apps/web/**' '!.agents/**' '!tools/oxlint/anti-slop/**'",
+    "format:check": "bun --filter @multiplex/web format:check && oxfmt --check . '!apps/web/**' '!.agents/**' '!tools/oxlint/anti-slop/**'",
     "typecheck": "bun --filter '*' typecheck",
     "check": "bun run lint && bun run format:check && bun run typecheck",
     "test": "bun --filter '*' test",
@@ -57,8 +57,9 @@
     "wii:reference:plex": "MULTIPLEX_REFERENCE_DOL=apps/wii/multiplex-wii-native-reference.dol MULTIPLEX_REFERENCE_BUILD_SCRIPT=../../wii/scripts/build-reference-dol.sh MULTIPLEX_CONSOLE_NAME=Wii MULTIPLEX_CONTROLLER_PIPE=multiplex-wii1 MULTIPLEX_DOLPHIN_NETWORK=native sh apps/gamecube/scripts/run-dolphin-plex.sh"
   },
   "devDependencies": {
+    "@oxlint/plugins": "1.78.0",
     "oxfmt": "^0.26.0",
-    "oxlint": "^1.41.0",
+    "oxlint": "1.78.0",
     "portless": "^0.15.4"
   },
   "overrides": {
