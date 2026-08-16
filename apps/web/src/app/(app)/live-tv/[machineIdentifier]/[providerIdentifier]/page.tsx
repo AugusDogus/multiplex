@@ -75,9 +75,9 @@ export default async function LiveTvPage({ params }: PageProps) {
   }
 
   const safeChannelLineups = channelLineupsResult.lineups;
-  const needsGuideRefresh =
-    safeChannelLineups.length === 0 ||
-    safeChannelLineups.every((lineup) => lineup.programs.length === 0);
+  const needsGuideRefresh = safeChannelLineups.every(
+    (lineup) => lineup.programs.length === 0,
+  );
 
   return (
     <AppPageLayout

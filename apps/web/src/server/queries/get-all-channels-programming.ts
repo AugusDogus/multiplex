@@ -8,7 +8,7 @@ async function mapWithConcurrency<T extends object, R>(
   concurrency: number,
   task: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
-  const results = new Array<R>(items.length);
+  const results: R[] = [];
   let nextIndex = 0;
 
   const runNext = async (): Promise<void> => {
