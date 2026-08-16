@@ -324,10 +324,7 @@ function LobbyParticipants({ lobby }: { lobby: ReadyLobby }) {
   );
 }
 
-function getStatusMeta(status: ParticipantStatus): {
-  label: string;
-  dotClassName: string;
-} {
+function getStatusMeta(status: ParticipantStatus) {
   switch (status) {
     case "watching":
       return { label: "Watching", dotClassName: "bg-green-500" };

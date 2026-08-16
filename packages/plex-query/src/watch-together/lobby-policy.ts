@@ -269,8 +269,8 @@ function mergeParticipantDevices(
   return {
     user,
     isPresent,
-    ...(isReady ? { isReady: true } : {}),
-    ...(positionSeconds !== undefined && { positionSeconds }),
-    ...(isPaused !== undefined && { isPaused }),
+    isReady: isReady ? true : undefined,
+    positionSeconds,
+    isPaused,
   };
 }

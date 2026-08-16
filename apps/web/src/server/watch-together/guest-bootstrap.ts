@@ -454,16 +454,12 @@ function toGuestNextEpisode(item: PlayQueueItem): GuestNextEpisode {
     title: item.title,
     index: item.index ?? 0,
     parentIndex: item.parentIndex ?? 0,
-    ...(item.thumb === undefined ? {} : { thumb: item.thumb }),
-    ...(item.art === undefined ? {} : { art: item.art }),
-    ...(item.duration === undefined ? {} : { duration: item.duration }),
-    ...(item.summary === undefined ? {} : { summary: item.summary }),
-    ...(item.grandparentTitle === undefined
-      ? {}
-      : { grandparentTitle: item.grandparentTitle }),
-    ...(item.parentTitle === undefined
-      ? {}
-      : { parentTitle: item.parentTitle }),
+    thumb: item.thumb,
+    art: item.art,
+    duration: item.duration,
+    summary: item.summary,
+    grandparentTitle: item.grandparentTitle,
+    parentTitle: item.parentTitle,
   };
 }
 
