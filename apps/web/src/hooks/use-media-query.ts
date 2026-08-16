@@ -14,9 +14,7 @@ const BREAKPOINTS = {
 
 type Breakpoint = keyof typeof BREAKPOINTS;
 
-const breakpointValues = new Map<string, number>(
-  Object.entries(BREAKPOINTS),
-);
+const breakpointValues = new Map<string, number>(Object.entries(BREAKPOINTS));
 
 type BreakpointQuery =
   | Breakpoint

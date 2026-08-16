@@ -482,10 +482,7 @@ export function useSyncedSearchResults(query: string) {
   };
 }
 
-export function useSyncedPlaylist(
-  serverId: string,
-  playlistRatingKey: string,
-) {
+export function useSyncedPlaylist(serverId: string, playlistRatingKey: string) {
   const collections = useSyncEngineCollections();
   const id = playlistRowKey(serverId, playlistRatingKey);
   const { data: row } = useCollectionRowById<SanitizedPlaylistRow>(

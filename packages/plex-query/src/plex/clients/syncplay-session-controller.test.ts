@@ -180,12 +180,8 @@ function makeState(overrides: Partial<SyncplayPlayerState> = {}): SyncplayPlayer
   };
 }
 
-function lastState(
-  socket: FakeWebSocket | undefined,
-): OutgoingStatePayload | undefined {
-  const frame: { State?: OutgoingStatePayload } | undefined = fromAny(
-    socket?.sent.at(-1),
-  );
+function lastState(socket: FakeWebSocket | undefined): OutgoingStatePayload | undefined {
+  const frame: { State?: OutgoingStatePayload } | undefined = fromAny(socket?.sent.at(-1));
   return frame?.State;
 }
 

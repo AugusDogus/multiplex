@@ -72,9 +72,7 @@ export function getNextPinnedSources(
 /**
  * Get the best server URL from a Plex device connection list.
  */
-export function getServerUrl(
-  server: Pick<PlexDevice, "connections">,
-): string | undefined {
+export function getServerUrl(server: Pick<PlexDevice, "connections">): string | undefined {
   const connections = Array.isArray(server.connections) ? server.connections : [];
   const PORT_REGEX = /:\d+(?=\/|$)/;
 

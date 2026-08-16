@@ -11,10 +11,7 @@ function resolveReturnTo(returnTo?: string): string | undefined {
   }
 
   try {
-    return (
-      new URLSearchParams(globalThis.window.location.search).get("returnTo") ??
-      undefined
-    );
+    return new URLSearchParams(globalThis.window.location.search).get("returnTo") ?? undefined;
   } catch {
     return undefined;
   }
@@ -30,10 +27,7 @@ export const plex = () => {
       plex: {
         signIn: async (options?: { returnTo?: string }) => {
           const returnTo = resolveReturnTo(options?.returnTo);
-          const url = new URL(
-            "/api/auth/plex/auth/initiate",
-            globalThis.window.location.origin,
-          );
+          const url = new URL("/api/auth/plex/auth/initiate", globalThis.window.location.origin);
           if (returnTo) {
             url.searchParams.set("returnTo", returnTo);
           }

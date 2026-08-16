@@ -84,8 +84,7 @@ export function SidebarProvider({
     ...style,
   };
   const setOpen = (value: boolean | ((value: boolean) => boolean)): void => {
-    const openState =
-      value === true || value === false ? value : value(open);
+    const openState = value === true || value === false ? value : value(open);
     if (setOpenProp) {
       setOpenProp(openState);
     } else {
@@ -556,9 +555,7 @@ export function SidebarMenuButton({
 
   return (
     <Tooltip>
-      <TooltipTrigger
-        render={buttonElement}
-      />
+      <TooltipTrigger render={buttonElement} />
       <TooltipPopup
         align="center"
         hidden={state !== "collapsed" || isMobile}

@@ -45,9 +45,7 @@ export const emptyWatchTogetherRoomsCollection =
 export const emptyUserInfoCollection =
   emptyCollection<SanitizedUserInfoRow>("user-info");
 export const emptyWatchTogetherInviteesCollection =
-  emptyCollection<SanitizedWatchTogetherInviteeRow>(
-    "watch-together-invitees",
-  );
+  emptyCollection<SanitizedWatchTogetherInviteeRow>("watch-together-invitees");
 export const emptyLibraryHubsCollection =
   emptyCollection<SanitizedLibraryHubsSnapshotRow>("library-hubs");
 export const emptySearchResultsCollection =

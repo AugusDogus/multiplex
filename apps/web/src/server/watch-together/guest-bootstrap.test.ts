@@ -40,9 +40,7 @@ async function makeCapability(options?: { expired?: boolean }) {
   return createGuestCapabilityCodec("test-secret").sign({
     hostUserId: "host-app-user",
     roomId: ROOM.id,
-    now: options?.expired
-      ? new Date("2020-01-01T00:00:00.000Z")
-      : undefined,
+    now: options?.expired ? new Date("2020-01-01T00:00:00.000Z") : undefined,
     lifetimeSeconds: options?.expired ? 1 : undefined,
   });
 }

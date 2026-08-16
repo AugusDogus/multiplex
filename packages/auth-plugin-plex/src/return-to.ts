@@ -7,9 +7,7 @@ import { z } from "zod";
  * protocol-relative URLs (`//evil.com`), absolute URLs, and API routes.
  * Decoding must be total: junk never throws.
  */
-export function sanitizeReturnTo(
-  value: string | null | undefined,
-): string {
+export function sanitizeReturnTo(value: string | null | undefined): string {
   if (!value) {
     return "/";
   }

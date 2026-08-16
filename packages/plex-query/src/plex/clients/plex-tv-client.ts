@@ -464,9 +464,7 @@ function parseXmlAttributes(value: string) {
   return Object.fromEntries(
     [...matches].flatMap((match) => {
       const [, key, attrValue] = match;
-      return key && attrValue !== undefined
-        ? [[key, decodeXmlAttribute(attrValue)]]
-        : [];
+      return key && attrValue !== undefined ? [[key, decodeXmlAttribute(attrValue)]] : [];
     }),
   );
 }

@@ -219,8 +219,8 @@ export const makeStubApi = (overrides?: {
     }
     return Effect.succeed(overrides?.rooms ? overrides.rooms() : []);
   });
-  const getItemMetadata: Mock<WatchTogetherApiContract["getItemMetadata"]> = mock(
-    (input) => {
+  const getItemMetadata: Mock<WatchTogetherApiContract["getItemMetadata"]> =
+    mock((input) => {
       if (overrides?.getItemMetadata) {
         return overrides.getItemMetadata(input);
       }
@@ -233,8 +233,7 @@ export const makeStubApi = (overrides?: {
           Media: [{ id: Number(input.ratingKey) }],
         }),
       );
-    },
-  );
+    });
 
   const api: WatchTogetherApiContract = {
     listRooms: () => listRooms(),

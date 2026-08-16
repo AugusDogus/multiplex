@@ -700,10 +700,7 @@ function HeroActionDialogs({
 }
 
 function getItemWatchedState(item: ItemDetails["item"]): boolean {
-  if (
-    item.leafCount !== undefined &&
-    item.viewedLeafCount !== undefined
-  ) {
+  if (item.leafCount !== undefined && item.viewedLeafCount !== undefined) {
     return item.leafCount > 0 && item.viewedLeafCount >= item.leafCount;
   }
 

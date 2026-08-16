@@ -430,9 +430,7 @@ const server = Bun.serve({
       }
       return new Response("Not found", { status: 404 });
     } catch (error) {
-      return jsonError(
-        error instanceof Error ? error : new Error("Unknown harness error"),
-      );
+      return jsonError(error instanceof Error ? error : new Error("Unknown harness error"));
     }
   },
 });

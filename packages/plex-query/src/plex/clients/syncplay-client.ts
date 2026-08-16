@@ -411,9 +411,7 @@ export class SyncplayClient {
     let frame: SyncplayIncomingFrame;
 
     try {
-      const parsed = syncplayIncomingFrameSchema.safeParse(
-        JSON.parse(event.data),
-      );
+      const parsed = syncplayIncomingFrameSchema.safeParse(JSON.parse(event.data));
       if (!parsed.success) {
         this.onError(new Error("Invalid syncplay frame"));
         return;
@@ -748,9 +746,7 @@ export function encodeSyncplayUser(user: SyncplayUser): string {
 
 export function decodeSyncplayUser(value: string): SyncplayUser | null {
   try {
-    const parsed = encodedSyncplayUserSchema.safeParse(
-      JSON.parse(value.replace(/_+$/, "")),
-    );
+    const parsed = encodedSyncplayUserSchema.safeParse(JSON.parse(value.replace(/_+$/, "")));
     if (!parsed.success) {
       return null;
     }

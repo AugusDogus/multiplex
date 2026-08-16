@@ -72,9 +72,7 @@ export function prefsFromPersisted(
   const playbackRate = playbackRates.find(
     (rate) => rate === parsed.playbackRate,
   );
-  const captionSize = captionSizes.find(
-    (size) => size === parsed.captionSize,
-  );
+  const captionSize = captionSizes.find((size) => size === parsed.captionSize);
   return {
     ...current,
     volume,
