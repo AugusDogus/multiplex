@@ -17,8 +17,15 @@ const ARTWORK_PATH_PATTERNS = [
   /^\/playlists\/\d+\/composite\/\d+$/,
   /^\/:\/resources\/(?:[A-Za-z0-9._~-]+\/)*[A-Za-z0-9._~-]+\.(?:avif|gif|jpe?g|png|webp)$/i,
 ] as const;
-const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
 const RAW_PATH_QUERY_KEYS = new Set(["height", "width"]);
+
+function containsControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
 
 function isBoundedDimension(value: number): boolean {
   return (
@@ -84,7 +91,7 @@ export function isAllowedPlexImagePath(rawPath: string): boolean {
   if (
     rawPath.length === 0 ||
     rawPath.length > 1_024 ||
-    CONTROL_CHARACTER_PATTERN.test(rawPath) ||
+    containsControlCharacter(rawPath) ||
     rawPath.includes("\\") ||
     rawPath.includes("#") ||
     rawPath.startsWith("//") ||
