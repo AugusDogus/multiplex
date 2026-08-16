@@ -4,10 +4,17 @@ import type { plexRouterOutputs } from "~/server/api/routers/plex";
 import {
   useSyncedServerLibraries,
   useSyncEngineCollections,
+  type SanitizedServerLibraryRow,
 } from "~/lib/sync-engine";
 
-export type ServerLibraryData =
-  plexRouterOutputs["getAllServerLibraries"][number];
+type ServerLibraryResponse = plexRouterOutputs["getAllServerLibraries"][number];
+
+export type ServerLibraryData = Pick<
+  SanitizedServerLibraryRow,
+  "serverId" | "serverName" | "serverOwned" | "mediaProviders"
+> & {
+  error?: ServerLibraryResponse["error"];
+};
 
 export interface ServerLibraryState {
   data: ServerLibraryData | null;
@@ -48,7 +55,7 @@ export function useServerLibraries(
       serverOwned: row.serverOwned,
       mediaProviders: row.mediaProviders,
       error: row.error ?? undefined,
-    } as ServerLibraryData);
+    });
   }
 
   const syncErrorMessage = syncError?.message ?? null;
