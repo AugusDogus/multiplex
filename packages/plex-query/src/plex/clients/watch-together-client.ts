@@ -1,4 +1,5 @@
 import type { PlexConfig } from "../types/client-types";
+import { z } from "zod";
 import {
   watchTogetherRoomSchema,
   watchTogetherRoomsResponseSchema,
@@ -6,6 +7,7 @@ import {
 } from "../schemas/watch-together-schemas";
 
 const WATCH_TOGETHER_BASE_URL = "https://together.plex.tv";
+const emptyResponseSchema = z.void();
 
 interface CreateWatchTogetherRoomInput {
   sourceUri: string;
@@ -20,17 +22,18 @@ export class WatchTogetherClient {
   ) {}
 
   async listRooms(): Promise<WatchTogetherRoom[]> {
-    const data = await this.request("rooms");
-    return watchTogetherRoomsResponseSchema.parse(data).rooms;
+    return (await this.request("rooms", watchTogetherRoomsResponseSchema)).rooms;
   }
 
   async getRoom(roomId: string): Promise<WatchTogetherRoom> {
-    const data = await this.request(`rooms/${encodeURIComponent(roomId)}`);
-    return watchTogetherRoomSchema.parse(data);
+    return this.request(
+      `rooms/${encodeURIComponent(roomId)}`,
+      watchTogetherRoomSchema,
+    );
   }
 
   async createRoom(input: CreateWatchTogetherRoomInput): Promise<WatchTogetherRoom> {
-    const data = await this.request("rooms", {
+    return this.request("rooms", watchTogetherRoomSchema, {
       method: "POST",
       body: JSON.stringify({
         sourceUri: input.sourceUri,
@@ -38,26 +41,34 @@ export class WatchTogetherClient {
         users: input.users ?? null,
       }),
     });
-
-    return watchTogetherRoomSchema.parse(data);
   }
 
   async inviteUsers(roomId: string, users: number[]): Promise<void> {
-    await this.request(`rooms/${encodeURIComponent(roomId)}/invite`, {
-      method: "POST",
-      body: JSON.stringify({ users }),
-    });
+    await this.request(
+      `rooms/${encodeURIComponent(roomId)}/invite`,
+      emptyResponseSchema,
+      {
+        method: "POST",
+        body: JSON.stringify({ users }),
+      },
+    );
   }
 
   async deleteRoom(roomId: string): Promise<void> {
-    await this.request(`rooms/${encodeURIComponent(roomId)}`, { method: "DELETE" }, [404]);
+    await this.request(
+      `rooms/${encodeURIComponent(roomId)}`,
+      emptyResponseSchema,
+      { method: "DELETE" },
+      [404],
+    );
   }
 
-  private async request(
+  private async request<S extends z.ZodTypeAny>(
     path: string,
+    schema: S,
     init: RequestInit = {},
     toleratedStatuses: number[] = [],
-  ): Promise<unknown> {
+  ): Promise<z.output<S>> {
     const url = new URL(path.replace(/^\/+/, ""), WATCH_TOGETHER_BASE_URL);
     const response = await fetch(url, {
       ...init,
@@ -76,7 +87,7 @@ export class WatchTogetherClient {
     });
 
     if (toleratedStatuses.includes(response.status)) {
-      return undefined;
+      return schema.parse(undefined);
     }
 
     if (!response.ok) {
@@ -84,10 +95,10 @@ export class WatchTogetherClient {
     }
 
     if (response.status === 204) {
-      return undefined;
+      return schema.parse(undefined);
     }
 
     const text = await response.text();
-    return text ? JSON.parse(text) : undefined;
+    return schema.parse(text ? JSON.parse(text) : undefined);
   }
 }

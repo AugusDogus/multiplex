@@ -82,6 +82,7 @@ const CONNECTION_TEST_TIMEOUT_MS = 3_000;
 
 /** Deadline for PMS API calls after a working connection is selected. */
 const PMS_REQUEST_TIMEOUT_MS = 10_000;
+const requestFailureSchema = z.object({ name: z.string() });
 
 /** Test-only override; `null` restores the production deadline. */
 let requestTimeoutMsForTests: number | null = null;
@@ -95,14 +96,16 @@ export function setPlexServerRequestTimeoutMsForTests(timeoutMs: number | null):
   requestTimeoutMsForTests = timeoutMs;
 }
 
-function isAbortOrTimeoutError(error: unknown): boolean {
+function isAbortOrTimeoutError(
+  error: Parameters<typeof requestFailureSchema.safeParse>[0],
+): boolean {
   // Bun's AbortSignal.timeout rejects with a DOMException TimeoutError that is
   // not always `instanceof Error`. Manual aborts use AbortError.
-  const name =
-    typeof error === "object" && error !== null && "name" in error
-      ? String((error as { name: unknown }).name)
-      : undefined;
-  return name === "AbortError" || name === "TimeoutError";
+  const parsed = requestFailureSchema.safeParse(error);
+  return (
+    parsed.success &&
+    (parsed.data.name === "AbortError" || parsed.data.name === "TimeoutError")
+  );
 }
 
 /**
@@ -523,7 +526,9 @@ export class PlexServerClient {
     return queryParams;
   }
 
-  private parseHubResponse(rawResponse: unknown): HubResponse {
+  private parseHubResponse(
+    rawResponse: z.input<typeof hubResponseSchema>,
+  ): HubResponse {
     const parsed = hubResponseSchema.parse(rawResponse);
     return {
       ...parsed,
@@ -539,7 +544,7 @@ export class PlexServerClient {
     onlyTransient?: boolean;
     contentDirectoryIds?: string[];
   }): Promise<HubResponse> {
-    const rawResponse = await this.get({
+    const rawResponse = await this.get<z.input<typeof hubResponseSchema>>({
       endpoint: "hubs",
       params: this.buildHubQueryParams(params),
     });
@@ -554,7 +559,7 @@ export class PlexServerClient {
     sectionId: string,
     params?: { count?: number; onlyTransient?: boolean },
   ): Promise<HubResponse> {
-    const rawResponse = await this.get({
+    const rawResponse = await this.get<z.input<typeof hubResponseSchema>>({
       endpoint: `hubs/sections/${sectionId}`,
       params: this.buildHubQueryParams({
         ...params,
@@ -1334,6 +1339,8 @@ export class PlexServerClient {
         }
 
         if (options.expectEmptyResponse) {
+          // SAFETY: Callers set expectEmptyResponse only on void-returning
+          // operations; the generic API predates that discriminant.
           return undefined as T;
         }
 
@@ -1349,6 +1356,8 @@ export class PlexServerClient {
           }
         }
 
+        // SAFETY: Schema-less calls intentionally expose the caller-owned raw
+        // PMS response type; schema-backed calls return above.
         return data as T;
       } catch (error) {
         const currentError = error instanceof Error ? error : new Error(String(error));
@@ -1493,6 +1502,8 @@ export class PlexServerClient {
 
         if (expectEmptyResponse) {
           // For endpoints that return empty responses, just return undefined or empty object
+          // SAFETY: Callers set expectEmptyResponse only on void-returning
+          // operations; the generic API predates that discriminant.
           data = {} as T;
         } else {
           // Try to parse JSON response
@@ -1508,6 +1519,8 @@ export class PlexServerClient {
                 );
               }
             } else {
+              // SAFETY: Schema-less calls intentionally expose the caller-owned
+              // raw PMS response type; schema-backed calls return above.
               data = jsonData as T;
             }
           } catch (jsonError) {
