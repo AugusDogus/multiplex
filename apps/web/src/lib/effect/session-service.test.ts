@@ -165,13 +165,11 @@ const withSession = async <A>(
   options?: {
     makeController?: MakeSessionController;
     makeObserver?: MakeObserverConnection;
-    player?: PlayerPortContract;
+    player?: ReturnType<typeof makeStubPlayer>;
     withTestClock?: boolean;
   },
 ): Promise<A> => {
-  const player =
-    (options?.player as ReturnType<typeof makeStubPlayer> | undefined) ??
-    makeStubPlayer();
+  const player = options?.player ?? makeStubPlayer();
   const emptyControllers: StubController[] = [];
   const emptyObservers: StubObserver[] = [];
   const { makeController, controllers } = options?.makeController

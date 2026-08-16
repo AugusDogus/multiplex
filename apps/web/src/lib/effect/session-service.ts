@@ -215,7 +215,7 @@ const toPlayingItem = (item: MediaPlayerItem): PlayingItem => ({
   title: item.title,
   type: item.type,
   durationSeconds:
-    typeof item.duration === "number" ? item.duration / 1000 : undefined,
+    item.duration === undefined ? undefined : item.duration / 1000,
   index: item.index,
   parentIndex: item.parentIndex,
 });
@@ -1053,10 +1053,7 @@ export const makeWatchTogetherSession = (
                   .pipe(Effect.option);
                 const value = Option.getOrUndefined(meta);
                 if (value?.ratingKey === nextEpisode.ratingKey) {
-                  yield* Ref.set(
-                    prefetchedMetadata,
-                    value as PrefetchedMetadata,
-                  );
+                  yield* Ref.set(prefetchedMetadata, value);
                 }
               }).pipe(
                 Effect.catch(() => Effect.void),
