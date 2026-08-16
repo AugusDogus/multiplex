@@ -103,8 +103,7 @@ function isAbortOrTimeoutError(
   // not always `instanceof Error`. Manual aborts use AbortError.
   const parsed = requestFailureSchema.safeParse(error);
   return (
-    parsed.success &&
-    (parsed.data.name === "AbortError" || parsed.data.name === "TimeoutError")
+    parsed.success && (parsed.data.name === "AbortError" || parsed.data.name === "TimeoutError")
   );
 }
 
@@ -526,9 +525,7 @@ export class PlexServerClient {
     return queryParams;
   }
 
-  private parseHubResponse(
-    rawResponse: z.input<typeof hubResponseSchema>,
-  ): HubResponse {
+  private parseHubResponse(rawResponse: z.input<typeof hubResponseSchema>): HubResponse {
     const parsed = hubResponseSchema.parse(rawResponse);
     return {
       ...parsed,

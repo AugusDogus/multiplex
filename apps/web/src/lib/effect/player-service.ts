@@ -218,8 +218,8 @@ const getState = (
   state: SubscriptionRef.SubscriptionRef<PlayerState>,
 ): PlayerState => Effect.runSync(SubscriptionRef.get(state));
 
-export const makePlayerService: Effect.Effect<PlayerServiceContract> = Effect.gen(
-  function* () {
+export const makePlayerService: Effect.Effect<PlayerServiceContract> =
+  Effect.gen(function* () {
     const state = yield* SubscriptionRef.make<PlayerState>(initialPlayerState);
 
     const openPlayer: PlayerServiceContract["openPlayer"] = (item, options) => {
@@ -569,8 +569,7 @@ export const makePlayerService: Effect.Effect<PlayerServiceContract> = Effect.ge
         }
       },
     } satisfies PlayerServiceContract;
-  },
-);
+  });
 
 /**
  * Effect v4 (`4.0.0-beta.59`): `Context.Service` + `Layer.effect` (no

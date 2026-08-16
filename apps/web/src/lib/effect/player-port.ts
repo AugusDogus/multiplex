@@ -87,7 +87,9 @@ const snapshotsEqual = (a: PlayerSnapshot, b: PlayerSnapshot): boolean =>
  * Effect v4 (`4.0.0-beta.59`) uses `Context.Service` + `Layer.effect`
  * (no `Effect.Service` / auto-`Default` in this beta).
  */
-export const makePlayerPort = (player: PlayerServiceContract): PlayerPortContract => {
+export const makePlayerPort = (
+  player: PlayerServiceContract,
+): PlayerPortContract => {
   let actions: PlayerActions | null = null;
 
   const warnUnregistered = (method: "play" | "pause" | "seek"): void => {
@@ -161,9 +163,10 @@ export const makePlayerPort = (player: PlayerServiceContract): PlayerPortContrac
   };
 };
 
-export class PlayerPort extends Context.Service<PlayerPort, PlayerPortContract>()(
-  "PlayerPort",
-) {
+export class PlayerPort extends Context.Service<
+  PlayerPort,
+  PlayerPortContract
+>()("PlayerPort") {
   static readonly Default = Layer.effect(PlayerPort)(
     Effect.gen(function* () {
       const player = yield* PlayerService;

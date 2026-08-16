@@ -132,9 +132,10 @@ export function enrichHubItemsWithServer(
   }));
 }
 
-export function enrichHubsWithServer<
-  THub extends { items: HubItem[] },
->(hubs: THub[], context: PlexServerContext) {
+export function enrichHubsWithServer<THub extends { items: HubItem[] }>(
+  hubs: THub[],
+  context: PlexServerContext,
+) {
   return hubs.map((hub) => ({
     ...hub,
     serverId: context.server.clientIdentifier,

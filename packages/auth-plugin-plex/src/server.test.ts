@@ -237,9 +237,7 @@ async function callback(
   return response;
 }
 
-async function signAttemptCookie(
-  payload: SignedAttemptFixture,
-): Promise<string> {
+async function signAttemptCookie(payload: SignedAttemptFixture): Promise<string> {
   const signer = createEndpoint("/test/sign-cookie", { method: "GET" }, async (ctx) => {
     await ctx.setSignedCookie(ATTEMPT_COOKIE_NAME, JSON.stringify(payload), AUTH_SECRET, {
       httpOnly: true,

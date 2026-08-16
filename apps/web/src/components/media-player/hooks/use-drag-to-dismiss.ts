@@ -101,10 +101,7 @@ function toContentDelta(
 }
 
 /** Translate vector in physical px corresponding to a visual-down offset. */
-function toPhysicalOffset(
-  visualDown: number,
-  rotation: ContentRotation,
-) {
+function toPhysicalOffset(visualDown: number, rotation: ContentRotation) {
   switch (rotation) {
     case 0:
       return { x: 0, y: visualDown };

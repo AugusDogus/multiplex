@@ -395,10 +395,9 @@ export const plex = () => {
             } else {
               // User already exists, update their auth token
               // auth.authToken is guaranteed non-null here since isValid() throws if missing
-              const updatedUser = await ctx.context.internalAdapter.updateUser(
-                existingUser.id,
-                { plexAuthToken: auth.authToken },
-              );
+              const updatedUser = await ctx.context.internalAdapter.updateUser(existingUser.id, {
+                plexAuthToken: auth.authToken,
+              });
 
               if (!updatedUser) {
                 throw new APIError("INTERNAL_SERVER_ERROR", {
@@ -494,9 +493,7 @@ export const plex = () => {
 
             throw new APIError("UNAUTHORIZED", {
               message:
-                error instanceof Error
-                  ? error.message
-                  : ERROR_CODES.INVALID_PLEX_AUTH.message,
+                error instanceof Error ? error.message : ERROR_CODES.INVALID_PLEX_AUTH.message,
             });
           }
         },

@@ -147,9 +147,7 @@ function createClient(options: {
   });
 }
 
-function lastPlaystate(
-  socket: FakeWebSocket | undefined,
-): OutgoingStatePayload | undefined {
+function lastPlaystate(socket: FakeWebSocket | undefined): OutgoingStatePayload | undefined {
   const frame: OutgoingStateFrame | undefined = fromAny(socket?.sent.at(-1));
   return frame?.State;
 }

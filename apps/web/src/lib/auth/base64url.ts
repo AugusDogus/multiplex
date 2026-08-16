@@ -6,10 +6,9 @@ function bytesToBase64Url(bytes: Uint8Array): string {
     binary += String.fromCharCode(byte);
   }
 
-  const base64 =
-    globalThis.btoa
-      ? globalThis.btoa(binary)
-      : Buffer.from(bytes).toString("base64");
+  const base64 = globalThis.btoa
+    ? globalThis.btoa(binary)
+    : Buffer.from(bytes).toString("base64");
 
   return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }

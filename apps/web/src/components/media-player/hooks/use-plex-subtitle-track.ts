@@ -179,9 +179,7 @@ export function usePlexSubtitleTrack(
       subtitleTimelineOffset,
     );
     for (const cue of cueData) {
-      track.addCue(
-        new globalThis.VTTCue(cue.startTime, cue.endTime, cue.text),
-      );
+      track.addCue(new globalThis.VTTCue(cue.startTime, cue.endTime, cue.text));
     }
     activateCaptionTrack(track, setCaptionTrack);
   }, [

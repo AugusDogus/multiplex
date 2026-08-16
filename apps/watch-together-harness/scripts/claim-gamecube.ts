@@ -43,8 +43,7 @@ export async function claimGameCube(code: string, environment: NodeJS.ProcessEnv
   );
   const chromeLaunch = chromeLaunchFields(
     resolveChromeLaunchTarget({
-      WATCH_TOGETHER_HARNESS_CHROME_PATH:
-        parsedEnvironment.WATCH_TOGETHER_HARNESS_CHROME_PATH,
+      WATCH_TOGETHER_HARNESS_CHROME_PATH: parsedEnvironment.WATCH_TOGETHER_HARNESS_CHROME_PATH,
     }),
   );
   await access(storageState);

@@ -64,10 +64,7 @@ function logEvent(message: string): void {
   timeline.scrollTop = timeline.scrollHeight;
 }
 
-async function readJson<Output>(
-  response: Response,
-  schema: z.ZodType<Output>,
-): Promise<Output> {
+async function readJson<Output>(response: Response, schema: z.ZodType<Output>): Promise<Output> {
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     const parsed = z.object({ error: z.string() }).safeParse(body);
