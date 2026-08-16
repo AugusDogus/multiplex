@@ -89,7 +89,7 @@ export function usePlayQueue(
               markers,
             });
           },
-          onError: (error: unknown) => {
+          onError: (error) => {
             console.error("Failed to create play queue:", error);
             // Continue the initiating playback without markers on error.
             playerCommands.updatePlaybackStateFor(playbackIdentity, {

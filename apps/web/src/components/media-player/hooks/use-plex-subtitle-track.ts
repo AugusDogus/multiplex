@@ -170,7 +170,7 @@ export function usePlexSubtitleTrack(
     if (!subtitleText) return;
 
     const video = videoRef.current;
-    if (!video || typeof VTTCue === "undefined") return;
+    if (!video || !("VTTCue" in globalThis)) return;
 
     clearTextTrack(plexTextTrackRef, setCaptionTrack);
     const track = getOrCreateExternalTextTrack(video, externalTextTrackRef);
@@ -179,7 +179,9 @@ export function usePlexSubtitleTrack(
       subtitleTimelineOffset,
     );
     for (const cue of cueData) {
-      track.addCue(new VTTCue(cue.startTime, cue.endTime, cue.text));
+      track.addCue(
+        new globalThis.VTTCue(cue.startTime, cue.endTime, cue.text),
+      );
     }
     activateCaptionTrack(track, setCaptionTrack);
   }, [
