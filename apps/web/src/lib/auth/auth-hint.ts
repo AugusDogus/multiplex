@@ -18,16 +18,16 @@ export function serializeAuthHint(hint: Omit<AuthHint, "v">): string {
   const payload: AuthHint = {
     v: 1,
     name: hint.name,
-    ...(hint.email ? { email: hint.email } : {}),
-    ...(hint.image ? { image: hint.image } : {}),
   };
+  if (hint.email) payload.email = hint.email;
+  if (hint.image) payload.image = hint.image;
 
   return utf8ToBase64Url(JSON.stringify(payload));
 }
 
 /** Schema-validate on read; malformed → absent. */
-export function parseAuthHint(value: unknown): AuthHint | null {
-  if (typeof value !== "string" || value.length === 0) {
+export function parseAuthHint(value: string | null): AuthHint | null {
+  if (!value) {
     return null;
   }
 
@@ -48,10 +48,11 @@ export function authHintFromUser(user: {
     return null;
   }
 
-  return {
+  const hint: AuthHint = {
     v: 1,
     name: user.name,
-    ...(user.email ? { email: user.email } : {}),
-    ...(user.image ? { image: user.image } : {}),
   };
+  if (user.email) hint.email = user.email;
+  if (user.image) hint.image = user.image;
+  return hint;
 }

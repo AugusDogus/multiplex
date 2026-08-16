@@ -7,8 +7,8 @@ function bytesToBase64Url(bytes: Uint8Array): string {
   }
 
   const base64 =
-    typeof btoa === "function"
-      ? btoa(binary)
+    globalThis.btoa
+      ? globalThis.btoa(binary)
       : Buffer.from(bytes).toString("base64");
 
   return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
@@ -20,8 +20,8 @@ function base64UrlToBytes(value: string): Uint8Array {
     .replace(/_/g, "/")
     .padEnd(Math.ceil(value.length / 4) * 4, "=");
 
-  if (typeof atob === "function") {
-    const binary = atob(padded);
+  if (globalThis.atob) {
+    const binary = globalThis.atob(padded);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i += 1) {
       bytes[i] = binary.charCodeAt(i);
