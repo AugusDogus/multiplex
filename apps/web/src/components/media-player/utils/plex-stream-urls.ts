@@ -113,7 +113,7 @@ function buildDirectStreamUrl(
   serverUrl: string,
   authToken: string,
   offsetSeconds: number,
-  selectedSubtitleStreamId: number | null,
+  playbackPlan: PlexPlaybackPlan,
   sessionId: string,
   transcodeAttempt: number,
   transcodeSessionId = sessionId,
@@ -121,21 +121,27 @@ function buildDirectStreamUrl(
   const baseUrl = getBaseServerUrl(serverUrl);
   const streamUrl = new URL(`${baseUrl}/video/:/transcode/universal/start.mp4`);
   // Session = a fresh per-playback id (so two viewers / repeat plays never
-  // collide) PLUS the offset and subtitle selection. Those values matter
-  // because seeking and changing burn-in both reload Plex's universal MP4
-  // stream. A reload must use a distinct session or it can race/reuse the
-  // still-running session with incompatible parameters. Old sessions are
-  // short-lived and the server times them out.
+  // collide) PLUS the offset, audio, and subtitle selection. Those values
+  // matter because seeking and changing burn-in or audio both reload Plex's
+  // universal MP4 stream. A reload must use a distinct session or it can
+  // race/reuse the still-running session with incompatible parameters. Old
+  // sessions are short-lived and the server times them out.
   const session = buildPlexTranscodeSessionKey(
     transcodeSessionId,
     offsetSeconds,
-    selectedSubtitleStreamId,
+    playbackPlan,
     transcodeAttempt,
   );
 
   applyClientHeaders(streamUrl, authToken);
   applyUniversalTranscodeParams(streamUrl, item, "http", session, sessionId);
-  if (selectedSubtitleStreamId === null) {
+  if (playbackPlan.selectedAudioStreamId !== null) {
+    streamUrl.searchParams.set(
+      "audioStreamID",
+      String(playbackPlan.selectedAudioStreamId),
+    );
+  }
+  if (playbackPlan.burnedSubtitleId === null) {
     streamUrl.searchParams.set("subtitles", "none");
   } else {
     streamUrl.searchParams.set("hasMDE", "1");
@@ -143,7 +149,7 @@ function buildDirectStreamUrl(
     streamUrl.searchParams.set("subtitles", "burn");
     streamUrl.searchParams.set(
       "subtitleStreamID",
-      String(selectedSubtitleStreamId),
+      String(playbackPlan.burnedSubtitleId),
     );
   }
   // Plex's transcoded MP4 stream advertises an empty seekable range, so the
@@ -160,12 +166,33 @@ function buildDirectStreamUrl(
 export function buildPlexTranscodeSessionKey(
   sessionId: string,
   offsetSeconds: number,
-  selectedSubtitleStreamId: number | null,
+  playbackPlan: Pick<
+    PlexPlaybackPlan,
+    "burnedSubtitleId" | "selectedAudioStreamId"
+  >,
   transcodeAttempt = 0,
 ): string {
-  const subtitleSessionKey = selectedSubtitleStreamId ?? "n";
+  const subtitleSessionKey = playbackPlan.burnedSubtitleId ?? "n";
+  const audioSessionKey = playbackPlan.selectedAudioStreamId ?? "n";
   const retrySessionKey = transcodeAttempt > 0 ? `-r${transcodeAttempt}` : "";
-  return `${sessionId}${retrySessionKey}-${Math.floor(offsetSeconds)}-s${subtitleSessionKey}`;
+  return `${sessionId}${retrySessionKey}-${Math.floor(offsetSeconds)}-s${subtitleSessionKey}-a${audioSessionKey}`;
+}
+
+function buildPlexPartSelectionUrl(
+  item: MediaPlayerItem,
+  serverUrl: string,
+  authToken: string,
+): URL {
+  const partId = item.Media?.[0]?.Part?.[0]?.id;
+  if (!partId) throw new Error("No media part id found for item");
+
+  const baseUrl = getBaseServerUrl(serverUrl);
+  const selectionUrl = new URL(`${baseUrl}/library/parts/${partId}`);
+
+  applyClientHeaders(selectionUrl, authToken);
+  selectionUrl.searchParams.set("X-Plex-Text-Format", "plain");
+
+  return selectionUrl;
 }
 
 export function buildPlexSubtitleSelectionUrl(
@@ -174,18 +201,23 @@ export function buildPlexSubtitleSelectionUrl(
   authToken: string,
   selectedSubtitleStreamId: number | null,
 ): string {
-  const partId = item.Media?.[0]?.Part?.[0]?.id;
-  if (!partId) throw new Error("No media part id found for item");
-
-  const baseUrl = getBaseServerUrl(serverUrl);
-  const selectionUrl = new URL(`${baseUrl}/library/parts/${partId}`);
-
-  applyClientHeaders(selectionUrl, authToken);
+  const selectionUrl = buildPlexPartSelectionUrl(item, serverUrl, authToken);
   selectionUrl.searchParams.set(
     "subtitleStreamID",
     String(selectedSubtitleStreamId ?? 0),
   );
-  selectionUrl.searchParams.set("X-Plex-Text-Format", "plain");
+
+  return selectionUrl.toString();
+}
+
+export function buildPlexAudioSelectionUrl(
+  item: MediaPlayerItem,
+  serverUrl: string,
+  authToken: string,
+  selectedAudioStreamId: number,
+): string {
+  const selectionUrl = buildPlexPartSelectionUrl(item, serverUrl, authToken);
+  selectionUrl.searchParams.set("audioStreamID", String(selectedAudioStreamId));
 
   return selectionUrl.toString();
 }
@@ -260,7 +292,7 @@ export function generatePlexStreamUrl(
         serverUrl,
         authToken,
         offsetSeconds,
-        playbackPlan.burnedSubtitleId,
+        playbackPlan,
         sessionId,
         transcodeAttempt,
         transcodeSessionId,

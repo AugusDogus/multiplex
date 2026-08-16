@@ -210,6 +210,7 @@ const getVideoSourceIdentity = (item: MediaPlayerItem): string => {
         key: item.key,
         hasPart: Boolean(media?.Part?.[0]?.key),
         burnedSubtitleId: plan.burnedSubtitleId,
+        selectedAudioStreamId: plan.selectedAudioStreamId,
       });
 };
 
@@ -236,7 +237,7 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
         const priorSessionKey = buildPlexTranscodeSessionKey(
           reloadSession.transcodeSessionId,
           reloadSession.streamOffset,
-          priorPlaybackPlan.burnedSubtitleId,
+          priorPlaybackPlan,
           reloadSession.transcodeAttempt,
         );
         // The unloading document's keepalive stop is best-effort. Repeat the

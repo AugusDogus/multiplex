@@ -513,6 +513,7 @@ export function getMediaInfo(item: Pick<ItemMetadata, "Media">): MediaInfoVersio
               ["Channels", stream.audioChannelLayout ?? stream.channels],
               ["Language", stream.language],
               ["Bitrate", formatBitrate(stream.bitrate)],
+              ["Selected", stream.selected],
               ["Default", stream.default],
             ]),
           };
@@ -541,6 +542,7 @@ export function getTechnicalRows(item: ItemMetadata) {
   const videoStream = streams.find((stream) => stream.streamType === 1);
   const audioStream =
     streams.find((stream) => stream.streamType === 2 && stream.selected) ??
+    streams.find((stream) => stream.streamType === 2 && stream.default) ??
     streams.find((stream) => stream.streamType === 2);
   const subtitleStream =
     streams.find((stream) => stream.streamType === 3 && stream.selected) ??

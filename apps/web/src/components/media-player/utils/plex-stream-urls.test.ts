@@ -4,6 +4,7 @@ import { fromPartial } from "@total-typescript/shoehorn";
 import type { MediaPlayerItem } from "~/types/media-player";
 import type { PlexPlaybackPlan } from "./plex-playback-plan";
 import {
+  buildPlexAudioSelectionUrl,
   buildPlexTranscodeSessionKey,
   consumeStoppedTranscodeSession,
   generatePlexStreamUrl,
@@ -34,6 +35,7 @@ const TRANSCODE_WITHOUT_SUBTITLES: PlexPlaybackPlan = {
   streamDecision: "direct-stream",
   videoUsesTranscode: true,
   burnedSubtitleId: null,
+  selectedAudioStreamId: null,
   subtitle: { kind: "none" },
 };
 
@@ -91,6 +93,7 @@ const transcodeWithBurnedSubtitle = (
   streamDecision: "direct-stream",
   videoUsesTranscode: true,
   burnedSubtitleId: id,
+  selectedAudioStreamId: null,
   subtitle: { kind: "burnIn", id, index },
 });
 
@@ -127,7 +130,11 @@ test("keeps a valid playback identifier while isolating subtitle transcodes", ()
   );
 
   expect(withoutSubtitles.searchParams.get("session")).toBe(
-    buildPlexTranscodeSessionKey(PLAYBACK_SESSION_ID, 3158, null),
+    buildPlexTranscodeSessionKey(
+      PLAYBACK_SESSION_ID,
+      3158,
+      TRANSCODE_WITHOUT_SUBTITLES,
+    ),
   );
   expect(withoutSubtitles.searchParams.get("X-Plex-Session-Identifier")).toBe(
     PLAYBACK_SESSION_ID,
@@ -135,10 +142,15 @@ test("keeps a valid playback identifier while isolating subtitle transcodes", ()
   expect(withoutSubtitles.searchParams.get("hasMDE")).toBeNull();
   expect(withoutSubtitles.searchParams.get("subtitles")).toBe("none");
   expect(withoutSubtitles.searchParams.get("subtitleStreamID")).toBeNull();
+  expect(withoutSubtitles.searchParams.get("audioStreamID")).toBeNull();
   expect(withoutSubtitles.searchParams.get("directStream")).toBe("1");
   expect(withoutSubtitles.searchParams.get("offset")).toBe("3158");
   expect(withSubtitleTwo.searchParams.get("session")).toBe(
-    buildPlexTranscodeSessionKey(PLAYBACK_SESSION_ID, 3158, 1_572_872),
+    buildPlexTranscodeSessionKey(
+      PLAYBACK_SESSION_ID,
+      3158,
+      transcodeWithBurnedSubtitle(1_572_872, 2),
+    ),
   );
   expect(withSubtitleTwo.searchParams.get("X-Plex-Session-Identifier")).toBe(
     PLAYBACK_SESSION_ID,
@@ -149,7 +161,11 @@ test("keeps a valid playback identifier while isolating subtitle transcodes", ()
   expect(withSubtitleTwo.searchParams.get("directStream")).toBe("0");
   expect(withSubtitleTwo.searchParams.get("offset")).toBe("3158");
   expect(withSubtitleThree.searchParams.get("session")).toBe(
-    buildPlexTranscodeSessionKey(PLAYBACK_SESSION_ID, 3158, 1_572_873),
+    buildPlexTranscodeSessionKey(
+      PLAYBACK_SESSION_ID,
+      3158,
+      transcodeWithBurnedSubtitle(1_572_873, 3),
+    ),
   );
   expect(withSubtitleThree.searchParams.get("X-Plex-Session-Identifier")).toBe(
     PLAYBACK_SESSION_ID,
@@ -187,10 +203,19 @@ test("uses a fresh transcode key when retrying the same source", () => {
   );
 
   expect(retried.searchParams.get("session")).toBe(
-    buildPlexTranscodeSessionKey(PLAYBACK_SESSION_ID, 0, null, 1),
+    buildPlexTranscodeSessionKey(
+      PLAYBACK_SESSION_ID,
+      0,
+      TRANSCODE_WITHOUT_SUBTITLES,
+      1,
+    ),
   );
   expect(retried.searchParams.get("session")).not.toBe(
-    buildPlexTranscodeSessionKey(PLAYBACK_SESSION_ID, 0, null),
+    buildPlexTranscodeSessionKey(
+      PLAYBACK_SESSION_ID,
+      0,
+      TRANSCODE_WITHOUT_SUBTITLES,
+    ),
   );
   expect(retried.searchParams.get("X-Plex-Session-Identifier")).toBe(
     PLAYBACK_SESSION_ID,
@@ -215,7 +240,11 @@ test("separates persistent playback identity from reload cleanup ownership", () 
     PLAYBACK_SESSION_ID,
   );
   expect(reloaded.searchParams.get("session")).toBe(
-    buildPlexTranscodeSessionKey(TRANSCODE_SESSION_ID, 15, null),
+    buildPlexTranscodeSessionKey(
+      TRANSCODE_SESSION_ID,
+      15,
+      TRANSCODE_WITHOUT_SUBTITLES,
+    ),
   );
 });
 
@@ -453,4 +482,73 @@ test("pairs each media decision with its replacement start session", async () =>
   expect(fetch.mock.calls[1]![1]).toEqual({
     headers: { Accept: "application/xml" },
   });
+});
+
+test("asks Plex for the selected audio stream on remuxed playback", () => {
+  const withEnglishAudio: PlexPlaybackPlan = {
+    ...TRANSCODE_WITHOUT_SUBTITLES,
+    selectedAudioStreamId: 378_571,
+  };
+  const withFrenchAudio: PlexPlaybackPlan = {
+    ...TRANSCODE_WITHOUT_SUBTITLES,
+    selectedAudioStreamId: 378_572,
+  };
+
+  const english = new URL(
+    generatePlexStreamUrl(
+      TRANSCODE_ITEM,
+      TRANSCODE_ITEM.serverUrl,
+      TRANSCODE_ITEM.authToken,
+      withEnglishAudio,
+      0,
+      PLAYBACK_SESSION_ID,
+    ),
+  );
+  const french = new URL(
+    generatePlexStreamUrl(
+      TRANSCODE_ITEM,
+      TRANSCODE_ITEM.serverUrl,
+      TRANSCODE_ITEM.authToken,
+      withFrenchAudio,
+      0,
+      PLAYBACK_SESSION_ID,
+    ),
+  );
+
+  expect(english.searchParams.get("audioStreamID")).toBe("378571");
+  expect(french.searchParams.get("audioStreamID")).toBe("378572");
+  expect(english.searchParams.get("session")).toBe(
+    buildPlexTranscodeSessionKey(PLAYBACK_SESSION_ID, 0, withEnglishAudio),
+  );
+  expect(french.searchParams.get("session")).toBe(
+    buildPlexTranscodeSessionKey(PLAYBACK_SESSION_ID, 0, withFrenchAudio),
+  );
+  expect(english.searchParams.get("session")).not.toBe(
+    french.searchParams.get("session"),
+  );
+});
+
+test("selects an audio stream on the media part", () => {
+  const item = fromPartial<MediaPlayerItem>({
+    ...TRANSCODE_ITEM,
+    Media: [
+      {
+        ...TRANSCODE_ITEM.Media?.[0],
+        Part: [{ id: 99, key: "/library/parts/99/file.mkv" }],
+      },
+    ],
+  });
+
+  const url = new URL(
+    buildPlexAudioSelectionUrl(
+      item,
+      item.serverUrl,
+      item.authToken,
+      378_571,
+    ),
+  );
+
+  expect(url.pathname).toBe("/library/parts/99");
+  expect(url.searchParams.get("audioStreamID")).toBe("378571");
+  expect(url.searchParams.get("X-Plex-Token")).toBe("secret-token");
 });

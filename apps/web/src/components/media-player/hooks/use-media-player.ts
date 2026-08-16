@@ -258,7 +258,7 @@ export function useMediaPlayer(): {
               const sessionKey = buildPlexTranscodeSessionKey(
                 pending.transcodeSessionId,
                 pending.streamOffset,
-                plan.burnedSubtitleId,
+                plan,
                 pending.transcodeAttempt,
               );
               const stopped = await stopTranscodeSessionBeforeReplacement(

@@ -578,7 +578,7 @@ function useMediaPlayerModalController(): MediaPlayerModalViewProps | null {
       ? buildPlexTranscodeSessionKey(
           transcodeSessionId,
           streamOffset,
-          playbackPlan.burnedSubtitleId,
+          playbackPlan,
           transcodeAttempt,
         )
       : null;
