@@ -20,7 +20,9 @@ interface PosterGridLayout {
 
 function readLayout(containerEl: HTMLDivElement | null): PosterGridLayout {
   const viewportWidth =
-    typeof window !== "undefined" ? window.innerWidth : FALLBACK_VIEWPORT_PX;
+    "window" in globalThis
+      ? globalThis.window.innerWidth
+      : FALLBACK_VIEWPORT_PX;
   const trackWidth = containerEl
     ? measurePosterGridTrackWidth(containerEl)
     : estimatePosterGridTrackWidth(viewportWidth);

@@ -350,7 +350,7 @@ function HeroActions({
       void Promise.all([
         refetchSyncedMediaItem(serverId, variables.ratingKey),
         refetchSyncedShellCollections(),
-      ]).catch((error: unknown) => {
+      ]).catch((error) => {
         console.error("Failed to resync after watched-state change:", error);
       });
     },
@@ -701,8 +701,8 @@ function HeroActionDialogs({
 
 function getItemWatchedState(item: ItemDetails["item"]): boolean {
   if (
-    typeof item.leafCount === "number" &&
-    typeof item.viewedLeafCount === "number"
+    item.leafCount !== undefined &&
+    item.viewedLeafCount !== undefined
   ) {
     return item.leafCount > 0 && item.viewedLeafCount >= item.leafCount;
   }
