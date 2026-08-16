@@ -1,6 +1,7 @@
 import {
   pollConsolePairing,
   pollConsolePairingSchema,
+  parseConsolePairingRequest,
 } from "~/server/console-pairing";
 
 const RESPONSE_HEADERS = {
@@ -10,15 +11,18 @@ const RESPONSE_HEADERS = {
 } as const;
 
 export async function POST(request: Request): Promise<Response> {
-  const parsed = pollConsolePairingSchema.safeParse(await readBody(request));
-  if (!parsed.success) {
+  const input = await parseConsolePairingRequest(
+    request,
+    pollConsolePairingSchema,
+  );
+  if (!input) {
     return Response.json(
       { status: "invalid-request" },
       { status: 400, headers: RESPONSE_HEADERS },
     );
   }
 
-  const result = await pollConsolePairing(parsed.data);
+  const result = await pollConsolePairing(input);
   const status =
     result.status === "invalid-credential"
       ? 401
@@ -26,12 +30,4 @@ export async function POST(request: Request): Promise<Response> {
         ? 410
         : 200;
   return Response.json(result, { status, headers: RESPONSE_HEADERS });
-}
-
-async function readBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    return null;
-  }
 }
