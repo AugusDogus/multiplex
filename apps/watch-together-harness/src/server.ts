@@ -361,9 +361,8 @@ async function cleanupTranscodeSessions(): Promise<void> {
   );
 }
 
-function jsonError(error: unknown): Response {
-  const message = error instanceof Error ? error.message : "Unknown harness error";
-  return Response.json({ error: message }, { status: 500 });
+function jsonError(error: Error): Response {
+  return Response.json({ error: error.message }, { status: 500 });
 }
 
 const clientBuild = await Bun.build({
@@ -431,7 +430,9 @@ const server = Bun.serve({
       }
       return new Response("Not found", { status: 404 });
     } catch (error) {
-      return jsonError(error);
+      return jsonError(
+        error instanceof Error ? error : new Error("Unknown harness error"),
+      );
     }
   },
 });

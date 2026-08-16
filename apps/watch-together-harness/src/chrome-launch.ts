@@ -19,7 +19,7 @@ export type ChromeLaunchTarget =
   | { readonly kind: "bundled-chromium" };
 
 interface ChromeEnvironment {
-  readonly [name: string]: unknown;
+  readonly [name: string]: string | undefined;
   readonly PLAYWRIGHT_EXECUTABLE_PATH?: string;
   readonly WATCH_TOGETHER_HARNESS_CHROME_PATH?: string;
   readonly PLAYWRIGHT_CHANNEL?: string;
