@@ -8,7 +8,11 @@ import type {
   MediaPlayerItem,
   MediaPlayerSeekResult,
 } from "~/types/media-player";
-import { clamp, supportsFullscreen } from "../utils/media-player-utils";
+import {
+  clamp,
+  shouldReloadTranscodeForSeek,
+  supportsFullscreen,
+} from "../utils/media-player-utils";
 import { clampPlayableSeekTarget } from "../utils/playback-time-utils";
 import {
   buildPlexPlaybackPlan,
@@ -218,6 +222,14 @@ export function useMediaPlayer() {
       const seekResult = getMediaSeekResult(playerState.currentItem);
       if (seekResult === "reload") {
         const playableTime = clampedTime;
+        if (
+          !shouldReloadTranscodeForSeek({
+            currentTime: playerState.currentTime,
+            targetTime: playableTime,
+          })
+        ) {
+          return "direct";
+        }
         cancelPendingTranscodeSeek();
         const seekRevision = transcodeSeekRevisionRef.current;
         playerCommands.updatePlaybackStateFor(playbackIdentity, {
