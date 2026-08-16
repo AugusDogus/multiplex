@@ -41,7 +41,12 @@ export async function claimGameCube(code: string, environment: NodeJS.ProcessEnv
     parsedEnvironment.GAMECUBE_LINK_ACCOUNT_STATE,
     DEFAULT_STORAGE_STATE,
   );
-  const chromeLaunch = chromeLaunchFields(resolveChromeLaunchTarget(parsedEnvironment));
+  const chromeLaunch = chromeLaunchFields(
+    resolveChromeLaunchTarget({
+      WATCH_TOGETHER_HARNESS_CHROME_PATH:
+        parsedEnvironment.WATCH_TOGETHER_HARNESS_CHROME_PATH,
+    }),
+  );
   await access(storageState);
 
   const browser = await chromium.launch({

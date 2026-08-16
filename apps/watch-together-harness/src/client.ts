@@ -64,7 +64,10 @@ function logEvent(message: string): void {
   timeline.scrollTop = timeline.scrollHeight;
 }
 
-async function readJson(response: Response): Promise<unknown> {
+async function readJson<Output>(
+  response: Response,
+  schema: z.ZodType<Output>,
+): Promise<Output> {
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     const parsed = z.object({ error: z.string() }).safeParse(body);
@@ -73,7 +76,7 @@ async function readJson(response: Response): Promise<unknown> {
       : `Harness request failed with HTTP ${response.status}.`;
     throw new Error(message);
   }
-  return body;
+  return schema.parse(body);
 }
 
 interface HarnessTranscodeStream {
@@ -482,7 +485,7 @@ function renderAssertions(): void {
 
 async function start(): Promise<void> {
   const response = await fetch("/api/bootstrap", { cache: "no-store" });
-  const bootstrap = harnessBootstrapSchema.parse(await readJson(response));
+  const bootstrap = await readJson(response, harnessBootstrapSchema);
   roomStatus.textContent = `Room ${bootstrap.room.id}`;
   nextEpisode = bootstrap.nextEpisode;
   nextEpisodeButton.disabled = nextEpisode === null;
@@ -555,7 +558,7 @@ async function advanceToNextEpisode(reason: string): Promise<void> {
   try {
     nextEpisodeButton.disabled = true;
     const response = await fetch("/api/next-room", { method: "POST" });
-    const next = harnessNextRoomSchema.parse(await readJson(response));
+    const next = await readJson(response, harnessNextRoomSchema);
     const pair = activePlayers;
     if (!pair) return;
     pair[0].switchRoom(next.viewers[0], next.room);
@@ -565,7 +568,7 @@ async function advanceToNextEpisode(reason: string): Promise<void> {
     nextEpisodeButton.textContent = nextEpisode ? `Next: ${nextEpisode.title}` : "No next episode";
     nextEpisodeButton.disabled = nextEpisode === null;
     logEvent(`Both viewers advanced because ${reason}`);
-  } catch (error: unknown) {
+  } catch (error) {
     nextEpisodeButton.disabled = false;
     logEvent(`Next episode failed: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
@@ -582,7 +585,7 @@ window.addEventListener("beforeunload", () => {
 });
 
 setInterval(renderAssertions, 500);
-start().catch((error: unknown) => {
+start().catch((error) => {
   roomStatus.textContent = "Harness failed";
   logEvent(error instanceof Error ? error.message : String(error));
 });
