@@ -21,6 +21,8 @@ const SearchResultMetadata = z
     ratingKey: z.string(),
     key: z.string(),
     guid: z.string(),
+    // SAFETY: SearchResultType is an autocomplete-friendly spelling of string;
+    // this schema validates the identical runtime primitive.
     type: z.string() as z.ZodType<SearchResultType>,
     title: z.string(),
     titleSort: z.string().optional(),
@@ -130,6 +132,8 @@ export const processedSearchResultSchema = z.object({
   ratingKey: z.string(),
   key: z.string(),
   guid: z.string(),
+  // SAFETY: SearchResultType is an autocomplete-friendly spelling of string;
+  // this schema validates the identical runtime primitive.
   type: z.string() as z.ZodType<SearchResultType>,
   title: z.string(),
   summary: z.string().optional(),

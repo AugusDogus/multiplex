@@ -426,7 +426,8 @@ function rowsFrom(entries: [string, string | number | boolean | undefined][]): M
       return [];
     }
 
-    return [{ label, value: typeof value === "boolean" ? (value ? "Yes" : "No") : String(value) }];
+    const displayValue = value === true ? "Yes" : value === false ? "No" : String(value);
+    return [{ label, value: displayValue }];
   });
 }
 

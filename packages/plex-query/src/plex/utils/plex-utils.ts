@@ -6,6 +6,7 @@ import {
   isPlaylistDirectory,
 } from "../schemas/plex-server-schemas";
 import type { PinnedSource, PlexDevice } from "../schemas/plex-tv-schemas";
+import { z } from "zod";
 
 // Better typed extracted source
 export interface ExtractedSource {
@@ -206,11 +207,14 @@ function extractSourceFromDirectory(
   }
 
   // Handle other directories with id
-  if ("id" in directory && typeof directory.id === "string") {
+  if ("id" in directory) {
+    const id = z.string().safeParse(directory.id);
+    if (!id.success) return null;
+    const type = "type" in directory ? z.string().safeParse(directory.type) : null;
     return {
-      id: directory.id,
+      id: id.data,
       title: directory.title,
-      type: "type" in directory && typeof directory.type === "string" ? directory.type : undefined,
+      type: type?.success ? type.data : undefined,
       provider: providerName,
       providerIdentifier: providerIdentifier ?? "",
       isLibrarySection: false,
