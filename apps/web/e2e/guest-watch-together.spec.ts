@@ -10,6 +10,12 @@ import { readPlaybackProbe } from "./helpers/playback-probe";
 import { createInstrumentedContext } from "./helpers/watch-together-artifacts";
 import { guestWatchTogetherContinuationResponseSchema } from "../src/lib/guest-watch-together-bootstrap";
 
+declare global {
+  interface Window {
+    __capturedWatchTogetherToasts: string[];
+  }
+}
+
 async function pressPlayerKey(page: Page, code: string): Promise<void> {
   await page.evaluate((keyCode) => {
     document.dispatchEvent(
@@ -36,7 +42,7 @@ test("an unauthenticated guest does not request protected player metadata", asyn
     label: "guest",
     baseURL,
     testInfo,
-  }).catch(async (error: unknown) => {
+  }).catch(async (error) => {
     await hostArtifacts.closeAndAttach();
     throw error;
   });
@@ -85,7 +91,7 @@ test("an unauthenticated guest does not request protected player metadata", asyn
     if (response.url().endsWith("/api/watch-together/guest/continue")) {
       void response
         .json()
-        .then((body: unknown) => {
+        .then((body) => {
           const parsed =
             guestWatchTogetherContinuationResponseSchema.safeParse(body);
           continuationResponses.push({
@@ -153,9 +159,7 @@ test("an unauthenticated guest does not request protected player metadata", asyn
           if (text && !captured.includes(text)) captured.push(text);
         }
       };
-      (
-        window as typeof window & { __capturedWatchTogetherToasts: string[] }
-      ).__capturedWatchTogetherToasts = captured;
+      window.__capturedWatchTogetherToasts = captured;
       new MutationObserver(captureToasts).observe(document.body, {
         childList: true,
         subtree: true,
@@ -274,12 +278,7 @@ test("an unauthenticated guest does not request protected player metadata", asyn
       .not.toBe(initialGuestSource);
 
     const hostToasts = await host.evaluate(
-      () =>
-        (
-          window as typeof window & {
-            __capturedWatchTogetherToasts: string[];
-          }
-        ).__capturedWatchTogetherToasts,
+      () => window.__capturedWatchTogetherToasts,
     );
     expect(metadataResponses).toEqual([]);
     expect(
