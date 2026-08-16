@@ -275,15 +275,11 @@ function useMediaPlayerVideoController(
     surfaceElementRef.current = node;
   };
 
-  const ratingKey = item.ratingKey;
   const metadataKey = item.key;
   const serverUrl = item.serverUrl;
   const authToken = item.authToken;
   const media = item.Media?.[0];
   const partKey = media?.Part?.[0]?.key;
-  const videoCodec = media?.videoCodec;
-  const audioCodec = media?.audioCodec;
-  const container = media?.container;
 
   // Derive video source URL and error state from item. `streamOffset` only
   // affects transcoded streams, where it gets baked into the URL so the
@@ -295,19 +291,13 @@ function useMediaPlayerVideoController(
     }
 
     const streamItem = {
-      ratingKey,
       key: metadataKey,
-      serverUrl,
-      authToken,
       Media: [
         {
-          videoCodec,
-          audioCodec,
-          container,
           Part: [{ key: partKey }],
         },
       ],
-    } as MediaPlayerItem;
+    };
 
     try {
       const streamUrl = generatePlexStreamUrl(
@@ -559,10 +549,10 @@ function useMediaPlayerVideoController(
   const videoRefCallback = (node: HTMLVideoElement | null) => {
     if (videoElementRef.current === node) return;
     videoElementRef.current = node;
-    if (typeof ref === "function") {
-      ref(node);
-    } else if (ref) {
+    if (ref && "current" in ref) {
       ref.current = node;
+    } else if (ref) {
+      ref(node);
     }
     // Start from the imperative play() path instead of the autoPlay attribute
     // so audible playback stays under player/Syncplay control.
