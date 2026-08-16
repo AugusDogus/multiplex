@@ -13,9 +13,13 @@ export const SUPPORTED_PIVOT_LABELS = {
   playlists: "Playlists",
 } satisfies Record<LibraryPivotId, string>;
 
-export const SUPPORTED_PIVOT_IDS = Object.keys(
-  SUPPORTED_PIVOT_LABELS,
-) as LibraryPivotId[];
+export const SUPPORTED_PIVOT_IDS = [
+  "recommended",
+  "library",
+  "collections",
+  "categories",
+  "playlists",
+] satisfies ReadonlyArray<LibraryPivotId>;
 
 export function isSupportedPivot(id: string): id is LibraryPivotId {
   return Object.prototype.hasOwnProperty.call(SUPPORTED_PIVOT_LABELS, id);
