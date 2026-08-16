@@ -64,8 +64,8 @@ export function useItemDetailsNavigation() {
       ratingKey: target.ratingKey,
     })
       .then((row) => {
-        if (row?.item && typeof row.item === "object") {
-          preloadDetailsImages(row.item as ItemMetadata, {
+        if (row?.item) {
+          preloadDetailsImages(row.item, {
             serverUrl: row.serverUrl ?? undefined,
             authToken: row.authToken ?? undefined,
           });

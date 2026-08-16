@@ -474,9 +474,9 @@ export function sanitizeMediaItemDetails(
   return {
     id: mediaItemRowKey(serverId, metadata.ratingKey),
     serverId,
-    serverName: details.serverName || null,
-    serverUrl: details.serverUrl || null,
-    authToken: details.authToken || null,
+    serverName: details.serverName ?? null,
+    serverUrl: details.serverUrl ?? null,
+    authToken: details.authToken ?? null,
     ratingKey: metadata.ratingKey,
     type: metadata.type,
     title: metadata.title,
