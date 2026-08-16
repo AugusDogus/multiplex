@@ -14,25 +14,29 @@ const BREAKPOINTS = {
 
 type Breakpoint = keyof typeof BREAKPOINTS;
 
+const breakpointValues = new Map<string, number>(
+  Object.entries(BREAKPOINTS),
+);
+
 type BreakpointQuery =
   | Breakpoint
   | `max-${Breakpoint}`
   | `${Breakpoint}:max-${Breakpoint}`;
 
-function resolveMin(value: Breakpoint | number): string {
-  const px = typeof value === "number" ? value : BREAKPOINTS[value];
+function resolveMin(value: string | number): string {
+  const px = breakpointValues.get(String(value)) ?? Number(value);
   return `(min-width: ${px}px)`;
 }
 
-function resolveMax(value: Breakpoint | number): string {
-  const px = typeof value === "number" ? value : BREAKPOINTS[value];
+function resolveMax(value: string | number): string {
+  const px = breakpointValues.get(String(value)) ?? Number(value);
   return `(max-width: ${px - 1}px)`;
 }
 
 function parseQuery(
   query: BreakpointQuery | MediaQueryInput | (string & {}),
 ): string {
-  if (typeof query !== "string") {
+  if (query instanceof Object) {
     const parts: string[] = [];
     if (query.min !== undefined) parts.push(resolveMin(query.min));
     if (query.max !== undefined) parts.push(resolveMax(query.max));
@@ -42,19 +46,20 @@ function parseQuery(
     return parts.join(" and ");
   }
 
-  if (query.startsWith("(")) return query;
+  const queryText = String(query);
+  if (queryText.startsWith("(")) return queryText;
 
   const parts: string[] = [];
-  for (const segment of query.split(":")) {
+  for (const segment of queryText.split(":")) {
     if (segment.startsWith("max-")) {
       const bp = segment.slice(4);
-      if (bp in BREAKPOINTS) parts.push(resolveMax(bp as Breakpoint));
+      if (breakpointValues.has(bp)) parts.push(resolveMax(bp));
     } else if (segment in BREAKPOINTS) {
-      parts.push(resolveMin(segment as Breakpoint));
+      parts.push(resolveMin(segment));
     }
   }
 
-  return parts.length > 0 ? parts.join(" and ") : query;
+  return parts.length > 0 ? parts.join(" and ") : queryText;
 }
 
 function getServerSnapshot(): boolean {
@@ -74,15 +79,15 @@ export function useMediaQuery(
   const mediaQuery = parseQuery(query);
 
   const subscribe = (callback: () => void) => {
-    if (typeof window === "undefined") return () => undefined;
-    const mql = window.matchMedia(mediaQuery);
+    if (!globalThis.window) return () => undefined;
+    const mql = globalThis.window.matchMedia(mediaQuery);
     mql.addEventListener("change", callback);
     return () => mql.removeEventListener("change", callback);
   };
 
   const getSnapshot = () => {
-    if (typeof window === "undefined") return false;
-    return window.matchMedia(mediaQuery).matches;
+    if (!globalThis.window) return false;
+    return globalThis.window.matchMedia(mediaQuery).matches;
   };
 
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);

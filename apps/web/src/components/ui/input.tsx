@@ -31,6 +31,7 @@ export function Input({
     props.type === "file" &&
       "text-muted-foreground file:me-3 file:bg-transparent file:font-medium file:text-foreground file:text-sm",
   );
+  const nativeSize = Number(size) === size ? Number(size) : undefined;
 
   return (
     <span
@@ -48,15 +49,15 @@ export function Input({
         <input
           className={inputClassName}
           data-slot="input"
-          size={typeof size === "number" ? size : undefined}
-          style={typeof style === "function" ? undefined : style}
+          size={nativeSize}
+          style={style instanceof Function ? undefined : style}
           {...props}
         />
       ) : (
         <InputPrimitive
           className={inputClassName}
           data-slot="input"
-          size={typeof size === "number" ? size : undefined}
+          size={nativeSize}
           style={style}
           {...props}
         />
