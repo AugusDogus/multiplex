@@ -15,6 +15,8 @@ export type MarkerType = KnownMarkerType | (string & {});
 
 export const markerSchema = z
   .object({
+    // SAFETY: MarkerType is an autocomplete-friendly spelling of string; this
+    // schema validates the identical runtime primitive.
     type: z.string() as z.ZodType<MarkerType>,
     startTimeOffset: z.number(),
     endTimeOffset: z.number(),

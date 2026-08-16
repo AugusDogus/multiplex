@@ -169,7 +169,7 @@ export function isPlaylistDirectory(
 }
 
 export function isLiveTVDirectory(dir: Directory): dir is z.infer<typeof LiveTVDirectorySchema> {
-  return "id" in dir && typeof dir.id === "string" && dir.id.includes("tv.plex.providers");
+  return "id" in dir && dir.id.includes("tv.plex.providers");
 }
 
 export function isHomeDirectory(dir: Directory): dir is z.infer<typeof HomeDirectorySchema> {

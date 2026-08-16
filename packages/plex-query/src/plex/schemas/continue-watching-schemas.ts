@@ -37,6 +37,8 @@ export type ImageType = KnownImageType | (string & {});
 const Image = z
   .object({
     alt: z.string(),
+    // SAFETY: ImageType is an autocomplete-friendly spelling of string; this
+    // schema validates the identical runtime primitive.
     type: z.string() as z.ZodType<ImageType>,
     url: z.string(),
   })
@@ -426,14 +428,16 @@ export type PlayableEnrichedChild = EnrichedItemMetadataChild & {
    9. Type guards & utilities
    ──────────────────────────────────────────────────────────── */
 
-export function isContinueWatchingResponse(data: unknown): data is ContinueWatchingResponse {
+export function isContinueWatchingResponse(
+  data: Parameters<typeof continueWatchingResponseSchema.safeParse>[0],
+): data is ContinueWatchingResponse {
   return continueWatchingResponseSchema.safeParse(data).success;
 }
 
 export function hasViewOffset(
   item: ContinueWatchingItem,
 ): item is ContinueWatchingItem & { viewOffset: number } {
-  return typeof item.viewOffset === "number" && item.viewOffset > 0;
+  return item.viewOffset !== undefined && item.viewOffset > 0;
 }
 
 export function isEpisode(item: ContinueWatchingItem): boolean {
