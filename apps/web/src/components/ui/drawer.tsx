@@ -20,15 +20,15 @@ const DrawerContext: React.Context<{ position: DrawerPosition }> =
     position: "bottom",
   });
 
-const directionMap: Record<
-  DrawerPosition,
-  DrawerPrimitive.Root.Props["swipeDirection"]
-> = {
+const directionMap = {
   bottom: "down",
   left: "left",
   right: "right",
   top: "up",
-};
+} satisfies Record<
+  DrawerPosition,
+  DrawerPrimitive.Root.Props["swipeDirection"]
+>;
 
 export function Drawer({
   swipeDirection,
