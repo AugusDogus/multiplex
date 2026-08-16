@@ -43,6 +43,7 @@ function requireServer(servers: readonly PlexDevice[], serverId: string): PlexDe
 async function resolveFixture(environment: NodeJS.ProcessEnv): Promise<{
   readonly current: FixtureItem;
   readonly next: FixtureItem;
+  readonly inviteeId: number;
 }> {
   const parsedEnvironment = environmentSchema.parse(environment);
   const tokenFilePath = resolveTokenFilePath(parsedEnvironment);
@@ -53,6 +54,12 @@ async function resolveFixture(environment: NodeJS.ProcessEnv): Promise<{
     version: "1.0.0",
     platform: "Node",
     clientIdentifier: `multiplex-gamecube-fixture-${randomUUID()}`,
+  });
+  const inviteeClient = new PlexTvClient(tokens.accountB.token, {
+    product: "Multiplex GameCube Fixture Resolver",
+    version: "1.0.0",
+    platform: "Node",
+    clientIdentifier: `multiplex-gamecube-invitee-${randomUUID()}`,
   });
   const server = requireServer(await client.getServers(), serverId);
   const serverClient = client.createServerClient(server);
@@ -80,10 +87,13 @@ async function resolveFixture(environment: NodeJS.ProcessEnv): Promise<{
       `The first GameCube Home item (${current.ratingKey}) has no successor; no test was started.`,
     );
   }
-  return { current, next };
+  const invitee = await inviteeClient.getUserInfo();
+  return { current, next, inviteeId: invitee.id };
 }
 
 if (import.meta.main) {
   const fixture = await resolveFixture(process.env);
-  console.log(`${fixture.current.ratingKey}\t${fixture.next.ratingKey}`);
+  console.log(
+    `WATCH_TOGETHER_GAMECUBE_PLAN\t${fixture.current.ratingKey}\t${fixture.next.ratingKey}\t${fixture.inviteeId}`,
+  );
 }

@@ -127,8 +127,17 @@ async function startNearEndProbe(
 ): Promise<void> {
   await page.evaluate(
     ({ durationSeconds, ratingKey, title }) => {
+      const initialPathname = window.location.pathname;
       let observedNearEnd = false;
+      let resetObservedAt: number | null = null;
       const sample = (): void => {
+        // The room route is the authoritative handoff identity. Direct-play
+        // URLs do not contain a rating key, and the player heading can retain
+        // the previous title for one render while the successor starts at 0.
+        if (window.location.pathname !== initialPathname) {
+          document.body.dataset.nearEndProbe = "advanced";
+          return;
+        }
         const video = document.querySelector("video");
         if (!(video instanceof HTMLVideoElement)) {
           requestAnimationFrame(sample);
@@ -154,8 +163,17 @@ async function startNearEndProbe(
         const positionSeconds = offsetSeconds + video.currentTime;
         if (positionSeconds >= durationSeconds * 0.8) observedNearEnd = true;
         if (observedNearEnd && positionSeconds < durationSeconds * 0.5) {
-          document.body.dataset.nearEndProbe = "reset";
-          return;
+          // A successor starts at zero before its route and heading necessarily
+          // commit in the same render. Only classify a reset when the old-item
+          // identity and low position persist, which still catches a genuine
+          // restart while avoiding a one-frame handoff false positive.
+          resetObservedAt ??= performance.now();
+          if (performance.now() - resetObservedAt >= 2_000) {
+            document.body.dataset.nearEndProbe = "reset";
+            return;
+          }
+        } else {
+          resetObservedAt = null;
         }
         requestAnimationFrame(sample);
       };

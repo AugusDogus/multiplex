@@ -63,7 +63,7 @@ export async function waitForPlaybackAdvance(
   const minimumAdvanceSeconds = options.minimumAdvanceSeconds ?? 0.5;
   const deadline = Date.now() + timeoutMs;
   const samples: PlaybackProbeSample[] = [await readPlaybackProbe(page)];
-  const initialPosition = samples[0]?.timelinePositionSeconds ?? 0;
+  let sourceBaselinePosition = samples[0]?.timelinePositionSeconds ?? 0;
   let observedSource = samples[0]?.currentSrc ?? "";
   let sourceObservedAt = samples[0]?.at ?? Date.now();
 
@@ -75,6 +75,10 @@ export async function waitForPlaybackAdvance(
     if (sample.currentSrc !== observedSource) {
       observedSource = sample.currentSrc;
       sourceObservedAt = sample.at;
+      // Offset transcode recovery replaces the media resource at the room's
+      // current position. Compare progress within the replacement source, not
+      // against a discarded source that may have been several seconds ahead.
+      sourceBaselinePosition = sample.timelinePositionSeconds;
     }
     if (
       sample.error &&
@@ -87,7 +91,8 @@ export async function waitForPlaybackAdvance(
     if (
       !sample.paused &&
       !sample.ended &&
-      sample.timelinePositionSeconds > initialPosition + minimumAdvanceSeconds
+      sample.timelinePositionSeconds >
+        sourceBaselinePosition + minimumAdvanceSeconds
     ) {
       return samples;
     }

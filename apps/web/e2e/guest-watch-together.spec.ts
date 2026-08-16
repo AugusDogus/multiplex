@@ -8,6 +8,7 @@ import {
 } from "./helpers/watch-together";
 import { readPlaybackProbe } from "./helpers/playback-probe";
 import { createInstrumentedContext } from "./helpers/watch-together-artifacts";
+import { guestWatchTogetherContinuationResponseSchema } from "../src/lib/guest-watch-together-bootstrap";
 
 async function pressPlayerKey(page: Page, code: string): Promise<void> {
   await page.evaluate((keyCode) => {
@@ -73,9 +74,35 @@ test("an unauthenticated guest does not request protected player metadata", asyn
 
   const metadataResponses: number[] = [];
   const guestConsoleErrors: string[] = [];
+  const continuationResponses: Array<{
+    status: number;
+    outcome: string;
+  }> = [];
   guest.on("response", (response) => {
     if (response.url().includes("/api/trpc/plex.getItemMetadata")) {
       metadataResponses.push(response.status());
+    }
+    if (response.url().endsWith("/api/watch-together/guest/continue")) {
+      void response
+        .json()
+        .then((body: unknown) => {
+          const parsed =
+            guestWatchTogetherContinuationResponseSchema.safeParse(body);
+          continuationResponses.push({
+            status: response.status(),
+            outcome: parsed.success
+              ? parsed.data.ok
+                ? "success"
+                : parsed.data.reason
+              : "invalid-response",
+          });
+        })
+        .catch(() => {
+          continuationResponses.push({
+            status: response.status(),
+            outcome: "invalid-response",
+          });
+        });
     }
   });
   guest.on("console", (message) => {
@@ -211,21 +238,27 @@ test("an unauthenticated guest does not request protected player metadata", asyn
     // sufficient coverage for unauthenticated viewers.
     await host.evaluate(() => {
       document.dispatchEvent(
-        new KeyboardEvent("keydown", { code: "Digit9", bubbles: true }),
+        new KeyboardEvent("keydown", { code: "End", bubbles: true }),
       );
     });
     await expect
       .poll(() => new URL(host.url()).pathname, {
         message: "Guest Link host should route to the successor room",
-        timeout: 360_000,
+        timeout: 60_000,
       })
       .not.toBe(initialHostPath);
     await expect
-      .poll(() => new URL(guest.url()).pathname, {
-        message: "Guest Link guest should receive a successor capability",
-        timeout: 60_000,
-      })
-      .not.toBe(initialGuestPath);
+      .poll(
+        () =>
+          new URL(guest.url()).pathname !== initialGuestPath
+            ? "changed"
+            : (continuationResponses.at(-1)?.outcome ?? "no-response"),
+        {
+          message: "Guest Link guest should receive a successor capability",
+          timeout: 60_000,
+        },
+      )
+      .toBe("changed");
 
     successorRoomId = new URL(host.url()).pathname.split("/").at(-1);
     expect(successorRoomId).toBeTruthy();
@@ -292,6 +325,7 @@ test("an unauthenticated guest does not request protected player metadata", asyn
               guest: {
                 page: await pageState(guest),
                 frames: guestSyncplayFrames,
+                continuationResponses,
               },
             },
             null,
