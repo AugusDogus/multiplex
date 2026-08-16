@@ -11,8 +11,6 @@ import { useRef, useSyncExternalStore } from "react";
  * snapshot is always empty / loading.
  */
 
-const EMPTY_ROWS: readonly { id: string }[] = Object.freeze([]);
-
 type RowWithId = { id: string };
 
 /** Structural collection surface we need — avoids empty-collection generics. */
@@ -33,37 +31,33 @@ type Snapshot<T extends RowWithId> = {
   rows: T[];
 };
 
-const SERVER_SNAPSHOT: Snapshot<RowWithId> = Object.freeze({
-  collection: undefined,
-  version: -1,
-  rows: EMPTY_ROWS as { id: string }[],
-});
-
-function subscribeStatusChange(
-  collection: CollectionLike<RowWithId>,
+function subscribeStatusChange<T extends RowWithId>(
+  collection: CollectionLike<T>,
   notify: () => void,
 ): () => void {
-  if (typeof collection.on !== "function") {
+  if (!collection.on) {
     return () => undefined;
   }
   return collection.on("status:change", notify);
 }
 
 export function useCollectionRows<T extends RowWithId>(
-  // Empty placeholder collections are typed as `{ id: string }` only.
-  // Callers pass an explicit type argument for the real row shape.
-  collection: CollectionLike<RowWithId> | null | undefined,
+  collection: CollectionLike<T> | null | undefined,
 ) {
-  const typedCollection = collection as CollectionLike<T> | null | undefined;
   const versionRef = useRef(0);
   const snapshotRef = useRef<Snapshot<T> | null>(null);
+  const serverSnapshotRef = useRef<Snapshot<T>>({
+    collection: undefined,
+    version: -1,
+    rows: [],
+  });
 
   const subscribe = (onStoreChange: () => void): (() => void) => {
-    if (!typedCollection) {
+    if (!collection) {
       return () => undefined;
     }
 
-    typedCollection.startSyncImmediate();
+    collection.startSyncImmediate();
     let unsubscribed = false;
 
     const notify = () => {
@@ -72,12 +66,12 @@ export function useCollectionRows<T extends RowWithId>(
       onStoreChange();
     };
 
-    const subscription = typedCollection.subscribeChanges(notify);
+    const subscription = collection.subscribeChanges(notify);
     // Status transitions (idle → loading → ready/error) may not write rows;
     // subscribe so isLoading can clear even on empty collections.
-    const unsubscribeStatus = subscribeStatusChange(typedCollection, notify);
+    const unsubscribeStatus = subscribeStatusChange(collection, notify);
 
-    if (typedCollection.status === "ready") {
+    if (collection.status === "ready") {
       queueMicrotask(notify);
     }
 
@@ -92,24 +86,22 @@ export function useCollectionRows<T extends RowWithId>(
     const version = versionRef.current;
     if (
       snapshotRef.current &&
-      snapshotRef.current.collection === typedCollection &&
+      snapshotRef.current.collection === collection &&
       snapshotRef.current.version === version
     ) {
       return snapshotRef.current;
     }
 
     const next: Snapshot<T> = {
-      collection: typedCollection,
+      collection,
       version,
-      rows: typedCollection
-        ? Array.from(typedCollection.values())
-        : (EMPTY_ROWS as T[]),
+      rows: collection ? Array.from(collection.values()) : [],
     };
     snapshotRef.current = next;
     return next;
   };
 
-  const getServerSnapshot = (): Snapshot<T> => SERVER_SNAPSHOT as Snapshot<T>;
+  const getServerSnapshot = (): Snapshot<T> => serverSnapshotRef.current;
 
   const snapshot = useSyncExternalStore(
     subscribe,
@@ -118,16 +110,15 @@ export function useCollectionRows<T extends RowWithId>(
   );
 
   const isLoading = Boolean(
-    typedCollection &&
-      (typedCollection.status === "idle" ||
-        typedCollection.status === "loading"),
+    collection &&
+      (collection.status === "idle" || collection.status === "loading"),
   );
 
   return { data: snapshot.rows, isLoading };
 }
 
 export function useCollectionRowById<T extends RowWithId>(
-  collection: CollectionLike<RowWithId> | null | undefined,
+  collection: CollectionLike<T> | null | undefined,
   id: string | null | undefined,
 ) {
   const { data: rows, isLoading } = useCollectionRows<T>(collection);

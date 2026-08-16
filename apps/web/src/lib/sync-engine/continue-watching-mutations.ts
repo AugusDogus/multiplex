@@ -30,9 +30,7 @@ export function patchSyncedContinueWatchingProgress(
   if (!collections) return;
 
   const id = `${identity.serverId}:${identity.ratingKey}`;
-  const current = collections.continueWatching.get(id) as
-    | SanitizedContinueWatchingRow
-    | undefined;
+  const current = collections.continueWatching.get(id);
   if (!current) return;
 
   const [updated] =
@@ -62,9 +60,7 @@ export function resetSyncedContinueWatchingProgress(identity: {
   if (!collections) return;
 
   const id = `${identity.serverId}:${identity.ratingKey}`;
-  const current = collections.continueWatching.get(id) as
-    | SanitizedContinueWatchingRow
-    | undefined;
+  const current = collections.continueWatching.get(id);
   if (!current) return;
 
   const [updated] =

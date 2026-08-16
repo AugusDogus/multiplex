@@ -9,7 +9,7 @@ import {
 
 export const SYNC_ENGINE_DB_NAME = "multiplex-sync-engine";
 /** Bump when persisted row shapes change (clears OPFS and re-syncs). */
-export const SYNC_ENGINE_SCHEMA_VERSION = 7;
+export const SYNC_ENGINE_SCHEMA_VERSION = 8;
 
 export type SyncEnginePersistence = {
   persistence: PersistedCollectionPersistence;
@@ -42,7 +42,7 @@ async function removeOpfsEntryBestEffort(
 export async function removeSyncEngineOpfsFiles(
   databaseName: string,
 ): Promise<void> {
-  if (typeof navigator === "undefined" || !navigator.storage?.getDirectory) {
+  if (!globalThis.navigator?.storage?.getDirectory) {
     return;
   }
   const root = await navigator.storage.getDirectory();
@@ -69,7 +69,7 @@ export async function removeSyncEngineOpfsFiles(
 export function getSyncEnginePersistence(
   userId: string,
 ): Promise<SyncEnginePersistence> {
-  if (typeof window === "undefined") {
+  if (!globalThis.window) {
     return Promise.reject(
       new Error("Sync engine persistence is browser-only (OPFS)."),
     );
