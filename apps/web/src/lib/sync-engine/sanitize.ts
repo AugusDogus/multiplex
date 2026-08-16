@@ -47,14 +47,7 @@ export type SanitizedServerRow = {
   relay: boolean | null;
   /** PMS access token — persisted for direct client access; wiped on logout. */
   accessToken: string | null;
-  connections: Array<{
-    protocol: string | null;
-    address: string | null;
-    port: number | null;
-    uri: string | null;
-    local: boolean | null;
-    relay: boolean | null;
-  }>;
+  connections: PlexDevice["connections"];
 };
 
 /**
@@ -345,14 +338,7 @@ export function sanitizeServer(device: PlexDevice): SanitizedServerRow {
     synced: device.synced,
     relay: device.relay,
     accessToken: device.accessToken,
-    connections: device.connections.map((connection) => ({
-      protocol: connection.protocol,
-      address: connection.address,
-      port: connection.port,
-      uri: connection.uri,
-      local: connection.local,
-      relay: connection.relay,
-    })),
+    connections: cloneForPersistence(device.connections),
   };
 }
 

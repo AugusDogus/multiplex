@@ -1,4 +1,4 @@
-import { getServerUrl, type PlexDevice } from "@multiplex/plex-query";
+import { getServerUrl } from "@multiplex/plex-query";
 
 import {
   getItemConnection,
@@ -13,20 +13,8 @@ function credentialsFromServerRow(
 ): PlexConnectionCredentials | undefined {
   if (!row.accessToken) return undefined;
 
-  // getServerUrl only reads `connections`; sanitize rows omit unused PlexDevice fields.
-  const device = {
-    connections: row.connections.map((connection) => ({
-      protocol: connection.protocol ?? undefined,
-      address: connection.address ?? undefined,
-      port: connection.port ?? undefined,
-      uri: connection.uri ?? undefined,
-      local: connection.local ?? false,
-      relay: connection.relay ?? false,
-    })),
-  } as unknown as PlexDevice;
-
   return {
-    serverUrl: getServerUrl(device),
+    serverUrl: getServerUrl(row),
     authToken: row.accessToken,
   };
 }
