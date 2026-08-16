@@ -1,10 +1,10 @@
 "use client";
 
 import {
+  ContinueWatchingMetadata,
   isPlayablePosterItemType,
   toPlayableMetadata,
   type HubItemWithServer,
-  type ItemMetadata,
 } from "@multiplex/plex-query";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { playerCommands } from "~/lib/effect/player-atoms";
@@ -36,7 +36,10 @@ export function useHubItemPlayback(item: HubItemWithServer | undefined) {
       authToken: item.authToken,
     };
 
-    const inlinePlayable = toPlayableMetadata(item as unknown as ItemMetadata);
+    const parsedInlineMetadata = ContinueWatchingMetadata.safeParse(item);
+    const inlinePlayable = parsedInlineMetadata.success
+      ? toPlayableMetadata(parsedInlineMetadata.data)
+      : null;
     if (inlinePlayable) {
       playerCommands.openPlayer(
         createMediaPlayerItem(inlinePlayable, playback),
