@@ -7,10 +7,10 @@ import { api } from "~/trpc/api";
 
 type PosterTabKind = "collections" | "playlists";
 
-const EMPTY_MESSAGES: Record<PosterTabKind, string> = {
+const EMPTY_MESSAGES = {
   collections: "No collections in this library.",
   playlists: "No playlists in this library.",
-};
+} satisfies Record<PosterTabKind, string>;
 
 interface LibraryPosterTabProps {
   kind: PosterTabKind;

@@ -10,20 +10,20 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { MouseEvent } from "react";
-import type { LibraryPivot } from "@multiplex/plex-query";
+import type { LibraryPivot, LibraryPivotId } from "@multiplex/plex-query";
 import {
   SUPPORTED_PIVOT_LABELS,
   isSupportedPivot,
 } from "~/lib/library-constants";
 import { cn } from "~/lib/utils";
 
-const PIVOT_ICONS: Record<string, LucideIcon> = {
+const PIVOT_ICONS = {
   recommended: Sparkles,
   library: LibraryBig,
   collections: Layers,
   categories: LayoutGrid,
   playlists: ListVideo,
-};
+} satisfies Record<LibraryPivotId, LucideIcon>;
 
 interface LibraryTabLinkProps {
   pivot: LibraryPivot;
@@ -40,7 +40,7 @@ export function LibraryTabLink({
   onNavigate,
   registerTab,
 }: LibraryTabLinkProps) {
-  const Icon = PIVOT_ICONS[pivot.id] ?? Sparkles;
+  const Icon = isSupportedPivot(pivot.id) ? PIVOT_ICONS[pivot.id] : Sparkles;
   const label = isSupportedPivot(pivot.id)
     ? SUPPORTED_PIVOT_LABELS[pivot.id]
     : pivot.title;

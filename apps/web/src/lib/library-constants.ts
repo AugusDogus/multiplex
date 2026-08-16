@@ -5,13 +5,13 @@ import type { LibraryPivotId } from "@multiplex/plex-query";
  * non-client module so both the server page and the client tab bar can import
  * them without dragging a client boundary across the server component.
  */
-export const SUPPORTED_PIVOT_LABELS: Record<LibraryPivotId, string> = {
+export const SUPPORTED_PIVOT_LABELS = {
   recommended: "Recommended",
   library: "Library",
   collections: "Collections",
   categories: "Categories",
   playlists: "Playlists",
-};
+} satisfies Record<LibraryPivotId, string>;
 
 export const SUPPORTED_PIVOT_IDS = Object.keys(
   SUPPORTED_PIVOT_LABELS,
