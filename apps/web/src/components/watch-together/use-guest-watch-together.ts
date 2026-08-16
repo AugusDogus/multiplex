@@ -101,7 +101,7 @@ export function getGuestRotationTimeline(input: {
       if (
         participant.isPresent === true &&
         participant.user.id === hostUserId &&
-        typeof participant.positionSeconds === "number" &&
+        participant.positionSeconds !== undefined &&
         Number.isFinite(participant.positionSeconds)
       ) {
         currentTimeSeconds = Math.max(
@@ -113,7 +113,7 @@ export function getGuestRotationTimeline(input: {
   }
 
   const metadataDurationSeconds =
-    typeof input.itemDurationMilliseconds === "number" &&
+    input.itemDurationMilliseconds !== undefined &&
     Number.isFinite(input.itemDurationMilliseconds) &&
     input.itemDurationMilliseconds > 0
       ? input.itemDurationMilliseconds / 1_000

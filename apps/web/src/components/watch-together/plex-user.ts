@@ -6,7 +6,7 @@ export interface PlexUserLike {
 }
 
 function nonEmptyLabel(value: string | null | undefined): string | null {
-  if (typeof value !== "string") return null;
+  if (value === null || value === undefined) return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }

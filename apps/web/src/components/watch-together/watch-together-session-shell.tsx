@@ -37,9 +37,9 @@ export function WatchTogetherSessionShell({
 }: {
   children: ReactNode;
 }) {
-  const params = useParams();
+  const params = useParams<{ roomId?: string }>();
   const searchParams = useSearchParams();
-  const roomId = typeof params.roomId === "string" ? params.roomId : null;
+  const roomId = params.roomId ?? null;
   const queryCapability = searchParams.get("guest");
   const [continuedCapability, setContinuedCapability] = useState<{
     roomId: string;
@@ -91,6 +91,8 @@ function useWatchTogetherSessionLifecycle(
   const router = useRouter();
   const sessionState = useSessionState();
   const deviceIdentifier = usePlexClientIdentifier();
+  const hasGuestCapability =
+    guestCapability !== null && guestCapability !== undefined;
 
   const roomQuery = useSyncedWatchTogetherRoom(roomId, {
     enabled: roomId !== null,
@@ -99,7 +101,7 @@ function useWatchTogetherSessionLifecycle(
   const hostContextQuery = api.guestWatchTogether.hostContext.useQuery(
     { capability: guestCapability ?? "" },
     {
-      enabled: typeof guestCapability === "string",
+      enabled: hasGuestCapability,
       staleTime: 30_000,
       retry: 1,
       retryDelay: 250,
@@ -142,7 +144,7 @@ function useWatchTogetherSessionLifecycle(
     // policy while capability validation is pending or unavailable could
     // restore Plex's all-present auto-start behavior unexpectedly.
     if (
-      typeof guestCapability === "string" &&
+      hasGuestCapability &&
       (!hostContext?.valid || hostContext.roomId !== currentRoom.id)
     ) {
       return;
@@ -151,7 +153,7 @@ function useWatchTogetherSessionLifecycle(
       room: currentRoom,
       localUser,
       startPolicy:
-        typeof guestCapability === "string" && hostContext?.valid
+        hasGuestCapability && hostContext?.valid
           ? {
               _tag: "HostControlled",
               localRole: "Host",
@@ -165,6 +167,7 @@ function useWatchTogetherSessionLifecycle(
     localUser,
     sessionState._tag,
     guestCapability,
+    hasGuestCapability,
     hostContextQuery.data,
   ]);
 
@@ -173,7 +176,7 @@ function useWatchTogetherSessionLifecycle(
   // a live room containing the same Plex Home Guest party.
   useEffect(() => {
     if (
-      typeof guestCapability !== "string" ||
+      !hasGuestCapability ||
       sessionState._tag !== "Playing" ||
       sessionState.startPolicy._tag !== "HostControlled" ||
       sessionState.startPolicy.localRole !== "Host" ||
@@ -191,6 +194,7 @@ function useWatchTogetherSessionLifecycle(
   }, [
     continueHostMutation,
     guestCapability,
+    hasGuestCapability,
     hostContextQuery.data,
     sessionState,
   ]);
