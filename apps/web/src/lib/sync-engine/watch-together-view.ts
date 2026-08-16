@@ -8,7 +8,7 @@ export function toWatchTogetherRoom(
   return {
     id: row.id,
     sourceUri: row.sourceUri,
-    source: typeof row.source === "string" ? row.source : undefined,
+    source: row.source ?? undefined,
     title: row.title,
     type: row.type ?? "watching",
     startsAt: row.startsAt ?? undefined,

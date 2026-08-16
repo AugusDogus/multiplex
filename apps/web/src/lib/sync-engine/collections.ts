@@ -9,9 +9,14 @@ import { queryCollectionOptions } from "@tanstack/query-db-collection";
 import type { QueryClient } from "@tanstack/query-core";
 import type { TRPCClient } from "@trpc/client";
 
-import { getServerUrl } from "@multiplex/plex-query";
+import {
+  getServerUrl,
+  type HubItemWithServer,
+  type PlexUserInfo,
+} from "@multiplex/plex-query";
 
 import type { AppRouter } from "~/server/api/root";
+import type { RouterOutputs } from "~/trpc/api";
 import {
   rememberItemConnection,
   rememberServerConnection,
@@ -38,7 +43,7 @@ import {
   sanitizeUserInfo,
   sanitizeWatchTogetherInvitee,
   sanitizeWatchTogetherRoom,
-  stripCredentialsDeep,
+  cloneForPersistence,
   type SanitizedBrowsePageRow,
   type SanitizedContinueWatchingRow,
   type SanitizedHomeHubRow,
@@ -57,14 +62,14 @@ import {
   type SanitizedWatchTogetherRoomRow,
 } from "./sanitize";
 
-type QueryCollectionUtilsLike = {
-  refetch: () => Promise<unknown>;
-  writeUpsert: (data: unknown) => void;
+type QueryCollectionUtilsLike<T extends object> = {
+  refetch: () => Promise<void>;
+  writeUpsert: (data: T) => void;
   writeDelete: (key: string | number) => void;
 };
 
 type SyncedCollection<T extends object> = Collection<T, string> & {
-  utils: QueryCollectionUtilsLike;
+  utils: QueryCollectionUtilsLike<T>;
 };
 
 /**
@@ -74,7 +79,7 @@ type SyncedCollection<T extends object> = Collection<T, string> & {
  */
 async function ensureWritable(collection: {
   status: string;
-  preload: () => Promise<unknown>;
+  preload: () => Promise<void>;
 }): Promise<void> {
   if (collection.status === "ready") return;
   await collection.preload();
@@ -129,16 +134,18 @@ export type SyncEngineCollections = {
 function createPersistedQueryCollection<T extends object>(config: {
   persistence: PersistedCollectionPersistence;
   queryOptions: object;
-}): Collection<T, string> & { utils: QueryCollectionUtilsLike } {
+}): Collection<T, string> & { utils: QueryCollectionUtilsLike<T> } {
+  // SAFETY: TanStack's query-collection and sqlite-persistence packages model
+  // the same options object with incompatible optional schema generics.
   const options = persistedCollectionOptions({
     persistence: config.persistence,
     schemaVersion: SYNC_ENGINE_SCHEMA_VERSION,
     ...config.queryOptions,
   } as never);
-  // Cross-package generics (query-collection ↔ sqlite-persistence) disagree on
-  // optional `schema`; cast once at this factory boundary.
+  // SAFETY: This factory fixes string keys and a T-valued upsert contract for
+  // every caller, narrowing the cross-package generic mismatch in one place.
   return createCollection(options as never) as Collection<T, string> & {
-    utils: QueryCollectionUtilsLike;
+    utils: QueryCollectionUtilsLike<T>;
   };
 }
 
@@ -182,7 +189,7 @@ function createServersCollection(
             serverUrl: getServerUrl(server),
             authToken: server.accessToken ?? undefined,
           });
-          return sanitizeServer(server as unknown as Record<string, unknown>);
+          return sanitizeServer(server);
         });
       },
       getKey: (row) => row.id,
@@ -207,10 +214,7 @@ function createContinueWatchingCollection(
       queryFn: async (): Promise<SanitizedContinueWatchingRow[]> => {
         const items = await trpc.plex.getAllContinueWatching.query();
         return items.map((item, listIndex) => {
-          const row = sanitizeContinueWatchingItem(
-            item as unknown as Record<string, unknown>,
-            { listIndex },
-          );
+          const row = sanitizeContinueWatchingItem(item, { listIndex });
           rememberItemConnection(row.id, {
             serverUrl: item.serverUrl,
             authToken: item.authToken,
@@ -227,7 +231,7 @@ function createContinueWatchingCollection(
         await Promise.all(
           transaction.mutations.map(async (mutation) => {
             const row = mutation.modified;
-            if (typeof row.isCompleted !== "boolean") return;
+            if (row.isCompleted === null) return;
             await trpc.plex.setItemWatchedState.mutate({
               serverId: row.serverId,
               ratingKey: row.ratingKey,
@@ -254,9 +258,7 @@ function createHomeHubsCollection(
       queryFn: async (): Promise<SanitizedHomeHubRow[]> => {
         const hubs = await trpc.plex.getHomeHubs.query();
         return hubs.map((hub) => {
-          const row = sanitizeHomeHub(
-            hub as unknown as Record<string, unknown>,
-          );
+          const row = sanitizeHomeHub(hub);
           for (const item of hub.items) {
             rememberItemConnection(`${hub.serverId}:${item.ratingKey}`, {
               serverUrl: item.serverUrl,
@@ -287,9 +289,7 @@ function createServerLibrariesCollection(
       queryKey: ["sync-engine", "plex", "getAllServerLibraries"],
       queryFn: async (): Promise<SanitizedServerLibraryRow[]> => {
         const libraries = await trpc.plex.getAllServerLibraries.query();
-        return libraries.map((entry) =>
-          sanitizeServerLibrary(entry as unknown as Record<string, unknown>),
-        );
+        return libraries.map(sanitizeServerLibrary);
       },
       getKey: (row) => row.id,
       syncMode: "eager",
@@ -312,9 +312,7 @@ function createWatchTogetherRoomsCollection(
       queryKey: ["sync-engine", "plex", "getWatchTogetherRooms"],
       queryFn: async (): Promise<SanitizedWatchTogetherRoomRow[]> => {
         const rooms = await trpc.plex.getWatchTogetherRooms.query();
-        return rooms.map((room) =>
-          sanitizeWatchTogetherRoom(room as unknown as Record<string, unknown>),
-        );
+        return rooms.map(sanitizeWatchTogetherRoom);
       },
       getKey: (row) => row.id,
       syncMode: "eager",
@@ -338,7 +336,7 @@ function createUserInfoCollection(
       queryKey: ["sync-engine", "plex", "getUserInfo"],
       queryFn: async (): Promise<SanitizedUserInfoRow[]> => {
         const user = await trpc.plex.getUserInfo.query();
-        return [sanitizeUserInfo(user as unknown as Record<string, unknown>)];
+        return [sanitizeUserInfo(user)];
       },
       getKey: (row) => row.id,
       syncMode: "eager",
@@ -486,12 +484,9 @@ export async function warmMediaItem(
     serverUrl: details.serverUrl ?? undefined,
     authToken: details.authToken ?? undefined,
   });
-  const row = sanitizeMediaItemDetails(
-    details as unknown as Record<string, unknown>,
-    input.serverId,
-    { hasFullDetails: true },
-  );
-  if (!row) return null;
+  const row = sanitizeMediaItemDetails(details, input.serverId, {
+    hasFullDetails: true,
+  });
   await upsertRow(collections.mediaItems, row);
   return row;
 }
@@ -503,18 +498,18 @@ export async function warmMediaItem(
 export async function writeItemMetadata(
   collections: SyncEngineCollections,
   input: { serverId: string; ratingKey: string },
-  metadata: unknown,
+  metadata: RouterOutputs["plex"]["getItemMetadata"],
 ): Promise<SanitizedMediaItemRow | null> {
-  if (!metadata || typeof metadata !== "object") return null;
+  if (!metadata) return null;
   const existing = collections.mediaItems.get(
     mediaItemRowKey(input.serverId, input.ratingKey),
   );
   const row = sanitizeMediaItemDetails(
     {
       item: metadata,
-      serverName: existing?.serverName ?? null,
-      serverUrl: existing?.serverUrl ?? null,
-      authToken: existing?.authToken ?? null,
+      serverName: existing?.serverName ?? "",
+      serverUrl: existing?.serverUrl ?? undefined,
+      authToken: existing?.authToken ?? "",
       children: existing?.children ?? [],
       playableChildren: existing?.playableChildren ?? [],
       playTarget: existing?.playTarget ?? null,
@@ -522,7 +517,6 @@ export async function writeItemMetadata(
     input.serverId,
     { hasFullDetails: existing?.hasFullDetails ?? false },
   );
-  if (!row) return null;
   await upsertRow(collections.mediaItems, row);
   return row;
 }
@@ -541,9 +535,7 @@ export async function warmWatchTogetherInvitees(
   trpc: TRPCClient<AppRouter>,
 ): Promise<SanitizedWatchTogetherInviteeRow[]> {
   const invitees = await trpc.plex.getWatchTogetherInvitees.query();
-  const rows = invitees.map((invitee) =>
-    sanitizeWatchTogetherInvitee(invitee as unknown as Record<string, unknown>),
-  );
+  const rows = invitees.map(sanitizeWatchTogetherInvitee);
   await Promise.all(
     rows.map((row) => upsertRow(collections.watchTogetherInvitees, row)),
   );
@@ -562,9 +554,7 @@ export async function warmWatchTogetherRoom(
     deleteRow(collections.watchTogetherRooms, roomId);
     return null;
   }
-  const row = sanitizeWatchTogetherRoom(
-    room as unknown as Record<string, unknown>,
-  );
+  const row = sanitizeWatchTogetherRoom(room);
   await upsertRow(collections.watchTogetherRooms, row);
   return row;
 }
@@ -579,7 +569,7 @@ export async function warmLibraryHubs(
   const row = sanitizeLibraryHubsSnapshot(
     input.machineIdentifier,
     input.sectionId,
-    hubs as unknown as Record<string, unknown>[],
+    hubs,
   );
   await upsertRow(collections.libraryHubs, row);
   return row;
@@ -592,22 +582,14 @@ export function writeBrowsePage(
     pageSize: number;
     pageIndex: number;
     totalSize: number;
-    items: Array<Record<string, unknown>>;
+    items: HubItemWithServer[];
   },
 ): SanitizedBrowsePageRow {
   for (const item of input.items) {
-    const serverId =
-      typeof item.serverId === "string" ? item.serverId : undefined;
-    const ratingKey =
-      typeof item.ratingKey === "string" ? item.ratingKey : undefined;
-    if (serverId && ratingKey) {
-      rememberItemConnection(`${serverId}:${ratingKey}`, {
-        serverUrl:
-          typeof item.serverUrl === "string" ? item.serverUrl : undefined,
-        authToken:
-          typeof item.authToken === "string" ? item.authToken : undefined,
-      });
-    }
+    rememberItemConnection(`${item.serverId}:${item.ratingKey}`, {
+      serverUrl: item.serverUrl,
+      authToken: item.authToken,
+    });
   }
 
   const row: SanitizedBrowsePageRow = {
@@ -630,10 +612,22 @@ export async function warmSearchResults(
   const trimmed = query.trim();
   if (!trimmed) return null;
   const results = await trpc.plex.search.query({ query: trimmed });
+  for (const item of [
+    ...results.movies,
+    ...results.tv,
+    ...results.music,
+    ...results.people,
+    ...results.collections,
+  ]) {
+    rememberItemConnection(`${item.serverId}:${item.ratingKey}`, {
+      serverUrl: item.serverUrl,
+      authToken: item.authToken,
+    });
+  }
   const row: SanitizedSearchResultsRow = {
     id: searchResultsRowKey(trimmed),
     query: trimmed,
-    payload: stripCredentialsDeep(results, rememberItemConnection),
+    payload: cloneForPersistence(results),
   };
   await upsertRow(collections.searchResults, row);
   return row;
@@ -649,7 +643,7 @@ export async function warmPlaylist(
     id: playlistRowKey(input.serverId, input.playlistRatingKey),
     serverId: input.serverId,
     playlistRatingKey: input.playlistRatingKey,
-    payload: stripCredentialsDeep(playlist),
+    payload: cloneForPersistence(playlist),
   };
   await upsertRow(collections.playlists, row);
   return row;
@@ -677,7 +671,7 @@ export async function warmPlaylistContents(
     playlistRatingKey: input.playlistRatingKey,
     start: input.start,
     size: input.size,
-    payload: stripCredentialsDeep(contents),
+    payload: cloneForPersistence(contents),
   };
   await upsertRow(collections.playlistContents, row);
   return row;
@@ -693,7 +687,7 @@ export async function warmItemPlaylists(
     id: itemPlaylistsRowKey(input.serverId, input.playlistType),
     serverId: input.serverId,
     playlistType: input.playlistType,
-    payload: stripCredentialsDeep(playlists),
+    payload: cloneForPersistence(playlists),
   };
   await upsertRow(collections.itemPlaylists, row);
   return row;
@@ -709,9 +703,7 @@ export async function warmLibraryFilterValues(
     id: libraryFilterValuesRowKey(input.machineIdentifier, input.filterPath),
     machineIdentifier: input.machineIdentifier,
     filterPath: input.filterPath,
-    values: Array.isArray(values)
-      ? (stripCredentialsDeep(values) as unknown[])
-      : [],
+    values: cloneForPersistence(values),
   };
   await upsertRow(collections.libraryFilterValues, row);
   return row;
@@ -731,7 +723,7 @@ export async function warmPlayQueue(
     id: playQueueRowKey(input.serverId, input.playQueueId),
     serverId: input.serverId,
     playQueueId: input.playQueueId,
-    payload: stripCredentialsDeep(queue),
+    payload: cloneForPersistence(queue),
   };
   await upsertRow(collections.playQueues, row);
   return row;
@@ -739,10 +731,9 @@ export async function warmPlayQueue(
 
 export function writeSyncedUserInfo(
   collections: SyncEngineCollections,
-  // Accept PlexUserInfo (and similar) without forcing call sites through unknown.
-  user: object,
+  user: PlexUserInfo,
 ): SanitizedUserInfoRow {
-  const row = sanitizeUserInfo(user as Record<string, unknown>);
+  const row = sanitizeUserInfo(user);
   void upsertRow(collections.userInfo, row).catch(() => undefined);
   return row;
 }

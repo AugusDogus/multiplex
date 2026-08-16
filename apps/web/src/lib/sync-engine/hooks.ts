@@ -3,8 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
-import type { HubWithServer, PlexUserInfo } from "@multiplex/plex-query";
-import type { RouterOutputs } from "~/trpc/api";
+import type { PlexUserInfo } from "@multiplex/plex-query";
 
 import {
   warmItemMetadata,
@@ -73,12 +72,10 @@ import { getSyncEngineTrpcClient } from "./trpc-client";
 import { toPlexUserInfo } from "./user-info-view";
 import { toWatchTogetherRoom } from "./watch-together-view";
 
-type ItemDetails = NonNullable<RouterOutputs["plex"]["getItemDetails"]>;
-
 const WARM_MAX_ATTEMPTS = 2;
 const WARM_ATTEMPT_TIMEOUT_MS = 5_000;
 
-function runWarmAttempt(warm: () => Promise<unknown>): Promise<unknown> {
+function runWarmAttempt(warm: () => Promise<void>): Promise<void> {
   return new Promise((resolve, reject) => {
     const timeout = window.setTimeout(() => {
       reject(
@@ -88,9 +85,9 @@ function runWarmAttempt(warm: () => Promise<unknown>): Promise<unknown> {
       );
     }, WARM_ATTEMPT_TIMEOUT_MS);
     void warm().then(
-      (value) => {
+      () => {
         window.clearTimeout(timeout);
-        resolve(value);
+        resolve();
       },
       (cause: unknown) => {
         window.clearTimeout(timeout);
@@ -102,9 +99,9 @@ function runWarmAttempt(warm: () => Promise<unknown>): Promise<unknown> {
 
 function useWarmOnce(
   key: string | null,
-  warm: () => Promise<unknown>,
+  warm: () => Promise<void>,
   enabled: boolean,
-): { isWarming: boolean; error: Error | null; retry: () => void } {
+) {
   const [isWarming, setIsWarming] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
@@ -167,11 +164,7 @@ function useWarmOnce(
   return { isWarming, error, retry };
 }
 
-export function useSyncedContinueWatching(): {
-  data: SanitizedContinueWatchingRow[];
-  isLoading: boolean;
-  isReady: boolean;
-} {
+export function useSyncedContinueWatching() {
   const collections = useSyncEngineCollections();
   const { data, isLoading } = useCollectionRows<SanitizedContinueWatchingRow>(
     collections?.continueWatching ?? emptyContinueWatchingCollection,
@@ -184,11 +177,7 @@ export function useSyncedContinueWatching(): {
   };
 }
 
-export function useSyncedHomeHubs(): {
-  data: SanitizedHomeHubRow[];
-  isLoading: boolean;
-  isReady: boolean;
-} {
+export function useSyncedHomeHubs() {
   const collections = useSyncEngineCollections();
   const { data, isLoading } = useCollectionRows<SanitizedHomeHubRow>(
     collections?.homeHubs ?? emptyHomeHubsCollection,
@@ -201,12 +190,7 @@ export function useSyncedHomeHubs(): {
   };
 }
 
-export function useSyncedServerLibraries(): {
-  data: SanitizedServerLibraryRow[];
-  isLoading: boolean;
-  isReady: boolean;
-  error: Error | null;
-} {
+export function useSyncedServerLibraries() {
   const collections = useSyncEngineCollections();
   const { data, isLoading } = useCollectionRows<SanitizedServerLibraryRow>(
     collections?.serverLibraries ?? emptyServerLibrariesCollection,
@@ -214,7 +198,7 @@ export function useSyncedServerLibraries(): {
   // Observe the Query Collection's underlying query without double-fetching.
   const { error: queryError } = useQuery({
     queryKey: ["sync-engine", "plex", "getAllServerLibraries"],
-    queryFn: () => Promise.resolve([] as SanitizedServerLibraryRow[]),
+    queryFn: (): Promise<SanitizedServerLibraryRow[]> => Promise.resolve([]),
     enabled: false,
   });
 
@@ -231,12 +215,7 @@ export function useSyncedServerLibraries(): {
   };
 }
 
-export function useSyncedWatchTogetherRooms(): {
-  data: SanitizedWatchTogetherRoomRow[];
-  rooms: ReturnType<typeof toWatchTogetherRoom>[];
-  isLoading: boolean;
-  isReady: boolean;
-} {
+export function useSyncedWatchTogetherRooms() {
   const collections = useSyncEngineCollections();
   const { data, isLoading } = useCollectionRows<SanitizedWatchTogetherRoomRow>(
     collections?.watchTogetherRooms ?? emptyWatchTogetherRoomsCollection,
@@ -256,11 +235,7 @@ export function useSyncedWatchTogetherRooms(): {
 export function useSyncedWatchTogetherRoom(
   roomId: string | null,
   options?: { enabled?: boolean },
-): {
-  room: ReturnType<typeof toWatchTogetherRoom> | undefined;
-  isPending: boolean;
-  isError: boolean;
-} {
+) {
   const enabled = options?.enabled ?? true;
   const collections = useSyncEngineCollections();
   const { data: row, isLoading } =
@@ -295,11 +270,7 @@ export function useSyncedWatchTogetherRoom(
   };
 }
 
-export function useSyncedUserInfo(options?: { initialData?: PlexUserInfo }): {
-  data: PlexUserInfo | undefined;
-  isLoading: boolean;
-  isReady: boolean;
-} {
+export function useSyncedUserInfo(options?: { initialData?: PlexUserInfo }) {
   const collections = useSyncEngineCollections();
   const { data: row, isLoading } = useCollectionRowById<SanitizedUserInfoRow>(
     collections?.userInfo ?? emptyUserInfoCollection,
@@ -325,13 +296,7 @@ export function useSyncedItemDetails(
   serverId: string,
   ratingKey: string,
   options?: { enabled?: boolean },
-): {
-  details: ItemDetails | undefined;
-  isPending: boolean;
-  isFetching: boolean;
-  isError: boolean;
-  error: Error | null;
-} {
+) {
   const enabled = (options?.enabled ?? true) && Boolean(serverId && ratingKey);
   const collections = useSyncEngineCollections();
   const id = mediaItemRowKey(serverId, ratingKey);
@@ -380,10 +345,7 @@ export function useSyncedItemMetadata(
   serverId: string,
   ratingKey: string,
   options?: { enabled?: boolean },
-): {
-  data: ReturnType<typeof toItemMetadata>;
-  refetch: () => Promise<{ data: ReturnType<typeof toItemMetadata> }>;
-} {
+) {
   const enabled = (options?.enabled ?? true) && Boolean(serverId && ratingKey);
   const collections = useSyncEngineCollections();
   const id = mediaItemRowKey(serverId, ratingKey);
@@ -428,11 +390,7 @@ export function useSyncedItemMetadata(
 export function useSyncedLibraryHubs(
   machineIdentifier: string,
   sectionId: string,
-): {
-  hubs: HubWithServer[];
-  isPending: boolean;
-  isFetching: boolean;
-} {
+) {
   const collections = useSyncEngineCollections();
   const id = libraryHubsSnapshotKey(machineIdentifier, sectionId);
   const { data: snapshot, isLoading } =
@@ -466,13 +424,7 @@ export function useSyncedLibraryHubs(
 
 export function useSyncedWatchTogetherInvitees(options?: {
   enabled?: boolean;
-}): {
-  data: SanitizedWatchTogetherInviteeRow[];
-  isLoading: boolean;
-  isPending: boolean;
-  isError: boolean;
-  retry: () => void;
-} {
+}) {
   const enabled = options?.enabled ?? true;
   const collections = useSyncEngineCollections();
   const { data, isLoading } =
@@ -505,11 +457,7 @@ export function useSyncedWatchTogetherInvitees(options?: {
   };
 }
 
-export function useSyncedSearchResults(query: string): {
-  data: RouterOutputs["plex"]["search"] | undefined;
-  isLoading: boolean;
-  error: Error | null;
-} {
+export function useSyncedSearchResults(query: string) {
   const collections = useSyncEngineCollections();
   const id = searchResultsRowKey(query);
   const enabled = query.trim().length > 0;
@@ -528,7 +476,7 @@ export function useSyncedSearchResults(query: string): {
   );
 
   return {
-    data: row?.payload as RouterOutputs["plex"]["search"] | undefined,
+    data: row?.payload,
     isLoading: Boolean(enabled && (!collections || (!row && isWarming))),
     error,
   };
@@ -537,14 +485,7 @@ export function useSyncedSearchResults(query: string): {
 export function useSyncedPlaylist(
   serverId: string,
   playlistRatingKey: string,
-): {
-  data: RouterOutputs["plex"]["getPlaylist"] | undefined;
-  isLoading: boolean;
-  isPending: boolean;
-  isError: boolean;
-  isFetching: boolean;
-  refetch: () => Promise<void>;
-} {
+) {
   const collections = useSyncEngineCollections();
   const id = playlistRowKey(serverId, playlistRatingKey);
   const { data: row } = useCollectionRowById<SanitizedPlaylistRow>(
@@ -567,7 +508,7 @@ export function useSyncedPlaylist(
   const pending = !collections || (!row && isWarming);
 
   return {
-    data: row?.payload as RouterOutputs["plex"]["getPlaylist"] | undefined,
+    data: row?.payload,
     isLoading: pending,
     isPending: pending,
     isError: Boolean(error),
@@ -587,14 +528,7 @@ export function useSyncedPlaylistContents(input: {
   playlistRatingKey: string;
   start: number;
   size: number;
-}): {
-  data: RouterOutputs["plex"]["getPlaylistContents"] | undefined;
-  isLoading: boolean;
-  isPending: boolean;
-  isError: boolean;
-  isFetching: boolean;
-  refetch: () => Promise<void>;
-} {
+}) {
   const collections = useSyncEngineCollections();
   const id = playlistContentsRowKey(
     input.serverId,
@@ -619,9 +553,7 @@ export function useSyncedPlaylistContents(input: {
   const pending = !collections || (!row && isWarming);
 
   return {
-    data: row?.payload as
-      | RouterOutputs["plex"]["getPlaylistContents"]
-      | undefined,
+    data: row?.payload,
     isLoading: pending,
     isPending: pending,
     isError: Boolean(error),
@@ -637,13 +569,7 @@ export function useSyncedItemPlaylists(
   serverId: string,
   playlistType: "video" | "audio" | "photo" | null | undefined,
   options?: { enabled?: boolean },
-): {
-  data: RouterOutputs["plex"]["getItemPlaylists"] | undefined;
-  isLoading: boolean;
-  isPending: boolean;
-  isError: boolean;
-  refetch: () => Promise<void>;
-} {
+) {
   const resolvedType =
     playlistType === "audio" || playlistType === "photo"
       ? playlistType
@@ -673,7 +599,7 @@ export function useSyncedItemPlaylists(
   const pending = Boolean(enabled && (!collections || (!row && isWarming)));
 
   return {
-    data: row?.payload as RouterOutputs["plex"]["getItemPlaylists"] | undefined,
+    data: row?.payload,
     isLoading: pending,
     isPending: pending,
     isError: Boolean(error),
@@ -691,10 +617,7 @@ export function useSyncedLibraryFilterValues(
   machineIdentifier: string,
   filterPath: string,
   options?: { enabled?: boolean },
-): {
-  data: RouterOutputs["plex"]["getLibraryFilterValues"] | undefined;
-  isLoading: boolean;
-} {
+) {
   const enabled = options?.enabled ?? true;
   const collections = useSyncEngineCollections();
   const id = libraryFilterValuesRowKey(machineIdentifier, filterPath);
@@ -716,9 +639,7 @@ export function useSyncedLibraryFilterValues(
   );
 
   return {
-    data: row?.values as
-      | RouterOutputs["plex"]["getLibraryFilterValues"]
-      | undefined,
+    data: row?.values,
     isLoading: Boolean(enabled && (!collections || (!row && isWarming))),
   };
 }
@@ -727,9 +648,7 @@ export function useSyncedPlayQueue(
   serverId: string,
   playQueueId: string,
   options?: { enabled?: boolean; refetchIntervalMs?: number },
-): {
-  data: RouterOutputs["plex"]["getPlayQueue"] | undefined;
-} {
+) {
   const enabled =
     (options?.enabled ?? true) && Boolean(serverId && playQueueId);
   const collections = useSyncEngineCollections();
@@ -768,6 +687,6 @@ export function useSyncedPlayQueue(
   ]);
 
   return {
-    data: row?.payload as RouterOutputs["plex"]["getPlayQueue"] | undefined,
+    data: row?.payload,
   };
 }

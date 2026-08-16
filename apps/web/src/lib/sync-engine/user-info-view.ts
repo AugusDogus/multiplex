@@ -7,13 +7,8 @@ import type { SanitizedUserInfoRow } from "./sanitize";
  * from OPFS — callers that need a token use server session / connection overlay.
  */
 export function toPlexUserInfo(row: SanitizedUserInfoRow): PlexUserInfo {
-  const payload =
-    row.payload && typeof row.payload === "object"
-      ? (row.payload as Record<string, unknown>)
-      : {};
-
   return {
-    ...(payload as unknown as PlexUserInfo),
+    ...row.payload,
     id: row.plexUserId,
     uuid: row.uuid ?? "",
     username: row.username ?? "",

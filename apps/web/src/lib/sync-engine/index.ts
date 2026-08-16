@@ -106,7 +106,7 @@ export {
   sanitizeUserInfo,
   sanitizeWatchTogetherInvitee,
   sanitizeWatchTogetherRoom,
-  stripCredentialsDeep,
+  cloneForPersistence,
   type SanitizedBrowsePageRow,
   type SanitizedContinueWatchingRow,
   type SanitizedHomeHubRow,

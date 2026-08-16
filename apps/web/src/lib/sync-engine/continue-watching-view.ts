@@ -59,18 +59,15 @@ export function toContinueWatchingItemWithServer(
     progressPercent: row.progressPercent ?? undefined,
     isCompleted: row.isCompleted ?? undefined,
     timeRemaining: row.timeRemaining ?? undefined,
-    lastViewedAt:
-      typeof row.lastViewedAt === "number"
-        ? new Date(row.lastViewedAt * 1000)
-        : undefined,
+    lastViewedAt: row.lastViewedAt
+      ? new Date(row.lastViewedAt * 1000)
+      : undefined,
     hubTitle: row.hubTitle ?? "",
     hubType: row.hubType ?? "",
     librarySectionTitle: row.librarySectionTitle ?? "",
     librarySectionID: row.librarySectionID ?? 0,
     librarySectionKey: row.librarySectionKey ?? "",
-    Media: Array.isArray(row.Media)
-      ? (row.Media as ContinueWatchingItemWithServer["Media"])
-      : undefined,
+    Media: row.Media ?? undefined,
     serverId: row.serverId,
     serverName: row.serverName ?? undefined,
     serverUrl: connection.serverUrl,
