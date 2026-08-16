@@ -94,13 +94,13 @@ export function shouldRemainLoadingAfterMetadata(input: {
  */
 export function supportsFullscreen(): boolean {
   return Boolean(
-    document.fullscreenEnabled ??
-      (document as Document & { webkitFullscreenEnabled?: boolean })
-        .webkitFullscreenEnabled ??
-      (document as Document & { mozFullScreenEnabled?: boolean })
-        .mozFullScreenEnabled ??
-      (document as Document & { msFullscreenEnabled?: boolean })
-        .msFullscreenEnabled,
+    document.fullscreenEnabled ||
+      ("webkitFullscreenEnabled" in document &&
+        document.webkitFullscreenEnabled === true) ||
+      ("mozFullScreenEnabled" in document &&
+        document.mozFullScreenEnabled === true) ||
+      ("msFullscreenEnabled" in document &&
+        document.msFullscreenEnabled === true),
   );
 }
 
@@ -126,7 +126,7 @@ export function getEpisodeInfo(
   const season = item.parentIndex;
   const episode = item.index;
 
-  if (typeof season === "number" && typeof episode === "number") {
+  if (season !== undefined && episode !== undefined) {
     return { season, episode };
   }
 

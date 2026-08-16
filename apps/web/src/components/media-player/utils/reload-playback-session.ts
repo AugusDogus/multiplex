@@ -83,7 +83,9 @@ export function consumeReloadPlaybackSession(
 }
 
 export function browserReloadStorage(): Storage | null {
-  return typeof window === "undefined"
+  return !("window" in globalThis)
     ? null
-    : Option.getOrNull(Option.liftThrowable(() => window.localStorage)());
+    : Option.getOrNull(
+        Option.liftThrowable(() => globalThis.window.localStorage)(),
+      );
 }
