@@ -7,6 +7,9 @@ const ITEM_DETAILS_ROUTE_TYPES = [
   "season",
   "episode",
 ] as const;
+const ITEM_DETAILS_ROUTE_TYPE_SET: ReadonlySet<string> = new Set(
+  ITEM_DETAILS_ROUTE_TYPES,
+);
 
 export type ItemDetailsRouteType = (typeof ITEM_DETAILS_ROUTE_TYPES)[number];
 
@@ -149,7 +152,7 @@ export function getItemDetailsRouteType(
 export function isItemDetailsRouteType(
   type: string,
 ): type is ItemDetailsRouteType {
-  return ITEM_DETAILS_ROUTE_TYPES.includes(type as ItemDetailsRouteType);
+  return ITEM_DETAILS_ROUTE_TYPE_SET.has(type);
 }
 
 /**
