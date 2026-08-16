@@ -98,10 +98,12 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
     () => undefined,
   );
   const guestCapability = queryCapability ?? storedGuestCapability;
+  const hasGuestCapability =
+    guestCapability !== null && guestCapability !== undefined;
   const hostContextQuery = api.guestWatchTogether.hostContext.useQuery(
     { capability: guestCapability ?? "" },
     {
-      enabled: typeof guestCapability === "string",
+      enabled: hasGuestCapability,
       staleTime: 30_000,
       retry: 1,
       retryDelay: 250,
