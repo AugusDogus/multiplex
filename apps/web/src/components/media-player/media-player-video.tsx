@@ -3,7 +3,6 @@
 import { FastForward } from "lucide-react";
 import {
   forwardRef,
-  useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
@@ -557,25 +556,22 @@ function useMediaPlayerVideoController(
     onClick: useMobileSurfaceGestures ? undefined : onVideoClick,
   });
 
-  const videoRefCallback = useCallback(
-    (node: HTMLVideoElement | null) => {
-      if (videoElementRef.current === node) return;
-      videoElementRef.current = node;
-      if (typeof ref === "function") {
-        ref(node);
-      } else if (ref) {
-        ref.current = node;
-      }
-      // Start from the imperative play() path instead of the autoPlay attribute
-      // so audible playback stays under player/Syncplay control.
-      if (node) {
-        void node.play().catch(() => {
-          // Autoplay can still be blocked by the browser; controls retry.
-        });
-      }
-    },
-    [ref],
-  );
+  const videoRefCallback = (node: HTMLVideoElement | null) => {
+    if (videoElementRef.current === node) return;
+    videoElementRef.current = node;
+    if (typeof ref === "function") {
+      ref(node);
+    } else if (ref) {
+      ref.current = node;
+    }
+    // Start from the imperative play() path instead of the autoPlay attribute
+    // so audible playback stays under player/Syncplay control.
+    if (node) {
+      void node.play().catch(() => {
+        // Autoplay can still be blocked by the browser; controls retry.
+      });
+    }
+  };
 
   // A Watch Together session forces normal speed (an unsynced local rate would
   // desync viewers); otherwise honor the user's chosen rate.

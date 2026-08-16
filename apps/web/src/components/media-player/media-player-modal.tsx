@@ -523,7 +523,7 @@ function usePlaybackSessionController({
   };
 }
 
-export function MediaPlayerModal() {
+function useMediaPlayerModalController(): MediaPlayerModalViewProps | null {
   const router = useRouter();
   const {
     isOpen,
@@ -774,57 +774,55 @@ export function MediaPlayerModal() {
 
   if (!currentItem) return null;
 
-  return (
-    <MediaPlayerModalView
-      onClose={handleClose}
-      dragRef={dragRef}
-      dragHandlers={dragHandlers}
-      chromeClassName={chromeClassName}
-      mobileChromeVisible={mobileChromeVisible}
-      currentItem={currentItem}
-      playbackState={{
-        isOpen,
-        isMobile,
-        showControls,
-        isLoading,
-        error,
-        isPlaying,
-        canPlay,
-        isWatchTogetherActive: isSyncplayActiveForCurrentItem,
-      }}
-      markers={markers}
-      currentTime={currentTime}
-      actions={localActions}
-      autoPlayProps={autoPlayProps}
-      videoProps={{
-        ref: videoRef,
-        seekFeedbackRef,
-        item: currentItem,
-        className: "h-full w-full",
-        useMobileSurfaceGestures: isMobile,
-        isWatchTogetherActive: isSyncplayActiveForCurrentItem,
-        onMobileSurfaceTap: isMobile ? handleSurfaceTap : undefined,
-        onVideoClick: isMobile ? undefined : handleVideoClick,
-        onVideoDoubleClick: handleVideoDoubleClick,
-        onVolumeScroll: handleVolumeScroll,
-        onVideoEnded: onEnded,
-        onVideoPlay: handleVideoPlay,
-        onVideoPause: handleVideoPause,
-        consumePauseRequest,
-        onVideoTimeUpdate: onTimeUpdate,
-        onVideoSeeking: onSyncplayLocalSeeked,
-        onVideoSeeked,
-      }}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-      onMouseMove={handleMouseMove}
-      onCenterTogglePlay={handleCenterTogglePlay}
-      onMobileSkipBackward={handleMobileSkipBackward}
-      onMobileSkipForward={handleMobileSkipForward}
-      onSettingsOpenChange={handleSettingsOpenChange}
-      onResetMobileControlsTimer={resetMobileControlsTimer}
-    />
-  );
+  return {
+    onClose: handleClose,
+    dragRef,
+    dragHandlers,
+    chromeClassName,
+    mobileChromeVisible,
+    currentItem,
+    playbackState: {
+      isOpen,
+      isMobile,
+      showControls,
+      isLoading,
+      error,
+      isPlaying,
+      canPlay,
+      isWatchTogetherActive: isSyncplayActiveForCurrentItem,
+    },
+    markers,
+    currentTime,
+    actions: localActions,
+    autoPlayProps,
+    videoProps: {
+      ref: videoRef,
+      seekFeedbackRef,
+      item: currentItem,
+      className: "h-full w-full",
+      useMobileSurfaceGestures: isMobile,
+      isWatchTogetherActive: isSyncplayActiveForCurrentItem,
+      onMobileSurfaceTap: isMobile ? handleSurfaceTap : undefined,
+      onVideoClick: isMobile ? undefined : handleVideoClick,
+      onVideoDoubleClick: handleVideoDoubleClick,
+      onVolumeScroll: handleVolumeScroll,
+      onVideoEnded: onEnded,
+      onVideoPlay: handleVideoPlay,
+      onVideoPause: handleVideoPause,
+      consumePauseRequest,
+      onVideoTimeUpdate: onTimeUpdate,
+      onVideoSeeking: onSyncplayLocalSeeked,
+      onVideoSeeked,
+    },
+    onMouseEnter: handleMouseEnter,
+    onMouseLeave: handleMouseLeave,
+    onMouseMove: handleMouseMove,
+    onCenterTogglePlay: handleCenterTogglePlay,
+    onMobileSkipBackward: handleMobileSkipBackward,
+    onMobileSkipForward: handleMobileSkipForward,
+    onSettingsOpenChange: handleSettingsOpenChange,
+    onResetMobileControlsTimer: resetMobileControlsTimer,
+  };
 }
 
 interface MediaPlayerModalViewProps {
@@ -857,6 +855,11 @@ interface MediaPlayerModalViewProps {
   onMobileSkipForward: () => void;
   onSettingsOpenChange: (open: boolean) => void;
   onResetMobileControlsTimer: () => void;
+}
+
+export function MediaPlayerModal() {
+  const viewProps = useMediaPlayerModalController();
+  return viewProps ? <MediaPlayerModalView {...viewProps} /> : null;
 }
 
 function MediaPlayerModalView({

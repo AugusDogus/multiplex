@@ -1,5 +1,6 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import {
   isAtEnd,
   isInLeadWindow,
@@ -7,7 +8,6 @@ import {
 } from "@multiplex/plex-query";
 import {
   useEffect,
-  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -39,6 +39,11 @@ type JoinState =
   | { readonly status: "unavailable"; readonly message: string };
 
 type GuestLobbyEntry = Parameters<typeof sessionCommands.enterLobby>[0];
+
+type GuestContinuation = {
+  readonly capability: string;
+  readonly value: GuestWatchTogetherBootstrapValue;
+};
 
 export type GuestLobbyEntryCommands = Pick<
   typeof sessionCommands,
@@ -173,48 +178,23 @@ function guestDeviceName(deviceName: string): string {
   return deviceName.replace(/^Multiplex Guest ·\s*/, "") || "Guest";
 }
 
-export function useGuestWatchTogether(capability: string) {
-  const sessionState = useSessionState();
-  const { currentTime, duration } = usePlayerStateSelector(
-    (state) => ({
-      currentTime: state.currentTime,
-      duration: state.duration,
+function createGuestLobbySession(input: {
+  readonly joined: GuestWatchTogetherBootstrapValue;
+  readonly nickname: string;
+  readonly deviceIdentifier: string;
+}): {
+  readonly entry: GuestLobbyEntry;
+  readonly playbackItem: ReturnType<typeof createMediaPlayerItem>;
+} {
+  const { joined, nickname, deviceIdentifier } = input;
+  return {
+    playbackItem: createMediaPlayerItem(joined.item, {
+      serverId: joined.serverId,
+      serverUrl: joined.serverUrl,
+      authToken: joined.authToken,
+      access: "guest-transient",
     }),
-    shallow,
-  );
-  const [nickname, setNickname] = useState("");
-  const [joinState, setJoinState] = useState<JoinState>({ status: "form" });
-  const [activeCapability, setActiveCapability] = useState(capability);
-  const [pendingContinuation, setPendingContinuation] = useState<{
-    capability: string;
-    value: GuestWatchTogetherBootstrapValue;
-  } | null>(null);
-  const [continuationPollingRoomId, setContinuationPollingRoomId] = useState<
-    string | null
-  >(null);
-  const swappingRef = useRef(false);
-  const joiningRef = useRef(false);
-  const pendingLobbyRoomIdRef = useRef<string | null>(null);
-  const joined = joinState.status === "joined" ? joinState.value : null;
-  const deviceIdentifier =
-    joinState.status === "joined" ? joinState.deviceIdentifier : null;
-  const playbackItem = useMemo(
-    () =>
-      joined
-        ? createMediaPlayerItem(joined.item, {
-            serverId: joined.serverId,
-            serverUrl: joined.serverUrl,
-            authToken: joined.authToken,
-            access: "guest-transient",
-          })
-        : null,
-    [joined],
-  );
-  const lobbyEntry = useMemo<GuestLobbyEntry | null>(() => {
-    if (!joined || !playbackItem || !deviceIdentifier) {
-      return null;
-    }
-    return {
+    entry: {
       room: joined.room,
       localUser: createGuestSyncplayUser({
         guestUserId: joined.guest.id,
@@ -227,8 +207,59 @@ export function useGuestWatchTogether(capability: string) {
         hostUserId: joined.host.id,
         guestUserId: joined.guest.id,
       },
-    };
-  }, [deviceIdentifier, joined, nickname, playbackItem]);
+    },
+  };
+}
+
+async function fetchGuestContinuation(input: {
+  readonly capability: string;
+  readonly nextRatingKey?: string;
+  readonly signal: AbortSignal;
+}): Promise<GuestContinuation | null> {
+  try {
+    const response = await fetch("/api/watch-together/guest/continue", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        capability: input.capability,
+        ...(input.nextRatingKey ? { nextRatingKey: input.nextRatingKey } : {}),
+      }),
+      signal: input.signal,
+    });
+    // Non-OK responses are retried on the next interval tick; the current
+    // room remains playable while discovery continues.
+    if (!response.ok) return null;
+    const body: unknown = await response.json();
+    const parsed = guestWatchTogetherContinuationResponseSchema.safeParse(body);
+    return parsed.success && parsed.data.ok ? parsed.data : null;
+  } catch {
+    // AbortError on unmount is expected; other failures retry on interval.
+    return null;
+  }
+}
+
+export function useGuestWatchTogether(capability: string) {
+  const sessionState = useSessionState();
+  const { currentTime, duration } = usePlayerStateSelector(
+    (state) => ({
+      currentTime: state.currentTime,
+      duration: state.duration,
+    }),
+    shallow,
+  );
+  const [nickname, setNickname] = useState("");
+  const [joinState, setJoinState] = useState<JoinState>({ status: "form" });
+  const [activeCapability, setActiveCapability] = useState(capability);
+  const [continuationPollingRoomId, setContinuationPollingRoomId] = useState<
+    string | null
+  >(null);
+  const swappingRef = useRef(false);
+  const joiningRef = useRef(false);
+  const pendingLobbyRoomIdRef = useRef<string | null>(null);
+  const joined = joinState.status === "joined" ? joinState.value : null;
+  const deviceIdentifier =
+    joinState.status === "joined" ? joinState.deviceIdentifier : null;
   const rotationTimeline = getGuestRotationTimeline({
     localCurrentTimeSeconds: currentTime,
     localDurationSeconds: duration,
@@ -250,22 +281,49 @@ export function useGuestWatchTogether(capability: string) {
       sessionState,
     });
   const shouldPollContinuation =
-    joined !== null &&
-    continuationPollingRoomId === joined.room.id &&
-    pendingContinuation === null;
+    joined !== null && continuationPollingRoomId === joined.room.id;
+  const { data: pendingContinuation = null } = useQuery({
+    queryKey: [
+      "guest-watch-together-continuation",
+      activeCapability,
+      joined?.room.id,
+      joined?.nextEpisode?.ratingKey,
+    ],
+    queryFn: ({ signal }) =>
+      fetchGuestContinuation({
+        capability: activeCapability,
+        ...(joined?.nextEpisode?.ratingKey
+          ? { nextRatingKey: joined.nextEpisode.ratingKey }
+          : {}),
+        signal,
+      }),
+    enabled: shouldPollContinuation,
+    refetchInterval: (query) => (query.state.data ? false : 4_000),
+    refetchIntervalInBackground: true,
+    retry: false,
+  });
 
   useEffect(() => {
-    if (!lobbyEntry || !playbackItem) {
+    if (!joined || !deviceIdentifier) {
       return;
     }
-    requestGuestLobbyEntry(sessionCommands, pendingLobbyRoomIdRef, lobbyEntry);
+    const session = createGuestLobbySession({
+      joined,
+      nickname,
+      deviceIdentifier,
+    });
+    requestGuestLobbyEntry(
+      sessionCommands,
+      pendingLobbyRoomIdRef,
+      session.entry,
+    );
     sessionCommands.setLobbyContext({
       canStart: true,
-      playbackInput: { item: playbackItem },
+      playbackInput: { item: session.playbackItem },
       leaving: false,
     });
 
-    const roomId = lobbyEntry.room.id;
+    const roomId = session.entry.room.id;
 
     return () => {
       sessionCommands.setLobbyContext({
@@ -275,14 +333,23 @@ export function useGuestWatchTogether(capability: string) {
       });
       sessionCommands.exitLobby({ expectedRoomId: roomId });
     };
-  }, [lobbyEntry, playbackItem]);
+  }, [deviceIdentifier, joined, nickname]);
 
   useEffect(() => {
-    if (!lobbyEntry || sessionState._tag !== "Idle") {
+    if (!joined || !deviceIdentifier || sessionState._tag !== "Idle") {
       return;
     }
-    requestGuestLobbyEntry(sessionCommands, pendingLobbyRoomIdRef, lobbyEntry);
-  }, [lobbyEntry, sessionState._tag]);
+    const session = createGuestLobbySession({
+      joined,
+      nickname,
+      deviceIdentifier,
+    });
+    requestGuestLobbyEntry(
+      sessionCommands,
+      pendingLobbyRoomIdRef,
+      session.entry,
+    );
+  }, [deviceIdentifier, joined, nickname, sessionState._tag]);
 
   useEffect(() => {
     if (
@@ -313,54 +380,6 @@ export function useGuestWatchTogether(capability: string) {
     rotationTimeline.inLeadWindow,
     shouldSwapContinuation,
   ]);
-
-  useEffect(() => {
-    if (!joined || !shouldPollContinuation || pendingContinuation) {
-      return;
-    }
-
-    let done = false;
-    const controller = new AbortController();
-    const nextRatingKey = joined.nextEpisode?.ratingKey;
-
-    const poll = async () => {
-      if (done) return;
-      try {
-        const response = await fetch("/api/watch-together/guest/continue", {
-          method: "POST",
-          cache: "no-store",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            capability: activeCapability,
-            ...(nextRatingKey ? { nextRatingKey } : {}),
-          }),
-          signal: controller.signal,
-        });
-        // Non-OK responses are retried on the next interval tick; the current
-        // room remains playable while discovery continues.
-        if (!response.ok) return;
-        const body: unknown = await response.json();
-        const parsed =
-          guestWatchTogetherContinuationResponseSchema.safeParse(body);
-        if (done) return;
-        if (parsed.success && parsed.data.ok) {
-          done = true;
-          setPendingContinuation(parsed.data);
-        }
-      } catch {
-        // AbortError on unmount is expected; other failures retry on interval.
-      }
-    };
-
-    void poll();
-    const intervalId = setInterval(() => void poll(), 4_000);
-
-    return () => {
-      done = true;
-      controller.abort();
-      clearInterval(intervalId);
-    };
-  }, [activeCapability, joined, pendingContinuation, shouldPollContinuation]);
 
   useEffect(() => {
     if (
@@ -407,7 +426,6 @@ export function useGuestWatchTogether(capability: string) {
             : state,
         );
         setActiveCapability(pendingContinuation.capability);
-        setPendingContinuation(null);
         setContinuationPollingRoomId(null);
         window.history.replaceState(
           window.history.state,
