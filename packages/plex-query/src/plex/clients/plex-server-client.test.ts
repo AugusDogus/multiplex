@@ -48,7 +48,18 @@ function makeClient(responseFor: (url: URL, method: string) => Response) {
   return { client, fetchSpy };
 }
 
-function playlistFixture(overrides: Record<string, unknown> = {}) {
+interface PlaylistFixture {
+  ratingKey: string;
+  key: string;
+  type: string;
+  title: string;
+  smart: boolean;
+  playlistType: string;
+  leafCount: number;
+  authToken: string;
+}
+
+function playlistFixture(overrides: Partial<PlaylistFixture> = {}) {
   return {
     ratingKey: "42",
     key: "/playlists/42/items",
