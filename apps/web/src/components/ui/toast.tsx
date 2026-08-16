@@ -14,6 +14,7 @@ import { buttonVariants } from "~/components/ui/button-variants";
 import {
   anchoredToastManager,
   toastManager,
+  type ToastData,
 } from "~/components/ui/toast-manager";
 
 const TOAST_ICONS = {
@@ -29,14 +30,6 @@ function isKnownToastType(type: string): type is keyof typeof TOAST_ICONS {
 }
 
 type SwipeDirection = "up" | "down" | "left" | "right";
-
-type ToastData = {
-  rootProps?: Omit<
-    React.ComponentProps<typeof Toast.Root>,
-    "children" | "className" | "swipeDirection" | "toast"
-  >;
-  tooltipStyle?: boolean;
-};
 
 function getSwipeDirection(position: ToastPosition): SwipeDirection[] {
   const verticalDirection: SwipeDirection = position.startsWith("top")
@@ -74,7 +67,7 @@ function Toasts({
   position: ToastPosition;
   portalProps?: React.ComponentProps<typeof Toast.Portal>;
 }): React.ReactElement {
-  const { toasts } = Toast.useToastManager();
+  const { toasts } = Toast.useToastManager<ToastData>();
   const swipeDirection = getSwipeDirection(position);
 
   return (
@@ -98,7 +91,7 @@ function Toasts({
             toast.type && isKnownToastType(toast.type)
               ? TOAST_ICONS[toast.type]
               : null;
-          const toastData = toast.data as ToastData | undefined;
+          const toastData = toast.data;
 
           return (
             <Toast.Root
@@ -196,7 +189,7 @@ function AnchoredToasts({
 }: {
   portalProps?: React.ComponentProps<typeof Toast.Portal>;
 }): React.ReactElement {
-  const { toasts } = Toast.useToastManager();
+  const { toasts } = Toast.useToastManager<ToastData>();
 
   return (
     <Toast.Portal data-slot="toast-portal-anchored" {...portalProps}>
@@ -209,7 +202,7 @@ function AnchoredToasts({
             toast.type && isKnownToastType(toast.type)
               ? TOAST_ICONS[toast.type]
               : null;
-          const toastData = toast.data as ToastData | undefined;
+          const toastData = toast.data;
           const tooltipStyle = toastData?.tooltipStyle ?? false;
           const positionerProps = toast.positionerProps;
 

@@ -1,7 +1,14 @@
 import { Toast } from "@base-ui/react/toast";
+import type React from "react";
 
-export const toastManager: ReturnType<typeof Toast.createToastManager> =
-  Toast.createToastManager();
+export type ToastData = {
+  rootProps?: Omit<
+    React.ComponentProps<typeof Toast.Root>,
+    "children" | "className" | "swipeDirection" | "toast"
+  >;
+  tooltipStyle?: boolean;
+};
 
-export const anchoredToastManager: ReturnType<typeof Toast.createToastManager> =
-  Toast.createToastManager();
+export const toastManager = Toast.createToastManager<ToastData>();
+
+export const anchoredToastManager = Toast.createToastManager<ToastData>();
