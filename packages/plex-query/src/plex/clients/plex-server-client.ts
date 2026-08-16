@@ -65,6 +65,13 @@ import {
 } from "../types/client-types";
 import { z } from "zod";
 
+type HubQueryParams = {
+  includeMeta: string;
+  count: string;
+  onlyTransient?: string;
+  contentDirectoryID?: string;
+};
+
 /* ────────────────────────────────────────────────────────────
    Plex Server Client
    Client for interacting with individual Plex Media Server instances
@@ -499,8 +506,8 @@ export class PlexServerClient {
     count?: number;
     onlyTransient?: boolean;
     contentDirectoryIds?: string[];
-  }): Record<string, string> {
-    const queryParams: Record<string, string> = {
+  }): HubQueryParams {
+    const queryParams: HubQueryParams = {
       includeMeta: "1",
       count: (options?.count ?? HUB_PREVIEW_SIZE).toString(),
     };
@@ -570,7 +577,7 @@ export class PlexServerClient {
     },
   ): Promise<LibraryContentResponse> {
     const parsed = assertAllowedHubKey(hubKey);
-    const queryParams: Record<string, string> = {
+    const queryParams = {
       includeMeta: "1",
       ...parsed.params,
       "X-Plex-Container-Start": (params?.start ?? 0).toString(),
@@ -600,14 +607,14 @@ export class PlexServerClient {
       filters?: Record<string, string>;
     },
   ): Promise<LibraryContentResponse> {
-    const queryParams: Record<string, string> = {
+    const queryParams = new URLSearchParams({
       sort: params?.sort ?? "addedAt:desc",
       "X-Plex-Container-Start": (params?.start ?? 0).toString(),
       "X-Plex-Container-Size": (params?.size ?? LIBRARY_PAGE_SIZE).toString(),
-    };
+    });
 
     if (params?.type) {
-      queryParams.type = params.type;
+      queryParams.set("type", params.type);
     }
 
     if (params?.filters) {
@@ -615,14 +622,14 @@ export class PlexServerClient {
         // Guard against callers smuggling Plex control params (pagination,
         // auth) in through the filter bag.
         if (value !== "" && !key.startsWith("X-Plex-")) {
-          queryParams[key] = value;
+          queryParams.set(key, value);
         }
       }
     }
 
     const rawResponse = await this.get({
       endpoint: `library/sections/${sectionId}/all`,
-      params: queryParams,
+      params: Object.fromEntries(queryParams),
     });
 
     return libraryContentResponseSchema.parse(rawResponse);
@@ -633,18 +640,18 @@ export class PlexServerClient {
    * tab's type, filter, and sort dropdown menus.
    */
   async getLibraryMeta(sectionId: string, type?: string): Promise<LibraryMetaResponse> {
-    const queryParams: Record<string, string> = {
+    const queryParams = new URLSearchParams({
       includeMeta: "1",
       "X-Plex-Container-Size": "0",
-    };
+    });
 
     if (type) {
-      queryParams.type = type;
+      queryParams.set("type", type);
     }
 
     const rawResponse = await this.get({
       endpoint: `library/sections/${sectionId}/all`,
-      params: queryParams,
+      params: Object.fromEntries(queryParams),
     });
 
     return libraryMetaResponseSchema.parse(rawResponse);
@@ -657,7 +664,7 @@ export class PlexServerClient {
     sectionId: string,
     params?: { start?: number; size?: number },
   ): Promise<LibraryContentResponse> {
-    const queryParams: Record<string, string> = {
+    const queryParams = {
       "X-Plex-Container-Start": (params?.start ?? 0).toString(),
       "X-Plex-Container-Size": (params?.size ?? LIBRARY_PAGE_SIZE).toString(),
     };
@@ -678,7 +685,7 @@ export class PlexServerClient {
     sectionId: string,
     params?: { start?: number; size?: number },
   ): Promise<CategoriesResponse> {
-    const queryParams: Record<string, string> = {
+    const queryParams = {
       "X-Plex-Container-Start": (params?.start ?? 0).toString(),
       "X-Plex-Container-Size": (params?.size ?? LIBRARY_PAGE_SIZE).toString(),
     };
@@ -698,7 +705,7 @@ export class PlexServerClient {
     sectionId: string,
     params?: { start?: number; size?: number },
   ): Promise<LibraryContentResponse> {
-    const queryParams: Record<string, string> = {
+    const queryParams = {
       sectionID: sectionId,
       "X-Plex-Container-Start": (params?.start ?? 0).toString(),
       "X-Plex-Container-Size": (params?.size ?? LIBRARY_PAGE_SIZE).toString(),
@@ -732,7 +739,7 @@ export class PlexServerClient {
       [...new URLSearchParams(query)].filter(([key]) => !key.startsWith("X-Plex-")),
     );
 
-    const queryParams: Record<string, string> = {
+    const queryParams = {
       ...passthroughParams,
       "X-Plex-Container-Start": (params?.start ?? 0).toString(),
       "X-Plex-Container-Size": (params?.size ?? 200).toString(),
@@ -931,7 +938,7 @@ export class PlexServerClient {
    * @returns Search response with results and metadata
    */
   async search(params: SearchParams): Promise<SearchResponse> {
-    const searchParams: Record<string, string> = {
+    const searchParams = {
       query: params.query,
       limit: params.limit?.toString() ?? "50",
       searchTypes: params.searchTypes?.join(",") ?? "movies,music,people,tv",
@@ -1054,14 +1061,17 @@ export class PlexServerClient {
     next?: boolean;
     shuffle?: boolean;
   }): Promise<PlayQueueResponse> {
+    const queryParams = new URLSearchParams({
+      type: params.type,
+      uri: params.uri,
+    });
+    if (params.next) queryParams.set("next", "1");
+    if (params.shuffle !== undefined) {
+      queryParams.set("shuffle", params.shuffle ? "1" : "0");
+    }
     return await this.put({
       endpoint: `playQueues/${params.playQueueId}`,
-      params: {
-        type: params.type,
-        uri: params.uri,
-        ...(params.next ? { next: "1" } : {}),
-        ...(params.shuffle === undefined ? {} : { shuffle: params.shuffle ? "1" : "0" }),
-      },
+      params: Object.fromEntries(queryParams),
       schema: playQueueResponseSchema,
     });
   }
@@ -1547,7 +1557,7 @@ export class PlexServerClient {
     throw errors[errors.length - 1] ?? new Error(`${method} request failed after retries`);
   }
 
-  private getHeaders(): Record<string, string> {
+  private getHeaders() {
     return {
       accept: "application/json",
     };

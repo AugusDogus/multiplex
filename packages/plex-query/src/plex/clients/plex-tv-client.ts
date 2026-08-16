@@ -414,7 +414,7 @@ function mergeWatchTogetherInvitees({ friends, sharedUsers, guest }: InviteeSour
     invitees.set(friend.id, {
       ...sharedUser,
       ...friend,
-      ...(restricted === undefined ? {} : { restricted }),
+      restricted,
     });
   }
 
@@ -459,18 +459,16 @@ function parseSharedUsersXml(xml: string): PlexFriend[] {
   return users;
 }
 
-function parseXmlAttributes(value: string): Record<string, string> {
-  const attrs: Record<string, string> = {};
+function parseXmlAttributes(value: string) {
   const matches = value.matchAll(/([A-Za-z0-9_:-]+)="([^"]*)"/g);
-
-  for (const match of matches) {
-    const [, key, attrValue] = match;
-    if (key && attrValue !== undefined) {
-      attrs[key] = decodeXmlAttribute(attrValue);
-    }
-  }
-
-  return attrs;
+  return Object.fromEntries(
+    [...matches].flatMap((match) => {
+      const [, key, attrValue] = match;
+      return key && attrValue !== undefined
+        ? [[key, decodeXmlAttribute(attrValue)]]
+        : [];
+    }),
+  );
 }
 
 function decodeXmlAttribute(value: string): string {
