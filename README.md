@@ -6,6 +6,9 @@ A 3rd party Plex client that allows you to watch TV shows and movies with your f
 
 Multiplex was created as a response to Plex's announcement of the deprecation of their Watch Together feature. Inspired by SyncLounge, this application ensures that you and your friends can continue to enjoy synchronized viewing experiences of your favorite content from your Plex server.
 
+Live authenticated, Guest Link, and GameCube validation is documented in
+[Watch Together testing](docs/watch-together-testing.md).
+
 ## Features
 
 - **Synchronized Playback**: Watch content in perfect sync with friends across multiple devices

@@ -14,14 +14,17 @@ The shared protocol implementation still comes from `@multiplex/plex-query`. The
 
 ## Authenticate
 
-The script accepts dedicated harness variables or the existing compatibility names. It never prints credentials or tokens.
+The root test runner resolves the correct environment file from the current or
+primary worktree and performs authentication automatically:
 
 ```sh
-set -a
-source apps/web/.env
-set +a
-bun --filter @multiplex/watch-together-harness authenticate
+bun run test:watch-together:web
 ```
+
+The lower-level script accepts dedicated harness variables or the existing
+compatibility names. It never prints credentials or tokens. See
+[`docs/watch-together-testing.md`](../../docs/watch-together-testing.md) for
+the complete production web, Guest Link, portable harness, and GameCube gate.
 
 Tokens are written to `.watch-together-harness/tokens.json` with mode `0600`. That directory is ignored by Git.
 
