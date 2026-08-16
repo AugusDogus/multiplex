@@ -84,7 +84,7 @@ export function extractLibraryFilters(
     if (key.startsWith("X-Plex-")) {
       continue;
     }
-    if (typeof value === "string" && value !== "") {
+    if (value !== undefined && !Array.isArray(value) && value !== "") {
       filters.set(key, value);
     }
   }

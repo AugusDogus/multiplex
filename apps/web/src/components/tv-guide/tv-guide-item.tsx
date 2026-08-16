@@ -111,12 +111,9 @@ export function TvGuideItem({
       });
     };
 
-    // Only run on client side
-    if (typeof window !== "undefined") {
-      updateWindowDimensions();
-      window.addEventListener("resize", updateWindowDimensions);
-      return () => window.removeEventListener("resize", updateWindowDimensions);
-    }
+    updateWindowDimensions();
+    window.addEventListener("resize", updateWindowDimensions);
+    return () => window.removeEventListener("resize", updateWindowDimensions);
   }, []);
 
   const handleClick = () => {
