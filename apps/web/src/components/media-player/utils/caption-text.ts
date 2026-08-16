@@ -1,5 +1,5 @@
 function isVttCue(cue: TextTrackCue): cue is VTTCue {
-  return "text" in cue && typeof (cue as VTTCue).text === "string";
+  return "VTTCue" in globalThis && cue instanceof globalThis.VTTCue;
 }
 
 /**

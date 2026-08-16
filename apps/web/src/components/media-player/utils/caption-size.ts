@@ -7,8 +7,9 @@ export const CAPTION_SIZES = {
   "extra-large": { label: "Extra Large", className: "px-4 py-1.5 text-2xl" },
 } as const satisfies Record<CaptionSize, { label: string; className: string }>;
 
-export const CAPTION_SIZE_OPTIONS = (
-  Object.entries(CAPTION_SIZES) as Array<
-    [CaptionSize, (typeof CAPTION_SIZES)[CaptionSize]]
-  >
-).map(([value, { label }]) => ({ label, value }));
+export const CAPTION_SIZE_OPTIONS = [
+  { label: CAPTION_SIZES.small.label, value: "small" },
+  { label: CAPTION_SIZES.medium.label, value: "medium" },
+  { label: CAPTION_SIZES.large.label, value: "large" },
+  { label: CAPTION_SIZES["extra-large"].label, value: "extra-large" },
+] satisfies ReadonlyArray<{ label: string; value: CaptionSize }>;
