@@ -53,16 +53,17 @@ async function loadContinueWatching(
     return [];
   }
 
-  const sourcesByServer = pinnedSources.reduce(
-    (acc, source) => {
-      acc[source.machineIdentifier] ??= [];
-      acc[source.machineIdentifier]!.push(source);
-      return acc;
-    },
-    {} as Record<string, PinnedSource[]>,
-  );
+  const sourcesByServer = new Map<string, PinnedSource[]>();
+  for (const source of pinnedSources) {
+    const serverSources = sourcesByServer.get(source.machineIdentifier);
+    if (serverSources) {
+      serverSources.push(source);
+    } else {
+      sourcesByServer.set(source.machineIdentifier, [source]);
+    }
+  }
 
-  const serverPromises = Object.entries(sourcesByServer).map(
+  const serverPromises = Array.from(sourcesByServer).map(
     async ([machineIdentifier, sources]) => {
       const server = servers.find(
         (s) => s.clientIdentifier === machineIdentifier,
