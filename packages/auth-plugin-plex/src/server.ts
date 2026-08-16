@@ -62,7 +62,7 @@ function getAttemptCookieOptions(baseURL: string) {
 }
 
 function parseAuthAttempt(value: string | false | null): AuthAttempt | null {
-  if (typeof value !== "string") {
+  if (!value) {
     return null;
   }
 
@@ -221,7 +221,7 @@ const isValid = async (auth: Pick<z.infer<typeof authSchema>, "id" | "code">) =>
     );
   }
 
-  return authData;
+  return { ...authData, authToken: authData.authToken };
 };
 
 const getUserInfo = async (token: string): Promise<PlexUserInfo> => {
@@ -340,7 +340,7 @@ export const plex = () => {
 
             // The isValid function now checks for authToken internally
             // so we can proceed directly to get user info
-            const userInfo = await getUserInfo(auth.authToken!);
+            const userInfo = await getUserInfo(auth.authToken);
 
             // Check if user already exists by Plex UUID
             const existingUser = await ctx.context.adapter.findOne<{
@@ -377,7 +377,13 @@ export const plex = () => {
                 });
               }
 
-              user = newUser as UserWithPlex;
+              user = {
+                ...newUser,
+                plexId: userInfo.id,
+                plexUuid: userInfo.uuid,
+                plexUsername: userInfo.username,
+                plexAuthToken: auth.authToken,
+              };
 
               // Create account record linking user to Plex provider
               await ctx.context.internalAdapter.createAccount({
@@ -389,9 +395,10 @@ export const plex = () => {
             } else {
               // User already exists, update their auth token
               // auth.authToken is guaranteed non-null here since isValid() throws if missing
-              const updatedUser = (await ctx.context.internalAdapter.updateUser(existingUser.id, {
-                plexAuthToken: auth.authToken!,
-              })) as UserWithPlex | null;
+              const updatedUser = await ctx.context.internalAdapter.updateUser(
+                existingUser.id,
+                { plexAuthToken: auth.authToken },
+              );
 
               if (!updatedUser) {
                 throw new APIError("INTERNAL_SERVER_ERROR", {
@@ -399,7 +406,7 @@ export const plex = () => {
                 });
               }
 
-              user = updatedUser;
+              user = { ...updatedUser, plexAuthToken: auth.authToken };
 
               // Update or create the account record with the new token
               try {
@@ -487,8 +494,8 @@ export const plex = () => {
 
             throw new APIError("UNAUTHORIZED", {
               message:
-                typeof error === "object" && error !== null && "message" in error
-                  ? String(error.message)
+                error instanceof Error
+                  ? error.message
                   : ERROR_CODES.INVALID_PLEX_AUTH.message,
             });
           }
