@@ -9,6 +9,21 @@ const AUTH_BASE_URL = "https://multiplex.example/api/auth";
 const AUTH_SECRET = "test-only-better-auth-secret-with-sufficient-length";
 const ATTEMPT_COOKIE_NAME = "multiplex.plex_auth_attempt";
 
+type InitiateQuery = { returnTo?: string };
+type CallbackQuery = {
+  id?: string | null;
+  code?: string | null;
+  state?: string | null;
+};
+type SignedAttemptFixture = {
+  version: number;
+  state: string | number;
+  id?: number;
+  code?: string;
+  expiresAt?: number;
+};
+type EndpointInvocationResult = Response | Error;
+
 const originalFetch = globalThis.fetch;
 
 const pinResponse = {
@@ -177,7 +192,7 @@ function extractCallback(response: Response): URL {
   return new URL(authParams.get("forwardUrl") ?? "");
 }
 
-function requireResponse(value: unknown): Response {
+function requireResponse(value: EndpointInvocationResult): Response {
   if (!(value instanceof Response)) {
     throw new TypeError("Expected endpoint to return a Response");
   }
@@ -188,7 +203,7 @@ function requireResponse(value: unknown): Response {
 async function initiate(
   jar: CookieJar,
   context: ReturnType<typeof createContext>["context"],
-  query: Record<string, unknown> = {},
+  query: InitiateQuery = {},
 ) {
   const response = requireResponse(
     await plex().endpoints.initiatePlexAuth(
@@ -206,7 +221,7 @@ async function initiate(
 async function callback(
   jar: CookieJar,
   context: ReturnType<typeof createContext>["context"],
-  query: Record<string, unknown>,
+  query: CallbackQuery,
 ) {
   const response = requireResponse(
     await plex().endpoints.plexCallback(
@@ -222,7 +237,9 @@ async function callback(
   return response;
 }
 
-async function signAttemptCookie(payload: unknown): Promise<string> {
+async function signAttemptCookie(
+  payload: SignedAttemptFixture,
+): Promise<string> {
   const signer = createEndpoint("/test/sign-cookie", { method: "GET" }, async (ctx) => {
     await ctx.setSignedCookie(ATTEMPT_COOKIE_NAME, JSON.stringify(payload), AUTH_SECRET, {
       httpOnly: true,
