@@ -76,6 +76,14 @@ const currentUserEnvelopeSchema = z.object({
 
 class ProvisioningError extends Error {}
 
+type PrivateJsonValue =
+  | boolean
+  | number
+  | string
+  | null
+  | PrivateJsonValue[]
+  | { readonly [key: string]: PrivateJsonValue };
+
 export function assertMatchingAccountIdentities(
   plexIdentity: { readonly id: number; readonly username: string },
   multiplexIdentity: { readonly id: number; readonly username: string },
@@ -91,15 +99,15 @@ function resolvePath(value: string | undefined, fallback: string): string {
   return path.isAbsolute(selected) ? selected : path.resolve(WORKSPACE_ROOT, selected);
 }
 
-async function readJson(pathname: string): Promise<unknown> {
+async function readJson<Output>(pathname: string, schema: z.ZodType<Output>): Promise<Output> {
   try {
-    return JSON.parse(await readFile(pathname, "utf8"));
+    return schema.parse(JSON.parse(await readFile(pathname, "utf8")));
   } catch {
     throw new ProvisioningError(`Could not read valid JSON from ${pathname}.`);
   }
 }
 
-async function writePrivateJson(pathname: string, value: unknown): Promise<void> {
+async function writePrivateJson(pathname: string, value: PrivateJsonValue): Promise<void> {
   const temporaryPath = `${pathname}.${process.pid}.${randomUUID()}.tmp`;
   await mkdir(path.dirname(pathname), { recursive: true, mode: 0o700 });
   try {
@@ -139,7 +147,11 @@ export function cookieHeader(
     .join("; ");
 }
 
-async function responseJson(response: Response, operation: string): Promise<unknown> {
+async function responseJson<Output>(
+  response: Response,
+  operation: string,
+  schema: z.ZodType<Output>,
+): Promise<Output> {
   let value: unknown;
   try {
     value = await response.json();
@@ -153,7 +165,13 @@ async function responseJson(response: Response, operation: string): Promise<unkn
       `${operation} failed with HTTP ${response.status}. Refresh the account A Playwright login and retry.`,
     );
   }
-  return value;
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) {
+    throw new ProvisioningError(
+      `${operation} returned unexpected JSON with HTTP ${response.status}. No private state was changed.`,
+    );
+  }
+  return parsed.data;
 }
 
 export async function provisionGameCube(environment: NodeJS.ProcessEnv): Promise<{
@@ -179,8 +197,8 @@ export async function provisionGameCube(environment: NodeJS.ProcessEnv): Promise
     path.join(DEFAULT_GAMECUBE_CACHE, "multiplex-device.json"),
   );
 
-  const tokens = tokenFileSchema.parse(await readJson(tokenFilePath));
-  const storageState = storageStateSchema.parse(await readJson(storageStatePath));
+  const tokens = await readJson(tokenFilePath, tokenFileSchema);
+  const storageState = await readJson(storageStatePath, storageStateSchema);
   const plexClient = new PlexTvClient(tokens.accountA.token, {
     product: "Multiplex GameCube QA Provisioner",
     version: "1.0.0",
@@ -212,38 +230,37 @@ export async function provisionGameCube(environment: NodeJS.ProcessEnv): Promise
     "/api/trpc/plex.getUserInfo?input=%7B%22json%22%3Anull%7D",
     baseUrl,
   );
-  const multiplexIdentity = currentUserEnvelopeSchema.parse(
+  const multiplexIdentity = (
     await responseJson(
       await fetch(currentUserUrl, { headers: { cookie: cookies } }),
       "Multiplex account identity verification",
-    ),
+      currentUserEnvelopeSchema,
+    )
   ).result.data.json;
   assertMatchingAccountIdentities(plexIdentity, multiplexIdentity);
 
   const createUrl = new URL("/api/console/pairings", baseUrl);
-  const created = createdPairingSchema.parse(
-    await responseJson(
-      await fetch(createUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          platform: "gamecube",
-          name: "Nintendo GameCube QA",
-        }),
+  const created = await responseJson(
+    await fetch(createUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        platform: "gamecube",
+        name: "Nintendo GameCube QA",
       }),
-      "GameCube pairing creation",
-    ),
+    }),
+    "GameCube pairing creation",
+    createdPairingSchema,
   );
 
-  const claimed = claimedPairingSchema.parse(
-    await responseJson(
-      await fetch(claimUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json", cookie: cookies },
-        body: JSON.stringify({ code: created.code }),
-      }),
-      "GameCube pairing claim",
-    ),
+  const claimed = await responseJson(
+    await fetch(claimUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: cookies },
+      body: JSON.stringify({ code: created.code }),
+    }),
+    "GameCube pairing claim",
+    claimedPairingSchema,
   );
   if (claimed.device.id !== created.deviceId) {
     throw new ProvisioningError(
@@ -252,18 +269,17 @@ export async function provisionGameCube(environment: NodeJS.ProcessEnv): Promise
   }
 
   const pollUrl = new URL("/api/console/pairings/poll", baseUrl);
-  const linked = linkedPairingSchema.parse(
-    await responseJson(
-      await fetch(pollUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          deviceId: created.deviceId,
-          deviceSecret: created.deviceSecret,
-        }),
+  const linked = await responseJson(
+    await fetch(pollUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        deviceId: created.deviceId,
+        deviceSecret: created.deviceSecret,
       }),
-      "GameCube pairing verification",
-    ),
+    }),
+    "GameCube pairing verification",
+    linkedPairingSchema,
   );
 
   await writePrivateJson(plexAuthStatePath, {
