@@ -10,7 +10,7 @@ import { Effect, type Scope } from "effect";
 
 import type { WatchTogetherSessionToasts } from "~/components/watch-together/watch-together-session-toasts";
 
-import type { PlayerPortShape } from "./player-port";
+import type { PlayerPortContract } from "./player-port";
 
 export type SessionControllerLike = {
   connect: () => void;
@@ -38,7 +38,7 @@ export const cohortDeviceIds = (
   );
 
 export const playerAdapterFromPort = (
-  player: PlayerPortShape,
+  player: PlayerPortContract,
 ): SyncplayPlayerAdapter => ({
   getState: () => {
     const snap = player.snapshot();
@@ -76,12 +76,12 @@ export type ConnectionParams = {
 /**
  * Scoped Syncplay driver: wires notifications + readiness observation as an
  * `Effect.acquireRelease` resource. Readiness comes from
- * {@link PlayerPortShape.subscribe} so the service does not import the
+ * {@link PlayerPortContract.subscribe} so the service does not import the
  * media-player store directly.
  */
 export const runConnection = (
   params: ConnectionParams,
-  player: PlayerPortShape,
+  player: PlayerPortContract,
   makeController: MakeSessionController,
 ): Effect.Effect<void, never, Scope.Scope> =>
   Effect.acquireRelease(

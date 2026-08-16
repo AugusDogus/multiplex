@@ -53,7 +53,7 @@ import {
 import { createWatchTogetherSessionToasts } from "~/components/watch-together/watch-together-session-toasts";
 import type { MediaPlayerItem, NextEpisodeInfo } from "~/types/media-player";
 
-import { PlayerPort, type PlayerPortShape } from "./player-port";
+import { PlayerPort, type PlayerPortContract } from "./player-port";
 import {
   cohortDeviceIds,
   runConnection,
@@ -63,7 +63,7 @@ import {
 import {
   WatchTogetherApi,
   WatchTogetherApiError,
-  type WatchTogetherApiShape,
+  type WatchTogetherApiContract,
 } from "./watch-together-api";
 
 export type {
@@ -163,7 +163,7 @@ export type MakeObserverConnection = (options: {
   }) => void;
 }) => ObserverConnectionLike;
 
-export type WatchTogetherSessionShape = {
+export type WatchTogetherSessionContract = {
   readonly state: SubscriptionRef.SubscriptionRef<SessionState>;
   readonly snapshot: () => SessionState;
   /**
@@ -190,8 +190,8 @@ export type WatchTogetherSessionShape = {
 };
 
 export type MakeWatchTogetherSessionOptions = {
-  readonly player: PlayerPortShape;
-  readonly api?: WatchTogetherApiShape;
+  readonly player: PlayerPortContract;
+  readonly api?: WatchTogetherApiContract;
   readonly makeController?: MakeSessionController;
   readonly makeObserver?: MakeObserverConnection;
 };
@@ -264,12 +264,12 @@ const buildNextItem = (
 
 export const makeWatchTogetherSession = (
   options: MakeWatchTogetherSessionOptions,
-): Effect.Effect<WatchTogetherSessionShape, never, Scope.Scope> =>
+): Effect.Effect<WatchTogetherSessionContract, never, Scope.Scope> =>
   Effect.gen(function* () {
     const player = options.player;
     const providedApi = options.api;
     const apiFromContext = yield* Effect.serviceOption(WatchTogetherApi);
-    const api: WatchTogetherApiShape =
+    const api: WatchTogetherApiContract =
       providedApi ??
       Option.getOrElse(apiFromContext, () => ({
         listRooms: () => Effect.succeed([]),
@@ -1750,7 +1750,7 @@ export const makeWatchTogetherSession = (
       getSuppressedRoomId: () => suppressedRoomId,
       handleLocalPlaybackChange,
       handleLocalSeeked,
-    } satisfies WatchTogetherSessionShape;
+    } satisfies WatchTogetherSessionContract;
   });
 
 /**
@@ -1761,7 +1761,7 @@ export const makeWatchTogetherSession = (
  */
 export class WatchTogetherSession extends Context.Service<
   WatchTogetherSession,
-  WatchTogetherSessionShape
+  WatchTogetherSessionContract
 >()("WatchTogetherSession") {
   static readonly Default = Layer.effect(WatchTogetherSession)(
     Effect.gen(function* () {

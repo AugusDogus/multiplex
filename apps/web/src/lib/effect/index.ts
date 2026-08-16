@@ -4,7 +4,7 @@ export {
   makeWatchTogetherApi,
   WatchTogetherApi,
   WatchTogetherApiError,
-  type WatchTogetherApiShape,
+  type WatchTogetherApiContract,
   type WatchTogetherTrpcClient,
 } from "./watch-together-api";
 
@@ -12,7 +12,7 @@ export {
   makePlayerPort,
   PlayerPort,
   type PlayerActions,
-  type PlayerPortShape,
+  type PlayerPortContract,
   type PlayerSnapshot,
 } from "./player-port";
 
@@ -22,7 +22,7 @@ export {
   makePlayerService,
   PlayerService,
   type PlayerPlaybackUpdate,
-  type PlayerServiceShape,
+  type PlayerServiceContract,
   type PlayerState,
 } from "./player-service";
 
@@ -42,7 +42,7 @@ export {
   type SessionControllerLike,
   type StartPlaybackInput,
   type SwapToInput,
-  type WatchTogetherSessionShape,
+  type WatchTogetherSessionContract,
 } from "./session-service";
 
 export {

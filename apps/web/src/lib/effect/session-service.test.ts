@@ -23,7 +23,7 @@ import type { MediaPlayerItem } from "~/types/media-player";
 import {
   makePlayerPort,
   PlayerPort,
-  type PlayerPortShape,
+  type PlayerPortContract,
 } from "./player-port";
 import { createPlayerService } from "./player-service";
 import {
@@ -33,7 +33,7 @@ import {
   type MakeSessionController,
   type ObserverConnectionLike,
   type SessionControllerLike,
-  type WatchTogetherSessionShape,
+  type WatchTogetherSessionContract,
 } from "./session-service";
 
 const room = (
@@ -136,7 +136,7 @@ const makeStubObserverFactory = () => {
   return { makeObserver, observers };
 };
 
-const makeStubPlayer = (): PlayerPortShape & {
+const makeStubPlayer = (): PlayerPortContract & {
   loads: Array<{ item: MediaPlayerItem; opts: unknown }>;
   events: string[];
 } => {
@@ -157,7 +157,7 @@ const makeStubPlayer = (): PlayerPortShape & {
 
 const withSession = async <A>(
   f: (ctx: {
-    session: WatchTogetherSessionShape;
+    session: WatchTogetherSessionContract;
     controllers: StubController[];
     observers: StubObserver[];
     player: ReturnType<typeof makeStubPlayer>;
@@ -165,7 +165,7 @@ const withSession = async <A>(
   options?: {
     makeController?: MakeSessionController;
     makeObserver?: MakeObserverConnection;
-    player?: PlayerPortShape;
+    player?: PlayerPortContract;
     withTestClock?: boolean;
   },
 ): Promise<A> => {

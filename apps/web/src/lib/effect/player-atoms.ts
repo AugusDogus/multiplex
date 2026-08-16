@@ -10,7 +10,7 @@ import {
   PlayerService,
   type PlayerPlaybackIdentity,
   type PlayerPlaybackUpdate,
-  type PlayerServiceShape,
+  type PlayerServiceContract,
   type PlayerState,
 } from "./player-service";
 import { sessionRuntime } from "./runtime";
@@ -19,7 +19,7 @@ import { sessionRuntime } from "./runtime";
  * PlayerService instance from the shared {@link sessionRuntime} so Watch
  * Together's PlayerPort and React UI share one SubscriptionRef.
  */
-const player: PlayerServiceShape = sessionRuntime.runSync(
+const player: PlayerServiceContract = sessionRuntime.runSync(
   Effect.gen(function* () {
     return yield* PlayerService;
   }),
@@ -99,7 +99,7 @@ export function usePlayerStateSelector<T>(
   );
 }
 
-const runPlayer = <A>(f: (p: PlayerServiceShape) => A): A => f(player);
+const runPlayer = <A>(f: (p: PlayerServiceContract) => A): A => f(player);
 
 /**
  * Plain-function command facade for non-React callers. Runs against the

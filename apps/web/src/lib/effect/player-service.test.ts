@@ -10,7 +10,7 @@ import {
   createPlayerService,
   getPlayerPlaybackIdentity,
   isPlayerPlaybackIdentityCurrent,
-  type PlayerServiceShape,
+  type PlayerServiceContract,
 } from "./player-service";
 import {
   partializePlayerPrefs,
@@ -61,7 +61,7 @@ const nextEpisode: NextEpisodeInfo = {
   parentTitle: "Season 1",
 };
 
-let player: PlayerServiceShape;
+let player: PlayerServiceContract;
 
 beforeEach(() => {
   player = createPlayerService();
