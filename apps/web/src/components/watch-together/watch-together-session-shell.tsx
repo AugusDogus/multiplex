@@ -150,16 +150,15 @@ function useWatchTogetherSessionLifecycle(
     sessionCommands.enterLobby({
       room: currentRoom,
       localUser,
-      ...(typeof guestCapability === "string" && hostContext?.valid
-        ? {
-            startPolicy: {
-              _tag: "HostControlled" as const,
-              localRole: "Host" as const,
+      startPolicy:
+        typeof guestCapability === "string" && hostContext?.valid
+          ? {
+              _tag: "HostControlled",
+              localRole: "Host",
               hostUserId: hostContext.hostUserId,
               guestUserId: hostContext.guestUserId,
-            },
-          }
-        : {}),
+            }
+          : undefined,
     });
   }, [
     roomQuery.room,

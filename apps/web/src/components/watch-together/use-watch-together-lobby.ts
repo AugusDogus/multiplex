@@ -238,9 +238,10 @@ export function useWatchTogetherLobby(roomId: string): LobbyViewModel {
         localUser,
         item: playbackItem,
         resume: false,
-        ...(joiningInProgress && roomPositionSeconds !== null
-          ? { startPositionSeconds: roomPositionSeconds }
-          : {}),
+        startPositionSeconds:
+          joiningInProgress && roomPositionSeconds !== null
+            ? roomPositionSeconds
+            : undefined,
       })
       .completion.finally(() => {
         if (pendingStartRoomIdRef.current === room.id) {

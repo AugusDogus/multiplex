@@ -84,13 +84,7 @@ export function getGuestRotationTimeline(input: {
   readonly localDurationSeconds: number;
   readonly itemDurationMilliseconds?: number;
   readonly sessionState: SessionState;
-}): {
-  readonly currentTimeSeconds: number;
-  readonly durationSeconds: number;
-  readonly timeRemainingSeconds: number;
-  readonly inLeadWindow: boolean;
-  readonly atEnd: boolean;
-} {
+}) {
   const localCurrentTimeSeconds =
     Number.isFinite(input.localCurrentTimeSeconds) &&
     input.localCurrentTimeSeconds > 0
@@ -182,10 +176,7 @@ function createGuestLobbySession(input: {
   readonly joined: GuestWatchTogetherBootstrapValue;
   readonly nickname: string;
   readonly deviceIdentifier: string;
-}): {
-  readonly entry: GuestLobbyEntry;
-  readonly playbackItem: ReturnType<typeof createMediaPlayerItem>;
-} {
+}) {
   const { joined, nickname, deviceIdentifier } = input;
   return {
     playbackItem: createMediaPlayerItem(joined.item, {
@@ -208,6 +199,9 @@ function createGuestLobbySession(input: {
         guestUserId: joined.guest.id,
       },
     },
+  } satisfies {
+    readonly entry: GuestLobbyEntry;
+    readonly playbackItem: ReturnType<typeof createMediaPlayerItem>;
   };
 }
 
@@ -223,7 +217,7 @@ async function fetchGuestContinuation(input: {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         capability: input.capability,
-        ...(input.nextRatingKey ? { nextRatingKey: input.nextRatingKey } : {}),
+        nextRatingKey: input.nextRatingKey,
       }),
       signal: input.signal,
     });
@@ -263,9 +257,7 @@ export function useGuestWatchTogether(capability: string) {
   const rotationTimeline = getGuestRotationTimeline({
     localCurrentTimeSeconds: currentTime,
     localDurationSeconds: duration,
-    ...(joined?.item.duration !== undefined && {
-      itemDurationMilliseconds: joined.item.duration,
-    }),
+    itemDurationMilliseconds: joined?.item.duration,
     sessionState,
   });
   const playingJoinedRoom =
@@ -292,9 +284,7 @@ export function useGuestWatchTogether(capability: string) {
     queryFn: ({ signal }) =>
       fetchGuestContinuation({
         capability: activeCapability,
-        ...(joined?.nextEpisode?.ratingKey
-          ? { nextRatingKey: joined.nextEpisode.ratingKey }
-          : {}),
+        nextRatingKey: joined?.nextEpisode?.ratingKey,
         signal,
       }),
     enabled: shouldPollContinuation,

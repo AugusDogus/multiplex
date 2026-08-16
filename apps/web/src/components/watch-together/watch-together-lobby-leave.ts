@@ -19,7 +19,7 @@ export function isSessionForRoom(
 export function resolveLobbyLeaveTarget(
   session: SessionState,
   urlRoomId: string,
-): { readonly roomId: string; readonly leaveSession: boolean } {
+) {
   if (session._tag === "Idle") {
     return { roomId: urlRoomId, leaveSession: false };
   }

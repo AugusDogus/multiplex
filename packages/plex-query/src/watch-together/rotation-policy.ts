@@ -318,10 +318,7 @@ export function isAtEnd(input: {
 export function rotationCountdown(input: {
   readonly phase: RotationPhase;
   readonly timeRemainingSeconds: number;
-}): {
-  readonly isCountingDown: boolean;
-  readonly countdownSeconds: number;
-} {
+}) {
   const armed = input.phase._tag !== "None";
   // Hide once the episode has ended (≤0): gathering/grace wait on the swap
   // loading state, not a stuck "0" overlay.

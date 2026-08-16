@@ -143,7 +143,7 @@ function decodePayload(encodedPayload: string): GuestCapabilityPayload | null {
     const roomLength = bytes.readUInt8(10);
     if (bytes.length !== 11 + hostLength + roomLength) return null;
     const decoder = new TextDecoder("utf-8", { fatal: true });
-    const value: unknown = {
+    const value = {
       version: bytes.readUInt8(0),
       issuedAt: bytes.readUInt32BE(1),
       expiresAt: bytes.readUInt32BE(5),
