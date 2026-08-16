@@ -567,7 +567,7 @@ test("Guest Link viewers survive transport, rejoin, host refresh, and repeated r
     label: "guest",
     baseURL,
     testInfo,
-  }).catch(async (error: unknown) => {
+  }).catch(async (error) => {
     await hostArtifacts.closeAndAttach();
     throw error;
   });
