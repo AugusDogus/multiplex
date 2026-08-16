@@ -594,10 +594,12 @@ describe("applyPlaybackMetadata", () => {
     );
 
     expect(player.snapshot().sourceGeneration).toBe(beforeGeneration + 1);
-    expect(buildPlexPlaybackPlan(player.snapshot().currentItem!)).toMatchObject({
-      selectedAudioStreamId: 11,
-      videoUsesTranscode: true,
-    });
+    expect(buildPlexPlaybackPlan(player.snapshot().currentItem!)).toMatchObject(
+      {
+        selectedAudioStreamId: 11,
+        videoUsesTranscode: true,
+      },
+    );
   });
 
   test("seeds streamOffset when transcoding mid-playback from zero offset", () => {

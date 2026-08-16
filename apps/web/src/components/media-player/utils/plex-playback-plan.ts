@@ -94,9 +94,7 @@ function isExternalSrtSubtitle(
   return codec === "srt" || codec === "subrip" || format === "srt";
 }
 
-function getPartStreams(
-  item: PlaybackMediaSummary,
-): readonly PlaybackStream[] {
+function getPartStreams(item: PlaybackMediaSummary): readonly PlaybackStream[] {
   return item.Media?.[0]?.Part?.[0]?.Stream ?? [];
 }
 
@@ -123,9 +121,7 @@ export function getSelectedAudioStreamId(
   return resolveSelectedAudioStream(getPartStreams(item))?.id ?? null;
 }
 
-function getPlaybackAudioCodec(
-  item: PlaybackMediaSummary,
-): string | undefined {
+function getPlaybackAudioCodec(item: PlaybackMediaSummary): string | undefined {
   const selected = resolveSelectedAudioStream(getPartStreams(item));
   return (selected?.codec ?? item.Media?.[0]?.audioCodec)?.toLowerCase();
 }

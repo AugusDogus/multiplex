@@ -234,7 +234,9 @@ export function MediaPlayerSettingsMenu({
     }
 
     const failureMessage =
-      kind === "audio" ? "Unable to update audio" : "Unable to update subtitles";
+      kind === "audio"
+        ? "Unable to update audio"
+        : "Unable to update subtitles";
     streamSelectionInFlightRef.current = true;
     setIsUpdatingStream(true);
     setStreamError(null);
@@ -432,7 +434,9 @@ export function MediaPlayerSettingsMenu({
                 key={stream.id}
                 label={getStreamLabel(stream, "Subtitle")}
                 selected={stream.id === selectedSubtitleStreamId}
-                onClick={() => void handleStreamSelection("subtitle", stream.id)}
+                onClick={() =>
+                  void handleStreamSelection("subtitle", stream.id)
+                }
                 disabled={isUpdatingStream}
               />
             ))}
