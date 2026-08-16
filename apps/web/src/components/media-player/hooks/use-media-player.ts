@@ -215,7 +215,15 @@ export function useMediaPlayer(): {
     if (video && playbackIdentity) {
       const playerState = playerCommands.snapshot();
       const duration = playerState.duration;
-      const clampedTime = clamp(time, 0, duration);
+      // An exact EOF seek is not a playable media position. Native MP4s can
+      // report `ended` and snap their timeline back before Watch Together has
+      // propagated the seek, while Plex rejects an EOF transcode offset.
+      // Keep every seek inside the same final half-second used by autoplay and
+      // room rotation so both playback paths have identical semantics.
+      const clampedTime = clampPlayableSeekTarget(
+        clamp(time, 0, duration),
+        duration,
+      );
       // Plex's transcoded MP4 stream advertises an empty seekable range, so
       // assigning `video.currentTime` is silently rejected. For those we
       // seek by reloading the stream with a new `offset` instead.
@@ -224,7 +232,7 @@ export function useMediaPlayer(): {
       // rejected native media-element seek.
       const seekResult = getMediaSeekResult(playerState.currentItem);
       if (seekResult === "reload") {
-        const playableTime = clampPlayableSeekTarget(clampedTime, duration);
+        const playableTime = clampedTime;
         cancelPendingTranscodeSeek();
         const seekRevision = transcodeSeekRevisionRef.current;
         playerCommands.updatePlaybackStateFor(playbackIdentity, {

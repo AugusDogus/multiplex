@@ -21,6 +21,7 @@ const SUPPRESSED_SEEK_MATCH_SECONDS = 2;
 const PENDING_SEEK_RETRY_MS = 250;
 const PENDING_SEEK_MAX_MS = 15000;
 const RECONNECT_ALIGNMENT_THRESHOLD_SECONDS = 0.25;
+const EMPTY_ROOM_RESET_MAX_POSITION_SECONDS = 1;
 // On auto-start every participant opens the player while the room's playstate is
 // still "paused" (the lobby never played), so the first State pings would pause
 // the freshly-autoplaying player and the whole room deadlocks at 0:00. For a
@@ -122,6 +123,9 @@ export class SyncplaySessionController {
   // mechanically during unload, source replacement, buffering, and transport
   // errors. Only explicit local events or applied remote actions replace it.
   private lastStableIsPaused: boolean | null = null;
+  // Preserve the previous socket's presence knowledge so the first List after
+  // reconnect can mark peers that disappeared while this client was offline.
+  private readonly knownParticipants = new Map<string, SyncplayUser>();
   private readonly now: () => number;
   private readonly setTimer: NonNullable<SyncplaySessionControllerOptions["setTimeout"]>;
   private readonly clearTimer: NonNullable<SyncplaySessionControllerOptions["clearTimeout"]>;
@@ -141,6 +145,7 @@ export class SyncplaySessionController {
     this.suppressedPlayPause = null;
     this.suppressedSeek = null;
     this.lastStableIsPaused = null;
+    this.knownParticipants.clear();
     this.connectClient();
   }
 
@@ -150,6 +155,7 @@ export class SyncplaySessionController {
     this.clearPendingRemoteSeek();
     this.suppressedPlayPause = null;
     this.suppressedSeek = null;
+    this.knownParticipants.clear();
   }
 
   setReady(isReady: boolean | null): void {
@@ -219,7 +225,15 @@ export class SyncplaySessionController {
     const client = new SyncplayClient({
       room: this.options.room,
       user: this.options.user,
-      onParticipant: this.options.onParticipant,
+      initialParticipants: this.knownParticipants.values(),
+      onParticipant: (participant) => {
+        if (participant.isPresent === false) {
+          this.knownParticipants.delete(participant.user.deviceIdentifier);
+        } else {
+          this.knownParticipants.set(participant.user.deviceIdentifier, participant.user);
+        }
+        this.options.onParticipant?.(participant);
+      },
       onRemoteAction: this.options.onRemoteAction,
       getPlaybackState: () => this.getCurrentState(),
       applyRemoteState: (state) => this.applyRemoteState(state),
@@ -301,6 +315,23 @@ export class SyncplaySessionController {
   private applyRemoteState(state: SyncplayPlaybackState): void {
     const playerState = this.options.player.getState();
     if (playerState.error) {
+      return;
+    }
+
+    // When the room's controlling participant disconnects during an episode
+    // handoff, Plex Syncplay briefly emits its anonymous paused-at-zero empty
+    // room baseline. That is server lifecycle churn, not a user seek. Applying
+    // it rewinds viewers that are still gathering in the successor room. A
+    // real seek-to-start is authored and/or carries shouldSeek, so it continues
+    // through the normal arbitration path below.
+    if (
+      state.user === null &&
+      state.isPaused &&
+      !state.shouldSeek &&
+      state.positionSeconds <= EMPTY_ROOM_RESET_MAX_POSITION_SECONDS &&
+      playerState.currentTime > EMPTY_ROOM_RESET_MAX_POSITION_SECONDS &&
+      this.lastStableIsPaused === false
+    ) {
       return;
     }
 

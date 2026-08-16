@@ -10,6 +10,7 @@ import {
 import {
   getGuestRotationTimeline,
   requestGuestLobbyEntry,
+  shouldSwapGuestContinuation,
   type GuestLobbyEntryCommands,
 } from "./use-guest-watch-together";
 
@@ -179,5 +180,60 @@ describe("getGuestRotationTimeline", () => {
     expect(timeline.currentTimeSeconds).toBe(10);
     expect(timeline.inLeadWindow).toBe(false);
     expect(timeline.atEnd).toBe(false);
+  });
+});
+
+describe("shouldSwapGuestContinuation", () => {
+  const playingState = (
+    hostPresent: boolean,
+  ): Extract<SessionState, { _tag: "Playing" }> => ({
+    _tag: "Playing",
+    room,
+    item: {
+      serverId: "srv",
+      ratingKey: "100",
+      key: "/library/metadata/100",
+      title: "Episode",
+      type: "episode",
+    },
+    participants: {
+      [hostUser.deviceIdentifier]: {
+        user: hostUser,
+        isPresent: hostPresent,
+        positionSeconds: 40,
+      },
+    },
+    rotation: { _tag: "None" },
+    startPolicy: entry.startPolicy,
+  });
+
+  test("swaps when the host explicitly leaves before its EOF seek arrives", () => {
+    expect(
+      shouldSwapGuestContinuation({
+        atEnd: false,
+        roomId: room.id,
+        hostUserId: hostUser.id,
+        sessionState: playingState(false),
+      }),
+    ).toBe(true);
+  });
+
+  test("does not treat a present host or an empty snapshot as completion", () => {
+    expect(
+      shouldSwapGuestContinuation({
+        atEnd: false,
+        roomId: room.id,
+        hostUserId: hostUser.id,
+        sessionState: playingState(true),
+      }),
+    ).toBe(false);
+    expect(
+      shouldSwapGuestContinuation({
+        atEnd: false,
+        roomId: room.id,
+        hostUserId: hostUser.id,
+        sessionState: { ...playingState(true), participants: {} },
+      }),
+    ).toBe(false);
   });
 });

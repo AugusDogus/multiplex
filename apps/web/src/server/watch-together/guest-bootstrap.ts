@@ -202,7 +202,7 @@ export function createGuestContinuationService(
   dependencies: GuestContinuationDependencies,
 ): (
   capability: string,
-  nextRatingKey: string,
+  nextRatingKey?: string,
 ) => Promise<GuestContinuationResult> {
   return async (capability, nextRatingKey) => {
     const verification = await dependencies.capabilityCodec.verify(capability);
@@ -250,19 +250,31 @@ export function createGuestContinuationService(
       return { ok: false, reason: "room-unavailable" };
     }
 
-    const nextRoom = findNextEpisodeRoom({
-      rooms,
-      serverId: currentSource.serverId,
-      nextRatingKey,
-      currentRoom,
-    });
+    const nextRoom = nextRatingKey
+      ? findNextEpisodeRoom({
+          rooms,
+          serverId: currentSource.serverId,
+          nextRatingKey,
+          currentRoom,
+        })
+      : findGuestSuccessorRoom({
+          rooms,
+          currentRoom,
+          serverId: currentSource.serverId,
+          currentRatingKey: currentSource.ratingKey,
+        });
     if (!nextRoom) {
       return { ok: false, reason: "pending" };
     }
+    const nextSource = parseLibraryItemUri(nextRoom.sourceUri);
+    if (nextSource?.serverId !== currentSource.serverId) {
+      return { ok: false, reason: "room-unavailable" };
+    }
+    const resolvedNextRatingKey = nextSource.ratingKey;
 
     const nextAccess = await dependencies.resolveAccess(hostPlex, {
       serverId: currentSource.serverId,
-      ratingKey: nextRatingKey,
+      ratingKey: resolvedNextRatingKey,
     });
     if (!nextAccess.ok) {
       return { ok: false, reason: "guest-unavailable" };
@@ -284,7 +296,7 @@ export function createGuestContinuationService(
     const nextEpisode = await loadGuestNextEpisode(
       nextAccess.value.playbackServerClient,
       nextRoom.sourceUri,
-      nextRatingKey,
+      resolvedNextRatingKey,
     );
     const hostRoomUser = nextRoom.users.find(
       (roomUser) => roomUser.id === nextAccess.value.hostPlexUserId,
@@ -332,6 +344,54 @@ export function createGuestContinuationService(
       },
     };
   };
+}
+
+function findGuestSuccessorRoom(input: {
+  readonly rooms: WatchTogetherRoom[];
+  readonly currentRoom: WatchTogetherRoom;
+  readonly serverId: string;
+  readonly currentRatingKey: string;
+}): WatchTogetherRoom | null {
+  const currentUserIds = new Set(
+    input.currentRoom.users.map((user) => user.id),
+  );
+  const currentTimestamp = roomTimestamp(input.currentRoom);
+  const newestAllowedAgeSeconds = 30 * 60;
+  const nowSeconds = Math.floor(Date.now() / 1_000);
+  const candidates = input.rooms.filter((room) => {
+    if (room.id === input.currentRoom.id) return false;
+    const source = parseLibraryItemUri(room.sourceUri);
+    if (
+      source?.serverId !== input.serverId ||
+      source.ratingKey === input.currentRatingKey
+    ) {
+      return false;
+    }
+    const roomUserIds = new Set(room.users.map((user) => user.id));
+    if (
+      roomUserIds.size !== currentUserIds.size ||
+      ![...currentUserIds].every((id) => roomUserIds.has(id))
+    ) {
+      return false;
+    }
+    const timestamp = roomTimestamp(room);
+    return (
+      timestamp >= currentTimestamp &&
+      nowSeconds - timestamp <= newestAllowedAgeSeconds
+    );
+  });
+
+  return (
+    candidates.sort(
+      (left, right) =>
+        roomTimestamp(right) - roomTimestamp(left) ||
+        right.id.localeCompare(left.id),
+    )[0] ?? null
+  );
+}
+
+function roomTimestamp(room: WatchTogetherRoom): number {
+  return room.updatedAt ?? room.startsAt ?? 0;
 }
 
 function roomContainsGuestParty(
@@ -414,7 +474,7 @@ let defaultContinuationPromise:
   | Promise<
       (
         capability: string,
-        nextRatingKey: string,
+        nextRatingKey?: string,
       ) => Promise<GuestContinuationResult>
     >
   | undefined;
@@ -477,7 +537,7 @@ async function getDefaultContinuation() {
 
 export async function continueGuestInvite(
   capability: string,
-  nextRatingKey: string,
+  nextRatingKey?: string,
 ): Promise<GuestContinuationResult> {
   return (await getDefaultContinuation())(capability, nextRatingKey);
 }
