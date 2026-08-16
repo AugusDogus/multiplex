@@ -60,10 +60,8 @@ export function applySetCookieHeaders(
 ): void {
   if (!headers) return;
 
-  const getSetCookie = headers.getSetCookie;
-
-  const cookies = getSetCookie
-    ? getSetCookie.call(headers)
+  const cookies = headers.getSetCookie
+    ? headers.getSetCookie()
     : splitSetCookie(headers.get("set-cookie"));
 
   for (const cookie of cookies) {

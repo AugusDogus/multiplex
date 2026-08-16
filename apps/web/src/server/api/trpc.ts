@@ -55,6 +55,8 @@ const t = initTRPC.context<typeof createTRPCContext>().create({
   transformer: superjson,
   errorFormatter(formatterInput) {
     const { error } = formatterInput;
+    // tRPC owns this formatter field name.
+    // eslint-disable-next-line @typescript-eslint/dot-notation
     const response = formatterInput["shape"];
     return {
       ...response,
