@@ -90,10 +90,9 @@ async function probeSession(
     cache: "no-store",
   });
 
-  const setCookieHeaders =
-    typeof response.headers.getSetCookie === "function"
-      ? response.headers.getSetCookie()
-      : [];
+  const setCookieHeaders = response.headers.getSetCookie
+    ? response.headers.getSetCookie()
+    : [];
 
   if (!response.ok) {
     return { session: null, setCookieHeaders };

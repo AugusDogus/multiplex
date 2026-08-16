@@ -18,7 +18,7 @@ function expireCookie(
     maxAge: 0,
     sameSite: "lax",
     httpOnly: name !== AUTH_HINT_COOKIE,
-    ...(options?.secure ? { secure: true } : {}),
+    secure: options?.secure ?? false,
   });
 }
 
@@ -60,13 +60,11 @@ export function applySetCookieHeaders(
 ): void {
   if (!headers) return;
 
-  const getSetCookie = (headers as Headers & { getSetCookie?: () => string[] })
-    .getSetCookie;
+  const getSetCookie = headers.getSetCookie;
 
-  const cookies =
-    typeof getSetCookie === "function"
-      ? getSetCookie.call(headers)
-      : splitSetCookie(headers.get("set-cookie"));
+  const cookies = getSetCookie
+    ? getSetCookie.call(headers)
+    : splitSetCookie(headers.get("set-cookie"));
 
   for (const cookie of cookies) {
     response.headers.append("set-cookie", cookie);

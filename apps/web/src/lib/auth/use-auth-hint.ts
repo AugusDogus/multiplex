@@ -61,16 +61,15 @@ export function useReconcileAuthHint(
 
     const next = serializeAuthHint({
       name: sessionUser.name,
-      ...(sessionUser.email ? { email: sessionUser.email } : {}),
-      ...(sessionUser.image ? { image: sessionUser.image } : {}),
+      email: sessionUser.email ?? undefined,
+      image: sessionUser.image ?? undefined,
     });
     const current = readAuthHintCookieRaw();
     if (current === next) {
       return;
     }
 
-    const secure =
-      typeof window !== "undefined" && window.location.protocol === "https:";
+    const secure = globalThis.window?.location.protocol === "https:";
     document.cookie = `${AUTH_HINT_COOKIE}=${next}; Path=/; Max-Age=${60 * 60 * 24 * 30}; SameSite=Lax${secure ? "; Secure" : ""}`;
   }, [sessionUser]);
 }
