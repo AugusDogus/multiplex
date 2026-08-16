@@ -4,7 +4,7 @@ import { Context, Effect, Fiber, Layer, Stream } from "effect";
 
 import {
   PlayerService,
-  type PlayerServiceShape,
+  type PlayerServiceContract,
   type PlayerState,
 } from "./player-service";
 import type {
@@ -34,7 +34,7 @@ export type PlayerActions = {
   readonly prepareForReplacement: () => Promise<void>;
 };
 
-export type PlayerPortShape = {
+export type PlayerPortContract = {
   readonly load: (
     item: MediaPlayerItem,
     opts: { resume: boolean; startPositionSeconds?: number },
@@ -87,7 +87,7 @@ const snapshotsEqual = (a: PlayerSnapshot, b: PlayerSnapshot): boolean =>
  * Effect v4 (`4.0.0-beta.59`) uses `Context.Service` + `Layer.effect`
  * (no `Effect.Service` / auto-`Default` in this beta).
  */
-export const makePlayerPort = (player: PlayerServiceShape): PlayerPortShape => {
+export const makePlayerPort = (player: PlayerServiceContract): PlayerPortContract => {
   let actions: PlayerActions | null = null;
 
   const warnUnregistered = (method: "play" | "pause" | "seek"): void => {
@@ -161,7 +161,7 @@ export const makePlayerPort = (player: PlayerServiceShape): PlayerPortShape => {
   };
 };
 
-export class PlayerPort extends Context.Service<PlayerPort, PlayerPortShape>()(
+export class PlayerPort extends Context.Service<PlayerPort, PlayerPortContract>()(
   "PlayerPort",
 ) {
   static readonly Default = Layer.effect(PlayerPort)(

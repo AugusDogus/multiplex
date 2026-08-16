@@ -14,7 +14,7 @@ import type { MediaPlayerItem, NextEpisodeInfo } from "~/types/media-player";
 
 import {
   PlayerPort,
-  type PlayerPortShape,
+  type PlayerPortContract,
   type PlayerSnapshot,
 } from "./player-port";
 import {
@@ -23,12 +23,12 @@ import {
   type MakeSessionController,
   type ObserverConnectionLike,
   type SessionControllerLike,
-  type WatchTogetherSessionShape,
+  type WatchTogetherSessionContract,
 } from "./session-service";
 import {
   WatchTogetherApi,
   WatchTogetherApiError,
-  type WatchTogetherApiShape,
+  type WatchTogetherApiContract,
 } from "./watch-together-api";
 
 /** Wall-clock ms for room freshness fixtures (policy defaults to `Date.now()`). */
@@ -139,7 +139,7 @@ export const makeStubObserverFactory = () => {
   return { makeObserver, observers };
 };
 
-export const makeControllablePlayer = (): PlayerPortShape & {
+export const makeControllablePlayer = (): PlayerPortContract & {
   setPlayback: (partial: Partial<PlayerSnapshot>) => void;
   loads: Array<{ item: MediaPlayerItem; opts: unknown }>;
 } => {
@@ -197,18 +197,12 @@ export const makeStubApi = (overrides?: {
   rooms?: () => WatchTogetherRoom[];
   /** When provided, each call returns this Effect (for failure/retry tests). */
   createRoomEffect?: (
-    input: Parameters<WatchTogetherApiShape["createRoom"]>[0],
-  ) => ReturnType<WatchTogetherApiShape["createRoom"]>;
-  listRoomsEffect?: () => ReturnType<WatchTogetherApiShape["listRooms"]>;
-  getItemMetadata?: WatchTogetherApiShape["getItemMetadata"];
-}): {
-  api: WatchTogetherApiShape;
-  createRoom: Mock<WatchTogetherApiShape["createRoom"]>;
-  deleteRoom: Mock<WatchTogetherApiShape["deleteRoom"]>;
-  listRooms: Mock<WatchTogetherApiShape["listRooms"]>;
-  getItemMetadata: Mock<WatchTogetherApiShape["getItemMetadata"]>;
-} => {
-  const createRoom: Mock<WatchTogetherApiShape["createRoom"]> = mock(
+    input: Parameters<WatchTogetherApiContract["createRoom"]>[0],
+  ) => ReturnType<WatchTogetherApiContract["createRoom"]>;
+  listRoomsEffect?: () => ReturnType<WatchTogetherApiContract["listRooms"]>;
+  getItemMetadata?: WatchTogetherApiContract["getItemMetadata"];
+}) => {
+  const createRoom: Mock<WatchTogetherApiContract["createRoom"]> = mock(
     (input) => {
       if (overrides?.createRoomEffect) {
         return overrides.createRoomEffect(input);
@@ -216,16 +210,16 @@ export const makeStubApi = (overrides?: {
       return Effect.succeed(room("r-created", "200"));
     },
   );
-  const deleteRoom: Mock<WatchTogetherApiShape["deleteRoom"]> = mock(
+  const deleteRoom: Mock<WatchTogetherApiContract["deleteRoom"]> = mock(
     () => Effect.void,
   );
-  const listRooms: Mock<WatchTogetherApiShape["listRooms"]> = mock(() => {
+  const listRooms: Mock<WatchTogetherApiContract["listRooms"]> = mock(() => {
     if (overrides?.listRoomsEffect) {
       return overrides.listRoomsEffect();
     }
     return Effect.succeed(overrides?.rooms ? overrides.rooms() : []);
   });
-  const getItemMetadata: Mock<WatchTogetherApiShape["getItemMetadata"]> = mock(
+  const getItemMetadata: Mock<WatchTogetherApiContract["getItemMetadata"]> = mock(
     (input) => {
       if (overrides?.getItemMetadata) {
         return overrides.getItemMetadata(input);
@@ -242,7 +236,7 @@ export const makeStubApi = (overrides?: {
     },
   );
 
-  const api: WatchTogetherApiShape = {
+  const api: WatchTogetherApiContract = {
     listRooms: () => listRooms(),
     createRoom: (input) => createRoom(input),
     deleteRoom: (roomId) => deleteRoom(roomId),
@@ -254,11 +248,11 @@ export const makeStubApi = (overrides?: {
 
 export const withRotationSession = async <A>(
   f: (ctx: {
-    session: WatchTogetherSessionShape;
+    session: WatchTogetherSessionContract;
     player: ReturnType<typeof makeControllablePlayer>;
-    createRoom: Mock<WatchTogetherApiShape["createRoom"]>;
-    deleteRoom: Mock<WatchTogetherApiShape["deleteRoom"]>;
-    getItemMetadata: Mock<WatchTogetherApiShape["getItemMetadata"]>;
+    createRoom: Mock<WatchTogetherApiContract["createRoom"]>;
+    deleteRoom: Mock<WatchTogetherApiContract["deleteRoom"]>;
+    getItemMetadata: Mock<WatchTogetherApiContract["getItemMetadata"]>;
     observers: StubObserver[];
     controllers: StubController[];
     setRooms: (rooms: WatchTogetherRoom[]) => void;
@@ -267,8 +261,8 @@ export const withRotationSession = async <A>(
   options?: {
     rooms?: () => WatchTogetherRoom[];
     createRoomEffect?: (
-      input: Parameters<WatchTogetherApiShape["createRoom"]>[0],
-    ) => ReturnType<WatchTogetherApiShape["createRoom"]>;
+      input: Parameters<WatchTogetherApiContract["createRoom"]>[0],
+    ) => ReturnType<WatchTogetherApiContract["createRoom"]>;
   },
 ): Promise<A> => {
   const player = makeControllablePlayer();
@@ -335,7 +329,7 @@ export const withRotationSession = async <A>(
 };
 
 export const startArmed = (
-  session: WatchTogetherSessionShape,
+  session: WatchTogetherSessionContract,
   player: ReturnType<typeof makeControllablePlayer>,
   controllers: StubController[],
   peers: SyncplayUser[] = [multiplexUser(2)],
@@ -370,8 +364,8 @@ export const startArmed = (
 
 /** Advance TestClock until `pred` holds (1s steps), for discovery/grace races. */
 export const waitUntil = (
-  session: WatchTogetherSessionShape,
-  pred: (snap: ReturnType<WatchTogetherSessionShape["snapshot"]>) => boolean,
+  session: WatchTogetherSessionContract,
+  pred: (snap: ReturnType<WatchTogetherSessionContract["snapshot"]>) => boolean,
   maxSeconds = 20,
   label = "waitUntil predicate",
 ) =>

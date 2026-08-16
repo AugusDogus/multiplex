@@ -16,7 +16,7 @@ import {
   type RotationContext,
   type StartPlaybackInput,
   type SwapToInput,
-  type WatchTogetherSessionShape,
+  type WatchTogetherSessionContract,
 } from "./session-service";
 
 /**
@@ -36,7 +36,7 @@ import {
  */
 export { sessionRuntime };
 
-const session: WatchTogetherSessionShape = sessionRuntime.runSync(
+const session: WatchTogetherSessionContract = sessionRuntime.runSync(
   Effect.gen(function* () {
     return yield* WatchTogetherSession;
   }),
@@ -59,7 +59,7 @@ export function useSessionState(): SessionState {
  * `runSync` because they only touch refs / SubscriptionRef / live controller.
  */
 const runSessionSync = <A>(
-  f: (s: WatchTogetherSessionShape) => Effect.Effect<A>,
+  f: (s: WatchTogetherSessionContract) => Effect.Effect<A>,
 ): A => sessionRuntime.runSync(f(session));
 
 /**
@@ -82,7 +82,7 @@ const runLifecycleCommand = <A>(
 
 export const makeSessionLifecycleCommands = (
   runtime: SessionLifecycleRuntime,
-  service: WatchTogetherSessionShape,
+  service: WatchTogetherSessionContract,
 ) => ({
   enterLobby: (input: EnterLobbyInput): SessionCommand<void> =>
     runLifecycleCommand(runtime, service.enterLobby(input)),

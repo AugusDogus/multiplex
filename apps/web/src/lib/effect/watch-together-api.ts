@@ -29,7 +29,7 @@ export type WatchTogetherTrpcClient = Pick<
   | "getItemMetadata"
 >;
 
-export type WatchTogetherApiShape = {
+export type WatchTogetherApiContract = {
   readonly listRooms: () => Effect.Effect<
     RouterOutputs["plex"]["getWatchTogetherRooms"],
     WatchTogetherApiError
@@ -79,7 +79,7 @@ const wrap =
 
 export const makeWatchTogetherApi = (
   client: WatchTogetherTrpcClient = getBrowserTrpcClient(),
-): WatchTogetherApiShape => ({
+): WatchTogetherApiContract => ({
   listRooms: wrap("listRooms", async () => {
     const rooms = await client.getWatchTogetherRooms.query();
     const collections = getActiveSyncEngineCollections();
@@ -122,7 +122,7 @@ export const makeWatchTogetherApi = (
  */
 export class WatchTogetherApi extends Context.Service<
   WatchTogetherApi,
-  WatchTogetherApiShape
+  WatchTogetherApiContract
 >()("WatchTogetherApi") {
   static readonly Default = Layer.sync(WatchTogetherApi, () =>
     makeWatchTogetherApi(),

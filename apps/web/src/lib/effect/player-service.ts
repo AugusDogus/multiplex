@@ -91,7 +91,7 @@ export function isPlayerPlaybackIdentityCurrent(
 }
 
 /**
- * Fields writable via {@link PlayerServiceShape.updatePlaybackState}.
+ * Fields writable via {@link PlayerServiceContract.updatePlaybackState}.
  * Item-scoped async callers must use `updatePlaybackStateFor` instead.
  */
 export type PlayerPlaybackUpdate = Partial<
@@ -129,7 +129,7 @@ export const initialPlayerState: PlayerState = {
   },
 };
 
-export type PlayerServiceShape = {
+export type PlayerServiceContract = {
   readonly state: SubscriptionRef.SubscriptionRef<PlayerState>;
   readonly changes: Stream.Stream<PlayerState>;
   readonly snapshot: () => PlayerState;
@@ -218,11 +218,11 @@ const getState = (
   state: SubscriptionRef.SubscriptionRef<PlayerState>,
 ): PlayerState => Effect.runSync(SubscriptionRef.get(state));
 
-export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
+export const makePlayerService: Effect.Effect<PlayerServiceContract> = Effect.gen(
   function* () {
     const state = yield* SubscriptionRef.make<PlayerState>(initialPlayerState);
 
-    const openPlayer: PlayerServiceShape["openPlayer"] = (item, options) => {
+    const openPlayer: PlayerServiceContract["openPlayer"] = (item, options) => {
       const storage = browserReloadStorage();
       const reloadSession = storage
         ? consumeReloadPlaybackSession(storage, item)
@@ -326,7 +326,7 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
       }));
     };
 
-    const cancelAutoPlay: PlayerServiceShape["cancelAutoPlay"] = () => {
+    const cancelAutoPlay: PlayerServiceContract["cancelAutoPlay"] = () => {
       setState(state, (s) => ({
         ...s,
         autoPlay: {
@@ -337,7 +337,7 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
       }));
     };
 
-    const triggerAutoPlay: PlayerServiceShape["triggerAutoPlay"] = (
+    const triggerAutoPlay: PlayerServiceContract["triggerAutoPlay"] = (
       nextEpisode,
     ) => {
       const currentItem = getState(state).currentItem;
@@ -509,7 +509,8 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
                 plan.videoUsesTranscode && preserveCurrentTime > 0
                   ? preserveCurrentTime
                   : 0,
-              ...(shouldReloadVideo ? { isLoading: true, canPlay: false } : {}),
+              isLoading: shouldReloadVideo ? true : current.isLoading,
+              canPlay: shouldReloadVideo ? false : current.canPlay,
             };
           }
 
@@ -567,7 +568,7 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
           triggerAutoPlay(current.autoPlay.nextEpisode);
         }
       },
-    } satisfies PlayerServiceShape;
+    } satisfies PlayerServiceContract;
   },
 );
 
@@ -577,11 +578,11 @@ export const makePlayerService: Effect.Effect<PlayerServiceShape> = Effect.gen(
  */
 export class PlayerService extends Context.Service<
   PlayerService,
-  PlayerServiceShape
+  PlayerServiceContract
 >()("PlayerService") {
   static readonly Default = Layer.effect(PlayerService)(makePlayerService);
 }
 
 /** Sync constructor for unit tests outside a ManagedRuntime. */
-export const createPlayerService = (): PlayerServiceShape =>
+export const createPlayerService = (): PlayerServiceContract =>
   Effect.runSync(makePlayerService);
