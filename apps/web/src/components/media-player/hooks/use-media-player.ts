@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PlaybackIntent, type Marker } from "@multiplex/plex-query";
 import { playerCommands } from "~/lib/effect/player-atoms";
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
@@ -85,7 +85,7 @@ export function useMediaPlayer(): {
   prepareForReplacement: () => void;
 } {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const playbackIntentRef = useRef(PlaybackIntent.make());
+  const [playbackIntent] = useState(PlaybackIntent.make);
   const pauseRequestedRef = useRef(false);
   const transcodeSeekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -108,15 +108,15 @@ export function useMediaPlayer(): {
   const play = async () => {
     console.log("🎬 Player: play() called");
     pauseRequestedRef.current = false;
-    const intentRevision = playbackIntentRef.current.beginPlay();
+    const intentRevision = playbackIntent.beginPlay();
     const video = videoRef.current;
     const playbackIdentity = playerCommands.playbackIdentity();
     const sourceGeneration = playerCommands.snapshot().sourceGeneration;
     if (video && playbackIdentity) {
       try {
         await video.play();
-        if (!playbackIntentRef.current.isCurrent(intentRevision)) {
-          if (!playbackIntentRef.current.shouldPlay()) video.pause();
+        if (!playbackIntent.isCurrent(intentRevision)) {
+          if (!playbackIntent.shouldPlay()) video.pause();
           return false;
         }
         if (
@@ -154,7 +154,7 @@ export function useMediaPlayer(): {
    */
   const pause = () => {
     console.log("🎬 Player: pause() called");
-    playbackIntentRef.current.pause();
+    playbackIntent.pause();
     const video = videoRef.current;
     const playbackIdentity = playerCommands.playbackIdentity();
     if (video && playbackIdentity) {
@@ -174,7 +174,7 @@ export function useMediaPlayer(): {
 
   const prepareForReplacement = () => {
     cancelPendingTranscodeSeek();
-    playbackIntentRef.current.pause();
+    playbackIntent.pause();
     pauseRequestedRef.current = false;
     const video = videoRef.current;
     const playbackIdentity = playerCommands.playbackIdentity();

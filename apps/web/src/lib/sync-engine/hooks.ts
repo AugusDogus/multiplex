@@ -1,13 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import {
-  useCallback,
-  useEffect,
-  useEffectEvent,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import type { HubWithServer, PlexUserInfo } from "@multiplex/plex-query";
 import type { RouterOutputs } from "~/trpc/api";
@@ -120,11 +114,11 @@ function useWarmOnce(
   const settledKeyRef = useRef<string | null>(null);
   const activeKeyRef = useRef<string | null>(null);
   const attemptCountRef = useRef(0);
-  const retry = useCallback(() => {
+  const retry = () => {
     attemptCountRef.current = 0;
     settledKeyRef.current = null;
     setRetryNonce((value) => value + 1);
-  }, []);
+  };
 
   useEffect(() => {
     if (!enabled || !key) return;
