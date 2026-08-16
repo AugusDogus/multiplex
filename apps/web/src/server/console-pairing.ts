@@ -48,6 +48,18 @@ export const claimConsolePairingSchema = z.object({
   code: z.string().transform(normalizePairingCode).pipe(z.string().length(4)),
 });
 
+export async function parseConsolePairingRequest<Output>(
+  request: Request,
+  schema: z.ZodType<Output>,
+): Promise<Output | null> {
+  try {
+    const parsed = schema.safeParse(await request.json());
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
 type ConsolePlatform = z.infer<typeof consolePlatformSchema>;
 type PairingDatabase = Pick<typeof db, "insert" | "select" | "update">;
 

@@ -2,6 +2,7 @@ import { auth } from "~/lib/auth/server";
 import {
   claimConsolePairing,
   claimConsolePairingSchema,
+  parseConsolePairingRequest,
 } from "~/server/console-pairing";
 
 const RESPONSE_HEADERS = {
@@ -19,15 +20,18 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const parsed = claimConsolePairingSchema.safeParse(await readBody(request));
-  if (!parsed.success) {
+  const input = await parseConsolePairingRequest(
+    request,
+    claimConsolePairingSchema,
+  );
+  if (!input) {
     return Response.json(
       { status: "invalid-request" },
       { status: 400, headers: RESPONSE_HEADERS },
     );
   }
 
-  const result = await claimConsolePairing(session.user.id, parsed.data.code);
+  const result = await claimConsolePairing(session.user.id, input.code);
   return Response.json(result, {
     status:
       result.status === "linked"
@@ -37,12 +41,4 @@ export async function POST(request: Request): Promise<Response> {
           : 404,
     headers: RESPONSE_HEADERS,
   });
-}
-
-async function readBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    return null;
-  }
 }
