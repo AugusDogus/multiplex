@@ -1,4 +1,5 @@
 import type { WatchTogetherRoom } from "../schemas/watch-together-schemas";
+import { z } from "zod";
 
 export interface SyncplayUser {
   id: number;
@@ -103,53 +104,112 @@ const SOCKET_OPEN = 1;
 const PING_MOVING_AVERAGE_WEIGHT = 0.85;
 const MAX_PING_ROUND_TRIP_SECONDS = 60;
 
-type SyncplayIncomingFrame =
-  | { Hello: { username: string; room: { name: string } } }
-  | { List: Record<string, Record<string, SyncplayListUserState>> }
-  | { Set: SyncplaySetPayload }
-  | { State: SyncplayStatePayload }
-  | { Error: unknown };
+const finiteNumber = z.number().finite();
 
-interface SyncplayListUserState {
-  position?: number;
-  isReady?: boolean | null;
-  file?: unknown;
-}
+const syncplayListUserStateSchema = z.object({
+  position: finiteNumber.optional(),
+  isReady: z.boolean().nullable().optional(),
+  file: z.unknown().optional(),
+});
 
-interface SyncplaySetPayload {
-  ready?: {
-    username: string;
-    isReady: boolean | null;
-  };
-  user?: Record<
-    string,
-    {
-      room?: { name?: string };
-      event?: { joined?: boolean; left?: boolean };
+const syncplaySetPayloadSchema = z.object({
+  ready: z
+    .object({
+      username: z.string(),
+      isReady: z.boolean().nullable(),
+    })
+    .optional(),
+  user: z
+    .record(
+      z.object({
+        room: z.object({ name: z.string().optional() }).optional(),
+        event: z
+          .object({
+            joined: z.boolean().optional(),
+            left: z.boolean().optional(),
+          })
+          .optional(),
+      }),
+    )
+    .optional(),
+});
+
+const syncplayPingStateSchema = z.object({
+  clientLatencyCalculation: finiteNumber.optional(),
+  clientRtt: finiteNumber.optional(),
+  serverRtt: finiteNumber.optional(),
+  latencyCalculation: finiteNumber.optional(),
+});
+
+const syncplayStatePayloadSchema = z.object({
+  ping: syncplayPingStateSchema.optional(),
+  playstate: z.object({
+    position: finiteNumber,
+    paused: z.boolean(),
+    doSeek: z.boolean().optional(),
+    setBy: z.string().nullable().optional(),
+  }),
+  ignoringOnTheFly: z
+    .object({
+      client: finiteNumber.optional(),
+      server: finiteNumber.optional(),
+    })
+    .optional(),
+});
+
+const syncplayErrorFrameSchema = z
+  .object({ Error: z.unknown() })
+  .refine((frame) => Object.hasOwn(frame, "Error"));
+
+const syncplayIncomingFrameSchema = z.union([
+  z.object({ Hello: z.object({}).passthrough() }),
+  z.object({
+    List: z.record(z.record(syncplayListUserStateSchema)),
+  }),
+  z.object({ Set: syncplaySetPayloadSchema }),
+  z.object({ State: syncplayStatePayloadSchema }),
+  syncplayErrorFrameSchema,
+]);
+
+const encodedSyncplayUserSchema = z.object({
+  deviceIdentifier: z.string(),
+  deviceName: z.string(),
+  userID: z.string().regex(/^\d+$/),
+});
+
+type SyncplayIncomingFrame = z.infer<typeof syncplayIncomingFrameSchema>;
+type SyncplayListUserState = z.infer<typeof syncplayListUserStateSchema>;
+type SyncplaySetPayload = z.infer<typeof syncplaySetPayloadSchema>;
+type SyncplayStatePayload = z.infer<typeof syncplayStatePayloadSchema>;
+type SyncplayPingState = z.infer<typeof syncplayPingStateSchema>;
+type SyncplayOutgoingFrame =
+  | {
+      Hello: {
+        room: { name: string };
+        username: string;
+        version: string;
+      };
     }
-  >;
-}
-
-interface SyncplayStatePayload {
-  ping?: SyncplayPingState;
-  playstate: {
-    position: number;
-    paused: boolean;
-    doSeek?: boolean;
-    setBy?: string | null;
-  };
-  ignoringOnTheFly?: {
-    client?: number;
-    server?: number;
-  };
-}
-
-interface SyncplayPingState {
-  clientLatencyCalculation?: number;
-  clientRtt?: number;
-  serverRtt?: number;
-  latencyCalculation?: number;
-}
+  | { Set: { ready: { isReady: boolean | null } } }
+  | { Set: { file: { name: string } } }
+  | {
+      State: {
+        ping: {
+          clientLatencyCalculation: number;
+          clientRtt: number;
+          serverRtt: number;
+          latencyCalculation: number;
+        };
+        playstate: {
+          doSeek: boolean;
+          paused: boolean;
+          position: number;
+          setBy: string | null;
+        };
+        ignoringOnTheFly: { client: number; server: number };
+      };
+    }
+  | { List: Record<string, never> };
 
 export class SyncplayClient {
   private socket: SyncplayWebSocketLike | null = null;
@@ -351,14 +411,16 @@ export class SyncplayClient {
     let frame: SyncplayIncomingFrame;
 
     try {
-      frame = JSON.parse(event.data) as SyncplayIncomingFrame;
-    } catch (error) {
-      this.onError(error instanceof Error ? error : new Error("Invalid syncplay frame"));
-      return;
-    }
-
-    if (typeof frame !== "object" || frame === null) {
-      this.onError(new Error("Invalid syncplay frame: expected object"));
+      const parsed = syncplayIncomingFrameSchema.safeParse(
+        JSON.parse(event.data),
+      );
+      if (!parsed.success) {
+        this.onError(new Error("Invalid syncplay frame"));
+        return;
+      }
+      frame = parsed.data;
+    } catch {
+      this.onError(new Error("Invalid syncplay frame"));
       return;
     }
 
@@ -369,10 +431,6 @@ export class SyncplayClient {
     }
 
     if ("Hello" in frame) {
-      if (!isRecord(frame.Hello)) {
-        this.onError(new Error("Invalid syncplay Hello frame"));
-        return;
-      }
       this.send({ List: {} });
       this.setFile();
       this.setReady(this.requestedReady ?? null);
@@ -380,28 +438,16 @@ export class SyncplayClient {
     }
 
     if ("List" in frame) {
-      if (!isValidListPayload(frame.List, this.room.id)) {
-        this.onError(new Error("Invalid syncplay List frame"));
-        return;
-      }
       this.handleList(frame.List);
       return;
     }
 
     if ("Set" in frame) {
-      if (!isValidSetPayload(frame.Set)) {
-        this.onError(new Error("Invalid syncplay Set frame"));
-        return;
-      }
       this.handleSet(frame.Set);
       return;
     }
 
     if ("State" in frame) {
-      if (!isValidStatePayload(frame.State)) {
-        this.onError(new Error("Invalid syncplay State frame"));
-        return;
-      }
       this.handleState(frame.State, connectionId);
     }
   }
@@ -670,7 +716,7 @@ export class SyncplayClient {
     this.sendState(pendingState);
   }
 
-  private send(frame: unknown): boolean {
+  private send(frame: SyncplayOutgoingFrame): boolean {
     if (this.socket?.readyState !== SOCKET_OPEN) {
       return false;
     }
@@ -678,10 +724,6 @@ export class SyncplayClient {
     this.socket.send(JSON.stringify(frame));
     return true;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 function createDefaultWebSocket(url: string): SyncplayWebSocketLike {
@@ -696,156 +738,6 @@ function getDefaultNow(): number {
   return Date.now();
 }
 
-function isValidListPayload(
-  value: unknown,
-  roomId: string,
-): value is Record<string, Record<string, SyncplayListUserState>> {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  const roomUsers = value[roomId];
-  if (roomUsers === undefined) {
-    return true;
-  }
-
-  if (!isRecord(roomUsers)) {
-    return false;
-  }
-
-  return Object.values(roomUsers).every((state) => {
-    if (!isRecord(state)) {
-      return false;
-    }
-
-    if (
-      state.position !== undefined &&
-      (typeof state.position !== "number" || !Number.isFinite(state.position))
-    ) {
-      return false;
-    }
-
-    if (
-      state.isReady !== undefined &&
-      state.isReady !== null &&
-      typeof state.isReady !== "boolean"
-    ) {
-      return false;
-    }
-
-    return true;
-  });
-}
-
-function isValidSetPayload(value: unknown): value is SyncplaySetPayload {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  const ready = value.ready;
-  if (ready !== undefined) {
-    if (!isRecord(ready) || typeof ready.username !== "string") {
-      return false;
-    }
-
-    if (ready.isReady !== null && typeof ready.isReady !== "boolean") {
-      return false;
-    }
-  }
-
-  const user = value.user;
-  if (user !== undefined) {
-    if (!isRecord(user)) {
-      return false;
-    }
-
-    for (const state of Object.values(user)) {
-      if (!isRecord(state)) {
-        return false;
-      }
-
-      if (state.room !== undefined && !isRecord(state.room)) {
-        return false;
-      }
-
-      if (state.event !== undefined && !isRecord(state.event)) {
-        return false;
-      }
-
-      if (isRecord(state.event)) {
-        if (state.event.joined !== undefined && typeof state.event.joined !== "boolean") {
-          return false;
-        }
-
-        if (state.event.left !== undefined && typeof state.event.left !== "boolean") {
-          return false;
-        }
-      }
-    }
-  }
-
-  return true;
-}
-
-function isValidStatePayload(value: unknown): value is SyncplayStatePayload {
-  if (!isRecord(value) || !isRecord(value.playstate)) {
-    return false;
-  }
-
-  const { playstate } = value;
-  if (
-    typeof playstate.position !== "number" ||
-    !Number.isFinite(playstate.position) ||
-    typeof playstate.paused !== "boolean"
-  ) {
-    return false;
-  }
-
-  if (playstate.doSeek !== undefined && typeof playstate.doSeek !== "boolean") {
-    return false;
-  }
-
-  if (
-    playstate.setBy !== undefined &&
-    playstate.setBy !== null &&
-    typeof playstate.setBy !== "string"
-  ) {
-    return false;
-  }
-
-  if (value.ping !== undefined) {
-    if (!isRecord(value.ping)) {
-      return false;
-    }
-
-    for (const field of [
-      value.ping.clientLatencyCalculation,
-      value.ping.clientRtt,
-      value.ping.serverRtt,
-      value.ping.latencyCalculation,
-    ]) {
-      if (field !== undefined && (typeof field !== "number" || !Number.isFinite(field))) {
-        return false;
-      }
-    }
-  }
-
-  // Validate the arbitration counters: a non-number here (e.g. "1") would slip
-  // through and corrupt the ignoring-on-the-fly handshake.
-  if (value.ignoringOnTheFly !== undefined) {
-    if (!isRecord(value.ignoringOnTheFly)) {
-      return false;
-    }
-    for (const field of [value.ignoringOnTheFly.client, value.ignoringOnTheFly.server]) {
-      if (field !== undefined && (typeof field !== "number" || !Number.isFinite(field))) {
-        return false;
-      }
-    }
-  }
-
-  return true;
-}
-
 export function encodeSyncplayUser(user: SyncplayUser): string {
   return JSON.stringify({
     deviceIdentifier: user.deviceIdentifier,
@@ -856,24 +748,17 @@ export function encodeSyncplayUser(user: SyncplayUser): string {
 
 export function decodeSyncplayUser(value: string): SyncplayUser | null {
   try {
-    const parsed = JSON.parse(value.replace(/_+$/, "")) as {
-      deviceIdentifier?: unknown;
-      deviceName?: unknown;
-      userID?: unknown;
-    };
-
-    if (
-      typeof parsed.deviceIdentifier !== "string" ||
-      typeof parsed.deviceName !== "string" ||
-      typeof parsed.userID !== "string"
-    ) {
+    const parsed = encodedSyncplayUserSchema.safeParse(
+      JSON.parse(value.replace(/_+$/, "")),
+    );
+    if (!parsed.success) {
       return null;
     }
 
     return {
-      id: Number.parseInt(parsed.userID, 10),
-      deviceIdentifier: parsed.deviceIdentifier,
-      deviceName: parsed.deviceName,
+      id: Number.parseInt(parsed.data.userID, 10),
+      deviceIdentifier: parsed.data.deviceIdentifier,
+      deviceName: parsed.data.deviceName,
     };
   } catch {
     return null;
