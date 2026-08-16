@@ -4,7 +4,7 @@ import type { PlexConfig } from "./plex";
  * Get the stored client identifier or generate a new one
  */
 function getClientIdentifier(): string {
-  if (typeof window === "undefined") {
+  if (!globalThis.window) {
     return "server-side";
   }
 
