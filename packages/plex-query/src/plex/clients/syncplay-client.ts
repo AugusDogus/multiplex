@@ -67,6 +67,8 @@ export interface SyncplayClientOptions {
    */
   observer?: boolean;
   onParticipant?: (state: SyncplayParticipantState) => void;
+  /** Participants remembered by a previous socket for reconnect reconciliation. */
+  initialParticipants?: Iterable<SyncplayUser>;
   /**
    * Fires on deliberate remote playback actions (see
    * {@link SyncplayRemoteAction}): incoming `doSeek` frames and remote-authored
@@ -210,6 +212,9 @@ export class SyncplayClient {
     this.webSocketFactory = options.webSocketFactory ?? createDefaultWebSocket;
     this.now = options.now ?? getDefaultNow;
     this.observer = options.observer ?? false;
+    for (const participant of options.initialParticipants ?? []) {
+      this.knownParticipants.set(participant.deviceIdentifier, participant);
+    }
   }
 
   connect(): void {

@@ -3,6 +3,7 @@ import { fromAny, fromPartial } from "@total-typescript/shoehorn";
 import {
   encodeSyncplayUser,
   type SyncplayRemoteAction,
+  type SyncplayParticipantState,
   type SyncplayWebSocketLike,
 } from "./syncplay-client";
 import { SyncplaySessionController, type SyncplayPlayerState } from "./syncplay-session-controller";
@@ -86,6 +87,7 @@ function createController(options: {
   state: SyncplayPlayerState;
   calls: PlayerCalls;
   actions?: SyncplayRemoteAction[];
+  participants?: SyncplayParticipantState[];
   now?: () => number;
   setTimeout?: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>;
   clearTimeout?: (timeout: ReturnType<typeof setTimeout>) => void;
@@ -98,6 +100,7 @@ function createController(options: {
     user: LOCAL_USER,
     onFatalError: options.onFatalError,
     onRemoteAction: (action) => options.actions?.push(action),
+    onParticipant: (participant) => options.participants?.push(participant),
     // Tests exercise steady-state arbitration; disable the startup grace unless
     // a test opts in.
     remoteStartupGraceMs: options.remoteStartupGraceMs ?? 0,
@@ -177,6 +180,34 @@ describe("SyncplaySessionController", () => {
 
     expect(calls.pause).toBe(1);
     expect(state.isPlaying).toBe(false);
+  });
+
+  test("ignores Plex's anonymous empty-room reset during a handoff", () => {
+    const sockets: FakeWebSocket[] = [];
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const state = makeState({
+      isPlaying: true,
+      currentTime: 80,
+      duration: 120,
+    });
+    const controller = createController({ sockets, state, calls });
+    controller.connect();
+    sockets[0]?.open();
+
+    controller.handleLocalPlaybackChange(false);
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: true,
+          position: 0,
+          setBy: null,
+        },
+      },
+    });
+
+    expect(calls.pause).toBe(0);
+    expect(calls.seeks).toEqual([]);
+    expect(state).toMatchObject({ isPlaying: true, currentTime: 80 });
   });
 
   test("ignores a remote pause during the startup grace (so auto-start can begin)", () => {
@@ -539,6 +570,44 @@ describe("SyncplaySessionController", () => {
     controller.connect();
     sockets[0]?.closeFromServer();
     expect(sockets).toHaveLength(2);
+  });
+
+  test("reconciles a peer missing from the first List after reconnect", () => {
+    const sockets: FakeWebSocket[] = [];
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const participants: SyncplayParticipantState[] = [];
+    const controller = createController({
+      sockets,
+      state: makeState(),
+      calls,
+      participants,
+    });
+    controller.connect();
+    sockets[0]?.open();
+    sockets[0]?.message({
+      List: {
+        [ROOM.id]: {
+          [encodeSyncplayUser(LOCAL_USER)]: { position: 30 },
+          [encodeSyncplayUser(REMOTE_USER)]: { position: 30 },
+        },
+      },
+    });
+
+    sockets[0]?.closeFromServer();
+    expect(sockets).toHaveLength(2);
+    sockets[1]?.open();
+    sockets[1]?.message({
+      List: {
+        [ROOM.id]: {
+          [encodeSyncplayUser(LOCAL_USER)]: { position: 30 },
+        },
+      },
+    });
+
+    expect(participants).toContainEqual({
+      user: REMOTE_USER,
+      isPresent: false,
+    });
   });
 
   test("aligns and applies pause immediately on reconnect", () => {

@@ -139,6 +139,36 @@ export function getGuestRotationTimeline(input: {
   };
 }
 
+/**
+ * A host can replace its player and leave the old Syncplay room before its
+ * final seek heartbeat reaches a Guest Link viewer. Once the continuation is
+ * ready, an explicit host departure is therefore also an authoritative
+ * handoff signal. Requiring an observed `isPresent: false` avoids treating an
+ * initially empty or reconnecting participant snapshot as an episode end.
+ */
+export function shouldSwapGuestContinuation(input: {
+  readonly atEnd: boolean;
+  readonly roomId: string;
+  readonly hostUserId: number;
+  readonly sessionState: SessionState;
+}): boolean {
+  if (input.atEnd) return true;
+  if (
+    input.sessionState._tag !== "Playing" ||
+    input.sessionState.room.id !== input.roomId ||
+    input.sessionState.startPolicy._tag !== "HostControlled" ||
+    input.sessionState.startPolicy.localRole !== "Guest"
+  ) {
+    return false;
+  }
+
+  return Object.values(input.sessionState.participants).some(
+    (participant) =>
+      participant.user.id === input.hostUserId &&
+      participant.isPresent === false,
+  );
+}
+
 function guestDeviceName(deviceName: string): string {
   return deviceName.replace(/^Multiplex Guest ·\s*/, "") || "Guest";
 }
@@ -159,6 +189,9 @@ export function useGuestWatchTogether(capability: string) {
     capability: string;
     value: GuestWatchTogetherBootstrapValue;
   } | null>(null);
+  const [continuationPollingRoomId, setContinuationPollingRoomId] = useState<
+    string | null
+  >(null);
   const swappingRef = useRef(false);
   const joiningRef = useRef(false);
   const pendingLobbyRoomIdRef = useRef<string | null>(null);
@@ -208,12 +241,18 @@ export function useGuestWatchTogether(capability: string) {
     joined !== null &&
     sessionState._tag === "Playing" &&
     sessionState.room.id === joined.room.id;
+  const shouldSwapContinuation =
+    joined !== null &&
+    shouldSwapGuestContinuation({
+      atEnd: rotationTimeline.atEnd,
+      roomId: joined.room.id,
+      hostUserId: joined.host.id,
+      sessionState,
+    });
   const shouldPollContinuation =
-    joined?.nextEpisode !== null &&
-    joined?.nextEpisode !== undefined &&
-    playingJoinedRoom &&
-    pendingContinuation === null &&
-    (rotationTimeline.inLeadWindow || rotationTimeline.atEnd);
+    joined !== null &&
+    continuationPollingRoomId === joined.room.id &&
+    pendingContinuation === null;
 
   useEffect(() => {
     if (!lobbyEntry || !playbackItem) {
@@ -247,16 +286,42 @@ export function useGuestWatchTogether(capability: string) {
 
   useEffect(() => {
     if (
-      !joined?.nextEpisode ||
-      !shouldPollContinuation ||
-      pendingContinuation
+      !joined ||
+      !playingJoinedRoom ||
+      continuationPollingRoomId === joined.room.id ||
+      (!rotationTimeline.inLeadWindow &&
+        !rotationTimeline.atEnd &&
+        !shouldSwapContinuation)
     ) {
+      return;
+    }
+
+    const roomId = joined.room.id;
+    // Once the room enters its handoff window, keep discovery armed. The host
+    // leaving the old Syncplay room changes participant/timeline state and
+    // must not abort the continuation request that observes its successor.
+    const timeoutId = window.setTimeout(
+      () => setContinuationPollingRoomId(roomId),
+      0,
+    );
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    continuationPollingRoomId,
+    joined,
+    playingJoinedRoom,
+    rotationTimeline.atEnd,
+    rotationTimeline.inLeadWindow,
+    shouldSwapContinuation,
+  ]);
+
+  useEffect(() => {
+    if (!joined || !shouldPollContinuation || pendingContinuation) {
       return;
     }
 
     let done = false;
     const controller = new AbortController();
-    const nextRatingKey = joined.nextEpisode.ratingKey;
+    const nextRatingKey = joined.nextEpisode?.ratingKey;
 
     const poll = async () => {
       if (done) return;
@@ -267,7 +332,7 @@ export function useGuestWatchTogether(capability: string) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             capability: activeCapability,
-            nextRatingKey,
+            ...(nextRatingKey ? { nextRatingKey } : {}),
           }),
           signal: controller.signal,
         });
@@ -303,7 +368,7 @@ export function useGuestWatchTogether(capability: string) {
       !pendingContinuation ||
       swappingRef.current ||
       !playingJoinedRoom ||
-      !rotationTimeline.atEnd
+      !shouldSwapContinuation
     ) {
       return;
     }
@@ -343,6 +408,7 @@ export function useGuestWatchTogether(capability: string) {
         );
         setActiveCapability(pendingContinuation.capability);
         setPendingContinuation(null);
+        setContinuationPollingRoomId(null);
         window.history.replaceState(
           window.history.state,
           "",
@@ -352,7 +418,7 @@ export function useGuestWatchTogether(capability: string) {
       .finally(() => {
         swappingRef.current = false;
       });
-  }, [joined, pendingContinuation, playingJoinedRoom, rotationTimeline.atEnd]);
+  }, [joined, pendingContinuation, playingJoinedRoom, shouldSwapContinuation]);
 
   async function join(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

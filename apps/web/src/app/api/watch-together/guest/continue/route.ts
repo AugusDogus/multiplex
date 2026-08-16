@@ -4,7 +4,7 @@ import { continueGuestInvite } from "~/server/watch-together/guest-bootstrap";
 
 const requestSchema = z.object({
   capability: z.string().min(1).max(4_096),
-  nextRatingKey: z.string().regex(/^\d+$/),
+  nextRatingKey: z.string().regex(/^\d+$/).optional(),
 });
 
 const RESPONSE_HEADERS = {

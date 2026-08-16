@@ -147,7 +147,7 @@ describe("guest bootstrap", () => {
     expect(issueTransientToken).toHaveBeenCalledTimes(1);
   });
 
-  test("exchanges a live room capability for its autoplay successor", async () => {
+  test("discovers the live successor when guest queue lookup found no next episode", async () => {
     const nextRoom: WatchTogetherRoom = {
       ...ROOM,
       id: "Room456",
@@ -204,7 +204,7 @@ describe("guest bootstrap", () => {
       resolveAccess,
     });
 
-    const result = await service(await makeCapability(), "43");
+    const result = await service(await makeCapability());
 
     expect(result).toMatchObject({
       ok: true,
@@ -223,6 +223,10 @@ describe("guest bootstrap", () => {
       payload: { roomId: nextRoom.id },
     });
     expect(issueTransientToken).toHaveBeenCalledTimes(1);
+    expect(resolveAccess).toHaveBeenCalledWith(expect.anything(), {
+      serverId: "server-1",
+      ratingKey: "43",
+    });
     expect(deleteRoom).toHaveBeenCalledWith(ROOM.id);
   });
 
