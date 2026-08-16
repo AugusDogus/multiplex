@@ -542,6 +542,64 @@ describe("applyPlaybackMetadata", () => {
     expect(player.snapshot().sourceGeneration).toBe(beforeGeneration);
   });
 
+  test("reloads a remux when hydrated metadata reveals the selected audio", () => {
+    const item = fromPartial<MediaPlayerItem>({
+      ...sampleItem,
+      Media: [
+        {
+          audioCodec: "eac3",
+          videoCodec: "h264",
+          container: "mkv",
+          Part: [{ key: "/library/parts/100/file.mkv" }],
+        },
+      ],
+    });
+    player.openPlayer(item, { resume: false });
+    const beforeGeneration = player.snapshot().sourceGeneration;
+
+    player.applyPlaybackMetadata(
+      player.playbackIdentity()!,
+      fromPartial<ItemMetadata>({
+        ...item,
+        Media: [
+          {
+            audioCodec: "eac3",
+            videoCodec: "h264",
+            container: "mkv",
+            Part: [
+              {
+                key: "/library/parts/100/file.mkv",
+                Stream: [
+                  { id: 1, streamType: 1 as const, codec: "h264" },
+                  {
+                    id: 10,
+                    streamType: 2 as const,
+                    codec: "ac3",
+                    language: "French",
+                    default: true,
+                  },
+                  {
+                    id: 11,
+                    streamType: 2 as const,
+                    codec: "eac3",
+                    language: "English",
+                    selected: true,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(player.snapshot().sourceGeneration).toBe(beforeGeneration + 1);
+    expect(buildPlexPlaybackPlan(player.snapshot().currentItem!)).toMatchObject({
+      selectedAudioStreamId: 11,
+      videoUsesTranscode: true,
+    });
+  });
+
   test("seeds streamOffset when transcoding mid-playback from zero offset", () => {
     player.openPlayer(
       { ...sampleItem, Media: [directPlayMedia] },

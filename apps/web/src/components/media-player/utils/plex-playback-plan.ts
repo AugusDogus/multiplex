@@ -1,10 +1,21 @@
 import type { MediaPlayerItem } from "~/types/media-player";
 
+type PlaybackStream = {
+  readonly id?: number;
+  readonly streamType: number;
+  readonly codec?: string;
+  readonly selected?: boolean;
+  readonly default?: boolean;
+};
+
 type PlaybackMediaSummary = {
   readonly Media?: ReadonlyArray<{
     readonly audioCodec?: string;
     readonly videoCodec?: string;
     readonly container?: string;
+    readonly Part?: ReadonlyArray<{
+      readonly Stream?: ReadonlyArray<PlaybackStream>;
+    }>;
   }>;
 };
 
@@ -70,6 +81,7 @@ export type PlexPlaybackPlan = {
   streamDecision: StreamDecision;
   videoUsesTranscode: boolean;
   burnedSubtitleId: number | null;
+  selectedAudioStreamId: number | null;
   subtitle: SubtitlePlan;
 };
 
@@ -80,6 +92,55 @@ function isExternalSrtSubtitle(
 ): key is string {
   if (!key) return false;
   return codec === "srt" || codec === "subrip" || format === "srt";
+}
+
+function getPartStreams(
+  item: PlaybackMediaSummary,
+): readonly PlaybackStream[] {
+  return item.Media?.[0]?.Part?.[0]?.Stream ?? [];
+}
+
+/**
+ * Plex's `selected` flag is the user's last choice. `default` is the
+ * container flag. HTML5 direct-play always emits the first audio track, so
+ * playback and labels must resolve in this same order.
+ */
+export function resolveSelectedAudioStream<T extends PlaybackStream>(
+  streams: readonly T[],
+): T | null {
+  const audioStreams = streams.filter((stream) => stream.streamType === 2);
+  return (
+    audioStreams.find((stream) => stream.selected) ??
+    audioStreams.find((stream) => stream.default) ??
+    audioStreams[0] ??
+    null
+  );
+}
+
+export function getSelectedAudioStreamId(
+  item: PlaybackMediaSummary,
+): number | null {
+  return resolveSelectedAudioStream(getPartStreams(item))?.id ?? null;
+}
+
+function getPlaybackAudioCodec(
+  item: PlaybackMediaSummary,
+): string | undefined {
+  const selected = resolveSelectedAudioStream(getPartStreams(item));
+  return (selected?.codec ?? item.Media?.[0]?.audioCodec)?.toLowerCase();
+}
+
+/**
+ * Chrome's `<video src>` plays the first audio track in the container. A
+ * non-primary selection has to go through Plex's remuxer with `audioStreamID`.
+ */
+function selectedAudioRequiresRemux(item: PlaybackMediaSummary): boolean {
+  const audioStreams = getPartStreams(item).filter(
+    (stream) => stream.streamType === 2,
+  );
+  if (audioStreams.length <= 1) return false;
+  const selected = resolveSelectedAudioStream(audioStreams);
+  return selected !== null && selected !== audioStreams[0];
 }
 
 /**
@@ -150,6 +211,7 @@ export function buildPlexPlaybackPlan(item: MediaPlayerItem): PlexPlaybackPlan {
     videoUsesTranscode:
       streamDecision === "direct-stream" || subtitle.kind === "burnIn",
     burnedSubtitleId,
+    selectedAudioStreamId: getSelectedAudioStreamId(item),
     subtitle,
   };
 }
@@ -165,8 +227,12 @@ export function playbackUsesTranscode(item: MediaPlayerItem): boolean {
  * video track intact and transcodes audio to AAC.
  */
 export function decideStreamMode(item: PlaybackMediaSummary): StreamDecision {
+  if (selectedAudioRequiresRemux(item)) {
+    return "direct-stream";
+  }
+
   const media = item.Media?.[0];
-  const audioCodec = media?.audioCodec?.toLowerCase();
+  const audioCodec = getPlaybackAudioCodec(item);
   const videoCodec = media?.videoCodec?.toLowerCase();
   const container = media?.container?.toLowerCase();
 

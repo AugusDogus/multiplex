@@ -25,8 +25,10 @@ import { CAPTION_SIZE_OPTIONS } from "./utils/caption-size";
 import {
   buildPlexPlaybackPlan,
   playbackUsesTranscode,
+  resolveSelectedAudioStream,
 } from "./utils/plex-playback-plan";
 import {
+  buildPlexAudioSelectionUrl,
   buildPlexSubtitleSelectionUrl,
   buildPlexTranscodeSessionKey,
   markTranscodeSessionStopped,
@@ -36,7 +38,7 @@ import {
 
 /* ────────────────────────────────────────────────────────────
    Media Player Settings Menu
-   Popover with internal pane navigation (root → speed → subtitles)
+   Popover with internal pane navigation (root → speed → audio → subtitles)
    ──────────────────────────────────────────────────────────── */
 
 const PLAYBACK_RATE_OPTIONS: Array<{ label: string; value: PlaybackRate }> = [
@@ -49,8 +51,10 @@ const PLAYBACK_RATE_OPTIONS: Array<{ label: string; value: PlaybackRate }> = [
   { label: "2x", value: 2 },
 ];
 
+type AudioStream = Extract<PlexStream, { streamType: 2 }>;
 type SubtitleStream = Extract<PlexStream, { streamType: 3 }>;
-type Pane = "root" | "speed" | "subtitles";
+type Pane = "root" | "speed" | "audio" | "subtitles";
+type SelectableStreamKind = "audio" | "subtitle";
 
 /**
  * Either the shallow item from the continue-watching hub or the fully
@@ -93,13 +97,14 @@ export function MediaPlayerSettingsMenu({
 
   const [open, setOpen] = useState(false);
   const [pane, setPane] = useState<Pane>("root");
-  const [subtitleError, setSubtitleError] = useState<string | null>(null);
-  const [isUpdatingSubtitle, setIsUpdatingSubtitle] = useState(false);
-  const subtitleSelectionInFlightRef = useRef(false);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const [isUpdatingStream, setIsUpdatingStream] = useState(false);
+  const streamSelectionInFlightRef = useRef(false);
 
   const handleOpenChange = (next: boolean) => {
     if (!next) {
       setPane("root");
+      setStreamError(null);
     }
     setOpen(next);
     onOpenChange?.(next);
@@ -120,10 +125,10 @@ export function MediaPlayerSettingsMenu({
     });
 
   // Keep the store's `currentItem` hydrated with expanded stream metadata so
-  // playback and the settings menu share one canonical subtitle selection.
+  // playback and the settings menu share one canonical stream selection.
   useEffect(() => {
     if (
-      subtitleSelectionInFlightRef.current ||
+      streamSelectionInFlightRef.current ||
       !detailedItem ||
       !metadataServerId ||
       !metadataRatingKey ||
@@ -157,6 +162,10 @@ export function MediaPlayerSettingsMenu({
 
   const streamSource: StreamSource = detailedItem ?? currentItem;
   const qualityLabel = getQualityLabel(streamSource);
+  const audioStreams = getAudioStreams(streamSource);
+  const selectedAudioStream = resolveSelectedAudioStream(audioStreams);
+  const selectedAudioStreamId = selectedAudioStream?.id ?? null;
+  const canSelectAudio = audioStreams.length > 1;
   const audioLabel = getAudioStreamLabel(streamSource);
   const subtitleStreams = getSubtitleStreams(streamSource);
   const hasSubtitles = subtitleStreams.length > 0;
@@ -170,7 +179,10 @@ export function MediaPlayerSettingsMenu({
       : "None"
     : "Unavailable";
 
-  const handleSubtitleSelection = async (streamId: number | null) => {
+  const handleStreamSelection = async (
+    kind: SelectableStreamKind,
+    streamId: number | null,
+  ) => {
     if (!currentItem) {
       return;
     }
@@ -192,31 +204,50 @@ export function MediaPlayerSettingsMenu({
       );
     };
 
-    if (streamId === selectedSubtitleStreamId) {
+    const isCurrentSelection =
+      kind === "audio"
+        ? streamId === selectedAudioStreamId
+        : streamId === selectedSubtitleStreamId;
+    if (isCurrentSelection) {
       setPane("root");
       return;
     }
 
-    subtitleSelectionInFlightRef.current = true;
-    setIsUpdatingSubtitle(true);
-    setSubtitleError(null);
+    let selectionUrl: string;
+    if (kind === "audio") {
+      if (streamId === null) {
+        return;
+      }
+      selectionUrl = buildPlexAudioSelectionUrl(
+        currentItem,
+        currentItem.serverUrl,
+        currentItem.authToken,
+        streamId,
+      );
+    } else {
+      selectionUrl = buildPlexSubtitleSelectionUrl(
+        currentItem,
+        currentItem.serverUrl,
+        currentItem.authToken,
+        streamId,
+      );
+    }
 
-    const selectionUrl = buildPlexSubtitleSelectionUrl(
-      currentItem,
-      currentItem.serverUrl,
-      currentItem.authToken,
-      streamId,
-    );
+    const failureMessage =
+      kind === "audio" ? "Unable to update audio" : "Unable to update subtitles";
+    streamSelectionInFlightRef.current = true;
+    setIsUpdatingStream(true);
+    setStreamError(null);
     const previousUsesTranscode = playbackUsesTranscode(currentItem);
 
     await fetch(selectionUrl, { method: "PUT" })
       .then(async (response) => {
         if (!response.ok) {
           console.error(
-            `Failed to select subtitle stream: Plex returned ${response.status}`,
+            `Failed to select ${kind} stream: Plex returned ${response.status}`,
           );
           if (isCurrentPlayback()) {
-            setSubtitleError("Unable to update subtitles");
+            setStreamError(failureMessage);
           }
           return;
         }
@@ -237,11 +268,11 @@ export function MediaPlayerSettingsMenu({
             : null;
           const previousTranscodeSession =
             previousPlan?.videoUsesTranscode &&
-            playbackBeforeReplacement.streamSessionId
+            playbackBeforeReplacement.transcodeSessionId
               ? buildPlexTranscodeSessionKey(
-                  playbackBeforeReplacement.streamSessionId,
+                  playbackBeforeReplacement.transcodeSessionId,
                   playbackBeforeReplacement.streamOffset,
-                  previousPlan.burnedSubtitleId,
+                  previousPlan,
                 )
               : null;
           const replacementItem: MediaPlayerItem = {
@@ -260,7 +291,7 @@ export function MediaPlayerSettingsMenu({
             );
             if (!previousStopped || !isCurrentPlayback()) {
               if (isCurrentPlayback()) {
-                setSubtitleError("Unable to update subtitles");
+                setStreamError(failureMessage);
               }
               return;
             }
@@ -275,7 +306,7 @@ export function MediaPlayerSettingsMenu({
           );
           if (!decisionReady || !isCurrentPlayback()) {
             if (isCurrentPlayback()) {
-              setSubtitleError("Unable to update subtitles");
+              setStreamError(failureMessage);
             }
             return;
           }
@@ -291,14 +322,14 @@ export function MediaPlayerSettingsMenu({
         setPane("root");
       })
       .catch((cause: unknown) => {
-        console.error("Failed to select subtitle stream:", cause);
+        console.error(`Failed to select ${kind} stream:`, cause);
         if (isCurrentPlayback()) {
-          setSubtitleError("Unable to update subtitles");
+          setStreamError(failureMessage);
         }
       })
       .finally(() => {
-        subtitleSelectionInFlightRef.current = false;
-        setIsUpdatingSubtitle(false);
+        streamSelectionInFlightRef.current = false;
+        setIsUpdatingStream(false);
       });
   };
 
@@ -334,12 +365,21 @@ export function MediaPlayerSettingsMenu({
                 onClick={() => setPane("speed")}
               />
             )}
-            <ReadOnlyRow label="Audio Stream" value={audioLabel} />
+            {canSelectAudio ? (
+              <NavRow
+                label="Audio Stream"
+                value={audioLabel}
+                onClick={() => setPane("audio")}
+                disabled={isUpdatingStream}
+              />
+            ) : (
+              <ReadOnlyRow label="Audio Stream" value={audioLabel} />
+            )}
             <NavRow
               label="Subtitles"
               value={subtitleLabel}
               onClick={() => setPane("subtitles")}
-              disabled={!hasSubtitles || isUpdatingSubtitle}
+              disabled={!hasSubtitles || isUpdatingStream}
             />
 
             <Separator />
@@ -364,25 +404,40 @@ export function MediaPlayerSettingsMenu({
               />
             ))}
           </Pane>
+        ) : pane === "audio" ? (
+          <Pane title="Audio Stream" onBack={() => setPane("root")}>
+            {audioStreams.map((stream) => (
+              <SelectRow
+                key={stream.id}
+                label={getStreamLabel(stream, "Audio")}
+                selected={stream.id === selectedAudioStreamId}
+                onClick={() => void handleStreamSelection("audio", stream.id)}
+                disabled={isUpdatingStream}
+              />
+            ))}
+            {streamError && (
+              <p className="px-3 py-2 text-xs text-red-300">{streamError}</p>
+            )}
+          </Pane>
         ) : (
           <Pane title="Subtitles" onBack={() => setPane("root")}>
             <SelectRow
               label="None"
               selected={selectedSubtitleStreamId === null}
-              onClick={() => void handleSubtitleSelection(null)}
-              disabled={isUpdatingSubtitle}
+              onClick={() => void handleStreamSelection("subtitle", null)}
+              disabled={isUpdatingStream}
             />
             {subtitleStreams.map((stream) => (
               <SelectRow
                 key={stream.id}
                 label={getStreamLabel(stream, "Subtitle")}
                 selected={stream.id === selectedSubtitleStreamId}
-                onClick={() => void handleSubtitleSelection(stream.id)}
-                disabled={isUpdatingSubtitle}
+                onClick={() => void handleStreamSelection("subtitle", stream.id)}
+                disabled={isUpdatingStream}
               />
             ))}
-            {subtitleError && (
-              <p className="px-3 py-2 text-xs text-red-300">{subtitleError}</p>
+            {streamError && (
+              <p className="px-3 py-2 text-xs text-red-300">{streamError}</p>
             )}
             <Separator />
             <p className="px-3 py-1 text-xs text-white/50">Subtitle Size</p>
@@ -591,12 +646,15 @@ function formatResolution(
   return `${resolution}p`;
 }
 
-function getAudioStreamLabel(item: StreamSource): string {
+function getAudioStreams(item: StreamSource): AudioStream[] {
   const streams = item?.Media?.[0]?.Part?.[0]?.Stream ?? [];
-  const audioStream =
-    streams.find((stream) => stream.streamType === 2 && stream.selected) ??
-    streams.find((stream) => stream.streamType === 2 && stream.default) ??
-    streams.find((stream) => stream.streamType === 2);
+  return streams.filter(
+    (stream): stream is AudioStream => stream.streamType === 2,
+  );
+}
+
+function getAudioStreamLabel(item: StreamSource): string {
+  const audioStream = resolveSelectedAudioStream(getAudioStreams(item));
 
   if (!audioStream) {
     const media = item?.Media?.[0];
