@@ -6,7 +6,7 @@ import {
   sanitizeMediaItemDetails,
   sanitizeServer,
   sanitizeServerLibrary,
-  stripCredentialsDeep,
+  cloneForPersistence,
 } from "./sanitize";
 
 describe("sync-engine sanitize", () => {
@@ -30,6 +30,11 @@ describe("sync-engine sanitize", () => {
       relay: true,
       presence: true,
       httpsRequired: false,
+      ownerId: null,
+      sourceTitle: null,
+      publicAddressMatches: false,
+      dnsRebindingProtection: null,
+      natLoopbackSupported: null,
       connections: [
         {
           protocol: "https",
@@ -38,6 +43,7 @@ describe("sync-engine sanitize", () => {
           uri: "https://192.168.1.10:32400",
           local: true,
           relay: false,
+          IPv6: false,
         },
       ],
     });
@@ -116,10 +122,15 @@ describe("sync-engine sanitize", () => {
   test("keeps mediaProviders and extracts numeric library directories", () => {
     const mediaProviders = {
       MediaContainer: {
+        size: 1,
+        machineIdentifier: "haus-1",
+        friendlyName: "Haus",
         MediaProvider: [
           {
+            title: "Haus",
             Feature: [
               {
+                type: "content",
                 Directory: [
                   {
                     id: "1",
@@ -145,6 +156,7 @@ describe("sync-engine sanitize", () => {
       serverName: "Haus",
       serverOwned: true,
       mediaProviders,
+      error: undefined,
     });
 
     expect(row.mediaProviders).toEqual(mediaProviders);
@@ -164,13 +176,18 @@ describe("sync-engine sanitize", () => {
         serverName: "Haus",
         authToken: "DETAILS_SECRET",
         serverUrl: "https://pms.example",
-        playTarget: { ratingKey: "55", title: "Inception" },
+        playTarget: null,
         children: [],
         playableChildren: [],
         item: {
           ratingKey: "55",
+          key: "/library/metadata/55",
+          guid: "plex://movie/55",
           type: "movie",
           title: "Inception",
+          librarySectionTitle: "Movies",
+          librarySectionID: 1,
+          librarySectionKey: "/library/sections/1",
           summary: "Dreams",
           year: 2010,
         },
@@ -192,10 +209,21 @@ describe("sync-engine sanitize", () => {
     const full = sanitizeMediaItemDetails(
       {
         serverName: "Haus",
+        serverUrl: undefined,
+        authToken: "",
         playTarget: null,
         children: [],
         playableChildren: [],
-        item: { ratingKey: "55", type: "movie", title: "Inception" },
+        item: {
+          ratingKey: "55",
+          key: "/library/metadata/55",
+          guid: "plex://movie/55",
+          type: "movie",
+          title: "Inception",
+          librarySectionTitle: "Movies",
+          librarySectionID: 1,
+          librarySectionKey: "/library/sections/1",
+        },
       },
       "haus-1",
       { hasFullDetails: true },
@@ -204,7 +232,7 @@ describe("sync-engine sanitize", () => {
   });
 
   test("deep clone keeps nested credentials for direct PMS access", () => {
-    const playlistPayload = stripCredentialsDeep({
+    const playlistPayload = cloneForPersistence({
       ratingKey: "9",
       items: [
         {
@@ -214,9 +242,7 @@ describe("sync-engine sanitize", () => {
           serverUrl: "https://pms.example",
         },
       ],
-    }) as {
-      items: Array<{ authToken?: string; serverUrl?: string }>;
-    };
+    });
 
     expect(playlistPayload.items[0]?.authToken).toBe("PLAYLIST_SECRET");
     expect(playlistPayload.items[0]?.serverUrl).toBe("https://pms.example");

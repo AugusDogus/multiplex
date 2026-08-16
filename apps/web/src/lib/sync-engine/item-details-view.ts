@@ -11,17 +11,12 @@ type ItemDetails = NonNullable<RouterOutputs["plex"]["getItemDetails"]>;
  * (credentials included) with session/server fallbacks.
  */
 export function toItemDetails(row: SanitizedMediaItemRow): ItemDetails | null {
-  if (!row.item || typeof row.item !== "object") {
-    return null;
-  }
-
   const connection = resolveItemCredentials(row.id, row);
   return {
-    item: row.item as ItemDetails["item"],
-    children: (row.children ?? []) as ItemDetails["children"],
-    playableChildren: (row.playableChildren ??
-      []) as ItemDetails["playableChildren"],
-    playTarget: (row.playTarget ?? null) as ItemDetails["playTarget"],
+    item: row.item,
+    children: row.children,
+    playableChildren: row.playableChildren,
+    playTarget: row.playTarget,
     serverName: row.serverName ?? "",
     serverUrl: connection.serverUrl,
     authToken: connection.authToken ?? "",
@@ -31,8 +26,5 @@ export function toItemDetails(row: SanitizedMediaItemRow): ItemDetails | null {
 export function toItemMetadata(
   row: SanitizedMediaItemRow,
 ): ItemMetadata | null {
-  if (!row.item || typeof row.item !== "object") {
-    return null;
-  }
-  return row.item as ItemMetadata;
+  return row.item;
 }

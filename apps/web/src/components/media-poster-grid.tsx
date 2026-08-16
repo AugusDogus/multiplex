@@ -289,7 +289,7 @@ export function MediaPosterGrid({
             pageSize,
             pageIndex,
             totalSize: page.totalSize,
-            items: page.items as unknown as Array<Record<string, unknown>>,
+            items: page.items,
           });
         }
         return page;
@@ -310,7 +310,7 @@ export function MediaPosterGrid({
       pageSize,
       pageIndex: 0,
       totalSize,
-      items: items as unknown as Array<Record<string, unknown>>,
+      items,
     });
   }, [collections, contentKey, items, pageSize, totalSize]);
 

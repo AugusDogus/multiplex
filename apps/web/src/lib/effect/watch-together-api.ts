@@ -88,9 +88,7 @@ export const makeWatchTogetherApi = (
         rooms.map((room) =>
           upsertRow(
             collections.watchTogetherRooms,
-            sanitizeWatchTogetherRoom(
-              room as unknown as Record<string, unknown>,
-            ),
+            sanitizeWatchTogetherRoom(room),
           ),
         ),
       );

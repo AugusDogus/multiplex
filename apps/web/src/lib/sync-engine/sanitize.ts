@@ -4,11 +4,27 @@
  * (same model as official Plex); the replica is wiped on logout.
  */
 
+import type {
+  ContinueWatchingItemWithServer,
+  HubItemWithServer,
+  HubWithServer,
+  PlexDevice,
+  PlexUserInfo,
+  WatchTogetherRoom,
+} from "@multiplex/plex-query";
+
+import type { RouterOutputs } from "~/trpc/api";
 import {
   libraryHubsSnapshotKey,
   mediaItemRowKey,
   USER_INFO_ROW_ID,
 } from "./keys";
+
+type PlexOutputs = RouterOutputs["plex"];
+type ServerLibrary = PlexOutputs["getAllServerLibraries"][number];
+type ItemDetails = NonNullable<PlexOutputs["getItemDetails"]>;
+type ItemMetadata = NonNullable<PlexOutputs["getItemMetadata"]>;
+type WatchTogetherInvitee = PlexOutputs["getWatchTogetherInvitees"][number];
 
 export type SanitizedServerRow = {
   id: string;
@@ -85,7 +101,7 @@ export type SanitizedContinueWatchingRow = {
   librarySectionID: number | null;
   librarySectionKey: string | null;
   /** Stream metadata for toPlayableMetadata. */
-  Media: unknown;
+  Media: ContinueWatchingItemWithServer["Media"] | null;
 };
 
 export type SanitizedHomeHubItem = {
@@ -140,7 +156,7 @@ export type SanitizedServerLibraryRow = {
    * Full media-providers payload for sidebar source extraction.
    * Contains no Plex auth tokens (those live on the device/session).
    */
-  mediaProviders: unknown;
+  mediaProviders: ServerLibrary["mediaProviders"];
   libraries: Array<{
     id: string | null;
     key: string | null;
@@ -172,10 +188,10 @@ export type SanitizedMediaItemRow = {
   leafCount: number | null;
   childCount: number | null;
   /** Full PMS metadata object (no tokens). */
-  item: unknown;
-  children: unknown[];
-  playableChildren: unknown[];
-  playTarget: unknown;
+  item: ItemMetadata;
+  children: ItemDetails["children"];
+  playableChildren: ItemDetails["playableChildren"];
+  playTarget: ItemDetails["playTarget"];
   /** True once `getItemDetails` (not just metadata) has been warmed. */
   hasFullDetails: boolean;
 };
@@ -183,7 +199,7 @@ export type SanitizedMediaItemRow = {
 export type SanitizedWatchTogetherRoomRow = {
   id: string;
   sourceUri: string;
-  source: unknown;
+  source: WatchTogetherRoom["source"] | null;
   title: string;
   type: string | null;
   startsAt: number | null;
@@ -208,7 +224,7 @@ export type SanitizedUserInfoRow = {
   email: string | null;
   thumb: string | null;
   /** Full plex.tv user payload without authToken. */
-  payload: unknown;
+  payload: Omit<PlexUserInfo, "authToken">;
 };
 
 export type SanitizedWatchTogetherInviteeRow = {
@@ -233,14 +249,14 @@ export type SanitizedBrowsePageRow = {
 export type SanitizedSearchResultsRow = {
   id: string;
   query: string;
-  payload: unknown;
+  payload: PlexOutputs["search"];
 };
 
 export type SanitizedPlaylistRow = {
   id: string;
   serverId: string;
   playlistRatingKey: string;
-  payload: unknown;
+  payload: PlexOutputs["getPlaylist"];
 };
 
 export type SanitizedPlaylistContentsRow = {
@@ -249,226 +265,154 @@ export type SanitizedPlaylistContentsRow = {
   playlistRatingKey: string;
   start: number;
   size: number;
-  payload: unknown;
+  payload: PlexOutputs["getPlaylistContents"];
 };
 
 export type SanitizedItemPlaylistsRow = {
   id: string;
   serverId: string;
   playlistType: string;
-  payload: unknown;
+  payload: PlexOutputs["getItemPlaylists"];
 };
 
 export type SanitizedLibraryFilterValuesRow = {
   id: string;
   machineIdentifier: string;
   filterPath: string;
-  values: unknown[];
+  values: PlexOutputs["getLibraryFilterValues"];
 };
 
 export type SanitizedPlayQueueRow = {
   id: string;
   serverId: string;
   playQueueId: string;
-  payload: unknown;
+  payload: PlexOutputs["getPlayQueue"];
 };
 
-type LooseRecord = Record<string, unknown>;
-
-function asString(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
+/** Clone typed query output before handing it to the durable OPFS replica. */
+export function cloneForPersistence<T>(value: T): T {
+  return structuredClone(value);
 }
 
-function asNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
+type HubItemInput = Partial<HubItemWithServer>;
+type HubInput = Omit<HubWithServer, "items"> & { items: HubItemInput[] };
+type ContinueWatchingInput = Partial<ContinueWatchingItemWithServer> &
+  Pick<ContinueWatchingItemWithServer, "serverId" | "ratingKey" | "title">;
 
-function asBoolean(value: unknown): boolean | null {
-  return typeof value === "boolean" ? value : null;
-}
-
-function asUnixSeconds(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (value instanceof Date) return Math.floor(value.getTime() / 1000);
-  return null;
-}
-
-/**
- * Deep-clone JSON-like payloads for OPFS.
- * Credentials are intentionally persisted (cleared on logout) so the client can
- * talk to PMS directly like the official Plex app.
- *
- * Optionally remembers session connection overlay entries when
- * `serverId`+`ratingKey` are present alongside tokens.
- */
-export function stripCredentialsDeep(
-  value: unknown,
-  rememberConnection?: (
-    itemId: string,
-    credentials: {
-      serverUrl: string | undefined;
-      authToken: string | undefined;
-    },
-  ) => void,
-): unknown {
-  if (Array.isArray(value)) {
-    return value.map((entry) =>
-      stripCredentialsDeep(entry, rememberConnection),
-    );
-  }
-  if (!value || typeof value !== "object") {
-    return value;
-  }
-  const record = value as LooseRecord;
-  const serverId = asString(record.serverId);
-  const ratingKey = asString(record.ratingKey);
-  if (rememberConnection && serverId && ratingKey) {
-    rememberConnection(`${serverId}:${ratingKey}`, {
-      serverUrl: asString(record.serverUrl) ?? undefined,
-      authToken: asString(record.authToken) ?? undefined,
-    });
-  }
-  const next: LooseRecord = {};
-  for (const [key, entry] of Object.entries(record)) {
-    next[key] = stripCredentialsDeep(entry, rememberConnection);
-  }
-  return next;
-}
-
-function sanitizeHubItem(item: LooseRecord): SanitizedHomeHubItem | null {
-  const ratingKey = asString(item.ratingKey);
-  if (!ratingKey) return null;
+function sanitizeHubItem(item: HubItemInput): SanitizedHomeHubItem | null {
+  if (!item.ratingKey) return null;
   return {
-    ratingKey,
-    key: asString(item.key),
-    type: asString(item.type) ?? "movie",
-    title: asString(item.title) ?? ratingKey,
-    thumb: asString(item.thumb),
-    parentThumb: asString(item.parentThumb),
-    grandparentThumb: asString(item.grandparentThumb),
-    year: asNumber(item.year),
-    parentTitle: asString(item.parentTitle),
-    grandparentTitle: asString(item.grandparentTitle),
-    parentIndex: asNumber(item.parentIndex),
-    index: asNumber(item.index),
-    childCount: asNumber(item.childCount),
-    leafCount: asNumber(item.leafCount),
-    subtype: asString(item.subtype),
-    playlistType: asString(item.playlistType),
-    composite: asString(item.composite),
-    serverUrl: asString(item.serverUrl),
-    authToken: asString(item.authToken),
+    ratingKey: item.ratingKey,
+    key: item.key ?? null,
+    type: item.type ?? "movie",
+    title: item.title ?? item.ratingKey,
+    thumb: item.thumb ?? null,
+    parentThumb: item.parentThumb ?? null,
+    grandparentThumb: item.grandparentThumb ?? null,
+    year: item.year ?? null,
+    parentTitle: item.parentTitle ?? null,
+    grandparentTitle: item.grandparentTitle ?? null,
+    parentIndex: item.parentIndex ?? null,
+    index: item.index ?? null,
+    childCount: item.childCount ?? null,
+    leafCount: item.leafCount ?? null,
+    subtype: item.subtype ?? null,
+    playlistType: item.playlistType ?? null,
+    composite: item.composite ?? null,
+    serverUrl: item.serverUrl ?? null,
+    authToken: item.authToken ?? null,
   };
 }
 
-export function sanitizeServer(device: LooseRecord): SanitizedServerRow {
-  const clientIdentifier = asString(device.clientIdentifier) ?? "unknown";
-  const connectionsRaw = Array.isArray(device.connections)
-    ? device.connections
-    : [];
-
+export function sanitizeServer(device: PlexDevice): SanitizedServerRow {
   return {
-    id: clientIdentifier,
-    name: asString(device.name) ?? clientIdentifier,
-    product: asString(device.product),
-    productVersion: asString(device.productVersion),
-    platform: asString(device.platform),
-    platformVersion: asString(device.platformVersion),
-    device: asString(device.device),
-    clientIdentifier,
-    createdAt: asString(device.createdAt),
-    lastSeenAt: asString(device.lastSeenAt),
-    provides: asString(device.provides),
-    owned: asBoolean(device.owned) ?? false,
-    home: asBoolean(device.home) ?? false,
-    presence: asBoolean(device.presence) ?? false,
-    publicAddress: asString(device.publicAddress),
-    httpsRequired: asBoolean(device.httpsRequired),
-    synced: asBoolean(device.synced),
-    relay: asBoolean(device.relay),
-    accessToken: asString(device.accessToken),
-    connections: connectionsRaw.flatMap((entry) => {
-      if (!entry || typeof entry !== "object") return [];
-      const connection = entry as LooseRecord;
-      return [
-        {
-          protocol: asString(connection.protocol),
-          address: asString(connection.address),
-          port: asNumber(connection.port),
-          uri: asString(connection.uri),
-          local: asBoolean(connection.local),
-          relay: asBoolean(connection.relay),
-        },
-      ];
-    }),
+    id: device.clientIdentifier,
+    name: device.name,
+    product: device.product,
+    productVersion: device.productVersion,
+    platform: device.platform,
+    platformVersion: device.platformVersion,
+    device: device.device,
+    clientIdentifier: device.clientIdentifier,
+    createdAt: device.createdAt,
+    lastSeenAt: device.lastSeenAt,
+    provides: device.provides,
+    owned: device.owned,
+    home: device.home,
+    presence: device.presence,
+    publicAddress: device.publicAddress,
+    httpsRequired: device.httpsRequired,
+    synced: device.synced,
+    relay: device.relay,
+    accessToken: device.accessToken,
+    connections: device.connections.map((connection) => ({
+      protocol: connection.protocol,
+      address: connection.address,
+      port: connection.port,
+      uri: connection.uri,
+      local: connection.local,
+      relay: connection.relay,
+    })),
   };
 }
 
 export function sanitizeContinueWatchingItem(
-  item: LooseRecord,
+  item: ContinueWatchingInput,
   options?: { listIndex?: number | null },
 ): SanitizedContinueWatchingRow {
-  const serverId = asString(item.serverId) ?? "unknown";
-  const ratingKey = asString(item.ratingKey) ?? "unknown";
   return {
-    id: `${serverId}:${ratingKey}`,
-    serverId,
-    serverName: asString(item.serverName),
-    serverUrl: asString(item.serverUrl),
-    authToken: asString(item.authToken),
-    ratingKey,
-    key: asString(item.key),
-    type: asString(item.type) ?? "movie",
-    title: asString(item.title) ?? ratingKey,
-    grandparentTitle: asString(item.grandparentTitle),
-    parentTitle: asString(item.parentTitle),
-    parentRatingKey: asString(item.parentRatingKey),
-    grandparentRatingKey: asString(item.grandparentRatingKey),
-    parentIndex: asNumber(item.parentIndex),
-    index: asNumber(item.index),
-    thumb: asString(item.thumb),
-    art: asString(item.art),
-    parentThumb: asString(item.parentThumb),
-    grandparentThumb: asString(item.grandparentThumb),
-    year: asNumber(item.year),
-    contentRating: asString(item.contentRating),
-    viewOffset: asNumber(item.viewOffset),
-    duration: asNumber(item.duration),
-    progressPercent: asNumber(item.progressPercent),
-    isCompleted: asBoolean(item.isCompleted),
-    timeRemaining: asNumber(item.timeRemaining),
-    lastViewedAt: asUnixSeconds(item.lastViewedAt),
-    listIndex: asNumber(options?.listIndex),
-    hubTitle: asString(item.hubTitle),
-    hubType: asString(item.hubType),
-    librarySectionTitle: asString(item.librarySectionTitle),
-    librarySectionID: asNumber(item.librarySectionID),
-    librarySectionKey: asString(item.librarySectionKey),
-    Media: Array.isArray(item.Media) ? item.Media : null,
+    id: `${item.serverId}:${item.ratingKey}`,
+    serverId: item.serverId,
+    serverName: item.serverName ?? null,
+    serverUrl: item.serverUrl ?? null,
+    authToken: item.authToken ?? null,
+    ratingKey: item.ratingKey,
+    key: item.key ?? null,
+    type: item.type ?? "movie",
+    title: item.title,
+    grandparentTitle: item.grandparentTitle ?? null,
+    parentTitle: item.parentTitle ?? null,
+    parentRatingKey: item.parentRatingKey ?? null,
+    grandparentRatingKey: item.grandparentRatingKey ?? null,
+    parentIndex: item.parentIndex ?? null,
+    index: item.index ?? null,
+    thumb: item.thumb ?? null,
+    art: item.art ?? null,
+    parentThumb: item.parentThumb ?? null,
+    grandparentThumb: item.grandparentThumb ?? null,
+    year: item.year ?? null,
+    contentRating: item.contentRating ?? null,
+    viewOffset: item.viewOffset ?? null,
+    duration: item.duration ?? null,
+    progressPercent: item.progressPercent ?? null,
+    isCompleted: item.isCompleted ?? null,
+    timeRemaining: item.timeRemaining ?? null,
+    lastViewedAt: item.lastViewedAt
+      ? Math.floor(item.lastViewedAt.getTime() / 1000)
+      : null,
+    listIndex: options?.listIndex ?? null,
+    hubTitle: item.hubTitle ?? null,
+    hubType: item.hubType ?? null,
+    librarySectionTitle: item.librarySectionTitle ?? null,
+    librarySectionID: item.librarySectionID ?? null,
+    librarySectionKey: item.librarySectionKey ?? null,
+    Media: item.Media ?? null,
   };
 }
 
-export function sanitizeHomeHub(hub: LooseRecord): SanitizedHomeHubRow {
-  const serverId = asString(hub.serverId) ?? "unknown";
-  const hubKey =
-    asString(hub.key) ??
-    asString(hub.hubKey) ??
-    asString(hub.hubIdentifier) ??
-    "hub";
-  const itemsRaw = Array.isArray(hub.items) ? hub.items : [];
-
+export function sanitizeHomeHub(hub: HubInput): SanitizedHomeHubRow {
+  const hubKey = hub.key ?? hub.hubKey ?? hub.hubIdentifier;
   return {
-    id: `${serverId}:${hubKey}`,
-    serverId,
+    id: `${hub.serverId}:${hubKey}`,
+    serverId: hub.serverId,
     hubKey,
-    title: asString(hub.title) ?? hubKey,
-    type: asString(hub.type),
-    hubIdentifier: asString(hub.hubIdentifier),
-    size: asNumber(hub.size) ?? 0,
-    more: asBoolean(hub.more),
-    items: itemsRaw.flatMap((entry) => {
-      if (!entry || typeof entry !== "object") return [];
-      const item = sanitizeHubItem(entry as LooseRecord);
+    title: hub.title,
+    type: hub.type,
+    hubIdentifier: hub.hubIdentifier,
+    size: hub.size,
+    more: hub.more ?? null,
+    items: hub.items.flatMap((entry) => {
+      const item = sanitizeHubItem(entry);
       return item ? [item] : [];
     }),
   };
@@ -477,7 +421,7 @@ export function sanitizeHomeHub(hub: LooseRecord): SanitizedHomeHubRow {
 export function sanitizeLibraryHubsSnapshot(
   machineIdentifier: string,
   sectionId: string,
-  hubs: LooseRecord[],
+  hubs: HubWithServer[],
 ): SanitizedLibraryHubsSnapshotRow {
   return {
     id: libraryHubsSnapshotKey(machineIdentifier, sectionId),
@@ -488,43 +432,20 @@ export function sanitizeLibraryHubsSnapshot(
 }
 
 function extractLibrariesFromMediaProviders(
-  mediaProviders: unknown,
+  mediaProviders: ServerLibrary["mediaProviders"],
 ): SanitizedServerLibraryRow["libraries"] {
-  if (!mediaProviders || typeof mediaProviders !== "object") {
-    return [];
-  }
-
-  const root = mediaProviders as LooseRecord;
-  const container =
-    root.MediaContainer && typeof root.MediaContainer === "object"
-      ? (root.MediaContainer as LooseRecord)
-      : root;
-  const providers = Array.isArray(container.MediaProvider)
-    ? container.MediaProvider
-    : [];
-
   const libraries: SanitizedServerLibraryRow["libraries"] = [];
-
-  for (const provider of providers) {
-    if (!provider || typeof provider !== "object") continue;
-    const features = Array.isArray((provider as LooseRecord).Feature)
-      ? ((provider as LooseRecord).Feature as unknown[])
-      : [];
-    for (const feature of features) {
-      if (!feature || typeof feature !== "object") continue;
-      const directories = Array.isArray((feature as LooseRecord).Directory)
-        ? ((feature as LooseRecord).Directory as unknown[])
-        : [];
-      for (const directory of directories) {
-        if (!directory || typeof directory !== "object") continue;
-        const library = directory as LooseRecord;
-        const id = asString(library.id);
+  for (const provider of mediaProviders?.MediaContainer.MediaProvider ?? []) {
+    for (const feature of provider.Feature) {
+      for (const directory of feature.Directory ?? []) {
+        if (!("id" in directory)) continue;
+        const id = directory.id;
         if (!id || Number.isNaN(Number(id))) continue;
         libraries.push({
-          id,
-          key: asString(library.key),
-          title: asString(library.title),
-          type: asString(library.type),
+          id: String(id),
+          key: "key" in directory ? (directory.key ?? null) : null,
+          title: directory.title ?? null,
+          type: "type" in directory ? (directory.type ?? null) : null,
         });
       }
     }
@@ -534,138 +455,120 @@ function extractLibrariesFromMediaProviders(
 }
 
 export function sanitizeServerLibrary(
-  entry: LooseRecord,
+  entry: ServerLibrary,
 ): SanitizedServerLibraryRow {
-  const serverId = asString(entry.serverId) ?? "unknown";
-  const mediaProviders = entry.mediaProviders ?? null;
-
   return {
-    id: serverId,
-    serverId,
-    serverName: asString(entry.serverName) ?? serverId,
-    serverOwned: asBoolean(entry.serverOwned) ?? false,
-    error: asString(entry.error),
-    mediaProviders: stripCredentialsDeep(mediaProviders),
-    libraries: extractLibrariesFromMediaProviders(mediaProviders),
+    id: entry.serverId,
+    serverId: entry.serverId,
+    serverName: entry.serverName,
+    serverOwned: entry.serverOwned,
+    error: entry.error ?? null,
+    mediaProviders: cloneForPersistence(entry.mediaProviders),
+    libraries: extractLibrariesFromMediaProviders(entry.mediaProviders),
   };
 }
 
+type MediaItemDetailsInput = Pick<
+  ItemDetails,
+  | "item"
+  | "children"
+  | "playableChildren"
+  | "playTarget"
+  | "serverName"
+  | "serverUrl"
+  | "authToken"
+>;
+
 export function sanitizeMediaItemDetails(
-  details: LooseRecord,
+  details: MediaItemDetailsInput,
   serverId: string,
   options?: { hasFullDetails?: boolean },
-): SanitizedMediaItemRow | null {
-  const item = details.item;
-  if (!item || typeof item !== "object") return null;
-  const metadata = item as LooseRecord;
-  const ratingKey = asString(metadata.ratingKey);
-  if (!ratingKey) return null;
-
-  const children = Array.isArray(details.children) ? details.children : [];
-  const playableChildren = Array.isArray(details.playableChildren)
-    ? details.playableChildren
-    : [];
-
+): SanitizedMediaItemRow {
+  const metadata = details.item;
   return {
-    id: mediaItemRowKey(serverId, ratingKey),
+    id: mediaItemRowKey(serverId, metadata.ratingKey),
     serverId,
-    serverName: asString(details.serverName),
-    serverUrl: asString(details.serverUrl),
-    authToken: asString(details.authToken),
-    ratingKey,
-    type: asString(metadata.type),
-    title: asString(metadata.title),
-    summary: asString(metadata.summary),
-    thumb: asString(metadata.thumb),
-    art: asString(metadata.art),
-    year: asNumber(metadata.year),
-    duration: asNumber(metadata.duration),
-    viewOffset: asNumber(metadata.viewOffset),
-    viewCount: asNumber(metadata.viewCount),
-    leafCount: asNumber(metadata.leafCount),
-    childCount: asNumber(metadata.childCount),
-    item: stripCredentialsDeep(metadata),
-    children: children.map((child) => stripCredentialsDeep(child)),
-    playableChildren: playableChildren.map((child) =>
-      stripCredentialsDeep(child),
-    ),
-    playTarget: stripCredentialsDeep(details.playTarget ?? null),
+    serverName: details.serverName || null,
+    serverUrl: details.serverUrl || null,
+    authToken: details.authToken || null,
+    ratingKey: metadata.ratingKey,
+    type: metadata.type,
+    title: metadata.title,
+    summary: metadata.summary ?? null,
+    thumb: metadata.thumb ?? null,
+    art: metadata.art ?? null,
+    year: metadata.year ?? null,
+    duration: metadata.duration ?? null,
+    viewOffset: metadata.viewOffset ?? null,
+    viewCount: metadata.viewCount ?? null,
+    leafCount: metadata.leafCount ?? null,
+    childCount: metadata.childCount ?? null,
+    item: cloneForPersistence(metadata),
+    children: cloneForPersistence(details.children),
+    playableChildren: cloneForPersistence(details.playableChildren),
+    playTarget: cloneForPersistence(details.playTarget),
     // Fail closed: metadata-only writes must not look fully warmed.
     hasFullDetails: options?.hasFullDetails ?? false,
   };
 }
 
 export function sanitizeWatchTogetherRoom(
-  room: LooseRecord,
+  room: WatchTogetherRoom,
 ): SanitizedWatchTogetherRoomRow {
-  const id = asString(room.id) ?? "unknown";
-  const usersRaw = Array.isArray(room.users) ? room.users : [];
-
   return {
-    id,
-    sourceUri: asString(room.sourceUri) ?? "",
-    source: stripCredentialsDeep(room.source ?? null),
-    title: asString(room.title) ?? id,
-    type: asString(room.type),
-    startsAt: asNumber(room.startsAt),
-    endsAt: asNumber(room.endsAt),
-    updatedAt: asNumber(room.updatedAt),
-    syncplayHost: asString(room.syncplayHost),
-    syncplayPort: asNumber(room.syncplayPort),
-    users: usersRaw.flatMap((entry) => {
-      if (!entry || typeof entry !== "object") return [];
-      const user = entry as LooseRecord;
-      const userId = asNumber(user.id);
-      if (userId === null) return [];
-      return [
-        {
-          id: userId,
-          title: asString(user.title),
-          username: asString(user.username),
-          thumb: asString(user.thumb),
-        },
-      ];
-    }),
+    id: room.id,
+    sourceUri: room.sourceUri,
+    source: room.source ?? null,
+    title: room.title,
+    type: room.type,
+    startsAt: room.startsAt ?? null,
+    endsAt: room.endsAt ?? null,
+    updatedAt: room.updatedAt ?? null,
+    syncplayHost: room.syncplayHost,
+    syncplayPort: room.syncplayPort,
+    users: room.users.map((user) => ({
+      id: user.id,
+      title: user.title ?? null,
+      username: user.username ?? null,
+      thumb: user.thumb ?? null,
+    })),
   };
 }
 
-export function sanitizeUserInfo(user: LooseRecord): SanitizedUserInfoRow {
-  const plexUserId = asNumber(user.id) ?? 0;
+export function sanitizeUserInfo(user: PlexUserInfo): SanitizedUserInfoRow {
+  const { authToken, ...payload } = user;
+  void authToken;
   return {
     id: USER_INFO_ROW_ID,
-    plexUserId,
-    uuid: asString(user.uuid),
-    username: asString(user.username),
-    title: asString(user.title),
-    email: asString(user.email),
-    thumb: asString(user.thumb),
-    payload: stripCredentialsDeep(user),
+    plexUserId: user.id,
+    uuid: user.uuid,
+    username: user.username,
+    title: user.title,
+    email: user.email,
+    thumb: user.thumb,
+    payload: cloneForPersistence(payload),
   };
 }
 
 export function sanitizeWatchTogetherInvitee(
-  invitee: LooseRecord,
+  invitee: WatchTogetherInvitee,
 ): SanitizedWatchTogetherInviteeRow {
-  const plexUserId = asNumber(invitee.id) ?? 0;
   return {
-    id: String(plexUserId),
-    plexUserId,
-    uuid: asString(invitee.uuid),
-    title: asString(invitee.title) ?? "Plex user",
-    username: asString(invitee.username) ?? "Plex user",
-    thumb: asString(invitee.thumb),
-    restricted: asBoolean(invitee.restricted) ?? false,
+    id: String(invitee.id),
+    plexUserId: invitee.id,
+    uuid: invitee.uuid,
+    title: invitee.title,
+    username: invitee.username,
+    thumb: invitee.thumb ?? null,
+    restricted: invitee.restricted,
   };
 }
 
 export function sanitizeBrowsePageItems(
-  items: LooseRecord[],
+  items: HubItemWithServer[],
 ): Array<SanitizedHomeHubItem & { serverId: string }> {
   return items.flatMap((entry) => {
-    if (!entry || typeof entry !== "object") return [];
     const item = sanitizeHubItem(entry);
-    if (!item) return [];
-    const serverId = asString(entry.serverId) ?? "unknown";
-    return [{ ...item, serverId }];
+    return item ? [{ ...item, serverId: entry.serverId }] : [];
   });
 }
