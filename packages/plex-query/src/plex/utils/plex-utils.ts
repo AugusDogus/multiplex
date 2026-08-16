@@ -45,15 +45,11 @@ export function toPinnedSource(source: PinnedSource): PinnedSource {
     directoryID: source.directoryID,
     title: source.title,
     serverFriendlyName: source.serverFriendlyName,
-    ...(source.serverSourceTitle !== undefined
-      ? { serverSourceTitle: source.serverSourceTitle }
-      : {}),
-    ...(source.providerSourceTitle !== undefined
-      ? { providerSourceTitle: source.providerSourceTitle }
-      : {}),
-    ...(source.directoryIcon !== undefined ? { directoryIcon: source.directoryIcon } : {}),
-    ...(source.isCloud !== undefined ? { isCloud: source.isCloud } : {}),
-    ...(source.hiddenAt !== undefined ? { hiddenAt: source.hiddenAt } : {}),
+    serverSourceTitle: source.serverSourceTitle,
+    providerSourceTitle: source.providerSourceTitle,
+    directoryIcon: source.directoryIcon,
+    isCloud: source.isCloud,
+    hiddenAt: source.hiddenAt,
     isFullOwnedServer: source.isFullOwnedServer,
   };
 }
