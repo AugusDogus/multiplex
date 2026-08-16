@@ -160,7 +160,7 @@ export async function setupSyncedRoom(
     baseURL,
     recordVideoDir: options.recordVideoDir,
     testInfo,
-  }).catch(async (error: unknown) => {
+  }).catch(async (error) => {
     await hostArtifacts.closeAndAttach();
     throw error;
   });
