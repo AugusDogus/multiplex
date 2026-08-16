@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { z } from "zod";
 import {
   disbandRoom,
   expectPlayingAndAdvancing,
@@ -15,11 +16,49 @@ interface EpisodePick {
   next: { ratingKey: string; title: string };
 }
 
-interface PlayQueueItemPayload {
-  ratingKey?: string;
-  title?: string;
-  duration?: number;
-}
+const playQueueItemPayloadSchema = z.object({
+  ratingKey: z.string().optional(),
+  title: z.string().optional(),
+  duration: z.number().optional(),
+});
+
+const playQueueResponseSchema = z.array(
+  z.object({
+    result: z
+      .object({
+        data: z
+          .object({
+            json: z
+              .object({
+                MediaContainer: z
+                  .object({
+                    Metadata: z.array(playQueueItemPayloadSchema).optional(),
+                  })
+                  .optional(),
+              })
+              .optional(),
+          })
+          .optional(),
+      })
+      .optional(),
+  }),
+);
+
+const watchTogetherRoomsResponseSchema = z.array(
+  z.object({
+    result: z
+      .object({
+        data: z
+          .object({
+            json: z
+              .array(z.object({ id: z.string(), sourceUri: z.string() }))
+              .optional(),
+          })
+          .optional(),
+      })
+      .optional(),
+  }),
+);
 
 /**
  * Finds an episode on the home page whose continuous play queue has a next
@@ -63,16 +102,12 @@ async function pickEpisodeWithNext(page: Page): Promise<EpisodePick> {
         headers: { "content-type": "application/json" },
       },
     );
-    const body = (await response.json().catch(() => null)) as
-      | {
-          result?: {
-            data?: {
-              json?: { MediaContainer?: { Metadata?: PlayQueueItemPayload[] } };
-            };
-          };
-        }[]
-      | null;
-    const items = body?.[0]?.result?.data?.json?.MediaContainer?.Metadata ?? [];
+    const body = playQueueResponseSchema.safeParse(
+      await response.json().catch(() => null),
+    );
+    const items = body.success
+      ? (body.data[0]?.result?.data?.json?.MediaContainer?.Metadata ?? [])
+      : [];
     const index = items.findIndex((item) => item.ratingKey === ratingKey);
     const current = index >= 0 ? items[index] : undefined;
     const next = index >= 0 ? items[index + 1] : undefined;
@@ -488,16 +523,12 @@ test("a session auto-advances both viewers to the next episode without leaving t
         "/api/trpc/plex.getWatchTogetherRooms?batch=1&input=" +
           encodeURIComponent(JSON.stringify({ 0: { json: null } })),
       )
-      .then(
-        (response) =>
-          response.json() as Promise<
-            {
-              result?: {
-                data?: { json?: { id: string; sourceUri: string }[] };
-              };
-            }[]
-          >,
-      )
+      .then(async (response) => {
+        const parsed = watchTogetherRoomsResponseSchema.safeParse(
+          await response.json(),
+        );
+        return parsed.success ? parsed.data : null;
+      })
       .catch(() => null);
     for (const room of rooms?.[0]?.result?.data?.json ?? []) {
       if (
