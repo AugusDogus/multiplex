@@ -5,6 +5,7 @@ import {
   type TestInfo,
 } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
+import { z } from "zod";
 
 import { indexHarnessRecording } from "../../../watch-together-harness/e2e/index-recording-frames";
 
@@ -15,15 +16,36 @@ const REDACTED = "[REDACTED]";
 const SENSITIVE_KEY =
   /(?:authorization|auth[_-]?token|access[_-]?token|x-plex-token|password|cookie|secret|capability|pin)/i;
 
+type ArtifactJsonValue =
+  | boolean
+  | number
+  | string
+  | null
+  | ArtifactJsonValue[]
+  | { readonly [key: string]: ArtifactJsonValue };
+
+type DiagnosticValue = ArtifactJsonValue | undefined;
+
+const artifactJsonValueSchema: z.ZodType<ArtifactJsonValue> = z.lazy(() =>
+  z.union([
+    z.boolean(),
+    z.number(),
+    z.string(),
+    z.null(),
+    z.array(artifactJsonValueSchema),
+    z.record(artifactJsonValueSchema),
+  ]),
+);
+
 interface DiagnosticEvent {
   readonly at: number;
   readonly kind: string;
-  readonly [key: string]: unknown;
+  readonly [key: string]: DiagnosticValue;
 }
 
 interface DiagnosticInput {
   readonly kind: string;
-  readonly [key: string]: unknown;
+  readonly [key: string]: DiagnosticValue;
 }
 
 interface InstrumentedContextOptions {
@@ -73,18 +95,25 @@ export function sanitizeArtifactUrl(value: string): string {
   }
 }
 
-function sanitizeUnknown(value: unknown, key?: string): unknown {
+function sanitizeJsonValue(
+  value: ArtifactJsonValue,
+  key?: string,
+): ArtifactJsonValue {
   if (key && SENSITIVE_KEY.test(key)) return REDACTED;
-  if (typeof value === "string") return sanitizeArtifactText(value);
+  const text = z.string().safeParse(value);
+  if (text.success) return sanitizeArtifactText(text.data);
   if (Array.isArray(value)) {
-    return value.map((entry) => sanitizeUnknown(entry));
+    return value.map((entry) => sanitizeJsonValue(entry));
   }
-  if (value === null || typeof value !== "object") return value;
+  if (value === null || value === true || value === false) return value;
+  const number = z.number().safeParse(value);
+  if (number.success) return number.data;
+  const object = z.record(artifactJsonValueSchema).safeParse(value);
+  if (!object.success) return null;
 
-  const result: Record<string, unknown> = {};
-  for (const property of Reflect.ownKeys(value)) {
-    if (typeof property !== "string") continue;
-    result[property] = sanitizeUnknown(Reflect.get(value, property), property);
+  const result: Record<string, ArtifactJsonValue> = {};
+  for (const [property, propertyValue] of Object.entries(object.data)) {
+    result[property] = sanitizeJsonValue(propertyValue, property);
   }
   return result;
 }
@@ -97,11 +126,13 @@ export function sanitizeArtifactText(value: string): string {
 }
 
 function sanitizeFrame(payload: string | Buffer): string {
-  const text = typeof payload === "string" ? payload : payload.toString("utf8");
+  const text = Buffer.isBuffer(payload) ? payload.toString("utf8") : payload;
   let sanitized: string;
   try {
-    const parsed: unknown = JSON.parse(text);
-    sanitized = JSON.stringify(sanitizeUnknown(parsed));
+    const parsed = artifactJsonValueSchema.safeParse(JSON.parse(text));
+    sanitized = parsed.success
+      ? (JSON.stringify(sanitizeJsonValue(parsed.data)) ?? "null")
+      : sanitizeArtifactText(text);
   } catch {
     sanitized = sanitizeArtifactText(text);
   }
@@ -233,11 +264,15 @@ export async function createInstrumentedContext(
               : sanitized,
         });
       },
-      (error: unknown) => {
+      (error) => {
         record({
           kind: "artifact-error",
           artifact: "response-error-body",
-          error: sanitizeArtifactText(String(error)),
+          error: sanitizeArtifactText(
+            error instanceof Error
+              ? error.message
+              : "Response body capture failed",
+          ),
         });
       },
     );
