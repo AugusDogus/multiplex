@@ -53,11 +53,13 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
  */
 const t = initTRPC.context<typeof createTRPCContext>().create({
   transformer: superjson,
-  errorFormatter({ shape, error }) {
+  errorFormatter(formatterInput) {
+    const { error } = formatterInput;
+    const response = formatterInput["shape"];
     return {
-      ...shape,
+      ...response,
       data: {
-        ...shape.data,
+        ...response.data,
         zodError:
           error.cause instanceof ZodError ? error.cause.flatten() : null,
       },
