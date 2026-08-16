@@ -15,7 +15,7 @@ interface EpisodePick {
   next: { ratingKey: string; title: string };
 }
 
-interface PlayQueueItemShape {
+interface PlayQueueItemPayload {
   ratingKey?: string;
   title?: string;
   duration?: number;
@@ -67,7 +67,7 @@ async function pickEpisodeWithNext(page: Page): Promise<EpisodePick> {
       | {
           result?: {
             data?: {
-              json?: { MediaContainer?: { Metadata?: PlayQueueItemShape[] } };
+              json?: { MediaContainer?: { Metadata?: PlayQueueItemPayload[] } };
             };
           };
         }[]
