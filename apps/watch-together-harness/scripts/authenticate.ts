@@ -73,10 +73,7 @@ function resolveCredentialPair(
   return parsed.data;
 }
 
-export function resolveAccountCredentials(environment: Environment): {
-  readonly accountA: Credentials;
-  readonly accountB: Credentials;
-} {
+export function resolveAccountCredentials(environment: Environment) {
   return {
     accountA: resolveCredentialPair(
       environment.WATCH_TOGETHER_ACCOUNT_A_EMAIL ?? environment.MULTIPLEX_ACCOUNT_EMAIL,

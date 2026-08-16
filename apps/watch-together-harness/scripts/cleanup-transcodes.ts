@@ -67,18 +67,24 @@ async function cleanupAccount(account: Account, token: string, serverId: string)
 export async function cleanupTranscodes(
   environment: NodeJS.ProcessEnv,
   selection: z.infer<typeof accountSchema>,
-): Promise<Readonly<Record<Account, number | null>>> {
+) {
   const parsedEnvironment = environmentSchema.parse(environment);
   const tokenFilePath = resolveTokenFilePath(parsedEnvironment);
   const tokens = tokenFileSchema.parse(JSON.parse(await readFile(tokenFilePath, "utf8")));
   const serverId = parsedEnvironment.WATCH_TOGETHER_HARNESS_SERVER_ID ?? DEFAULT_SERVER_ID;
   const accounts: readonly Account[] = selection === "all" ? ["accountA", "accountB"] : [selection];
-  const result: Record<Account, number | null> = { accountA: null, accountB: null };
+  let accountA: number | null = null;
+  let accountB: number | null = null;
 
   for (const account of accounts) {
-    result[account] = await cleanupAccount(account, tokens[account].token, serverId);
+    const stopped = await cleanupAccount(account, tokens[account].token, serverId);
+    if (account === "accountA") {
+      accountA = stopped;
+    } else {
+      accountB = stopped;
+    }
   }
-  return result;
+  return { accountA, accountB };
 }
 
 if (import.meta.main) {

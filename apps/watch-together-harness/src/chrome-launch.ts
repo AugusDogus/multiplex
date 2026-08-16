@@ -69,10 +69,7 @@ export function resolveChromeLaunchTarget(
     : { kind: "channel", channel: requestedChannel || "chrome" };
 }
 
-export function chromeLaunchFields(target: ChromeLaunchTarget): {
-  readonly channel?: string;
-  readonly executablePath?: string;
-} {
+export function chromeLaunchFields(target: ChromeLaunchTarget) {
   switch (target.kind) {
     case "executable":
       return { executablePath: target.executablePath };
