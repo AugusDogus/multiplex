@@ -10,6 +10,13 @@ interface ClientProfile {
   deviceName: string;
 }
 
+interface PlexStreamSource {
+  readonly key?: string;
+  readonly Media?: ReadonlyArray<{
+    readonly Part?: ReadonlyArray<{ readonly key?: string }>;
+  }>;
+}
+
 const CLIENT_PROFILE: ClientProfile = {
   platform: "Chrome",
   product: "Multiplex",
@@ -40,7 +47,7 @@ function applyClientHeaders(url: URL, authToken: string): void {
 
 function applyUniversalTranscodeParams(
   url: URL,
-  item: MediaPlayerItem,
+  item: PlexStreamSource,
   protocol: "dash" | "http",
   transcodeSessionKey: string,
   playbackSessionId: string,
@@ -86,7 +93,7 @@ function applyUniversalTranscodeProfile(
 }
 
 function buildDirectPlayUrl(
-  item: MediaPlayerItem,
+  item: PlexStreamSource,
   serverUrl: string,
   authToken: string,
   sessionId: string,
@@ -109,7 +116,7 @@ function buildDirectPlayUrl(
  * and transcodes only the audio to a browser-friendly codec.
  */
 function buildDirectStreamUrl(
-  item: MediaPlayerItem,
+  item: PlexStreamSource,
   serverUrl: string,
   authToken: string,
   offsetSeconds: number,
@@ -271,7 +278,7 @@ export function generatePlexExternalSubtitleUrl(
  * Generate a Plex streaming URL for a media item.
  */
 export function generatePlexStreamUrl(
-  item: MediaPlayerItem,
+  item: PlexStreamSource,
   serverUrl: string,
   authToken: string,
   playbackPlan: PlexPlaybackPlan,
