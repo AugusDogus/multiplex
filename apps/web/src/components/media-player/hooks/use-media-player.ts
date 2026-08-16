@@ -5,7 +5,6 @@ import { PlaybackIntent, type Marker } from "@multiplex/plex-query";
 import { playerCommands } from "~/lib/effect/player-atoms";
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import type {
-  MediaPlayerActions,
   MediaPlayerItem,
   MediaPlayerSeekResult,
 } from "~/types/media-player";
@@ -69,21 +68,7 @@ function toggleFullscreen() {
    Primary hook for media player state and actions
    ──────────────────────────────────────────────────────────── */
 
-export function useMediaPlayer(): {
-  actions: Omit<
-    MediaPlayerActions,
-    "skipForward" | "skipBackward" | "jumpToStart" | "jumpToEnd"
-  > & {
-    skipForward: (seconds?: number) => MediaPlayerSeekResult;
-    skipBackward: (seconds?: number) => MediaPlayerSeekResult;
-    jumpToStart: () => MediaPlayerSeekResult;
-    jumpToEnd: () => MediaPlayerSeekResult;
-    seekToMarkerEnd: (marker: Marker) => MediaPlayerSeekResult;
-  };
-  videoRef: React.RefObject<HTMLVideoElement | null>;
-  consumePauseRequest: () => boolean;
-  prepareForReplacement: () => void;
-} {
+export function useMediaPlayer() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playbackIntent] = useState(PlaybackIntent.make);
   const pauseRequestedRef = useRef(false);

@@ -72,7 +72,7 @@ function toContentDelta(
   dxPhysical: number,
   dyPhysical: number,
   rotation: ContentRotation,
-): { down: number; cross: number } {
+) {
   switch (rotation) {
     case 0:
       return { down: dyPhysical, cross: dxPhysical };
@@ -93,7 +93,7 @@ function toContentDelta(
 function toPhysicalOffset(
   visualDown: number,
   rotation: ContentRotation,
-): { x: number; y: number } {
+) {
   switch (rotation) {
     case 0:
       return { x: 0, y: visualDown };

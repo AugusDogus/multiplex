@@ -53,10 +53,7 @@ export function useCollectionRows<T extends RowWithId>(
   // Empty placeholder collections are typed as `{ id: string }` only.
   // Callers pass an explicit type argument for the real row shape.
   collection: CollectionLike<RowWithId> | null | undefined,
-): {
-  data: T[];
-  isLoading: boolean;
-} {
+) {
   const typedCollection = collection as CollectionLike<T> | null | undefined;
   const versionRef = useRef(0);
   const snapshotRef = useRef<Snapshot<T> | null>(null);
@@ -132,10 +129,7 @@ export function useCollectionRows<T extends RowWithId>(
 export function useCollectionRowById<T extends RowWithId>(
   collection: CollectionLike<RowWithId> | null | undefined,
   id: string | null | undefined,
-): {
-  data: T | undefined;
-  isLoading: boolean;
-} {
+) {
   const { data: rows, isLoading } = useCollectionRows<T>(collection);
   const data = id ? rows.find((row) => row.id === id) : undefined;
 
