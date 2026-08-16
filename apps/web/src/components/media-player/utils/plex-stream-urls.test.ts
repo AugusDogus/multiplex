@@ -540,12 +540,7 @@ test("selects an audio stream on the media part", () => {
   });
 
   const url = new URL(
-    buildPlexAudioSelectionUrl(
-      item,
-      item.serverUrl,
-      item.authToken,
-      378_571,
-    ),
+    buildPlexAudioSelectionUrl(item, item.serverUrl, item.authToken, 378_571),
   );
 
   expect(url.pathname).toBe("/library/parts/99");
