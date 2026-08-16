@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { devtools, persist } from "zustand/middleware";
+import { z } from "zod";
 import type { CaptionSize, PlaybackRate } from "~/types/media-player";
 
 /**
@@ -24,7 +25,7 @@ export interface PlayerPrefsState {
 }
 
 /** Legacy persisted JSON written by the pre-split media-player-store. */
-export type LegacyPersistedPrefs = {
+export type LegacyPersistedPrefsInput = {
   volume?: unknown;
   isMuted?: unknown;
   playbackRate?: unknown;
@@ -32,6 +33,18 @@ export type LegacyPersistedPrefs = {
   autoPlay?: { isEnabled?: unknown };
   autoPlayEnabled?: unknown;
 };
+
+const legacyPersistedPrefsSchema = z.object({
+  volume: z.number().finite().optional().catch(undefined),
+  isMuted: z.boolean().optional().catch(undefined),
+  playbackRate: z.number().optional().catch(undefined),
+  captionSize: z.string().optional().catch(undefined),
+  autoPlay: z
+    .object({ isEnabled: z.boolean().optional().catch(undefined) })
+    .optional()
+    .catch(undefined),
+  autoPlayEnabled: z.boolean().optional().catch(undefined),
+});
 
 const playbackRates: readonly PlaybackRate[] = [
   0.5, 0.75, 1, 1.25, 1.5, 1.75, 2,
@@ -44,31 +57,34 @@ const captionSizes: readonly CaptionSize[] = [
 ];
 
 export function prefsFromPersisted(
-  persisted: unknown,
+  persisted: LegacyPersistedPrefsInput | undefined,
   current: PlayerPrefsState,
 ): PlayerPrefsState {
-  if (!persisted || typeof persisted !== "object") {
+  const result = legacyPersistedPrefsSchema.safeParse(persisted);
+  if (!result.success) {
     return current;
   }
-  const p = persisted as LegacyPersistedPrefs;
+  const parsed = result.data;
   const volume =
-    typeof p.volume === "number" && Number.isFinite(p.volume)
-      ? Math.min(Math.max(p.volume, 0), 1)
+    parsed.volume !== undefined
+      ? Math.min(Math.max(parsed.volume, 0), 1)
       : current.volume;
-  const playbackRate = playbackRates.find((rate) => rate === p.playbackRate);
-  const captionSize = captionSizes.find((size) => size === p.captionSize);
+  const playbackRate = playbackRates.find(
+    (rate) => rate === parsed.playbackRate,
+  );
+  const captionSize = captionSizes.find(
+    (size) => size === parsed.captionSize,
+  );
   return {
     ...current,
     volume,
-    isMuted: typeof p.isMuted === "boolean" ? p.isMuted : current.isMuted,
+    isMuted: parsed.isMuted ?? current.isMuted,
     playbackRate: playbackRate ?? current.playbackRate,
     captionSize: captionSize ?? current.captionSize,
     autoPlayEnabled:
-      typeof p.autoPlay?.isEnabled === "boolean"
-        ? p.autoPlay.isEnabled
-        : typeof p.autoPlayEnabled === "boolean"
-          ? p.autoPlayEnabled
-          : current.autoPlayEnabled,
+      parsed.autoPlay?.isEnabled ??
+      parsed.autoPlayEnabled ??
+      current.autoPlayEnabled,
   };
 }
 
@@ -107,7 +123,13 @@ export const usePlayerPrefsStore = create<PlayerPrefsState>()(
       {
         name: "media-player-storage",
         partialize: partializePlayerPrefs,
-        merge: (persisted, current) => prefsFromPersisted(persisted, current),
+        merge: (persisted, current) => {
+          const result = legacyPersistedPrefsSchema.safeParse(persisted);
+          return prefsFromPersisted(
+            result.success ? result.data : undefined,
+            current,
+          );
+        },
       },
     ),
     {
