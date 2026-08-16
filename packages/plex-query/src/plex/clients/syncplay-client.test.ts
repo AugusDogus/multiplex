@@ -32,15 +32,54 @@ const REMOTE_USER = {
 const NOW_EPOCH_MILLISECONDS = 1_800_000_000_123;
 const NOW_EPOCH_SECONDS = NOW_EPOCH_MILLISECONDS / 1000;
 
+type SyncplayFrameValue =
+  | boolean
+  | number
+  | string
+  | null
+  | SyncplayFrameValue[]
+  | { [key: string]: SyncplayFrameValue };
+
+interface SyncplayFrameFixture {
+  [key: string]: SyncplayFrameValue;
+}
+
+interface FakeWebSocketListeners {
+  open: Array<() => void>;
+  message: Array<(event: MessageEvent<string>) => void>;
+  close: Array<() => void>;
+  error: Array<(event: Event) => void>;
+}
+
+interface OutgoingStatePayload {
+  ping?: {
+    clientLatencyCalculation: number;
+    clientRtt: number;
+    serverRtt: number;
+    latencyCalculation: number;
+  };
+  playstate?: {
+    paused: boolean;
+    position: number;
+    doSeek: boolean;
+    setBy: string | null;
+  };
+  ignoringOnTheFly?: { client: number; server: number };
+}
+
+interface OutgoingStateFrame {
+  State?: OutgoingStatePayload;
+}
+
 class FakeWebSocket implements SyncplayWebSocketLike {
   readonly url: string;
   readyState = 0;
   sent: unknown[] = [];
-  private readonly listeners = {
-    open: [] as (() => void)[],
-    message: [] as ((event: MessageEvent<string>) => void)[],
-    close: [] as (() => void)[],
-    error: [] as ((event: Event) => void)[],
+  private readonly listeners: FakeWebSocketListeners = {
+    open: [],
+    message: [],
+    close: [],
+    error: [],
   };
 
   constructor(url: string) {
@@ -73,7 +112,7 @@ class FakeWebSocket implements SyncplayWebSocketLike {
     }
   }
 
-  message(frame: unknown): void {
+  message(frame: SyncplayFrameFixture): void {
     const event = fromPartial<MessageEvent<string>>({
       data: JSON.stringify(frame),
     });
@@ -108,26 +147,10 @@ function createClient(options: {
   });
 }
 
-function lastPlaystate(socket: FakeWebSocket | undefined) {
-  const frame = socket?.sent.at(-1) as
-    | {
-        State?: {
-          ping?: {
-            clientLatencyCalculation: number;
-            clientRtt: number;
-            serverRtt: number;
-            latencyCalculation: number;
-          };
-          playstate?: {
-            paused: boolean;
-            position: number;
-            doSeek: boolean;
-            setBy: string | null;
-          };
-          ignoringOnTheFly?: { client: number; server: number };
-        };
-      }
-    | undefined;
+function lastPlaystate(
+  socket: FakeWebSocket | undefined,
+): OutgoingStatePayload | undefined {
+  const frame: OutgoingStateFrame | undefined = fromAny(socket?.sent.at(-1));
   return frame?.State;
 }
 

@@ -27,15 +27,44 @@ const REMOTE_USER = {
   deviceName: "Remote Device",
 };
 
+type SyncplayFrameValue =
+  | boolean
+  | number
+  | string
+  | null
+  | SyncplayFrameValue[]
+  | { [key: string]: SyncplayFrameValue };
+
+interface SyncplayFrameFixture {
+  [key: string]: SyncplayFrameValue;
+}
+
+interface FakeWebSocketListeners {
+  open: Array<() => void>;
+  message: Array<(event: MessageEvent<string>) => void>;
+  close: Array<() => void>;
+  error: Array<(event: Event) => void>;
+}
+
+interface OutgoingStatePayload {
+  playstate?: {
+    paused: boolean;
+    position: number;
+    doSeek?: boolean;
+    setBy?: string | null;
+  };
+  ignoringOnTheFly?: { client: number; server: number };
+}
+
 class FakeWebSocket implements SyncplayWebSocketLike {
   readyState = 0;
   closeCount = 0;
   sent: unknown[] = [];
-  private readonly listeners = {
-    open: [] as (() => void)[],
-    message: [] as ((event: MessageEvent<string>) => void)[],
-    close: [] as (() => void)[],
-    error: [] as ((event: Event) => void)[],
+  private readonly listeners: FakeWebSocketListeners = {
+    open: [],
+    message: [],
+    close: [],
+    error: [],
   };
 
   send(data: string): void {
@@ -63,7 +92,7 @@ class FakeWebSocket implements SyncplayWebSocketLike {
     for (const listener of this.listeners.open) listener();
   }
 
-  message(frame: unknown): void {
+  message(frame: SyncplayFrameFixture): void {
     const event = fromPartial<MessageEvent<string>>({
       data: JSON.stringify(frame),
     });
@@ -151,12 +180,13 @@ function makeState(overrides: Partial<SyncplayPlayerState> = {}): SyncplayPlayer
   };
 }
 
-function lastState(socket: FakeWebSocket | undefined) {
-  return (
-    socket?.sent.at(-1) as {
-      State?: { playstate?: unknown; ignoringOnTheFly?: unknown };
-    }
-  )?.State;
+function lastState(
+  socket: FakeWebSocket | undefined,
+): OutgoingStatePayload | undefined {
+  const frame: { State?: OutgoingStatePayload } | undefined = fromAny(
+    socket?.sent.at(-1),
+  );
+  return frame?.State;
 }
 
 describe("SyncplaySessionController", () => {
