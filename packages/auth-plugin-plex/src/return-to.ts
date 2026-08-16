@@ -7,8 +7,10 @@ import { z } from "zod";
  * protocol-relative URLs (`//evil.com`), absolute URLs, and API routes.
  * Decoding must be total: junk never throws.
  */
-export function sanitizeReturnTo(value: unknown): string {
-  if (typeof value !== "string" || value.length === 0) {
+export function sanitizeReturnTo(
+  value: string | null | undefined,
+): string {
+  if (!value) {
     return "/";
   }
 
@@ -49,8 +51,10 @@ export function encodeOAuthState(input: { nonce: string; returnTo: string }): st
  * Decode OAuth `state`. Providers may echo junk we never minted — returns
  * null instead of throwing. `returnTo` is always sanitized.
  */
-export function decodeOAuthState(state: unknown): { nonce: string; returnTo: string } | null {
-  if (typeof state !== "string" || state.length === 0) {
+export function decodeOAuthState(
+  state: string | null | undefined,
+): { nonce: string; returnTo: string } | null {
+  if (!state) {
     return null;
   }
 
