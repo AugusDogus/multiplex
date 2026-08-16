@@ -3,6 +3,7 @@
 import { chromium } from "@playwright/test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { z } from "zod";
 
 import { indexHarnessRecording } from "../../watch-together-harness/e2e/index-recording-frames";
 import {
@@ -33,6 +34,22 @@ const seekShortcutCodes = new Map<string, string>([
   ["seek-percent-8", "Digit8"],
   ["seek-percent-9", "Digit9"],
 ]);
+const syncplayLogFrameSchema = z.object({
+  State: z.object({
+    playstate: z.object({
+      position: z.number(),
+      paused: z.boolean(),
+      doSeek: z.boolean().optional(),
+      setBy: z.string().nullable().optional(),
+    }),
+    ignoringOnTheFly: z
+      .object({
+        client: z.number().optional(),
+        server: z.number().optional(),
+      })
+      .optional(),
+  }),
+});
 
 const describeMediaURL = (value: string): string => {
   try {
@@ -63,27 +80,20 @@ const describeMediaURL = (value: string): string => {
   }
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
 const describeSyncplayState = (
   direction: "sent" | "received",
   payload: string,
 ): string | undefined => {
-  let decoded: unknown;
+  let decoded;
   try {
     decoded = JSON.parse(payload);
   } catch {
     return undefined;
   }
-  if (!isRecord(decoded) || !isRecord(decoded.State)) return undefined;
-  const playstate = isRecord(decoded.State.playstate) ? decoded.State.playstate : undefined;
-  const ignoring = isRecord(decoded.State.ignoringOnTheFly)
-    ? decoded.State.ignoringOnTheFly
-    : undefined;
-  if (!playstate) return undefined;
-  const position =
-    typeof playstate.position === "number" ? Math.round(playstate.position * 1000) : "unknown";
+  const parsed = syncplayLogFrameSchema.safeParse(decoded);
+  if (!parsed.success) return undefined;
+  const { playstate, ignoringOnTheFly: ignoring } = parsed.data.State;
+  const position = Math.round(playstate.position * 1000);
   return [
     `Browser guest Syncplay ${direction}`,
     `position-ms=${position}`,
@@ -137,13 +147,15 @@ try {
   page.on("websocket", (socket) => {
     if (!socket.url().includes("syncplay")) return;
     socket.on("framesent", (event) => {
-      if (typeof event.payload !== "string") return;
-      const description = describeSyncplayState("sent", event.payload);
+      const payload = z.string().safeParse(event.payload);
+      if (!payload.success) return;
+      const description = describeSyncplayState("sent", payload.data);
       if (description) console.log(description);
     });
     socket.on("framereceived", (event) => {
-      if (typeof event.payload !== "string") return;
-      const description = describeSyncplayState("received", event.payload);
+      const payload = z.string().safeParse(event.payload);
+      if (!payload.success) return;
+      const description = describeSyncplayState("received", payload.data);
       if (description) console.log(description);
     });
   });
