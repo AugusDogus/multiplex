@@ -95,23 +95,30 @@ export class PlexTvBaseClient {
       );
     }
 
-    const data = await response.json().catch((error: unknown) => {
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch (error) {
       if (expectEmptyResponse) {
-        return undefined as T;
+        data = undefined;
+      } else {
+        throw new PlexAPIError(
+          `Invalid JSON from Plex API: ${error instanceof Error ? error.message : "Unknown error"}`,
+          response.status,
+          response,
+        );
       }
-
-      throw new PlexAPIError(
-        `Invalid JSON from Plex API: ${error instanceof Error ? error.message : "Unknown error"}`,
-        response.status,
-        response,
-      );
-    });
+    }
 
     if (data === undefined) {
+      // SAFETY: Callers set expectEmptyResponse only on void-returning
+      // operations; the generic API predates that discriminant.
       return undefined as T;
     }
 
     if (!schema) {
+      // SAFETY: Schema-less calls intentionally expose the caller-owned raw
+      // Plex response type; schema-backed calls return below.
       return data as T;
     }
 
