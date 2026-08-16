@@ -33,6 +33,9 @@ const SIDEBAR_WIDTH_MOBILE = "18rem";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
 
+type CSSPropertiesWithVariables = React.CSSProperties &
+  Record<`--${string}`, string | number | undefined>;
+
 const sidebarMenuButtonVariants = cva(
   "peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-lg p-2 text-left text-sm outline-hidden ring-sidebar-ring transition-[width,height,padding] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pe-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg:not([class*='size-'])]:size-4 [&>svg]:shrink-0",
   {
@@ -75,8 +78,14 @@ export function SidebarProvider({
   // We use openProp and setOpenProp for control from outside the component.
   const [_open, _setOpen] = React.useState(defaultOpen);
   const open = openProp ?? _open;
+  const wrapperStyle: CSSPropertiesWithVariables = {
+    "--sidebar-width": SIDEBAR_WIDTH,
+    "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
+    ...style,
+  };
   const setOpen = (value: boolean | ((value: boolean) => boolean)): void => {
-    const openState = typeof value === "function" ? value(open) : value;
+    const openState =
+      value === true || value === false ? value : value(open);
     if (setOpenProp) {
       setOpenProp(openState);
     } else {
@@ -141,13 +150,7 @@ export function SidebarProvider({
           className,
         )}
         data-slot="sidebar-wrapper"
-        style={
-          {
-            "--sidebar-width": SIDEBAR_WIDTH,
-            "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
-            ...style,
-          } as React.CSSProperties
-        }
+        style={wrapperStyle}
         {...props}
       >
         {children}
@@ -170,6 +173,10 @@ export function Sidebar({
   collapsible?: "offcanvas" | "icon" | "none";
 }): React.ReactElement {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
+  const mobileStyle: CSSPropertiesWithVariables = {
+    "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
+    ...style,
+  };
 
   if (collapsible === "none") {
     return (
@@ -199,12 +206,7 @@ export function Sidebar({
           data-sidebar="sidebar"
           data-slot="sidebar"
           side={side}
-          style={
-            {
-              "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
-              ...style,
-            } as React.CSSProperties
-          }
+          style={mobileStyle}
           {...props}
         >
           <SheetHeader className="sr-only">
@@ -549,22 +551,19 @@ export function SidebarMenuButton({
     return buttonElement;
   }
 
-  if (typeof tooltip === "string") {
-    tooltip = {
-      children: tooltip,
-    };
-  }
+  const tooltipProps =
+    tooltip instanceof Object ? tooltip : { children: tooltip };
 
   return (
     <Tooltip>
       <TooltipTrigger
-        render={buttonElement as React.ReactElement<Record<string, unknown>>}
+        render={buttonElement}
       />
       <TooltipPopup
         align="center"
         hidden={state !== "collapsed" || isMobile}
         side="right"
-        {...tooltip}
+        {...tooltipProps}
       />
     </Tooltip>
   );
@@ -632,6 +631,9 @@ export function SidebarMenuSkeleton({
   showIcon?: boolean;
 }): React.ReactElement {
   const width = "70%";
+  const skeletonStyle: CSSPropertiesWithVariables = {
+    "--skeleton-width": width,
+  };
 
   return (
     <div
@@ -649,11 +651,7 @@ export function SidebarMenuSkeleton({
       <Skeleton
         className="h-4 max-w-(--skeleton-width) flex-1"
         data-sidebar="menu-skeleton-text"
-        style={
-          {
-            "--skeleton-width": width,
-          } as React.CSSProperties
-        }
+        style={skeletonStyle}
       />
     </div>
   );
