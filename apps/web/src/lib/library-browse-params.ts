@@ -72,8 +72,8 @@ export function resolveSort(
 /** Collect non-reserved search params as Plex library filters. */
 export function extractLibraryFilters(
   searchParams: Record<string, string | string[] | undefined>,
-): Record<string, string> {
-  const filters: Record<string, string> = {};
+) {
+  const filters = new URLSearchParams();
 
   for (const [key, value] of Object.entries(searchParams)) {
     if (RESERVED_LIBRARY_PARAMS.has(key)) {
@@ -85,11 +85,11 @@ export function extractLibraryFilters(
       continue;
     }
     if (typeof value === "string" && value !== "") {
-      filters[key] = value;
+      filters.set(key, value);
     }
   }
 
-  return filters;
+  return Object.fromEntries(filters);
 }
 
 /** Stable identity for the current type/sort/filter combination. */
