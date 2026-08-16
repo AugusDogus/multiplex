@@ -164,7 +164,7 @@ export const makeControllablePlayer = (): PlayerPortContract & {
         ...snap,
         currentTimeSeconds: opts.startPositionSeconds ?? 0,
         durationSeconds:
-          typeof nextItem.duration === "number"
+          nextItem.duration !== undefined
             ? nextItem.duration / 1000
             : snap.durationSeconds,
       };

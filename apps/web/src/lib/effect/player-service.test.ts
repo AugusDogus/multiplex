@@ -114,11 +114,9 @@ function withSubtitleSelection(
         Part: [
           {
             ...item.Media?.[0]?.Part?.[0],
-            Stream: [
-              ...(item.Media?.[0]?.Part?.[0]?.Stream ?? []).map((stream) =>
-                stream.streamType === 3 ? { ...stream, selected } : stream,
-              ),
-            ],
+            Stream: (item.Media?.[0]?.Part?.[0]?.Stream ?? []).map((stream) =>
+              stream.streamType === 3 ? { ...stream, selected } : stream,
+            ),
           },
         ],
       },

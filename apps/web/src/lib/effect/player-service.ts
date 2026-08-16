@@ -172,7 +172,7 @@ const setState = (
   Effect.runSync(
     SubscriptionRef.update(state, (current) => {
       const next =
-        typeof updates === "function"
+        updates instanceof Function
           ? updates(current)
           : { ...current, ...updates };
 
