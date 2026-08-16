@@ -23,7 +23,7 @@ export function createTrpcClientLinks(source: string): TRPCLink<AppRouter>[] {
 }
 
 function getBaseUrl(): string {
-  if (typeof window !== "undefined") return window.location.origin;
+  if (globalThis.window) return globalThis.window.location.origin;
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   return `http://localhost:${process.env.PORT ?? 3000}`;
 }
