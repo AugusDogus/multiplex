@@ -10,7 +10,13 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
-import React, { useEffect, useEffectEvent, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { usePlayerStateSelector } from "~/lib/effect/player-atoms";
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import { shallow } from "zustand/shallow";
@@ -51,6 +57,10 @@ interface MediaPlayerControlsProps {
    * controls that can't be synced across viewers.
    */
   isWatchTogetherActive?: boolean;
+  /**
+   * Play/pause control used as the dialog's initial focus target.
+   */
+  playToggleRef?: RefObject<HTMLButtonElement | null>;
 }
 
 export function MediaPlayerControls({
@@ -60,6 +70,7 @@ export function MediaPlayerControls({
   className = "",
   onSettingsOpenChange,
   isWatchTogetherActive = false,
+  playToggleRef,
 }: MediaPlayerControlsProps) {
   const { currentTime, duration, isPlaying, isFullscreen, canPlay } =
     usePlayerStateSelector(
@@ -173,11 +184,12 @@ export function MediaPlayerControls({
 
               {/* Play/Pause */}
               <Button
+                ref={playToggleRef}
                 variant="ghost"
                 size="icon"
                 onClick={actions.togglePlay}
+                aria-label={isPlaying ? "Pause" : "Play"}
                 className="text-white hover:bg-white/20"
-                disabled={!canPlay}
               >
                 {isPlaying ? (
                   <Pause className="h-6 w-6" />

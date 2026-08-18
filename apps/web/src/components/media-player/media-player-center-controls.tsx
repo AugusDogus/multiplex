@@ -1,7 +1,7 @@
 "use client";
 
 import { Pause, Play, SkipBack, SkipForward } from "lucide-react";
-import type { PointerEvent } from "react";
+import type { PointerEvent, RefObject } from "react";
 import { cn } from "~/lib/utils";
 
 /* ────────────────────────────────────────────────────────────
@@ -19,6 +19,7 @@ interface MediaPlayerCenterControlsProps {
   onSkipBackward?: (seconds?: number) => void;
   onSkipForward?: (seconds?: number) => void;
   className?: string;
+  playToggleRef?: RefObject<HTMLButtonElement | null>;
 }
 
 function stopPointerPropagation(event: PointerEvent<HTMLElement>) {
@@ -33,6 +34,7 @@ export function MediaPlayerCenterControls({
   onSkipBackward,
   onSkipForward,
   className = "",
+  playToggleRef,
 }: MediaPlayerCenterControlsProps) {
   const controlButtonClass = cn(
     "pointer-events-auto flex items-center justify-center rounded-full bg-black/50 text-white shadow-lg ring-1 ring-white/20 transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-95 disabled:opacity-50",
@@ -62,13 +64,10 @@ export function MediaPlayerCenterControls({
         </button>
 
         <button
+          ref={playToggleRef}
           type="button"
           onPointerDown={stopPointerPropagation}
-          onClick={() => {
-            if (disabled) return;
-            onTogglePlay();
-          }}
-          disabled={disabled}
+          onClick={onTogglePlay}
           aria-label={isPlaying ? "Pause" : "Play"}
           className={cn(controlButtonClass, "h-20 w-20")}
         >
