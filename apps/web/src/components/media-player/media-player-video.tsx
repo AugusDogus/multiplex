@@ -873,7 +873,7 @@ export const MediaPlayerVideo = forwardRef<
       <MediaPlayerCaptionsOverlay
         lines={activeCaptions}
         controlsVisible={showControls}
-        compactControls={useMobileSurfaceGestures}
+        compactControls={props.useMobileSurfaceGestures}
         captionSize={captionSize}
       />
 
