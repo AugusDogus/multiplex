@@ -1,12 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  shouldConsumeVideoSurfaceActivationKey,
-  shouldHandleMediaShortcutFor,
-} from "./use-keyboard-shortcuts";
+import { shouldHandleMediaShortcutFor } from "./use-keyboard-shortcuts";
 
 describe("shouldHandleMediaShortcutFor", () => {
-  test("handles Space on an unfocused page", () => {
+  test("handles Space when focus is not a native control", () => {
     expect(
       shouldHandleMediaShortcutFor({
         code: "Space",
@@ -66,26 +63,6 @@ describe("shouldHandleMediaShortcutFor", () => {
         code: "Space",
         defaultPrevented: false,
         targetKind: "editable",
-      }),
-    ).toBe(false);
-  });
-});
-
-describe("shouldConsumeVideoSurfaceActivationKey", () => {
-  test("consumes Space on the desktop video surface after hold-to-2x", () => {
-    expect(
-      shouldConsumeVideoSurfaceActivationKey({
-        key: " ",
-        hasClickHandler: true,
-      }),
-    ).toBe(true);
-  });
-
-  test("leaves Space to the document shortcut on mobile", () => {
-    expect(
-      shouldConsumeVideoSurfaceActivationKey({
-        key: " ",
-        hasClickHandler: false,
       }),
     ).toBe(false);
   });

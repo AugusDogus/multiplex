@@ -40,8 +40,7 @@ export function shouldHandleMediaShortcutFor(event: {
     case "editable":
       return false;
     case "button":
-      // Native buttons fire click on Space. The video surface is role=button
-      // and is handled separately so mobile can still use the document shortcut.
+      // Native buttons already fire click on Space.
       return event.code !== "Space";
     case "other":
       return true;
@@ -58,15 +57,6 @@ export function shouldHandleMediaShortcut(event: KeyboardEvent): boolean {
     defaultPrevented: event.defaultPrevented,
     targetKind: getMediaShortcutTargetKind(event.target),
   });
-}
-
-/** Desktop surface clicks toggle playback. Mobile leaves Space to the document shortcut. */
-export function shouldConsumeVideoSurfaceActivationKey(options: {
-  readonly key: string;
-  readonly hasClickHandler: boolean;
-}): boolean {
-  if (!options.hasClickHandler) return false;
-  return options.key === "Enter" || options.key === " ";
 }
 
 interface UseKeyboardShortcutsProps {
