@@ -1,119 +1,92 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  isSpaceActivatingControl,
-  shouldHandleMediaShortcut,
+  shouldConsumeVideoSurfaceActivationKey,
+  shouldHandleMediaShortcutFor,
 } from "./use-keyboard-shortcuts";
 
-function shortcutEvent({
-  code,
-  target,
-  defaultPrevented = false,
-}: {
-  code: string;
-  target?: EventTarget | null;
-  defaultPrevented?: boolean;
-}): KeyboardEvent {
-  const event = new KeyboardEvent("keydown", {
-    code,
-    cancelable: true,
-  });
-  Object.defineProperty(event, "target", { value: target ?? document.body });
-  if (defaultPrevented) {
-    event.preventDefault();
-  }
-  return event;
-}
-
-describe("isSpaceActivatingControl", () => {
-  test("treats native buttons as Space-activated", () => {
-    expect(isSpaceActivatingControl(document.createElement("button"))).toBe(
-      true,
-    );
-  });
-
-  test("treats role=button surfaces as Space-activated", () => {
-    const surface = document.createElement("div");
-    surface.setAttribute("role", "button");
-    expect(isSpaceActivatingControl(surface)).toBe(true);
-  });
-
-  test("ignores ordinary elements", () => {
-    expect(isSpaceActivatingControl(document.createElement("div"))).toBe(false);
-    expect(isSpaceActivatingControl(null)).toBe(false);
-  });
-});
-
-describe("shouldHandleMediaShortcut", () => {
-  test("handles Space on the document body", () => {
+describe("shouldHandleMediaShortcutFor", () => {
+  test("handles Space on an unfocused page", () => {
     expect(
-      shouldHandleMediaShortcut(shortcutEvent({ code: "Space" })),
-    ).toBe(true);
-  });
-
-  test("ignores Space after the video surface already handled it", () => {
-    const surface = document.createElement("div");
-    surface.setAttribute("role", "button");
-    expect(
-      shouldHandleMediaShortcut(
-        shortcutEvent({ code: "Space", target: surface }),
-      ),
-    ).toBe(false);
-  });
-
-  test("still handles K when the video surface is focused", () => {
-    const surface = document.createElement("div");
-    surface.setAttribute("role", "button");
-    expect(
-      shouldHandleMediaShortcut(
-        shortcutEvent({ code: "KeyK", target: surface }),
-      ),
+      shouldHandleMediaShortcutFor({
+        code: "Space",
+        defaultPrevented: false,
+        targetKind: "other",
+      }),
     ).toBe(true);
   });
 
   test("ignores Space on a focused play button", () => {
     expect(
-      shouldHandleMediaShortcut(
-        shortcutEvent({
-          code: "Space",
-          target: document.createElement("button"),
-        }),
-      ),
+      shouldHandleMediaShortcutFor({
+        code: "Space",
+        defaultPrevented: false,
+        targetKind: "button",
+      }),
     ).toBe(false);
+  });
+
+  test("still handles K when a play button is focused", () => {
+    expect(
+      shouldHandleMediaShortcutFor({
+        code: "KeyK",
+        defaultPrevented: false,
+        targetKind: "button",
+      }),
+    ).toBe(true);
   });
 
   test("ignores already-handled keys", () => {
     expect(
-      shouldHandleMediaShortcut(
-        shortcutEvent({ code: "Space", defaultPrevented: true }),
-      ),
+      shouldHandleMediaShortcutFor({
+        code: "Space",
+        defaultPrevented: true,
+        targetKind: "other",
+      }),
     ).toBe(false);
   });
 
   test("ignores keys while typing", () => {
     expect(
-      shouldHandleMediaShortcut(
-        shortcutEvent({
-          code: "Space",
-          target: document.createElement("input"),
-        }),
-      ),
+      shouldHandleMediaShortcutFor({
+        code: "Space",
+        defaultPrevented: false,
+        targetKind: "input",
+      }),
     ).toBe(false);
     expect(
-      shouldHandleMediaShortcut(
-        shortcutEvent({
-          code: "Space",
-          target: document.createElement("textarea"),
-        }),
-      ),
+      shouldHandleMediaShortcutFor({
+        code: "Space",
+        defaultPrevented: false,
+        targetKind: "textarea",
+      }),
     ).toBe(false);
+    expect(
+      shouldHandleMediaShortcutFor({
+        code: "Space",
+        defaultPrevented: false,
+        targetKind: "editable",
+      }),
+    ).toBe(false);
+  });
+});
 
-    const editable = document.createElement("div");
-    editable.contentEditable = "true";
+describe("shouldConsumeVideoSurfaceActivationKey", () => {
+  test("consumes Space on the desktop video surface after hold-to-2x", () => {
     expect(
-      shouldHandleMediaShortcut(
-        shortcutEvent({ code: "Space", target: editable }),
-      ),
+      shouldConsumeVideoSurfaceActivationKey({
+        key: " ",
+        hasClickHandler: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("leaves Space to the document shortcut on mobile", () => {
+    expect(
+      shouldConsumeVideoSurfaceActivationKey({
+        key: " ",
+        hasClickHandler: false,
+      }),
     ).toBe(false);
   });
 });
