@@ -8,6 +8,33 @@ import type { MediaPlayerActions } from "~/types/media-player";
    Handles keyboard navigation and media controls
    ──────────────────────────────────────────────────────────── */
 
+export function isSpaceActivatingControl(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  if (target instanceof HTMLButtonElement) return true;
+  return target.getAttribute("role") === "button";
+}
+
+export function shouldHandleMediaShortcut(event: KeyboardEvent): boolean {
+  if (event.defaultPrevented) return false;
+
+  const target = event.target;
+  if (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    (target instanceof HTMLElement && target.contentEditable === "true")
+  ) {
+    return false;
+  }
+
+  // Focused buttons (including the video surface) already activate on Space.
+  // Handling it again here pauses and immediately resumes after hold-to-2x.
+  if (event.code === "Space" && isSpaceActivatingControl(target)) {
+    return false;
+  }
+
+  return true;
+}
+
 interface UseKeyboardShortcutsProps {
   /**
    * Whether the media player modal is open
@@ -43,14 +70,7 @@ export function useKeyboardShortcuts({
   volume,
 }: UseKeyboardShortcutsProps) {
   const handleKeyDown = useEffectEvent((e: KeyboardEvent) => {
-    // Don't handle shortcuts if user is typing in an input
-    if (
-      e.target instanceof HTMLInputElement ||
-      e.target instanceof HTMLTextAreaElement ||
-      (e.target instanceof HTMLElement && e.target.contentEditable === "true")
-    ) {
-      return;
-    }
+    if (!shouldHandleMediaShortcut(e)) return;
 
     // Prevent default behavior for media keys
     switch (e.code) {
