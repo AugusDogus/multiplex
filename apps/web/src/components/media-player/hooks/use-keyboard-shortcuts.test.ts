@@ -8,7 +8,6 @@ describe("shouldHandleMediaShortcut", () => {
       shouldHandleMediaShortcut({
         code: "Space",
         defaultPrevented: false,
-        isEditableTarget: false,
         isNativeButton: false,
       }),
     ).toBe(true);
@@ -19,7 +18,6 @@ describe("shouldHandleMediaShortcut", () => {
       shouldHandleMediaShortcut({
         code: "Space",
         defaultPrevented: false,
-        isEditableTarget: false,
         isNativeButton: true,
       }),
     ).toBe(false);
@@ -30,7 +28,6 @@ describe("shouldHandleMediaShortcut", () => {
       shouldHandleMediaShortcut({
         code: "KeyK",
         defaultPrevented: false,
-        isEditableTarget: false,
         isNativeButton: true,
       }),
     ).toBe(true);
@@ -41,18 +38,6 @@ describe("shouldHandleMediaShortcut", () => {
       shouldHandleMediaShortcut({
         code: "Space",
         defaultPrevented: true,
-        isEditableTarget: false,
-        isNativeButton: false,
-      }),
-    ).toBe(false);
-  });
-
-  test("ignores keys while typing", () => {
-    expect(
-      shouldHandleMediaShortcut({
-        code: "Space",
-        defaultPrevented: false,
-        isEditableTarget: true,
         isNativeButton: false,
       }),
     ).toBe(false);

@@ -765,7 +765,6 @@ function useMediaPlayerModalController(): MediaPlayerModalViewProps | null {
   useKeyboardShortcuts({
     isOpen,
     actions: keyboardActions,
-    currentTime,
     duration,
     volume,
   });
