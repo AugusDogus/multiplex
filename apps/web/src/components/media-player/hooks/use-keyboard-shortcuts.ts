@@ -8,31 +8,65 @@ import type { MediaPlayerActions } from "~/types/media-player";
    Handles keyboard navigation and media controls
    ──────────────────────────────────────────────────────────── */
 
-export function isSpaceActivatingControl(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  if (target instanceof HTMLButtonElement) return true;
-  return target.getAttribute("role") === "button";
+export type MediaShortcutTargetKind =
+  | "input"
+  | "textarea"
+  | "editable"
+  | "button"
+  | "other";
+
+export function getMediaShortcutTargetKind(
+  target: EventTarget | null,
+): MediaShortcutTargetKind {
+  if (target instanceof HTMLInputElement) return "input";
+  if (target instanceof HTMLTextAreaElement) return "textarea";
+  if (target instanceof HTMLButtonElement) return "button";
+  if (target instanceof HTMLElement && target.contentEditable === "true") {
+    return "editable";
+  }
+  return "other";
+}
+
+export function shouldHandleMediaShortcutFor(event: {
+  readonly code: string;
+  readonly defaultPrevented: boolean;
+  readonly targetKind: MediaShortcutTargetKind;
+}): boolean {
+  if (event.defaultPrevented) return false;
+
+  switch (event.targetKind) {
+    case "input":
+    case "textarea":
+    case "editable":
+      return false;
+    case "button":
+      // Native buttons fire click on Space. The video surface is role=button
+      // and is handled separately so mobile can still use the document shortcut.
+      return event.code !== "Space";
+    case "other":
+      return true;
+    default: {
+      const _exhaustive: never = event.targetKind;
+      return _exhaustive;
+    }
+  }
 }
 
 export function shouldHandleMediaShortcut(event: KeyboardEvent): boolean {
-  if (event.defaultPrevented) return false;
+  return shouldHandleMediaShortcutFor({
+    code: event.code,
+    defaultPrevented: event.defaultPrevented,
+    targetKind: getMediaShortcutTargetKind(event.target),
+  });
+}
 
-  const target = event.target;
-  if (
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement ||
-    (target instanceof HTMLElement && target.contentEditable === "true")
-  ) {
-    return false;
-  }
-
-  // Focused buttons (including the video surface) already activate on Space.
-  // Handling it again here pauses and immediately resumes after hold-to-2x.
-  if (event.code === "Space" && isSpaceActivatingControl(target)) {
-    return false;
-  }
-
-  return true;
+/** Desktop surface clicks toggle playback. Mobile leaves Space to the document shortcut. */
+export function shouldConsumeVideoSurfaceActivationKey(options: {
+  readonly key: string;
+  readonly hasClickHandler: boolean;
+}): boolean {
+  if (!options.hasClickHandler) return false;
+  return options.key === "Enter" || options.key === " ";
 }
 
 interface UseKeyboardShortcutsProps {

@@ -36,6 +36,7 @@ import {
 } from "./utils/media-player-utils";
 import { getFullTimelineDuration } from "./utils/playback-time-utils";
 import { generatePlexStreamUrl } from "./utils/plex-stream-urls";
+import { shouldConsumeVideoSurfaceActivationKey } from "./hooks/use-keyboard-shortcuts";
 import { useSuppressNativeLongPress } from "./hooks/use-suppress-native-long-press";
 import { useVideoPressGesture } from "./hooks/use-video-press-gesture";
 import { MediaPlayerCaptionsOverlay } from "./media-player-captions-overlay";
@@ -793,9 +794,16 @@ export const MediaPlayerVideo = forwardRef<
       onClick={handleVideoClick}
       onDoubleClick={handleVideoDoubleClick}
       onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        // Hold-to-2x focuses this surface. Space must not bubble to the
-        // document shortcut or playback pauses and immediately resumes.
+        if (
+          !shouldConsumeVideoSurfaceActivationKey({
+            key: event.key,
+            hasClickHandler: onVideoClick != null,
+          })
+        ) {
+          return;
+        }
+        // Hold-to-2x focuses this surface. Stop Space here so the document
+        // shortcut does not pause and immediately resume.
         event.preventDefault();
         event.stopPropagation();
         onVideoClick?.();
