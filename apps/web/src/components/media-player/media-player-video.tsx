@@ -36,7 +36,6 @@ import {
 } from "./utils/media-player-utils";
 import { getFullTimelineDuration } from "./utils/playback-time-utils";
 import { generatePlexStreamUrl } from "./utils/plex-stream-urls";
-import { shouldConsumeVideoSurfaceActivationKey } from "./hooks/use-keyboard-shortcuts";
 import { useSuppressNativeLongPress } from "./hooks/use-suppress-native-long-press";
 import { useVideoPressGesture } from "./hooks/use-video-press-gesture";
 import { MediaPlayerCaptionsOverlay } from "./media-player-captions-overlay";
@@ -794,18 +793,10 @@ export const MediaPlayerVideo = forwardRef<
       onClick={handleVideoClick}
       onDoubleClick={handleVideoDoubleClick}
       onKeyDown={(event) => {
-        if (
-          !shouldConsumeVideoSurfaceActivationKey({
-            key: event.key,
-            hasClickHandler: onVideoClick != null,
-          })
-        ) {
-          return;
-        }
-        // Hold-to-2x focuses this surface. Stop Space here so the document
-        // shortcut does not pause and immediately resume.
+        // Space belongs to the document shortcut. Handling it here too
+        // pauses and immediately resumes after hold-to-2x focuses the surface.
+        if (event.key !== "Enter") return;
         event.preventDefault();
-        event.stopPropagation();
         onVideoClick?.();
       }}
     >
