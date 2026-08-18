@@ -8,55 +8,22 @@ import type { MediaPlayerActions } from "~/types/media-player";
    Handles keyboard navigation and media controls
    ──────────────────────────────────────────────────────────── */
 
-export type MediaShortcutTargetKind =
-  | "input"
-  | "textarea"
-  | "editable"
-  | "button"
-  | "other";
-
-export function getMediaShortcutTargetKind(
-  target: EventTarget | null,
-): MediaShortcutTargetKind {
-  if (target instanceof HTMLInputElement) return "input";
-  if (target instanceof HTMLTextAreaElement) return "textarea";
-  if (target instanceof HTMLButtonElement) return "button";
-  if (target instanceof HTMLElement && target.contentEditable === "true") {
-    return "editable";
-  }
-  return "other";
-}
-
-export function shouldHandleMediaShortcutFor(event: {
+export function shouldHandleMediaShortcut(event: {
   readonly code: string;
   readonly defaultPrevented: boolean;
-  readonly targetKind: MediaShortcutTargetKind;
+  readonly isEditableTarget: boolean;
+  readonly isNativeButton: boolean;
 }): boolean {
-  if (event.defaultPrevented) return false;
-
-  switch (event.targetKind) {
-    case "input":
-    case "textarea":
-    case "editable":
-      return false;
-    case "button":
-      // Native buttons already fire click on Space.
-      return event.code !== "Space";
-    case "other":
-      return true;
-    default: {
-      const _exhaustive: never = event.targetKind;
-      return _exhaustive;
-    }
-  }
+  if (event.defaultPrevented || event.isEditableTarget) return false;
+  return !(event.code === "Space" && event.isNativeButton);
 }
 
-export function shouldHandleMediaShortcut(event: KeyboardEvent): boolean {
-  return shouldHandleMediaShortcutFor({
-    code: event.code,
-    defaultPrevented: event.defaultPrevented,
-    targetKind: getMediaShortcutTargetKind(event.target),
-  });
+function isEditableShortcutTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    (target instanceof HTMLElement && target.contentEditable === "true")
+  );
 }
 
 interface UseKeyboardShortcutsProps {
@@ -94,7 +61,16 @@ export function useKeyboardShortcuts({
   volume,
 }: UseKeyboardShortcutsProps) {
   const handleKeyDown = useEffectEvent((e: KeyboardEvent) => {
-    if (!shouldHandleMediaShortcut(e)) return;
+    if (
+      !shouldHandleMediaShortcut({
+        code: e.code,
+        defaultPrevented: e.defaultPrevented,
+        isEditableTarget: isEditableShortcutTarget(e.target),
+        isNativeButton: e.target instanceof HTMLButtonElement,
+      })
+    ) {
+      return;
+    }
 
     // Prevent default behavior for media keys
     switch (e.code) {
