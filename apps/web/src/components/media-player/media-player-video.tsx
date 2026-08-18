@@ -793,10 +793,12 @@ export const MediaPlayerVideo = forwardRef<
       onClick={handleVideoClick}
       onDoubleClick={handleVideoDoubleClick}
       onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onVideoClick?.();
-        }
+        if (event.key !== "Enter" && event.key !== " ") return;
+        // Hold-to-2x focuses this surface. Space must not bubble to the
+        // document shortcut or playback pauses and immediately resumes.
+        event.preventDefault();
+        event.stopPropagation();
+        onVideoClick?.();
       }}
     >
       <video
