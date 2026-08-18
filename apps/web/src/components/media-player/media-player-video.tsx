@@ -715,6 +715,7 @@ export const MediaPlayerVideo = forwardRef<
   HTMLVideoElement,
   MediaPlayerVideoProps
 >((props, ref) => {
+  const { className, useMobileSurfaceGestures } = props;
   const {
     activeCaptions,
     captionSize,
@@ -758,7 +759,7 @@ export const MediaPlayerVideo = forwardRef<
       <div
         className={cn(
           "flex h-full w-full items-center justify-center bg-black",
-          props.className,
+          className,
         )}
       >
         <div className="text-center text-white">
@@ -779,16 +780,14 @@ export const MediaPlayerVideo = forwardRef<
       ref={surfaceRef}
       className={cn(
         "touch-action-none relative h-full w-full cursor-pointer overflow-hidden bg-black select-none [-webkit-touch-callout:none]",
-        props.className,
+        className,
       )}
       {...pressPointerHandlers}
       // Only suppress the context menu on mobile, where it's triggered by
       // the OS long-press during hold-to-fast-forward. Desktop users
       // should still get a normal right-click menu.
       onContextMenu={
-        props.useMobileSurfaceGestures
-          ? (event) => event.preventDefault()
-          : undefined
+        useMobileSurfaceGestures ? (event) => event.preventDefault() : undefined
       }
       onClick={handleVideoClick}
       onDoubleClick={handleVideoDoubleClick}
@@ -873,7 +872,7 @@ export const MediaPlayerVideo = forwardRef<
       <MediaPlayerCaptionsOverlay
         lines={activeCaptions}
         controlsVisible={showControls}
-        compactControls={props.useMobileSurfaceGestures}
+        compactControls={useMobileSurfaceGestures}
         captionSize={captionSize}
       />
 
