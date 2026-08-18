@@ -884,6 +884,7 @@ function MediaPlayerModalView({
   onSettingsOpenChange,
   onResetMobileControlsTimer,
 }: MediaPlayerModalViewProps) {
+  const playToggleRef = useRef<HTMLButtonElement>(null);
   const {
     isOpen,
     isMobile,
@@ -897,7 +898,7 @@ function MediaPlayerModalView({
 
   return (
     <Dialog modal={false} open={isOpen} onOpenChange={onClose}>
-      <MediaPlayerDialogContent>
+      <MediaPlayerDialogContent initialFocus={playToggleRef}>
         <DialogTitle className="sr-only">
           Media Player - {currentItem.title}
         </DialogTitle>
@@ -971,6 +972,7 @@ function MediaPlayerModalView({
                     isVisible
                     isPlaying={isPlaying}
                     disabled={!canPlay}
+                    playToggleRef={playToggleRef}
                     onTogglePlay={onCenterTogglePlay}
                     onSkipBackward={onMobileSkipBackward}
                     onSkipForward={onMobileSkipForward}
@@ -1004,6 +1006,7 @@ function MediaPlayerModalView({
                     isVisible
                     actions={actions}
                     progressOnly={false}
+                    playToggleRef={playToggleRef}
                     onSettingsOpenChange={onSettingsOpenChange}
                     isWatchTogetherActive={isWatchTogetherActive}
                   />
