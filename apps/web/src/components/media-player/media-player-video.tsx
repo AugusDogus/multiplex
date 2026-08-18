@@ -776,10 +776,9 @@ export const MediaPlayerVideo = forwardRef<
   }
 
   return (
+    // react-doctor-disable-next-line react-doctor/no-static-element-interactions -- pointer gestures only; Space and the play button own keyboard a11y. A focusable button role double-toggles after hold-to-2x.
     <div
       ref={surfaceRef}
-      role="button"
-      aria-label="Toggle playback"
       className={cn(
         "touch-action-none relative h-full w-full cursor-pointer overflow-hidden bg-black select-none [-webkit-touch-callout:none]",
         className,
