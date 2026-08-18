@@ -778,6 +778,8 @@ export const MediaPlayerVideo = forwardRef<
   return (
     <div
       ref={surfaceRef}
+      role="button"
+      aria-label="Toggle playback"
       className={cn(
         "touch-action-none relative h-full w-full cursor-pointer overflow-hidden bg-black select-none [-webkit-touch-callout:none]",
         className,
