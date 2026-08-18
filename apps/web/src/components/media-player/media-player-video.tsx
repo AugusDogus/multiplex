@@ -715,7 +715,6 @@ export const MediaPlayerVideo = forwardRef<
   HTMLVideoElement,
   MediaPlayerVideoProps
 >((props, ref) => {
-  const { className = "", useMobileSurfaceGestures = false } = props;
   const {
     activeCaptions,
     captionSize,
@@ -757,7 +756,10 @@ export const MediaPlayerVideo = forwardRef<
   if (hasError || !videoSrc) {
     return (
       <div
-        className={`flex h-full w-full items-center justify-center bg-black ${className}`}
+        className={cn(
+          "flex h-full w-full items-center justify-center bg-black",
+          props.className,
+        )}
       >
         <div className="text-center text-white">
           <div className="mb-2 text-xl">⚠️</div>
@@ -775,16 +777,18 @@ export const MediaPlayerVideo = forwardRef<
   return (
     <div
       ref={surfaceRef}
-      // Pointer gestures only. Keyboard play/pause belongs to the document
-      // shortcut and the real play button. A focusable role=button here
-      // steals Space after hold-to-2x.
-      className={`touch-action-none relative h-full w-full cursor-pointer overflow-hidden bg-black select-none [-webkit-touch-callout:none] ${className}`}
+      className={cn(
+        "touch-action-none relative h-full w-full cursor-pointer overflow-hidden bg-black select-none [-webkit-touch-callout:none]",
+        props.className,
+      )}
       {...pressPointerHandlers}
       // Only suppress the context menu on mobile, where it's triggered by
       // the OS long-press during hold-to-fast-forward. Desktop users
       // should still get a normal right-click menu.
       onContextMenu={
-        useMobileSurfaceGestures ? (event) => event.preventDefault() : undefined
+        props.useMobileSurfaceGestures
+          ? (event) => event.preventDefault()
+          : undefined
       }
       onClick={handleVideoClick}
       onDoubleClick={handleVideoDoubleClick}
