@@ -715,11 +715,7 @@ export const MediaPlayerVideo = forwardRef<
   HTMLVideoElement,
   MediaPlayerVideoProps
 >((props, ref) => {
-  const {
-    className = "",
-    onVideoClick,
-    useMobileSurfaceGestures = false,
-  } = props;
+  const { className = "", useMobileSurfaceGestures = false } = props;
   const {
     activeCaptions,
     captionSize,
@@ -779,9 +775,9 @@ export const MediaPlayerVideo = forwardRef<
   return (
     <div
       ref={surfaceRef}
-      role="button"
-      tabIndex={0}
-      aria-label="Video playback surface"
+      // Pointer gestures only. Keyboard play/pause belongs to the document
+      // shortcut and the real play button. A focusable role=button here
+      // steals Space after hold-to-2x.
       className={`touch-action-none relative h-full w-full cursor-pointer overflow-hidden bg-black select-none [-webkit-touch-callout:none] ${className}`}
       {...pressPointerHandlers}
       // Only suppress the context menu on mobile, where it's triggered by
@@ -792,13 +788,6 @@ export const MediaPlayerVideo = forwardRef<
       }
       onClick={handleVideoClick}
       onDoubleClick={handleVideoDoubleClick}
-      onKeyDown={(event) => {
-        // Space belongs to the document shortcut. Handling it here too
-        // pauses and immediately resumes after hold-to-2x focuses the surface.
-        if (event.key !== "Enter") return;
-        event.preventDefault();
-        onVideoClick?.();
-      }}
     >
       <video
         key={`${streamSessionId}:${sourceGeneration}`}
