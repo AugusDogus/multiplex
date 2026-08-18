@@ -1,68 +1,59 @@
 import { describe, expect, test } from "bun:test";
 
-import { shouldHandleMediaShortcutFor } from "./use-keyboard-shortcuts";
+import { shouldHandleMediaShortcut } from "./use-keyboard-shortcuts";
 
-describe("shouldHandleMediaShortcutFor", () => {
+describe("shouldHandleMediaShortcut", () => {
   test("handles Space when focus is not a native control", () => {
     expect(
-      shouldHandleMediaShortcutFor({
+      shouldHandleMediaShortcut({
         code: "Space",
         defaultPrevented: false,
-        targetKind: "other",
+        isEditableTarget: false,
+        isNativeButton: false,
       }),
     ).toBe(true);
   });
 
   test("ignores Space on a focused play button", () => {
     expect(
-      shouldHandleMediaShortcutFor({
+      shouldHandleMediaShortcut({
         code: "Space",
         defaultPrevented: false,
-        targetKind: "button",
+        isEditableTarget: false,
+        isNativeButton: true,
       }),
     ).toBe(false);
   });
 
   test("still handles K when a play button is focused", () => {
     expect(
-      shouldHandleMediaShortcutFor({
+      shouldHandleMediaShortcut({
         code: "KeyK",
         defaultPrevented: false,
-        targetKind: "button",
+        isEditableTarget: false,
+        isNativeButton: true,
       }),
     ).toBe(true);
   });
 
   test("ignores already-handled keys", () => {
     expect(
-      shouldHandleMediaShortcutFor({
+      shouldHandleMediaShortcut({
         code: "Space",
         defaultPrevented: true,
-        targetKind: "other",
+        isEditableTarget: false,
+        isNativeButton: false,
       }),
     ).toBe(false);
   });
 
   test("ignores keys while typing", () => {
     expect(
-      shouldHandleMediaShortcutFor({
+      shouldHandleMediaShortcut({
         code: "Space",
         defaultPrevented: false,
-        targetKind: "input",
-      }),
-    ).toBe(false);
-    expect(
-      shouldHandleMediaShortcutFor({
-        code: "Space",
-        defaultPrevented: false,
-        targetKind: "textarea",
-      }),
-    ).toBe(false);
-    expect(
-      shouldHandleMediaShortcutFor({
-        code: "Space",
-        defaultPrevented: false,
-        targetKind: "editable",
+        isEditableTarget: true,
+        isNativeButton: false,
       }),
     ).toBe(false);
   });
