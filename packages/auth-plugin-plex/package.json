@@ -10,7 +10,7 @@
   },
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "bun ../../node_modules/typescript/bin/tsc --noEmit"
   },
   "dependencies": {
     "@multiplex/plex-query": "workspace:*",

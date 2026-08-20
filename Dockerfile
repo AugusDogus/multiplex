@@ -4,6 +4,7 @@ WORKDIR /app
 
 COPY package.json bun.lock ./
 COPY apps/gamecube/package.json ./apps/gamecube/
+COPY apps/desktop/package.json ./apps/desktop/
 COPY apps/web/package.json ./apps/web/
 COPY apps/wii/package.json ./apps/wii/
 COPY packages/plex-query/package.json ./packages/plex-query/

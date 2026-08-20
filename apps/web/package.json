@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "next build",
-    "check": "eslint . && tsc --noEmit",
+    "check": "eslint . && bun ../../node_modules/typescript/bin/tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
@@ -21,7 +21,7 @@
     "test:e2e": "playwright test",
     "test:e2e:auth-gate": "playwright test --project=auth-gate",
     "test:e2e:setup": "playwright test --project=setup",
-    "typecheck": "next typegen && tsc --noEmit"
+    "typecheck": "next typegen && bun ../../node_modules/typescript/bin/tsc --noEmit"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

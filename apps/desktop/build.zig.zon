@@ -1,0 +1,10 @@
+.{
+    .name = .multiplex_desktop,
+    .fingerprint = 0x6adf7b03b99d0dff,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .native_sdk = .{ .path = "../../node_modules/@native-sdk/cli" },
+    },
+    .paths = .{ "README.md", "app.zon", "assets", "build.zig", "build.zig.zon", "src" },
+}

@@ -16,7 +16,7 @@ Multiplex was created as a response to Plex's announcement of the deprecation of
 
 ## Tech Stack
 
-Multiplex is a [Bun](https://bun.sh) monorepo: the web app lives in `apps/web`, shared Plex API and auth libraries in `packages/`, and the native console client in `apps/gamecube`.
+Multiplex is a [Bun](https://bun.sh) monorepo: the web app lives in `apps/web`, the native desktop client in `apps/desktop`, shared Plex API and auth libraries in `packages/`, and the native console client in `apps/gamecube`.
 
 ### Web (`apps/web`)
 
@@ -37,6 +37,10 @@ Multiplex is a [Bun](https://bun.sh) monorepo: the web app lives in `apps/web`, 
 - [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) - HTTPS on console
 
 See [`apps/gamecube/README.md`](apps/gamecube/README.md) for the full console stack and acknowledgements.
+
+### Desktop (`apps/desktop`)
+
+The desktop app is a native Vercel Native SDK client. Its TypeScript core is compiled into the executable and every screen is rendered from `.native` markup. The hosted Multiplex service remains the authority for accounts, Plex data, and Watch Together. The desktop package contains no WebView, Next.js server, SQLite database, or server secrets. See [`apps/desktop/README.md`](apps/desktop/README.md) for development and packaging commands.
 
 _This project was initially scaffolded using [create-t3-app](https://create.t3.gg/)._
 

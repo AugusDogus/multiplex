@@ -1,0 +1,676 @@
+<stack>
+  <if test="{screen == 'player'}">
+    <stack>
+      <media-surface surface="{videoSurface}" grow="1" label="{selectedTitle}" />
+      <column padding="16" cross="center">
+        <spacer grow="1" />
+        <if test="{playbackLoading}">
+          <panel padding="12" background="scrim" radius="lg">
+            <row main="center" cross="center" gap="8">
+              <text>Preparing playback...</text>
+              <text size="sm" foreground="text_muted">Requesting the selected Plex session.</text>
+            </row>
+          </panel>
+        </if>
+        <if test="{playbackLoaded}">
+          <panel width="620" padding="10" background="surface" border-color="border" radius="sm" label="Player controls">
+            <row gap="8" cross="center">
+              <column width="220" gap="2">
+                <if test="{detailsHasHierarchy}">
+                  <text size="sm" wrap="false">{detailsSecondary}</text>
+                  <text size="sm" foreground="text_muted" wrap="false">{detailsHierarchy} - {selectedTitle}</text>
+                </if>
+                <else>
+                  <text size="sm" wrap="false">{selectedTitle}</text>
+                  <if test="{detailsHasSecondary}">
+                    <text size="sm" foreground="text_muted" wrap="false">{detailsSecondary}</text>
+                  </if>
+                </else>
+                <text size="sm" foreground="text_muted">{playbackElapsedMinutes}:{pad(playbackElapsedSeconds, 2)} / -{playbackRemainingMinutes}:{pad(playbackRemainingSeconds, 2)}</text>
+              </column>
+              <spacer grow="1" />
+              <row gap="6" cross="center">
+                <button focus-ring="text" width="44" icon="skip-back" variant="ghost" on-press="play_previous" disabled="{playbackEpisodeNavigationDisabled}" label="Previous"></button>
+                <button focus-ring="text" width="44" icon="chevron-left" variant="ghost" on-press="seek_backward" label="Back 10 seconds"></button>
+                <button focus-ring="text" width="48" icon="{playbackToggleIcon}" variant="primary" on-press="toggle_playback" label="Play or pause"></button>
+                <button focus-ring="text" width="44" icon="chevron-right" variant="ghost" on-press="seek_forward" label="Forward 30 seconds"></button>
+                <button focus-ring="text" width="44" icon="skip-forward" variant="ghost" on-press="play_next" disabled="{playbackEpisodeNavigationDisabled}" label="Next"></button>
+                <button focus-ring="text" width="44" icon="x" variant="ghost" on-press="stop_playback" label="Stop"></button>
+                <button focus-ring="text" width="44" icon="settings" variant="ghost" on-press="open_player_settings" label="Playback settings"></button>
+              </row>
+            </row>
+          </panel>
+        </if>
+      </column>
+    </stack>
+  </if>
+  <else>
+    <if test="{screen == 'pairing'}">
+      <column padding="32" background="background">
+        <row cross="center" gap="10">
+          <icon name="play" width="24" height="24" foreground="text" label="Multiplex" />
+          <text><span weight="bold">Multiplex</span></text>
+        </row>
+        <column grow="1" main="center" cross="center" label="Pair with Multiplex">
+          <panel width="440" padding="32" background="surface" border-color="border" radius="xl">
+            <column gap="20" cross="center">
+              <icon name="play" width="40" height="40" foreground="text" label="Multiplex" />
+              <if test="{pairingEnabled}">
+                <if test="{pairingConnecting}">
+                  <text size="heading">Connecting</text>
+                  <text foreground="text_muted">Connecting to Multiplex.</text>
+                </if>
+                <if test="{pairingWaiting}">
+                  <text size="heading">Link this desktop</text>
+                  <text foreground="text_muted" text-alignment="center" wrap="true">Open {pairingUrl} on another device, then enter this code.</text>
+                  <panel width="240" padding="20" background="surface_pressed" border-color="border" radius="lg">
+                    <text size="display" text-alignment="center">{pairingCode}</text>
+                  </panel>
+                  <text size="sm" foreground="text_muted">Waiting for your Multiplex account...</text>
+                </if>
+                <if test="{pairingLinked}">
+                  <text size="heading">Welcome back</text>
+                  <text foreground="text_muted">Loading your Plex home...</text>
+                </if>
+                <if test="{pairingUnavailable}">
+                  <text size="heading">Connection unavailable</text>
+                  <text foreground="text_muted" text-alignment="center" wrap="true">Check your network connection. Multiplex will keep trying.</text>
+                </if>
+                <if test="{bootDiagnosticsVisible and (pairingConnecting or pairingUnavailable)}">
+                  <panel width="376" padding="12" background="surface_subtle" border-color="border" radius="md" label="Connection details">
+                    <text size="sm" foreground="text_muted" wrap="true">{bootDiagnostics}</text>
+                  </panel>
+                </if>
+              </if>
+              <if test="{pairingDemo}">
+                <column gap="8" cross="center">
+                  <text size="heading">Welcome to Multiplex</text>
+                  <text foreground="text_muted" text-alignment="center" wrap="true">Your Plex library, built for watching together.</text>
+                </column>
+                <button focus-ring="focus_ring" size="lg" icon="play" variant="primary" on-press="connect_demo">Open Multiplex</button>
+              </if>
+            </column>
+          </panel>
+        </column>
+      </column>
+    </if>
+    <else>
+      <row background="background">
+        <column width="256" padding="12" gap="8" background="surface_subtle">
+          <row height="52" padding="8" cross="center" gap="10">
+            <icon name="play" width="24" height="24" foreground="text" label="Multiplex" />
+            <column gap="1">
+              <text><span weight="bold">Multiplex</span></text>
+              <text size="sm" foreground="text_muted">v0.1.0</text>
+            </column>
+          </row>
+          <list-item icon="play" selected="{screen == 'home'}" on-press="open_home">Home</list-item>
+          <for each="libraries" as="library" key="id">
+            <list-item icon="folder" selected="{screen == 'browse' and selectedLibraryId == library.sectionId}" on-press="open_library:{library.id}">{library.title}</list-item>
+          </for>
+          <list-item icon="search" selected="{screen == 'search' or screen == 'search_results'}" on-press="open_search">Search</list-item>
+          <list-item icon="menu" selected="{screen == 'libraries'}" on-press="open_libraries">More</list-item>
+          <spacer grow="1" />
+          <separator />
+          <row padding="8" cross="center" gap="10">
+            <avatar>MX</avatar>
+            <column gap="1">
+              <text size="sm">Multiplex account</text>
+              <text size="sm" foreground="text_muted">Plex connected</text>
+            </column>
+          </row>
+        </column>
+        <separator />
+        <column grow="1">
+          <row height="64" padding="12" cross="center" gap="12">
+            <button width="36" size="sm" icon="panel-left" variant="ghost" label="Toggle sidebar"></button>
+            <if test="{hasPageTitle}">
+              <text><span weight="bold">{pageTitle}</span></text>
+            </if>
+            <spacer grow="1" />
+            <button width="292" size="sm" icon="search" variant="secondary" on-press="open_search">Search media...</button>
+          </row>
+          <separator />
+          <scroll grow="1" overscroll="none">
+            <column padding="32" gap="40">
+              <if test="{screen == 'home'}">
+                <column gap="16">
+                  <row cross="center">
+                    <text size="heading">{visibleRowTitle}</text>
+                    <spacer grow="1" />
+                    <button width="32" size="sm" icon="chevron-left" variant="secondary" on-press="previous_row" disabled="{rowPreviousDisabled}" label="Previous shelf"></button>
+                    <button width="32" size="sm" icon="chevron-right" variant="secondary" on-press="next_row" disabled="{rowNextDisabled}" label="Next shelf"></button>
+                  </row>
+                  <row gap="16">
+                    <for each="visibleItems" as="item" key="ratingKey">
+                      <column width="160" gap="8" on-press="open_item:{item.id}" label="{item.title}">
+                        <panel width="160" height="240" background="surface_pressed" border-color="border" radius="md">
+                          <column grow="1" main="center" cross="center">
+                            <icon name="play" width="44" height="44" foreground="text_muted" label="Artwork loading" />
+                          </column>
+                          <image image="{item.imageId}" width="160" height="240" radius="md" label="{item.title}" />
+                          <if test="{item.progressPercent > 0 and item.progressPercent < 100}">
+                            <column grow="1">
+                              <spacer grow="1" />
+                              <progress value="{item.progressPercent / 100}" height="4" />
+                            </column>
+                          </if>
+                        </panel>
+                        <column gap="3">
+                          <text size="sm" wrap="false">{item.title}</text>
+                          <if test="{item.hasHierarchy}">
+                            <text size="sm" foreground="text_muted" wrap="false">{item.secondary}</text>
+                            <text size="sm" foreground="text_muted" wrap="false">{item.hierarchy}</text>
+                          </if>
+                          <else>
+                            <text size="sm" foreground="text_muted" wrap="false">{item.secondary}</text>
+                          </else>
+                        </column>
+                      </column>
+                    </for>
+                  </row>
+                </column>
+                <if test="{homeHasNextShelf}">
+                  <column gap="16">
+                    <text size="heading">{homeNextShelfTitle}</text>
+                    <row gap="16">
+                      <for each="homeNextShelfItems" as="item" key="ratingKey">
+                        <column width="160" gap="8" on-press="open_item:{item.id}" label="{item.title}">
+                          <panel width="160" height="240" background="surface_pressed" border-color="border" radius="md">
+                            <column grow="1" main="center" cross="center"><icon name="play" width="44" height="44" foreground="text_muted" label="Artwork loading" /></column>
+                            <image image="{item.imageId}" width="160" height="240" radius="md" label="{item.title}" />
+                          </panel>
+                          <text size="sm" wrap="false">{item.title}</text>
+                          <text size="sm" foreground="text_muted" wrap="false">{item.secondary}</text>
+                        </column>
+                      </for>
+                    </row>
+                  </column>
+                </if>
+                <if test="{homeHasFollowingShelf}">
+                  <column gap="16">
+                    <text size="heading">{homeFollowingShelfTitle}</text>
+                    <row gap="16">
+                      <for each="homeFollowingShelfItems" as="item" key="ratingKey">
+                        <column width="160" gap="8" on-press="open_item:{item.id}" label="{item.title}">
+                          <panel width="160" height="240" background="surface_pressed" border-color="border" radius="md">
+                            <column grow="1" main="center" cross="center"><icon name="play" width="44" height="44" foreground="text_muted" label="Artwork loading" /></column>
+                            <image image="{item.imageId}" width="160" height="240" radius="md" label="{item.title}" />
+                          </panel>
+                          <text size="sm" wrap="false">{item.title}</text>
+                          <text size="sm" foreground="text_muted" wrap="false">{item.secondary}</text>
+                        </column>
+                      </for>
+                    </row>
+                  </column>
+                </if>
+              </if>
+
+              <if test="{screen == 'libraries'}">
+                <column gap="20">
+                  <column gap="6">
+                    <text size="display">Libraries</text>
+                    <text foreground="text_muted">Browse every Plex source connected to your account.</text>
+                  </column>
+                  <grid columns="4" gap="16">
+                    <for each="libraries" as="library" key="id">
+                      <panel height="180" padding="20" background="surface" border-color="border" radius="lg" on-press="open_library:{library.id}" label="{library.title}">
+                        <column grow="1" main="end" gap="8">
+                          <icon name="folder" width="28" height="28" foreground="text_muted" label="Library" />
+                          <text size="heading">{library.title}</text>
+                          <text size="sm" foreground="text_muted">{library.typeLabel}</text>
+                        </column>
+                      </panel>
+                    </for>
+                  </grid>
+                </column>
+              </if>
+
+  <if test="{screen == 'search'}">
+    <column gap="24">
+      <column gap="6">
+        <text size="display">Search</text>
+        <text foreground="text_muted">Find movies, shows, episodes, music, and collections across Plex.</text>
+      </column>
+      <search-field text="{searchQuery}" on-input="search_edit" on-submit="search_submit" placeholder="Search media..." autofocus="true" />
+      <panel height="260" padding="24" background="surface_subtle" border-color="border" radius="lg">
+        <column grow="1" main="center" cross="center" gap="10">
+          <icon name="search" width="32" height="32" foreground="text_muted" label="Search" />
+          <text><span weight="bold">Search every connected library</span></text>
+          <text size="sm" foreground="text_muted">Press Enter to see results.</text>
+        </column>
+      </panel>
+    </column>
+  </if>
+
+  <if test="{screen == 'search_results'}">
+    <column grow="1" gap="24">
+      <row cross="center">
+        <button focus-ring="focus_ring" width="36" size="sm" icon="chevron-left" variant="ghost" on-press="back" label="Back to search"></button>
+        <column gap="4">
+          <text size="heading">Results for {searchQuery}</text>
+          <text foreground="text_muted">Movies, TV, music, and collections</text>
+        </column>
+      </row>
+      <if test="{searchHasResults}">
+        <column grow="1" gap="8">
+          <row grow="1" gap="16">
+            <for each="searchItems" as="item" key="ratingKey">
+              <column width="160" gap="8" on-press="open_item:{item.id}" label="{item.title}">
+                <panel width="160" height="240" background="surface_pressed" border-color="border" radius="md">
+                  <column grow="1" main="center" cross="center"><icon name="play" width="44" height="44" foreground="text_muted" label="Artwork loading" /></column>
+                  <image image="{item.imageId}" width="160" height="240" radius="md" label="{item.title}" />
+                </panel>
+                <text size="sm" wrap="false">{item.title}</text>
+                <text size="sm" foreground="text_muted" wrap="false">{item.secondary}</text>
+                <if test="{item.hasHierarchy}">
+                  <text size="sm" foreground="text_muted" wrap="false">{item.hierarchy}</text>
+                </if>
+              </column>
+            </for>
+          </row>
+        </column>
+      </if>
+      <if test="{searchLoading}">
+        <column grow="1" main="center" cross="center">
+          <text foreground="text_muted">Searching all Plex libraries...</text>
+        </column>
+      </if>
+      <if test="{searchFailed}">
+        <column grow="1" main="center" cross="center" gap="8">
+          <text size="heading">Search unavailable</text>
+          <text foreground="text_muted">Return to Search and try again.</text>
+        </column>
+      </if>
+      <if test="{searchNoResults}">
+        <column grow="1" main="center" cross="center" gap="8">
+          <text size="heading">No results</text>
+          <text foreground="text_muted">Try another title, person, or collection.</text>
+        </column>
+      </if>
+    </column>
+  </if>
+
+  <if test="{screen == 'browse'}">
+    <column grow="1" gap="24">
+      <row cross="center" gap="10">
+        <button focus-ring="focus_ring" width="36" size="sm" icon="chevron-left" variant="ghost" on-press="back" label="Back to libraries"></button>
+        <text size="display">{pageTitle}</text>
+        <spacer grow="1" />
+        <text size="sm" foreground="text_muted">{browseTotal} items</text>
+      </row>
+      <if test="{browseHasItems}">
+        <column grow="1" gap="24">
+          <row gap="16">
+            <for each="browseFirstRowItems" as="item" key="ratingKey">
+              <column width="160" gap="8" on-press="open_item:{item.id}" label="{item.title}">
+                <panel width="160" height="240" background="surface_pressed" border-color="border" radius="md">
+                  <column grow="1" main="center" cross="center"><icon name="play" width="44" height="44" foreground="text_muted" label="Artwork loading" /></column>
+                  <image image="{item.imageId}" width="160" height="240" radius="md" label="{item.title}" />
+                  <if test="{item.progressPercent > 0 and item.progressPercent < 100}"><column grow="1"><spacer grow="1" /><progress value="{item.progressPercent / 100}" height="4" /></column></if>
+                </panel>
+                <text size="sm" wrap="false">{item.title}</text>
+                <text size="sm" foreground="text_muted" wrap="false">{item.secondary}</text>
+              </column>
+            </for>
+          </row>
+          <row gap="16">
+            <for each="browseSecondRowItems" as="item" key="ratingKey">
+              <column width="160" gap="8" on-press="open_item:{item.id}" label="{item.title}">
+                <panel width="160" height="240" background="surface_pressed" border-color="border" radius="md">
+                  <column grow="1" main="center" cross="center"><icon name="play" width="44" height="44" foreground="text_muted" label="Artwork loading" /></column>
+                  <image image="{item.imageId}" width="160" height="240" radius="md" label="{item.title}" />
+                </panel>
+                <text size="sm" wrap="false">{item.title}</text>
+                <text size="sm" foreground="text_muted" wrap="false">{item.secondary}</text>
+              </column>
+            </for>
+          </row>
+        </column>
+      </if>
+      <if test="{browseLoading}">
+        <column grow="1" main="center" cross="center">
+          <text foreground="text_muted">Loading library page...</text>
+        </column>
+      </if>
+      <if test="{browseFailed}">
+        <column grow="1" main="center" cross="center" gap="8">
+          <text size="heading">Library unavailable</text>
+          <text foreground="text_muted">Return to Libraries and try again.</text>
+        </column>
+      </if>
+    </column>
+  </if>
+
+  <if test="{screen == 'watch_together_invite'}">
+    <column grow="1" gap="14">
+      <row cross="center">
+        <button focus-ring="text" width="42" size="sm" icon="chevron-left" variant="ghost" on-press="back" label="Back"></button>
+        <column gap="1">
+          <text size="sm" foreground="text_muted">Choose who should join {selectedTitle}</text>
+        </column>
+        <spacer grow="1" />
+      </row>
+      <if test="{watchTogetherHasInvitees}">
+        <row cross="center">
+          <text size="sm" foreground="text_muted">Invitees</text>
+          <spacer grow="1" />
+          <badge variant="secondary">Page {watchTogetherInviteePageNumber} of {watchTogetherInviteePageCount}</badge>
+        </row>
+        <row grow="1" gap="10" cross="center">
+          <for each="visibleWatchTogetherInvitees" as="invitee" key="id">
+            <panel width="138" grow="1" padding="16" background="surface" border-color="border" radius="lg" on-press="invite_watch_together:{invitee.id}" label="{invitee.title}">
+              <column grow="1" main="center" cross="center" gap="8">
+                <badge variant="secondary">Plex user</badge>
+                <text size="heading" wrap="true">{invitee.title}</text>
+                <text size="sm" foreground="text_muted">Invite and create room</text>
+              </column>
+            </panel>
+          </for>
+        </row>
+        <row gap="8" main="center">
+          <if test="{watchTogetherInviteesHasPrevious}">
+            <button focus-ring="text" variant="secondary" on-press="watch_together_invitees_previous">Previous</button>
+          </if>
+          <if test="{watchTogetherInviteesHasNext}">
+            <button focus-ring="text" variant="primary" on-press="watch_together_invitees_next">Next</button>
+          </if>
+        </row>
+      </if>
+      <if test="{watchTogetherNoInvitees}">
+        <column grow="1" main="center" cross="center" gap="10">
+          <text size="heading">No friends available</text>
+          <text foreground="text_muted">Add a Plex friend before creating a shared room.</text>
+        </column>
+      </if>
+      <if test="{watchTogetherInviteesUnavailable}">
+        <column grow="1" main="center" cross="center" gap="10">
+          <text size="heading">Friends are unavailable</text>
+          <text foreground="text_muted">Multiplex could not load your Plex friends right now.</text>
+        </column>
+      </if>
+      <if test="{watchTogetherInviteesLoading}">
+        <column grow="1" main="center" cross="center">
+          <text foreground="text_muted">Loading Plex friends...</text>
+        </column>
+      </if>
+    </column>
+  </if>
+
+  <if test="{screen == 'watch_together'}">
+    <column grow="1" gap="14">
+      <row cross="center">
+        <button focus-ring="text" width="42" size="sm" icon="play" variant="ghost" on-press="back" label="Home"></button>
+        <column gap="1">
+          <text size="sm" foreground="text_muted">Rooms from your Multiplex account</text>
+        </column>
+        <spacer grow="1" />
+      </row>
+      <if test="{watchTogetherHasRooms}">
+        <row grow="1" gap="10" cross="center">
+          <for each="watchTogetherRooms" as="room" key="id">
+            <panel width="138" grow="1" padding="16" background="surface" border-color="border" radius="lg" on-press="join_watch_together:{room.id}" label="{room.title}">
+              <column grow="1" main="center" cross="center" gap="8">
+                <badge variant="secondary">{room.participantCount} viewers</badge>
+                <text size="heading" wrap="true">{room.title}</text>
+              </column>
+            </panel>
+          </for>
+        </row>
+      </if>
+      <if test="{watchTogetherNoRooms}">
+        <column grow="1" main="center" cross="center" gap="10">
+          <text size="heading">No active rooms</text>
+          <text foreground="text_muted">Create a Watch Together room in Multiplex and it will appear here.</text>
+        </column>
+      </if>
+      <if test="{watchTogetherUnavailable}">
+        <column grow="1" main="center" cross="center" gap="10">
+          <text size="heading">Rooms are unavailable</text>
+          <text foreground="text_muted">Multiplex could not load Watch Together right now.</text>
+        </column>
+      </if>
+      <if test="{watchTogetherLoading}">
+        <column grow="1" main="center" cross="center">
+          <text foreground="text_muted">Creating Watch Together room...</text>
+        </column>
+      </if>
+      <if test="{watchTogetherCreateFailed}">
+        <column grow="1" main="center" cross="center" gap="10">
+          <text size="heading">Room creation failed</text>
+          <text foreground="text_muted">Return to the item and try again.</text>
+        </column>
+      </if>
+      <if test="{watchTogetherDisbandFailed}">
+        <column grow="1" main="center" cross="center" gap="10">
+          <text size="heading">Room disband failed</text>
+          <text foreground="text_muted">The room is still available. Re-enter it and try again.</text>
+        </column>
+      </if>
+    </column>
+  </if>
+
+  <if test="{screen == 'watch_together_room'}">
+    <column grow="1" gap="14">
+      <row cross="center">
+        <button focus-ring="text" width="42" size="sm" icon="chevron-left" variant="ghost" on-press="back" label="Back to rooms"></button>
+        <column gap="1">
+          <text size="sm" foreground="text_muted">{selectedWatchTogetherParticipantCount} invited viewers</text>
+        </column>
+        <spacer grow="1" />
+      </row>
+      <if test="{watchTogetherJoining}">
+        <column grow="1" main="center" cross="center" gap="10">
+          <text size="heading">Joining room...</text>
+          <text foreground="text_muted">Opening the native Syncplay connection.</text>
+        </column>
+      </if>
+      <if test="{watchTogetherConnected}">
+        <column grow="1" main="center" cross="center" gap="10">
+          <text size="heading">Waiting for everyone</text>
+          <badge variant="secondary">{watchTogetherPresentCount} of {selectedWatchTogetherParticipantCount} viewers present</badge>
+          <text foreground="text_muted">Playback starts after every invited viewer joins the lobby.</text>
+        </column>
+      </if>
+      <if test="{watchTogetherJoinFailed}">
+        <column grow="1" main="center" cross="center" gap="10">
+          <text size="heading">Could not join room</text>
+          <text foreground="text_muted">Return to the room list and try again.</text>
+        </column>
+      </if>
+    </column>
+  </if>
+
+  <if test="{screen == 'details'}">
+    <column grow="1" gap="24">
+      <row cross="center" gap="8">
+        <button focus-ring="focus_ring" width="36" size="sm" icon="chevron-left" variant="ghost" on-press="back" label="Back"></button>
+        <text size="sm" foreground="text_muted">Home</text>
+        <icon name="chevron-right" width="14" height="14" foreground="text_muted" label="Details" />
+        <text size="sm">{selectedTitle}</text>
+      </row>
+      <if test="{detailsLoading}">
+        <panel height="394" padding="32" background="surface_subtle" border-color="border" radius="xl">
+          <row grow="1" gap="32">
+            <panel width="220" height="330" background="surface_pressed" border-color="border" radius="lg">
+              <column grow="1" main="center" cross="center">
+                <icon name="play" width="52" height="52" foreground="text_muted" label="Artwork loading" />
+              </column>
+            </panel>
+            <column grow="1" main="center" gap="10">
+              <text size="display" wrap="false">{selectedTitle}</text>
+              <text foreground="text_muted" wrap="false">Loading details and playback options...</text>
+            </column>
+          </row>
+        </panel>
+      </if>
+      <if test="{detailsLoaded}">
+        <column grow="1" gap="24">
+          <panel padding="32" background="surface_subtle" border-color="border" radius="xl">
+            <row gap="32">
+              <column width="220" gap="8">
+                <panel width="220" height="330" background="surface_pressed" border-color="border" radius="lg">
+                  <column grow="1" main="center" cross="center">
+                    <icon name="play" width="52" height="52" foreground="text_muted" label="Artwork loading" />
+                  </column>
+                  <image image="{selectedImageId}" width="220" height="330" radius="lg" label="{selectedTitle}" />
+                </panel>
+                <if test="{detailsHasProgress}">
+                  <progress value="{detailsProgressPercent / 100}" height="4" />
+                </if>
+              </column>
+              <column grow="1" gap="18">
+                <row gap="8" cross="center">
+                  <badge variant="secondary">{detailsType}</badge>
+                  <badge variant="outline">{detailsLibrary}</badge>
+                  <if test="{detailsHasContentRating}">
+                    <badge variant="outline">{detailsContentRating}</badge>
+                  </if>
+                </row>
+                <column gap="6">
+              <if test="{detailsHasHierarchy}">
+                      <text size="display" wrap="false">{detailsSecondary}</text>
+                      <text size="heading" wrap="false">{selectedTitle}</text>
+                      <text foreground="text_muted" wrap="false">{detailsHierarchy}</text>
+              </if>
+              <else>
+                      <text size="display" wrap="false">{selectedTitle}</text>
+                <if test="{detailsHasSecondary}">
+                        <text size="heading" foreground="text_muted" wrap="false">{detailsSecondary}</text>
+                </if>
+              </else>
+                </column>
+                <if test="{detailsHasFacts}">
+                  <text foreground="text_muted">{detailsFacts}</text>
+                </if>
+                <if test="{detailsHasGenres}">
+                  <text size="sm" foreground="text_muted">{detailsGenres}</text>
+                </if>
+              <if test="{detailsPlayable}">
+                <row gap="10">
+                  <button focus-ring="focus_ring" size="lg" icon="play" variant="primary" on-press="play">{detailsPlayLabel}</button>
+                  <button focus-ring="focus_ring" size="lg" icon="check-circle" variant="secondary" on-press="mark_watched">Mark as watched</button>
+                  <button focus-ring="focus_ring" width="46" size="lg" icon="menu" variant="ghost" on-press="open_start_menu" label="More actions"></button>
+                </row>
+                <if test="{detailsHasSummary}">
+                  <text foreground="text_muted" wrap="true">{detailsSummary}</text>
+                </if>
+                <if test="{detailsHasDirectors}">
+                  <row gap="4" cross="center">
+                    <text size="sm" foreground="text_muted">Directed by</text>
+                    <text size="sm">{detailsDirectors}</text>
+                  </row>
+                </if>
+              </if>
+              </column>
+            </row>
+          </panel>
+          <if test="{detailsChildrenLoading}">
+            <text size="sm" foreground="text_muted">Loading seasons and episodes...</text>
+          </if>
+          <if test="{detailsHasChildren}">
+            <column gap="16">
+              <row cross="center">
+                <text size="heading">Episodes &amp; seasons</text>
+                <spacer grow="1" />
+                <text size="sm" foreground="text_muted">Page {detailsChildrenPageNumber} of {detailsChildrenPageCount}</text>
+              </row>
+              <row gap="10" cross="center">
+                <button focus-ring="focus_ring" width="36" size="sm" icon="chevron-left" variant="secondary" on-press="details_children_previous" disabled="{detailsChildrenPreviousDisabled}" label="Previous page"></button>
+                <row grow="1" gap="12">
+                  <for each="detailsChildren" as="child" key="ratingKey">
+                    <panel width="190" height="112" padding="14" background="surface" border-color="border" radius="lg" on-press="open_details_child:{child.id}" label="{child.title}">
+                      <column grow="1" main="end" gap="5">
+                        <text wrap="false">{child.title}</text>
+                        <text size="sm" foreground="text_muted" wrap="false">{child.subtitle}</text>
+                        <if test="{child.progressPercent > 0 and child.progressPercent < 100}">
+                          <progress value="{child.progressPercent / 100}" height="4" />
+                        </if>
+                      </column>
+                    </panel>
+                  </for>
+                </row>
+                <button focus-ring="focus_ring" width="36" size="sm" icon="chevron-right" variant="secondary" on-press="details_children_next" disabled="{detailsChildrenNextDisabled}" label="Next page"></button>
+              </row>
+            </column>
+          </if>
+          <if test="{detailsNoChildren}">
+            <text size="sm" foreground="text_muted">No playable seasons or episodes were returned by Plex.</text>
+          </if>
+        </column>
+      </if>
+    </column>
+  </if>
+
+            </column>
+          </scroll>
+        </column>
+      </row>
+    </else>
+  </else>
+  <if test="{startMenuOpen}">
+    <column grow="1" main="center" cross="center" background="scrim">
+      <panel width="310" height="248" background="surface" border-color="border" radius="lg" label="More actions">
+          <column padding="16" gap="8">
+            <text size="heading">More actions</text>
+            <separator />
+            <if test="{screen == 'details' and detailsPlayable}">
+              <button focus-ring="text" size="sm" icon="play" variant="primary" on-press="start_menu_play">{detailsPlayLabel}</button>
+              <button focus-ring="text" size="sm" icon="check-circle" variant="secondary" on-press="start_menu_mark_watched">Mark as Watched</button>
+            </if>
+            <if test="{screen == 'details' and detailsPlayable}">
+              <button focus-ring="text" size="sm" variant="secondary" on-press="start_menu_create_watch_together">Host Watch Together</button>
+            </if>
+            <spacer grow="1" />
+            <button focus-ring="text" size="sm" variant="ghost" on-press="close_start_menu">Close</button>
+          </column>
+      </panel>
+    </column>
+  </if>
+  <if test="{playerSettingsOpen}">
+    <column grow="1" main="center" cross="center" background="scrim">
+      <panel width="310" height="294" background="surface" border-color="border" radius="lg" label="Playback settings">
+          <column padding="16" gap="8">
+            <text size="heading">Playback settings</text>
+            <separator />
+            <if test="{subtitlesAvailable}">
+              <text size="sm" foreground="text_muted">Subtitles</text>
+              <if test="{subtitlesEnabled}">
+                <button focus-ring="text" size="sm" icon="file-text" variant="primary" on-press="cycle_subtitles">{selectedSubtitleLabel}</button>
+              </if>
+              <else>
+                <button focus-ring="text" size="sm" icon="file-text" variant="secondary" on-press="cycle_subtitles">Off</button>
+              </else>
+            </if>
+            <else>
+              <text size="sm" foreground="text_muted">No subtitles are available for this item.</text>
+            </else>
+            <text size="sm" foreground="text_muted">Stats for nerds</text>
+            <if test="{statsForNerdsEnabled}">
+              <button focus-ring="text" size="sm" variant="primary" on-press="toggle_stats_for_nerds">On</button>
+            </if>
+            <else>
+              <button focus-ring="text" size="sm" variant="secondary" on-press="toggle_stats_for_nerds">Off</button>
+            </else>
+            <if test="{watchTogetherActive}">
+              <button focus-ring="text" size="sm" variant="secondary" on-press="leave_watch_together">Leave Watch Together</button>
+              <button focus-ring="text" size="sm" variant="secondary" on-press="reconnect_watch_together">Reconnect room</button>
+              <if test="{watchTogetherHost}">
+                <button focus-ring="text" size="sm" variant="destructive" on-press="disband_watch_together">Disband room</button>
+              </if>
+            </if>
+            <spacer grow="1" />
+            <button focus-ring="text" size="sm" variant="ghost" on-press="close_player_settings">Close</button>
+          </column>
+      </panel>
+    </column>
+  </if>
+  <if test="{toastVisible}">
+    <column padding="20" cross="center">
+      <spacer grow="1" />
+      <panel padding="10" background="surface" border-color="border" radius="lg" label="Notification">
+        <text size="sm">{toastMessage}</text>
+      </panel>
+    </column>
+  </if>
+</stack>

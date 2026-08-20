@@ -1,0 +1,60 @@
+.{
+    .id = "tv.multiplex.desktop",
+    .name = "multiplex-desktop",
+    .display_name = "Multiplex",
+    .description = "Watch Plex together with friends.",
+    .version = "0.1.0",
+    .icons = .{ "assets/icon.svg" },
+    .platforms = .{ "macos", "linux", "windows" },
+    .permissions = .{ "view", "command" },
+    .capabilities = .{ "native_views", "gpu_surfaces" },
+    .theme = "geist",
+    .theme_accent = "#e5e7eb",
+    .assets = .{
+        .images = .{
+            .{ .id = 1, .path = "assets/posters/fifth-element.png" },
+            .{ .id = 2, .path = "assets/posters/alien.png" },
+            .{ .id = 3, .path = "assets/posters/spirited-away.png" },
+            .{ .id = 4, .path = "assets/posters/twin-peaks.png" },
+            .{ .id = 5, .path = "assets/posters/severance.png" },
+            .{ .id = 6, .path = "assets/posters/the-bear.png" },
+            .{ .id = 7, .path = "assets/posters/arrival.png" },
+            .{ .id = 8, .path = "assets/posters/blade-runner-2049.png" },
+        },
+    },
+    .shell = .{
+        .windows = .{
+            .{
+                .label = "main",
+                .title = "Multiplex",
+                .width = 1280,
+                .height = 800,
+                .min_width = 960,
+                .min_height = 640,
+                .restore_state = true,
+                .views = .{
+                    .{
+                        .label = "main-canvas",
+                        .kind = "gpu_surface",
+                        .fill = true,
+                        .role = "Multiplex desktop app",
+                        .accessibility_label = "Multiplex",
+                        .gpu_backend = "software",
+                        .gpu_pixel_format = "bgra8_unorm",
+                        .gpu_present_mode = "timer",
+                        .gpu_alpha_mode = "opaque",
+                        .gpu_color_space = "srgb",
+                        .gpu_vsync = true,
+                    },
+                },
+            },
+        },
+    },
+    .security = .{
+        .navigation = .{
+            .allowed_origins = .{ "zero://app", "zero://inline" },
+            .external_links = .{ .action = "deny" },
+        },
+    },
+    .web_engine = "system",
+}

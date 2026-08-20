@@ -1,0 +1,20 @@
+{
+  "name": "@multiplex/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "native dev .",
+    "dev:local": "MULTIPLEX_API_ORIGIN=https://multiplex.localhost native dev .",
+    "build": "native build .",
+    "package:macos": "native build . && native package --target macos --binary zig-out/bin/multiplex-desktop --assets assets --output dist/macos",
+    "package:linux": "native build . && native package --target linux --binary zig-out/bin/multiplex-desktop --assets assets --output dist/linux",
+    "package:windows": "native build . && native package --target windows --binary zig-out/bin/multiplex-desktop.exe --assets assets --output dist/windows",
+    "test": "native test . -Dplatform=null",
+    "typecheck": "bun ../../node_modules/typescript/bin/tsc --noEmit && native check . --strict"
+  },
+  "devDependencies": {
+    "@native-sdk/cli": "0.8.4",
+    "typescript": "catalog:"
+  }
+}
