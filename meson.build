@@ -11,4 +11,5 @@ project(
 )
 
 # Shared native runtime targets live with the package that owns their sources.
+subdir('packages/console-core')
 subdir('packages/libogc-gx')

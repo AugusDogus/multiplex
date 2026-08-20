@@ -51,7 +51,19 @@
     "gamecube:raylib:run": "sh apps/gamecube/scripts/run-dolphin.sh apps/gamecube/multiplex-gamecube-raylib-reference.dol",
     "wii:reference:dol": "bun --filter @multiplex/wii reference:dol",
     "wii:reference:smoke-player": "MULTIPLEX_REFERENCE_DOL=apps/wii/multiplex-wii-native-reference.dol MULTIPLEX_REFERENCE_BUILD_SCRIPT=../../wii/scripts/build-reference-dol.sh MULTIPLEX_CONSOLE_NAME=Wii MULTIPLEX_CONTROLLER_PIPE=multiplex-wii1 sh apps/gamecube/scripts/smoke-dolphin-player.sh",
-    "wii:reference:plex": "MULTIPLEX_REFERENCE_DOL=apps/wii/multiplex-wii-native-reference.dol MULTIPLEX_REFERENCE_BUILD_SCRIPT=../../wii/scripts/build-reference-dol.sh MULTIPLEX_CONSOLE_NAME=Wii MULTIPLEX_CONTROLLER_PIPE=multiplex-wii1 MULTIPLEX_DOLPHIN_NETWORK=native sh apps/gamecube/scripts/run-dolphin-plex.sh"
+    "wii:reference:plex": "MULTIPLEX_REFERENCE_DOL=apps/wii/multiplex-wii-native-reference.dol MULTIPLEX_REFERENCE_BUILD_SCRIPT=../../wii/scripts/build-reference-dol.sh MULTIPLEX_CONSOLE_NAME=Wii MULTIPLEX_CONTROLLER_PIPE=multiplex-wii1 MULTIPLEX_DOLPHIN_NETWORK=native sh apps/gamecube/scripts/run-dolphin-plex.sh",
+    "xbox:bootstrap": "bun --filter @multiplex/xbox bootstrap",
+    "xbox:cxbx:bootstrap": "bun --filter @multiplex/xbox bootstrap:cxbx",
+    "xbox:cxbx:run": "bun --filter @multiplex/xbox cxbx:run",
+    "xbox:cxbx:smoke": "bun --filter @multiplex/xbox cxbx:smoke",
+    "xbox:emulator:bootstrap": "bun --filter @multiplex/xbox bootstrap:emulator",
+    "xbox:emulator:files": "bun --filter @multiplex/xbox emulator:files",
+    "xbox:emulator:run": "bun --filter @multiplex/xbox emulator:run",
+    "xbox:emulator:smoke": "bun --filter @multiplex/xbox emulator:smoke",
+    "xbox:emulator:smoke:catalog": "bun --filter @multiplex/xbox emulator:smoke:catalog",
+    "xbox:iso": "bun --filter @multiplex/xbox iso",
+    "xbox:reference:xbe": "bun --filter @multiplex/xbox reference:xbe",
+    "xbox:test:portable": "bun --filter @multiplex/xbox test:portable"
   },
   "devDependencies": {
     "oxfmt": "^0.26.0",
