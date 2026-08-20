@@ -40,6 +40,8 @@ import { useSuppressNativeLongPress } from "./hooks/use-suppress-native-long-pre
 import { useVideoPressGesture } from "./hooks/use-video-press-gesture";
 import { MediaPlayerCaptionsOverlay } from "./media-player-captions-overlay";
 import { MediaPlayerSeekOverlay } from "./media-player-seek-overlay";
+import { useNativePlayerAvailable } from "~/lib/desktop-player";
+import { NativeMediaPlayerVideo } from "./native-media-player-video";
 
 /* ────────────────────────────────────────────────────────────
    Media Player Video Component
@@ -75,7 +77,7 @@ interface DoubleClickSeekPulse {
   id: number;
 }
 
-interface MediaPlayerVideoProps {
+export interface MediaPlayerVideoProps {
   /**
    * Media item to play
    */
@@ -711,7 +713,7 @@ function useMediaPlayerVideoController(
   };
 }
 
-export const MediaPlayerVideo = forwardRef<
+const BrowserMediaPlayerVideo = forwardRef<
   HTMLVideoElement,
   MediaPlayerVideoProps
 >((props, ref) => {
@@ -879,6 +881,20 @@ export const MediaPlayerVideo = forwardRef<
 
       <MediaPlayerSeekOverlay overlay={seekOverlay} />
     </div>
+  );
+});
+
+BrowserMediaPlayerVideo.displayName = "BrowserMediaPlayerVideo";
+
+export const MediaPlayerVideo = forwardRef<
+  HTMLVideoElement,
+  MediaPlayerVideoProps
+>((props, ref) => {
+  const nativePlayerAvailable = useNativePlayerAvailable();
+  return nativePlayerAvailable ? (
+    <NativeMediaPlayerVideo {...props} ref={ref} />
+  ) : (
+    <BrowserMediaPlayerVideo {...props} ref={ref} />
   );
 });
 

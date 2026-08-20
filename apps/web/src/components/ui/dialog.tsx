@@ -213,15 +213,24 @@ export function DialogPanel({
 export function MediaPlayerDialogContent({
   className,
   children,
+  nativeSurface = false,
   ...props
-}: DialogPrimitive.Popup.Props): React.ReactElement {
+}: DialogPrimitive.Popup.Props & {
+  nativeSurface?: boolean;
+}): React.ReactElement {
   return (
     <DialogPortal>
-      <DialogBackdrop className="bg-black/90 backdrop-blur-none" />
+      <DialogBackdrop
+        className={cn(
+          "backdrop-blur-none",
+          nativeSurface ? "bg-transparent" : "bg-black/90",
+        )}
+      />
       <DialogPrimitive.Viewport className="fixed inset-0 z-50">
         <DialogPrimitive.Popup
           className={cn(
-            "fixed inset-0 flex max-h-screen flex-col overflow-hidden bg-black outline-none",
+            "fixed inset-0 flex max-h-screen flex-col overflow-hidden outline-none",
+            nativeSurface ? "bg-transparent" : "bg-black",
             className,
           )}
           data-slot="dialog-popup"

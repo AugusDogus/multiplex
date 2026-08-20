@@ -1,0 +1,25 @@
+{
+  "name": "@multiplex/libmpv",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "node-gyp rebuild",
+    "clean": "node-gyp clean",
+    "smoke": "node scripts/smoke.mjs",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "node-addon-api": "^8.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "node-gyp": "^11.4.2",
+    "typescript": "catalog:"
+  }
+}

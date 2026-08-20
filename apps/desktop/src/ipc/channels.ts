@@ -1,0 +1,10 @@
+export const PLAYER_GET_STATUS_CHANNEL = "desktop:player:get-status";
+export const PLAYER_LOAD_CHANNEL = "desktop:player:load";
+export const PLAYER_PLAY_CHANNEL = "desktop:player:play";
+export const PLAYER_PAUSE_CHANNEL = "desktop:player:pause";
+export const PLAYER_SEEK_CHANNEL = "desktop:player:seek";
+export const PLAYER_PRESENT_CHANNEL = "desktop:player:present";
+export const PLAYER_SET_VOLUME_CHANNEL = "desktop:player:set-volume";
+export const PLAYER_SET_RATE_CHANNEL = "desktop:player:set-rate";
+export const PLAYER_STOP_CHANNEL = "desktop:player:stop";
+export const PLAYER_EVENT_CHANNEL = "desktop:player:event";
