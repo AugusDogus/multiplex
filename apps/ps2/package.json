@@ -1,0 +1,16 @@
+{
+  "name": "@multiplex/ps2",
+  "private": true,
+  "description": "PlayStation 2 composition root for the Multiplex PS2SDK/gsKit client",
+  "scripts": {
+    "bootstrap": "sh scripts/bootstrap.sh",
+    "emulator:bootstrap": "sh scripts/bootstrap-pcsx2.sh",
+    "emulator:configure-bios": "sh scripts/configure-pcsx2-bios.sh",
+    "emulator:doctor": "sh scripts/pcsx2-doctor.sh",
+    "network:probe:elf": "sh scripts/build-network-probe-elf.sh",
+    "network:smoke": "sh scripts/smoke-network.sh",
+    "plex:smoke": "sh scripts/smoke-plex-catalog.sh",
+    "scene:elf": "sh scripts/build-scene-client-elf.sh",
+    "reference:elf": "sh scripts/build-reference-elf.sh"
+  }
+}

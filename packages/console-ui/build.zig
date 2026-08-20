@@ -31,17 +31,38 @@ pub fn build(b: *std.Build) void {
         "console-optimize",
         "Optimization mode for the freestanding console UI archive",
     ) orelse .ReleaseFast;
-    addConsoleCore(b, dependency, target, optimize);
+    addCoreArchive(b, dependency, .{
+        .target = target,
+        .optimize = optimize,
+        .library_name = "multiplex-console-ui",
+        .installed_name = "libmultiplex-console-ui.a",
+        .step_name = "console-core",
+        .step_description = "Compile the console UI for the selected freestanding target",
+    });
+    addCoreArchive(b, dependency, .{
+        .target = b.graph.host,
+        .optimize = .ReleaseFast,
+        .library_name = "multiplex-console-ui-host",
+        .installed_name = "libmultiplex-console-ui-host.a",
+        .step_name = "host-core",
+        .step_description = "Compile the console UI for host-side reference frame export",
+    });
 }
 
-/// Compile the generated TypeScript application core for a caller-selected
-/// freestanding console target. The default remains PowerPC 750 EABI for the
-/// current libogc hosts.
-fn addConsoleCore(
-    b: *std.Build,
-    dependency: *std.Build.Dependency,
+const CoreArchiveOptions = struct {
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
+    library_name: []const u8,
+    installed_name: []const u8,
+    step_name: []const u8,
+    step_description: []const u8,
+};
+
+/// Compile the generated TypeScript application core for a selected target.
+fn addCoreArchive(
+    b: *std.Build,
+    dependency: *std.Build.Dependency,
+    options: CoreArchiveOptions,
 ) void {
     const transpile = b.addSystemCommand(&.{"node"});
     transpile.addFileArg(dependency.path("build/ts_run.mjs"));
@@ -70,20 +91,20 @@ fn addConsoleCore(
 
     const geometry_module = b.createModule(.{
         .root_source_file = dependency.path("src/primitives/geometry/root.zig"),
-        .target = target,
-        .optimize = optimize,
+        .target = options.target,
+        .optimize = options.optimize,
         .single_threaded = true,
     });
     const json_module = b.createModule(.{
         .root_source_file = dependency.path("src/primitives/json/root.zig"),
-        .target = target,
-        .optimize = optimize,
+        .target = options.target,
+        .optimize = options.optimize,
         .single_threaded = true,
     });
     const canvas_module = b.createModule(.{
         .root_source_file = dependency.path("src/primitives/canvas/root.zig"),
-        .target = target,
-        .optimize = optimize,
+        .target = options.target,
+        .optimize = options.optimize,
         .single_threaded = true,
     });
     canvas_module.addImport("geometry", geometry_module);
@@ -91,14 +112,14 @@ fn addConsoleCore(
 
     const probe_module = b.createModule(.{
         .root_source_file = probe_root,
-        .target = target,
-        .optimize = optimize,
+        .target = options.target,
+        .optimize = options.optimize,
         .single_threaded = true,
     });
     probe_module.addImport("canvas", canvas_module);
     probe_module.addImport("geometry", geometry_module);
     const probe = b.addLibrary(.{
-        .name = "multiplex-console-ui",
+        .name = options.library_name,
         .linkage = .static,
         .root_module = probe_module,
         .use_llvm = true,
@@ -107,12 +128,9 @@ fn addConsoleCore(
     const install = b.addInstallFileWithDir(
         probe.getEmittedBin(),
         .lib,
-        "libmultiplex-console-ui.a",
+        options.installed_name,
     );
 
-    const step = b.step(
-        "console-core",
-        "Compile the console UI for the selected freestanding target",
-    );
+    const step = b.step(options.step_name, options.step_description);
     step.dependOn(&install.step);
 }

@@ -27,6 +27,9 @@
         "typescript": "catalog:",
       },
     },
+    "apps/ps2": {
+      "name": "@multiplex/ps2",
+    },
     "apps/web": {
       "name": "@multiplex/web",
       "version": "0.1.0",
@@ -405,6 +408,7 @@
     "@multiplex/plex-query": ["@multiplex/plex-query@workspace:packages/plex-query"],
 
     "@multiplex/watch-together-harness": ["@multiplex/watch-together-harness@workspace:apps/watch-together-harness"],
+    "@multiplex/ps2": ["@multiplex/ps2@workspace:apps/ps2"],
 
     "@multiplex/web": ["@multiplex/web@workspace:apps/web"],
 

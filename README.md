@@ -19,7 +19,7 @@ Live authenticated, Guest Link, and GameCube validation is documented in
 
 ## Tech Stack
 
-Multiplex is a [Bun](https://bun.sh) monorepo: the web app lives in `apps/web`, shared Plex API and auth libraries in `packages/`, and the native console client in `apps/gamecube`.
+Multiplex is a [Bun](https://bun.sh) monorepo: the web app lives in `apps/web`, shared Plex API and auth libraries live in `packages/`, and native console clients live in `apps/gamecube`, `apps/wii`, and `apps/ps2`.
 
 ### Web (`apps/web`)
 
@@ -32,14 +32,15 @@ Multiplex is a [Bun](https://bun.sh) monorepo: the web app lives in `apps/web`, 
 - [TanStack Query](https://tanstack.com/query) - Server-state caching
 - [Effect](https://effect.website) - Player and Watch Together session runtime
 
-### Consoles (`apps/gamecube`)
+### Consoles
 
 - [Native SDK](https://github.com/vercel-labs/native) - UI authored in restricted TypeScript and `.native` markup, rendered on the console
 - [libogc2](https://github.com/extremscorner/libogc2) - Console runtime and networking
 - [MPlayer CE](https://github.com/SuperrSonic/mplayer-ce-libogc2) - Console-optimized FFmpeg video/audio decoding
 - [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) - HTTPS on console
+- [PS2SDK](https://github.com/ps2dev/ps2sdk) and [gsKit](https://github.com/ps2dev/gsKit) - PlayStation 2 runtime and graphics
 
-See [`apps/gamecube/README.md`](apps/gamecube/README.md) for the full console stack and acknowledgements.
+See [`apps/gamecube/README.md`](apps/gamecube/README.md), [`apps/wii/README.md`](apps/wii/README.md), and [`apps/ps2/README.md`](apps/ps2/README.md) for target status and acknowledgements.
 
 _This project was initially scaffolded using [create-t3-app](https://create.t3.gg/)._
 
