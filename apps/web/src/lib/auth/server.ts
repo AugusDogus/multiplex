@@ -10,6 +10,7 @@ const NATIVE_CLIENT_IDS = new Set([
   "multiplex-dreamcast",
   "multiplex-xbox",
   "multiplex-ps2",
+  "multiplex-mobile",
 ]);
 
 export const auth = betterAuth({

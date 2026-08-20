@@ -1,0 +1,29 @@
+executionPrerequisite: Multiplex is open on the signed-out login screen, with the API and Metro running.
+steps:
+  - echo: Link the mobile app with the multiplextest Plex account.
+  - await: { visible: { text: Continue with Plex }, timeout: 15000 }
+  - tap: { text: Continue with Plex }
+  - when: { visible: { id: com.android.chrome:id/signin_fre_dismiss_button } }
+    steps:
+      - tap: { id: com.android.chrome:id/signin_fre_dismiss_button }
+  - await: { visible: { role: WebView, text: Multiplex }, timeout: 30000 }
+  - echo: Open Plex authentication from the device verification page.
+  - tap: { text: Continue with Plex }
+  - await: { visible: { role: WebView, text: Plex }, timeout: 30000 }
+  - echo: Allow Plex to show sign-in or return an existing browser session.
+  - wait: 5000
+  - when: { visible: { text: Continue with Email } }
+    steps:
+      - tap: { text: Continue with Email }
+      - type:
+          into: { id: email }
+          text: "{{secret:MULTIPLEX_ACCOUNT_EMAIL}}"
+          submit: false
+      - type:
+          into: { id: password }
+          text: "{{secret:MULTIPLEX_ACCOUNT_PASSWORD}}"
+  - await: { visible: { text: Link console }, timeout: 90000 }
+  - tap: { text: Link console }
+  - await: { visible: { text: Console linked }, timeout: 30000 }
+  - tap: { id: com.android.chrome:id/close_button }
+  - await: { visible: { id: home-profile }, timeout: 60000 }

@@ -1,0 +1,12 @@
+steps:
+  - echo: Start with a clean Multiplex installation and reject a malformed guest invite.
+  - launch: { native: app.multiplex.mobile }
+  - await: { visible: { text: Continue with Plex }, timeout: 15000 }
+  - await: { idle: true, timeout: 10000 }
+  - type: { into: { id: guest-invite-input }, text: "not a link", submit: false }
+  - tap: { id: open-guest-invite }
+  - await: { visible: { id: guest-invite-error } }
+  - assert:
+      text:
+        in: { id: guest-invite-error }
+        equals: Paste a valid Multiplex guest invite link.

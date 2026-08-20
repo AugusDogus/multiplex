@@ -1,0 +1,13 @@
+steps:
+  - echo: Authenticate if needed, then verify the linked Plex profile.
+  - launch: { native: app.multiplex.mobile }
+  - await: { idle: true, timeout: 15000 }
+  - when: { visible: { text: Continue with Plex } }
+    steps:
+      - run: ../shared/authenticate.yaml
+  - await: { visible: { id: home-profile }, timeout: 60000 }
+  - await: { idle: true, timeout: 30000 }
+  - tap: { id: home-profile }
+  - await: { visible: { id: sign-out }, timeout: 30000 }
+  - await: { idle: true, timeout: 30000 }
+  - assert: { visible: { id: sign-out } }

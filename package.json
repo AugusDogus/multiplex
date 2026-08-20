@@ -13,8 +13,13 @@
     "typecheck": "bun --filter '*' typecheck",
     "check": "bun run lint && bun run format:check && bun run typecheck",
     "test": "bun --filter '*' test",
+    "test:argent:mobile:signed-out": "argent flow run .argent/flows/mobile/signed-out --recursive --platform android --output .argent/artifacts",
+    "test:argent:mobile:signed-in": "argent flow run .argent/flows/mobile/signed-in --recursive --platform android --output .argent/artifacts",
     "dev": "portless multiplex bun run dev:app",
     "dev:app": "bun --filter @multiplex/web dev",
+    "mobile": "bun --filter @multiplex/mobile dev",
+    "mobile:android": "bun --filter @multiplex/mobile android",
+    "mobile:ios": "bun --filter @multiplex/mobile ios",
     "build": "bun --filter @multiplex/web build",
     "start": "bun --filter @multiplex/web start",
     "db:generate": "bun --filter @multiplex/web db:generate",
@@ -54,6 +59,7 @@
     "wii:reference:plex": "MULTIPLEX_REFERENCE_DOL=apps/wii/multiplex-wii-native-reference.dol MULTIPLEX_REFERENCE_BUILD_SCRIPT=../../wii/scripts/build-reference-dol.sh MULTIPLEX_CONSOLE_NAME=Wii MULTIPLEX_CONTROLLER_PIPE=multiplex-wii1 MULTIPLEX_DOLPHIN_NETWORK=native sh apps/gamecube/scripts/run-dolphin-plex.sh"
   },
   "devDependencies": {
+    "@swmansion/argent": "^0.20.0",
     "oxfmt": "^0.26.0",
     "oxlint": "^1.41.0",
     "portless": "^0.15.4"

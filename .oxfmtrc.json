@@ -4,6 +4,7 @@
   "semi": true,
   "singleQuote": false,
   "tabWidth": 2,
+  "ignorePatterns": ["apps/mobile/uniwind-types.d.ts"],
   "experimentalTailwindcss": {
     "attributes": ["class", "className"],
     "functions": ["cn", "clsx", "cva"]

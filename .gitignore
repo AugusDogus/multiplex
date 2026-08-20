@@ -59,3 +59,13 @@ plans/
 /apps/web/blob-report/
 /apps/web/playwright/.cache/
 /apps/web/e2e/.auth/
+
+# argent
+/.argent/artifacts/
+/.argent/recordings/
+/.argent/secrets.env
+
+# generated Expo projects
+/apps/mobile/.expo/
+/apps/mobile/android/
+/apps/mobile/ios/

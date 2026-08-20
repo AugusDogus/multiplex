@@ -1,0 +1,41 @@
+@import "tailwindcss";
+@import "uniwind";
+@import "heroui-native/styles";
+
+@source "../../../node_modules/heroui-native/lib";
+
+@theme {
+  --width-hairline: hairlineWidth();
+  --border-hairline: hairlineWidth();
+  --radius: 0.75rem;
+}
+
+@layer theme {
+  :root {
+    @variant light {
+      --background: oklch(0.985 0.004 80);
+      --foreground: oklch(0.19 0.01 80);
+      --surface: oklch(1 0 0);
+      --surface-secondary: oklch(0.955 0.007 80);
+      --default: oklch(0.93 0.008 80);
+      --overlay: oklch(0.99 0.004 80);
+      --accent: oklch(0.72 0.16 72);
+      --accent-foreground: oklch(0.16 0.02 72);
+      --muted: oklch(0.5 0.015 80);
+      --danger: oklch(0.59 0.2 25);
+    }
+
+    @variant dark {
+      --background: oklch(0.13 0.008 80);
+      --foreground: oklch(0.96 0.006 80);
+      --surface: oklch(0.17 0.009 80);
+      --surface-secondary: oklch(0.2 0.01 80);
+      --default: oklch(0.23 0.012 80);
+      --overlay: oklch(0.18 0.009 80);
+      --accent: oklch(0.78 0.16 72);
+      --accent-foreground: oklch(0.14 0.02 72);
+      --muted: oklch(0.7 0.012 80);
+      --danger: oklch(0.68 0.19 25);
+    }
+  }
+}

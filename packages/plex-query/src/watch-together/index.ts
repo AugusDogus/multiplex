@@ -67,3 +67,13 @@ export {
   participantsByUserId,
   PRESENCE_GRACE_MS,
 } from "./lobby-policy";
+
+export {
+  guestNextEpisodeSchema,
+  guestWatchTogetherBootstrapResponseSchema,
+  guestWatchTogetherBootstrapValueSchema,
+  guestWatchTogetherContinuationResponseSchema,
+} from "./guest-bootstrap";
+export type { GuestNextEpisode, GuestWatchTogetherBootstrapValue } from "./guest-bootstrap";
+
+export { createGuestDeviceIdentifier, createGuestSyncplayUser } from "./guest-syncplay-user";

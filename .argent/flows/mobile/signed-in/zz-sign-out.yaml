@@ -1,0 +1,14 @@
+steps:
+  - echo: Restore the signed-out baseline after the signed-in suite.
+  - launch: { native: app.multiplex.mobile }
+  - await: { idle: true, timeout: 15000 }
+  - when: { visible: { text: Continue with Plex } }
+    steps:
+      - run: ../shared/authenticate.yaml
+  - await: { visible: { id: home-profile }, timeout: 60000 }
+  - tap: { id: home-profile }
+  - await: { visible: { id: sign-out }, timeout: 30000 }
+  - await: { idle: true, timeout: 15000 }
+  - tap: { id: sign-out }
+  - await: { visible: { text: Continue with Plex }, timeout: 30000 }
+  - await: { idle: true, timeout: 15000 }

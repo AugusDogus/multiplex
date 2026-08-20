@@ -1,0 +1,23 @@
+steps:
+  - echo: Authenticate if needed, then verify every primary tab.
+  - launch: { native: app.multiplex.mobile }
+  - await: { idle: true, timeout: 15000 }
+  - when: { visible: { text: Continue with Plex } }
+    steps:
+      - run: ../shared/authenticate.yaml
+  - await: { visible: { id: home-profile }, timeout: 60000 }
+  - await: { idle: true, timeout: 30000 }
+  - assert: { visible: { id: tab-home } }
+  - assert: { visible: { id: tab-search } }
+  - assert: { visible: { id: tab-libraries } }
+  - assert: { visible: { id: tab-more } }
+  - tap: { id: tab-search }
+  - await: { visible: { id: search-input } }
+  - await: { idle: true, timeout: 15000 }
+  - assert: { visible: { id: search-input } }
+  - tap: { id: tab-libraries }
+  - await: { visible: { id: libraries-screen-title } }
+  - await: { idle: true, timeout: 30000 }
+  - tap: { id: tab-more }
+  - await: { visible: { id: more-screen-title } }
+  - await: { idle: true, timeout: 15000 }

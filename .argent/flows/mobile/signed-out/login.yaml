@@ -1,0 +1,8 @@
+steps:
+  - echo: Start with a clean Multiplex installation and verify the signed-out entry screen.
+  - launch: { native: app.multiplex.mobile }
+  - await: { visible: { text: Continue with Plex }, timeout: 15000 }
+  - await: { idle: true, timeout: 10000 }
+  - assert: { visible: { text: Continue with Plex } }
+  - assert: { visible: { id: guest-invite-input } }
+  - assert: { visible: { id: open-guest-invite } }

@@ -1,0 +1,14 @@
+steps:
+  - echo: Authenticate if needed, then open Watch Together from More.
+  - launch: { native: app.multiplex.mobile }
+  - await: { idle: true, timeout: 15000 }
+  - when: { visible: { text: Continue with Plex } }
+    steps:
+      - run: ../shared/authenticate.yaml
+  - await: { visible: { id: home-profile }, timeout: 60000 }
+  - tap: { id: tab-more }
+  - await: { visible: { id: more-screen-title } }
+  - await: { idle: true, timeout: 15000 }
+  - tap: { id: more-watch-together }
+  - await: { visible: { id: watch-together-screen-title }, timeout: 30000 }
+  - await: { idle: true, timeout: 30000 }
