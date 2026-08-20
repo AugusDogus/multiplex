@@ -16,7 +16,7 @@ Multiplex was created as a response to Plex's announcement of the deprecation of
 
 ## Tech Stack
 
-Multiplex is a [Bun](https://bun.sh) monorepo: the web app lives in `apps/web`, shared Plex API and auth libraries in `packages/`, and the native console client in `apps/gamecube`.
+Multiplex is a [Bun](https://bun.sh) monorepo: the web app lives in `apps/web`, shared Plex API and auth libraries in `packages/`, and native console clients live in `apps/gamecube`, `apps/wii`, and `apps/dreamcast`.
 
 ### Web (`apps/web`)
 
@@ -29,14 +29,15 @@ Multiplex is a [Bun](https://bun.sh) monorepo: the web app lives in `apps/web`, 
 - [TanStack Query](https://tanstack.com/query) - Server-state caching
 - [Effect](https://effect.website) - Player and Watch Together session runtime
 
-### Consoles (`apps/gamecube`)
+### Consoles
 
-- [Native SDK](https://github.com/vercel-labs/native) - UI authored in restricted TypeScript and `.native` markup, rendered on the console
+- [Native SDK](https://github.com/vercel-labs/native) - GameCube and Wii UI authored in restricted TypeScript and `.native` markup
 - [libogc2](https://github.com/extremscorner/libogc2) - Console runtime and networking
 - [MPlayer CE](https://github.com/SuperrSonic/mplayer-ce-libogc2) - Console-optimized FFmpeg video/audio decoding
 - [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) - HTTPS on console
+- [KallistiOS](https://kos-docs.dreamcast.wiki/) - Dreamcast C runtime, input, networking, and PVR access
 
-See [`apps/gamecube/README.md`](apps/gamecube/README.md) for the full console stack and acknowledgements.
+See [`apps/gamecube/README.md`](apps/gamecube/README.md), [`apps/wii/README.md`](apps/wii/README.md), and [`apps/dreamcast/README.md`](apps/dreamcast/README.md) for target status and acknowledgements.
 
 _This project was initially scaffolded using [create-t3-app](https://create.t3.gg/)._
 
@@ -55,4 +56,4 @@ Contributions are welcome! Please feel free to submit issues and pull requests t
 
 ## License
 
-This project is open source and available under the [MIT License](LICENSE). The native console runtime is the exception: it is [GPL-3.0-or-later](apps/gamecube/LICENSE.md) so it can build directly on the homebrew scene's GPL-licensed media work.
+This project is open source and available under the [MIT License](LICENSE). The native console apps are the exception: they are GPL-3.0-or-later so they can build on GPL-licensed homebrew media work. See the [shared console UI license](packages/console-ui/LICENSE.md) and [Dreamcast app license](apps/dreamcast/LICENSE.md).

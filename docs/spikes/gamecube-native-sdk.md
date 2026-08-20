@@ -614,5 +614,8 @@ before resume, and a clean invalid-access log on both consoles.
 Hardware profiling remains deferred until the Dolphin app is materially
 useful; it is not a gate on these milestones.
 
-Dreamcast remains a fast-follow port; further new-port work is paused until
-the GameCube client reaches the web application's core playback parity.
+Dreamcast is now an active C-first port. KallistiOS/GCC builds its portable
+app model for SH-4, the PVR host renders live RGB565 UI, and Maple input drives
+pairing, home focus, details, and typed playback requests. This avoids making
+the in-progress LLVM SuperH backend a release dependency. Gateway networking
+and the Dreamcast media service are the next vertical slices.

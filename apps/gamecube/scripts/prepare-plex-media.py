@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Fetch one real Plex library item and encode a bounded GameCube test clip."""
+"""Fetch one real Plex library item and encode a bounded console clip."""
 
 import argparse
 import json
@@ -90,6 +90,9 @@ def main() -> None:
     parser.add_argument("--offset", type=float, default=60.0)
     parser.add_argument("--duration", type=float, default=120.0)
     parser.add_argument("--rating-key")
+    parser.add_argument(
+        "--target", choices=("gamecube", "dreamcast"), default="gamecube"
+    )
     arguments = parser.parse_args()
 
     token = os.environ.get("PLEX_TOKEN", "")
@@ -127,31 +130,72 @@ def main() -> None:
             "0:v:0",
             "-map",
             "0:a:0",
-            "-vf",
-            "scale=720:480:force_original_aspect_ratio=decrease,"
-            "pad=720:480:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30000/1001",
-            "-c:v",
-            "mpeg2video",
-            "-pix_fmt",
-            "yuv420p",
-            "-b:v",
-            "900k",
-            "-maxrate",
-            "1200k",
-            "-bufsize",
-            "1835008",
-            "-g",
-            "15",
-            "-bf",
-            "2",
-            "-c:a",
-            "mp2",
-            "-b:a",
-            "128k",
-            "-ar",
-            "48000",
-            "-ac",
-            "2",
+        ]
+    )
+    if arguments.target == "dreamcast":
+        command.extend(
+            [
+                "-vf",
+                "scale=320:240:force_original_aspect_ratio=decrease,"
+                "pad=320:240:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30",
+                "-c:v",
+                "mpeg1video",
+                "-pix_fmt",
+                "yuv420p",
+                "-b:v",
+                "742k",
+                "-minrate",
+                "742k",
+                "-maxrate",
+                "742k",
+                "-bufsize",
+                "742k",
+                "-g",
+                "12",
+                "-bf",
+                "0",
+                "-c:a",
+                "mp2",
+                "-b:a",
+                "64k",
+                "-ar",
+                "32000",
+                "-ac",
+                "1",
+            ]
+        )
+    else:
+        command.extend(
+            [
+                "-vf",
+                "scale=720:480:force_original_aspect_ratio=decrease,"
+                "pad=720:480:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30000/1001",
+                "-c:v",
+                "mpeg2video",
+                "-pix_fmt",
+                "yuv420p",
+                "-b:v",
+                "900k",
+                "-maxrate",
+                "1200k",
+                "-bufsize",
+                "1835008",
+                "-g",
+                "15",
+                "-bf",
+                "2",
+                "-c:a",
+                "mp2",
+                "-b:a",
+                "128k",
+                "-ar",
+                "48000",
+                "-ac",
+                "2",
+            ]
+        )
+    command.extend(
+        [
             "-muxpreload",
             "0.5",
             "-muxdelay",
