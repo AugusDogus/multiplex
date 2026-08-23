@@ -13,6 +13,9 @@ import { getItemDetailsHref } from "~/lib/plex-routes";
 import {
   getActiveSyncEngineCollections,
   getSyncEngineTrpcClient,
+  hasFreshMediaItemDetails,
+  mediaItemRowKey,
+  resolveItemCredentials,
   warmMediaItem,
 } from "~/lib/sync-engine";
 
@@ -59,6 +62,18 @@ export function useItemDetailsNavigation() {
     void router.prefetch(href);
     const collections = getActiveSyncEngineCollections();
     if (!collections) return;
+    const key = mediaItemRowKey(target.serverId, target.ratingKey);
+    const existing = collections.mediaItems.get(key);
+    const existingCredentials = resolveItemCredentials(key, existing);
+    if (
+      hasFreshMediaItemDetails(existing) &&
+      existing?.item &&
+      existingCredentials.authToken
+    ) {
+      preloadDetailsImages(existing.item, existingCredentials);
+      return;
+    }
+
     void warmMediaItem(collections, getSyncEngineTrpcClient(), {
       serverId: target.serverId,
       ratingKey: target.ratingKey,

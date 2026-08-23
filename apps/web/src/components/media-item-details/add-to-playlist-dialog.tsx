@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { Loader2, ListPlus, Plus } from "lucide-react";
-import { getPlaylistTypeForItemType } from "@multiplex/plex-query";
+import type { PlaylistType } from "@multiplex/plex-query";
 
 import { Button } from "~/components/ui/button";
 import {
@@ -22,6 +22,7 @@ import type { ItemDetails } from "./types";
 interface AddToPlaylistDialogProps {
   item: ItemDetails["item"];
   serverId: string;
+  playlistType: PlaylistType;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onFeedback: (message: string) => void;
@@ -30,12 +31,12 @@ interface AddToPlaylistDialogProps {
 export function AddToPlaylistDialog({
   item,
   serverId,
+  playlistType,
   open,
   onOpenChange,
   onFeedback,
 }: AddToPlaylistDialogProps) {
   const utils = api.useUtils();
-  const playlistType = getPlaylistTypeForItemType(item.type);
   const [newTitle, setNewTitle] = useState("");
 
   const playlistsQuery = useSyncedItemPlaylists(serverId, playlistType, {

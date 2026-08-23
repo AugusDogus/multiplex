@@ -36,6 +36,7 @@ import {
   sanitizeBrowsePageItems,
   sanitizeContinueWatchingItem,
   sanitizeHomeHub,
+  MEDIA_ITEM_DETAILS_STALE_TIME_MS,
   sanitizeLibraryHubsSnapshot,
   sanitizeMediaItemDetails,
   sanitizeServer,
@@ -72,6 +73,8 @@ type SyncedCollection<T extends object> = Collection<T, string> & {
   utils: QueryCollectionUtilsLike<T>;
 };
 
+const ON_DEMAND_COLLECTION_STALE_TIME_MS = 5 * 60_000;
+
 /**
  * Query-collection write helpers throw SyncNotInitializedError until sync has
  * started. Preload (even for enabled:false on-demand collections) initializes
@@ -93,18 +96,11 @@ export async function upsertRow<T extends { id: string }>(
   collection.utils.writeUpsert(row);
 }
 
-function deleteRow<T extends { id: string }>(
+async function deleteRow<T extends { id: string }>(
   collection: SyncedCollection<T>,
   key: string,
-): void {
-  if (collection.status !== "ready") {
-    void ensureWritable(collection)
-      .then(() => {
-        collection.utils.writeDelete(key);
-      })
-      .catch(() => undefined);
-    return;
-  }
+): Promise<void> {
+  await ensureWritable(collection);
   collection.utils.writeDelete(key);
 }
 
@@ -165,7 +161,7 @@ function createOnDemandCollection<T extends { id: string }>(config: {
       getKey: (row) => row.id,
       syncMode: "on-demand",
       enabled: false,
-      staleTime: 5 * 60_000,
+      staleTime: ON_DEMAND_COLLECTION_STALE_TIME_MS,
       gcTime: 30 * 60_000,
     }),
   });
@@ -364,7 +360,7 @@ function createMediaItemsCollection(
       getKey: (row) => row.id,
       syncMode: "on-demand",
       enabled: false,
-      staleTime: 5 * 60_000,
+      staleTime: MEDIA_ITEM_DETAILS_STALE_TIME_MS,
       gcTime: 30 * 60_000,
     }),
   });
@@ -473,27 +469,58 @@ function rememberHubItemConnections(
   }
 }
 
+const pendingMediaItemWarms = new WeakMap<
+  SyncEngineCollections,
+  Map<string, Promise<SanitizedMediaItemRow | null>>
+>();
+
+function getPendingMediaItemWarms(collections: SyncEngineCollections) {
+  const existing = pendingMediaItemWarms.get(collections);
+  if (existing) return existing;
+
+  const pending = new Map<string, Promise<SanitizedMediaItemRow | null>>();
+  pendingMediaItemWarms.set(collections, pending);
+  return pending;
+}
+
 export async function warmMediaItem(
   collections: SyncEngineCollections,
   trpc: TRPCClient<AppRouter>,
   input: { serverId: string; ratingKey: string },
 ): Promise<SanitizedMediaItemRow | null> {
-  const details = await trpc.plex.getItemDetails.query(input);
-  if (!details) return null;
-  rememberItemConnection(mediaItemRowKey(input.serverId, input.ratingKey), {
-    serverUrl: details.serverUrl ?? undefined,
-    authToken: details.authToken ?? undefined,
-  });
-  const row = sanitizeMediaItemDetails(details, input.serverId, {
-    hasFullDetails: true,
-  });
-  await upsertRow(collections.mediaItems, row);
-  return row;
+  const key = mediaItemRowKey(input.serverId, input.ratingKey);
+  const pendingWarms = getPendingMediaItemWarms(collections);
+  const pending = pendingWarms.get(key);
+  if (pending) return pending;
+
+  const request = (async () => {
+    const details = await trpc.plex.getItemDetails.query(input);
+    if (!details) {
+      await deleteRow(collections.mediaItems, key);
+      return null;
+    }
+    rememberItemConnection(key, {
+      serverUrl: details.serverUrl ?? undefined,
+      authToken: details.authToken ?? undefined,
+    });
+    const row = sanitizeMediaItemDetails(details, input.serverId, {
+      fullDetailsUpdatedAt: Date.now(),
+    });
+    await upsertRow(collections.mediaItems, row);
+    return row;
+  })();
+
+  pendingWarms.set(key, request);
+  void request.then(
+    () => pendingWarms.delete(key),
+    () => pendingWarms.delete(key),
+  );
+  return request;
 }
 
 /**
  * Merge metadata into an existing media-item row without clobbering full details
- * (children / playTarget / hasFullDetails).
+ * (children / playTarget / fullDetailsUpdatedAt).
  */
 export async function writeItemMetadata(
   collections: SyncEngineCollections,
@@ -504,6 +531,7 @@ export async function writeItemMetadata(
   const existing = collections.mediaItems.get(
     mediaItemRowKey(input.serverId, input.ratingKey),
   );
+  const fullDetailsUpdatedAt = existing?.fullDetailsUpdatedAt ?? undefined;
   const row = sanitizeMediaItemDetails(
     {
       item: metadata,
@@ -515,7 +543,7 @@ export async function writeItemMetadata(
       playTarget: existing?.playTarget ?? null,
     },
     input.serverId,
-    { hasFullDetails: existing?.hasFullDetails ?? false },
+    fullDetailsUpdatedAt === undefined ? undefined : { fullDetailsUpdatedAt },
   );
   await upsertRow(collections.mediaItems, row);
   return row;
@@ -551,7 +579,7 @@ export async function warmWatchTogetherRoom(
   if (!room) {
     // A successful authoritative miss must evict the persisted row. Keeping it
     // makes deleted rooms look joinable indefinitely after revalidation.
-    deleteRow(collections.watchTogetherRooms, roomId);
+    await deleteRow(collections.watchTogetherRooms, roomId);
     return null;
   }
   const row = sanitizeWatchTogetherRoom(room);
@@ -742,5 +770,5 @@ export function removeSyncedWatchTogetherRoom(
   collections: SyncEngineCollections,
   roomId: string,
 ): void {
-  deleteRow(collections.watchTogetherRooms, roomId);
+  void deleteRow(collections.watchTogetherRooms, roomId).catch(() => undefined);
 }

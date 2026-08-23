@@ -12,6 +12,7 @@ import {
 } from "@multiplex/plex-query";
 import { MediaProgressBar } from "~/components/media-progress-bar";
 import { MediaItemActionsMenu } from "~/components/media-item-actions-menu";
+import { PlaylistPosterActionsMenu } from "~/components/playlist/playlist-poster-actions-menu";
 import { Button } from "~/components/ui/button";
 import { getHubItemHref } from "~/lib/plex-routes";
 import { getPlexImagePath } from "~/lib/plex-image";
@@ -34,10 +35,6 @@ interface MediaPosterCardContentBaseProps {
   showPlayOverlay?: boolean;
   onPlay?: () => void;
   onNavigateClick?: (event: React.MouseEvent) => void;
-  actionsTarget?: {
-    serverId: string;
-    ratingKey: string;
-  };
   /** Eager-load above-the-fold posters (Continue Watching LCP). */
   priority?: boolean;
 }
@@ -125,13 +122,25 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
     onNavigateClick,
     priority = false,
   } = resolved;
-  const actionsTarget = item
-    ? { serverId: item.serverId, ratingKey: item.ratingKey }
-    : resolved.actionsTarget;
   const detailsTarget = resolved.detailsTarget;
   const detailsHref = detailsTarget
     ? itemDetailsNavigation.getHref(detailsTarget)
     : resolved.detailsHref;
+  const actionsTarget = item
+    ? item.type === "playlist"
+      ? { kind: "playlist" as const, href: detailsHref }
+      : {
+          kind: "media" as const,
+          serverId: item.serverId,
+          ratingKey: item.ratingKey,
+        }
+    : detailsTarget
+      ? {
+          kind: "media" as const,
+          serverId: detailsTarget.serverId,
+          ratingKey: detailsTarget.ratingKey,
+        }
+      : undefined;
 
   const showPlayOverlay =
     props.showPlayOverlay ?? (item ? hubPlayback.canPlay : false);
@@ -177,7 +186,7 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
       )}
 
       {isCompleted && (
-        <div className="absolute top-2 right-2 rounded bg-green-600 px-2 py-1 text-xs text-white shadow-sm">
+        <div className="absolute top-2 left-2 rounded bg-green-600 px-2 py-1 text-xs text-white shadow-sm">
           Watched
         </div>
       )}
@@ -216,12 +225,19 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
 
         {actionsTarget && (
           <div className="absolute top-2 right-2 z-20 transition-opacity duration-150 ease-out md:pointer-fine:opacity-0 md:pointer-fine:group-focus-within:opacity-100 md:pointer-fine:group-hover:opacity-100">
-            <MediaItemActionsMenu
-              serverId={actionsTarget.serverId}
-              ratingKey={actionsTarget.ratingKey}
-              title={title}
-              presentation="poster"
-            />
+            {actionsTarget.kind === "playlist" ? (
+              <PlaylistPosterActionsMenu
+                href={actionsTarget.href}
+                title={title}
+              />
+            ) : (
+              <MediaItemActionsMenu
+                serverId={actionsTarget.serverId}
+                ratingKey={actionsTarget.ratingKey}
+                title={title}
+                presentation="poster"
+              />
+            )}
           </div>
         )}
 

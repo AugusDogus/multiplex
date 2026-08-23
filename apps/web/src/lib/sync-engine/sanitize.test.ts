@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  hasFreshMediaItemDetails,
+  MEDIA_ITEM_DETAILS_STALE_TIME_MS,
   sanitizeContinueWatchingItem,
   sanitizeHomeHub,
   sanitizeMediaItemDetails,
@@ -197,8 +199,8 @@ describe("sync-engine sanitize", () => {
 
     expect(row?.id).toBe("haus-1:55");
     expect(row?.title).toBe("Inception");
-    // Default is fail-closed when options.hasFullDetails is omitted.
-    expect(row?.hasFullDetails).toBe(false);
+    // Default is fail-closed when the full-details timestamp is omitted.
+    expect(row?.fullDetailsUpdatedAt).toBeNull();
     expect(row?.authToken).toBe("DETAILS_SECRET");
     expect(row?.serverUrl).toBe("https://pms.example");
     expect(row?.item).toMatchObject({
@@ -226,9 +228,14 @@ describe("sync-engine sanitize", () => {
         },
       },
       "haus-1",
-      { hasFullDetails: true },
+      { fullDetailsUpdatedAt: 1_000 },
     );
-    expect(full?.hasFullDetails).toBe(true);
+    expect(full?.fullDetailsUpdatedAt).toBe(1_000);
+    expect(hasFreshMediaItemDetails(full, 1_000)).toBe(true);
+    expect(
+      hasFreshMediaItemDetails(full, 1_000 + MEDIA_ITEM_DETAILS_STALE_TIME_MS),
+    ).toBe(false);
+    expect(hasFreshMediaItemDetails(row, 1_000)).toBe(false);
   });
 
   test("deep clone keeps nested credentials for direct PMS access", () => {

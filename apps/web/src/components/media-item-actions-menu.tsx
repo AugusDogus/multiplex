@@ -3,6 +3,7 @@
 import { Loader2, MoreHorizontal } from "lucide-react";
 import { useState } from "react";
 import { shallow } from "zustand/shallow";
+import { getPlaylistTypeForItem } from "@multiplex/plex-query";
 
 import { AddToPlaylistDialog } from "~/components/media-item-details/add-to-playlist-dialog";
 import { MediaInfoDialog } from "~/components/media-item-details/media-info-dialog";
@@ -24,13 +25,12 @@ import {
   playerCommands,
   usePlayerStateSelector,
 } from "~/lib/effect/player-atoms";
+import { getQueueActionDisabledReason } from "~/lib/media-item-actions";
+import { useSyncedItemDetails } from "~/lib/sync-engine";
 import { api } from "~/trpc/api";
 
 const PLEX_ACTION_NOT_IMPLEMENTED =
   "This Plex action is disabled until the matching Plex behavior is implemented.";
-const QUEUE_ACTION_REQUIRES_PLAYER =
-  "Start playback first to add items to the active queue.";
-const QUEUE_ACTION_PENDING = "Updating the active Plex queue.";
 const PLEX_ACTION_REQUIRES_SERVER =
   "This action needs an active server connection.";
 const GET_INFO_REQUIRES_MEDIA =
@@ -71,30 +71,30 @@ export function MediaItemActionsMenu({
     }),
     shallow,
   );
-  const utils = api.useUtils();
-  const detailsQuery = api.plex.getItemDetails.useQuery(
-    { serverId, ratingKey },
-    {
-      enabled: open && !providedDetails,
-      staleTime: 60_000,
-    },
-  );
+  const needsDetails =
+    open || mediaInfoOpen || addToPlaylistOpen || watchTogetherOpen;
+  const detailsState = useSyncedItemDetails(serverId, ratingKey, {
+    enabled: needsDetails && !providedDetails,
+  });
   const updatePlayQueueMutation = api.plex.updatePlayQueue.useMutation();
-  const details = providedDetails ?? detailsQuery.data ?? undefined;
+  const details = providedDetails ?? detailsState.details;
+
+  const queueType = details ? getPlaylistTypeForItem(details.item) : undefined;
+  const activeQueueType = currentPlayerItem
+    ? getPlaylistTypeForItem(currentPlayerItem)
+    : undefined;
   const canWatchTogether = Boolean(
     details?.playTarget && details.serverUrl && details.authToken,
   );
   const hasMediaInfo = Boolean(details?.item.Media?.length);
-  const canUpdateActiveQueue = Boolean(
-    details?.serverUrl &&
-      details.authToken &&
-      playQueueId &&
-      currentPlayerItem?.serverId === serverId,
-  );
-  const queueActionDisabledReason = getQueueActionDisabledReason(
-    canUpdateActiveQueue,
-    updatePlayQueueMutation.isPending,
-  );
+  const queueActionDisabledReason = getQueueActionDisabledReason({
+    targetType: queueType,
+    activeType: activeQueueType,
+    hasActiveQueue: Boolean(playQueueId),
+    isSameServer: currentPlayerItem?.serverId === serverId,
+    hasServerConnection: Boolean(details?.serverUrl && details.authToken),
+    isPending: updatePlayQueueMutation.isPending,
+  });
 
   const reportFeedback = (
     message: string,
@@ -108,19 +108,15 @@ export function MediaItemActionsMenu({
     toastManager.add({ title: message, type });
   };
 
-  const prefetchDetails = () => {
-    if (providedDetails) {
-      return;
-    }
-
-    void utils.plex.getItemDetails.prefetch(
-      { serverId, ratingKey },
-      { staleTime: 60_000 },
-    );
-  };
-
   const updateActiveQueue = (next: boolean) => {
-    if (!details || !playQueueId || updatePlayQueueMutation.isPending) {
+    if (
+      !details ||
+      !playQueueId ||
+      !queueType ||
+      queueType === "photo" ||
+      queueType !== activeQueueType ||
+      updatePlayQueueMutation.isPending
+    ) {
       return;
     }
 
@@ -137,7 +133,7 @@ export function MediaItemActionsMenu({
         playQueueId: activePlayQueueId,
         ratingKey: details.item.ratingKey,
         key: details.item.key,
-        type: "video",
+        type: queueType,
         next,
       },
       {
@@ -181,11 +177,7 @@ export function MediaItemActionsMenu({
   return (
     <>
       <DropdownMenu open={open} onOpenChange={setOpen}>
-        <DropdownMenuTrigger
-          render={trigger}
-          onFocus={prefetchDetails}
-          onMouseEnter={prefetchDetails}
-        >
+        <DropdownMenuTrigger render={trigger}>
           <MoreHorizontal />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
@@ -268,14 +260,14 @@ export function MediaItemActionsMenu({
                   Get Info
                 </DropdownMenuItem>
               </>
-            ) : detailsQuery.isError ? (
+            ) : detailsState.isError || detailsState.isComplete ? (
               <>
                 <DropdownMenuItem disabled>
                   Could not load actions
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   closeOnClick={false}
-                  onClick={() => void detailsQuery.refetch()}
+                  onClick={detailsState.retry}
                 >
                   Try again
                 </DropdownMenuItem>
@@ -302,6 +294,7 @@ export function MediaItemActionsMenu({
           <AddToPlaylistDialog
             item={details.item}
             serverId={serverId}
+            playlistType={getPlaylistTypeForItem(details.item)}
             open={addToPlaylistOpen}
             onOpenChange={setAddToPlaylistOpen}
             onFeedback={(message) => reportFeedback(message)}
@@ -320,21 +313,6 @@ export function MediaItemActionsMenu({
       )}
     </>
   );
-}
-
-function getQueueActionDisabledReason(
-  canUpdateActiveQueue: boolean,
-  isPending: boolean,
-): string | undefined {
-  if (!canUpdateActiveQueue) {
-    return QUEUE_ACTION_REQUIRES_PLAYER;
-  }
-
-  if (isPending) {
-    return QUEUE_ACTION_PENDING;
-  }
-
-  return undefined;
 }
 
 function getDisabledMenuItemLabel(label: string, reason: string): string {

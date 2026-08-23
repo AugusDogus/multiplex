@@ -185,9 +185,24 @@ export type SanitizedMediaItemRow = {
   children: ItemDetails["children"];
   playableChildren: ItemDetails["playableChildren"];
   playTarget: ItemDetails["playTarget"];
-  /** True once `getItemDetails` (not just metadata) has been warmed. */
-  hasFullDetails: boolean;
+  /** Non-null once full details were fetched, with the successful fetch time. */
+  fullDetailsUpdatedAt: number | null;
 };
+
+export const MEDIA_ITEM_DETAILS_STALE_TIME_MS = 5 * 60_000;
+
+export function hasFreshMediaItemDetails(
+  row: SanitizedMediaItemRow | undefined,
+  now = Date.now(),
+): boolean {
+  const updatedAt = row?.fullDetailsUpdatedAt;
+  if (updatedAt === undefined || updatedAt === null) {
+    return false;
+  }
+
+  const age = now - updatedAt;
+  return age >= 0 && age < MEDIA_ITEM_DETAILS_STALE_TIME_MS;
+}
 
 export type SanitizedWatchTogetherRoomRow = {
   id: string;
@@ -468,7 +483,7 @@ type MediaItemDetailsInput = Pick<
 export function sanitizeMediaItemDetails(
   details: MediaItemDetailsInput,
   serverId: string,
-  options?: { hasFullDetails?: boolean },
+  options?: { fullDetailsUpdatedAt: number },
 ): SanitizedMediaItemRow {
   const metadata = details.item;
   return {
@@ -494,7 +509,7 @@ export function sanitizeMediaItemDetails(
     playableChildren: cloneForPersistence(details.playableChildren),
     playTarget: cloneForPersistence(details.playTarget),
     // Fail closed: metadata-only writes must not look fully warmed.
-    hasFullDetails: options?.hasFullDetails ?? false,
+    fullDetailsUpdatedAt: options?.fullDetailsUpdatedAt ?? null,
   };
 }
 
