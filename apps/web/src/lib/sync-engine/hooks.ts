@@ -176,6 +176,17 @@ function useWarmOnce(
   };
 }
 
+export function getItemDetailsWarmKey(
+  id: string,
+  needsWarm: boolean,
+  hasFreshDetails: boolean,
+  fullDetailsUpdatedAt: number | null | undefined,
+): string | null {
+  if (!needsWarm) return null;
+  if (hasFreshDetails) return `details:${id}:credentials`;
+  return `details:${id}:${fullDetailsUpdatedAt ?? "missing"}`;
+}
+
 export function useSyncedContinueWatching() {
   const collections = useSyncEngineCollections();
   const { data, isLoading } = useCollectionRows<SanitizedContinueWatchingRow>(
@@ -325,10 +336,14 @@ export function useSyncedItemDetails(
   const needsWarm = Boolean(
     enabled && collections && (!hasFreshDetails || missingPlayCredentials),
   );
+  const warmKey = getItemDetailsWarmKey(
+    id,
+    needsWarm,
+    hasFreshDetails,
+    row?.fullDetailsUpdatedAt,
+  );
   const { isWarming, error, retry, isComplete } = useWarmOnce(
-    needsWarm
-      ? `details:${id}:${row?.fullDetailsUpdatedAt ?? "missing"}`
-      : null,
+    warmKey,
     async () => {
       if (!collections) return;
       await warmMediaItem(collections, getSyncEngineTrpcClient(), {
