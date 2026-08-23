@@ -202,6 +202,7 @@ export const ContinueWatchingMetadata = z.object({
   slug: z.string().optional(),
   studio: z.string().optional(),
   type: z.string(), // "episode", "movie", "show", etc.
+  subtype: z.string().optional(), // Collection media type, e.g. "artist" or "album"
   title: z.string(),
   titleSort: z.string().optional(),
 

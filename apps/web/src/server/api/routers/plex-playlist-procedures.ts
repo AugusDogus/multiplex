@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import {
   buildLibraryItemUri,
-  getPlaylistTypeForItemType,
+  getPlaylistTypeForItem,
   playlistTypes,
   PlexAPIError,
   toPublicPlaylistDetail,
@@ -17,7 +17,11 @@ import { resolveServer } from "~/server/api/routers/plex-server";
 const playlistRatingKeySchema = z.string().regex(/^[1-9]\d*$/);
 const playlistItemIdSchema = z.number().int().positive();
 const metadataRatingKeySchema = z.string().regex(/^\d+$/);
-const playlistMediaKeySchema = z.string().regex(/^\/library\/metadata\/\d+$/);
+const playlistMediaKeySchema = z
+  .string()
+  .regex(
+    /^\/library\/(?:metadata\/\d+(?:\/children)?|collections\/\d+\/children)$/,
+  );
 const PLAYLIST_REORDER_PAGE_SIZE = 500;
 const MAX_REORDERABLE_PLAYLIST_ITEMS = 10_000;
 
@@ -482,7 +486,7 @@ export const playlistProcedures = {
         input.ratingKey,
         input.key,
       );
-      if (playlist.playlistType !== getPlaylistTypeForItemType(item.type)) {
+      if (playlist.playlistType !== getPlaylistTypeForItem(item)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "This item is incompatible with the playlist",
@@ -529,7 +533,7 @@ export const playlistProcedures = {
         input.ratingKey,
         input.key,
       );
-      if (input.type !== getPlaylistTypeForItemType(item.type)) {
+      if (input.type !== getPlaylistTypeForItem(item)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "This item is incompatible with the playlist",

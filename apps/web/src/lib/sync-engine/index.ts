@@ -99,6 +99,7 @@ export {
 export {
   sanitizeContinueWatchingItem,
   sanitizeHomeHub,
+  hasFreshMediaItemDetails,
   sanitizeLibraryHubsSnapshot,
   sanitizeMediaItemDetails,
   sanitizeServer,
@@ -107,6 +108,7 @@ export {
   sanitizeWatchTogetherInvitee,
   sanitizeWatchTogetherRoom,
   cloneForPersistence,
+  MEDIA_ITEM_DETAILS_STALE_TIME_MS,
   type SanitizedBrowsePageRow,
   type SanitizedContinueWatchingRow,
   type SanitizedHomeHubRow,

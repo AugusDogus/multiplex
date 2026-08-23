@@ -121,7 +121,9 @@ export function useCollectionRowById<T extends RowWithId>(
   collection: CollectionLike<T> | null | undefined,
   id: string | null | undefined,
 ) {
-  const { data: rows, isLoading } = useCollectionRows<T>(collection);
+  const { data: rows, isLoading } = useCollectionRows<T>(
+    id ? collection : undefined,
+  );
   const data = id ? rows.find((row) => row.id === id) : undefined;
 
   return { data, isLoading };

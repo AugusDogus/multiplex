@@ -68,6 +68,7 @@ import type {
   SanitizedWatchTogetherInviteeRow,
   SanitizedWatchTogetherRoomRow,
 } from "./sanitize";
+import { hasFreshMediaItemDetails } from "./sanitize";
 import { getSyncEngineTrpcClient } from "./trpc-client";
 import { toPlexUserInfo } from "./user-info-view";
 import { toWatchTogetherRoom } from "./watch-together-view";
@@ -104,6 +105,7 @@ function useWarmOnce(
 ) {
   const [isWarming, setIsWarming] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const [completedKey, setCompletedKey] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
   const warmEvent = useEffectEvent(warm);
   // Track successful/in-flight key so empty results / 404s do not spin forever.
@@ -114,6 +116,7 @@ function useWarmOnce(
   const retry = () => {
     attemptCountRef.current = 0;
     settledKeyRef.current = null;
+    setCompletedKey(null);
     setRetryNonce((value) => value + 1);
   };
 
@@ -124,6 +127,7 @@ function useWarmOnce(
       activeKeyRef.current = key;
       attemptCountRef.current = 0;
       settledKeyRef.current = null;
+      setCompletedKey(null);
     }
 
     if (settledKeyRef.current === key) return;
@@ -134,6 +138,9 @@ function useWarmOnce(
     setIsWarming(true);
     setError(null);
     void runWarmAttempt(warmEvent)
+      .then(() => {
+        if (!cancelled) setCompletedKey(key);
+      })
       .catch((cause: unknown) => {
         if (cancelled) return;
         setError(
@@ -161,7 +168,12 @@ function useWarmOnce(
     };
   }, [enabled, key, retryNonce]);
 
-  return { isWarming, error, retry };
+  return {
+    isWarming,
+    error,
+    retry,
+    isComplete: Boolean(key && completedKey === key),
+  };
 }
 
 export function useSyncedContinueWatching() {
@@ -305,15 +317,18 @@ export function useSyncedItemDetails(
     enabled ? id : null,
   );
 
-  const hasFullDetails = Boolean(row?.hasFullDetails && row.item);
+  const hasFullDetails = Boolean(row && row.fullDetailsUpdatedAt !== null);
+  const hasFreshDetails = hasFreshMediaItemDetails(row);
   const missingPlayCredentials = !resolveItemCredentials(id, row ?? undefined)
     .authToken;
   // Re-warm when OPFS has details but credentials are still missing.
   const needsWarm = Boolean(
-    enabled && collections && (!hasFullDetails || missingPlayCredentials),
+    enabled && collections && (!hasFreshDetails || missingPlayCredentials),
   );
-  const { isWarming, error } = useWarmOnce(
-    needsWarm ? `details:${id}` : null,
+  const { isWarming, error, retry, isComplete } = useWarmOnce(
+    needsWarm
+      ? `details:${id}:${row?.fullDetailsUpdatedAt ?? "missing"}`
+      : null,
     async () => {
       if (!collections) return;
       await warmMediaItem(collections, getSyncEngineTrpcClient(), {
@@ -338,6 +353,8 @@ export function useSyncedItemDetails(
     isFetching: isWarming,
     isError: Boolean(error),
     error,
+    retry,
+    isComplete,
   };
 }
 

@@ -226,10 +226,6 @@ function ContinueWatchingItem({
         showPlayOverlay={canPlay}
         onPlay={handlePlay}
         onNavigateClick={handleNavigateClick}
-        actionsTarget={{
-          serverId: item.serverId,
-          ratingKey: item.ratingKey,
-        }}
         priority={priority}
       />
 

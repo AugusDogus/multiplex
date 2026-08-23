@@ -174,3 +174,13 @@ export function getPlaylistTypeForItemType(itemType: string): PlaylistType {
       return "video";
   }
 }
+
+/** Classify collections by their media subtype and ordinary items by type. */
+export function getPlaylistTypeForItem(item: {
+  type: string;
+  subtype?: string | null;
+}): PlaylistType {
+  return getPlaylistTypeForItemType(
+    item.type === "collection" && item.subtype ? item.subtype : item.type,
+  );
+}
