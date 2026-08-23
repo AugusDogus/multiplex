@@ -1,6 +1,6 @@
 "use client";
 
-import { CirclePlay, MoreHorizontal, Play } from "lucide-react";
+import { CirclePlay, Play } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
@@ -11,6 +11,7 @@ import {
   type HubItemWithServer,
 } from "@multiplex/plex-query";
 import { MediaProgressBar } from "~/components/media-progress-bar";
+import { MediaItemActionsMenu } from "~/components/media-item-actions-menu";
 import { Button } from "~/components/ui/button";
 import { getHubItemHref } from "~/lib/plex-routes";
 import { getPlexImagePath } from "~/lib/plex-image";
@@ -33,7 +34,10 @@ interface MediaPosterCardContentBaseProps {
   showPlayOverlay?: boolean;
   onPlay?: () => void;
   onNavigateClick?: (event: React.MouseEvent) => void;
-  showMobileMenuHint?: boolean;
+  actionsTarget?: {
+    serverId: string;
+    ratingKey: string;
+  };
   /** Eager-load above-the-fold posters (Continue Watching LCP). */
   priority?: boolean;
 }
@@ -119,9 +123,11 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
     progressPercent = 0,
     isCompleted = false,
     onNavigateClick,
-    showMobileMenuHint = false,
     priority = false,
   } = resolved;
+  const actionsTarget = item
+    ? { serverId: item.serverId, ratingKey: item.ratingKey }
+    : resolved.actionsTarget;
   const detailsTarget = resolved.detailsTarget;
   const detailsHref = detailsTarget
     ? itemDetailsNavigation.getHref(detailsTarget)
@@ -206,12 +212,18 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
           className="bg-muted relative block size-full overflow-hidden rounded-md shadow-lg transition-[transform,box-shadow] duration-200 ease-out group-hover:shadow-xl active:scale-[0.98] md:active:scale-100"
         >
           {posterContent}
-          {showMobileMenuHint && (
-            <div className="absolute top-2 left-2 rounded bg-black/60 p-1 md:hidden">
-              <MoreHorizontal className="h-4 w-4 text-white" />
-            </div>
-          )}
         </Link>
+
+        {actionsTarget && (
+          <div className="absolute top-2 right-2 z-20 transition-opacity duration-150 ease-out md:pointer-fine:opacity-0 md:pointer-fine:group-focus-within:opacity-100 md:pointer-fine:group-hover:opacity-100">
+            <MediaItemActionsMenu
+              serverId={actionsTarget.serverId}
+              ratingKey={actionsTarget.ratingKey}
+              title={title}
+              presentation="poster"
+            />
+          </div>
+        )}
 
         {showPlayOverlay && onPlay && (
           <div className="pointer-events-none absolute inset-0 hidden items-center justify-center bg-black/60 opacity-0 transition-opacity duration-200 group-hover:opacity-100 md:flex">

@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
-import { Check, Loader2, MoreHorizontal, Play, Share2 } from "lucide-react";
+import { Check, Loader2, Play, Share2 } from "lucide-react";
 import {
   formatDetailsTimeRemaining,
   getBackdropImagePath,
@@ -16,44 +16,21 @@ import {
 
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "~/components/ui/menu";
-import {
-  playerCommands,
-  usePlayerStateSelector,
-} from "~/lib/effect/player-atoms";
+import { MediaItemActionsMenu } from "~/components/media-item-actions-menu";
 import { getPlexImagePath } from "~/lib/plex-image";
 import {
   refetchSyncedMediaItem,
   refetchSyncedShellCollections,
 } from "~/lib/sync-engine";
-import { shallow } from "zustand/shallow";
 import { api } from "~/trpc/api";
 
-import { AddToPlaylistDialog } from "./add-to-playlist-dialog";
-import { MediaInfoDialog } from "./media-info-dialog";
 import { MetadataDirectors } from "./metadata-directors";
 import { MetadataGenres } from "./metadata-genres";
 import { MetadataRating } from "./metadata-rating";
 import { MetadataSummaryRow } from "./metadata-summary-row";
 import type { ItemDetails, PlayTarget } from "./types";
-import { WatchTogetherInviteDialog } from "./watch-together-invite-dialog";
 
 const SHARE_FEEDBACK_MS = 2_500;
-const PLEX_ACTION_NOT_IMPLEMENTED =
-  "This Plex action is disabled until the matching Plex behavior is implemented.";
-const QUEUE_ACTION_REQUIRES_PLAYER =
-  "Start playback first to add items to the active queue.";
-const QUEUE_ACTION_PENDING = "Updating the active Plex queue.";
-const PLEX_ACTION_REQUIRES_SERVER =
-  "This action needs an active server connection.";
-const GET_INFO_REQUIRES_MEDIA =
-  "Media info is only available once this item has playable media.";
 
 interface DetailsHeroProps {
   item: ItemDetails["item"];
@@ -290,13 +267,6 @@ function HeroActions({
   authToken,
   playButtonClassName,
 }: HeroActionsProps) {
-  const { currentPlayerItem, playQueueId } = usePlayerStateSelector(
-    (state) => ({
-      currentPlayerItem: state.currentItem,
-      playQueueId: state.playQueueId,
-    }),
-    shallow,
-  );
   const itemWatched = getItemWatchedState(item);
   const [confirmedWatchedOverride, setConfirmedWatchedOverride] = useState<{
     ratingKey: string;
@@ -304,12 +274,7 @@ function HeroActions({
   } | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
-  const [mediaInfoOpen, setMediaInfoOpen] = useState(false);
-  const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
-  const [watchTogetherOpen, setWatchTogetherOpen] = useState(false);
   const shareResetTimeoutRef = useRef<number | null>(null);
-  const hasMediaInfo = Boolean(item.Media?.length);
-  const canWatchTogether = Boolean(playTarget && serverUrl && authToken);
   const visibleWatched =
     confirmedWatchedOverride?.ratingKey === item.ratingKey
       ? confirmedWatchedOverride.watched
@@ -320,12 +285,6 @@ function HeroActions({
   const watchedPendingLabel = visibleWatched
     ? "Marking as unwatched"
     : "Marking as watched";
-  const canUpdateActiveQueue = Boolean(
-    serverUrl &&
-      authToken &&
-      playQueueId &&
-      currentPlayerItem?.serverId === serverId,
-  );
 
   useEffect(() => {
     return () => {
@@ -356,15 +315,9 @@ function HeroActions({
     },
   });
 
-  const updatePlayQueueMutation = api.plex.updatePlayQueue.useMutation();
-
   const watchedButtonLabel = setWatchedStateMutation.isPending
     ? watchedPendingLabel
     : watchedActionLabel;
-  const queueActionDisabledReason = getQueueActionDisabledReason(
-    canUpdateActiveQueue,
-    updatePlayQueueMutation.isPending,
-  );
   const shareButtonLabel = shareCopied ? "Copied" : "Share";
   const shareActionLabel = shareCopied ? "Link copied" : "Copy share link";
 
@@ -379,52 +332,6 @@ function HeroActions({
       ratingKey: item.ratingKey,
       watched: !visibleWatched,
     });
-  };
-
-  const updateActiveQueue = (next: boolean) => {
-    if (!playQueueId || updatePlayQueueMutation.isPending) {
-      return;
-    }
-
-    const playbackIdentity = playerCommands.playbackIdentity();
-    if (playbackIdentity?.serverId !== serverId) {
-      return;
-    }
-    const activePlayQueueId = playQueueId;
-
-    setFeedbackMessage(next ? "Adding to Play Next..." : "Adding to queue...");
-    updatePlayQueueMutation.mutate(
-      {
-        serverId,
-        playQueueId: activePlayQueueId,
-        ratingKey: item.ratingKey,
-        key: item.key,
-        type: "video",
-        next,
-      },
-      {
-        onSuccess: (updatedPlayQueue) => {
-          if (playerCommands.snapshot().playQueueId !== activePlayQueueId) {
-            return;
-          }
-
-          const wasApplied = playerCommands.updatePlaybackStateFor(
-            playbackIdentity,
-            {
-              playQueue: updatedPlayQueue,
-              playQueueId:
-                updatedPlayQueue.MediaContainer.playQueueID.toString(),
-            },
-          );
-          if (wasApplied) {
-            setFeedbackMessage(next ? "Will play next" : "Added to queue");
-          }
-        },
-        onError: (error) => {
-          setFeedbackMessage(error.message);
-        },
-      },
-    );
   };
 
   const copyShareLink = () => {
@@ -499,27 +406,11 @@ function HeroActions({
         )}
         <span className="min-w-14 text-center">{shareButtonLabel}</span>
       </Button>
-      <HeroMoreActions
-        canWatchTogether={canWatchTogether}
-        queueActionDisabledReason={queueActionDisabledReason}
-        hasMediaInfo={hasMediaInfo}
-        onWatchTogether={() => setWatchTogetherOpen(true)}
-        onUpdateActiveQueue={updateActiveQueue}
-        onAddToPlaylist={() => setAddToPlaylistOpen(true)}
-        onMediaInfo={() => setMediaInfoOpen(true)}
-      />
-      <HeroActionDialogs
-        item={item}
+      <MediaItemActionsMenu
         serverId={serverId}
-        serverUrl={serverUrl}
-        authToken={authToken}
-        playTarget={playTarget}
-        mediaInfoOpen={mediaInfoOpen}
-        onMediaInfoOpenChange={setMediaInfoOpen}
-        addToPlaylistOpen={addToPlaylistOpen}
-        onAddToPlaylistOpenChange={setAddToPlaylistOpen}
-        watchTogetherOpen={watchTogetherOpen}
-        onWatchTogetherOpenChange={setWatchTogetherOpen}
+        ratingKey={item.ratingKey}
+        title={item.title}
+        details={{ item, playTarget, serverUrl, authToken }}
         onFeedback={setFeedbackMessage}
       />
       {feedbackMessage && (
@@ -534,194 +425,10 @@ function HeroActions({
   );
 }
 
-interface HeroMoreActionsProps {
-  canWatchTogether: boolean;
-  queueActionDisabledReason: string | undefined;
-  hasMediaInfo: boolean;
-  onWatchTogether: () => void;
-  onUpdateActiveQueue: (next: boolean) => void;
-  onAddToPlaylist: () => void;
-  onMediaInfo: () => void;
-}
-
-function HeroMoreActions({
-  canWatchTogether,
-  queueActionDisabledReason,
-  hasMediaInfo,
-  onWatchTogether,
-  onUpdateActiveQueue,
-  onAddToPlaylist,
-  onMediaInfo,
-}: HeroMoreActionsProps) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button variant="outline" size="icon" aria-label="More actions" />
-        }
-      >
-        <MoreHorizontal />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuGroup>
-          <DropdownMenuItem
-            onClick={onWatchTogether}
-            disabled={!canWatchTogether}
-            aria-label={
-              canWatchTogether
-                ? undefined
-                : getDisabledMenuItemLabel(
-                    "Watch Together...",
-                    PLEX_ACTION_REQUIRES_SERVER,
-                  )
-            }
-            title={canWatchTogether ? undefined : PLEX_ACTION_REQUIRES_SERVER}
-          >
-            Watch Together...
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => onUpdateActiveQueue(true)}
-            disabled={Boolean(queueActionDisabledReason)}
-            aria-label={
-              queueActionDisabledReason
-                ? getDisabledMenuItemLabel(
-                    "Play Next",
-                    queueActionDisabledReason,
-                  )
-                : undefined
-            }
-            title={queueActionDisabledReason}
-          >
-            Play Next
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => onUpdateActiveQueue(false)}
-            disabled={Boolean(queueActionDisabledReason)}
-            aria-label={
-              queueActionDisabledReason
-                ? getDisabledMenuItemLabel(
-                    "Add to Queue",
-                    queueActionDisabledReason,
-                  )
-                : undefined
-            }
-            title={queueActionDisabledReason}
-          >
-            Add to Queue
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={onAddToPlaylist}>
-            Add to...
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled
-            aria-label={getDisabledMenuItemLabel(
-              "Report Issue...",
-              PLEX_ACTION_NOT_IMPLEMENTED,
-            )}
-            title={PLEX_ACTION_NOT_IMPLEMENTED}
-          >
-            Report Issue...
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={onMediaInfo}
-            disabled={!hasMediaInfo}
-            aria-label={
-              hasMediaInfo
-                ? undefined
-                : getDisabledMenuItemLabel("Get Info", GET_INFO_REQUIRES_MEDIA)
-            }
-            title={hasMediaInfo ? undefined : GET_INFO_REQUIRES_MEDIA}
-          >
-            Get Info
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-interface HeroActionDialogsProps {
-  item: ItemDetails["item"];
-  serverId: string;
-  serverUrl: string | undefined;
-  authToken: string | undefined;
-  playTarget: PlayTarget;
-  mediaInfoOpen: boolean;
-  onMediaInfoOpenChange: (open: boolean) => void;
-  addToPlaylistOpen: boolean;
-  onAddToPlaylistOpenChange: (open: boolean) => void;
-  watchTogetherOpen: boolean;
-  onWatchTogetherOpenChange: (open: boolean) => void;
-  onFeedback: (message: string | null) => void;
-}
-
-function HeroActionDialogs({
-  item,
-  serverId,
-  serverUrl,
-  authToken,
-  playTarget,
-  mediaInfoOpen,
-  onMediaInfoOpenChange,
-  addToPlaylistOpen,
-  onAddToPlaylistOpenChange,
-  watchTogetherOpen,
-  onWatchTogetherOpenChange,
-  onFeedback,
-}: HeroActionDialogsProps) {
-  return (
-    <>
-      <MediaInfoDialog
-        item={item}
-        serverUrl={serverUrl}
-        authToken={authToken}
-        open={mediaInfoOpen}
-        onOpenChange={onMediaInfoOpenChange}
-      />
-      <AddToPlaylistDialog
-        item={item}
-        serverId={serverId}
-        open={addToPlaylistOpen}
-        onOpenChange={onAddToPlaylistOpenChange}
-        onFeedback={onFeedback}
-      />
-      {serverUrl && authToken && (
-        <WatchTogetherInviteDialog
-          item={item}
-          playTarget={playTarget}
-          serverId={serverId}
-          open={watchTogetherOpen}
-          onOpenChange={onWatchTogetherOpenChange}
-          onFeedback={onFeedback}
-        />
-      )}
-    </>
-  );
-}
-
 function getItemWatchedState(item: ItemDetails["item"]): boolean {
   if (item.leafCount !== undefined && item.viewedLeafCount !== undefined) {
     return item.leafCount > 0 && item.viewedLeafCount >= item.leafCount;
   }
 
   return (item.viewCount ?? 0) > 0;
-}
-
-function getQueueActionDisabledReason(
-  canUpdateActiveQueue: boolean,
-  isPending: boolean,
-): string | undefined {
-  if (!canUpdateActiveQueue) {
-    return QUEUE_ACTION_REQUIRES_PLAYER;
-  }
-
-  if (isPending) {
-    return QUEUE_ACTION_PENDING;
-  }
-
-  return undefined;
-}
-
-function getDisabledMenuItemLabel(label: string, reason: string): string {
-  return label.endsWith(".") ? `${label} ${reason}` : `${label}. ${reason}`;
 }
