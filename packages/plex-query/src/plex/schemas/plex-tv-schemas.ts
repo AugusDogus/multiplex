@@ -346,7 +346,7 @@ export const rawUserInfoSchema = z.object({
     .default([]),
   adsConsent: z.null(),
   adsConsentSetAt: z.null(),
-  adsConsentReminderAt: z.null(),
+  adsConsentReminderAt: z.number().nullable(),
   experimentalFeatures: z.boolean().optional(),
   twoFactorEnabled: z.boolean().optional(),
   backupCodesCreated: z.boolean().optional(),
