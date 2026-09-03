@@ -1134,9 +1134,6 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
                 return
             self._send_bytes(payload, "application/octet-stream")
         elif path == "/v4/playback.bin":
-            if self.playback_manifest_bytes is None:
-                self.send_error(404)
-                return
             rating_key_value = query.get("ratingKey", [""])[0]
             if rating_key_value:
                 if not rating_key_value.isdigit():
@@ -1154,6 +1151,9 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
                     return
                 self._send_bytes(playback[0], "application/octet-stream")
             else:
+                if self.playback_manifest_bytes is None:
+                    self.send_error(404)
+                    return
                 self._send_bytes(
                     self.playback_manifest_bytes, "application/octet-stream"
                 )

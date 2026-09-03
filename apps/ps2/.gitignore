@@ -1,0 +1,9 @@
+/build-native-reference/
+/build-network-probe/
+/build-scene-client/
+/.pcsx2/
+__pycache__/
+*.pyc
+/multiplex-ps2-network-probe.elf
+/multiplex-ps2-scene-client.elf
+/multiplex-ps2-native-reference.elf
