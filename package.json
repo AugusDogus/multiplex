@@ -54,7 +54,16 @@
     "gamecube:raylib:run": "sh apps/gamecube/scripts/run-dolphin.sh apps/gamecube/multiplex-gamecube-raylib-reference.dol",
     "wii:reference:dol": "bun --filter @multiplex/wii reference:dol",
     "wii:reference:smoke-player": "MULTIPLEX_REFERENCE_DOL=apps/wii/multiplex-wii-native-reference.dol MULTIPLEX_REFERENCE_BUILD_SCRIPT=../../wii/scripts/build-reference-dol.sh MULTIPLEX_CONSOLE_NAME=Wii MULTIPLEX_CONTROLLER_PIPE=multiplex-wii1 sh apps/gamecube/scripts/smoke-dolphin-player.sh",
-    "wii:reference:plex": "MULTIPLEX_REFERENCE_DOL=apps/wii/multiplex-wii-native-reference.dol MULTIPLEX_REFERENCE_BUILD_SCRIPT=../../wii/scripts/build-reference-dol.sh MULTIPLEX_CONSOLE_NAME=Wii MULTIPLEX_CONTROLLER_PIPE=multiplex-wii1 MULTIPLEX_DOLPHIN_NETWORK=native sh apps/gamecube/scripts/run-dolphin-plex.sh"
+    "wii:reference:plex": "MULTIPLEX_REFERENCE_DOL=apps/wii/multiplex-wii-native-reference.dol MULTIPLEX_REFERENCE_BUILD_SCRIPT=../../wii/scripts/build-reference-dol.sh MULTIPLEX_CONSOLE_NAME=Wii MULTIPLEX_CONTROLLER_PIPE=multiplex-wii1 MULTIPLEX_DOLPHIN_NETWORK=native sh apps/gamecube/scripts/run-dolphin-plex.sh",
+    "dreamcast:bootstrap": "bun --filter @multiplex/dreamcast bootstrap",
+    "dreamcast:flycast:bootstrap": "bun --filter @multiplex/dreamcast flycast:bootstrap",
+    "dreamcast:test": "bun --filter @multiplex/dreamcast test",
+    "dreamcast:build": "bun --filter @multiplex/dreamcast build",
+    "dreamcast:run": "bun --filter @multiplex/dreamcast run",
+    "dreamcast:smoke": "bun --filter @multiplex/dreamcast smoke",
+    "dreamcast:reference:elf": "bun run dreamcast:build",
+    "dreamcast:reference:run": "bun run dreamcast:run",
+    "dreamcast:reference:smoke": "bun run dreamcast:smoke"
   },
   "devDependencies": {
     "@oxlint/plugins": "1.78.0",

@@ -3,6 +3,7 @@ FROM oven/bun:1.3.10-alpine AS deps
 WORKDIR /app
 
 COPY package.json bun.lock ./
+COPY apps/dreamcast/package.json ./apps/dreamcast/
 COPY apps/gamecube/package.json ./apps/gamecube/
 COPY apps/watch-together-harness/package.json ./apps/watch-together-harness/
 COPY apps/web/package.json ./apps/web/

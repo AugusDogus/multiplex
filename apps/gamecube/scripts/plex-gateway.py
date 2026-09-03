@@ -14,6 +14,7 @@ import struct
 import subprocess
 import sys
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -769,6 +770,7 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
     playback_cache_lock = threading.Lock()
     playback_preparing: dict[tuple[int, int], threading.Event] = {}
     segment_duration_seconds = 120.0
+    playback_target = "gamecube"
     playback_session_id = "multiplex-gamecube"
     plex_base_url: str
     plex_token: str | None
@@ -882,7 +884,7 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
         session_dir = cls.media_path.parent / "sessions"
         session_dir.mkdir(parents=True, exist_ok=True)
         duration_key = round(cls.segment_duration_seconds * 1000)
-        session_name = f"{rating_key}-{offset_ms}-{duration_key}"
+        session_name = f"{cls.playback_target}-{rating_key}-{offset_ms}-{duration_key}"
         media_path = session_dir / f"{session_name}.mpg"
         metadata_path = session_dir / f"{session_name}.json"
         try:
@@ -904,6 +906,8 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
                     str(offset_ms / 1000),
                     "--duration",
                     str(cls.segment_duration_seconds),
+                    "--target",
+                    cls.playback_target,
                 ]
                 result = subprocess.run(
                     command,
@@ -1022,12 +1026,15 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
         if range_header is not None:
             self.send_header("Content-Range", f"bytes {start}-{end}/{len(body)}")
         self.send_header("Content-Length", str(len(payload)))
-        self.send_header("Connection", "keep-alive")
+        closes_after_response = self.playback_target == "dreamcast"
+        self.send_header("Connection", "close" if closes_after_response else "keep-alive")
         self.end_headers()
         try:
             self.wfile.write(payload)
             self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True
+        if closes_after_response:
             self.close_connection = True
 
     def _send_media(self, media_path: pathlib.Path | None = None) -> None:
@@ -1060,20 +1067,31 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
         if range_header is not None:
             self.send_header("Content-Range", f"bytes {start}-{end}/{media_size}")
         self.send_header("Content-Length", str(body_size))
-        self.send_header("Connection", "keep-alive")
+        closes_after_response = self.playback_target == "dreamcast"
+        self.send_header(
+            "Connection", "close" if closes_after_response else "keep-alive"
+        )
         self.end_headers()
         try:
             with selected_path.open("rb") as media:
                 media.seek(start)
                 remaining = body_size
                 while remaining:
-                    chunk = media.read(min(64 * 1024, remaining))
+                    chunk_limit = (
+                        1024 if self.playback_target == "dreamcast" else 64 * 1024
+                    )
+                    chunk = media.read(min(chunk_limit, remaining))
                     if not chunk:
                         raise OSError("media file ended during response")
                     self.wfile.write(chunk)
+                    if self.playback_target == "dreamcast":
+                        self.wfile.flush()
+                        time.sleep(0.01)
                     remaining -= len(chunk)
             self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True
+        if closes_after_response:
             self.close_connection = True
 
     def do_GET(self) -> None:
@@ -1222,11 +1240,16 @@ def main() -> None:
         default=os.environ.get("PLEX_TOKEN"),
     )
     parser.add_argument("--media-metadata", type=pathlib.Path)
-    parser.add_argument("--segment-duration", type=float, default=120.0)
+    parser.add_argument("--segment-duration", type=float)
+    parser.add_argument(
+        "--target", choices=("gamecube", "dreamcast"), default="gamecube"
+    )
     parser.add_argument("--multiplex-base-url")
     parser.add_argument("--multiplex-state", type=pathlib.Path)
     arguments = parser.parse_args()
 
+    if arguments.segment_duration is None:
+        arguments.segment_duration = 8.0 if arguments.target == "dreamcast" else 120.0
     if arguments.segment_duration <= 0:
         parser.error("--segment-duration must be greater than zero")
 
@@ -1250,7 +1273,8 @@ def main() -> None:
     GatewayHandler.plex_base_url = arguments.plex_base_url
     GatewayHandler.plex_token = arguments.token
     GatewayHandler.segment_duration_seconds = arguments.segment_duration
-    GatewayHandler.playback_session_id = f"multiplex-gamecube-{os.getpid()}"
+    GatewayHandler.playback_target = arguments.target
+    GatewayHandler.playback_session_id = f"multiplex-{arguments.target}-{os.getpid()}"
     GatewayHandler.libraries = {library.section_id: library for library in libraries}
     GatewayHandler.pairing_client = None
     if arguments.multiplex_base_url:
@@ -1340,6 +1364,7 @@ def main() -> None:
             "libraries": len(libraries),
             "mediaBytes": arguments.media.stat().st_size,
             "multiplexPairing": GatewayHandler.pairing_client is not None,
+            "target": GatewayHandler.playback_target,
         },
         separators=(",", ":"),
     ).encode("utf-8")

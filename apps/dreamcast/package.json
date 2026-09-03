@@ -1,0 +1,16 @@
+{
+  "name": "@multiplex/dreamcast",
+  "private": true,
+  "description": "Dreamcast composition root for the Multiplex KallistiOS/PVR client",
+  "scripts": {
+    "bootstrap": "sh scripts/bootstrap.sh",
+    "test": "sh scripts/test-app-state.sh",
+    "build": "bash scripts/build-reference-elf.sh",
+    "run": "sh scripts/run-flycast.sh",
+    "smoke": "sh scripts/smoke-flycast.sh",
+    "flycast:bootstrap": "sh scripts/bootstrap-flycast.sh",
+    "reference:elf": "bun run build",
+    "reference:run": "bun run run",
+    "reference:smoke": "bun run smoke"
+  }
+}

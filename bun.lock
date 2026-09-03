@@ -11,6 +11,9 @@
         "portless": "^0.15.4",
       },
     },
+    "apps/dreamcast": {
+      "name": "@multiplex/dreamcast",
+    },
     "apps/gamecube": {
       "name": "@multiplex/gamecube",
     },
@@ -397,6 +400,8 @@
     "@multiplex/auth-plugin-plex": ["@multiplex/auth-plugin-plex@workspace:packages/auth-plugin-plex"],
 
     "@multiplex/console-ui": ["@multiplex/console-ui@workspace:packages/console-ui"],
+
+    "@multiplex/dreamcast": ["@multiplex/dreamcast@workspace:apps/dreamcast"],
 
     "@multiplex/gamecube": ["@multiplex/gamecube@workspace:apps/gamecube"],
 
