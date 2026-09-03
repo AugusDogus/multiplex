@@ -29,6 +29,7 @@
     "@journeyapps/wa-sqlite": "1.7.2",
     "@libsql/client": "^0.14.0",
     "@multiplex/auth-plugin-plex": "workspace:*",
+    "@multiplex/desktop-contracts": "workspace:*",
     "@multiplex/plex-query": "workspace:*",
     "@t3-oss/env-nextjs": "^0.12.0",
     "@tanstack/browser-db-sqlite-persistence": "0.2.8",

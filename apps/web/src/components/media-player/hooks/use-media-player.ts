@@ -19,6 +19,10 @@ import {
   markTranscodeSessionStopped,
   stopTranscodeSessionBeforeReplacement,
 } from "../utils/plex-stream-urls";
+import {
+  getDesktopPlayer,
+  getNativePlaybackIdentity,
+} from "~/lib/desktop-player";
 
 const TRANSCODE_SEEK_COALESCE_MS = 200;
 
@@ -94,6 +98,11 @@ export function useMediaPlayer() {
     console.log("🎬 Player: play() called");
     pauseRequestedRef.current = false;
     const intentRevision = playbackIntent.beginPlay();
+    const desktopPlayer = getDesktopPlayer();
+    const nativeIdentity = getNativePlaybackIdentity();
+    if (desktopPlayer && nativeIdentity) {
+      return desktopPlayer.play(nativeIdentity);
+    }
     const video = videoRef.current;
     const playbackIdentity = playerCommands.playbackIdentity();
     const sourceGeneration = playerCommands.snapshot().sourceGeneration;
@@ -140,6 +149,12 @@ export function useMediaPlayer() {
   const pause = () => {
     console.log("🎬 Player: pause() called");
     playbackIntent.pause();
+    const desktopPlayer = getDesktopPlayer();
+    const nativeIdentity = getNativePlaybackIdentity();
+    if (desktopPlayer && nativeIdentity) {
+      void desktopPlayer.pause(nativeIdentity);
+      return;
+    }
     const video = videoRef.current;
     const playbackIdentity = playerCommands.playbackIdentity();
     if (video && playbackIdentity) {
@@ -195,6 +210,21 @@ export function useMediaPlayer() {
    * @param time - Time to seek to in seconds
    */
   const seek = (time: number): MediaPlayerSeekResult => {
+    const desktopPlayer = getDesktopPlayer();
+    const nativeIdentity = getNativePlaybackIdentity();
+    if (desktopPlayer && nativeIdentity) {
+      const clampedTime = clamp(time, 0, playerCommands.snapshot().duration);
+      const result = desktopPlayer.seek({
+        identity: nativeIdentity,
+        seconds: clampedTime,
+      });
+      if (result === "direct") {
+        playerCommands.updatePlaybackStateFor(nativeIdentity, {
+          currentTime: clampedTime,
+        });
+      }
+      return result;
+    }
     const video = videoRef.current;
     const playbackIdentity = playerCommands.playbackIdentity();
     if (video && playbackIdentity) {
@@ -277,8 +307,19 @@ export function useMediaPlayer() {
    * @param volume - Volume level (0-1)
    */
   const setVolume = (volume: number) => {
+    const clampedVolume = clamp(volume, 0, 1);
+    const desktopPlayer = getDesktopPlayer();
+    const nativeIdentity = getNativePlaybackIdentity();
+    if (desktopPlayer && nativeIdentity) {
+      usePlayerPrefsStore.getState().setVolume(clampedVolume);
+      void desktopPlayer.setVolume({
+        identity: nativeIdentity,
+        volume: clampedVolume,
+        muted: usePlayerPrefsStore.getState().isMuted,
+      });
+      return;
+    }
     if (videoRef.current) {
-      const clampedVolume = clamp(volume, 0, 1);
       videoRef.current.volume = clampedVolume;
       usePlayerPrefsStore.getState().setVolume(clampedVolume);
     }
@@ -288,6 +329,18 @@ export function useMediaPlayer() {
    * Toggle mute state
    */
   const toggleMute = () => {
+    const desktopPlayer = getDesktopPlayer();
+    const nativeIdentity = getNativePlaybackIdentity();
+    if (desktopPlayer && nativeIdentity) {
+      usePlayerPrefsStore.getState().toggleMute();
+      const preferences = usePlayerPrefsStore.getState();
+      void desktopPlayer.setVolume({
+        identity: nativeIdentity,
+        volume: preferences.volume,
+        muted: preferences.isMuted,
+      });
+      return;
+    }
     if (videoRef.current) {
       const newMuted = !usePlayerPrefsStore.getState().isMuted;
       videoRef.current.muted = newMuted;

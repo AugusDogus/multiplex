@@ -58,6 +58,7 @@ import { getWatchTogetherRoomHref } from "~/lib/watch-together-source";
 import { cn } from "~/lib/utils";
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import { shallow } from "zustand/shallow";
+import { useNativePlayerAvailable } from "~/lib/desktop-player";
 
 /* ────────────────────────────────────────────────────────────
    Media Player Modal
@@ -524,6 +525,7 @@ function usePlaybackSessionController({
 }
 
 function useMediaPlayerModalController(): MediaPlayerModalViewProps | null {
+  const nativePlayerAvailable = useNativePlayerAvailable();
   const router = useRouter();
   const {
     isOpen,
@@ -774,6 +776,7 @@ function useMediaPlayerModalController(): MediaPlayerModalViewProps | null {
   if (!currentItem) return null;
 
   return {
+    nativePlayerAvailable,
     onClose: handleClose,
     dragRef,
     dragHandlers,
@@ -825,6 +828,7 @@ function useMediaPlayerModalController(): MediaPlayerModalViewProps | null {
 }
 
 interface MediaPlayerModalViewProps {
+  nativePlayerAvailable: boolean;
   onClose: () => void;
   dragRef: ReturnType<typeof useDragToDismiss>["ref"];
   dragHandlers: ReturnType<typeof useDragToDismiss>["handlers"];
@@ -882,6 +886,7 @@ function MediaPlayerModalView({
   onMobileSkipForward,
   onSettingsOpenChange,
   onResetMobileControlsTimer,
+  nativePlayerAvailable,
 }: MediaPlayerModalViewProps) {
   const playToggleRef = useRef<HTMLButtonElement>(null);
   const {
@@ -897,7 +902,10 @@ function MediaPlayerModalView({
 
   return (
     <Dialog modal={false} open={isOpen} onOpenChange={onClose}>
-      <MediaPlayerDialogContent initialFocus={playToggleRef}>
+      <MediaPlayerDialogContent
+        initialFocus={playToggleRef}
+        nativeSurface={nativePlayerAvailable}
+      >
         <DialogTitle className="sr-only">
           Media Player - {currentItem.title}
         </DialogTitle>

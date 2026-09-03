@@ -92,7 +92,7 @@ function applyUniversalTranscodeProfile(
   );
 }
 
-function buildDirectPlayUrl(
+export function generatePlexNativeStreamUrl(
   item: PlexStreamSource,
   serverUrl: string,
   authToken: string,
@@ -108,6 +108,21 @@ function buildDirectPlayUrl(
   // Unique per playback so simultaneous viewers (and repeat plays) don't share
   // a session.
   streamUrl.searchParams.set("X-Plex-Session-Identifier", sessionId);
+  return streamUrl.toString();
+}
+
+export function generatePlexNativePartUrl(input: {
+  readonly serverUrl: string;
+  readonly authToken: string;
+  readonly partKey: string;
+  readonly sessionId: string;
+}): string {
+  const streamUrl = new URL(
+    `${getBaseServerUrl(input.serverUrl)}${input.partKey}`,
+  );
+  applyClientHeaders(streamUrl, input.authToken);
+  streamUrl.searchParams.set("X-Plex-Protocol", "1.0");
+  streamUrl.searchParams.set("X-Plex-Session-Identifier", input.sessionId);
   return streamUrl.toString();
 }
 
@@ -293,7 +308,7 @@ export function generatePlexStreamUrl(
 
   return playbackPlan.streamDecision === "direct-play" &&
     playbackPlan.burnedSubtitleId === null
-    ? buildDirectPlayUrl(item, serverUrl, authToken, sessionId)
+    ? generatePlexNativeStreamUrl(item, serverUrl, authToken, sessionId)
     : buildDirectStreamUrl(
         item,
         serverUrl,
