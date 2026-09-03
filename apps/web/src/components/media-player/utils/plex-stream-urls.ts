@@ -339,15 +339,33 @@ export async function preparePlexTranscodeDecision(
   return response.ok;
 }
 
+/** Official Plex clients ping about this often so PMS does not GC an idle session. */
+export const TRANSCODE_PING_INTERVAL_MS = 10_000;
+
 /**
- * Tells Plex to stop the transcode session(s) started for a playback, freeing
- * the server's transcode slot immediately. Without this, sessions linger
- * (throttled but alive) until they time out, and concurrent viewers / repeat
- * plays then hit the server's transcode limit and get HTTP 400 ("video source
- * not supported"). Best-effort: stops every session whose id starts with this
- * playback's `sessionPrefix` (we use one base id per playback, suffixed by the
- * seek offset). The official Plex client stops its session the same way.
+ * Keeps a Plex universal transcode session alive while the media element is
+ * paused or has buffered enough that it stops fetching. Without this, PMS
+ * garbage-collects the session and the next read remounts the video.
  */
+export async function pingTranscodeSession(
+  serverUrl: string,
+  authToken: string,
+  sessionKey: string,
+): Promise<boolean> {
+  if (!sessionKey) return false;
+  try {
+    const pingUrl = new URL(
+      `${getBaseServerUrl(serverUrl)}/video/:/transcode/universal/ping`,
+    );
+    applyClientHeaders(pingUrl, authToken);
+    pingUrl.searchParams.set("session", sessionKey);
+    const response = await fetch(pingUrl.toString());
+    return response.ok || response.status === 404;
+  } catch {
+    return false;
+  }
+}
+
 /** Stops a single transcode session by its exact key (best-effort). */
 export async function stopTranscodeSession(
   serverUrl: string,
@@ -397,6 +415,15 @@ export interface TranscodeCleanupOptions {
   readonly keepSessionKey?: () => string | null;
 }
 
+/**
+ * Tells Plex to stop the transcode session(s) started for a playback, freeing
+ * the server's transcode slot immediately. Without this, sessions linger
+ * (throttled but alive) until they time out, and concurrent viewers / repeat
+ * plays then hit the server's transcode limit and get HTTP 400 ("video source
+ * not supported"). Best-effort: stops every session whose id starts with this
+ * playback's `sessionPrefix` (we use one base id per playback, suffixed by the
+ * seek offset). The official Plex client stops its session the same way.
+ */
 export async function stopPlaybackTranscodeSessions(
   serverUrl: string,
   authToken: string,

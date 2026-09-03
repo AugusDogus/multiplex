@@ -515,6 +515,7 @@ export const makePlayerService: Effect.Effect<PlayerServiceContract> =
           }
 
           const shouldSeedStreamOffset =
+            videoSourceChanged &&
             current.streamOffset === 0 &&
             current.currentTime > 0 &&
             plan.videoUsesTranscode;

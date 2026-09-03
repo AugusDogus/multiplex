@@ -636,6 +636,29 @@ describe("SyncplaySessionController", () => {
     });
   });
 
+  test("does not snap a sub-second drift after reconnect", () => {
+    const sockets: FakeWebSocket[] = [];
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const state = makeState({ isPlaying: false, currentTime: 30.4 });
+    const controller = createController({ sockets, state, calls });
+
+    controller.connect();
+    sockets[0]?.open();
+    sockets[0]?.closeFromServer();
+    sockets[1]?.open();
+    sockets[1]?.message({
+      State: {
+        playstate: {
+          paused: true,
+          position: 30,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+
+    expect(calls.seeks).toEqual([]);
+  });
+
   test("aligns and applies pause immediately on reconnect", () => {
     const sockets: FakeWebSocket[] = [];
     const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
