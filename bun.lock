@@ -89,6 +89,9 @@
     "apps/wii": {
       "name": "@multiplex/wii",
     },
+    "apps/xbox": {
+      "name": "@multiplex/xbox",
+    },
     "packages/auth-plugin-plex": {
       "name": "@multiplex/auth-plugin-plex",
       "version": "0.1.0",
@@ -103,6 +106,9 @@
         "@total-typescript/ts-reset": "^0.6.1",
         "typescript": "catalog:",
       },
+    },
+    "packages/console-core": {
+      "name": "@multiplex/console-core",
     },
     "packages/console-ui": {
       "name": "@multiplex/console-ui",
@@ -396,6 +402,8 @@
 
     "@multiplex/auth-plugin-plex": ["@multiplex/auth-plugin-plex@workspace:packages/auth-plugin-plex"],
 
+    "@multiplex/console-core": ["@multiplex/console-core@workspace:packages/console-core"],
+
     "@multiplex/console-ui": ["@multiplex/console-ui@workspace:packages/console-ui"],
 
     "@multiplex/gamecube": ["@multiplex/gamecube@workspace:apps/gamecube"],
@@ -409,6 +417,8 @@
     "@multiplex/web": ["@multiplex/web@workspace:apps/web"],
 
     "@multiplex/wii": ["@multiplex/wii@workspace:apps/wii"],
+
+    "@multiplex/xbox": ["@multiplex/xbox@workspace:apps/xbox"],
 
     "@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@0.2.11", "", { "dependencies": { "@emnapi/core": "^1.4.3", "@emnapi/runtime": "^1.4.3", "@tybys/wasm-util": "^0.9.0" } }, "sha512-9DPkXtvHydrcOsopiYpUgPHpmj0HWZKMUnL2dZqpvC42lsratuBG06V5ipyno0fUek5VlFsNQ+AcFATSrJXgMA=="],
 
