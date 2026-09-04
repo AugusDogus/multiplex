@@ -1,4 +1,5 @@
 import {
+  PlexAPIError,
   PlexTvClient,
   type PlexDevice,
   type PlexUserInfo,
@@ -46,10 +47,20 @@ export const getAppPlexContext = cache(async (): Promise<AppPlexContext> => {
   }
 
   const plex = new PlexTvClient(token, NEXTJS_PLEX_CONFIG);
-  const [servers, userInfo] = await Promise.all([
-    getServersQuery(plex),
-    getUserInfoQuery(plex),
-  ] as const);
+  let servers: PlexDevice[];
+  let userInfo: PlexUserInfo | null;
+  try {
+    [servers, userInfo] = await Promise.all([
+      getServersQuery(plex),
+      getUserInfoQuery(plex),
+    ] as const);
+  } catch (error) {
+    // Expired/revoked token is an expected failure: re-authenticate instead
+    // of surfacing a boundary error the client can't classify (Server
+    // Component error messages are redacted in production).
+    if (isPlexAuthExpired(error)) redirect("/login");
+    throw error;
+  }
 
   if (!userInfo) {
     throw new AppPlexBootstrapError();
@@ -72,6 +83,10 @@ export const getAppPlexContext = cache(async (): Promise<AppPlexContext> => {
 
   return { session, servers, userInfo };
 });
+
+function isPlexAuthExpired(cause: unknown): boolean {
+  return cause instanceof PlexAPIError && cause.status === 401;
+}
 
 /** Fire-and-forget warm paths must not surface as unhandled rejections. */
 function ignoreDetachedWarmFailure(): void {
