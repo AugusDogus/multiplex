@@ -30,6 +30,14 @@ All commands are run from the workspace root via `bun run <script>`:
 - Prefer focused scopes such as `watch-together`, `plex-query`, or `media-player`.
 - Example: `fix(watch-together): handle Plex friends without usernames`.
 
+## Framework friction is product work
+
+When a supported Multiplex workflow exposes a reproducible defect in Multiplex-owned code, or returns an error that leaves a fresh agent unable to recover, keep the failing case and treat the defect as part of the current task. Minimize it and reproduce it against the current default branch before starting a repair. Keep the calling code honest instead of hiding the defect with a local workaround. A change that chooses new product semantics, crosses into another repository or submodule, or turns an unsupported request into a feature needs approval first.
+
+For a confirmed Multiplex defect, follow [`.agents/skills/repair-friction/SKILL.md`](.agents/skills/repair-friction/SKILL.md). This is standing authorization to fix Multiplex-owned code, create or update a dedicated branch and pull request, and babysit its current head until required checks pass and no actionable review thread remains. It does not authorize merging the pull request.
+
+When delegation is available and the repair can be separated from the original task, dispatch that skill to one subagent in an isolated worktree. The discovering agent owns the diagnosis, minimized reproduction, and final retest. The repair agent owns the regression test, root-cause fix, branch, pull request, and review loop. The discovering agent must receive the repair evidence and rerun the original workflow before reporting its task complete. Run the same skill directly when delegation is unavailable or the work cannot be separated cleanly.
+
 ## Effect v4 conventions
 
 Multiplex uses Effect v4 for canonical media-player state and Watch Together session orchestration:
