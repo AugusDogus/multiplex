@@ -13,7 +13,7 @@ function PlexErrorBoundaryFallback(
   return (
     <PlexErrorFallback
       error={Predicate.isError(error) ? error : new Error(String(error))}
-      resetErrorBoundary={retry}
+      retry={retry}
     />
   );
 }
