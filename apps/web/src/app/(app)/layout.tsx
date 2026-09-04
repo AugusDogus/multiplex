@@ -8,6 +8,7 @@ import {
 } from "~/components/app-shell";
 import { AppScrollContainer } from "~/components/app-scroll-container";
 import { AppSidebarSkeletonFallback } from "~/components/app-sidebar-skeleton-fallback";
+import { OfflineBanner } from "~/components/offline-banner";
 import { SidebarProvider } from "~/components/ui/sidebar";
 import { SyncEngineAppShell } from "~/lib/sync-engine/sync-engine-app-shell";
 
@@ -17,6 +18,7 @@ export default function AppLayout({
   return (
     <SyncEngineAppShell>
       <div className="h-svh max-w-screen overflow-hidden overscroll-none">
+        <OfflineBanner />
         <SidebarProvider className="h-full min-h-0 overflow-hidden">
           <Suspense fallback={<AppSidebarSkeletonFallback />}>
             <AppShellSidebar />
