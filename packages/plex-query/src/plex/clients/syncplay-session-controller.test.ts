@@ -451,7 +451,7 @@ describe("SyncplaySessionController", () => {
       playstate: {
         paused: true,
         position: 30,
-        setBy: encodeSyncplayUser(LOCAL_USER),
+        setBy: null,
       },
       ignoringOnTheFly: { client: 1, server: 0 },
     });
@@ -772,11 +772,68 @@ describe("SyncplaySessionController", () => {
     expect(actions).toEqual([]); // ...but silently
   });
 
-  test("ignores mechanical play/pause events while the stream is (re)loading", () => {
+  test("does not replace a loading transcode for advancing room heartbeats", () => {
     const sockets: FakeWebSocket[] = [];
     const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
-    // A transcoded seek reloads the stream: the element fires a pause on
-    // unload while isLoading is true. That must not be claimed as a user pause.
+    const state = makeState({
+      isPlaying: false,
+      currentTime: 50,
+      duration: 120,
+      canPlay: false,
+      isLoading: true,
+    });
+    const controller = createController({ sockets, state, calls });
+    controller.connect();
+    sockets[0]?.open();
+
+    for (const position of [52, 54, 58, 63]) {
+      sockets[0]?.message({
+        State: {
+          playstate: {
+            paused: false,
+            position,
+            setBy: encodeSyncplayUser(REMOTE_USER),
+          },
+        },
+      });
+    }
+
+    expect(calls.seeks).toEqual([]);
+  });
+
+  test("a deliberate remote seek supersedes a loading transcode", () => {
+    const sockets: FakeWebSocket[] = [];
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const state = makeState({
+      isPlaying: false,
+      currentTime: 50,
+      duration: 120,
+      canPlay: false,
+      isLoading: true,
+    });
+    const controller = createController({ sockets, state, calls });
+    controller.connect();
+    sockets[0]?.open();
+
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 80,
+          doSeek: true,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+
+    expect(calls.seeks).toEqual([80]);
+  });
+
+  test("claims explicit playback intent while the stream is (re)loading", () => {
+    const sockets: FakeWebSocket[] = [];
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    // UI intent remains authoritative while a transcoded seek reloads the
+    // stream. Mechanical media events never call this controller boundary.
     const state = makeState({
       isPlaying: false,
       isLoading: true,
@@ -798,9 +855,9 @@ describe("SyncplaySessionController", () => {
       },
     });
 
-    // No claim was raised for the mechanical pause.
     expect(lastState(sockets[0])).toMatchObject({
-      ignoringOnTheFly: { client: 0, server: 0 },
+      playstate: { paused: true },
+      ignoringOnTheFly: { client: 1, server: 0 },
     });
   });
 
@@ -840,6 +897,67 @@ describe("SyncplaySessionController", () => {
     });
     expect(lastState(sockets[0])).toMatchObject({
       playstate: { doSeek: true, paused: false, position: 5000 },
+    });
+  });
+
+  test("claims a resume after the room paused an already-paused replacement", () => {
+    const sockets: FakeWebSocket[] = [];
+    const calls: PlayerCalls = { play: 0, pause: 0, seeks: [] };
+    const state = makeState({ isPlaying: true, currentTime: 30 });
+    const controller = createController({ sockets, state, calls });
+    controller.connect();
+    sockets[0]?.open();
+
+    controller.handleLocalPlaybackChange(false);
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 30,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 30,
+          setBy: encodeSyncplayUser(LOCAL_USER),
+        },
+        ignoringOnTheFly: { client: 1, server: 0 },
+      },
+    });
+
+    // Source replacement paused the element before the peer's room pause
+    // arrived, so applying the accepted state does not need to call pause().
+    state.isPlaying = false;
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: true,
+          position: 30,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+    expect(calls.pause).toBe(0);
+
+    state.isPlaying = true;
+    controller.handleLocalPlaybackChange(false);
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: true,
+          position: 30,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+
+    expect(lastState(sockets[0])).toMatchObject({
+      playstate: { paused: false, position: 30 },
+      ignoringOnTheFly: { client: 1, server: 0 },
     });
   });
 

@@ -2,6 +2,7 @@ import {
   expect,
   test,
   type BrowserContext,
+  type Locator,
   type Page,
   type Route,
 } from "@playwright/test";
@@ -59,6 +60,16 @@ interface EpisodeRun {
 }
 
 const NETWORK_RECOVERY_SLO_MS = 5_000;
+const DEFAULT_CONTROL_FUZZ_SEED = 0x51c0ffee;
+const parsedControlFuzzSeed = z.coerce
+  .number()
+  .int()
+  .min(0)
+  .max(0xffffffff)
+  .safeParse(process.env.WATCH_TOGETHER_FUZZ_SEED);
+const CONTROL_FUZZ_SEED = parsedControlFuzzSeed.success
+  ? parsedControlFuzzSeed.data
+  : DEFAULT_CONTROL_FUZZ_SEED;
 
 function toEpisodeFixture(
   item: z.infer<typeof playQueueItemSchema>,
@@ -140,11 +151,7 @@ async function pickThreeEpisodeRun(page: Page): Promise<EpisodeRun> {
 }
 
 async function pressPlayerKey(page: Page, code: string): Promise<void> {
-  await page.evaluate((keyCode) => {
-    document.dispatchEvent(
-      new KeyboardEvent("keydown", { code: keyCode, bubbles: true }),
-    );
-  }, code);
+  await page.keyboard.press(code);
 }
 
 async function expectPlaybackConverged(
@@ -222,9 +229,46 @@ async function settlePlaybackState(
   paused: boolean,
   label: string,
 ): Promise<void> {
-  await controller.waitForTimeout(2_000);
-  if ((await readPlaybackProbe(controller)).paused !== paused) {
-    await pressPlayerKey(controller, "KeyK");
+  await expect
+    .poll(
+      async () =>
+        Promise.all(
+          viewers.map((page) =>
+            readPlaybackProbe(page)
+              .then((sample) => sample.readyState >= 2)
+              .catch(() => false),
+          ),
+        ),
+      {
+        message: `${label}: replacement sources should become media-ready`,
+        timeout: 30_000,
+      },
+    )
+    .toEqual([true, true]);
+  // A replacement source can briefly be media-ready but paused before its
+  // accepted room playstate is re-applied. Confirm the target across full
+  // arbitration ticks, retrying from a viewer that actually differs.
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await controller.waitForTimeout(1_000);
+    const samples = await Promise.all(
+      viewers.map((page) => readPlaybackProbe(page).catch(() => null)),
+    );
+    const actorIndex = samples.findIndex(
+      (sample) => sample !== null && sample.paused !== paused,
+    );
+    const actor = actorIndex >= 0 ? viewers[actorIndex] : undefined;
+    if (actor) {
+      await pressPlayerKey(actor, "KeyK");
+      continue;
+    }
+
+    await controller.waitForTimeout(1_000);
+    const confirmation = await Promise.all(
+      viewers.map((page) => readPlaybackProbe(page).catch(() => null)),
+    );
+    if (confirmation.every((sample) => sample?.paused === paused)) {
+      return;
+    }
   }
   await expectPaused(viewers, paused, label);
 }
@@ -276,6 +320,185 @@ async function runControlStorm(
   );
 }
 
+function createSeededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+async function runSeededControlFuzz(
+  first: Page,
+  second: Page,
+  durationSeconds: number,
+  label: string,
+  seed: number,
+): Promise<void> {
+  console.error(
+    `Torture step: ${label} seeded control fuzz (seed ${seed >>> 0})`,
+  );
+  const random = createSeededRandom(seed);
+  const viewers: readonly [Page, Page] = [first, second];
+  const seekKeys = [
+    "Digit1",
+    "Digit2",
+    "Digit3",
+    "Digit4",
+    "Digit5",
+    "Digit6",
+    "Digit7",
+    "Digit8",
+    "Digit9",
+  ] as const;
+  const pickViewer = (): Page =>
+    viewers[Math.floor(random() * viewers.length)] ?? first;
+  const pickSeekKey = (): (typeof seekKeys)[number] =>
+    seekKeys[Math.floor(random() * seekKeys.length)] ?? "Digit5";
+
+  for (let wave = 0; wave < 3; wave += 1) {
+    for (let action = 0; action < 10; action += 1) {
+      const operation = random();
+      if (operation < 0.25) {
+        await Promise.all([
+          pressPlayerKey(first, pickSeekKey()),
+          pressPlayerKey(second, pickSeekKey()),
+        ]);
+      } else if (operation < 0.6) {
+        await pressPlayerKey(pickViewer(), pickSeekKey());
+      } else if (operation < 0.85) {
+        await pressPlayerKey(pickViewer(), "KeyK");
+      } else {
+        await Promise.all([
+          pressPlayerKey(first, "KeyK"),
+          pressPlayerKey(second, "KeyK"),
+        ]);
+      }
+      await first.waitForTimeout(30 + Math.floor(random() * 140));
+    }
+
+    await settlePlaybackState(
+      first,
+      viewers,
+      true,
+      `${label} fuzz wave ${wave + 1} should settle paused`,
+    );
+    await pressPlayerKey(first, "KeyK");
+    const targetDigit = 2 + Math.floor(random() * 7);
+    await pressPlayerKey(first, `Digit${targetDigit}`);
+    await expectPlaybackConverged(
+      viewers,
+      `${label} after fuzz wave ${wave + 1}`,
+      durationSeconds * (targetDigit / 10),
+    );
+  }
+}
+
+async function stallRemoteTranscodeAndRecover(
+  controller: Page,
+  disrupted: Page,
+  disruptedContext: BrowserContext,
+  durationSeconds: number,
+  label: string,
+): Promise<void> {
+  let requestCount = 0;
+  let releaseFirstRequest = (): void => undefined;
+  const firstRequestGate = new Promise<void>((resolve) => {
+    releaseFirstRequest = resolve;
+  });
+  const handler = async (route: Route): Promise<void> => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      await firstRequestGate;
+    }
+    await route.continue();
+  };
+  await disruptedContext.route(
+    /\/video\/:\/transcode\/universal\/start/,
+    handler,
+  );
+  try {
+    console.error(`Torture step: stall ${label}'s remote-seek transcode`);
+    await pressPlayerKey(controller, "Digit5");
+    await expect
+      .poll(() => requestCount, {
+        message: `${label}: remote seek should start a real transcode`,
+        timeout: 10_000,
+      })
+      .toBeGreaterThan(0);
+    await controller.waitForTimeout(6_000);
+    expect(
+      requestCount,
+      `${label}: room heartbeats must not replace a still-loading transcode`,
+    ).toBe(1);
+    releaseFirstRequest();
+    await expectPlaybackConverged(
+      [controller, disrupted],
+      `${label} after stalled transcode`,
+      durationSeconds * 0.5,
+    );
+  } finally {
+    releaseFirstRequest();
+    await disruptedContext.unroute(
+      /\/video\/:\/transcode\/universal\/start/,
+      handler,
+    );
+  }
+}
+
+async function exerciseGuestSubtitleSelection(
+  guest: Page,
+  host: Page,
+): Promise<void> {
+  const openSubtitlesPane = async (): Promise<Locator> => {
+    const videoBox = await guest.locator("video").boundingBox();
+    if (!videoBox) {
+      throw new Error("Guest Link video should have a layout box");
+    }
+    await guest.mouse.move(
+      videoBox.x + videoBox.width / 2,
+      videoBox.y + videoBox.height - 24,
+    );
+    await guest.getByRole("button", { name: "Playback settings" }).click();
+    const popover = guest.locator('[data-slot="popover-popup"]');
+    const subtitles = popover
+      .getByRole("button", { name: /^Subtitles .+/ })
+      .first();
+    await expect(subtitles).toBeEnabled();
+    await subtitles.click();
+    return popover;
+  };
+
+  console.error("Torture step: Guest Link viewer disables subtitles");
+  let popover = await openSubtitlesPane();
+  await popover.getByRole("button", { name: "None", exact: true }).click();
+  await expect(
+    popover.getByRole("button", { name: /^Subtitles .+/ }).first(),
+  ).toBeVisible({ timeout: 30_000 });
+  await guest.getByRole("button", { name: "Playback settings" }).click();
+  await expectPlaybackConverged(
+    [host, guest],
+    "after Guest Link subtitles are disabled",
+  );
+
+  console.error("Torture step: Guest Link viewer enables subtitles");
+  popover = await openSubtitlesPane();
+  const firstSubtitle = popover.locator('button[aria-pressed="false"]').first();
+  await expect(firstSubtitle).toBeEnabled();
+  await firstSubtitle.click();
+  await expect(
+    popover.getByRole("button", { name: /^Subtitles .+/ }).first(),
+  ).toBeVisible({ timeout: 30_000 });
+  await guest.getByRole("button", { name: "Playback settings" }).click();
+  await expectPlaybackConverged(
+    [host, guest],
+    "after Guest Link subtitles are enabled",
+  );
+}
+
 async function runOfflineRecovery(
   controller: Page,
   disconnected: Page,
@@ -300,6 +523,7 @@ async function runOfflineRecovery(
     `${label} should receive a pause after reconnecting`,
     Math.max(1, recoveryDeadline - Date.now()),
   );
+  await controller.waitForTimeout(1_000);
   await pressPlayerKey(controller, "KeyK");
   await expectPlaybackConverged(
     [controller, disconnected],
@@ -377,7 +601,7 @@ async function rotateAuthenticatedViewers(
   console.error(
     `Torture step: rotate both authenticated viewers to ${expected.ratingKey}`,
   );
-  await pressPlayerKey(host, "End");
+  await host.getByRole("slider", { name: "Playback position" }).press("End");
   await expect
     .poll(
       async () => ({
@@ -413,7 +637,7 @@ async function rotateGuestLinkViewers(
   console.error(
     `Torture step: rotate Guest Link viewers to ${expected.ratingKey}`,
   );
-  await pressPlayerKey(host, "End");
+  await host.getByRole("slider", { name: "Playback position" }).press("End");
   await expect
     .poll(
       async () => ({
@@ -487,6 +711,20 @@ test("authenticated viewers survive control, transport, reconnect, and rotation 
     );
 
     await runControlStorm(synced.host, activeGuest, first.durationSeconds);
+    await runSeededControlFuzz(
+      synced.host,
+      activeGuest,
+      first.durationSeconds,
+      "authenticated viewers",
+      CONTROL_FUZZ_SEED,
+    );
+    await stallRemoteTranscodeAndRecover(
+      synced.host,
+      activeGuest,
+      synced.guestContext,
+      first.durationSeconds,
+      "authenticated guest",
+    );
     await runOfflineRecovery(
       synced.host,
       activeGuest,
@@ -614,7 +852,22 @@ test("Guest Link viewers survive transport, rejoin, host refresh, and repeated r
     await host.getByRole("button", { name: "Start" }).click();
     await expectPlaybackConverged([host, guest], "initial Guest Link playback");
 
+    await exerciseGuestSubtitleSelection(guest, host);
     await runControlStorm(host, guest, first.durationSeconds);
+    await runSeededControlFuzz(
+      host,
+      guest,
+      first.durationSeconds,
+      "Guest Link viewers",
+      CONTROL_FUZZ_SEED ^ 0x9e3779b9,
+    );
+    await stallRemoteTranscodeAndRecover(
+      host,
+      guest,
+      guestArtifacts.context,
+      first.durationSeconds,
+      "Guest Link viewer",
+    );
     await runOfflineRecovery(
       host,
       guest,
