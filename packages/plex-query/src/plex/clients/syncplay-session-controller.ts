@@ -163,13 +163,9 @@ export class SyncplaySessionController {
   }
 
   handleLocalPlaybackChange(isPaused: boolean): void {
-    // Play/pause events while the stream is (re)loading are mechanical churn —
-    // e.g. seeking a transcoded stream reloads it at a new offset, firing a
-    // pause on unload. The official Plex client never reports these; only
-    // deliberate user actions claim a playstate change.
-    if (this.options.player.getState().isLoading) {
-      return;
-    }
+    // Callers report deliberate UI intent here, not media-element play/pause
+    // events. DOM events can arrive late during source replacement and must
+    // never overwrite a newer user command.
     // Ignore the event our own remote-apply just produced (same target state);
     // otherwise claim the user's change (reported on the next State ping).
     const suppressed = this.suppressedPlayPause;
@@ -337,16 +333,27 @@ export class SyncplaySessionController {
 
     const targetPosition = clampRemotePosition(state.positionSeconds, playerState.duration);
     const diffSeconds = playerState.currentTime - targetPosition;
+    // A loading or buffering player cannot provide a meaningful drift sample.
+    // In particular, an offset-based Plex transcode freezes its local timeline
+    // while starting. Re-seeking it as the room advances replaces the source
+    // before it can finish, creating an endless restart loop on slower clients.
+    // Deliberate `doSeek` commands still supersede an in-flight source.
+    const canApplyDriftCorrection = playerState.canPlay && !playerState.isLoading;
     const forceReconnectAlignment =
-      this.forceInitialAlignment && Math.abs(diffSeconds) > RECONNECT_ALIGNMENT_THRESHOLD_SECONDS;
-    this.forceInitialAlignment = false;
+      canApplyDriftCorrection &&
+      this.forceInitialAlignment &&
+      Math.abs(diffSeconds) > RECONNECT_ALIGNMENT_THRESHOLD_SECONDS;
+    if (canApplyDriftCorrection) {
+      this.forceInitialAlignment = false;
+    }
     const shouldSeek =
-      forceReconnectAlignment ||
       state.shouldSeek ||
-      diffSeconds >=
-        (this.options.seekAheadThresholdSeconds ?? DEFAULT_SEEK_AHEAD_THRESHOLD_SECONDS) ||
-      diffSeconds <=
-        (this.options.seekBehindThresholdSeconds ?? DEFAULT_SEEK_BEHIND_THRESHOLD_SECONDS);
+      (canApplyDriftCorrection &&
+        (forceReconnectAlignment ||
+          diffSeconds >=
+            (this.options.seekAheadThresholdSeconds ?? DEFAULT_SEEK_AHEAD_THRESHOLD_SECONDS) ||
+          diffSeconds <=
+            (this.options.seekBehindThresholdSeconds ?? DEFAULT_SEEK_BEHIND_THRESHOLD_SECONDS)));
 
     if (shouldSeek) {
       // Only attempt the seek once we have a duration; `"none"` means the player
@@ -388,15 +395,20 @@ export class SyncplaySessionController {
       if (this.options.canInitiateStartupPlayback !== false) {
         this.client?.markLocalPlayPause();
       }
+      return;
     }
+
+    // The room state is authoritative even when the media element already
+    // happens to match it. A transcode replacement can mechanically pause the
+    // element before the room accepts a pause. If we leave the previous stable
+    // intent intact, the next deliberate resume looks like a duplicate and is
+    // never claimed.
+    this.lastStableIsPaused = state.isPaused;
     if (state.isPaused && playerState.isPlaying && !withinStartupGrace) {
       this.suppressedPlayPause = {
         isPaused: true,
         expiresAt: this.now() + this.remoteEventSuppressionMs,
       };
-      // The room's intent is now paused; report that even if our stream is
-      // mid-(re)load when the next ping arrives.
-      this.lastStableIsPaused = true;
       this.options.player.pause();
     } else if (!state.isPaused && !playerState.isPlaying) {
       const suppression = {
@@ -404,7 +416,6 @@ export class SyncplaySessionController {
         expiresAt: this.now() + this.remoteEventSuppressionMs,
       };
       this.suppressedPlayPause = suppression;
-      this.lastStableIsPaused = false;
       // Clear the suppression if play() never actually started (returned false
       // or rejected) — but only if a newer remote change hasn't replaced it.
       void Promise.resolve(this.options.player.play()).then(

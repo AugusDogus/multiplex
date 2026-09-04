@@ -404,7 +404,7 @@ describe("SyncplayClient", () => {
       doSeek: false,
       paused: false,
       position: 30,
-      setBy: encodeSyncplayUser(LOCAL_USER),
+      setBy: null,
     });
   });
 
@@ -483,7 +483,8 @@ describe("SyncplayClient", () => {
 
     // The peer's "playing" must NOT be applied (would clobber our pause)...
     expect(applied).toEqual([]);
-    // ...and we claim the pause: own state, attributed to us, client counter raised.
+    // ...and we claim the pause with the client counter. The server assigns
+    // `setBy`, matching Plex Web's wire format.
     expect(lastPlaystate(sockets[0])).toEqual({
       ping: {
         clientLatencyCalculation: NOW_EPOCH_SECONDS,
@@ -495,7 +496,7 @@ describe("SyncplayClient", () => {
         doSeek: false,
         paused: true,
         position: 20,
-        setBy: encodeSyncplayUser(LOCAL_USER),
+        setBy: null,
       },
       ignoringOnTheFly: { client: 1, server: 0 },
     });
@@ -547,6 +548,60 @@ describe("SyncplayClient", () => {
       client: 0,
       server: 0,
     });
+  });
+
+  test("reconciles an accepted self-authored seek without replaying it", () => {
+    const sockets: FakeWebSocket[] = [];
+    const applied: SyncplayPlaybackState[] = [];
+    let isPaused = false;
+    const client = createClient({
+      sockets,
+      applied,
+      getPlaybackState: () => ({
+        isPaused,
+        positionSeconds: 100,
+        shouldSeek: false,
+      }),
+    });
+    client.connect();
+    sockets[0]?.open();
+    client.markLocalSeek();
+
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 20,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+    expect(lastPlaystate(sockets[0])?.ignoringOnTheFly?.client).toBe(1);
+
+    // The replacement media element did not resume, but Plex accepted our
+    // playing seek. Its acknowledgement must repair playstate without issuing
+    // the same doSeek again.
+    isPaused = true;
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 100,
+          doSeek: true,
+          setBy: encodeSyncplayUser(LOCAL_USER),
+        },
+        ignoringOnTheFly: { client: 1, server: 0 },
+      },
+    });
+
+    expect(applied).toEqual([
+      {
+        user: LOCAL_USER,
+        isPaused: false,
+        positionSeconds: 100,
+        shouldSeek: false,
+      },
+    ]);
   });
 
   test("claims the newest rapid seek after the previous seek is acknowledged", () => {

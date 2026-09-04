@@ -35,6 +35,10 @@ import {
   preparePlexTranscodeDecision,
   stopTranscodeSessionBeforeReplacement,
 } from "./utils/plex-stream-urls";
+import {
+  applySelectedStream,
+  type SelectableStreamKind,
+} from "./utils/plex-stream-selection";
 
 /* ────────────────────────────────────────────────────────────
    Media Player Settings Menu
@@ -54,7 +58,6 @@ const PLAYBACK_RATE_OPTIONS: Array<{ label: string; value: PlaybackRate }> = [
 type AudioStream = Extract<PlexStream, { streamType: 2 }>;
 type SubtitleStream = Extract<PlexStream, { streamType: 3 }>;
 type Pane = "root" | "speed" | "audio" | "subtitles";
-type SelectableStreamKind = "audio" | "subtitle";
 
 /**
  * Either the shallow item from the continue-watching hub or the fully
@@ -213,24 +216,29 @@ export function MediaPlayerSettingsMenu({
       return;
     }
 
-    let selectionUrl: string;
-    if (kind === "audio") {
-      if (streamId === null) {
-        return;
+    // PMS delegation tokens can stream but cannot mutate a library part.
+    // Guest playback URLs carry explicit stream IDs, so keep this choice
+    // local to the invited viewer instead of sharing Plex profile state.
+    let selectionUrl: string | null = null;
+    if (currentItem.access !== "guest-transient") {
+      if (kind === "audio") {
+        if (streamId === null) {
+          return;
+        }
+        selectionUrl = buildPlexAudioSelectionUrl(
+          currentItem,
+          currentItem.serverUrl,
+          currentItem.authToken,
+          streamId,
+        );
+      } else {
+        selectionUrl = buildPlexSubtitleSelectionUrl(
+          currentItem,
+          currentItem.serverUrl,
+          currentItem.authToken,
+          streamId,
+        );
       }
-      selectionUrl = buildPlexAudioSelectionUrl(
-        currentItem,
-        currentItem.serverUrl,
-        currentItem.authToken,
-        streamId,
-      );
-    } else {
-      selectionUrl = buildPlexSubtitleSelectionUrl(
-        currentItem,
-        currentItem.serverUrl,
-        currentItem.authToken,
-        streamId,
-      );
     }
 
     const failureMessage =
@@ -242,9 +250,12 @@ export function MediaPlayerSettingsMenu({
     setStreamError(null);
     const previousUsesTranscode = playbackUsesTranscode(currentItem);
 
-    await fetch(selectionUrl, { method: "PUT" })
+    const selectionRequest: Promise<Response | null> = selectionUrl
+      ? fetch(selectionUrl, { method: "PUT" })
+      : Promise.resolve(null);
+    await selectionRequest
       .then(async (response) => {
-        if (!response.ok) {
+        if (response && !response.ok) {
           console.error(
             `Failed to select ${kind} stream: Plex returned ${response.status}`,
           );
@@ -257,7 +268,11 @@ export function MediaPlayerSettingsMenu({
         if (!isCurrentPlayback()) {
           return;
         }
-        const refreshed = await refetchDetailedItem();
+        const refreshed = selectionUrl
+          ? await refetchDetailedItem()
+          : {
+              data: applySelectedStream(currentItem, kind, streamId),
+            };
         if (!isCurrentPlayback()) {
           return;
         }
@@ -591,6 +606,7 @@ function SelectRow({
   return (
     <button
       type="button"
+      aria-pressed={selected}
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
       className={cn(
