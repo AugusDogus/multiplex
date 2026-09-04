@@ -30,7 +30,7 @@ All commands are run from the workspace root via `bun run <script>`:
 - Prefer focused scopes such as `watch-together`, `plex-query`, or `media-player`.
 - Example: `fix(watch-together): handle Plex friends without usernames`.
 
-## Framework friction is product work
+## Multiplex friction is product work
 
 When a supported Multiplex workflow exposes a reproducible defect in Multiplex-owned code, or returns an error that leaves a fresh agent unable to recover, keep the failing case and treat the defect as part of the current task. Minimize it and reproduce it against the current default branch before starting a repair. Keep the calling code honest instead of hiding the defect with a local workaround. A change that chooses new product semantics, crosses into another repository or submodule, or turns an unsupported request into a feature needs approval first.
 

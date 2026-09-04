@@ -12,7 +12,7 @@ completion handoff instead of delegating it again.
 
 ## Confirm the handoff
 
-Receive or reconstruct this evidence before editing framework code:
+Receive or reconstruct this evidence before editing Multiplex code:
 
 - the parent task and how the defect blocks or weakens it;
 - the smallest input or command that reproduces the failure;
@@ -26,7 +26,7 @@ Classify the failure first. Return it to the discovering agent when the input is
 invalid and Multiplex already names the problem and recovery, the behavior is
 documented as unsupported, or the failure comes only from local setup outside
 Multiplex's control. An opaque or internal error caused by invalid input is a
-framework diagnostic defect; repair the diagnostic without accepting the input.
+Multiplex diagnostic defect; repair the diagnostic without accepting the input.
 Ask for a decision when the contract is ambiguous or a fix would choose new
 product behavior. Ask before changing a submodule, another repository, or an
 external upstream.
@@ -39,7 +39,7 @@ external upstream.
    regression test. When no test seam exists, use the smallest deterministic
    command that proves the same failure and retain its output as the receipt.
 3. Trace the failure to its root cause and fix Multiplex-owned code. Preserve the
-   supported contract. If the framework rejected bad input but gave an opaque
+   supported contract. If Multiplex rejected bad input but gave an opaque
    error, make the diagnostic name the failed operation, bad value or state,
    expected constraint, and recovery.
 4. Prove the focused regression, the affected test suites, and the original
@@ -48,7 +48,8 @@ external upstream.
 5. Inspect the complete diff, commit only the repair and its evidence, push the
    dedicated branch, and open or update one Multiplex pull request. The pull request
    must carry the reproduction, root cause, fix, regression receipt, affected
-   validation, and impact on the parent task.
+   validation, and impact on the parent task. Redact Plex tokens, account
+   emails, and `.env` values from anything posted to the pull request.
 6. Babysit the pull request's current head. Refresh its SHA, required checks,
    review-bot state, and unresolved threads after every push. Fix narrow
    actionable findings, answer false positives with evidence, and request review
@@ -72,4 +73,4 @@ Send the discovering agent a completion packet containing:
 - any remaining boundary or follow-up.
 
 The discovering agent reruns the original workflow against the repaired code.
-Only that retest closes the framework-friction branch of the parent task.
+Only that retest closes the Multiplex-friction branch of the parent task.
