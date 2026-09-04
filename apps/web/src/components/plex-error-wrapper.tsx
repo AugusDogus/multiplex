@@ -3,8 +3,8 @@
 import { catchError, type ErrorInfo } from "next/error";
 import { PlexErrorFallback } from "~/components/plex-error-fallback";
 
-function toError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
+function toError(cause: unknown): Error {
+  return cause instanceof Error ? cause : new Error(String(cause));
 }
 
 // retry() re-fetches the boundary's Server Component children (e.g. the
