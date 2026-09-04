@@ -1,5 +1,6 @@
 "use client";
 
+import { Predicate } from "effect";
 import { catchError, type ErrorInfo } from "next/error";
 import { PlexErrorFallback } from "~/components/plex-error-fallback";
 
@@ -11,7 +12,7 @@ function PlexErrorBoundaryFallback(
 ) {
   return (
     <PlexErrorFallback
-      error={error instanceof Error ? error : new Error(String(error))}
+      error={Predicate.isError(error) ? error : new Error(String(error))}
       resetErrorBoundary={retry}
     />
   );
