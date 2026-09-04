@@ -1,5 +1,6 @@
-# Bun version matches CI (.github/workflows/ci.yml).
-FROM oven/bun:1.3.10-alpine AS deps
+# Track latest Bun 1.x, per Bun's official Docker guide. CI
+# (.github/workflows/ci.yml) also follows latest.
+FROM oven/bun:1-alpine AS deps
 WORKDIR /app
 
 COPY package.json bun.lock ./
@@ -30,7 +31,7 @@ ENV BETTER_AUTH_URL=http://localhost:3000
 
 RUN bun run --filter @multiplex/web build
 
-FROM oven/bun:1.3.10-alpine AS runner
+FROM oven/bun:1-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
