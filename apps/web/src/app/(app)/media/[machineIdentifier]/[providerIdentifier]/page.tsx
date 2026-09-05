@@ -24,7 +24,8 @@ import { resolveLibraryTitle } from "~/server/queries/resolve-library-title";
 import { api, HydrateClient } from "~/trpc/server";
 
 // Session-bound library chrome + hubs: partialPrefetching caches the shell
-// per session; Link prefetch={true} warms runtime URL data on hover.
+// per session; the sidebar library links opt in with `<Link prefetch>` (true)
+// so URL data resolves before the click.
 
 interface PageProps {
   params: Promise<{

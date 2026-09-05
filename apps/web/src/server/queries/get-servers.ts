@@ -2,6 +2,7 @@ import { cacheLife } from "next/cache";
 import { cache } from "react";
 import { PlexTvClient, type PlexDevice } from "@multiplex/plex-query";
 import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
+import { CachedPlexResult } from "~/server/queries/cached-plex-result";
 
 /**
  * The server list changes rarely (a server coming online/offline), so cache it
@@ -14,15 +15,21 @@ import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
  * in-memory handler; revisit before configuring a durable `cacheHandlers`
  * backend (Redis/disk), which would persist it.
  */
-async function fetchServers(token: string): Promise<PlexDevice[]> {
+async function fetchServers(
+  token: string,
+): Promise<CachedPlexResult<PlexDevice[]>> {
   "use cache";
   cacheLife("minutes");
 
   const plex = new PlexTvClient(token, NEXTJS_PLEX_CONFIG);
-  return plex.getServers();
+  return CachedPlexResult.capture(() => plex.getServers());
 }
 
-/** React `cache` additionally dedupes calls within a single RSC render. */
+/**
+ * React `cache` additionally dedupes calls within a single RSC render.
+ * Re-raises an expired token as a `PlexAPIError` on this side of the
+ * `"use cache"` boundary so callers can classify it.
+ */
 export const getServersQuery = cache(async (plex: PlexTvClient) => {
-  return fetchServers(plex.getToken());
+  return CachedPlexResult.unwrap(await fetchServers(plex.getToken()));
 });
