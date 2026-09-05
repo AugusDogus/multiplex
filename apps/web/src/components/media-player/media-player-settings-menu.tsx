@@ -20,10 +20,12 @@ import {
 import { useSyncedItemMetadata } from "~/lib/sync-engine";
 import { usePlayerPrefsStore } from "~/stores/player-prefs-store";
 import { shallow } from "zustand/shallow";
+import { emitMediaPlayerDiagnostic } from "./utils/media-player-diagnostics";
 import type { MediaPlayerItem, PlaybackRate } from "~/types/media-player";
 import { CAPTION_SIZE_OPTIONS } from "./utils/caption-size";
 import {
   buildPlexPlaybackPlan,
+  isPlayableSubtitleStream,
   playbackUsesTranscode,
   resolveSelectedAudioStream,
 } from "./utils/plex-playback-plan";
@@ -246,6 +248,11 @@ export function MediaPlayerSettingsMenu({
         ? "Unable to update audio"
         : "Unable to update subtitles";
     streamSelectionInFlightRef.current = true;
+    emitMediaPlayerDiagnostic({
+      kind: "stream-selection-requested",
+      selectionKind: kind,
+      currentTimeSeconds: playerCommands.snapshot().currentTime,
+    });
     setIsUpdatingStream(true);
     setStreamError(null);
     const previousUsesTranscode = playbackUsesTranscode(currentItem);
@@ -259,6 +266,11 @@ export function MediaPlayerSettingsMenu({
           console.error(
             `Failed to select ${kind} stream: Plex returned ${response.status}`,
           );
+          emitMediaPlayerDiagnostic({
+            kind: "stream-selection-request-failed",
+            selectionKind: kind,
+            status: response.status,
+          });
           if (isCurrentPlayback()) {
             setStreamError(failureMessage);
           }
@@ -332,6 +344,13 @@ export function MediaPlayerSettingsMenu({
             reloadVideo: true,
             previousVideoUsesTranscode: previousUsesTranscode,
           });
+          emitMediaPlayerDiagnostic({
+            kind: "stream-selection-replacement-committed",
+            selectionKind: kind,
+            currentTimeSeconds: preserveCurrentTime,
+            previousVideoUsesTranscode: previousUsesTranscode,
+            replacementVideoUsesTranscode: replacementPlan.videoUsesTranscode,
+          });
           if (previousTranscodeSession) {
             markTranscodeSessionStopped(previousTranscodeSession);
           }
@@ -340,6 +359,10 @@ export function MediaPlayerSettingsMenu({
       })
       .catch((cause: unknown) => {
         console.error(`Failed to select ${kind} stream:`, cause);
+        emitMediaPlayerDiagnostic({
+          kind: "stream-selection-failed",
+          selectionKind: kind,
+        });
         if (isCurrentPlayback()) {
           setStreamError(failureMessage);
         }
@@ -688,7 +711,8 @@ function getAudioStreamLabel(item: StreamSource): string {
 function getSubtitleStreams(item: StreamSource): SubtitleStream[] {
   const streams = item?.Media?.[0]?.Part?.[0]?.Stream ?? [];
   return streams.filter(
-    (stream): stream is SubtitleStream => stream.streamType === 3,
+    (stream): stream is SubtitleStream =>
+      stream.streamType === 3 && isPlayableSubtitleStream(stream),
   );
 }
 

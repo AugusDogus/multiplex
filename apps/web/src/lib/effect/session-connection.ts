@@ -9,6 +9,7 @@ import type {
 import { Effect, type Scope } from "effect";
 
 import type { WatchTogetherSessionToasts } from "~/components/watch-together/watch-together-session-toasts";
+import { playbackUsesTranscode } from "~/components/media-player/utils/plex-playback-plan";
 
 import type { PlayerPortContract } from "./player-port";
 
@@ -42,12 +43,15 @@ export const playerAdapterFromPort = (
 ): SyncplayPlayerAdapter => ({
   getState: () => {
     const snap = player.snapshot();
+    const currentItem = player.currentItem();
     return {
       isPlaying: snap.isPlaying,
       currentTime: snap.currentTimeSeconds,
       duration: snap.durationSeconds,
       canPlay: snap.canPlay,
       isLoading: snap.isLoading,
+      seekRequiresReload:
+        currentItem !== null && playbackUsesTranscode(currentItem),
       error: snap.error,
     };
   },
@@ -59,6 +63,7 @@ export const playerAdapterFromPort = (
     player.pause();
   },
   seek: (positionSeconds) => player.seek(positionSeconds),
+  setPlaybackRate: (rate) => player.setPlaybackRate(rate),
 });
 
 export type ConnectionParams = {

@@ -85,6 +85,14 @@ export type PlexPlaybackPlan = {
   subtitle: SubtitlePlan;
 };
 
+/** Plex can expose placeholder subtitle rows with `codec="none"`. */
+export function isPlayableSubtitleStream(
+  stream: Pick<PlaybackStream, "codec">,
+): boolean {
+  const codec = stream.codec?.trim().toLowerCase();
+  return Boolean(codec && codec !== "none");
+}
+
 function isExternalSrtSubtitle(
   codec: string,
   format: string | null,
@@ -147,7 +155,10 @@ export function getSelectedSubtitleStream(
 ): SelectedSubtitleStream | null {
   const streams = item.Media?.[0]?.Part?.[0]?.Stream ?? [];
   const selected = streams.find(
-    (stream) => stream.streamType === 3 && stream.selected,
+    (stream) =>
+      stream.streamType === 3 &&
+      stream.selected &&
+      isPlayableSubtitleStream(stream),
   );
   if (selected?.streamType !== 3) return null;
   return {
