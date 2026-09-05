@@ -21,13 +21,17 @@ const config = {
       dynamic: 60,
       static: 300,
     },
-    // Seed the client cache from completed navigations for instant revisits.
-    // 'allow-runtime' also caches session-bound prerenders (library/details).
-    cachedNavigations: "allow-runtime",
-    // Prefetch loading shells once per route pattern.
-    appShells: true,
+    // Seed the client cache from completed navigations for instant revisits
+    // (including session-bound shells under partialPrefetching).
+    cachedNavigations: true,
     // Start dynamic/runtime prefetch work on link hover, not only viewport.
     dynamicOnHover: true,
+    // Keep failed soft-navs / RSC fetches / Server Actions pending and retry
+    // when connectivity returns instead of throwing into the error boundary.
+    // Pairs with the useOffline() hook in <OfflineBanner>.
+    useOffline: true,
+    // Native Turbopack React Compiler (replaces babel-plugin-react-compiler).
+    turbopackRustReactCompiler: true,
   },
   allowedDevOrigins: [
     "local.augie.haus",

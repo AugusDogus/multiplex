@@ -23,9 +23,9 @@ import { getAppPlexContext } from "~/server/queries/get-app-plex-context";
 import { resolveLibraryTitle } from "~/server/queries/resolve-library-title";
 import { api, HydrateClient } from "~/trpc/server";
 
-// Session-bound library chrome + hubs: prefetch with cookies on Link hover so
-// soft-nav paints from a warm runtime prerender instead of a click-time PMS wait.
-export const prefetch = "allow-runtime";
+// Session-bound library chrome + hubs: partialPrefetching caches the shell
+// per session; the sidebar library links opt in with `<Link prefetch>` (true)
+// so URL data resolves before the click.
 
 interface PageProps {
   params: Promise<{

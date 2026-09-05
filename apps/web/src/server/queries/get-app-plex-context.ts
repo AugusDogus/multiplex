@@ -9,6 +9,7 @@ import { cache } from "react";
 
 import { auth } from "~/lib/auth/server";
 import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
+import { isPlexAuthExpired } from "~/server/queries/cached-plex-result";
 import { getAllContinueWatchingQuery } from "~/server/queries/get-all-continue-watching";
 import { getAllServerLibrariesQuery } from "~/server/queries/get-all-server-libraries";
 import { getHomeHubsQuery } from "~/server/queries/get-home-hubs";
@@ -46,10 +47,17 @@ export const getAppPlexContext = cache(async (): Promise<AppPlexContext> => {
   }
 
   const plex = new PlexTvClient(token, NEXTJS_PLEX_CONFIG);
+  // Expired/revoked token is an expected failure: re-authenticate instead of
+  // surfacing a boundary error the client can't classify (Server Component
+  // error messages are redacted in production). The queries re-raise it as a
+  // real `PlexAPIError` on this side of their `"use cache"` Flight boundary.
   const [servers, userInfo] = await Promise.all([
     getServersQuery(plex),
     getUserInfoQuery(plex),
-  ] as const);
+  ] as const).catch((cause: unknown) => {
+    if (isPlexAuthExpired(cause)) redirect("/login");
+    throw cause;
+  });
 
   if (!userInfo) {
     throw new AppPlexBootstrapError();
