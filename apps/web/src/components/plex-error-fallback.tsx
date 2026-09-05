@@ -11,16 +11,18 @@ import {
 } from "~/components/ui/card";
 
 interface PlexErrorFallbackProps {
-  error: Error;
+  /** Boundary error text; redacted to a generic digest message in production. */
+  message: string;
   retry: () => void;
 }
 
 /**
  * Connection-failure UI for the app shell boundary. Auth expiry never reaches
- * this fallback: `getAppPlexContext` classifies `PlexAPIError` 401s on the
- * server and redirects to /login instead of throwing.
+ * this fallback: the cached Plex queries re-raise 401s as `PlexAPIError`
+ * outside their `"use cache"` boundary and `getAppPlexContext` redirects to
+ * /login instead of throwing.
  */
-export function PlexErrorFallback({ error, retry }: PlexErrorFallbackProps) {
+export function PlexErrorFallback({ message, retry }: PlexErrorFallbackProps) {
   return (
     <Card className="mx-4 my-4">
       <CardHeader>
@@ -35,9 +37,7 @@ export function PlexErrorFallback({ error, retry }: PlexErrorFallbackProps) {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="bg-muted rounded-md p-3">
-          <p className="text-muted-foreground font-mono text-sm">
-            {error.message}
-          </p>
+          <p className="text-muted-foreground font-mono text-sm">{message}</p>
         </div>
 
         <div className="flex gap-2">

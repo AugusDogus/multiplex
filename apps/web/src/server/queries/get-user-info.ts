@@ -3,6 +3,7 @@ import { cacheLife, cacheTag, revalidateTag } from "next/cache";
 import { cache } from "react";
 import { PlexTvClient, type PlexUserInfo } from "@multiplex/plex-query";
 import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
+import { CachedPlexResult } from "~/server/queries/cached-plex-result";
 
 /**
  * User info (including pinned sources) changes rarely and only through our own
@@ -19,22 +20,25 @@ function userInfoTag(token: string): string {
   return `user-info-${digest}`;
 }
 
-async function fetchUserInfo(token: string): Promise<PlexUserInfo> {
+async function fetchUserInfo(
+  token: string,
+): Promise<CachedPlexResult<PlexUserInfo>> {
   "use cache";
   cacheLife("minutes");
   cacheTag(userInfoTag(token));
 
   const plex = new PlexTvClient(token, NEXTJS_PLEX_CONFIG);
-  return plex.getUserInfo();
+  return CachedPlexResult.capture(() => plex.getUserInfo());
 }
 
 /**
  * React `cache` additionally dedupes calls within a single RSC render.
- * Callers that need guaranteed-fresh data should use `plex.getUserInfo()`
- * directly.
+ * Re-raises an expired token as a `PlexAPIError` on this side of the
+ * `"use cache"` boundary so callers can classify it. Callers that need
+ * guaranteed-fresh data should use `plex.getUserInfo()` directly.
  */
 export const getUserInfoQuery = cache(async (plex: PlexTvClient) => {
-  return fetchUserInfo(plex.getToken());
+  return CachedPlexResult.unwrap(await fetchUserInfo(plex.getToken()));
 });
 
 /**
