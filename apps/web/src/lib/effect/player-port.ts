@@ -31,6 +31,7 @@ export type PlayerActions = {
   readonly play: () => boolean | Promise<boolean>;
   readonly pause: () => void;
   readonly seek: (seconds: number) => MediaPlayerSeekResult;
+  readonly setPlaybackRate: (rate: number) => void;
   readonly prepareForReplacement: () => Promise<void>;
 };
 
@@ -56,6 +57,7 @@ export type PlayerPortContract = {
   readonly play: () => boolean | Promise<boolean>;
   readonly pause: () => void;
   readonly seek: (seconds: number) => MediaPlayerSeekResult;
+  readonly setPlaybackRate: (rate: number) => void;
 };
 
 const toSnapshot = (state: PlayerState): PlayerSnapshot => ({
@@ -92,7 +94,9 @@ export const makePlayerPort = (
 ): PlayerPortContract => {
   let actions: PlayerActions | null = null;
 
-  const warnUnregistered = (method: "play" | "pause" | "seek"): void => {
+  const warnUnregistered = (
+    method: "play" | "pause" | "seek" | "setPlaybackRate",
+  ): void => {
     console.warn(
       `[PlayerPort] ${method}() called before registerActions(); no-op until the video-element adapter is registered.`,
     );
@@ -159,6 +163,13 @@ export const makePlayerPort = (
         return "none";
       }
       return actions.seek(seconds);
+    },
+    setPlaybackRate: (rate) => {
+      if (!actions) {
+        warnUnregistered("setPlaybackRate");
+        return;
+      }
+      actions.setPlaybackRate(rate);
     },
   };
 };

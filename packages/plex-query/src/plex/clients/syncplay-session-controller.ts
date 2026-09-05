@@ -4,6 +4,7 @@ import {
   type SyncplayClientOptions,
   type SyncplayParticipantState,
   type SyncplayPlaybackState,
+  type SyncplayRemoteStateApplyResult,
   type SyncplayRemoteAction,
   type SyncplayStateInput,
   type SyncplayUser,
@@ -11,6 +12,11 @@ import {
 
 const DEFAULT_SEEK_AHEAD_THRESHOLD_SECONDS = 4;
 const DEFAULT_SEEK_BEHIND_THRESHOLD_SECONDS = -1.75;
+const DEFAULT_RATE_CORRECTION_THRESHOLD_SECONDS = 0.5;
+const RATE_CORRECTION_RESET_THRESHOLD_SECONDS = 0.1;
+const RELOAD_SEEK_DRIFT_THRESHOLD_SECONDS = 10;
+const SLOW_DRIFT_CORRECTION_RATE = 0.95;
+const FAST_DRIFT_CORRECTION_RATE = 1.05;
 const DEFAULT_REMOTE_EVENT_SUPPRESSION_MS = 5000;
 const DEFAULT_RECONNECT_DELAY_MS = 1000;
 // A suppressed seek only matches a player 'seeked' within this many seconds of
@@ -40,6 +46,7 @@ export interface SyncplayPlayerState {
   duration: number;
   canPlay: boolean;
   isLoading: boolean;
+  seekRequiresReload: boolean;
   error: unknown;
 }
 
@@ -48,6 +55,7 @@ export interface SyncplayPlayerAdapter {
   play: () => boolean | Promise<boolean>;
   pause: () => void;
   seek: (positionSeconds: number) => SyncplaySeekResult;
+  setPlaybackRate: (rate: number) => void;
 }
 
 export interface SyncplaySessionControllerOptions {
@@ -114,6 +122,7 @@ export class SyncplaySessionController {
   private allowStartupGrace = true;
   private startupGraceConsumed = false;
   private forceInitialAlignment = false;
+  private driftCorrectionRate = 1;
   // A remote seek that arrived before media duration was known, retried until it
   // can be applied.
   private pendingRemoteSeek: SyncplayPlaybackState | null = null;
@@ -145,6 +154,7 @@ export class SyncplaySessionController {
     this.suppressedPlayPause = null;
     this.suppressedSeek = null;
     this.lastStableIsPaused = null;
+    this.driftCorrectionRate = 1;
     this.knownParticipants.clear();
     this.connectClient();
   }
@@ -163,19 +173,17 @@ export class SyncplaySessionController {
   }
 
   handleLocalPlaybackChange(isPaused: boolean): void {
-    // Play/pause events while the stream is (re)loading are mechanical churn —
-    // e.g. seeking a transcoded stream reloads it at a new offset, firing a
-    // pause on unload. The official Plex client never reports these; only
-    // deliberate user actions claim a playstate change.
-    if (this.options.player.getState().isLoading) {
-      return;
-    }
+    // Callers report deliberate UI intent here, not media-element play/pause
+    // events. DOM events can arrive late during source replacement and must
+    // never overwrite a newer user command.
     // Ignore the event our own remote-apply just produced (same target state);
     // otherwise claim the user's change (reported on the next State ping).
     const suppressed = this.suppressedPlayPause;
-    if (suppressed && this.now() <= suppressed.expiresAt && suppressed.isPaused === isPaused) {
+    if (suppressed) {
       this.suppressedPlayPause = null;
-      return;
+      if (this.now() <= suppressed.expiresAt && suppressed.isPaused === isPaused) {
+        return;
+      }
     }
 
     // Media elements may emit duplicate play/pause events without a user
@@ -312,10 +320,10 @@ export class SyncplaySessionController {
   }
 
   /** Steer the player toward a remote-initiated playstate (fire-and-forget). */
-  private applyRemoteState(state: SyncplayPlaybackState): void {
+  private applyRemoteState(state: SyncplayPlaybackState): SyncplayRemoteStateApplyResult {
     const playerState = this.options.player.getState();
     if (playerState.error) {
-      return;
+      return "deferred";
     }
 
     // When the room's controlling participant disconnects during an episode
@@ -332,21 +340,54 @@ export class SyncplaySessionController {
       playerState.currentTime > EMPTY_ROOM_RESET_MAX_POSITION_SECONDS &&
       this.lastStableIsPaused === false
     ) {
-      return;
+      return "deferred";
     }
 
     const targetPosition = clampRemotePosition(state.positionSeconds, playerState.duration);
     const diffSeconds = playerState.currentTime - targetPosition;
+    // A loading or buffering player cannot provide a meaningful drift sample.
+    // In particular, an offset-based Plex transcode freezes its local timeline
+    // while starting. Re-seeking it as the room advances replaces the source
+    // before it can finish, creating an endless restart loop on slower clients.
+    // Deliberate `doSeek` commands still supersede an in-flight source.
+    const canApplyDriftCorrection = playerState.canPlay && !playerState.isLoading;
     const forceReconnectAlignment =
-      this.forceInitialAlignment && Math.abs(diffSeconds) > RECONNECT_ALIGNMENT_THRESHOLD_SECONDS;
-    this.forceInitialAlignment = false;
-    const shouldSeek =
-      forceReconnectAlignment ||
-      state.shouldSeek ||
+      canApplyDriftCorrection &&
+      this.forceInitialAlignment &&
+      Math.abs(diffSeconds) > RECONNECT_ALIGNMENT_THRESHOLD_SECONDS;
+    if (canApplyDriftCorrection) {
+      this.forceInitialAlignment = false;
+    }
+    const exceedsNormalDriftThreshold =
       diffSeconds >=
         (this.options.seekAheadThresholdSeconds ?? DEFAULT_SEEK_AHEAD_THRESHOLD_SECONDS) ||
       diffSeconds <=
         (this.options.seekBehindThresholdSeconds ?? DEFAULT_SEEK_BEHIND_THRESHOLD_SECONDS);
+    // Native/direct streams can absorb an ordinary seek. An offset-based Plex
+    // transcode cannot: its "seek" tears down the media source and starts a new
+    // transcode. Correct routine playing drift with a subtle rate adjustment
+    // instead, and reserve that disruptive replacement for explicit seeks,
+    // reconnect alignment, paused-state repair, or severe desynchronization.
+    const canRateCorrectDrift = playerState.seekRequiresReload && !state.isPaused;
+    const exceedsReloadSeekDriftThreshold =
+      Math.abs(diffSeconds) >= RELOAD_SEEK_DRIFT_THRESHOLD_SECONDS;
+    const shouldSeek =
+      state.shouldSeek ||
+      (canApplyDriftCorrection &&
+        (forceReconnectAlignment ||
+          (canRateCorrectDrift ? exceedsReloadSeekDriftThreshold : exceedsNormalDriftThreshold)));
+
+    if (playerState.seekRequiresReload) {
+      const playbackRate =
+        !canApplyDriftCorrection || shouldSeek || state.isPaused
+          ? 1
+          : this.getDriftCorrectionRate(diffSeconds);
+      this.driftCorrectionRate = playbackRate;
+      this.options.player.setPlaybackRate(playbackRate);
+    } else if (this.driftCorrectionRate !== 1) {
+      this.driftCorrectionRate = 1;
+      this.options.player.setPlaybackRate(1);
+    }
 
     if (shouldSeek) {
       // Only attempt the seek once we have a duration; `"none"` means the player
@@ -388,15 +429,20 @@ export class SyncplaySessionController {
       if (this.options.canInitiateStartupPlayback !== false) {
         this.client?.markLocalPlayPause();
       }
+      return "deferred";
     }
+
+    // The room state is authoritative even when the media element already
+    // happens to match it. A transcode replacement can mechanically pause the
+    // element before the room accepts a pause. If we leave the previous stable
+    // intent intact, the next deliberate resume looks like a duplicate and is
+    // never claimed.
+    this.lastStableIsPaused = state.isPaused;
     if (state.isPaused && playerState.isPlaying && !withinStartupGrace) {
       this.suppressedPlayPause = {
         isPaused: true,
         expiresAt: this.now() + this.remoteEventSuppressionMs,
       };
-      // The room's intent is now paused; report that even if our stream is
-      // mid-(re)load when the next ping arrives.
-      this.lastStableIsPaused = true;
       this.options.player.pause();
     } else if (!state.isPaused && !playerState.isPlaying) {
       const suppression = {
@@ -404,7 +450,6 @@ export class SyncplaySessionController {
         expiresAt: this.now() + this.remoteEventSuppressionMs,
       };
       this.suppressedPlayPause = suppression;
-      this.lastStableIsPaused = false;
       // Clear the suppression if play() never actually started (returned false
       // or rejected) — but only if a newer remote change hasn't replaced it.
       void Promise.resolve(this.options.player.play()).then(
@@ -420,6 +465,7 @@ export class SyncplaySessionController {
         },
       );
     }
+    return "applied";
   }
 
   private schedulePendingRemoteSeek(state: SyncplayPlaybackState): void {
@@ -497,6 +543,28 @@ export class SyncplaySessionController {
 
   private get remoteStartupGraceMs(): number {
     return this.options.remoteStartupGraceMs ?? DEFAULT_REMOTE_STARTUP_GRACE_MS;
+  }
+
+  private getDriftCorrectionRate(diffSeconds: number): number {
+    if (
+      this.driftCorrectionRate === SLOW_DRIFT_CORRECTION_RATE &&
+      diffSeconds > RATE_CORRECTION_RESET_THRESHOLD_SECONDS
+    ) {
+      return SLOW_DRIFT_CORRECTION_RATE;
+    }
+    if (
+      this.driftCorrectionRate === FAST_DRIFT_CORRECTION_RATE &&
+      diffSeconds < -RATE_CORRECTION_RESET_THRESHOLD_SECONDS
+    ) {
+      return FAST_DRIFT_CORRECTION_RATE;
+    }
+    if (diffSeconds >= DEFAULT_RATE_CORRECTION_THRESHOLD_SECONDS) {
+      return SLOW_DRIFT_CORRECTION_RATE;
+    }
+    if (diffSeconds <= -DEFAULT_RATE_CORRECTION_THRESHOLD_SECONDS) {
+      return FAST_DRIFT_CORRECTION_RATE;
+    }
+    return 1;
   }
 }
 

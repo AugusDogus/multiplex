@@ -9,12 +9,55 @@ import { z } from "zod";
 
 import { indexHarnessRecording } from "../../../watch-together-harness/e2e/index-recording-frames";
 
-const MAX_DIAGNOSTIC_EVENTS = 5_000;
+const MAX_DIAGNOSTIC_EVENTS = 7_500;
 const MAX_FRAME_LENGTH = 20_000;
 const MAX_RESPONSE_BODY_LENGTH = 4_000;
 const REDACTED = "[REDACTED]";
 const SENSITIVE_KEY =
   /(?:authorization|auth[_-]?token|access[_-]?token|x-plex-token|password|cookie|secret|capability|pin)/i;
+const MEDIA_EVENT_NAMES = [
+  "abort",
+  "emptied",
+  "error",
+  "loadstart",
+  "loadedmetadata",
+  "loadeddata",
+  "pause",
+  "play",
+  "playing",
+  "seeking",
+  "seeked",
+  "stalled",
+  "suspend",
+  "waiting",
+] as const;
+
+const mediaDiagnosticSchema = z.object({
+  event: z.enum(MEDIA_EVENT_NAMES),
+  currentTime: z.number(),
+  paused: z.boolean(),
+  readyState: z.number(),
+  networkState: z.number(),
+  sourcePath: z.string(),
+  sourceOffset: z.string().nullable(),
+  sourceSession: z.string().nullable(),
+  errorCode: z.number().nullable(),
+  errorMessage: z.string().nullable(),
+});
+
+type MediaDiagnostic = z.infer<typeof mediaDiagnosticSchema>;
+
+declare global {
+  interface Window {
+    __multiplexMediaPlayerDiagnosticsEnabled?: boolean;
+    __recordWatchTogetherPlayerDiagnostic?: (
+      value: ArtifactJsonValue,
+    ) => Promise<void>;
+    __recordWatchTogetherMediaDiagnostic?: (
+      value: MediaDiagnostic,
+    ) => Promise<void>;
+  }
+}
 
 type ArtifactJsonValue =
   | boolean
@@ -174,6 +217,81 @@ export async function createInstrumentedContext(
     recordVideo: { dir: videoDir, size: { width: 1280, height: 720 } },
   });
 
+  await context.exposeBinding(
+    "__recordWatchTogetherMediaDiagnostic",
+    (_source, value: MediaDiagnostic) => {
+      const parsed = mediaDiagnosticSchema.safeParse(value);
+      if (!parsed.success) return;
+      record({
+        kind: "media-event",
+        ...parsed.data,
+        errorMessage: parsed.data.errorMessage
+          ? sanitizeArtifactText(parsed.data.errorMessage)
+          : null,
+      });
+    },
+  );
+  await context.exposeBinding(
+    "__recordWatchTogetherPlayerDiagnostic",
+    (_source, value: ArtifactJsonValue) => {
+      const parsed = artifactJsonValueSchema.safeParse(value);
+      if (!parsed.success) return;
+      record({
+        kind: "player-diagnostic",
+        detail: sanitizeJsonValue(parsed.data),
+      });
+    },
+  );
+  await context.addInitScript((eventNames) => {
+    const readSourceIdentity = (source: string) => {
+      try {
+        const url = new URL(source);
+        return {
+          sourcePath: url.pathname,
+          sourceOffset: url.searchParams.get("offset"),
+          sourceSession: url.searchParams.get("session"),
+        };
+      } catch {
+        return {
+          sourcePath: "",
+          sourceOffset: null,
+          sourceSession: null,
+        };
+      }
+    };
+
+    window.__multiplexMediaPlayerDiagnosticsEnabled = true;
+    window.addEventListener("multiplex:media-player-diagnostic", (event) => {
+      const promise = window.__recordWatchTogetherPlayerDiagnostic?.(
+        event.detail,
+      );
+      void promise?.catch(() => undefined);
+    });
+
+    for (const eventName of eventNames) {
+      document.addEventListener(
+        eventName,
+        (event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLVideoElement)) return;
+          const source = readSourceIdentity(target.currentSrc);
+          const promise = window.__recordWatchTogetherMediaDiagnostic?.({
+            event: eventName,
+            currentTime: target.currentTime,
+            paused: target.paused,
+            readyState: target.readyState,
+            networkState: target.networkState,
+            ...source,
+            errorCode: target.error?.code ?? null,
+            errorMessage: target.error?.message ?? null,
+          });
+          void promise?.catch(() => undefined);
+        },
+        true,
+      );
+    }
+  }, MEDIA_EVENT_NAMES);
+
   const pages: Page[] = [];
   const instrumentPage = (page: Page): void => {
     pages.push(page);
@@ -202,6 +320,9 @@ export async function createInstrumentedContext(
     });
     page.on("websocket", (socket) => {
       const url = sanitizeArtifactUrl(socket.url());
+      // Turbopack HMR emits several frames per second and can exhaust the
+      // bounded journal before a long-running playback failure occurs.
+      if (new URL(url).pathname === "/_next/hmr") return;
       record({ kind: "websocket-open", url });
       socket.on("framesent", (event) => {
         record({

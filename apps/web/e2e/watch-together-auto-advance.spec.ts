@@ -131,16 +131,9 @@ async function pickEpisodeWithNext(page: Page): Promise<EpisodePick> {
   throw new Error("no home episode with a next episode in its play queue");
 }
 
-/** Dispatches a player keyboard shortcut on the document (see seek test). */
-async function pressPlayerKey(page: Page, code: string, shiftKey = false) {
-  await page.evaluate(
-    ({ code, shiftKey }) => {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { code, shiftKey, bubbles: true }),
-      );
-    },
-    { code, shiftKey },
-  );
+/** Sends a real browser keyboard shortcut through the focused player dialog. */
+async function pressPlayerKey(page: Page, code: string): Promise<void> {
+  await page.keyboard.press(code);
 }
 
 /** The viewer's full-timeline playback position (transcode offset + local). */
@@ -325,7 +318,7 @@ test("a session auto-advances both viewers to the next episode without leaving t
       startNearEndProbe(guest, selectedEpisode, durationSeconds),
     ]);
     console.error("E2E step: host seeks into the final half-second");
-    await pressPlayerKey(host, "End");
+    await host.getByRole("slider", { name: "Playback position" }).press("End");
 
     // Both players must swap to the next episode's stream, and the player
     // modal must never close (no lobby flash): the <video> stays mounted.

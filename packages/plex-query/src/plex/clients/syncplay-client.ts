@@ -89,7 +89,7 @@ export interface SyncplayClientOptions {
    * drivers (non-observer) and only when the change wasn't made locally and
    * isn't being ignored on-the-fly (see the arbitration in `handleState`).
    */
-  applyRemoteState?: (state: SyncplayPlaybackState) => void;
+  applyRemoteState?: (state: SyncplayPlaybackState) => SyncplayRemoteStateApplyResult;
   /** Current local playstate, reported back to the server on each `State` ping. */
   getPlaybackState?: () => SyncplayStateInput | null | undefined;
   onClose?: () => void;
@@ -98,6 +98,8 @@ export interface SyncplayClientOptions {
   /** Wall-clock time in milliseconds since the Unix epoch. */
   now?: () => number;
 }
+
+export type SyncplayRemoteStateApplyResult = "applied" | "deferred";
 
 const SOCKET_CONNECTING = 0;
 const SOCKET_OPEN = 1;
@@ -244,6 +246,11 @@ export class SyncplayClient {
   // claims the change (and bumps `ignoringClient`).
   private pendingPlayPause = false;
   private pendingSeek = false;
+  // Remember which actions the current client counter represents. Plex can
+  // interrupt that claim with a server relay before acknowledging it; those
+  // actions must then be queued again instead of being lost.
+  private claimedPlayPause = false;
+  private claimedSeek = false;
   // `setBy` survives reconnects and may name this persisted device even when
   // the current connection did not author the room state. Only claims made by
   // this connection are safe to treat as self-authored.
@@ -265,7 +272,7 @@ export class SyncplayClient {
     this.onRemoteAction = options.onRemoteAction ?? (() => undefined);
     this.onRoomState = options.onRoomState ?? (() => undefined);
     this.onOpen = options.onOpen ?? (() => undefined);
-    this.applyRemoteState = options.applyRemoteState ?? (() => undefined);
+    this.applyRemoteState = options.applyRemoteState ?? (() => "deferred");
     this.getPlaybackState = options.getPlaybackState ?? (() => undefined);
     this.onClose = options.onClose ?? (() => undefined);
     this.onError = options.onError ?? (() => undefined);
@@ -288,6 +295,8 @@ export class SyncplayClient {
     this.lastPing = null;
     this.pendingPlayPause = false;
     this.pendingSeek = false;
+    this.claimedPlayPause = false;
+    this.claimedSeek = false;
     this.hasAuthoredState = false;
     this.lastFramePaused = null;
     this.hasReachedPlaying = false;
@@ -391,9 +400,10 @@ export class SyncplayClient {
           doSeek: state.shouldSeek ?? false,
           paused: state.isPaused,
           position: state.positionSeconds,
-          // Claim authorship while a local change is in flight so the server
-          // attributes it to us and relays it to the room.
-          setBy: this.ignoringClient > 0 ? encodeSyncplayUser(this.user) : null,
+          // Plex Web leaves authorship empty on client claims. Syncplay assigns
+          // `setBy` from the connection identity when it accepts the raised
+          // client counter, then relays that authoritative value to the room.
+          setBy: null,
         },
         ignoringOnTheFly: {
           client: this.ignoringClient,
@@ -546,10 +556,20 @@ export class SyncplayClient {
     const shouldEcho = this.observer || this.ignoringServer > 0;
 
     // The server echoes our `client` counter back once it has processed our
-    // change; matching it (or entering echo mode) clears the in-flight state.
+    // change. A server relay can interrupt an unacknowledged claim, in which
+    // case preserve its actions so they can be claimed again afterward.
     const ackedClient =
       (payload.ignoringOnTheFly?.client ?? 0) > 0 ? payload.ignoringOnTheFly!.client! : 0;
-    if (shouldEcho || ackedClient === this.ignoringClient) {
+    const hadInFlightLocalClaim = this.ignoringClient > 0;
+    if (hadInFlightLocalClaim && ackedClient === this.ignoringClient) {
+      this.claimedPlayPause = false;
+      this.claimedSeek = false;
+      this.ignoringClient = 0;
+    } else if (shouldEcho && hadInFlightLocalClaim) {
+      this.pendingPlayPause ||= this.claimedPlayPause;
+      this.pendingSeek ||= this.claimedSeek;
+      this.claimedPlayPause = false;
+      this.claimedSeek = false;
       this.ignoringClient = 0;
     }
     // A fresh local change raises the counter so the server arbitrates it and
@@ -561,14 +581,15 @@ export class SyncplayClient {
     const startedLocalClaim = !shouldEcho && hasPendingLocalChange && this.ignoringClient === 0;
     if (startedLocalClaim) {
       this.ignoringClient += 1;
+      this.claimedPlayPause = this.pendingPlayPause;
+      this.claimedSeek = this.pendingSeek;
       this.hasAuthoredState = true;
     }
 
-    // Apply the remote playstate to our player unless we made it ourselves or a
-    // local change of ours is still in flight (which would otherwise be clobbered).
-    // Applies whether or not we're echoing — echoing only changes the reply, not
-    // whether a peer's change reaches our player. (Observers pass no
-    // `applyRemoteState`, so this is a no-op there.)
+    // Apply the authoritative server playstate unless a local change is still
+    // in flight (which would otherwise be clobbered). This also reconciles an
+    // acknowledged self-authored state when the local media transport failed
+    // to follow its own command. Observers never drive a player.
     const setByUser = payload.playstate.setBy ? decodeSyncplayUser(payload.playstate.setBy) : null;
     const isSameDevice = setByUser?.deviceIdentifier === this.user.deviceIdentifier;
     const isSelfAuthored = isSameDevice && this.hasAuthoredState;
@@ -586,14 +607,16 @@ export class SyncplayClient {
     // ignores it. Still track `lastFramePaused` so a swallowed edge doesn't
     // leave a stale baseline that misfires later.
     const framePaused = payload.playstate.paused;
+    const isFirstStateFrame = this.lastFramePaused === null;
     // The session's first move into playing is the auto-start, not a resume;
     // only announce resumes once the room has actually been playing.
     const reachedPlayingBefore = this.hasReachedPlaying;
     if (!framePaused) {
       this.hasReachedPlaying = true;
     }
-    const appliedRemote = !this.observer && !isSelfAuthored && this.ignoringClient === 0;
-    if (appliedRemote) {
+    const protectsLocalChange = this.ignoringClient !== 0 || hasPendingLocalChange;
+    const appliesServerState = !this.observer && !protectsLocalChange;
+    if (appliesServerState) {
       if (!isSameDevice && payload.playstate.doSeek) {
         this.onRemoteAction({
           type: "seek",
@@ -618,15 +641,20 @@ export class SyncplayClient {
       }
     }
     this.lastFramePaused = framePaused;
-    const didApplyRemote = appliedRemote;
-    if (didApplyRemote) {
+    let didApplyServerState = false;
+    if (appliesServerState) {
       try {
-        this.applyRemoteState({
+        const applyResult = this.applyRemoteState({
           user: setByUser,
           isPaused: payload.playstate.paused,
           positionSeconds: roomPositionSeconds,
-          shouldSeek: Boolean(payload.playstate.doSeek),
+          // A self-authored seek is already in flight locally. Replaying its
+          // doSeek acknowledgment would replace the same transcode twice, but
+          // the accepted room playstate and position can still repair a local
+          // transport that failed to resume after replacement.
+          shouldSeek: !isSelfAuthored && Boolean(payload.playstate.doSeek),
         });
+        didApplyServerState = applyResult === "applied";
       } catch (error) {
         // Applying playback state is best-effort while a media element is
         // loading. Keep the room authoritative when it fails: echoing the
@@ -643,18 +671,33 @@ export class SyncplayClient {
       return;
     }
 
-    // Always reply (heartbeat). Echo the server's state when we adopted a remote
-    // change (not a stale pre-apply sample) or while deferring; otherwise report
-    // our own player's state, claiming a pending local seek via `doSeek`.
+    // Always reply (heartbeat). Drivers report their actual player position,
+    // matching Plex Web, so the room clock stays tied to media playback rather
+    // than recursively echoing a slightly stale server timestamp. Observers,
+    // server-relay deferrals, and failed/unavailable player applies still echo
+    // the authoritative server state.
     let reply: SyncplayStateInput;
-    if (shouldEcho || didApplyRemote) {
+    const localState = this.getPlaybackState();
+    const adoptedStickySelfState =
+      appliesServerState && isFirstStateFrame && isSameDevice && !this.hasAuthoredState;
+    if (
+      shouldEcho ||
+      adoptedStickySelfState ||
+      (appliesServerState && !didApplyServerState) ||
+      localState === null ||
+      localState === undefined
+    ) {
       reply = {
         isPaused: payload.playstate.paused,
         positionSeconds: payload.playstate.position,
         shouldSeek: false,
       };
     } else {
-      reply = this.buildLocalReply(startedLocalClaim && this.pendingSeek);
+      reply = {
+        isPaused: localState.isPaused,
+        positionSeconds: localState.positionSeconds,
+        shouldSeek: startedLocalClaim && this.pendingSeek,
+      };
     }
     // Only drop pending actions when this frame started a new claim. Echo
     // frames and heartbeats for an older in-flight claim cannot author the new
@@ -664,15 +707,6 @@ export class SyncplayClient {
       this.pendingSeek = false;
     }
     this.sendState(reply);
-  }
-
-  private buildLocalReply(shouldSeek = this.pendingSeek): SyncplayStateInput {
-    const local = this.getPlaybackState();
-    return {
-      isPaused: local?.isPaused ?? true,
-      positionSeconds: local?.positionSeconds ?? 0,
-      shouldSeek,
-    };
   }
 
   private updatePing(ping: SyncplayPingState | undefined): void {

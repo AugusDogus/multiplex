@@ -5,11 +5,7 @@ import { readPlaybackProbe } from "./helpers/playback-probe";
 const DEVICE_ID_KEY = "multiplex-watch-together-device-id";
 
 async function pressPlayerKey(page: Page, code: string): Promise<void> {
-  await page.evaluate((keyCode) => {
-    document.dispatchEvent(
-      new KeyboardEvent("keydown", { code: keyCode, bubbles: true }),
-    );
-  }, code);
+  await page.keyboard.press(code);
 }
 
 test("two viewers synchronize playback and disable local speed controls", async ({
@@ -123,14 +119,7 @@ test("a host seek propagates to the guest", async ({
     console.error("E2E step: host seeks to ~80%");
     const duration = (await readPlaybackProbe(host)).durationSeconds;
     const seekTarget = duration * 0.8;
-    // Dispatch the keydown on document directly (the player's shortcut handler
-    // is a document listener; Playwright's keyboard can miss it through the
-    // dialog's focus trap).
-    await host.evaluate(() => {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { code: "Digit8", bubbles: true }),
-      );
-    });
+    await pressPlayerKey(host, "Digit8");
     // The probe normalizes direct-play currentTime and transcode offset streams
     // onto the same full media timeline.
     await expect
