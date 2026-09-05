@@ -368,6 +368,11 @@ function usePlaybackSessionController({
         isSessionControllingPlayback(registeredPlayback)
           ? actionsRef.current.seek(seconds)
           : "none",
+      setPlaybackRate: (rate) => {
+        if (isSessionControllingPlayback(registeredPlayback)) {
+          actionsRef.current.setPlaybackRate(rate);
+        }
+      },
       prepareForReplacement: async () => {
         preparePlayerForReplacementRef.current();
         await stopPlaybackTranscodeSessions(

@@ -4,6 +4,7 @@ import {
   type SyncplayClientOptions,
   type SyncplayParticipantState,
   type SyncplayPlaybackState,
+  type SyncplayRemoteStateApplyResult,
   type SyncplayRemoteAction,
   type SyncplayStateInput,
   type SyncplayUser,
@@ -11,6 +12,11 @@ import {
 
 const DEFAULT_SEEK_AHEAD_THRESHOLD_SECONDS = 4;
 const DEFAULT_SEEK_BEHIND_THRESHOLD_SECONDS = -1.75;
+const DEFAULT_RATE_CORRECTION_THRESHOLD_SECONDS = 0.5;
+const RATE_CORRECTION_RESET_THRESHOLD_SECONDS = 0.1;
+const RELOAD_SEEK_DRIFT_THRESHOLD_SECONDS = 10;
+const SLOW_DRIFT_CORRECTION_RATE = 0.95;
+const FAST_DRIFT_CORRECTION_RATE = 1.05;
 const DEFAULT_REMOTE_EVENT_SUPPRESSION_MS = 5000;
 const DEFAULT_RECONNECT_DELAY_MS = 1000;
 // A suppressed seek only matches a player 'seeked' within this many seconds of
@@ -40,6 +46,7 @@ export interface SyncplayPlayerState {
   duration: number;
   canPlay: boolean;
   isLoading: boolean;
+  seekRequiresReload: boolean;
   error: unknown;
 }
 
@@ -48,6 +55,7 @@ export interface SyncplayPlayerAdapter {
   play: () => boolean | Promise<boolean>;
   pause: () => void;
   seek: (positionSeconds: number) => SyncplaySeekResult;
+  setPlaybackRate: (rate: number) => void;
 }
 
 export interface SyncplaySessionControllerOptions {
@@ -114,6 +122,7 @@ export class SyncplaySessionController {
   private allowStartupGrace = true;
   private startupGraceConsumed = false;
   private forceInitialAlignment = false;
+  private driftCorrectionRate = 1;
   // A remote seek that arrived before media duration was known, retried until it
   // can be applied.
   private pendingRemoteSeek: SyncplayPlaybackState | null = null;
@@ -145,6 +154,7 @@ export class SyncplaySessionController {
     this.suppressedPlayPause = null;
     this.suppressedSeek = null;
     this.lastStableIsPaused = null;
+    this.driftCorrectionRate = 1;
     this.knownParticipants.clear();
     this.connectClient();
   }
@@ -169,9 +179,11 @@ export class SyncplaySessionController {
     // Ignore the event our own remote-apply just produced (same target state);
     // otherwise claim the user's change (reported on the next State ping).
     const suppressed = this.suppressedPlayPause;
-    if (suppressed && this.now() <= suppressed.expiresAt && suppressed.isPaused === isPaused) {
+    if (suppressed) {
       this.suppressedPlayPause = null;
-      return;
+      if (this.now() <= suppressed.expiresAt && suppressed.isPaused === isPaused) {
+        return;
+      }
     }
 
     // Media elements may emit duplicate play/pause events without a user
@@ -308,10 +320,10 @@ export class SyncplaySessionController {
   }
 
   /** Steer the player toward a remote-initiated playstate (fire-and-forget). */
-  private applyRemoteState(state: SyncplayPlaybackState): void {
+  private applyRemoteState(state: SyncplayPlaybackState): SyncplayRemoteStateApplyResult {
     const playerState = this.options.player.getState();
     if (playerState.error) {
-      return;
+      return "deferred";
     }
 
     // When the room's controlling participant disconnects during an episode
@@ -328,7 +340,7 @@ export class SyncplaySessionController {
       playerState.currentTime > EMPTY_ROOM_RESET_MAX_POSITION_SECONDS &&
       this.lastStableIsPaused === false
     ) {
-      return;
+      return "deferred";
     }
 
     const targetPosition = clampRemotePosition(state.positionSeconds, playerState.duration);
@@ -346,14 +358,36 @@ export class SyncplaySessionController {
     if (canApplyDriftCorrection) {
       this.forceInitialAlignment = false;
     }
+    const exceedsNormalDriftThreshold =
+      diffSeconds >=
+        (this.options.seekAheadThresholdSeconds ?? DEFAULT_SEEK_AHEAD_THRESHOLD_SECONDS) ||
+      diffSeconds <=
+        (this.options.seekBehindThresholdSeconds ?? DEFAULT_SEEK_BEHIND_THRESHOLD_SECONDS);
+    // Native/direct streams can absorb an ordinary seek. An offset-based Plex
+    // transcode cannot: its "seek" tears down the media source and starts a new
+    // transcode. Correct routine playing drift with a subtle rate adjustment
+    // instead, and reserve that disruptive replacement for explicit seeks,
+    // reconnect alignment, paused-state repair, or severe desynchronization.
+    const canRateCorrectDrift = playerState.seekRequiresReload && !state.isPaused;
+    const exceedsReloadSeekDriftThreshold =
+      Math.abs(diffSeconds) >= RELOAD_SEEK_DRIFT_THRESHOLD_SECONDS;
     const shouldSeek =
       state.shouldSeek ||
       (canApplyDriftCorrection &&
         (forceReconnectAlignment ||
-          diffSeconds >=
-            (this.options.seekAheadThresholdSeconds ?? DEFAULT_SEEK_AHEAD_THRESHOLD_SECONDS) ||
-          diffSeconds <=
-            (this.options.seekBehindThresholdSeconds ?? DEFAULT_SEEK_BEHIND_THRESHOLD_SECONDS)));
+          (canRateCorrectDrift ? exceedsReloadSeekDriftThreshold : exceedsNormalDriftThreshold)));
+
+    if (playerState.seekRequiresReload) {
+      const playbackRate =
+        !canApplyDriftCorrection || shouldSeek || state.isPaused
+          ? 1
+          : this.getDriftCorrectionRate(diffSeconds);
+      this.driftCorrectionRate = playbackRate;
+      this.options.player.setPlaybackRate(playbackRate);
+    } else if (this.driftCorrectionRate !== 1) {
+      this.driftCorrectionRate = 1;
+      this.options.player.setPlaybackRate(1);
+    }
 
     if (shouldSeek) {
       // Only attempt the seek once we have a duration; `"none"` means the player
@@ -395,7 +429,7 @@ export class SyncplaySessionController {
       if (this.options.canInitiateStartupPlayback !== false) {
         this.client?.markLocalPlayPause();
       }
-      return;
+      return "deferred";
     }
 
     // The room state is authoritative even when the media element already
@@ -431,6 +465,7 @@ export class SyncplaySessionController {
         },
       );
     }
+    return "applied";
   }
 
   private schedulePendingRemoteSeek(state: SyncplayPlaybackState): void {
@@ -508,6 +543,28 @@ export class SyncplaySessionController {
 
   private get remoteStartupGraceMs(): number {
     return this.options.remoteStartupGraceMs ?? DEFAULT_REMOTE_STARTUP_GRACE_MS;
+  }
+
+  private getDriftCorrectionRate(diffSeconds: number): number {
+    if (
+      this.driftCorrectionRate === SLOW_DRIFT_CORRECTION_RATE &&
+      diffSeconds > RATE_CORRECTION_RESET_THRESHOLD_SECONDS
+    ) {
+      return SLOW_DRIFT_CORRECTION_RATE;
+    }
+    if (
+      this.driftCorrectionRate === FAST_DRIFT_CORRECTION_RATE &&
+      diffSeconds < -RATE_CORRECTION_RESET_THRESHOLD_SECONDS
+    ) {
+      return FAST_DRIFT_CORRECTION_RATE;
+    }
+    if (diffSeconds >= DEFAULT_RATE_CORRECTION_THRESHOLD_SECONDS) {
+      return SLOW_DRIFT_CORRECTION_RATE;
+    }
+    if (diffSeconds <= -DEFAULT_RATE_CORRECTION_THRESHOLD_SECONDS) {
+      return FAST_DRIFT_CORRECTION_RATE;
+    }
+    return 1;
   }
 }
 

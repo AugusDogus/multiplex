@@ -6,6 +6,7 @@ import {
   type SyncplayParticipantState,
   type SyncplayPlaybackState,
   type SyncplayRemoteAction,
+  type SyncplayRemoteStateApplyResult,
   type SyncplayStateInput,
   type SyncplayWebSocketLike,
 } from "./syncplay-client";
@@ -129,6 +130,7 @@ function createClient(options: {
   applied?: SyncplayPlaybackState[];
   actions?: SyncplayRemoteAction[];
   getPlaybackState?: () => SyncplayStateInput | null | undefined;
+  applyRemoteState?: (state: SyncplayPlaybackState) => SyncplayRemoteStateApplyResult;
 }) {
   return new SyncplayClient({
     room: ROOM,
@@ -136,7 +138,10 @@ function createClient(options: {
     observer: options.observer,
     onParticipant: (participant) => options.participants?.push(participant),
     onRemoteAction: (action) => options.actions?.push(action),
-    applyRemoteState: (state) => options.applied?.push(state),
+    applyRemoteState: (state) => {
+      options.applied?.push(state);
+      return options.applyRemoteState?.(state) ?? "applied";
+    },
     getPlaybackState: options.getPlaybackState,
     webSocketFactory: (url) => {
       const socket = new FakeWebSocket(url);
@@ -263,14 +268,23 @@ describe("SyncplayClient", () => {
   test("applies a remote playstate and replies with the adopted state", () => {
     const sockets: FakeWebSocket[] = [];
     const applied: SyncplayPlaybackState[] = [];
+    let localState: SyncplayStateInput = {
+      isPaused: true,
+      positionSeconds: 12,
+      shouldSeek: false,
+    };
     const client = createClient({
       sockets,
       applied,
-      getPlaybackState: () => ({
-        isPaused: true,
-        positionSeconds: 12,
-        shouldSeek: false,
-      }),
+      getPlaybackState: () => localState,
+      applyRemoteState: (state) => {
+        localState = {
+          isPaused: state.isPaused,
+          positionSeconds: state.positionSeconds,
+          shouldSeek: false,
+        };
+        return "applied";
+      },
     });
     client.connect();
     sockets[0]?.open();
@@ -306,6 +320,38 @@ describe("SyncplayClient", () => {
       },
       playstate: { doSeek: false, paused: false, position: 99, setBy: null },
       ignoringOnTheFly: { client: 0, server: 0 },
+    });
+  });
+
+  test("reports the actual local position on an ordinary heartbeat", () => {
+    const sockets: FakeWebSocket[] = [];
+    const client = createClient({
+      sockets,
+      getPlaybackState: () => ({
+        isPaused: false,
+        positionSeconds: 99.6,
+        shouldSeek: false,
+      }),
+    });
+    client.connect();
+    sockets[0]?.open();
+    sockets[0]?.sent.splice(0);
+
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 99,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+
+    expect(lastPlaystate(sockets[0])?.playstate).toEqual({
+      doSeek: false,
+      paused: false,
+      position: 99.6,
+      setBy: null,
     });
   });
 
@@ -499,6 +545,127 @@ describe("SyncplayClient", () => {
         setBy: null,
       },
       ignoringOnTheFly: { client: 1, server: 0 },
+    });
+  });
+
+  test("reclaims a local pause interrupted by a server relay", () => {
+    const sockets: FakeWebSocket[] = [];
+    const applied: SyncplayPlaybackState[] = [];
+    const client = createClient({
+      sockets,
+      applied,
+      getPlaybackState: () => ({
+        isPaused: true,
+        positionSeconds: 20,
+        shouldSeek: false,
+      }),
+    });
+    client.connect();
+    sockets[0]?.open();
+    sockets[0]?.sent.splice(0);
+    client.markLocalPlayPause();
+
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 19,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+    expect(lastPlaystate(sockets[0])?.ignoringOnTheFly).toEqual({
+      client: 1,
+      server: 0,
+    });
+
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 20,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+        ignoringOnTheFly: { client: 0, server: 1 },
+      },
+    });
+
+    expect(applied).toEqual([]);
+    expect(lastPlaystate(sockets[0])?.ignoringOnTheFly).toEqual({
+      client: 0,
+      server: 1,
+    });
+
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 21,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+
+    expect(lastPlaystate(sockets[0])).toMatchObject({
+      playstate: { paused: true, position: 20 },
+      ignoringOnTheFly: { client: 1, server: 0 },
+    });
+  });
+
+  test("does not reclaim a local pause acknowledged during a server relay", () => {
+    const sockets: FakeWebSocket[] = [];
+    const client = createClient({
+      sockets,
+      getPlaybackState: () => ({
+        isPaused: true,
+        positionSeconds: 20,
+        shouldSeek: false,
+      }),
+    });
+    client.connect();
+    sockets[0]?.open();
+    sockets[0]?.sent.splice(0);
+    client.markLocalPlayPause();
+
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: false,
+          position: 19,
+          setBy: encodeSyncplayUser(REMOTE_USER),
+        },
+      },
+    });
+    expect(lastPlaystate(sockets[0])?.ignoringOnTheFly?.client).toBe(1);
+
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: true,
+          position: 20,
+          setBy: encodeSyncplayUser(LOCAL_USER),
+        },
+        ignoringOnTheFly: { client: 1, server: 1 },
+      },
+    });
+    expect(lastPlaystate(sockets[0])?.ignoringOnTheFly).toEqual({
+      client: 0,
+      server: 1,
+    });
+
+    sockets[0]?.message({
+      State: {
+        playstate: {
+          paused: true,
+          position: 20,
+          setBy: encodeSyncplayUser(LOCAL_USER),
+        },
+      },
+    });
+
+    expect(lastPlaystate(sockets[0])?.ignoringOnTheFly).toEqual({
+      client: 0,
+      server: 0,
     });
   });
 

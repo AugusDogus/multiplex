@@ -35,7 +35,13 @@ import {
   shouldReportVideoPause,
 } from "./utils/media-player-utils";
 import { getFullTimelineDuration } from "./utils/playback-time-utils";
-import { generatePlexStreamUrl } from "./utils/plex-stream-urls";
+import {
+  buildPlexTranscodeSessionKey,
+  generatePlexStreamUrl,
+  markTranscodeSessionStopped,
+  stopTranscodeSessionBeforeReplacement,
+} from "./utils/plex-stream-urls";
+import { emitMediaPlayerDiagnostic } from "./utils/media-player-diagnostics";
 import { useSuppressNativeLongPress } from "./hooks/use-suppress-native-long-press";
 import { useVideoPressGesture } from "./hooks/use-video-press-gesture";
 import { MediaPlayerCaptionsOverlay } from "./media-player-captions-overlay";
@@ -320,6 +326,26 @@ function useMediaPlayerVideoController(
     }
   })();
 
+  useEffect(() => {
+    emitMediaPlayerDiagnostic({
+      kind: "video-source-derived",
+      hasError,
+      ratingKey: item.ratingKey,
+      sourceGeneration,
+      streamOffsetSeconds: streamOffset,
+      transcodeAttempt,
+      videoUsesTranscode: playbackPlan.videoUsesTranscode,
+    });
+  }, [
+    hasError,
+    item.ratingKey,
+    playbackPlan.videoUsesTranscode,
+    sourceGeneration,
+    streamOffset,
+    transcodeAttempt,
+    videoSrc,
+  ]);
+
   // Handle video metadata loaded
   const handleLoadedMetadata = () => {
     if (!isCurrentSource()) return;
@@ -369,18 +395,36 @@ function useMediaPlayerVideoController(
   // Handle video pause event
   const handlePause = () => {
     const video = videoElementRef.current;
-    if (!updatePlaybackState({ isPlaying: false }) || !video) return;
+    const updatedCurrentSource = updatePlaybackState({ isPlaying: false });
+    if (!updatedCurrentSource || !video) {
+      emitMediaPlayerDiagnostic({
+        kind: "video-pause-ignored",
+        reason: updatedCurrentSource ? "video-detached" : "stale-source",
+        sourceGeneration,
+      });
+      return;
+    }
     const wasPauseRequested = consumePauseRequest?.() ?? true;
-    if (
-      shouldReportVideoPause({
-        hasMediaError: video.error !== null,
-        isDocumentUnloading: isDocumentUnloadingRef.current,
-        isSourceLoading: isLoading,
-        isCurrentMediaSource: isCurrentMediaSource(video.currentSrc, videoSrc),
-        readyState: video.readyState,
-        wasPauseRequested,
-      })
-    ) {
+    const reportPause = shouldReportVideoPause({
+      hasMediaError: video.error !== null,
+      isDocumentUnloading: isDocumentUnloadingRef.current,
+      isSourceLoading: isLoading,
+      isCurrentMediaSource: isCurrentMediaSource(video.currentSrc, videoSrc),
+      readyState: video.readyState,
+      wasPauseRequested,
+    });
+    emitMediaPlayerDiagnostic({
+      kind: "video-pause-observed",
+      currentTimeSeconds: video.currentTime,
+      hasMediaError: video.error !== null,
+      isDocumentUnloading: isDocumentUnloadingRef.current,
+      isSourceLoading: isLoading,
+      readyState: video.readyState,
+      reportPause,
+      sourceGeneration,
+      wasPauseRequested,
+    });
+    if (reportPause) {
       onVideoPause?.();
     }
   };
@@ -548,6 +592,13 @@ function useMediaPlayerVideoController(
 
   const videoRefCallback = (node: HTMLVideoElement | null) => {
     if (videoElementRef.current === node) return;
+    const previous = videoElementRef.current;
+    emitMediaPlayerDiagnostic({
+      kind: node ? "video-element-attached" : "video-element-detached",
+      currentTimeSeconds: previous?.currentTime ?? node?.currentTime ?? 0,
+      sourceGeneration,
+      streamOffsetSeconds: streamOffset,
+    });
     videoElementRef.current = node;
     if (ref && "current" in ref) {
       ref.current = node;
@@ -611,7 +662,14 @@ function useMediaPlayerVideoController(
       if (!isCurrentMediaSource(ref.current.currentSrc, videoSrc)) return;
       // Detaching the old source can deliver a late error event. It belongs
       // to the source being replaced and must not restart that transcode.
-      if (playerCommands.snapshot().isPreparingReplacement) return;
+      if (playerCommands.snapshot().isPreparingReplacement) {
+        emitMediaPlayerDiagnostic({
+          kind: "video-error-ignored-during-replacement",
+          sourceGeneration,
+          transcodeAttempt,
+        });
+        return;
+      }
       if (
         playbackPlan.videoUsesTranscode &&
         transcodeAttempt + 1 < MAX_TRANSCODE_START_ATTEMPTS &&
@@ -628,16 +686,61 @@ function useMediaPlayerVideoController(
         console.warn(
           `Plex transcode start failed; retrying with a fresh session in ${delayMs}ms (${transcodeAttempt + 2}/${MAX_TRANSCODE_START_ATTEMPTS})`,
         );
+        emitMediaPlayerDiagnostic({
+          kind: "transcode-retry-scheduled",
+          attempt: transcodeAttempt + 2,
+          delayMs,
+          sourceGeneration,
+        });
         transcodeRetryTimeoutRef.current = setTimeout(() => {
           transcodeRetryTimeoutRef.current = null;
-          const video = videoElementRef.current;
-          if (
-            video &&
-            isCurrentSource() &&
-            isCurrentMediaSource(video.currentSrc, videoSrc)
-          ) {
+          void (async () => {
+            const videoBeforeStop = videoElementRef.current;
+            if (
+              !videoBeforeStop ||
+              !serverUrl ||
+              !authToken ||
+              !transcodeSessionId ||
+              !isCurrentSource() ||
+              !isCurrentMediaSource(videoBeforeStop.currentSrc, videoSrc)
+            ) {
+              return;
+            }
+
+            const failedSessionKey = buildPlexTranscodeSessionKey(
+              transcodeSessionId,
+              streamOffset,
+              playbackPlan,
+              transcodeAttempt,
+            );
+            const stopped = await stopTranscodeSessionBeforeReplacement(
+              serverUrl,
+              authToken,
+              failedSessionKey,
+            );
+            emitMediaPlayerDiagnostic({
+              kind: "transcode-retry-session-stop-completed",
+              attempt: transcodeAttempt + 2,
+              sourceGeneration,
+              stopped,
+            });
+
+            const videoAfterStop = videoElementRef.current;
+            if (
+              !videoAfterStop ||
+              !isCurrentSource() ||
+              !isCurrentMediaSource(videoAfterStop.currentSrc, videoSrc)
+            ) {
+              return;
+            }
+            if (stopped) markTranscodeSessionStopped(failedSessionKey);
+            emitMediaPlayerDiagnostic({
+              kind: "transcode-retry-committed",
+              attempt: transcodeAttempt + 2,
+              sourceGeneration,
+            });
             playerCommands.retryTranscodeSource(playbackIdentity);
-          }
+          })();
         }, delayMs);
         return;
       }

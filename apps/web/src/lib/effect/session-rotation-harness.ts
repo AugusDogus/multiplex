@@ -186,6 +186,7 @@ export const makeControllablePlayer = (): PlayerPortContract & {
     play: () => true,
     pause: () => undefined,
     seek: () => "direct" as const,
+    setPlaybackRate: () => undefined,
     setPlayback: (partial) => {
       snap = { ...snap, ...partial };
       for (const listener of listeners) listener(snap);

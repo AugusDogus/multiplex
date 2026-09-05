@@ -65,7 +65,7 @@ export async function waitForPlaybackAdvance(
   const samples: PlaybackProbeSample[] = [await readPlaybackProbe(page)];
   let sourceBaselinePosition = samples[0]?.timelinePositionSeconds ?? 0;
   let observedSource = samples[0]?.currentSrc ?? "";
-  let sourceObservedAt = samples[0]?.at ?? Date.now();
+  let erroredSourceObservedAt: number | null = null;
 
   while (Date.now() < deadline) {
     await page.waitForTimeout(1_000);
@@ -74,15 +74,20 @@ export async function waitForPlaybackAdvance(
 
     if (sample.currentSrc !== observedSource) {
       observedSource = sample.currentSrc;
-      sourceObservedAt = sample.at;
+      erroredSourceObservedAt = null;
       // Offset transcode recovery replaces the media resource at the room's
       // current position. Compare progress within the replacement source, not
       // against a discarded source that may have been several seconds ahead.
       sourceBaselinePosition = sample.timelinePositionSeconds;
     }
+    if (sample.error && erroredSourceObservedAt === null) {
+      erroredSourceObservedAt = sample.at;
+    } else if (!sample.error) {
+      erroredSourceObservedAt = null;
+    }
     if (
-      sample.error &&
-      sample.at - sourceObservedAt >= ERRORED_SOURCE_RECOVERY_TIMEOUT_MS
+      erroredSourceObservedAt !== null &&
+      sample.at - erroredSourceObservedAt >= ERRORED_SOURCE_RECOVERY_TIMEOUT_MS
     ) {
       throw new Error(
         `${options.label}: errored video source did not recover or change within ${ERRORED_SOURCE_RECOVERY_TIMEOUT_MS}ms. samples=${JSON.stringify(samples.slice(-20))}`,

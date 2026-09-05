@@ -121,3 +121,38 @@ test("uses the selected audio codec when deciding whether to remux", () => {
 
   expect(decideStreamMode(item)).toBe("direct-stream");
 });
+
+test("ignores Plex subtitle placeholders with no codec", () => {
+  const item = fromPartial<MediaPlayerItem>({
+    ...directPlayItem,
+    Media: [
+      fromPartial<MediaEntry>({
+        audioCodec: "aac",
+        videoCodec: "h264",
+        container: "mp4",
+        Part: [
+          {
+            Stream: [
+              { id: 1, streamType: 1 as const, codec: "h264" },
+              { ...englishAudio, selected: true },
+              {
+                id: 12,
+                index: 2,
+                streamType: 3 as const,
+                codec: "none",
+                language: "English",
+                displayTitle: "English",
+                selected: true,
+              },
+            ],
+          },
+        ],
+      }),
+    ],
+  });
+
+  expect(buildPlexPlaybackPlan(item)).toMatchObject({
+    burnedSubtitleId: null,
+    subtitle: { kind: "none" },
+  });
+});

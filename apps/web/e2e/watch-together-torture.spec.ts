@@ -5,6 +5,7 @@ import {
   type Locator,
   type Page,
   type Route,
+  type TestInfo,
 } from "@playwright/test";
 import { z } from "zod";
 
@@ -60,6 +61,10 @@ interface EpisodeRun {
 }
 
 const NETWORK_RECOVERY_SLO_MS = 5_000;
+const STEADY_PLAYBACK_OBSERVATION_MS = 135_000;
+const RUN_FULL_EPISODE_WITH_LATENCY =
+  process.env.WATCH_TOGETHER_FULL_EPISODE === "1";
+const TARGET_MEDIA_HREF = process.env.WATCH_TOGETHER_MEDIA_HREF;
 const DEFAULT_CONTROL_FUZZ_SEED = 0x51c0ffee;
 const parsedControlFuzzSeed = z.coerce
   .number()
@@ -85,13 +90,16 @@ async function pickThreeEpisodeRun(page: Page): Promise<EpisodeRun> {
   await page.goto("/");
   const links = page.locator('a[href*="/item/episode/"]');
   await expect(links.first()).toBeVisible({ timeout: 30_000 });
-  const hrefs = [
+  const discoveredHrefs = [
     ...new Set(
       await links.evaluateAll((anchors) =>
         anchors.map((anchor) => anchor.getAttribute("href")),
       ),
     ),
   ].filter((href): href is string => Boolean(href));
+  const hrefs = TARGET_MEDIA_HREF
+    ? [TARGET_MEDIA_HREF, ...discoveredHrefs]
+    : discoveredHrefs;
 
   for (const href of hrefs) {
     const match = /\/item\/episode\/([^/]+)\/(\d+)/.exec(href);
@@ -221,6 +229,220 @@ async function expectPaused(
       { message: label, timeout: timeoutMs },
     )
     .toEqual([paused, paused]);
+}
+
+interface SteadyPlaybackTracker {
+  source: string;
+  lastProgressAt: number;
+  lastProgressPosition: number;
+  lowReadyStateSince: number | null;
+  pausedSince: number | null;
+  reportedLowReadyState: boolean;
+  reportedPaused: boolean;
+  reportedStall: boolean;
+}
+
+function makeSteadyPlaybackTracker(
+  source: string,
+  positionSeconds: number,
+  startedAt: number,
+): SteadyPlaybackTracker {
+  return {
+    source,
+    lastProgressAt: startedAt,
+    lastProgressPosition: positionSeconds,
+    lowReadyStateSince: null,
+    pausedSince: null,
+    reportedLowReadyState: false,
+    reportedPaused: false,
+    reportedStall: false,
+  };
+}
+
+async function observeUninterruptedPlayback(
+  viewers: readonly [Page, Page],
+  testInfo: TestInfo,
+  options: {
+    readonly attachmentName: string;
+    readonly durationMs: number;
+    readonly isComplete?: () => Promise<boolean>;
+  },
+): Promise<boolean> {
+  const [initialHost, initialGuest] = await Promise.all([
+    readPlaybackProbe(viewers[0]),
+    readPlaybackProbe(viewers[1]),
+  ]);
+  const startedAt = Date.now();
+  const trackers = {
+    host: makeSteadyPlaybackTracker(
+      initialHost.currentSrc,
+      initialHost.timelinePositionSeconds,
+      startedAt,
+    ),
+    guest: makeSteadyPlaybackTracker(
+      initialGuest.currentSrc,
+      initialGuest.timelinePositionSeconds,
+      startedAt,
+    ),
+  };
+  const observations: Array<{
+    readonly atMs: number;
+    readonly viewer: "host" | "guest";
+    readonly timelinePositionSeconds: number;
+    readonly paused: boolean;
+    readonly readyState: number;
+    readonly networkState: number;
+    readonly sourceChanged: boolean;
+  }> = [];
+  const issues: Array<{
+    readonly atMs: number;
+    readonly viewer: "host" | "guest";
+    readonly kind:
+      | "source-changed"
+      | "unexpected-backward-seek"
+      | "paused"
+      | "low-ready-state"
+      | "stalled";
+    readonly detail: string;
+  }> = [];
+  let completed = false;
+  let reachedNaturalEnd = false;
+
+  while (Date.now() - startedAt < options.durationMs) {
+    await viewers[0].waitForTimeout(1_000);
+    if (await options.isComplete?.()) {
+      completed = true;
+      break;
+    }
+    const [hostSample, guestSample] = await Promise.all([
+      readPlaybackProbe(viewers[0]),
+      readPlaybackProbe(viewers[1]),
+    ]);
+    const now = Date.now();
+    const labeledSamples = [
+      ["host", hostSample],
+      ["guest", guestSample],
+    ] as const;
+
+    reachedNaturalEnd ||= labeledSamples.every(([, sample]) => {
+      const remainingSourceSeconds =
+        sample.durationSeconds - sample.currentTimeSeconds;
+      return (
+        sample.ended ||
+        (sample.durationSeconds > 0 &&
+          Number.isFinite(remainingSourceSeconds) &&
+          remainingSourceSeconds <= 1)
+      );
+    });
+
+    // Reaching EOF resets each media element before the successor room route
+    // commits. Those resets and source changes are the expected rotation, not
+    // interruptions in the episode that just completed.
+    if (reachedNaturalEnd) continue;
+
+    for (const [viewer, sample] of labeledSamples) {
+      const tracker = trackers[viewer];
+      const atMs = now - startedAt;
+      const sourceChanged = sample.currentSrc !== tracker.source;
+      observations.push({
+        atMs,
+        viewer,
+        timelinePositionSeconds: sample.timelinePositionSeconds,
+        paused: sample.paused,
+        readyState: sample.readyState,
+        networkState: sample.networkState,
+        sourceChanged,
+      });
+
+      if (sourceChanged) {
+        issues.push({
+          atMs,
+          viewer,
+          kind: "source-changed",
+          detail: "The video source changed during passive playback",
+        });
+        tracker.source = sample.currentSrc;
+        tracker.lastProgressAt = now;
+        tracker.lastProgressPosition = sample.timelinePositionSeconds;
+      } else if (
+        sample.timelinePositionSeconds <
+        tracker.lastProgressPosition - 2
+      ) {
+        issues.push({
+          atMs,
+          viewer,
+          kind: "unexpected-backward-seek",
+          detail: `${tracker.lastProgressPosition.toFixed(2)} -> ${sample.timelinePositionSeconds.toFixed(2)}`,
+        });
+        tracker.lastProgressAt = now;
+        tracker.lastProgressPosition = sample.timelinePositionSeconds;
+      } else if (
+        sample.timelinePositionSeconds >
+        tracker.lastProgressPosition + 0.25
+      ) {
+        tracker.lastProgressAt = now;
+        tracker.lastProgressPosition = sample.timelinePositionSeconds;
+        tracker.reportedStall = false;
+      }
+
+      if (sample.paused || sample.ended) {
+        tracker.pausedSince ??= now;
+        if (!tracker.reportedPaused && now - tracker.pausedSince >= 3_000) {
+          issues.push({
+            atMs,
+            viewer,
+            kind: "paused",
+            detail: "Playback remained paused for at least 3 seconds",
+          });
+          tracker.reportedPaused = true;
+        }
+      } else {
+        tracker.pausedSince = null;
+        tracker.reportedPaused = false;
+      }
+
+      if (sample.readyState < 3) {
+        tracker.lowReadyStateSince ??= now;
+        if (
+          !tracker.reportedLowReadyState &&
+          now - tracker.lowReadyStateSince >= 5_000
+        ) {
+          issues.push({
+            atMs,
+            viewer,
+            kind: "low-ready-state",
+            detail: `readyState remained ${sample.readyState} for at least 5 seconds`,
+          });
+          tracker.reportedLowReadyState = true;
+        }
+      } else {
+        tracker.lowReadyStateSince = null;
+        tracker.reportedLowReadyState = false;
+      }
+
+      if (!tracker.reportedStall && now - tracker.lastProgressAt >= 8_000) {
+        issues.push({
+          atMs,
+          viewer,
+          kind: "stalled",
+          detail: "Timeline position did not advance for at least 8 seconds",
+        });
+        tracker.reportedStall = true;
+      }
+    }
+  }
+
+  await testInfo.attach(options.attachmentName, {
+    body: Buffer.from(
+      JSON.stringify({ completed, issues, observations }, null, 2),
+    ),
+    contentType: "application/json",
+  });
+  expect(
+    issues,
+    "Playback should remain uninterrupted after real controls and subtitle selection",
+  ).toEqual([]);
+  return completed;
 }
 
 async function settlePlaybackState(
@@ -449,21 +671,22 @@ async function stallRemoteTranscodeAndRecover(
   }
 }
 
-async function exerciseGuestSubtitleSelection(
-  guest: Page,
-  host: Page,
+async function exerciseSubtitleSelection(
+  viewer: Page,
+  peer: Page,
+  viewerLabel: string,
 ): Promise<void> {
   const openSubtitlesPane = async (): Promise<Locator> => {
-    const videoBox = await guest.locator("video").boundingBox();
+    const videoBox = await viewer.locator("video").boundingBox();
     if (!videoBox) {
-      throw new Error("Guest Link video should have a layout box");
+      throw new Error(`${viewerLabel} video should have a layout box`);
     }
-    await guest.mouse.move(
+    await viewer.mouse.move(
       videoBox.x + videoBox.width / 2,
       videoBox.y + videoBox.height - 24,
     );
-    await guest.getByRole("button", { name: "Playback settings" }).click();
-    const popover = guest.locator('[data-slot="popover-popup"]');
+    await viewer.getByRole("button", { name: "Playback settings" }).click();
+    const popover = viewer.locator('[data-slot="popover-popup"]');
     const subtitles = popover
       .getByRole("button", { name: /^Subtitles .+/ })
       .first();
@@ -472,19 +695,19 @@ async function exerciseGuestSubtitleSelection(
     return popover;
   };
 
-  console.error("Torture step: Guest Link viewer disables subtitles");
+  console.error(`Torture step: ${viewerLabel} disables subtitles`);
   let popover = await openSubtitlesPane();
   await popover.getByRole("button", { name: "None", exact: true }).click();
   await expect(
     popover.getByRole("button", { name: /^Subtitles .+/ }).first(),
   ).toBeVisible({ timeout: 30_000 });
-  await guest.getByRole("button", { name: "Playback settings" }).click();
+  await viewer.getByRole("button", { name: "Playback settings" }).click();
   await expectPlaybackConverged(
-    [host, guest],
-    "after Guest Link subtitles are disabled",
+    [peer, viewer],
+    `after ${viewerLabel} subtitles are disabled`,
   );
 
-  console.error("Torture step: Guest Link viewer enables subtitles");
+  console.error(`Torture step: ${viewerLabel} enables subtitles`);
   popover = await openSubtitlesPane();
   const firstSubtitle = popover.locator('button[aria-pressed="false"]').first();
   await expect(firstSubtitle).toBeEnabled();
@@ -492,11 +715,53 @@ async function exerciseGuestSubtitleSelection(
   await expect(
     popover.getByRole("button", { name: /^Subtitles .+/ }).first(),
   ).toBeVisible({ timeout: 30_000 });
-  await guest.getByRole("button", { name: "Playback settings" }).click();
+  await viewer.getByRole("button", { name: "Playback settings" }).click();
   await expectPlaybackConverged(
-    [host, guest],
-    "after Guest Link subtitles are enabled",
+    [peer, viewer],
+    `after ${viewerLabel} subtitles are enabled`,
   );
+}
+
+async function replayReportedControlSequence(
+  host: Page,
+  invitedViewer: Page,
+  durationSeconds: number,
+  viewerLabel: string,
+): Promise<void> {
+  console.error(`Torture step: ${viewerLabel} pauses and resumes`);
+  await pressPlayerKey(invitedViewer, "KeyK");
+  await expectPaused(
+    [host, invitedViewer],
+    true,
+    `host should follow ${viewerLabel} pause`,
+  );
+  await invitedViewer.waitForTimeout(1_000);
+  await pressPlayerKey(invitedViewer, "KeyK");
+  await expectPlaybackConverged(
+    [host, invitedViewer],
+    `after ${viewerLabel} resume`,
+  );
+
+  console.error("Torture step: host pauses and resumes");
+  await pressPlayerKey(host, "KeyK");
+  await expectPaused(
+    [host, invitedViewer],
+    true,
+    `${viewerLabel} should follow host pause`,
+  );
+  await host.waitForTimeout(1_000);
+  await pressPlayerKey(host, "KeyK");
+  await expectPlaybackConverged([host, invitedViewer], "after host resume");
+
+  console.error(`Torture step: ${viewerLabel} seeks manually`);
+  await pressPlayerKey(invitedViewer, "Digit4");
+  await expectPlaybackConverged(
+    [host, invitedViewer],
+    `after ${viewerLabel} seek`,
+    durationSeconds * 0.4,
+  );
+
+  await exerciseSubtitleSelection(invitedViewer, host, viewerLabel);
 }
 
 async function runOfflineRecovery(
@@ -675,7 +940,7 @@ test("authenticated viewers survive control, transport, reconnect, and rotation 
   browser,
   baseURL,
 }, testInfo) => {
-  test.setTimeout(600_000);
+  test.setTimeout(RUN_FULL_EPISODE_WITH_LATENCY ? 7_200_000 : 600_000);
   let fixture: EpisodeRun | undefined;
   const roomIds = new Set<string>();
   const synced = await setupSyncedRoom(browser, baseURL, testInfo, {
@@ -691,6 +956,63 @@ test("authenticated viewers survive control, transport, reconnect, and rotation 
     const selected = fixture;
     if (!selected) throw new Error("three-episode fixture was not selected");
     const [first, second, third] = selected.episodes;
+
+    if (RUN_FULL_EPISODE_WITH_LATENCY) {
+      const guestNetwork = await synced.guestContext.newCDPSession(activeGuest);
+      await guestNetwork.send("Network.enable");
+      await guestNetwork.send("Network.emulateNetworkConditions", {
+        offline: false,
+        latency: 300,
+        downloadThroughput: -1,
+        uploadThroughput: -1,
+        connectionType: "cellular3g",
+      });
+      await replayReportedControlSequence(
+        synced.host,
+        activeGuest,
+        first.durationSeconds,
+        "authenticated invited viewer",
+      );
+      console.error(
+        "Torture step: reset to the beginning and play a full episode with 300ms authenticated invited-viewer latency",
+      );
+      await pressPlayerKey(activeGuest, "Digit0");
+      await expectPlaybackConverged(
+        [synced.host, activeGuest],
+        "at the beginning of the authenticated full-episode run",
+        0,
+        60_000,
+      );
+      const initialRoomPath = new URL(synced.host.url()).pathname;
+      const completed = await observeUninterruptedPlayback(
+        [synced.host, activeGuest],
+        testInfo,
+        {
+          attachmentName: "authenticated-full-episode-playback.json",
+          durationMs: (first.durationSeconds + 180) * 1_000,
+          isComplete: async () =>
+            new URL(synced.host.url()).pathname !== initialRoomPath,
+        },
+      );
+      expect(
+        completed,
+        "The full episode should reach natural rotation before its duration plus the recovery allowance",
+      ).toBe(true);
+      const successorPath = new URL(synced.host.url()).pathname;
+      roomIds.add(roomIdFromPath(successorPath));
+      await expect
+        .poll(() => new URL(activeGuest.url()).pathname, {
+          message:
+            "The delayed authenticated invited viewer should follow natural rotation",
+          timeout: 60_000,
+        })
+        .toBe(successorPath);
+      await expectPlaybackConverged(
+        [synced.host, activeGuest],
+        "after the delayed authenticated viewer completes the full episode",
+      );
+      return;
+    }
 
     console.error("Torture step: reload host during active transcoding");
     await synced.host.reload({ waitUntil: "domcontentloaded" });
@@ -791,7 +1113,7 @@ test("Guest Link viewers survive transport, rejoin, host refresh, and repeated r
   browser,
   baseURL,
 }, testInfo) => {
-  test.setTimeout(600_000);
+  test.setTimeout(900_000);
   const hostArtifacts = await createInstrumentedContext({
     browser,
     label: "host",
@@ -852,7 +1174,24 @@ test("Guest Link viewers survive transport, rejoin, host refresh, and repeated r
     await host.getByRole("button", { name: "Start" }).click();
     await expectPlaybackConverged([host, guest], "initial Guest Link playback");
 
-    await exerciseGuestSubtitleSelection(guest, host);
+    await replayReportedControlSequence(
+      host,
+      guest,
+      first.durationSeconds,
+      "Guest Link viewer",
+    );
+    await host.waitForTimeout(5_000);
+    await expectPlaybackConverged(
+      [host, guest],
+      "before passive Guest Link observation",
+    );
+    console.error(
+      `Torture step: observe ${STEADY_PLAYBACK_OBSERVATION_MS / 1_000} seconds of passive Guest Link playback`,
+    );
+    await observeUninterruptedPlayback([host, guest], testInfo, {
+      attachmentName: "guest-link-steady-playback.json",
+      durationMs: STEADY_PLAYBACK_OBSERVATION_MS,
+    });
     await runControlStorm(host, guest, first.durationSeconds);
     await runSeededControlFuzz(
       host,

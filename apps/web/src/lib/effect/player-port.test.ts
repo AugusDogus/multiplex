@@ -142,16 +142,19 @@ test("play/pause/seek warn until registerActions, then delegate", () => {
     play: mock(),
     pause: mock(),
     seek: mock(),
+    setPlaybackRate: mock(),
     prepareForReplacement: mock(async () => undefined),
   };
   port.registerActions(actions);
   void port.play();
   port.pause();
   port.seek(33);
+  port.setPlaybackRate(1.05);
 
   expect(actions.play).toHaveBeenCalledTimes(1);
   expect(actions.pause).toHaveBeenCalledTimes(1);
   expect(actions.seek).toHaveBeenCalledWith(33);
+  expect(actions.setPlaybackRate).toHaveBeenCalledWith(1.05);
 
   warn.mockRestore();
 });
@@ -166,6 +169,7 @@ test("prepareForReplacement delegates when registered and is safe otherwise", as
     play: mock(),
     pause: mock(),
     seek: mock(),
+    setPlaybackRate: mock(),
     prepareForReplacement,
   });
 
@@ -181,6 +185,7 @@ test("unregister clears actions; stale unregister does not clobber a newer regis
     play: mock(() => true),
     pause: mock(),
     seek: mock(() => "direct" as const),
+    setPlaybackRate: mock(),
     prepareForReplacement: mock(async () => undefined),
   };
   const unregisterFirst = port.registerActions(first);
@@ -189,6 +194,7 @@ test("unregister clears actions; stale unregister does not clobber a newer regis
     play: mock(() => true),
     pause: mock(),
     seek: mock(() => "direct" as const),
+    setPlaybackRate: mock(),
     prepareForReplacement: mock(async () => undefined),
   };
   const unregisterSecond = port.registerActions(second);
