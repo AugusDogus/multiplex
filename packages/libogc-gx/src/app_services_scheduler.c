@@ -96,6 +96,10 @@ static bool foreground_waiting(const MultiplexAppServices *services) {
 }
 
 static bool poster_focus_eligible(const MultiplexAppServices *services) {
+  if (services->content.catalog.home_readiness ==
+      MULTIPLEX_APP_SERVICES_HOME_WAITING_ARTWORK) {
+    return true;
+  }
   if (services->focus.kind != MULTIPLEX_APP_SERVICES_FOCUS_PRESENT) {
     return false;
   }
@@ -267,6 +271,14 @@ bool multiplex_app_services_scheduler_apply_poster_result(
   }
   if (result->token != active_plan.token) {
     return true;
+  }
+  if (active_plan.source == MULTIPLEX_APP_SERVICES_POSTER_SOURCE_CATALOG &&
+      services->content.catalog.home_readiness ==
+          MULTIPLEX_APP_SERVICES_HOME_WAITING_ARTWORK &&
+      (result->kind == MULTIPLEX_APP_SERVICES_POSTER_COMPLETED ||
+       result->kind == MULTIPLEX_APP_SERVICES_POSTER_FAILED)) {
+    services->content.catalog.home_readiness =
+        MULTIPLEX_APP_SERVICES_HOME_READY;
   }
   if (result->kind == MULTIPLEX_APP_SERVICES_POSTER_STARTED &&
       slot->kind == MULTIPLEX_APP_SERVICES_POSTER_SLOT_STARTING) {

@@ -247,6 +247,18 @@ _Static_assert(sizeof(MultiplexPosterSurface) == 64u,
 
 uint32_t multiplex_native_abi_version(void);
 void multiplex_native_app_init(void);
+enum {
+  MULTIPLEX_STARTUP_READY = 0,
+  MULTIPLEX_STARTUP_LOADING = 1,
+  MULTIPLEX_STARTUP_NETWORK_ERROR = 2,
+  MULTIPLEX_STARTUP_LIBRARY_ERROR = 3,
+  MULTIPLEX_STARTUP_ACCOUNT_ERROR = 4,
+};
+uint32_t multiplex_native_app_startup_status(uint32_t status);
+uint32_t multiplex_native_app_startup_visible(void);
+uint32_t multiplex_native_app_startup_loading(void);
+uint32_t multiplex_native_app_startup_retry_requested(void);
+
 uint32_t multiplex_native_app_pairing_status(uint32_t status,
                                              const uint8_t *code,
                                              uint32_t code_length,

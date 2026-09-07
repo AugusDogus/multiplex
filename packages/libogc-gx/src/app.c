@@ -342,6 +342,10 @@ MultiplexAppOpenResult multiplex_app_open(MultiplexApp *app) {
   multiplex_tls_client_prepare();
   multiplex_native_app_init();
   multiplex_native_reference_text_overlay(1);
+#if MULTIPLEX_PAIRING_ENABLED
+  multiplex_native_app_startup_status(MULTIPLEX_STARTUP_LOADING);
+  SYS_Report("REFERENCE GX: startup splash shown\n");
+#endif
   if (multiplex_native_app_pairing_status(MULTIPLEX_APP_PAIRING_CONNECTING,
                                           (const uint8_t *)"", 0,
                                           (const uint8_t *)"", 0) == 0 ||
@@ -460,10 +464,6 @@ static void poll_network(MultiplexApp *app, uint64_t now_ms) {
       app->network.retry_at_ms = 0;
       app->network.retry_delay_ms = NETWORK_RETRY_INITIAL_DELAY_MS;
       bind_boot_diagnostics(app, "Network ready");
-      static const char connected[] = "Ethernet connected";
-      multiplex_native_app_toast((const uint8_t *)connected,
-                                 sizeof(connected) - 1u);
-      app->toast_dismiss_at_ms = now_ms + 2500u;
     } else {
       bind_boot_diagnostics(app, "Ethernet disconnected; retrying");
       app->network.retry_at_ms = now_ms + app->network.retry_delay_ms;
@@ -483,6 +483,49 @@ static void poll_network(MultiplexApp *app, uint64_t now_ms) {
     app->network.retry_at_ms =
         app->network.warmup_pending ? 0 : now_ms + app->network.retry_delay_ms;
   }
+}
+
+static void poll_startup(MultiplexApp *app, uint64_t now_ms) {
+#if MULTIPLEX_PAIRING_ENABLED
+  if (multiplex_native_app_startup_retry_requested() != 0) {
+    if (!app->network.ready) {
+      app->network.retry_delay_ms = NETWORK_RETRY_INITIAL_DELAY_MS;
+      if (!app->network.warmup_pending) {
+        app->network.retry_at_ms = now_ms;
+      }
+    }
+    multiplex_app_services_retry_startup(app->services, now_ms);
+    multiplex_native_app_startup_status(MULTIPLEX_STARTUP_LOADING);
+    multiplex_presentation_request_refresh(app->presentation, false);
+    return;
+  }
+  uint32_t status = MULTIPLEX_STARTUP_LOADING;
+  switch (multiplex_app_services_startup_status(app->services)) {
+  case MULTIPLEX_APP_SERVICES_STARTUP_READY:
+    status = MULTIPLEX_STARTUP_READY;
+    break;
+  case MULTIPLEX_APP_SERVICES_STARTUP_ACCOUNT_ERROR:
+    status = MULTIPLEX_STARTUP_ACCOUNT_ERROR;
+    break;
+  case MULTIPLEX_APP_SERVICES_STARTUP_LIBRARY_ERROR:
+    status = MULTIPLEX_STARTUP_LIBRARY_ERROR;
+    break;
+  case MULTIPLEX_APP_SERVICES_STARTUP_LOADING:
+    break;
+  }
+  if (!app->network.ready &&
+      (!app->network.warmup_pending ||
+       app->network.retry_delay_ms > NETWORK_RETRY_INITIAL_DELAY_MS)) {
+    status = MULTIPLEX_STARTUP_NETWORK_ERROR;
+  }
+  if (multiplex_native_app_startup_status(status) != 0) {
+    SYS_Report("REFERENCE GX: startup state=%lu\n", (unsigned long)status);
+    multiplex_presentation_request_refresh(app->presentation, false);
+  }
+#else
+  (void)app;
+  (void)now_ms;
+#endif
 }
 
 MultiplexAppStepResult multiplex_app_step(MultiplexApp *app) {
@@ -535,6 +578,7 @@ MultiplexAppStepResult multiplex_app_step(MultiplexApp *app) {
                         MULTIPLEX_APP_STEP_UI_BIND_FAILED);
   }
 
+  poll_startup(app, now_ms);
   const MultiplexPresentationFrameResult transition =
       multiplex_presentation_prepare_frame(
           app->presentation, MULTIPLEX_PRESENTATION_PREPARE_NORMAL);

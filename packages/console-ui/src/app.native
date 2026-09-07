@@ -1,4 +1,20 @@
 <stack>
+<if test="{startupVisible}">
+  <column grow="1" main="center" cross="center" padding="36" gap="18" background="background" label="Starting Multiplex">
+    <icon name="app:multiplex" width="56" height="56" foreground="text" label="Multiplex" />
+    <text size="heading">Multiplex</text>
+    <if test="{startupLoading}">
+      <spacer height="30" />
+    </if>
+    <else>
+      <spacer height="8" />
+      <text size="heading">{startupErrorTitle}</text>
+      <text foreground="text_muted" wrap="true" text-alignment="center">{startupErrorMessage}</text>
+      <button width="160" variant="primary" on-press="retry_startup">Try again</button>
+    </else>
+  </column>
+</if>
+<else>
   <if test="{screen == 'player'}">
     <stack>
       <media-surface surface="{videoSurface}" grow="1" label="{selectedTitle}" />
@@ -671,4 +687,5 @@
       </panel>
     </column>
   </if>
+</else>
 </stack>

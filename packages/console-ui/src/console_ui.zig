@@ -346,6 +346,7 @@ const NativeMessageKind = enum(u32) {
     mark_watched = 48,
     start_menu_mark_watched = 49,
     toggle_stats_for_nerds = 50,
+    retry_startup = 53,
 };
 
 const NativeNavigationTraceKind = enum(u32) {
@@ -400,6 +401,7 @@ fn nativeMessageKind(message: core.Msg) NativeMessageKind {
         .toggle_playback => .toggle_playback,
         .cycle_subtitles => .cycle_subtitles,
         .toggle_stats_for_nerds => .toggle_stats_for_nerds,
+        .retry_startup => .retry_startup,
         .start_menu_mark_watched => .start_menu_mark_watched,
         .back => .back,
     };
@@ -855,6 +857,28 @@ export fn multiplex_native_app_init() callconv(.c) void {
     initializeApp();
 }
 
+export fn multiplex_native_app_startup_status(status: u32) callconv(.c) u32 {
+    if (!app_initialized or status > 4) return 0;
+    const next = core.loadStartup(app_model, @floatFromInt(status));
+    if (next.startupState == app_model.startupState) return 0;
+    commitAppModel(next);
+    focused_handler = invalid_focused_handler;
+    reference_full_repaint = true;
+    return 1;
+}
+
+export fn multiplex_native_app_startup_visible() callconv(.c) u32 {
+    return if (app_initialized and core.startupVisible(app_model)) 1 else 0;
+}
+
+export fn multiplex_native_app_startup_loading() callconv(.c) u32 {
+    return if (app_initialized and core.startupLoading(app_model)) 1 else 0;
+}
+
+export fn multiplex_native_app_startup_retry_requested() callconv(.c) u32 {
+    return if (app_initialized and app_model.startupState == .retrying) 1 else 0;
+}
+
 export fn multiplex_native_app_pairing_status(
     status: u32,
     code: [*]const u8,
@@ -1228,6 +1252,7 @@ export fn multiplex_native_app_playback_state() callconv(.c) u32 {
 
 export fn multiplex_native_app_screen() callconv(.c) u32 {
     if (!app_initialized) return 0;
+    if (core.startupVisible(app_model)) return screen_pairing;
     return switch (app_model.screen) {
         .pairing => screen_pairing,
         .home => screen_home,

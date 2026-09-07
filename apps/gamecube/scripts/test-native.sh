@@ -40,6 +40,7 @@ all test-playback-program-policy.sh
 all test-playback-prefetch-cancellation.sh
 all test-trpc-rooms.sh
 all test-gui-navigation.sh
+all test-gecko-command.sh
 all test-app-job-slot.sh
 all test-app-jobs.sh
 all test-app-services-policy.sh
@@ -60,7 +61,7 @@ run_host_tests() {
   run_test_script_matrix
 
   echo "Checking TypeScript reducer characterization..."
-  bun test "$ui_dir/src/core.test.ts"
+  bun test "$ui_dir/src/core.test.ts" "$ui_dir/src/startup.test.ts"
 
   echo "Checking the TypeScript core and Native markup on the null platform..."
   cd "$ui_dir"

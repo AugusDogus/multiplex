@@ -261,11 +261,46 @@ static void hls_open_holds_posters_until_playback_stops(void) {
   multiplex_app_services_destroy(&services);
 }
 
+static void startup_posters_load_behind_splash_and_ignore_stale_results(void) {
+  MultiplexAppServices *services = multiplex_app_services_create();
+  assert(services != NULL);
+  app_services_dispatch_test_set_focus(services,
+                                       MULTIPLEX_APP_SERVICES_SCREEN_OTHER);
+  services->content.catalog.home_readiness =
+      MULTIPLEX_APP_SERVICES_HOME_WAITING_ARTWORK;
+  const MultiplexAppServicesPosterPlan plan = poster_plan(606u, 0u);
+  assert(multiplex_app_services_scheduler_start_posters(services, &plan));
+  MultiplexAppServicesEffect effect;
+  assert(multiplex_app_services_poll_effect(services, &effect));
+  assert(effect.kind == MULTIPLEX_APP_SERVICES_EFFECT_POSTER_START);
+  MultiplexAppServicesPosterResult result = {
+      .token = plan.token + 1u,
+      .kind = MULTIPLEX_APP_SERVICES_POSTER_COMPLETED,
+  };
+  assert(
+      multiplex_app_services_scheduler_apply_poster_result(services, &result));
+  assert(services->content.catalog.home_readiness ==
+         MULTIPLEX_APP_SERVICES_HOME_WAITING_ARTWORK);
+  result.token = plan.token;
+  result.kind = MULTIPLEX_APP_SERVICES_POSTER_STARTED;
+  assert(
+      multiplex_app_services_scheduler_apply_poster_result(services, &result));
+  assert(services->content.catalog.home_readiness ==
+         MULTIPLEX_APP_SERVICES_HOME_WAITING_ARTWORK);
+  result.kind = MULTIPLEX_APP_SERVICES_POSTER_COMPLETED;
+  assert(
+      multiplex_app_services_scheduler_apply_poster_result(services, &result));
+  assert(services->content.catalog.home_readiness ==
+         MULTIPLEX_APP_SERVICES_HOME_READY);
+  multiplex_app_services_destroy(&services);
+}
+
 int main(void) {
   app_services_dispatch_test_reset();
   retains_quiesced_plan_until_foreground_finishes();
   holds_posters_until_prefetch_ready();
   prefers_latest_plan_after_quiesce();
   hls_open_holds_posters_until_playback_stops();
+  startup_posters_load_behind_splash_and_ignore_stale_results();
   return 0;
 }

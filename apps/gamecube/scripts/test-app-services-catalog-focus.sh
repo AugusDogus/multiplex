@@ -31,6 +31,7 @@ test_binary="$test_dir/catalog-focus.test"
   -I"$app_dir/host" \
   -I"$repo_dir/packages/console-ui/include" \
   "$runtime_dir/src/app_services_catalog.c" \
+  "$runtime_dir/src/app_services_policy.c" \
   "$app_dir/tests/app_services_catalog_focus_test.c" \
   -o "$test_binary"
 "$test_binary"

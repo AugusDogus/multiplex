@@ -8,6 +8,18 @@
 
 typedef struct MultiplexAppServices MultiplexAppServices;
 
+typedef enum {
+  MULTIPLEX_APP_SERVICES_STARTUP_LOADING = 0,
+  MULTIPLEX_APP_SERVICES_STARTUP_READY,
+  MULTIPLEX_APP_SERVICES_STARTUP_ACCOUNT_ERROR,
+  MULTIPLEX_APP_SERVICES_STARTUP_LIBRARY_ERROR,
+} MultiplexAppServicesStartupStatus;
+
+MultiplexAppServicesStartupStatus
+multiplex_app_services_startup_status(const MultiplexAppServices *services);
+void multiplex_app_services_retry_startup(MultiplexAppServices *services,
+                                          uint64_t now_ms);
+
 MultiplexAppServices *multiplex_app_services_create(void);
 void multiplex_app_services_destroy(MultiplexAppServices **services);
 MultiplexAppServicesDispatchResult
