@@ -357,7 +357,7 @@ three libogc2 stages, selected by `REFERENCE_VARIANT` /
 | Profile    | libogc2 stage             | Local libogc2 changes                                                                                                           | Purpose                                                                                                                            |
 | ---------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `dolphin`  | `.libogc2-stage`          | Full patch stack: TCP write/window flushes, BBA receive-ring DMA wrap and recovery, DHCP ordering and retry, lwIP `snd_nxt` fix | Deterministic development and automation against Dolphin's emulated TAP BBA                                                        |
-| `hardware` | `.libogc2-hardware-stage` | Exactly one change: `TCP_WND` limited to one `TCP_MSS`                                                                          | The physical DOL-015 acceptance build; excludes every Dolphin-motivated receive-driver patch so hardware results stay attributable |
+| `hardware` | `.libogc2-hardware-stage` | `TCP_WND` limited to one `TCP_MSS`; link-settle delay reduced from 5s to 100ms                                                                          | The physical DOL-015 acceptance build; excludes Dolphin receive-driver workarounds; startup delay verified on physical hardware |
 | `clean`    | `.libogc2-clean-stage`    | None; the checkout is verified pristine                                                                                         | Control build for isolating whether a failure is caused by our local patches at all                                                |
 
 Physical hardware is the acceptance target; Dolphin is only the development
@@ -412,6 +412,11 @@ opening home immediately if that batch finishes sooner. Missing or slow artwork
 can continue loading after home opens. Saved catalog data never dismisses the
 splash. Network and service failures offer a retry while automatic recovery
 continues.
+
+The hardware profile retains a 100ms settling period after the BBA reports link
+up. In USB Gecko tests on a physical DOL-015, this reduced splash-to-home time
+with all 24 posters from about 11.4 seconds to 6.7 seconds (7.1 seconds after a
+power cycle). DHCP and server response times still affect startup.
 
 ## Source map
 

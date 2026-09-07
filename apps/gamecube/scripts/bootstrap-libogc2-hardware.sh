@@ -10,9 +10,10 @@ app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 source_dir="$app_dir/.libogc2-hardware"
 stage_dir="$app_dir/.libogc2-hardware-stage"
 patch_file="$app_dir/patches/libogc2-limit-bba-tcp-receive-window.patch"
+link_patch="$app_dir/patches/libogc2-start-bba-after-link.patch"
 stage_library="$stage_dir/opt/devkitpro/libogc2/gamecube/lib/libogc.a"
 stamp="$stage_dir/.build-input"
-build_input="$LIBOGC2_COMMIT $(cksum "$patch_file")"
+build_input="$LIBOGC2_COMMIT $(cksum "$patch_file") $(cksum "$link_patch")"
 
 if [ ! -d "$source_dir/.git" ]; then
   if [ -e "$source_dir" ]; then
@@ -29,12 +30,18 @@ if [ "$actual_commit" != "$LIBOGC2_COMMIT" ]; then
   echo "Hardware libogc2 checkout is at $actual_commit; expected $LIBOGC2_COMMIT" >&2
   exit 1
 fi
-if git -C "$source_dir" apply --reverse --check "$patch_file" \
+# Accept both the previous window-only stage and the current two-patch stage.
+# Temporarily remove only recognized patches to verify the remaining tree.
+set -- "$patch_file"
+if git -C "$source_dir" apply --reverse --check "$link_patch" >/dev/null 2>&1; then
+  set -- "$@" "$link_patch"
+fi
+if git -C "$source_dir" apply --reverse --check "$@" \
   >/dev/null 2>&1; then
-  git -C "$source_dir" apply --reverse "$patch_file"
+  git -C "$source_dir" apply --reverse "$@"
   if ! git -C "$source_dir" diff --quiet ||
     [ -n "$(git -C "$source_dir" ls-files --others --exclude-standard)" ]; then
-    git -C "$source_dir" apply "$patch_file"
+    git -C "$source_dir" apply "$@"
     echo "Hardware libogc2 checkout contains unverified local changes." >&2
     exit 1
   fi
@@ -43,8 +50,8 @@ elif ! git -C "$source_dir" diff --quiet ||
   echo "Hardware libogc2 checkout contains unverified local changes." >&2
   exit 1
 fi
-git -C "$source_dir" apply --check "$patch_file"
-git -C "$source_dir" apply "$patch_file"
+git -C "$source_dir" apply --check "$patch_file" "$link_patch"
+git -C "$source_dir" apply "$patch_file" "$link_patch"
 
 if [ ! -s "$stage_library" ] || [ ! -f "$stamp" ] ||
   [ "$(sed -n '1p' "$stamp")" != "$build_input" ]; then
