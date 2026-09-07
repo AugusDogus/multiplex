@@ -49,6 +49,19 @@ case "$platform" in
     ;;
 esac
 
+development=${MULTIPLEX_DEVELOPMENT:-0}
+case "$development" in
+  0) ;;
+  1)
+    artifact_stem="$artifact_stem-development"
+    build_dir="$build_dir-development"
+    ;;
+  *)
+    echo "MULTIPLEX_DEVELOPMENT must be 0 or 1." >&2
+    exit 1
+    ;;
+esac
+
 if [ ! -s "$libogc_runtime" ]; then
   echo "Missing the pinned libogc2 runtime; run bun run gamecube:bootstrap first." >&2
   exit 1
@@ -88,6 +101,7 @@ podman run --rm \
   --workdir /workspace/apps/gamecube \
   --env LIBOGC2_STAGE_NAME="$libogc2_stage_name" \
   --env MULTIPLEX_PLATFORM="$platform" \
+  --env MULTIPLEX_DEVELOPMENT="$development" \
   --env REFERENCE_VARIANT="$reference_variant" \
   "$DEVKITPPC_IMAGE" \
   sh -c 'export DEVKITPRO="/workspace/apps/gamecube/$LIBOGC2_STAGE_NAME/opt/devkitpro"; export DEVKITPPC="/opt/devkitpro/devkitPPC"; export PATH="/opt/devkitpro/devkitPPC/bin:/opt/devkitpro/tools/bin:$PATH"; make -f /workspace/packages/libogc-gx/Makefile.reference MULTIPLEX_PLATFORM="$MULTIPLEX_PLATFORM" ${REFERENCE_VARIANT:+REFERENCE_VARIANT="$REFERENCE_VARIANT"}'
