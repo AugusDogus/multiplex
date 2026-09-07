@@ -59,6 +59,7 @@ run_host_tests() {
 
   sh "$script_dir/meson.sh" test
   run_test_script_matrix
+  python3 "$script_dir/test_gecko.py"
 
   echo "Checking TypeScript reducer characterization..."
   bun test "$ui_dir/src/core.test.ts" "$ui_dir/src/startup.test.ts"

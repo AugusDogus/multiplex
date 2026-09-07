@@ -78,7 +78,7 @@ CFILES := $(notdir $(wildcard $(RUNTIME_ROOT)/src/*.c)) \
 	$(notdir $(CONSOLE_SOURCE)) \
 	$(notdir $(wildcard $(UI_ROOT)/reference-frame/*.c))
 ifneq ($(MULTIPLEX_DEVELOPMENT),1)
-CFILES := $(filter-out gecko_command.c,$(CFILES))
+CFILES := $(filter-out gecko_command.c gecko_control.c,$(CFILES))
 endif
 OFILES_SOURCES := $(CFILES:.c=.o)
 OFILES_ASSETS := multiplex-dvd-demo-program.o
