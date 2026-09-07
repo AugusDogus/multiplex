@@ -98,4 +98,18 @@ multiplex_presentation_status(const MultiplexPresentation *presentation);
 MultiplexPresentationRenderDiagnostic multiplex_presentation_render_diagnostic(
     const MultiplexPresentation *presentation);
 
+#if MULTIPLEX_DEVELOPMENT
+typedef struct {
+  uint8_t *pixels;
+  uint32_t width;
+  uint32_t height;
+  uint32_t stride;
+  uint32_t size;
+} MultiplexPresentationCapture;
+
+// Owns a frozen YUYV copy of the last displayed XFB. Caller frees pixels.
+MultiplexPresentationCapture
+multiplex_presentation_capture(MultiplexPresentation *presentation);
+#endif
+
 #endif

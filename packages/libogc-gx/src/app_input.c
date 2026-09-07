@@ -132,6 +132,8 @@ multiplex_app_collect_input(MultiplexApp *app, uint64_t now_ms,
 
   uint32_t pressed = PAD_ButtonsDown(0);
   uint32_t held = 0;
+  int8_t stick_x = PAD_StickX(0);
+  int8_t stick_y = PAD_StickY(0);
 #if defined(HW_RVL)
   const uint32_t wii_buttons = WPAD_ButtonsDown(0);
   const uint32_t wii_navigation = wii_dpad_navigation(wii_buttons);
@@ -146,10 +148,21 @@ multiplex_app_collect_input(MultiplexApp *app, uint64_t now_ms,
 #endif
 #endif
 
+#if MULTIPLEX_DEVELOPMENT
+  const MultiplexGeckoInputSample remote =
+      multiplex_gecko_input_poll(&app->input.gecko, now_ms);
+  pressed |= remote.pressed;
+  held |= remote.held;
+  if (remote.stick_x != 0 || remote.stick_y != 0) {
+    stick_x = remote.stick_x;
+    stick_y = remote.stick_y;
+  }
+#endif
+
   if (transition == MULTIPLEX_PRESENTATION_FRAME_PENDING) {
     app->input.queued_buttons |= pressed;
     uint32_t navigation = navigation_action(multiplex_gui_navigation_poll(
-        &app->input.navigation, PAD_StickX(0), PAD_StickY(0), now_ms * 1000u));
+        &app->input.navigation, stick_x, stick_y, now_ms * 1000u));
 #if defined(HW_RVL)
     if (navigation == UINT32_MAX) {
       navigation = wii_navigation;
@@ -170,8 +183,7 @@ multiplex_app_collect_input(MultiplexApp *app, uint64_t now_ms,
       app->input.queued_navigation != UINT32_MAX
           ? app->input.queued_navigation
           : navigation_action(multiplex_gui_navigation_poll(
-                &app->input.navigation, PAD_StickX(0), PAD_StickY(0),
-                now_ms * 1000u));
+                &app->input.navigation, stick_x, stick_y, now_ms * 1000u));
   app->input.queued_navigation = UINT32_MAX;
 #if defined(HW_RVL)
   if (focus_navigation == UINT32_MAX) {

@@ -446,6 +446,35 @@ Wait for Swiss before uploading again. The receiver uses Swiss's
 It requires a responsive app; it cannot reset a crashed CPU. Both builds retain
 the existing USB diagnostics when enabled by the loader.
 
+### Screenshots and controller input
+
+Development builds also support capturing the actual displayed GameCube frame
+and injecting controller samples through the normal application input path.
+Stop other serial readers before using the host client. Run it with the pinned
+Python environment (includes Pillow):
+
+```sh
+uv run --project apps/gamecube --locked python apps/gamecube/scripts/gecko.py screenshot /tmp/multiplex-home.png
+uv run --project apps/gamecube --locked python apps/gamecube/scripts/gecko.py pad --x 90 --ms 100
+uv run --project apps/gamecube --locked python apps/gamecube/scripts/gecko.py pad --buttons A --ms 100
+uv run --project apps/gamecube --locked python apps/gamecube/scripts/gecko.py release
+uv run --project apps/gamecube --locked python apps/gamecube/scripts/gecko.py exit
+```
+
+Use `--device /dev/serial/by-id/...` before the subcommand to select an adapter;
+otherwise `WIILOAD` or `/dev/ttyUSB0` is used. Buttons are comma-separated names:
+A, B, X, Y, START, L, R, Z, LEFT, RIGHT, UP, DOWN. Stick values range from -128 to
+127. Samples expire after their requested duration (at most 4095ms), even if the
+host disconnects. Physical controls remain available. GameCube D-pad behavior
+is unchanged; use the main stick to navigate the UI.
+
+Screenshots copy the displayed YUYV framebuffer, then transfer it in requested
+2048-byte chunks interleaved with normal diagnostics. The client validates the
+size, offsets, and Adler-32 checksum before saving a PNG. Existing files are
+preserved. Idle captures expire after five seconds. This captures individual
+frames; transfer time is separate from rendering speed. A 640x480 capture took
+about 10 seconds on the tested USB Gecko.
+
 ## Startup
 
 The linked application shows a Multiplex splash until the live Plex catalog is

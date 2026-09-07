@@ -2890,3 +2890,25 @@ poll_transition(MultiplexPresentation *presentation) {
              previous_screen, presentation->presented_screen, render_us);
   return MULTIPLEX_PRESENTATION_FRAME_READY;
 }
+
+#if MULTIPLEX_DEVELOPMENT
+MultiplexPresentationCapture
+multiplex_presentation_capture(MultiplexPresentation *presentation) {
+  if (presentation->presentation_frames == 0) {
+    return (MultiplexPresentationCapture){0};
+  }
+  const uint32_t width = presentation->video_mode->fbWidth;
+  const uint32_t height = presentation->video_mode->xfbHeight;
+  const uint32_t stride = ((width + 15u) & ~15u) * 2u;
+  const uint32_t size = stride * height;
+  uint8_t *pixels = malloc(size);
+  if (pixels == NULL) {
+    return (MultiplexPresentationCapture){0};
+  }
+  // present() waits for GX and VSync before swapping the next write index.
+  memcpy(pixels,
+         presentation->framebuffers[presentation->framebuffer_index ^ 1u],
+         size);
+  return (MultiplexPresentationCapture){pixels, width, height, stride, size};
+}
+#endif

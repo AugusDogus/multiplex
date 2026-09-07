@@ -5,6 +5,9 @@
 #include "app_jobs.h"
 #include "app_services.h"
 #include "gui_navigation.h"
+#if MULTIPLEX_DEVELOPMENT
+#include "gecko_command.h"
+#endif
 #include "media-source.h"
 #include "playback_session.h"
 
@@ -49,6 +52,9 @@ typedef struct {
 
 typedef struct {
   MultiplexGuiNavigation navigation;
+#if MULTIPLEX_DEVELOPMENT
+  MultiplexGeckoInput gecko;
+#endif
   uint32_t queued_buttons;
   uint32_t queued_navigation;
   bool controller_status_reported;
