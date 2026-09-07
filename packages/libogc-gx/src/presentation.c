@@ -1423,6 +1423,12 @@ static void fill_rect(float left, float top, float right, float bottom,
                       GXColor color);
 
 static void draw_activity(MultiplexPresentation *presentation) {
+  if (multiplex_native_app_startup_visible() != 0) {
+    if (multiplex_native_app_startup_loading() != 0) {
+      draw_activity_dots(302.0f, presentation->network_activity_frame++);
+    }
+    return;
+  }
   if (presentation->network_activity_visible) {
     draw_activity_dots(380.0f, presentation->network_activity_frame);
     presentation->network_activity_frame += 1;

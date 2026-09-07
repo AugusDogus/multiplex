@@ -404,6 +404,15 @@ The screenshot hotkey uses a separate Dolphin pipe, so this workflow does not
 invoke desktop automation or GNOME Remote Desktop. The tracked controller
 profile also accepts the connected Steam Controller alongside the QA pipe.
 
+## Startup
+
+The linked application shows a Multiplex splash until the live Plex catalog is
+ready. It waits up to 1.5 additional seconds for the initial artwork batch,
+opening home immediately if that batch finishes sooner. Missing or slow artwork
+can continue loading after home opens. Saved catalog data never dismisses the
+splash. Network and service failures offer a retry while automatic recovery
+continues.
+
 ## Source map
 
 - `packages/console-ui/src/core.ts`: shared application model and update function

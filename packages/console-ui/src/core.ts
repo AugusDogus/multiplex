@@ -64,8 +64,17 @@ export interface WatchTogetherInvitee {
   readonly title: Uint8Array;
 }
 
+export type StartupState =
+  | "idle"
+  | "loading"
+  | "network_error"
+  | "library_error"
+  | "account_error"
+  | "retrying";
+
 export interface Model {
   readonly screen: Screen;
+  readonly startupState: StartupState;
   readonly gatewayConnected: boolean;
   readonly gatewayName: Uint8Array;
   readonly pairingEnabled: boolean;
@@ -159,6 +168,7 @@ export interface Model {
 
 export type Msg =
   | { readonly kind: "connect_demo" }
+  | { readonly kind: "retry_startup" }
   | { readonly kind: "previous_row" }
   | { readonly kind: "next_row" }
   | { readonly kind: "open_libraries" }
@@ -353,6 +363,7 @@ const unavailableDetailsSummary = asciiBytes(
 export function initialModel(): Model {
   return {
     screen: "pairing",
+    startupState: "idle",
     gatewayConnected: false,
     gatewayName: asciiBytes("Demo library"),
     pairingEnabled: false,
@@ -445,6 +456,54 @@ export function initialModel(): Model {
     statsForNerdsEnabled: false,
     playbackNavigationRequest: 0,
   };
+}
+
+// The native host controls startup readiness; cached catalog data alone cannot
+// make the application usable. Other hosts retain their existing startup flow.
+export function loadStartup(model: Model, status: number): Model {
+  const state: StartupState =
+    status === 0
+      ? "idle"
+      : status === 2
+        ? "network_error"
+        : status === 3
+          ? "library_error"
+          : status === 4
+            ? "account_error"
+            : "loading";
+  // Automatic retries should not flicker between the error and splash.
+  if (
+    state === "loading" &&
+    (model.startupState === "network_error" ||
+      model.startupState === "library_error" ||
+      model.startupState === "account_error")
+  )
+    return model;
+  return model.startupState === state ? model : { ...model, startupState: state };
+}
+
+export function startupVisible(model: Model): boolean {
+  return model.startupState !== "idle" && !model.pairingWaiting;
+}
+
+export function startupLoading(model: Model): boolean {
+  return (
+    startupVisible(model) && (model.startupState === "loading" || model.startupState === "retrying")
+  );
+}
+
+export function startupErrorTitle(model: Model): Uint8Array {
+  if (model.startupState === "network_error") return asciiBytes("You're not connected");
+  if (model.startupState === "account_error") return asciiBytes("Can't reach Multiplex");
+  return asciiBytes("Can't load your library");
+}
+
+export function startupErrorMessage(model: Model): Uint8Array {
+  if (model.startupState === "network_error")
+    return asciiBytes("Check your Ethernet cable and router, then try again.");
+  if (model.startupState === "account_error")
+    return asciiBytes("The sign-in service is unavailable. Try again in a moment.");
+  return asciiBytes("Make sure your Plex server is online, then try again.");
 }
 
 export function loadCatalog(
@@ -1612,7 +1671,14 @@ function commitSelectedProgress(model: Model): Model {
 }
 
 export function update(model: Model, msg: Msg): Model {
+  if (startupVisible(model) && msg.kind !== "retry_startup") return model;
   switch (msg.kind) {
+    case "retry_startup":
+      return model.startupState === "network_error" ||
+        model.startupState === "library_error" ||
+        model.startupState === "account_error"
+        ? { ...model, startupState: "retrying" }
+        : model;
     case "connect_demo":
       return model.pairingEnabled ? model : { ...model, screen: "home" };
     case "previous_row": {

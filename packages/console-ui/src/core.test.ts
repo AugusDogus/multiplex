@@ -92,6 +92,11 @@ const invitees = Array.from({ length: 5 }, (_, index) => ({
 }));
 
 const reducerCases = {
+  retry_startup: {
+    start: { startupState: "network_error" },
+    message: { kind: "retry_startup" },
+    expected: { startupState: "retrying" },
+  },
   connect_demo: {
     start: {},
     message: { kind: "connect_demo" },

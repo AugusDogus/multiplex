@@ -20,7 +20,55 @@ multiplex_app_services_auth_credentials(const MultiplexAppServices *services) {
              : NULL;
 }
 
+bool multiplex_app_services_auth_linked(const MultiplexAppServices *services) {
+  return services->auth.kind == MULTIPLEX_APP_SERVICES_AUTH_LINKED;
+}
+
+static void startup_waits_for_live_catalog_and_bounds_artwork_wait(void) {
+  MultiplexAppServices services = {0};
+  services.auth.kind = MULTIPLEX_APP_SERVICES_AUTH_LINKED;
+  services.content.catalog.available = true; // A restored catalog is not ready.
+  services.content.catalog.load.kind = MULTIPLEX_APP_SERVICES_LOAD_LOADING;
+  assert(multiplex_app_services_startup_status(&services) ==
+         MULTIPLEX_APP_SERVICES_STARTUP_LOADING);
+  services.content.catalog.home_readiness =
+      MULTIPLEX_APP_SERVICES_HOME_WAITING_ARTWORK;
+  services.content.catalog.load.kind = MULTIPLEX_APP_SERVICES_LOAD_READY;
+  services.content.catalog.artwork_deadline_ms = 2500u;
+  assert(multiplex_app_services_catalog_tick(&services, 2499u, true));
+  assert(multiplex_app_services_startup_status(&services) ==
+         MULTIPLEX_APP_SERVICES_STARTUP_LOADING);
+  assert(multiplex_app_services_catalog_tick(&services, 2500u, true));
+  assert(multiplex_app_services_startup_status(&services) ==
+         MULTIPLEX_APP_SERVICES_STARTUP_READY);
+}
+
+static void startup_errors_allow_retry_without_restarting_active_work(void) {
+  MultiplexAppServices services = {0};
+  services.auth.kind = MULTIPLEX_APP_SERVICES_AUTH_LINKED;
+  services.content.catalog.load.kind = MULTIPLEX_APP_SERVICES_LOAD_RETRY_WAIT;
+  services.content.catalog.retry.at_ms = 8000u;
+  assert(multiplex_app_services_startup_status(&services) ==
+         MULTIPLEX_APP_SERVICES_STARTUP_LIBRARY_ERROR);
+  multiplex_app_services_retry_startup(&services, 4000u);
+  assert(services.content.catalog.retry.at_ms == 4000u);
+  services.content.catalog.load.kind = MULTIPLEX_APP_SERVICES_LOAD_LOADING;
+  services.content.catalog.load.token = 17u;
+  multiplex_app_services_retry_startup(&services, 4500u);
+  assert(services.content.catalog.load.kind ==
+         MULTIPLEX_APP_SERVICES_LOAD_LOADING);
+  assert(services.content.catalog.load.token == 17u);
+  services.auth.kind = MULTIPLEX_APP_SERVICES_AUTH_RETRY_WAIT;
+  services.auth.state.retry_wait.retry.at_ms = 8000u;
+  assert(multiplex_app_services_startup_status(&services) ==
+         MULTIPLEX_APP_SERVICES_STARTUP_ACCOUNT_ERROR);
+  multiplex_app_services_retry_startup(&services, 5000u);
+  assert(services.auth.state.retry_wait.retry.at_ms == 5000u);
+}
+
 int main(void) {
+  startup_waits_for_live_catalog_and_bounds_artwork_wait();
+  startup_errors_allow_retry_without_restarting_active_work();
   MultiplexAppServices services = {0};
   services.content.catalog.available = true;
   services.content.startup_data_not_before_ms = 2000u;

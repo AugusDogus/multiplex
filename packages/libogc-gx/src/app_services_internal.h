@@ -115,8 +115,16 @@ typedef struct {
   } state;
 } MultiplexAppServicesResetState;
 
+typedef enum {
+  MULTIPLEX_APP_SERVICES_HOME_WAITING_CATALOG = 0,
+  MULTIPLEX_APP_SERVICES_HOME_WAITING_ARTWORK,
+  MULTIPLEX_APP_SERVICES_HOME_READY,
+} MultiplexAppServicesHomeReadiness;
+
 typedef struct {
   MultiplexGatewayCatalog catalog;
+  MultiplexAppServicesHomeReadiness home_readiness;
+  uint64_t artwork_deadline_ms;
   bool available;
   MultiplexAppServicesLoadState load;
   MultiplexAppServicesRetry retry;

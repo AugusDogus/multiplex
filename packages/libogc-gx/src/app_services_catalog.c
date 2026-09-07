@@ -7,6 +7,9 @@
 #define CATALOG_RETRY_INITIAL_DELAY_MS 1000u
 #define CATALOG_RETRY_MAX_DELAY_MS 8000u
 #define STARTUP_DATA_IDLE_DELAY_MS 2000u
+// Artwork is optional. A slow or missing poster must not block a usable
+// library.
+#define STARTUP_ARTWORK_BUDGET_MS 1500u
 
 static bool bind_catalog(const MultiplexGatewayCatalog *catalog) {
   if (multiplex_native_app_catalog_begin(
@@ -199,6 +202,12 @@ bool multiplex_app_services_catalog_boot(MultiplexAppServices *services,
 bool multiplex_app_services_catalog_tick(MultiplexAppServices *services,
                                          uint64_t now_ms,
                                          bool network_allowed) {
+  if (services->content.catalog.home_readiness ==
+          MULTIPLEX_APP_SERVICES_HOME_WAITING_ARTWORK &&
+      now_ms >= services->content.catalog.artwork_deadline_ms) {
+    services->content.catalog.home_readiness =
+        MULTIPLEX_APP_SERVICES_HOME_READY;
+  }
   if (!network_allowed || !multiplex_app_services_auth_linked(services)) {
     return true;
   }
@@ -296,6 +305,15 @@ static bool apply_catalog(MultiplexAppServices *services,
     services->content.catalog.cache_save.kind =
         MULTIPLEX_APP_SERVICES_LOAD_REFRESH_PENDING;
   }
+  if (services->content.catalog.home_readiness !=
+      MULTIPLEX_APP_SERVICES_HOME_READY) {
+    services->content.catalog.home_readiness =
+        services->content.catalog.catalog.total_item_count == 0
+            ? MULTIPLEX_APP_SERVICES_HOME_READY
+            : MULTIPLEX_APP_SERVICES_HOME_WAITING_ARTWORK;
+    services->content.catalog.artwork_deadline_ms =
+        result->now_ms + STARTUP_ARTWORK_BUDGET_MS;
+  }
   return queue_home_posters(services) &&
          multiplex_app_services_queue_network_activity(services, false) &&
          multiplex_app_services_queue_refresh(services, false);
@@ -340,4 +358,31 @@ bool multiplex_app_services_catalog_apply_work(
     return false;
   }
   return false;
+}
+
+MultiplexAppServicesStartupStatus
+multiplex_app_services_startup_status(const MultiplexAppServices *services) {
+  if (services->content.catalog.home_readiness ==
+      MULTIPLEX_APP_SERVICES_HOME_READY) {
+    return MULTIPLEX_APP_SERVICES_STARTUP_READY;
+  }
+  if (services->auth.kind == MULTIPLEX_APP_SERVICES_AUTH_RETRY_WAIT) {
+    return MULTIPLEX_APP_SERVICES_STARTUP_ACCOUNT_ERROR;
+  }
+  if (services->content.catalog.load.kind ==
+      MULTIPLEX_APP_SERVICES_LOAD_RETRY_WAIT) {
+    return MULTIPLEX_APP_SERVICES_STARTUP_LIBRARY_ERROR;
+  }
+  return MULTIPLEX_APP_SERVICES_STARTUP_LOADING;
+}
+
+void multiplex_app_services_retry_startup(MultiplexAppServices *services,
+                                          uint64_t now_ms) {
+  if (services->auth.kind == MULTIPLEX_APP_SERVICES_AUTH_RETRY_WAIT) {
+    services->auth.state.retry_wait.retry.at_ms = now_ms;
+  }
+  if (services->content.catalog.load.kind ==
+      MULTIPLEX_APP_SERVICES_LOAD_RETRY_WAIT) {
+    services->content.catalog.retry.at_ms = now_ms;
+  }
 }
