@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+# Each case supplies its own inputs, independent of the caller's build settings.
+unset MULTIPLEX_BASE_URL GAMECUBE_TLS_CA_FILE
+
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app_dir=$(CDPATH= cd -- "$script_dir/.." && pwd)
 bundle="$app_dir/certs/mozilla-ca-bundle.pem"
