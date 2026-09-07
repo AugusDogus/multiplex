@@ -404,6 +404,48 @@ The screenshot hotkey uses a separate Dolphin pipe, so this workflow does not
 invoke desktop automation or GNOME Remote Desktop. The tracked controller
 profile also accepts the connected Steam Controller alongside the QA pipe.
 
+## USB Gecko uploads
+
+Swiss r2092 accepts `wiiload` v0.5 uploads through a USB Gecko in slot B.
+Boot to Swiss with the Gecko connected to the development computer, stop any
+serial log capture, then send the hardware build:
+
+```sh
+WIILOAD=/dev/ttyUSB0 wiiload apps/gamecube/multiplex-gamecube-native-reference-hardware.dol
+```
+
+The pinned devkitPPC image includes `/opt/devkitpro/tools/bin/wiiload`.
+The host user needs read/write access to the serial device. Restart log capture
+after the transfer completes. The DOL runs from memory and the SD card copy is
+unchanged; return to Swiss before sending the next build.
+
+## Development builds
+
+Set `MULTIPLEX_DEVELOPMENT=1` alongside your backend URL when building:
+
+```sh
+MULTIPLEX_DEVELOPMENT=1 MULTIPLEX_BASE_URL=https://multiplex.example.com bun run gamecube:reference:hardware-dol
+```
+
+Use your running Multiplex backend in place of the example URL. This produces
+`multiplex-gamecube-native-reference-hardware-development.dol` in a separate
+build directory. The normal build defaults to `MULTIPLEX_DEVELOPMENT=0` and
+excludes the USB command receiver.
+
+With Swiss debug output enabled, a development DOL accepts a complete
+`MULTIPLEX:EXIT` line over the Gecko connection. It closes the application
+normally and returns through the loader stub:
+
+```sh
+stty -F /dev/ttyUSB0 raw -echo
+printf 'MULTIPLEX:EXIT\n' > /dev/ttyUSB0
+```
+
+Wait for Swiss before uploading again. The receiver uses Swiss's
+`USBGECKO_CHANNEL` setting and does not probe other memory-card devices.
+It requires a responsive app; it cannot reset a crashed CPU. Both builds retain
+the existing USB diagnostics when enabled by the loader.
+
 ## Startup
 
 The linked application shows a Multiplex splash until the live Plex catalog is

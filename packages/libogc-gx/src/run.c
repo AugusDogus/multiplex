@@ -11,6 +11,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if MULTIPLEX_DEVELOPMENT
+#include "gecko_command.h"
+#include <ogc/usbgecko.h>
+#endif
+
 #define APP_STACK_SIZE (512 * 1024)
 
 typedef enum {
@@ -71,12 +76,52 @@ static AppExitCode step_exit_code(MultiplexAppStepResult result) {
   return APP_EXIT_UI_BIND;
 }
 
+#if MULTIPLEX_DEVELOPMENT
+static int gecko_control_channel(void) {
+  const char *channel = getenv("USBGECKO_CHANNEL");
+  if (channel == NULL || (channel[0] != '0' && channel[0] != '1') ||
+      channel[1] != '\0') {
+    return -1;
+  }
+  const int number = channel[0] - '0';
+  return usb_isgeckoalive(number) ? number : -1;
+}
+
+static bool gecko_exit_requested(int channel, MultiplexGeckoCommand *command) {
+  if (channel < 0) {
+    return false;
+  }
+  // Bound work per frame and never wait for another serial byte.
+  for (unsigned index = 0; index < 32u; ++index) {
+    uint8_t byte;
+    if (usb_recvbuffer_safe_ex(channel, &byte, 1, 1) != 1) {
+      break;
+    }
+    if (multiplex_gecko_command_feed(command, byte)) {
+      SYS_Report("REFERENCE GX: remote exit accepted\n");
+      return true;
+    }
+  }
+  return false;
+}
+
+#endif
+
 static void *run_app(void *context) {
   MultiplexApp *app = context;
+#if MULTIPLEX_DEVELOPMENT
+  const int gecko_channel = gecko_control_channel();
+  MultiplexGeckoCommand gecko_command = {0};
+#endif
   const MultiplexAppOpenResult opened = multiplex_app_open(app);
   AppExitCode exit_code = open_exit_code(opened);
   while (opened == MULTIPLEX_APP_OPEN_READY && exit_code == APP_EXIT_OK &&
          SYS_MainLoop()) {
+#if MULTIPLEX_DEVELOPMENT
+    if (gecko_exit_requested(gecko_channel, &gecko_command)) {
+      break;
+    }
+#endif
     exit_code = step_exit_code(multiplex_app_step(app));
   }
   multiplex_app_close(app);

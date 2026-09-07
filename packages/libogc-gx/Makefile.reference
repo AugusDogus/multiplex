@@ -45,6 +45,14 @@ else
 $(error MULTIPLEX_PLATFORM must be gamecube or wii)
 endif
 
+MULTIPLEX_DEVELOPMENT ?= 0
+ifeq ($(MULTIPLEX_DEVELOPMENT),1)
+TARGET := $(TARGET)-development
+BUILD := $(BUILD)-development
+else ifneq ($(MULTIPLEX_DEVELOPMENT),0)
+$(error MULTIPLEX_DEVELOPMENT must be 0 or 1)
+endif
+
 BUILD_ROOT := $(OUTPUT_ROOT)/$(BUILD)
 MPLAYER_ROOT := $(TOOLCHAIN_ROOT)/.mplayer-ce-libogc2/mplayer
 FFMPEG_ROOT := $(MPLAYER_ROOT)/ffmpeg
@@ -52,7 +60,7 @@ MBEDTLS_ROOT := $(TOOLCHAIN_ROOT)/.mbedtls-stage
 INCLUDES := host generated
 
 CFLAGS := -g -gdwarf-4 -gstrict-dwarf -O2 -Wall -Wextra -Werror \
-	$(MACHDEP) $(INCLUDE)
+	$(MACHDEP) $(INCLUDE) -DMULTIPLEX_DEVELOPMENT=$(MULTIPLEX_DEVELOPMENT)
 CXXFLAGS := $(CFLAGS)
 LDFLAGS := -g $(MACHDEP) -Wl,-Map,$(notdir $@).map
 LIBS := $(CORE_LIBRARY) -lavcodec -lavutil -lmbedtls -lmbedx509 \
@@ -69,6 +77,9 @@ export DEPSDIR := $(BUILD_ROOT)
 CFILES := $(notdir $(wildcard $(RUNTIME_ROOT)/src/*.c)) \
 	$(notdir $(CONSOLE_SOURCE)) \
 	$(notdir $(wildcard $(UI_ROOT)/reference-frame/*.c))
+ifneq ($(MULTIPLEX_DEVELOPMENT),1)
+CFILES := $(filter-out gecko_command.c,$(CFILES))
+endif
 OFILES_SOURCES := $(CFILES:.c=.o)
 OFILES_ASSETS := multiplex-dvd-demo-program.o
 export CORE_LIBRARY := $(UI_ROOT)/zig-out/lib/libmultiplex-console-ui.a
