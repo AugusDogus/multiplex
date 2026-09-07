@@ -354,11 +354,11 @@ three libogc2 stages, selected by `REFERENCE_VARIANT` /
 `LIBOGC2_STAGE_NAME`. All three share the same pinned libogc2 commit from
 `PINS.env`; they differ only in which local patches are applied:
 
-| Profile    | libogc2 stage             | Local libogc2 changes                                                                                                           | Purpose                                                                                                                            |
-| ---------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `dolphin`  | `.libogc2-stage`          | Full patch stack: TCP write/window flushes, BBA receive-ring DMA wrap and recovery, DHCP ordering and retry, lwIP `snd_nxt` fix | Deterministic development and automation against Dolphin's emulated TAP BBA                                                        |
-| `hardware` | `.libogc2-hardware-stage` | `TCP_WND` limited to one `TCP_MSS`; link-settle delay reduced from 5s to 100ms                                                                          | The physical DOL-015 acceptance build; excludes Dolphin receive-driver workarounds; startup delay verified on physical hardware |
-| `clean`    | `.libogc2-clean-stage`    | None; the checkout is verified pristine                                                                                         | Control build for isolating whether a failure is caused by our local patches at all                                                |
+| Profile    | libogc2 stage             | Local libogc2 changes                                                                                                           | Purpose                                                                                                                         |
+| ---------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `dolphin`  | `.libogc2-stage`          | Full patch stack: TCP write/window flushes, BBA receive-ring DMA wrap and recovery, DHCP ordering and retry, lwIP `snd_nxt` fix | Deterministic development and automation against Dolphin's emulated TAP BBA                                                     |
+| `hardware` | `.libogc2-hardware-stage` | `TCP_WND` limited to one `TCP_MSS`; link-settle delay reduced from 5s to 100ms                                                  | The physical DOL-015 acceptance build; excludes Dolphin receive-driver workarounds; startup delay verified on physical hardware |
+| `clean`    | `.libogc2-clean-stage`    | None; the checkout is verified pristine                                                                                         | Control build for isolating whether a failure is caused by our local patches at all                                             |
 
 Physical hardware is the acceptance target; Dolphin is only the development
 harness. The separate profiles exist to keep hardware evidence uncontaminated
@@ -463,8 +463,7 @@ uv run --project apps/gamecube --locked python apps/gamecube/scripts/gecko.py ex
 
 Use `--device /dev/serial/by-id/...` before the subcommand to select an adapter;
 otherwise `WIILOAD` or `/dev/ttyUSB0` is used. Buttons are comma-separated names:
-A, B, X, Y, START, L, R, Z, LEFT, RIGHT, UP, DOWN. Stick values range from -128 to
-127. Samples expire after their requested duration (at most 4095ms), even if the
+A, B, X, Y, START, L, R, Z, LEFT, RIGHT, UP, DOWN. Stick values range from -128 to 127. Samples expire after their requested duration (at most 4095ms), even if the
 host disconnects. Physical controls remain available. GameCube D-pad behavior
 is unchanged; use the main stick to navigate the UI.
 
