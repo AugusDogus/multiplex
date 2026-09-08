@@ -22,7 +22,7 @@ import {
 } from "~/components/ui/dialog";
 import { useDragToDismiss } from "./hooks/use-drag-to-dismiss";
 import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
-import { useMediaPlayer } from "./hooks/use-media-player";
+import { getMediaToggleAction, useMediaPlayer } from "./hooks/use-media-player";
 import { usePlayQueue } from "./hooks/use-play-queue";
 import { useTimelineUpdates } from "./hooks/use-timeline-updates";
 import { useAutoPlayNextEpisode } from "./hooks/use-auto-play-next-episode";
@@ -368,6 +368,11 @@ function usePlaybackSessionController({
         isSessionControllingPlayback(registeredPlayback)
           ? actionsRef.current.seek(seconds)
           : "none",
+      setPlaybackRate: (rate) => {
+        if (isSessionControllingPlayback(registeredPlayback)) {
+          actionsRef.current.setPlaybackRate(rate);
+        }
+      },
       prepareForReplacement: async () => {
         preparePlayerForReplacementRef.current();
         await stopPlaybackTranscodeSessions(
@@ -507,14 +512,19 @@ function usePlaybackSessionController({
     clearTimelineSession: timeline.clearSession,
     handleVideoPause: () => {
       timeline.onPause();
-      onSyncplayLocalPlaybackChange(true);
     },
     handleVideoPlay: () => {
       timeline.onPlay();
-      onSyncplayLocalPlaybackChange(false);
     },
     isSyncplayActiveForCurrentItem,
-    onEnded: timeline.onEnded,
+    onEnded: () => {
+      timeline.onEnded();
+      // A playing Syncplay heartbeat can otherwise restart an ended media
+      // element at zero before the room-rotation loop creates its successor.
+      // Treat EOF as explicit local intent so the party remains at the end
+      // while rotation finishes gathering the next room.
+      onSyncplayLocalPlaybackChange(true);
+    },
     onStop: timeline.onStop,
     onTimeUpdate: timeline.onTimeUpdate,
     onVideoSeeked: timeline.onSeeked,
@@ -657,6 +667,22 @@ function useMediaPlayerModalController(): MediaPlayerModalViewProps | null {
   // seek never claims that seek back as a local command.
   const localActions = {
     ...actions,
+    play: () => {
+      onSyncplayLocalPlaybackChange(false);
+      return actions.play();
+    },
+    pause: () => {
+      onSyncplayLocalPlaybackChange(true);
+      actions.pause();
+    },
+    togglePlay: () => {
+      const toggleAction = getMediaToggleAction(
+        videoRef.current,
+        playerCommands.snapshot().isPlaying,
+      );
+      onSyncplayLocalPlaybackChange(toggleAction === "pause");
+      actions.togglePlay();
+    },
     seek: (seconds: number) => claimReloadSeek(actions.seek(seconds)),
     skipForward: (seconds?: number) =>
       claimReloadSeek(actions.skipForward(seconds)),
@@ -738,7 +764,7 @@ function useMediaPlayerModalController(): MediaPlayerModalViewProps | null {
   });
 
   const handleVideoClick = () => {
-    actions.togglePlay();
+    localActions.togglePlay();
   };
 
   const handleVideoDoubleClick = () => {

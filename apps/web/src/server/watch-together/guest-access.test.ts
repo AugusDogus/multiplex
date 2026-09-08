@@ -69,6 +69,30 @@ const SERVER: PlexDevice = {
   ],
 };
 
+const SERVER_WITH_LAN_AND_REMOTE_CONNECTIONS: PlexDevice = {
+  ...SERVER,
+  connections: [
+    {
+      protocol: "https",
+      address: "10.0.0.14",
+      port: 32400,
+      uri: "https://10-0-0-14.local.plex.direct:32400",
+      local: true,
+      relay: false,
+      IPv6: false,
+    },
+    {
+      protocol: "https",
+      address: "example.plex.direct",
+      port: 32400,
+      uri: "https://example.plex.direct:32400",
+      local: false,
+      relay: false,
+      IPv6: false,
+    },
+  ],
+};
+
 const ITEM = fromPartial<ItemMetadata>({
   ratingKey: "42",
   key: "/library/metadata/42",
@@ -98,10 +122,8 @@ test("reports when only the Home admin can enable a missing Guest", async () => 
 describe("resolveGuestAccess", () => {
   test("proves Guest access to the selected server and item", async () => {
     const getItemMetadata = mock(async () => ITEM);
-    const getConnectionUri = mock(async () => "https://proven.plex.direct");
     const serverClient = fromPartial<PlexServerClient>({
       getItemMetadata,
-      getConnectionUri,
     });
     const guestPlex = fromPartial<PlexTvClient>({
       getServers: mock(async () => [SERVER]),
@@ -131,11 +153,48 @@ describe("resolveGuestAccess", () => {
       guest: { id: 2, title: "Guest" },
     });
     expect(getItemMetadata).toHaveBeenCalledWith("42");
-    expect(getConnectionUri).toHaveBeenCalledTimes(1);
     if (!result.ok) {
       throw new Error("expected Guest access to resolve");
     }
-    expect(result.value.playbackServerUrl).toBe("https://proven.plex.direct");
+    expect(result.value.playbackServerUrl).toBe("https://example.plex.direct");
+  });
+
+  test("returns a browser-routable remote origin instead of the server-side LAN winner", async () => {
+    const serverClient = fromPartial<PlexServerClient>({
+      getItemMetadata: mock(async () => ITEM),
+      getConnectionUri: mock(
+        async () => "https://10-0-0-14.local.plex.direct:32400",
+      ),
+    });
+    const guestPlex = fromPartial<PlexTvClient>({
+      getServers: mock(async () => [SERVER_WITH_LAN_AND_REMOTE_CONNECTIONS]),
+      createServerClient: mock(() => serverClient),
+    });
+    const host = fromPartial<PlexTvClient>({
+      getHomeUsers: mock(async () => HOME_USERS),
+      getUserInfo: mock(async () => ({ id: 1 })),
+      switchHomeUser: mock(async () => ({
+        id: 2,
+        uuid: "guest-uuid",
+        title: "Guest",
+        authToken: "switched-guest-token",
+        guest: true,
+        restricted: true,
+      })),
+    });
+
+    const result = await resolveGuestAccess(
+      host,
+      { serverId: "server-1", ratingKey: "42" },
+      { createPlexClient: () => guestPlex },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        playbackServerUrl: "https://example.plex.direct:32400",
+      },
+    });
   });
 
   test("delegates host playback when Plex Guest cannot inherit a shared server", async () => {

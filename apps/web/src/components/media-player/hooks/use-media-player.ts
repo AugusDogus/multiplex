@@ -19,6 +19,7 @@ import {
   markTranscodeSessionStopped,
   stopTranscodeSessionBeforeReplacement,
 } from "../utils/plex-stream-urls";
+import { emitMediaPlayerDiagnostic } from "../utils/media-player-diagnostics";
 
 const TRANSCODE_SEEK_COALESCE_MS = 200;
 
@@ -92,6 +93,7 @@ export function useMediaPlayer() {
    */
   const play = async () => {
     console.log("🎬 Player: play() called");
+    emitMediaPlayerDiagnostic({ kind: "play-command" });
     pauseRequestedRef.current = false;
     const intentRevision = playbackIntent.beginPlay();
     const video = videoRef.current;
@@ -111,6 +113,7 @@ export function useMediaPlayer() {
           return false;
         }
         console.log("🎬 Player: video.play() succeeded");
+        emitMediaPlayerDiagnostic({ kind: "play-succeeded" });
         return playerCommands.updatePlaybackStateFor(playbackIdentity, {
           error: null,
           isPlaying: true,
@@ -123,6 +126,7 @@ export function useMediaPlayer() {
           return false;
         }
         console.error("🎬 Player: video.play() failed:", error);
+        emitMediaPlayerDiagnostic({ kind: "play-failed" });
         playerCommands.updatePlaybackStateFor(playbackIdentity, {
           error: "Failed to start video playback",
           isPlaying: false,
@@ -139,6 +143,7 @@ export function useMediaPlayer() {
    */
   const pause = () => {
     console.log("🎬 Player: pause() called");
+    emitMediaPlayerDiagnostic({ kind: "pause-command" });
     playbackIntent.pause();
     const video = videoRef.current;
     const playbackIdentity = playerCommands.playbackIdentity();
@@ -164,6 +169,12 @@ export function useMediaPlayer() {
     const video = videoRef.current;
     const playbackIdentity = playerCommands.playbackIdentity();
     if (!video || !playbackIdentity) return;
+
+    emitMediaPlayerDiagnostic({
+      kind: "replacement-prepared",
+      currentTimeSeconds: video.currentTime,
+      sourceGeneration: playerCommands.snapshot().sourceGeneration,
+    });
 
     playerCommands.updatePlaybackStateFor(playbackIdentity, {
       isLoading: true,
@@ -197,79 +208,114 @@ export function useMediaPlayer() {
   const seek = (time: number): MediaPlayerSeekResult => {
     const video = videoRef.current;
     const playbackIdentity = playerCommands.playbackIdentity();
-    if (video && playbackIdentity) {
-      const playerState = playerCommands.snapshot();
-      const duration = playerState.duration;
-      // An exact EOF seek is not a playable media position. Native MP4s can
-      // report `ended` and snap their timeline back before Watch Together has
-      // propagated the seek, while Plex rejects an EOF transcode offset.
-      // Keep every seek inside the same final half-second used by autoplay and
-      // room rotation so both playback paths have identical semantics.
-      const clampedTime = clampPlayableSeekTarget(
-        clamp(time, 0, duration),
-        duration,
-      );
-      // Plex's transcoded MP4 stream advertises an empty seekable range, so
-      // assigning `video.currentTime` is silently rejected. For those we
-      // seek by reloading the stream with a new `offset` instead.
-      // Use the canonical playback plan. Chrome can clear `currentSrc` while
-      // replacing a transcode source, which must not turn the seek into a
-      // rejected native media-element seek.
-      const seekResult = getMediaSeekResult(playerState.currentItem);
-      if (seekResult === "reload") {
-        const playableTime = clampedTime;
-        cancelPendingTranscodeSeek();
-        const seekRevision = transcodeSeekRevisionRef.current;
-        playerCommands.updatePlaybackStateFor(playbackIdentity, {
-          currentTime: playableTime,
-          isLoading: true,
-          isPreparingReplacement: true,
-          canPlay: false,
-        });
-        if (!playerState.isPreparingReplacement) {
-          detachMediaForReplacement(video);
-        }
-        transcodeSeekTimeoutRef.current = setTimeout(() => {
-          transcodeSeekTimeoutRef.current = null;
-          void (async () => {
-            const pending = playerCommands.snapshot();
-            const pendingItem = pending.currentItem;
-            if (
-              pendingItem?.serverUrl &&
-              pendingItem.authToken &&
-              pending.transcodeSessionId
-            ) {
-              const plan = buildPlexPlaybackPlan(pendingItem);
-              const sessionKey = buildPlexTranscodeSessionKey(
-                pending.transcodeSessionId,
-                pending.streamOffset,
-                plan,
-                pending.transcodeAttempt,
-              );
-              const stopped = await stopTranscodeSessionBeforeReplacement(
-                pendingItem.serverUrl,
-                pendingItem.authToken,
-                sessionKey,
-              );
-              if (stopped) markTranscodeSessionStopped(sessionKey);
-            }
-            if (transcodeSeekRevisionRef.current !== seekRevision) return;
-            playerCommands.replaceTranscodeSource(
-              playbackIdentity,
-              playableTime,
-            );
-          })();
-        }, TRANSCODE_SEEK_COALESCE_MS);
-        return seekResult;
-      }
-      video.currentTime = clampedTime;
+    if (!playbackIdentity) return "none";
+
+    const playerState = playerCommands.snapshot();
+    const duration = playerState.duration;
+    // An exact EOF seek is not a playable media position. Native MP4s can
+    // report `ended` and snap their timeline back before Watch Together has
+    // propagated the seek, while Plex rejects an EOF transcode offset.
+    // Keep every seek inside the same final half-second used by autoplay and
+    // room rotation so both playback paths have identical semantics.
+    const clampedTime = clampPlayableSeekTarget(
+      clamp(time, 0, duration),
+      duration,
+    );
+    // Plex's transcoded MP4 stream advertises an empty seekable range, so
+    // assigning `video.currentTime` is silently rejected. For those we
+    // seek by reloading the stream with a new `offset` instead.
+    // Use the canonical playback plan. Chrome can clear `currentSrc` while
+    // replacing a transcode source, which must not turn the seek into a
+    // rejected native media-element seek.
+    const seekResult = getMediaSeekResult(playerState.currentItem);
+    emitMediaPlayerDiagnostic({
+      kind: "seek-requested",
+      requestedTimeSeconds: time,
+      targetTimeSeconds: clampedTime,
+      durationSeconds: duration,
+      result: seekResult,
+      sourceGeneration: playerState.sourceGeneration,
+      wasPreparingReplacement: playerState.isPreparingReplacement,
+    });
+    if (seekResult === "reload") {
+      const playableTime = clampedTime;
+      cancelPendingTranscodeSeek();
+      const seekRevision = transcodeSeekRevisionRef.current;
       playerCommands.updatePlaybackStateFor(playbackIdentity, {
-        currentTime: clampedTime,
+        currentTime: playableTime,
+        isLoading: true,
+        isPreparingReplacement: true,
+        canPlay: false,
       });
+      if (video && !playerState.isPreparingReplacement) {
+        emitMediaPlayerDiagnostic({
+          kind: "transcode-source-detached",
+          targetTimeSeconds: playableTime,
+          sourceGeneration: playerState.sourceGeneration,
+        });
+        detachMediaForReplacement(video);
+      }
+      emitMediaPlayerDiagnostic({
+        kind: "transcode-replacement-scheduled",
+        targetTimeSeconds: playableTime,
+        seekRevision,
+      });
+      transcodeSeekTimeoutRef.current = setTimeout(() => {
+        transcodeSeekTimeoutRef.current = null;
+        void (async () => {
+          const pending = playerCommands.snapshot();
+          const pendingItem = pending.currentItem;
+          if (
+            pendingItem?.serverUrl &&
+            pendingItem.authToken &&
+            pending.transcodeSessionId
+          ) {
+            const plan = buildPlexPlaybackPlan(pendingItem);
+            const sessionKey = buildPlexTranscodeSessionKey(
+              pending.transcodeSessionId,
+              pending.streamOffset,
+              plan,
+              pending.transcodeAttempt,
+            );
+            const stopped = await stopTranscodeSessionBeforeReplacement(
+              pendingItem.serverUrl,
+              pendingItem.authToken,
+              sessionKey,
+            );
+            emitMediaPlayerDiagnostic({
+              kind: "transcode-previous-session-stop-completed",
+              stopped,
+              targetTimeSeconds: playableTime,
+              seekRevision,
+            });
+            if (stopped) markTranscodeSessionStopped(sessionKey);
+          }
+          if (transcodeSeekRevisionRef.current !== seekRevision) {
+            emitMediaPlayerDiagnostic({
+              kind: "transcode-replacement-cancelled",
+              targetTimeSeconds: playableTime,
+              seekRevision,
+            });
+            return;
+          }
+          emitMediaPlayerDiagnostic({
+            kind: "transcode-replacement-committed",
+            targetTimeSeconds: playableTime,
+            seekRevision,
+          });
+          playerCommands.replaceTranscodeSource(playbackIdentity, playableTime);
+        })();
+      }, TRANSCODE_SEEK_COALESCE_MS);
       return seekResult;
     }
 
-    return "none";
+    if (!video) return "none";
+
+    video.currentTime = clampedTime;
+    playerCommands.updatePlaybackStateFor(playbackIdentity, {
+      currentTime: clampedTime,
+    });
+    return seekResult;
   };
 
   /**
@@ -282,6 +328,16 @@ export function useMediaPlayer() {
       videoRef.current.volume = clampedVolume;
       usePlayerPrefsStore.getState().setVolume(clampedVolume);
     }
+  };
+
+  const setPlaybackRate = (rate: number) => {
+    const video = videoRef.current;
+    if (!video || video.playbackRate === rate) return;
+    video.playbackRate = rate;
+    emitMediaPlayerDiagnostic({
+      kind: "syncplay-playback-rate-changed",
+      rate,
+    });
   };
 
   /**
@@ -345,6 +401,7 @@ export function useMediaPlayer() {
     pause,
     togglePlay,
     seek,
+    setPlaybackRate,
     setVolume,
     toggleMute,
     toggleFullscreen,

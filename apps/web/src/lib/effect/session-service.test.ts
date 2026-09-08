@@ -320,6 +320,7 @@ test("swapTo prepares the old playback before loading its replacement", async ()
           play: () => true,
           pause: () => undefined,
           seek: () => "direct",
+          setPlaybackRate: () => undefined,
           prepareForReplacement: async () => {
             player.events.push("prepare");
           },
@@ -351,6 +352,7 @@ test("swapTo ignores replacement preparation failure", async () => {
           play: () => true,
           pause: () => undefined,
           seek: () => "direct",
+          setPlaybackRate: () => undefined,
           prepareForReplacement: () =>
             Promise.reject(new Error("cleanup failed")),
         });
@@ -381,6 +383,7 @@ test("swapTo bounds replacement preparation before loading", async () => {
           play: () => true,
           pause: () => undefined,
           seek: () => "direct",
+          setPlaybackRate: () => undefined,
           prepareForReplacement: () => new Promise(() => undefined),
         });
 

@@ -17,11 +17,7 @@ declare global {
 }
 
 async function pressPlayerKey(page: Page, code: string): Promise<void> {
-  await page.evaluate((keyCode) => {
-    document.dispatchEvent(
-      new KeyboardEvent("keydown", { code: keyCode, bubbles: true }),
-    );
-  }, code);
+  await page.keyboard.press(code);
 }
 
 test("an unauthenticated guest does not request protected player metadata", async ({
@@ -213,11 +209,7 @@ test("an unauthenticated guest does not request protected player metadata", asyn
 
     const hostDuration = (await readPlaybackProbe(host)).durationSeconds;
     const seekTarget = hostDuration * 0.5;
-    await host.evaluate(() => {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { code: "Digit5", bubbles: true }),
-      );
-    });
+    await pressPlayerKey(host, "Digit5");
     await expect
       .poll(
         async () =>
@@ -240,11 +232,7 @@ test("an unauthenticated guest does not request protected player metadata", asyn
     // Guest links use a distinct continuation API and capability handoff.
     // Exercise that real path instead of treating authenticated rotation as
     // sufficient coverage for unauthenticated viewers.
-    await host.evaluate(() => {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { code: "End", bubbles: true }),
-      );
-    });
+    await host.getByRole("slider", { name: "Playback position" }).press("End");
     await expect
       .poll(() => new URL(host.url()).pathname, {
         message: "Guest Link host should route to the successor room",

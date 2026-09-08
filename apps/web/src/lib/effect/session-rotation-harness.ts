@@ -186,6 +186,7 @@ export const makeControllablePlayer = (): PlayerPortContract & {
     play: () => true,
     pause: () => undefined,
     seek: () => "direct" as const,
+    setPlaybackRate: () => undefined,
     setPlayback: (partial) => {
       snap = { ...snap, ...partial };
       for (const listener of listeners) listener(snap);
@@ -361,7 +362,7 @@ export const startArmed = (
     yield* Effect.yieldNow;
   });
 
-/** Advance TestClock until `pred` holds (1s steps), for discovery/grace races. */
+/** Advance TestClock until `pred` holds, matching the rotation scheduler cadence. */
 export const waitUntil = (
   session: WatchTogetherSessionContract,
   pred: (snap: ReturnType<WatchTogetherSessionContract["snapshot"]>) => boolean,
@@ -369,9 +370,10 @@ export const waitUntil = (
   label = "waitUntil predicate",
 ) =>
   Effect.gen(function* () {
-    for (let i = 0; i < maxSeconds; i++) {
+    const stepsPerSecond = 4;
+    for (let i = 0; i < maxSeconds * stepsPerSecond; i++) {
       if (pred(session.snapshot())) return;
-      yield* TestClock.adjust("1 second");
+      yield* TestClock.adjust("250 millis");
       yield* Effect.yieldNow;
     }
     expect(
