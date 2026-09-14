@@ -8,6 +8,7 @@ import { plex } from "./server";
 const AUTH_BASE_URL = "https://multiplex.example/api/auth";
 const AUTH_SECRET = "test-only-better-auth-secret-with-sufficient-length";
 const ATTEMPT_COOKIE_NAME = "multiplex.plex_auth_attempt";
+const requestedPlexUrls: URL[] = [];
 
 type InitiateQuery = { returnTo?: string };
 type CallbackQuery = {
@@ -173,7 +174,8 @@ function createContext() {
 }
 
 function createPlexFetch(pin = pinResponse) {
-  return mock(async (_input: string | URL | Request, init?: RequestInit) => {
+  return mock(async (input: string | URL | Request, init?: RequestInit) => {
+    requestedPlexUrls.push(new URL(input instanceof Request ? input.url : input.toString()));
     const body =
       init?.method === "POST"
         ? pin
@@ -272,6 +274,7 @@ describe("Plex authentication attempt binding", () => {
   let getUserInfoSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
+    requestedPlexUrls.length = 0;
     consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
     fetchMock = createPlexFetch();
     globalThis.fetch = Object.assign(fetchMock, {
@@ -337,6 +340,19 @@ describe("Plex authentication attempt binding", () => {
     expect(calls.updateUser).toBe(1);
     expect(calls.createAccount).toBe(1);
     expect(calls.createSession).toBe(1);
+  });
+
+  test("uses the clients API host for the Plex PIN lifecycle", async () => {
+    const jar = new CookieJar();
+    const { context } = createContext();
+    const { callback: callbackUrl } = await initiate(jar, context);
+
+    await callback(jar, context, Object.fromEntries(callbackUrl.searchParams));
+
+    expect(requestedPlexUrls.map((url) => url.origin)).toEqual([
+      "https://clients.plex.tv",
+      "https://clients.plex.tv",
+    ]);
   });
 
   test("redirects to a sanitized returnTo carried in OAuth state", async () => {

@@ -156,7 +156,7 @@ export interface UserWithPlex extends User {
 
 // Utility functions
 const getAuth = async () => {
-  const url = new URL("https://plex.tv/api/v2/pins");
+  const url = new URL("https://clients.plex.tv/api/v2/pins");
   url.searchParams.append("strong", "true");
   url.searchParams.append("X-Plex-Product", config.product);
   url.searchParams.append("X-Plex-Client-Identifier", config.clientIdentifier);
@@ -191,7 +191,7 @@ const getUrl = (auth: z.infer<typeof authSchema>, callbackUrl: URL, state: strin
 };
 
 const isValid = async (auth: Pick<z.infer<typeof authSchema>, "id" | "code">) => {
-  const url = new URL(`https://plex.tv/api/v2/pins/${auth.id}`);
+  const url = new URL(`https://clients.plex.tv/api/v2/pins/${auth.id}`);
   url.searchParams.append("code", auth.code);
   url.searchParams.append("X-Plex-Client-Identifier", config.clientIdentifier);
 
