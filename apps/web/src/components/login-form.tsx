@@ -53,7 +53,7 @@ export function LoginForm({
               />
               <div>
                 <p className="font-medium">Couldn’t connect to Plex</p>
-                <p className="text-muted-foreground mt-0.5 text-xs leading-5">
+                <p className="text-muted-foreground mt-0.5 text-xs leading-5 text-pretty">
                   Plex sign-in is temporarily unavailable. Please try again.
                 </p>
               </div>
