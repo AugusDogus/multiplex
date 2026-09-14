@@ -6,6 +6,8 @@ import "./src/env.js";
 
 /** @type {import("next").NextConfig} */
 const config = {
+  // Keep open clients on assets and RSC payloads from the same Railway deploy.
+  deploymentId: process.env.RAILWAY_DEPLOYMENT_ID,
   // Hide the floating dev indicator so it doesn't visually collide with the
   // mobile bottom navigation while developing / recording demos.
   devIndicators: false,
