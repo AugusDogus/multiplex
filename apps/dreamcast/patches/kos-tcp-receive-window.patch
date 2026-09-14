@@ -1,0 +1,33 @@
+--- a/kernel/net/net_tcp.c
++++ b/kernel/net/net_tcp.c
+@@ -420,7 +420,7 @@ static void net_tcp_close(net_socket_t *hnd) {
+ 
+             tcp_send_fin_ack(sock);
+             ++sock->data.snd.nxt;
+-            sock->state = TCP_STATE_CLOSING;
++            sock->state = TCP_STATE_LAST_ACK;
+             goto ret_no_remove;
+ 
+         case TCP_STATE_CLOSED | TCP_STATE_RESET:
+@@ -1281,6 +1281,12 @@ static ssize_t net_tcp_recvfrom(net_socket_t *hnd, void *buffer, size_t length,
+         sock->data.rcvbuf_head = sock->data.rcvbuf_tail = 0;
+     }
+ 
++    /* recv() reopens the local window, so advertise it immediately. Without
++       this update a sender can remain stopped at KOS's original 8 KiB window. */
++    if(!(flags & MSG_PEEK) && size > 0) {
++        tcp_send_ack(sock);
++    }
++
+     if(addr != NULL) {
+         if(sock->domain == AF_INET) {
+             struct sockaddr_in realaddr;
+@@ -2900,7 +2906,7 @@ static void tcp_thd_cb(void *arg) {
+                         i->state = TCP_STATE_FIN_WAIT_1;
+                     }
+                     else {
+-                        i->state = TCP_STATE_CLOSING;
++                        i->state = TCP_STATE_LAST_ACK;
+                     }
+ 
+                     tcp_send_fin_ack(i);
