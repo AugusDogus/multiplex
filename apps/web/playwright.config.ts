@@ -26,6 +26,11 @@ const WEB_SERVER_COMMAND =
 const CHROME_LAUNCH = chromeLaunchFields(
   resolveChromeLaunchTarget(process.env),
 );
+const BROWSER_ARGS = [
+  "--no-sandbox",
+  "--mute-audio",
+  "--autoplay-policy=no-user-gesture-required",
+];
 
 export default defineConfig({
   testDir: "./e2e",
@@ -47,11 +52,7 @@ export default defineConfig({
     channel: CHROME_LAUNCH.channel,
     launchOptions: {
       executablePath: CHROME_LAUNCH.executablePath,
-      args: [
-        "--no-sandbox",
-        "--mute-audio",
-        "--autoplay-policy=no-user-gesture-required",
-      ],
+      args: BROWSER_ARGS,
     },
   },
   projects: [
@@ -63,7 +64,11 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         // Bundled Chromium is enough — no H.264 playback in these tests.
-        channel: undefined,
+        channel: "chromium",
+        launchOptions: {
+          executablePath: undefined,
+          args: BROWSER_ARGS,
+        },
       },
     },
     {
