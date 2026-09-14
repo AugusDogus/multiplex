@@ -1,6 +1,7 @@
 "use client";
 
-import { Command } from "lucide-react";
+import { PlexAuthError } from "@multiplex/auth-plugin-plex/errors";
+import { CircleAlert, Command } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "~/components/ui/button";
 import { authClient } from "~/lib/auth/client";
@@ -20,6 +21,9 @@ export function LoginForm({
 }: React.ComponentProps<"div">) {
   const searchParams = useSearchParams();
   const returnTo = searchParams.get("returnTo");
+  const plexAuthError = PlexAuthError.parse(
+    searchParams.get(PlexAuthError.queryParameter),
+  );
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
@@ -38,6 +42,23 @@ export function LoginForm({
         </div>
 
         <div className="flex flex-col gap-4">
+          {plexAuthError === PlexAuthError.unavailable ? (
+            <div
+              className="border-destructive/24 bg-destructive/8 flex items-start gap-3 rounded-lg border p-3 text-sm"
+              role="alert"
+            >
+              <CircleAlert
+                aria-hidden="true"
+                className="text-destructive mt-0.5 size-4 shrink-0"
+              />
+              <div>
+                <p className="font-medium">Couldn’t connect to Plex</p>
+                <p className="text-muted-foreground mt-0.5 text-xs leading-5">
+                  Plex sign-in is temporarily unavailable. Please try again.
+                </p>
+              </div>
+            </div>
+          ) : null}
           <Button
             onClick={() => void handlePlexLogin(returnTo)}
             className="w-full"

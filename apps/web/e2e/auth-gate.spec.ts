@@ -122,6 +122,21 @@ test.describe("document auth gate", () => {
     await expect(page.locator('[data-slot="sidebar"]')).toHaveCount(0);
   });
 
+  test("Plex initiation failure returns to a retryable login screen", async ({
+    page,
+  }) => {
+    await page.goto(
+      "/login?plexAuthError=unavailable&returnTo=/watch-together/room-42",
+    );
+
+    await expect(
+      page.getByRole("alert").filter({ hasText: "Couldn’t connect to Plex" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Continue with Plex" }),
+    ).toBeVisible();
+  });
+
   test("junk session cookie is cleared and never paints the shell", async ({
     page,
     context,
