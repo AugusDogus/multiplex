@@ -17,6 +17,7 @@ import type { User } from "better-auth/types";
 import { APIError } from "better-call";
 import { z } from "zod";
 
+import { PlexAuthError } from "./errors";
 import { decodeOAuthState, encodeOAuthState, sanitizeReturnTo } from "./return-to";
 
 const PLEX_AUTH_ATTEMPT_COOKIE = "multiplex.plex_auth_attempt";
@@ -59,6 +60,18 @@ function getAttemptCookieOptions(baseURL: string) {
     secure: authBaseUrl.protocol === "https:",
     path: `${authBaseUrl.pathname.replace(/\/$/, "")}/plex/auth`,
   };
+}
+
+function getLoginErrorUrl(baseURL: string, rawReturnTo?: string): URL {
+  const url = new URL("/login", baseURL);
+  const returnTo = sanitizeReturnTo(rawReturnTo);
+  url.searchParams.set(PlexAuthError.queryParameter, PlexAuthError.unavailable);
+
+  if (returnTo !== "/") {
+    url.searchParams.set("returnTo", returnTo);
+  }
+
+  return url;
 }
 
 function parseAuthAttempt(value: string | false | null): AuthAttempt | null {
@@ -297,10 +310,10 @@ export const plex = () => {
 
             return ctx.redirect(authUrl);
           } catch (error) {
-            throw new APIError("INTERNAL_SERVER_ERROR", {
-              message:
-                error instanceof Error ? error.message : ERROR_CODES.UNEXPECTED_ERROR.message,
-            });
+            console.error("Plex auth initiation error:", error);
+            return ctx.redirect(
+              getLoginErrorUrl(ctx.context.baseURL, ctx.query?.returnTo).toString(),
+            );
           }
         },
       ),

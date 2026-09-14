@@ -207,7 +207,16 @@ async function initiate(
   context: ReturnType<typeof createContext>["context"],
   query: InitiateQuery = {},
 ) {
-  const response = requireResponse(
+  const response = await invokeInitiate(context, query);
+  jar.apply(response.headers);
+  return { callback: extractCallback(response), response };
+}
+
+async function invokeInitiate(
+  context: ReturnType<typeof createContext>["context"],
+  query: InitiateQuery = {},
+): Promise<Response> {
+  return requireResponse(
     await plex().endpoints.initiatePlexAuth(
       fromPartial({
         asResponse: true,
@@ -216,8 +225,6 @@ async function initiate(
       }),
     ),
   );
-  jar.apply(response.headers);
-  return { callback: extractCallback(response), response };
 }
 
 async function callback(
@@ -318,6 +325,32 @@ describe("Plex authentication attempt binding", () => {
     expect(setCookie).toContain("SameSite=Lax");
     expect(setCookie).toContain("Secure");
     expect(setCookie).toContain("Path=/api/auth/plex/auth");
+  });
+
+  test("returns upstream initiation failures to login with the intended destination", async () => {
+    const { context } = createContext();
+    globalThis.fetch = Object.assign(
+      mock(async () => {
+        throw new TypeError("Unable to connect. Is the computer able to access the url?");
+      }),
+      { preconnect: originalFetch.preconnect.bind(originalFetch) },
+    );
+
+    const response = await invokeInitiate(context, {
+      returnTo: "/watch-together/room-42",
+    });
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "https://multiplex.example/login?plexAuthError=unavailable&returnTo=%2Fwatch-together%2Froom-42",
+    );
+
+    const forgedResponse = await invokeInitiate(context, {
+      returnTo: "https://evil.example/phish",
+    });
+    expect(forgedResponse.headers.get("location")).toBe(
+      "https://multiplex.example/login?plexAuthError=unavailable",
+    );
   });
 
   test("completes authentication for the initiating browser and consumes the attempt", async () => {
