@@ -41,6 +41,7 @@ function onMediaHotkey(run: (event: KeyboardEvent) => void) {
     ) {
       return;
     }
+    event.preventDefault();
     run(event);
   };
 }
@@ -79,11 +80,7 @@ export function useKeyboardShortcuts({
     [
       {
         hotkey: "Space",
-        callback: onMediaHotkey((event) => {
-          event.preventDefault();
-          actions.togglePlay();
-        }),
-        options: { preventDefault: false, stopPropagation: false },
+        callback: onMediaHotkey(() => actions.togglePlay()),
       },
       { hotkey: "K", callback: onMediaHotkey(() => actions.togglePlay()) },
       {
@@ -152,6 +149,13 @@ export function useKeyboardShortcuts({
         }),
       })),
     ],
-    { enabled: isOpen },
+    // The wrapper must inspect the event before it is marked handled. TanStack
+    // otherwise prevents it before invoking our callback, which makes the
+    // `defaultPrevented` guard reject every registered shortcut.
+    {
+      enabled: isOpen,
+      preventDefault: false,
+      stopPropagation: false,
+    },
   );
 }

@@ -1555,9 +1555,12 @@ export const makeWatchTogetherSession = (
             });
           });
 
-        // ~1s cadence; player time updates arrive ~4Hz but decisions are
-        // threshold-based so sub-second precision is unnecessary.
-        yield* evaluateOnce().pipe(Effect.repeat(Schedule.spaced("1 second")));
+        // Match the media element's ~4Hz time updates. A deliberate jump into
+        // the final half-second can reach `ended` before a one-second poll,
+        // which would miss the only opportunity to latch the rotation phase.
+        yield* evaluateOnce().pipe(
+          Effect.repeat(Schedule.spaced("250 millis")),
+        );
       });
 
     const startRotation = (user: SyncplayUser): Effect.Effect<void> =>

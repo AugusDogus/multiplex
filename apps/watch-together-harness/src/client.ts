@@ -233,11 +233,15 @@ class HarnessPlayer {
             !this.isLoading &&
             this.mediaError === null,
           isLoading: this.isLoading,
+          seekRequiresReload: true,
           error: this.mediaError,
         }),
         play: () => this.play(),
         pause: () => this.pause(),
         seek: (seconds) => this.seek(seconds, false),
+        setPlaybackRate: (rate) => {
+          this.video.playbackRate = rate;
+        },
       },
       onParticipant: (participant) => this.onParticipant(participant),
       onRemoteAction: (action) => this.onRemoteAction(action),

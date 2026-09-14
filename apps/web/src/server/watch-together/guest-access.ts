@@ -1,4 +1,5 @@
 import {
+  getServerUrl,
   PlexTvClient,
   toPlayableMetadata,
   type PlayableMetadata,
@@ -218,10 +219,12 @@ async function resolvePlaybackAccess(
   } catch {
     return { ok: false, reason: "item-unavailable" };
   }
-  let serverUrl: string;
-  try {
-    serverUrl = await serverClient.getConnectionUri();
-  } catch {
+  // Connection discovery runs on the Next.js server, whose fastest working
+  // origin may be a LAN address that an invited guest cannot reach. Hand the
+  // browser the advertised remote HTTPS origin instead, matching the normal
+  // signed-in playback path.
+  const serverUrl = getServerUrl(server);
+  if (!serverUrl) {
     return { ok: false, reason: "server-unavailable" };
   }
   const item = rawItem ? toPlayableMetadata(rawItem) : null;

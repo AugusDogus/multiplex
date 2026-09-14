@@ -63,19 +63,14 @@ test("a host-controlled host owns room rotation for Guest Link sessions", async 
         expect(createRoom).toHaveBeenCalledTimes(1);
 
         player.setPlayback({ currentTimeSeconds: 1200, durationSeconds: 1200 });
-        yield* waitUntil(
-          session,
-          (state) =>
-            state._tag === "Playing" && state.rotation._tag === "Gathering",
+        yield* TestClock.adjust("1 second");
+        yield* Effect.yieldNow;
+
+        const completed = session.snapshot();
+        expect(completed._tag === "Playing" && completed.room.id).toBe(
+          "r-created",
         );
-        observers[0]?.options.onParticipant({
-          user: multiplexUser(2),
-          isPresent: true,
-        });
-        yield* waitUntil(
-          session,
-          (state) => state._tag === "Playing" && state.room.id === "r-created",
-        );
+        expect(observers.length).toBeGreaterThanOrEqual(1);
         expect(deleteRoom).not.toHaveBeenCalled();
       }),
   );
@@ -232,6 +227,51 @@ test("a stalled viewer arms rotation from a present peer's room progress", async
           snap.rotation._tag === "RoomKnown" &&
           snap.rotation.nextRoom.id,
       ).toBe("r-created");
+    }),
+  );
+});
+
+test("an abrupt EOF seek arms rotation within the final half-second", async () => {
+  await withRotationSession(({ session, player, createRoom }) =>
+    Effect.gen(function* () {
+      yield* session.startPlayback({
+        room: room("r1", "100"),
+        localUser,
+        item: item("100"),
+      });
+      player.setPlayback({
+        currentTimeSeconds: 400,
+        durationSeconds: 1200,
+      });
+      yield* session.setRotationContext({
+        nextEpisode,
+        autoPlayEnabled: true,
+      });
+      yield* Effect.yieldNow;
+
+      const beforeEof = session.snapshot();
+      expect(beforeEof._tag === "Playing" && beforeEof.rotation._tag).toBe(
+        "None",
+      );
+
+      player.setPlayback({ currentTimeSeconds: 1199.5 });
+      yield* TestClock.adjust("250 millis");
+      yield* Effect.yieldNow;
+
+      const armed = session.snapshot();
+      expect(armed._tag === "Playing" && armed.rotation._tag).not.toBe("None");
+      expect(createRoom).toHaveBeenCalledTimes(1);
+
+      // Once armed, a media element briefly resetting after EOF must not
+      // cancel target-specific room creation and discovery work.
+      player.setPlayback({ currentTimeSeconds: 0 });
+      yield* TestClock.adjust("250 millis");
+      yield* Effect.yieldNow;
+
+      const latched = session.snapshot();
+      expect(latched._tag === "Playing" && latched.rotation._tag).not.toBe(
+        "None",
+      );
     }),
   );
 });
