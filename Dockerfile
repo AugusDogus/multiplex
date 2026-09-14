@@ -1,5 +1,5 @@
-# Bun version matches CI (.github/workflows/ci.yml).
-FROM oven/bun:1.3.10-alpine AS deps
+# Track the latest Bun 1.x release in Docker and CI.
+FROM oven/bun:1-alpine AS deps
 WORKDIR /app
 
 COPY package.json bun.lock ./
@@ -35,7 +35,7 @@ ENV BETTER_AUTH_URL=http://localhost:3000
 RUN NEXT_DEPLOYMENT_ID="${RAILWAY_DEPLOYMENT_ID:-$RAILWAY_GIT_COMMIT_SHA}" \
   bun run --filter @multiplex/web build
 
-FROM oven/bun:1.3.10-alpine AS runner
+FROM oven/bun:1-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
