@@ -81,6 +81,23 @@ export function getTranscodeRetryDelayMs(failedAttempt: number): number {
   return Math.min(4_000, 500 * 2 ** Math.max(0, failedAttempt));
 }
 
+/**
+ * Transcoded seeks rebuild the Plex MP4 from a new `offset`, which remounts
+ * the media element. Corrections smaller than this are already on-screen and
+ * must not reload mid-watch (Watch Together reconnect snaps used to do that).
+ */
+export const TRANSCODE_SEEK_EPSILON_SECONDS = 1;
+
+export function shouldReloadTranscodeForSeek(input: {
+  readonly currentTime: number;
+  readonly targetTime: number;
+}): boolean {
+  return (
+    Math.abs(input.targetTime - input.currentTime) >=
+    TRANSCODE_SEEK_EPSILON_SECONDS
+  );
+}
+
 export function shouldRemainLoadingAfterMetadata(input: {
   readonly needsResumeSeek: boolean;
   readonly videoUsesTranscode: boolean;

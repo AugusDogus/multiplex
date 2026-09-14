@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   getTranscodeRetryDelayMs,
   isCurrentMediaSource,
+  shouldReloadTranscodeForSeek,
   shouldRemainLoadingAfterMetadata,
   shouldReportVideoPause,
 } from "./media-player-utils";
@@ -88,6 +89,26 @@ describe("shouldReportVideoPause", () => {
         wasPauseRequested: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("shouldReloadTranscodeForSeek", () => {
+  test("skips a remount when the transcode is already at the target", () => {
+    expect(
+      shouldReloadTranscodeForSeek({
+        currentTime: 445.4,
+        targetTime: 445,
+      }),
+    ).toBe(false);
+  });
+
+  test("reloads when Watch Together drift exceeds one second", () => {
+    expect(
+      shouldReloadTranscodeForSeek({
+        currentTime: 445,
+        targetTime: 447,
+      }),
+    ).toBe(true);
   });
 });
 

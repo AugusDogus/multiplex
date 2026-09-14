@@ -43,8 +43,10 @@ import type { MediaPlayerSeekFeedbackHandle } from "./media-player-video";
 import {
   buildPlexTranscodeSessionKey,
   consumeStoppedTranscodeSession,
+  pingTranscodeSession,
   stopPlaybackTranscodeSessions,
   stopTranscodeSession,
+  TRANSCODE_PING_INTERVAL_MS,
 } from "./utils/plex-stream-urls";
 import { buildPlexPlaybackPlan } from "./utils/plex-playback-plan";
 import {
@@ -490,6 +492,23 @@ function usePlaybackSessionController({
       );
     };
   }, [transcodeSessionId, streamServerUrl, streamAuthToken]);
+
+  useEffect(() => {
+    if (!transcodeSessionKey || !streamServerUrl || !streamAuthToken) {
+      return;
+    }
+
+    const ping = () => {
+      void pingTranscodeSession(
+        streamServerUrl,
+        streamAuthToken,
+        transcodeSessionKey,
+      );
+    };
+    ping();
+    const intervalId = window.setInterval(ping, TRANSCODE_PING_INTERVAL_MS);
+    return () => window.clearInterval(intervalId);
+  }, [transcodeSessionKey, streamServerUrl, streamAuthToken]);
 
   return {
     autoPlayProps: {

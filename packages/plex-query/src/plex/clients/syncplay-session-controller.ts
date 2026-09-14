@@ -20,7 +20,6 @@ const SUPPRESSED_SEEK_MATCH_SECONDS = 2;
 // Retry a remote seek that arrived before media metadata (duration) loaded.
 const PENDING_SEEK_RETRY_MS = 250;
 const PENDING_SEEK_MAX_MS = 15000;
-const RECONNECT_ALIGNMENT_THRESHOLD_SECONDS = 0.25;
 const EMPTY_ROOM_RESET_MAX_POSITION_SECONDS = 1;
 // On auto-start every participant opens the player while the room's playstate is
 // still "paused" (the lobby never played), so the first State pings would pause
@@ -113,7 +112,6 @@ export class SyncplaySessionController {
   private hasOpenedConnection = false;
   private allowStartupGrace = true;
   private startupGraceConsumed = false;
-  private forceInitialAlignment = false;
   // A remote seek that arrived before media duration was known, retried until it
   // can be applied.
   private pendingRemoteSeek: SyncplayPlaybackState | null = null;
@@ -249,7 +247,6 @@ export class SyncplaySessionController {
         if (this.client === client) {
           this.connectedAt = this.now();
           this.allowStartupGrace = !this.hasOpenedConnection && !this.startupGraceConsumed;
-          this.forceInitialAlignment = this.hasOpenedConnection;
           this.hasOpenedConnection = true;
         }
       },
@@ -337,11 +334,7 @@ export class SyncplaySessionController {
 
     const targetPosition = clampRemotePosition(state.positionSeconds, playerState.duration);
     const diffSeconds = playerState.currentTime - targetPosition;
-    const forceReconnectAlignment =
-      this.forceInitialAlignment && Math.abs(diffSeconds) > RECONNECT_ALIGNMENT_THRESHOLD_SECONDS;
-    this.forceInitialAlignment = false;
     const shouldSeek =
-      forceReconnectAlignment ||
       state.shouldSeek ||
       diffSeconds >=
         (this.options.seekAheadThresholdSeconds ?? DEFAULT_SEEK_AHEAD_THRESHOLD_SECONDS) ||

@@ -600,6 +600,44 @@ describe("applyPlaybackMetadata", () => {
     );
   });
 
+  test("does not remount an in-progress transcode just to bake the current offset", () => {
+    const item = createTranscodedSubtitleItem(false);
+    player.openPlayer(item, { resume: false });
+    player.updatePlaybackState({ currentTime: 25, streamOffset: 0 });
+    const beforeGeneration = player.snapshot().sourceGeneration;
+
+    player.applyPlaybackMetadata(
+      player.playbackIdentity()!,
+      fromPartial<ItemMetadata>({
+        ...item,
+        title: "Hydrated title",
+        Media: [
+          {
+            ...item.Media?.[0],
+            Part: [
+              {
+                ...item.Media?.[0]?.Part?.[0],
+                Stream: [
+                  ...(item.Media?.[0]?.Part?.[0]?.Stream ?? []),
+                  {
+                    id: 4,
+                    streamType: 3,
+                    codec: "srt",
+                    key: "/library/streams/4",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(player.snapshot().streamOffset).toBe(0);
+    expect(player.snapshot().sourceGeneration).toBe(beforeGeneration);
+    expect(player.snapshot().currentItem?.title).toBe("Hydrated title");
+  });
+
   test("seeds streamOffset when transcoding mid-playback from zero offset", () => {
     player.openPlayer(
       { ...sampleItem, Media: [directPlayMedia] },

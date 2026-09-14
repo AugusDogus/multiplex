@@ -9,6 +9,7 @@ import {
   consumeStoppedTranscodeSession,
   generatePlexStreamUrl,
   markTranscodeSessionStopped,
+  pingTranscodeSession,
   preparePlexTranscodeDecision,
   stopPlaybackTranscodeSessions,
   stopTranscodeSession,
@@ -246,6 +247,22 @@ test("separates persistent playback identity from reload cleanup ownership", () 
       TRANSCODE_WITHOUT_SUBTITLES,
     ),
   );
+});
+
+test("pings the current transcode session so PMS keeps it alive", async () => {
+  const fetch = installFetchMock(async () => new Response());
+
+  const pinged = await pingTranscodeSession(
+    "https://plex.example",
+    "secret-token",
+    "multiplex-session-42",
+  );
+
+  expect(pinged).toBe(true);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  const url = new URL(getRequestUrl(fetch.mock.calls[0]![0]));
+  expect(url.pathname).toBe("/video/:/transcode/universal/ping");
+  expect(url.searchParams.get("session")).toBe("multiplex-session-42");
 });
 
 test("stops the current transcode with a page-close-safe request", async () => {
