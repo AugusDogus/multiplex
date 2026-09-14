@@ -19,6 +19,9 @@ WORKDIR /app
 
 COPY . .
 
+# Railway exposes system variables to Docker builds through declared args.
+ARG RAILWAY_DEPLOYMENT_ID
+
 # next.config.js imports env.js; page data collection also touches the DB
 # client, so provide throwaway values for the build stage only.
 ENV SKIP_ENV_VALIDATION=1
