@@ -54,7 +54,16 @@
     "gamecube:raylib:run": "sh apps/gamecube/scripts/run-dolphin.sh apps/gamecube/multiplex-gamecube-raylib-reference.dol",
     "wii:reference:dol": "bun --filter @multiplex/wii reference:dol",
     "wii:reference:smoke-player": "MULTIPLEX_REFERENCE_DOL=apps/wii/multiplex-wii-native-reference.dol MULTIPLEX_REFERENCE_BUILD_SCRIPT=../../wii/scripts/build-reference-dol.sh MULTIPLEX_CONSOLE_NAME=Wii MULTIPLEX_CONTROLLER_PIPE=multiplex-wii1 sh apps/gamecube/scripts/smoke-dolphin-player.sh",
-    "wii:reference:plex": "MULTIPLEX_REFERENCE_DOL=apps/wii/multiplex-wii-native-reference.dol MULTIPLEX_REFERENCE_BUILD_SCRIPT=../../wii/scripts/build-reference-dol.sh MULTIPLEX_CONSOLE_NAME=Wii MULTIPLEX_CONTROLLER_PIPE=multiplex-wii1 MULTIPLEX_DOLPHIN_NETWORK=native sh apps/gamecube/scripts/run-dolphin-plex.sh"
+    "wii:reference:plex": "MULTIPLEX_REFERENCE_DOL=apps/wii/multiplex-wii-native-reference.dol MULTIPLEX_REFERENCE_BUILD_SCRIPT=../../wii/scripts/build-reference-dol.sh MULTIPLEX_CONSOLE_NAME=Wii MULTIPLEX_CONTROLLER_PIPE=multiplex-wii1 MULTIPLEX_DOLPHIN_NETWORK=native sh apps/gamecube/scripts/run-dolphin-plex.sh",
+    "ps2:bootstrap": "bun --filter @multiplex/ps2 bootstrap",
+    "ps2:emulator:bootstrap": "bun --filter @multiplex/ps2 emulator:bootstrap",
+    "ps2:emulator:configure-bios": "bun --filter @multiplex/ps2 emulator:configure-bios",
+    "ps2:emulator:doctor": "bun --filter @multiplex/ps2 emulator:doctor",
+    "ps2:network:probe:elf": "bun --filter @multiplex/ps2 network:probe:elf",
+    "ps2:network:smoke": "bun --filter @multiplex/ps2 network:smoke",
+    "ps2:plex:smoke": "bun --filter @multiplex/ps2 plex:smoke",
+    "ps2:scene:elf": "bun --filter @multiplex/ps2 scene:elf",
+    "ps2:reference:elf": "bun --filter @multiplex/ps2 reference:elf"
   },
   "devDependencies": {
     "@oxlint/plugins": "1.78.0",

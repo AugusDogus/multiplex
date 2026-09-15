@@ -46,6 +46,7 @@ find \
   "$app_dir/host" \
   "$app_dir/host-bba-diagnostics" \
   "$app_dir/host-raylib" \
+  "$repo_dir/apps/ps2/src" \
   "$runtime_dir/src" \
   "$ui_dir/include" \
   "$ui_dir/reference-frame" \
@@ -59,6 +60,7 @@ find \
   "$ui_dir/src/console_ui.zig"
 
 find "$script_dir" "$runtime_dir/scripts" "$repo_dir/apps/wii/scripts" \
+  "$repo_dir/apps/ps2/scripts" "$ui_dir/scripts" \
   -maxdepth 1 -type f -name '*.sh' \
   -exec "$shellcheck" \
   -e SC1007,SC1112,SC2016,SC2119,SC2120,SC2317,SC2329 {} +
