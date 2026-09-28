@@ -845,6 +845,14 @@ export class PlexServerClient {
     await this.setItemWatchedState(ratingKey, false);
   }
 
+  async removeFromContinueWatching(ratingKey: string): Promise<void> {
+    await this.put({
+      endpoint: "actions/removeFromContinueWatching",
+      params: { ratingKey },
+      expectEmptyResponse: true,
+    });
+  }
+
   private async setItemWatchedState(ratingKey: string, watched: boolean): Promise<void> {
     await this.get({
       endpoint: watched ? ":/scrobble" : ":/unscrobble",

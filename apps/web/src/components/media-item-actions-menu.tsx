@@ -50,6 +50,7 @@ interface MediaItemActionsMenuProps {
   details?: MediaItemActionDetails;
   presentation?: "hero" | "poster";
   onFeedback?: (message: string | null) => void;
+  removeFromContinueWatching?: { onRemove: () => void; isPending: boolean };
 }
 
 export function MediaItemActionsMenu({
@@ -59,6 +60,7 @@ export function MediaItemActionsMenu({
   details: providedDetails,
   presentation = "hero",
   onFeedback,
+  removeFromContinueWatching,
 }: MediaItemActionsMenuProps) {
   const [open, setOpen] = useState(false);
   const [mediaInfoOpen, setMediaInfoOpen] = useState(false);
@@ -182,6 +184,14 @@ export function MediaItemActionsMenu({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuGroup>
+            {removeFromContinueWatching && (
+              <DropdownMenuItem
+                onClick={removeFromContinueWatching.onRemove}
+                disabled={removeFromContinueWatching.isPending}
+              >
+                Remove from Continue Watching
+              </DropdownMenuItem>
+            )}
             {details ? (
               <>
                 <DropdownMenuItem

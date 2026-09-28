@@ -87,6 +87,24 @@ test("exposes the proven connection URI without credentials", async () => {
   expect(await client.getConnectionUri()).toBe("https://plex.example.test");
 });
 
+describe("removeFromContinueWatching", () => {
+  test("removes the selected item with Plex's action without changing watched state", async () => {
+    const { client } = makeClient(() => new Response(null, { status: 204 }));
+
+    await client.removeFromContinueWatching("42");
+
+    expect(
+      requests.map(({ method, url }) => [method, url.pathname, url.searchParams.get("ratingKey")]),
+    ).toEqual([["PUT", "/actions/removeFromContinueWatching", "42"]]);
+  });
+
+  test("propagates a rejected removal", async () => {
+    const { client } = makeClient(() => new Response(null, { status: 403 }));
+
+    await expect(client.removeFromContinueWatching("42")).rejects.toBeInstanceOf(PlexAPIError);
+  });
+});
+
 describe("PlexServerClient playlist contracts", () => {
   test("uses the local library provider's playlist access", async () => {
     const { client, fetchSpy } = makeClient(() =>

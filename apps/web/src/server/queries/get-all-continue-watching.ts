@@ -1,4 +1,5 @@
-import { cacheLife } from "next/cache";
+import { createHash } from "node:crypto";
+import { cacheLife, cacheTag, revalidateTag } from "next/cache";
 import { cache } from "react";
 import {
   getServerUrl,
@@ -18,6 +19,16 @@ type ContinueWatchingItemWithServer = ContinueWatchingResponse["items"][0] & {
   serverName: string;
 };
 
+function continueWatchingTag(token: string): string {
+  const digest = createHash("sha256").update(token).digest("hex").slice(0, 16);
+  return `continue-watching-${digest}`;
+}
+
+export function invalidateContinueWatchingCache(plex: PlexTvClient): void {
+  // tRPC runs in a Route Handler, so use immediate expiration rather than updateTag.
+  revalidateTag(continueWatchingTag(plex.getToken()), { expire: 0 });
+}
+
 /**
  * Continue Watching changes as users play, but home also hard-reloads often.
  * Cache briefly per token so warm navigations do not re-pay the full PMS
@@ -30,6 +41,7 @@ async function fetchAllContinueWatching(
 ): Promise<ContinueWatchingItemWithServer[]> {
   "use cache";
   cacheLife("seconds");
+  cacheTag(continueWatchingTag(token));
 
   const plex = new PlexTvClient(token, NEXTJS_PLEX_CONFIG);
   return loadContinueWatching(plex);
