@@ -25,6 +25,7 @@ import {
   browsePageRowKey,
   itemPlaylistsRowKey,
   libraryFilterValuesRowKey,
+  libraryHubsSnapshotKey,
   mediaItemRowKey,
   playQueueRowKey,
   playlistContentsRowKey,
@@ -64,7 +65,7 @@ import {
 } from "./sanitize";
 
 type QueryCollectionUtilsLike<T extends object> = {
-  refetch: () => Promise<void>;
+  refetch: (options?: { throwOnError?: boolean }) => Promise<void>;
   writeUpsert: (data: T) => void;
   writeDelete: (key: string | number) => void;
 };
@@ -587,20 +588,43 @@ export async function warmWatchTogetherRoom(
   return row;
 }
 
+const latestLibraryHubWarms = new WeakMap<
+  SyncEngineCollections,
+  Map<string, symbol>
+>();
+
 export async function warmLibraryHubs(
   collections: SyncEngineCollections,
   trpc: TRPCClient<AppRouter>,
   input: { machineIdentifier: string; sectionId: string },
 ): Promise<SanitizedLibraryHubsSnapshotRow> {
-  const hubs = await trpc.plex.getLibraryHubs.query(input);
-  rememberHubItemConnections(hubs);
-  const row = sanitizeLibraryHubsSnapshot(
-    input.machineIdentifier,
-    input.sectionId,
-    hubs,
-  );
-  await upsertRow(collections.libraryHubs, row);
-  return row;
+  const key = libraryHubsSnapshotKey(input.machineIdentifier, input.sectionId);
+  let requests = latestLibraryHubWarms.get(collections);
+  if (!requests) {
+    requests = new Map();
+    latestLibraryHubWarms.set(collections, requests);
+  }
+  const request = Symbol();
+  requests.set(key, request);
+
+  try {
+    const hubs = await trpc.plex.getLibraryHubs.query(input);
+    const row = sanitizeLibraryHubsSnapshot(
+      input.machineIdentifier,
+      input.sectionId,
+      hubs,
+    );
+    await ensureWritable(collections.libraryHubs);
+    // Mount/prefetch and mutation refreshes share this guard. Check after preload
+    // so an older response cannot restore an item removed by a newer request.
+    if (requests.get(key) === request) {
+      rememberHubItemConnections(hubs);
+      collections.libraryHubs.utils.writeUpsert(row);
+    }
+    return row;
+  } finally {
+    if (requests.get(key) === request) requests.delete(key);
+  }
 }
 
 export function writeBrowsePage(

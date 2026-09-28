@@ -28,6 +28,7 @@ import {
 import { getQueueActionDisabledReason } from "~/lib/media-item-actions";
 import { useSyncedItemDetails } from "~/lib/sync-engine";
 import { api } from "~/trpc/api";
+import { useRemoveFromContinueWatching } from "~/hooks/use-remove-from-continue-watching";
 
 const PLEX_ACTION_NOT_IMPLEMENTED =
   "This Plex action is disabled until the matching Plex behavior is implemented.";
@@ -50,7 +51,7 @@ interface MediaItemActionsMenuProps {
   details?: MediaItemActionDetails;
   presentation?: "hero" | "poster";
   onFeedback?: (message: string | null) => void;
-  removeFromContinueWatching?: { onRemove: () => void; isPending: boolean };
+  context?: "browse" | "continue-watching";
 }
 
 export function MediaItemActionsMenu({
@@ -60,8 +61,12 @@ export function MediaItemActionsMenu({
   details: providedDetails,
   presentation = "hero",
   onFeedback,
-  removeFromContinueWatching,
+  context = "browse",
 }: MediaItemActionsMenuProps) {
+  const removeFromContinueWatching = useRemoveFromContinueWatching({
+    serverId,
+    ratingKey,
+  });
   const [open, setOpen] = useState(false);
   const [mediaInfoOpen, setMediaInfoOpen] = useState(false);
   const [addToPlaylistOpen, setAddToPlaylistOpen] = useState(false);
@@ -184,7 +189,7 @@ export function MediaItemActionsMenu({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuGroup>
-            {removeFromContinueWatching && (
+            {context === "continue-watching" && (
               <DropdownMenuItem
                 onClick={removeFromContinueWatching.onRemove}
                 disabled={removeFromContinueWatching.isPending}

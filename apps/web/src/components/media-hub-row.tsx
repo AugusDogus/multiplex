@@ -2,7 +2,10 @@
 
 import { ChevronRight } from "lucide-react";
 import Link from "next/link";
-import type { HubWithServer } from "@multiplex/plex-query";
+import {
+  isContinueWatchingHub,
+  type HubWithServer,
+} from "@multiplex/plex-query";
 import { MediaCarousel } from "~/components/media-carousel";
 import { MediaCarouselSkeleton } from "~/components/media-carousel-skeleton";
 import { MediaPosterCard } from "~/components/media-poster-card";
@@ -52,6 +55,11 @@ export function MediaHubRow({ hub }: MediaHubRowProps) {
         <MediaPosterCard
           key={`${item.serverId}-${item.ratingKey}`}
           item={item}
+          context={
+            isContinueWatchingHub(hub.hubIdentifier)
+              ? "continue-watching"
+              : "browse"
+          }
         />
       ))}
     </MediaCarousel>

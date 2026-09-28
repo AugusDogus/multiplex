@@ -1,4 +1,4 @@
-import { cacheLife } from "next/cache";
+import { cacheLife, cacheTag } from "next/cache";
 import { cache } from "react";
 import {
   filterNonEmptyHubs,
@@ -6,6 +6,7 @@ import {
   type HubWithServer,
 } from "@multiplex/plex-query";
 import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
+import { continueWatchingTag } from "~/server/queries/continue-watching-cache";
 import {
   enrichHubsWithServer,
   resolvePlexServerContext,
@@ -21,6 +22,7 @@ async function fetchLibraryHubs(
   // Minutes (not seconds): runtime/Link prefetch needs stale ≥ 30s, and library
   // soft-nav revisits should reuse the same hub payload like Plex.
   cacheLife("minutes");
+  cacheTag(continueWatchingTag(token));
 
   const plex = new PlexTvClient(token, NEXTJS_PLEX_CONFIG);
   return loadLibraryHubs(plex, machineIdentifier, sectionId);
