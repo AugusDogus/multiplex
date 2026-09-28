@@ -588,15 +588,39 @@ export async function warmWatchTogetherRoom(
   return row;
 }
 
+type LibraryHubsTarget = { machineIdentifier: string; sectionId: string };
+
 const latestLibraryHubWarms = new WeakMap<
   SyncEngineCollections,
-  Map<string, symbol>
+  Map<string, LibraryHubsTarget>
 >();
+
+/** Include first loads that have not produced a cached snapshot yet. */
+export async function refetchLibraryHubsForServer(
+  collections: SyncEngineCollections,
+  trpc: TRPCClient<AppRouter>,
+  serverId: string,
+): Promise<void> {
+  const targets = new Map<string, LibraryHubsTarget>();
+  for (const { machineIdentifier, sectionId } of [
+    ...collections.libraryHubs.toArray,
+    ...(latestLibraryHubWarms.get(collections)?.values() ?? []),
+  ]) {
+    if (machineIdentifier === serverId) {
+      targets.set(sectionId, { machineIdentifier, sectionId });
+    }
+  }
+  await Promise.all(
+    [...targets.values()].map((input) =>
+      warmLibraryHubs(collections, trpc, input),
+    ),
+  );
+}
 
 export async function warmLibraryHubs(
   collections: SyncEngineCollections,
   trpc: TRPCClient<AppRouter>,
-  input: { machineIdentifier: string; sectionId: string },
+  input: LibraryHubsTarget,
 ): Promise<SanitizedLibraryHubsSnapshotRow> {
   const key = libraryHubsSnapshotKey(input.machineIdentifier, input.sectionId);
   let requests = latestLibraryHubWarms.get(collections);
@@ -604,7 +628,8 @@ export async function warmLibraryHubs(
     requests = new Map();
     latestLibraryHubWarms.set(collections, requests);
   }
-  const request = Symbol();
+  // Each call owns a distinct identity, even if callers reuse the same input.
+  const request = { ...input };
   requests.set(key, request);
 
   try {
