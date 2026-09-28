@@ -37,6 +37,7 @@ interface MediaPosterCardContentBaseProps {
   onNavigateClick?: (event: React.MouseEvent) => void;
   /** Eager-load above-the-fold posters (Continue Watching LCP). */
   priority?: boolean;
+  removeFromContinueWatching?: { onRemove: () => void; isPending: boolean };
 }
 
 type PosterCardRouteProps =
@@ -236,6 +237,7 @@ export function MediaPosterCard(props: MediaPosterCardProps) {
                 ratingKey={actionsTarget.ratingKey}
                 title={title}
                 presentation="poster"
+                removeFromContinueWatching={resolved.removeFromContinueWatching}
               />
             )}
           </div>

@@ -33,6 +33,7 @@ interface ContinueWatchingDrawerProps {
   onPlay: () => void;
   onRestart: () => void;
   onViewDetails: () => void;
+  removeFromContinueWatching: { onRemove: () => void; isPending: boolean };
 }
 
 export function ContinueWatchingDrawer({
@@ -45,6 +46,7 @@ export function ContinueWatchingDrawer({
   onPlay,
   onRestart,
   onViewDetails,
+  removeFromContinueWatching,
 }: ContinueWatchingDrawerProps) {
   const mainTitle = getMainTitle(item);
   const subtitle = getSubtitle(item);
@@ -192,6 +194,17 @@ export function ContinueWatchingDrawer({
               </Button>
             </div>
           </div>
+
+          <Button
+            variant="ghost"
+            onClick={removeFromContinueWatching.onRemove}
+            disabled={removeFromContinueWatching.isPending}
+            className="min-h-11 w-full"
+          >
+            {removeFromContinueWatching.isPending
+              ? "Removing..."
+              : "Remove from Continue Watching"}
+          </Button>
 
           {footerLabel && (
             <p className="text-muted-foreground text-center text-xs">

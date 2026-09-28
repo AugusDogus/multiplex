@@ -18,7 +18,10 @@ import { useItemDetailsNavigation } from "~/hooks/use-item-details-navigation";
 import { createMediaPlayerItem } from "~/lib/create-media-player-item";
 import { isHubQueryLoading } from "~/lib/plex-hub-query-options";
 import { getPlexImagePath } from "~/lib/plex-image";
+import { toastManager } from "~/components/ui/toast-manager";
+import { api } from "~/trpc/api";
 import {
+  refetchSyncedShellCollections,
   resetSyncedContinueWatchingProgress,
   toContinueWatchingItemWithServer,
   useSyncedContinueWatching,
@@ -127,6 +130,33 @@ function ContinueWatchingItem({
 }: ContinueWatchingItemProps) {
   const itemDetailsNavigation = useItemDetailsNavigation();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const removeMutation = api.plex.removeFromContinueWatching.useMutation({
+    onSuccess: async () => {
+      setIsDrawerOpen(false);
+      await refetchSyncedShellCollections();
+      toastManager.add({
+        title: "Removed from Continue Watching",
+        type: "success",
+      });
+    },
+    onError: (error) => {
+      toastManager.add({
+        title: "Could not remove from Continue Watching",
+        description: `${error.message} Try again.`,
+        type: "error",
+      });
+    },
+  });
+  const removeFromContinueWatching = {
+    onRemove: () => {
+      if (removeMutation.isPending) return;
+      removeMutation.mutate({
+        serverId: item.serverId,
+        ratingKey: item.ratingKey,
+      });
+    },
+    isPending: removeMutation.isPending,
+  };
 
   const mainTitle = getMainTitle(item);
   const subtitle = getSubtitle(item);
@@ -227,6 +257,7 @@ function ContinueWatchingItem({
         onPlay={handlePlay}
         onNavigateClick={handleNavigateClick}
         priority={priority}
+        removeFromContinueWatching={removeFromContinueWatching}
       />
 
       <ContinueWatchingDrawer
@@ -239,6 +270,7 @@ function ContinueWatchingItem({
         onPlay={handlePlayFromDrawer}
         onRestart={handleRestartFromBeginning}
         onViewDetails={handleViewDetails}
+        removeFromContinueWatching={removeFromContinueWatching}
       />
     </>
   );

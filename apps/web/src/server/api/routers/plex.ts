@@ -19,7 +19,10 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { playlistProcedures } from "~/server/api/routers/plex-playlist-procedures";
 import { resolveServer } from "~/server/api/routers/plex-server";
-import { getAllContinueWatchingQuery } from "~/server/queries/get-all-continue-watching";
+import {
+  getAllContinueWatchingQuery,
+  invalidateContinueWatchingCache,
+} from "~/server/queries/get-all-continue-watching";
 import { getAllServerLibrariesQuery } from "~/server/queries/get-all-server-libraries";
 import { getAllChannelsProgrammingQuery } from "~/server/queries/get-all-channels-programming";
 import { getServerChannelsProgrammingQuery } from "~/server/queries/get-all-channels-programming";
@@ -565,6 +568,19 @@ export const plexRouter = createTRPCRouter({
         input.playQueueId,
         input.includeMarkers,
       );
+    }),
+
+  removeFromContinueWatching: protectedProcedure
+    .input(
+      z.object({
+        serverId: z.string(),
+        ratingKey: metadataRatingKeySchema,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { serverClient } = await resolveServer(ctx.plex, input.serverId);
+      await serverClient.removeFromContinueWatching(input.ratingKey);
+      invalidateContinueWatchingCache(ctx.plex);
     }),
 
   setItemWatchedState: protectedProcedure

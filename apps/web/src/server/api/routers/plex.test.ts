@@ -11,6 +11,9 @@ import {
   getServersQuery,
   makeCaller,
 } from "./plex-router-test-harness";
+const continueWatchingQueries = await import(
+  "~/server/queries/get-all-continue-watching"
+);
 
 beforeEach(() => {
   getServersQuery.mockReset();
@@ -26,6 +29,95 @@ const catchError = async (operation: Promise<unknown>) => {
 
   throw new Error("Expected operation to reject");
 };
+
+test("removeFromContinueWatching removes the selected item before invalidating its cache", async () => {
+  const invalidate = spyOn(
+    continueWatchingQueries,
+    "invalidateContinueWatchingCache",
+  ).mockImplementation(() => undefined);
+  const removeFromContinueWatching = mock(async (_ratingKey: string) => {
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+  const plex = fromPartial<PlexTvClient>({
+    createServerClient: mock(() =>
+      fromPartial<PlexServerClient>({ removeFromContinueWatching }),
+    ),
+  });
+  getServersQuery.mockResolvedValue([SERVER]);
+
+  try {
+    await makeCaller(plex).removeFromContinueWatching({
+      serverId: SERVER.clientIdentifier,
+      ratingKey: "42",
+    });
+    expect(removeFromContinueWatching).toHaveBeenCalledWith("42");
+    expect(invalidate).toHaveBeenCalledWith(plex);
+  } finally {
+    invalidate.mockRestore();
+  }
+});
+
+test("removeFromContinueWatching preserves the cache when Plex rejects the removal", async () => {
+  const invalidate = spyOn(
+    continueWatchingQueries,
+    "invalidateContinueWatchingCache",
+  ).mockImplementation(() => undefined);
+  const removeFromContinueWatching = mock().mockRejectedValue(
+    new Error("Plex rejected removal"),
+  );
+  const plex = fromPartial<PlexTvClient>({
+    createServerClient: mock(() =>
+      fromPartial<PlexServerClient>({ removeFromContinueWatching }),
+    ),
+  });
+  getServersQuery.mockResolvedValue([SERVER]);
+
+  try {
+    const error = await catchError(
+      makeCaller(plex).removeFromContinueWatching({
+        serverId: SERVER.clientIdentifier,
+        ratingKey: "42",
+      }),
+    );
+    expect(error).toMatchObject({ message: "Plex rejected removal" });
+    expect(invalidate).not.toHaveBeenCalled();
+  } finally {
+    invalidate.mockRestore();
+  }
+});
+
+test("removeFromContinueWatching rejects invalid rating keys and unknown servers", async () => {
+  const createServerClient = mock();
+  const plex = fromPartial<PlexTvClient>({ createServerClient });
+  getServersQuery.mockResolvedValue([SERVER]);
+
+  const invalidKeyError = await catchError(
+    makeCaller(plex).removeFromContinueWatching({
+      serverId: SERVER.clientIdentifier,
+      ratingKey: "../42",
+    }),
+  );
+  expect(invalidKeyError).toMatchObject({ code: "BAD_REQUEST" });
+  const unknownServerError = await catchError(
+    makeCaller(plex).removeFromContinueWatching({
+      serverId: "unknown",
+      ratingKey: "42",
+    }),
+  );
+  expect(unknownServerError).toMatchObject({ code: "NOT_FOUND" });
+  expect(createServerClient).not.toHaveBeenCalled();
+});
+
+test("removeFromContinueWatching requires authentication", async () => {
+  const error = await catchError(
+    makeCaller(null, null).removeFromContinueWatching({
+      serverId: SERVER.clientIdentifier,
+      ratingKey: "42",
+    }),
+  );
+  expect(error).toMatchObject({ code: "UNAUTHORIZED" });
+  expect(getServersQuery).not.toHaveBeenCalled();
+});
 
 test("createWatchTogetherRoom resolves the server before creating the room", async () => {
   const createdRoom = {
