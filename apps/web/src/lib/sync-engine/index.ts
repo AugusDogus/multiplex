@@ -92,6 +92,7 @@ export {
   subscribeActiveSyncEngineCollections,
 } from "./registry";
 export {
+  refetchSyncedContinueWatching,
   refetchSyncedMediaItem,
   refetchSyncedShellCollections,
   refetchSyncedWatchTogetherRooms,

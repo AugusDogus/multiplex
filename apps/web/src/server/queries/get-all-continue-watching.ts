@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { cacheLife, cacheTag, revalidateTag } from "next/cache";
+import { cacheLife, cacheTag } from "next/cache";
 import { cache } from "react";
 import {
   getServerUrl,
@@ -12,22 +11,13 @@ import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
 import { getServersQuery } from "~/server/queries/get-servers";
 import { getUserInfoQuery } from "~/server/queries/get-user-info";
 import { withPmsRetry } from "~/server/queries/plex-server-context";
+import { continueWatchingTag } from "~/server/queries/continue-watching-cache";
 
 type ContinueWatchingItemWithServer = ContinueWatchingResponse["items"][0] & {
   serverUrl: string | undefined;
   authToken: string | undefined;
   serverName: string;
 };
-
-function continueWatchingTag(token: string): string {
-  const digest = createHash("sha256").update(token).digest("hex").slice(0, 16);
-  return `continue-watching-${digest}`;
-}
-
-export function invalidateContinueWatchingCache(plex: PlexTvClient): void {
-  // tRPC runs in a Route Handler, so use immediate expiration rather than updateTag.
-  revalidateTag(continueWatchingTag(plex.getToken()), { expire: 0 });
-}
 
 /**
  * Continue Watching changes as users play, but home also hard-reloads often.

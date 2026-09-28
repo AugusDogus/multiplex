@@ -12,7 +12,7 @@ import {
   makeCaller,
 } from "./plex-router-test-harness";
 const continueWatchingQueries = await import(
-  "~/server/queries/get-all-continue-watching"
+  "~/server/queries/continue-watching-cache"
 );
 
 beforeEach(() => {

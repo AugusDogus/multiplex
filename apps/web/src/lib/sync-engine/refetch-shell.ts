@@ -1,8 +1,28 @@
 "use client";
 
-import { warmMediaItem } from "./collections";
+import { warmLibraryHubs, warmMediaItem } from "./collections";
 import { getActiveSyncEngineCollections } from "./registry";
 import { getSyncEngineTrpcClient } from "./trpc-client";
+
+/** Reconcile both home and already-cached library Recommended rows after removal. */
+export async function refetchSyncedContinueWatching(
+  serverId: string,
+): Promise<void> {
+  const collections = getActiveSyncEngineCollections();
+  if (!collections) return;
+
+  await Promise.all([
+    collections.continueWatching.utils.refetch({ throwOnError: true }),
+    ...collections.libraryHubs.toArray
+      .filter((snapshot) => snapshot.machineIdentifier === serverId)
+      .map(({ machineIdentifier, sectionId }) =>
+        warmLibraryHubs(collections, getSyncEngineTrpcClient(), {
+          machineIdentifier,
+          sectionId,
+        }),
+      ),
+  ]);
+}
 
 /** Refetch Plex shell collections after mutations that used to invalidate tRPC keys. */
 export function refetchSyncedShellCollections(): Promise<void> {

@@ -1,9 +1,65 @@
 import { expect, mock, test } from "bun:test";
 import { fromPartial } from "@total-typescript/shoehorn";
 import type { TRPCClient } from "@trpc/client";
+import type { HubWithServer } from "@multiplex/plex-query";
 
 import type { AppRouter } from "~/server/api/root";
-import { warmMediaItem, type SyncEngineCollections } from "./collections";
+import {
+  warmLibraryHubs,
+  warmMediaItem,
+  type SyncEngineCollections,
+} from "./collections";
+
+test("an older library refresh cannot restore items after a newer removal refresh", async () => {
+  const older = Promise.withResolvers<HubWithServer[]>();
+  const newer = Promise.withResolvers<HubWithServer[]>();
+  const writeUpsert = mock();
+  const collections = fromPartial<SyncEngineCollections>({
+    libraryHubs: { status: "ready", utils: { writeUpsert } },
+  });
+  const trpc = fromPartial<TRPCClient<AppRouter>>({
+    plex: {
+      getLibraryHubs: {
+        query: mock()
+          .mockImplementationOnce(() => older.promise)
+          .mockImplementationOnce(() => newer.promise),
+      },
+    },
+  });
+  const input = { machineIdentifier: "server-1", sectionId: "1" };
+  const olderRefresh = warmLibraryHubs(collections, trpc, input);
+  const newerRefresh = warmLibraryHubs(collections, trpc, input);
+
+  newer.resolve([]);
+  await newerRefresh;
+  older.resolve([
+    {
+      serverId: "server-1",
+      key: "/hubs/continueWatching",
+      title: "Continue Watching",
+      type: "movie",
+      hubIdentifier: "home.continue",
+      size: 1,
+      items: [
+        {
+          serverId: "server-1",
+          ratingKey: "42",
+          key: "/library/metadata/42",
+          type: "movie",
+          title: "Removed movie",
+        },
+      ],
+    },
+  ]);
+  await olderRefresh;
+
+  expect(writeUpsert).toHaveBeenCalledTimes(1);
+  expect(writeUpsert).toHaveBeenCalledWith({
+    id: "server-1:1",
+    ...input,
+    hubs: [],
+  });
+});
 
 test("warmMediaItem evicts cached details after an authoritative miss", async () => {
   const events: string[] = [];

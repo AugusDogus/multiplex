@@ -12,6 +12,7 @@ import {
 } from "@multiplex/plex-query";
 import { ChevronRight, CirclePlay, Play, RotateCcw } from "lucide-react";
 import Image from "next/image";
+import { useRemoveFromContinueWatching } from "~/hooks/use-remove-from-continue-watching";
 
 import { MediaProgressBar } from "~/components/media-progress-bar";
 import { Badge } from "~/components/ui/badge";
@@ -33,7 +34,6 @@ interface ContinueWatchingDrawerProps {
   onPlay: () => void;
   onRestart: () => void;
   onViewDetails: () => void;
-  removeFromContinueWatching: { onRemove: () => void; isPending: boolean };
 }
 
 export function ContinueWatchingDrawer({
@@ -46,8 +46,10 @@ export function ContinueWatchingDrawer({
   onPlay,
   onRestart,
   onViewDetails,
-  removeFromContinueWatching,
 }: ContinueWatchingDrawerProps) {
+  const removeFromContinueWatching = useRemoveFromContinueWatching(item, () =>
+    onOpenChange(false),
+  );
   const mainTitle = getMainTitle(item);
   const subtitle = getSubtitle(item);
   const episodeTitle = getContinueWatchingEpisodeTitle(item);
