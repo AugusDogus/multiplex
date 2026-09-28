@@ -541,6 +541,7 @@ export async function writeItemMetadata(
       children: existing?.children ?? [],
       playableChildren: existing?.playableChildren ?? [],
       playTarget: existing?.playTarget ?? null,
+      playTargetError: existing?.playTargetError ?? null,
     },
     input.serverId,
     fullDetailsUpdatedAt === undefined ? undefined : { fullDetailsUpdatedAt },

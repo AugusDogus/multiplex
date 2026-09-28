@@ -1,6 +1,5 @@
 import {
   TRPCError,
-  getTRPCErrorFromUnknown,
   type inferRouterInputs,
   type inferRouterOutputs,
 } from "@trpc/server";
@@ -14,7 +13,6 @@ import {
   getPlayableChildren,
   resolvePlayTarget,
   WatchTogetherClient,
-  type EnrichedItemMetadataChild,
 } from "@multiplex/plex-query";
 import { z } from "zod";
 
@@ -41,6 +39,7 @@ import { getLibraryMetaQuery } from "~/server/queries/get-library-meta";
 import { getLibraryPivotsQuery } from "~/server/queries/get-library-pivots";
 import { getLibraryPlaylistsQuery } from "~/server/queries/get-library-playlists";
 import { getServersQuery } from "~/server/queries/get-servers";
+import { getShowPlayTarget } from "~/server/queries/get-show-play-target";
 import {
   getUserInfoQuery,
   invalidateUserInfoCache,
@@ -651,54 +650,17 @@ export const plexRouter = createTRPCRouter({
             )
           : [];
       const playableChildren = getPlayableChildren(children);
-      let playTarget = resolvePlayTarget(item, playableChildren);
-
-      if (item.type === "show" && !playTarget) {
-        // Start with regular seasons, leaving specials (season 0) until last.
-        const seasons = children
-          .filter((child) => child.type === "season")
-          .sort(
-            (a, b) =>
-              (a.index === 0 ? Number.MAX_SAFE_INTEGER : (a.index ?? 1)) -
-              (b.index === 0 ? Number.MAX_SAFE_INTEGER : (b.index ?? 1)),
-          );
-
-        const loadSeasonPlayTarget = async (
-          season: EnrichedItemMetadataChild,
-        ) => {
-          const episodes = enrichMetadataChildren(
-            await serverClient.getMetadataChildren(season.ratingKey),
-            item,
-          );
-          return resolvePlayTarget(season, getPlayableChildren(episodes));
-        };
-        const [firstSeason, ...remainingSeasons] = seasons;
-        playTarget = firstSeason
-          ? await loadSeasonPlayTarget(firstSeason)
-          : null;
-
-        if (!playTarget) {
-          const fallbackTargets = await Promise.allSettled(
-            remainingSeasons.map(loadSeasonPlayTarget),
-          );
-          // Preserve season order for both targets and failures.
-          for (const target of fallbackTargets) {
-            if (target.status === "rejected") {
-              throw getTRPCErrorFromUnknown(target.reason);
-            }
-            if (target.value) {
-              playTarget = target.value;
-              break;
-            }
-          }
-        }
-      }
+      const playTarget = resolvePlayTarget(item, playableChildren);
+      const playback =
+        item.type === "show" && !playTarget
+          ? await getShowPlayTarget(serverClient, item, children)
+          : { playTarget, playTargetError: null };
 
       return {
         item,
         children,
         playableChildren,
-        playTarget,
+        ...playback,
         serverName: server.name,
         serverUrl: getServerUrl(server),
         authToken: server.accessToken ?? ctx.authSession.user.plexAuthToken,
