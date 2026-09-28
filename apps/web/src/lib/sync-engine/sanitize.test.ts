@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { toItemDetails } from "./item-details-view";
 
 import {
   hasFreshMediaItemDetails,
@@ -207,6 +208,10 @@ describe("sync-engine sanitize", () => {
       ratingKey: "55",
       title: "Inception",
     });
+    // Durable rows created before this field existed still hydrate normally.
+    const legacyRow = { ...row };
+    delete legacyRow.playTargetError;
+    expect(toItemDetails(legacyRow)?.playTargetError).toBeNull();
 
     const full = sanitizeMediaItemDetails(
       {
@@ -236,6 +241,39 @@ describe("sync-engine sanitize", () => {
       hasFreshMediaItemDetails(full, 1_000 + MEDIA_ITEM_DETAILS_STALE_TIME_MS),
     ).toBe(false);
     expect(hasFreshMediaItemDetails(row, 1_000)).toBe(false);
+  });
+
+  test("preserves playback discovery errors through durable hydration", () => {
+    const playTargetError = {
+      code: "EPISODE_LOOKUP_FAILED" as const,
+      seasonRatingKey: "56",
+      message: "Could not load an episode. Open a season to choose one.",
+    };
+    const row = sanitizeMediaItemDetails(
+      {
+        item: {
+          ratingKey: "55",
+          key: "/library/metadata/55",
+          guid: "plex://show/55",
+          type: "show",
+          title: "Unstarted show",
+          librarySectionTitle: "TV",
+          librarySectionID: 1,
+          librarySectionKey: "/library/sections/1",
+        },
+        children: [],
+        playableChildren: [],
+        playTarget: null,
+        playTargetError,
+        serverName: "Haus",
+        serverUrl: "https://pms.example",
+        authToken: "DETAILS_SECRET",
+      },
+      "haus-1",
+      { fullDetailsUpdatedAt: 123 },
+    );
+    expect(toItemDetails(row)?.playTargetError).toEqual(playTargetError);
+    expect(toItemDetails(row)?.item.title).toBe("Unstarted show");
   });
 
   test("deep clone keeps nested credentials for direct PMS access", () => {

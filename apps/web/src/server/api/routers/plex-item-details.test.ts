@@ -277,7 +277,7 @@ test("getItemDetails keeps an earlier play target when a later season fails", as
   expect(result?.playTarget?.ratingKey).toBe("301");
 });
 
-test("getItemDetails propagates an earlier season failure before a later target", async () => {
+test("getItemDetails preserves details and reports an earlier season failure", async () => {
   const failure = new TRPCError({ code: "SERVICE_UNAVAILABLE" });
   const { caller, getMetadataChildren } = itemDetailsCaller(show, new Map());
   getMetadataChildren
@@ -286,12 +286,57 @@ test("getItemDetails propagates an earlier season failure before a later target"
     .mockRejectedValueOnce(failure)
     .mockResolvedValueOnce([specialEpisode]);
 
-  const result = await caller
-    .getItemDetails({
-      serverId: SERVER.clientIdentifier,
-      ratingKey: show.ratingKey,
-    })
-    .catch((cause: unknown) => cause);
+  const result = await caller.getItemDetails({
+    serverId: SERVER.clientIdentifier,
+    ratingKey: show.ratingKey,
+  });
 
-  expect(result).toBe(failure);
+  expect(result?.item).toEqual(show);
+  expect(result?.children).toHaveLength(3);
+  expect(result?.playTarget).toBeNull();
+  expect(result).toHaveProperty(
+    "playTargetError.code",
+    "EPISODE_LOOKUP_FAILED",
+  );
+});
+
+test("getItemDetails preserves show browsing when the first season fails", async () => {
+  const { caller, getMetadataChildren } = itemDetailsCaller(show, new Map());
+  getMetadataChildren
+    .mockResolvedValueOnce([season, laterSeason])
+    .mockRejectedValueOnce(new TRPCError({ code: "SERVICE_UNAVAILABLE" }));
+
+  const result = await caller.getItemDetails({
+    serverId: SERVER.clientIdentifier,
+    ratingKey: show.ratingKey,
+  });
+
+  expect(result?.item).toEqual(show);
+  expect(result?.children.map((child) => child.ratingKey)).toEqual([
+    "101",
+    "300",
+  ]);
+  expect(result?.playTarget).toBeNull();
+  expect(result).toHaveProperty(
+    "playTargetError.code",
+    "EPISODE_LOOKUP_FAILED",
+  );
+});
+
+test("getItemDetails returns an earlier target without waiting for a later season", async () => {
+  const { caller, getMetadataChildren } = itemDetailsCaller(show, new Map());
+  getMetadataChildren
+    .mockResolvedValueOnce([season, laterSeason, specials])
+    .mockResolvedValueOnce([])
+    .mockResolvedValueOnce([{ ...episode, ratingKey: "301", parentIndex: 2 }])
+    .mockImplementationOnce(
+      () => new Promise<ItemMetadataChild[]>(() => undefined),
+    );
+
+  const result = await caller.getItemDetails({
+    serverId: SERVER.clientIdentifier,
+    ratingKey: show.ratingKey,
+  });
+
+  expect(result?.playTarget?.ratingKey).toBe("301");
 });

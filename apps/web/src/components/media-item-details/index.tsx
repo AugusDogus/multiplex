@@ -48,6 +48,11 @@ export function MediaItemDetails({ details, serverId }: MediaItemDetailsProps) {
         playTarget={playTarget}
         onPlay={openForPlayback}
       />
+      {details.playTargetError && (
+        <p className="text-muted-foreground text-sm" role="status">
+          {details.playTargetError.message}
+        </p>
+      )}
       {item.summary && (
         <div className="lg:hidden">
           <DetailsSynopsis summary={item.summary} />

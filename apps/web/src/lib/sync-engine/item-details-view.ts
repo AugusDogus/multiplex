@@ -12,11 +12,14 @@ type ItemDetails = NonNullable<RouterOutputs["plex"]["getItemDetails"]>;
  */
 export function toItemDetails(row: SanitizedMediaItemRow): ItemDetails | null {
   const connection = resolveItemCredentials(row.id, row);
+  const playback = row.playTargetError
+    ? { playTarget: null, playTargetError: row.playTargetError }
+    : { playTarget: row.playTarget, playTargetError: null };
   return {
     item: row.item,
     children: row.children,
     playableChildren: row.playableChildren,
-    playTarget: row.playTarget,
+    ...playback,
     serverName: row.serverName ?? "",
     serverUrl: connection.serverUrl,
     authToken: connection.authToken ?? "",

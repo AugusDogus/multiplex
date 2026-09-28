@@ -185,6 +185,8 @@ export type SanitizedMediaItemRow = {
   children: ItemDetails["children"];
   playableChildren: ItemDetails["playableChildren"];
   playTarget: ItemDetails["playTarget"];
+  /** Optional for durable rows written before playback discovery errors were stored. */
+  playTargetError?: ItemDetails["playTargetError"];
   /** Non-null once full details were fetched, with the successful fetch time. */
   fullDetailsUpdatedAt: number | null;
 };
@@ -478,7 +480,8 @@ type MediaItemDetailsInput = Pick<
   | "serverName"
   | "serverUrl"
   | "authToken"
->;
+> &
+  Partial<Pick<ItemDetails, "playTargetError">>;
 
 export function sanitizeMediaItemDetails(
   details: MediaItemDetailsInput,
@@ -508,6 +511,7 @@ export function sanitizeMediaItemDetails(
     children: cloneForPersistence(details.children),
     playableChildren: cloneForPersistence(details.playableChildren),
     playTarget: cloneForPersistence(details.playTarget),
+    playTargetError: cloneForPersistence(details.playTargetError ?? null),
     // Fail closed: metadata-only writes must not look fully warmed.
     fullDetailsUpdatedAt: options?.fullDetailsUpdatedAt ?? null,
   };
