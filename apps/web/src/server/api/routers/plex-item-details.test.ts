@@ -1,5 +1,6 @@
 import { beforeEach, expect, mock, test } from "bun:test";
 import { fromPartial } from "@total-typescript/shoehorn";
+import { TRPCError } from "@trpc/server";
 import type {
   ItemMetadata,
   ItemMetadataChild,
@@ -228,3 +229,69 @@ test.each(["movie", "episode", "season"])(
     );
   },
 );
+
+test("getItemDetails loads fallback seasons concurrently but selects in season order", async () => {
+  const { caller, getMetadataChildren } = itemDetailsCaller(show, new Map());
+  let callsAtFallbackCompletion: string[] = [];
+  getMetadataChildren.mockImplementation(async (ratingKey) => {
+    if (ratingKey === show.ratingKey) return [specials, laterSeason, season];
+    if (ratingKey === laterSeason.ratingKey) {
+      // Yield once so a concurrent specials request can finish first.
+      await Promise.resolve();
+      callsAtFallbackCompletion = getMetadataChildren.mock.calls.map(
+        ([key]) => key,
+      );
+      return [{ ...episode, ratingKey: "301", parentIndex: 2 }];
+    }
+    if (ratingKey === specials.ratingKey) return [specialEpisode];
+    return [];
+  });
+
+  const result = await caller.getItemDetails({
+    serverId: SERVER.clientIdentifier,
+    ratingKey: show.ratingKey,
+  });
+
+  expect(result?.playTarget?.ratingKey).toBe("301");
+  expect(callsAtFallbackCompletion).toEqual([
+    show.ratingKey,
+    season.ratingKey,
+    laterSeason.ratingKey,
+    specials.ratingKey,
+  ]);
+});
+
+test("getItemDetails keeps an earlier play target when a later season fails", async () => {
+  const { caller, getMetadataChildren } = itemDetailsCaller(show, new Map());
+  getMetadataChildren
+    .mockResolvedValueOnce([season, laterSeason, specials])
+    .mockResolvedValueOnce([])
+    .mockResolvedValueOnce([{ ...episode, ratingKey: "301", parentIndex: 2 }])
+    .mockRejectedValueOnce(new TRPCError({ code: "SERVICE_UNAVAILABLE" }));
+
+  const result = await caller.getItemDetails({
+    serverId: SERVER.clientIdentifier,
+    ratingKey: show.ratingKey,
+  });
+
+  expect(result?.playTarget?.ratingKey).toBe("301");
+});
+
+test("getItemDetails propagates an earlier season failure before a later target", async () => {
+  const failure = new TRPCError({ code: "SERVICE_UNAVAILABLE" });
+  const { caller, getMetadataChildren } = itemDetailsCaller(show, new Map());
+  getMetadataChildren
+    .mockResolvedValueOnce([season, laterSeason, specials])
+    .mockResolvedValueOnce([])
+    .mockRejectedValueOnce(failure)
+    .mockResolvedValueOnce([specialEpisode]);
+
+  const result = await caller
+    .getItemDetails({
+      serverId: SERVER.clientIdentifier,
+      ratingKey: show.ratingKey,
+    })
+    .catch((cause: unknown) => cause);
+
+  expect(result).toBe(failure);
+});

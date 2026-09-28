@@ -1,5 +1,6 @@
 import {
   TRPCError,
+  getTRPCErrorFromUnknown,
   type inferRouterInputs,
   type inferRouterOutputs,
 } from "@trpc/server";
@@ -13,6 +14,7 @@ import {
   getPlayableChildren,
   resolvePlayTarget,
   WatchTogetherClient,
+  type EnrichedItemMetadataChild,
 } from "@multiplex/plex-query";
 import { z } from "zod";
 
@@ -661,13 +663,34 @@ export const plexRouter = createTRPCRouter({
               (b.index === 0 ? Number.MAX_SAFE_INTEGER : (b.index ?? 1)),
           );
 
-        for (const season of seasons) {
+        const loadSeasonPlayTarget = async (
+          season: EnrichedItemMetadataChild,
+        ) => {
           const episodes = enrichMetadataChildren(
             await serverClient.getMetadataChildren(season.ratingKey),
             item,
           );
-          playTarget = resolvePlayTarget(season, getPlayableChildren(episodes));
-          if (playTarget) break;
+          return resolvePlayTarget(season, getPlayableChildren(episodes));
+        };
+        const [firstSeason, ...remainingSeasons] = seasons;
+        playTarget = firstSeason
+          ? await loadSeasonPlayTarget(firstSeason)
+          : null;
+
+        if (!playTarget) {
+          const fallbackTargets = await Promise.allSettled(
+            remainingSeasons.map(loadSeasonPlayTarget),
+          );
+          // Preserve season order for both targets and failures.
+          for (const target of fallbackTargets) {
+            if (target.status === "rejected") {
+              throw getTRPCErrorFromUnknown(target.reason);
+            }
+            if (target.value) {
+              playTarget = target.value;
+              break;
+            }
+          }
         }
       }
 
