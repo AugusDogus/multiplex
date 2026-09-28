@@ -649,12 +649,33 @@ export const plexRouter = createTRPCRouter({
             )
           : [];
       const playableChildren = getPlayableChildren(children);
+      let playTarget = resolvePlayTarget(item, playableChildren);
+
+      if (item.type === "show" && !playTarget) {
+        // Start with regular seasons, leaving specials (season 0) until last.
+        const seasons = children
+          .filter((child) => child.type === "season")
+          .sort(
+            (a, b) =>
+              (a.index === 0 ? Number.MAX_SAFE_INTEGER : (a.index ?? 1)) -
+              (b.index === 0 ? Number.MAX_SAFE_INTEGER : (b.index ?? 1)),
+          );
+
+        for (const season of seasons) {
+          const episodes = enrichMetadataChildren(
+            await serverClient.getMetadataChildren(season.ratingKey),
+            item,
+          );
+          playTarget = resolvePlayTarget(season, getPlayableChildren(episodes));
+          if (playTarget) break;
+        }
+      }
 
       return {
         item,
         children,
         playableChildren,
-        playTarget: resolvePlayTarget(item, playableChildren),
+        playTarget,
         serverName: server.name,
         serverUrl: getServerUrl(server),
         authToken: server.accessToken ?? ctx.authSession.user.plexAuthToken,
