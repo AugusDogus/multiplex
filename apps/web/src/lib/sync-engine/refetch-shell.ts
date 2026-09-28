@@ -1,8 +1,22 @@
 "use client";
 
-import { refetchLibraryHubsForServer, warmMediaItem } from "./collections";
+import {
+  refetchLibraryHubsForServer,
+  warmMediaItem,
+  type SyncEngineCollections,
+} from "./collections";
 import { getActiveSyncEngineCollections } from "./registry";
 import { getSyncEngineTrpcClient } from "./trpc-client";
+
+async function refetchContinueWatching(
+  collection: SyncEngineCollections["continueWatching"],
+): Promise<void> {
+  // Persisted posters can be visible before the first network query settles.
+  // TanStack joins that initial request on refetch, so wait before requesting
+  // post-removal data rather than accepting its pre-removal response.
+  if (collection.status === "loading") await collection.preload();
+  await collection.utils.refetch({ throwOnError: true });
+}
 
 /** Reconcile home and cached or loading library Recommended rows after removal. */
 export async function refetchSyncedContinueWatching(
@@ -12,7 +26,7 @@ export async function refetchSyncedContinueWatching(
   if (!collections) return;
 
   await Promise.all([
-    collections.continueWatching.utils.refetch({ throwOnError: true }),
+    refetchContinueWatching(collections.continueWatching),
     refetchLibraryHubsForServer(
       collections,
       getSyncEngineTrpcClient(),

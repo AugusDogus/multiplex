@@ -2,8 +2,15 @@ import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { fromPartial } from "@total-typescript/shoehorn";
 import type { TRPCClient } from "@trpc/client";
 import type { HubWithServer } from "@multiplex/plex-query";
+import { QueryClient } from "@tanstack/query-core";
+import type { PersistedCollectionPersistence } from "@tanstack/browser-db-sqlite-persistence";
 import type { AppRouter } from "~/server/api/root";
-import { warmLibraryHubs, type SyncEngineCollections } from "./collections";
+import {
+  createSyncEngineCollections,
+  warmLibraryHubs,
+  type SyncEngineCollections,
+} from "./collections";
+import { sanitizeContinueWatchingItem } from "./sanitize";
 import { refetchSyncedContinueWatching } from "./refetch-shell";
 import { setActiveSyncEngineCollections } from "./registry";
 import * as trpcClient from "./trpc-client";
@@ -11,6 +18,64 @@ import * as trpcClient from "./trpc-client";
 afterEach(() => {
   setActiveSyncEngineCollections(null);
   mock.restore();
+});
+
+test("removal refreshes Home after an initial network load with persisted posters", async () => {
+  const item = fromPartial<Parameters<typeof sanitizeContinueWatchingItem>[0]>({
+    serverId: "server-1",
+    ratingKey: "42",
+    key: "/library/metadata/42",
+    type: "movie",
+    title: "Removed movie",
+  });
+  const row = sanitizeContinueWatchingItem(item);
+  const older = Promise.withResolvers<(typeof item)[]>();
+  const started = Promise.withResolvers<void>();
+  const persistedVisible = Promise.withResolvers<void>();
+  const query = mock()
+    .mockImplementationOnce(() => {
+      started.resolve();
+      return older.promise;
+    })
+    .mockResolvedValue([]);
+  const client = fromPartial<TRPCClient<AppRouter>>({
+    plex: { getAllContinueWatching: { query } },
+  });
+  spyOn(trpcClient, "getSyncEngineTrpcClient").mockReturnValue(client);
+  const queryClient = new QueryClient();
+  const collections = createSyncEngineCollections({
+    queryClient,
+    trpc: client,
+    persistence: fromPartial<PersistedCollectionPersistence>({
+      adapter: {
+        loadSubset: async () => [{ key: row.id, value: row }],
+        applyCommittedTx: async () => undefined,
+        ensureIndex: async () => undefined,
+      },
+    }),
+  });
+  setActiveSyncEngineCollections(collections);
+  const subscription = collections.continueWatching.subscribeChanges(() => {
+    if (collections.continueWatching.has(row.id)) persistedVisible.resolve();
+  });
+  const initialLoad = collections.continueWatching.preload();
+  try {
+    await Promise.all([started.promise, persistedVisible.promise]);
+    expect(collections.continueWatching.status).toBe("loading");
+    const refresh = refetchSyncedContinueWatching("server-1");
+    older.resolve([item]);
+    await Promise.all([initialLoad, refresh]);
+
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(collections.continueWatching.toArray).toEqual([]);
+  } finally {
+    older.resolve([]);
+    await initialLoad;
+    subscription.unsubscribe();
+    await collections.continueWatching.cleanup();
+    await collections.libraryHubs.cleanup();
+    queryClient.clear();
+  }
 });
 
 test.each([false, true])(
