@@ -1,34 +1,17 @@
-import { cacheLife, cacheTag } from "next/cache";
-import { cache } from "react";
 import {
   filterNonEmptyHubs,
-  PlexTvClient,
+  type PlexTvClient,
   type HubWithServer,
 } from "@multiplex/plex-query";
-import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
-import { continueWatchingTag } from "~/server/queries/continue-watching-cache";
 import {
   enrichHubsWithServer,
   resolvePlexServerContext,
   withPmsRetry,
 } from "~/server/queries/plex-server-context";
 
-async function fetchLibraryHubs(
-  token: string,
-  machineIdentifier: string,
-  sectionId: string,
-): Promise<HubWithServer[]> {
-  "use cache";
-  // Minutes (not seconds): runtime/Link prefetch needs stale ≥ 30s, and library
-  // soft-nav revisits should reuse the same hub payload like Plex.
-  cacheLife("minutes");
-  cacheTag(continueWatchingTag(token));
-
-  const plex = new PlexTvClient(token, NEXTJS_PLEX_CONFIG);
-  return loadLibraryHubs(plex, machineIdentifier, sectionId);
-}
-
-async function loadLibraryHubs(
+// TanStack DB caches these snapshots. Server reads must stay fresh: Next's
+// cross-request cache can join a pre-mutation fill even after tag expiration.
+export async function getLibraryHubsQuery(
   plex: PlexTvClient,
   machineIdentifier: string,
   sectionId: string,
@@ -52,13 +35,3 @@ async function loadLibraryHubs(
     },
   );
 }
-
-export const getLibraryHubsQuery = cache(
-  async (
-    plex: PlexTvClient,
-    machineIdentifier: string,
-    sectionId: string,
-  ): Promise<HubWithServer[]> => {
-    return fetchLibraryHubs(plex.getToken(), machineIdentifier, sectionId);
-  },
-);

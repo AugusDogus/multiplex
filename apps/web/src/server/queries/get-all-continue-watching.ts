@@ -1,17 +1,13 @@
-import { cacheLife, cacheTag } from "next/cache";
-import { cache } from "react";
 import {
   getServerUrl,
-  PlexTvClient,
+  type PlexTvClient,
   type ContinueWatchingResponse,
   type PinnedSource,
   type PlexDevice,
 } from "@multiplex/plex-query";
-import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
 import { getServersQuery } from "~/server/queries/get-servers";
 import { getUserInfoQuery } from "~/server/queries/get-user-info";
 import { withPmsRetry } from "~/server/queries/plex-server-context";
-import { continueWatchingTag } from "~/server/queries/continue-watching-cache";
 
 type ContinueWatchingItemWithServer = ContinueWatchingResponse["items"][0] & {
   serverUrl: string | undefined;
@@ -19,25 +15,9 @@ type ContinueWatchingItemWithServer = ContinueWatchingResponse["items"][0] & {
   serverName: string;
 };
 
-/**
- * Continue Watching changes as users play, but home also hard-reloads often.
- * Cache briefly per token so warm navigations do not re-pay the full PMS
- * connection + onDeck fan-out. Client `setData` / invalidation still keep the
- * row fresh after local playback. Token is part of the cache key (same caveat
- * as `get-servers` / `get-user-info`).
- */
-async function fetchAllContinueWatching(
-  token: string,
-): Promise<ContinueWatchingItemWithServer[]> {
-  "use cache";
-  cacheLife("seconds");
-  cacheTag(continueWatchingTag(token));
-
-  const plex = new PlexTvClient(token, NEXTJS_PLEX_CONFIG);
-  return loadContinueWatching(plex);
-}
-
-async function loadContinueWatching(
+// The client collection owns caching and polling. Each server read must see
+// current Plex state rather than join a cached fill started before a removal.
+export async function getAllContinueWatchingQuery(
   plex: PlexTvClient,
 ): Promise<ContinueWatchingItemWithServer[]> {
   const [servers, userInfo] = await Promise.all([
@@ -119,7 +99,3 @@ async function loadContinueWatching(
     },
   );
 }
-
-export const getAllContinueWatchingQuery = cache(async (plex: PlexTvClient) => {
-  return fetchAllContinueWatching(plex.getToken());
-});

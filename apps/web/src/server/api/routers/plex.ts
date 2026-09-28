@@ -20,7 +20,6 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { playlistProcedures } from "~/server/api/routers/plex-playlist-procedures";
 import { resolveServer } from "~/server/api/routers/plex-server";
 import { getAllContinueWatchingQuery } from "~/server/queries/get-all-continue-watching";
-import { invalidateContinueWatchingCache } from "~/server/queries/continue-watching-cache";
 import { getAllServerLibrariesQuery } from "~/server/queries/get-all-server-libraries";
 import { getAllChannelsProgrammingQuery } from "~/server/queries/get-all-channels-programming";
 import { getServerChannelsProgrammingQuery } from "~/server/queries/get-all-channels-programming";
@@ -578,7 +577,6 @@ export const plexRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const { serverClient } = await resolveServer(ctx.plex, input.serverId);
       await serverClient.removeFromContinueWatching(input.ratingKey);
-      invalidateContinueWatchingCache(ctx.plex);
     }),
 
   setItemWatchedState: protectedProcedure
