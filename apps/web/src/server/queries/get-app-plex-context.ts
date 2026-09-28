@@ -10,7 +10,6 @@ import { cache } from "react";
 import { auth } from "~/lib/auth/server";
 import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
 import { isPlexAuthExpired } from "~/server/queries/cached-plex-result";
-import { getAllContinueWatchingQuery } from "~/server/queries/get-all-continue-watching";
 import { getAllServerLibrariesQuery } from "~/server/queries/get-all-server-libraries";
 import { getHomeHubsQuery } from "~/server/queries/get-home-hubs";
 import { getServersQuery } from "~/server/queries/get-servers";
@@ -64,9 +63,8 @@ export const getAppPlexContext = cache(async (): Promise<AppPlexContext> => {
   }
 
   // Overlap PMS discovery + home data fill with the rest of the RSC tree.
-  // Parallel Suspense lanes / `"use cache"` create fresh clients; shared
-  // connection discovery + these warmed caches keep Continue Watching off the
-  // critical path of a second serial round-trip.
+  // Connection discovery is shared with the client collection's fresh Continue
+  // Watching reads. Only warm server data that still has a cross-request cache.
   for (const server of servers) {
     if (server.presence === false) continue;
     void plex
@@ -74,7 +72,6 @@ export const getAppPlexContext = cache(async (): Promise<AppPlexContext> => {
       .warmConnection()
       .catch(ignoreDetachedWarmFailure);
   }
-  void getAllContinueWatchingQuery(plex).catch(ignoreDetachedWarmFailure);
   void getHomeHubsQuery(plex).catch(ignoreDetachedWarmFailure);
   void getAllServerLibrariesQuery(plex).catch(ignoreDetachedWarmFailure);
 
