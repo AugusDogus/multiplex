@@ -21,9 +21,9 @@ import {
 import { LIBRARY_PAGE_SIZE } from "~/server/queries/plex-pagination";
 import { getAppPlexContext } from "~/server/queries/get-app-plex-context";
 import { resolveLibraryTitle } from "~/server/queries/resolve-library-title";
-import { api, HydrateClient } from "~/trpc/server";
+import { api } from "~/trpc/server";
 
-// Session-bound library chrome + hubs: partialPrefetching caches the shell
+// Session-bound library chrome: partialPrefetching caches the shell
 // per session; the sidebar library links opt in with `<Link prefetch>` (true)
 // so URL data resolves before the click.
 
@@ -56,8 +56,7 @@ export default async function MediaLibraryPage({
   const requestedPivotParam =
     firstParam(resolvedSearchParams.pivot) ?? "recommended";
 
-  // Overlap account bootstrap with library data — do not serialize
-  // getAppPlexContext → pivots → hubs on the soft-nav critical path.
+  // Overlap account bootstrap with library pivots on the soft-nav critical path.
   const contextPromise = getAppPlexContext();
   const pivotsPromise = source
     ? api.plex.getLibraryPivots({
@@ -65,17 +64,6 @@ export default async function MediaLibraryPage({
         sectionId: source,
       })
     : null;
-  if (
-    source &&
-    (!isSupportedPivot(requestedPivotParam) ||
-      requestedPivotParam === "recommended")
-  ) {
-    void api.plex.getLibraryHubs.prefetch({
-      machineIdentifier,
-      sectionId: source,
-    });
-  }
-
   const { servers, userInfo } = await contextPromise;
 
   const currentServer = servers.find(
@@ -204,17 +192,11 @@ async function LibraryPivotContent(props: PivotContentProps) {
     }
 
     case "recommended": {
-      await api.plex.getLibraryHubs.prefetch({
-        machineIdentifier,
-        sectionId,
-      });
       return (
-        <HydrateClient>
-          <LibraryRecommended
-            machineIdentifier={machineIdentifier}
-            sectionId={sectionId}
-          />
-        </HydrateClient>
+        <LibraryRecommended
+          machineIdentifier={machineIdentifier}
+          sectionId={sectionId}
+        />
       );
     }
 
