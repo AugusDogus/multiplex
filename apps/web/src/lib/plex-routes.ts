@@ -36,6 +36,19 @@ interface MetadataAncestor {
   ratingKey: string;
 }
 
+/** Only PMS library providers expose numeric library sections. */
+export function isLibrarySource(
+  providerIdentifier: string | undefined,
+  source: string | null | undefined,
+): source is string {
+  return (
+    providerIdentifier === LIBRARY_PROVIDER_IDENTIFIER &&
+    source !== null &&
+    source !== undefined &&
+    /^\d+$/.test(source)
+  );
+}
+
 export function getLibraryHref(
   machineIdentifier: string,
   librarySectionID: number | string,
