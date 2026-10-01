@@ -5,8 +5,9 @@
 
 @theme {
   --font-sans:
-    var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif,
-    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+    "Noto Color Emoji";
   --font-heading: var(--font-sans);
 
   /* Shared motion curves. Strong variants of the standard easings — the
@@ -18,10 +19,13 @@
 }
 
 @theme inline {
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: calc(var(--radius) - 1px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 3px);
+  --radius-2xl: calc(var(--radius) + 6px);
+  --shadow-glass: var(--glass-shadow);
+  --shadow-dialog: var(--dialog-shadow);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -40,6 +44,13 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-placeholder: var(--placeholder);
+  --color-icon-muted: var(--icon-muted);
+  --color-secondary-label: var(--secondary-label);
+  --color-sidebar-muted-foreground: var(--sidebar-muted-foreground);
+  --color-sidebar-row-hover: var(--sidebar-row-hover);
+  --color-sidebar-row-active: var(--sidebar-row-active);
+  --color-sidebar-row-selected: var(--sidebar-row-selected);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -138,7 +149,55 @@
 }
 
 :root {
-  --radius: 0.625rem;
+  --radius: 0.4375rem;
+  --glass-opacity: 80%;
+  --surface-grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  --t3-chat-grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 128 128' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.02745'/%3E%3C/svg%3E");
+  --surface-grain-size: 256px 256px;
+  --placeholder: var(--muted-foreground);
+  --icon-muted: var(--muted-foreground);
+  --secondary-label: var(--muted-foreground);
+  --toolbar-background: var(--background);
+  --toolbar-foreground: var(--foreground);
+  --toolbar-border: var(--border);
+  --toolbar-control: var(--background);
+  --toolbar-control-foreground: var(--muted-foreground);
+  --toolbar-control-hover: var(--accent);
+  --sidebar-muted-foreground: var(--muted-foreground);
+  --sidebar-row-hover: var(--sidebar-accent);
+  --sidebar-row-active: var(--sidebar-accent);
+  --sidebar-row-selected: var(--sidebar-accent);
+  --sidebar-icon-color: color-mix(
+    in srgb,
+    var(--sidebar-muted-foreground) 60%,
+    var(--sidebar)
+  );
+  /* Teams Theme::glass_surface: all floating surfaces share the composer glass. */
+  --glass-base: var(--surface-raised, var(--card));
+  --glass-surface: color-mix(
+    in srgb,
+    var(--glass-base) var(--glass-opacity),
+    transparent
+  );
+  --glass-card: var(--glass-surface);
+  --glass-popover: var(--glass-surface);
+  --glass-outline: rgb(0 0 0 / 8%);
+  --glass-divider: rgb(0 0 0 / 8%);
+  --glass-sidebar: color-mix(
+    in srgb,
+    var(--sidebar) var(--glass-opacity),
+    transparent
+  );
+  --dialog-surface: color-mix(
+    in srgb,
+    var(--background) var(--glass-opacity),
+    transparent
+  );
+  --scrim: color-mix(in srgb, var(--background) 60%, transparent);
+  --glass-blur: 12px;
+  --glass-saturation: 1.14;
+  --glass-shadow: 0 12px 28px -18px rgb(0 0 0 / 40%);
+  --dialog-shadow: 0 24px 64px -24px rgb(0 0 0 / 65%);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -180,6 +239,20 @@
 }
 
 .dark {
+  --glass-base: var(
+    --surface-raised,
+    color-mix(in srgb, var(--background) 96%, white)
+  );
+  --toolbar-control: color-mix(in srgb, var(--input) 32%, transparent);
+  --glass-outline: rgb(255 255 255 / 5%);
+  --glass-divider: rgb(255 255 255 / 6%);
+  --glass-blur: 16px;
+  --glass-saturation: 1.08;
+  --glass-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 3%), 0 12px 32px -14px rgb(0 0 0 / 50%);
+  --dialog-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 4%), 0 24px 72px -24px rgb(0 0 0 / 90%);
+  --scrim: color-mix(in srgb, var(--background) 64%, transparent);
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -220,6 +293,62 @@
   --warning-foreground: var(--color-amber-400);
 }
 
+/* Glass is derived from the active palette, including imported themes. */
+@utility surface-grain {
+  background-image: var(--surface-grain);
+  background-repeat: repeat;
+  background-size: var(--surface-grain-size);
+}
+
+@utility settings-surface {
+  @apply surface-grain;
+}
+
+@utility frost {
+  -webkit-backdrop-filter: blur(var(--glass-blur))
+    saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+}
+
+/* T3 renders sidebar grain behind its content on an opaque theme surface. */
+@utility sidebar-surface {
+  position: relative;
+  isolation: isolate;
+  &::before {
+    @apply surface-grain;
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    border-radius: inherit;
+    background-color: var(--sidebar);
+  }
+}
+
+/* Teams Theme::glass and sync_component_theme, shared by every floating panel. */
+@utility glass-panel {
+  @apply frost shadow-glass;
+  border-color: var(--glass-outline);
+  --border: var(--glass-divider);
+  --popover-foreground: var(--foreground);
+  --card-foreground: var(--foreground);
+  --accent: color-mix(in srgb, var(--foreground) 6%, transparent);
+  --accent-foreground: var(--foreground);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  :root {
+    --glass-opacity: 100%;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-opacity: 100%;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -230,7 +359,7 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply surface-grain bg-background text-foreground;
   }
 
   /* Respect the OS "reduce motion" setting everywhere. Movement-based

@@ -63,8 +63,8 @@ export function AppSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" render={<Link href="/" />}>
-              <div className="text-sidebar-primary flex aspect-square size-8 items-center justify-center rounded-lg">
-                <Command className="size-fit dark:text-white" />
+              <div className="text-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
+                <Command className="size-fit" />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">Multiplex</span>

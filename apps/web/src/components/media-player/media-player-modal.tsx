@@ -1069,7 +1069,7 @@ function PlayerCloseButton({
         size="icon"
         onClick={onClose}
         aria-label="Close"
-        className="text-white hover:bg-white/20"
+        className="text-white [--control-icon-color:currentColor] hover:bg-white/20"
       >
         <X className="h-6 w-6" />
       </Button>
