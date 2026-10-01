@@ -380,7 +380,7 @@ export function MediaPlayerSettingsMenu({
           <Button
             variant="ghost"
             size="icon"
-            className="text-white hover:bg-white/20"
+            className="text-white [--control-icon-color:currentColor] hover:bg-white/20"
             disabled={disabled}
             aria-label="Playback settings"
           />
@@ -393,7 +393,7 @@ export function MediaPlayerSettingsMenu({
         side="top"
         align="end"
         sideOffset={12}
-        className="w-72 overflow-hidden border-white/10 bg-black/90 text-white backdrop-blur-md [&>[data-slot=popover-viewport]]:p-1.5"
+        className="w-72 overflow-hidden [&>[data-slot=popover-viewport]]:p-1.5"
       >
         {pane === "root" ? (
           <div className="flex flex-col">
@@ -506,7 +506,9 @@ function ReadOnlyRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center gap-3 rounded-md px-3 py-2 text-sm">
       <span>{label}</span>
-      <span className="ml-auto truncate text-xs text-white/60">{value}</span>
+      <span className="text-popover-foreground/60 ml-auto truncate text-xs">
+        {value}
+      </span>
     </div>
   );
 }
@@ -530,21 +532,28 @@ function NavRow({
       className={cn(
         "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
         disabled
-          ? "cursor-not-allowed text-white/35"
-          : "text-white hover:bg-white/10",
+          ? "text-popover-foreground/35 cursor-not-allowed"
+          : "text-popover-foreground hover:bg-accent hover:text-accent-foreground",
       )}
     >
       <span>{label}</span>
       <span
         className={cn(
           "ml-auto truncate text-xs",
-          disabled ? "text-white/35" : "text-white/60",
+          disabled
+            ? "text-popover-foreground/35"
+            : "text-popover-foreground/60",
         )}
       >
         {value}
       </span>
       <ChevronRight
-        className={cn("h-4 w-4", disabled ? "text-white/35" : "text-white/60")}
+        className={cn(
+          "h-4 w-4",
+          disabled
+            ? "text-popover-foreground/35"
+            : "text-popover-foreground/60",
+        )}
         aria-hidden="true"
       />
     </button>
@@ -566,18 +575,18 @@ function ToggleRow({
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className="flex items-center gap-3 rounded-md px-3 py-2 text-left text-sm text-white transition-colors hover:bg-white/10"
+      className="text-popover-foreground hover:bg-accent hover:text-accent-foreground flex items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors"
     >
       <span>{label}</span>
       <span
         className={cn(
           "ml-auto inline-flex h-5 w-9 items-center rounded-full p-0.5 transition-colors",
-          checked ? "bg-white" : "bg-white/25",
+          checked ? "bg-primary" : "bg-input",
         )}
       >
         <span
           className={cn(
-            "h-4 w-4 rounded-full bg-black transition-transform",
+            "bg-primary-foreground h-4 w-4 rounded-full transition-transform",
             checked ? "translate-x-4" : "translate-x-0",
           )}
         />
@@ -587,7 +596,7 @@ function ToggleRow({
 }
 
 function Separator() {
-  return <div className="my-1 h-px bg-white/10" />;
+  return <div className="bg-border my-1 h-px" />;
 }
 
 function Pane({
@@ -604,9 +613,12 @@ function Pane({
       <button
         type="button"
         onClick={onBack}
-        className="flex items-center gap-2 rounded-md px-2 py-2 text-sm font-medium text-white transition-colors hover:bg-white/10"
+        className="text-popover-foreground hover:bg-accent hover:text-accent-foreground flex items-center gap-2 rounded-md px-2 py-2 text-sm font-medium transition-colors"
       >
-        <ChevronLeft className="h-4 w-4 text-white/60" aria-hidden="true" />
+        <ChevronLeft
+          className="text-popover-foreground/60 h-4 w-4"
+          aria-hidden="true"
+        />
         <span>{title}</span>
       </button>
       <Separator />
@@ -635,12 +647,15 @@ function SelectRow({
       className={cn(
         "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
         disabled
-          ? "cursor-not-allowed text-white/35"
-          : "text-white hover:bg-white/10",
+          ? "text-popover-foreground/35 cursor-not-allowed"
+          : "text-popover-foreground hover:bg-accent hover:text-accent-foreground",
       )}
     >
       <Check
-        className={cn("h-4 w-4", selected ? "text-white" : "text-transparent")}
+        className={cn(
+          "h-4 w-4",
+          selected ? "text-popover-foreground" : "text-transparent",
+        )}
         aria-hidden="true"
       />
       <span>{label}</span>

@@ -1,0 +1,10 @@
+Built-in palettes, theme previews, theme settings, and settings navigation
+adapted from T3 Code via Nimbus.
+Copyright (c) 2026 T3 Tools Inc.
+Licensed under the MIT License (see LICENSE).
+Source: https://github.com/pingdotgg/t3code
+Palette source revision: cd096b9ad5a4156ffeab85de617cbb219057007f
+Palette roles mapped to shadcn/ui and colors converted to sRGB hex.
+
+UI adapted from ThemeSettings, ThemePreviewCircles, ThemeWireframe,
+SettingsSidebarNav, SettingsBreadcrumb, and the settings route layout.

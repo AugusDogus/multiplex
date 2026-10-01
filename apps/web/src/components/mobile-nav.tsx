@@ -9,6 +9,7 @@ import {
   LogOut,
   type LucideIcon,
   Search,
+  Settings,
   Sparkles,
 } from "lucide-react";
 import Link from "next/link";
@@ -105,7 +106,7 @@ export function MobileNav({ session, servers, userInfo }: MobileNavProps) {
       <nav
         aria-label="Primary"
         className={cn(
-          "bg-background/95 supports-[backdrop-filter]:bg-background/80 fixed inset-x-0 bottom-0 z-40 flex border-t backdrop-blur md:hidden",
+          "frost fixed inset-x-0 bottom-0 z-40 flex border-t bg-(--dialog-surface) md:hidden",
           // Respect iOS / Android home indicator safe area.
           "pb-[env(safe-area-inset-bottom)]",
         )}
@@ -311,6 +312,10 @@ function YouDrawer({ open, onOpenChange, user, userInfo }: YouDrawerProps) {
           </YouLink>
 
           <div className="bg-border my-1 h-px" />
+
+          <YouLink href="/settings/appearance" icon={Settings}>
+            Settings
+          </YouLink>
 
           <YouLink
             href="https://app.plex.tv/desktop/#!/settings/account"

@@ -176,7 +176,7 @@ export function MediaPlayerControls({
                 variant="ghost"
                 size="icon"
                 onClick={() => actions.skipBackward?.(10)}
-                className="text-white hover:bg-white/20"
+                className="text-white [--control-icon-color:currentColor] hover:bg-white/20"
                 disabled={!canPlay}
               >
                 <SkipBack className="h-6 w-6" />
@@ -189,7 +189,7 @@ export function MediaPlayerControls({
                 size="icon"
                 onClick={actions.togglePlay}
                 aria-label={isPlaying ? "Pause" : "Play"}
-                className="text-white hover:bg-white/20"
+                className="text-white [--control-icon-color:currentColor] hover:bg-white/20"
               >
                 {isPlaying ? (
                   <Pause className="h-6 w-6" />
@@ -203,7 +203,7 @@ export function MediaPlayerControls({
                 variant="ghost"
                 size="icon"
                 onClick={() => actions.skipForward?.(10)}
-                className="text-white hover:bg-white/20"
+                className="text-white [--control-icon-color:currentColor] hover:bg-white/20"
                 disabled={!canPlay}
               >
                 <SkipForward className="h-6 w-6" />
@@ -218,7 +218,7 @@ export function MediaPlayerControls({
                   variant="ghost"
                   size="icon"
                   onClick={actions.toggleMute}
-                  className="text-white hover:bg-white/20"
+                  className="text-white [--control-icon-color:currentColor] hover:bg-white/20"
                 >
                   {isMuted || volume === 0 ? (
                     <VolumeX className="h-5 w-5" />
@@ -262,7 +262,7 @@ export function MediaPlayerControls({
                 variant="ghost"
                 size="icon"
                 onClick={actions.toggleFullscreen}
-                className="text-white hover:bg-white/20"
+                className="text-white [--control-icon-color:currentColor] hover:bg-white/20"
               >
                 {isFullscreen ? (
                   <Minimize className="h-5 w-5" />

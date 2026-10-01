@@ -26,12 +26,18 @@ export function LoginForm({
   );
 
   return (
-    <div className={cn("flex flex-col gap-6", className)} {...props}>
+    <div
+      className={cn(
+        "frost shadow-glass flex flex-col gap-6 rounded-2xl border bg-(--glass-card) p-6 sm:p-8",
+        className,
+      )}
+      {...props}
+    >
       <div className="flex flex-col gap-6">
         <div className="flex flex-col items-center gap-2">
           <div className="flex flex-col items-center gap-2 font-medium">
-            <div className="flex size-8 items-center justify-center rounded-md">
-              <Command className="size-6 dark:text-white" />
+            <div className="bg-primary/10 text-primary mb-2 flex size-12 items-center justify-center rounded-xl">
+              <Command className="size-6" />
             </div>
             <span className="sr-only">Multiplex</span>
           </div>

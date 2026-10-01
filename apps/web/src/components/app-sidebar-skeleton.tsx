@@ -32,13 +32,13 @@ export function AppSidebarSkeleton({
         data-slot="sidebar-container"
         className="fixed inset-y-0 left-0 z-10 hidden h-svh w-(--sidebar-width) p-2 md:flex"
       >
-        <div className="bg-sidebar flex h-full w-full flex-col gap-2 p-2">
+        <div className="sidebar-surface flex h-full w-full flex-col gap-2 p-2">
           {/* Brand never changes — keep the real mark, don't pulse it. */}
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton size="lg" render={<Link href="/" />}>
-                <div className="text-sidebar-primary flex aspect-square size-8 items-center justify-center rounded-lg">
-                  <Command className="size-fit dark:text-white" />
+                <div className="text-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
+                  <Command className="size-fit" />
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">Multiplex</span>

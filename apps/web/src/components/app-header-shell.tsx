@@ -18,7 +18,7 @@ export function AppHeaderShell({
   return (
     <header
       className={cn(
-        "@container/appheader flex shrink-0 items-center",
+        "surface-grain frost @container/appheader sticky top-0 z-30 flex shrink-0 items-center border-b border-(--toolbar-border) bg-(--toolbar-background) text-(--toolbar-foreground)",
         centerLayout ? "min-h-16 md:h-16" : "h-16",
       )}
     >

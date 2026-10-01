@@ -67,13 +67,13 @@ export function SearchForm({
         <SidebarInput
           id="search"
           placeholder="Search media..."
-          className="h-8 cursor-pointer pr-12 pl-7"
+          className="h-8 cursor-pointer border-(--toolbar-border) bg-(--toolbar-control) pr-12 pl-7 dark:bg-(--toolbar-control)"
           readOnly
           tabIndex={-1}
           aria-hidden="true"
         />
-        <Search className="pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 opacity-50 select-none" />
-        <kbd className="bg-muted text-foreground ring-border pointer-events-none absolute top-1/2 right-1.5 hidden h-5 min-w-5 shrink-0 -translate-y-1/2 items-center justify-center rounded-sm px-1.5 text-center font-sans text-xs leading-[1.7em] ring-1 select-none sm:flex">
+        <Search className="text-icon-muted pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 select-none" />
+        <kbd className="bg-muted text-muted-foreground ring-border pointer-events-none absolute top-1/2 right-1.5 hidden h-5 min-w-5 shrink-0 -translate-y-1/2 items-center justify-center rounded-sm px-1.5 text-center font-sans text-xs leading-[1.7em] ring-1 select-none sm:flex">
           <span>{isMac ? "⌘ K" : "Ctrl K"}</span>
         </kbd>
       </div>
