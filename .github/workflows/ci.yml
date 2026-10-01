@@ -2,9 +2,53 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  changes:
+    name: Detect native changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      native: ${{ steps.paths.outputs.native }}
+    steps:
+      # PRs use the changed-files API, including PRs based on another stack layer.
+      # Main pushes compare against the pre-push commit, which needs git history.
+      - name: Checkout push history
+        if: github.event_name == 'push'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect native inputs
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
+        id: paths
+        with:
+          filters: |
+            native:
+              - 'apps/gamecube/**'
+              - 'apps/wii/**'
+              - 'packages/console-ui/**'
+              - 'packages/libogc-gx/**'
+              - 'meson.build'
+              - 'meson.options'
+              - '.clang-format'
+              - '.clang-tidy'
+              - 'package.json'
+              - 'bunfig.toml'
+              - '.github/workflows/ci.yml'
+
   verify:
     runs-on: ubuntu-latest
     steps:
@@ -37,6 +81,8 @@ jobs:
 
   gamecube:
     name: GameCube native
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -87,7 +133,7 @@ jobs:
             apps/gamecube/.mplayer-ce-libogc2
             apps/gamecube/.mbedtls
             apps/gamecube/.mbedtls-stage
-          key: gamecube-v3-${{ runner.os }}-${{ hashFiles('apps/gamecube/PINS.env', 'apps/gamecube/patches/**', 'apps/gamecube/pyproject.toml', 'apps/gamecube/uv.lock', 'packages/console-ui/app.zon', 'packages/console-ui/build.zig', 'packages/console-ui/build.zig.zon', 'packages/console-ui/patches/**', 'packages/libogc-gx/Makefile.reference', 'packages/libogc-gx/src/mbedtls-gamecube-config.h', 'packages/libogc-gx/scripts/**', 'apps/gamecube/Makefile.assets', 'apps/gamecube/scripts/bootstrap*.sh', 'apps/gamecube/scripts/build-native-reference*.sh', 'apps/wii/scripts/**', 'bun.lock') }}
+          key: gamecube-v3-${{ runner.os }}-${{ hashFiles('apps/gamecube/PINS.env', 'apps/gamecube/patches/**', 'apps/gamecube/pyproject.toml', 'apps/gamecube/uv.lock', 'packages/console-ui/app.zon', 'packages/console-ui/build.zig', 'packages/console-ui/build.zig.zon', 'packages/console-ui/patches/**', 'packages/libogc-gx/Makefile.reference', 'packages/libogc-gx/src/mbedtls-gamecube-config.h', 'packages/libogc-gx/scripts/**', 'apps/gamecube/Makefile.assets', 'apps/gamecube/scripts/bootstrap*.sh', 'apps/gamecube/scripts/build-native-reference*.sh', 'apps/wii/scripts/**') }}
 
       - name: Prepare pinned devkitPPC toolchain
         run: sh apps/gamecube/scripts/prepare-ci-toolchain.sh
