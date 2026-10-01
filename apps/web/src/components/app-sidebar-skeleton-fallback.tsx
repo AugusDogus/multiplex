@@ -1,13 +1,15 @@
 "use client";
 
 import { AppSidebarSkeleton } from "~/components/app-sidebar-skeleton";
-import { useAuthHint } from "~/lib/auth/use-auth-hint";
+import { authHintFromUser } from "~/lib/auth/auth-hint";
+import { authClient } from "~/lib/auth/client";
 
 /**
- * Suspense fallback for the app sidebar. Reads the auth hint after mount so
- * the layout never calls `cookies()` outside Suspense (blocking prerender).
+ * Share the app shell's Better Auth session while the server sidebar streams.
+ * Until the session resolves, keep the profile slot in its skeleton state.
  */
 export function AppSidebarSkeletonFallback() {
-  const hint = useAuthHint();
+  const { data: session } = authClient.useSession();
+  const hint = session ? authHintFromUser(session.user) : null;
   return <AppSidebarSkeleton hint={hint} />;
 }
