@@ -18,6 +18,7 @@ import {
   resolveActiveType,
   resolveSort,
 } from "~/lib/library-browse-params";
+import { isLibrarySource } from "~/lib/plex-routes";
 import { LIBRARY_PAGE_SIZE } from "~/server/queries/plex-pagination";
 import { getAppPlexContext } from "~/server/queries/get-app-plex-context";
 import { resolveLibraryTitle } from "~/server/queries/resolve-library-title";
@@ -50,21 +51,13 @@ export default async function MediaLibraryPage({
   params,
   searchParams,
 }: PageProps) {
-  const { machineIdentifier } = await params;
+  const { machineIdentifier, providerIdentifier } = await params;
   const resolvedSearchParams = await searchParams;
   const source = firstParam(resolvedSearchParams.source);
   const requestedPivotParam =
     firstParam(resolvedSearchParams.pivot) ?? "recommended";
 
-  // Overlap account bootstrap with library pivots on the soft-nav critical path.
-  const contextPromise = getAppPlexContext();
-  const pivotsPromise = source
-    ? api.plex.getLibraryPivots({
-        machineIdentifier,
-        sectionId: source,
-      })
-    : null;
-  const { servers, userInfo } = await contextPromise;
+  const { servers, userInfo } = await getAppPlexContext();
 
   const currentServer = servers.find(
     (server) => server.clientIdentifier === machineIdentifier,
@@ -80,7 +73,7 @@ export default async function MediaLibraryPage({
     );
   }
 
-  if (!source || !pivotsPromise) {
+  if (!isLibrarySource(providerIdentifier, source)) {
     return (
       <AppPageLayout title="Library">
         <p className="text-muted-foreground text-sm">
@@ -90,7 +83,11 @@ export default async function MediaLibraryPage({
     );
   }
 
-  const { title: librarySectionTitle, pivots } = await pivotsPromise;
+  const { title: librarySectionTitle, pivots } =
+    await api.plex.getLibraryPivots({
+      machineIdentifier,
+      sectionId: source,
+    });
   const supportedPivots = pivots.filter((pivot) =>
     SUPPORTED_PIVOT_IDS.includes(pivot.id),
   );

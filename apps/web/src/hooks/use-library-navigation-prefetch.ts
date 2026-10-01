@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { preload } from "react-dom";
 
 import { getPosterImagePath, type HubWithServer } from "@multiplex/plex-query";
+import { isLibrarySource } from "~/lib/plex-routes";
 import { getPlexImagePath } from "~/lib/plex-image";
 import {
   getActiveSyncEngineCollections,
@@ -55,6 +56,7 @@ export function useLibraryNavigationPrefetch() {
       if (!source) return;
 
       void router.prefetch(href);
+      if (parts.length !== 3 || !isLibrarySource(parts[2], source)) return;
       void utils.plex.getLibraryPivots.prefetch({
         machineIdentifier,
         sectionId: source,
