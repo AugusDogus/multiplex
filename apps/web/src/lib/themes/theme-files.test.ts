@@ -17,7 +17,8 @@ describe("theme file imports", () => {
       await ThemeFiles.read([valid, new File(["invalid"], "broken.json")]),
     ).toMatchObject({
       ok: false,
-      error: expect.stringContaining("broken.json:"),
+      error:
+        "broken.json: The theme file contains invalid JSON. Fix the file and try again. Your current theme is unchanged.",
     });
   });
 
@@ -47,7 +48,7 @@ describe("theme file imports", () => {
       ]),
     ).toMatchObject({
       ok: false,
-      error: expect.stringContaining("large.json is larger than 1 MB"),
+      error: "large.json is larger than 1 MB. Choose a smaller theme file.",
     });
   });
 });
