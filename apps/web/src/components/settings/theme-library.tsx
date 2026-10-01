@@ -1,5 +1,7 @@
 "use client";
 
+import { defaultPreviews, previewColors } from "./theme-preview-colors";
+
 // Adapted from T3 Code's theme tiles and library cards, MIT.
 // See public/licenses/t3-code/NOTICE.
 import type { ReactNode } from "react";
@@ -9,11 +11,7 @@ import { cn } from "~/lib/utils";
 import { BuiltInThemes } from "~/lib/themes/built-in-themes";
 import { ThemePreferences } from "~/lib/themes/theme-preferences";
 import type { VsCodeTheme } from "~/lib/themes/vscode-theme";
-import {
-  defaultPreviews,
-  previewColors,
-  ThemeSwatch,
-} from "./theme-preview-circles";
+import { ThemeSwatch } from "./theme-preview-circles";
 import { ThemeWireframe } from "./theme-wireframe";
 
 export function AppearanceModes({

@@ -88,6 +88,25 @@ function select(
   return { ...current, [appearance]: id };
 }
 
+function installAndSelect(
+  current: ThemePreferences,
+  themes: VsCodeTheme[],
+): ThemeResult<ThemePreferences> {
+  const installed = install(current, themes);
+  if (!installed.ok) return installed;
+  // Activate the first imported variant of each appearance for System mode.
+  const light = themes.find((theme) => theme.appearance === "light");
+  const dark = themes.find((theme) => theme.appearance === "dark");
+  return {
+    ok: true,
+    value: {
+      ...installed.value,
+      light: light?.id ?? current.light,
+      dark: dark?.id ?? current.dark,
+    },
+  };
+}
+
 function remove(current: ThemePreferences, id: string): ThemePreferences {
   return {
     ...current,
@@ -122,6 +141,7 @@ export const ThemePreferences = {
   empty,
   parse,
   install,
+  installAndSelect,
   select,
   remove,
   resolve,

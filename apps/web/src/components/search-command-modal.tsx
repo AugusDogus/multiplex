@@ -87,7 +87,6 @@ function SearchCommandContent({
   const [query, setQuery] = React.useState("");
   const normalizedQuery = query.trim();
   const debouncedQuery = useDebounce(normalizedQuery, 300);
-  const { theme, setTheme } = useTheme();
   const { data, isLoading, error } = useSyncedSearchResults(debouncedQuery);
   const actions = SearchAction.matching(query);
   const searching =
@@ -126,37 +125,13 @@ function SearchCommandContent({
           {actions.length > 0 && (
             <CommandGroup>
               <CommandGroupLabel>Actions</CommandGroupLabel>
-              {actions.map((action) => {
-                const Icon =
-                  actionIcons[
-                    action.kind === "theme" ? action.theme : action.icon
-                  ];
-                return (
-                  <CommandItem
-                    key={action.id}
-                    value={`action:${action.id}`}
-                    render={
-                      action.kind === "navigate" ? (
-                        <Link href={action.href} />
-                      ) : undefined
-                    }
-                    onClick={() => {
-                      if (action.kind === "theme") setTheme(action.theme);
-                      onClose();
-                    }}
-                    className="min-h-10 gap-3 px-2 sm:min-h-9"
-                  >
-                    <Icon className="text-icon-muted size-4 shrink-0" />
-                    <span className="flex-1">{action.label}</span>
-                    {action.kind === "theme" && theme === action.theme && (
-                      <Check
-                        className="text-icon-muted size-4"
-                        aria-label="Current mode"
-                      />
-                    )}
-                  </CommandItem>
-                );
-              })}
+              {actions.map((action) => (
+                <SearchActionItem
+                  key={action.id}
+                  action={action}
+                  onSelect={onClose}
+                />
+              ))}
             </CommandGroup>
           )}
           {groups.map((group) => (
@@ -179,36 +154,12 @@ function SearchCommandContent({
           ))}
         </CommandList>
       </CommandPanel>
-      {searching && (
-        <p
-          role="status"
-          className="text-muted-foreground flex shrink-0 items-center justify-center gap-2 px-4 py-3 text-sm"
-        >
-          <Spinner className="size-4" />
-          Searching media…
-        </p>
-      )}
-      {!searching && normalizedQuery && error && (
-        <p
-          role="alert"
-          className="text-muted-foreground shrink-0 px-4 py-4 text-center text-sm"
-        >
-          Media search failed. Try another search. App actions are still
-          available.
-        </p>
-      )}
-      {!searching &&
-        !error &&
-        normalizedQuery &&
-        groups.length === 0 &&
-        actions.length === 0 && (
-          <p
-            role="status"
-            className="text-muted-foreground shrink-0 px-4 py-6 text-center text-sm"
-          >
-            No results for “{normalizedQuery}”
-          </p>
-        )}
+      <SearchStatus
+        searching={searching}
+        query={normalizedQuery}
+        failed={Boolean(error)}
+        empty={groups.length === 0 && actions.length === 0}
+      />
       <CommandFooter>
         <span className="flex items-center gap-1.5">
           <kbd>
@@ -230,4 +181,79 @@ function SearchCommandContent({
       </CommandFooter>
     </Command>
   );
+}
+
+function SearchActionItem({
+  action,
+  onSelect,
+}: {
+  action: SearchAction;
+  onSelect: () => void;
+}) {
+  const { theme, setTheme } = useTheme();
+  const Icon =
+    actionIcons[action.kind === "theme" ? action.theme : action.icon];
+  return (
+    <CommandItem
+      value={`action:${action.id}`}
+      render={
+        action.kind === "navigate" ? <Link href={action.href} /> : undefined
+      }
+      onClick={() => {
+        if (action.kind === "theme") setTheme(action.theme);
+        onSelect();
+      }}
+      className="min-h-10 gap-3 px-2 sm:min-h-9"
+    >
+      <Icon className="text-icon-muted size-4 shrink-0" />
+      <span className="flex-1">{action.label}</span>
+      {action.kind === "theme" && theme === action.theme && (
+        <Check className="text-icon-muted size-4" aria-label="Current mode" />
+      )}
+    </CommandItem>
+  );
+}
+
+function SearchStatus({
+  searching,
+  query,
+  failed,
+  empty,
+}: {
+  searching: boolean;
+  query: string;
+  failed: boolean;
+  empty: boolean;
+}) {
+  if (searching)
+    return (
+      <p
+        role="status"
+        className="text-muted-foreground flex shrink-0 items-center justify-center gap-2 px-4 py-3 text-sm"
+      >
+        <Spinner className="size-4" />
+        Searching media…
+      </p>
+    );
+  if (!query) return null;
+  if (failed)
+    return (
+      <p
+        role="alert"
+        className="text-muted-foreground shrink-0 px-4 py-4 text-center text-sm"
+      >
+        Media search failed. Try another search. App actions are still
+        available.
+      </p>
+    );
+  if (empty)
+    return (
+      <p
+        role="status"
+        className="text-muted-foreground shrink-0 px-4 py-6 text-center text-sm"
+      >
+        No results for “{query}”
+      </p>
+    );
+  return null;
 }
