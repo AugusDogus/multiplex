@@ -2,7 +2,6 @@
 import { MoonIcon, SunIcon } from "lucide-react";
 import type { CSSProperties } from "react";
 import { cn } from "~/lib/utils";
-import type { VsCodeTheme } from "~/lib/themes/vscode-theme";
 import {
   Tooltip,
   TooltipContent,
@@ -10,51 +9,9 @@ import {
 } from "~/components/ui/tooltip";
 import { THEME_PREVIEW_RENDER_SPECS } from "./theme-preview-spec";
 
+import type { ThemeCardPreviewColors } from "./theme-preview-colors";
+
 type ThemeAppearance = "light" | "dark";
-export type ThemeCardPreviewColors = {
-  sidebar: string;
-  canvas: string;
-  surface: string;
-  accentSurface: string;
-  accent: string;
-  messageSurface: string;
-  messageAction: string;
-};
-
-export const defaultPreviews = {
-  light: {
-    sidebar: "#fafafa",
-    canvas: "#ffffff",
-    surface: "#ffffff",
-    accentSurface: "#f5f5f5",
-    accent: "#171717",
-    messageSurface: "#f5f5f5",
-    messageAction: "#171717",
-  },
-  dark: {
-    sidebar: "#171717",
-    canvas: "#0a0a0a",
-    surface: "#171717",
-    accentSurface: "#262626",
-    accent: "#e5e5e5",
-    messageSurface: "#262626",
-    messageAction: "#e5e5e5",
-  },
-} satisfies Record<ThemeAppearance, ThemeCardPreviewColors>;
-
-export function previewColors(
-  colors: VsCodeTheme["colors"],
-): ThemeCardPreviewColors {
-  return {
-    sidebar: colors.sidebar,
-    canvas: colors.background,
-    surface: colors.card,
-    accentSurface: colors.accent,
-    accent: colors.primary,
-    messageSurface: colors.secondary,
-    messageAction: colors.primary,
-  };
-}
 
 // Interpolating in oklab keeps the glow falloff perceptually even (no gray
 // mid-tones or banding rings), and premultiplied alpha keeps the fade to

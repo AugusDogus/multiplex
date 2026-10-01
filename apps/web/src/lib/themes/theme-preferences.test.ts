@@ -15,6 +15,44 @@ function imported(name: string, background: string) {
 }
 
 describe("saved themes", () => {
+  test("installation activates only the first variant of each appearance", () => {
+    const light = imported("Paper", "#ffffff");
+    const dark = imported("Night", "#111111");
+    const otherDark = imported("Midnight", "#222222");
+    expect(
+      ThemePreferences.installAndSelect(ThemePreferences.empty, [
+        dark,
+        otherDark,
+        light,
+      ]),
+    ).toEqual({
+      ok: true,
+      value: {
+        ...ThemePreferences.empty,
+        themes: [dark, otherDark, light],
+        light: light.id,
+        dark: dark.id,
+      },
+    });
+  });
+
+  test("installing one appearance preserves the other selection and rejects invalid batches", () => {
+    const current = ThemePreferences.select(
+      ThemePreferences.empty,
+      "light",
+      "builtin:t3-chat:light",
+    );
+    const dark = imported("Night", "#111111");
+    expect(ThemePreferences.installAndSelect(current, [dark])).toMatchObject({
+      ok: true,
+      value: { light: current.light, dark: dark.id },
+    });
+    expect(ThemePreferences.installAndSelect(current, [dark, dark]).ok).toBe(
+      false,
+    );
+    expect(current.themes).toEqual([]);
+  });
+
   test("T3 Chat preserves distinct control colors before and after hydration", () => {
     const preferences = ThemePreferences.select(
       ThemePreferences.empty,

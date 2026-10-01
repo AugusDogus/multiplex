@@ -1,6 +1,6 @@
 // Adapted from T3 Code, MIT. See public/licenses/t3-code/NOTICE.
 import { cn } from "~/lib/utils";
-import type { ThemeCardPreviewColors } from "./theme-preview-circles";
+import type { ThemeCardPreviewColors } from "./theme-preview-colors";
 
 // A simple miniature of the app: sidebar, a short conversation, the
 // composer, and the orchestrator panel floating over the interface as an

@@ -51,14 +51,22 @@ interface MobileNavProps {
   userInfo: PlexUserInfo;
 }
 
-type ActiveTab = "home" | "libraries" | "search" | "you" | null;
+type NavOverlay = "libraries" | "search" | "you";
+
+function routeTab(pathname: string) {
+  if (pathname === "/") return "home";
+  if (pathname.startsWith("/media") || pathname.startsWith("/live-tv"))
+    return "libraries";
+  return null;
+}
 
 export function MobileNav({ session, servers, userInfo }: MobileNavProps) {
   const pathname = usePathname();
   const itemDetailsNavigation = useItemDetailsNavigation();
-  const [librariesOpen, setLibrariesOpen] = useState(false);
-  const [youOpen, setYouOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [overlay, setOverlay] = useState<NavOverlay | null>(null);
+  function changeOverlay(next: NavOverlay, open: boolean) {
+    setOverlay(open ? next : null);
+  }
 
   // The picker drawer needs the same data as the sidebar so it can show every
   // server's libraries. We compute the pinned set here too so we can route the
@@ -74,21 +82,7 @@ export function MobileNav({ session, servers, userInfo }: MobileNavProps) {
     return null;
   }
 
-  // A library page is active when the user is on /media or /live-tv routes.
-  const isOnLibraryRoute =
-    pathname.startsWith("/media") || pathname.startsWith("/live-tv");
-
-  const activeTab: ActiveTab = librariesOpen
-    ? "libraries"
-    : youOpen
-      ? "you"
-      : searchOpen
-        ? "search"
-        : pathname === "/"
-          ? "home"
-          : isOnLibraryRoute
-            ? "libraries"
-            : null;
+  const activeTab = overlay ?? routeTab(pathname);
 
   const user = {
     name: session.user.name,
@@ -97,7 +91,7 @@ export function MobileNav({ session, servers, userInfo }: MobileNavProps) {
   };
 
   function handleResultSelect(result: ProcessedSearchResult) {
-    setSearchOpen(false);
+    setOverlay(null);
     itemDetailsNavigation.navigate(result);
   }
 
@@ -129,19 +123,19 @@ export function MobileNav({ session, servers, userInfo }: MobileNavProps) {
             icon={Library}
             label="Libraries"
             active={activeTab === "libraries"}
-            onClick={() => setLibrariesOpen(true)}
+            onClick={() => setOverlay("libraries")}
           />
         )}
         <TabButton
           icon={Search}
           label="Search"
           active={activeTab === "search"}
-          onClick={() => setSearchOpen(true)}
+          onClick={() => setOverlay("search")}
         />
         <TabButton
           label="You"
           active={activeTab === "you"}
-          onClick={() => setYouOpen(true)}
+          onClick={() => setOverlay("you")}
           avatar={
             <Avatar className="size-6">
               <AvatarImage src={user.avatar} alt={user.name} />
@@ -159,23 +153,23 @@ export function MobileNav({ session, servers, userInfo }: MobileNavProps) {
         directly to the first pin and this drawer stays closed.
       */}
       <LibraryPickerDrawer
-        open={librariesOpen}
-        onOpenChange={setLibrariesOpen}
+        open={overlay === "libraries"}
+        onOpenChange={(open) => changeOverlay("libraries", open)}
         servers={servers}
         userInfo={userInfo}
         initialView="all"
       />
 
       <YouDrawer
-        open={youOpen}
-        onOpenChange={setYouOpen}
+        open={overlay === "you"}
+        onOpenChange={(open) => changeOverlay("you", open)}
         user={user}
         userInfo={currentUserInfo}
       />
 
       <SearchCommandModal
-        open={searchOpen}
-        onOpenChange={setSearchOpen}
+        open={overlay === "search"}
+        onOpenChange={(open) => changeOverlay("search", open)}
         onResultSelect={handleResultSelect}
       />
     </>
