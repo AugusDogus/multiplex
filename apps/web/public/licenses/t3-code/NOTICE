@@ -7,4 +7,5 @@ Palette source revision: cd096b9ad5a4156ffeab85de617cbb219057007f
 Palette roles mapped to shadcn/ui and colors converted to sRGB hex.
 
 UI adapted from ThemeSettings, ThemePreviewCircles, ThemeWireframe,
-SettingsSidebarNav, SettingsBreadcrumb, and the settings route layout.
+SettingsSidebarNav, SettingsBreadcrumb, the settings route layout,
+CommandPaletteContent, and command menu primitives.
