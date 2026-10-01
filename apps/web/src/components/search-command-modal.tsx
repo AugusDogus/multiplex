@@ -1,20 +1,36 @@
 "use client";
 
 import * as React from "react";
-import { Search } from "lucide-react";
+import Link from "next/link";
+import { useTheme } from "next-themes";
+import {
+  ArrowDown,
+  ArrowUp,
+  Bookmark,
+  Check,
+  Home,
+  Monitor,
+  Moon,
+  Settings,
+  Sun,
+} from "lucide-react";
+import type { ProcessedSearchResult } from "@multiplex/plex-query";
 import {
   Command,
-  CommandEmpty,
+  CommandDialog,
+  CommandDialogPopup,
+  CommandFooter,
   CommandGroup,
   CommandGroupLabel,
   CommandInput,
   CommandItem,
   CommandList,
+  CommandPanel,
 } from "~/components/ui/command";
-import { Dialog, DialogContent, DialogTitle } from "~/components/ui/dialog";
-import type { ProcessedSearchResult } from "@multiplex/plex-query";
 import { SearchResultItem } from "~/components/search-result-item";
+import { Spinner } from "~/components/ui/spinner";
 import { useDebounce } from "~/hooks/use-debounce";
+import { SearchAction } from "~/lib/search-actions";
 import { useSyncedSearchResults } from "~/lib/sync-engine";
 
 interface SearchCommandModalProps {
@@ -23,185 +39,195 @@ interface SearchCommandModalProps {
   onResultSelect?: (result: ProcessedSearchResult) => void;
 }
 
-interface SearchGroup {
-  type: string;
-  label: string;
-  results: ProcessedSearchResult[];
-}
+const actionIcons = {
+  home: Home,
+  watchlist: Bookmark,
+  settings: Settings,
+  light: Sun,
+  dark: Moon,
+  system: Monitor,
+};
+const mediaGroups = [
+  { key: "movies", label: "Movies", limit: 10 },
+  { key: "tv", label: "TV Shows & Episodes", limit: 10 },
+  { key: "music", label: "Music", limit: 10 },
+  { key: "people", label: "People", limit: 5 },
+  { key: "collections", label: "Collections", limit: 5 },
+] as const;
 
 export function SearchCommandModal({
   open,
   onOpenChange,
   onResultSelect,
 }: SearchCommandModalProps) {
-  const [searchQuery, setSearchQuery] = React.useState("");
-  const debouncedQuery = useDebounce(searchQuery, 300);
+  return (
+    <CommandDialog open={open} onOpenChange={onOpenChange}>
+      {open && (
+        <CommandDialogPopup
+          aria-label="Search and actions"
+          className="overflow-hidden p-0"
+        >
+          <SearchCommandContent
+            onClose={() => onOpenChange(false)}
+            onResultSelect={onResultSelect}
+          />
+        </CommandDialogPopup>
+      )}
+    </CommandDialog>
+  );
+}
 
-  const {
-    data: searchResults,
-    isLoading,
-    error,
-  } = useSyncedSearchResults(debouncedQuery || "");
-
-  // Treat the debounce window as part of "searching" so we don't flash
-  // "No results found" while the user is still typing.
-  const isDebouncing = searchQuery !== debouncedQuery;
-  const isSearching = searchQuery.length > 0 && (isDebouncing || isLoading);
-
-  const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen) {
-      setSearchQuery("");
-    }
-    onOpenChange(nextOpen);
-  };
-
-  const handleResultSelect = (result: ProcessedSearchResult) => {
-    if (onResultSelect) {
-      onResultSelect(result);
-    }
-    handleOpenChange(false);
-  };
-
-  // Group results by type for display
-  const searchGroups: SearchGroup[] = (() => {
-    if (!searchResults) return [];
-
-    const groups: SearchGroup[] = [];
-
-    if (searchResults.movies.length > 0) {
-      groups.push({
-        type: "movies",
-        label: "Movies",
-        results: searchResults.movies.slice(0, 10), // Limit to top 10 per category
-      });
-    }
-
-    if (searchResults.tv.length > 0) {
-      groups.push({
-        type: "tv",
-        label: "TV Shows & Episodes",
-        results: searchResults.tv.slice(0, 10),
-      });
-    }
-
-    if (searchResults.music.length > 0) {
-      groups.push({
-        type: "music",
-        label: "Music",
-        results: searchResults.music.slice(0, 10),
-      });
-    }
-
-    if (searchResults.people.length > 0) {
-      groups.push({
-        type: "people",
-        label: "People",
-        results: searchResults.people.slice(0, 5), // Fewer people results
-      });
-    }
-
-    if (searchResults.collections.length > 0) {
-      groups.push({
-        type: "collections",
-        label: "Collections",
-        results: searchResults.collections.slice(0, 5),
-      });
-    }
-
-    return groups;
-  })();
+function SearchCommandContent({
+  onClose,
+  onResultSelect,
+}: {
+  onClose: () => void;
+  onResultSelect: SearchCommandModalProps["onResultSelect"];
+}) {
+  const [query, setQuery] = React.useState("");
+  const normalizedQuery = query.trim();
+  const debouncedQuery = useDebounce(normalizedQuery, 300);
+  const { theme, setTheme } = useTheme();
+  const { data, isLoading, error } = useSyncedSearchResults(debouncedQuery);
+  const actions = SearchAction.matching(query);
+  const searching =
+    normalizedQuery.length > 0 &&
+    (normalizedQuery !== debouncedQuery || isLoading);
+  // Hide the previous query's results while the new query is being resolved.
+  const groups =
+    normalizedQuery && !searching && !error
+      ? mediaGroups.flatMap(({ key, label, limit }) => {
+          const results = data?.[key].slice(0, limit) ?? [];
+          return results.length ? [{ key, label, results }] : [];
+        })
+      : [];
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent
-        showCloseButton={false}
-        bottomStickOnMobile={false}
-        className="max-h-[80dvh] overflow-hidden sm:max-w-[640px]"
-      >
-        <DialogTitle className="sr-only">Search Plex Media</DialogTitle>
-        <Command
-          mode="none"
-          value={searchQuery}
-          onValueChange={(value) => setSearchQuery(value)}
-        >
-          <div className="flex items-center justify-between gap-3 border-b pr-3">
-            <CommandInput
-              placeholder="What are you searching for?"
-              className="flex-1 text-base sm:text-lg"
-            />
-            <button
-              type="button"
-              onClick={() => handleOpenChange(false)}
-              className="bg-background ring-border focus-visible:ring-ring hover:bg-muted ml-auto hidden h-5 cursor-pointer items-center rounded-sm px-1.5 text-xs ring-1 transition-colors focus-visible:ring-2 focus-visible:outline-hidden [@media(hover:hover)_and_(pointer:fine)]:flex"
-            >
-              Esc
-            </button>
-          </div>
-          <CommandList className="max-h-[436px] p-2">
-            {isSearching && (
-              <CommandEmpty>
-                <div className="flex items-center justify-center py-6">
-                  <div className="flex items-center gap-2">
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                    <span>Searching...</span>
-                  </div>
-                </div>
-              </CommandEmpty>
-            )}
-
-            {!isSearching && error && (
-              <CommandEmpty>
-                <div className="flex flex-col items-center justify-center py-6 text-center">
-                  <p className="text-muted-foreground text-sm">
-                    Search failed. Please try again.
-                  </p>
-                </div>
-              </CommandEmpty>
-            )}
-
-            {!isSearching &&
-              !error &&
-              searchQuery.length > 0 &&
-              searchGroups.length === 0 && (
-                <CommandEmpty>
-                  <div className="flex flex-col items-center justify-center py-6 text-center">
-                    <Search className="text-muted-foreground mb-2 h-8 w-8" />
-                    <p className="text-muted-foreground text-sm">
-                      No results found for &quot;{debouncedQuery}&quot;
-                    </p>
-                  </div>
-                </CommandEmpty>
-              )}
-
-            {searchQuery.length === 0 && (
-              <CommandEmpty>
-                <div className="flex flex-col items-center justify-center py-6 text-center">
-                  <Search className="text-muted-foreground mb-2 h-8 w-8" />
-                  <p className="text-muted-foreground text-sm">
-                    Type to search across all your Plex servers
-                  </p>
-                </div>
-              </CommandEmpty>
-            )}
-
-            {searchGroups.map((group) => (
-              <CommandGroup key={group.type} className="p-0">
-                <CommandGroupLabel>{group.label}</CommandGroupLabel>
-                {group.results.map((result) => (
+    <Command
+      mode="none"
+      items={[
+        ...actions.map((action) => `action:${action.id}`),
+        ...groups.flatMap((group) =>
+          group.results.map(
+            (result) =>
+              `media:${result.type}:${result.serverId}:${result.ratingKey}`,
+          ),
+        ),
+      ]}
+      value={query}
+      onValueChange={setQuery}
+    >
+      <CommandInput
+        aria-label="Search media and actions"
+        placeholder="Search…"
+      />
+      <CommandPanel>
+        <CommandList aria-label="Media and actions">
+          {actions.length > 0 && (
+            <CommandGroup>
+              <CommandGroupLabel>Actions</CommandGroupLabel>
+              {actions.map((action) => {
+                const Icon =
+                  actionIcons[
+                    action.kind === "theme" ? action.theme : action.icon
+                  ];
+                return (
                   <CommandItem
-                    key={`${result.type}-${result.serverId}-${result.ratingKey}`}
-                    value={`${result.title} ${result.type} ${result.serverName}`}
-                    onClick={() => handleResultSelect(result)}
-                    className="min-h-16 cursor-pointer scroll-my-2 gap-3 rounded-md px-2 py-1 sm:min-h-12"
+                    key={action.id}
+                    value={`action:${action.id}`}
+                    render={
+                      action.kind === "navigate" ? (
+                        <Link href={action.href} />
+                      ) : undefined
+                    }
+                    onClick={() => {
+                      if (action.kind === "theme") setTheme(action.theme);
+                      onClose();
+                    }}
+                    className="min-h-10 gap-3 px-2 sm:min-h-9"
                   >
-                    <SearchResultItem result={result} />
+                    <Icon className="text-icon-muted size-4 shrink-0" />
+                    <span className="flex-1">{action.label}</span>
+                    {action.kind === "theme" && theme === action.theme && (
+                      <Check
+                        className="text-icon-muted size-4"
+                        aria-label="Current mode"
+                      />
+                    )}
                   </CommandItem>
-                ))}
-              </CommandGroup>
-            ))}
-          </CommandList>
-        </Command>
-      </DialogContent>
-    </Dialog>
+                );
+              })}
+            </CommandGroup>
+          )}
+          {groups.map((group) => (
+            <CommandGroup key={group.key}>
+              <CommandGroupLabel>{group.label}</CommandGroupLabel>
+              {group.results.map((result) => (
+                <CommandItem
+                  key={`${result.type}-${result.serverId}-${result.ratingKey}`}
+                  value={`media:${result.type}:${result.serverId}:${result.ratingKey}`}
+                  onClick={() => {
+                    onResultSelect?.(result);
+                    onClose();
+                  }}
+                  className="min-h-12 scroll-my-2 px-2 py-2"
+                >
+                  <SearchResultItem result={result} />
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          ))}
+        </CommandList>
+      </CommandPanel>
+      {searching && (
+        <p
+          role="status"
+          className="text-muted-foreground flex shrink-0 items-center justify-center gap-2 px-4 py-3 text-sm"
+        >
+          <Spinner className="size-4" />
+          Searching media…
+        </p>
+      )}
+      {!searching && normalizedQuery && error && (
+        <p
+          role="alert"
+          className="text-muted-foreground shrink-0 px-4 py-4 text-center text-sm"
+        >
+          Media search failed. Try another search. App actions are still
+          available.
+        </p>
+      )}
+      {!searching &&
+        !error &&
+        normalizedQuery &&
+        groups.length === 0 &&
+        actions.length === 0 && (
+          <p
+            role="status"
+            className="text-muted-foreground shrink-0 px-4 py-6 text-center text-sm"
+          >
+            No results for “{normalizedQuery}”
+          </p>
+        )}
+      <CommandFooter>
+        <span className="flex items-center gap-1.5">
+          <kbd>
+            <ArrowUp />
+          </kbd>
+          <kbd>
+            <ArrowDown />
+          </kbd>
+          <span>Navigate</span>
+        </span>
+        <span className="flex items-center gap-1.5">
+          <kbd>Enter</kbd>
+          <span>Select</span>
+        </span>
+        <span className="flex items-center gap-1.5">
+          <kbd>Esc</kbd>
+          <span>Close</span>
+        </span>
+      </CommandFooter>
+    </Command>
   );
 }

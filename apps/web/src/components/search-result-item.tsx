@@ -1,145 +1,77 @@
 "use client";
 
-import * as React from "react";
 import Image from "next/image";
 import {
-  formatMetadataDuration,
   getMetadataTypeLabel,
   getPosterImagePath,
   type ProcessedSearchResult,
 } from "@multiplex/plex-query";
-import { Badge } from "~/components/ui/badge";
-import { Calendar, Clock, Star, Server } from "lucide-react";
 import { getPlexImagePath } from "~/lib/plex-image";
 
-interface SearchResultItemProps {
+export function SearchResultItem({
+  result,
+}: {
   result: ProcessedSearchResult;
-}
-
-export function SearchResultItem({ result }: SearchResultItemProps) {
-  const durationLabel = formatMetadataDuration(result.duration);
-
-  const getSecondaryTitle = () => {
-    if (
-      result.type === "episode" &&
-      result.grandparentTitle &&
-      result.parentTitle
-    ) {
-      return `${result.grandparentTitle} - ${result.parentTitle}`;
-    }
-    if (result.type === "track" && result.artistName && result.albumName) {
-      return `${result.artistName} - ${result.albumName}`;
-    }
-    if (result.type === "album" && result.artistName) {
-      return result.artistName;
-    }
-    return null;
-  };
-
-  const getEpisodeInfo = () => {
-    if (
-      result.type === "episode" &&
-      result.seasonNumber &&
-      result.episodeNumber
-    ) {
-      return `S${result.seasonNumber.toString().padStart(2, "0")}E${result.episodeNumber.toString().padStart(2, "0")}`;
-    }
-    return null;
-  };
-
+}) {
   const thumbnailUrl = getPlexImagePath(
-    getPosterImagePath({
-      type: result.type,
-      thumb: result.thumb,
-    }),
+    getPosterImagePath({ type: result.type, thumb: result.thumb }),
     {
-      width: 200,
-      height: 300,
+      width: 80,
+      height: 80,
       serverUrl: result.serverUrl,
       authToken: result.authToken,
     },
   );
+  const parentTitle =
+    result.type === "episode"
+      ? result.grandparentTitle
+      : result.type === "track" || result.type === "album"
+        ? result.artistName
+        : undefined;
+  const episode =
+    result.type === "episode" &&
+    result.seasonNumber !== undefined &&
+    result.seasonNumber !== null &&
+    result.episodeNumber !== undefined &&
+    result.episodeNumber !== null
+      ? `S${result.seasonNumber.toString().padStart(2, "0")}E${result.episodeNumber.toString().padStart(2, "0")}`
+      : undefined;
+  const metadata = [
+    parentTitle,
+    episode,
+    result.year,
+    getMetadataTypeLabel(result.type),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
-    <div className="flex w-full items-center gap-3 p-2">
-      {/* Thumbnail placeholder */}
-      <div className="bg-muted relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md">
+    <div className="flex w-full min-w-0 items-center gap-3">
+      <div className="bg-muted relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded">
         {thumbnailUrl ? (
           <Image
             src={thumbnailUrl}
-            alt={result.title}
-            className="h-full w-full rounded-md object-cover"
+            alt=""
+            className="object-cover"
             fill
-            sizes="48px"
+            sizes="32px"
           />
         ) : (
-          <div className="text-muted-foreground text-xs font-medium">
+          <span className="text-icon-muted text-xs">
             {getMetadataTypeLabel(result.type).charAt(0)}
-          </div>
+          </span>
         )}
       </div>
-
-      {/* Content */}
       <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <h3 className="truncate text-sm font-medium">{result.title}</h3>
-
-            {getSecondaryTitle() && (
-              <p className="text-muted-foreground truncate text-xs">
-                {getSecondaryTitle()}
-              </p>
-            )}
-
-            <div className="mt-1 flex items-center gap-2">
-              <Badge variant="secondary" className="text-xs">
-                {getMetadataTypeLabel(result.type)}
-              </Badge>
-
-              {getEpisodeInfo() && (
-                <Badge variant="outline" className="text-xs">
-                  {getEpisodeInfo()}
-                </Badge>
-              )}
-
-              {result.year && (
-                <div className="text-muted-foreground flex items-center gap-1 text-xs">
-                  <Calendar className="h-3 w-3" />
-                  {result.year}
-                </div>
-              )}
-
-              {result.duration && (
-                <div className="text-muted-foreground flex items-center gap-1 text-xs">
-                  <Clock className="h-3 w-3" />
-                  {durationLabel}
-                </div>
-              )}
-
-              {result.rating && result.rating > 0 && (
-                <div className="text-muted-foreground flex items-center gap-1 text-xs">
-                  <Star className="h-3 w-3" />
-                  {result.rating.toFixed(1)}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Server info */}
-          <div className="text-muted-foreground flex shrink-0 items-center gap-1 text-xs">
-            <Server className="h-3 w-3" />
-            <span className="max-w-20 truncate" title={result.serverName}>
-              {result.serverName}
-            </span>
-          </div>
-        </div>
-
-        {result.summary && (
-          <p className="text-muted-foreground mt-1 line-clamp-2 text-xs">
-            {result.summary}
-          </p>
-        )}
+        <div className="truncate text-sm font-medium">{result.title}</div>
+        <div className="text-secondary-label truncate text-xs">{metadata}</div>
       </div>
+      <span
+        className="text-secondary-label hidden max-w-24 truncate text-xs sm:block"
+        title={result.serverName}
+      >
+        {result.serverName}
+      </span>
     </div>
   );
 }

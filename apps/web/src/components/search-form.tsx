@@ -66,7 +66,7 @@ export function SearchForm({
         />
         <SidebarInput
           id="search"
-          placeholder="Search media..."
+          placeholder="Search…"
           className="h-8 cursor-pointer border-(--toolbar-border) bg-(--toolbar-control) pr-12 pl-7 dark:bg-(--toolbar-control)"
           readOnly
           tabIndex={-1}
