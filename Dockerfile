@@ -22,6 +22,7 @@ COPY . .
 # Railway exposes system variables to Docker builds through declared args.
 ARG RAILWAY_DEPLOYMENT_ID
 ARG RAILWAY_GIT_COMMIT_SHA
+ENV NEXT_DEPLOYMENT_ID=${RAILWAY_DEPLOYMENT_ID:-${RAILWAY_GIT_COMMIT_SHA}}
 
 # next.config.js imports env.js; page data collection also touches the DB
 # client, so provide throwaway values for the build stage only.
@@ -32,11 +33,16 @@ ENV DATABASE_URL=file:/tmp/build.sqlite
 ENV BETTER_AUTH_SECRET=build-time-placeholder-not-used-at-runtime
 ENV BETTER_AUTH_URL=http://localhost:3000
 
-RUN NEXT_DEPLOYMENT_ID="${RAILWAY_DEPLOYMENT_ID:-$RAILWAY_GIT_COMMIT_SHA}" \
-  bun run --filter @multiplex/web build
+RUN bun run --filter @multiplex/web build
 
 FROM oven/bun:1-alpine AS runner
 WORKDIR /app
+
+# Next reloads next.config.js at runtime. Match the builder's deployment ID
+# so navigation responses do not trigger false version-skew reloads.
+ARG RAILWAY_DEPLOYMENT_ID
+ARG RAILWAY_GIT_COMMIT_SHA
+ENV NEXT_DEPLOYMENT_ID=${RAILWAY_DEPLOYMENT_ID:-${RAILWAY_GIT_COMMIT_SHA}}
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
