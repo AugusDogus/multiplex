@@ -1,0 +1,49 @@
+APP_ROOT := $(abspath $(dir $(firstword $(MAKEFILE_LIST))))
+TARGET := $(APP_ROOT)/multiplex-dreamcast.elf
+BUILD := $(APP_ROOT)/build-native-reference
+OBJS := \
+	$(BUILD)/main.o \
+	$(BUILD)/app_state.o \
+	$(BUILD)/gateway_protocol.o \
+	$(BUILD)/http_client.o \
+	$(BUILD)/gateway_client.o \
+	$(BUILD)/media_player.o
+PORTS_ROOT := $(APP_ROOT)/.dreamcast-toolchain/kos-ports
+INCLUDES := \
+	-I$(APP_ROOT)/src \
+	-I$(APP_ROOT)/generated \
+	-I$(PORTS_ROOT)/libmpeg/inst/include
+CFLAGS := -std=c17 -O2 -Wall -Wextra -Werror $(INCLUDES)
+
+all: $(TARGET)
+
+include $(KOS_BASE)/Makefile.rules
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/main.o: $(APP_ROOT)/src/main.c $(APP_ROOT)/src/app_state.h $(APP_ROOT)/src/gateway_client.h $(APP_ROOT)/src/media_player.h $(APP_ROOT)/generated/config.h $(APP_ROOT)/Makefile.reference | $(BUILD)
+	kos-cc $(CFLAGS) -c $< -o $@
+
+$(BUILD)/app_state.o: $(APP_ROOT)/src/app_state.c $(APP_ROOT)/src/app_state.h $(APP_ROOT)/Makefile.reference | $(BUILD)
+	kos-cc $(CFLAGS) -c $< -o $@
+
+$(BUILD)/gateway_protocol.o: $(APP_ROOT)/src/gateway_protocol.c $(APP_ROOT)/src/gateway_protocol.h $(APP_ROOT)/Makefile.reference | $(BUILD)
+	kos-cc $(CFLAGS) -c $< -o $@
+
+$(BUILD)/http_client.o: $(APP_ROOT)/src/http_client.c $(APP_ROOT)/src/http_client.h $(APP_ROOT)/Makefile.reference | $(BUILD)
+	kos-cc $(CFLAGS) -c $< -o $@
+
+$(BUILD)/gateway_client.o: $(APP_ROOT)/src/gateway_client.c $(APP_ROOT)/src/gateway_client.h $(APP_ROOT)/src/gateway_protocol.h $(APP_ROOT)/src/http_client.h $(APP_ROOT)/Makefile.reference | $(BUILD)
+	kos-cc $(CFLAGS) -c $< -o $@
+
+$(BUILD)/media_player.o: $(APP_ROOT)/src/media_player.c $(APP_ROOT)/src/media_player.h $(APP_ROOT)/Makefile.reference | $(BUILD)
+	kos-cc $(CFLAGS) -c $< -o $@
+
+$(TARGET): $(OBJS)
+	kos-cc -o $@ $(OBJS) -L$(PORTS_ROOT)/libmpeg/inst/lib -lmpeg -lm
+
+clean:
+	rm -rf $(BUILD) $(TARGET)
+
+.PHONY: all clean

@@ -1,0 +1,7 @@
+/.dreamcast-toolchain/
+/.flycast/
+/.flycast-user/
+/build-native-reference/
+/generated/
+/multiplex-dreamcast-native-reference.elf
+/multiplex-dreamcast.elf
