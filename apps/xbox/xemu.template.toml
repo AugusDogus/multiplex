@@ -1,0 +1,32 @@
+[general]
+skip_boot_anim = false
+show_welcome = false
+
+[input]
+auto_bind = false
+background_input_capture = true
+
+[input.bindings]
+port1_driver = 'usb-xbox-gamepad-s'
+port1 = 'keyboard'
+
+[display]
+renderer = 'OPENGL'
+
+[display.window]
+startup_size = '640x480'
+vsync = false
+
+[net]
+enable = true
+backend = 'nat'
+
+[sys.files]
+bootrom_path = '${MULTIPLEX_XEMU_MCPX_PATH}'
+flashrom_path = '${MULTIPLEX_XEMU_BIOS_PATH}'
+eeprom_path = '${MULTIPLEX_XEMU_EEPROM_PATH}'
+hdd_path = '${MULTIPLEX_XEMU_HDD_PATH}'
+dvd_path = '${MULTIPLEX_XEMU_DVD_PATH}'
+
+[sys]
+avpack = 'composite'

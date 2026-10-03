@@ -2,10 +2,7 @@ import { PlexTvClient } from "@multiplex/plex-query";
 import { z } from "zod";
 
 import { NEXTJS_PLEX_CONFIG } from "~/lib/plex-config";
-import {
-  authenticateConsoleDevice,
-  parseConsoleDeviceAuthorization,
-} from "~/server/console-pairing";
+import { authorizeConsolePlexRequest } from "~/server/console-plex-auth";
 
 const MAX_ROWS = 3;
 const MAX_ITEMS = 4;
@@ -34,13 +31,9 @@ const RESPONSE_HEADERS = {
 } as const;
 
 export async function GET(request: Request): Promise<Response> {
-  const credential = parseConsoleDeviceAuthorization(
-    request.headers.get("authorization"),
-  );
-  if (!credential) return unauthorized();
-  const authenticated = await authenticateConsoleDevice(credential);
-  if (!authenticated) return unauthorized();
-  if (!authenticated.user.plexAuthToken) {
+  const authorization = await authorizeConsolePlexRequest(request);
+  if (authorization.kind === "unauthorized") return unauthorized();
+  if (authorization.kind === "plex-not-linked") {
     return Response.json(
       { status: "plex-not-linked" },
       { status: 409, headers: RESPONSE_HEADERS },
@@ -58,7 +51,7 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const plex = new PlexTvClient(
-    authenticated.user.plexAuthToken,
+    authorization.plexAuthToken,
     NEXTJS_PLEX_CONFIG,
   );
   const servers = await plex.getServers();

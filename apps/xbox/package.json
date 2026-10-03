@@ -1,0 +1,20 @@
+{
+  "name": "@multiplex/xbox",
+  "private": true,
+  "description": "Original Xbox composition root for the Multiplex console UI",
+  "scripts": {
+    "bootstrap": "sh scripts/bootstrap.sh",
+    "bootstrap:cxbx": "sh scripts/bootstrap-cxbx.sh",
+    "bootstrap:emulator": "sh scripts/bootstrap-emulator.sh",
+    "cxbx:run": "bash scripts/run-cxbx.sh",
+    "cxbx:smoke": "bash scripts/smoke-cxbx.sh",
+    "emulator:run": "bash scripts/run-xemu.sh",
+    "emulator:smoke": "bash scripts/smoke-xemu.sh",
+    "emulator:smoke:catalog": "bash scripts/smoke-xemu-catalog.sh",
+    "emulator:files": "bash scripts/import-emulator-files.sh",
+    "iso": "sh scripts/build-iso.sh",
+    "reference:xbe": "sh scripts/build-reference-xbe.sh",
+    "test": "sh scripts/test-portable.sh",
+    "test:portable": "sh scripts/test-portable.sh"
+  }
+}

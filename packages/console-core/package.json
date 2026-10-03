@@ -1,0 +1,5 @@
+{
+  "name": "@multiplex/console-core",
+  "private": true,
+  "description": "Portable native runtime core for Multiplex console clients"
+}
